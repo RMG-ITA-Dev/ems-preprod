@@ -47,6 +47,7 @@ interface WorkOrderFormProps {
   onApprove?: () => void;
   onReject?: () => void;
   onSubmitForApproval?: () => void;
+  onCancel?: () => void;
   isLocked: boolean;
   canApprove: boolean;
   isSubmitting: boolean;
@@ -83,6 +84,7 @@ export function WorkOrderForm({
   onApprove,
   onReject,
   onSubmitForApproval,
+  onCancel,
   isLocked,
   canApprove,
   isSubmitting,
@@ -469,6 +471,11 @@ export function WorkOrderForm({
 
       {/* Actions */}
       <div className="flex justify-end gap-3">
+        {onCancel && (
+          <Button variant="outline" onClick={onCancel} disabled={isSubmitting}>
+            {t("common.cancel")}
+          </Button>
+        )}
         {isDraft && (
           <>
             <Button onClick={onSubmit} disabled={isSubmitting}>

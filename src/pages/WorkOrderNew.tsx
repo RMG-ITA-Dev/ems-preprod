@@ -190,6 +190,7 @@ const WorkOrderNew = () => {
             onBudgetLinesChange={setBudgetLines}
             onExpenseBudgetChange={setExpenseBudget}
             onSubmit={handleSubmit}
+            onCancel={() => navigate("/work-orders")}
             isLocked={false}
             canApprove={false}
             isSubmitting={createWorkOrder.isPending}
