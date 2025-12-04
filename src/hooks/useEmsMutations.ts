@@ -564,3 +564,298 @@ export function useUpdateGlobalSetting() {
     },
   });
 }
+
+// ============= Work Orders =============
+export function useCreateWorkOrder() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: {
+      engagement_id: string;
+      currency: string;
+      season_mode: string;
+      tax_rate: number;
+      adjustment_amount?: number;
+      approval_status?: string;
+    }) => {
+      const { data: result, error } = await supabase
+        .from("work_orders")
+        .insert(data)
+        .select()
+        .single();
+      if (error) throw error;
+      return result;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["work_orders"] });
+      toast({ title: "Work order created successfully" });
+    },
+    onError: (error) => {
+      toast({ title: "Error creating work order", description: error.message, variant: "destructive" });
+    },
+  });
+}
+
+export function useUpdateWorkOrder() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      id,
+      data,
+    }: {
+      id: string;
+      data: Partial<{
+        adjustment_amount: number;
+        approval_status: string;
+        approved_by: string;
+        approved_at: string;
+      }>;
+    }) => {
+      const { data: result, error } = await supabase
+        .from("work_orders")
+        .update(data)
+        .eq("wo_id", id)
+        .select()
+        .single();
+      if (error) throw error;
+      return result;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["work_orders"] });
+      queryClient.invalidateQueries({ queryKey: ["work_order"] });
+      toast({ title: "Work order updated successfully" });
+    },
+    onError: (error) => {
+      toast({ title: "Error updating work order", description: error.message, variant: "destructive" });
+    },
+  });
+}
+
+export function useSubmitWorkOrder() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (woId: string) => {
+      const { data: result, error } = await supabase
+        .from("work_orders")
+        .update({ approval_status: "Pending_Approval" })
+        .eq("wo_id", woId)
+        .select()
+        .single();
+      if (error) throw error;
+      return result;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["work_orders"] });
+      queryClient.invalidateQueries({ queryKey: ["work_order"] });
+      toast({ title: "Work order submitted for approval" });
+    },
+    onError: (error) => {
+      toast({ title: "Error submitting work order", description: error.message, variant: "destructive" });
+    },
+  });
+}
+
+export function useApproveWorkOrder() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ woId, staffId }: { woId: string; staffId: string }) => {
+      const { data: result, error } = await supabase
+        .from("work_orders")
+        .update({
+          approval_status: "Approved",
+          approved_by: staffId,
+          approved_at: new Date().toISOString(),
+        })
+        .eq("wo_id", woId)
+        .select()
+        .single();
+      if (error) throw error;
+      return result;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["work_orders"] });
+      queryClient.invalidateQueries({ queryKey: ["work_order"] });
+      toast({ title: "Work order approved" });
+    },
+    onError: (error) => {
+      toast({ title: "Error approving work order", description: error.message, variant: "destructive" });
+    },
+  });
+}
+
+export function useRejectWorkOrder() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (woId: string) => {
+      const { data: result, error } = await supabase
+        .from("work_orders")
+        .update({ approval_status: "Draft" })
+        .eq("wo_id", woId)
+        .select()
+        .single();
+      if (error) throw error;
+      return result;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["work_orders"] });
+      queryClient.invalidateQueries({ queryKey: ["work_order"] });
+      toast({ title: "Work order rejected" });
+    },
+    onError: (error) => {
+      toast({ title: "Error rejecting work order", description: error.message, variant: "destructive" });
+    },
+  });
+}
+
+// ============= Budget Lines =============
+export function useCreateBudgetLine() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: {
+      wo_id: string;
+      category_id: string;
+      budgeted_hours: number;
+      standard_rate: number;
+    }) => {
+      const { data: result, error } = await supabase
+        .from("wo_budget_lines")
+        .insert(data)
+        .select()
+        .single();
+      if (error) throw error;
+      return result;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["work_orders"] });
+      queryClient.invalidateQueries({ queryKey: ["work_order"] });
+    },
+    onError: (error) => {
+      toast({ title: "Error creating budget line", description: error.message, variant: "destructive" });
+    },
+  });
+}
+
+export function useUpdateBudgetLine() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      id,
+      data,
+    }: {
+      id: string;
+      data: Partial<{
+        category_id: string;
+        budgeted_hours: number;
+        standard_rate: number;
+      }>;
+    }) => {
+      const { data: result, error } = await supabase
+        .from("wo_budget_lines")
+        .update(data)
+        .eq("wo_line_id", id)
+        .select()
+        .single();
+      if (error) throw error;
+      return result;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["work_orders"] });
+      queryClient.invalidateQueries({ queryKey: ["work_order"] });
+    },
+    onError: (error) => {
+      toast({ title: "Error updating budget line", description: error.message, variant: "destructive" });
+    },
+  });
+}
+
+export function useDeleteBudgetLine() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("wo_budget_lines").delete().eq("wo_line_id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["work_orders"] });
+      queryClient.invalidateQueries({ queryKey: ["work_order"] });
+    },
+    onError: (error) => {
+      toast({ title: "Error deleting budget line", description: error.message, variant: "destructive" });
+    },
+  });
+}
+
+// ============= Expense Budget =============
+export function useCreateExpenseBudget() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: {
+      wo_id: string;
+      expense_type_id: string;
+      budgeted_amount: number;
+    }) => {
+      const { data: result, error } = await supabase
+        .from("wo_expense_budget")
+        .insert(data)
+        .select()
+        .single();
+      if (error) throw error;
+      return result;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["work_orders"] });
+      queryClient.invalidateQueries({ queryKey: ["work_order"] });
+    },
+    onError: (error) => {
+      toast({ title: "Error creating expense budget", description: error.message, variant: "destructive" });
+    },
+  });
+}
+
+export function useUpdateExpenseBudget() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      id,
+      data,
+    }: {
+      id: string;
+      data: Partial<{
+        expense_type_id: string;
+        budgeted_amount: number;
+      }>;
+    }) => {
+      const { data: result, error } = await supabase
+        .from("wo_expense_budget")
+        .update(data)
+        .eq("wo_exp_id", id)
+        .select()
+        .single();
+      if (error) throw error;
+      return result;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["work_orders"] });
+      queryClient.invalidateQueries({ queryKey: ["work_order"] });
+    },
+    onError: (error) => {
+      toast({ title: "Error updating expense budget", description: error.message, variant: "destructive" });
+    },
+  });
+}
+
+export function useDeleteExpenseBudget() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("wo_expense_budget").delete().eq("wo_exp_id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["work_orders"] });
+      queryClient.invalidateQueries({ queryKey: ["work_order"] });
+    },
+    onError: (error) => {
+      toast({ title: "Error deleting expense budget", description: error.message, variant: "destructive" });
+    },
+  });
+}

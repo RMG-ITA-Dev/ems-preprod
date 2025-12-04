@@ -1,15 +1,35 @@
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Plus, Search, FileText, TrendingDown, TrendingUp } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useWorkOrders } from "@/hooks/useEmsData";
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
+
+const statusColors = {
+  Draft: "bg-warning/10 text-warning border-warning/20",
+  Pending_Approval: "bg-info/10 text-info border-info/20",
+  Approved: "bg-success/10 text-success border-success/20",
+  Rejected: "bg-destructive/10 text-destructive border-destructive/20",
+};
 
 const WorkOrders = () => {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const { data: workOrders, isLoading } = useWorkOrders();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
 
   const formatCurrency = (amount: number, currency: string) => {
     if (currency === "BOB") {
@@ -18,7 +38,7 @@ const WorkOrders = () => {
     return `$${amount.toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
   };
 
-  const calculateTotals = (wo: typeof workOrders extends (infer T)[] | undefined ? T : never) => {
+  const calculateTotals = (wo: NonNullable<typeof workOrders>[number]) => {
     const standardFee = wo.budget_lines?.reduce(
       (sum, bl) => sum + Number(bl.budgeted_hours) * Number(bl.standard_rate), 0
     ) || 0;
@@ -32,16 +52,51 @@ const WorkOrders = () => {
     return { standardFee, adjustment, realizationPercent, feeWithTax };
   };
 
+  // Filter work orders
+  const filteredWorkOrders = workOrders?.filter((wo) => {
+    const matchesSearch =
+      !searchQuery ||
+      wo.engagement?.engagement_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      wo.engagement?.engagement_code?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      wo.engagement?.client?.client_legal_name?.toLowerCase().includes(searchQuery.toLowerCase());
+
+    const matchesStatus = statusFilter === "all" || wo.approval_status === statusFilter;
+
+    return matchesSearch && matchesStatus;
+  });
+
   return (
     <AppLayout title={t("workOrders.title")}>
       <div className="space-y-6">
         {/* Header Actions */}
         <div className="flex flex-col sm:flex-row gap-4 justify-between">
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input placeholder={t("workOrders.searchPlaceholder")} className="pl-9" />
+          <div className="flex flex-1 gap-4 max-w-2xl">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder={t("workOrders.searchPlaceholder")}
+                className="pl-9"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-48">
+                <SelectValue placeholder={t("workOrders.allStatuses")} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t("workOrders.allStatuses")}</SelectItem>
+                <SelectItem value="Draft">{t("workOrders.status.draft")}</SelectItem>
+                <SelectItem value="Pending_Approval">{t("workOrders.status.pending")}</SelectItem>
+                <SelectItem value="Approved">{t("workOrders.status.approved")}</SelectItem>
+                <SelectItem value="Rejected">{t("workOrders.status.rejected")}</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
-          <Button className="bg-accent hover:bg-accent/90 text-accent-foreground">
+          <Button
+            onClick={() => navigate("/work-orders/new")}
+            className="bg-accent hover:bg-accent/90 text-accent-foreground"
+          >
             <Plus className="h-4 w-4 mr-2" />
             {t("workOrders.newWorkOrder")}
           </Button>
@@ -55,14 +110,19 @@ const WorkOrders = () => {
                 <Skeleton className="h-24 w-full" />
               </div>
             ))
-          ) : workOrders?.map((wo) => {
+          ) : filteredWorkOrders?.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              {t("common.noResults")}
+            </div>
+          ) : filteredWorkOrders?.map((wo) => {
             const { standardFee, adjustment, realizationPercent, feeWithTax } = calculateTotals(wo);
-            const status = wo.engagement?.status === 'completed' ? 'completed' : 'active';
+            const status = wo.approval_status || "Draft";
 
             return (
               <div 
                 key={wo.wo_id} 
                 className="bg-card rounded-xl border border-border p-5 hover:border-accent/30 transition-colors cursor-pointer"
+                onClick={() => navigate(`/work-orders/${wo.wo_id}`)}
               >
                 <div className="flex items-start justify-between">
                   <div className="flex items-start gap-4">
@@ -76,12 +136,9 @@ const WorkOrders = () => {
                         </span>
                         <Badge 
                           variant="outline" 
-                          className={status === "active" 
-                            ? "bg-success/10 text-success border-success/20" 
-                            : "bg-muted text-muted-foreground"
-                          }
+                          className={cn(statusColors[status as keyof typeof statusColors])}
                         >
-                          {status === "active" ? t("status.active") : t("status.completed")}
+                          {t(`workOrders.status.${status.toLowerCase().replace("_", "")}`)}
                         </Badge>
                       </div>
                       <h3 className="font-semibold text-foreground mt-1">{wo.engagement?.engagement_name}</h3>

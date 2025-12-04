@@ -6,7 +6,7 @@ import type { Staff } from "./useEmsData";
 export function useCurrentStaff() {
   const { user } = useAuth();
 
-  return useQuery({
+  const query = useQuery({
     queryKey: ['current_staff', user?.id],
     queryFn: async () => {
       if (!user?.id) return null;
@@ -25,4 +25,9 @@ export function useCurrentStaff() {
     },
     enabled: !!user?.id,
   });
+
+  return {
+    ...query,
+    staffRecord: query.data,
+  };
 }
