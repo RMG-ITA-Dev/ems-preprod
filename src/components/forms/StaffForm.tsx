@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -52,6 +53,7 @@ interface StaffFormProps {
 }
 
 export function StaffForm({ staff }: StaffFormProps) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const isEdit = !!staff;
   const { data: categories } = useCategories();
@@ -113,7 +115,7 @@ export function StaffForm({ staff }: StaffFormProps) {
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <h1 className="text-2xl font-semibold">
-            {isEdit ? "Edit Staff Member" : "New Staff Member"}
+            {isEdit ? t("staff.editStaff") : t("staff.newStaff")}
           </h1>
         </div>
         {isEdit && (
@@ -121,20 +123,20 @@ export function StaffForm({ staff }: StaffFormProps) {
             <AlertDialogTrigger asChild>
               <Button variant="destructive">
                 <Trash2 className="h-4 w-4 mr-2" />
-                Delete
+                {t("common.delete")}
               </Button>
             </AlertDialogTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>Delete Staff Member</AlertDialogTitle>
+                <AlertDialogTitle>{t("staff.deleteStaff")}</AlertDialogTitle>
                 <AlertDialogDescription>
-                  Are you sure you want to delete "{staff?.first_name} {staff?.last_name}"? This action cannot be undone.
+                  {t("common.confirmDelete", { name: `${staff?.first_name} ${staff?.last_name}` })} {t("common.deleteWarning")}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
                 <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground">
-                  Delete
+                  {t("common.delete")}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
@@ -146,14 +148,14 @@ export function StaffForm({ staff }: StaffFormProps) {
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
             <div className="space-y-4">
-              <h3 className="font-medium text-lg">Personal Information</h3>
+              <h3 className="font-medium text-lg">{t("common.personalInfo")}</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
                   name="first_name"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>First Name *</FormLabel>
+                      <FormLabel>{t("staff.firstName")} *</FormLabel>
                       <FormControl>
                         <Input placeholder="John" {...field} />
                       </FormControl>
@@ -167,7 +169,7 @@ export function StaffForm({ staff }: StaffFormProps) {
                   name="last_name"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Last Name *</FormLabel>
+                      <FormLabel>{t("staff.lastName")} *</FormLabel>
                       <FormControl>
                         <Input placeholder="Doe" {...field} />
                       </FormControl>
@@ -182,7 +184,7 @@ export function StaffForm({ staff }: StaffFormProps) {
                 name="email"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Email</FormLabel>
+                    <FormLabel>{t("staff.email")}</FormLabel>
                     <FormControl>
                       <Input type="email" placeholder="john.doe@example.com" {...field} />
                     </FormControl>
@@ -193,17 +195,17 @@ export function StaffForm({ staff }: StaffFormProps) {
             </div>
 
             <div className="space-y-4">
-              <h3 className="font-medium text-lg">Role</h3>
+              <h3 className="font-medium text-lg">{t("common.role")}</h3>
               <FormField
                 control={form.control}
                 name="category_id"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Category</FormLabel>
+                    <FormLabel>{t("staff.category")}</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select a category" />
+                          <SelectValue placeholder={t("staff.selectCategory")} />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
@@ -225,9 +227,9 @@ export function StaffForm({ staff }: StaffFormProps) {
                 render={({ field }) => (
                   <FormItem className="flex items-center justify-between rounded-lg border p-4">
                     <div className="space-y-0.5">
-                      <FormLabel className="text-base">Active</FormLabel>
+                      <FormLabel className="text-base">{t("common.active")}</FormLabel>
                       <FormDescription>
-                        Active staff members can log time entries
+                        {t("staff.activeDescription")}
                       </FormDescription>
                     </div>
                     <FormControl>
@@ -240,14 +242,14 @@ export function StaffForm({ staff }: StaffFormProps) {
 
             <div className="flex justify-end gap-4 pt-4">
               <Button type="button" variant="outline" onClick={() => navigate("/staff")}>
-                Cancel
+                {t("common.cancel")}
               </Button>
               <Button
                 type="submit"
                 className="bg-accent hover:bg-accent/90 text-accent-foreground"
                 disabled={createMutation.isPending || updateMutation.isPending}
               >
-                {isEdit ? "Save Changes" : "Create Staff Member"}
+                {isEdit ? t("common.saveChanges") : t("staff.createStaff")}
               </Button>
             </div>
           </form>

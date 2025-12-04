@@ -3,6 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { format } from "date-fns";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Calendar } from "@/components/ui/calendar";
@@ -56,18 +57,12 @@ const formSchema = z.object({
 
 type FormData = z.infer<typeof formSchema>;
 
-const statusOptions = [
-  { value: "active", label: "Active" },
-  { value: "pending", label: "Pending" },
-  { value: "completed", label: "Completed" },
-  { value: "cancelled", label: "Cancelled" },
-];
-
 interface EngagementFormProps {
   engagement?: Engagement | null;
 }
 
 export function EngagementForm({ engagement }: EngagementFormProps) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const isEdit = !!engagement;
   const { data: clients } = useClients();
@@ -78,6 +73,13 @@ export function EngagementForm({ engagement }: EngagementFormProps) {
 
   // Filter staff for partners (category_name includes "Partner")
   const partners = staff?.filter((s) => s.category?.category_name?.toLowerCase().includes("partner"));
+
+  const statusOptions = [
+    { value: "active", label: t("status.active") },
+    { value: "pending", label: t("status.pending") },
+    { value: "completed", label: t("status.completed") },
+    { value: "cancelled", label: t("status.cancelled") },
+  ];
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -138,7 +140,7 @@ export function EngagementForm({ engagement }: EngagementFormProps) {
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <h1 className="text-2xl font-semibold">
-            {isEdit ? "Edit Engagement" : "New Engagement"}
+            {isEdit ? t("engagement.editEngagement") : t("engagement.newEngagement")}
           </h1>
         </div>
         {isEdit && (
@@ -146,20 +148,20 @@ export function EngagementForm({ engagement }: EngagementFormProps) {
             <AlertDialogTrigger asChild>
               <Button variant="destructive">
                 <Trash2 className="h-4 w-4 mr-2" />
-                Delete
+                {t("common.delete")}
               </Button>
             </AlertDialogTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>Delete Engagement</AlertDialogTitle>
+                <AlertDialogTitle>{t("engagement.deleteEngagement")}</AlertDialogTitle>
                 <AlertDialogDescription>
-                  Are you sure you want to delete "{engagement?.engagement_name}"? This action cannot be undone.
+                  {t("common.confirmDelete", { name: engagement?.engagement_name })} {t("common.deleteWarning")}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
                 <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground">
-                  Delete
+                  {t("common.delete")}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
@@ -171,14 +173,14 @@ export function EngagementForm({ engagement }: EngagementFormProps) {
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
             <div className="space-y-4">
-              <h3 className="font-medium text-lg">Basic Information</h3>
+              <h3 className="font-medium text-lg">{t("common.basicInfo")}</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
                   name="engagement_name"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Engagement Name *</FormLabel>
+                      <FormLabel>{t("engagement.name")} *</FormLabel>
                       <FormControl>
                         <Input placeholder="Annual Audit 2024" {...field} />
                       </FormControl>
@@ -192,7 +194,7 @@ export function EngagementForm({ engagement }: EngagementFormProps) {
                   name="engagement_code"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Engagement Code</FormLabel>
+                      <FormLabel>{t("engagement.engagementCode")}</FormLabel>
                       <FormControl>
                         <Input placeholder="ENG-001" {...field} />
                       </FormControl>
@@ -208,11 +210,11 @@ export function EngagementForm({ engagement }: EngagementFormProps) {
                   name="client_id"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Client *</FormLabel>
+                      <FormLabel>{t("engagement.client")} *</FormLabel>
                       <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger>
-                            <SelectValue placeholder="Select a client" />
+                            <SelectValue placeholder={t("engagement.selectClient")} />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
@@ -233,11 +235,11 @@ export function EngagementForm({ engagement }: EngagementFormProps) {
                   name="status"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Status</FormLabel>
+                      <FormLabel>{t("engagement.status")}</FormLabel>
                       <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger>
-                            <SelectValue placeholder="Select status" />
+                            <SelectValue placeholder={t("engagement.selectStatus")} />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
@@ -256,18 +258,18 @@ export function EngagementForm({ engagement }: EngagementFormProps) {
             </div>
 
             <div className="space-y-4">
-              <h3 className="font-medium text-lg">Team</h3>
+              <h3 className="font-medium text-lg">{t("common.team")}</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
                   name="partner_id"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Partner</FormLabel>
+                      <FormLabel>{t("engagement.partner")}</FormLabel>
                       <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger>
-                            <SelectValue placeholder="Select partner" />
+                            <SelectValue placeholder={t("engagement.selectPartner")} />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
@@ -288,11 +290,11 @@ export function EngagementForm({ engagement }: EngagementFormProps) {
                   name="manager_id"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Manager</FormLabel>
+                      <FormLabel>{t("engagement.manager")}</FormLabel>
                       <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger>
-                            <SelectValue placeholder="Select manager" />
+                            <SelectValue placeholder={t("engagement.selectManager")} />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
@@ -311,14 +313,14 @@ export function EngagementForm({ engagement }: EngagementFormProps) {
             </div>
 
             <div className="space-y-4">
-              <h3 className="font-medium text-lg">Dates</h3>
+              <h3 className="font-medium text-lg">{t("common.dates")}</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
                   name="start_date"
                   render={({ field }) => (
                     <FormItem className="flex flex-col">
-                      <FormLabel>Start Date</FormLabel>
+                      <FormLabel>{t("engagement.startDate")}</FormLabel>
                       <Popover>
                         <PopoverTrigger asChild>
                           <FormControl>
@@ -329,7 +331,7 @@ export function EngagementForm({ engagement }: EngagementFormProps) {
                                 !field.value && "text-muted-foreground"
                               )}
                             >
-                              {field.value ? format(field.value, "dd/MM/yyyy") : "Pick a date"}
+                              {field.value ? format(field.value, "dd/MM/yyyy") : t("common.pickDate")}
                               <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
                             </Button>
                           </FormControl>
@@ -354,7 +356,7 @@ export function EngagementForm({ engagement }: EngagementFormProps) {
                   name="end_date"
                   render={({ field }) => (
                     <FormItem className="flex flex-col">
-                      <FormLabel>End Date</FormLabel>
+                      <FormLabel>{t("engagement.endDate")}</FormLabel>
                       <Popover>
                         <PopoverTrigger asChild>
                           <FormControl>
@@ -365,7 +367,7 @@ export function EngagementForm({ engagement }: EngagementFormProps) {
                                 !field.value && "text-muted-foreground"
                               )}
                             >
-                              {field.value ? format(field.value, "dd/MM/yyyy") : "Pick a date"}
+                              {field.value ? format(field.value, "dd/MM/yyyy") : t("common.pickDate")}
                               <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
                             </Button>
                           </FormControl>
@@ -389,14 +391,14 @@ export function EngagementForm({ engagement }: EngagementFormProps) {
 
             <div className="flex justify-end gap-4 pt-4">
               <Button type="button" variant="outline" onClick={() => navigate("/engagements")}>
-                Cancel
+                {t("common.cancel")}
               </Button>
               <Button
                 type="submit"
                 className="bg-accent hover:bg-accent/90 text-accent-foreground"
                 disabled={createMutation.isPending || updateMutation.isPending}
               >
-                {isEdit ? "Save Changes" : "Create Engagement"}
+                {isEdit ? t("common.saveChanges") : t("engagement.createEngagement")}
               </Button>
             </div>
           </form>

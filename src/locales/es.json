@@ -17,10 +17,17 @@
     "edit": "Editar",
     "create": "Crear",
     "saveChanges": "Guardar Cambios",
-    "confirmDelete": "¿Está seguro de que desea eliminar este/a {{entity}}?",
+    "confirmDelete": "¿Está seguro de que desea eliminar \"{{name}}\"?",
     "deleteWarning": "Esta acción no se puede deshacer.",
     "yes": "Sí",
-    "no": "No"
+    "no": "No",
+    "pickDate": "Seleccionar fecha",
+    "personalInfo": "Información Personal",
+    "basicInfo": "Información Básica",
+    "contactInfo": "Información de Contacto",
+    "role": "Rol",
+    "team": "Equipo",
+    "dates": "Fechas"
   },
   "nav": {
     "main": "Principal",
@@ -40,6 +47,7 @@
     "client": "Cliente",
     "clients": "Clientes",
     "staff": "Personal",
+    "staffMember": "Miembro del Personal",
     "engagement": "Compromiso",
     "engagements": "Compromisos",
     "industry": "Industria",
@@ -85,10 +93,14 @@
     "defaultSeason": "Temporada Predeterminada",
     "high": "Alta",
     "low": "Baja",
+    "highSeason": "Temporada Alta",
+    "lowSeason": "Temporada Baja",
     "newIndustry": "Nueva Industria",
     "editIndustry": "Editar Industria",
     "createIndustry": "Crear Industria",
-    "deleteIndustry": "Eliminar Industria"
+    "deleteIndustry": "Eliminar Industria",
+    "placeholder": "ej., Banca, Minería",
+    "selectFiscalYear": "Seleccionar cierre fiscal"
   },
   "category": {
     "name": "Nombre de Categoría",
@@ -98,19 +110,23 @@
     "bobLow": "BOB Baja",
     "usdHigh": "USD Alta",
     "usdLow": "USD Baja",
+    "bobRates": "Tarifas en Bolivianos (BOB)",
+    "usdRates": "Tarifas en Dólares (USD)",
     "newCategory": "Nueva Categoría",
     "editCategory": "Editar Categoría",
     "createCategory": "Crear Categoría",
-    "deleteCategory": "Eliminar Categoría"
+    "deleteCategory": "Eliminar Categoría",
+    "placeholder": "ej., Socio"
   },
   "activity": {
     "code": "Código",
     "description": "Descripción",
     "status": "Estado",
-    "newActivity": "Nueva Actividad",
-    "editActivity": "Editar Actividad",
+    "newActivity": "Nuevo Código de Actividad",
+    "editActivity": "Editar Código de Actividad",
     "createActivity": "Crear Código de Actividad",
-    "deleteActivity": "Eliminar Código de Actividad"
+    "deleteActivity": "Eliminar Código de Actividad",
+    "activeDescription": "Los códigos activos pueden usarse en entradas de tiempo"
   },
   "expense": {
     "name": "Nombre del Gasto",
@@ -129,16 +145,19 @@
     "status": "Estado",
     "auth": "Auth",
     "engagements": "Compromisos",
-    "newStaff": "Nuevo Personal",
-    "editStaff": "Editar Personal",
+    "newStaff": "Nuevo Miembro del Personal",
+    "editStaff": "Editar Miembro del Personal",
     "createStaff": "Crear Miembro del Personal",
     "deleteStaff": "Eliminar Miembro del Personal",
-    "searchPlaceholder": "Buscar por nombre o correo..."
+    "searchPlaceholder": "Buscar por nombre o correo...",
+    "activeDescription": "El personal activo puede registrar entradas de tiempo",
+    "selectCategory": "Seleccionar una categoría"
   },
   "client": {
     "name": "Nombre del Cliente",
     "legalName": "Razón Social",
     "nit": "NIT",
+    "nitLabel": "NIT (ID Fiscal)",
     "industry": "Industria",
     "contact": "Contacto",
     "contactName": "Nombre de Contacto",
@@ -152,22 +171,29 @@
     "editClient": "Editar Cliente",
     "createClient": "Crear Cliente",
     "deleteClient": "Eliminar Cliente",
-    "searchPlaceholder": "Buscar por nombre, NIT, o contacto..."
+    "searchPlaceholder": "Buscar por nombre, NIT, o contacto...",
+    "activeDescription": "Los clientes activos pueden tener compromisos",
+    "selectIndustry": "Seleccionar una industria"
   },
   "engagement": {
     "code": "Código",
+    "engagementCode": "Código de Compromiso",
     "name": "Nombre del Compromiso",
     "client": "Cliente",
     "partner": "Socio",
     "manager": "Gerente",
-    "startDate": "Inicio",
-    "endDate": "Fin",
+    "startDate": "Fecha de Inicio",
+    "endDate": "Fecha de Fin",
     "status": "Estado",
     "newEngagement": "Nuevo Compromiso",
     "editEngagement": "Editar Compromiso",
     "createEngagement": "Crear Compromiso",
     "deleteEngagement": "Eliminar Compromiso",
-    "searchPlaceholder": "Buscar por código, nombre, o cliente..."
+    "searchPlaceholder": "Buscar por código, nombre, o cliente...",
+    "selectClient": "Seleccionar un cliente",
+    "selectStatus": "Seleccionar estado",
+    "selectPartner": "Seleccionar socio",
+    "selectManager": "Seleccionar gerente"
   },
   "messages": {
     "createSuccess": "{{entity}} creado/a exitosamente",

@@ -1,6 +1,7 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -61,6 +62,7 @@ interface IndustryFormProps {
 }
 
 export function IndustryForm({ open, onOpenChange, industry }: IndustryFormProps) {
+  const { t } = useTranslation();
   const isEdit = !!industry;
   const createMutation = useCreateIndustry();
   const updateMutation = useUpdateIndustry();
@@ -97,7 +99,7 @@ export function IndustryForm({ open, onOpenChange, industry }: IndustryFormProps
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="sm:max-w-lg">
         <SheetHeader>
-          <SheetTitle>{isEdit ? "Edit Industry" : "New Industry"}</SheetTitle>
+          <SheetTitle>{isEdit ? t("industry.editIndustry") : t("industry.newIndustry")}</SheetTitle>
         </SheetHeader>
 
         <Form {...form}>
@@ -107,9 +109,9 @@ export function IndustryForm({ open, onOpenChange, industry }: IndustryFormProps
               name="industry_name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Industry Name *</FormLabel>
+                  <FormLabel>{t("industry.name")} *</FormLabel>
                   <FormControl>
-                    <Input placeholder="e.g., Banking, Mining" {...field} />
+                    <Input placeholder={t("industry.placeholder")} {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -121,11 +123,11 @@ export function IndustryForm({ open, onOpenChange, industry }: IndustryFormProps
               name="fiscal_year_end"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Fiscal Year-End *</FormLabel>
+                  <FormLabel>{t("industry.fiscalYearEnd")} *</FormLabel>
                   <Select onValueChange={field.onChange} defaultValue={field.value}>
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder="Select fiscal year-end" />
+                        <SelectValue placeholder={t("industry.selectFiscalYear")} />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
@@ -144,9 +146,9 @@ export function IndustryForm({ open, onOpenChange, industry }: IndustryFormProps
             {form.watch("fiscal_year_end") && (
               <div className="p-3 bg-muted rounded-lg">
                 <p className="text-sm text-muted-foreground">
-                  Default Season:{" "}
+                  {t("industry.defaultSeason")}:{" "}
                   <span className={isHighSeason ? "text-accent font-medium" : "text-foreground"}>
-                    {isHighSeason ? "High Season" : "Low Season"}
+                    {isHighSeason ? t("industry.highSeason") : t("industry.lowSeason")}
                   </span>
                 </p>
               </div>
@@ -162,29 +164,29 @@ export function IndustryForm({ open, onOpenChange, industry }: IndustryFormProps
                   </AlertDialogTrigger>
                   <AlertDialogContent>
                     <AlertDialogHeader>
-                      <AlertDialogTitle>Delete Industry</AlertDialogTitle>
+                      <AlertDialogTitle>{t("industry.deleteIndustry")}</AlertDialogTitle>
                       <AlertDialogDescription>
-                        Are you sure you want to delete "{industry?.industry_name}"? This action cannot be undone.
+                        {t("common.confirmDelete", { name: industry?.industry_name })} {t("common.deleteWarning")}
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
-                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
                       <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground">
-                        Delete
+                        {t("common.delete")}
                       </AlertDialogAction>
                     </AlertDialogFooter>
                   </AlertDialogContent>
                 </AlertDialog>
               )}
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-                Cancel
+                {t("common.cancel")}
               </Button>
               <Button
                 type="submit"
                 className="bg-accent hover:bg-accent/90 text-accent-foreground"
                 disabled={createMutation.isPending || updateMutation.isPending}
               >
-                {isEdit ? "Save Changes" : "Create Industry"}
+                {isEdit ? t("common.saveChanges") : t("industry.createIndustry")}
               </Button>
             </SheetFooter>
           </form>

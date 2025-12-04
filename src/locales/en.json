@@ -17,10 +17,17 @@
     "edit": "Edit",
     "create": "Create",
     "saveChanges": "Save Changes",
-    "confirmDelete": "Are you sure you want to delete this {{entity}}?",
+    "confirmDelete": "Are you sure you want to delete \"{{name}}\"?",
     "deleteWarning": "This action cannot be undone.",
     "yes": "Yes",
-    "no": "No"
+    "no": "No",
+    "pickDate": "Pick a date",
+    "personalInfo": "Personal Information",
+    "basicInfo": "Basic Information",
+    "contactInfo": "Contact Information",
+    "role": "Role",
+    "team": "Team",
+    "dates": "Dates"
   },
   "nav": {
     "main": "Main",
@@ -40,6 +47,7 @@
     "client": "Client",
     "clients": "Clients",
     "staff": "Staff",
+    "staffMember": "Staff Member",
     "engagement": "Engagement",
     "engagements": "Engagements",
     "industry": "Industry",
@@ -85,10 +93,14 @@
     "defaultSeason": "Default Season",
     "high": "High",
     "low": "Low",
+    "highSeason": "High Season",
+    "lowSeason": "Low Season",
     "newIndustry": "New Industry",
     "editIndustry": "Edit Industry",
     "createIndustry": "Create Industry",
-    "deleteIndustry": "Delete Industry"
+    "deleteIndustry": "Delete Industry",
+    "placeholder": "e.g., Banking, Mining",
+    "selectFiscalYear": "Select fiscal year-end"
   },
   "category": {
     "name": "Category Name",
@@ -98,19 +110,23 @@
     "bobLow": "BOB Low",
     "usdHigh": "USD High",
     "usdLow": "USD Low",
+    "bobRates": "Bolivianos (BOB) Rates",
+    "usdRates": "US Dollars (USD) Rates",
     "newCategory": "New Category",
     "editCategory": "Edit Category",
     "createCategory": "Create Category",
-    "deleteCategory": "Delete Category"
+    "deleteCategory": "Delete Category",
+    "placeholder": "e.g., Partner"
   },
   "activity": {
     "code": "Code",
     "description": "Description",
     "status": "Status",
-    "newActivity": "New Activity",
-    "editActivity": "Edit Activity",
+    "newActivity": "New Activity Code",
+    "editActivity": "Edit Activity Code",
     "createActivity": "Create Activity Code",
-    "deleteActivity": "Delete Activity Code"
+    "deleteActivity": "Delete Activity Code",
+    "activeDescription": "Active codes can be used in time entries"
   },
   "expense": {
     "name": "Expense Name",
@@ -129,16 +145,19 @@
     "status": "Status",
     "auth": "Auth",
     "engagements": "Engagements",
-    "newStaff": "New Staff",
-    "editStaff": "Edit Staff",
+    "newStaff": "New Staff Member",
+    "editStaff": "Edit Staff Member",
     "createStaff": "Create Staff Member",
     "deleteStaff": "Delete Staff Member",
-    "searchPlaceholder": "Search by name or email..."
+    "searchPlaceholder": "Search by name or email...",
+    "activeDescription": "Active staff members can log time entries",
+    "selectCategory": "Select a category"
   },
   "client": {
     "name": "Client Name",
-    "legalName": "Legal Name",
+    "legalName": "Client Legal Name",
     "nit": "NIT",
+    "nitLabel": "NIT (Tax ID)",
     "industry": "Industry",
     "contact": "Contact",
     "contactName": "Contact Name",
@@ -152,22 +171,29 @@
     "editClient": "Edit Client",
     "createClient": "Create Client",
     "deleteClient": "Delete Client",
-    "searchPlaceholder": "Search by client name, NIT, or contact..."
+    "searchPlaceholder": "Search by client name, NIT, or contact...",
+    "activeDescription": "Active clients can have engagements",
+    "selectIndustry": "Select an industry"
   },
   "engagement": {
     "code": "Code",
+    "engagementCode": "Engagement Code",
     "name": "Engagement Name",
     "client": "Client",
     "partner": "Partner",
     "manager": "Manager",
-    "startDate": "Start",
-    "endDate": "End",
+    "startDate": "Start Date",
+    "endDate": "End Date",
     "status": "Status",
     "newEngagement": "New Engagement",
     "editEngagement": "Edit Engagement",
     "createEngagement": "Create Engagement",
     "deleteEngagement": "Delete Engagement",
-    "searchPlaceholder": "Search by code, name, or client..."
+    "searchPlaceholder": "Search by code, name, or client...",
+    "selectClient": "Select a client",
+    "selectStatus": "Select status",
+    "selectPartner": "Select partner",
+    "selectManager": "Select manager"
   },
   "messages": {
     "createSuccess": "{{entity}} created successfully",

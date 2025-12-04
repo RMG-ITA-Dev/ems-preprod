@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -56,6 +57,7 @@ interface ClientFormProps {
 }
 
 export function ClientForm({ client }: ClientFormProps) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const isEdit = !!client;
   const { data: industries } = useIndustries();
@@ -126,7 +128,7 @@ export function ClientForm({ client }: ClientFormProps) {
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <h1 className="text-2xl font-semibold">
-            {isEdit ? "Edit Client" : "New Client"}
+            {isEdit ? t("client.editClient") : t("client.newClient")}
           </h1>
         </div>
         {isEdit && (
@@ -134,20 +136,20 @@ export function ClientForm({ client }: ClientFormProps) {
             <AlertDialogTrigger asChild>
               <Button variant="destructive">
                 <Trash2 className="h-4 w-4 mr-2" />
-                Delete
+                {t("common.delete")}
               </Button>
             </AlertDialogTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>Delete Client</AlertDialogTitle>
+                <AlertDialogTitle>{t("client.deleteClient")}</AlertDialogTitle>
                 <AlertDialogDescription>
-                  Are you sure you want to delete "{client?.client_legal_name}"? This action cannot be undone.
+                  {t("common.confirmDelete", { name: client?.client_legal_name })} {t("common.deleteWarning")}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
                 <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground">
-                  Delete
+                  {t("common.delete")}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
@@ -159,14 +161,14 @@ export function ClientForm({ client }: ClientFormProps) {
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
             <div className="space-y-4">
-              <h3 className="font-medium text-lg">Basic Information</h3>
+              <h3 className="font-medium text-lg">{t("common.basicInfo")}</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
                   name="client_legal_name"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Client Legal Name *</FormLabel>
+                      <FormLabel>{t("client.legalName")} *</FormLabel>
                       <FormControl>
                         <Input placeholder="Company Name S.A." {...field} />
                       </FormControl>
@@ -180,7 +182,7 @@ export function ClientForm({ client }: ClientFormProps) {
                   name="unique_tax_id"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>NIT (Tax ID) *</FormLabel>
+                      <FormLabel>{t("client.nitLabel")} *</FormLabel>
                       <FormControl>
                         <Input placeholder="123456789" {...field} />
                       </FormControl>
@@ -196,11 +198,11 @@ export function ClientForm({ client }: ClientFormProps) {
                   name="industry_id"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Industry</FormLabel>
+                      <FormLabel>{t("client.industry")}</FormLabel>
                       <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger>
-                            <SelectValue placeholder="Select an industry" />
+                            <SelectValue placeholder={t("client.selectIndustry")} />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
@@ -222,9 +224,9 @@ export function ClientForm({ client }: ClientFormProps) {
                   render={({ field }) => (
                     <FormItem className="flex items-center justify-between rounded-lg border p-4">
                       <div className="space-y-0.5">
-                        <FormLabel className="text-base">Active</FormLabel>
+                        <FormLabel className="text-base">{t("common.active")}</FormLabel>
                         <FormDescription>
-                          Active clients can have engagements
+                          {t("client.activeDescription")}
                         </FormDescription>
                       </div>
                       <FormControl>
@@ -237,14 +239,14 @@ export function ClientForm({ client }: ClientFormProps) {
             </div>
 
             <div className="space-y-4">
-              <h3 className="font-medium text-lg">Contact Information</h3>
+              <h3 className="font-medium text-lg">{t("common.contactInfo")}</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <FormField
                   control={form.control}
                   name="contact_name"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Contact Name</FormLabel>
+                      <FormLabel>{t("client.contactName")}</FormLabel>
                       <FormControl>
                         <Input placeholder="John Doe" {...field} />
                       </FormControl>
@@ -258,7 +260,7 @@ export function ClientForm({ client }: ClientFormProps) {
                   name="contact_email"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Contact Email</FormLabel>
+                      <FormLabel>{t("client.contactEmail")}</FormLabel>
                       <FormControl>
                         <Input type="email" placeholder="contact@company.com" {...field} />
                       </FormControl>
@@ -272,7 +274,7 @@ export function ClientForm({ client }: ClientFormProps) {
                   name="contact_phone"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Contact Phone</FormLabel>
+                      <FormLabel>{t("client.contactPhone")}</FormLabel>
                       <FormControl>
                         <Input placeholder="+591 12345678" {...field} />
                       </FormControl>
@@ -287,7 +289,7 @@ export function ClientForm({ client }: ClientFormProps) {
                 name="address"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Address</FormLabel>
+                    <FormLabel>{t("client.address")}</FormLabel>
                     <FormControl>
                       <Textarea placeholder="Street, City, Country" {...field} />
                     </FormControl>
@@ -299,14 +301,14 @@ export function ClientForm({ client }: ClientFormProps) {
 
             <div className="flex justify-end gap-4 pt-4">
               <Button type="button" variant="outline" onClick={() => navigate("/clients")}>
-                Cancel
+                {t("common.cancel")}
               </Button>
               <Button
                 type="submit"
                 className="bg-accent hover:bg-accent/90 text-accent-foreground"
                 disabled={createMutation.isPending || updateMutation.isPending}
               >
-                {isEdit ? "Save Changes" : "Create Client"}
+                {isEdit ? t("common.saveChanges") : t("client.createClient")}
               </Button>
             </div>
           </form>
