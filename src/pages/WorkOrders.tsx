@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,6 +8,7 @@ import { useWorkOrders } from "@/hooks/useEmsData";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const WorkOrders = () => {
+  const { t } = useTranslation();
   const { data: workOrders, isLoading } = useWorkOrders();
 
   const formatCurrency = (amount: number, currency: string) => {
@@ -31,17 +33,17 @@ const WorkOrders = () => {
   };
 
   return (
-    <AppLayout title="Work Orders">
+    <AppLayout title={t("workOrders.title")}>
       <div className="space-y-6">
         {/* Header Actions */}
         <div className="flex flex-col sm:flex-row gap-4 justify-between">
           <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input placeholder="Search work orders..." className="pl-9" />
+            <Input placeholder={t("workOrders.searchPlaceholder")} className="pl-9" />
           </div>
           <Button className="bg-accent hover:bg-accent/90 text-accent-foreground">
             <Plus className="h-4 w-4 mr-2" />
-            New Work Order
+            {t("workOrders.newWorkOrder")}
           </Button>
         </div>
 
@@ -79,7 +81,7 @@ const WorkOrders = () => {
                             : "bg-muted text-muted-foreground"
                           }
                         >
-                          {status === "active" ? "Active" : "Completed"}
+                          {status === "active" ? t("status.active") : t("status.completed")}
                         </Badge>
                       </div>
                       <h3 className="font-semibold text-foreground mt-1">{wo.engagement?.engagement_name}</h3>
@@ -89,11 +91,11 @@ const WorkOrders = () => {
                   
                   <div className="flex gap-6 text-right">
                     <div>
-                      <p className="text-xs text-muted-foreground uppercase tracking-wide">Standard Fee</p>
+                      <p className="text-xs text-muted-foreground uppercase tracking-wide">{t("workOrders.standardFee")}</p>
                       <p className="font-semibold text-foreground">{formatCurrency(standardFee, wo.currency)}</p>
                     </div>
                     <div>
-                      <p className="text-xs text-muted-foreground uppercase tracking-wide">Adjustment</p>
+                      <p className="text-xs text-muted-foreground uppercase tracking-wide">{t("workOrders.adjustment")}</p>
                       <p className={`font-semibold flex items-center justify-end gap-1 ${adjustment < 0 ? "text-destructive" : adjustment > 0 ? "text-success" : "text-muted-foreground"}`}>
                         {adjustment !== 0 && (
                           adjustment < 0 ? <TrendingDown className="h-3 w-3" /> : <TrendingUp className="h-3 w-3" />
@@ -102,13 +104,13 @@ const WorkOrders = () => {
                       </p>
                     </div>
                     <div>
-                      <p className="text-xs text-muted-foreground uppercase tracking-wide">Realization</p>
+                      <p className="text-xs text-muted-foreground uppercase tracking-wide">{t("workOrders.realization")}</p>
                       <p className={`font-semibold ${realizationPercent < 100 ? "text-warning" : "text-foreground"}`}>
                         {realizationPercent.toFixed(1)}%
                       </p>
                     </div>
                     <div>
-                      <p className="text-xs text-muted-foreground uppercase tracking-wide">Fee w/Tax</p>
+                      <p className="text-xs text-muted-foreground uppercase tracking-wide">{t("workOrders.feeWithTax")}</p>
                       <p className="font-bold text-foreground">{formatCurrency(feeWithTax, wo.currency)}</p>
                     </div>
                   </div>
@@ -116,8 +118,8 @@ const WorkOrders = () => {
                 
                 <div className="flex gap-2 mt-4 pt-4 border-t border-border">
                   <Badge variant="outline" className="text-xs">{wo.currency}</Badge>
-                  <Badge variant="outline" className="text-xs">{wo.season_mode} Season</Badge>
-                  <Badge variant="outline" className="text-xs">IVA {(Number(wo.tax_rate) * 100).toFixed(0)}%</Badge>
+                  <Badge variant="outline" className="text-xs">{wo.season_mode} {t("workOrders.season")}</Badge>
+                  <Badge variant="outline" className="text-xs">{t("workOrders.iva")} {(Number(wo.tax_rate) * 100).toFixed(0)}%</Badge>
                 </div>
               </div>
             );

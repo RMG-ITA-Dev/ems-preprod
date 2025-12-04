@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,6 +14,7 @@ const passwordSchema = z.string().min(6, { message: "Password must be at least 6
 const nameSchema = z.string().trim().min(1, { message: "Name is required" }).max(100);
 
 const Auth = () => {
+  const { t } = useTranslation();
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -38,24 +40,24 @@ const Auth = () => {
         const { error } = await signUp(validatedEmail, validatedPassword, validatedFirstName, validatedLastName);
         if (error) {
           if (error.message.includes("already registered")) {
-            toast.error("This email is already registered. Please sign in instead.");
+            toast.error(t("messages.emailAlreadyRegistered"));
           } else {
             toast.error(error.message);
           }
         } else {
-          toast.success("Account created successfully!");
+          toast.success(t("messages.accountCreated"));
           navigate("/");
         }
       } else {
         const { error } = await signIn(validatedEmail, validatedPassword);
         if (error) {
           if (error.message.includes("Invalid login credentials")) {
-            toast.error("Invalid email or password. Please try again.");
+            toast.error(t("messages.invalidCredentials"));
           } else {
             toast.error(error.message);
           }
         } else {
-          toast.success("Welcome back!");
+          toast.success(t("messages.welcomeBack"));
           navigate("/");
         }
       }
@@ -93,7 +95,7 @@ const Auth = () => {
       }
     }
     
-    toast.success("Welcome, Admin!");
+    toast.success(t("messages.welcomeAdmin"));
     navigate("/");
     setLoading(false);
   };
@@ -101,23 +103,23 @@ const Auth = () => {
   const features = [
     {
       icon: Briefcase,
-      title: "Engagement Management",
-      description: "Track client engagements, work orders, and project budgets with precision.",
+      title: t("auth.features.engagementManagement"),
+      description: t("auth.features.engagementDesc"),
     },
     {
       icon: TrendingUp,
-      title: "Multi-Currency Support",
-      description: "Handle BOB and USD transactions with automatic rate calculations.",
+      title: t("auth.features.multiCurrency"),
+      description: t("auth.features.multiCurrencyDesc"),
     },
     {
       icon: Users,
-      title: "Staff & Time Tracking",
-      description: "Log hours, manage staff categories, and monitor utilization rates.",
+      title: t("auth.features.staffTracking"),
+      description: t("auth.features.staffTrackingDesc"),
     },
     {
       icon: Shield,
-      title: "Role-Based Access",
-      description: "Secure RBAC system with Admin, Staff, and Viewer permissions.",
+      title: t("auth.features.roleBasedAccess"),
+      description: t("auth.features.roleBasedAccessDesc"),
     },
   ];
 
@@ -152,7 +154,7 @@ const Auth = () => {
         </div>
 
         <p className="text-white/50 text-sm">
-          Trusted by audit & consulting professionals in Bolivia
+          {t("auth.trustedBy")}
         </p>
       </div>
 
@@ -170,7 +172,7 @@ const Auth = () => {
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                Sign In
+                {t("auth.signIn")}
               </button>
               <button
                 onClick={() => setMode("signup")}
@@ -180,18 +182,18 @@ const Auth = () => {
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                Sign Up
+                {t("auth.signUp")}
               </button>
             </div>
 
             <div className="text-center mb-6">
               <h2 className="text-2xl font-bold text-foreground">
-                {mode === "signin" ? "Welcome Back" : "Create Account"}
+                {mode === "signin" ? t("auth.welcomeBack") : t("auth.createAccount")}
               </h2>
               <p className="text-muted-foreground mt-1">
                 {mode === "signin"
-                  ? "Enter your credentials to access your account"
-                  : "Fill in your details to get started"}
+                  ? t("auth.enterCredentials")
+                  : t("auth.fillDetails")}
               </p>
             </div>
 
@@ -199,7 +201,7 @@ const Auth = () => {
               {mode === "signup" && (
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="firstName">First Name</Label>
+                    <Label htmlFor="firstName">{t("auth.firstName")}</Label>
                     <Input
                       id="firstName"
                       type="text"
@@ -210,7 +212,7 @@ const Auth = () => {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="lastName">Last Name</Label>
+                    <Label htmlFor="lastName">{t("auth.lastName")}</Label>
                     <Input
                       id="lastName"
                       type="text"
@@ -224,7 +226,7 @@ const Auth = () => {
               )}
 
               <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="email">{t("auth.email")}</Label>
                 <Input
                   id="email"
                   type="email"
@@ -236,7 +238,7 @@ const Auth = () => {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
+                <Label htmlFor="password">{t("auth.password")}</Label>
                 <Input
                   id="password"
                   type="password"
@@ -256,9 +258,9 @@ const Auth = () => {
                 {loading ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : mode === "signin" ? (
-                  "Sign In"
+                  t("auth.signIn")
                 ) : (
-                  "Create Account"
+                  t("auth.createAccount")
                 )}
               </Button>
             </form>
@@ -268,7 +270,7 @@ const Auth = () => {
                 <div className="w-full border-t border-border" />
               </div>
               <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-card px-2 text-muted-foreground">Or</span>
+                <span className="bg-card px-2 text-muted-foreground">{t("common.or")}</span>
               </div>
             </div>
 
@@ -283,31 +285,31 @@ const Auth = () => {
               ) : (
                 <Shield className="h-4 w-4 mr-2" />
               )}
-              Quick Admin Login (Demo)
+              {t("auth.quickAdminLogin")}
             </Button>
             <p className="text-xs text-center text-muted-foreground mt-2">
-              For testing purposes - creates/logs into demo admin account
+              {t("auth.demoDescription")}
             </p>
 
             <p className="text-center text-sm text-muted-foreground mt-6">
               {mode === "signin" ? (
                 <>
-                  Don't have an account?{" "}
+                  {t("auth.dontHaveAccount")}{" "}
                   <button
                     onClick={() => setMode("signup")}
                     className="text-accent hover:underline font-medium"
                   >
-                    Sign up
+                    {t("auth.signUp")}
                   </button>
                 </>
               ) : (
                 <>
-                  Already have an account?{" "}
+                  {t("auth.alreadyHaveAccount")}{" "}
                   <button
                     onClick={() => setMode("signin")}
                     className="text-accent hover:underline font-medium"
                   >
-                    Sign in
+                    {t("auth.signIn")}
                   </button>
                 </>
               )}

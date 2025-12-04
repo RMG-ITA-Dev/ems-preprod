@@ -1,4 +1,5 @@
 import { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 
 interface StatCardProps {
@@ -14,6 +15,8 @@ interface StatCardProps {
 }
 
 export function StatCard({ title, value, subtitle, icon, trend, className }: StatCardProps) {
+  const { t } = useTranslation();
+
   return (
     <div className={cn(
       "bg-card rounded-xl p-6 border border-border shadow-sm hover:shadow-md transition-shadow animate-fade-in",
@@ -33,7 +36,7 @@ export function StatCard({ title, value, subtitle, icon, trend, className }: Sta
             )}>
               <span>{trend.positive ? "↑" : "↓"}</span>
               <span>{Math.abs(trend.value)}%</span>
-              <span className="text-muted-foreground">vs last month</span>
+              <span className="text-muted-foreground">{t("dashboard.vsLastMonth")}</span>
             </div>
           )}
         </div>

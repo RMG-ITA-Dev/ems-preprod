@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,8 +27,6 @@ const mockActivities = [
   { id: "5", code: "ADM", name: "Administration" },
 ];
 
-const weekDays = ["Mon", "Tue", "Wed", "Thu", "Fri"];
-
 interface TimeEntry {
   engagement: string;
   activity: string;
@@ -35,11 +34,20 @@ interface TimeEntry {
 }
 
 const TimeSheet = () => {
+  const { t } = useTranslation();
   const [currentWeek, setCurrentWeek] = useState("02/12/2024 - 06/12/2024");
   const [entries, setEntries] = useState<TimeEntry[]>([
     { engagement: "1", activity: "2", hours: [8, 7.5, 8, 6, 4] },
     { engagement: "2", activity: "1", hours: [0, 0.5, 0, 2, 4] },
   ]);
+
+  const weekDays = [
+    t("timesheet.weekDays.mon"),
+    t("timesheet.weekDays.tue"),
+    t("timesheet.weekDays.wed"),
+    t("timesheet.weekDays.thu"),
+    t("timesheet.weekDays.fri"),
+  ];
 
   const addNewRow = () => {
     setEntries([...entries, { engagement: "", activity: "", hours: [0, 0, 0, 0, 0] }]);
@@ -54,20 +62,20 @@ const TimeSheet = () => {
     entries.reduce((sum, entry) => sum + calculateRowTotal(entry.hours), 0);
 
   return (
-    <AppLayout title="Time Sheet">
+    <AppLayout title={t("timesheet.title")}>
       <div className="space-y-6">
         {/* Week Navigation */}
         <div className="flex items-center justify-between bg-card rounded-xl border border-border p-4">
           <Button variant="ghost" size="sm">
             <ChevronLeft className="h-4 w-4 mr-1" />
-            Previous
+            {t("timesheet.previous")}
           </Button>
           <div className="text-center">
             <p className="font-semibold text-foreground">{currentWeek}</p>
-            <p className="text-sm text-muted-foreground">Week 49</p>
+            <p className="text-sm text-muted-foreground">{t("timesheet.week")} 49</p>
           </div>
           <Button variant="ghost" size="sm">
-            Next
+            {t("timesheet.next")}
             <ChevronRight className="h-4 w-4 ml-1" />
           </Button>
         </div>
@@ -78,8 +86,8 @@ const TimeSheet = () => {
             <table className="w-full">
               <thead>
                 <tr className="bg-muted/50 border-b border-border">
-                  <th className="text-left p-4 font-semibold text-foreground min-w-[200px]">Engagement</th>
-                  <th className="text-left p-4 font-semibold text-foreground min-w-[140px]">Activity</th>
+                  <th className="text-left p-4 font-semibold text-foreground min-w-[200px]">{t("timesheet.engagement")}</th>
+                  <th className="text-left p-4 font-semibold text-foreground min-w-[140px]">{t("timesheet.activity")}</th>
                   {weekDays.map((day, index) => (
                     <th key={day} className="text-center p-4 font-semibold text-foreground w-20">
                       <div>{day}</div>
@@ -88,7 +96,7 @@ const TimeSheet = () => {
                       </div>
                     </th>
                   ))}
-                  <th className="text-center p-4 font-semibold text-foreground w-20 bg-muted">Total</th>
+                  <th className="text-center p-4 font-semibold text-foreground w-20 bg-muted">{t("timesheet.total")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -97,7 +105,7 @@ const TimeSheet = () => {
                     <td className="p-2">
                       <Select value={entry.engagement}>
                         <SelectTrigger className="border-0 bg-transparent focus:ring-1">
-                          <SelectValue placeholder="Select engagement" />
+                          <SelectValue placeholder={t("timesheet.selectEngagement")} />
                         </SelectTrigger>
                         <SelectContent>
                           {mockEngagements.map((eng) => (
@@ -112,7 +120,7 @@ const TimeSheet = () => {
                     <td className="p-2">
                       <Select value={entry.activity}>
                         <SelectTrigger className="border-0 bg-transparent focus:ring-1">
-                          <SelectValue placeholder="Activity" />
+                          <SelectValue placeholder={t("timesheet.selectActivity")} />
                         </SelectTrigger>
                         <SelectContent>
                           {mockActivities.map((act) => (
@@ -146,13 +154,13 @@ const TimeSheet = () => {
                   <td colSpan={8} className="p-2">
                     <Button variant="ghost" size="sm" onClick={addNewRow} className="w-full text-muted-foreground hover:text-foreground">
                       <Plus className="h-4 w-4 mr-2" />
-                      Add Row
+                      {t("timesheet.addRow")}
                     </Button>
                   </td>
                 </tr>
                 {/* Totals Row */}
                 <tr className="bg-primary/5 font-semibold">
-                  <td colSpan={2} className="p-4 text-foreground">Daily Totals</td>
+                  <td colSpan={2} className="p-4 text-foreground">{t("timesheet.dailyTotals")}</td>
                   {weekDays.map((_, index) => (
                     <td key={index} className="p-4 text-center text-foreground">
                       {calculateColumnTotal(index)}h
@@ -169,8 +177,8 @@ const TimeSheet = () => {
 
         {/* Actions */}
         <div className="flex justify-end gap-3">
-          <Button variant="outline">Save Draft</Button>
-          <Button className="bg-accent hover:bg-accent/90 text-accent-foreground">Submit Week</Button>
+          <Button variant="outline">{t("timesheet.saveDraft")}</Button>
+          <Button className="bg-accent hover:bg-accent/90 text-accent-foreground">{t("timesheet.submitWeek")}</Button>
         </div>
       </div>
     </AppLayout>
