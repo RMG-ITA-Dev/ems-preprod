@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,6 +7,13 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   useCategories,
   useIndustries,
@@ -18,14 +26,22 @@ import {
   ExpenseType,
 } from "@/hooks/useEmsData";
 import { useUpdateGlobalSetting } from "@/hooks/useEmsMutations";
+import { useUserRole } from "@/hooks/useUserRole";
+import { useLanguage } from "@/hooks/useLanguage";
 import { DataTable, Column } from "@/components/data-table/DataTable";
 import { IndustryForm } from "@/components/forms/IndustryForm";
 import { CategoryForm } from "@/components/forms/CategoryForm";
 import { ActivityCodeForm } from "@/components/forms/ActivityCodeForm";
 import { ExpenseTypeForm } from "@/components/forms/ExpenseTypeForm";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Lock } from "lucide-react";
+import { toast } from "@/hooks/use-toast";
 
 const Settings = () => {
+  const { t } = useTranslation();
+  const { isAdmin } = useUserRole();
+  const { currentLanguage } = useLanguage();
+  
   const { data: categories, isLoading: categoriesLoading } = useCategories();
   const { data: industries, isLoading: industriesLoading } = useIndustries();
   const { data: settings, isLoading: settingsLoading } = useGlobalSettings();
@@ -50,21 +66,31 @@ const Settings = () => {
   const [taxRate, setTaxRate] = useState<string>("");
   const [dailyLimit, setDailyLimit] = useState<string>("");
   const [weeklyLimit, setWeeklyLimit] = useState<string>("");
+  const [language, setLanguage] = useState<string>("en");
 
   const getSetting = (key: string) => settings?.find((s) => s.setting_key === key)?.setting_value || "";
 
+  useEffect(() => {
+    if (settings) {
+      const langSetting = settings.find((s) => s.setting_key === "LANGUAGE");
+      if (langSetting) {
+        setLanguage(langSetting.setting_value);
+      }
+    }
+  }, [settings]);
+
   // Industry columns
   const industryColumns: Column<Industry>[] = [
-    { key: "industry_name", label: "Industry Name", sortable: true },
-    { key: "fiscal_year_end", label: "Fiscal Year-End", sortable: true },
+    { key: "industry_name", label: t("industry.name"), sortable: true },
+    { key: "fiscal_year_end", label: t("industry.fiscalYearEnd"), sortable: true },
     {
       key: "default_season",
-      label: "Default Season",
+      label: t("industry.defaultSeason"),
       render: (row) => {
         const isHigh = row.fiscal_year_end.includes("December");
         return (
           <span className={isHigh ? "text-accent font-medium" : "text-muted-foreground"}>
-            {isHigh ? "High" : "Low"}
+            {isHigh ? t("industry.high") : t("industry.low")}
           </span>
         );
       },
@@ -73,32 +99,32 @@ const Settings = () => {
 
   // Category columns
   const categoryColumns: Column<Category>[] = [
-    { key: "display_order", label: "Order", sortable: true, className: "w-20" },
-    { key: "category_name", label: "Category", sortable: true },
+    { key: "display_order", label: t("category.order"), sortable: true, className: "w-20" },
+    { key: "category_name", label: t("category.name"), sortable: true },
     {
       key: "rate_high_bob",
-      label: "BOB High",
+      label: t("category.bobHigh"),
       sortable: true,
       className: "text-right",
       render: (row) => row.rate_high_bob.toLocaleString(),
     },
     {
       key: "rate_low_bob",
-      label: "BOB Low",
+      label: t("category.bobLow"),
       sortable: true,
       className: "text-right",
       render: (row) => row.rate_low_bob.toLocaleString(),
     },
     {
       key: "rate_high_usd",
-      label: "USD High",
+      label: t("category.usdHigh"),
       sortable: true,
       className: "text-right",
       render: (row) => row.rate_high_usd.toLocaleString(),
     },
     {
       key: "rate_low_usd",
-      label: "USD Low",
+      label: t("category.usdLow"),
       sortable: true,
       className: "text-right",
       render: (row) => row.rate_low_usd.toLocaleString(),
@@ -107,11 +133,11 @@ const Settings = () => {
 
   // Activity code columns
   const activityColumns: Column<ActivityCode>[] = [
-    { key: "activity_code", label: "Code", sortable: true, className: "font-mono w-24" },
-    { key: "description", label: "Description", sortable: true },
+    { key: "activity_code", label: t("activity.code"), sortable: true, className: "font-mono w-24" },
+    { key: "description", label: t("activity.description"), sortable: true },
     {
       key: "is_active",
-      label: "Status",
+      label: t("activity.status"),
       sortable: true,
       render: (row) => (
         <Badge
@@ -122,7 +148,7 @@ const Settings = () => {
               : "bg-muted text-muted-foreground"
           }
         >
-          {row.is_active ? "Active" : "Inactive"}
+          {row.is_active ? t("status.active") : t("status.inactive")}
         </Badge>
       ),
     },
@@ -130,10 +156,10 @@ const Settings = () => {
 
   // Expense type columns
   const expenseTypeColumns: Column<ExpenseType>[] = [
-    { key: "expense_name", label: "Expense Name", sortable: true },
+    { key: "expense_name", label: t("expense.name"), sortable: true },
     {
       key: "default_unit_cost",
-      label: "Default Unit Cost",
+      label: t("expense.defaultUnitCost"),
       sortable: true,
       className: "text-right",
       render: (row) => row.default_unit_cost.toFixed(2),
@@ -141,36 +167,46 @@ const Settings = () => {
   ];
 
   const handleSaveSettings = async () => {
-    if (taxRate) {
-      await updateSettingMutation.mutateAsync({ key: "TAX_RATE", value: (parseFloat(taxRate) / 100).toString() });
-    }
-    if (dailyLimit) {
-      await updateSettingMutation.mutateAsync({ key: "DAILY_LIMIT", value: dailyLimit });
-    }
-    if (weeklyLimit) {
-      await updateSettingMutation.mutateAsync({ key: "WEEKLY_LIMIT", value: weeklyLimit });
+    try {
+      if (taxRate) {
+        await updateSettingMutation.mutateAsync({ key: "TAX_RATE", value: (parseFloat(taxRate) / 100).toString() });
+      }
+      if (dailyLimit) {
+        await updateSettingMutation.mutateAsync({ key: "DAILY_LIMIT", value: dailyLimit });
+      }
+      if (weeklyLimit) {
+        await updateSettingMutation.mutateAsync({ key: "WEEKLY_LIMIT", value: weeklyLimit });
+      }
+      if (language && isAdmin) {
+        await updateSettingMutation.mutateAsync({ key: "LANGUAGE", value: language });
+      }
+      toast({ title: t("messages.settingsSaved") });
+    } catch (error) {
+      // Error handled by mutation
     }
   };
 
   return (
-    <AppLayout title="Settings">
+    <AppLayout title={t("settings.title")}>
       <Tabs defaultValue="industries" className="space-y-6">
         <TabsList className="bg-muted">
-          <TabsTrigger value="industries">Industries</TabsTrigger>
-          <TabsTrigger value="rates">Category Rates</TabsTrigger>
-          <TabsTrigger value="activities">Activity Codes</TabsTrigger>
-          <TabsTrigger value="expense-types">Expense Types</TabsTrigger>
-          <TabsTrigger value="global">Global Settings</TabsTrigger>
+          <TabsTrigger value="industries">{t("settings.industries")}</TabsTrigger>
+          <TabsTrigger value="rates">{t("settings.categoryRates")}</TabsTrigger>
+          <TabsTrigger value="activities">{t("settings.activityCodes")}</TabsTrigger>
+          <TabsTrigger value="expense-types">{t("settings.expenseTypes")}</TabsTrigger>
+          {isAdmin && (
+            <TabsTrigger value="global">{t("settings.globalSettings")}</TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="industries" className="space-y-6">
           <DataTable
             data={industries || []}
             columns={industryColumns}
-            searchPlaceholder="Search by industry name..."
+            searchPlaceholder={t("common.search")}
             searchKeys={["industry_name"]}
             isLoading={industriesLoading}
-            newButtonLabel="New Industry"
+            newButtonLabel={t("industry.newIndustry")}
             onNewClick={() => {
               setSelectedIndustry(null);
               setIndustryFormOpen(true);
@@ -192,10 +228,10 @@ const Settings = () => {
           <DataTable
             data={categories || []}
             columns={categoryColumns}
-            searchPlaceholder="Search by category name..."
+            searchPlaceholder={t("common.search")}
             searchKeys={["category_name"]}
             isLoading={categoriesLoading}
-            newButtonLabel="New Category"
+            newButtonLabel={t("category.newCategory")}
             onNewClick={() => {
               setSelectedCategory(null);
               setCategoryFormOpen(true);
@@ -217,10 +253,10 @@ const Settings = () => {
           <DataTable
             data={activityCodes || []}
             columns={activityColumns}
-            searchPlaceholder="Search by code or description..."
+            searchPlaceholder={t("common.search")}
             searchKeys={["activity_code", "description"]}
             isLoading={activitiesLoading}
-            newButtonLabel="New Activity"
+            newButtonLabel={t("activity.newActivity")}
             onNewClick={() => {
               setSelectedActivity(null);
               setActivityFormOpen(true);
@@ -233,8 +269,8 @@ const Settings = () => {
             statusFilter={{
               key: "is_active",
               options: [
-                { value: "active", label: "Active" },
-                { value: "inactive", label: "Inactive" },
+                { value: "active", label: t("status.active") },
+                { value: "inactive", label: t("status.inactive") },
               ],
             }}
           />
@@ -249,10 +285,10 @@ const Settings = () => {
           <DataTable
             data={expenseTypes || []}
             columns={expenseTypeColumns}
-            searchPlaceholder="Search by expense name..."
+            searchPlaceholder={t("common.search")}
             searchKeys={["expense_name"]}
             isLoading={expenseTypesLoading}
-            newButtonLabel="New Expense Type"
+            newButtonLabel={t("expense.newExpenseType")}
             onNewClick={() => {
               setSelectedExpenseType(null);
               setExpenseTypeFormOpen(true);
@@ -270,68 +306,93 @@ const Settings = () => {
           />
         </TabsContent>
 
-        <TabsContent value="global" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Global Settings</CardTitle>
-              <CardDescription>System-wide configuration values.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {settingsLoading ? (
-                <div className="space-y-4">
-                  <Skeleton className="h-16 w-full" />
-                  <Skeleton className="h-16 w-full" />
+        {isAdmin && (
+          <TabsContent value="global" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  {t("settings.globalSettings")}
+                  <Badge variant="outline" className="bg-accent/10 text-accent border-accent/20">
+                    <Lock className="h-3 w-3 mr-1" />
+                    {t("settings.adminOnly")}
+                  </Badge>
+                </CardTitle>
+                <CardDescription>{t("settings.globalDescription")}</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {settingsLoading ? (
+                  <div className="space-y-4">
+                    <Skeleton className="h-16 w-full" />
+                    <Skeleton className="h-16 w-full" />
+                  </div>
+                ) : (
+                  <>
+                    {/* Language Setting */}
+                    <div className="space-y-2 pb-4 border-b border-border">
+                      <Label htmlFor="language">{t("settings.language")}</Label>
+                      <Select value={language} onValueChange={setLanguage}>
+                        <SelectTrigger className="max-w-[200px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="en">English</SelectItem>
+                          <SelectItem value="es">Español</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-sm text-muted-foreground">{t("settings.languageHelp")}</p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <div className="space-y-2">
+                        <Label htmlFor="taxRate">{t("settings.taxRate")}</Label>
+                        <Input
+                          id="taxRate"
+                          type="number"
+                          step="0.01"
+                          defaultValue={parseFloat(getSetting("TAX_RATE")) * 100 || 13}
+                          onChange={(e) => setTaxRate(e.target.value)}
+                          className="max-w-[200px]"
+                        />
+                        <p className="text-sm text-muted-foreground">{t("settings.taxRateHelp")}</p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="dailyLimit">{t("settings.dailyLimit")}</Label>
+                        <Input
+                          id="dailyLimit"
+                          type="number"
+                          defaultValue={getSetting("DAILY_LIMIT") || 10}
+                          onChange={(e) => setDailyLimit(e.target.value)}
+                          className="max-w-[200px]"
+                        />
+                        <p className="text-sm text-muted-foreground">{t("settings.dailyLimitHelp")}</p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="weeklyLimit">{t("settings.weeklyLimit")}</Label>
+                        <Input
+                          id="weeklyLimit"
+                          type="number"
+                          defaultValue={getSetting("WEEKLY_LIMIT") || 50}
+                          onChange={(e) => setWeeklyLimit(e.target.value)}
+                          className="max-w-[200px]"
+                        />
+                        <p className="text-sm text-muted-foreground">{t("settings.weeklyLimitHelp")}</p>
+                      </div>
+                    </div>
+                  </>
+                )}
+                <div className="flex justify-end">
+                  <Button
+                    onClick={handleSaveSettings}
+                    className="bg-accent hover:bg-accent/90 text-accent-foreground"
+                    disabled={updateSettingMutation.isPending}
+                  >
+                    {t("settings.saveSettings")}
+                  </Button>
                 </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div className="space-y-2">
-                    <Label htmlFor="taxRate">VAT Tax Rate (%)</Label>
-                    <Input
-                      id="taxRate"
-                      type="number"
-                      step="0.01"
-                      defaultValue={parseFloat(getSetting("TAX_RATE")) * 100 || 13}
-                      onChange={(e) => setTaxRate(e.target.value)}
-                      className="max-w-[200px]"
-                    />
-                    <p className="text-sm text-muted-foreground">Applied to gross-up fee calculations</p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="dailyLimit">Daily Hour Limit</Label>
-                    <Input
-                      id="dailyLimit"
-                      type="number"
-                      defaultValue={getSetting("DAILY_LIMIT") || 10}
-                      onChange={(e) => setDailyLimit(e.target.value)}
-                      className="max-w-[200px]"
-                    />
-                    <p className="text-sm text-muted-foreground">Maximum hours per day in time sheets</p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="weeklyLimit">Weekly Hour Limit</Label>
-                    <Input
-                      id="weeklyLimit"
-                      type="number"
-                      defaultValue={getSetting("WEEKLY_LIMIT") || 50}
-                      onChange={(e) => setWeeklyLimit(e.target.value)}
-                      className="max-w-[200px]"
-                    />
-                    <p className="text-sm text-muted-foreground">Maximum hours per week</p>
-                  </div>
-                </div>
-              )}
-              <div className="flex justify-end">
-                <Button
-                  onClick={handleSaveSettings}
-                  className="bg-accent hover:bg-accent/90 text-accent-foreground"
-                  disabled={updateSettingMutation.isPending}
-                >
-                  Save Settings
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
       </Tabs>
     </AppLayout>
   );

@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -15,6 +16,7 @@ const categoryColors: Record<string, string> = {
 };
 
 const Staff = () => {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { data: staff, isLoading } = useStaff();
   const { data: engagements } = useEngagements();
@@ -35,7 +37,7 @@ const Staff = () => {
   const columns: Column<StaffType>[] = [
     {
       key: "name",
-      label: "Name",
+      label: t("staff.name"),
       sortable: true,
       render: (row) => (
         <div className="flex items-center gap-3">
@@ -52,13 +54,13 @@ const Staff = () => {
     },
     {
       key: "email",
-      label: "Email",
+      label: t("staff.email"),
       sortable: true,
       render: (row) => <span className="text-muted-foreground">{row.email || "-"}</span>,
     },
     {
       key: "category.category_name",
-      label: "Category",
+      label: t("staff.category"),
       sortable: true,
       render: (row) =>
         row.category ? (
@@ -71,20 +73,20 @@ const Staff = () => {
     },
     {
       key: "is_active",
-      label: "Status",
+      label: t("staff.status"),
       sortable: true,
       render: (row) => (
         <Badge
           variant="outline"
           className={row.is_active ? "bg-success/10 text-success border-success/20" : "bg-muted text-muted-foreground"}
         >
-          {row.is_active ? "Active" : "Inactive"}
+          {row.is_active ? t("status.active") : t("status.inactive")}
         </Badge>
       ),
     },
     {
       key: "auth_linked",
-      label: "Auth",
+      label: t("staff.auth"),
       className: "text-center w-20",
       render: (row) =>
         (row as any).auth_user_id ? (
@@ -95,36 +97,36 @@ const Staff = () => {
     },
     {
       key: "engagements",
-      label: "Engagements",
+      label: t("staff.engagements"),
       className: "text-center w-28",
       render: (row) => <Badge variant="secondary">{getEngagementCount(row.staff_id)}</Badge>,
     },
   ];
 
   return (
-    <AppLayout title="Staff">
+    <AppLayout title={t("nav.staff")}>
       <DataTable
         data={staff || []}
         columns={columns}
-        searchPlaceholder="Search by name or email..."
+        searchPlaceholder={t("staff.searchPlaceholder")}
         searchKeys={["first_name", "last_name", "email"]}
         isLoading={isLoading}
-        newButtonLabel="New Staff"
+        newButtonLabel={t("staff.newStaff")}
         onNewClick={() => navigate("/staff/new")}
         onRowClick={(row) => navigate(`/staff/${row.staff_id}`)}
         getRowId={(row) => row.staff_id}
         filters={[
           {
             key: "category_id",
-            label: "Category",
+            label: t("staff.category"),
             options: categoryOptions,
           },
         ]}
         statusFilter={{
           key: "is_active",
           options: [
-            { value: "active", label: "Active" },
-            { value: "inactive", label: "Inactive" },
+            { value: "active", label: t("status.active") },
+            { value: "inactive", label: t("status.inactive") },
           ],
         }}
       />

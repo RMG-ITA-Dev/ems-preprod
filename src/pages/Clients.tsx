@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Badge } from "@/components/ui/badge";
 import { Building2 } from "lucide-react";
@@ -6,6 +7,7 @@ import { DataTable, Column } from "@/components/data-table/DataTable";
 import { useNavigate } from "react-router-dom";
 
 const Clients = () => {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { data: clients, isLoading } = useClients();
   const { data: engagements } = useEngagements();
@@ -23,7 +25,7 @@ const Clients = () => {
   const columns: Column<Client>[] = [
     {
       key: "client_legal_name",
-      label: "Client Name",
+      label: t("client.name"),
       sortable: true,
       render: (row) => (
         <div className="flex items-center gap-3">
@@ -36,73 +38,73 @@ const Clients = () => {
     },
     {
       key: "unique_tax_id",
-      label: "NIT",
+      label: t("client.nit"),
       sortable: true,
       render: (row) => <span className="font-mono text-muted-foreground">{row.unique_tax_id}</span>,
     },
     {
       key: "industry.industry_name",
-      label: "Industry",
+      label: t("client.industry"),
       sortable: true,
       render: (row) => row.industry?.industry_name || "-",
     },
     {
       key: "contact_name",
-      label: "Contact",
+      label: t("client.contact"),
       sortable: true,
       render: (row) => row.contact_name || "-",
     },
     {
       key: "industry.fiscal_year_end",
-      label: "Closing Date",
+      label: t("client.closingDate"),
       sortable: true,
       render: (row) => <span className="text-muted-foreground">{row.industry?.fiscal_year_end || "-"}</span>,
     },
     {
       key: "is_active",
-      label: "Status",
+      label: t("client.status"),
       sortable: true,
       render: (row) => (
         <Badge
           variant="outline"
           className={row.is_active ? "bg-success/10 text-success border-success/20" : "bg-muted text-muted-foreground"}
         >
-          {row.is_active ? "Active" : "Inactive"}
+          {row.is_active ? t("status.active") : t("status.inactive")}
         </Badge>
       ),
     },
     {
       key: "engagements",
-      label: "Engagements",
+      label: t("client.engagements"),
       className: "text-center w-28",
       render: (row) => <Badge variant="secondary">{getEngagementCount(row.client_id)}</Badge>,
     },
   ];
 
   return (
-    <AppLayout title="Clients">
+    <AppLayout title={t("nav.clients")}>
       <DataTable
         data={clients || []}
         columns={columns}
-        searchPlaceholder="Search by client name, NIT, or contact..."
+        searchPlaceholder={t("client.searchPlaceholder")}
         searchKeys={["client_legal_name", "unique_tax_id", "contact_name"]}
         isLoading={isLoading}
-        newButtonLabel="New Client"
+        newButtonLabel={t("client.newClient")}
         onNewClick={() => navigate("/clients/new")}
         onRowClick={(row) => navigate(`/clients/${row.client_id}`)}
         getRowId={(row) => row.client_id}
         filters={[
           {
             key: "industry_id",
-            label: "Industry",
+            label: t("client.industry"),
             options: industryOptions,
           },
         ]}
         statusFilter={{
           key: "is_active",
           options: [
-            { value: "active", label: "Active" },
-            { value: "inactive", label: "Inactive" },
+            { value: "active", label: t("status.active") },
+            { value: "inactive", label: t("status.inactive") },
           ],
         }}
       />
