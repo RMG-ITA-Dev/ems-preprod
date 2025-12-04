@@ -14,7 +14,527 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      activity_codes: {
+        Row: {
+          activity_code: string
+          activity_id: string
+          created_at: string | null
+          description: string
+          is_active: boolean | null
+        }
+        Insert: {
+          activity_code: string
+          activity_id?: string
+          created_at?: string | null
+          description: string
+          is_active?: boolean | null
+        }
+        Update: {
+          activity_code?: string
+          activity_id?: string
+          created_at?: string | null
+          description?: string
+          is_active?: boolean | null
+        }
+        Relationships: []
+      }
+      categories: {
+        Row: {
+          category_id: string
+          category_name: string
+          created_at: string | null
+          display_order: number | null
+          rate_high_bob: number
+          rate_high_usd: number
+          rate_low_bob: number
+          rate_low_usd: number
+          updated_at: string | null
+        }
+        Insert: {
+          category_id?: string
+          category_name: string
+          created_at?: string | null
+          display_order?: number | null
+          rate_high_bob?: number
+          rate_high_usd?: number
+          rate_low_bob?: number
+          rate_low_usd?: number
+          updated_at?: string | null
+        }
+        Update: {
+          category_id?: string
+          category_name?: string
+          created_at?: string | null
+          display_order?: number | null
+          rate_high_bob?: number
+          rate_high_usd?: number
+          rate_low_bob?: number
+          rate_low_usd?: number
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      clients: {
+        Row: {
+          address: string | null
+          client_id: string
+          client_legal_name: string
+          contact_email: string | null
+          contact_name: string | null
+          contact_phone: string | null
+          created_at: string | null
+          industry_id: string | null
+          is_active: boolean | null
+          unique_tax_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          address?: string | null
+          client_id?: string
+          client_legal_name: string
+          contact_email?: string | null
+          contact_name?: string | null
+          contact_phone?: string | null
+          created_at?: string | null
+          industry_id?: string | null
+          is_active?: boolean | null
+          unique_tax_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          address?: string | null
+          client_id?: string
+          client_legal_name?: string
+          contact_email?: string | null
+          contact_name?: string | null
+          contact_phone?: string | null
+          created_at?: string | null
+          industry_id?: string | null
+          is_active?: boolean | null
+          unique_tax_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "clients_industry_id_fkey"
+            columns: ["industry_id"]
+            isOneToOne: false
+            referencedRelation: "industries"
+            referencedColumns: ["industry_id"]
+          },
+        ]
+      }
+      engagements: {
+        Row: {
+          client_id: string
+          created_at: string | null
+          end_date: string | null
+          engagement_code: string | null
+          engagement_id: string
+          engagement_name: string
+          manager_id: string | null
+          partner_id: string | null
+          start_date: string | null
+          status: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          client_id: string
+          created_at?: string | null
+          end_date?: string | null
+          engagement_code?: string | null
+          engagement_id?: string
+          engagement_name: string
+          manager_id?: string | null
+          partner_id?: string | null
+          start_date?: string | null
+          status?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          client_id?: string
+          created_at?: string | null
+          end_date?: string | null
+          engagement_code?: string | null
+          engagement_id?: string
+          engagement_name?: string
+          manager_id?: string | null
+          partner_id?: string | null
+          start_date?: string | null
+          status?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "engagements_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["client_id"]
+          },
+          {
+            foreignKeyName: "engagements_manager_id_fkey"
+            columns: ["manager_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "engagements_partner_id_fkey"
+            columns: ["partner_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["staff_id"]
+          },
+        ]
+      }
+      expense_logs: {
+        Row: {
+          amount: number
+          created_at: string | null
+          currency: string | null
+          date_incurred: string
+          description: string | null
+          engagement_id: string
+          expense_log_id: string
+          expense_type_id: string
+          receipt_url: string | null
+        }
+        Insert: {
+          amount: number
+          created_at?: string | null
+          currency?: string | null
+          date_incurred: string
+          description?: string | null
+          engagement_id: string
+          expense_log_id?: string
+          expense_type_id: string
+          receipt_url?: string | null
+        }
+        Update: {
+          amount?: number
+          created_at?: string | null
+          currency?: string | null
+          date_incurred?: string
+          description?: string | null
+          engagement_id?: string
+          expense_log_id?: string
+          expense_type_id?: string
+          receipt_url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expense_logs_engagement_id_fkey"
+            columns: ["engagement_id"]
+            isOneToOne: false
+            referencedRelation: "engagements"
+            referencedColumns: ["engagement_id"]
+          },
+          {
+            foreignKeyName: "expense_logs_expense_type_id_fkey"
+            columns: ["expense_type_id"]
+            isOneToOne: false
+            referencedRelation: "expense_types"
+            referencedColumns: ["expense_type_id"]
+          },
+        ]
+      }
+      expense_types: {
+        Row: {
+          created_at: string | null
+          default_unit_cost: number | null
+          expense_name: string
+          expense_type_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          default_unit_cost?: number | null
+          expense_name: string
+          expense_type_id?: string
+        }
+        Update: {
+          created_at?: string | null
+          default_unit_cost?: number | null
+          expense_name?: string
+          expense_type_id?: string
+        }
+        Relationships: []
+      }
+      global_settings: {
+        Row: {
+          created_at: string | null
+          description: string | null
+          setting_key: string
+          setting_value: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          description?: string | null
+          setting_key: string
+          setting_value: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          description?: string | null
+          setting_key?: string
+          setting_value?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      industries: {
+        Row: {
+          created_at: string | null
+          fiscal_year_end: string
+          industry_id: string
+          industry_name: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          fiscal_year_end: string
+          industry_id?: string
+          industry_name: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          fiscal_year_end?: string
+          industry_id?: string
+          industry_name?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      staff: {
+        Row: {
+          auth_user_id: string | null
+          category_id: string | null
+          created_at: string | null
+          email: string | null
+          first_name: string
+          is_active: boolean | null
+          last_name: string
+          staff_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          auth_user_id?: string | null
+          category_id?: string | null
+          created_at?: string | null
+          email?: string | null
+          first_name: string
+          is_active?: boolean | null
+          last_name: string
+          staff_id?: string
+          updated_at?: string | null
+        }
+        Update: {
+          auth_user_id?: string | null
+          category_id?: string | null
+          created_at?: string | null
+          email?: string | null
+          first_name?: string
+          is_active?: boolean | null
+          last_name?: string
+          staff_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "staff_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["category_id"]
+          },
+        ]
+      }
+      time_entries: {
+        Row: {
+          activity_id: string
+          created_at: string | null
+          date_worked: string
+          description: string | null
+          engagement_id: string
+          hours_logged: number
+          staff_id: string
+          time_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          activity_id: string
+          created_at?: string | null
+          date_worked: string
+          description?: string | null
+          engagement_id: string
+          hours_logged: number
+          staff_id: string
+          time_id?: string
+          updated_at?: string | null
+        }
+        Update: {
+          activity_id?: string
+          created_at?: string | null
+          date_worked?: string
+          description?: string | null
+          engagement_id?: string
+          hours_logged?: number
+          staff_id?: string
+          time_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "time_entries_activity_id_fkey"
+            columns: ["activity_id"]
+            isOneToOne: false
+            referencedRelation: "activity_codes"
+            referencedColumns: ["activity_id"]
+          },
+          {
+            foreignKeyName: "time_entries_engagement_id_fkey"
+            columns: ["engagement_id"]
+            isOneToOne: false
+            referencedRelation: "engagements"
+            referencedColumns: ["engagement_id"]
+          },
+          {
+            foreignKeyName: "time_entries_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["staff_id"]
+          },
+        ]
+      }
+      wo_budget_lines: {
+        Row: {
+          budgeted_hours: number
+          category_id: string
+          created_at: string | null
+          standard_rate: number
+          wo_id: string
+          wo_line_id: string
+        }
+        Insert: {
+          budgeted_hours?: number
+          category_id: string
+          created_at?: string | null
+          standard_rate: number
+          wo_id: string
+          wo_line_id?: string
+        }
+        Update: {
+          budgeted_hours?: number
+          category_id?: string
+          created_at?: string | null
+          standard_rate?: number
+          wo_id?: string
+          wo_line_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wo_budget_lines_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["category_id"]
+          },
+          {
+            foreignKeyName: "wo_budget_lines_wo_id_fkey"
+            columns: ["wo_id"]
+            isOneToOne: false
+            referencedRelation: "work_orders"
+            referencedColumns: ["wo_id"]
+          },
+        ]
+      }
+      wo_expense_budget: {
+        Row: {
+          budgeted_amount: number
+          created_at: string | null
+          expense_type_id: string
+          wo_exp_id: string
+          wo_id: string
+        }
+        Insert: {
+          budgeted_amount?: number
+          created_at?: string | null
+          expense_type_id: string
+          wo_exp_id?: string
+          wo_id: string
+        }
+        Update: {
+          budgeted_amount?: number
+          created_at?: string | null
+          expense_type_id?: string
+          wo_exp_id?: string
+          wo_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wo_expense_budget_expense_type_id_fkey"
+            columns: ["expense_type_id"]
+            isOneToOne: false
+            referencedRelation: "expense_types"
+            referencedColumns: ["expense_type_id"]
+          },
+          {
+            foreignKeyName: "wo_expense_budget_wo_id_fkey"
+            columns: ["wo_id"]
+            isOneToOne: false
+            referencedRelation: "work_orders"
+            referencedColumns: ["wo_id"]
+          },
+        ]
+      }
+      work_orders: {
+        Row: {
+          adjustment_amount: number | null
+          created_at: string | null
+          currency: string
+          engagement_id: string
+          notes: string | null
+          season_mode: string
+          tax_rate: number | null
+          updated_at: string | null
+          wo_id: string
+        }
+        Insert: {
+          adjustment_amount?: number | null
+          created_at?: string | null
+          currency: string
+          engagement_id: string
+          notes?: string | null
+          season_mode: string
+          tax_rate?: number | null
+          updated_at?: string | null
+          wo_id?: string
+        }
+        Update: {
+          adjustment_amount?: number | null
+          created_at?: string | null
+          currency?: string
+          engagement_id?: string
+          notes?: string | null
+          season_mode?: string
+          tax_rate?: number | null
+          updated_at?: string | null
+          wo_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_orders_engagement_id_fkey"
+            columns: ["engagement_id"]
+            isOneToOne: true
+            referencedRelation: "engagements"
+            referencedColumns: ["engagement_id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never

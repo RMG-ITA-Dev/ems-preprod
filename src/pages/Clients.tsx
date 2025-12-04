@@ -11,16 +11,17 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-
-// Mock data
-const mockClients = [
-  { id: 1, name: "Minera San Cristóbal S.A.", nit: "1234567890", industry: "Mining", engagements: 3, status: "active" },
-  { id: 2, name: "Banco Nacional de Bolivia", nit: "9876543210", industry: "Banking", engagements: 5, status: "active" },
-  { id: 3, name: "YPFB Corporación", nit: "5555555555", industry: "Oil & Gas", engagements: 2, status: "active" },
-  { id: 4, name: "Cementos Viacha S.A.", nit: "1111111111", industry: "Manufacturing", engagements: 1, status: "inactive" },
-];
+import { useClients, useEngagements } from "@/hooks/useEmsData";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const Clients = () => {
+  const { data: clients, isLoading } = useClients();
+  const { data: engagements } = useEngagements();
+
+  const getEngagementCount = (clientId: string) => {
+    return engagements?.filter(e => e.client_id === clientId).length || 0;
+  };
+
   return (
     <AppLayout title="Clients">
       <div className="space-y-6">
@@ -49,30 +50,40 @@ const Clients = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {mockClients.map((client) => (
-                <TableRow key={client.id} className="hover:bg-muted/30 cursor-pointer">
+              {isLoading ? (
+                Array.from({ length: 3 }).map((_, i) => (
+                  <TableRow key={i}>
+                    <TableCell><Skeleton className="h-9 w-48" /></TableCell>
+                    <TableCell><Skeleton className="h-5 w-24" /></TableCell>
+                    <TableCell><Skeleton className="h-5 w-20" /></TableCell>
+                    <TableCell><Skeleton className="h-5 w-8 mx-auto" /></TableCell>
+                    <TableCell><Skeleton className="h-5 w-16" /></TableCell>
+                  </TableRow>
+                ))
+              ) : clients?.map((client) => (
+                <TableRow key={client.client_id} className="hover:bg-muted/30 cursor-pointer">
                   <TableCell>
                     <div className="flex items-center gap-3">
                       <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center">
                         <Building2 className="h-4 w-4 text-primary" />
                       </div>
-                      <span className="font-medium">{client.name}</span>
+                      <span className="font-medium">{client.client_legal_name}</span>
                     </div>
                   </TableCell>
-                  <TableCell className="text-muted-foreground font-mono text-sm">{client.nit}</TableCell>
-                  <TableCell>{client.industry}</TableCell>
+                  <TableCell className="text-muted-foreground font-mono text-sm">{client.unique_tax_id}</TableCell>
+                  <TableCell>{client.industry?.industry_name || '-'}</TableCell>
                   <TableCell className="text-center">
-                    <Badge variant="secondary">{client.engagements}</Badge>
+                    <Badge variant="secondary">{getEngagementCount(client.client_id)}</Badge>
                   </TableCell>
                   <TableCell>
                     <Badge 
                       variant="outline" 
-                      className={client.status === "active" 
+                      className={client.is_active 
                         ? "bg-success/10 text-success border-success/20" 
                         : "bg-muted text-muted-foreground"
                       }
                     >
-                      {client.status === "active" ? "Active" : "Inactive"}
+                      {client.is_active ? "Active" : "Inactive"}
                     </Badge>
                   </TableCell>
                 </TableRow>

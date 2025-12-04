@@ -12,24 +12,17 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-
-// Mock data
-const mockCategories = [
-  { id: 1, name: "Partner", rateHighBOB: 1530, rateLowBOB: 1400, rateHighUSD: 153, rateLowUSD: 140 },
-  { id: 2, name: "Manager", rateHighBOB: 700, rateLowBOB: 600, rateHighUSD: 70, rateLowUSD: 60 },
-  { id: 3, name: "Senior", rateHighBOB: 350, rateLowBOB: 280, rateHighUSD: 35, rateLowUSD: 28 },
-  { id: 4, name: "Staff", rateHighBOB: 200, rateLowBOB: 170, rateHighUSD: 20, rateLowUSD: 17 },
-  { id: 5, name: "Junior", rateHighBOB: 100, rateLowBOB: 90, rateHighUSD: 10, rateLowUSD: 9 },
-];
-
-const mockIndustries = [
-  { id: 1, name: "Mining", fiscalYearEnd: "September 30", defaultSeason: "Low" },
-  { id: 2, name: "Banking", fiscalYearEnd: "December 31", defaultSeason: "High" },
-  { id: 3, name: "Oil & Gas", fiscalYearEnd: "December 31", defaultSeason: "High" },
-  { id: 4, name: "Manufacturing", fiscalYearEnd: "December 31", defaultSeason: "High" },
-];
+import { useCategories, useIndustries, useGlobalSettings, useActivityCodes } from "@/hooks/useEmsData";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const Settings = () => {
+  const { data: categories, isLoading: categoriesLoading } = useCategories();
+  const { data: industries, isLoading: industriesLoading } = useIndustries();
+  const { data: settings, isLoading: settingsLoading } = useGlobalSettings();
+  const { data: activityCodes, isLoading: activitiesLoading } = useActivityCodes();
+
+  const getSetting = (key: string) => settings?.find(s => s.setting_key === key)?.setting_value || '';
+
   return (
     <AppLayout title="Settings">
       <Tabs defaultValue="rates" className="space-y-6">
@@ -65,34 +58,44 @@ const Settings = () => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {mockCategories.map((cat) => (
-                      <TableRow key={cat.id}>
-                        <TableCell className="font-medium border-r">{cat.name}</TableCell>
+                    {categoriesLoading ? (
+                      Array.from({ length: 5 }).map((_, i) => (
+                        <TableRow key={i}>
+                          <TableCell><Skeleton className="h-8 w-20" /></TableCell>
+                          <TableCell><Skeleton className="h-8 w-20 mx-auto" /></TableCell>
+                          <TableCell><Skeleton className="h-8 w-20 mx-auto" /></TableCell>
+                          <TableCell><Skeleton className="h-8 w-20 mx-auto" /></TableCell>
+                          <TableCell><Skeleton className="h-8 w-20 mx-auto" /></TableCell>
+                        </TableRow>
+                      ))
+                    ) : categories?.map((cat) => (
+                      <TableRow key={cat.category_id}>
+                        <TableCell className="font-medium border-r">{cat.category_name}</TableCell>
                         <TableCell className="text-center">
                           <Input 
                             type="number" 
-                            defaultValue={cat.rateHighBOB} 
+                            defaultValue={cat.rate_high_bob} 
                             className="w-24 mx-auto text-center"
                           />
                         </TableCell>
                         <TableCell className="text-center border-r">
                           <Input 
                             type="number" 
-                            defaultValue={cat.rateLowBOB} 
+                            defaultValue={cat.rate_low_bob} 
                             className="w-24 mx-auto text-center"
                           />
                         </TableCell>
                         <TableCell className="text-center">
                           <Input 
                             type="number" 
-                            defaultValue={cat.rateHighUSD} 
+                            defaultValue={cat.rate_high_usd} 
                             className="w-24 mx-auto text-center"
                           />
                         </TableCell>
                         <TableCell className="text-center">
                           <Input 
                             type="number" 
-                            defaultValue={cat.rateLowUSD} 
+                            defaultValue={cat.rate_low_usd} 
                             className="w-24 mx-auto text-center"
                           />
                         </TableCell>
@@ -129,17 +132,28 @@ const Settings = () => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {mockIndustries.map((ind) => (
-                      <TableRow key={ind.id}>
-                        <TableCell className="font-medium">{ind.name}</TableCell>
-                        <TableCell>{ind.fiscalYearEnd}</TableCell>
-                        <TableCell>
-                          <span className={ind.defaultSeason === "High" ? "text-accent font-medium" : "text-muted-foreground"}>
-                            {ind.defaultSeason}
-                          </span>
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {industriesLoading ? (
+                      Array.from({ length: 4 }).map((_, i) => (
+                        <TableRow key={i}>
+                          <TableCell><Skeleton className="h-5 w-24" /></TableCell>
+                          <TableCell><Skeleton className="h-5 w-28" /></TableCell>
+                          <TableCell><Skeleton className="h-5 w-16" /></TableCell>
+                        </TableRow>
+                      ))
+                    ) : industries?.map((ind) => {
+                      const isHighSeason = ind.fiscal_year_end.includes("December");
+                      return (
+                        <TableRow key={ind.industry_id}>
+                          <TableCell className="font-medium">{ind.industry_name}</TableCell>
+                          <TableCell>{ind.fiscal_year_end}</TableCell>
+                          <TableCell>
+                            <span className={isHighSeason ? "text-accent font-medium" : "text-muted-foreground"}>
+                              {isHighSeason ? "High" : "Low"}
+                            </span>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>
@@ -156,23 +170,46 @@ const Settings = () => {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <Label htmlFor="taxRate">VAT Tax Rate (%)</Label>
-                  <Input id="taxRate" type="number" step="0.01" defaultValue="13" className="max-w-[200px]" />
-                  <p className="text-sm text-muted-foreground">Applied to gross-up fee calculations</p>
+              {settingsLoading ? (
+                <div className="space-y-4">
+                  <Skeleton className="h-16 w-full" />
+                  <Skeleton className="h-16 w-full" />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="dailyLimit">Daily Hour Limit</Label>
-                  <Input id="dailyLimit" type="number" defaultValue="10" className="max-w-[200px]" />
-                  <p className="text-sm text-muted-foreground">Maximum hours per day in time sheets</p>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <Label htmlFor="taxRate">VAT Tax Rate (%)</Label>
+                    <Input 
+                      id="taxRate" 
+                      type="number" 
+                      step="0.01" 
+                      defaultValue={parseFloat(getSetting('TAX_RATE')) * 100 || 13} 
+                      className="max-w-[200px]" 
+                    />
+                    <p className="text-sm text-muted-foreground">Applied to gross-up fee calculations</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="dailyLimit">Daily Hour Limit</Label>
+                    <Input 
+                      id="dailyLimit" 
+                      type="number" 
+                      defaultValue={getSetting('DAILY_LIMIT') || 10} 
+                      className="max-w-[200px]" 
+                    />
+                    <p className="text-sm text-muted-foreground">Maximum hours per day in time sheets</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="weeklyLimit">Weekly Hour Limit</Label>
+                    <Input 
+                      id="weeklyLimit" 
+                      type="number" 
+                      defaultValue={getSetting('WEEKLY_LIMIT') || 50} 
+                      className="max-w-[200px]" 
+                    />
+                    <p className="text-sm text-muted-foreground">Maximum hours per week</p>
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="weeklyLimit">Weekly Hour Limit</Label>
-                  <Input id="weeklyLimit" type="number" defaultValue="50" className="max-w-[200px]" />
-                  <p className="text-sm text-muted-foreground">Maximum hours per week</p>
-                </div>
-              </div>
+              )}
               <div className="flex justify-end">
                 <Button className="bg-accent hover:bg-accent/90 text-accent-foreground">
                   Save Settings
@@ -200,12 +237,19 @@ const Settings = () => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    <TableRow><TableCell className="font-mono">PLN</TableCell><TableCell>Planning</TableCell></TableRow>
-                    <TableRow><TableCell className="font-mono">FLD</TableCell><TableCell>Fieldwork</TableCell></TableRow>
-                    <TableRow><TableCell className="font-mono">REV</TableCell><TableCell>Review</TableCell></TableRow>
-                    <TableRow><TableCell className="font-mono">DOC</TableCell><TableCell>Documentation</TableCell></TableRow>
-                    <TableRow><TableCell className="font-mono">ADM</TableCell><TableCell>Administration</TableCell></TableRow>
-                    <TableRow><TableCell className="font-mono">MTG</TableCell><TableCell>Meetings</TableCell></TableRow>
+                    {activitiesLoading ? (
+                      Array.from({ length: 6 }).map((_, i) => (
+                        <TableRow key={i}>
+                          <TableCell><Skeleton className="h-5 w-12" /></TableCell>
+                          <TableCell><Skeleton className="h-5 w-32" /></TableCell>
+                        </TableRow>
+                      ))
+                    ) : activityCodes?.map((act) => (
+                      <TableRow key={act.activity_id}>
+                        <TableCell className="font-mono">{act.activity_code}</TableCell>
+                        <TableCell>{act.description}</TableCell>
+                      </TableRow>
+                    ))}
                   </TableBody>
                 </Table>
               </div>
