@@ -1,6 +1,7 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -51,6 +52,7 @@ interface CategoryFormProps {
 }
 
 export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps) {
+  const { t } = useTranslation();
   const isEdit = !!category;
   const createMutation = useCreateCategory();
   const updateMutation = useUpdateCategory();
@@ -97,7 +99,7 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="sm:max-w-lg">
         <SheetHeader>
-          <SheetTitle>{isEdit ? "Edit Category" : "New Category"}</SheetTitle>
+          <SheetTitle>{isEdit ? t("category.editCategory") : t("category.newCategory")}</SheetTitle>
         </SheetHeader>
 
         <Form {...form}>
@@ -108,9 +110,9 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
                 name="category_name"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Category Name *</FormLabel>
+                    <FormLabel>{t("category.name")} *</FormLabel>
                     <FormControl>
-                      <Input placeholder="e.g., Partner" {...field} />
+                      <Input placeholder={t("category.placeholder")} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -122,7 +124,7 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
                 name="display_order"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Display Order</FormLabel>
+                    <FormLabel>{t("category.displayOrder")}</FormLabel>
                     <FormControl>
                       <Input type="number" {...field} />
                     </FormControl>
@@ -133,14 +135,14 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
             </div>
 
             <div className="space-y-4">
-              <h4 className="font-medium text-sm text-muted-foreground">Bolivianos (BOB) Rates</h4>
+              <h4 className="font-medium text-sm text-muted-foreground">{t("category.bobRates")}</h4>
               <div className="grid grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
                   name="rate_high_bob"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>High Season *</FormLabel>
+                      <FormLabel>{t("industry.highSeason")} *</FormLabel>
                       <FormControl>
                         <Input type="number" step="0.01" {...field} />
                       </FormControl>
@@ -154,7 +156,7 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
                   name="rate_low_bob"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Low Season *</FormLabel>
+                      <FormLabel>{t("industry.lowSeason")} *</FormLabel>
                       <FormControl>
                         <Input type="number" step="0.01" {...field} />
                       </FormControl>
@@ -166,14 +168,14 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
             </div>
 
             <div className="space-y-4">
-              <h4 className="font-medium text-sm text-muted-foreground">US Dollars (USD) Rates</h4>
+              <h4 className="font-medium text-sm text-muted-foreground">{t("category.usdRates")}</h4>
               <div className="grid grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
                   name="rate_high_usd"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>High Season *</FormLabel>
+                      <FormLabel>{t("industry.highSeason")} *</FormLabel>
                       <FormControl>
                         <Input type="number" step="0.01" {...field} />
                       </FormControl>
@@ -187,7 +189,7 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
                   name="rate_low_usd"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Low Season *</FormLabel>
+                      <FormLabel>{t("industry.lowSeason")} *</FormLabel>
                       <FormControl>
                         <Input type="number" step="0.01" {...field} />
                       </FormControl>
@@ -208,29 +210,29 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
                   </AlertDialogTrigger>
                   <AlertDialogContent>
                     <AlertDialogHeader>
-                      <AlertDialogTitle>Delete Category</AlertDialogTitle>
+                      <AlertDialogTitle>{t("category.deleteCategory")}</AlertDialogTitle>
                       <AlertDialogDescription>
-                        Are you sure you want to delete "{category?.category_name}"? This action cannot be undone.
+                        {t("common.confirmDelete", { name: category?.category_name })} {t("common.deleteWarning")}
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
-                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
                       <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground">
-                        Delete
+                        {t("common.delete")}
                       </AlertDialogAction>
                     </AlertDialogFooter>
                   </AlertDialogContent>
                 </AlertDialog>
               )}
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-                Cancel
+                {t("common.cancel")}
               </Button>
               <Button
                 type="submit"
                 className="bg-accent hover:bg-accent/90 text-accent-foreground"
                 disabled={createMutation.isPending || updateMutation.isPending}
               >
-                {isEdit ? "Save Changes" : "Create Category"}
+                {isEdit ? t("common.saveChanges") : t("category.createCategory")}
               </Button>
             </SheetFooter>
           </form>

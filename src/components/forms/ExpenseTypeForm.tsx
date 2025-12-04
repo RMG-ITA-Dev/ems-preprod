@@ -1,6 +1,7 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -47,6 +48,7 @@ interface ExpenseTypeFormProps {
 }
 
 export function ExpenseTypeForm({ open, onOpenChange, expenseType }: ExpenseTypeFormProps) {
+  const { t } = useTranslation();
   const isEdit = !!expenseType;
   const createMutation = useCreateExpenseType();
   const updateMutation = useUpdateExpenseType();
@@ -85,7 +87,7 @@ export function ExpenseTypeForm({ open, onOpenChange, expenseType }: ExpenseType
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="sm:max-w-lg">
         <SheetHeader>
-          <SheetTitle>{isEdit ? "Edit Expense Type" : "New Expense Type"}</SheetTitle>
+          <SheetTitle>{isEdit ? t("expense.editExpenseType") : t("expense.newExpenseType")}</SheetTitle>
         </SheetHeader>
 
         <Form {...form}>
@@ -95,7 +97,7 @@ export function ExpenseTypeForm({ open, onOpenChange, expenseType }: ExpenseType
               name="expense_name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Expense Name *</FormLabel>
+                  <FormLabel>{t("expense.name")} *</FormLabel>
                   <FormControl>
                     <Input placeholder="e.g., Taxi, Hotel" {...field} />
                   </FormControl>
@@ -109,7 +111,7 @@ export function ExpenseTypeForm({ open, onOpenChange, expenseType }: ExpenseType
               name="default_unit_cost"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Default Unit Cost</FormLabel>
+                  <FormLabel>{t("expense.defaultUnitCost")}</FormLabel>
                   <FormControl>
                     <Input type="number" step="0.01" placeholder="0.00" {...field} />
                   </FormControl>
@@ -128,29 +130,29 @@ export function ExpenseTypeForm({ open, onOpenChange, expenseType }: ExpenseType
                   </AlertDialogTrigger>
                   <AlertDialogContent>
                     <AlertDialogHeader>
-                      <AlertDialogTitle>Delete Expense Type</AlertDialogTitle>
+                      <AlertDialogTitle>{t("expense.deleteExpenseType")}</AlertDialogTitle>
                       <AlertDialogDescription>
-                        Are you sure you want to delete "{expenseType?.expense_name}"? This action cannot be undone.
+                        {t("common.confirmDelete", { name: expenseType?.expense_name })} {t("common.deleteWarning")}
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
-                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
                       <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground">
-                        Delete
+                        {t("common.delete")}
                       </AlertDialogAction>
                     </AlertDialogFooter>
                   </AlertDialogContent>
                 </AlertDialog>
               )}
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-                Cancel
+                {t("common.cancel")}
               </Button>
               <Button
                 type="submit"
                 className="bg-accent hover:bg-accent/90 text-accent-foreground"
                 disabled={createMutation.isPending || updateMutation.isPending}
               >
-                {isEdit ? "Save Changes" : "Create Expense Type"}
+                {isEdit ? t("common.saveChanges") : t("expense.createExpenseType")}
               </Button>
             </SheetFooter>
           </form>

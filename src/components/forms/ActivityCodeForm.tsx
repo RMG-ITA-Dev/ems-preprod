@@ -1,6 +1,7 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -50,6 +51,7 @@ interface ActivityCodeFormProps {
 }
 
 export function ActivityCodeForm({ open, onOpenChange, activityCode }: ActivityCodeFormProps) {
+  const { t } = useTranslation();
   const isEdit = !!activityCode;
   const createMutation = useCreateActivityCode();
   const updateMutation = useUpdateActivityCode();
@@ -90,7 +92,7 @@ export function ActivityCodeForm({ open, onOpenChange, activityCode }: ActivityC
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="sm:max-w-lg">
         <SheetHeader>
-          <SheetTitle>{isEdit ? "Edit Activity Code" : "New Activity Code"}</SheetTitle>
+          <SheetTitle>{isEdit ? t("activity.editActivity") : t("activity.newActivity")}</SheetTitle>
         </SheetHeader>
 
         <Form {...form}>
@@ -100,7 +102,7 @@ export function ActivityCodeForm({ open, onOpenChange, activityCode }: ActivityC
               name="activity_code"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Activity Code *</FormLabel>
+                  <FormLabel>{t("activity.code")} *</FormLabel>
                   <FormControl>
                     <Input
                       placeholder="e.g., PLN"
@@ -119,7 +121,7 @@ export function ActivityCodeForm({ open, onOpenChange, activityCode }: ActivityC
               name="description"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Description *</FormLabel>
+                  <FormLabel>{t("activity.description")} *</FormLabel>
                   <FormControl>
                     <Input placeholder="e.g., Planning" {...field} />
                   </FormControl>
@@ -134,9 +136,9 @@ export function ActivityCodeForm({ open, onOpenChange, activityCode }: ActivityC
               render={({ field }) => (
                 <FormItem className="flex items-center justify-between rounded-lg border p-4">
                   <div className="space-y-0.5">
-                    <FormLabel className="text-base">Active</FormLabel>
+                    <FormLabel className="text-base">{t("common.active")}</FormLabel>
                     <FormDescription>
-                      Active codes can be used in time entries
+                      {t("activity.activeDescription")}
                     </FormDescription>
                   </div>
                   <FormControl>
@@ -156,29 +158,29 @@ export function ActivityCodeForm({ open, onOpenChange, activityCode }: ActivityC
                   </AlertDialogTrigger>
                   <AlertDialogContent>
                     <AlertDialogHeader>
-                      <AlertDialogTitle>Delete Activity Code</AlertDialogTitle>
+                      <AlertDialogTitle>{t("activity.deleteActivity")}</AlertDialogTitle>
                       <AlertDialogDescription>
-                        Are you sure you want to delete "{activityCode?.activity_code}"? This action cannot be undone.
+                        {t("common.confirmDelete", { name: activityCode?.activity_code })} {t("common.deleteWarning")}
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
-                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
                       <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground">
-                        Delete
+                        {t("common.delete")}
                       </AlertDialogAction>
                     </AlertDialogFooter>
                   </AlertDialogContent>
                 </AlertDialog>
               )}
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-                Cancel
+                {t("common.cancel")}
               </Button>
               <Button
                 type="submit"
                 className="bg-accent hover:bg-accent/90 text-accent-foreground"
                 disabled={createMutation.isPending || updateMutation.isPending}
               >
-                {isEdit ? "Save Changes" : "Create Activity Code"}
+                {isEdit ? t("common.saveChanges") : t("activity.createActivity")}
               </Button>
             </SheetFooter>
           </form>
