@@ -117,7 +117,10 @@
     "editCategory": "Editar Categoría",
     "createCategory": "Crear Categoría",
     "deleteCategory": "Eliminar Categoría",
-    "placeholder": "ej., Socio"
+    "placeholder": "ej., Socio",
+    "permissions": "Permisos",
+    "canApproveWO": "Puede Aprobar OT",
+    "canApproveWOHelp": "El personal en esta categoría puede aprobar o rechazar órdenes de trabajo pendientes"
   },
   "activity": {
     "code": "Código",

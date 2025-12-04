@@ -34,7 +34,7 @@ import { CategoryForm } from "@/components/forms/CategoryForm";
 import { ActivityCodeForm } from "@/components/forms/ActivityCodeForm";
 import { ExpenseTypeForm } from "@/components/forms/ExpenseTypeForm";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Lock } from "lucide-react";
+import { Lock, CheckCircle } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 
 const Settings = () => {
@@ -101,6 +101,21 @@ const Settings = () => {
   const categoryColumns: Column<Category>[] = [
     { key: "display_order", label: t("category.order"), sortable: true, className: "w-20" },
     { key: "category_name", label: t("category.name"), sortable: true },
+    {
+      key: "can_approve_wo",
+      label: t("category.canApproveWO"),
+      sortable: true,
+      className: "w-28 text-center",
+      render: (row) =>
+        row.can_approve_wo ? (
+          <Badge className="bg-success/10 text-success border-success/20">
+            <CheckCircle className="h-3 w-3 mr-1" />
+            {t("common.yes")}
+          </Badge>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        ),
+    },
     {
       key: "rate_high_bob",
       label: t("category.bobHigh"),

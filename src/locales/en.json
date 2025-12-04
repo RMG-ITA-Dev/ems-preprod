@@ -117,7 +117,10 @@
     "editCategory": "Edit Category",
     "createCategory": "Create Category",
     "deleteCategory": "Delete Category",
-    "placeholder": "e.g., Partner"
+    "placeholder": "e.g., Partner",
+    "permissions": "Permissions",
+    "canApproveWO": "Can Approve WO",
+    "canApproveWOHelp": "Staff in this category can approve or reject pending work orders"
   },
   "activity": {
     "code": "Code",
