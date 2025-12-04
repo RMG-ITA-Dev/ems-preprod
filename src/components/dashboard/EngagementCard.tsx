@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -21,10 +22,12 @@ export function EngagementCard({
   actualHours,
   status,
 }: EngagementCardProps) {
+  const { t } = useTranslation();
+
   const statusConfig = {
-    active: { label: "Active", className: "bg-success/10 text-success border-success/20" },
-    pending: { label: "Pending", className: "bg-warning/10 text-warning border-warning/20" },
-    completed: { label: "Completed", className: "bg-muted text-muted-foreground border-border" },
+    active: { label: t("status.active"), className: "bg-success/10 text-success border-success/20" },
+    pending: { label: t("status.pending"), className: "bg-warning/10 text-warning border-warning/20" },
+    completed: { label: t("status.completed"), className: "bg-muted text-muted-foreground border-border" },
   };
 
   return (
@@ -39,11 +42,11 @@ export function EngagementCard({
         </Badge>
       </div>
       
-      <p className="text-sm text-muted-foreground mb-4">Partner: {partner}</p>
+      <p className="text-sm text-muted-foreground mb-4">{t("engagement.partner")}: {partner}</p>
       
       <div className="space-y-2">
         <div className="flex justify-between text-sm">
-          <span className="text-muted-foreground">Hours Progress</span>
+          <span className="text-muted-foreground">{t("dashboard.hoursProgress")}</span>
           <span className="font-medium text-foreground">{actualHours} / {budgetedHours}h</span>
         </div>
         <Progress value={progress} className="h-2" />

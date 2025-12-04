@@ -27,7 +27,8 @@
     "contactInfo": "Contact Information",
     "role": "Role",
     "team": "Team",
-    "dates": "Dates"
+    "dates": "Dates",
+    "or": "Or"
   },
   "nav": {
     "main": "Main",
@@ -202,7 +203,12 @@
     "createError": "Error creating {{entity}}",
     "updateError": "Error updating {{entity}}",
     "deleteError": "Error deleting {{entity}}",
-    "settingsSaved": "Settings saved successfully"
+    "settingsSaved": "Settings saved successfully",
+    "welcomeBack": "Welcome back!",
+    "accountCreated": "Account created successfully!",
+    "invalidCredentials": "Invalid email or password. Please try again.",
+    "emailAlreadyRegistered": "This email is already registered. Please sign in instead.",
+    "welcomeAdmin": "Welcome, Admin!"
   },
   "form": {
     "required": "Required",
@@ -226,5 +232,85 @@
     "october": "October",
     "november": "November",
     "december": "December"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "activeEngagements": "Active Engagements",
+    "hoursLogged": "Hours Logged",
+    "workOrders": "Work Orders",
+    "activeStaff": "Active Staff",
+    "recentTime": "Recent Time",
+    "recentTimeEntries": "Recent Time Entries",
+    "vsLastMonth": "vs last month",
+    "hoursProgress": "Hours Progress"
+  },
+  "timesheet": {
+    "title": "Time Sheet",
+    "previous": "Previous",
+    "next": "Next",
+    "week": "Week",
+    "engagement": "Engagement",
+    "activity": "Activity",
+    "total": "Total",
+    "dailyTotals": "Daily Totals",
+    "addRow": "Add Row",
+    "saveDraft": "Save Draft",
+    "submitWeek": "Submit Week",
+    "selectEngagement": "Select engagement",
+    "selectActivity": "Select activity",
+    "weekDays": {
+      "mon": "Mon",
+      "tue": "Tue",
+      "wed": "Wed",
+      "thu": "Thu",
+      "fri": "Fri"
+    }
+  },
+  "expenses": {
+    "title": "Expenses",
+    "searchPlaceholder": "Search expenses...",
+    "logExpense": "Log Expense",
+    "date": "Date",
+    "type": "Type",
+    "description": "Description",
+    "amount": "Amount"
+  },
+  "workOrders": {
+    "title": "Work Orders",
+    "searchPlaceholder": "Search work orders...",
+    "newWorkOrder": "New Work Order",
+    "standardFee": "Standard Fee",
+    "adjustment": "Adjustment",
+    "realization": "Realization",
+    "feeWithTax": "Fee w/Tax",
+    "season": "Season",
+    "iva": "IVA"
+  },
+  "auth": {
+    "signIn": "Sign In",
+    "signUp": "Sign Up",
+    "welcomeBack": "Welcome Back",
+    "createAccount": "Create Account",
+    "enterCredentials": "Enter your credentials to access your account",
+    "fillDetails": "Fill in your details to get started",
+    "firstName": "First Name",
+    "lastName": "Last Name",
+    "email": "Email",
+    "password": "Password",
+    "dontHaveAccount": "Don't have an account?",
+    "alreadyHaveAccount": "Already have an account?",
+    "quickAdminLogin": "Quick Admin Login (Demo)",
+    "demoDescription": "For testing purposes - creates/logs into demo admin account",
+    "trustedBy": "Trusted by audit & consulting professionals in Bolivia",
+    "features": {
+      "engagementManagement": "Engagement Management",
+      "engagementDesc": "Track client engagements, work orders, and project budgets with precision.",
+      "multiCurrency": "Multi-Currency Support",
+      "multiCurrencyDesc": "Handle BOB and USD transactions with automatic rate calculations.",
+      "staffTracking": "Staff & Time Tracking",
+      "staffTrackingDesc": "Log hours, manage staff categories, and monitor utilization rates.",
+      "roleBasedAccess": "Role-Based Access",
+      "roleBasedAccessDesc": "Secure RBAC system with Admin, Staff, and Viewer permissions."
+    }
   }
 }

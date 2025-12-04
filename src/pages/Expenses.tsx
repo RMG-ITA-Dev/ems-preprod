@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +22,8 @@ const mockExpenses = [
 ];
 
 const Expenses = () => {
+  const { t } = useTranslation();
+
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
     return date.toLocaleDateString("es-BO", { day: "2-digit", month: "2-digit", year: "numeric" });
@@ -34,17 +37,17 @@ const Expenses = () => {
   };
 
   return (
-    <AppLayout title="Expenses">
+    <AppLayout title={t("expenses.title")}>
       <div className="space-y-6">
         {/* Header Actions */}
         <div className="flex flex-col sm:flex-row gap-4 justify-between">
           <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input placeholder="Search expenses..." className="pl-9" />
+            <Input placeholder={t("expenses.searchPlaceholder")} className="pl-9" />
           </div>
           <Button className="bg-accent hover:bg-accent/90 text-accent-foreground">
             <Plus className="h-4 w-4 mr-2" />
-            Log Expense
+            {t("expenses.logExpense")}
           </Button>
         </div>
 
@@ -53,11 +56,11 @@ const Expenses = () => {
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/50">
-                <TableHead className="font-semibold">Date</TableHead>
-                <TableHead className="font-semibold">Engagement</TableHead>
-                <TableHead className="font-semibold">Type</TableHead>
-                <TableHead className="font-semibold">Description</TableHead>
-                <TableHead className="font-semibold text-right">Amount</TableHead>
+                <TableHead className="font-semibold">{t("expenses.date")}</TableHead>
+                <TableHead className="font-semibold">{t("engagement.name")}</TableHead>
+                <TableHead className="font-semibold">{t("expenses.type")}</TableHead>
+                <TableHead className="font-semibold">{t("expenses.description")}</TableHead>
+                <TableHead className="font-semibold text-right">{t("expenses.amount")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

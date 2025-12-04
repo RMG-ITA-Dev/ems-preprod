@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Clock } from "lucide-react";
 
 interface TimeEntry {
@@ -13,6 +14,8 @@ interface RecentTimeEntriesProps {
 }
 
 export function RecentTimeEntries({ entries }: RecentTimeEntriesProps) {
+  const { t } = useTranslation();
+
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
     return date.toLocaleDateString("es-BO", { day: "2-digit", month: "2-digit", year: "numeric" });
@@ -23,7 +26,7 @@ export function RecentTimeEntries({ entries }: RecentTimeEntriesProps) {
       <div className="p-5 border-b border-border">
         <h3 className="font-semibold text-foreground flex items-center gap-2">
           <Clock className="h-4 w-4 text-accent" />
-          Recent Time Entries
+          {t("dashboard.recentTimeEntries")}
         </h3>
       </div>
       <div className="divide-y divide-border">

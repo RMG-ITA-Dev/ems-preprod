@@ -27,7 +27,8 @@
     "contactInfo": "Información de Contacto",
     "role": "Rol",
     "team": "Equipo",
-    "dates": "Fechas"
+    "dates": "Fechas",
+    "or": "O"
   },
   "nav": {
     "main": "Principal",
@@ -202,7 +203,12 @@
     "createError": "Error al crear {{entity}}",
     "updateError": "Error al actualizar {{entity}}",
     "deleteError": "Error al eliminar {{entity}}",
-    "settingsSaved": "Configuración guardada exitosamente"
+    "settingsSaved": "Configuración guardada exitosamente",
+    "welcomeBack": "¡Bienvenido de nuevo!",
+    "accountCreated": "¡Cuenta creada exitosamente!",
+    "invalidCredentials": "Correo o contraseña inválidos. Por favor intente de nuevo.",
+    "emailAlreadyRegistered": "Este correo ya está registrado. Por favor inicie sesión.",
+    "welcomeAdmin": "¡Bienvenido, Admin!"
   },
   "form": {
     "required": "Requerido",
@@ -226,5 +232,85 @@
     "october": "Octubre",
     "november": "Noviembre",
     "december": "Diciembre"
+  },
+  "dashboard": {
+    "title": "Panel",
+    "activeEngagements": "Compromisos Activos",
+    "hoursLogged": "Horas Registradas",
+    "workOrders": "Órdenes de Trabajo",
+    "activeStaff": "Personal Activo",
+    "recentTime": "Tiempo Reciente",
+    "recentTimeEntries": "Entradas de Tiempo Recientes",
+    "vsLastMonth": "vs mes anterior",
+    "hoursProgress": "Progreso de Horas"
+  },
+  "timesheet": {
+    "title": "Hoja de Tiempo",
+    "previous": "Anterior",
+    "next": "Siguiente",
+    "week": "Semana",
+    "engagement": "Compromiso",
+    "activity": "Actividad",
+    "total": "Total",
+    "dailyTotals": "Totales Diarios",
+    "addRow": "Agregar Fila",
+    "saveDraft": "Guardar Borrador",
+    "submitWeek": "Enviar Semana",
+    "selectEngagement": "Seleccionar compromiso",
+    "selectActivity": "Seleccionar actividad",
+    "weekDays": {
+      "mon": "Lun",
+      "tue": "Mar",
+      "wed": "Mié",
+      "thu": "Jue",
+      "fri": "Vie"
+    }
+  },
+  "expenses": {
+    "title": "Gastos",
+    "searchPlaceholder": "Buscar gastos...",
+    "logExpense": "Registrar Gasto",
+    "date": "Fecha",
+    "type": "Tipo",
+    "description": "Descripción",
+    "amount": "Monto"
+  },
+  "workOrders": {
+    "title": "Órdenes de Trabajo",
+    "searchPlaceholder": "Buscar órdenes de trabajo...",
+    "newWorkOrder": "Nueva Orden de Trabajo",
+    "standardFee": "Honorario Estándar",
+    "adjustment": "Ajuste",
+    "realization": "Realización",
+    "feeWithTax": "Honorario c/IVA",
+    "season": "Temporada",
+    "iva": "IVA"
+  },
+  "auth": {
+    "signIn": "Iniciar Sesión",
+    "signUp": "Registrarse",
+    "welcomeBack": "Bienvenido de Nuevo",
+    "createAccount": "Crear Cuenta",
+    "enterCredentials": "Ingrese sus credenciales para acceder a su cuenta",
+    "fillDetails": "Complete sus datos para comenzar",
+    "firstName": "Nombre",
+    "lastName": "Apellido",
+    "email": "Correo Electrónico",
+    "password": "Contraseña",
+    "dontHaveAccount": "¿No tiene una cuenta?",
+    "alreadyHaveAccount": "¿Ya tiene una cuenta?",
+    "quickAdminLogin": "Acceso Rápido Admin (Demo)",
+    "demoDescription": "Para pruebas - crea/inicia sesión en cuenta admin demo",
+    "trustedBy": "Confiado por profesionales de auditoría y consultoría en Bolivia",
+    "features": {
+      "engagementManagement": "Gestión de Compromisos",
+      "engagementDesc": "Rastree compromisos de clientes, órdenes de trabajo y presupuestos con precisión.",
+      "multiCurrency": "Soporte Multi-Moneda",
+      "multiCurrencyDesc": "Maneje transacciones en BOB y USD con cálculos automáticos de tasas.",
+      "staffTracking": "Personal y Control de Tiempo",
+      "staffTrackingDesc": "Registre horas, gestione categorías de personal y monitoree tasas de utilización.",
+      "roleBasedAccess": "Acceso Basado en Roles",
+      "roleBasedAccessDesc": "Sistema RBAC seguro con permisos de Admin, Personal y Visualizador."
+    }
   }
 }
