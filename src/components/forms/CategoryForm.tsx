@@ -33,6 +33,7 @@ import {
 import { Category } from "@/hooks/useEmsData";
 import { useCreateCategory, useUpdateCategory, useDeleteCategory } from "@/hooks/useEmsMutations";
 import { Trash2 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 
 const formSchema = z.object({
   category_name: z.string().min(1, "Category name is required"),
@@ -41,6 +42,7 @@ const formSchema = z.object({
   rate_low_bob: z.coerce.number().min(0, "Rate must be positive"),
   rate_high_usd: z.coerce.number().min(0, "Rate must be positive"),
   rate_low_usd: z.coerce.number().min(0, "Rate must be positive"),
+  can_approve_wo: z.boolean().default(false),
 });
 
 type FormData = z.infer<typeof formSchema>;
@@ -67,6 +69,7 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
       rate_low_bob: category?.rate_low_bob || 0,
       rate_high_usd: category?.rate_high_usd || 0,
       rate_low_usd: category?.rate_low_usd || 0,
+      can_approve_wo: category?.can_approve_wo || false,
     },
   });
 
@@ -78,6 +81,7 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
       rate_low_bob: data.rate_low_bob,
       rate_high_usd: data.rate_high_usd,
       rate_low_usd: data.rate_low_usd,
+      can_approve_wo: data.can_approve_wo,
     };
     if (isEdit && category) {
       await updateMutation.mutateAsync({ id: category.category_id, data: payload });
@@ -198,6 +202,31 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
                   )}
                 />
               </div>
+            </div>
+
+            {/* Permissions Section */}
+            <div className="space-y-4 pt-4 border-t border-border">
+              <h4 className="font-medium text-sm text-muted-foreground">{t("category.permissions")}</h4>
+              <FormField
+                control={form.control}
+                name="can_approve_wo"
+                render={({ field }) => (
+                  <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                    <FormControl>
+                      <Checkbox
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                    <div className="space-y-1 leading-none">
+                      <FormLabel>{t("category.canApproveWO")}</FormLabel>
+                      <p className="text-xs text-muted-foreground">
+                        {t("category.canApproveWOHelp")}
+                      </p>
+                    </div>
+                  </FormItem>
+                )}
+              />
             </div>
 
             <SheetFooter className="flex gap-2 pt-4">

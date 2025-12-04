@@ -76,6 +76,7 @@ export function useCreateCategory() {
       rate_low_bob: number;
       rate_high_usd: number;
       rate_low_usd: number;
+      can_approve_wo?: boolean;
     }) => {
       const { data: result, error } = await supabase
         .from("categories")
@@ -110,6 +111,7 @@ export function useUpdateCategory() {
         rate_low_bob: number;
         rate_high_usd: number;
         rate_low_usd: number;
+        can_approve_wo: boolean;
       }>;
     }) => {
       const { data: result, error } = await supabase
