@@ -12,17 +12,8 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-
-// Mock data
-const mockStaff = [
-  { id: 1, firstName: "Carlos", lastName: "Mendoza", category: "Partner", email: "cmendoza@firm.com", engagements: 5 },
-  { id: 2, firstName: "María", lastName: "Torres", category: "Partner", email: "mtorres@firm.com", engagements: 4 },
-  { id: 3, firstName: "Ana", lastName: "Gutiérrez", category: "Manager", email: "agutierrez@firm.com", engagements: 3 },
-  { id: 4, firstName: "Roberto", lastName: "Silva", category: "Manager", email: "rsilva@firm.com", engagements: 4 },
-  { id: 5, firstName: "Luis", lastName: "Vargas", category: "Senior", email: "lvargas@firm.com", engagements: 2 },
-  { id: 6, firstName: "Carmen", lastName: "Rojas", category: "Staff", email: "crojas@firm.com", engagements: 2 },
-  { id: 7, firstName: "Diego", lastName: "Flores", category: "Junior", email: "dflores@firm.com", engagements: 1 },
-];
+import { useStaff, useEngagements } from "@/hooks/useEmsData";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const categoryColors: Record<string, string> = {
   Partner: "bg-accent/10 text-accent border-accent/20",
@@ -33,8 +24,15 @@ const categoryColors: Record<string, string> = {
 };
 
 const Staff = () => {
+  const { data: staff, isLoading } = useStaff();
+  const { data: engagements } = useEngagements();
+
   const getInitials = (firstName: string, lastName: string) => 
     `${firstName[0]}${lastName[0]}`.toUpperCase();
+
+  const getEngagementCount = (staffId: string) => {
+    return engagements?.filter(e => e.partner_id === staffId || e.manager_id === staffId).length || 0;
+  };
 
   return (
     <AppLayout title="Staff">
@@ -63,26 +61,37 @@ const Staff = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {mockStaff.map((staff) => (
-                <TableRow key={staff.id} className="hover:bg-muted/30 cursor-pointer">
+              {isLoading ? (
+                Array.from({ length: 5 }).map((_, i) => (
+                  <TableRow key={i}>
+                    <TableCell><Skeleton className="h-9 w-40" /></TableCell>
+                    <TableCell><Skeleton className="h-5 w-32" /></TableCell>
+                    <TableCell><Skeleton className="h-5 w-20" /></TableCell>
+                    <TableCell><Skeleton className="h-5 w-8 mx-auto" /></TableCell>
+                  </TableRow>
+                ))
+              ) : staff?.map((member) => (
+                <TableRow key={member.staff_id} className="hover:bg-muted/30 cursor-pointer">
                   <TableCell>
                     <div className="flex items-center gap-3">
                       <Avatar className="h-9 w-9">
                         <AvatarFallback className="bg-primary/10 text-primary text-sm font-medium">
-                          {getInitials(staff.firstName, staff.lastName)}
+                          {getInitials(member.first_name, member.last_name)}
                         </AvatarFallback>
                       </Avatar>
-                      <span className="font-medium">{staff.firstName} {staff.lastName}</span>
+                      <span className="font-medium">{member.first_name} {member.last_name}</span>
                     </div>
                   </TableCell>
-                  <TableCell className="text-muted-foreground">{staff.email}</TableCell>
+                  <TableCell className="text-muted-foreground">{member.email || '-'}</TableCell>
                   <TableCell>
-                    <Badge variant="outline" className={categoryColors[staff.category]}>
-                      {staff.category}
-                    </Badge>
+                    {member.category && (
+                      <Badge variant="outline" className={categoryColors[member.category.category_name] || ''}>
+                        {member.category.category_name}
+                      </Badge>
+                    )}
                   </TableCell>
                   <TableCell className="text-center">
-                    <Badge variant="secondary">{staff.engagements}</Badge>
+                    <Badge variant="secondary">{getEngagementCount(member.staff_id)}</Badge>
                   </TableCell>
                 </TableRow>
               ))}
