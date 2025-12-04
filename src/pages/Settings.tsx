@@ -1,18 +1,28 @@
+import { useState } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { useCategories, useIndustries, useGlobalSettings, useActivityCodes } from "@/hooks/useEmsData";
+import { Badge } from "@/components/ui/badge";
+import {
+  useCategories,
+  useIndustries,
+  useGlobalSettings,
+  useActivityCodes,
+  useExpenseTypes,
+  Category,
+  Industry,
+  ActivityCode,
+  ExpenseType,
+} from "@/hooks/useEmsData";
+import { useUpdateGlobalSetting } from "@/hooks/useEmsMutations";
+import { DataTable, Column } from "@/components/data-table/DataTable";
+import { IndustryForm } from "@/components/forms/IndustryForm";
+import { CategoryForm } from "@/components/forms/CategoryForm";
+import { ActivityCodeForm } from "@/components/forms/ActivityCodeForm";
+import { ExpenseTypeForm } from "@/components/forms/ExpenseTypeForm";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const Settings = () => {
@@ -20,154 +30,251 @@ const Settings = () => {
   const { data: industries, isLoading: industriesLoading } = useIndustries();
   const { data: settings, isLoading: settingsLoading } = useGlobalSettings();
   const { data: activityCodes, isLoading: activitiesLoading } = useActivityCodes();
+  const { data: expenseTypes, isLoading: expenseTypesLoading } = useExpenseTypes();
+  const updateSettingMutation = useUpdateGlobalSetting();
 
-  const getSetting = (key: string) => settings?.find(s => s.setting_key === key)?.setting_value || '';
+  // Form states
+  const [industryFormOpen, setIndustryFormOpen] = useState(false);
+  const [selectedIndustry, setSelectedIndustry] = useState<Industry | null>(null);
+
+  const [categoryFormOpen, setCategoryFormOpen] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
+
+  const [activityFormOpen, setActivityFormOpen] = useState(false);
+  const [selectedActivity, setSelectedActivity] = useState<ActivityCode | null>(null);
+
+  const [expenseTypeFormOpen, setExpenseTypeFormOpen] = useState(false);
+  const [selectedExpenseType, setSelectedExpenseType] = useState<ExpenseType | null>(null);
+
+  // Settings state
+  const [taxRate, setTaxRate] = useState<string>("");
+  const [dailyLimit, setDailyLimit] = useState<string>("");
+  const [weeklyLimit, setWeeklyLimit] = useState<string>("");
+
+  const getSetting = (key: string) => settings?.find((s) => s.setting_key === key)?.setting_value || "";
+
+  // Industry columns
+  const industryColumns: Column<Industry>[] = [
+    { key: "industry_name", label: "Industry Name", sortable: true },
+    { key: "fiscal_year_end", label: "Fiscal Year-End", sortable: true },
+    {
+      key: "default_season",
+      label: "Default Season",
+      render: (row) => {
+        const isHigh = row.fiscal_year_end.includes("December");
+        return (
+          <span className={isHigh ? "text-accent font-medium" : "text-muted-foreground"}>
+            {isHigh ? "High" : "Low"}
+          </span>
+        );
+      },
+    },
+  ];
+
+  // Category columns
+  const categoryColumns: Column<Category>[] = [
+    { key: "display_order", label: "Order", sortable: true, className: "w-20" },
+    { key: "category_name", label: "Category", sortable: true },
+    {
+      key: "rate_high_bob",
+      label: "BOB High",
+      sortable: true,
+      className: "text-right",
+      render: (row) => row.rate_high_bob.toLocaleString(),
+    },
+    {
+      key: "rate_low_bob",
+      label: "BOB Low",
+      sortable: true,
+      className: "text-right",
+      render: (row) => row.rate_low_bob.toLocaleString(),
+    },
+    {
+      key: "rate_high_usd",
+      label: "USD High",
+      sortable: true,
+      className: "text-right",
+      render: (row) => row.rate_high_usd.toLocaleString(),
+    },
+    {
+      key: "rate_low_usd",
+      label: "USD Low",
+      sortable: true,
+      className: "text-right",
+      render: (row) => row.rate_low_usd.toLocaleString(),
+    },
+  ];
+
+  // Activity code columns
+  const activityColumns: Column<ActivityCode>[] = [
+    { key: "activity_code", label: "Code", sortable: true, className: "font-mono w-24" },
+    { key: "description", label: "Description", sortable: true },
+    {
+      key: "is_active",
+      label: "Status",
+      sortable: true,
+      render: (row) => (
+        <Badge
+          variant="outline"
+          className={
+            row.is_active
+              ? "bg-success/10 text-success border-success/20"
+              : "bg-muted text-muted-foreground"
+          }
+        >
+          {row.is_active ? "Active" : "Inactive"}
+        </Badge>
+      ),
+    },
+  ];
+
+  // Expense type columns
+  const expenseTypeColumns: Column<ExpenseType>[] = [
+    { key: "expense_name", label: "Expense Name", sortable: true },
+    {
+      key: "default_unit_cost",
+      label: "Default Unit Cost",
+      sortable: true,
+      className: "text-right",
+      render: (row) => row.default_unit_cost.toFixed(2),
+    },
+  ];
+
+  const handleSaveSettings = async () => {
+    if (taxRate) {
+      await updateSettingMutation.mutateAsync({ key: "TAX_RATE", value: (parseFloat(taxRate) / 100).toString() });
+    }
+    if (dailyLimit) {
+      await updateSettingMutation.mutateAsync({ key: "DAILY_LIMIT", value: dailyLimit });
+    }
+    if (weeklyLimit) {
+      await updateSettingMutation.mutateAsync({ key: "WEEKLY_LIMIT", value: weeklyLimit });
+    }
+  };
 
   return (
     <AppLayout title="Settings">
-      <Tabs defaultValue="rates" className="space-y-6">
+      <Tabs defaultValue="industries" className="space-y-6">
         <TabsList className="bg-muted">
-          <TabsTrigger value="rates">Category Rates</TabsTrigger>
           <TabsTrigger value="industries">Industries</TabsTrigger>
-          <TabsTrigger value="global">Global Settings</TabsTrigger>
+          <TabsTrigger value="rates">Category Rates</TabsTrigger>
           <TabsTrigger value="activities">Activity Codes</TabsTrigger>
+          <TabsTrigger value="expense-types">Expense Types</TabsTrigger>
+          <TabsTrigger value="global">Global Settings</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="rates" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Staff Category Rates</CardTitle>
-              <CardDescription>
-                Define hourly rates by category, currency, and season. Rates are locked when a Work Order is created.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="rounded-lg border border-border overflow-hidden">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-muted/50">
-                      <TableHead rowSpan={2} className="font-semibold border-r">Category</TableHead>
-                      <TableHead colSpan={2} className="text-center font-semibold border-r">BOB (Bolivianos)</TableHead>
-                      <TableHead colSpan={2} className="text-center font-semibold">USD (US Dollars)</TableHead>
-                    </TableRow>
-                    <TableRow className="bg-muted/30">
-                      <TableHead className="text-center font-medium">High Season</TableHead>
-                      <TableHead className="text-center font-medium border-r">Low Season</TableHead>
-                      <TableHead className="text-center font-medium">High Season</TableHead>
-                      <TableHead className="text-center font-medium">Low Season</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {categoriesLoading ? (
-                      Array.from({ length: 5 }).map((_, i) => (
-                        <TableRow key={i}>
-                          <TableCell><Skeleton className="h-8 w-20" /></TableCell>
-                          <TableCell><Skeleton className="h-8 w-20 mx-auto" /></TableCell>
-                          <TableCell><Skeleton className="h-8 w-20 mx-auto" /></TableCell>
-                          <TableCell><Skeleton className="h-8 w-20 mx-auto" /></TableCell>
-                          <TableCell><Skeleton className="h-8 w-20 mx-auto" /></TableCell>
-                        </TableRow>
-                      ))
-                    ) : categories?.map((cat) => (
-                      <TableRow key={cat.category_id}>
-                        <TableCell className="font-medium border-r">{cat.category_name}</TableCell>
-                        <TableCell className="text-center">
-                          <Input 
-                            type="number" 
-                            defaultValue={cat.rate_high_bob} 
-                            className="w-24 mx-auto text-center"
-                          />
-                        </TableCell>
-                        <TableCell className="text-center border-r">
-                          <Input 
-                            type="number" 
-                            defaultValue={cat.rate_low_bob} 
-                            className="w-24 mx-auto text-center"
-                          />
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <Input 
-                            type="number" 
-                            defaultValue={cat.rate_high_usd} 
-                            className="w-24 mx-auto text-center"
-                          />
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <Input 
-                            type="number" 
-                            defaultValue={cat.rate_low_usd} 
-                            className="w-24 mx-auto text-center"
-                          />
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-              <div className="flex justify-end mt-4">
-                <Button className="bg-accent hover:bg-accent/90 text-accent-foreground">
-                  Save Rates
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+        <TabsContent value="industries" className="space-y-6">
+          <DataTable
+            data={industries || []}
+            columns={industryColumns}
+            searchPlaceholder="Search by industry name..."
+            searchKeys={["industry_name"]}
+            isLoading={industriesLoading}
+            newButtonLabel="New Industry"
+            onNewClick={() => {
+              setSelectedIndustry(null);
+              setIndustryFormOpen(true);
+            }}
+            onRowClick={(row) => {
+              setSelectedIndustry(row);
+              setIndustryFormOpen(true);
+            }}
+            getRowId={(row) => row.industry_id}
+          />
+          <IndustryForm
+            open={industryFormOpen}
+            onOpenChange={setIndustryFormOpen}
+            industry={selectedIndustry}
+          />
         </TabsContent>
 
-        <TabsContent value="industries" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Industries</CardTitle>
-              <CardDescription>
-                Configure industries with fiscal year-end dates. This determines the default season for Work Orders.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="rounded-lg border border-border overflow-hidden">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-muted/50">
-                      <TableHead className="font-semibold">Industry Name</TableHead>
-                      <TableHead className="font-semibold">Fiscal Year-End</TableHead>
-                      <TableHead className="font-semibold">Default Season</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {industriesLoading ? (
-                      Array.from({ length: 4 }).map((_, i) => (
-                        <TableRow key={i}>
-                          <TableCell><Skeleton className="h-5 w-24" /></TableCell>
-                          <TableCell><Skeleton className="h-5 w-28" /></TableCell>
-                          <TableCell><Skeleton className="h-5 w-16" /></TableCell>
-                        </TableRow>
-                      ))
-                    ) : industries?.map((ind) => {
-                      const isHighSeason = ind.fiscal_year_end.includes("December");
-                      return (
-                        <TableRow key={ind.industry_id}>
-                          <TableCell className="font-medium">{ind.industry_name}</TableCell>
-                          <TableCell>{ind.fiscal_year_end}</TableCell>
-                          <TableCell>
-                            <span className={isHighSeason ? "text-accent font-medium" : "text-muted-foreground"}>
-                              {isHighSeason ? "High" : "Low"}
-                            </span>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </div>
-            </CardContent>
-          </Card>
+        <TabsContent value="rates" className="space-y-6">
+          <DataTable
+            data={categories || []}
+            columns={categoryColumns}
+            searchPlaceholder="Search by category name..."
+            searchKeys={["category_name"]}
+            isLoading={categoriesLoading}
+            newButtonLabel="New Category"
+            onNewClick={() => {
+              setSelectedCategory(null);
+              setCategoryFormOpen(true);
+            }}
+            onRowClick={(row) => {
+              setSelectedCategory(row);
+              setCategoryFormOpen(true);
+            }}
+            getRowId={(row) => row.category_id}
+          />
+          <CategoryForm
+            open={categoryFormOpen}
+            onOpenChange={setCategoryFormOpen}
+            category={selectedCategory}
+          />
+        </TabsContent>
+
+        <TabsContent value="activities" className="space-y-6">
+          <DataTable
+            data={activityCodes || []}
+            columns={activityColumns}
+            searchPlaceholder="Search by code or description..."
+            searchKeys={["activity_code", "description"]}
+            isLoading={activitiesLoading}
+            newButtonLabel="New Activity"
+            onNewClick={() => {
+              setSelectedActivity(null);
+              setActivityFormOpen(true);
+            }}
+            onRowClick={(row) => {
+              setSelectedActivity(row);
+              setActivityFormOpen(true);
+            }}
+            getRowId={(row) => row.activity_id}
+            statusFilter={{
+              key: "is_active",
+              options: [
+                { value: "active", label: "Active" },
+                { value: "inactive", label: "Inactive" },
+              ],
+            }}
+          />
+          <ActivityCodeForm
+            open={activityFormOpen}
+            onOpenChange={setActivityFormOpen}
+            activityCode={selectedActivity}
+          />
+        </TabsContent>
+
+        <TabsContent value="expense-types" className="space-y-6">
+          <DataTable
+            data={expenseTypes || []}
+            columns={expenseTypeColumns}
+            searchPlaceholder="Search by expense name..."
+            searchKeys={["expense_name"]}
+            isLoading={expenseTypesLoading}
+            newButtonLabel="New Expense Type"
+            onNewClick={() => {
+              setSelectedExpenseType(null);
+              setExpenseTypeFormOpen(true);
+            }}
+            onRowClick={(row) => {
+              setSelectedExpenseType(row);
+              setExpenseTypeFormOpen(true);
+            }}
+            getRowId={(row) => row.expense_type_id}
+          />
+          <ExpenseTypeForm
+            open={expenseTypeFormOpen}
+            onOpenChange={setExpenseTypeFormOpen}
+            expenseType={selectedExpenseType}
+          />
         </TabsContent>
 
         <TabsContent value="global" className="space-y-6">
           <Card>
             <CardHeader>
               <CardTitle>Global Settings</CardTitle>
-              <CardDescription>
-                System-wide configuration values.
-              </CardDescription>
+              <CardDescription>System-wide configuration values.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               {settingsLoading ? (
@@ -176,82 +283,51 @@ const Settings = () => {
                   <Skeleton className="h-16 w-full" />
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <div className="space-y-2">
                     <Label htmlFor="taxRate">VAT Tax Rate (%)</Label>
-                    <Input 
-                      id="taxRate" 
-                      type="number" 
-                      step="0.01" 
-                      defaultValue={parseFloat(getSetting('TAX_RATE')) * 100 || 13} 
-                      className="max-w-[200px]" 
+                    <Input
+                      id="taxRate"
+                      type="number"
+                      step="0.01"
+                      defaultValue={parseFloat(getSetting("TAX_RATE")) * 100 || 13}
+                      onChange={(e) => setTaxRate(e.target.value)}
+                      className="max-w-[200px]"
                     />
                     <p className="text-sm text-muted-foreground">Applied to gross-up fee calculations</p>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="dailyLimit">Daily Hour Limit</Label>
-                    <Input 
-                      id="dailyLimit" 
-                      type="number" 
-                      defaultValue={getSetting('DAILY_LIMIT') || 10} 
-                      className="max-w-[200px]" 
+                    <Input
+                      id="dailyLimit"
+                      type="number"
+                      defaultValue={getSetting("DAILY_LIMIT") || 10}
+                      onChange={(e) => setDailyLimit(e.target.value)}
+                      className="max-w-[200px]"
                     />
                     <p className="text-sm text-muted-foreground">Maximum hours per day in time sheets</p>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="weeklyLimit">Weekly Hour Limit</Label>
-                    <Input 
-                      id="weeklyLimit" 
-                      type="number" 
-                      defaultValue={getSetting('WEEKLY_LIMIT') || 50} 
-                      className="max-w-[200px]" 
+                    <Input
+                      id="weeklyLimit"
+                      type="number"
+                      defaultValue={getSetting("WEEKLY_LIMIT") || 50}
+                      onChange={(e) => setWeeklyLimit(e.target.value)}
+                      className="max-w-[200px]"
                     />
                     <p className="text-sm text-muted-foreground">Maximum hours per week</p>
                   </div>
                 </div>
               )}
               <div className="flex justify-end">
-                <Button className="bg-accent hover:bg-accent/90 text-accent-foreground">
+                <Button
+                  onClick={handleSaveSettings}
+                  className="bg-accent hover:bg-accent/90 text-accent-foreground"
+                  disabled={updateSettingMutation.isPending}
+                >
                   Save Settings
                 </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="activities" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Activity Codes</CardTitle>
-              <CardDescription>
-                Standard activity codes for time tracking.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="rounded-lg border border-border overflow-hidden">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-muted/50">
-                      <TableHead className="font-semibold w-24">Code</TableHead>
-                      <TableHead className="font-semibold">Description</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {activitiesLoading ? (
-                      Array.from({ length: 6 }).map((_, i) => (
-                        <TableRow key={i}>
-                          <TableCell><Skeleton className="h-5 w-12" /></TableCell>
-                          <TableCell><Skeleton className="h-5 w-32" /></TableCell>
-                        </TableRow>
-                      ))
-                    ) : activityCodes?.map((act) => (
-                      <TableRow key={act.activity_id}>
-                        <TableCell className="font-mono">{act.activity_code}</TableCell>
-                        <TableCell>{act.description}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
               </div>
             </CardContent>
           </Card>
