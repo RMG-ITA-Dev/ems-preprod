@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Table,
   TableBody,
@@ -55,16 +56,17 @@ type SortDirection = "asc" | "desc" | null;
 export function DataTable<T extends Record<string, any>>({
   data,
   columns,
-  searchPlaceholder = "Search...",
+  searchPlaceholder,
   searchKeys = [],
   onRowClick,
   onNewClick,
-  newButtonLabel = "New",
+  newButtonLabel,
   isLoading = false,
   statusFilter,
   filters = [],
   getRowId,
 }: DataTableProps<T>) {
+  const { t } = useTranslation();
   const [searchTerm, setSearchTerm] = useState("");
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>(null);
@@ -185,7 +187,7 @@ export function DataTable<T extends Record<string, any>>({
           <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder={searchPlaceholder}
+              placeholder={searchPlaceholder || t("common.search")}
               className="pl-9"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
@@ -198,10 +200,10 @@ export function DataTable<T extends Record<string, any>>({
               onValueChange={(val) => setFilterValues((prev) => ({ ...prev, [filter.key]: val }))}
             >
               <SelectTrigger className="w-[140px]">
-                <SelectValue placeholder={`All ${filter.label}`} />
+                <SelectValue placeholder={`${t("common.all")} ${filter.label}`} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All {filter.label}</SelectItem>
+                <SelectItem value="all">{t("common.all")} {filter.label}</SelectItem>
                 {filter.options.map((opt) => (
                   <SelectItem key={opt.value} value={opt.value}>
                     {opt.label}
@@ -213,10 +215,10 @@ export function DataTable<T extends Record<string, any>>({
           {statusFilter && (
             <Select value={statusValue} onValueChange={setStatusValue}>
               <SelectTrigger className="w-[140px]">
-                <SelectValue placeholder="All Status" />
+                <SelectValue placeholder={t("common.allStatus")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="all">{t("common.allStatus")}</SelectItem>
                 {statusFilter.options.map((opt) => (
                   <SelectItem key={opt.value} value={opt.value}>
                     {opt.label}
@@ -232,7 +234,7 @@ export function DataTable<T extends Record<string, any>>({
             className="bg-accent hover:bg-accent/90 text-accent-foreground"
           >
             <Plus className="h-4 w-4 mr-2" />
-            {newButtonLabel}
+            {newButtonLabel || t("common.new")}
           </Button>
         )}
       </div>
@@ -275,7 +277,7 @@ export function DataTable<T extends Record<string, any>>({
                   colSpan={columns.length}
                   className="h-24 text-center text-muted-foreground"
                 >
-                  No results found.
+                  {t("common.noResults")}
                 </TableCell>
               </TableRow>
             ) : (
@@ -303,7 +305,7 @@ export function DataTable<T extends Record<string, any>>({
       {totalItems > 0 && (
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <span>Rows per page:</span>
+            <span>{t("common.rowsPerPage")}</span>
             <Select value={String(rowsPerPage)} onValueChange={(val) => setRowsPerPage(Number(val))}>
               <SelectTrigger className="w-[70px] h-8">
                 <SelectValue />
@@ -319,7 +321,7 @@ export function DataTable<T extends Record<string, any>>({
 
           <div className="flex items-center gap-4">
             <span className="text-sm text-muted-foreground">
-              Showing {startIndex + 1}-{endIndex} of {totalItems}
+              {t("common.showing", { start: startIndex + 1, end: endIndex, total: totalItems })}
             </span>
             <div className="flex items-center gap-1">
               <Button
@@ -332,7 +334,7 @@ export function DataTable<T extends Record<string, any>>({
                 <ChevronLeft className="h-4 w-4" />
               </Button>
               <span className="text-sm px-2 min-w-[80px] text-center">
-                Page {currentPage} of {totalPages}
+                {t("common.page", { current: currentPage, total: totalPages })}
               </span>
               <Button
                 variant="outline"

@@ -1,4 +1,5 @@
 import { format } from "date-fns";
+import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Badge } from "@/components/ui/badge";
 import { Briefcase } from "lucide-react";
@@ -14,6 +15,7 @@ const statusColors: Record<string, string> = {
 };
 
 const Engagements = () => {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { data: engagements, isLoading } = useEngagements();
   const { data: staff } = useStaff();
@@ -35,14 +37,14 @@ const Engagements = () => {
   const columns: Column<Engagement>[] = [
     {
       key: "engagement_code",
-      label: "Code",
+      label: t("engagement.code"),
       sortable: true,
       className: "w-28",
       render: (row) => <span className="font-mono text-muted-foreground">{row.engagement_code || "-"}</span>,
     },
     {
       key: "engagement_name",
-      label: "Engagement Name",
+      label: t("engagement.name"),
       sortable: true,
       render: (row) => (
         <div className="flex items-center gap-3">
@@ -55,25 +57,25 @@ const Engagements = () => {
     },
     {
       key: "client.client_legal_name",
-      label: "Client",
+      label: t("engagement.client"),
       sortable: true,
       render: (row) => row.client?.client_legal_name || "-",
     },
     {
       key: "partner.last_name",
-      label: "Partner",
+      label: t("engagement.partner"),
       sortable: true,
       render: (row) => (row.partner ? `${row.partner.first_name} ${row.partner.last_name}` : "-"),
     },
     {
       key: "manager.last_name",
-      label: "Manager",
+      label: t("engagement.manager"),
       sortable: true,
       render: (row) => (row.manager ? `${row.manager.first_name} ${row.manager.last_name}` : "-"),
     },
     {
       key: "start_date",
-      label: "Start",
+      label: t("engagement.startDate"),
       sortable: true,
       render: (row) => {
         const engagement = row as any;
@@ -82,7 +84,7 @@ const Engagements = () => {
     },
     {
       key: "end_date",
-      label: "End",
+      label: t("engagement.endDate"),
       sortable: true,
       render: (row) => {
         const engagement = row as any;
@@ -91,47 +93,47 @@ const Engagements = () => {
     },
     {
       key: "status",
-      label: "Status",
+      label: t("engagement.status"),
       sortable: true,
       render: (row) => (
         <Badge variant="outline" className={statusColors[row.status] || statusColors.pending}>
-          {row.status.charAt(0).toUpperCase() + row.status.slice(1)}
+          {t(`status.${row.status}`)}
         </Badge>
       ),
     },
   ];
 
   return (
-    <AppLayout title="Engagements">
+    <AppLayout title={t("nav.engagements")}>
       <DataTable
         data={engagements || []}
         columns={columns}
-        searchPlaceholder="Search by code, name, or client..."
+        searchPlaceholder={t("engagement.searchPlaceholder")}
         searchKeys={["engagement_code", "engagement_name", "client.client_legal_name"]}
         isLoading={isLoading}
-        newButtonLabel="New Engagement"
+        newButtonLabel={t("engagement.newEngagement")}
         onNewClick={() => navigate("/engagements/new")}
         onRowClick={(row) => navigate(`/engagements/${row.engagement_id}`)}
         getRowId={(row) => row.engagement_id}
         filters={[
           {
             key: "partner_id",
-            label: "Partner",
+            label: t("engagement.partner"),
             options: partnerOptions,
           },
           {
             key: "manager_id",
-            label: "Manager",
+            label: t("engagement.manager"),
             options: managerOptions,
           },
         ]}
         statusFilter={{
           key: "status",
           options: [
-            { value: "active", label: "Active" },
-            { value: "pending", label: "Pending" },
-            { value: "completed", label: "Completed" },
-            { value: "cancelled", label: "Cancelled" },
+            { value: "active", label: t("status.active") },
+            { value: "pending", label: t("status.pending") },
+            { value: "completed", label: t("status.completed") },
+            { value: "cancelled", label: t("status.cancelled") },
           ],
         }}
       />
