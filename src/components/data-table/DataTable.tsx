@@ -27,6 +27,12 @@ export interface Column<T> {
   className?: string;
 }
 
+export interface FilterConfig {
+  key: string;
+  label: string;
+  options: { value: string; label: string }[];
+}
+
 export interface DataTableProps<T> {
   data: T[];
   columns: Column<T>[];
@@ -40,6 +46,7 @@ export interface DataTableProps<T> {
     key: string;
     options: { value: string; label: string }[];
   };
+  filters?: FilterConfig[];
   getRowId: (row: T) => string;
 }
 
@@ -55,12 +62,14 @@ export function DataTable<T extends Record<string, any>>({
   newButtonLabel = "New",
   isLoading = false,
   statusFilter,
+  filters = [],
   getRowId,
 }: DataTableProps<T>) {
   const [searchTerm, setSearchTerm] = useState("");
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>(null);
   const [statusValue, setStatusValue] = useState("all");
+  const [filterValues, setFilterValues] = useState<Record<string, string>>({});
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(10);
 
@@ -118,6 +127,20 @@ export function DataTable<T extends Record<string, any>>({
       });
     }
 
+    // Additional filters
+    filters.forEach((filter) => {
+      const filterValue = filterValues[filter.key];
+      if (filterValue && filterValue !== "all") {
+        result = result.filter((row) => {
+          const value = filter.key.split(".").reduce((obj, k) => obj?.[k], row as any);
+          if (typeof value === "boolean") {
+            return filterValue === "true" ? value : !value;
+          }
+          return String(value || "").toLowerCase() === filterValue.toLowerCase();
+        });
+      }
+    });
+
     // Sorting
     if (sortColumn && sortDirection) {
       result.sort((a, b) => {
@@ -152,7 +175,7 @@ export function DataTable<T extends Record<string, any>>({
   // Reset to page 1 when filters change
   useMemo(() => {
     setCurrentPage(1);
-  }, [searchTerm, statusValue, rowsPerPage]);
+  }, [searchTerm, statusValue, rowsPerPage, filterValues]);
 
   return (
     <div className="space-y-4">
@@ -168,6 +191,25 @@ export function DataTable<T extends Record<string, any>>({
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
+          {filters.map((filter) => (
+            <Select
+              key={filter.key}
+              value={filterValues[filter.key] || "all"}
+              onValueChange={(val) => setFilterValues((prev) => ({ ...prev, [filter.key]: val }))}
+            >
+              <SelectTrigger className="w-[140px]">
+                <SelectValue placeholder={`All ${filter.label}`} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All {filter.label}</SelectItem>
+                {filter.options.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ))}
           {statusFilter && (
             <Select value={statusValue} onValueChange={setStatusValue}>
               <SelectTrigger className="w-[140px]">

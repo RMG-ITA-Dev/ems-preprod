@@ -2,7 +2,7 @@ import { format } from "date-fns";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Badge } from "@/components/ui/badge";
 import { Briefcase } from "lucide-react";
-import { useEngagements, Engagement } from "@/hooks/useEmsData";
+import { useEngagements, useStaff, Engagement } from "@/hooks/useEmsData";
 import { DataTable, Column } from "@/components/data-table/DataTable";
 import { useNavigate } from "react-router-dom";
 
@@ -16,6 +16,21 @@ const statusColors: Record<string, string> = {
 const Engagements = () => {
   const navigate = useNavigate();
   const { data: engagements, isLoading } = useEngagements();
+  const { data: staff } = useStaff();
+
+  const partnerOptions = (staff || [])
+    .filter((s) => s.category?.category_name === "Partner")
+    .map((s) => ({
+      value: s.staff_id,
+      label: `${s.first_name} ${s.last_name}`,
+    }));
+
+  const managerOptions = (staff || [])
+    .filter((s) => s.category?.category_name === "Manager" || s.category?.category_name === "Partner")
+    .map((s) => ({
+      value: s.staff_id,
+      label: `${s.first_name} ${s.last_name}`,
+    }));
 
   const columns: Column<Engagement>[] = [
     {
@@ -98,6 +113,18 @@ const Engagements = () => {
         onNewClick={() => navigate("/engagements/new")}
         onRowClick={(row) => navigate(`/engagements/${row.engagement_id}`)}
         getRowId={(row) => row.engagement_id}
+        filters={[
+          {
+            key: "partner_id",
+            label: "Partner",
+            options: partnerOptions,
+          },
+          {
+            key: "manager_id",
+            label: "Manager",
+            options: managerOptions,
+          },
+        ]}
         statusFilter={{
           key: "status",
           options: [

@@ -1,7 +1,7 @@
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { useStaff, useEngagements, Staff as StaffType } from "@/hooks/useEmsData";
+import { useStaff, useEngagements, useCategories, Staff as StaffType } from "@/hooks/useEmsData";
 import { DataTable, Column } from "@/components/data-table/DataTable";
 import { useNavigate } from "react-router-dom";
 import { Check } from "lucide-react";
@@ -18,6 +18,7 @@ const Staff = () => {
   const navigate = useNavigate();
   const { data: staff, isLoading } = useStaff();
   const { data: engagements } = useEngagements();
+  const { data: categories } = useCategories();
 
   const getInitials = (firstName: string, lastName: string) =>
     `${firstName[0]}${lastName[0]}`.toUpperCase();
@@ -25,6 +26,11 @@ const Staff = () => {
   const getEngagementCount = (staffId: string) => {
     return engagements?.filter((e) => e.partner_id === staffId || e.manager_id === staffId).length || 0;
   };
+
+  const categoryOptions = (categories || []).map((cat) => ({
+    value: cat.category_id,
+    label: cat.category_name,
+  }));
 
   const columns: Column<StaffType>[] = [
     {
@@ -107,6 +113,13 @@ const Staff = () => {
         onNewClick={() => navigate("/staff/new")}
         onRowClick={(row) => navigate(`/staff/${row.staff_id}`)}
         getRowId={(row) => row.staff_id}
+        filters={[
+          {
+            key: "category_id",
+            label: "Category",
+            options: categoryOptions,
+          },
+        ]}
         statusFilter={{
           key: "is_active",
           options: [

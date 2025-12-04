@@ -1,7 +1,7 @@
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Badge } from "@/components/ui/badge";
 import { Building2 } from "lucide-react";
-import { useClients, useEngagements, Client } from "@/hooks/useEmsData";
+import { useClients, useEngagements, useIndustries, Client } from "@/hooks/useEmsData";
 import { DataTable, Column } from "@/components/data-table/DataTable";
 import { useNavigate } from "react-router-dom";
 
@@ -9,10 +9,16 @@ const Clients = () => {
   const navigate = useNavigate();
   const { data: clients, isLoading } = useClients();
   const { data: engagements } = useEngagements();
+  const { data: industries } = useIndustries();
 
   const getEngagementCount = (clientId: string) => {
     return engagements?.filter((e) => e.client_id === clientId).length || 0;
   };
+
+  const industryOptions = (industries || []).map((ind) => ({
+    value: ind.industry_id,
+    label: ind.industry_name,
+  }));
 
   const columns: Column<Client>[] = [
     {
@@ -47,9 +53,10 @@ const Clients = () => {
       render: (row) => row.contact_name || "-",
     },
     {
-      key: "contact_phone",
-      label: "Phone",
-      render: (row) => <span className="text-muted-foreground">{row.contact_phone || "-"}</span>,
+      key: "industry.fiscal_year_end",
+      label: "Closing Date",
+      sortable: true,
+      render: (row) => <span className="text-muted-foreground">{row.industry?.fiscal_year_end || "-"}</span>,
     },
     {
       key: "is_active",
@@ -84,6 +91,13 @@ const Clients = () => {
         onNewClick={() => navigate("/clients/new")}
         onRowClick={(row) => navigate(`/clients/${row.client_id}`)}
         getRowId={(row) => row.client_id}
+        filters={[
+          {
+            key: "industry_id",
+            label: "Industry",
+            options: industryOptions,
+          },
+        ]}
         statusFilter={{
           key: "is_active",
           options: [
