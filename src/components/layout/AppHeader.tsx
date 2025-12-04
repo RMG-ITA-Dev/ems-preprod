@@ -1,12 +1,15 @@
 import { useState } from "react";
-import { Bell, Search, Menu } from "lucide-react";
+import { Bell, Search, Menu, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SidebarTrigger } from "@/components/ui/sidebar";
+import { useAuth } from "@/hooks/useAuth";
+import { useNavigate } from "react-router-dom";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
@@ -16,6 +19,17 @@ interface AppHeaderProps {
 
 export function AppHeader({ title = "Dashboard" }: AppHeaderProps) {
   const [currency, setCurrency] = useState<"BOB" | "USD">("BOB");
+  const { user, signOut } = useAuth();
+  const navigate = useNavigate();
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate("/auth");
+  };
+
+  const userInitials = user?.user_metadata?.first_name && user?.user_metadata?.last_name
+    ? `${user.user_metadata.first_name[0]}${user.user_metadata.last_name[0]}`.toUpperCase()
+    : user?.email?.substring(0, 2).toUpperCase() || "U";
 
   return (
     <header className="h-16 border-b border-border bg-card flex items-center justify-between px-6">
@@ -38,15 +52,15 @@ export function AppHeader({ title = "Dashboard" }: AppHeaderProps) {
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" size="sm" className="font-medium min-w-[70px]">
-              {currency === "BOB" ? "Bs" : "$us"}
+              {currency}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem onClick={() => setCurrency("BOB")}>
-              Bs (Bolivianos)
+              BOB (Bolivianos)
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => setCurrency("USD")}>
-              $us (US Dollars)
+              USD (US Dollars)
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -56,9 +70,24 @@ export function AppHeader({ title = "Dashboard" }: AppHeaderProps) {
           <span className="absolute top-1.5 right-1.5 h-2 w-2 bg-accent rounded-full" />
         </Button>
 
-        <div className="h-9 w-9 rounded-full bg-primary flex items-center justify-center">
-          <span className="text-primary-foreground font-medium text-sm">JD</span>
-        </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="h-9 w-9 rounded-full bg-accent flex items-center justify-center cursor-pointer hover:opacity-90 transition-opacity">
+              <span className="text-accent-foreground font-medium text-sm">{userInitials}</span>
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <div className="px-2 py-1.5">
+              <p className="text-sm font-medium">{user?.user_metadata?.first_name} {user?.user_metadata?.last_name}</p>
+              <p className="text-xs text-muted-foreground">{user?.email}</p>
+            </div>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={handleSignOut} className="text-destructive focus:text-destructive">
+              <LogOut className="mr-2 h-4 w-4" />
+              Sign out
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </header>
   );
