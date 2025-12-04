@@ -15,6 +15,8 @@ import Engagements from "./pages/Engagements";
 import EngagementNew from "./pages/EngagementNew";
 import EngagementEdit from "./pages/EngagementEdit";
 import WorkOrders from "./pages/WorkOrders";
+import WorkOrderNew from "./pages/WorkOrderNew";
+import WorkOrderEdit from "./pages/WorkOrderEdit";
 import TimeSheet from "./pages/TimeSheet";
 import Expenses from "./pages/Expenses";
 import Staff from "./pages/Staff";
@@ -43,6 +45,8 @@ const App = () => (
             <Route path="/engagements/new" element={<ProtectedRoute><EngagementNew /></ProtectedRoute>} />
             <Route path="/engagements/:id" element={<ProtectedRoute><EngagementEdit /></ProtectedRoute>} />
             <Route path="/work-orders" element={<ProtectedRoute><WorkOrders /></ProtectedRoute>} />
+            <Route path="/work-orders/new" element={<ProtectedRoute><WorkOrderNew /></ProtectedRoute>} />
+            <Route path="/work-orders/:id" element={<ProtectedRoute><WorkOrderEdit /></ProtectedRoute>} />
             <Route path="/timesheet" element={<ProtectedRoute><TimeSheet /></ProtectedRoute>} />
             <Route path="/expenses" element={<ProtectedRoute><Expenses /></ProtectedRoute>} />
             <Route path="/staff" element={<ProtectedRoute><Staff /></ProtectedRoute>} />

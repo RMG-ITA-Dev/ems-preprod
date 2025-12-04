@@ -40,6 +40,7 @@ export type Database = {
       }
       categories: {
         Row: {
+          can_approve_wo: boolean | null
           category_id: string
           category_name: string
           created_at: string | null
@@ -51,6 +52,7 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          can_approve_wo?: boolean | null
           category_id?: string
           category_name: string
           created_at?: string | null
@@ -62,6 +64,7 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          can_approve_wo?: boolean | null
           category_id?: string
           category_name?: string
           created_at?: string | null
@@ -468,6 +471,13 @@ export type Database = {
             foreignKeyName: "wo_budget_lines_wo_id_fkey"
             columns: ["wo_id"]
             isOneToOne: false
+            referencedRelation: "work_order_summary"
+            referencedColumns: ["wo_id"]
+          },
+          {
+            foreignKeyName: "wo_budget_lines_wo_id_fkey"
+            columns: ["wo_id"]
+            isOneToOne: false
             referencedRelation: "work_orders"
             referencedColumns: ["wo_id"]
           },
@@ -507,6 +517,13 @@ export type Database = {
             foreignKeyName: "wo_expense_budget_wo_id_fkey"
             columns: ["wo_id"]
             isOneToOne: false
+            referencedRelation: "work_order_summary"
+            referencedColumns: ["wo_id"]
+          },
+          {
+            foreignKeyName: "wo_expense_budget_wo_id_fkey"
+            columns: ["wo_id"]
+            isOneToOne: false
             referencedRelation: "work_orders"
             referencedColumns: ["wo_id"]
           },
@@ -515,6 +532,9 @@ export type Database = {
       work_orders: {
         Row: {
           adjustment_amount: number | null
+          approval_status: string | null
+          approved_at: string | null
+          approved_by: string | null
           created_at: string | null
           currency: string
           engagement_id: string
@@ -526,6 +546,9 @@ export type Database = {
         }
         Insert: {
           adjustment_amount?: number | null
+          approval_status?: string | null
+          approved_at?: string | null
+          approved_by?: string | null
           created_at?: string | null
           currency: string
           engagement_id: string
@@ -537,6 +560,9 @@ export type Database = {
         }
         Update: {
           adjustment_amount?: number | null
+          approval_status?: string | null
+          approved_at?: string | null
+          approved_by?: string | null
           created_at?: string | null
           currency?: string
           engagement_id?: string
@@ -548,6 +574,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "work_orders_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["staff_id"]
+          },
+          {
             foreignKeyName: "work_orders_engagement_id_fkey"
             columns: ["engagement_id"]
             isOneToOne: true
@@ -558,7 +591,41 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      work_order_summary: {
+        Row: {
+          adjustment_amount: number | null
+          approval_status: string | null
+          approved_at: string | null
+          approved_by: string | null
+          created_at: string | null
+          currency: string | null
+          engagement_id: string | null
+          fee_with_tax_gross_up: number | null
+          notes: string | null
+          realization_percent: number | null
+          season_mode: string | null
+          tax_rate: number | null
+          total_standard_fee: number | null
+          updated_at: string | null
+          wo_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_orders_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "work_orders_engagement_id_fkey"
+            columns: ["engagement_id"]
+            isOneToOne: true
+            referencedRelation: "engagements"
+            referencedColumns: ["engagement_id"]
+          },
+        ]
+      }
     }
     Functions: {
       has_role: {

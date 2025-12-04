@@ -9,6 +9,7 @@ export interface Category {
   rate_high_usd: number;
   rate_low_usd: number;
   display_order: number;
+  can_approve_wo: boolean;
 }
 
 export interface Industry {
@@ -59,8 +60,20 @@ export interface WorkOrder {
   season_mode: 'High' | 'Low';
   tax_rate: number;
   adjustment_amount: number;
+  approval_status: 'Draft' | 'Pending_Approval' | 'Approved' | 'Rejected';
+  approved_by: string | null;
+  approved_at: string | null;
   engagement?: Engagement;
   budget_lines?: WOBudgetLine[];
+  expense_budget?: WOExpenseBudget[];
+}
+
+export interface WOExpenseBudget {
+  wo_exp_id: string;
+  wo_id: string;
+  expense_type_id: string;
+  budgeted_amount: number;
+  expense_type?: ExpenseType;
 }
 
 export interface WOBudgetLine {
@@ -214,12 +227,49 @@ export function useWorkOrders() {
           budget_lines:wo_budget_lines(
             *,
             category:categories(*)
+          ),
+          expense_budget:wo_expense_budget(
+            *,
+            expense_type:expense_types(*)
           )
         `)
         .order('created_at', { ascending: false });
       if (error) throw error;
       return data as WorkOrder[];
     },
+  });
+}
+
+export function useWorkOrderById(id: string) {
+  return useQuery({
+    queryKey: ['work_order', id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('work_orders')
+        .select(`
+          *,
+          engagement:engagements(
+            *,
+            client:clients(
+              *,
+              industry:industries(*)
+            )
+          ),
+          budget_lines:wo_budget_lines(
+            *,
+            category:categories(*)
+          ),
+          expense_budget:wo_expense_budget(
+            *,
+            expense_type:expense_types(*)
+          )
+        `)
+        .eq('wo_id', id)
+        .maybeSingle();
+      if (error) throw error;
+      return data as WorkOrder | null;
+    },
+    enabled: !!id,
   });
 }
 
