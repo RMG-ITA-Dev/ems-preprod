@@ -243,6 +243,7 @@ const WorkOrderEdit = () => {
           onSubmitForApproval={handleSubmitForApproval}
           onApprove={handleApprove}
           onReject={handleReject}
+          onCancel={() => navigate("/work-orders")}
           isLocked={isLocked}
           canApprove={canApprove}
           isSubmitting={
