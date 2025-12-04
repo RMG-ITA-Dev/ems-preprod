@@ -6,9 +6,12 @@ import {
   Users, 
   Settings,
   FileText,
-  Receipt
+  Receipt,
+  LogOut
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
+import { useAuth } from "@/hooks/useAuth";
+import { useNavigate } from "react-router-dom";
 import {
   Sidebar,
   SidebarContent,
@@ -40,6 +43,18 @@ const adminItems = [
 ];
 
 export function AppSidebar() {
+  const { user, signOut } = useAuth();
+  const navigate = useNavigate();
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate("/auth");
+  };
+
+  const userName = user?.user_metadata?.first_name 
+    ? `${user.user_metadata.first_name} ${user.user_metadata.last_name || ''}`
+    : user?.email || 'User';
+
   return (
     <Sidebar className="border-r-0">
       <SidebarHeader className="p-6 border-b border-sidebar-border">
@@ -130,8 +145,17 @@ export function AppSidebar() {
       </SidebarContent>
 
       <SidebarFooter className="p-4 border-t border-sidebar-border">
-        <div className="text-xs text-sidebar-muted">
-          © 2024 EMS 2.0
+        <div className="flex items-center justify-between">
+          <div className="text-xs text-sidebar-muted truncate max-w-[140px]">
+            {userName}
+          </div>
+          <button 
+            onClick={handleSignOut}
+            className="p-2 rounded-lg text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors"
+            title="Sign out"
+          >
+            <LogOut className="h-4 w-4" />
+          </button>
         </div>
       </SidebarFooter>
     </Sidebar>
