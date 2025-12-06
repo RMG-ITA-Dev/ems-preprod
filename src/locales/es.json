@@ -181,7 +181,9 @@
     "deleteClient": "Eliminar Cliente",
     "searchPlaceholder": "Buscar por nombre, NIT, o contacto...",
     "activeDescription": "Los clientes activos pueden tener encargos",
-    "selectIndustry": "Seleccionar una industria"
+    "selectIndustry": "Seleccionar una industria",
+    "clientEngagements": "Encargos del Cliente",
+    "noEngagements": "Sin encargos para este cliente"
   },
   "engagement": {
     "code": "Código",
