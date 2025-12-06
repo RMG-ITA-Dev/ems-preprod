@@ -48,16 +48,17 @@
     --brand-teal: 186 100% 29%;
     --brand-navy: 213 77% 25%;
     --brand-gray: 252 2% 46%;
+    --brand-gold: 41 76% 61%;
 
-    /* Sidebar (Light Mode) */
-    --sidebar-background: 213 77% 25%; /* Navy Sidebar creates nice contrast with Teal content */
+    /* Sidebar (Light Mode) - Teal background with Purple highlights */
+    --sidebar-background: 186 100% 29%;
     --sidebar-foreground: 0 0% 100%;
-    --sidebar-primary: 186 100% 29%; /* Teal Highlights */
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 217 58% 39%;
+    --sidebar-primary: 255 82% 75%;
+    --sidebar-primary-foreground: 213 77% 25%;
+    --sidebar-accent: 255 82% 75%;
     --sidebar-accent-foreground: 0 0% 100%;
-    --sidebar-border: 217 58% 39%;
-    --sidebar-ring: 186 100% 29%;
+    --sidebar-border: 186 100% 22%;
+    --sidebar-ring: 255 82% 75%;
   }
 
   .dark {
@@ -92,15 +93,15 @@
     --input: 217 58% 39%;
     --ring: 186 100% 29%;
 
-    /* Sidebar (Dark Mode) */
-    --sidebar-background: 206 100% 12%;
+    /* Sidebar (Dark Mode) - Darker Teal with softer Purple */
+    --sidebar-background: 186 100% 20%;
     --sidebar-foreground: 215 50% 98%;
-    --sidebar-primary: 186 100% 29%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 217 58% 39%;
+    --sidebar-primary: 255 70% 70%;
+    --sidebar-primary-foreground: 213 77% 25%;
+    --sidebar-accent: 255 70% 70%;
     --sidebar-accent-foreground: 215 50% 98%;
-    --sidebar-border: 217 58% 39%;
-    --sidebar-ring: 186 100% 29%;
+    --sidebar-border: 186 100% 15%;
+    --sidebar-ring: 255 70% 70%;
   }
 }
 
