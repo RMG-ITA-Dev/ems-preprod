@@ -25,6 +25,9 @@ export interface Staff {
   email: string | null;
   category_id: string | null;
   is_active: boolean;
+  city: string | null;
+  id_number: string | null;
+  aud_reg_number: string | null;
   category?: Category;
 }
 

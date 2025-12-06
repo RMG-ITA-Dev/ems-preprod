@@ -43,6 +43,9 @@ const formSchema = z.object({
   last_name: z.string().min(1, "Last name is required"),
   email: z.string().email("Invalid email").optional().or(z.literal("")),
   category_id: z.string().optional(),
+  city: z.string().optional(),
+  id_number: z.string().optional(),
+  aud_reg_number: z.string().optional(),
   is_active: z.boolean(),
 });
 
@@ -68,6 +71,9 @@ export function StaffForm({ staff }: StaffFormProps) {
       last_name: "",
       email: "",
       category_id: "",
+      city: "",
+      id_number: "",
+      aud_reg_number: "",
       is_active: true,
     },
   });
@@ -79,6 +85,9 @@ export function StaffForm({ staff }: StaffFormProps) {
         last_name: staff.last_name,
         email: staff.email || "",
         category_id: staff.category_id || "",
+        city: staff.city || "",
+        id_number: staff.id_number || "",
+        aud_reg_number: staff.aud_reg_number || "",
         is_active: staff.is_active,
       });
     }
@@ -90,6 +99,9 @@ export function StaffForm({ staff }: StaffFormProps) {
       last_name: data.last_name,
       email: data.email || undefined,
       category_id: data.category_id || undefined,
+      city: data.city || undefined,
+      id_number: data.id_number || undefined,
+      aud_reg_number: data.aud_reg_number || undefined,
       is_active: data.is_active,
     };
     if (isEdit && staff) {
@@ -192,6 +204,58 @@ export function StaffForm({ staff }: StaffFormProps) {
                   </FormItem>
                 )}
               />
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <FormField
+                  control={form.control}
+                  name="city"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t("staff.city")}</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder={t("staff.selectCity")} />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="La Paz">La Paz</SelectItem>
+                          <SelectItem value="Santa Cruz">Santa Cruz</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="id_number"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t("staff.idNumber")}</FormLabel>
+                      <FormControl>
+                        <Input placeholder="12345678" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="aud_reg_number"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t("staff.audRegNumber")}</FormLabel>
+                      <FormControl>
+                        <Input placeholder="AUD-001" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
             </div>
 
             <div className="space-y-4">
