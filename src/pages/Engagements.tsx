@@ -39,7 +39,7 @@ const Engagements = () => {
       key: "engagement_code",
       label: t("engagement.code"),
       sortable: true,
-      className: "w-28",
+      className: "w-32",
       render: (row) => <span className="font-mono text-muted-foreground">{row.engagement_code || "-"}</span>,
     },
     {
