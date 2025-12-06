@@ -129,31 +129,31 @@ const Auth = () => {
       <div className="hidden lg:flex lg:w-1/2 bg-primary p-12 flex-col justify-between">
         <div>
           <div className="flex items-center gap-3 mb-16">
-            <div className="h-12 w-12 rounded-xl bg-white/10 backdrop-blur flex items-center justify-center">
-              <Briefcase className="h-6 w-6 text-white" />
+            <div className="h-12 w-12 rounded-xl bg-primary-foreground/10 backdrop-blur flex items-center justify-center">
+              <Briefcase className="h-6 w-6 text-primary-foreground" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-white">EMS 2.0</h1>
-              <p className="text-white/70 text-sm">Engagement Management System</p>
+              <h1 className="text-2xl font-bold text-primary-foreground">EMS 2.0</h1>
+              <p className="text-primary-foreground/70 text-sm">Engagement Management System</p>
             </div>
           </div>
 
           <div className="space-y-8">
             {features.map((feature, index) => (
               <div key={index} className="flex gap-4">
-                <div className="h-10 w-10 rounded-lg bg-white/10 backdrop-blur flex items-center justify-center flex-shrink-0">
-                  <feature.icon className="h-5 w-5 text-white" />
+                <div className="h-10 w-10 rounded-lg bg-primary-foreground/10 backdrop-blur flex items-center justify-center flex-shrink-0">
+                  <feature.icon className="h-5 w-5 text-primary-foreground" />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-white mb-1">{feature.title}</h3>
-                  <p className="text-white/70 text-sm leading-relaxed">{feature.description}</p>
+                  <h3 className="font-semibold text-primary-foreground mb-1">{feature.title}</h3>
+                  <p className="text-primary-foreground/70 text-sm leading-relaxed">{feature.description}</p>
                 </div>
               </div>
             ))}
           </div>
         </div>
 
-        <p className="text-white/50 text-sm">
+        <p className="text-primary-foreground/50 text-sm">
           {t("auth.trustedBy")}
         </p>
       </div>
