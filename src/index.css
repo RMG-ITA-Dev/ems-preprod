@@ -29,9 +29,9 @@
     --muted: 215 20% 96%;
     --muted-foreground: 252 3% 65%;
 
-    /* ACCENT: Using the Gold (#e7b952) for soft highlights/hover */
-    --accent: 41 76% 61%;
-    --accent-foreground: 213 77% 25%;
+    /* ACCENT: Neutral Gray (#727176) for muted highlights */
+    --accent: 252 2% 46%;
+    --accent-foreground: 0 0% 100%;
 
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
@@ -47,7 +47,7 @@
     /* --- Custom Tokens for Reference --- */
     --brand-teal: 186 100% 29%;
     --brand-navy: 213 77% 25%;
-    --brand-gold: 41 76% 61%;
+    --brand-gray: 252 2% 46%;
 
     /* Sidebar (Light Mode) */
     --sidebar-background: 213 77% 25%; /* Navy Sidebar creates nice contrast with Teal content */
@@ -82,7 +82,7 @@
     --muted: 217 58% 25%;
     --muted-foreground: 215 50% 81%;
 
-    --accent: 217 58% 39%;
+    --accent: 252 2% 46%;
     --accent-foreground: 0 0% 100%;
 
     --destructive: 0 62% 30%;
