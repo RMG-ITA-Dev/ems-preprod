@@ -176,7 +176,7 @@
     "createClient": "Crear Cliente",
     "deleteClient": "Eliminar Cliente",
     "searchPlaceholder": "Buscar por nombre, NIT, o contacto...",
-    "activeDescription": "Los clientes activos pueden tener compromisos",
+    "activeDescription": "Los clientes activos pueden tener encargos",
     "selectIndustry": "Seleccionar una industria"
   },
   "engagement": {
@@ -259,7 +259,7 @@
     "addRow": "Agregar Fila",
     "saveDraft": "Guardar Borrador",
     "submitWeek": "Enviar Semana",
-    "selectEngagement": "Seleccionar compromiso",
+    "selectEngagement": "Seleccionar Encargo",
     "selectActivity": "Seleccionar actividad",
     "weekDays": {
       "mon": "Lun",
@@ -306,8 +306,8 @@
     "summary": "Resumen",
     "adjustedFee": "Honorario Ajustado",
     "backToList": "Volver a Órdenes",
-    "selectEngagement": "Seleccionar Compromiso",
-    "selectEngagementFirst": "Por favor seleccione un compromiso primero",
+    "selectEngagement": "Seleccionar Encargo",
+    "selectEngagementFirst": "Por favor seleccione un encargo primero",
     "autoDetected": "auto-detectado",
     "submitForApproval": "Enviar para Aprobación",
     "approve": "Aprobar",
@@ -337,8 +337,8 @@
     "demoDescription": "Para pruebas - crea/inicia sesión en cuenta admin demo",
     "trustedBy": "Confiado por profesionales de auditoría y consultoría en Bolivia",
     "features": {
-      "engagementManagement": "Gestión de Compromisos",
-      "engagementDesc": "Rastree compromisos de clientes, órdenes de trabajo y presupuestos con precisión.",
+      "engagementManagement": "Gestión de Encargos",
+      "engagementDesc": "Busque encargos de clientes, órdenes de trabajo y presupuestos con precisión.",
       "multiCurrency": "Soporte Multi-Moneda",
       "multiCurrencyDesc": "Maneje transacciones en BOB y USD con cálculos automáticos de tasas.",
       "staffTracking": "Personal y Control de Tiempo",
