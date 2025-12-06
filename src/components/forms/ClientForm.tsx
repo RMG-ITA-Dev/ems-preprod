@@ -54,9 +54,10 @@ type FormData = z.infer<typeof formSchema>;
 
 interface ClientFormProps {
   client?: Client | null;
+  compact?: boolean;
 }
 
-export function ClientForm({ client }: ClientFormProps) {
+export function ClientForm({ client, compact = false }: ClientFormProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const isEdit = !!client;
@@ -120,6 +121,152 @@ export function ClientForm({ client }: ClientFormProps) {
     }
   };
 
+  // Compact layout for edit page with engagement list
+  if (compact) {
+    return (
+      <div className="bg-card rounded-lg border border-border p-4">
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-3">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+              <FormField
+                control={form.control}
+                name="client_legal_name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-xs">{t("client.legalName")} *</FormLabel>
+                    <FormControl>
+                      <Input className="h-8 text-sm" placeholder="Company Name S.A." {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="unique_tax_id"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-xs">{t("client.nitLabel")} *</FormLabel>
+                    <FormControl>
+                      <Input className="h-8 text-sm" placeholder="123456789" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="industry_id"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-xs">{t("client.industry")}</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger className="h-8 text-sm">
+                          <SelectValue placeholder={t("client.selectIndustry")} />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {industries?.map((ind) => (
+                          <SelectItem key={ind.industry_id} value={ind.industry_id}>
+                            {ind.industry_name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="is_active"
+                render={({ field }) => (
+                  <FormItem className="flex items-center gap-2 pt-5">
+                    <FormControl>
+                      <Switch checked={field.value} onCheckedChange={field.onChange} />
+                    </FormControl>
+                    <FormLabel className="text-sm">{t("common.active")}</FormLabel>
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+              <FormField
+                control={form.control}
+                name="contact_name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-xs">{t("client.contactName")}</FormLabel>
+                    <FormControl>
+                      <Input className="h-8 text-sm" placeholder="John Doe" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="contact_email"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-xs">{t("client.contactEmail")}</FormLabel>
+                    <FormControl>
+                      <Input className="h-8 text-sm" type="email" placeholder="contact@company.com" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="contact_phone"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-xs">{t("client.contactPhone")}</FormLabel>
+                    <FormControl>
+                      <Input className="h-8 text-sm" placeholder="+591 12345678" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="address"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-xs">{t("client.address")}</FormLabel>
+                    <FormControl>
+                      <Input className="h-8 text-sm" placeholder="Street, City" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => navigate("/clients")}>
+                {t("common.cancel")}
+              </Button>
+              <Button
+                type="submit"
+                size="sm"
+                className="bg-accent hover:bg-accent/90 text-accent-foreground"
+                disabled={createMutation.isPending || updateMutation.isPending}
+              >
+                {t("common.saveChanges")}
+              </Button>
+            </div>
+          </form>
+        </Form>
+      </div>
+    );
+  }
+
+  // Full layout for new client page
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">

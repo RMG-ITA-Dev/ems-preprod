@@ -181,7 +181,9 @@
     "deleteClient": "Delete Client",
     "searchPlaceholder": "Search by client name, NIT, or contact...",
     "activeDescription": "Active clients can have engagements",
-    "selectIndustry": "Select an industry"
+    "selectIndustry": "Select an industry",
+    "clientEngagements": "Client Engagements",
+    "noEngagements": "No engagements for this client"
   },
   "engagement": {
     "code": "Code",
