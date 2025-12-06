@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -63,15 +64,29 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      category_name: category?.category_name || "",
-      display_order: category?.display_order || 0,
-      rate_high_bob: category?.rate_high_bob || 0,
-      rate_low_bob: category?.rate_low_bob || 0,
-      rate_high_usd: category?.rate_high_usd || 0,
-      rate_low_usd: category?.rate_low_usd || 0,
-      can_approve_wo: category?.can_approve_wo || false,
+      category_name: "",
+      display_order: 0,
+      rate_high_bob: 0,
+      rate_low_bob: 0,
+      rate_high_usd: 0,
+      rate_low_usd: 0,
+      can_approve_wo: false,
     },
   });
+
+  useEffect(() => {
+    if (open) {
+      form.reset({
+        category_name: category?.category_name || "",
+        display_order: category?.display_order || 0,
+        rate_high_bob: category?.rate_high_bob || 0,
+        rate_low_bob: category?.rate_low_bob || 0,
+        rate_high_usd: category?.rate_high_usd || 0,
+        rate_low_usd: category?.rate_low_usd || 0,
+        can_approve_wo: category?.can_approve_wo || false,
+      });
+    }
+  }, [open, category, form]);
 
   const onSubmit = async (data: FormData) => {
     const payload = {

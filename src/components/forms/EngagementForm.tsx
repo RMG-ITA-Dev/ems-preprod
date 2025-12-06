@@ -102,6 +102,8 @@ export function EngagementForm({ engagement }: EngagementFormProps) {
         partner_id: engagement.partner_id || "",
         manager_id: engagement.manager_id || "",
         status: engagement.status,
+        start_date: engagement.start_date ? new Date(engagement.start_date) : undefined,
+        end_date: engagement.end_date ? new Date(engagement.end_date) : undefined,
       });
     }
   }, [engagement, form]);
