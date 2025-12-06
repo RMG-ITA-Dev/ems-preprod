@@ -60,6 +60,20 @@ export default {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
+        /* --- Semantic Status Colors --- */
+        success: {
+          DEFAULT: "hsl(var(--success))",
+          foreground: "hsl(var(--success-foreground))",
+        },
+        warning: {
+          DEFAULT: "hsl(var(--warning))",
+          foreground: "hsl(var(--warning-foreground))",
+        },
+        info: {
+          DEFAULT: "hsl(var(--info))",
+          foreground: "hsl(var(--info-foreground))",
+        },
+        overlay: "hsl(var(--overlay))",
         /* --- Ruizmier Brand Tokens --- */
         brand: {
           teal: "hsl(var(--brand-teal))",
@@ -67,6 +81,8 @@ export default {
           gray: "hsl(var(--brand-gray))",
           gold: "hsl(var(--brand-gold))",
           purple: "hsl(var(--brand-purple))",
+          blue: "hsl(var(--brand-blue))",
+          "blue-light": "hsl(var(--brand-blue-light))",
         },
       },
       borderRadius: {

@@ -187,10 +187,10 @@ export function WorkOrderForm({
   const isEditable = !isLocked && isDraft;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Zone A: Header */}
       <Card>
-        <CardHeader className="pb-4">
+        <CardHeader className="py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <Badge variant="outline" className={cn("text-sm px-3 py-1", statusColors[approvalStatus])}>
@@ -203,7 +203,7 @@ export function WorkOrderForm({
               <div className="flex items-center gap-2">
                 <Label className="text-sm">{t("workOrders.currency")}</Label>
                 <Select value={currency} onValueChange={(v) => onCurrencyChange(v as "USD" | "BOB")} disabled={isLocked}>
-                  <SelectTrigger className="w-24">
+                  <SelectTrigger className="w-24 h-8">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -236,30 +236,30 @@ export function WorkOrderForm({
 
       {/* Zone B: Budget Grid */}
       <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">{t("workOrders.budgetLines")}</CardTitle>
+        <CardHeader className="py-3">
+          <CardTitle className="text-base">{t("workOrders.budgetLines")}</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="pt-0">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-dense">
               <thead>
                 <tr className="border-b border-border">
-                  <th className="text-left py-2 px-2 font-medium text-muted-foreground" colSpan={4}>
+                  <th className="text-left py-1.5 px-2 font-medium text-muted-foreground" colSpan={4}>
                     {t("workOrders.standard")}
                   </th>
-                  <th className="text-left py-2 px-2 font-medium text-muted-foreground border-l border-border" colSpan={3}>
+                  <th className="text-left py-1.5 px-2 font-medium text-muted-foreground border-l border-border" colSpan={3}>
                     {t("workOrders.adjusted")}
                   </th>
                   <th className="w-10"></th>
                 </tr>
                 <tr className="border-b border-border bg-muted/30">
-                  <th className="text-left py-2 px-2 font-medium">{t("entities.category")}</th>
-                  <th className="text-right py-2 px-2 font-medium w-28">{t("workOrders.hours")}</th>
-                  <th className="text-right py-2 px-2 font-medium w-32">{t("workOrders.rate")}</th>
-                  <th className="text-right py-2 px-2 font-medium w-36">{t("workOrders.total")}</th>
-                  <th className="text-right py-2 px-2 font-medium border-l border-border w-24">{t("workOrders.realization")}</th>
-                  <th className="text-right py-2 px-2 font-medium w-32">{t("workOrders.adjRate")}</th>
-                  <th className="text-right py-2 px-2 font-medium w-36">{t("workOrders.adjTotal")}</th>
+                  <th className="text-left py-1.5 px-2 font-medium">{t("entities.category")}</th>
+                  <th className="text-right py-1.5 px-2 font-medium w-24">{t("workOrders.hours")}</th>
+                  <th className="text-right py-1.5 px-2 font-medium w-28">{t("workOrders.rate")}</th>
+                  <th className="text-right py-1.5 px-2 font-medium w-32">{t("workOrders.total")}</th>
+                  <th className="text-right py-1.5 px-2 font-medium border-l border-border w-20">{t("workOrders.realization")}</th>
+                  <th className="text-right py-1.5 px-2 font-medium w-28">{t("workOrders.adjRate")}</th>
+                  <th className="text-right py-1.5 px-2 font-medium w-32">{t("workOrders.adjTotal")}</th>
                   <th className="w-10"></th>
                 </tr>
               </thead>
@@ -271,13 +271,13 @@ export function WorkOrderForm({
                   
                   return (
                     <tr key={line.id} className="border-b border-border hover:bg-muted/20">
-                      <td className="py-2 px-2">
+                      <td className="py-1.5 px-2">
                         <Select
                           value={line.category_id}
                           onValueChange={(v) => updateBudgetLine(line.id, "category_id", v)}
                           disabled={!isEditable}
                         >
-                          <SelectTrigger className="w-full">
+                          <SelectTrigger className="w-full h-8">
                             <SelectValue placeholder={t("form.selectCategory")} />
                           </SelectTrigger>
                           <SelectContent>
@@ -289,39 +289,39 @@ export function WorkOrderForm({
                           </SelectContent>
                         </Select>
                       </td>
-                      <td className="py-2 px-2">
+                      <td className="py-1.5 px-2">
                         <Input
                           type="number"
                           min={0}
                           step={0.5}
                           value={line.budgeted_hours || ""}
                           onChange={(e) => updateBudgetLine(line.id, "budgeted_hours", parseFloat(e.target.value) || 0)}
-                          className="text-right"
+                          className="text-right h-8"
                           disabled={!isEditable}
                         />
                       </td>
-                      <td className="py-2 px-2 text-right font-mono text-muted-foreground">
+                      <td className="py-1.5 px-2 text-right font-mono text-muted-foreground">
                         {formatCurrency(line.standard_rate)}
                       </td>
-                      <td className="py-2 px-2 text-right font-mono font-medium">
+                      <td className="py-1.5 px-2 text-right font-mono font-medium">
                         {formatCurrency(lineTotal)}
                       </td>
-                      <td className="py-2 px-2 text-right font-mono border-l border-border text-muted-foreground">
+                      <td className="py-1.5 px-2 text-right font-mono border-l border-border text-muted-foreground">
                         {realizationPercent.toFixed(1)}%
                       </td>
-                      <td className="py-2 px-2 text-right font-mono text-muted-foreground">
+                      <td className="py-1.5 px-2 text-right font-mono text-muted-foreground">
                         {formatCurrency(adjustedRate)}
                       </td>
-                      <td className="py-2 px-2 text-right font-mono font-medium">
+                      <td className="py-1.5 px-2 text-right font-mono font-medium">
                         {formatCurrency(adjustedTotal)}
                       </td>
-                      <td className="py-2 px-2">
+                      <td className="py-1.5 px-2">
                         {isEditable && (
                           <Button
                             variant="ghost"
                             size="icon"
                             onClick={() => removeBudgetLine(line.id)}
-                            className="h-8 w-8 text-destructive hover:text-destructive"
+                            className="h-7 w-7 text-destructive hover:text-destructive"
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -333,15 +333,15 @@ export function WorkOrderForm({
               </tbody>
               <tfoot>
                 <tr className="bg-muted/50 font-medium">
-                  <td className="py-3 px-2" colSpan={3}>
+                  <td className="py-2 px-2" colSpan={3}>
                     {t("workOrders.subtotal")}
                   </td>
-                  <td className="py-3 px-2 text-right font-mono">
+                  <td className="py-2 px-2 text-right font-mono">
                     {formatCurrency(totalStandardFee)}
                   </td>
-                  <td className="py-3 px-2 border-l border-border"></td>
-                  <td className="py-3 px-2"></td>
-                  <td className="py-3 px-2 text-right font-mono">
+                  <td className="py-2 px-2 border-l border-border"></td>
+                  <td className="py-2 px-2"></td>
+                  <td className="py-2 px-2 text-right font-mono">
                     {formatCurrency(totalAdjustedFee)}
                   </td>
                   <td></td>
@@ -350,7 +350,7 @@ export function WorkOrderForm({
             </table>
           </div>
           {isEditable && (
-            <Button variant="outline" onClick={addBudgetLine} className="mt-4">
+            <Button variant="outline" onClick={addBudgetLine} className="mt-3" size="sm">
               <Plus className="h-4 w-4 mr-2" />
               {t("workOrders.addLine")}
             </Button>
@@ -359,22 +359,22 @@ export function WorkOrderForm({
       </Card>
 
       {/* Zone C: Footer - Expenses, Adjustment, Tax */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Expenses Section */}
         <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">{t("workOrders.expenses")}</CardTitle>
+          <CardHeader className="py-3">
+            <CardTitle className="text-base">{t("workOrders.expenses")}</CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
+          <CardContent className="pt-0 form-dense">
+            <div className="space-y-2">
               {expenseBudget.map((exp) => (
-                <div key={exp.id} className="flex items-center gap-3">
+                <div key={exp.id} className="flex items-center gap-2">
                   <Select
                     value={exp.expense_type_id}
                     onValueChange={(v) => updateExpenseBudget(exp.id, "expense_type_id", v)}
                     disabled={!isEditable}
                   >
-                    <SelectTrigger className="flex-1">
+                    <SelectTrigger className="flex-1 h-8">
                       <SelectValue placeholder={t("workOrders.selectExpense")} />
                     </SelectTrigger>
                     <SelectContent>
@@ -390,7 +390,7 @@ export function WorkOrderForm({
                     min={0}
                     value={exp.budgeted_amount || ""}
                     onChange={(e) => updateExpenseBudget(exp.id, "budgeted_amount", parseFloat(e.target.value) || 0)}
-                    className="w-32 text-right"
+                    className="w-28 text-right h-8"
                     disabled={!isEditable}
                   />
                   {isEditable && (
@@ -398,7 +398,7 @@ export function WorkOrderForm({
                       variant="ghost"
                       size="icon"
                       onClick={() => removeExpenseBudget(exp.id)}
-                      className="h-8 w-8 text-destructive"
+                      className="h-7 w-7 text-destructive"
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -411,7 +411,7 @@ export function WorkOrderForm({
                   {t("workOrders.addExpense")}
                 </Button>
               )}
-              <div className="flex justify-between pt-3 border-t border-border font-medium">
+              <div className="flex justify-between pt-2 border-t border-border font-medium">
                 <span>{t("workOrders.totalExpenses")}</span>
                 <span className="font-mono">{formatCurrency(totalExpenses)}</span>
               </div>
@@ -421,22 +421,22 @@ export function WorkOrderForm({
 
         {/* Summary Section */}
         <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">{t("workOrders.summary")}</CardTitle>
+          <CardHeader className="py-3">
+            <CardTitle className="text-base">{t("workOrders.summary")}</CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
+          <CardContent className="pt-0 form-dense">
+            <div className="space-y-2">
               <div className="flex justify-between items-center">
                 <span className="text-muted-foreground">{t("workOrders.standardFee")}</span>
                 <span className="font-mono">{formatCurrency(totalStandardFee)}</span>
               </div>
               <div className="flex justify-between items-center">
-                <Label>{t("workOrders.adjustment")}</Label>
+                <Label className="text-sm">{t("workOrders.adjustment")}</Label>
                 <Input
                   type="number"
                   value={adjustmentAmount || ""}
                   onChange={(e) => onAdjustmentChange(parseFloat(e.target.value) || 0)}
-                  className="w-40 text-right"
+                  className="w-36 text-right h-8"
                   disabled={!isEditable}
                 />
               </div>
@@ -454,15 +454,15 @@ export function WorkOrderForm({
                 <span className="text-muted-foreground">{t("workOrders.expenses")}</span>
                 <span className="font-mono">{formatCurrency(totalExpenses)}</span>
               </div>
-              <div className="border-t border-border pt-4">
+              <div className="border-t border-border pt-2">
                 <div className="flex justify-between items-center text-muted-foreground">
                   <span>{t("workOrders.iva")} ({(taxRate * 100).toFixed(0)}%)</span>
                   <span className="font-mono">{formatCurrency(feeWithTax - totalAdjustedFee - totalExpenses)}</span>
                 </div>
               </div>
               <div className="flex justify-between items-center pt-2 border-t border-border">
-                <span className="font-semibold text-lg">{t("workOrders.feeWithTax")}</span>
-                <span className="font-mono font-bold text-lg text-accent">{formatCurrency(feeWithTax)}</span>
+                <span className="font-semibold">{t("workOrders.feeWithTax")}</span>
+                <span className="font-mono font-bold text-accent">{formatCurrency(feeWithTax)}</span>
               </div>
             </div>
           </CardContent>
@@ -472,17 +472,17 @@ export function WorkOrderForm({
       {/* Actions */}
       <div className="flex justify-end gap-3">
         {onCancel && (
-          <Button variant="outline" onClick={onCancel} disabled={isSubmitting}>
+          <Button variant="outline" onClick={onCancel} disabled={isSubmitting} className="btn-action">
             {t("common.cancel")}
           </Button>
         )}
         {isDraft && (
           <>
-            <Button onClick={onSubmit} disabled={isSubmitting}>
+            <Button onClick={onSubmit} disabled={isSubmitting} className="btn-action">
               {t("common.save")}
             </Button>
             {onSubmitForApproval && (
-              <Button onClick={onSubmitForApproval} className="bg-info hover:bg-info/90" disabled={isSubmitting}>
+              <Button onClick={onSubmitForApproval} className="bg-info hover:bg-info/90 btn-action" disabled={isSubmitting}>
                 <Send className="h-4 w-4 mr-2" />
                 {t("workOrders.submitForApproval")}
               </Button>
@@ -492,13 +492,13 @@ export function WorkOrderForm({
         {isPending && canApprove && (
           <>
             {onReject && (
-              <Button variant="outline" onClick={onReject} className="text-destructive border-destructive" disabled={isSubmitting}>
+              <Button variant="outline" onClick={onReject} className="text-destructive border-destructive btn-action" disabled={isSubmitting}>
                 <XCircle className="h-4 w-4 mr-2" />
                 {t("workOrders.reject")}
               </Button>
             )}
             {onApprove && (
-              <Button onClick={onApprove} className="bg-success hover:bg-success/90" disabled={isSubmitting}>
+              <Button onClick={onApprove} className="bg-success hover:bg-success/90 btn-action" disabled={isSubmitting}>
                 <CheckCircle className="h-4 w-4 mr-2" />
                 {t("workOrders.approve")}
               </Button>
