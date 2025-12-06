@@ -199,7 +199,7 @@ export function DataTable<T extends Record<string, any>>({
               value={filterValues[filter.key] || "all"}
               onValueChange={(val) => setFilterValues((prev) => ({ ...prev, [filter.key]: val }))}
             >
-              <SelectTrigger className="w-[140px]">
+              <SelectTrigger className="w-[160px]">
                 <SelectValue placeholder={`${t("common.all")} ${filter.label}`} />
               </SelectTrigger>
               <SelectContent>
@@ -214,7 +214,7 @@ export function DataTable<T extends Record<string, any>>({
           ))}
           {statusFilter && (
             <Select value={statusValue} onValueChange={setStatusValue}>
-              <SelectTrigger className="w-[140px]">
+              <SelectTrigger className="w-[160px]">
                 <SelectValue placeholder={t("common.allStatus")} />
               </SelectTrigger>
               <SelectContent>
