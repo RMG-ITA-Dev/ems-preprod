@@ -1,23 +1,10 @@
 import { useState, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Search, Plus, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight } from "lucide-react";
 
 export interface Column<T> {
@@ -73,7 +60,7 @@ export function DataTable<T extends Record<string, any>>({
   const [statusValue, setStatusValue] = useState("all");
   const [filterValues, setFilterValues] = useState<Record<string, string>>({});
   const [currentPage, setCurrentPage] = useState(1);
-  const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [rowsPerPage, setRowsPerPage] = useState(20);
 
   const handleSort = (columnKey: string) => {
     if (sortColumn === columnKey) {
@@ -113,8 +100,10 @@ export function DataTable<T extends Record<string, any>>({
       result = result.filter((row) =>
         searchKeys.some((key) => {
           const value = key.split(".").reduce((obj, k) => obj?.[k], row as any);
-          return String(value || "").toLowerCase().includes(lowerSearch);
-        })
+          return String(value || "")
+            .toLowerCase()
+            .includes(lowerSearch);
+        }),
       );
     }
 
@@ -148,19 +137,17 @@ export function DataTable<T extends Record<string, any>>({
       result.sort((a, b) => {
         const aVal = sortColumn.split(".").reduce((obj, k) => obj?.[k], a as any);
         const bVal = sortColumn.split(".").reduce((obj, k) => obj?.[k], b as any);
-        
+
         if (aVal == null) return sortDirection === "asc" ? 1 : -1;
         if (bVal == null) return sortDirection === "asc" ? -1 : 1;
-        
+
         if (typeof aVal === "number" && typeof bVal === "number") {
           return sortDirection === "asc" ? aVal - bVal : bVal - aVal;
         }
-        
+
         const aStr = String(aVal).toLowerCase();
         const bStr = String(bVal).toLowerCase();
-        return sortDirection === "asc" 
-          ? aStr.localeCompare(bStr) 
-          : bStr.localeCompare(aStr);
+        return sortDirection === "asc" ? aStr.localeCompare(bStr) : bStr.localeCompare(aStr);
       });
     }
 
@@ -203,7 +190,9 @@ export function DataTable<T extends Record<string, any>>({
                 <SelectValue placeholder={`${t("common.all")} ${filter.label}`} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">{t("common.all")} {filter.label}</SelectItem>
+                <SelectItem value="all">
+                  {t("common.all")} {filter.label}
+                </SelectItem>
                 {filter.options.map((opt) => (
                   <SelectItem key={opt.value} value={opt.value}>
                     {opt.label}
@@ -229,10 +218,7 @@ export function DataTable<T extends Record<string, any>>({
           )}
         </div>
         {onNewClick && (
-          <Button
-            onClick={onNewClick}
-            className="bg-accent hover:bg-accent/90 text-accent-foreground"
-          >
+          <Button onClick={onNewClick} className="bg-accent hover:bg-accent/90 text-accent-foreground">
             <Plus className="h-4 w-4 mr-2" />
             {newButtonLabel || t("common.new")}
           </Button>
@@ -273,10 +259,7 @@ export function DataTable<T extends Record<string, any>>({
               ))
             ) : paginatedData.length === 0 ? (
               <TableRow>
-                <TableCell
-                  colSpan={columns.length}
-                  className="h-24 text-center text-muted-foreground"
-                >
+                <TableCell colSpan={columns.length} className="h-24 text-center text-muted-foreground">
                   {t("common.noResults")}
                 </TableCell>
               </TableRow>
@@ -284,9 +267,7 @@ export function DataTable<T extends Record<string, any>>({
               paginatedData.map((row) => (
                 <TableRow
                   key={getRowId(row)}
-                  className={`${
-                    onRowClick ? "cursor-pointer hover:bg-muted/30" : ""
-                  }`}
+                  className={`${onRowClick ? "cursor-pointer hover:bg-muted/30" : ""}`}
                   onClick={() => onRowClick?.(row)}
                 >
                   {columns.map((col) => (
@@ -311,8 +292,7 @@ export function DataTable<T extends Record<string, any>>({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="10">10</SelectItem>
-                <SelectItem value="25">25</SelectItem>
+                <SelectItem value="20">20</SelectItem>
                 <SelectItem value="50">50</SelectItem>
                 <SelectItem value="100">100</SelectItem>
               </SelectContent>
