@@ -61,8 +61,8 @@ export function AppSidebar() {
     <Sidebar className="border-r-0">
       <SidebarHeader className="p-6 border-b border-sidebar-border">
         <div className="flex items-center gap-3">
-          <div className="h-9 w-9 rounded-lg bg-sidebar-primary flex items-center justify-center">
-            <span className="text-sidebar-primary-foreground font-bold text-sm">EMS</span>
+          <div className="h-9 w-9 rounded-lg bg-white/10 backdrop-blur flex items-center justify-center">
+            <span className="text-sidebar-foreground font-bold text-sm">EMS</span>
           </div>
           <div>
             <h1 className="font-semibold text-sidebar-foreground text-lg leading-none">EMS 2.0</h1>
