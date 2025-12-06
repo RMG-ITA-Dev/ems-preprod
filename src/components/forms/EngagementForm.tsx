@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Calendar } from "@/components/ui/calendar";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Form,
   FormControl,
@@ -38,9 +39,10 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Engagement, useClients, useStaff } from "@/hooks/useEmsData";
+import { Engagement, useClients } from "@/hooks/useEmsData";
+import { useCategoryStaff } from "@/hooks/useCategoryStaff";
 import { useCreateEngagement, useUpdateEngagement, useDeleteEngagement } from "@/hooks/useEmsMutations";
-import { Trash2, ArrowLeft, CalendarIcon } from "lucide-react";
+import { Trash2, ArrowLeft, CalendarIcon, AlertCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 
@@ -66,13 +68,16 @@ export function EngagementForm({ engagement }: EngagementFormProps) {
   const navigate = useNavigate();
   const isEdit = !!engagement;
   const { data: clients } = useClients();
-  const { data: staff } = useStaff();
+  const { partners, managerOptions, hasPartnerCategory, hasManagerCategory } = useCategoryStaff();
   const createMutation = useCreateEngagement();
   const updateMutation = useUpdateEngagement();
   const deleteMutation = useDeleteEngagement();
 
-  // Filter staff for partners (category_name includes "Partner")
-  const partners = staff?.filter((s) => s.category?.category_name?.toLowerCase().includes("partner"));
+  // Build missing categories message
+  const missingCategories: string[] = [];
+  if (!hasPartnerCategory) missingCategories.push(t("engagement.partner"));
+  if (!hasManagerCategory) missingCategories.push(t("engagement.manager"));
+  const hasMissingCategories = missingCategories.length > 0;
 
   const statusOptions = [
     { value: "active", label: t("status.active") },
@@ -170,6 +175,15 @@ export function EngagementForm({ engagement }: EngagementFormProps) {
           </AlertDialog>
         )}
       </div>
+
+      {hasMissingCategories && !isEdit && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            {t("messages.missingCategories", { categories: missingCategories.join(", ") })}
+          </AlertDescription>
+        </Alert>
+      )}
 
       <div className="bg-card rounded-xl border border-border p-6">
         <Form {...form}>
@@ -300,9 +314,9 @@ export function EngagementForm({ engagement }: EngagementFormProps) {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {staff?.map((s) => (
-                            <SelectItem key={s.staff_id} value={s.staff_id}>
-                              {s.first_name} {s.last_name}
+                          {managerOptions.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>
+                              {opt.label}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -398,7 +412,7 @@ export function EngagementForm({ engagement }: EngagementFormProps) {
               <Button
                 type="submit"
                 className="bg-accent hover:bg-accent/90 text-accent-foreground"
-                disabled={createMutation.isPending || updateMutation.isPending}
+                disabled={createMutation.isPending || updateMutation.isPending || (hasMissingCategories && !isEdit)}
               >
                 {isEdit ? t("common.saveChanges") : t("engagement.createEngagement")}
               </Button>

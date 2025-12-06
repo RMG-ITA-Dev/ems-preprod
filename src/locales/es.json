@@ -217,7 +217,8 @@
     "accountCreated": "¡Cuenta creada exitosamente!",
     "invalidCredentials": "Correo o contraseña inválidos. Por favor intente de nuevo.",
     "emailAlreadyRegistered": "Este correo ya está registrado. Por favor inicie sesión.",
-    "welcomeAdmin": "¡Bienvenido, Admin!"
+    "welcomeAdmin": "¡Bienvenido, Admin!",
+    "missingCategories": "Faltan categorías requeridas: {{categories}}. Por favor agréguelas en Configuración antes de crear encargos."
   },
   "form": {
     "required": "Requerido",
