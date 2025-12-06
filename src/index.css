@@ -2,109 +2,105 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap');
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap");
 
 @layer base {
   :root {
-    --background: 210 20% 98%;
-    --foreground: 222 47% 11%;
+    /* BACKGROUND: Very light cool gray/blue tint for freshness */
+    --background: 215 50% 98%;
+    /* TEXT: Keeping the Deep Blue for high-contrast legibility */
+    --foreground: 213 77% 25%;
 
     --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
+    --card-foreground: 213 77% 25%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
+    --popover-foreground: 213 77% 25%;
 
-    --primary: 222 47% 11%;
-    --primary-foreground: 210 40% 98%;
+    /* PRIMARY: Ruizmier Teal (#008795) - Now the Main Theme Color */
+    --primary: 186 100% 29%;
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 215 20% 95%;
-    --secondary-foreground: 222 47% 11%;
+    /* SECONDARY: Ruizmier Deep Blue (#0f3c73) - Moved to secondary role */
+    --secondary: 213 77% 25%;
+    --secondary-foreground: 0 0% 100%;
 
-    --muted: 215 20% 94%;
-    --muted-foreground: 215 16% 47%;
+    /* MUTED: Light Gray (#a5a4a9) */
+    --muted: 215 20% 96%;
+    --muted-foreground: 252 3% 65%;
 
-    --accent: 210 100% 52%;
-    --accent-foreground: 0 0% 100%;
+    /* ACCENT: Using the Gold (#e7b952) for soft highlights/hover */
+    --accent: 41 76% 61%;
+    --accent-foreground: 213 77% 25%;
 
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 214 32% 91%;
-    --input: 214 32% 91%;
-    --ring: 210 100% 52%;
+    --border: 219 42% 85%;
+    --input: 219 42% 85%;
+
+    /* RING: Matching the new Primary Teal */
+    --ring: 186 100% 29%;
 
     --radius: 0.5rem;
 
-    /* Custom EMS tokens */
-    --navy: 222 47% 11%;
-    --navy-light: 222 30% 20%;
-    --slate-50: 210 40% 98%;
-    --slate-100: 210 40% 96%;
-    --slate-200: 214 32% 91%;
-    --slate-400: 215 20% 65%;
-    --slate-500: 215 16% 47%;
-    --slate-600: 215 19% 35%;
-    --slate-700: 215 25% 27%;
-    --slate-800: 217 33% 17%;
-    --slate-900: 222 47% 11%;
-    
-    --success: 142 76% 36%;
-    --success-foreground: 0 0% 100%;
-    --warning: 38 92% 50%;
-    --warning-foreground: 0 0% 100%;
-    --info: 199 89% 48%;
-    --info-foreground: 0 0% 100%;
+    /* --- Custom Tokens for Reference --- */
+    --brand-teal: 186 100% 29%;
+    --brand-navy: 213 77% 25%;
+    --brand-gold: 41 76% 61%;
 
-    /* Sidebar */
-    --sidebar-background: 222 47% 11%;
-    --sidebar-foreground: 210 40% 98%;
-    --sidebar-primary: 210 100% 52%;
+    /* Sidebar (Light Mode) */
+    --sidebar-background: 213 77% 25%; /* Navy Sidebar creates nice contrast with Teal content */
+    --sidebar-foreground: 0 0% 100%;
+    --sidebar-primary: 186 100% 29%; /* Teal Highlights */
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 222 30% 18%;
-    --sidebar-accent-foreground: 210 40% 98%;
-    --sidebar-border: 222 30% 20%;
-    --sidebar-ring: 210 100% 52%;
-    --sidebar-muted: 215 20% 65%;
+    --sidebar-accent: 217 58% 39%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 217 58% 39%;
+    --sidebar-ring: 186 100% 29%;
   }
 
   .dark {
-    --background: 222 47% 11%;
-    --foreground: 210 40% 98%;
+    /* BACKGROUND: Brand Darkest Blue (#003055) */
+    --background: 206 100% 17%;
+    --foreground: 215 50% 98%;
 
-    --card: 217 33% 17%;
-    --card-foreground: 210 40% 98%;
+    --card: 217 58% 20%;
+    --card-foreground: 215 50% 98%;
 
-    --popover: 217 33% 17%;
-    --popover-foreground: 210 40% 98%;
+    --popover: 206 100% 17%;
+    --popover-foreground: 215 50% 98%;
 
-    --primary: 210 40% 98%;
-    --primary-foreground: 222 47% 11%;
+    /* PRIMARY: Teal (#008795) - Pops well against the dark blue bg */
+    --primary: 186 100% 29%;
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 217 33% 17%;
-    --secondary-foreground: 210 40% 98%;
+    /* SECONDARY: Lighter Blue (#8aa2cf) for variety in dark mode */
+    --secondary: 219 42% 68%;
+    --secondary-foreground: 206 100% 17%;
 
-    --muted: 217 33% 17%;
-    --muted-foreground: 215 20% 65%;
+    --muted: 217 58% 25%;
+    --muted-foreground: 215 50% 81%;
 
-    --accent: 210 100% 52%;
+    --accent: 217 58% 39%;
     --accent-foreground: 0 0% 100%;
 
     --destructive: 0 62% 30%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 217 33% 17%;
-    --input: 217 33% 17%;
-    --ring: 210 100% 52%;
+    --border: 217 58% 39%;
+    --input: 217 58% 39%;
+    --ring: 186 100% 29%;
 
-    --sidebar-background: 222 47% 8%;
-    --sidebar-foreground: 210 40% 98%;
-    --sidebar-primary: 210 100% 52%;
+    /* Sidebar (Dark Mode) */
+    --sidebar-background: 206 100% 12%;
+    --sidebar-foreground: 215 50% 98%;
+    --sidebar-primary: 186 100% 29%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 222 30% 15%;
-    --sidebar-accent-foreground: 210 40% 98%;
-    --sidebar-border: 222 30% 15%;
-    --sidebar-ring: 210 100% 52%;
+    --sidebar-accent: 217 58% 39%;
+    --sidebar-accent-foreground: 215 50% 98%;
+    --sidebar-border: 217 58% 39%;
+    --sidebar-ring: 186 100% 29%;
   }
 }
 
@@ -115,10 +111,15 @@
 
   body {
     @apply bg-background text-foreground font-sans antialiased;
-    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+    font-family: "IBM Plex Sans", system-ui, sans-serif;
   }
 
-  h1, h2, h3, h4, h5, h6 {
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
     @apply font-semibold tracking-tight;
   }
 }
