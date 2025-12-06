@@ -2,7 +2,7 @@ import { format } from "date-fns";
 import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Badge } from "@/components/ui/badge";
-import { Briefcase } from "lucide-react";
+
 import { useEngagements, useStaff, Engagement } from "@/hooks/useEmsData";
 import { DataTable, Column } from "@/components/data-table/DataTable";
 import { useNavigate } from "react-router-dom";
@@ -47,12 +47,7 @@ const Engagements = () => {
       label: t("engagement.name"),
       sortable: true,
       render: (row) => (
-        <div className="flex items-center gap-3">
-          <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
-            <Briefcase className="h-4 w-4 text-primary" />
-          </div>
-          <span className="font-medium">{row.engagement_name}</span>
-        </div>
+        <span className="font-medium">{row.engagement_name}</span>
       ),
     },
     {
