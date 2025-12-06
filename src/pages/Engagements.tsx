@@ -3,7 +3,8 @@ import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Badge } from "@/components/ui/badge";
 
-import { useEngagements, useStaff, Engagement } from "@/hooks/useEmsData";
+import { useEngagements, Engagement } from "@/hooks/useEmsData";
+import { useCategoryStaff } from "@/hooks/useCategoryStaff";
 import { DataTable, Column } from "@/components/data-table/DataTable";
 import { useNavigate } from "react-router-dom";
 
@@ -18,21 +19,7 @@ const Engagements = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { data: engagements, isLoading } = useEngagements();
-  const { data: staff } = useStaff();
-
-  const partnerOptions = (staff || [])
-    .filter((s) => s.category?.category_name === "Partner")
-    .map((s) => ({
-      value: s.staff_id,
-      label: `${s.first_name} ${s.last_name}`,
-    }));
-
-  const managerOptions = (staff || [])
-    .filter((s) => s.category?.category_name === "Manager" || s.category?.category_name === "Partner")
-    .map((s) => ({
-      value: s.staff_id,
-      label: `${s.first_name} ${s.last_name}`,
-    }));
+  const { partnerOptions, managerOptions } = useCategoryStaff();
 
   const columns: Column<Engagement>[] = [
     {

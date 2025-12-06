@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { useEngagements, useStaff } from "@/hooks/useEmsData";
+import { useCategoryStaff } from "@/hooks/useCategoryStaff";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,6 +37,7 @@ export function ClientEngagementsTable({ clientId }: ClientEngagementsTableProps
   const navigate = useNavigate();
   const { data: engagements, isLoading } = useEngagements();
   const { data: staff } = useStaff();
+  const { partners, managers } = useCategoryStaff();
 
   const [search, setSearch] = useState("");
   const [sortField, setSortField] = useState<SortField | null>(null);
@@ -49,17 +51,6 @@ export function ClientEngagementsTable({ clientId }: ClientEngagementsTableProps
     if (!engagements) return [];
     return engagements.filter((e) => e.client_id === clientId);
   }, [engagements, clientId]);
-
-  // Get unique partners and managers from staff for filters
-  const partners = useMemo(() => {
-    if (!staff) return [];
-    return staff.filter((s) => s.category?.category_name?.toLowerCase() === "socio");
-  }, [staff]);
-
-  const managers = useMemo(() => {
-    if (!staff) return [];
-    return staff.filter((s) => s.category?.category_name?.toLowerCase() === "gerente");
-  }, [staff]);
 
   // Get staff name by ID
   const getStaffName = (staffId: string | null) => {
