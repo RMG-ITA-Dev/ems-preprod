@@ -126,7 +126,7 @@ const Auth = () => {
   return (
     <div className="min-h-screen flex">
       {/* Left Panel - Features */}
-      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-accent via-accent/90 to-primary p-12 flex-col justify-between">
+      <div className="hidden lg:flex lg:w-1/2 bg-primary p-12 flex-col justify-between">
         <div>
           <div className="flex items-center gap-3 mb-16">
             <div className="h-12 w-12 rounded-xl bg-white/10 backdrop-blur flex items-center justify-center">
@@ -252,7 +252,7 @@ const Auth = () => {
 
               <Button
                 type="submit"
-                className="w-full bg-accent hover:bg-accent/90 text-accent-foreground"
+                className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
                 disabled={loading}
               >
                 {loading ? (
@@ -297,7 +297,7 @@ const Auth = () => {
                   {t("auth.dontHaveAccount")}{" "}
                   <button
                     onClick={() => setMode("signup")}
-                    className="text-accent hover:underline font-medium"
+                    className="text-primary hover:underline font-medium"
                   >
                     {t("auth.signUp")}
                   </button>
@@ -307,7 +307,7 @@ const Auth = () => {
                   {t("auth.alreadyHaveAccount")}{" "}
                   <button
                     onClick={() => setMode("signin")}
-                    className="text-accent hover:underline font-medium"
+                    className="text-primary hover:underline font-medium"
                   >
                     {t("auth.signIn")}
                   </button>
