@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -57,10 +58,19 @@ export function ExpenseTypeForm({ open, onOpenChange, expenseType }: ExpenseType
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      expense_name: expenseType?.expense_name || "",
-      default_unit_cost: expenseType?.default_unit_cost || 0,
+      expense_name: "",
+      default_unit_cost: 0,
     },
   });
+
+  useEffect(() => {
+    if (open) {
+      form.reset({
+        expense_name: expenseType?.expense_name || "",
+        default_unit_cost: expenseType?.default_unit_cost || 0,
+      });
+    }
+  }, [open, expenseType, form]);
 
   const onSubmit = async (data: FormData) => {
     const payload = {

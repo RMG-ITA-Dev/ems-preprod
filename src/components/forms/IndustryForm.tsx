@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -71,10 +72,19 @@ export function IndustryForm({ open, onOpenChange, industry }: IndustryFormProps
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      industry_name: industry?.industry_name || "",
-      fiscal_year_end: industry?.fiscal_year_end || "",
+      industry_name: "",
+      fiscal_year_end: "",
     },
   });
+
+  useEffect(() => {
+    if (open) {
+      form.reset({
+        industry_name: industry?.industry_name || "",
+        fiscal_year_end: industry?.fiscal_year_end || "",
+      });
+    }
+  }, [open, industry, form]);
 
   const onSubmit = async (data: FormData) => {
     if (isEdit && industry) {

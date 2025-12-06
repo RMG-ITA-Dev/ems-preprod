@@ -36,6 +36,7 @@ export interface Client {
   contact_name: string | null;
   contact_email: string | null;
   contact_phone: string | null;
+  address: string | null;
   is_active: boolean;
   industry?: Industry;
 }
@@ -48,6 +49,8 @@ export interface Engagement {
   partner_id: string | null;
   manager_id: string | null;
   status: string;
+  start_date: string | null;
+  end_date: string | null;
   client?: Client;
   partner?: Staff;
   manager?: Staff;

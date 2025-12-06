@@ -88,7 +88,7 @@ export function ClientForm({ client }: ClientFormProps) {
         contact_name: client.contact_name || "",
         contact_email: client.contact_email || "",
         contact_phone: client.contact_phone || "",
-        address: "",
+        address: client.address || "",
         is_active: client.is_active,
       });
     }

@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -60,11 +61,21 @@ export function ActivityCodeForm({ open, onOpenChange, activityCode }: ActivityC
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      activity_code: activityCode?.activity_code || "",
-      description: activityCode?.description || "",
-      is_active: activityCode?.is_active ?? true,
+      activity_code: "",
+      description: "",
+      is_active: true,
     },
   });
+
+  useEffect(() => {
+    if (open) {
+      form.reset({
+        activity_code: activityCode?.activity_code || "",
+        description: activityCode?.description || "",
+        is_active: activityCode?.is_active ?? true,
+      });
+    }
+  }, [open, activityCode, form]);
 
   const onSubmit = async (data: FormData) => {
     const payload = {
