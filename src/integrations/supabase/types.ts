@@ -313,33 +313,42 @@ export type Database = {
       }
       staff: {
         Row: {
+          aud_reg_number: string | null
           auth_user_id: string | null
           category_id: string | null
+          city: string | null
           created_at: string | null
           email: string | null
           first_name: string
+          id_number: string | null
           is_active: boolean | null
           last_name: string
           staff_id: string
           updated_at: string | null
         }
         Insert: {
+          aud_reg_number?: string | null
           auth_user_id?: string | null
           category_id?: string | null
+          city?: string | null
           created_at?: string | null
           email?: string | null
           first_name: string
+          id_number?: string | null
           is_active?: boolean | null
           last_name: string
           staff_id?: string
           updated_at?: string | null
         }
         Update: {
+          aud_reg_number?: string | null
           auth_user_id?: string | null
           category_id?: string | null
+          city?: string | null
           created_at?: string | null
           email?: string | null
           first_name?: string
+          id_number?: string | null
           is_active?: boolean | null
           last_name?: string
           staff_id?: string
