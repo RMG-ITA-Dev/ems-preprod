@@ -1,77 +1,82 @@
 import { useMemo } from "react";
-import { useTranslation } from "react-i18next";
 import { useStaff, useCategories } from "@/hooks/useEmsData";
 
 export function useCategoryStaff() {
-  const { t, i18n } = useTranslation();
   const { data: staff, isLoading: isLoadingStaff } = useStaff();
   const { data: categories, isLoading: isLoadingCategories } = useCategories();
 
-  // Get category names from both locales for matching
-  const partnerNames = useMemo(() => {
-    return ["partner", "socio"].map((n) => n.toLowerCase());
-  }, []);
-
-  const managerNames = useMemo(() => {
-    return ["manager", "gerente"].map((n) => n.toLowerCase());
-  }, []);
-
-  // Check if Partner and Manager categories exist in the database
-  const hasPartnerCategory = useMemo(() => {
+  // Check if Leadership tier categories exist (display_order <= 2: Socio, Director)
+  const hasLeadershipCategory = useMemo(() => {
     if (!categories) return false;
-    return categories.some((c) => 
-      partnerNames.includes(c.category_name.toLowerCase())
-    );
-  }, [categories, partnerNames]);
+    return categories.some((c) => c.display_order != null && c.display_order <= 2);
+  }, [categories]);
 
-  const hasManagerCategory = useMemo(() => {
+  // Check if Management tier categories exist (display_order 3-4: Gerente, Senior)
+  const hasManagementCategory = useMemo(() => {
     if (!categories) return false;
-    return categories.some((c) => 
-      managerNames.includes(c.category_name.toLowerCase())
+    return categories.some(
+      (c) => c.display_order != null && c.display_order >= 3 && c.display_order <= 4
     );
-  }, [categories, managerNames]);
+  }, [categories]);
 
-  // Filter staff by Partner category (supports both EN/ES names)
-  const partners = useMemo(() => {
+  // Filter staff by Leadership tier (display_order <= 2: Socio, Director)
+  const leadershipStaff = useMemo(() => {
     if (!staff) return [];
     return staff.filter((s) => {
-      const categoryName = s.category?.category_name?.toLowerCase() || "";
-      return partnerNames.includes(categoryName);
+      const displayOrder = s.category?.display_order;
+      return displayOrder != null && displayOrder <= 2;
     });
-  }, [staff, partnerNames]);
+  }, [staff]);
 
-  // Filter staff by Manager category (supports both EN/ES names)
-  const managers = useMemo(() => {
+  // Filter staff by Management tier (display_order 3-4: Gerente, Senior)
+  const managementStaff = useMemo(() => {
     if (!staff) return [];
     return staff.filter((s) => {
-      const categoryName = s.category?.category_name?.toLowerCase() || "";
-      return managerNames.includes(categoryName);
+      const displayOrder = s.category?.display_order;
+      return displayOrder != null && displayOrder >= 3 && displayOrder <= 4;
     });
-  }, [staff, managerNames]);
+  }, [staff]);
 
-  // Partner options for dropdowns
-  const partnerOptions = useMemo(() => {
-    return partners.map((s) => ({
+  // Leadership options for dropdowns (Partner/Director)
+  const leadershipOptions = useMemo(() => {
+    return leadershipStaff.map((s) => ({
       value: s.staff_id,
       label: `${s.first_name} ${s.last_name}`,
     }));
-  }, [partners]);
+  }, [leadershipStaff]);
 
-  // Manager options for dropdowns (includes both managers and partners)
-  const managerOptions = useMemo(() => {
+  // Management options for dropdowns (Manager/In-Charge) - includes both management tier AND leadership tier
+  const managementOptions = useMemo(() => {
     if (!staff) return [];
     return staff
       .filter((s) => {
-        const categoryName = s.category?.category_name?.toLowerCase() || "";
-        return managerNames.includes(categoryName) || partnerNames.includes(categoryName);
+        const displayOrder = s.category?.display_order;
+        // Include management tier (3-4) and leadership tier (1-2)
+        return displayOrder != null && displayOrder <= 4;
       })
       .map((s) => ({
         value: s.staff_id,
         label: `${s.first_name} ${s.last_name}`,
       }));
-  }, [staff, managerNames, partnerNames]);
+  }, [staff]);
+
+  // Legacy aliases for backwards compatibility
+  const partners = leadershipStaff;
+  const managers = managementStaff;
+  const partnerOptions = leadershipOptions;
+  const managerOptions = managementOptions;
+  const hasPartnerCategory = hasLeadershipCategory;
+  const hasManagerCategory = hasManagementCategory;
 
   return {
+    // New semantic names
+    leadershipStaff,
+    managementStaff,
+    leadershipOptions,
+    managementOptions,
+    hasLeadershipCategory,
+    hasManagementCategory,
+    // Legacy aliases
     partners,
     managers,
     partnerOptions,

@@ -194,8 +194,8 @@
     "engagementCode": "Código del Encargo",
     "name": "Nombre del Encargo",
     "client": "Cliente",
-    "partner": "Socio",
-    "manager": "Gerente",
+    "partner": "Socio/Director",
+    "manager": "Gerente/A Cargo",
     "startDate": "Fecha de Inicio",
     "endDate": "Fecha de Fin",
     "status": "Estado",
@@ -206,8 +206,8 @@
     "searchPlaceholder": "Buscar por código, nombre, o cliente...",
     "selectClient": "Seleccionar un cliente",
     "selectStatus": "Seleccionar estado",
-    "selectPartner": "Seleccionar socio",
-    "selectManager": "Seleccionar gerente"
+    "selectPartner": "Seleccionar Socio/Director",
+    "selectManager": "Seleccionar Gerente/A Cargo"
   },
   "messages": {
     "createSuccess": "{{entity}} creado/a exitosamente",
@@ -230,8 +230,8 @@
     "selectCategory": "Seleccione una categoría",
     "selectIndustry": "Seleccione una industria",
     "selectClient": "Seleccione un cliente",
-    "selectPartner": "Seleccione un socio",
-    "selectManager": "Seleccione un gerente"
+    "selectPartner": "Seleccione un Socio/Director",
+    "selectManager": "Seleccione un Gerente/A Cargo"
   },
   "months": {
     "january": "Enero",
