@@ -194,8 +194,8 @@
     "engagementCode": "Engagement Code",
     "name": "Engagement Name",
     "client": "Client",
-    "partner": "Partner",
-    "manager": "Manager",
+    "partner": "Partner/Director",
+    "manager": "Manager/In-Charge",
     "startDate": "Start Date",
     "endDate": "End Date",
     "status": "Status",
@@ -206,8 +206,8 @@
     "searchPlaceholder": "Search by code, name, or client...",
     "selectClient": "Select a client",
     "selectStatus": "Select status",
-    "selectPartner": "Select partner",
-    "selectManager": "Select manager"
+    "selectPartner": "Select Partner/Director",
+    "selectManager": "Select Manager/In-Charge"
   },
   "messages": {
     "createSuccess": "{{entity}} created successfully",
@@ -230,8 +230,8 @@
     "selectCategory": "Select a category",
     "selectIndustry": "Select an industry",
     "selectClient": "Select a client",
-    "selectPartner": "Select a partner",
-    "selectManager": "Select a manager"
+    "selectPartner": "Select a Partner/Director",
+    "selectManager": "Select a Manager/In-Charge"
   },
   "months": {
     "january": "January",
