@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -11,34 +11,50 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Search, FileText, TrendingDown, TrendingUp } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { useWorkOrders } from "@/hooks/useEmsData";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Plus, Search, Sun, Snowflake } from "lucide-react";
+import { useWorkOrders, WorkOrder } from "@/hooks/useEmsData";
+import { useCategoryStaff } from "@/hooks/useCategoryStaff";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
-const statusColors = {
-  Draft: "bg-warning/10 text-warning border-warning/20",
-  Pending_Approval: "bg-info/10 text-info border-info/20",
-  Approved: "bg-success/10 text-success border-success/20",
-  Rejected: "bg-destructive/10 text-destructive border-destructive/20",
+const statusDotColors: Record<string, string> = {
+  Draft: "bg-warning",
+  Pending_Approval: "bg-info",
+  Approved: "bg-success",
+  Rejected: "bg-destructive",
 };
 
 const WorkOrders = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { data: workOrders, isLoading } = useWorkOrders();
+  const { partnerOptions, managerOptions } = useCategoryStaff();
+  
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [partnerFilter, setPartnerFilter] = useState<string>("all");
+  const [managerFilter, setManagerFilter] = useState<string>("all");
+  const [currencyTab, setCurrencyTab] = useState<"BOB" | "USD">("BOB");
 
   const formatCurrency = (amount: number, currency: string) => {
-    if (currency === "BOB") {
-      return `Bs ${amount.toLocaleString("es-BO", { minimumFractionDigits: 2 })}`;
-    }
-    return `$${amount.toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
+    const formatted = amount.toLocaleString("es-BO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return `${currency === "BOB" ? "Bs" : "$"} ${formatted}`;
   };
 
-  const calculateTotals = (wo: NonNullable<typeof workOrders>[number]) => {
+  const calculateTotals = (wo: WorkOrder) => {
+    const totalHours = wo.budget_lines?.reduce(
+      (sum, bl) => sum + Number(bl.budgeted_hours), 0
+    ) || 0;
+    
     const standardFee = wo.budget_lines?.reduce(
       (sum, bl) => sum + Number(bl.budgeted_hours) * Number(bl.standard_rate), 0
     ) || 0;
@@ -46,141 +62,233 @@ const WorkOrders = () => {
     const adjustment = Number(wo.adjustment_amount) || 0;
     const adjustedFee = standardFee + adjustment;
     const realizationPercent = standardFee > 0 ? (adjustedFee / standardFee) * 100 : 100;
+    
+    const totalExpenses = wo.expense_budget?.reduce(
+      (sum, exp) => sum + Number(exp.budgeted_amount), 0
+    ) || 0;
+    
+    const totalWithoutVAT = adjustedFee + totalExpenses;
     const taxRate = Number(wo.tax_rate) || 0.13;
-    const feeWithTax = adjustedFee / (1 - taxRate);
+    const totalWithVAT = totalWithoutVAT / (1 - taxRate);
 
-    return { standardFee, adjustment, realizationPercent, feeWithTax };
+    return { totalHours, standardFee, realizationPercent, adjustedFee, totalExpenses, totalWithoutVAT, totalWithVAT };
   };
 
   // Filter work orders
-  const filteredWorkOrders = workOrders?.filter((wo) => {
-    const matchesSearch =
-      !searchQuery ||
-      wo.engagement?.engagement_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      wo.engagement?.engagement_code?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      wo.engagement?.client?.client_legal_name?.toLowerCase().includes(searchQuery.toLowerCase());
+  const filteredWorkOrders = useMemo(() => {
+    return workOrders?.filter((wo) => {
+      // Currency filter (tab)
+      if (wo.currency !== currencyTab) return false;
 
-    const matchesStatus = statusFilter === "all" || wo.approval_status === statusFilter;
+      const matchesSearch =
+        !searchQuery ||
+        wo.engagement?.engagement_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        wo.engagement?.engagement_code?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        wo.engagement?.client?.client_legal_name?.toLowerCase().includes(searchQuery.toLowerCase());
 
-    return matchesSearch && matchesStatus;
-  });
+      const matchesStatus = statusFilter === "all" || wo.approval_status === statusFilter;
+      const matchesPartner = partnerFilter === "all" || wo.engagement?.partner_id === partnerFilter;
+      const matchesManager = managerFilter === "all" || wo.engagement?.manager_id === managerFilter;
+
+      return matchesSearch && matchesStatus && matchesPartner && matchesManager;
+    }) || [];
+  }, [workOrders, currencyTab, searchQuery, statusFilter, partnerFilter, managerFilter]);
 
   return (
     <AppLayout title={t("workOrders.title")}>
-      <div className="space-y-6">
-        {/* Header Actions */}
-        <div className="flex flex-col sm:flex-row gap-4 justify-between">
-          <div className="flex flex-1 gap-4 max-w-2xl">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder={t("workOrders.searchPlaceholder")}
-                className="pl-9"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-            </div>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-48">
-                <SelectValue placeholder={t("workOrders.allStatuses")} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{t("workOrders.allStatuses")}</SelectItem>
-                <SelectItem value="Draft">{t("workOrders.status.draft")}</SelectItem>
-                <SelectItem value="Pending_Approval">{t("workOrders.status.pending")}</SelectItem>
-                <SelectItem value="Approved">{t("workOrders.status.approved")}</SelectItem>
-                <SelectItem value="Rejected">{t("workOrders.status.rejected")}</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+      <div className="space-y-4">
+        {/* Currency Tabs */}
+        <div className="flex items-center justify-between">
+          <Tabs value={currencyTab} onValueChange={(v) => setCurrencyTab(v as "BOB" | "USD")}>
+            <TabsList>
+              <TabsTrigger value="BOB">BOB</TabsTrigger>
+              <TabsTrigger value="USD">USD</TabsTrigger>
+            </TabsList>
+          </Tabs>
           <Button
             onClick={() => navigate("/work-orders/new")}
-            className="bg-accent hover:bg-accent/90 text-accent-foreground"
+            className="btn-action"
           >
             <Plus className="h-4 w-4 mr-2" />
             {t("workOrders.newWorkOrder")}
           </Button>
         </div>
 
-        {/* Work Orders List */}
-        <div className="space-y-4">
-          {isLoading ? (
-            Array.from({ length: 2 }).map((_, i) => (
-              <div key={i} className="bg-card rounded-xl border border-border p-5">
-                <Skeleton className="h-24 w-full" />
-              </div>
-            ))
-          ) : filteredWorkOrders?.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground">
-              {t("common.noResults")}
-            </div>
-          ) : filteredWorkOrders?.map((wo) => {
-            const { standardFee, adjustment, realizationPercent, feeWithTax } = calculateTotals(wo);
-            const status = wo.approval_status || "Draft";
+        {/* Filters Row */}
+        <div className="flex flex-wrap gap-3">
+          <div className="relative flex-1 min-w-[200px] max-w-md">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder={t("workOrders.searchPlaceholder")}
+              className="pl-9"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
+          <Select value={partnerFilter} onValueChange={setPartnerFilter}>
+            <SelectTrigger className="w-40">
+              <SelectValue placeholder={t("engagement.partner")} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t("common.all")} {t("engagement.partner")}</SelectItem>
+              {partnerOptions.map((p) => (
+                <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={managerFilter} onValueChange={setManagerFilter}>
+            <SelectTrigger className="w-40">
+              <SelectValue placeholder={t("engagement.manager")} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t("common.all")} {t("engagement.manager")}</SelectItem>
+              {managerOptions.map((m) => (
+                <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-44">
+              <SelectValue placeholder={t("workOrders.allStatuses")} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t("workOrders.allStatuses")}</SelectItem>
+              <SelectItem value="Draft">{t("workOrders.status.draft")}</SelectItem>
+              <SelectItem value="Pending_Approval">{t("workOrders.status.pending")}</SelectItem>
+              <SelectItem value="Approved">{t("workOrders.status.approved")}</SelectItem>
+              <SelectItem value="Rejected">{t("workOrders.status.rejected")}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
 
-            return (
-              <div 
-                key={wo.wo_id} 
-                className="bg-card rounded-xl border border-border p-5 hover:border-accent/30 transition-colors cursor-pointer"
-                onClick={() => navigate(`/work-orders/${wo.wo_id}`)}
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex items-start gap-4">
-                    <div className="h-12 w-12 rounded-lg bg-primary/10 flex items-center justify-center">
-                      <FileText className="h-5 w-5 text-primary" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-3">
-                        <span className="font-mono text-sm text-muted-foreground">
-                          {wo.engagement?.engagement_code || wo.wo_id.slice(0, 8).toUpperCase()}
-                        </span>
-                        <Badge 
-                          variant="outline" 
-                          className={cn(statusColors[status as keyof typeof statusColors])}
-                        >
-                          {t(`workOrders.status.${status.toLowerCase().replace("_", "")}`)}
-                        </Badge>
-                      </div>
-                      <h3 className="font-semibold text-foreground mt-1">{wo.engagement?.engagement_name}</h3>
-                      <p className="text-sm text-muted-foreground">{wo.engagement?.client?.client_legal_name}</p>
-                    </div>
-                  </div>
-                  
-                  <div className="flex gap-6 text-right">
-                    <div>
-                      <p className="text-xs text-muted-foreground uppercase tracking-wide">{t("workOrders.standardFee")}</p>
-                      <p className="font-semibold text-foreground">{formatCurrency(standardFee, wo.currency)}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground uppercase tracking-wide">{t("workOrders.adjustment")}</p>
-                      <p className={`font-semibold flex items-center justify-end gap-1 ${adjustment < 0 ? "text-destructive" : adjustment > 0 ? "text-success" : "text-muted-foreground"}`}>
-                        {adjustment !== 0 && (
-                          adjustment < 0 ? <TrendingDown className="h-3 w-3" /> : <TrendingUp className="h-3 w-3" />
-                        )}
-                        {formatCurrency(adjustment, wo.currency)}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground uppercase tracking-wide">{t("workOrders.realization")}</p>
-                      <p className={`font-semibold ${realizationPercent < 100 ? "text-warning" : "text-foreground"}`}>
-                        {realizationPercent.toFixed(1)}%
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground uppercase tracking-wide">{t("workOrders.feeWithTax")}</p>
-                      <p className="font-bold text-foreground">{formatCurrency(feeWithTax, wo.currency)}</p>
-                    </div>
-                  </div>
-                </div>
-                
-                <div className="flex gap-2 mt-4 pt-4 border-t border-border">
-                  <Badge variant="outline" className="text-xs">{wo.currency}</Badge>
-                  <Badge variant="outline" className="text-xs">{wo.season_mode} {t("workOrders.season")}</Badge>
-                  <Badge variant="outline" className="text-xs">{t("workOrders.iva")} {(Number(wo.tax_rate) * 100).toFixed(0)}%</Badge>
-                </div>
-              </div>
-            );
-          })}
+        {/* Data Table */}
+        <div className="border border-border rounded-lg overflow-hidden">
+          <div className="overflow-x-auto">
+            <Table className="table-dense">
+              <TableHeader>
+                <TableRow className="bg-muted/50">
+                  <TableHead className="w-10 text-center"></TableHead>
+                  <TableHead className="w-10 text-center"></TableHead>
+                  <TableHead className="w-28">{t("engagement.code")}</TableHead>
+                  <TableHead className="min-w-[180px]">{t("engagement.name")}</TableHead>
+                  <TableHead className="min-w-[160px]">{t("engagement.client")}</TableHead>
+                  <TableHead className="w-28">{t("engagement.partner")}</TableHead>
+                  <TableHead className="w-28">{t("engagement.manager")}</TableHead>
+                  <TableHead className="w-20 text-right">{t("workOrders.hours")}</TableHead>
+                  <TableHead className="w-28 text-right">{t("workOrders.standardFee")}</TableHead>
+                  <TableHead className="w-20 text-right">{t("workOrders.realization")}</TableHead>
+                  <TableHead className="w-28 text-right">{t("workOrders.adjustedFee")}</TableHead>
+                  <TableHead className="w-24 text-right">{t("workOrders.expenses")}</TableHead>
+                  <TableHead className="w-28 text-right">{t("workOrders.totalWithoutVAT")}</TableHead>
+                  <TableHead className="w-28 text-right">{t("workOrders.totalWithVAT")}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {isLoading ? (
+                  Array.from({ length: 5 }).map((_, i) => (
+                    <TableRow key={i}>
+                      {Array.from({ length: 14 }).map((_, j) => (
+                        <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
+                      ))}
+                    </TableRow>
+                  ))
+                ) : filteredWorkOrders.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={14} className="text-center py-8 text-muted-foreground">
+                      {t("common.noResults")}
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredWorkOrders.map((wo) => {
+                    const { totalHours, standardFee, realizationPercent, adjustedFee, totalExpenses, totalWithoutVAT, totalWithVAT } = calculateTotals(wo);
+                    const status = wo.approval_status || "Draft";
+
+                    return (
+                      <TableRow
+                        key={wo.wo_id}
+                        className="cursor-pointer hover:bg-muted/50"
+                        onClick={() => navigate(`/work-orders/${wo.wo_id}`)}
+                      >
+                        {/* Season Icon */}
+                        <TableCell className="text-center">
+                          {wo.season_mode === "High" ? (
+                            <Sun className="h-4 w-4 text-warning mx-auto" />
+                          ) : (
+                            <Snowflake className="h-4 w-4 text-info mx-auto" />
+                          )}
+                        </TableCell>
+                        {/* Status Dot */}
+                        <TableCell className="text-center">
+                          <div
+                            className={cn(
+                              "h-2.5 w-2.5 rounded-full mx-auto",
+                              statusDotColors[status]
+                            )}
+                            title={t(`workOrders.status.${status.toLowerCase().replace("_", "")}`)}
+                          />
+                        </TableCell>
+                        {/* Engagement Code */}
+                        <TableCell className="font-mono text-muted-foreground">
+                          {wo.engagement?.engagement_code || "-"}
+                        </TableCell>
+                        {/* Engagement Name */}
+                        <TableCell className="font-medium truncate max-w-[200px]">
+                          {wo.engagement?.engagement_name}
+                        </TableCell>
+                        {/* Client */}
+                        <TableCell className="truncate max-w-[180px]">
+                          {wo.engagement?.client?.client_legal_name || "-"}
+                        </TableCell>
+                        {/* Partner */}
+                        <TableCell>
+                          {wo.engagement?.partner 
+                            ? `${wo.engagement.partner.first_name} ${wo.engagement.partner.last_name}`
+                            : "-"}
+                        </TableCell>
+                        {/* Manager */}
+                        <TableCell>
+                          {wo.engagement?.manager
+                            ? `${wo.engagement.manager.first_name} ${wo.engagement.manager.last_name}`
+                            : "-"}
+                        </TableCell>
+                        {/* Total Hours */}
+                        <TableCell className="text-right font-mono">
+                          {totalHours.toFixed(1)}
+                        </TableCell>
+                        {/* Standard Fee */}
+                        <TableCell className="text-right font-mono">
+                          {formatCurrency(standardFee, wo.currency)}
+                        </TableCell>
+                        {/* Realization % */}
+                        <TableCell className={cn(
+                          "text-right font-mono",
+                          realizationPercent < 100 && "text-warning"
+                        )}>
+                          {realizationPercent.toFixed(1)}%
+                        </TableCell>
+                        {/* Adjusted Fee */}
+                        <TableCell className="text-right font-mono">
+                          {formatCurrency(adjustedFee, wo.currency)}
+                        </TableCell>
+                        {/* Expenses */}
+                        <TableCell className="text-right font-mono">
+                          {formatCurrency(totalExpenses, wo.currency)}
+                        </TableCell>
+                        {/* Total without VAT */}
+                        <TableCell className="text-right font-mono">
+                          {formatCurrency(totalWithoutVAT, wo.currency)}
+                        </TableCell>
+                        {/* Total with VAT */}
+                        <TableCell className="text-right font-mono font-medium">
+                          {formatCurrency(totalWithVAT, wo.currency)}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
+          </div>
         </div>
       </div>
     </AppLayout>

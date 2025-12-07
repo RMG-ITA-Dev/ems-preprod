@@ -228,7 +228,9 @@ export function useWorkOrders() {
           *,
           engagement:engagements(
             *,
-            client:clients(*)
+            client:clients(*),
+            partner:staff!engagements_partner_id_fkey(*),
+            manager:staff!engagements_manager_id_fkey(*)
           ),
           budget_lines:wo_budget_lines(
             *,
