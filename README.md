@@ -59,6 +59,47 @@ EMS 2.0 manages the complete lifecycle of professional engagements from client o
 - **Density**: High-density, spreadsheet-like interfaces
 - **Theme**: Corporate fintech aesthetic
 
+### Vite Dependency Optimization
+
+This project uses proactive dependency pre-bundling to prevent 504 Gateway Timeout errors in the Lovable sandbox environment.
+
+#### Why This Matters
+Heavy dependencies (large bundles, locale sub-modules, monorepo packages) can cause Vite's dev server to timeout during on-demand pre-bundling, resulting in blank pages and React hydration errors.
+
+#### Pre-Bundled Dependencies
+The following are explicitly included in `vite.config.ts` → `optimizeDeps.include`:
+
+| Category | Packages |
+|----------|----------|
+| Date/Time | `date-fns`, `date-fns/locale` |
+| Visualization | `recharts` |
+| i18n | `i18next`, `react-i18next` |
+| Radix UI (Critical) | `@radix-ui/react-dialog`, `react-select`, `react-popover`, `react-tooltip`, `react-slot` |
+
+#### Decision Rule: When to Add New Dependencies
+
+Add a package to `optimizeDeps.include` if **ANY** of these apply:
+- Package size > 500KB (check on [bundlephobia.com](https://bundlephobia.com))
+- Has locale/language sub-modules (e.g., `/locale/`)
+- Uses deep imports (e.g., `from 'pkg/submodule'`)
+- Is a monorepo package (e.g., `@scope/*`)
+- Provides CommonJS + ESM hybrid
+- Previously caused loading issues
+
+#### Debugging Symptoms
+
+| Symptom | Location | Indicates |
+|---------|----------|-----------|
+| 504/502 on `.vite/deps/*` | Network Tab | Pre-bundling timeout |
+| `Failed to load module script` | Console | Module resolution failure |
+| `React error #418` | Console | Hydration crash from missing module |
+| Blank white page | Preview | Complete app failure |
+
+#### Recovery Steps
+1. Add the failing dependency to `optimizeDeps.include` in `vite.config.ts`
+2. Force cache rebuild (add/modify comment in config)
+3. Hard refresh (`Ctrl+Shift+R` / `Cmd+Shift+R`)
+
 ## 📊 Database Schema
 
 ```sql
