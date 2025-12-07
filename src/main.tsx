@@ -4,8 +4,27 @@ import App from "./App.tsx";
 import "./index.css";
 import "./i18n";
 
-createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
-);
+console.log("EMS 2.0 starting...");
+
+const rootElement = document.getElementById("root");
+if (rootElement) {
+  try {
+    createRoot(rootElement).render(
+      <React.StrictMode>
+        <App />
+      </React.StrictMode>
+    );
+    console.log("EMS 2.0 rendered successfully");
+  } catch (error) {
+    console.error("Failed to render app:", error);
+    rootElement.innerHTML = `
+      <div style="padding: 20px; font-family: sans-serif;">
+        <h1>Failed to load application</h1>
+        <p>Please refresh the page or try again later.</p>
+        <pre style="background: #f5f5f5; padding: 10px; overflow: auto;">${error}</pre>
+      </div>
+    `;
+  }
+} else {
+  console.error("Root element not found");
+}

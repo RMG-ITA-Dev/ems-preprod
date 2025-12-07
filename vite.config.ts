@@ -17,4 +17,10 @@ export default defineConfig(({ mode }) => ({
     },
     dedupe: ["react", "react-dom"],
   },
+  optimizeDeps: {
+    include: [
+      'date-fns',
+      'date-fns/locale',
+    ],
+  },
 }));
