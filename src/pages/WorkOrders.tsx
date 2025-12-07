@@ -242,13 +242,13 @@ const WorkOrders = () => {
                         {/* Partner */}
                         <TableCell>
                           {wo.engagement?.partner 
-                            ? `${wo.engagement.partner.first_name} ${wo.engagement.partner.last_name}`
+                            ? wo.engagement.partner.short_name || `${wo.engagement.partner.first_name} ${wo.engagement.partner.last_name}`
                             : "-"}
                         </TableCell>
                         {/* Manager */}
                         <TableCell>
                           {wo.engagement?.manager
-                            ? `${wo.engagement.manager.first_name} ${wo.engagement.manager.last_name}`
+                            ? wo.engagement.manager.short_name || `${wo.engagement.manager.first_name} ${wo.engagement.manager.last_name}`
                             : "-"}
                         </TableCell>
                         {/* Total Hours */}

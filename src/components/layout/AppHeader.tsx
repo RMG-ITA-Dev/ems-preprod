@@ -30,11 +30,13 @@ export function AppHeader({ title = "Dashboard" }: AppHeaderProps) {
     navigate("/auth");
   };
 
-  const userInitials = staffRecord 
-    ? `${staffRecord.first_name[0]}${staffRecord.last_name[0]}`.toUpperCase()
-    : user?.user_metadata?.first_name && user?.user_metadata?.last_name
-      ? `${user.user_metadata.first_name[0]}${user.user_metadata.last_name[0]}`.toUpperCase()
-      : user?.email?.substring(0, 2).toUpperCase() || "U";
+  const userInitials = staffRecord?.initials 
+    ? staffRecord.initials
+    : staffRecord 
+      ? `${staffRecord.first_name[0]}${staffRecord.last_name[0]}`.toUpperCase()
+      : user?.user_metadata?.first_name && user?.user_metadata?.last_name
+        ? `${user.user_metadata.first_name[0]}${user.user_metadata.last_name[0]}`.toUpperCase()
+        : user?.email?.substring(0, 2).toUpperCase() || "U";
   
   const displayName = staffRecord 
     ? `${staffRecord.first_name} ${staffRecord.last_name}`

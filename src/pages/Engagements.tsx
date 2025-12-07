@@ -47,13 +47,13 @@ const Engagements = () => {
       key: "partner.last_name",
       label: t("engagement.partner"),
       sortable: true,
-      render: (row) => (row.partner ? `${row.partner.first_name} ${row.partner.last_name}` : "-"),
+      render: (row) => (row.partner ? row.partner.short_name || `${row.partner.first_name} ${row.partner.last_name}` : "-"),
     },
     {
       key: "manager.last_name",
       label: t("engagement.manager"),
       sortable: true,
-      render: (row) => (row.manager ? `${row.manager.first_name} ${row.manager.last_name}` : "-"),
+      render: (row) => (row.manager ? row.manager.short_name || `${row.manager.first_name} ${row.manager.last_name}` : "-"),
     },
     {
       key: "start_date",

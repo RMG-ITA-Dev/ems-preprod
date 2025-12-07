@@ -41,6 +41,8 @@ import { useNavigate } from "react-router-dom";
 const formSchema = z.object({
   first_name: z.string().min(1, "First name is required"),
   last_name: z.string().min(1, "Last name is required"),
+  short_name: z.string().optional(),
+  initials: z.string().max(4, "Max 4 characters").optional(),
   email: z.string().email("Invalid email").optional().or(z.literal("")),
   category_id: z.string().optional(),
   city: z.string().optional(),
@@ -54,6 +56,25 @@ type FormData = z.infer<typeof formSchema>;
 interface StaffFormProps {
   staff?: Staff | null;
 }
+
+// Helper to generate short_name suggestion
+const generateShortName = (firstName: string, lastName: string): string => {
+  if (!firstName || !lastName) return "";
+  const firstWord = firstName.split(" ")[0];
+  const lastNames = lastName.split(" ");
+  const firstLastName = lastNames[0] || "";
+  const secondLastInitial = lastNames[1] ? `${lastNames[1][0]}.` : "";
+  return `${firstWord} ${firstLastName} ${secondLastInitial}`.trim();
+};
+
+// Helper to generate initials suggestion
+const generateInitials = (firstName: string, lastName: string): string => {
+  if (!firstName || !lastName) return "";
+  const firstInitial = firstName[0] || "";
+  const lastNames = lastName.split(" ");
+  const lastInitials = lastNames.map((n) => n[0] || "").join("");
+  return `${firstInitial}${lastInitials}`.toUpperCase().slice(0, 4);
+};
 
 export function StaffForm({ staff }: StaffFormProps) {
   const { t } = useTranslation();
@@ -69,6 +90,8 @@ export function StaffForm({ staff }: StaffFormProps) {
     defaultValues: {
       first_name: "",
       last_name: "",
+      short_name: "",
+      initials: "",
       email: "",
       category_id: "",
       city: "",
@@ -83,6 +106,8 @@ export function StaffForm({ staff }: StaffFormProps) {
       form.reset({
         first_name: staff.first_name,
         last_name: staff.last_name,
+        short_name: staff.short_name || "",
+        initials: staff.initials || "",
         email: staff.email || "",
         category_id: staff.category_id || "",
         city: staff.city || "",
@@ -93,10 +118,30 @@ export function StaffForm({ staff }: StaffFormProps) {
     }
   }, [staff, form]);
 
+  // Watch first_name and last_name to auto-suggest short_name and initials
+  const firstName = form.watch("first_name");
+  const lastName = form.watch("last_name");
+  const currentShortName = form.watch("short_name");
+  const currentInitials = form.watch("initials");
+
+  useEffect(() => {
+    // Only auto-suggest if fields are empty (don't override user edits)
+    if (!isEdit && firstName && lastName) {
+      if (!currentShortName) {
+        form.setValue("short_name", generateShortName(firstName, lastName));
+      }
+      if (!currentInitials) {
+        form.setValue("initials", generateInitials(firstName, lastName));
+      }
+    }
+  }, [firstName, lastName, isEdit, currentShortName, currentInitials, form]);
+
   const onSubmit = async (data: FormData) => {
     const payload = {
       first_name: data.first_name,
       last_name: data.last_name,
+      short_name: data.short_name || undefined,
+      initials: data.initials || undefined,
       email: data.email || undefined,
       category_id: data.category_id || undefined,
       city: data.city || undefined,
@@ -184,6 +229,36 @@ export function StaffForm({ staff }: StaffFormProps) {
                       <FormLabel>{t("staff.lastName")} *</FormLabel>
                       <FormControl>
                         <Input placeholder="Doe" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="short_name"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t("staff.shortName")}</FormLabel>
+                      <FormControl>
+                        <Input placeholder={t("staff.shortNamePlaceholder")} {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="initials"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t("staff.initials")}</FormLabel>
+                      <FormControl>
+                        <Input placeholder={t("staff.initialsPlaceholder")} maxLength={4} {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>

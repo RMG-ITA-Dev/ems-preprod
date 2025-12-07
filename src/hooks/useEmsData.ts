@@ -22,6 +22,8 @@ export interface Staff {
   staff_id: string;
   first_name: string;
   last_name: string;
+  short_name: string | null;
+  initials: string | null;
   email: string | null;
   category_id: string | null;
   is_active: boolean;
