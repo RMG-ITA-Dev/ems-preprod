@@ -42,7 +42,9 @@
     "expenses": "Gastos",
     "staff": "Personal",
     "settings": "Configuración",
-    "signOut": "Cerrar sesión"
+    "signOut": "Cerrar sesión",
+    "timeEntries": "Entradas de Tiempo",
+    "expenseLogs": "Registros de Gastos"
   },
   "entities": {
     "client": "Cliente",
@@ -346,6 +348,40 @@
       "rejected": "Rechazado"
     },
     "allStatuses": "Todos los Estados"
+  },
+  "adminTimeEntries": {
+    "title": "Entradas de Tiempo",
+    "searchPlaceholder": "Buscar por personal, encargo...",
+    "editEntry": "Editar Entrada de Tiempo",
+    "staff": "Personal",
+    "engagement": "Encargo",
+    "activity": "Actividad",
+    "date": "Fecha",
+    "hours": "Horas",
+    "description": "Descripción",
+    "isForecast": "Pronóstico",
+    "filterByStaff": "Filtrar por Personal",
+    "filterByEngagement": "Filtrar por Encargo",
+    "allStaff": "Todo el Personal",
+    "allEngagements": "Todos los Encargos"
+  },
+  "adminExpenseLogs": {
+    "title": "Registros de Gastos",
+    "searchPlaceholder": "Buscar por encargo, tipo...",
+    "editExpenseLog": "Editar Registro de Gasto",
+    "expenseType": "Tipo de Gasto",
+    "engagement": "Encargo",
+    "date": "Fecha Incurrida",
+    "amount": "Monto",
+    "currency": "Moneda",
+    "description": "Descripción",
+    "receipt": "Recibo",
+    "filterByExpenseType": "Filtrar por Tipo",
+    "filterByCurrency": "Filtrar por Moneda",
+    "allTypes": "Todos los Tipos",
+    "allCurrencies": "Todas las Monedas",
+    "noReceipt": "Sin recibo",
+    "viewReceipt": "Ver"
   },
   "auth": {
     "signIn": "Iniciar Sesión",

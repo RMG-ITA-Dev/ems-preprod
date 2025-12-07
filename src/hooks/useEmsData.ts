@@ -369,3 +369,42 @@ export function useSetting(key: string) {
   const { data: settings } = useGlobalSettings();
   return settings?.find(s => s.setting_key === key)?.setting_value;
 }
+
+// Admin hooks for all time entries
+export function useAllTimeEntries() {
+  return useQuery({
+    queryKey: ['all_time_entries'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('time_entries')
+        .select(`
+          *,
+          staff:staff!time_entries_staff_id_fkey(staff_id, first_name, last_name, short_name),
+          engagement:engagements!time_entries_engagement_id_fkey(engagement_id, engagement_name, engagement_code),
+          activity:activity_codes!time_entries_activity_id_fkey(activity_id, activity_code, description)
+        `)
+        .order('date_worked', { ascending: false });
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+// Admin hooks for all expense logs
+export function useAllExpenseLogs() {
+  return useQuery({
+    queryKey: ['all_expense_logs'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('expense_logs')
+        .select(`
+          *,
+          engagement:engagements!expense_logs_engagement_id_fkey(engagement_id, engagement_name, engagement_code),
+          expense_type:expense_types!expense_logs_expense_type_id_fkey(expense_type_id, expense_name)
+        `)
+        .order('date_incurred', { ascending: false });
+      if (error) throw error;
+      return data;
+    },
+  });
+}
