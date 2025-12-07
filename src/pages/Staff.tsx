@@ -22,8 +22,11 @@ const Staff = () => {
   const { data: engagements } = useEngagements();
   const { data: categories } = useCategories();
 
-  const getInitials = (firstName: string, lastName: string) =>
-    `${firstName[0]}${lastName[0]}`.toUpperCase();
+  const getInitials = (row: StaffType) => {
+    // Use stored initials if available, otherwise compute from names
+    if (row.initials) return row.initials;
+    return `${row.first_name[0]}${row.last_name[0]}`.toUpperCase();
+  };
 
   const getEngagementCount = (staffId: string) => {
     return engagements?.filter((e) => e.partner_id === staffId || e.manager_id === staffId).length || 0;
@@ -43,7 +46,7 @@ const Staff = () => {
         <div className="flex items-center gap-3">
           <Avatar className="h-8 w-8">
             <AvatarFallback className="bg-primary/10 text-primary text-xs font-medium">
-              {getInitials(row.first_name, row.last_name)}
+              {getInitials(row)}
             </AvatarFallback>
           </Avatar>
           <span className="font-medium">
@@ -51,6 +54,19 @@ const Staff = () => {
           </span>
         </div>
       ),
+    },
+    {
+      key: "short_name",
+      label: t("staff.shortName"),
+      sortable: true,
+      render: (row) => <span className="text-muted-foreground">{row.short_name || "-"}</span>,
+    },
+    {
+      key: "initials",
+      label: t("staff.initials"),
+      sortable: true,
+      className: "w-20 text-center",
+      render: (row) => <span className="font-mono">{row.initials || "-"}</span>,
     },
     {
       key: "email",
@@ -109,7 +125,7 @@ const Staff = () => {
         data={staff || []}
         columns={columns}
         searchPlaceholder={t("staff.searchPlaceholder")}
-        searchKeys={["first_name", "last_name", "email"]}
+        searchKeys={["first_name", "last_name", "email", "short_name"]}
         isLoading={isLoading}
         newButtonLabel={t("staff.newStaff")}
         onNewClick={() => navigate("/staff/new")}

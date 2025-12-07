@@ -321,8 +321,10 @@ export type Database = {
           email: string | null
           first_name: string
           id_number: string | null
+          initials: string | null
           is_active: boolean | null
           last_name: string
+          short_name: string | null
           staff_id: string
           updated_at: string | null
         }
@@ -335,8 +337,10 @@ export type Database = {
           email?: string | null
           first_name: string
           id_number?: string | null
+          initials?: string | null
           is_active?: boolean | null
           last_name: string
+          short_name?: string | null
           staff_id?: string
           updated_at?: string | null
         }
@@ -349,8 +353,10 @@ export type Database = {
           email?: string | null
           first_name?: string
           id_number?: string | null
+          initials?: string | null
           is_active?: boolean | null
           last_name?: string
+          short_name?: string | null
           staff_id?: string
           updated_at?: string | null
         }

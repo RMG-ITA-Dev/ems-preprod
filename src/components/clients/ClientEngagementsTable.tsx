@@ -52,11 +52,11 @@ export function ClientEngagementsTable({ clientId }: ClientEngagementsTableProps
     return engagements.filter((e) => e.client_id === clientId);
   }, [engagements, clientId]);
 
-  // Get staff name by ID
+  // Get staff short_name by ID (with fallback to full name)
   const getStaffName = (staffId: string | null) => {
     if (!staffId || !staff) return "-";
     const member = staff.find((s) => s.staff_id === staffId);
-    return member ? `${member.first_name} ${member.last_name}` : "-";
+    return member ? member.short_name || `${member.first_name} ${member.last_name}` : "-";
   };
 
   // Apply filters and sorting
