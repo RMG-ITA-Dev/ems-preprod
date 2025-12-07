@@ -102,8 +102,10 @@ const TimeSheet = () => {
         <WeekNavigator
           weekInfo={weekInfo}
           deadlineInfo={deadlineInfo}
+          currentWeekStart={currentWeekStart}
           onPreviousWeek={handlePreviousWeek}
           onNextWeek={handleNextWeek}
+          onWeekSelect={setCurrentWeekStart}
         />
 
         {/* Time Entry Grid */}

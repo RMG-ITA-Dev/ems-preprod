@@ -285,7 +285,8 @@
       "sat": "Sáb"
     },
     "monthEnd": "Cierre de Mes",
-    "monthEndDeadline": "Fecha límite"
+    "monthEndDeadline": "Fecha límite",
+    "selectWeek": "Click para seleccionar semana"
   },
   "expenses": {
     "title": "Gastos",

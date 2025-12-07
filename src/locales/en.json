@@ -285,7 +285,8 @@
       "sat": "Sat"
     },
     "monthEnd": "Month-End",
-    "monthEndDeadline": "Deadline"
+    "monthEndDeadline": "Deadline",
+    "selectWeek": "Click to select week"
   },
   "expenses": {
     "title": "Expenses",
