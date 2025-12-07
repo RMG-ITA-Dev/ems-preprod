@@ -42,7 +42,9 @@
     "expenses": "Expenses",
     "staff": "Staff",
     "settings": "Settings",
-    "signOut": "Sign out"
+    "signOut": "Sign out",
+    "timeEntries": "Time Entries",
+    "expenseLogs": "Expense Logs"
   },
   "entities": {
     "client": "Client",
@@ -346,6 +348,40 @@
       "rejected": "Rejected"
     },
     "allStatuses": "All Statuses"
+  },
+  "adminTimeEntries": {
+    "title": "Time Entries",
+    "searchPlaceholder": "Search by staff, engagement...",
+    "editEntry": "Edit Time Entry",
+    "staff": "Staff",
+    "engagement": "Engagement",
+    "activity": "Activity",
+    "date": "Date",
+    "hours": "Hours",
+    "description": "Description",
+    "isForecast": "Forecast",
+    "filterByStaff": "Filter by Staff",
+    "filterByEngagement": "Filter by Engagement",
+    "allStaff": "All Staff",
+    "allEngagements": "All Engagements"
+  },
+  "adminExpenseLogs": {
+    "title": "Expense Logs",
+    "searchPlaceholder": "Search by engagement, type...",
+    "editExpenseLog": "Edit Expense Log",
+    "expenseType": "Expense Type",
+    "engagement": "Engagement",
+    "date": "Date Incurred",
+    "amount": "Amount",
+    "currency": "Currency",
+    "description": "Description",
+    "receipt": "Receipt",
+    "filterByExpenseType": "Filter by Type",
+    "filterByCurrency": "Filter by Currency",
+    "allTypes": "All Types",
+    "allCurrencies": "All Currencies",
+    "noReceipt": "No receipt",
+    "viewReceipt": "View"
   },
   "auth": {
     "signIn": "Sign In",

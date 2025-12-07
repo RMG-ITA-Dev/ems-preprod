@@ -861,3 +861,71 @@ export function useDeleteExpenseBudget() {
     },
   });
 }
+
+// ============= Admin: Time Entries =============
+export function useUpdateTimeEntry() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      time_id,
+      ...data
+    }: {
+      time_id: string;
+      date_worked?: string;
+      hours_logged?: number;
+      description?: string | null;
+    }) => {
+      const { data: result, error } = await supabase
+        .from("time_entries")
+        .update(data)
+        .eq("time_id", time_id)
+        .select()
+        .single();
+      if (error) throw error;
+      return result;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["all_time_entries"] });
+      queryClient.invalidateQueries({ queryKey: ["time_entries"] });
+      toast({ title: "Time entry updated successfully" });
+    },
+    onError: (error) => {
+      toast({ title: "Error updating time entry", description: error.message, variant: "destructive" });
+    },
+  });
+}
+
+// ============= Admin: Expense Logs =============
+export function useUpdateExpenseLog() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      expense_log_id,
+      ...data
+    }: {
+      expense_log_id: string;
+      date_incurred?: string;
+      amount?: number;
+      currency?: string;
+      description?: string | null;
+      receipt_url?: string | null;
+    }) => {
+      const { data: result, error } = await supabase
+        .from("expense_logs")
+        .update(data)
+        .eq("expense_log_id", expense_log_id)
+        .select()
+        .single();
+      if (error) throw error;
+      return result;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["all_expense_logs"] });
+      queryClient.invalidateQueries({ queryKey: ["expense_logs"] });
+      toast({ title: "Expense log updated successfully" });
+    },
+    onError: (error) => {
+      toast({ title: "Error updating expense log", description: error.message, variant: "destructive" });
+    },
+  });
+}
