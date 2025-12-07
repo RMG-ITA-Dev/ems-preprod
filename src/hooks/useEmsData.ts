@@ -379,9 +379,9 @@ export function useAllTimeEntries() {
         .from('time_entries')
         .select(`
           *,
-          staff:staff_id(staff_id, first_name, last_name, short_name),
-          engagement:engagement_id(engagement_id, engagement_name, engagement_code),
-          activity:activity_id(activity_id, activity_code, description)
+          staff:staff(staff_id, first_name, last_name, short_name),
+          engagement:engagements(engagement_id, engagement_name, engagement_code),
+          activity:activity_codes(activity_id, activity_code, description)
         `)
         .order('date_worked', { ascending: false });
       if (error) throw error;
@@ -399,8 +399,8 @@ export function useAllExpenseLogs() {
         .from('expense_logs')
         .select(`
           *,
-          engagement:engagement_id(engagement_id, engagement_name, engagement_code),
-          expense_type:expense_type_id(expense_type_id, expense_name)
+          engagement:engagements(engagement_id, engagement_name, engagement_code),
+          expense_type:expense_types(expense_type_id, expense_name)
         `)
         .order('date_incurred', { ascending: false });
       if (error) throw error;
