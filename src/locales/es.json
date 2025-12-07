@@ -286,7 +286,13 @@
     },
     "monthEnd": "Cierre de Mes",
     "monthEndDeadline": "Fecha límite",
-    "selectWeek": "Click para seleccionar semana"
+    "selectWeek": "Click para seleccionar semana",
+    "noEngagements": "No hay encargos disponibles para registrar tiempo. Las órdenes de trabajo deben estar aprobadas primero.",
+    "noStaffRecord": "Su cuenta no está vinculada a un registro de personal. Por favor contacte a un administrador.",
+    "saving": "Guardando...",
+    "saved": "Guardado",
+    "deleteRow": "Eliminar fila",
+    "periodLocked": "Esta semana está bloqueada y no puede ser editada."
   },
   "expenses": {
     "title": "Gastos",

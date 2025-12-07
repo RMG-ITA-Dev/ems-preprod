@@ -286,7 +286,13 @@
     },
     "monthEnd": "Month-End",
     "monthEndDeadline": "Deadline",
-    "selectWeek": "Click to select week"
+    "selectWeek": "Click to select week",
+    "noEngagements": "No engagements available for time entry. Work orders must be approved first.",
+    "noStaffRecord": "Your account is not linked to a staff record. Please contact an administrator.",
+    "saving": "Saving...",
+    "saved": "Saved",
+    "deleteRow": "Delete row",
+    "periodLocked": "This week is locked and cannot be edited."
   },
   "expenses": {
     "title": "Expenses",
