@@ -322,21 +322,28 @@ GROUP BY wo.wo_id;
 
 ⸻
 
-🎯 Notes
-	•	work_orders enforce a strict 1:1 relationship with engagements, functioning like a pricing & budget sheet.
-	•	Staff has multiple functional relationships:
-	•	Associated with categories (rate group)
-	•	Linked to Supabase auth.users
-	•	Assigned as partner/manager in engagements
-	•	This model supports:
-	•	Seasonality pricing
-	•	Multi-currency budgets (BOB/USD)
-	•	Category-level time budgeting
-	•	Expense forecasting
+### 🎯 Notes
+
+#### 🔗 Work Order Structure  
+- `work_orders` enforce a strict **1:1 relationship with engagements**, functioning like a **pricing & budget sheet**
+
+#### 👥 Staff Relationships  
+Staff has multiple functional relationships:  
+- Associated with **categories** (rate group)  
+- Linked to **Supabase \`auth.users\`**  
+- Assigned as **partner/manager in engagements**
+
+#### 📌 Supported Business Logic  
+This schema supports:
+
+- Seasonality-based pricing  
+- Multi-currency budget planning (**BOB/USD**)  
+- Category-level time budgeting  
+- Expense forecasting
 
 ⸻
 
 [<img src="./supabase/ems-er-diagram.png" width="350" />](./supabase/ems-er-diagram.png)
 
-
+## More Stuff
 
