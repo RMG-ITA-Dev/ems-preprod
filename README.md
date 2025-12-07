@@ -342,6 +342,7 @@ This schema supports:
 - Expense forecasting
 
 ⸻
+## 📊 Supabase Entity Relation Diagram in PNG (clickable)
 
 [<img src="./supabase/ems-er-diagram.png" width="350" />](./supabase/ems-er-diagram.png)
 
