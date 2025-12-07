@@ -27,6 +27,12 @@ export default defineConfig(({ mode }) => ({
       // i18n - large with dynamic imports
       'i18next',
       'react-i18next',
+      // Radix UI - critical/high-usage components
+      '@radix-ui/react-dialog',
+      '@radix-ui/react-select',
+      '@radix-ui/react-popover',
+      '@radix-ui/react-tooltip',
+      '@radix-ui/react-slot',
     ],
   },
 }));
