@@ -40,6 +40,7 @@ export type Database = {
       }
       categories: {
         Row: {
+          can_approve_timesheets: boolean | null
           can_approve_wo: boolean | null
           category_id: string
           category_name: string
@@ -52,6 +53,7 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          can_approve_timesheets?: boolean | null
           can_approve_wo?: boolean | null
           category_id?: string
           category_name: string
@@ -64,6 +66,7 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          can_approve_timesheets?: boolean | null
           can_approve_wo?: boolean | null
           category_id?: string
           category_name?: string
@@ -326,6 +329,7 @@ export type Database = {
           last_name: string
           short_name: string | null
           staff_id: string
+          supervisor_id: string | null
           updated_at: string | null
         }
         Insert: {
@@ -342,6 +346,7 @@ export type Database = {
           last_name: string
           short_name?: string | null
           staff_id?: string
+          supervisor_id?: string | null
           updated_at?: string | null
         }
         Update: {
@@ -358,6 +363,7 @@ export type Database = {
           last_name?: string
           short_name?: string | null
           staff_id?: string
+          supervisor_id?: string | null
           updated_at?: string | null
         }
         Relationships: [
@@ -367,6 +373,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "categories"
             referencedColumns: ["category_id"]
+          },
+          {
+            foreignKeyName: "staff_supervisor_id_fkey"
+            columns: ["supervisor_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["staff_id"]
           },
         ]
       }
@@ -725,11 +738,25 @@ export type Database = {
       }
     }
     Functions: {
+      can_approve_timesheet: {
+        Args: { p_approver_auth_id: string; p_period_id: string }
+        Returns: boolean
+      }
+      get_timesheet_approvers: {
+        Args: { p_staff_id: string; p_week_start: string }
+        Returns: {
+          approver_staff_id: string
+        }[]
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
           _user_id: string
         }
+        Returns: boolean
+      }
+      is_auto_approved_category: {
+        Args: { p_staff_id: string }
         Returns: boolean
       }
     }

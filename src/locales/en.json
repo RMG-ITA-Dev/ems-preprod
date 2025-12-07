@@ -120,7 +120,9 @@
     "placeholder": "e.g., Partner",
     "permissions": "Permissions",
     "canApproveWO": "Can Approve WO",
-    "canApproveWOHelp": "Staff in this category can approve or reject pending work orders"
+    "canApproveWOHelp": "Staff in this category can approve or reject pending work orders",
+    "canApproveTimesheets": "Can Approve Timesheets",
+    "canApproveTimesheetsHelp": "Staff in this category can approve timesheets from lower-ranked staff"
   },
   "activity": {
     "code": "Code",
@@ -163,7 +165,9 @@
     "deleteStaff": "Delete Staff Member",
     "searchPlaceholder": "Search by name or email...",
     "activeDescription": "Active staff members can log time entries",
-    "selectCategory": "Select a category"
+    "selectCategory": "Select a category",
+    "supervisor": "Supervisor",
+    "selectSupervisor": "Select Supervisor"
   },
   "client": {
     "name": "Client Name",
@@ -195,7 +199,7 @@
     "name": "Engagement Name",
     "client": "Client",
     "partner": "Partner/Director",
-    "manager": "Manager/In-Charge",
+    "manager": "Manager/Supervisor",
     "startDate": "Start Date",
     "endDate": "End Date",
     "status": "Status",
@@ -207,7 +211,7 @@
     "selectClient": "Select a client",
     "selectStatus": "Select status",
     "selectPartner": "Select Partner/Director",
-    "selectManager": "Select Manager/In-Charge"
+    "selectManager": "Select Manager/Supervisor"
   },
   "messages": {
     "createSuccess": "{{entity}} created successfully",
@@ -231,7 +235,7 @@
     "selectIndustry": "Select an industry",
     "selectClient": "Select a client",
     "selectPartner": "Select a Partner/Director",
-    "selectManager": "Select a Manager/In-Charge"
+    "selectManager": "Select a Manager/Supervisor"
   },
   "months": {
     "january": "January",
