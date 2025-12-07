@@ -336,7 +336,7 @@ GROUP BY wo.wo_id;
 
 ⸻
 
-
+[<img src="./supabase/ems-er-diagram.png" width="350" />](./supabase/ems-er-diagram.png)
 
 
 
