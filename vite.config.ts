@@ -19,8 +19,14 @@ export default defineConfig(({ mode }) => ({
   },
   optimizeDeps: {
     include: [
+      // Date/Time - large with locale sub-modules
       'date-fns',
       'date-fns/locale',
+      // Visualization - large bundle
+      'recharts',
+      // i18n - large with dynamic imports
+      'i18next',
+      'react-i18next',
     ],
   },
 }));
