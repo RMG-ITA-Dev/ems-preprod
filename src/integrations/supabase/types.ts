@@ -378,6 +378,8 @@ export type Database = {
           description: string | null
           engagement_id: string
           hours_logged: number
+          is_forecast: boolean | null
+          period_id: string | null
           staff_id: string
           time_id: string
           updated_at: string | null
@@ -389,6 +391,8 @@ export type Database = {
           description?: string | null
           engagement_id: string
           hours_logged: number
+          is_forecast?: boolean | null
+          period_id?: string | null
           staff_id: string
           time_id?: string
           updated_at?: string | null
@@ -400,6 +404,8 @@ export type Database = {
           description?: string | null
           engagement_id?: string
           hours_logged?: number
+          is_forecast?: boolean | null
+          period_id?: string | null
           staff_id?: string
           time_id?: string
           updated_at?: string | null
@@ -420,7 +426,83 @@ export type Database = {
             referencedColumns: ["engagement_id"]
           },
           {
+            foreignKeyName: "time_entries_period_id_fkey"
+            columns: ["period_id"]
+            isOneToOne: false
+            referencedRelation: "timesheet_periods"
+            referencedColumns: ["period_id"]
+          },
+          {
             foreignKeyName: "time_entries_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["staff_id"]
+          },
+        ]
+      }
+      timesheet_periods: {
+        Row: {
+          created_at: string | null
+          deadline: string | null
+          is_period_locked: boolean | null
+          period_id: string
+          review_notes: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          staff_id: string
+          status: string
+          submitted_at: string | null
+          total_hours: number | null
+          updated_at: string | null
+          week_number: number
+          week_start_date: string
+          year: number
+        }
+        Insert: {
+          created_at?: string | null
+          deadline?: string | null
+          is_period_locked?: boolean | null
+          period_id?: string
+          review_notes?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          staff_id: string
+          status?: string
+          submitted_at?: string | null
+          total_hours?: number | null
+          updated_at?: string | null
+          week_number: number
+          week_start_date: string
+          year: number
+        }
+        Update: {
+          created_at?: string | null
+          deadline?: string | null
+          is_period_locked?: boolean | null
+          period_id?: string
+          review_notes?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          staff_id?: string
+          status?: string
+          submitted_at?: string | null
+          total_hours?: number | null
+          updated_at?: string | null
+          week_number?: number
+          week_start_date?: string
+          year?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "timesheet_periods_reviewed_by_fkey"
+            columns: ["reviewed_by"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "timesheet_periods_staff_id_fkey"
             columns: ["staff_id"]
             isOneToOne: false
             referencedRelation: "staff"
