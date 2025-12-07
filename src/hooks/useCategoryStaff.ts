@@ -45,13 +45,28 @@ export function useCategoryStaff() {
     }));
   }, [leadershipStaff]);
 
-  // Management options for dropdowns (Manager/In-Charge) - includes both management tier AND leadership tier
+  // Management options for dropdowns (Manager/Supervisor) - includes both management tier AND leadership tier
   const managementOptions = useMemo(() => {
     if (!staff) return [];
     return staff
       .filter((s) => {
         const displayOrder = s.category?.display_order;
         // Include management tier (3-4) and leadership tier (1-2)
+        return displayOrder != null && displayOrder <= 4;
+      })
+      .map((s) => ({
+        value: s.staff_id,
+        label: `${s.first_name} ${s.last_name}`,
+      }));
+  }, [staff]);
+
+  // Supervisor options for staff form (display_order 1-4: can supervise junior staff)
+  const supervisorOptions = useMemo(() => {
+    if (!staff) return [];
+    return staff
+      .filter((s) => {
+        const displayOrder = s.category?.display_order;
+        // Include Socio (1), Director (2), Gerente (3), Senior (4)
         return displayOrder != null && displayOrder <= 4;
       })
       .map((s) => ({
@@ -74,6 +89,7 @@ export function useCategoryStaff() {
     managementStaff,
     leadershipOptions,
     managementOptions,
+    supervisorOptions,
     hasLeadershipCategory,
     hasManagementCategory,
     // Legacy aliases

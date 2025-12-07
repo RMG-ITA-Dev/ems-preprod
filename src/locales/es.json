@@ -120,7 +120,9 @@
     "placeholder": "ej., Socio",
     "permissions": "Permisos",
     "canApproveWO": "Puede Aprobar OT",
-    "canApproveWOHelp": "El personal en esta categoría puede aprobar o rechazar órdenes de trabajo pendientes"
+    "canApproveWOHelp": "El personal en esta categoría puede aprobar o rechazar órdenes de trabajo pendientes",
+    "canApproveTimesheets": "Puede Aprobar Hojas de Tiempo",
+    "canApproveTimesheetsHelp": "El personal en esta categoría puede aprobar hojas de tiempo de personal de menor rango"
   },
   "activity": {
     "code": "Código",
@@ -163,7 +165,9 @@
     "deleteStaff": "Eliminar Miembro del Personal",
     "searchPlaceholder": "Buscar por nombre o correo...",
     "activeDescription": "El personal activo puede registrar entradas de tiempo",
-    "selectCategory": "Seleccionar una categoría"
+    "selectCategory": "Seleccionar una categoría",
+    "supervisor": "Supervisor",
+    "selectSupervisor": "Seleccionar Supervisor"
   },
   "client": {
     "name": "Nombre del Cliente",
@@ -195,7 +199,7 @@
     "name": "Nombre del Encargo",
     "client": "Cliente",
     "partner": "Socio/Director",
-    "manager": "Gerente/A Cargo",
+    "manager": "Gerente/Supervisor",
     "startDate": "Fecha de Inicio",
     "endDate": "Fecha de Fin",
     "status": "Estado",
@@ -207,7 +211,7 @@
     "selectClient": "Seleccionar un cliente",
     "selectStatus": "Seleccionar estado",
     "selectPartner": "Seleccionar Socio/Director",
-    "selectManager": "Seleccionar Gerente/A Cargo"
+    "selectManager": "Seleccionar Gerente/Supervisor"
   },
   "messages": {
     "createSuccess": "{{entity}} creado/a exitosamente",
@@ -231,7 +235,7 @@
     "selectIndustry": "Seleccione una industria",
     "selectClient": "Seleccione un cliente",
     "selectPartner": "Seleccione un Socio/Director",
-    "selectManager": "Seleccione un Gerente/A Cargo"
+    "selectManager": "Seleccione un Gerente/Supervisor"
   },
   "months": {
     "january": "Enero",

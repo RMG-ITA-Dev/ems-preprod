@@ -44,6 +44,7 @@ const formSchema = z.object({
   rate_high_usd: z.coerce.number().min(0, "Rate must be positive"),
   rate_low_usd: z.coerce.number().min(0, "Rate must be positive"),
   can_approve_wo: z.boolean().default(false),
+  can_approve_timesheets: z.boolean().default(false),
 });
 
 type FormData = z.infer<typeof formSchema>;
@@ -71,6 +72,7 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
       rate_high_usd: 0,
       rate_low_usd: 0,
       can_approve_wo: false,
+      can_approve_timesheets: false,
     },
   });
 
@@ -84,6 +86,7 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
         rate_high_usd: category?.rate_high_usd || 0,
         rate_low_usd: category?.rate_low_usd || 0,
         can_approve_wo: category?.can_approve_wo || false,
+        can_approve_timesheets: (category as any)?.can_approve_timesheets || false,
       });
     }
   }, [open, category, form]);
@@ -97,6 +100,7 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
       rate_high_usd: data.rate_high_usd,
       rate_low_usd: data.rate_low_usd,
       can_approve_wo: data.can_approve_wo,
+      can_approve_timesheets: data.can_approve_timesheets,
     };
     if (isEdit && category) {
       await updateMutation.mutateAsync({ id: category.category_id, data: payload });
@@ -237,6 +241,27 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
                       <FormLabel>{t("category.canApproveWO")}</FormLabel>
                       <p className="text-xs text-muted-foreground">
                         {t("category.canApproveWOHelp")}
+                      </p>
+                    </div>
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="can_approve_timesheets"
+                render={({ field }) => (
+                  <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                    <FormControl>
+                      <Checkbox
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                    <div className="space-y-1 leading-none">
+                      <FormLabel>{t("category.canApproveTimesheets")}</FormLabel>
+                      <p className="text-xs text-muted-foreground">
+                        {t("category.canApproveTimesheetsHelp")}
                       </p>
                     </div>
                   </FormItem>

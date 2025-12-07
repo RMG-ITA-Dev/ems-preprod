@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Staff, useCategories } from "@/hooks/useEmsData";
 import { useCreateStaff, useUpdateStaff, useDeleteStaff } from "@/hooks/useEmsMutations";
+import { useCategoryStaff } from "@/hooks/useCategoryStaff";
 import { Trash2, ArrowLeft } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
@@ -45,6 +46,7 @@ const formSchema = z.object({
   initials: z.string().max(4, "Max 4 characters").optional(),
   email: z.string().email("Invalid email").optional().or(z.literal("")),
   category_id: z.string().optional(),
+  supervisor_id: z.string().optional(),
   city: z.string().optional(),
   id_number: z.string().optional(),
   aud_reg_number: z.string().optional(),
@@ -81,6 +83,7 @@ export function StaffForm({ staff }: StaffFormProps) {
   const navigate = useNavigate();
   const isEdit = !!staff;
   const { data: categories } = useCategories();
+  const { supervisorOptions } = useCategoryStaff();
   const createMutation = useCreateStaff();
   const updateMutation = useUpdateStaff();
   const deleteMutation = useDeleteStaff();
@@ -94,6 +97,7 @@ export function StaffForm({ staff }: StaffFormProps) {
       initials: "",
       email: "",
       category_id: "",
+      supervisor_id: "",
       city: "",
       id_number: "",
       aud_reg_number: "",
@@ -110,6 +114,7 @@ export function StaffForm({ staff }: StaffFormProps) {
         initials: staff.initials || "",
         email: staff.email || "",
         category_id: staff.category_id || "",
+        supervisor_id: (staff as any).supervisor_id || "",
         city: staff.city || "",
         id_number: staff.id_number || "",
         aud_reg_number: staff.aud_reg_number || "",
@@ -144,6 +149,7 @@ export function StaffForm({ staff }: StaffFormProps) {
       initials: data.initials || undefined,
       email: data.email || undefined,
       category_id: data.category_id || undefined,
+      supervisor_id: data.supervisor_id || undefined,
       city: data.city || undefined,
       id_number: data.id_number || undefined,
       aud_reg_number: data.aud_reg_number || undefined,
@@ -163,6 +169,11 @@ export function StaffForm({ staff }: StaffFormProps) {
       navigate("/staff");
     }
   };
+
+  // Filter out self from supervisor options when editing
+  const filteredSupervisorOptions = supervisorOptions.filter(
+    (opt) => !staff || opt.value !== staff.staff_id
+  );
 
   return (
     <div className="space-y-6">
@@ -335,30 +346,57 @@ export function StaffForm({ staff }: StaffFormProps) {
 
             <div className="space-y-4">
               <h3 className="font-medium text-lg">{t("common.role")}</h3>
-              <FormField
-                control={form.control}
-                name="category_id"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t("staff.category")}</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder={t("staff.selectCategory")} />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {categories?.map((cat) => (
-                          <SelectItem key={cat.category_id} value={cat.category_id}>
-                            {cat.category_name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="category_id"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t("staff.category")}</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder={t("staff.selectCategory")} />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {categories?.map((cat) => (
+                            <SelectItem key={cat.category_id} value={cat.category_id}>
+                              {cat.category_name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="supervisor_id"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t("staff.supervisor")}</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder={t("staff.selectSupervisor")} />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {filteredSupervisorOptions.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
 
               <FormField
                 control={form.control}
