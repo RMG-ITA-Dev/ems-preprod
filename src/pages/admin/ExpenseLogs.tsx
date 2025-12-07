@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
@@ -67,12 +67,6 @@ export default function AdminExpenseLogs() {
     receipt_url: "",
   });
 
-  // Redirect non-admins
-  if (!roleLoading && !isAdmin) {
-    navigate("/");
-    return null;
-  }
-
   const filteredData = useMemo(() => {
     if (!expenseLogs) return [];
     return (expenseLogs as ExpenseLogRow[]).filter((entry) => {
@@ -96,6 +90,28 @@ export default function AdminExpenseLogs() {
       return matchesSearch && matchesType && matchesCurrency;
     });
   }, [expenseLogs, search, typeFilter, currencyFilter]);
+
+  // Redirect non-admins
+  useEffect(() => {
+    if (!roleLoading && !isAdmin) {
+      navigate("/");
+    }
+  }, [roleLoading, isAdmin, navigate]);
+
+  if (roleLoading) {
+    return (
+      <AppLayout>
+        <div className="p-6">
+          <Skeleton className="h-8 w-48 mb-4" />
+          <Skeleton className="h-64 w-full" />
+        </div>
+      </AppLayout>
+    );
+  }
+
+  if (!isAdmin) {
+    return null;
+  }
 
   const handleRowClick = (entry: ExpenseLogRow) => {
     setEditEntry(entry);
