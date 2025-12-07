@@ -277,8 +277,11 @@
       "tue": "Tue",
       "wed": "Wed",
       "thu": "Thu",
-      "fri": "Fri"
-    }
+      "fri": "Fri",
+      "sat": "Sat"
+    },
+    "monthEnd": "Month-End",
+    "monthEndDeadline": "Deadline"
   },
   "expenses": {
     "title": "Expenses",

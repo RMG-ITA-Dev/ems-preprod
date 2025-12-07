@@ -277,8 +277,11 @@
       "tue": "Mar",
       "wed": "Mié",
       "thu": "Jue",
-      "fri": "Vie"
-    }
+      "fri": "Vie",
+      "sat": "Sáb"
+    },
+    "monthEnd": "Cierre de Mes",
+    "monthEndDeadline": "Fecha límite"
   },
   "expenses": {
     "title": "Gastos",
