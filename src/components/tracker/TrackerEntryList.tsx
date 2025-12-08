@@ -127,11 +127,13 @@ export function TrackerEntryList({
                       </TableCell>
                       <TableCell>
                         <span className="text-sm">
-                          {entry.engagement?.engagement_code || entry.engagement?.engagement_name}
+                          {entry.engagement?.engagement_code} - {entry.engagement?.engagement_name}
                         </span>
                       </TableCell>
                       <TableCell>
-                        <span className="text-sm">{entry.activity?.activity_code}</span>
+                        <span className="text-sm">
+                          {entry.activity?.activity_code} - {entry.activity?.description}
+                        </span>
                       </TableCell>
                       <TableCell>
                         <span className="text-sm text-muted-foreground truncate max-w-[200px] block">

@@ -76,7 +76,7 @@ export function TrackerBar({
         </div>
 
         {/* Engagement Selector */}
-        <div className="w-full lg:w-56">
+        <div className="w-full lg:w-72">
           <Select
             value={engagementId || ""}
             onValueChange={(val) => onEngagementChange(val || null)}
@@ -84,7 +84,9 @@ export function TrackerBar({
           >
             <SelectTrigger className="h-9">
               <SelectValue placeholder={t("tracker.selectEngagement")}>
-                {selectedEngagement ? selectedEngagement.engagement_code : null}
+                {selectedEngagement 
+                  ? `${selectedEngagement.engagement_code} - ${selectedEngagement.engagement_name}` 
+                  : null}
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
@@ -99,7 +101,7 @@ export function TrackerBar({
         </div>
 
         {/* Activity Selector */}
-        <div className="w-full lg:w-48">
+        <div className="w-full lg:w-64">
           <Select
             value={activityId || ""}
             onValueChange={(val) => onActivityChange(val || null)}
@@ -107,7 +109,9 @@ export function TrackerBar({
           >
             <SelectTrigger className="h-9">
               <SelectValue placeholder={t("tracker.selectActivity")}>
-                {selectedActivity ? selectedActivity.activity_code : null}
+                {selectedActivity 
+                  ? `${selectedActivity.activity_code} - ${selectedActivity.description}` 
+                  : null}
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
