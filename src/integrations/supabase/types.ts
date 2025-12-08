@@ -329,7 +329,6 @@ export type Database = {
           last_name: string
           short_name: string | null
           staff_id: string
-          supervisor_id: string | null
           updated_at: string | null
         }
         Insert: {
@@ -346,7 +345,6 @@ export type Database = {
           last_name: string
           short_name?: string | null
           staff_id?: string
-          supervisor_id?: string | null
           updated_at?: string | null
         }
         Update: {
@@ -363,7 +361,6 @@ export type Database = {
           last_name?: string
           short_name?: string | null
           staff_id?: string
-          supervisor_id?: string | null
           updated_at?: string | null
         }
         Relationships: [
@@ -373,13 +370,6 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "categories"
             referencedColumns: ["category_id"]
-          },
-          {
-            foreignKeyName: "staff_supervisor_id_fkey"
-            columns: ["supervisor_id"]
-            isOneToOne: false
-            referencedRelation: "staff"
-            referencedColumns: ["staff_id"]
           },
         ]
       }
