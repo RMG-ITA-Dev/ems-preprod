@@ -116,8 +116,8 @@
     "stopDialog": {
       "title": "Detener Cronómetro",
       "description": "Has registrado {{time}}. ¿Qué deseas hacer?",
-      "continue": "Continuar",
-      "continueDesc": "El cronómetro seguirá corriendo",
+      "pause": "Parar un momento",
+      "pauseDesc": "El tiempo se guarda, puedes continuar después",
       "logAndReset": "Guardar y Reiniciar",
       "logAndResetDesc": "Guarda esta entrada y limpia todo"
     }

@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { Play, Save } from "lucide-react";
+import { Pause, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -13,7 +13,7 @@ interface StopActionDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   formattedTime: string;
-  onContinue: () => void;
+  onPause: () => void;
   onLogAndReset: () => void;
 }
 
@@ -21,7 +21,7 @@ export function StopActionDialog({
   open,
   onOpenChange,
   formattedTime,
-  onContinue,
+  onPause,
   onLogAndReset,
 }: StopActionDialogProps) {
   const { t } = useTranslation();
@@ -41,14 +41,14 @@ export function StopActionDialog({
             variant="outline"
             className="justify-start h-auto py-3 px-4"
             onClick={() => {
-              onContinue();
+              onPause();
               onOpenChange(false);
             }}
           >
-            <Play className="h-4 w-4 mr-3 text-success" />
+            <Pause className="h-4 w-4 mr-3 text-warning" />
             <div className="text-left">
-              <div className="font-medium">{t("tracker.stopDialog.continue")}</div>
-              <div className="text-xs text-muted-foreground">{t("tracker.stopDialog.continueDesc")}</div>
+              <div className="font-medium">{t("tracker.stopDialog.pause")}</div>
+              <div className="text-xs text-muted-foreground">{t("tracker.stopDialog.pauseDesc")}</div>
             </div>
           </Button>
 

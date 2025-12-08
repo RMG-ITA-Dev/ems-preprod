@@ -116,8 +116,8 @@
     "stopDialog": {
       "title": "Stop Timer",
       "description": "You've tracked {{time}}. What would you like to do?",
-      "continue": "Continue",
-      "continueDesc": "Timer will keep running",
+      "pause": "Pause for now",
+      "pauseDesc": "Time is saved, you can continue later",
       "logAndReset": "Log & Reset",
       "logAndResetDesc": "Save this entry and clear everything"
     }
