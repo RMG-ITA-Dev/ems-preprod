@@ -508,11 +508,7 @@ export type Database = {
           deadline: string | null
           is_period_locked: boolean | null
           period_id: string
-          review_notes: string | null
-          reviewed_at: string | null
-          reviewed_by: string | null
           staff_id: string
-          status: string
           submitted_at: string | null
           total_hours: number | null
           updated_at: string | null
@@ -525,11 +521,7 @@ export type Database = {
           deadline?: string | null
           is_period_locked?: boolean | null
           period_id?: string
-          review_notes?: string | null
-          reviewed_at?: string | null
-          reviewed_by?: string | null
           staff_id: string
-          status?: string
           submitted_at?: string | null
           total_hours?: number | null
           updated_at?: string | null
@@ -542,11 +534,7 @@ export type Database = {
           deadline?: string | null
           is_period_locked?: boolean | null
           period_id?: string
-          review_notes?: string | null
-          reviewed_at?: string | null
-          reviewed_by?: string | null
           staff_id?: string
-          status?: string
           submitted_at?: string | null
           total_hours?: number | null
           updated_at?: string | null
@@ -555,13 +543,6 @@ export type Database = {
           year?: number
         }
         Relationships: [
-          {
-            foreignKeyName: "timesheet_periods_reviewed_by_fkey"
-            columns: ["reviewed_by"]
-            isOneToOne: false
-            referencedRelation: "staff"
-            referencedColumns: ["staff_id"]
-          },
           {
             foreignKeyName: "timesheet_periods_staff_id_fkey"
             columns: ["staff_id"]
