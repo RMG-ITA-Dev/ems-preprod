@@ -34,7 +34,276 @@ export interface LineApproval {
   };
 }
 
-// Fetch pending approvals for the current approver
+export interface PendingApprovalSummary {
+  period_id: string;
+  staff_id: string;
+  week_start_date: string;
+  week_number: number;
+  year: number;
+  staff: {
+    staff_id: string;
+    first_name: string;
+    last_name: string;
+    short_name: string | null;
+  };
+  totalPendingHours: number;
+  pendingLineCount: number;
+}
+
+export interface TimeEntryForApproval {
+  time_id: string;
+  date_worked: string;
+  hours_logged: number;
+  description: string | null;
+  engagement_id: string;
+  activity_id: string;
+  engagement?: {
+    engagement_id: string;
+    engagement_code: string | null;
+    engagement_name: string;
+  };
+  activity?: {
+    activity_id: string;
+    activity_code: string;
+    description: string;
+  };
+}
+
+export interface StaffTimesheetForApproval {
+  period: {
+    period_id: string;
+    week_start_date: string;
+    week_number: number;
+    year: number;
+    staff_id: string;
+  };
+  staff: {
+    staff_id: string;
+    first_name: string;
+    last_name: string;
+    short_name: string | null;
+  };
+  timeEntries: TimeEntryForApproval[];
+  lineApprovals: LineApproval[];
+  approvableEngagementIds: string[];
+}
+
+// Fetch pending approval summaries grouped by staff/week with total hours
+export function usePendingApprovalSummaries() {
+  const { staffRecord } = useCurrentStaff();
+
+  return useQuery({
+    queryKey: ["pending-approval-summaries", staffRecord?.staff_id],
+    queryFn: async () => {
+      if (!staffRecord) return [];
+
+      // First get all pending line approvals
+      const { data: approvals, error: approvalsError } = await supabase
+        .from("timesheet_line_approvals")
+        .select(`
+          approval_id,
+          period_id,
+          engagement_id,
+          status,
+          period:timesheet_periods(
+            period_id,
+            week_start_date,
+            week_number,
+            year,
+            staff_id,
+            staff:staff!timesheet_periods_staff_id_fkey(
+              staff_id,
+              first_name,
+              last_name,
+              short_name
+            )
+          )
+        `)
+        .eq("status", "pending");
+
+      if (approvalsError) throw approvalsError;
+
+      // Get unique period IDs
+      const periodIds = [...new Set((approvals || []).map((a) => a.period_id))];
+      if (periodIds.length === 0) return [];
+
+      // Fetch time entries for these periods to calculate hours
+      const { data: timeEntries, error: entriesError } = await supabase
+        .from("time_entries")
+        .select("period_id, engagement_id, hours_logged")
+        .in("period_id", periodIds);
+
+      if (entriesError) throw entriesError;
+
+      // Group by period and calculate hours
+      const summaryMap = new Map<string, PendingApprovalSummary>();
+
+      (approvals || []).forEach((approval) => {
+        const periodId = approval.period_id;
+        const period = approval.period as any;
+        
+        if (!period || !period.staff) return;
+
+        if (!summaryMap.has(periodId)) {
+          summaryMap.set(periodId, {
+            period_id: periodId,
+            staff_id: period.staff_id,
+            week_start_date: period.week_start_date,
+            week_number: period.week_number,
+            year: period.year,
+            staff: period.staff,
+            totalPendingHours: 0,
+            pendingLineCount: 0,
+          });
+        }
+
+        const summary = summaryMap.get(periodId)!;
+        summary.pendingLineCount++;
+
+        // Calculate hours for this engagement in this period
+        const engagementHours = (timeEntries || [])
+          .filter(
+            (te) =>
+              te.period_id === periodId &&
+              te.engagement_id === approval.engagement_id
+          )
+          .reduce((sum, te) => sum + (te.hours_logged || 0), 0);
+
+        summary.totalPendingHours += engagementHours;
+      });
+
+      return Array.from(summaryMap.values()).sort((a, b) => {
+        // Sort by week_start_date desc, then by staff name
+        const dateCompare = b.week_start_date.localeCompare(a.week_start_date);
+        if (dateCompare !== 0) return dateCompare;
+        const nameA = a.staff.short_name || `${a.staff.first_name} ${a.staff.last_name}`;
+        const nameB = b.staff.short_name || `${b.staff.first_name} ${b.staff.last_name}`;
+        return nameA.localeCompare(nameB);
+      });
+    },
+    enabled: !!staffRecord,
+  });
+}
+
+// Fetch full timesheet data for a specific period (for approval detail view)
+export function useStaffTimesheetForApproval(periodId: string | null) {
+  const { staffRecord } = useCurrentStaff();
+
+  return useQuery({
+    queryKey: ["staff-timesheet-for-approval", periodId, staffRecord?.staff_id],
+    queryFn: async (): Promise<StaffTimesheetForApproval | null> => {
+      if (!periodId || !staffRecord) return null;
+
+      // Fetch period with staff info
+      const { data: period, error: periodError } = await supabase
+        .from("timesheet_periods")
+        .select(`
+          period_id,
+          week_start_date,
+          week_number,
+          year,
+          staff_id,
+          staff:staff!timesheet_periods_staff_id_fkey(
+            staff_id,
+            first_name,
+            last_name,
+            short_name
+          )
+        `)
+        .eq("period_id", periodId)
+        .single();
+
+      if (periodError) throw periodError;
+
+      // Fetch all time entries for this period
+      const { data: timeEntries, error: entriesError } = await supabase
+        .from("time_entries")
+        .select(`
+          time_id,
+          date_worked,
+          hours_logged,
+          description,
+          engagement_id,
+          activity_id,
+          engagement:engagements(
+            engagement_id,
+            engagement_code,
+            engagement_name
+          ),
+          activity:activity_codes(
+            activity_id,
+            activity_code,
+            description
+          )
+        `)
+        .eq("period_id", periodId)
+        .order("date_worked");
+
+      if (entriesError) throw entriesError;
+
+      // Fetch line approvals for this period
+      const { data: lineApprovals, error: approvalsError } = await supabase
+        .from("timesheet_line_approvals")
+        .select(`
+          approval_id,
+          period_id,
+          engagement_id,
+          status,
+          approved_by,
+          approved_at,
+          review_notes,
+          created_at,
+          updated_at
+        `)
+        .eq("period_id", periodId);
+
+      if (approvalsError) throw approvalsError;
+
+      // Determine which engagements the current approver can approve
+      // Get unique engagement IDs from time entries
+      const engagementIds = [...new Set((timeEntries || []).map((te) => te.engagement_id))];
+      
+      // Check which engagements this approver can approve
+      const approvableEngagementIds: string[] = [];
+      for (const engagementId of engagementIds) {
+        const { data: canApprove } = await supabase.rpc("can_approve_timesheet_line", {
+          p_approver_auth_id: (await supabase.auth.getUser()).data.user?.id || "",
+          p_engagement_id: engagementId,
+          p_period_id: periodId,
+        });
+        if (canApprove) {
+          approvableEngagementIds.push(engagementId);
+        }
+      }
+
+      return {
+        period: {
+          period_id: period.period_id,
+          week_start_date: period.week_start_date,
+          week_number: period.week_number,
+          year: period.year,
+          staff_id: period.staff_id,
+        },
+        staff: period.staff as any,
+        timeEntries: (timeEntries || []).map((te) => ({
+          time_id: te.time_id,
+          date_worked: te.date_worked,
+          hours_logged: te.hours_logged,
+          description: te.description,
+          engagement_id: te.engagement_id,
+          activity_id: te.activity_id,
+          engagement: te.engagement as any,
+          activity: te.activity as any,
+        })),
+        lineApprovals: (lineApprovals || []) as LineApproval[],
+        approvableEngagementIds,
+      };
+    },
+    enabled: !!periodId && !!staffRecord,
+  });
+}
+
+// Legacy hook for backward compatibility
 export function usePendingApprovals() {
   const { staffRecord } = useCurrentStaff();
 
@@ -133,12 +402,53 @@ export function useApproveTimesheetLine() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["pending-approvals"] });
+      queryClient.invalidateQueries({ queryKey: ["pending-approval-summaries"] });
       queryClient.invalidateQueries({ queryKey: ["period-line-approvals"] });
+      queryClient.invalidateQueries({ queryKey: ["staff-timesheet-for-approval"] });
       toast({ title: "Line approved successfully" });
     },
     onError: (error) => {
       toast({
         title: "Error approving line",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+}
+
+// Approve multiple timesheet lines
+export function useBulkApproveTimesheetLines() {
+  const queryClient = useQueryClient();
+  const { staffRecord } = useCurrentStaff();
+
+  return useMutation({
+    mutationFn: async (approvalIds: string[]) => {
+      if (!staffRecord) throw new Error("No staff record found");
+
+      const { data, error } = await supabase
+        .from("timesheet_line_approvals")
+        .update({
+          status: "approved",
+          approved_by: staffRecord.staff_id,
+          approved_at: new Date().toISOString(),
+        })
+        .in("approval_id", approvalIds)
+        .select();
+
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["pending-approvals"] });
+      queryClient.invalidateQueries({ queryKey: ["pending-approval-summaries"] });
+      queryClient.invalidateQueries({ queryKey: ["period-line-approvals"] });
+      queryClient.invalidateQueries({ queryKey: ["staff-timesheet-for-approval"] });
+      toast({ title: `${data?.length || 0} lines approved successfully` });
+    },
+    onError: (error) => {
+      toast({
+        title: "Error approving lines",
         description: error.message,
         variant: "destructive",
       });
@@ -178,12 +488,60 @@ export function useRejectTimesheetLine() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["pending-approvals"] });
+      queryClient.invalidateQueries({ queryKey: ["pending-approval-summaries"] });
       queryClient.invalidateQueries({ queryKey: ["period-line-approvals"] });
+      queryClient.invalidateQueries({ queryKey: ["staff-timesheet-for-approval"] });
       toast({ title: "Line rejected" });
     },
     onError: (error) => {
       toast({
         title: "Error rejecting line",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+}
+
+// Reject multiple timesheet lines
+export function useBulkRejectTimesheetLines() {
+  const queryClient = useQueryClient();
+  const { staffRecord } = useCurrentStaff();
+
+  return useMutation({
+    mutationFn: async ({
+      approvalIds,
+      notes,
+    }: {
+      approvalIds: string[];
+      notes?: string;
+    }) => {
+      if (!staffRecord) throw new Error("No staff record found");
+
+      const { data, error } = await supabase
+        .from("timesheet_line_approvals")
+        .update({
+          status: "rejected",
+          approved_by: staffRecord.staff_id,
+          approved_at: new Date().toISOString(),
+          review_notes: notes || null,
+        })
+        .in("approval_id", approvalIds)
+        .select();
+
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["pending-approvals"] });
+      queryClient.invalidateQueries({ queryKey: ["pending-approval-summaries"] });
+      queryClient.invalidateQueries({ queryKey: ["period-line-approvals"] });
+      queryClient.invalidateQueries({ queryKey: ["staff-timesheet-for-approval"] });
+      toast({ title: `${data?.length || 0} lines rejected` });
+    },
+    onError: (error) => {
+      toast({
+        title: "Error rejecting lines",
         description: error.message,
         variant: "destructive",
       });
