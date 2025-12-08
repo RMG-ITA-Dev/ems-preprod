@@ -9,18 +9,15 @@ import { TimesheetGrid } from "@/components/timesheet/TimesheetGrid";
 import { useTimesheetPolicies } from "@/hooks/useTimesheetPolicies";
 import { useTimesheetWeek } from "@/hooks/useTimesheetWeek";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
-import {
-  useSubmitTimesheet,
-  useSaveTimesheetDraft,
-} from "@/hooks/useTimesheetMutations";
+import { usePeriodLineApprovals } from "@/hooks/useTimesheetApprovals";
+import { useSubmitTimesheet } from "@/hooks/useTimesheetMutations";
+import { supabase } from "@/integrations/supabase/client";
 import {
   getWeekInfo,
   getWeekMonday,
   getPreviousWeek,
   getNextWeek,
   calculateDeadline,
-  isEditableStatus,
-  type TimesheetStatus,
 } from "@/lib/timesheetUtils";
 
 const TimeSheet = () => {
@@ -63,9 +60,11 @@ const TimeSheet = () => {
     error,
   } = useTimesheetWeek(currentWeekStart, workDays);
 
+  // Fetch line approvals for the current period
+  const { data: lineApprovals } = usePeriodLineApprovals(period?.period_id || null);
+
   // Mutations
   const submitTimesheet = useSubmitTimesheet();
-  const saveDraft = useSaveTimesheetDraft();
 
   // Week navigation handlers
   const handlePreviousWeek = () => {
@@ -76,22 +75,32 @@ const TimeSheet = () => {
     setCurrentWeekStart(getNextWeek(currentWeekStart));
   };
 
-  // Check if timesheet is editable
-  const periodStatus = (period?.status || "open") as TimesheetStatus;
-  const isEditable = isEditableStatus(periodStatus) && !period?.is_period_locked;
+  // Check if timesheet is editable (not yet submitted or has rejected lines)
+  const isSubmitted = !!period?.submitted_at;
+  const hasRejectedLines = lineApprovals?.some((la) => la.status === "rejected");
+  const isFullyApproved = lineApprovals?.length > 0 && 
+    lineApprovals.every((la) => la.status === "approved");
+  const isEditable = !isSubmitted && !period?.is_period_locked;
 
   // Handle submit
-  const handleSubmit = () => {
-    if (period?.period_id) {
-      submitTimesheet.mutate(period.period_id);
-    }
-  };
+  const handleSubmit = async () => {
+    if (!period?.period_id || !staffRecord) return;
 
-  // Handle save draft
-  const handleSaveDraft = () => {
-    if (period?.period_id) {
-      saveDraft.mutate(period.period_id);
-    }
+    // Get unique engagement IDs from entries
+    const uniqueEngagementIds = [...new Set(entries.map((e) => e.engagement_id))];
+    
+    if (uniqueEngagementIds.length === 0) return;
+
+    // Check if staff is auto-approved (Partner/Director)
+    const { data: isAutoApproved } = await supabase
+      .rpc("is_auto_approved_category", { p_staff_id: staffRecord.staff_id });
+
+    submitTimesheet.mutate({
+      periodId: period.period_id,
+      staffId: staffRecord.staff_id,
+      engagementIds: uniqueEngagementIds,
+      isAutoApproved: isAutoApproved || false,
+    });
   };
 
   // Loading state
@@ -144,11 +153,19 @@ const TimeSheet = () => {
           onWeekSelect={setCurrentWeekStart}
         />
 
-        {/* Locked indicator */}
-        {!isEditable && (
+        {/* Locked/Submitted indicator */}
+        {(period?.is_period_locked || isSubmitted) && (
           <Alert>
             <Lock className="h-4 w-4" />
-            <AlertDescription>{t("timesheet.periodLocked")}</AlertDescription>
+            <AlertDescription>
+              {period?.is_period_locked 
+                ? t("timesheet.periodLocked")
+                : isFullyApproved 
+                  ? t("timesheet.fullyApproved")
+                  : hasRejectedLines
+                    ? t("timesheet.hasRejections")
+                    : t("timesheet.pendingApproval")}
+            </AlertDescription>
           </Alert>
         )}
 
@@ -171,25 +188,15 @@ const TimeSheet = () => {
           isLocked={!isEditable}
           autoSaveSeconds={autoSaveSeconds}
           lang={lang}
+          lineApprovals={lineApprovals || []}
         />
 
         {/* Actions */}
         <div className="flex justify-end gap-3">
           <Button
-            variant="outline"
-            className="btn-action"
-            onClick={handleSaveDraft}
-            disabled={!isEditable || saveDraft.isPending}
-          >
-            {saveDraft.isPending && (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            )}
-            {t("timesheet.saveDraft")}
-          </Button>
-          <Button
             className="bg-brand-purple hover:bg-brand-purple/90 text-primary-foreground btn-action"
             onClick={handleSubmit}
-            disabled={!isEditable || submitTimesheet.isPending}
+            disabled={!isEditable || submitTimesheet.isPending || entries.length === 0}
           >
             {submitTimesheet.isPending && (
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />

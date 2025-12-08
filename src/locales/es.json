@@ -39,6 +39,7 @@
     "engagements": "Encargos",
     "workOrders": "Órdenes de Trabajo",
     "timeSheet": "Hoja de Tiempo",
+    "timesheetApprovals": "Aprobaciones",
     "expenses": "Gastos",
     "staff": "Personal",
     "settings": "Configuración",
@@ -294,7 +295,10 @@
     "saving": "Guardando...",
     "saved": "Guardado",
     "deleteRow": "Eliminar fila",
-    "periodLocked": "Esta semana está bloqueada y no puede ser editada."
+    "periodLocked": "Esta semana está bloqueada y no puede ser editada.",
+    "fullyApproved": "Esta semana ha sido completamente aprobada.",
+    "hasRejections": "Algunas entradas fueron rechazadas. Por favor revise y reenvíe.",
+    "pendingApproval": "Esta semana está pendiente de aprobación."
   },
   "expenses": {
     "title": "Gastos",
@@ -382,6 +386,26 @@
     "allCurrencies": "Todas las Monedas",
     "noReceipt": "Sin recibo",
     "viewReceipt": "Ver"
+  },
+  "approval": {
+    "title": "Aprobaciones de Hojas de Tiempo",
+    "searchPlaceholder": "Buscar por personal o encargo...",
+    "pendingCount": "{{count}} pendientes",
+    "noPending": "Sin aprobaciones pendientes",
+    "lines": "líneas",
+    "engagement": "Encargo",
+    "actions": "Acciones",
+    "approve": "Aprobar",
+    "reject": "Rechazar",
+    "rejectTitle": "Rechazar Línea de Hoja de Tiempo",
+    "rejectDescription": "Proporcione un motivo de rechazo (opcional)",
+    "notesPlaceholder": "Ingrese notas de rechazo...",
+    "confirmReject": "Confirmar Rechazo",
+    "status": {
+      "pending": "Pendiente",
+      "approved": "Aprobado",
+      "rejected": "Rechazado"
+    }
   },
   "auth": {
     "signIn": "Iniciar Sesión",

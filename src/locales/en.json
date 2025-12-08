@@ -39,6 +39,7 @@
     "engagements": "Engagements",
     "workOrders": "Work Orders",
     "timeSheet": "Time Sheet",
+    "timesheetApprovals": "Approvals",
     "expenses": "Expenses",
     "staff": "Staff",
     "settings": "Settings",
@@ -294,7 +295,10 @@
     "saving": "Saving...",
     "saved": "Saved",
     "deleteRow": "Delete row",
-    "periodLocked": "This week is locked and cannot be edited."
+    "periodLocked": "This week is locked and cannot be edited.",
+    "fullyApproved": "This week has been fully approved.",
+    "hasRejections": "Some entries were rejected. Please review and resubmit.",
+    "pendingApproval": "This week is pending approval."
   },
   "expenses": {
     "title": "Expenses",
@@ -382,6 +386,26 @@
     "allCurrencies": "All Currencies",
     "noReceipt": "No receipt",
     "viewReceipt": "View"
+  },
+  "approval": {
+    "title": "Timesheet Approvals",
+    "searchPlaceholder": "Search by staff or engagement...",
+    "pendingCount": "{{count}} pending",
+    "noPending": "No pending approvals",
+    "lines": "lines",
+    "engagement": "Engagement",
+    "actions": "Actions",
+    "approve": "Approve",
+    "reject": "Reject",
+    "rejectTitle": "Reject Timesheet Line",
+    "rejectDescription": "Provide a reason for rejection (optional)",
+    "notesPlaceholder": "Enter rejection notes...",
+    "confirmReject": "Confirm Rejection",
+    "status": {
+      "pending": "Pending",
+      "approved": "Approved",
+      "rejected": "Rejected"
+    }
   },
   "auth": {
     "signIn": "Sign In",

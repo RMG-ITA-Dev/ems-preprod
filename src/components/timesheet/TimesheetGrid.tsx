@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Plus, Trash2, Loader2, Check } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Plus, Trash2, Loader2, Check, Clock, X } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -10,10 +11,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { getDayName, formatDayMonth, toISODateString } from "@/lib/timesheetUtils";
 import type { TimeEntry, ApprovedEngagement, ActivityCode } from "@/hooks/useTimesheetWeek";
 import { useUpsertTimeEntry } from "@/hooks/useTimesheetMutations";
 import { cn } from "@/lib/utils";
+
+interface LineApproval {
+  approval_id: string;
+  engagement_id: string;
+  status: "pending" | "approved" | "rejected";
+  review_notes: string | null;
+}
 
 interface GridRow {
   id: string;
@@ -33,6 +46,7 @@ interface TimesheetGridProps {
   isLocked: boolean;
   autoSaveSeconds: number;
   lang: string;
+  lineApprovals: LineApproval[];
 }
 
 export function TimesheetGrid({
@@ -45,6 +59,7 @@ export function TimesheetGrid({
   isLocked,
   autoSaveSeconds,
   lang,
+  lineApprovals,
 }: TimesheetGridProps) {
   const { t } = useTranslation();
   const upsertEntry = useUpsertTimeEntry();
@@ -216,6 +231,41 @@ export function TimesheetGrid({
     return rows.reduce((sum, row) => sum + calculateRowTotal(row), 0);
   };
 
+  // Get approval status for an engagement
+  const getApprovalStatus = (engagementId: string) => {
+    return lineApprovals.find((la) => la.engagement_id === engagementId);
+  };
+
+  const renderApprovalBadge = (engagementId: string) => {
+    const approval = getApprovalStatus(engagementId);
+    if (!approval) return null;
+
+    const statusConfig = {
+      pending: { icon: Clock, className: "bg-warning/20 text-warning-foreground border-warning/30", label: t("approval.status.pending") },
+      approved: { icon: Check, className: "bg-success/20 text-success-foreground border-success/30", label: t("approval.status.approved") },
+      rejected: { icon: X, className: "bg-destructive/20 text-destructive border-destructive/30", label: t("approval.status.rejected") },
+    };
+
+    const config = statusConfig[approval.status];
+    const Icon = config.icon;
+
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Badge variant="outline" className={cn("ml-2 text-xs py-0", config.className)}>
+            <Icon className="h-3 w-3 mr-1" />
+            {config.label}
+          </Badge>
+        </TooltipTrigger>
+        {approval.review_notes && (
+          <TooltipContent>
+            <p className="max-w-xs">{approval.review_notes}</p>
+          </TooltipContent>
+        )}
+      </Tooltip>
+    );
+  };
+
   return (
     <div className="bg-card rounded-xl border border-border overflow-hidden">
       <div className="overflow-x-auto">
@@ -252,25 +302,28 @@ export function TimesheetGrid({
                 className="border-b border-border hover:bg-muted/30"
               >
                 <td className="p-2">
-                  <Select
-                    value={row.engagementId}
-                    onValueChange={(val) => handleEngagementChange(row.id, val)}
-                    disabled={isLocked}
-                  >
-                    <SelectTrigger className="border-0 bg-transparent focus:ring-1">
-                      <SelectValue placeholder={t("timesheet.selectEngagement")} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {engagements.map((eng) => (
-                        <SelectItem key={eng.engagement_id} value={eng.engagement_id}>
-                          <span className="font-mono text-xs text-muted-foreground mr-2">
-                            {eng.engagement_code}
-                          </span>
-                          {eng.engagement_name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div className="flex items-center">
+                    <Select
+                      value={row.engagementId}
+                      onValueChange={(val) => handleEngagementChange(row.id, val)}
+                      disabled={isLocked}
+                    >
+                      <SelectTrigger className="border-0 bg-transparent focus:ring-1">
+                        <SelectValue placeholder={t("timesheet.selectEngagement")} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {engagements.map((eng) => (
+                          <SelectItem key={eng.engagement_id} value={eng.engagement_id}>
+                            <span className="font-mono text-xs text-muted-foreground mr-2">
+                              {eng.engagement_code}
+                            </span>
+                            {eng.engagement_name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {row.engagementId && renderApprovalBadge(row.engagementId)}
+                  </div>
                 </td>
                 <td className="p-2">
                   <Select

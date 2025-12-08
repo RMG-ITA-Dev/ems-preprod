@@ -444,6 +444,64 @@ export type Database = {
           },
         ]
       }
+      timesheet_line_approvals: {
+        Row: {
+          approval_id: string
+          approved_at: string | null
+          approved_by: string | null
+          created_at: string | null
+          engagement_id: string
+          period_id: string
+          review_notes: string | null
+          status: string
+          updated_at: string | null
+        }
+        Insert: {
+          approval_id?: string
+          approved_at?: string | null
+          approved_by?: string | null
+          created_at?: string | null
+          engagement_id: string
+          period_id: string
+          review_notes?: string | null
+          status?: string
+          updated_at?: string | null
+        }
+        Update: {
+          approval_id?: string
+          approved_at?: string | null
+          approved_by?: string | null
+          created_at?: string | null
+          engagement_id?: string
+          period_id?: string
+          review_notes?: string | null
+          status?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "timesheet_line_approvals_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "timesheet_line_approvals_engagement_id_fkey"
+            columns: ["engagement_id"]
+            isOneToOne: false
+            referencedRelation: "engagements"
+            referencedColumns: ["engagement_id"]
+          },
+          {
+            foreignKeyName: "timesheet_line_approvals_period_id_fkey"
+            columns: ["period_id"]
+            isOneToOne: false
+            referencedRelation: "timesheet_periods"
+            referencedColumns: ["period_id"]
+          },
+        ]
+      }
       timesheet_periods: {
         Row: {
           created_at: string | null
@@ -731,6 +789,18 @@ export type Database = {
       can_approve_timesheet: {
         Args: { p_approver_auth_id: string; p_period_id: string }
         Returns: boolean
+      }
+      can_approve_timesheet_line: {
+        Args: {
+          p_approver_auth_id: string
+          p_engagement_id: string
+          p_period_id: string
+        }
+        Returns: boolean
+      }
+      get_line_approver: {
+        Args: { p_engagement_id: string; p_staff_id: string }
+        Returns: string
       }
       get_timesheet_approvers: {
         Args: { p_staff_id: string; p_week_start: string }
