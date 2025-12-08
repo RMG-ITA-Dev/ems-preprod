@@ -161,6 +161,16 @@
     text-wrap: balance;
   }
 
+  /* Hide number input spinners */
+  .hide-spinners::-webkit-inner-spin-button,
+  .hide-spinners::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  .hide-spinners {
+    -moz-appearance: textfield;
+  }
+
   /* Simpler number font - sans-serif with tabular figures */
   .font-mono {
     font-family: "IBM Plex Sans", system-ui, sans-serif !important;

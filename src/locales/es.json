@@ -99,30 +99,27 @@
     "willAddToTimesheet": "Se agregará a la hoja de tiempo",
     "importSelected": "Importar Seleccionadas",
     "importFromTimer": "Importar del Cronómetro",
-    "pomodoro": {
+    "cycles": {
       "ready": "Listo para comenzar",
       "focus": "Tiempo de enfoque",
       "shortBreak": "Descanso corto",
       "longBreak": "Descanso largo",
       "cycle": "Ciclo {{count}}",
+      "cycleNum": "Ciclo {{num}}/4",
       "remaining": "Tiempo restante",
-      "presets": "Presets",
       "work": "Trabajo",
       "break": "Descanso"
     },
     "remainingToday": "Restante hoy",
     "dailyLimitReached": "Has alcanzado el límite diario de horas",
     "dailyLimitExceeded": "Esta entrada excedería el límite diario",
-    "entrySavedContinuing": "Entrada guardada, continuando con nuevo registro",
     "stopDialog": {
       "title": "Detener Cronómetro",
       "description": "Has registrado {{time}}. ¿Qué deseas hacer?",
-      "continue": "Continuar Registrando",
+      "continue": "Continuar",
       "continueDesc": "El cronómetro seguirá corriendo",
       "logAndReset": "Guardar y Reiniciar",
-      "logAndResetDesc": "Guarda esta entrada y limpia todo",
-      "logAndContinue": "Guardar y Continuar Mismo",
-      "logAndContinueDesc": "Guarda e inicia nuevo registro con mismo encargo"
+      "logAndResetDesc": "Guarda esta entrada y limpia todo"
     }
   },
   "entities": {
