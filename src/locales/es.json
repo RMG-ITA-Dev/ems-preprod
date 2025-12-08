@@ -34,7 +34,7 @@
     "main": "Principal",
     "operations": "Operaciones",
     "administration": "Administración",
-    "dashboard": "Panel",
+    "dashboard": "Panel de Control",
     "clients": "Clientes",
     "engagements": "Encargos",
     "workOrders": "Órdenes de Trabajo",
@@ -255,7 +255,7 @@
     "december": "Diciembre"
   },
   "dashboard": {
-    "title": "Panel",
+    "title": "Panel de Control",
     "activeEngagements": "Encargos Activos",
     "hoursLogged": "Horas Registradas",
     "workOrders": "Órdenes de Trabajo",
