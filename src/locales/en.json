@@ -352,7 +352,8 @@
       "rejected": "Rejected"
     },
     "allStatuses": "All Statuses",
-    "allEngagementsHaveWorkOrders": "All active engagements already have a work order."
+    "allEngagementsHaveWorkOrders": "All active engagements already have a work order.",
+    "createEngagementFirst": "Create a new engagement"
   },
   "adminTimeEntries": {
     "title": "Time Entries",

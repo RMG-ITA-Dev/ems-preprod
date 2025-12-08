@@ -352,7 +352,8 @@
       "rejected": "Rechazado"
     },
     "allStatuses": "Todos los Estados",
-    "allEngagementsHaveWorkOrders": "Todos los encargos activos ya tienen una orden de trabajo."
+    "allEngagementsHaveWorkOrders": "Todos los encargos activos ya tienen una orden de trabajo.",
+    "createEngagementFirst": "Crear un nuevo encargo"
   },
   "adminTimeEntries": {
     "title": "Entradas de Tiempo",
