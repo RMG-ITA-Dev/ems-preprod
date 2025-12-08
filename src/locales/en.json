@@ -404,14 +404,23 @@
     "rejectDescription": "Provide a reason for rejection (optional)",
     "notesPlaceholder": "Enter rejection notes...",
     "confirmReject": "Confirm Rejection",
-    "approveSelected": "Approve Selected",
-    "rejectSelected": "Reject Selected",
+    "saveDecisions": "Save Decisions",
     "backToList": "Back to List",
-    "selectAll": "Select all",
     "status": {
       "pending": "Pending",
       "approved": "Approved",
       "rejected": "Rejected"
+    },
+    "decision": {
+      "title": "Decision",
+      "pending": "Pending",
+      "approve": "Approve",
+      "reject": "Reject"
+    },
+    "summary": {
+      "toApprove": "to approve",
+      "toReject": "to reject",
+      "stillPending": "pending"
     }
   },
   "auth": {

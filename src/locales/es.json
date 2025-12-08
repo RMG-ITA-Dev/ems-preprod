@@ -404,14 +404,23 @@
     "rejectDescription": "Proporcione un motivo de rechazo (opcional)",
     "notesPlaceholder": "Ingrese notas de rechazo...",
     "confirmReject": "Confirmar Rechazo",
-    "approveSelected": "Aprobar Seleccionados",
-    "rejectSelected": "Rechazar Seleccionados",
+    "saveDecisions": "Guardar Decisiones",
     "backToList": "Volver a la Lista",
-    "selectAll": "Seleccionar todo",
     "status": {
       "pending": "Pendiente",
       "approved": "Aprobado",
       "rejected": "Rechazado"
+    },
+    "decision": {
+      "title": "Decisión",
+      "pending": "Pendiente",
+      "approve": "Aprobar",
+      "reject": "Rechazar"
+    },
+    "summary": {
+      "toApprove": "a aprobar",
+      "toReject": "a rechazar",
+      "stillPending": "pendientes"
     }
   },
   "auth": {
