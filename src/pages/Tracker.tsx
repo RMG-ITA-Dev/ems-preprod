@@ -86,6 +86,13 @@ export default function Tracker() {
       return;
     }
 
+    // Check if we're resuming a paused timer (entry exists, not running, has elapsed time)
+    if (tracker.runningEntryId && !tracker.isRunning && tracker.elapsedSeconds > 0) {
+      // Just resume - don't create new entry
+      tracker.start(tracker.runningEntryId);
+      return;
+    }
+
     // Check daily limit before starting
     if (remainingHours <= 0) {
       toast.error(t("tracker.dailyLimitReached"));
@@ -110,8 +117,9 @@ export default function Tracker() {
     setStopDialogOpen(true);
   };
 
-  const handleContinue = () => {
-    // Just close dialog, timer keeps running
+  const handlePause = () => {
+    // Stop the clock (isRunning = false) but preserve elapsedSeconds
+    tracker.stop();
   };
 
   // Round duration to nearest 5 minutes (minimum 5)
@@ -334,7 +342,7 @@ export default function Tracker() {
           open={stopDialogOpen}
           onOpenChange={setStopDialogOpen}
           formattedTime={tracker.formattedTime}
-          onContinue={handleContinue}
+          onPause={handlePause}
           onLogAndReset={handleLogAndReset}
         />
       </div>
