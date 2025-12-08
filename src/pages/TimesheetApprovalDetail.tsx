@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -12,13 +12,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Loader2, ArrowLeft, Check, X } from "lucide-react";
+import { Loader2, ArrowLeft, Save } from "lucide-react";
 import {
   useStaffTimesheetForApproval,
   useBulkApproveTimesheetLines,
   useBulkRejectTimesheetLines,
 } from "@/hooks/useTimesheetApprovals";
 import { ApprovalTimesheetGrid } from "@/components/timesheet/ApprovalTimesheetGrid";
+import type { ApprovalDecision } from "@/components/ui/approval-toggle";
 import { format, addDays } from "date-fns";
 import { useLanguage } from "@/hooks/useLanguage";
 
@@ -31,7 +32,7 @@ const TimesheetApprovalDetail = () => {
   const bulkApprove = useBulkApproveTimesheetLines();
   const bulkReject = useBulkRejectTimesheetLines();
 
-  const [selectedApprovalIds, setSelectedApprovalIds] = useState<Set<string>>(new Set());
+  const [approvalDecisions, setApprovalDecisions] = useState<Map<string, ApprovalDecision>>(new Map());
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectNotes, setRejectNotes] = useState("");
 
@@ -39,49 +40,93 @@ const TimesheetApprovalDetail = () => {
     navigate("/timesheet/approvals");
   };
 
-  const handleApproveSelected = () => {
-    if (selectedApprovalIds.size === 0) return;
-    bulkApprove.mutate(Array.from(selectedApprovalIds), {
-      onSuccess: () => {
-        setSelectedApprovalIds(new Set());
-        // Navigate back if all approvals are done
-        if (timesheetData) {
-          const remainingPending = timesheetData.lineApprovals.filter(
-            (la) => la.status === "pending" && !selectedApprovalIds.has(la.approval_id)
-          );
-          if (remainingPending.length === 0) {
-            navigate("/timesheet/approvals");
-          }
-        }
-      },
+  const handleDecisionChange = (approvalId: string, decision: ApprovalDecision) => {
+    setApprovalDecisions((prev) => {
+      const newMap = new Map(prev);
+      if (decision === "pending") {
+        newMap.delete(approvalId);
+      } else {
+        newMap.set(approvalId, decision);
+      }
+      return newMap;
     });
   };
 
-  const handleRejectClick = () => {
-    if (selectedApprovalIds.size === 0) return;
-    setRejectNotes("");
-    setRejectDialogOpen(true);
+  // Calculate summary
+  const summary = useMemo(() => {
+    const toApprove: string[] = [];
+    const toReject: string[] = [];
+    let stillPending = 0;
+
+    if (timesheetData) {
+      timesheetData.lineApprovals.forEach((la) => {
+        if (la.status === "pending" && timesheetData.approvableEngagementIds.includes(la.engagement_id)) {
+          const decision = approvalDecisions.get(la.approval_id);
+          if (decision === "approve") {
+            toApprove.push(la.approval_id);
+          } else if (decision === "reject") {
+            toReject.push(la.approval_id);
+          } else {
+            stillPending++;
+          }
+        }
+      });
+    }
+
+    return { toApprove, toReject, stillPending };
+  }, [approvalDecisions, timesheetData]);
+
+  const hasDecisions = summary.toApprove.length > 0 || summary.toReject.length > 0;
+
+  const handleSaveDecisions = () => {
+    if (summary.toReject.length > 0) {
+      setRejectNotes("");
+      setRejectDialogOpen(true);
+    } else if (summary.toApprove.length > 0) {
+      processDecisions("");
+    }
+  };
+
+  const processDecisions = (notes: string) => {
+    const promises: Promise<void>[] = [];
+
+    if (summary.toApprove.length > 0) {
+      promises.push(
+        new Promise((resolve, reject) => {
+          bulkApprove.mutate(summary.toApprove, {
+            onSuccess: () => resolve(),
+            onError: reject,
+          });
+        })
+      );
+    }
+
+    if (summary.toReject.length > 0) {
+      promises.push(
+        new Promise((resolve, reject) => {
+          bulkReject.mutate(
+            { approvalIds: summary.toReject, notes },
+            {
+              onSuccess: () => resolve(),
+              onError: reject,
+            }
+          );
+        })
+      );
+    }
+
+    Promise.all(promises).then(() => {
+      setApprovalDecisions(new Map());
+      setRejectDialogOpen(false);
+      // Navigate back if all decisions were made
+      if (summary.stillPending === 0) {
+        navigate("/timesheet/approvals");
+      }
+    });
   };
 
   const handleRejectConfirm = () => {
-    bulkReject.mutate(
-      { approvalIds: Array.from(selectedApprovalIds), notes: rejectNotes },
-      {
-        onSuccess: () => {
-          setRejectDialogOpen(false);
-          setSelectedApprovalIds(new Set());
-          // Navigate back if all approvals are done
-          if (timesheetData) {
-            const remainingPending = timesheetData.lineApprovals.filter(
-              (la) => la.status === "pending" && !selectedApprovalIds.has(la.approval_id)
-            );
-            if (remainingPending.length === 0) {
-              navigate("/timesheet/approvals");
-            }
-          }
-        },
-      }
-    );
+    processDecisions(rejectNotes);
   };
 
   const formatWeekRange = (weekStartDate: string) => {
@@ -113,6 +158,8 @@ const TimesheetApprovalDetail = () => {
   const staffName = timesheetData.staff.short_name ||
     `${timesheetData.staff.first_name} ${timesheetData.staff.last_name}`;
 
+  const isProcessing = bulkApprove.isPending || bulkReject.isPending;
+
   return (
     <AppLayout title={t("approval.title")}>
       <div className="space-y-6">
@@ -132,26 +179,23 @@ const TimesheetApprovalDetail = () => {
             </div>
           </div>
 
-          {/* Action Buttons */}
-          <div className="flex gap-2">
+          {/* Summary and Save Button */}
+          <div className="flex items-center gap-4">
+            <div className="text-sm text-muted-foreground">
+              <span className="text-success font-medium">{summary.toApprove.length}</span> {t("approval.summary.toApprove")}
+              {" • "}
+              <span className="text-destructive font-medium">{summary.toReject.length}</span> {t("approval.summary.toReject")}
+              {" • "}
+              <span className="font-medium">{summary.stillPending}</span> {t("approval.summary.stillPending")}
+            </div>
             <Button
-              variant="outline"
-              onClick={handleRejectClick}
-              disabled={selectedApprovalIds.size === 0 || bulkReject.isPending}
-              className="text-destructive hover:text-destructive hover:bg-destructive/10"
+              onClick={handleSaveDecisions}
+              disabled={!hasDecisions || isProcessing}
+              className="bg-primary hover:bg-primary/90"
             >
-              {bulkReject.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              <X className="h-4 w-4 mr-1" />
-              {t("approval.rejectSelected")}
-            </Button>
-            <Button
-              onClick={handleApproveSelected}
-              disabled={selectedApprovalIds.size === 0 || bulkApprove.isPending}
-              className="bg-success hover:bg-success/90 text-success-foreground"
-            >
-              {bulkApprove.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              <Check className="h-4 w-4 mr-1" />
-              {t("approval.approveSelected")}
+              {isProcessing && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              <Save className="h-4 w-4 mr-1" />
+              {t("approval.saveDecisions")}
             </Button>
           </div>
         </div>
@@ -162,8 +206,8 @@ const TimesheetApprovalDetail = () => {
           timeEntries={timesheetData.timeEntries}
           lineApprovals={timesheetData.lineApprovals}
           approvableEngagementIds={timesheetData.approvableEngagementIds}
-          selectedApprovalIds={selectedApprovalIds}
-          onSelectionChange={setSelectedApprovalIds}
+          approvalDecisions={approvalDecisions}
+          onDecisionChange={handleDecisionChange}
           lang={currentLanguage}
         />
 
@@ -191,9 +235,9 @@ const TimesheetApprovalDetail = () => {
               <Button
                 variant="destructive"
                 onClick={handleRejectConfirm}
-                disabled={bulkReject.isPending}
+                disabled={isProcessing}
               >
-                {bulkReject.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                {isProcessing && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                 {t("approval.confirmReject")}
               </Button>
             </DialogFooter>
