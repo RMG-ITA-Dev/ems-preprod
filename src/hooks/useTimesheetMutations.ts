@@ -205,31 +205,4 @@ export function useSubmitTimesheet() {
   });
 }
 
-// Save timesheet as draft
-export function useSaveTimesheetDraft() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (periodId: string) => {
-      const { data, error } = await supabase
-        .from("timesheet_periods")
-        .update({ status: "draft" })
-        .eq("period_id", periodId)
-        .select()
-        .single();
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["timesheet-period"] });
-      toast({ title: "Draft saved" });
-    },
-    onError: (error) => {
-      toast({
-        title: "Error saving draft",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
-  });
-}
+// Note: useSaveTimesheetDraft was removed - draft state is now implicit when submitted_at is null

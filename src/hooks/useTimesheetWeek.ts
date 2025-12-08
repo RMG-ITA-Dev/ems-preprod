@@ -11,14 +11,10 @@ export interface TimesheetPeriod {
   week_start_date: string;
   week_number: number;
   year: number;
-  status: string;
   total_hours: number;
   deadline: string | null;
   is_period_locked: boolean;
   submitted_at: string | null;
-  reviewed_by: string | null;
-  reviewed_at: string | null;
-  review_notes: string | null;
 }
 
 export interface TimeEntry {
@@ -101,7 +97,6 @@ export function useTimesheetWeek(weekStartDate: Date, workDays: number = 5): Tim
           week_start_date: weekStartStr,
           week_number: weekNumber,
           year: weekStartDate.getFullYear(),
-          status: "open",
           total_hours: 0,
         })
         .select()

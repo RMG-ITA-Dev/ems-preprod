@@ -172,16 +172,9 @@ export const isDeadlineToday = (deadline: Date): boolean => {
 };
 
 // ============== STATUS HELPERS ==============
-
-export type TimesheetStatus = "open" | "draft" | "submitted" | "approved" | "rejected";
-
-export const isEditableStatus = (status: TimesheetStatus): boolean => {
-  return status === "open" || status === "draft" || status === "rejected";
-};
-
-export const isLockedStatus = (status: TimesheetStatus): boolean => {
-  return status === "submitted" || status === "approved";
-};
+// Note: Legacy status helpers removed. Status is now determined by:
+// - submitted_at: null = draft/open, not-null = submitted
+// - timesheet_line_approvals: per-engagement approval status
 
 // ============== VALIDATION HELPERS ==============
 
