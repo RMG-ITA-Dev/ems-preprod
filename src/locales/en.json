@@ -34,7 +34,7 @@
     "main": "Main",
     "operations": "Operations",
     "administration": "Administration",
-    "dashboard": "Dashboard",
+    "dashboard": "Control Panel",
     "clients": "Clients",
     "engagements": "Engagements",
     "workOrders": "Work Orders",
@@ -255,7 +255,7 @@
     "december": "December"
   },
   "dashboard": {
-    "title": "Dashboard",
+    "title": "Control Panel",
     "activeEngagements": "Active Engagements",
     "hoursLogged": "Hours Logged",
     "workOrders": "Work Orders",
