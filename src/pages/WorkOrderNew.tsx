@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
@@ -140,8 +140,11 @@ const WorkOrderNew = () => {
             <CardContent>
               {availableEngagements?.length === 0 ? (
                 <Alert>
-                  <AlertDescription>
-                    {t("workOrders.allEngagementsHaveWorkOrders")}
+                  <AlertDescription className="flex flex-col gap-2">
+                    <span>{t("workOrders.allEngagementsHaveWorkOrders")}</span>
+                    <Link to="/engagements/new" className="text-primary hover:underline font-medium">
+                      {t("workOrders.createEngagementFirst")}
+                    </Link>
                   </AlertDescription>
                 </Alert>
               ) : (
