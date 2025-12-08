@@ -97,8 +97,8 @@ const WorkOrders = () => {
   return (
     <AppLayout title={t("workOrders.title")}>
       <div className="space-y-4">
-        {/* Currency Tabs */}
-        <div className="flex items-center justify-between">
+        {/* Currency Tabs + Add Button */}
+        <div className="flex items-center justify-between gap-4">
           <Tabs value={currencyTab} onValueChange={(v) => setCurrencyTab(v as "BOB" | "USD")}>
             <TabsList>
               <TabsTrigger value="BOB">BOB</TabsTrigger>
@@ -107,7 +107,7 @@ const WorkOrders = () => {
           </Tabs>
           <Button
             onClick={() => navigate("/work-orders/new")}
-            className="btn-action"
+            className="btn-action shrink-0"
           >
             <Plus className="h-4 w-4 mr-2" />
             {t("workOrders.newWorkOrder")}
