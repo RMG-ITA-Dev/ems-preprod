@@ -21,6 +21,7 @@ interface TrackerBarProps {
   activityId: string | null;
   description: string;
   pomodoroEnabled: boolean;
+  remainingHours: number | null;
   onStart: () => void;
   onStop: () => void;
   onEngagementChange: (id: string | null) => void;
@@ -38,6 +39,7 @@ export function TrackerBar({
   activityId,
   description,
   pomodoroEnabled,
+  remainingHours,
   onStart,
   onStop,
   onEngagementChange,
@@ -54,36 +56,42 @@ export function TrackerBar({
   const activeEngagements = engagements.filter((e) => e.status === "active");
   const activeActivities = activityCodes.filter((a) => a.is_active);
 
-  const canStart = engagementId && activityId;
+  const selectedEngagement = activeEngagements.find(e => e.engagement_id === engagementId);
+  const selectedActivity = activeActivities.find(a => a.activity_id === activityId);
+
+  const canStart = engagementId && activityId && (remainingHours === null || remainingHours > 0);
 
   return (
-    <div className="bg-card border border-border rounded-lg p-4 shadow-sm">
-      <div className="flex flex-col lg:flex-row gap-4 items-stretch lg:items-center">
+    <div className="bg-card border border-border rounded-lg p-3 shadow-sm">
+      <div className="flex flex-col lg:flex-row gap-3 items-stretch lg:items-center">
         {/* Description Input */}
         <div className="flex-1">
           <Input
             placeholder={t("tracker.whatAreYouWorkingOn")}
             value={description}
             onChange={(e) => onDescriptionChange(e.target.value)}
-            className="h-10"
+            className="h-9"
             disabled={isRunning}
           />
         </div>
 
         {/* Engagement Selector */}
-        <div className="w-full lg:w-48">
+        <div className="w-full lg:w-56">
           <Select
             value={engagementId || ""}
             onValueChange={(val) => onEngagementChange(val || null)}
             disabled={isRunning}
           >
-            <SelectTrigger className="h-10">
-              <SelectValue placeholder={t("tracker.selectEngagement")} />
+            <SelectTrigger className="h-9">
+              <SelectValue placeholder={t("tracker.selectEngagement")}>
+                {selectedEngagement ? selectedEngagement.engagement_code : null}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               {activeEngagements.map((eng) => (
                 <SelectItem key={eng.engagement_id} value={eng.engagement_id}>
-                  {eng.engagement_code || eng.engagement_name}
+                  <span className="font-medium">{eng.engagement_code}</span>
+                  <span className="text-muted-foreground ml-2">- {eng.engagement_name}</span>
                 </SelectItem>
               ))}
             </SelectContent>
@@ -91,19 +99,22 @@ export function TrackerBar({
         </div>
 
         {/* Activity Selector */}
-        <div className="w-full lg:w-40">
+        <div className="w-full lg:w-48">
           <Select
             value={activityId || ""}
             onValueChange={(val) => onActivityChange(val || null)}
             disabled={isRunning}
           >
-            <SelectTrigger className="h-10">
-              <SelectValue placeholder={t("tracker.selectActivity")} />
+            <SelectTrigger className="h-9">
+              <SelectValue placeholder={t("tracker.selectActivity")}>
+                {selectedActivity ? selectedActivity.activity_code : null}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               {activeActivities.map((act) => (
                 <SelectItem key={act.activity_id} value={act.activity_id}>
-                  {act.activity_code}
+                  <span className="font-medium">{act.activity_code}</span>
+                  <span className="text-muted-foreground ml-2">- {act.description}</span>
                 </SelectItem>
               ))}
             </SelectContent>
@@ -117,16 +128,26 @@ export function TrackerBar({
             onCheckedChange={onTogglePomodoro}
             disabled={isRunning}
           />
-          <Label className="text-sm text-muted-foreground">
-            <Timer className="h-4 w-4 inline mr-1" />
+          <Label className="text-sm text-muted-foreground whitespace-nowrap">
+            <Timer className="h-3.5 w-3.5 inline mr-1" />
             Pomodoro
           </Label>
         </div>
 
+        {/* Remaining Hours Indicator */}
+        {remainingHours !== null && (
+          <div className={cn(
+            "text-xs px-2 py-1 rounded whitespace-nowrap",
+            remainingHours <= 1 ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground"
+          )}>
+            {t("tracker.remainingToday")}: {remainingHours.toFixed(1)}h
+          </div>
+        )}
+
         {/* Timer Display */}
         <div
           className={cn(
-            "font-mono text-2xl font-semibold px-4 py-2 rounded-md min-w-[120px] text-center",
+            "font-mono text-xl font-semibold px-3 py-1.5 rounded-md min-w-[100px] text-center",
             isRunning ? "bg-success/10 text-success" : "bg-muted text-muted-foreground"
           )}
         >
@@ -138,7 +159,7 @@ export function TrackerBar({
           onClick={isRunning ? onStop : onStart}
           disabled={!canStart && !isRunning}
           className={cn(
-            "h-10 px-6 btn-action",
+            "h-9 px-5 btn-action",
             isRunning
               ? "bg-destructive hover:bg-destructive/90"
               : "bg-brand-purple hover:bg-brand-purple/90"
@@ -168,11 +189,12 @@ export function TrackerBar({
           size="icon"
           onClick={onToggleMode}
           title={isManualMode ? t("tracker.timerMode") : t("tracker.manualMode")}
+          className="h-9 w-9"
         >
           {isManualMode ? (
-            <Timer className="h-5 w-5" />
+            <Timer className="h-4 w-4" />
           ) : (
-            <Clock className="h-5 w-5" />
+            <Clock className="h-4 w-4" />
           )}
         </Button>
       </div>

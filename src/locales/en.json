@@ -106,7 +106,23 @@
       "longBreak": "Long break",
       "cycle": "Cycle {{count}}",
       "remaining": "Time remaining",
-      "presets": "Presets"
+      "presets": "Presets",
+      "work": "Work",
+      "break": "Break"
+    },
+    "remainingToday": "Remaining today",
+    "dailyLimitReached": "You've reached the daily hour limit",
+    "dailyLimitExceeded": "This entry would exceed the daily limit",
+    "entrySavedContinuing": "Entry saved, continuing with new entry",
+    "stopDialog": {
+      "title": "Stop Timer",
+      "description": "You've tracked {{time}}. What would you like to do?",
+      "continue": "Continue Tracking",
+      "continueDesc": "Timer will keep running",
+      "logAndReset": "Log & Reset",
+      "logAndResetDesc": "Save this entry and clear everything",
+      "logAndContinue": "Log & Continue Same",
+      "logAndContinueDesc": "Save and start new entry with same engagement"
     }
   },
   "entities": {

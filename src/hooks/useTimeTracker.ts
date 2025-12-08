@@ -20,7 +20,11 @@ interface TimerState {
   longBreakDuration: number;
 }
 
-const DEFAULT_STATE: TimerState = {
+interface TimerStateWithEntry extends TimerState {
+  runningEntryId: string | null;
+}
+
+const DEFAULT_STATE: TimerStateWithEntry = {
   isRunning: false,
   startTime: null,
   elapsedSeconds: 0,
@@ -30,13 +34,14 @@ const DEFAULT_STATE: TimerState = {
   pomodoroEnabled: false,
   pomodoroPhase: "idle",
   pomodoroCount: 0,
-  pomodoroDuration: 25,
+  pomodoroDuration: 55,
   shortBreakDuration: 5,
   longBreakDuration: 15,
+  runningEntryId: null,
 };
 
 export function useTimeTracker() {
-  const [state, setState] = useState<TimerState>(() => {
+  const [state, setState] = useState<TimerStateWithEntry>(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       try {
@@ -109,7 +114,7 @@ export function useTimeTracker() {
     }
   };
 
-  const handlePhaseComplete = (prev: TimerState): TimerState => {
+  const handlePhaseComplete = (prev: TimerStateWithEntry): TimerStateWithEntry => {
     if (prev.pomodoroPhase === "work") {
       const newCount = prev.pomodoroCount + 1;
       // After 4 pomodoros, take a long break
@@ -143,12 +148,13 @@ export function useTimeTracker() {
     }
   };
 
-  const start = useCallback(() => {
+  const start = useCallback((entryId?: string) => {
     setState((prev) => ({
       ...prev,
       isRunning: true,
       startTime: Date.now(),
       pomodoroPhase: prev.pomodoroEnabled ? "work" : "idle",
+      runningEntryId: entryId || prev.runningEntryId,
     }));
   }, []);
 
@@ -171,7 +177,20 @@ export function useTimeTracker() {
       description: "",
       pomodoroPhase: "idle",
       pomodoroCount: 0,
+      runningEntryId: null,
     }));
+  }, []);
+
+  const clearRunningEntry = useCallback(() => {
+    setState((prev) => ({
+      ...prev,
+      runningEntryId: null,
+      elapsedSeconds: 0,
+    }));
+  }, []);
+
+  const setRunningEntryId = useCallback((id: string | null) => {
+    setState((prev) => ({ ...prev, runningEntryId: id }));
   }, []);
 
   const setEngagement = useCallback((id: string | null) => {
@@ -228,6 +247,7 @@ export function useTimeTracker() {
     engagementId: state.engagementId,
     activityId: state.activityId,
     description: state.description,
+    runningEntryId: state.runningEntryId,
     // Pomodoro
     pomodoroEnabled: state.pomodoroEnabled,
     pomodoroPhase: state.pomodoroPhase,
@@ -239,6 +259,8 @@ export function useTimeTracker() {
     start,
     stop,
     reset,
+    clearRunningEntry,
+    setRunningEntryId,
     setEngagement,
     setActivity,
     setDescription,
