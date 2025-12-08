@@ -114,6 +114,7 @@ export function AppSidebar() {
                   <SidebarMenuButton asChild>
                     <NavLink 
                       to={item.url}
+                      end={item.url === "/timesheet"}
                       className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors"
                       activeClassName="bg-sidebar-accent text-sidebar-foreground font-medium"
                     >
