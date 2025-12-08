@@ -351,7 +351,8 @@
       "approved": "Approved",
       "rejected": "Rejected"
     },
-    "allStatuses": "All Statuses"
+    "allStatuses": "All Statuses",
+    "allEngagementsHaveWorkOrders": "All active engagements already have a work order."
   },
   "adminTimeEntries": {
     "title": "Time Entries",

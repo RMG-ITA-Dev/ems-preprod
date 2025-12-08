@@ -13,8 +13,9 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { WorkOrderForm, BudgetLineInput, ExpenseBudgetInput } from "@/components/forms/WorkOrderForm";
-import { useEngagements, useSetting, useCategories } from "@/hooks/useEmsData";
+import { useEngagements, useSetting, useCategories, useWorkOrders } from "@/hooks/useEmsData";
 import { useCreateWorkOrder, useCreateBudgetLine, useCreateExpenseBudget } from "@/hooks/useEmsMutations";
 import { toast } from "@/hooks/use-toast";
 
@@ -26,6 +27,7 @@ const WorkOrderNew = () => {
 
   const { data: engagements } = useEngagements();
   const { data: categories } = useCategories();
+  const { data: workOrders } = useWorkOrders();
   const globalTaxRate = useSetting("TAX_RATE");
 
   const createWorkOrder = useCreateWorkOrder();
@@ -41,8 +43,13 @@ const WorkOrderNew = () => {
 
   const taxRate = parseFloat(globalTaxRate || "0.13");
 
-  // Get available engagements without work orders
-  const availableEngagements = engagements?.filter((e) => e.status === "active");
+  // Get list of engagement IDs that already have work orders
+  const engagementsWithWorkOrders = workOrders?.map((wo) => wo.engagement_id) || [];
+
+  // Filter to active engagements WITHOUT existing work orders
+  const availableEngagements = engagements?.filter(
+    (e) => e.status === "active" && !engagementsWithWorkOrders.includes(e.engagement_id)
+  );
   
   const selectedEngagement = engagements?.find((e) => e.engagement_id === selectedEngagementId);
 
@@ -131,21 +138,29 @@ const WorkOrderNew = () => {
               <CardTitle>{t("workOrders.selectEngagement")}</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="max-w-md">
-                <Label>{t("entities.engagement")}</Label>
-                <Select value={selectedEngagementId} onValueChange={setSelectedEngagementId}>
-                  <SelectTrigger className="mt-2">
-                    <SelectValue placeholder={t("engagement.selectClient")} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {availableEngagements?.map((eng) => (
-                      <SelectItem key={eng.engagement_id} value={eng.engagement_id}>
-                        {eng.engagement_code} - {eng.engagement_name} ({eng.client?.client_legal_name})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              {availableEngagements?.length === 0 ? (
+                <Alert>
+                  <AlertDescription>
+                    {t("workOrders.allEngagementsHaveWorkOrders")}
+                  </AlertDescription>
+                </Alert>
+              ) : (
+                <div className="max-w-md">
+                  <Label>{t("entities.engagement")}</Label>
+                  <Select value={selectedEngagementId} onValueChange={setSelectedEngagementId}>
+                    <SelectTrigger className="mt-2">
+                      <SelectValue placeholder={t("engagement.selectClient")} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableEngagements?.map((eng) => (
+                        <SelectItem key={eng.engagement_id} value={eng.engagement_id}>
+                          {eng.engagement_code} - {eng.engagement_name} ({eng.client?.client_legal_name})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
