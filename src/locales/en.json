@@ -50,6 +50,12 @@
   },
   "tracker": {
     "title": "Time Tracker",
+    "listTitle": "Time Entries",
+    "searchPlaceholder": "Search by engagement, activity...",
+    "newEntry": "Track Time",
+    "editEntry": "Edit Entry",
+    "backToList": "Back to List",
+    "weekendNotAllowed": "Weekend tracking is not allowed",
     "whatAreYouWorkingOn": "What are you working on?",
     "selectEngagement": "Select engagement",
     "selectActivity": "Select activity",
@@ -164,7 +170,9 @@
     "saveSettings": "Save Settings",
     "language": "System Language",
     "languageHelp": "Changes language for all users (Admin only)",
-    "adminOnly": "Admin Only"
+    "adminOnly": "Admin Only",
+    "allowWeekendTracking": "Allow Weekend Tracking",
+    "allowWeekendTrackingHelp": "Allows staff to track time on Saturdays and Sundays"
   },
   "industry": {
     "name": "Industry Name",

@@ -4,6 +4,7 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -67,6 +68,7 @@ const Settings = () => {
   const [dailyLimit, setDailyLimit] = useState<string>("");
   const [weeklyLimit, setWeeklyLimit] = useState<string>("");
   const [language, setLanguage] = useState<string>("en");
+  const [allowWeekendTracking, setAllowWeekendTracking] = useState<boolean>(false);
 
   const getSetting = (key: string) => settings?.find((s) => s.setting_key === key)?.setting_value || "";
 
@@ -75,6 +77,10 @@ const Settings = () => {
       const langSetting = settings.find((s) => s.setting_key === "LANGUAGE");
       if (langSetting) {
         setLanguage(langSetting.setting_value);
+      }
+      const weekendSetting = settings.find((s) => s.setting_key === "ALLOW_WEEKEND_TRACKING");
+      if (weekendSetting) {
+        setAllowWeekendTracking(weekendSetting.setting_value === "true");
       }
     }
   }, [settings]);
@@ -195,6 +201,7 @@ const Settings = () => {
       if (language && isAdmin) {
         await updateSettingMutation.mutateAsync({ key: "LANGUAGE", value: language });
       }
+      await updateSettingMutation.mutateAsync({ key: "ALLOW_WEEKEND_TRACKING", value: allowWeekendTracking.toString() });
       toast({ title: t("messages.settingsSaved") });
     } catch (error) {
       // Error handled by mutation
@@ -355,6 +362,19 @@ const Settings = () => {
                         </SelectContent>
                       </Select>
                       <p className="text-sm text-muted-foreground">{t("settings.languageHelp")}</p>
+                    </div>
+
+                    {/* Weekend Tracking Setting */}
+                    <div className="flex items-center justify-between py-4 border-b border-border">
+                      <div className="space-y-1">
+                        <Label htmlFor="weekendTracking">{t("settings.allowWeekendTracking")}</Label>
+                        <p className="text-sm text-muted-foreground">{t("settings.allowWeekendTrackingHelp")}</p>
+                      </div>
+                      <Switch
+                        id="weekendTracking"
+                        checked={allowWeekendTracking}
+                        onCheckedChange={setAllowWeekendTracking}
+                      />
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

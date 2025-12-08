@@ -50,6 +50,12 @@
   },
   "tracker": {
     "title": "Cronómetro",
+    "listTitle": "Registros de Tiempo",
+    "searchPlaceholder": "Buscar por encargo, actividad...",
+    "newEntry": "Registrar Tiempo",
+    "editEntry": "Editar Entrada",
+    "backToList": "Volver a Lista",
+    "weekendNotAllowed": "No se permite registrar tiempo en fines de semana",
     "whatAreYouWorkingOn": "¿En qué estás trabajando?",
     "selectEngagement": "Seleccionar encargo",
     "selectActivity": "Seleccionar actividad",
@@ -164,7 +170,9 @@
     "saveSettings": "Guardar Configuración",
     "language": "Idioma del Sistema",
     "languageHelp": "Cambia el idioma para todos los usuarios (Solo Admin)",
-    "adminOnly": "Solo Admin"
+    "adminOnly": "Solo Admin",
+    "allowWeekendTracking": "Permitir registro en fines de semana",
+    "allowWeekendTrackingHelp": "Permite a los empleados registrar tiempo los sábados y domingos"
   },
   "industry": {
     "name": "Nombre de Industria",
