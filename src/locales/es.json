@@ -304,10 +304,18 @@
     "title": "Gastos",
     "searchPlaceholder": "Buscar gastos...",
     "logExpense": "Registrar Gasto",
+    "newExpense": "Nuevo Gasto",
+    "editExpense": "Editar Gasto",
     "date": "Fecha",
     "type": "Tipo",
     "description": "Descripción",
-    "amount": "Monto"
+    "amount": "Monto",
+    "total": "TOTALES",
+    "engagement": "Encargo",
+    "expenseType": "Tipo de Gasto",
+    "currency": "Moneda",
+    "receiptUrl": "URL del Recibo",
+    "backToList": "Volver a Gastos"
   },
   "workOrders": {
     "title": "Órdenes de Trabajo",

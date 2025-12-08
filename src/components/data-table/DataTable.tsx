@@ -5,12 +5,13 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, Plus, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { Search, Plus, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, Filter } from "lucide-react";
 
 export interface Column<T> {
   key: string;
   label: string;
   sortable?: boolean;
+  filterKey?: string;
   render?: (row: T) => React.ReactNode;
   className?: string;
 }
@@ -89,6 +90,16 @@ export function DataTable<T extends Record<string, any>>({
       return <ArrowDown className="h-3 w-3 ml-1 text-accent" />;
     }
     return <ArrowUpDown className="h-3 w-3 ml-1 opacity-50" />;
+  };
+
+  const getFilterIcon = (filterKey?: string) => {
+    if (!filterKey) return null;
+    const isActive = filterValues[filterKey] && filterValues[filterKey] !== "all";
+    return (
+      <Filter 
+        className={`h-3 w-3 ml-1 ${isActive ? "text-accent" : "opacity-50"}`} 
+      />
+    );
   };
 
   const filteredAndSortedData = useMemo(() => {
@@ -241,6 +252,7 @@ export function DataTable<T extends Record<string, any>>({
                   <div className="flex items-center">
                     {col.label}
                     {col.sortable && getSortIcon(col.key)}
+                    {getFilterIcon(col.filterKey)}
                   </div>
                 </TableHead>
               ))}

@@ -408,3 +408,24 @@ export function useAllExpenseLogs() {
     },
   });
 }
+
+// Hook for single expense log by ID
+export function useExpenseLogById(id: string) {
+  return useQuery({
+    queryKey: ['expense_log', id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('expense_logs')
+        .select(`
+          *,
+          engagement:engagements(engagement_id, engagement_name, engagement_code),
+          expense_type:expense_types(*)
+        `)
+        .eq('expense_log_id', id)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!id,
+  });
+}

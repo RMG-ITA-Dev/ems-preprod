@@ -20,6 +20,8 @@ import WorkOrderNew from "./pages/WorkOrderNew";
 import WorkOrderEdit from "./pages/WorkOrderEdit";
 import TimeSheet from "./pages/TimeSheet";
 import Expenses from "./pages/Expenses";
+import ExpenseNew from "./pages/ExpenseNew";
+import ExpenseEdit from "./pages/ExpenseEdit";
 import Staff from "./pages/Staff";
 import StaffNew from "./pages/StaffNew";
 import StaffEdit from "./pages/StaffEdit";
@@ -57,6 +59,8 @@ const App = () => (
               <Route path="/timesheet/approvals" element={<ProtectedRoute><TimesheetApprovals /></ProtectedRoute>} />
               <Route path="/timesheet/approvals/:periodId" element={<ProtectedRoute><TimesheetApprovalDetail /></ProtectedRoute>} />
               <Route path="/expenses" element={<ProtectedRoute><Expenses /></ProtectedRoute>} />
+              <Route path="/expenses/new" element={<ProtectedRoute><ExpenseNew /></ProtectedRoute>} />
+              <Route path="/expenses/:id" element={<ProtectedRoute><ExpenseEdit /></ProtectedRoute>} />
               <Route path="/staff" element={<ProtectedRoute><Staff /></ProtectedRoute>} />
               <Route path="/staff/new" element={<ProtectedRoute><StaffNew /></ProtectedRoute>} />
               <Route path="/staff/:id" element={<ProtectedRoute><StaffEdit /></ProtectedRoute>} />
