@@ -2,7 +2,6 @@ import {
   LayoutDashboard, 
   Building2, 
   Briefcase, 
-  Clock, 
   Users, 
   Settings,
   FileText,
@@ -11,7 +10,8 @@ import {
   ClipboardList,
   FileSpreadsheet,
   CheckSquare,
-  Timer
+  Timer,
+  Grid3X3
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { NavLink } from "@/components/NavLink";
@@ -46,7 +46,7 @@ export function AppSidebar() {
 
   const operationsItems = [
     { title: t("nav.tracker"), url: "/tracker", icon: Timer },
-    { title: t("nav.timeSheet"), url: "/timesheet", icon: Clock },
+    { title: t("nav.timeSheet"), url: "/timesheet", icon: Grid3X3 },
     { title: t("nav.timesheetApprovals"), url: "/timesheet/approvals", icon: CheckSquare },
     { title: t("nav.expenses"), url: "/expenses", icon: Receipt },
   ];

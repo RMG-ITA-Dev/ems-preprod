@@ -106,7 +106,23 @@
       "longBreak": "Descanso largo",
       "cycle": "Ciclo {{count}}",
       "remaining": "Tiempo restante",
-      "presets": "Presets"
+      "presets": "Presets",
+      "work": "Trabajo",
+      "break": "Descanso"
+    },
+    "remainingToday": "Restante hoy",
+    "dailyLimitReached": "Has alcanzado el límite diario de horas",
+    "dailyLimitExceeded": "Esta entrada excedería el límite diario",
+    "entrySavedContinuing": "Entrada guardada, continuando con nuevo registro",
+    "stopDialog": {
+      "title": "Detener Cronómetro",
+      "description": "Has registrado {{time}}. ¿Qué deseas hacer?",
+      "continue": "Continuar Registrando",
+      "continueDesc": "El cronómetro seguirá corriendo",
+      "logAndReset": "Guardar y Reiniciar",
+      "logAndResetDesc": "Guarda esta entrada y limpia todo",
+      "logAndContinue": "Guardar y Continuar Mismo",
+      "logAndContinueDesc": "Guarda e inicia nuevo registro con mismo encargo"
     }
   },
   "entities": {

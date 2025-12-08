@@ -1,16 +1,18 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { format, parseISO, differenceInMinutes } from "date-fns";
+import { format, parseISO, differenceInMinutes, startOfDay, isToday } from "date-fns";
 import { toast } from "sonner";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { TrackerBar } from "@/components/tracker/TrackerBar";
 import { PomodoroPanel } from "@/components/tracker/PomodoroPanel";
 import { TrackerEntryList } from "@/components/tracker/TrackerEntryList";
 import { ManualEntryDialog } from "@/components/tracker/ManualEntryDialog";
+import { StopActionDialog } from "@/components/tracker/StopActionDialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, AlertCircle } from "lucide-react";
 import { useTimeTracker } from "@/hooks/useTimeTracker";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
+import { useGlobalSettings } from "@/hooks/useEmsData";
 import {
   useTimerEntries,
   useCreateTimerEntry,
@@ -23,15 +25,38 @@ export default function Tracker() {
   const { t } = useTranslation();
   const { staffRecord, isLoading: staffLoading } = useCurrentStaff();
   const { data: entries = [], isLoading: entriesLoading } = useTimerEntries();
+  const { data: globalSettings = [] } = useGlobalSettings();
   const createEntry = useCreateTimerEntry();
   const updateEntry = useUpdateTimerEntry();
   const deleteEntry = useDeleteTimerEntry();
 
   const [isManualMode, setIsManualMode] = useState(false);
   const [manualDialogOpen, setManualDialogOpen] = useState(false);
-  const [runningEntryId, setRunningEntryId] = useState<string | null>(null);
+  const [stopDialogOpen, setStopDialogOpen] = useState(false);
 
   const tracker = useTimeTracker();
+
+  // Get daily limit from global settings
+  const dailyLimit = useMemo(() => {
+    const setting = globalSettings.find(s => s.setting_key === "DAILY_LIMIT");
+    return setting ? parseFloat(setting.setting_value) : 8;
+  }, [globalSettings]);
+
+  // Calculate today's tracked hours
+  const todayTrackedHours = useMemo(() => {
+    const todayEntries = entries.filter(e => {
+      const entryDate = parseISO(e.started_at);
+      return isToday(entryDate);
+    });
+    
+    const totalMinutes = todayEntries.reduce((sum, e) => sum + (e.duration_minutes || 0), 0);
+    // Add current running timer if any
+    const currentTimerMinutes = tracker.isRunning ? Math.ceil(tracker.elapsedSeconds / 60) : 0;
+    
+    return (totalMinutes + currentTimerMinutes) / 60;
+  }, [entries, tracker.isRunning, tracker.elapsedSeconds]);
+
+  const remainingHours = dailyLimit - todayTrackedHours;
 
   // Request notification permission for Pomodoro
   useEffect(() => {
@@ -40,8 +65,30 @@ export default function Tracker() {
     }
   }, [tracker.pomodoroEnabled]);
 
+  // Sync running entry on page load
+  useEffect(() => {
+    if (tracker.runningEntryId && !tracker.isRunning) {
+      // Check if the entry still exists and has no ended_at
+      const runningEntry = entries.find(e => e.timer_id === tracker.runningEntryId && !e.ended_at);
+      if (runningEntry) {
+        // Calculate elapsed time from started_at
+        const startedAt = parseISO(runningEntry.started_at);
+        const elapsedSeconds = Math.floor((Date.now() - startedAt.getTime()) / 1000);
+        tracker.start(runningEntry.timer_id);
+      } else {
+        tracker.clearRunningEntry();
+      }
+    }
+  }, [entries]);
+
   const handleStart = async () => {
     if (!staffRecord?.staff_id || !tracker.engagementId || !tracker.activityId) {
+      return;
+    }
+
+    // Check daily limit before starting
+    if (remainingHours <= 0) {
+      toast.error(t("tracker.dailyLimitReached"));
       return;
     }
 
@@ -53,15 +100,22 @@ export default function Tracker() {
         description: tracker.description || undefined,
         started_at: new Date().toISOString(),
       });
-      setRunningEntryId(result.timer_id);
-      tracker.start();
+      tracker.start(result.timer_id);
     } catch (error) {
       toast.error(t("tracker.errorStarting"));
     }
   };
 
-  const handleStop = async () => {
-    if (!runningEntryId) {
+  const handleStopClick = () => {
+    setStopDialogOpen(true);
+  };
+
+  const handleContinue = () => {
+    // Just close dialog, timer keeps running
+  };
+
+  const handleLogAndReset = async () => {
+    if (!tracker.runningEntryId) {
       tracker.stop();
       return;
     }
@@ -69,16 +123,62 @@ export default function Tracker() {
     const now = new Date();
     const durationMinutes = Math.ceil(tracker.elapsedSeconds / 60);
 
+    // Check if logging would exceed daily limit
+    const wouldExceed = (todayTrackedHours - (tracker.isRunning ? tracker.elapsedSeconds / 3600 : 0)) + (durationMinutes / 60) > dailyLimit;
+    if (wouldExceed) {
+      toast.error(t("tracker.dailyLimitExceeded"));
+      return;
+    }
+
     try {
       await updateEntry.mutateAsync({
-        timer_id: runningEntryId,
+        timer_id: tracker.runningEntryId,
         ended_at: now.toISOString(),
         duration_minutes: durationMinutes,
       });
       tracker.stop();
       tracker.reset();
-      setRunningEntryId(null);
       toast.success(t("tracker.entrySaved"));
+    } catch (error) {
+      toast.error(t("tracker.errorStopping"));
+    }
+  };
+
+  const handleLogAndContinue = async () => {
+    if (!staffRecord?.staff_id || !tracker.runningEntryId || !tracker.engagementId || !tracker.activityId) {
+      return;
+    }
+
+    const now = new Date();
+    const durationMinutes = Math.ceil(tracker.elapsedSeconds / 60);
+
+    // Check if logging would exceed daily limit
+    const wouldExceed = (todayTrackedHours - (tracker.isRunning ? tracker.elapsedSeconds / 3600 : 0)) + (durationMinutes / 60) > dailyLimit;
+    if (wouldExceed) {
+      toast.error(t("tracker.dailyLimitExceeded"));
+      return;
+    }
+
+    try {
+      // End current entry
+      await updateEntry.mutateAsync({
+        timer_id: tracker.runningEntryId,
+        ended_at: now.toISOString(),
+        duration_minutes: durationMinutes,
+      });
+
+      // Start new entry with same engagement/activity
+      const result = await createEntry.mutateAsync({
+        staff_id: staffRecord.staff_id,
+        engagement_id: tracker.engagementId,
+        activity_id: tracker.activityId,
+        description: tracker.description || undefined,
+        started_at: now.toISOString(),
+      });
+
+      tracker.clearRunningEntry();
+      tracker.start(result.timer_id);
+      toast.success(t("tracker.entrySavedContinuing"));
     } catch (error) {
       toast.error(t("tracker.errorStopping"));
     }
@@ -110,6 +210,19 @@ export default function Tracker() {
       return;
     }
 
+    // Check daily limit for the date of the entry
+    const entryDate = startOfDay(data.date);
+    const dateEntries = entries.filter(e => {
+      const eDate = startOfDay(parseISO(e.started_at));
+      return eDate.getTime() === entryDate.getTime();
+    });
+    const dateTotalMinutes = dateEntries.reduce((sum, e) => sum + (e.duration_minutes || 0), 0);
+    
+    if ((dateTotalMinutes + durationMinutes) / 60 > dailyLimit) {
+      toast.error(t("tracker.dailyLimitExceeded"));
+      return;
+    }
+
     try {
       await createEntry.mutateAsync({
         staff_id: staffRecord.staff_id,
@@ -137,6 +250,12 @@ export default function Tracker() {
 
   const handleDuplicate = async (entry: TimerEntry) => {
     if (!staffRecord?.staff_id) return;
+
+    // Check daily limit before duplicating
+    if (remainingHours <= 0) {
+      toast.error(t("tracker.dailyLimitReached"));
+      return;
+    }
 
     try {
       await createEntry.mutateAsync({
@@ -180,7 +299,7 @@ export default function Tracker() {
 
   return (
     <AppLayout title={t("tracker.title")}>
-      <div className="space-y-6">
+      <div className="space-y-4">
         {/* Tracker Bar */}
         <TrackerBar
           isRunning={tracker.isRunning}
@@ -189,8 +308,9 @@ export default function Tracker() {
           activityId={tracker.activityId}
           description={tracker.description}
           pomodoroEnabled={tracker.pomodoroEnabled}
+          remainingHours={remainingHours}
           onStart={handleStart}
-          onStop={handleStop}
+          onStop={handleStopClick}
           onEngagementChange={tracker.setEngagement}
           onActivityChange={tracker.setActivity}
           onDescriptionChange={tracker.setDescription}
@@ -240,6 +360,16 @@ export default function Tracker() {
           open={manualDialogOpen}
           onOpenChange={setManualDialogOpen}
           onSubmit={handleManualSubmit}
+        />
+
+        {/* Stop Action Dialog */}
+        <StopActionDialog
+          open={stopDialogOpen}
+          onOpenChange={setStopDialogOpen}
+          formattedTime={tracker.formattedTime}
+          onContinue={handleContinue}
+          onLogAndReset={handleLogAndReset}
+          onLogAndContinue={handleLogAndContinue}
         />
       </div>
     </AppLayout>
