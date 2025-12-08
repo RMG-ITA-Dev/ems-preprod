@@ -26,6 +26,7 @@ import StaffEdit from "./pages/StaffEdit";
 import Settings from "./pages/Settings";
 import AdminTimeEntries from "./pages/admin/TimeEntries";
 import AdminExpenseLogs from "./pages/admin/ExpenseLogs";
+import TimesheetApprovals from "./pages/TimesheetApprovals";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -52,6 +53,7 @@ const App = () => (
               <Route path="/work-orders/new" element={<ProtectedRoute><WorkOrderNew /></ProtectedRoute>} />
               <Route path="/work-orders/:id" element={<ProtectedRoute><WorkOrderEdit /></ProtectedRoute>} />
               <Route path="/timesheet" element={<ProtectedRoute><TimeSheet /></ProtectedRoute>} />
+              <Route path="/timesheet/approvals" element={<ProtectedRoute><TimesheetApprovals /></ProtectedRoute>} />
               <Route path="/expenses" element={<ProtectedRoute><Expenses /></ProtectedRoute>} />
               <Route path="/staff" element={<ProtectedRoute><Staff /></ProtectedRoute>} />
               <Route path="/staff/new" element={<ProtectedRoute><StaffNew /></ProtectedRoute>} />

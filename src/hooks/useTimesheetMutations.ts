@@ -138,27 +138,62 @@ export function useUpdatePeriodTotalHours() {
   });
 }
 
-// Submit timesheet for approval
+// Submit timesheet for approval - creates line approvals for each engagement
 export function useSubmitTimesheet() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (periodId: string) => {
-      const { data, error } = await supabase
+    mutationFn: async ({
+      periodId,
+      staffId,
+      engagementIds,
+      isAutoApproved,
+    }: {
+      periodId: string;
+      staffId: string;
+      engagementIds: string[];
+      isAutoApproved: boolean;
+    }) => {
+      // First, update the period's submitted_at timestamp
+      const { error: periodError } = await supabase
         .from("timesheet_periods")
         .update({
-          status: "submitted",
           submitted_at: new Date().toISOString(),
         })
-        .eq("period_id", periodId)
-        .select()
-        .single();
-      if (error) throw error;
-      return data;
+        .eq("period_id", periodId);
+
+      if (periodError) throw periodError;
+
+      // Create line approvals for each unique engagement
+      const lineApprovals = engagementIds.map((engagementId) => ({
+        period_id: periodId,
+        engagement_id: engagementId,
+        status: isAutoApproved ? "approved" : "pending",
+        approved_by: isAutoApproved ? staffId : null,
+        approved_at: isAutoApproved ? new Date().toISOString() : null,
+      }));
+
+      // Upsert line approvals (in case some already exist)
+      const { error: lineError } = await supabase
+        .from("timesheet_line_approvals")
+        .upsert(lineApprovals, { 
+          onConflict: "period_id,engagement_id",
+          ignoreDuplicates: false 
+        });
+
+      if (lineError) throw lineError;
+
+      return { periodId, isAutoApproved };
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["timesheet-period"] });
-      toast({ title: "Timesheet submitted successfully" });
+      queryClient.invalidateQueries({ queryKey: ["period-line-approvals"] });
+      queryClient.invalidateQueries({ queryKey: ["pending-approvals"] });
+      toast({ 
+        title: data.isAutoApproved 
+          ? "Timesheet auto-approved" 
+          : "Timesheet submitted for approval" 
+      });
     },
     onError: (error) => {
       toast({
