@@ -114,6 +114,11 @@ export default function Tracker() {
     // Just close dialog, timer keeps running
   };
 
+  // Round duration to nearest 5 minutes (minimum 5)
+  const roundToNearest5 = (minutes: number): number => {
+    return Math.max(5, Math.round(minutes / 5) * 5);
+  };
+
   const handleLogAndReset = async () => {
     if (!tracker.runningEntryId) {
       tracker.stop();
@@ -121,7 +126,8 @@ export default function Tracker() {
     }
 
     const now = new Date();
-    const durationMinutes = Math.ceil(tracker.elapsedSeconds / 60);
+    const rawMinutes = Math.ceil(tracker.elapsedSeconds / 60);
+    const durationMinutes = roundToNearest5(rawMinutes);
 
     // Check if logging would exceed daily limit
     const wouldExceed = (todayTrackedHours - (tracker.isRunning ? tracker.elapsedSeconds / 3600 : 0)) + (durationMinutes / 60) > dailyLimit;
@@ -139,46 +145,6 @@ export default function Tracker() {
       tracker.stop();
       tracker.reset();
       toast.success(t("tracker.entrySaved"));
-    } catch (error) {
-      toast.error(t("tracker.errorStopping"));
-    }
-  };
-
-  const handleLogAndContinue = async () => {
-    if (!staffRecord?.staff_id || !tracker.runningEntryId || !tracker.engagementId || !tracker.activityId) {
-      return;
-    }
-
-    const now = new Date();
-    const durationMinutes = Math.ceil(tracker.elapsedSeconds / 60);
-
-    // Check if logging would exceed daily limit
-    const wouldExceed = (todayTrackedHours - (tracker.isRunning ? tracker.elapsedSeconds / 3600 : 0)) + (durationMinutes / 60) > dailyLimit;
-    if (wouldExceed) {
-      toast.error(t("tracker.dailyLimitExceeded"));
-      return;
-    }
-
-    try {
-      // End current entry
-      await updateEntry.mutateAsync({
-        timer_id: tracker.runningEntryId,
-        ended_at: now.toISOString(),
-        duration_minutes: durationMinutes,
-      });
-
-      // Start new entry with same engagement/activity
-      const result = await createEntry.mutateAsync({
-        staff_id: staffRecord.staff_id,
-        engagement_id: tracker.engagementId,
-        activity_id: tracker.activityId,
-        description: tracker.description || undefined,
-        started_at: now.toISOString(),
-      });
-
-      tracker.clearRunningEntry();
-      tracker.start(result.timer_id);
-      toast.success(t("tracker.entrySavedContinuing"));
     } catch (error) {
       toast.error(t("tracker.errorStopping"));
     }
@@ -203,7 +169,8 @@ export default function Tracker() {
     const endDate = new Date(data.date);
     endDate.setHours(endHour, endMin, 0, 0);
 
-    const durationMinutes = differenceInMinutes(endDate, startDate);
+    const rawDuration = differenceInMinutes(endDate, startDate);
+    const durationMinutes = roundToNearest5(rawDuration);
 
     if (durationMinutes <= 0) {
       toast.error(t("tracker.invalidTimeRange"));
@@ -369,7 +336,6 @@ export default function Tracker() {
           formattedTime={tracker.formattedTime}
           onContinue={handleContinue}
           onLogAndReset={handleLogAndReset}
-          onLogAndContinue={handleLogAndContinue}
         />
       </div>
     </AppLayout>

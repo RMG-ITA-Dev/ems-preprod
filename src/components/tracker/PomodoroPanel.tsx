@@ -1,13 +1,12 @@
 import { useTranslation } from "react-i18next";
 import { Timer, Coffee, Armchair } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import type { PomodoroPhase } from "@/hooks/useTimeTracker";
 
-interface PomodoroPanelProps {
+interface CyclesPanelProps {
   isRunning: boolean;
   phase: PomodoroPhase;
   pomodoroCount: number;
@@ -31,33 +30,32 @@ export function PomodoroPanel({
   formattedRemaining,
   pomodoroDuration,
   shortBreakDuration,
-  longBreakDuration,
   onSettingsChange,
-}: PomodoroPanelProps) {
+}: CyclesPanelProps) {
   const { t } = useTranslation();
 
   const phaseConfig = {
     idle: {
       icon: Timer,
-      label: t("tracker.pomodoro.ready"),
+      label: t("tracker.cycles.ready"),
       color: "text-muted-foreground",
       bgColor: "bg-muted",
     },
     work: {
       icon: Timer,
-      label: t("tracker.pomodoro.focus"),
+      label: t("tracker.cycles.focus"),
       color: "text-success",
       bgColor: "bg-success/10",
     },
     shortBreak: {
       icon: Coffee,
-      label: t("tracker.pomodoro.shortBreak"),
+      label: t("tracker.cycles.shortBreak"),
       color: "text-info",
       bgColor: "bg-info/10",
     },
     longBreak: {
       icon: Armchair,
-      label: t("tracker.pomodoro.longBreak"),
+      label: t("tracker.cycles.longBreak"),
       color: "text-warning",
       bgColor: "bg-warning/10",
     },
@@ -65,12 +63,6 @@ export function PomodoroPanel({
 
   const currentPhase = phaseConfig[phase];
   const Icon = currentPhase.icon;
-
-  const presets = [
-    { label: "55/5", work: 55, short: 5, long: 15 },
-    { label: "25/5", work: 25, short: 5, long: 15 },
-    { label: "50/10", work: 50, short: 10, long: 30 },
-  ];
 
   const handleWorkChange = (value: string) => {
     const num = parseInt(value, 10);
@@ -95,8 +87,8 @@ export function PomodoroPanel({
           <div>
             <p className={cn("font-medium text-sm", currentPhase.color)}>{currentPhase.label}</p>
             <p className="text-xs text-muted-foreground">
-              {t("tracker.pomodoro.cycle", { count: Math.floor(pomodoroCount / 4) + 1 })} • 
-              Pomodoro {(pomodoroCount % 4) + 1}/4
+              {t("tracker.cycles.cycle", { count: Math.floor(pomodoroCount / 4) + 1 })} • 
+              {t("tracker.cycles.cycleNum", { num: (pomodoroCount % 4) + 1 })}
             </p>
           </div>
         </div>
@@ -105,7 +97,7 @@ export function PomodoroPanel({
         <div className="flex-1 w-full md:w-auto">
           <div className="flex items-center justify-between mb-1">
             <span className="text-xs text-muted-foreground">
-              {t("tracker.pomodoro.remaining")}
+              {t("tracker.cycles.remaining")}
             </span>
             <span className="font-mono text-base font-semibold">{formattedRemaining}</span>
           </div>
@@ -113,9 +105,9 @@ export function PomodoroPanel({
         </div>
 
         {/* Custom Duration Inputs */}
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1">
-            <Label className="text-xs text-muted-foreground whitespace-nowrap">{t("tracker.pomodoro.work")}:</Label>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5">
+            <Label className="text-xs text-muted-foreground whitespace-nowrap">{t("tracker.cycles.work")}:</Label>
             <Input
               type="number"
               min={1}
@@ -123,12 +115,12 @@ export function PomodoroPanel({
               value={pomodoroDuration}
               onChange={(e) => handleWorkChange(e.target.value)}
               disabled={isRunning}
-              className="h-7 w-14 text-xs text-center"
+              className="h-7 w-16 text-xs text-center hide-spinners"
             />
             <span className="text-xs text-muted-foreground">m</span>
           </div>
-          <div className="flex items-center gap-1">
-            <Label className="text-xs text-muted-foreground whitespace-nowrap">{t("tracker.pomodoro.break")}:</Label>
+          <div className="flex items-center gap-1.5">
+            <Label className="text-xs text-muted-foreground whitespace-nowrap">{t("tracker.cycles.break")}:</Label>
             <Input
               type="number"
               min={1}
@@ -136,37 +128,10 @@ export function PomodoroPanel({
               value={shortBreakDuration}
               onChange={(e) => handleBreakChange(e.target.value)}
               disabled={isRunning}
-              className="h-7 w-14 text-xs text-center"
+              className="h-7 w-16 text-xs text-center hide-spinners"
             />
             <span className="text-xs text-muted-foreground">m</span>
           </div>
-        </div>
-
-        {/* Presets */}
-        <div className="flex items-center gap-1">
-          <span className="text-xs text-muted-foreground mr-1">{t("tracker.pomodoro.presets")}:</span>
-          {presets.map((preset) => (
-            <Button
-              key={preset.label}
-              variant={
-                pomodoroDuration === preset.work && shortBreakDuration === preset.short
-                  ? "default"
-                  : "outline"
-              }
-              size="sm"
-              onClick={() =>
-                onSettingsChange({
-                  pomodoroDuration: preset.work,
-                  shortBreakDuration: preset.short,
-                  longBreakDuration: preset.long,
-                })
-              }
-              disabled={isRunning}
-              className="text-xs h-7 px-2"
-            >
-              {preset.label}
-            </Button>
-          ))}
         </div>
       </div>
     </div>
