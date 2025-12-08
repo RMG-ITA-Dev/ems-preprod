@@ -10,7 +10,8 @@ import {
   LogOut,
   ClipboardList,
   FileSpreadsheet,
-  CheckSquare
+  CheckSquare,
+  Timer
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { NavLink } from "@/components/NavLink";
@@ -44,6 +45,7 @@ export function AppSidebar() {
   ];
 
   const operationsItems = [
+    { title: t("nav.tracker"), url: "/tracker", icon: Timer },
     { title: t("nav.timeSheet"), url: "/timesheet", icon: Clock },
     { title: t("nav.timesheetApprovals"), url: "/timesheet/approvals", icon: CheckSquare },
     { title: t("nav.expenses"), url: "/expenses", icon: Receipt },

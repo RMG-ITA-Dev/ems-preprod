@@ -444,6 +444,77 @@ export type Database = {
           },
         ]
       }
+      timer_entries: {
+        Row: {
+          activity_id: string
+          created_at: string
+          description: string | null
+          duration_minutes: number | null
+          ended_at: string | null
+          engagement_id: string
+          imported_to_time_id: string | null
+          is_imported: boolean
+          staff_id: string
+          started_at: string
+          timer_id: string
+        }
+        Insert: {
+          activity_id: string
+          created_at?: string
+          description?: string | null
+          duration_minutes?: number | null
+          ended_at?: string | null
+          engagement_id: string
+          imported_to_time_id?: string | null
+          is_imported?: boolean
+          staff_id: string
+          started_at: string
+          timer_id?: string
+        }
+        Update: {
+          activity_id?: string
+          created_at?: string
+          description?: string | null
+          duration_minutes?: number | null
+          ended_at?: string | null
+          engagement_id?: string
+          imported_to_time_id?: string | null
+          is_imported?: boolean
+          staff_id?: string
+          started_at?: string
+          timer_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "timer_entries_activity_id_fkey"
+            columns: ["activity_id"]
+            isOneToOne: false
+            referencedRelation: "activity_codes"
+            referencedColumns: ["activity_id"]
+          },
+          {
+            foreignKeyName: "timer_entries_engagement_id_fkey"
+            columns: ["engagement_id"]
+            isOneToOne: false
+            referencedRelation: "engagements"
+            referencedColumns: ["engagement_id"]
+          },
+          {
+            foreignKeyName: "timer_entries_imported_to_time_id_fkey"
+            columns: ["imported_to_time_id"]
+            isOneToOne: false
+            referencedRelation: "time_entries"
+            referencedColumns: ["time_id"]
+          },
+          {
+            foreignKeyName: "timer_entries_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["staff_id"]
+          },
+        ]
+      }
       timesheet_line_approvals: {
         Row: {
           approval_id: string
