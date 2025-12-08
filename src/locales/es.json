@@ -51,6 +51,7 @@
   "tracker": {
     "title": "Cronómetro",
     "listTitle": "Registros de Tiempo",
+    "useTimer": "Usar cronómetro",
     "searchPlaceholder": "Buscar por encargo, actividad...",
     "newEntry": "Registrar Tiempo",
     "editEntry": "Editar Entrada",

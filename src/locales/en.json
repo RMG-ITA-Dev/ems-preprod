@@ -50,7 +50,8 @@
   },
   "tracker": {
     "title": "Time Tracker",
-    "listTitle": "Time Entries",
+    "listTitle": "Time Records",
+    "useTimer": "Track Time",
     "searchPlaceholder": "Search by engagement, activity...",
     "newEntry": "Track Time",
     "editEntry": "Edit Entry",
