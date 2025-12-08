@@ -15,6 +15,7 @@ import {
 import { Loader2, Search, ChevronRight } from "lucide-react";
 import { usePendingApprovalSummaries } from "@/hooks/useTimesheetApprovals";
 import { format, addDays } from "date-fns";
+import { parseDateLocal } from "@/lib/timesheetUtils";
 
 const TimesheetApprovals = () => {
   const { t } = useTranslation();
@@ -34,7 +35,7 @@ const TimesheetApprovals = () => {
   };
 
   const formatWeekRange = (weekStartDate: string) => {
-    const startDate = new Date(weekStartDate);
+    const startDate = parseDateLocal(weekStartDate);
     const endDate = addDays(startDate, 4); // Monday to Friday
     return `${format(startDate, "dd/MM/yyyy")} - ${format(endDate, "dd/MM/yyyy")}`;
   };

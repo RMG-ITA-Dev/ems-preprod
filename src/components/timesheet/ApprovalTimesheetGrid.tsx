@@ -7,7 +7,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { ApprovalToggle, type ApprovalDecision } from "@/components/ui/approval-toggle";
-import { getDayName, formatDayMonth, toISODateString, getWorkDays } from "@/lib/timesheetUtils";
+import { getDayName, formatDayMonth, toISODateString, getWorkDays, parseDateLocal } from "@/lib/timesheetUtils";
 import { cn } from "@/lib/utils";
 import { Check, Clock, X } from "lucide-react";
 import type { LineApproval, TimeEntryForApproval } from "@/hooks/useTimesheetApprovals";
@@ -56,7 +56,7 @@ export function ApprovalTimesheetGrid({
 
   // Generate week dates (5 work days)
   const weekDates = useMemo(() => {
-    return getWorkDays(new Date(weekStartDate), 5);
+    return getWorkDays(parseDateLocal(weekStartDate), 5);
   }, [weekStartDate]);
 
   // Build engagement groups with activity sub-rows

@@ -115,6 +115,15 @@ export const fromISODateString = (dateString: string): Date => {
   return parseISO(dateString);
 };
 
+// Parse "YYYY-MM-DD" as local date, avoiding timezone shift
+// new Date("2025-12-01") interprets as midnight UTC, which becomes
+// previous day in timezones behind UTC (e.g., Bolivia UTC-4).
+// This function parses as local midnight instead.
+export const parseDateLocal = (dateString: string): Date => {
+  const [year, month, day] = dateString.split("-").map(Number);
+  return new Date(year, month - 1, day); // month is 0-indexed
+};
+
 // ============== DEADLINE LOGIC ==============
 
 // Check if a week spans a month-end

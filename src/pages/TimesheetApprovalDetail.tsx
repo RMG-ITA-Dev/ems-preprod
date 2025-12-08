@@ -22,6 +22,7 @@ import { ApprovalTimesheetGrid } from "@/components/timesheet/ApprovalTimesheetG
 import type { ApprovalDecision } from "@/components/ui/approval-toggle";
 import { format, addDays } from "date-fns";
 import { useLanguage } from "@/hooks/useLanguage";
+import { parseDateLocal } from "@/lib/timesheetUtils";
 
 const TimesheetApprovalDetail = () => {
   const { periodId } = useParams<{ periodId: string }>();
@@ -130,7 +131,7 @@ const TimesheetApprovalDetail = () => {
   };
 
   const formatWeekRange = (weekStartDate: string) => {
-    const startDate = new Date(weekStartDate);
+    const startDate = parseDateLocal(weekStartDate);
     const endDate = addDays(startDate, 4);
     return `${format(startDate, "dd/MM/yyyy")} - ${format(endDate, "dd/MM/yyyy")}`;
   };
