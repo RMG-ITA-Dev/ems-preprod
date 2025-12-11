@@ -383,7 +383,278 @@ This schema supports:
 - Expense forecasting
 
 ⸻
-## 📊 Supabase Entity Relation Diagram in PNG (clickable)
+
+## 📊 Entity Relationship Diagram
+
+```mermaid
+erDiagram
+    %% ==========================================
+    %% REFERENCE TABLES
+    %% ==========================================
+    industries {
+        uuid industry_id PK
+        varchar industry_name
+        varchar fiscal_year_end
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    categories {
+        uuid category_id PK
+        varchar category_name
+        numeric rate_high_bob
+        numeric rate_low_bob
+        numeric rate_high_usd
+        numeric rate_low_usd
+        integer display_order
+        boolean can_approve_wo
+        boolean can_approve_timesheets
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    activity_codes {
+        uuid activity_id PK
+        varchar activity_code
+        varchar description
+        boolean is_active
+        timestamptz created_at
+    }
+
+    expense_types {
+        uuid expense_type_id PK
+        varchar expense_name
+        numeric default_unit_cost
+        timestamptz created_at
+    }
+
+    global_settings {
+        varchar setting_key PK
+        varchar setting_value
+        text description
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    user_roles {
+        uuid id PK
+        uuid user_id FK
+        app_role role
+        timestamptz created_at
+    }
+
+    %% ==========================================
+    %% CORE ENTITY TABLES
+    %% ==========================================
+    clients {
+        uuid client_id PK
+        uuid industry_id FK
+        varchar client_legal_name
+        varchar unique_tax_id
+        varchar contact_name
+        varchar contact_email
+        varchar contact_phone
+        text address
+        boolean is_active
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    staff {
+        uuid staff_id PK
+        uuid auth_user_id FK
+        uuid category_id FK
+        varchar first_name
+        varchar last_name
+        varchar short_name
+        varchar initials
+        varchar email
+        varchar id_number
+        varchar aud_reg_number
+        varchar city
+        boolean is_active
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    engagements {
+        uuid engagement_id PK
+        uuid client_id FK
+        uuid partner_id FK
+        uuid manager_id FK
+        varchar engagement_name
+        varchar engagement_code
+        date start_date
+        date end_date
+        varchar status
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    %% ==========================================
+    %% WORK ORDER & BUDGET TABLES
+    %% ==========================================
+    work_orders {
+        uuid wo_id PK
+        uuid engagement_id FK
+        uuid approved_by FK
+        varchar currency
+        varchar season_mode
+        numeric tax_rate
+        numeric adjustment_amount
+        text notes
+        varchar approval_status
+        timestamptz approved_at
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    wo_budget_lines {
+        uuid wo_line_id PK
+        uuid wo_id FK
+        uuid category_id FK
+        numeric budgeted_hours
+        numeric standard_rate
+        timestamptz created_at
+    }
+
+    wo_expense_budget {
+        uuid wo_exp_id PK
+        uuid wo_id FK
+        uuid expense_type_id FK
+        numeric budgeted_amount
+        timestamptz created_at
+    }
+
+    %% ==========================================
+    %% TIMESHEET TABLES
+    %% ==========================================
+    timesheet_periods {
+        uuid period_id PK
+        uuid staff_id FK
+        date week_start_date
+        integer week_number
+        integer year
+        date deadline
+        boolean is_period_locked
+        numeric total_hours
+        timestamptz submitted_at
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    time_entries {
+        uuid time_id PK
+        uuid engagement_id FK
+        uuid staff_id FK
+        uuid activity_id FK
+        uuid period_id FK
+        date date_worked
+        numeric hours_logged
+        text description
+        boolean is_forecast
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    timer_entries {
+        uuid timer_id PK
+        uuid staff_id FK
+        uuid engagement_id FK
+        uuid activity_id FK
+        uuid imported_to_time_id FK
+        timestamptz started_at
+        timestamptz ended_at
+        integer duration_minutes
+        text description
+        boolean is_imported
+        timestamptz created_at
+    }
+
+    timesheet_line_approvals {
+        uuid approval_id PK
+        uuid period_id FK
+        uuid engagement_id FK
+        uuid approved_by FK
+        varchar status
+        text review_notes
+        timestamptz approved_at
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    %% ==========================================
+    %% EXPENSE LOGS
+    %% ==========================================
+    expense_logs {
+        uuid expense_log_id PK
+        uuid engagement_id FK
+        uuid expense_type_id FK
+        date date_incurred
+        numeric amount
+        varchar currency
+        text description
+        text receipt_url
+        timestamptz created_at
+    }
+
+    %% ==========================================
+    %% RELATIONSHIPS
+    %% ==========================================
+    
+    %% Reference relationships
+    industries ||--o{ clients : "classifies"
+    categories ||--o{ staff : "assigns_rate"
+    categories ||--o{ wo_budget_lines : "budgets_by"
+    
+    %% Client-Engagement chain
+    clients ||--o{ engagements : "has"
+    
+    %% Staff assignments on engagements
+    staff ||--o{ engagements : "partner_id"
+    staff ||--o{ engagements : "manager_id"
+    
+    %% Work Order relationships (1:1 with engagement)
+    engagements ||--|| work_orders : "has_budget"
+    work_orders ||--o{ wo_budget_lines : "contains"
+    work_orders ||--o{ wo_expense_budget : "contains"
+    staff ||--o{ work_orders : "approved_by"
+    expense_types ||--o{ wo_expense_budget : "budgets"
+    
+    %% Timesheet relationships
+    staff ||--o{ timesheet_periods : "submits"
+    timesheet_periods ||--o{ time_entries : "contains"
+    timesheet_periods ||--o{ timesheet_line_approvals : "tracks"
+    engagements ||--o{ timesheet_line_approvals : "approved_per"
+    staff ||--o{ timesheet_line_approvals : "approved_by"
+    
+    %% Time entry relationships
+    engagements ||--o{ time_entries : "logged_to"
+    staff ||--o{ time_entries : "logged_by"
+    activity_codes ||--o{ time_entries : "classifies"
+    
+    %% Timer entry relationships
+    staff ||--o{ timer_entries : "tracks"
+    engagements ||--o{ timer_entries : "tracked_against"
+    activity_codes ||--o{ timer_entries : "classifies"
+    time_entries ||--o| timer_entries : "imported_to"
+    
+    %% Expense relationships
+    engagements ||--o{ expense_logs : "incurs"
+    expense_types ||--o{ expense_logs : "classifies"
+```
+
+### Diagram Notes
+
+| Symbol | Meaning |
+|--------|---------|
+| `\|\|--\|\|` | One-to-One (e.g., engagement ↔ work_order) |
+| `\|\|--o{` | One-to-Many (e.g., client → engagements) |
+| `o\|` | Zero-or-One (e.g., timer_entry → time_entry) |
+| `PK` | Primary Key |
+| `FK` | Foreign Key |
+
+### PNG Version (clickable)
 
 [<img src="./supabase/ems-er-diagram.png" width="350" />](./supabase/ems-er-diagram.png)
 
