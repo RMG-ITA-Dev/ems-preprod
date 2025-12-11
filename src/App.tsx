@@ -26,8 +26,6 @@ import Staff from "./pages/Staff";
 import StaffNew from "./pages/StaffNew";
 import StaffEdit from "./pages/StaffEdit";
 import Settings from "./pages/Settings";
-import AdminTimeEntries from "./pages/admin/TimeEntries";
-import AdminExpenseLogs from "./pages/admin/ExpenseLogs";
 import TimesheetApprovals from "./pages/TimesheetApprovals";
 import TimesheetApprovalDetail from "./pages/TimesheetApprovalDetail";
 import TrackerList from "./pages/TrackerList";
@@ -70,8 +68,6 @@ const App = () => (
               <Route path="/staff/new" element={<ProtectedRoute><StaffNew /></ProtectedRoute>} />
               <Route path="/staff/:id" element={<ProtectedRoute><StaffEdit /></ProtectedRoute>} />
               <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
-              <Route path="/admin/time-entries" element={<ProtectedRoute><AdminTimeEntries /></ProtectedRoute>} />
-              <Route path="/admin/expense-logs" element={<ProtectedRoute><AdminExpenseLogs /></ProtectedRoute>} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </BrowserRouter>

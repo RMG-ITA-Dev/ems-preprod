@@ -7,8 +7,6 @@ import {
   FileText,
   Receipt,
   LogOut,
-  ClipboardList,
-  FileSpreadsheet,
   CheckSquare,
   Timer,
   Grid3X3
@@ -16,7 +14,6 @@ import {
 import { useTranslation } from "react-i18next";
 import { NavLink } from "@/components/NavLink";
 import { useAuth } from "@/hooks/useAuth";
-import { useUserRole } from "@/hooks/useUserRole";
 import { useNavigate } from "react-router-dom";
 import {
   Sidebar,
@@ -34,7 +31,6 @@ import {
 export function AppSidebar() {
   const { t } = useTranslation();
   const { user, signOut } = useAuth();
-  const { isAdmin } = useUserRole();
   const navigate = useNavigate();
 
   const mainNavItems = [
@@ -54,11 +50,6 @@ export function AppSidebar() {
   const adminItems = [
     { title: t("nav.staff"), url: "/staff", icon: Users },
     { title: t("nav.settings"), url: "/settings", icon: Settings },
-  ];
-
-  const adminOnlyItems = [
-    { title: t("nav.timeEntries"), url: "/admin/time-entries", icon: ClipboardList },
-    { title: t("nav.expenseLogs"), url: "/admin/expense-logs", icon: FileSpreadsheet },
   ];
 
   const handleSignOut = async () => {
@@ -137,20 +128,6 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               {adminItems.map((item) => (
-                <SidebarMenuItem key={item.url}>
-                  <SidebarMenuButton asChild>
-                    <NavLink 
-                      to={item.url}
-                      className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors"
-                      activeClassName="bg-sidebar-accent text-sidebar-foreground font-medium"
-                    >
-                      <item.icon className="h-4 w-4" />
-                      <span>{item.title}</span>
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-              {isAdmin && adminOnlyItems.map((item) => (
                 <SidebarMenuItem key={item.url}>
                   <SidebarMenuButton asChild>
                     <NavLink 
