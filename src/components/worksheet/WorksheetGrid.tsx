@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { Input } from "@/components/ui/input";
+import { NumericInput } from "@/components/ui/numeric-input";
 import {
   Table,
   TableBody,
@@ -168,18 +168,18 @@ export function WorksheetGrid({
                   </TableCell>
                   {sortedCategories.map((cat) => (
                     <TableCell key={cat.category_id} className="p-0.5">
-                      <Input
-                        type="number"
-                        min="0"
-                        step="0.5"
+                      <NumericInput
+                        decimals={1}
+                        locale="en"
+                        min={0}
                         className={cn(
                           "h-6 text-center font-mono text-xs hide-spinners",
                           "w-full min-w-[45px] px-1",
                           readOnly && "bg-muted cursor-not-allowed"
                         )}
                         value={getValue(cat.category_id, activity.activity_id)}
-                        onChange={(e) =>
-                          handleChange(cat.category_id, activity.activity_id, e.target.value)
+                        onValueChange={(val) =>
+                          handleChange(cat.category_id, activity.activity_id, val)
                         }
                         onBlur={() => handleBlur(cat.category_id, activity.activity_id)}
                         disabled={readOnly}

@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumericInput } from "@/components/ui/numeric-input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -380,34 +381,39 @@ const Settings = () => {
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                       <div className="space-y-2">
                         <Label htmlFor="taxRate">{t("settings.taxRate")}</Label>
-                        <Input
-                          id="taxRate"
-                          type="number"
-                          step="0.01"
-                          defaultValue={parseFloat(getSetting("TAX_RATE")) * 100 || 13}
-                          onChange={(e) => setTaxRate(e.target.value)}
+                        <NumericInput
+                          decimals={2}
+                          locale="en"
+                          min={0}
+                          max={100}
+                          value={parseFloat(getSetting("TAX_RATE")) * 100 || 13}
+                          onChange={(val) => setTaxRate(String(val))}
                           className="max-w-[200px]"
                         />
                         <p className="text-sm text-muted-foreground">{t("settings.taxRateHelp")}</p>
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="dailyLimit">{t("settings.dailyLimit")}</Label>
-                        <Input
-                          id="dailyLimit"
-                          type="number"
-                          defaultValue={getSetting("DAILY_LIMIT") || 10}
-                          onChange={(e) => setDailyLimit(e.target.value)}
+                        <NumericInput
+                          decimals={0}
+                          locale="en"
+                          min={1}
+                          max={24}
+                          value={getSetting("DAILY_LIMIT") || 10}
+                          onChange={(val) => setDailyLimit(String(val))}
                           className="max-w-[200px]"
                         />
                         <p className="text-sm text-muted-foreground">{t("settings.dailyLimitHelp")}</p>
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="weeklyLimit">{t("settings.weeklyLimit")}</Label>
-                        <Input
-                          id="weeklyLimit"
-                          type="number"
-                          defaultValue={getSetting("WEEKLY_LIMIT") || 50}
-                          onChange={(e) => setWeeklyLimit(e.target.value)}
+                        <NumericInput
+                          decimals={0}
+                          locale="en"
+                          min={1}
+                          max={168}
+                          value={getSetting("WEEKLY_LIMIT") || 50}
+                          onChange={(val) => setWeeklyLimit(String(val))}
                           className="max-w-[200px]"
                         />
                         <p className="text-sm text-muted-foreground">{t("settings.weeklyLimitHelp")}</p>

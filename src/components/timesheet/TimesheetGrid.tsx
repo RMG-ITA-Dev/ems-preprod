@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { Input } from "@/components/ui/input";
+import { NumericInput } from "@/components/ui/numeric-input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Trash2, Loader2, Check, Clock, X } from "lucide-react";
@@ -357,14 +357,14 @@ export function TimesheetGrid({
                   return (
                     <td key={dateStr} className="p-2 relative">
                       <div className="relative">
-                        <Input
-                          type="number"
-                          step="0.5"
-                          min="0"
-                          max="24"
+                        <NumericInput
+                          decimals={1}
+                          locale="en"
+                          min={0}
+                          max={24}
                           value={row.hours[dateStr] || ""}
-                          onChange={(e) =>
-                            handleHoursChange(row.id, date, e.target.value)
+                          onChange={(val) =>
+                            handleHoursChange(row.id, date, String(val))
                           }
                           disabled={isDisabled}
                           className={cn(

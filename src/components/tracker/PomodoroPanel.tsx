@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { Timer, Coffee, Armchair } from "lucide-react";
-import { Input } from "@/components/ui/input";
+import { NumericInput } from "@/components/ui/numeric-input";
 import { Progress } from "@/components/ui/progress";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
@@ -108,27 +108,29 @@ export function PomodoroPanel({
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5">
             <Label className="text-xs text-muted-foreground whitespace-nowrap">{t("tracker.cycles.work")}:</Label>
-            <Input
-              type="number"
+            <NumericInput
+              decimals={0}
+              locale="en"
               min={1}
               max={120}
               value={pomodoroDuration}
-              onChange={(e) => handleWorkChange(e.target.value)}
+              onChange={(val) => handleWorkChange(String(val))}
               disabled={isRunning}
-              className="h-7 w-16 text-xs text-center hide-spinners"
+              className="h-7 w-16 text-xs text-center"
             />
             <span className="text-xs text-muted-foreground">m</span>
           </div>
           <div className="flex items-center gap-1.5">
             <Label className="text-xs text-muted-foreground whitespace-nowrap">{t("tracker.cycles.break")}:</Label>
-            <Input
-              type="number"
+            <NumericInput
+              decimals={0}
+              locale="en"
               min={1}
               max={60}
               value={shortBreakDuration}
-              onChange={(e) => handleBreakChange(e.target.value)}
+              onChange={(val) => handleBreakChange(String(val))}
               disabled={isRunning}
-              className="h-7 w-16 text-xs text-center hide-spinners"
+              className="h-7 w-16 text-xs text-center"
             />
             <span className="text-xs text-muted-foreground">m</span>
           </div>

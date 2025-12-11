@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumericInput } from "@/components/ui/numeric-input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import {
@@ -212,13 +213,13 @@ export function ExpenseLogForm({
         {/* Amount */}
         <div className="space-y-1.5">
           <Label>{t("expenses.amount")} *</Label>
-          <Input
-            type="number"
-            step="0.01"
-            min="0"
+          <NumericInput
+            decimals={2}
+            locale={formData.currency === "BOB" ? "es" : "en"}
+            min={0}
             value={formData.amount || ""}
-            onChange={(e) =>
-              setFormData((prev) => ({ ...prev, amount: parseFloat(e.target.value) || 0 }))
+            onChange={(val) =>
+              setFormData((prev) => ({ ...prev, amount: val }))
             }
             placeholder="0.00"
           />

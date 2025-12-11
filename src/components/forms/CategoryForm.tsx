@@ -5,6 +5,7 @@ import * as z from "zod";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumericInput } from "@/components/ui/numeric-input";
 import {
   Form,
   FormControl,
@@ -149,7 +150,13 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
                   <FormItem>
                     <FormLabel>{t("category.displayOrder")}</FormLabel>
                     <FormControl>
-                      <Input type="number" {...field} />
+                      <NumericInput 
+                        decimals={0} 
+                        locale="en" 
+                        min={0} 
+                        value={field.value} 
+                        onChange={field.onChange} 
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -167,7 +174,7 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
                     <FormItem>
                       <FormLabel>{t("industry.highSeason")} *</FormLabel>
                       <FormControl>
-                        <Input type="number" step="0.01" {...field} />
+                        <NumericInput decimals={2} locale="es" min={0} value={field.value} onChange={field.onChange} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -181,7 +188,7 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
                     <FormItem>
                       <FormLabel>{t("industry.lowSeason")} *</FormLabel>
                       <FormControl>
-                        <Input type="number" step="0.01" {...field} />
+                        <NumericInput decimals={2} locale="es" min={0} value={field.value} onChange={field.onChange} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -200,7 +207,7 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
                     <FormItem>
                       <FormLabel>{t("industry.highSeason")} *</FormLabel>
                       <FormControl>
-                        <Input type="number" step="0.01" {...field} />
+                        <NumericInput decimals={2} locale="en" min={0} value={field.value} onChange={field.onChange} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -214,7 +221,7 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
                     <FormItem>
                       <FormLabel>{t("industry.lowSeason")} *</FormLabel>
                       <FormControl>
-                        <Input type="number" step="0.01" {...field} />
+                        <NumericInput decimals={2} locale="en" min={0} value={field.value} onChange={field.onChange} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
