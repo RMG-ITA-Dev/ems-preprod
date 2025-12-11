@@ -24,8 +24,8 @@ const TrackerRecord = () => {
   const { id } = useParams();
   const isEditMode = !!id && id !== "new";
 
-  // Use forceReset option for new entries - this happens synchronously in useState initializer
-  const tracker = useTimeTracker({ forceReset: id === "new" });
+  // Timer initialization happens synchronously in useState using URL check
+  const tracker = useTimeTracker();
   const { staffRecord, isLoading: staffLoading } = useCurrentStaff();
   const { data: entries } = useTimerEntries();
   const { data: globalSettings } = useGlobalSettings();
@@ -131,8 +131,18 @@ const TrackerRecord = () => {
   const handleSaveAndReset = async () => {
     if (!tracker.runningEntryId) {
       toast.error(t("tracker.noEntryToSave"));
+      tracker.fullReset();
       return;
     }
+    
+    // Validate entry exists in DB before trying to update
+    const entryExists = entries?.find(e => e.timer_id === tracker.runningEntryId);
+    if (!entryExists) {
+      toast.error(t("tracker.entryNotFound"));
+      tracker.fullReset();
+      return;
+    }
+    
     try {
       const durationMinutes = roundToNearest5(Math.floor(tracker.elapsedSeconds / 60));
       await updateEntry.mutateAsync({
@@ -140,8 +150,7 @@ const TrackerRecord = () => {
         ended_at: new Date().toISOString(),
         duration_minutes: durationMinutes,
       });
-      tracker.reset();
-      tracker.clearRunningEntry();
+      tracker.fullReset();
       toast.success(t("tracker.entrySaved"));
       navigate("/tracker");
     } catch (error) {
@@ -152,10 +161,13 @@ const TrackerRecord = () => {
   const handleCancel = () => {
     // Discard current entry without saving
     if (tracker.runningEntryId) {
-      deleteEntry.mutate(tracker.runningEntryId);
+      // Only delete if entry actually exists in DB
+      const entryExists = entries?.find(e => e.timer_id === tracker.runningEntryId);
+      if (entryExists) {
+        deleteEntry.mutate(tracker.runningEntryId);
+      }
     }
-    tracker.reset();
-    tracker.clearRunningEntry();
+    tracker.fullReset();
     navigate("/tracker");
   };
 
@@ -172,21 +184,24 @@ const TrackerRecord = () => {
       return;
     }
     
-    // New entry mode: delete the running entry if exists
+    // New entry mode: delete the running entry if exists in DB
     if (tracker.runningEntryId) {
-      try {
-        await deleteEntry.mutateAsync(tracker.runningEntryId);
-        tracker.reset();
-        tracker.clearRunningEntry();
-        toast.success(t("tracker.entryDeleted"));
-        navigate("/tracker");
-      } catch (error) {
-        toast.error(t("tracker.errorDeleting"));
+      const entryExists = entries?.find(e => e.timer_id === tracker.runningEntryId);
+      if (entryExists) {
+        try {
+          await deleteEntry.mutateAsync(tracker.runningEntryId);
+          toast.success(t("tracker.entryDeleted"));
+        } catch (error) {
+          toast.error(t("tracker.errorDeleting"));
+        }
       }
+      tracker.fullReset();
+      navigate("/tracker");
       return;
     }
     
-    // No entry to delete, just navigate back
+    // No entry to delete, just reset and navigate back
+    tracker.fullReset();
     navigate("/tracker");
   };
 

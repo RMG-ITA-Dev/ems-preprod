@@ -22,14 +22,13 @@ const DEFAULT_STATE: TimerState = {
   runningEntryId: null,
 };
 
-interface UseTimeTrackerOptions {
-  forceReset?: boolean;
-}
-
-export function useTimeTracker(options?: UseTimeTrackerOptions) {
+export function useTimeTracker() {
   const [state, setState] = useState<TimerState>(() => {
-    // If forceReset is true, start clean - don't read localStorage
-    if (options?.forceReset) {
+    // BULLETPROOF: Check URL directly in initializer - runs synchronously before first render
+    const isNewEntry = typeof window !== 'undefined' && 
+      window.location.pathname === '/tracker/new';
+    
+    if (isNewEntry) {
       localStorage.removeItem(STORAGE_KEY);
       return DEFAULT_STATE;
     }
@@ -138,8 +137,8 @@ export function useTimeTracker(options?: UseTimeTrackerOptions) {
     setState((prev) => ({
       ...prev,
       engagementId: id,
-      // Clear activity when engagement is cleared
-      activityId: id === null ? null : prev.activityId,
+      // ALWAYS clear activity when engagement changes or is cleared
+      activityId: null,
     }));
   }, []);
 

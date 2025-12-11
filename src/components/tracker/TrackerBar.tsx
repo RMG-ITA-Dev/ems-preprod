@@ -97,17 +97,17 @@ export function TrackerBar({
             </Select>
           </div>
 
-          {/* Activity Selector */}
+          {/* Activity Selector - disabled and shows placeholder when no engagement selected */}
           <div className="flex-1">
             <Label className="text-xs text-muted-foreground mb-1.5 block">{t("tracker.activity")}</Label>
             <Select
-              value={activityId || ""}
+              value={engagementId ? (activityId || "") : ""}
               onValueChange={(val) => onActivityChange(val || null)}
-              disabled={isRunning}
+              disabled={isRunning || !engagementId}
             >
               <SelectTrigger className="h-10">
                 <SelectValue placeholder={t("tracker.selectActivity")}>
-                  {selectedActivity 
+                  {engagementId && selectedActivity 
                     ? `${selectedActivity.activity_code} - ${selectedActivity.description}` 
                     : t("tracker.selectActivity")}
                 </SelectValue>
