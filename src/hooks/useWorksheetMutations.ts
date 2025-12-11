@@ -228,3 +228,57 @@ export function useDeleteCell() {
     },
   });
 }
+
+// Create Work Order from Worksheet using sync_worksheet_to_wo_budget RPC
+interface CreateWOFromWorksheetInput {
+  worksheetId: string;
+  engagementId: string;
+  currency: 'USD' | 'BOB';
+  seasonMode: 'High' | 'Low';
+  taxRate: number;
+}
+
+export function useCreateWorkOrderFromWorksheet() {
+  const queryClient = useQueryClient();
+  const { t } = useTranslation();
+
+  return useMutation({
+    mutationFn: async (input: CreateWOFromWorksheetInput) => {
+      // 1. Create the work order first
+      const { data: wo, error: woError } = await supabase
+        .from("work_orders")
+        .insert({
+          engagement_id: input.engagementId,
+          currency: input.currency,
+          season_mode: input.seasonMode,
+          tax_rate: input.taxRate,
+          adjustment_amount: 0,
+          approval_status: 'Draft',
+        })
+        .select()
+        .single();
+
+      if (woError) throw woError;
+
+      // 2. Call the sync function to populate budget lines from worksheet
+      const { error: syncError } = await supabase.rpc('sync_worksheet_to_wo_budget', {
+        p_worksheet_id: input.worksheetId,
+        p_wo_id: wo.wo_id,
+      });
+
+      if (syncError) throw syncError;
+
+      return wo;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["worksheets"] });
+      queryClient.invalidateQueries({ queryKey: ["work_orders"] });
+      queryClient.invalidateQueries({ queryKey: ["engagements-without-worksheet"] });
+      toast.success(t("messages.createSuccess", { entity: t("entities.workOrder") }));
+    },
+    onError: (error) => {
+      console.error("Error creating work order from worksheet:", error);
+      toast.error(t("messages.createError", { entity: t("entities.workOrder") }));
+    },
+  });
+}

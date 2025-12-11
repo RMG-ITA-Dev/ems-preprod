@@ -5,7 +5,7 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, FileSpreadsheet } from "lucide-react";
 import { WorkOrderForm, BudgetLineInput, ExpenseBudgetInput } from "@/components/forms/WorkOrderForm";
 import { useWorkOrderById, useSetting, useCategories } from "@/hooks/useEmsData";
 import {
@@ -21,6 +21,7 @@ import {
   useRejectWorkOrder,
 } from "@/hooks/useEmsMutations";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
+import { useWorksheetByEngagementId } from "@/hooks/useWorksheetData";
 import { toast } from "@/hooks/use-toast";
 
 const WorkOrderEdit = () => {
@@ -32,6 +33,9 @@ const WorkOrderEdit = () => {
   const { data: categories } = useCategories();
   const { staffRecord } = useCurrentStaff();
   const globalTaxRate = useSetting("TAX_RATE");
+  
+  // Check if this WO has a linked worksheet
+  const { data: linkedWorksheet } = useWorksheetByEngagementId(workOrder?.engagement_id);
 
   const updateWorkOrder = useUpdateWorkOrder();
   const createBudgetLine = useCreateBudgetLine();
@@ -221,6 +225,18 @@ const WorkOrderEdit = () => {
                 </p>
                 <p className="text-sm text-muted-foreground">{workOrder.engagement?.client?.client_legal_name}</p>
               </div>
+              {/* Show linked worksheet badge if exists */}
+              {linkedWorksheet?.wo_id === workOrder.wo_id && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigate(`/worksheets/${linkedWorksheet.id}`)}
+                  className="gap-2"
+                >
+                  <FileSpreadsheet className="h-4 w-4" />
+                  {t("workMatrix.viewWorksheet")}
+                </Button>
+              )}
             </div>
           </CardContent>
         </Card>

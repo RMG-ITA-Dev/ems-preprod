@@ -190,3 +190,25 @@ export function useEngagementsWithoutWorksheet() {
     },
   });
 }
+
+// Fetch worksheet by engagement ID (to check if one exists)
+export function useWorksheetByEngagementId(engagementId: string | undefined) {
+  return useQuery({
+    queryKey: ["worksheet-by-engagement", engagementId],
+    queryFn: async () => {
+      if (!engagementId) return null;
+
+      const { data, error } = await supabase
+        .from("activity_worksheets")
+        .select("id, engagement_id, wo_id, status, version")
+        .eq("engagement_id", engagementId)
+        .order("version", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!engagementId,
+  });
+}

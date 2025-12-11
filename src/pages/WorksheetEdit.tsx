@@ -6,13 +6,29 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, Save, Loader2 } from "lucide-react";
+import { ArrowLeft, Save, Loader2, FileText, Sun, Snowflake } from "lucide-react";
 import { useWorksheetById } from "@/hooks/useWorksheetData";
-import { useBatchUpsertCells, useUpdateWorksheet } from "@/hooks/useWorksheetMutations";
-import { useCategories, useActivityCodes } from "@/hooks/useEmsData";
+import { useBatchUpsertCells, useUpdateWorksheet, useCreateWorkOrderFromWorksheet } from "@/hooks/useWorksheetMutations";
+import { useCategories, useActivityCodes, useSetting } from "@/hooks/useEmsData";
 import { WorksheetGrid } from "@/components/worksheet/WorksheetGrid";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 const statusColors: Record<string, string> = {
   draft: "bg-warning text-warning-foreground",
@@ -28,21 +44,36 @@ const WorksheetEdit = () => {
   const { data: worksheet, isLoading: wsLoading } = useWorksheetById(id);
   const { data: categories, isLoading: catLoading } = useCategories();
   const { data: activityCodes, isLoading: actLoading } = useActivityCodes();
+  const globalTaxRate = useSetting("TAX_RATE");
   
   const batchUpsertCells = useBatchUpsertCells();
   const updateWorksheet = useUpdateWorksheet();
+  const createWOFromWorksheet = useCreateWorkOrderFromWorksheet();
 
   // Local state for unsaved changes
   const [localCells, setLocalCells] = useState<Map<string, number>>(new Map());
   const [notes, setNotes] = useState<string>("");
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  
+  // Create WO dialog state
+  const [showCreateWODialog, setShowCreateWODialog] = useState(false);
+  const [woCurrency, setWOCurrency] = useState<"USD" | "BOB">("BOB");
+  const [woSeasonMode, setWOSeasonMode] = useState<"High" | "Low">("High");
+
+  const taxRate = parseFloat(globalTaxRate || "0.13");
 
   // Initialize notes when worksheet loads
   useMemo(() => {
     if (worksheet?.notes !== undefined && notes === "") {
       setNotes(worksheet.notes || "");
     }
-  }, [worksheet?.notes]);
+    // Auto-detect season from client's industry when opening dialog
+    if (worksheet?.engagement?.client?.industry) {
+      const fiscalYearEnd = worksheet.engagement.client.industry.fiscal_year_end;
+      const isHighSeason = fiscalYearEnd?.includes("December") || fiscalYearEnd?.includes("31 de diciembre");
+      setWOSeasonMode(isHighSeason ? "High" : "Low");
+    }
+  }, [worksheet?.notes, worksheet?.engagement?.client?.industry]);
 
   // Filter active activity codes only
   const activeActivities = useMemo(
@@ -149,6 +180,28 @@ const WorksheetEdit = () => {
   const isLoading = wsLoading || catLoading || actLoading;
   const isSaving = batchUpsertCells.isPending || updateWorksheet.isPending;
   const isReadOnly = worksheet?.status === "approved" || worksheet?.status === "archived";
+  const hasWorkOrder = !!worksheet?.wo_id;
+  const canCreateWorkOrder = !hasWorkOrder && worksheet?.status === "draft" && !hasUnsavedChanges;
+
+  const handleCreateWorkOrder = async () => {
+    if (!worksheet || !id) return;
+
+    try {
+      const result = await createWOFromWorksheet.mutateAsync({
+        worksheetId: id,
+        engagementId: worksheet.engagement_id,
+        currency: woCurrency,
+        seasonMode: woSeasonMode,
+        taxRate,
+      });
+
+      setShowCreateWODialog(false);
+      // Navigate to the new work order
+      navigate(`/work-orders/${result.wo_id}`);
+    } catch (error) {
+      console.error("Error creating work order:", error);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -192,6 +245,7 @@ const WorksheetEdit = () => {
             <Button
               onClick={handleSave}
               disabled={!hasUnsavedChanges || isSaving || isReadOnly}
+              variant="outline"
               className="btn-action"
             >
               {isSaving ? (
@@ -201,6 +255,15 @@ const WorksheetEdit = () => {
               )}
               {t("common.save")}
             </Button>
+            {canCreateWorkOrder && (
+              <Button
+                onClick={() => setShowCreateWODialog(true)}
+                className="btn-action"
+              >
+                <FileText className="h-4 w-4 mr-2" />
+                {t("workMatrix.createWorkOrder")}
+              </Button>
+            )}
           </div>
         </div>
 
@@ -296,6 +359,75 @@ const WorksheetEdit = () => {
             disabled={isReadOnly}
           />
         </div>
+
+        {/* Create Work Order Dialog */}
+        <Dialog open={showCreateWODialog} onOpenChange={setShowCreateWODialog}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{t("workMatrix.createWorkOrder")}</DialogTitle>
+              <DialogDescription>
+                {t("workMatrix.createWorkOrderDescription")}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label>{t("workOrders.currency")}</Label>
+                <Select value={woCurrency} onValueChange={(v) => setWOCurrency(v as "USD" | "BOB")}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="BOB">BOB - Bolivianos</SelectItem>
+                    <SelectItem value="USD">USD - US Dollars</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>{t("workOrders.season")}</Label>
+                <Select value={woSeasonMode} onValueChange={(v) => setWOSeasonMode(v as "High" | "Low")}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="High">
+                      <div className="flex items-center gap-2">
+                        <Sun className="h-4 w-4 text-warning" />
+                        {t("industry.highSeason")}
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="Low">
+                      <div className="flex items-center gap-2">
+                        <Snowflake className="h-4 w-4 text-info" />
+                        {t("industry.lowSeason")}
+                      </div>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                {worksheet?.engagement?.client?.industry && (
+                  <p className="text-xs text-muted-foreground">
+                    {t("workOrders.autoDetected")} - {worksheet.engagement.client.industry.fiscal_year_end}
+                  </p>
+                )}
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowCreateWODialog(false)}>
+                {t("common.cancel")}
+              </Button>
+              <Button 
+                onClick={handleCreateWorkOrder}
+                disabled={createWOFromWorksheet.isPending}
+              >
+                {createWOFromWorksheet.isPending ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <FileText className="h-4 w-4 mr-2" />
+                )}
+                {t("common.create")}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </AppLayout>
   );
