@@ -3,6 +3,7 @@
     "save": "Save",
     "cancel": "Cancel",
     "delete": "Delete",
+    "actions": "Actions",
     "search": "Search...",
     "active": "Active",
     "inactive": "Inactive",
@@ -118,9 +119,10 @@
       "longBreak": "Long break",
       "cycle": "Cycle {{count}}",
       "cycleNum": "Cycle {{num}}/4",
-      "remaining": "Time remaining",
+      "remaining": "Remaining",
       "work": "Work",
-      "break": "Break"
+      "break": "Break",
+      "disabled": "Enable cycles to use work and break intervals."
     },
     "pause": "PAUSE",
     "saveAndReset": "SAVE",
