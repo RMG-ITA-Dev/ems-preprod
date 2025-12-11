@@ -35,7 +35,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Staff, useCategories } from "@/hooks/useEmsData";
 import { useCreateStaff, useUpdateStaff, useDeleteStaff } from "@/hooks/useEmsMutations";
-import { Trash2, ArrowLeft } from "lucide-react";
+import { Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 const formSchema = z.object({
@@ -167,14 +167,9 @@ export function StaffForm({ staff }: StaffFormProps) {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => navigate("/staff")}>
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <h1 className="text-2xl font-semibold">
-            {isEdit ? t("staff.editStaff") : t("staff.newStaff")}
-          </h1>
-        </div>
+        <h1 className="text-lg font-semibold">
+          {isEdit ? t("staff.editStaff") : t("staff.newStaff")}
+        </h1>
         {isEdit && (
           <AlertDialog>
             <AlertDialogTrigger asChild>
@@ -380,12 +375,12 @@ export function StaffForm({ staff }: StaffFormProps) {
             </div>
 
             <div className="flex justify-end gap-4 pt-4">
-              <Button type="button" variant="outline" onClick={() => navigate("/staff")}>
+              <Button type="button" variant="cancel" onClick={() => navigate("/staff")}>
                 {t("common.cancel")}
               </Button>
               <Button
                 type="submit"
-                className="bg-accent hover:bg-accent/90 text-accent-foreground"
+                variant="default"
                 disabled={createMutation.isPending || updateMutation.isPending}
               >
                 {isEdit ? t("common.saveChanges") : t("staff.createStaff")}

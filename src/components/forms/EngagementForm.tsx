@@ -42,7 +42,7 @@ import {
 import { Engagement, useClients } from "@/hooks/useEmsData";
 import { useCategoryStaff } from "@/hooks/useCategoryStaff";
 import { useCreateEngagement, useUpdateEngagement, useDeleteEngagement } from "@/hooks/useEmsMutations";
-import { Trash2, ArrowLeft, CalendarIcon, AlertCircle } from "lucide-react";
+import { Trash2, CalendarIcon, AlertCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 
@@ -142,14 +142,9 @@ export function EngagementForm({ engagement }: EngagementFormProps) {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => navigate("/engagements")}>
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <h1 className="text-2xl font-semibold">
-            {isEdit ? t("engagement.editEngagement") : t("engagement.newEngagement")}
-          </h1>
-        </div>
+        <h1 className="text-lg font-semibold">
+          {isEdit ? t("engagement.editEngagement") : t("engagement.newEngagement")}
+        </h1>
         {isEdit && (
           <AlertDialog>
             <AlertDialogTrigger asChild>
@@ -406,12 +401,12 @@ export function EngagementForm({ engagement }: EngagementFormProps) {
             </div>
 
             <div className="flex justify-end gap-4 pt-4">
-              <Button type="button" variant="outline" onClick={() => navigate("/engagements")}>
+              <Button type="button" variant="cancel" onClick={() => navigate("/engagements")}>
                 {t("common.cancel")}
               </Button>
               <Button
                 type="submit"
-                className="bg-accent hover:bg-accent/90 text-accent-foreground"
+                variant="default"
                 disabled={createMutation.isPending || updateMutation.isPending || (hasMissingCategories && !isEdit)}
               >
                 {isEdit ? t("common.saveChanges") : t("engagement.createEngagement")}

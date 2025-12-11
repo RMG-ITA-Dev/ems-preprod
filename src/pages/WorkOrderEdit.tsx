@@ -5,7 +5,7 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, FileSpreadsheet } from "lucide-react";
+import { FileSpreadsheet } from "lucide-react";
 import { WorkOrderForm, BudgetLineInput, ExpenseBudgetInput } from "@/components/forms/WorkOrderForm";
 import { useWorkOrderById, useSetting, useCategories } from "@/hooks/useEmsData";
 import {
@@ -209,11 +209,6 @@ const WorkOrderEdit = () => {
   return (
     <AppLayout title={`${t("entities.workOrder")} - ${workOrder.engagement?.engagement_code || ""}`}>
       <div className="space-y-6">
-        <Button variant="ghost" onClick={() => navigate("/work-orders")} className="mb-4">
-          <ArrowLeft className="h-4 w-4 mr-2" />
-          {t("workOrders.backToList")}
-        </Button>
-
         {/* Engagement Info */}
         <Card className="bg-muted/30">
           <CardContent className="py-4">

@@ -36,7 +36,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Client, useIndustries } from "@/hooks/useEmsData";
 import { useCreateClient, useUpdateClient, useDeleteClient } from "@/hooks/useEmsMutations";
-import { Trash2, ArrowLeft } from "lucide-react";
+import { Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 const formSchema = z.object({
@@ -248,13 +248,13 @@ export function ClientForm({ client, compact = false }: ClientFormProps) {
             </div>
 
             <div className="flex justify-end gap-2 pt-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => navigate("/clients")}>
+              <Button type="button" variant="cancel" size="sm" onClick={() => navigate("/clients")}>
                 {t("common.cancel")}
               </Button>
               <Button
                 type="submit"
                 size="sm"
-                className="bg-accent hover:bg-accent/90 text-accent-foreground"
+                variant="default"
                 disabled={createMutation.isPending || updateMutation.isPending}
               >
                 {t("common.saveChanges")}
@@ -270,14 +270,9 @@ export function ClientForm({ client, compact = false }: ClientFormProps) {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => navigate("/clients")}>
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <h1 className="text-2xl font-semibold">
-            {isEdit ? t("client.editClient") : t("client.newClient")}
-          </h1>
-        </div>
+        <h1 className="text-lg font-semibold">
+          {isEdit ? t("client.editClient") : t("client.newClient")}
+        </h1>
         {isEdit && (
           <AlertDialog>
             <AlertDialogTrigger asChild>
@@ -447,12 +442,12 @@ export function ClientForm({ client, compact = false }: ClientFormProps) {
             </div>
 
             <div className="flex justify-end gap-4 pt-4">
-              <Button type="button" variant="outline" onClick={() => navigate("/clients")}>
+              <Button type="button" variant="cancel" onClick={() => navigate("/clients")}>
                 {t("common.cancel")}
               </Button>
               <Button
                 type="submit"
-                className="bg-accent hover:bg-accent/90 text-accent-foreground"
+                variant="default"
                 disabled={createMutation.isPending || updateMutation.isPending}
               >
                 {isEdit ? t("common.saveChanges") : t("client.createClient")}

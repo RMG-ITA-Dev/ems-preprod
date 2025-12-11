@@ -2,7 +2,6 @@ import { useState, useMemo, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router-dom";
 import { format, isWeekend } from "date-fns";
-import { ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
@@ -268,16 +267,6 @@ const TrackerRecord = () => {
   return (
     <AppLayout title={isEditMode ? t("tracker.editEntry") : t("tracker.newEntry")}>
       <div className="space-y-6">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => navigate("/tracker")}
-          className="mb-4"
-        >
-          <ArrowLeft className="h-4 w-4 mr-2" />
-          {t("tracker.backToList")}
-        </Button>
-
         {isWeekendToday && !allowWeekendTracking && (
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />

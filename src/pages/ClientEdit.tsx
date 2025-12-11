@@ -18,7 +18,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { useDeleteClient } from "@/hooks/useEmsMutations";
-import { ArrowLeft, Trash2 } from "lucide-react";
+import { Trash2 } from "lucide-react";
 
 const ClientEdit = () => {
   const { id } = useParams<{ id: string }>();
@@ -52,12 +52,7 @@ const ClientEdit = () => {
       <div className="flex flex-col h-[calc(100vh-8rem)]">
         {/* Header */}
         <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" onClick={() => navigate("/clients")}>
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-            <h1 className="text-xl font-semibold">{t("client.editClient")}</h1>
-          </div>
+          <h1 className="text-lg font-semibold">{t("client.editClient")}</h1>
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button variant="destructive" size="sm">
