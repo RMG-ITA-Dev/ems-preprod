@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Input } from "@/components/ui/input";
 import {
@@ -53,16 +53,25 @@ export function WorksheetGrid({
 
   // Local state for editing
   const [localValues, setLocalValues] = useState<Map<string, string>>(new Map());
+  
+  // Track if we've initialized to prevent resetting on re-renders
+  const initializedRef = useRef(false);
+  const cellsLengthRef = useRef(0);
 
-  // Initialize local values from cells
+  // Initialize local values from cells only once on first load
   useEffect(() => {
-    const newMap = new Map<string, string>();
-    cells.forEach((cell) => {
-      if (cell.budget_hours > 0) {
-        newMap.set(`${cell.category_id}-${cell.activity_id}`, cell.budget_hours.toString());
-      }
-    });
-    setLocalValues(newMap);
+    // Only initialize if not yet initialized OR if cells changed from empty to populated
+    if (!initializedRef.current || (cellsLengthRef.current === 0 && cells.length > 0)) {
+      const newMap = new Map<string, string>();
+      cells.forEach((cell) => {
+        if (cell.budget_hours > 0) {
+          newMap.set(`${cell.category_id}-${cell.activity_id}`, cell.budget_hours.toString());
+        }
+      });
+      setLocalValues(newMap);
+      initializedRef.current = true;
+      cellsLengthRef.current = cells.length;
+    }
   }, [cells]);
 
   const getCellKey = (categoryId: string, activityId: string) =>
@@ -126,18 +135,18 @@ export function WorksheetGrid({
         <Table className="table-dense">
           <TableHeader>
             <TableRow className="bg-muted/50">
-              <TableHead className="sticky left-0 bg-muted/50 z-10 min-w-[200px]">
-                {t("activity.code")} / {t("activity.description")}
+              <TableHead className="sticky left-0 bg-muted/50 z-10 min-w-[160px] text-xs py-1">
+                {t("activity.code")}
               </TableHead>
               {sortedCategories.map((cat) => (
                 <TableHead
                   key={cat.category_id}
-                  className="text-center min-w-[80px]"
+                  className="text-center min-w-[55px] text-xs py-1 px-1"
                 >
                   {cat.category_name}
                 </TableHead>
               ))}
-              <TableHead className="text-center min-w-[80px] bg-muted font-semibold">
+              <TableHead className="text-center min-w-[55px] bg-muted font-semibold text-xs py-1 px-1">
                 {t("workOrders.total")}
               </TableHead>
             </TableRow>
@@ -147,25 +156,25 @@ export function WorksheetGrid({
               const rowTotal = getRowTotal(activity.activity_id);
               return (
                 <TableRow key={activity.activity_id}>
-                  <TableCell className="sticky left-0 bg-background z-10 font-medium">
-                    <div className="flex flex-col">
-                      <span className="font-mono text-xs text-muted-foreground">
+                  <TableCell className="sticky left-0 bg-background z-10 py-0.5 px-2">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-mono text-[10px] text-muted-foreground whitespace-nowrap">
                         {activity.activity_code}
                       </span>
-                      <span className="text-sm truncate max-w-[180px]">
+                      <span className="text-xs truncate max-w-[110px]">
                         {activity.description}
                       </span>
                     </div>
                   </TableCell>
                   {sortedCategories.map((cat) => (
-                    <TableCell key={cat.category_id} className="p-1">
+                    <TableCell key={cat.category_id} className="p-0.5">
                       <Input
                         type="number"
                         min="0"
                         step="0.5"
                         className={cn(
-                          "h-8 text-center font-mono text-sm",
-                          "w-full min-w-[60px]",
+                          "h-6 text-center font-mono text-xs hide-spinners",
+                          "w-full min-w-[45px] px-1",
                           readOnly && "bg-muted cursor-not-allowed"
                         )}
                         value={getValue(cat.category_id, activity.activity_id)}
@@ -178,7 +187,7 @@ export function WorksheetGrid({
                       />
                     </TableCell>
                   ))}
-                  <TableCell className="text-center font-mono font-semibold bg-muted/30">
+                  <TableCell className="text-center font-mono text-xs font-semibold bg-muted/30 py-0.5 px-1">
                     {rowTotal > 0 ? rowTotal.toFixed(1) : "-"}
                   </TableCell>
                 </TableRow>
@@ -186,18 +195,18 @@ export function WorksheetGrid({
             })}
             {/* Totals Row */}
             <TableRow className="bg-muted/50 font-semibold">
-              <TableCell className="sticky left-0 bg-muted/50 z-10">
+              <TableCell className="sticky left-0 bg-muted/50 z-10 text-xs py-1 px-2">
                 {t("workOrders.total")}
               </TableCell>
               {sortedCategories.map((cat) => {
                 const colTotal = getColumnTotal(cat.category_id);
                 return (
-                  <TableCell key={cat.category_id} className="text-center font-mono">
+                  <TableCell key={cat.category_id} className="text-center font-mono text-xs py-1 px-1">
                     {colTotal > 0 ? colTotal.toFixed(1) : "-"}
                   </TableCell>
                 );
               })}
-              <TableCell className="text-center font-mono font-bold bg-primary/10">
+              <TableCell className="text-center font-mono text-xs font-bold bg-primary/10 py-1 px-1">
                 {grandTotal > 0 ? grandTotal.toFixed(1) : "0"}
               </TableCell>
             </TableRow>

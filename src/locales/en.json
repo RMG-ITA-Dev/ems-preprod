@@ -28,7 +28,8 @@
     "role": "Role",
     "team": "Team",
     "dates": "Dates",
-    "or": "Or"
+    "or": "Or",
+    "unsavedChanges": "Unsaved"
   },
   "nav": {
     "main": "Main",

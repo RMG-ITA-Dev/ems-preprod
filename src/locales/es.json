@@ -28,7 +28,8 @@
     "role": "Rol",
     "team": "Equipo",
     "dates": "Fechas",
-    "or": "O"
+    "or": "O",
+    "unsavedChanges": "Sin guardar"
   },
   "nav": {
     "main": "Principal",
