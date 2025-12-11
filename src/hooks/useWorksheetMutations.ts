@@ -1,0 +1,230 @@
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
+
+interface CreateWorksheetInput {
+  engagement_id: string;
+  notes?: string;
+  created_by_staff_id?: string;
+}
+
+interface UpdateWorksheetInput {
+  id: string;
+  status?: 'draft' | 'approved' | 'archived';
+  notes?: string;
+}
+
+interface UpsertCellInput {
+  worksheet_id: string;
+  category_id: string;
+  activity_id: string;
+  budget_hours: number;
+}
+
+interface DeleteCellInput {
+  worksheet_id: string;
+  category_id: string;
+  activity_id: string;
+}
+
+export function useCreateWorksheet() {
+  const queryClient = useQueryClient();
+  const { t } = useTranslation();
+
+  return useMutation({
+    mutationFn: async (input: CreateWorksheetInput) => {
+      const { data, error } = await supabase
+        .from("activity_worksheets")
+        .insert({
+          engagement_id: input.engagement_id,
+          notes: input.notes || null,
+          created_by_staff_id: input.created_by_staff_id || null,
+          status: 'draft',
+          version: 1,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["worksheets"] });
+      queryClient.invalidateQueries({ queryKey: ["engagements-without-worksheet"] });
+      toast.success(t("messages.createSuccess", { entity: t("workMatrix.title") }));
+    },
+    onError: (error) => {
+      console.error("Error creating worksheet:", error);
+      toast.error(t("messages.createError", { entity: t("workMatrix.title") }));
+    },
+  });
+}
+
+export function useUpdateWorksheet() {
+  const queryClient = useQueryClient();
+  const { t } = useTranslation();
+
+  return useMutation({
+    mutationFn: async (input: UpdateWorksheetInput) => {
+      const { data, error } = await supabase
+        .from("activity_worksheets")
+        .update({
+          status: input.status,
+          notes: input.notes,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", input.id)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["worksheets"] });
+      queryClient.invalidateQueries({ queryKey: ["worksheet", variables.id] });
+      toast.success(t("messages.updateSuccess", { entity: t("workMatrix.title") }));
+    },
+    onError: (error) => {
+      console.error("Error updating worksheet:", error);
+      toast.error(t("messages.updateError", { entity: t("workMatrix.title") }));
+    },
+  });
+}
+
+export function useDeleteWorksheet() {
+  const queryClient = useQueryClient();
+  const { t } = useTranslation();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from("activity_worksheets")
+        .delete()
+        .eq("id", id);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["worksheets"] });
+      queryClient.invalidateQueries({ queryKey: ["engagements-without-worksheet"] });
+      toast.success(t("messages.deleteSuccess", { entity: t("workMatrix.title") }));
+    },
+    onError: (error) => {
+      console.error("Error deleting worksheet:", error);
+      toast.error(t("messages.deleteError", { entity: t("workMatrix.title") }));
+    },
+  });
+}
+
+// Upsert a single cell (create or update)
+export function useUpsertCell() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (input: UpsertCellInput) => {
+      // Try to find existing cell first
+      const { data: existing } = await supabase
+        .from("activity_worksheet_cells")
+        .select("id")
+        .eq("worksheet_id", input.worksheet_id)
+        .eq("category_id", input.category_id)
+        .eq("activity_id", input.activity_id)
+        .maybeSingle();
+
+      if (existing) {
+        // Update existing
+        const { error } = await supabase
+          .from("activity_worksheet_cells")
+          .update({
+            budget_hours: input.budget_hours,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", existing.id);
+
+        if (error) throw error;
+      } else {
+        // Create new
+        const { error } = await supabase
+          .from("activity_worksheet_cells")
+          .insert({
+            worksheet_id: input.worksheet_id,
+            category_id: input.category_id,
+            activity_id: input.activity_id,
+            budget_hours: input.budget_hours,
+          });
+
+        if (error) throw error;
+      }
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["worksheet", variables.worksheet_id] });
+    },
+  });
+}
+
+// Batch upsert multiple cells
+export function useBatchUpsertCells() {
+  const queryClient = useQueryClient();
+  const { t } = useTranslation();
+
+  return useMutation({
+    mutationFn: async ({ worksheetId, cells }: { worksheetId: string; cells: UpsertCellInput[] }) => {
+      // Delete all existing cells for this worksheet
+      const { error: deleteError } = await supabase
+        .from("activity_worksheet_cells")
+        .delete()
+        .eq("worksheet_id", worksheetId);
+
+      if (deleteError) throw deleteError;
+
+      // Only insert cells with hours > 0
+      const cellsToInsert = cells.filter((c) => c.budget_hours > 0);
+      
+      if (cellsToInsert.length > 0) {
+        const { error: insertError } = await supabase
+          .from("activity_worksheet_cells")
+          .insert(
+            cellsToInsert.map((c) => ({
+              worksheet_id: worksheetId,
+              category_id: c.category_id,
+              activity_id: c.activity_id,
+              budget_hours: c.budget_hours,
+            }))
+          );
+
+        if (insertError) throw insertError;
+      }
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["worksheet", variables.worksheetId] });
+      toast.success(t("messages.updateSuccess", { entity: t("workMatrix.title") }));
+    },
+    onError: (error) => {
+      console.error("Error saving worksheet cells:", error);
+      toast.error(t("messages.updateError", { entity: t("workMatrix.title") }));
+    },
+  });
+}
+
+// Delete a single cell
+export function useDeleteCell() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (input: DeleteCellInput) => {
+      const { error } = await supabase
+        .from("activity_worksheet_cells")
+        .delete()
+        .eq("worksheet_id", input.worksheet_id)
+        .eq("category_id", input.category_id)
+        .eq("activity_id", input.activity_id);
+
+      if (error) throw error;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["worksheet", variables.worksheet_id] });
+    },
+  });
+}
