@@ -19,6 +19,7 @@ export type Database = {
           activity_code: string
           activity_id: string
           created_at: string | null
+          default_category_id: string | null
           description: string
           is_active: boolean | null
         }
@@ -26,6 +27,7 @@ export type Database = {
           activity_code: string
           activity_id?: string
           created_at?: string | null
+          default_category_id?: string | null
           description: string
           is_active?: boolean | null
         }
@@ -33,10 +35,157 @@ export type Database = {
           activity_code?: string
           activity_id?: string
           created_at?: string | null
+          default_category_id?: string | null
           description?: string
           is_active?: boolean | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "activity_codes_default_category_id_fkey"
+            columns: ["default_category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["category_id"]
+          },
+        ]
+      }
+      activity_worksheet_cells: {
+        Row: {
+          activity_id: string
+          budget_hours: number
+          category_id: string
+          created_at: string
+          id: string
+          updated_at: string
+          worksheet_id: string
+        }
+        Insert: {
+          activity_id: string
+          budget_hours?: number
+          category_id: string
+          created_at?: string
+          id?: string
+          updated_at?: string
+          worksheet_id: string
+        }
+        Update: {
+          activity_id?: string
+          budget_hours?: number
+          category_id?: string
+          created_at?: string
+          id?: string
+          updated_at?: string
+          worksheet_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "activity_worksheet_cells_activity_id_fkey"
+            columns: ["activity_id"]
+            isOneToOne: false
+            referencedRelation: "activity_codes"
+            referencedColumns: ["activity_id"]
+          },
+          {
+            foreignKeyName: "activity_worksheet_cells_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["category_id"]
+          },
+          {
+            foreignKeyName: "activity_worksheet_cells_worksheet_id_fkey"
+            columns: ["worksheet_id"]
+            isOneToOne: false
+            referencedRelation: "activity_worksheets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "activity_worksheet_cells_worksheet_id_fkey"
+            columns: ["worksheet_id"]
+            isOneToOne: false
+            referencedRelation: "vw_wo_budget_hours_by_category_activity"
+            referencedColumns: ["worksheet_id"]
+          },
+        ]
+      }
+      activity_worksheets: {
+        Row: {
+          created_at: string
+          created_by_staff_id: string | null
+          engagement_id: string
+          id: string
+          notes: string | null
+          status: string
+          updated_at: string
+          version: number
+          wo_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by_staff_id?: string | null
+          engagement_id: string
+          id?: string
+          notes?: string | null
+          status?: string
+          updated_at?: string
+          version?: number
+          wo_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by_staff_id?: string | null
+          engagement_id?: string
+          id?: string
+          notes?: string | null
+          status?: string
+          updated_at?: string
+          version?: number
+          wo_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "activity_worksheets_created_by_staff_id_fkey"
+            columns: ["created_by_staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "activity_worksheets_engagement_id_fkey"
+            columns: ["engagement_id"]
+            isOneToOne: false
+            referencedRelation: "engagements"
+            referencedColumns: ["engagement_id"]
+          },
+          {
+            foreignKeyName: "activity_worksheets_wo_id_fkey"
+            columns: ["wo_id"]
+            isOneToOne: false
+            referencedRelation: "vw_wo_budget_hours_by_category"
+            referencedColumns: ["wo_id"]
+          },
+          {
+            foreignKeyName: "activity_worksheets_wo_id_fkey"
+            columns: ["wo_id"]
+            isOneToOne: false
+            referencedRelation: "vw_wo_budget_hours_by_category_activity"
+            referencedColumns: ["wo_id"]
+          },
+          {
+            foreignKeyName: "activity_worksheets_wo_id_fkey"
+            columns: ["wo_id"]
+            isOneToOne: false
+            referencedRelation: "work_order_summary"
+            referencedColumns: ["wo_id"]
+          },
+          {
+            foreignKeyName: "activity_worksheets_wo_id_fkey"
+            columns: ["wo_id"]
+            isOneToOne: false
+            referencedRelation: "work_orders"
+            referencedColumns: ["wo_id"]
+          },
+        ]
       }
       categories: {
         Row: {
@@ -681,6 +830,20 @@ export type Database = {
             foreignKeyName: "wo_budget_lines_wo_id_fkey"
             columns: ["wo_id"]
             isOneToOne: false
+            referencedRelation: "vw_wo_budget_hours_by_category"
+            referencedColumns: ["wo_id"]
+          },
+          {
+            foreignKeyName: "wo_budget_lines_wo_id_fkey"
+            columns: ["wo_id"]
+            isOneToOne: false
+            referencedRelation: "vw_wo_budget_hours_by_category_activity"
+            referencedColumns: ["wo_id"]
+          },
+          {
+            foreignKeyName: "wo_budget_lines_wo_id_fkey"
+            columns: ["wo_id"]
+            isOneToOne: false
             referencedRelation: "work_order_summary"
             referencedColumns: ["wo_id"]
           },
@@ -722,6 +885,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "expense_types"
             referencedColumns: ["expense_type_id"]
+          },
+          {
+            foreignKeyName: "wo_expense_budget_wo_id_fkey"
+            columns: ["wo_id"]
+            isOneToOne: false
+            referencedRelation: "vw_wo_budget_hours_by_category"
+            referencedColumns: ["wo_id"]
+          },
+          {
+            foreignKeyName: "wo_expense_budget_wo_id_fkey"
+            columns: ["wo_id"]
+            isOneToOne: false
+            referencedRelation: "vw_wo_budget_hours_by_category_activity"
+            referencedColumns: ["wo_id"]
           },
           {
             foreignKeyName: "wo_expense_budget_wo_id_fkey"
@@ -801,6 +978,120 @@ export type Database = {
       }
     }
     Views: {
+      vw_actual_hours_by_category_activity: {
+        Row: {
+          activity_code: string | null
+          activity_description: string | null
+          activity_id: string | null
+          actual_hours: number | null
+          category_display_order: number | null
+          category_id: string | null
+          category_name: string | null
+          engagement_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "staff_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["category_id"]
+          },
+          {
+            foreignKeyName: "time_entries_activity_id_fkey"
+            columns: ["activity_id"]
+            isOneToOne: false
+            referencedRelation: "activity_codes"
+            referencedColumns: ["activity_id"]
+          },
+          {
+            foreignKeyName: "time_entries_engagement_id_fkey"
+            columns: ["engagement_id"]
+            isOneToOne: false
+            referencedRelation: "engagements"
+            referencedColumns: ["engagement_id"]
+          },
+        ]
+      }
+      vw_budget_vs_actual_hours_by_category_activity: {
+        Row: {
+          activity_code: string | null
+          activity_description: string | null
+          activity_id: string | null
+          actual_hours: number | null
+          budget_hours: number | null
+          category_display_order: number | null
+          category_id: string | null
+          category_name: string | null
+          engagement_id: string | null
+          variance_hours: number | null
+          wo_id: string | null
+        }
+        Relationships: []
+      }
+      vw_wo_budget_hours_by_category: {
+        Row: {
+          category_display_order: number | null
+          category_id: string | null
+          category_name: string | null
+          engagement_id: string | null
+          total_budget_hours: number | null
+          wo_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "activity_worksheet_cells_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["category_id"]
+          },
+          {
+            foreignKeyName: "work_orders_engagement_id_fkey"
+            columns: ["engagement_id"]
+            isOneToOne: true
+            referencedRelation: "engagements"
+            referencedColumns: ["engagement_id"]
+          },
+        ]
+      }
+      vw_wo_budget_hours_by_category_activity: {
+        Row: {
+          activity_code: string | null
+          activity_description: string | null
+          activity_id: string | null
+          budget_hours: number | null
+          category_display_order: number | null
+          category_id: string | null
+          category_name: string | null
+          engagement_id: string | null
+          wo_id: string | null
+          worksheet_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "activity_worksheet_cells_activity_id_fkey"
+            columns: ["activity_id"]
+            isOneToOne: false
+            referencedRelation: "activity_codes"
+            referencedColumns: ["activity_id"]
+          },
+          {
+            foreignKeyName: "activity_worksheet_cells_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["category_id"]
+          },
+          {
+            foreignKeyName: "work_orders_engagement_id_fkey"
+            columns: ["engagement_id"]
+            isOneToOne: true
+            referencedRelation: "engagements"
+            referencedColumns: ["engagement_id"]
+          },
+        ]
+      }
       work_order_summary: {
         Row: {
           adjustment_amount: number | null
@@ -870,6 +1161,10 @@ export type Database = {
       is_auto_approved_category: {
         Args: { p_staff_id: string }
         Returns: boolean
+      }
+      sync_worksheet_to_wo_budget: {
+        Args: { p_wo_id: string; p_worksheet_id: string }
+        Returns: undefined
       }
     }
     Enums: {
