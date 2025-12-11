@@ -21,6 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -59,6 +60,7 @@ const WorksheetEdit = () => {
   const [showCreateWODialog, setShowCreateWODialog] = useState(false);
   const [woCurrency, setWOCurrency] = useState<"USD" | "BOB">("BOB");
   const [woSeasonMode, setWOSeasonMode] = useState<"High" | "Low">("High");
+  const [confirmCreate, setConfirmCreate] = useState(false);
 
   const taxRate = parseFloat(globalTaxRate || "0.13");
 
@@ -424,14 +426,33 @@ const WorksheetEdit = () => {
                   </p>
                 )}
               </div>
+              <div className="flex items-center space-x-2 pt-2">
+                <Checkbox 
+                  id="confirmCreate" 
+                  checked={confirmCreate} 
+                  onCheckedChange={(checked) => setConfirmCreate(!!checked)} 
+                />
+                <Label htmlFor="confirmCreate" className="text-sm cursor-pointer">
+                  {t("workMatrix.confirmCreateWorkOrder")}
+                </Label>
+              </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setShowCreateWODialog(false)}>
+              <Button 
+                type="button"
+                variant="outline" 
+                onClick={() => {
+                  setShowCreateWODialog(false);
+                  setConfirmCreate(false);
+                }}
+                autoFocus
+              >
                 {t("common.cancel")}
               </Button>
               <Button 
+                type="button"
                 onClick={handleCreateWorkOrder}
-                disabled={createWOFromWorksheet.isPending}
+                disabled={createWOFromWorksheet.isPending || !confirmCreate}
               >
                 {createWOFromWorksheet.isPending ? (
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />

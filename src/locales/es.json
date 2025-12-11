@@ -562,6 +562,7 @@
     "noCategoriesOrActivities": "No hay categorías o códigos de actividad configurados.",
     "createWorkOrder": "Crear Orden de Trabajo",
     "createWorkOrderDescription": "Crea una orden de trabajo usando las horas presupuestadas de esta matriz.",
+    "confirmCreateWorkOrder": "Confirmo que deseo crear la Orden de Trabajo",
     "worksheetExists": "Esta empresa tiene una Matriz de Trabajo",
     "worksheetExistsDescription": "Puede crear la orden de trabajo directamente desde la matriz para usar las horas ya presupuestadas.",
     "useWorksheet": "Usar Matriz Existente",
