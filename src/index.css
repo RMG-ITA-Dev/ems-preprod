@@ -63,6 +63,13 @@
     --brand-purple: 255 82% 65%;
     --brand-blue: 217 58% 39%;
     --brand-blue-light: 226 33% 57%;
+    
+    /* Tracker control buttons */
+    --tracker-start: 186 100% 29%;
+    --tracker-pause: 221 34% 55%;
+    --tracker-save: 41 76% 61%;
+    --tracker-cancel: 252 2% 46%;
+    --tracker-delete: 348 83% 47%;
 
     /* Sidebar (Light Mode) - Teal background with Reference Blue highlights */
     --sidebar-background: 186 100% 29%;

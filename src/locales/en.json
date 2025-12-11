@@ -111,8 +111,9 @@
     "importSelected": "Import Selected",
     "importFromTimer": "Import from Timer",
     "cycles": {
+      "title": "Cycles",
       "ready": "Ready to start",
-      "focus": "Focus time",
+      "focus": "Work time",
       "shortBreak": "Short break",
       "longBreak": "Long break",
       "cycle": "Cycle {{count}}",
@@ -121,6 +122,8 @@
       "work": "Work",
       "break": "Break"
     },
+    "pause": "PAUSE",
+    "saveAndReset": "SAVE",
     "remainingToday": "Remaining today",
     "dailyLimitReached": "You've reached the daily hour limit",
     "dailyLimitExceeded": "This entry would exceed the daily limit",

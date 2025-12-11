@@ -84,6 +84,13 @@ export default {
           blue: "hsl(var(--brand-blue))",
           "blue-light": "hsl(var(--brand-blue-light))",
         },
+        tracker: {
+          start: "hsl(var(--tracker-start))",
+          pause: "hsl(var(--tracker-pause))",
+          save: "hsl(var(--tracker-save))",
+          cancel: "hsl(var(--tracker-cancel))",
+          delete: "hsl(var(--tracker-delete))",
+        },
       },
       borderRadius: {
         lg: "var(--radius)",
