@@ -9,7 +9,8 @@ import {
   LogOut,
   CheckSquare,
   Timer,
-  Grid3X3
+  Grid3X3,
+  TableProperties
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { NavLink } from "@/components/NavLink";
@@ -37,6 +38,7 @@ export function AppSidebar() {
     { title: t("nav.dashboard"), url: "/", icon: LayoutDashboard },
     { title: t("nav.clients"), url: "/clients", icon: Building2 },
     { title: t("nav.engagements"), url: "/engagements", icon: Briefcase },
+    { title: t("nav.workMatrix"), url: "/worksheets", icon: TableProperties },
     { title: t("nav.workOrders"), url: "/work-orders", icon: FileText },
   ];
 

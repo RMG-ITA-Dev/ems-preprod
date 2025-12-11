@@ -30,6 +30,9 @@ import TimesheetApprovals from "./pages/TimesheetApprovals";
 import TimesheetApprovalDetail from "./pages/TimesheetApprovalDetail";
 import TrackerList from "./pages/TrackerList";
 import TrackerRecord from "./pages/TrackerRecord";
+import WorksheetList from "./pages/WorksheetList";
+import WorksheetNew from "./pages/WorksheetNew";
+import WorksheetEdit from "./pages/WorksheetEdit";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -52,6 +55,9 @@ const App = () => (
               <Route path="/engagements" element={<ProtectedRoute><Engagements /></ProtectedRoute>} />
               <Route path="/engagements/new" element={<ProtectedRoute><EngagementNew /></ProtectedRoute>} />
               <Route path="/engagements/:id" element={<ProtectedRoute><EngagementEdit /></ProtectedRoute>} />
+              <Route path="/worksheets" element={<ProtectedRoute><WorksheetList /></ProtectedRoute>} />
+              <Route path="/worksheets/new" element={<ProtectedRoute><WorksheetNew /></ProtectedRoute>} />
+              <Route path="/worksheets/:id" element={<ProtectedRoute><WorksheetEdit /></ProtectedRoute>} />
               <Route path="/work-orders" element={<ProtectedRoute><WorkOrders /></ProtectedRoute>} />
               <Route path="/work-orders/new" element={<ProtectedRoute><WorkOrderNew /></ProtectedRoute>} />
               <Route path="/work-orders/:id" element={<ProtectedRoute><WorkOrderEdit /></ProtectedRoute>} />

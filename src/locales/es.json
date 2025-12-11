@@ -37,6 +37,7 @@
     "dashboard": "Panel de Control",
     "clients": "Clientes",
     "engagements": "Encargos",
+    "workMatrix": "Matriz de Trabajo",
     "workOrders": "Órdenes de Trabajo",
     "timeSheet": "Hoja de Tiempo",
     "timesheetApprovals": "Aprobaciones",
@@ -540,6 +541,20 @@
       "staffTrackingDesc": "Registre horas, gestione categorías de personal y monitoree tasas de utilización.",
       "roleBasedAccess": "Acceso Basado en Roles",
       "roleBasedAccessDesc": "Sistema RBAC seguro con permisos de Admin, Personal y Visualizador."
+    }
+  },
+  "workMatrix": {
+    "title": "Matriz de Trabajo",
+    "newWorksheet": "Nueva Matriz",
+    "editWorksheet": "Editar Matriz",
+    "backToList": "Volver a Matrices",
+    "emptyState": "No hay matrices de trabajo. Cree una para comenzar a presupuestar.",
+    "selectEngagement": "Seleccione un encargo para crear su matriz de trabajo.",
+    "gridPlaceholder": "La cuadrícula de presupuesto se mostrará aquí.",
+    "status": {
+      "draft": "Borrador",
+      "approved": "Aprobada",
+      "archived": "Archivada"
     }
   }
 }

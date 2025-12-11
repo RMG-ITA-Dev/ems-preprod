@@ -37,6 +37,7 @@
     "dashboard": "Control Panel",
     "clients": "Clients",
     "engagements": "Engagements",
+    "workMatrix": "Work Matrix",
     "workOrders": "Work Orders",
     "timeSheet": "Time Sheet",
     "timesheetApprovals": "Approvals",
@@ -540,6 +541,20 @@
       "staffTrackingDesc": "Log hours, manage staff categories, and monitor utilization rates.",
       "roleBasedAccess": "Role-Based Access",
       "roleBasedAccessDesc": "Secure RBAC system with Admin, Staff, and Viewer permissions."
+    }
+  },
+  "workMatrix": {
+    "title": "Work Matrix",
+    "newWorksheet": "New Worksheet",
+    "editWorksheet": "Edit Worksheet",
+    "backToList": "Back to Worksheets",
+    "emptyState": "No work matrices found. Create one to start budgeting.",
+    "selectEngagement": "Select an engagement to create its work matrix.",
+    "gridPlaceholder": "The budget grid will be displayed here.",
+    "status": {
+      "draft": "Draft",
+      "approved": "Approved",
+      "archived": "Archived"
     }
   }
 }
