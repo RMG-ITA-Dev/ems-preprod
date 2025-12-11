@@ -46,7 +46,7 @@ export function WorksheetGrid({
   const cellMap = useMemo(() => {
     const map = new Map<string, number>();
     cells.forEach((cell) => {
-      map.set(`${cell.category_id}-${cell.activity_id}`, cell.budget_hours);
+      map.set(`${cell.category_id}|${cell.activity_id}`, cell.budget_hours);
     });
     return map;
   }, [cells]);
@@ -65,7 +65,7 @@ export function WorksheetGrid({
       const newMap = new Map<string, string>();
       cells.forEach((cell) => {
         if (cell.budget_hours > 0) {
-          newMap.set(`${cell.category_id}-${cell.activity_id}`, cell.budget_hours.toString());
+          newMap.set(`${cell.category_id}|${cell.activity_id}`, cell.budget_hours.toString());
         }
       });
       setLocalValues(newMap);
@@ -75,7 +75,7 @@ export function WorksheetGrid({
   }, [cells]);
 
   const getCellKey = (categoryId: string, activityId: string) =>
-    `${categoryId}-${activityId}`;
+    `${categoryId}|${activityId}`;
 
   const getValue = (categoryId: string, activityId: string): string => {
     const key = getCellKey(categoryId, activityId);

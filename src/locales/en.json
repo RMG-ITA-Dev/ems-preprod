@@ -29,7 +29,8 @@
     "team": "Team",
     "dates": "Dates",
     "or": "Or",
-    "unsavedChanges": "Unsaved"
+    "unsavedChanges": "Unsaved",
+    "unsavedChangesConfirm": "You have unsaved changes. Do you want to leave anyway?"
   },
   "nav": {
     "main": "Main",
