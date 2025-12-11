@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, Save, Loader2, FileText, Sun, Snowflake } from "lucide-react";
+import { Save, Loader2, FileText, Sun, Snowflake } from "lucide-react";
 import { useWorksheetById } from "@/hooks/useWorksheetData";
 import { useBatchUpsertCells, useUpdateWorksheet, useCreateWorkOrderFromWorksheet } from "@/hooks/useWorksheetMutations";
 import { useCategories, useActivityCodes, useSetting } from "@/hooks/useEmsData";
@@ -232,12 +232,20 @@ const WorksheetEdit = () => {
   return (
     <AppLayout>
       <div className="space-y-4">
-        {/* Header */}
+      {/* Header */}
         <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <Button 
-              variant="ghost" 
-              size="sm" 
+          <h1 className="text-lg font-semibold text-foreground">
+            {t("workMatrix.editWorksheet")}
+          </h1>
+          <div className="flex items-center gap-2">
+            {isSaving && (
+              <span className="text-sm text-warning">{t("timesheet.saving")}</span>
+            )}
+            {hasUnsavedChanges && !isSaving && (
+              <span className="text-sm text-muted-foreground">{t("common.unsavedChanges")}</span>
+            )}
+            <Button
+              variant="cancel"
               onClick={() => {
                 if (hasUnsavedChanges) {
                   if (window.confirm(t("common.unsavedChangesConfirm"))) {
@@ -247,22 +255,14 @@ const WorksheetEdit = () => {
                   navigate("/worksheets");
                 }
               }}
+              className="btn-action"
             >
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              {t("workMatrix.backToList")}
+              {t("common.cancel")}
             </Button>
-          </div>
-          <div className="flex items-center gap-2">
-            {isSaving && (
-              <span className="text-sm text-warning">{t("timesheet.saving")}</span>
-            )}
-            {hasUnsavedChanges && !isSaving && (
-              <span className="text-sm text-muted-foreground">{t("common.unsavedChanges")}</span>
-            )}
             <Button
               onClick={handleSave}
               disabled={!hasUnsavedChanges || isSaving || isReadOnly}
-              variant="outline"
+              variant="default"
               className="btn-action"
             >
               {isSaving ? (

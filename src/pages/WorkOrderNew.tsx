@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, FileSpreadsheet } from "lucide-react";
+import { FileSpreadsheet } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -130,11 +130,6 @@ const WorkOrderNew = () => {
   return (
     <AppLayout title={t("workOrders.newWorkOrder")}>
       <div className="space-y-6">
-        <Button variant="ghost" onClick={() => navigate("/work-orders")} className="mb-4">
-          <ArrowLeft className="h-4 w-4 mr-2" />
-          {t("workOrders.backToList")}
-        </Button>
-
         {/* Engagement Selection */}
         {!selectedEngagementId && (
           <Card>

@@ -12,7 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Loader2, ArrowLeft, Save } from "lucide-react";
+import { Loader2, Save } from "lucide-react";
 import {
   useStaffTimesheetForApproval,
   useBulkApproveTimesheetLines,
@@ -166,18 +166,13 @@ const TimesheetApprovalDetail = () => {
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" onClick={handleBack}>
-              <ArrowLeft className="h-5 w-5" />
-            </Button>
-            <div>
-              <h2 className="text-xl font-semibold text-foreground">{staffName}</h2>
-              <p className="text-sm text-muted-foreground">
-                {t("timesheet.week")} {timesheetData.period.week_number}, {timesheetData.period.year}
-                {" • "}
-                {formatWeekRange(timesheetData.period.week_start_date)}
-              </p>
-            </div>
+          <div>
+            <h2 className="text-lg font-semibold text-foreground">{staffName}</h2>
+            <p className="text-sm text-muted-foreground">
+              {t("timesheet.week")} {timesheetData.period.week_number}, {timesheetData.period.year}
+              {" • "}
+              {formatWeekRange(timesheetData.period.week_start_date)}
+            </p>
           </div>
 
           {/* Summary and Save Button */}
@@ -190,9 +185,17 @@ const TimesheetApprovalDetail = () => {
               <span className="font-medium">{summary.stillPending}</span> {t("approval.summary.stillPending")}
             </div>
             <Button
+              variant="cancel"
+              onClick={handleBack}
+              className="btn-action"
+            >
+              {t("common.cancel")}
+            </Button>
+            <Button
               onClick={handleSaveDecisions}
               disabled={!hasDecisions || isProcessing}
-              className="bg-primary hover:bg-primary/90"
+              variant="default"
+              className="btn-action"
             >
               {isProcessing && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               <Save className="h-4 w-4 mr-1" />

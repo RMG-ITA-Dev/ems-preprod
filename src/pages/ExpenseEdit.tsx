@@ -4,8 +4,6 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { ExpenseLogForm } from "@/components/forms/ExpenseLogForm";
 import { useExpenseLogById } from "@/hooks/useEmsData";
 import { useUpdateExpenseLog } from "@/hooks/useEmsMutations";
-import { Button } from "@/components/ui/button";
-import { ArrowLeft } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const ExpenseEdit = () => {
@@ -57,15 +55,6 @@ const ExpenseEdit = () => {
     return (
       <AppLayout title={t("expenses.editExpense")}>
         <div className="max-w-2xl">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => navigate("/expenses")}
-            className="mb-4"
-          >
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            {t("expenses.backToList")}
-          </Button>
           <div className="bg-card rounded-xl border border-border p-6 text-center text-muted-foreground">
             {t("common.noResults")}
           </div>
@@ -77,16 +66,6 @@ const ExpenseEdit = () => {
   return (
     <AppLayout title={t("expenses.editExpense")}>
       <div className="max-w-2xl">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => navigate("/expenses")}
-          className="mb-4"
-        >
-          <ArrowLeft className="h-4 w-4 mr-2" />
-          {t("expenses.backToList")}
-        </Button>
-
         <div className="bg-card rounded-xl border border-border p-6">
           <ExpenseLogForm
             initialData={expenseLog}

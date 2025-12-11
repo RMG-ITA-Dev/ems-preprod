@@ -11,7 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ArrowLeft, Plus, AlertCircle } from "lucide-react";
+import { Plus, AlertCircle } from "lucide-react";
 import { useEngagementsWithoutWorksheet } from "@/hooks/useWorksheetData";
 import { useCreateWorksheet } from "@/hooks/useWorksheetMutations";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
@@ -50,15 +50,7 @@ const WorksheetNew = () => {
   return (
     <AppLayout>
       <div className="space-y-4 max-w-2xl">
-        {/* Back Button */}
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="sm" onClick={() => navigate("/worksheets")}>
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            {t("workMatrix.backToList")}
-          </Button>
-        </div>
-
-        <h1 className="text-2xl font-semibold text-foreground">
+        <h1 className="text-lg font-semibold text-foreground">
           {t("workMatrix.newWorksheet")}
         </h1>
 
@@ -153,13 +145,14 @@ const WorksheetNew = () => {
 
                 <div className="flex justify-end gap-2 pt-4">
                   <Button
-                    variant="outline"
+                    variant="cancel"
                     onClick={() => navigate("/worksheets")}
                     className="btn-action"
                   >
                     {t("common.cancel")}
                   </Button>
                   <Button
+                    variant="default"
                     onClick={handleCreate}
                     disabled={!selectedEngagementId || createWorksheet.isPending}
                     className="btn-action"
