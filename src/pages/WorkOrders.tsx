@@ -11,8 +11,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Search, Sun, Snowflake } from "lucide-react";
+import { Plus, Search, Sun, Snowflake, ArrowUpDown, ArrowUp, ArrowDown, Filter } from "lucide-react";
 import { useWorkOrders, WorkOrder } from "@/hooks/useEmsData";
 import { useCategoryStaff } from "@/hooks/useCategoryStaff";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -33,6 +38,9 @@ const statusDotColors: Record<string, string> = {
   Rejected: "bg-destructive",
 };
 
+type SortDirection = "asc" | "desc" | null;
+type SortColumn = "code" | "name" | "client" | "partner" | "manager" | "hours" | "standardFee" | "realization" | "adjustedFee" | "expenses" | "totalNoVAT" | "totalVAT" | null;
+
 const WorkOrders = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -44,6 +52,13 @@ const WorkOrders = () => {
   const [partnerFilter, setPartnerFilter] = useState<string>("all");
   const [managerFilter, setManagerFilter] = useState<string>("all");
   const [currencyTab, setCurrencyTab] = useState<"BOB" | "USD">("BOB");
+  const [sortColumn, setSortColumn] = useState<SortColumn>(null);
+  const [sortDirection, setSortDirection] = useState<SortDirection>(null);
+  
+  // Filter popover states
+  const [partnerFilterOpen, setPartnerFilterOpen] = useState(false);
+  const [managerFilterOpen, setManagerFilterOpen] = useState(false);
+  const [statusFilterOpen, setStatusFilterOpen] = useState(false);
 
   const formatCurrency = (amount: number, currency: string) => {
     const formatted = amount.toLocaleString("es-BO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -74,9 +89,33 @@ const WorkOrders = () => {
     return { totalHours, standardFee, realizationPercent, adjustedFee, totalExpenses, totalWithoutVAT, totalWithVAT };
   };
 
-  // Filter work orders
+  const handleSort = (column: SortColumn) => {
+    if (sortColumn === column) {
+      if (sortDirection === "asc") {
+        setSortDirection("desc");
+      } else if (sortDirection === "desc") {
+        setSortColumn(null);
+        setSortDirection(null);
+      }
+    } else {
+      setSortColumn(column);
+      setSortDirection("asc");
+    }
+  };
+
+  const getSortIcon = (column: SortColumn) => {
+    if (sortColumn !== column) {
+      return <ArrowUpDown className="h-3 w-3 opacity-50" />;
+    }
+    if (sortDirection === "asc") {
+      return <ArrowUp className="h-3 w-3 text-accent" />;
+    }
+    return <ArrowDown className="h-3 w-3 text-accent" />;
+  };
+
+  // Filter and sort work orders
   const filteredWorkOrders = useMemo(() => {
-    return workOrders?.filter((wo) => {
+    let result = workOrders?.filter((wo) => {
       // Currency filter (tab)
       if (wo.currency !== currencyTab) return false;
 
@@ -92,73 +131,92 @@ const WorkOrders = () => {
 
       return matchesSearch && matchesStatus && matchesPartner && matchesManager;
     }) || [];
-  }, [workOrders, currencyTab, searchQuery, statusFilter, partnerFilter, managerFilter]);
+
+    // Apply sorting
+    if (sortColumn && sortDirection) {
+      result = [...result].sort((a, b) => {
+        const totalsA = calculateTotals(a);
+        const totalsB = calculateTotals(b);
+        let comparison = 0;
+
+        switch (sortColumn) {
+          case "code":
+            comparison = (a.engagement?.engagement_code || "").localeCompare(b.engagement?.engagement_code || "");
+            break;
+          case "name":
+            comparison = (a.engagement?.engagement_name || "").localeCompare(b.engagement?.engagement_name || "");
+            break;
+          case "client":
+            comparison = (a.engagement?.client?.client_legal_name || "").localeCompare(b.engagement?.client?.client_legal_name || "");
+            break;
+          case "partner":
+            const pA = a.engagement?.partner?.short_name || `${a.engagement?.partner?.first_name || ""} ${a.engagement?.partner?.last_name || ""}`;
+            const pB = b.engagement?.partner?.short_name || `${b.engagement?.partner?.first_name || ""} ${b.engagement?.partner?.last_name || ""}`;
+            comparison = pA.localeCompare(pB);
+            break;
+          case "manager":
+            const mA = a.engagement?.manager?.short_name || `${a.engagement?.manager?.first_name || ""} ${a.engagement?.manager?.last_name || ""}`;
+            const mB = b.engagement?.manager?.short_name || `${b.engagement?.manager?.first_name || ""} ${b.engagement?.manager?.last_name || ""}`;
+            comparison = mA.localeCompare(mB);
+            break;
+          case "hours":
+            comparison = totalsA.totalHours - totalsB.totalHours;
+            break;
+          case "standardFee":
+            comparison = totalsA.standardFee - totalsB.standardFee;
+            break;
+          case "realization":
+            comparison = totalsA.realizationPercent - totalsB.realizationPercent;
+            break;
+          case "adjustedFee":
+            comparison = totalsA.adjustedFee - totalsB.adjustedFee;
+            break;
+          case "expenses":
+            comparison = totalsA.totalExpenses - totalsB.totalExpenses;
+            break;
+          case "totalNoVAT":
+            comparison = totalsA.totalWithoutVAT - totalsB.totalWithoutVAT;
+            break;
+          case "totalVAT":
+            comparison = totalsA.totalWithVAT - totalsB.totalWithVAT;
+            break;
+        }
+        return sortDirection === "asc" ? comparison : -comparison;
+      });
+    }
+
+    return result;
+  }, [workOrders, currencyTab, searchQuery, statusFilter, partnerFilter, managerFilter, sortColumn, sortDirection]);
 
   return (
     <AppLayout title={t("workOrders.title")}>
       <div className="space-y-4">
-        {/* Currency Tabs + Add Button */}
+        {/* Currency Tabs + Search + Add Button */}
         <div className="flex items-center justify-between gap-4">
-          <Tabs value={currencyTab} onValueChange={(v) => setCurrencyTab(v as "BOB" | "USD")}>
-            <TabsList>
-              <TabsTrigger value="BOB">BOB</TabsTrigger>
-              <TabsTrigger value="USD">USD</TabsTrigger>
-            </TabsList>
-          </Tabs>
+          <div className="flex items-center gap-4">
+            <Tabs value={currencyTab} onValueChange={(v) => setCurrencyTab(v as "BOB" | "USD")}>
+              <TabsList>
+                <TabsTrigger value="BOB">BOB</TabsTrigger>
+                <TabsTrigger value="USD">USD</TabsTrigger>
+              </TabsList>
+            </Tabs>
+            <div className="relative min-w-[200px] max-w-md">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder={t("workOrders.searchPlaceholder")}
+                className="pl-9"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
+          </div>
           <Button
+            variant="default"
             onClick={() => navigate("/work-orders/new")}
-            className="btn-action shrink-0"
           >
             <Plus className="h-4 w-4 mr-2" />
             {t("workOrders.newWorkOrder")}
           </Button>
-        </div>
-
-        {/* Filters Row */}
-        <div className="flex flex-wrap gap-3">
-          <div className="relative flex-1 min-w-[200px] max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder={t("workOrders.searchPlaceholder")}
-              className="pl-9"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-          </div>
-          <Select value={partnerFilter} onValueChange={setPartnerFilter}>
-            <SelectTrigger className="w-40">
-              <SelectValue placeholder={t("engagement.partner")} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t("common.all")} {t("engagement.partner")}</SelectItem>
-              {partnerOptions.map((p) => (
-                <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={managerFilter} onValueChange={setManagerFilter}>
-            <SelectTrigger className="w-40">
-              <SelectValue placeholder={t("engagement.manager")} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t("common.all")} {t("engagement.manager")}</SelectItem>
-              {managerOptions.map((m) => (
-                <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-44">
-              <SelectValue placeholder={t("workOrders.allStatuses")} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t("workOrders.allStatuses")}</SelectItem>
-              <SelectItem value="Draft">{t("workOrders.status.draft")}</SelectItem>
-              <SelectItem value="Pending_Approval">{t("workOrders.status.pending")}</SelectItem>
-              <SelectItem value="Approved">{t("workOrders.status.approved")}</SelectItem>
-              <SelectItem value="Rejected">{t("workOrders.status.rejected")}</SelectItem>
-            </SelectContent>
-          </Select>
         </div>
 
         {/* Data Table */}
@@ -169,18 +227,214 @@ const WorkOrders = () => {
                 <TableRow className="bg-muted/50">
                   <TableHead className="w-10 text-center"></TableHead>
                   <TableHead className="w-10 text-center"></TableHead>
-                  <TableHead className="w-28">{t("engagement.code")}</TableHead>
-                  <TableHead className="min-w-[180px]">{t("engagement.name")}</TableHead>
-                  <TableHead className="min-w-[160px]">{t("engagement.client")}</TableHead>
-                  <TableHead className="w-28">{t("engagement.partner")}</TableHead>
-                  <TableHead className="w-28">{t("engagement.manager")}</TableHead>
-                  <TableHead className="w-20 text-right">{t("workOrders.hours")}</TableHead>
-                  <TableHead className="w-28 text-right">{t("workOrders.standardFee")}</TableHead>
-                  <TableHead className="w-20 text-right">{t("workOrders.realization")}</TableHead>
-                  <TableHead className="w-28 text-right">{t("workOrders.adjustedFee")}</TableHead>
-                  <TableHead className="w-24 text-right">{t("workOrders.expenses")}</TableHead>
-                  <TableHead className="w-28 text-right">{t("workOrders.totalWithoutVAT")}</TableHead>
-                  <TableHead className="w-28 text-right">{t("workOrders.totalWithVAT")}</TableHead>
+                  <TableHead className="w-28">
+                    <span
+                      className="cursor-pointer hover:text-foreground flex items-center gap-1"
+                      onClick={() => handleSort("code")}
+                    >
+                      {t("engagement.code")}
+                      {getSortIcon("code")}
+                    </span>
+                  </TableHead>
+                  <TableHead className="min-w-[180px]">
+                    <span
+                      className="cursor-pointer hover:text-foreground flex items-center gap-1"
+                      onClick={() => handleSort("name")}
+                    >
+                      {t("engagement.name")}
+                      {getSortIcon("name")}
+                    </span>
+                  </TableHead>
+                  <TableHead className="min-w-[160px]">
+                    <span
+                      className="cursor-pointer hover:text-foreground flex items-center gap-1"
+                      onClick={() => handleSort("client")}
+                    >
+                      {t("engagement.client")}
+                      {getSortIcon("client")}
+                    </span>
+                  </TableHead>
+                  <TableHead className="w-28">
+                    <div className="flex items-center gap-1">
+                      <span
+                        className="cursor-pointer hover:text-foreground flex items-center gap-1"
+                        onClick={() => handleSort("partner")}
+                      >
+                        {t("engagement.partner")}
+                        {getSortIcon("partner")}
+                      </span>
+                      <Popover open={partnerFilterOpen} onOpenChange={setPartnerFilterOpen}>
+                        <PopoverTrigger asChild>
+                          <button className="p-0.5 hover:bg-muted rounded">
+                            <Filter className={`h-3 w-3 ${partnerFilter !== "all" ? "text-accent" : "opacity-50"}`} />
+                          </button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-56 p-2" align="start">
+                          <Select value={partnerFilter} onValueChange={(val) => {
+                            setPartnerFilter(val);
+                            setPartnerFilterOpen(false);
+                          }}>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">{t("common.all")}</SelectItem>
+                              {partnerOptions.map((p) => (
+                                <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {partnerFilter !== "all" && (
+                            <Button variant="ghost" size="sm" onClick={() => {
+                              setPartnerFilter("all");
+                              setPartnerFilterOpen(false);
+                            }} className="w-full mt-2">
+                              {t("common.clear")}
+                            </Button>
+                          )}
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+                  </TableHead>
+                  <TableHead className="w-28">
+                    <div className="flex items-center gap-1">
+                      <span
+                        className="cursor-pointer hover:text-foreground flex items-center gap-1"
+                        onClick={() => handleSort("manager")}
+                      >
+                        {t("engagement.manager")}
+                        {getSortIcon("manager")}
+                      </span>
+                      <Popover open={managerFilterOpen} onOpenChange={setManagerFilterOpen}>
+                        <PopoverTrigger asChild>
+                          <button className="p-0.5 hover:bg-muted rounded">
+                            <Filter className={`h-3 w-3 ${managerFilter !== "all" ? "text-accent" : "opacity-50"}`} />
+                          </button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-56 p-2" align="start">
+                          <Select value={managerFilter} onValueChange={(val) => {
+                            setManagerFilter(val);
+                            setManagerFilterOpen(false);
+                          }}>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">{t("common.all")}</SelectItem>
+                              {managerOptions.map((m) => (
+                                <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {managerFilter !== "all" && (
+                            <Button variant="ghost" size="sm" onClick={() => {
+                              setManagerFilter("all");
+                              setManagerFilterOpen(false);
+                            }} className="w-full mt-2">
+                              {t("common.clear")}
+                            </Button>
+                          )}
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+                  </TableHead>
+                  <TableHead className="w-20 text-right">
+                    <span
+                      className="cursor-pointer hover:text-foreground flex items-center gap-1 justify-end"
+                      onClick={() => handleSort("hours")}
+                    >
+                      {t("workOrders.hours")}
+                      {getSortIcon("hours")}
+                    </span>
+                  </TableHead>
+                  <TableHead className="w-28 text-right">
+                    <span
+                      className="cursor-pointer hover:text-foreground flex items-center gap-1 justify-end"
+                      onClick={() => handleSort("standardFee")}
+                    >
+                      {t("workOrders.standardFee")}
+                      {getSortIcon("standardFee")}
+                    </span>
+                  </TableHead>
+                  <TableHead className="w-20 text-right">
+                    <span
+                      className="cursor-pointer hover:text-foreground flex items-center gap-1 justify-end"
+                      onClick={() => handleSort("realization")}
+                    >
+                      {t("workOrders.realization")}
+                      {getSortIcon("realization")}
+                    </span>
+                  </TableHead>
+                  <TableHead className="w-28 text-right">
+                    <span
+                      className="cursor-pointer hover:text-foreground flex items-center gap-1 justify-end"
+                      onClick={() => handleSort("adjustedFee")}
+                    >
+                      {t("workOrders.adjustedFee")}
+                      {getSortIcon("adjustedFee")}
+                    </span>
+                  </TableHead>
+                  <TableHead className="w-24 text-right">
+                    <span
+                      className="cursor-pointer hover:text-foreground flex items-center gap-1 justify-end"
+                      onClick={() => handleSort("expenses")}
+                    >
+                      {t("workOrders.expenses")}
+                      {getSortIcon("expenses")}
+                    </span>
+                  </TableHead>
+                  <TableHead className="w-28 text-right">
+                    <span
+                      className="cursor-pointer hover:text-foreground flex items-center gap-1 justify-end"
+                      onClick={() => handleSort("totalNoVAT")}
+                    >
+                      {t("workOrders.totalWithoutVAT")}
+                      {getSortIcon("totalNoVAT")}
+                    </span>
+                  </TableHead>
+                  <TableHead className="w-28 text-right">
+                    <div className="flex items-center gap-1 justify-end">
+                      <span
+                        className="cursor-pointer hover:text-foreground flex items-center gap-1"
+                        onClick={() => handleSort("totalVAT")}
+                      >
+                        {t("workOrders.totalWithVAT")}
+                        {getSortIcon("totalVAT")}
+                      </span>
+                      <Popover open={statusFilterOpen} onOpenChange={setStatusFilterOpen}>
+                        <PopoverTrigger asChild>
+                          <button className="p-0.5 hover:bg-muted rounded">
+                            <Filter className={`h-3 w-3 ${statusFilter !== "all" ? "text-accent" : "opacity-50"}`} />
+                          </button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-48 p-2" align="end">
+                          <Select value={statusFilter} onValueChange={(val) => {
+                            setStatusFilter(val);
+                            setStatusFilterOpen(false);
+                          }}>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">{t("workOrders.allStatuses")}</SelectItem>
+                              <SelectItem value="Draft">{t("workOrders.status.draft")}</SelectItem>
+                              <SelectItem value="Pending_Approval">{t("workOrders.status.pending")}</SelectItem>
+                              <SelectItem value="Approved">{t("workOrders.status.approved")}</SelectItem>
+                              <SelectItem value="Rejected">{t("workOrders.status.rejected")}</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          {statusFilter !== "all" && (
+                            <Button variant="ghost" size="sm" onClick={() => {
+                              setStatusFilter("all");
+                              setStatusFilterOpen(false);
+                            }} className="w-full mt-2">
+                              {t("common.clear")}
+                            </Button>
+                          )}
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

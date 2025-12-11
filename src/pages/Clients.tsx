@@ -46,6 +46,7 @@ const Clients = () => {
       key: "industry.industry_name",
       label: t("client.industry"),
       sortable: true,
+      filterKey: "industry_id",
       render: (row) => row.industry?.industry_name || "-",
     },
     {
@@ -64,6 +65,7 @@ const Clients = () => {
       key: "is_active",
       label: t("client.status"),
       sortable: true,
+      filterKey: "is_active",
       render: (row) => (
         <Badge
           variant="outline"

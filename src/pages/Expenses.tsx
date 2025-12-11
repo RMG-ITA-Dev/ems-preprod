@@ -13,6 +13,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
   Table,
   TableBody,
   TableCell,
@@ -22,7 +27,7 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Plus, Search, ArrowUpDown, ArrowUp, ArrowDown, Filter, ExternalLink } from "lucide-react";
-import { useAllExpenseLogs, useExpenseTypes, useEngagements } from "@/hooks/useEmsData";
+import { useAllExpenseLogs, useExpenseTypes } from "@/hooks/useEmsData";
 import { format } from "date-fns";
 
 type SortDirection = "asc" | "desc" | null;
@@ -32,7 +37,6 @@ const Expenses = () => {
   const navigate = useNavigate();
   const { data: expenseLogs = [], isLoading } = useAllExpenseLogs();
   const { data: expenseTypes = [] } = useExpenseTypes();
-  const { data: engagements = [] } = useEngagements();
 
   const [currency, setCurrency] = useState<"BOB" | "USD">("BOB");
   const [searchTerm, setSearchTerm] = useState("");
@@ -40,6 +44,10 @@ const Expenses = () => {
   const [engagementFilter, setEngagementFilter] = useState("all");
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>(null);
+  
+  // Filter popover states
+  const [expenseTypeFilterOpen, setExpenseTypeFilterOpen] = useState(false);
+  const [engagementFilterOpen, setEngagementFilterOpen] = useState(false);
 
   // Filter by currency first
   const currencyFiltered = useMemo(() => {
@@ -139,20 +147,15 @@ const Expenses = () => {
 
   const getSortIcon = (column: string) => {
     if (sortColumn !== column) {
-      return <ArrowUpDown className="h-3 w-3 ml-1 opacity-50" />;
+      return <ArrowUpDown className="h-3 w-3 opacity-50" />;
     }
     if (sortDirection === "asc") {
-      return <ArrowUp className="h-3 w-3 ml-1 text-accent" />;
+      return <ArrowUp className="h-3 w-3 text-accent" />;
     }
     if (sortDirection === "desc") {
-      return <ArrowDown className="h-3 w-3 ml-1 text-accent" />;
+      return <ArrowDown className="h-3 w-3 text-accent" />;
     }
-    return <ArrowUpDown className="h-3 w-3 ml-1 opacity-50" />;
-  };
-
-  const getFilterIcon = (filterValue: string) => {
-    const isActive = filterValue !== "all";
-    return <Filter className={`h-3 w-3 ml-1 ${isActive ? "text-accent" : "opacity-50"}`} />;
+    return <ArrowUpDown className="h-3 w-3 opacity-50" />;
   };
 
   const formatCurrency = (amount: number) => {
@@ -170,60 +173,32 @@ const Expenses = () => {
   return (
     <AppLayout title={t("expenses.title")}>
       <div className="space-y-4">
-        {/* Currency Tabs + New Button */}
-        <div className="flex items-center justify-between">
-          <Tabs value={currency} onValueChange={(val) => setCurrency(val as "BOB" | "USD")}>
-            <TabsList>
-              <TabsTrigger value="BOB">BOB</TabsTrigger>
-              <TabsTrigger value="USD">USD</TabsTrigger>
-            </TabsList>
-          </Tabs>
+        {/* Currency Tabs + Search + New Button */}
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <Tabs value={currency} onValueChange={(val) => setCurrency(val as "BOB" | "USD")}>
+              <TabsList>
+                <TabsTrigger value="BOB">BOB</TabsTrigger>
+                <TabsTrigger value="USD">USD</TabsTrigger>
+              </TabsList>
+            </Tabs>
+            <div className="relative min-w-[200px] max-w-md">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder={t("expenses.searchPlaceholder")}
+                className="pl-9"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+          </div>
           <Button
+            variant="default"
             onClick={() => navigate("/expenses/new")}
-            className="bg-accent hover:bg-accent/90 text-accent-foreground"
           >
             <Plus className="h-4 w-4 mr-2" />
             {t("expenses.newExpense")}
           </Button>
-        </div>
-
-        {/* Search and Filters */}
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder={t("expenses.searchPlaceholder")}
-              className="pl-9"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
-          <Select value={expenseTypeFilter} onValueChange={setExpenseTypeFilter}>
-            <SelectTrigger className="w-[180px]">
-              <SelectValue placeholder={t("adminExpenseLogs.filterByExpenseType")} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t("adminExpenseLogs.allTypes")}</SelectItem>
-              {expenseTypes.map((type) => (
-                <SelectItem key={type.expense_type_id} value={type.expense_type_id}>
-                  {type.expense_name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={engagementFilter} onValueChange={setEngagementFilter}>
-            <SelectTrigger className="w-[200px]">
-              <SelectValue placeholder={t("adminTimeEntries.filterByEngagement")} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t("adminTimeEntries.allEngagements")}</SelectItem>
-              {engagementOptions.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value}>
-                  {opt.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
         </div>
 
         {/* Table */}
@@ -231,39 +206,105 @@ const Expenses = () => {
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/50">
-                <TableHead
-                  className="font-semibold text-sm cursor-pointer select-none hover:bg-muted/70"
-                  onClick={() => handleSort("date_incurred")}
-                >
-                  <div className="flex items-center">
+                <TableHead className="font-semibold text-sm">
+                  <span
+                    className="cursor-pointer select-none hover:text-foreground flex items-center gap-1"
+                    onClick={() => handleSort("date_incurred")}
+                  >
                     {t("expenses.date")}
                     {getSortIcon("date_incurred")}
-                  </div>
+                  </span>
                 </TableHead>
-                <TableHead
-                  className="font-semibold text-sm cursor-pointer select-none hover:bg-muted/70"
-                  onClick={() => handleSort("engagement")}
-                >
-                  <div className="flex items-center">
-                    {t("engagement.name")}
-                    {getSortIcon("engagement")}
-                    {getFilterIcon(engagementFilter)}
+                <TableHead className="font-semibold text-sm">
+                  <div className="flex items-center gap-1">
+                    <span
+                      className="cursor-pointer select-none hover:text-foreground flex items-center gap-1"
+                      onClick={() => handleSort("engagement")}
+                    >
+                      {t("engagement.name")}
+                      {getSortIcon("engagement")}
+                    </span>
+                    <Popover open={engagementFilterOpen} onOpenChange={setEngagementFilterOpen}>
+                      <PopoverTrigger asChild>
+                        <button className="p-0.5 hover:bg-muted rounded">
+                          <Filter className={`h-3 w-3 ${engagementFilter !== "all" ? "text-accent" : "opacity-50"}`} />
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-64 p-2" align="start">
+                        <Select value={engagementFilter} onValueChange={(val) => {
+                          setEngagementFilter(val);
+                          setEngagementFilterOpen(false);
+                        }}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">{t("adminTimeEntries.allEngagements")}</SelectItem>
+                            {engagementOptions.map((opt) => (
+                              <SelectItem key={opt.value} value={opt.value}>
+                                {opt.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {engagementFilter !== "all" && (
+                          <Button variant="ghost" size="sm" onClick={() => {
+                            setEngagementFilter("all");
+                            setEngagementFilterOpen(false);
+                          }} className="w-full mt-2">
+                            {t("common.clear")}
+                          </Button>
+                        )}
+                      </PopoverContent>
+                    </Popover>
                   </div>
                 </TableHead>
                 <TableHead className="font-semibold text-sm">
-                  <div className="flex items-center">
+                  <div className="flex items-center gap-1">
                     {t("expenses.type")}
-                    {getFilterIcon(expenseTypeFilter)}
+                    <Popover open={expenseTypeFilterOpen} onOpenChange={setExpenseTypeFilterOpen}>
+                      <PopoverTrigger asChild>
+                        <button className="p-0.5 hover:bg-muted rounded">
+                          <Filter className={`h-3 w-3 ${expenseTypeFilter !== "all" ? "text-accent" : "opacity-50"}`} />
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-56 p-2" align="start">
+                        <Select value={expenseTypeFilter} onValueChange={(val) => {
+                          setExpenseTypeFilter(val);
+                          setExpenseTypeFilterOpen(false);
+                        }}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">{t("adminExpenseLogs.allTypes")}</SelectItem>
+                            {expenseTypes.map((type) => (
+                              <SelectItem key={type.expense_type_id} value={type.expense_type_id}>
+                                {type.expense_name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {expenseTypeFilter !== "all" && (
+                          <Button variant="ghost" size="sm" onClick={() => {
+                            setExpenseTypeFilter("all");
+                            setExpenseTypeFilterOpen(false);
+                          }} className="w-full mt-2">
+                            {t("common.clear")}
+                          </Button>
+                        )}
+                      </PopoverContent>
+                    </Popover>
                   </div>
                 </TableHead>
-                <TableHead
-                  className="font-semibold text-sm text-right cursor-pointer select-none hover:bg-muted/70"
-                  onClick={() => handleSort("amount")}
-                >
-                  <div className="flex items-center justify-end">
+                <TableHead className="font-semibold text-sm text-right">
+                  <span
+                    className="cursor-pointer select-none hover:text-foreground flex items-center gap-1 justify-end"
+                    onClick={() => handleSort("amount")}
+                  >
                     {t("expenses.amount")}
                     {getSortIcon("amount")}
-                  </div>
+                  </span>
                 </TableHead>
                 <TableHead className="font-semibold text-sm">{t("expenses.description")}</TableHead>
                 <TableHead className="font-semibold text-sm w-20">{t("adminExpenseLogs.receipt")}</TableHead>

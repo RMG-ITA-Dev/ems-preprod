@@ -47,12 +47,14 @@ const Engagements = () => {
       key: "partner.last_name",
       label: t("engagement.partner"),
       sortable: true,
+      filterKey: "partner_id",
       render: (row) => (row.partner ? row.partner.short_name || `${row.partner.first_name} ${row.partner.last_name}` : "-"),
     },
     {
       key: "manager.last_name",
       label: t("engagement.manager"),
       sortable: true,
+      filterKey: "manager_id",
       render: (row) => (row.manager ? row.manager.short_name || `${row.manager.first_name} ${row.manager.last_name}` : "-"),
     },
     {
@@ -77,6 +79,7 @@ const Engagements = () => {
       key: "status",
       label: t("engagement.status"),
       sortable: true,
+      filterKey: "status",
       render: (row) => (
         <Badge variant="outline" className={statusColors[row.status] || statusColors.pending}>
           {t(`status.${row.status}`)}
