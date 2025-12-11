@@ -184,6 +184,12 @@ export function useTimeTracker() {
     }));
   }, []);
 
+  // Full reset that also clears localStorage - use when creating new entry
+  const fullReset = useCallback(() => {
+    localStorage.removeItem(STORAGE_KEY);
+    setState(DEFAULT_STATE);
+  }, []);
+
   const clearRunningEntry = useCallback(() => {
     setState((prev) => ({
       ...prev,
@@ -262,6 +268,7 @@ export function useTimeTracker() {
     start,
     stop,
     reset,
+    fullReset,
     clearRunningEntry,
     setRunningEntryId,
     setEngagement,
