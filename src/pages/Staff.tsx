@@ -78,6 +78,7 @@ const Staff = () => {
       key: "category.category_name",
       label: t("staff.category"),
       sortable: true,
+      filterKey: "category_id",
       render: (row) =>
         row.category ? (
           <Badge variant="outline" className={categoryColors[row.category.category_name] || ""}>
@@ -91,6 +92,7 @@ const Staff = () => {
       key: "is_active",
       label: t("staff.status"),
       sortable: true,
+      filterKey: "is_active",
       render: (row) => (
         <Badge
           variant="outline"

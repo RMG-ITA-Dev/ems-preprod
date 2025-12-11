@@ -5,12 +5,14 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Search, Plus, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, Filter } from "lucide-react";
 
 export interface Column<T> {
   key: string;
   label: string;
   sortable?: boolean;
+  filterable?: boolean;
   filterKey?: string;
   render?: (row: T) => React.ReactNode;
   className?: string;
@@ -62,6 +64,7 @@ export function DataTable<T extends Record<string, any>>({
   const [filterValues, setFilterValues] = useState<Record<string, string>>({});
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(20);
+  const [openFilterKey, setOpenFilterKey] = useState<string | null>(null);
 
   const handleSort = (columnKey: string) => {
     if (sortColumn === columnKey) {
@@ -81,25 +84,53 @@ export function DataTable<T extends Record<string, any>>({
 
   const getSortIcon = (columnKey: string) => {
     if (sortColumn !== columnKey) {
-      return <ArrowUpDown className="h-3 w-3 ml-1 opacity-50" />;
+      return <ArrowUpDown className="h-3 w-3 opacity-50" />;
     }
     if (sortDirection === "asc") {
-      return <ArrowUp className="h-3 w-3 ml-1 text-accent" />;
+      return <ArrowUp className="h-3 w-3 text-accent" />;
     }
     if (sortDirection === "desc") {
-      return <ArrowDown className="h-3 w-3 ml-1 text-accent" />;
+      return <ArrowDown className="h-3 w-3 text-accent" />;
     }
-    return <ArrowUpDown className="h-3 w-3 ml-1 opacity-50" />;
+    return <ArrowUpDown className="h-3 w-3 opacity-50" />;
   };
 
-  const getFilterIcon = (filterKey?: string) => {
+  // Find filter config for a column
+  const getFilterConfig = (filterKey?: string) => {
     if (!filterKey) return null;
-    const isActive = filterValues[filterKey] && filterValues[filterKey] !== "all";
-    return (
-      <Filter 
-        className={`h-3 w-3 ml-1 ${isActive ? "text-accent" : "opacity-50"}`} 
-      />
-    );
+    // Check in filters array
+    const filter = filters.find(f => f.key === filterKey);
+    if (filter) return filter;
+    // Check if it's the status filter
+    if (statusFilter && filterKey === statusFilter.key) {
+      return { key: statusFilter.key, label: t("common.status"), options: statusFilter.options };
+    }
+    return null;
+  };
+
+  const isFilterActive = (filterKey?: string) => {
+    if (!filterKey) return false;
+    if (filterKey === statusFilter?.key) {
+      return statusValue !== "all";
+    }
+    return filterValues[filterKey] && filterValues[filterKey] !== "all";
+  };
+
+  const getFilterValue = (filterKey?: string) => {
+    if (!filterKey) return "all";
+    if (filterKey === statusFilter?.key) {
+      return statusValue;
+    }
+    return filterValues[filterKey] || "all";
+  };
+
+  const setFilterValue = (filterKey: string, value: string) => {
+    if (filterKey === statusFilter?.key) {
+      setStatusValue(value);
+    } else {
+      setFilterValues((prev) => ({ ...prev, [filterKey]: value }));
+    }
+    setOpenFilterKey(null);
   };
 
   const filteredAndSortedData = useMemo(() => {
@@ -163,7 +194,7 @@ export function DataTable<T extends Record<string, any>>({
     }
 
     return result;
-  }, [data, searchTerm, searchKeys, sortColumn, sortDirection, statusFilter, statusValue]);
+  }, [data, searchTerm, searchKeys, sortColumn, sortDirection, statusFilter, statusValue, filters, filterValues]);
 
   // Pagination calculations
   const totalItems = filteredAndSortedData.length;
@@ -179,57 +210,19 @@ export function DataTable<T extends Record<string, any>>({
 
   return (
     <div className="space-y-4">
-      {/* Header Actions */}
+      {/* Header Actions - Search + New Button only */}
       <div className="flex flex-col sm:flex-row gap-4 justify-between">
-        <div className="flex gap-3 flex-1">
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder={searchPlaceholder || t("common.search")}
-              className="pl-9"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
-          {filters.map((filter) => (
-            <Select
-              key={filter.key}
-              value={filterValues[filter.key] || "all"}
-              onValueChange={(val) => setFilterValues((prev) => ({ ...prev, [filter.key]: val }))}
-            >
-              <SelectTrigger className="w-[160px]">
-                <SelectValue placeholder={`${t("common.all")} ${filter.label}`} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">
-                  {t("common.all")} {filter.label}
-                </SelectItem>
-                {filter.options.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ))}
-          {statusFilter && (
-            <Select value={statusValue} onValueChange={setStatusValue}>
-              <SelectTrigger className="w-[160px]">
-                <SelectValue placeholder={t("common.allStatus")} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{t("common.allStatus")}</SelectItem>
-                {statusFilter.options.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
+        <div className="relative flex-1 max-w-md">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder={searchPlaceholder || t("common.search")}
+            className="pl-9"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
         </div>
         {onNewClick && (
-          <Button onClick={onNewClick} className="bg-accent hover:bg-accent/90 text-accent-foreground">
+          <Button variant="default" onClick={onNewClick}>
             <Plus className="h-4 w-4 mr-2" />
             {newButtonLabel || t("common.new")}
           </Button>
@@ -241,21 +234,72 @@ export function DataTable<T extends Record<string, any>>({
         <Table>
           <TableHeader>
             <TableRow className="bg-muted/50">
-              {columns.map((col) => (
-                <TableHead
-                  key={col.key}
-                  className={`font-semibold text-sm ${col.className || ""} ${
-                    col.sortable ? "cursor-pointer select-none hover:bg-muted/70" : ""
-                  }`}
-                  onClick={col.sortable ? () => handleSort(col.key) : undefined}
-                >
-                  <div className="flex items-center">
-                    {col.label}
-                    {col.sortable && getSortIcon(col.key)}
-                    {getFilterIcon(col.filterKey)}
-                  </div>
-                </TableHead>
-              ))}
+              {columns.map((col) => {
+                const filterConfig = getFilterConfig(col.filterKey);
+                const hasFilter = !!filterConfig;
+                const filterActive = isFilterActive(col.filterKey);
+
+                return (
+                  <TableHead
+                    key={col.key}
+                    className={`font-semibold text-sm ${col.className || ""}`}
+                  >
+                    <div className="flex items-center gap-1">
+                      {col.sortable ? (
+                        <span
+                          className="cursor-pointer select-none hover:text-foreground flex items-center gap-1"
+                          onClick={() => handleSort(col.key)}
+                        >
+                          {col.label}
+                          {getSortIcon(col.key)}
+                        </span>
+                      ) : (
+                        <span>{col.label}</span>
+                      )}
+                      {hasFilter && (
+                        <Popover 
+                          open={openFilterKey === col.filterKey} 
+                          onOpenChange={(open) => setOpenFilterKey(open ? col.filterKey || null : null)}
+                        >
+                          <PopoverTrigger asChild>
+                            <button className="p-0.5 hover:bg-muted rounded">
+                              <Filter className={`h-3 w-3 ${filterActive ? "text-accent" : "opacity-50"}`} />
+                            </button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-56 p-2" align="start">
+                            <Select 
+                              value={getFilterValue(col.filterKey)} 
+                              onValueChange={(val) => setFilterValue(col.filterKey!, val)}
+                            >
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="all">{t("common.all")}</SelectItem>
+                                {filterConfig?.options.map((opt) => (
+                                  <SelectItem key={opt.value} value={opt.value}>
+                                    {opt.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            {filterActive && (
+                              <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                onClick={() => setFilterValue(col.filterKey!, "all")} 
+                                className="w-full mt-2"
+                              >
+                                {t("common.clear")}
+                              </Button>
+                            )}
+                          </PopoverContent>
+                        </Popover>
+                      )}
+                    </div>
+                  </TableHead>
+                );
+              })}
             </TableRow>
           </TableHeader>
           <TableBody>

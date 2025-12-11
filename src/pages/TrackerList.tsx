@@ -264,8 +264,8 @@ const TrackerList = () => {
             />
           </div>
           <Button
+            variant="default"
             onClick={() => navigate("/tracker/new")}
-            className="btn-action"
           >
             <Plus className="h-4 w-4 mr-2" />
             {t("tracker.useTimer")}
