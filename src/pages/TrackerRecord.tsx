@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router-dom";
 import { format, isWeekend } from "date-fns";
@@ -33,6 +33,7 @@ const TrackerRecord = () => {
   const deleteEntry = useDeleteTimerEntry();
 
   const [manualDialogOpen, setManualDialogOpen] = useState(false);
+  const hasInitialized = useRef(false);
 
   // Get daily limit from global settings
   const dailyLimit = useMemo(() => {
@@ -64,12 +65,13 @@ const TrackerRecord = () => {
 
   const remainingHours = Math.max(0, dailyLimit - todayTrackedHours);
 
-  // Reset timer state when creating a new entry (not editing)
+  // Full reset on mount for new entries - runs only once
   useEffect(() => {
-    if (!isEditMode && id === "new") {
-      tracker.reset();
+    if (!hasInitialized.current && id === "new") {
+      hasInitialized.current = true;
+      tracker.fullReset();
     }
-  }, [id, isEditMode]);
+  }, [id, tracker]);
 
   // If editing, open manual dialog with entry data
   useEffect(() => {
@@ -285,17 +287,8 @@ const TrackerRecord = () => {
           formattedTime={tracker.formattedTime}
           engagementId={tracker.engagementId}
           activityId={tracker.activityId}
-          cyclesEnabled={tracker.pomodoroEnabled}
           remainingHours={remainingHours}
           isEditMode={isEditMode}
-          // Cycles props
-          cyclePhase={tracker.pomodoroPhase}
-          cycleCount={tracker.pomodoroCount}
-          cycleProgress={tracker.getProgress()}
-          cycleRemaining={tracker.formattedRemaining}
-          cycleDuration={tracker.pomodoroDuration}
-          breakDuration={tracker.shortBreakDuration}
-          // Handlers
           onStart={handleStart}
           onPause={handlePause}
           onSaveAndReset={handleSaveAndReset}
@@ -303,8 +296,6 @@ const TrackerRecord = () => {
           onDelete={handleDelete}
           onEngagementChange={tracker.setEngagement}
           onActivityChange={tracker.setActivity}
-          onToggleCycles={tracker.togglePomodoro}
-          onCycleSettingsChange={tracker.setPomodoroSettings}
         />
 
         <ManualEntryDialog
