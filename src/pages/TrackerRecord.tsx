@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router-dom";
 import { format, isWeekend } from "date-fns";
@@ -24,7 +24,8 @@ const TrackerRecord = () => {
   const { id } = useParams();
   const isEditMode = !!id && id !== "new";
 
-  const tracker = useTimeTracker();
+  // Use forceReset option for new entries - this happens synchronously in useState initializer
+  const tracker = useTimeTracker({ forceReset: id === "new" });
   const { staffRecord, isLoading: staffLoading } = useCurrentStaff();
   const { data: entries } = useTimerEntries();
   const { data: globalSettings } = useGlobalSettings();
@@ -33,7 +34,6 @@ const TrackerRecord = () => {
   const deleteEntry = useDeleteTimerEntry();
 
   const [manualDialogOpen, setManualDialogOpen] = useState(false);
-  const hasInitialized = useRef(false);
 
   // Get daily limit from global settings
   const dailyLimit = useMemo(() => {
@@ -64,14 +64,6 @@ const TrackerRecord = () => {
   }, [entries, tracker.isRunning, tracker.elapsedSeconds]);
 
   const remainingHours = Math.max(0, dailyLimit - todayTrackedHours);
-
-  // Full reset on mount for new entries - runs only once
-  useEffect(() => {
-    if (!hasInitialized.current && id === "new") {
-      hasInitialized.current = true;
-      tracker.fullReset();
-    }
-  }, [id, tracker]);
 
   // If editing, open manual dialog with entry data
   useEffect(() => {
@@ -137,7 +129,10 @@ const TrackerRecord = () => {
   };
 
   const handleSaveAndReset = async () => {
-    if (!tracker.runningEntryId) return;
+    if (!tracker.runningEntryId) {
+      toast.error(t("tracker.noEntryToSave"));
+      return;
+    }
     try {
       const durationMinutes = roundToNearest5(Math.floor(tracker.elapsedSeconds / 60));
       await updateEntry.mutateAsync({
@@ -165,6 +160,7 @@ const TrackerRecord = () => {
   };
 
   const handleDelete = async () => {
+    // Edit mode: delete the specific entry being edited
     if (isEditMode && id) {
       try {
         await deleteEntry.mutateAsync(id);
@@ -173,7 +169,25 @@ const TrackerRecord = () => {
       } catch (error) {
         toast.error(t("tracker.errorDeleting"));
       }
+      return;
     }
+    
+    // New entry mode: delete the running entry if exists
+    if (tracker.runningEntryId) {
+      try {
+        await deleteEntry.mutateAsync(tracker.runningEntryId);
+        tracker.reset();
+        tracker.clearRunningEntry();
+        toast.success(t("tracker.entryDeleted"));
+        navigate("/tracker");
+      } catch (error) {
+        toast.error(t("tracker.errorDeleting"));
+      }
+      return;
+    }
+    
+    // No entry to delete, just navigate back
+    navigate("/tracker");
   };
 
   const handleManualSubmit = async (data: {
