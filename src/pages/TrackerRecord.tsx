@@ -64,6 +64,13 @@ const TrackerRecord = () => {
 
   const remainingHours = Math.max(0, dailyLimit - todayTrackedHours);
 
+  // Reset timer state when creating a new entry (not editing)
+  useEffect(() => {
+    if (!isEditMode && id === "new") {
+      tracker.reset();
+    }
+  }, [id, isEditMode]);
+
   // If editing, open manual dialog with entry data
   useEffect(() => {
     if (isEditMode && entries) {
