@@ -239,8 +239,11 @@ const WorksheetEdit = () => {
             </Button>
           </div>
           <div className="flex items-center gap-2">
-            {hasUnsavedChanges && (
+            {isSaving && (
               <span className="text-sm text-warning">{t("timesheet.saving")}</span>
+            )}
+            {hasUnsavedChanges && !isSaving && (
+              <span className="text-sm text-muted-foreground">{t("common.unsavedChanges")}</span>
             )}
             <Button
               onClick={handleSave}
