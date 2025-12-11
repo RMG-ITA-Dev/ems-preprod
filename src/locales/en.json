@@ -98,6 +98,7 @@
     "entryDeleted": "Entry deleted",
     "entryDuplicated": "Entry duplicated",
     "noEntryToSave": "No time to save",
+    "entryNotFound": "Entry not found",
     "errorStarting": "Error starting",
     "errorStopping": "Error stopping",
     "errorAdding": "Error adding",

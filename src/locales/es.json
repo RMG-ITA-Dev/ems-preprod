@@ -98,6 +98,7 @@
     "entryDeleted": "Entrada eliminada",
     "entryDuplicated": "Entrada duplicada",
     "noEntryToSave": "No hay tiempo que guardar",
+    "entryNotFound": "La entrada no existe",
     "errorStarting": "Error al iniciar",
     "errorStopping": "Error al detener",
     "errorAdding": "Error al agregar",
