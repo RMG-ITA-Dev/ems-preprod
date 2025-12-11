@@ -558,6 +558,12 @@
     "notes": "Notes",
     "notesPlaceholder": "Add notes about this work matrix...",
     "noCategoriesOrActivities": "No categories or activity codes configured.",
+    "createWorkOrder": "Create Work Order",
+    "createWorkOrderDescription": "Creates a work order using the budgeted hours from this matrix.",
+    "worksheetExists": "This engagement has a Work Matrix",
+    "worksheetExistsDescription": "You can create the work order directly from the matrix to use the pre-budgeted hours.",
+    "useWorksheet": "Use Existing Worksheet",
+    "viewWorksheet": "View Worksheet",
     "status": {
       "draft": "Draft",
       "approved": "Approved",

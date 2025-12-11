@@ -558,6 +558,12 @@
     "notes": "Notas",
     "notesPlaceholder": "Agregar notas sobre esta matriz de trabajo...",
     "noCategoriesOrActivities": "No hay categorías o códigos de actividad configurados.",
+    "createWorkOrder": "Crear Orden de Trabajo",
+    "createWorkOrderDescription": "Crea una orden de trabajo usando las horas presupuestadas de esta matriz.",
+    "worksheetExists": "Esta empresa tiene una Matriz de Trabajo",
+    "worksheetExistsDescription": "Puede crear la orden de trabajo directamente desde la matriz para usar las horas ya presupuestadas.",
+    "useWorksheet": "Usar Matriz Existente",
+    "viewWorksheet": "Ver Matriz",
     "status": {
       "draft": "Borrador",
       "approved": "Aprobada",

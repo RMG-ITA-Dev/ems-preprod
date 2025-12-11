@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, FileSpreadsheet } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -12,10 +12,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { WorkOrderForm, BudgetLineInput, ExpenseBudgetInput } from "@/components/forms/WorkOrderForm";
 import { useEngagements, useSetting, useCategories, useWorkOrders } from "@/hooks/useEmsData";
+import { useWorksheetByEngagementId } from "@/hooks/useWorksheetData";
 import { useCreateWorkOrder, useCreateBudgetLine, useCreateExpenseBudget } from "@/hooks/useEmsMutations";
 import { toast } from "@/hooks/use-toast";
 
@@ -52,6 +53,9 @@ const WorkOrderNew = () => {
   );
   
   const selectedEngagement = engagements?.find((e) => e.engagement_id === selectedEngagementId);
+
+  // Check if selected engagement has a worksheet
+  const { data: existingWorksheet } = useWorksheetByEngagementId(selectedEngagementId || undefined);
 
   // Auto-detect season based on client's industry fiscal year end
   useEffect(() => {
@@ -170,26 +174,51 @@ const WorkOrderNew = () => {
 
         {/* Show engagement info */}
         {selectedEngagement && (
-          <Card className="bg-muted/30">
-            <CardContent className="py-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">{t("entities.engagement")}</p>
-                  <p className="font-semibold">{selectedEngagement.engagement_code} - {selectedEngagement.engagement_name}</p>
-                  <p className="text-sm text-muted-foreground">{selectedEngagement.client?.client_legal_name}</p>
-                </div>
-                {selectedEngagement.client?.industry && (
-                  <div className="text-right">
-                    <p className="text-sm text-muted-foreground">{t("industry.fiscalYearEnd")}</p>
-                    <p className="font-medium">{selectedEngagement.client.industry.fiscal_year_end}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {seasonMode === "High" ? t("industry.highSeason") : t("industry.lowSeason")} ({t("workOrders.autoDetected")})
-                    </p>
+          <>
+            <Card className="bg-muted/30">
+              <CardContent className="py-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-muted-foreground">{t("entities.engagement")}</p>
+                    <p className="font-semibold">{selectedEngagement.engagement_code} - {selectedEngagement.engagement_name}</p>
+                    <p className="text-sm text-muted-foreground">{selectedEngagement.client?.client_legal_name}</p>
                   </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
+                  {selectedEngagement.client?.industry && (
+                    <div className="text-right">
+                      <p className="text-sm text-muted-foreground">{t("industry.fiscalYearEnd")}</p>
+                      <p className="font-medium">{selectedEngagement.client.industry.fiscal_year_end}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {seasonMode === "High" ? t("industry.highSeason") : t("industry.lowSeason")} ({t("workOrders.autoDetected")})
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Show worksheet recommendation if one exists */}
+            {existingWorksheet && !existingWorksheet.wo_id && (
+              <Card className="border-primary/50 bg-primary/5">
+                <CardHeader className="py-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <FileSpreadsheet className="h-5 w-5 text-primary" />
+                    {t("workMatrix.worksheetExists")}
+                  </CardTitle>
+                  <CardDescription>
+                    {t("workMatrix.worksheetExistsDescription")}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="py-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => navigate(`/worksheets/${existingWorksheet.id}`)}
+                  >
+                    {t("workMatrix.useWorksheet")}
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+          </>
         )}
 
         {/* Work Order Form */}
