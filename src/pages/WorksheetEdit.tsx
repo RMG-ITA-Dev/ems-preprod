@@ -83,7 +83,7 @@ const WorksheetEdit = () => {
 
   const handleCellChange = useCallback(
     (categoryId: string, activityId: string, hours: number) => {
-      const key = `${categoryId}-${activityId}`;
+      const key = `${categoryId}|${activityId}`;
       setLocalCells((prev) => {
         const newMap = new Map(prev);
         newMap.set(key, hours);
@@ -103,7 +103,7 @@ const WorksheetEdit = () => {
     // Start with existing cells
     const existingCellsMap = new Map<string, number>();
     worksheet.cells.forEach((cell) => {
-      existingCellsMap.set(`${cell.category_id}-${cell.activity_id}`, cell.budget_hours);
+      existingCellsMap.set(`${cell.category_id}|${cell.activity_id}`, cell.budget_hours);
     });
 
     // Merge with local changes
@@ -113,7 +113,7 @@ const WorksheetEdit = () => {
 
     // Convert to array
     existingCellsMap.forEach((hours, key) => {
-      const [categoryId, activityId] = key.split("-");
+      const [categoryId, activityId] = key.split("|");
       cellsToSave.push({
         worksheet_id: id,
         category_id: categoryId,
@@ -152,7 +152,7 @@ const WorksheetEdit = () => {
     
     // Add existing cells
     worksheet.cells.forEach((cell) => {
-      cellsMap.set(`${cell.category_id}-${cell.activity_id}`, cell);
+      cellsMap.set(`${cell.category_id}|${cell.activity_id}`, cell);
     });
 
     // Apply local changes
@@ -161,7 +161,7 @@ const WorksheetEdit = () => {
       if (existing) {
         cellsMap.set(key, { ...existing, budget_hours: hours });
       } else {
-        const [categoryId, activityId] = key.split("-");
+        const [categoryId, activityId] = key.split("|");
         cellsMap.set(key, {
           id: `local-${key}`,
           worksheet_id: id!,
@@ -233,7 +233,19 @@ const WorksheetEdit = () => {
         {/* Header */}
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-4">
-            <Button variant="ghost" size="sm" onClick={() => navigate("/worksheets")}>
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={() => {
+                if (hasUnsavedChanges) {
+                  if (window.confirm(t("common.unsavedChangesConfirm"))) {
+                    navigate("/worksheets");
+                  }
+                } else {
+                  navigate("/worksheets");
+                }
+              }}
+            >
               <ArrowLeft className="h-4 w-4 mr-2" />
               {t("workMatrix.backToList")}
             </Button>

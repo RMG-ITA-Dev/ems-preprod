@@ -29,7 +29,8 @@
     "team": "Equipo",
     "dates": "Fechas",
     "or": "O",
-    "unsavedChanges": "Sin guardar"
+    "unsavedChanges": "Sin guardar",
+    "unsavedChangesConfirm": "Tiene cambios sin guardar. ¿Desea salir de todas formas?"
   },
   "nav": {
     "main": "Principal",
