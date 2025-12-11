@@ -46,12 +46,15 @@ export function useTimeTracker() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        // Recalculate elapsed time if timer was running
+        // IMPORTANT: Do NOT auto-resume timer on page load
+        // Only restore elapsed time, require manual start to resume
         if (parsed.isRunning && parsed.startTime) {
           const now = Date.now();
           const additionalSeconds = Math.floor((now - parsed.startTime) / 1000);
           parsed.elapsedSeconds += additionalSeconds;
-          parsed.startTime = now;
+          // Stop the timer - user must manually restart
+          parsed.isRunning = false;
+          parsed.startTime = null;
         }
         return { ...DEFAULT_STATE, ...parsed };
       } catch {

@@ -111,16 +111,19 @@
     "importSelected": "Importar Seleccionadas",
     "importFromTimer": "Importar del Cronómetro",
     "cycles": {
+      "title": "Ciclos",
       "ready": "Listo para comenzar",
-      "focus": "Tiempo de enfoque",
-      "shortBreak": "Descanso corto",
-      "longBreak": "Descanso largo",
+      "focus": "Tiempo de trabajo",
+      "shortBreak": "Pausa corta",
+      "longBreak": "Pausa larga",
       "cycle": "Ciclo {{count}}",
       "cycleNum": "Ciclo {{num}}/4",
       "remaining": "Tiempo restante",
       "work": "Trabajo",
-      "break": "Descanso"
+      "break": "Pausa"
     },
+    "pause": "PAUSAR",
+    "saveAndReset": "GUARDAR",
     "remainingToday": "Restante hoy",
     "dailyLimitReached": "Has alcanzado el límite diario de horas",
     "dailyLimitExceeded": "Esta entrada excedería el límite diario",

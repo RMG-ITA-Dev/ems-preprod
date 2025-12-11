@@ -4,13 +4,10 @@ import { useNavigate, useParams } from "react-router-dom";
 import { format, isWeekend } from "date-fns";
 import { toast } from "sonner";
 import { AppLayout } from "@/components/layout/AppLayout";
-import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle } from "lucide-react";
 import { TrackerBar } from "@/components/tracker/TrackerBar";
-import { PomodoroPanel } from "@/components/tracker/PomodoroPanel";
 import { ManualEntryDialog } from "@/components/tracker/ManualEntryDialog";
-import { StopActionDialog } from "@/components/tracker/StopActionDialog";
 import { useTimeTracker } from "@/hooks/useTimeTracker";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import {
@@ -35,9 +32,7 @@ const TrackerRecord = () => {
   const updateEntry = useUpdateTimerEntry();
   const deleteEntry = useDeleteTimerEntry();
 
-  const [isManualMode, setIsManualMode] = useState(false);
   const [manualDialogOpen, setManualDialogOpen] = useState(false);
-  const [stopDialogOpen, setStopDialogOpen] = useState(false);
 
   // Get daily limit from global settings
   const dailyLimit = useMemo(() => {
@@ -69,36 +64,22 @@ const TrackerRecord = () => {
 
   const remainingHours = Math.max(0, dailyLimit - todayTrackedHours);
 
-  // If editing, load the entry data
+  // If editing, open manual dialog with entry data
   useEffect(() => {
     if (isEditMode && entries) {
       const entry = entries.find((e) => e.timer_id === id);
       if (entry) {
         tracker.setEngagement(entry.engagement_id);
         tracker.setActivity(entry.activity_id);
-        tracker.setDescription(entry.description || "");
-        setIsManualMode(true);
         setManualDialogOpen(true);
       }
     }
   }, [isEditMode, id, entries]);
 
-  // Sync running entry on mount
-  useEffect(() => {
-    if (!staffRecord?.staff_id || !entries) return;
-    if (tracker.runningEntryId && !tracker.isRunning && tracker.elapsedSeconds === 0) {
-      const runningEntry = entries.find(
-        (e) => e.timer_id === tracker.runningEntryId && !e.ended_at
-      );
-      if (runningEntry) {
-        const startTime = new Date(runningEntry.started_at).getTime();
-        const elapsed = Math.floor((Date.now() - startTime) / 1000);
-        tracker.start(runningEntry.timer_id);
-      }
-    }
-  }, [staffRecord?.staff_id, entries]);
-
   const isWeekendToday = isWeekend(new Date());
+
+  // Determine if timer is paused (has time but not running)
+  const isPaused = !tracker.isRunning && tracker.elapsedSeconds > 0 && !!tracker.runningEntryId;
 
   const handleStart = async () => {
     if (!staffRecord?.staff_id || !tracker.engagementId || !tracker.activityId) {
@@ -128,7 +109,6 @@ const TrackerRecord = () => {
         staff_id: staffRecord.staff_id,
         engagement_id: tracker.engagementId,
         activity_id: tracker.activityId,
-        description: tracker.description || undefined,
         started_at: new Date().toISOString(),
       });
       tracker.setRunningEntryId(result.timer_id);
@@ -136,10 +116,6 @@ const TrackerRecord = () => {
     } catch (error) {
       toast.error(t("tracker.errorStarting"));
     }
-  };
-
-  const handleStopClick = () => {
-    setStopDialogOpen(true);
   };
 
   const handlePause = () => {
@@ -151,7 +127,7 @@ const TrackerRecord = () => {
     return Math.max(5, rounded);
   };
 
-  const handleLogAndReset = async () => {
+  const handleSaveAndReset = async () => {
     if (!tracker.runningEntryId) return;
     try {
       const durationMinutes = roundToNearest5(Math.floor(tracker.elapsedSeconds / 60));
@@ -166,6 +142,28 @@ const TrackerRecord = () => {
       navigate("/tracker");
     } catch (error) {
       toast.error(t("tracker.errorStopping"));
+    }
+  };
+
+  const handleCancel = () => {
+    // Discard current entry without saving
+    if (tracker.runningEntryId) {
+      deleteEntry.mutate(tracker.runningEntryId);
+    }
+    tracker.reset();
+    tracker.clearRunningEntry();
+    navigate("/tracker");
+  };
+
+  const handleDelete = async () => {
+    if (isEditMode && id) {
+      try {
+        await deleteEntry.mutateAsync(id);
+        toast.success(t("tracker.entryDeleted"));
+        navigate("/tracker");
+      } catch (error) {
+        toast.error(t("tracker.errorDeleting"));
+      }
     }
   };
 
@@ -276,40 +274,31 @@ const TrackerRecord = () => {
 
         <TrackerBar
           isRunning={tracker.isRunning}
+          isPaused={isPaused}
           formattedTime={tracker.formattedTime}
           engagementId={tracker.engagementId}
           activityId={tracker.activityId}
-          description={tracker.description}
-          pomodoroEnabled={tracker.pomodoroEnabled}
+          cyclesEnabled={tracker.pomodoroEnabled}
           remainingHours={remainingHours}
-          isManualMode={isManualMode}
+          isEditMode={isEditMode}
+          // Cycles props
+          cyclePhase={tracker.pomodoroPhase}
+          cycleCount={tracker.pomodoroCount}
+          cycleProgress={tracker.getProgress()}
+          cycleRemaining={tracker.formattedRemaining}
+          cycleDuration={tracker.pomodoroDuration}
+          breakDuration={tracker.shortBreakDuration}
+          // Handlers
           onStart={handleStart}
-          onStop={handleStopClick}
+          onPause={handlePause}
+          onSaveAndReset={handleSaveAndReset}
+          onCancel={handleCancel}
+          onDelete={handleDelete}
           onEngagementChange={tracker.setEngagement}
           onActivityChange={tracker.setActivity}
-          onDescriptionChange={tracker.setDescription}
-          onTogglePomodoro={tracker.togglePomodoro}
-          onToggleMode={() => {
-            setIsManualMode(!isManualMode);
-            if (!isManualMode) {
-              setManualDialogOpen(true);
-            }
-          }}
+          onToggleCycles={tracker.togglePomodoro}
+          onCycleSettingsChange={tracker.setPomodoroSettings}
         />
-
-        {tracker.pomodoroEnabled && (
-          <PomodoroPanel
-            isRunning={tracker.isRunning}
-            phase={tracker.pomodoroPhase}
-            pomodoroCount={tracker.pomodoroCount}
-            progress={tracker.getProgress()}
-            formattedRemaining={tracker.formattedRemaining}
-            pomodoroDuration={tracker.pomodoroDuration}
-            shortBreakDuration={tracker.shortBreakDuration}
-            longBreakDuration={tracker.longBreakDuration}
-            onSettingsChange={tracker.setPomodoroSettings}
-          />
-        )}
 
         <ManualEntryDialog
           open={manualDialogOpen}
@@ -327,14 +316,6 @@ const TrackerRecord = () => {
             activityId: data.activity_id,
             description: data.description,
           })}
-        />
-
-        <StopActionDialog
-          open={stopDialogOpen}
-          onOpenChange={setStopDialogOpen}
-          formattedTime={tracker.formattedTime}
-          onPause={handlePause}
-          onLogAndReset={handleLogAndReset}
         />
       </div>
     </AppLayout>
