@@ -5,6 +5,7 @@ import * as z from "zod";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumericInput } from "@/components/ui/numeric-input";
 import {
   Form,
   FormControl,
@@ -123,7 +124,7 @@ export function ExpenseTypeForm({ open, onOpenChange, expenseType }: ExpenseType
                 <FormItem>
                   <FormLabel>{t("expense.defaultUnitCost")}</FormLabel>
                   <FormControl>
-                    <Input type="number" step="0.01" placeholder="0.00" {...field} />
+                    <NumericInput decimals={2} locale="en" min={0} placeholder="0.00" value={field.value} onChange={field.onChange} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { NumericInput } from "@/components/ui/numeric-input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,6 +16,7 @@ import { Switch } from "@/components/ui/switch";
 import { Trash2, Plus, Lock, CheckCircle, XCircle, Send } from "lucide-react";
 import { useCategories, useExpenseTypes, useSetting, Category, ExpenseType, type WorkOrder, type WOBudgetLine } from "@/hooks/useEmsData";
 import { cn } from "@/lib/utils";
+import { useLanguage } from "@/hooks/useLanguage";
 
 export interface BudgetLineInput {
   id: string;
@@ -90,6 +91,7 @@ export function WorkOrderForm({
   isSubmitting,
 }: WorkOrderFormProps) {
   const { t } = useTranslation();
+  const { currentLanguage } = useLanguage();
   const { data: categories } = useCategories();
   const { data: expenseTypes } = useExpenseTypes();
 
@@ -290,12 +292,12 @@ export function WorkOrderForm({
                         </Select>
                       </td>
                       <td className="py-1.5 px-2">
-                        <Input
-                          type="number"
+                        <NumericInput
+                          decimals={1}
+                          locale={currentLanguage as "es" | "en"}
                           min={0}
-                          step={0.5}
                           value={line.budgeted_hours || ""}
-                          onChange={(e) => updateBudgetLine(line.id, "budgeted_hours", parseFloat(e.target.value) || 0)}
+                          onChange={(val) => updateBudgetLine(line.id, "budgeted_hours", val)}
                           className="text-right h-8"
                           disabled={!isEditable}
                         />
@@ -385,11 +387,12 @@ export function WorkOrderForm({
                       ))}
                     </SelectContent>
                   </Select>
-                  <Input
-                    type="number"
+                  <NumericInput
+                    decimals={2}
+                    locale={currentLanguage as "es" | "en"}
                     min={0}
                     value={exp.budgeted_amount || ""}
-                    onChange={(e) => updateExpenseBudget(exp.id, "budgeted_amount", parseFloat(e.target.value) || 0)}
+                    onChange={(val) => updateExpenseBudget(exp.id, "budgeted_amount", val)}
                     className="w-28 text-right h-8"
                     disabled={!isEditable}
                   />
@@ -432,10 +435,11 @@ export function WorkOrderForm({
               </div>
               <div className="flex justify-between items-center">
                 <Label className="text-sm">{t("workOrders.adjustment")}</Label>
-                <Input
-                  type="number"
+                <NumericInput
+                  decimals={2}
+                  locale={currentLanguage as "es" | "en"}
                   value={adjustmentAmount || ""}
-                  onChange={(e) => onAdjustmentChange(parseFloat(e.target.value) || 0)}
+                  onChange={(val) => onAdjustmentChange(val)}
                   className="w-36 text-right h-8"
                   disabled={!isEditable}
                 />
