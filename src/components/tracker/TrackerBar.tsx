@@ -125,14 +125,14 @@ export function TrackerBar({
         </div>
       </div>
 
-      {/* BOX B: TIMER CONTROLS */}
-      <div className="bg-card border border-border rounded-lg p-6 shadow-sm">
-        <div className="flex flex-col items-center gap-6">
-          {/* Timer Display */}
-          <div className="flex items-center gap-6">
+      {/* BOX B: TIMER CONTROLS - Timer LEFT, Buttons RIGHT */}
+      <div className="bg-card border border-border rounded-lg p-4 shadow-sm">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          {/* LEFT: Timer Display + Remaining Hours */}
+          <div className="flex items-center gap-4">
             <div
               className={cn(
-                "font-mono text-5xl font-bold px-8 py-6 rounded-lg min-w-[280px] text-center",
+                "font-mono text-3xl font-bold px-4 py-3 rounded-lg min-w-[160px] text-center",
                 isRunning ? "bg-success/10 text-success" : 
                 isPaused ? "bg-warning/10 text-warning" : 
                 "bg-muted text-muted-foreground"
@@ -144,7 +144,7 @@ export function TrackerBar({
             {/* Remaining Hours Indicator */}
             {remainingHours !== null && (
               <div className={cn(
-                "text-sm px-4 py-3 rounded-lg whitespace-nowrap",
+                "text-sm px-3 py-2 rounded-lg whitespace-nowrap",
                 remainingHours <= 1 ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground"
               )}>
                 {t("tracker.remainingToday")}: <span className="font-semibold">{remainingHours.toFixed(1)}h</span>
@@ -152,16 +152,16 @@ export function TrackerBar({
             )}
           </div>
 
-          {/* Control Buttons */}
-          <div className="flex flex-wrap items-center justify-center gap-3">
+          {/* RIGHT: Control Buttons */}
+          <div className="flex flex-wrap items-center gap-2">
             {/* START Button - Teal #008795 */}
             {showStartButton && (
               <Button
                 onClick={onStart}
                 disabled={!canStart}
-                className="h-12 px-6 text-base font-semibold bg-tracker-start hover:bg-tracker-start/90 text-primary-foreground"
+                className="h-9 px-4 text-sm font-semibold bg-tracker-start hover:bg-tracker-start/90 text-primary-foreground"
               >
-                <Play className="h-5 w-5 mr-2" />
+                <Play className="h-4 w-4 mr-1.5" />
                 {t("tracker.start")}
               </Button>
             )}
@@ -170,9 +170,9 @@ export function TrackerBar({
             {showPauseButton && (
               <Button
                 onClick={onPause}
-                className="h-12 px-6 text-base font-semibold bg-tracker-pause hover:bg-tracker-pause/90 text-primary-foreground"
+                className="h-9 px-4 text-sm font-semibold bg-tracker-pause hover:bg-tracker-pause/90 text-primary-foreground"
               >
-                <Pause className="h-5 w-5 mr-2" />
+                <Pause className="h-4 w-4 mr-1.5" />
                 {t("tracker.pause")}
               </Button>
             )}
@@ -181,9 +181,9 @@ export function TrackerBar({
             {showSaveButton && (
               <Button
                 onClick={onSaveAndReset}
-                className="h-12 px-6 text-base font-semibold bg-tracker-save hover:bg-tracker-save/90 text-foreground"
+                className="h-9 px-4 text-sm font-semibold bg-tracker-save hover:bg-tracker-save/90 text-foreground"
               >
-                <Save className="h-5 w-5 mr-2" />
+                <Save className="h-4 w-4 mr-1.5" />
                 {t("tracker.saveAndReset")}
               </Button>
             )}
@@ -192,9 +192,9 @@ export function TrackerBar({
             {showCancelButton && (
               <Button
                 onClick={onCancel}
-                className="h-12 px-6 text-base font-semibold bg-tracker-cancel hover:bg-tracker-cancel/90 text-primary-foreground"
+                className="h-9 px-4 text-sm font-semibold bg-tracker-cancel hover:bg-tracker-cancel/90 text-primary-foreground"
               >
-                <X className="h-5 w-5 mr-2" />
+                <X className="h-4 w-4 mr-1.5" />
                 {t("common.cancel")}
               </Button>
             )}
@@ -204,9 +204,9 @@ export function TrackerBar({
               <Button
                 onClick={onDelete}
                 variant="destructive"
-                className="h-12 px-6 text-base font-semibold"
+                className="h-9 px-4 text-sm font-semibold"
               >
-                <Trash2 className="h-5 w-5 mr-2" />
+                <Trash2 className="h-4 w-4 mr-1.5" />
                 {t("common.delete")}
               </Button>
             )}

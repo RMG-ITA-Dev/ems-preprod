@@ -97,6 +97,7 @@
     "entryAdded": "Entry added",
     "entryDeleted": "Entry deleted",
     "entryDuplicated": "Entry duplicated",
+    "noEntryToSave": "No time to save",
     "errorStarting": "Error starting",
     "errorStopping": "Error stopping",
     "errorAdding": "Error adding",
