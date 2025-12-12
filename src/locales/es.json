@@ -319,7 +319,7 @@
     "updateError": "Error al actualizar {{entity}}",
     "deleteError": "Error al eliminar {{entity}}",
     "settingsSaved": "Configuración guardada exitosamente",
-    "welcomeBack": "¡Bienvenido de nuevo!",
+    "welcomeBack": "¡Bienvenido/a!",
     "accountCreated": "¡Cuenta creada exitosamente!",
     "invalidCredentials": "Correo o contraseña inválidos. Por favor intente de nuevo.",
     "emailAlreadyRegistered": "Este correo ya está registrado. Por favor inicie sesión.",
