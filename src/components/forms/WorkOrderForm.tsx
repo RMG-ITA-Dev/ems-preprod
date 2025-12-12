@@ -106,6 +106,10 @@ export function WorkOrderForm({
     return budgetLines.reduce((sum, line) => sum + line.budgeted_hours * line.standard_rate, 0);
   }, [budgetLines]);
 
+  const totalBudgetedHours = useMemo(() => {
+    return budgetLines.reduce((sum, line) => sum + line.budgeted_hours, 0);
+  }, [budgetLines]);
+
   const realizationPercent = useMemo(() => {
     if (totalStandardFee === 0) return 100;
     return ((totalStandardFee + adjustmentAmount) / totalStandardFee) * 100;
@@ -118,6 +122,15 @@ export function WorkOrderForm({
   }, [expenseBudget]);
 
   const feeWithTax = (totalAdjustedFee + totalExpenses) / (1 - taxRate);
+
+  // Average rates for subtotal row
+  const avgStandardRate = useMemo(() => {
+    return totalBudgetedHours > 0 ? totalStandardFee / totalBudgetedHours : 0;
+  }, [totalStandardFee, totalBudgetedHours]);
+
+  const avgAdjustedRate = useMemo(() => {
+    return totalBudgetedHours > 0 ? totalAdjustedFee / totalBudgetedHours : 0;
+  }, [totalAdjustedFee, totalBudgetedHours]);
 
   // Add budget line
   const addBudgetLine = () => {
@@ -177,11 +190,22 @@ export function WorkOrderForm({
     onExpenseBudgetChange(expenseBudget.filter((exp) => exp.id !== id));
   };
 
-  const formatCurrency = (amount: number) => {
+  // Format number without currency sign (for line items)
+  const formatNumber = (amount: number) => {
     if (currency === "BOB") {
-      return `Bs ${amount.toLocaleString("es-BO", { minimumFractionDigits: 2 })}`;
+      return amount.toLocaleString("es-BO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
-    return `$${amount.toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
+    return amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
+  // Format with currency code (for totals only)
+  const formatCurrencyTotal = (amount: number) => {
+    return `${currency} ${formatNumber(amount)}`;
+  };
+
+  // Legacy format for expenses and summary sections
+  const formatCurrency = (amount: number) => {
+    return formatCurrencyTotal(amount);
   };
 
   const isDraft = approvalStatus === "Draft";
@@ -270,6 +294,7 @@ export function WorkOrderForm({
                   const lineTotal = line.budgeted_hours * line.standard_rate;
                   const adjustedRate = line.standard_rate * (realizationPercent / 100);
                   const adjustedTotal = line.budgeted_hours * adjustedRate;
+                  const hoursPercent = totalBudgetedHours > 0 ? (line.budgeted_hours / totalBudgetedHours * 100) : 0;
                   
                   return (
                     <tr key={line.id} className="border-b border-border hover:bg-muted/20">
@@ -303,19 +328,19 @@ export function WorkOrderForm({
                         />
                       </td>
                       <td className="py-1.5 px-2 text-right font-mono text-muted-foreground">
-                        {formatCurrency(line.standard_rate)}
+                        {formatNumber(line.standard_rate)}
                       </td>
                       <td className="py-1.5 px-2 text-right font-mono font-medium">
-                        {formatCurrency(lineTotal)}
+                        {formatNumber(lineTotal)}
                       </td>
                       <td className="py-1.5 px-2 text-right font-mono border-l border-border text-muted-foreground">
-                        {realizationPercent.toFixed(1)}%
+                        {hoursPercent.toFixed(1)}%
                       </td>
                       <td className="py-1.5 px-2 text-right font-mono text-muted-foreground">
-                        {formatCurrency(adjustedRate)}
+                        {formatNumber(adjustedRate)}
                       </td>
                       <td className="py-1.5 px-2 text-right font-mono font-medium">
-                        {formatCurrency(adjustedTotal)}
+                        {formatNumber(adjustedTotal)}
                       </td>
                       <td className="py-1.5 px-2">
                         {isEditable && (
@@ -335,16 +360,26 @@ export function WorkOrderForm({
               </tbody>
               <tfoot>
                 <tr className="bg-muted/50 font-medium">
-                  <td className="py-2 px-2" colSpan={3}>
+                  <td className="py-2 px-2">
                     {t("workOrders.subtotal")}
                   </td>
                   <td className="py-2 px-2 text-right font-mono">
-                    {formatCurrency(totalStandardFee)}
+                    {formatNumber(totalBudgetedHours)}
                   </td>
-                  <td className="py-2 px-2 border-l border-border"></td>
-                  <td className="py-2 px-2"></td>
+                  <td className="py-2 px-2 text-right font-mono text-muted-foreground">
+                    {formatNumber(avgStandardRate)}
+                  </td>
                   <td className="py-2 px-2 text-right font-mono">
-                    {formatCurrency(totalAdjustedFee)}
+                    {formatCurrencyTotal(totalStandardFee)}
+                  </td>
+                  <td className="py-2 px-2 text-right font-mono border-l border-border">
+                    {realizationPercent.toFixed(1)}%
+                  </td>
+                  <td className="py-2 px-2 text-right font-mono text-muted-foreground">
+                    {formatNumber(avgAdjustedRate)}
+                  </td>
+                  <td className="py-2 px-2 text-right font-mono">
+                    {formatCurrencyTotal(totalAdjustedFee)}
                   </td>
                   <td></td>
                 </tr>
