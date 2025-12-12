@@ -864,16 +864,18 @@ CREATE POLICY "Authenticated users can manage work orders" ON public.work_orders
 | Table                      | Purpose                                                 | Key Relationships                                               |
 | -------------------------- | ------------------------------------------------------- | --------------------------------------------------------------- |
 | `industries`               | Client industry classification                          | → `clients`                                                     |
-| `categories`               | Staff categories with billing rates                     | → `staff`, `wo_budget_lines`                                    |
-| `activity_codes`           | Time entry classification codes                         | → `time_entries`, `timer_entries`                               |
+| `categories`               | Staff categories with billing rates                     | → `staff`, `wo_budget_lines`, `activity_worksheet_cells`        |
+| `activity_codes`           | Time entry classification codes                         | → `time_entries`, `timer_entries`, `activity_worksheet_cells`   |
 | `expense_types`            | Expense classification                                  | → `expense_logs`, `wo_expense_budget`                           |
 | `global_settings`          | System configuration values (`TAX_RATE`, etc.)          | None                                                            |
 | `user_roles`               | Authentication roles (`admin`, `staff`, `viewer`)       | → `auth.users`                                                  |
 | `staff`                    | Employee records                                        | → `categories`, `auth.users`                                    |
 | `clients`                  | Client companies                                        | → `industries`                                                  |
 | `engagements`              | Projects / Jobs                                         | → `clients`, `staff` (partner, manager)                         |
+| `activity_worksheets`      | Budget planning matrix per engagement                   | → `engagements`, `work_orders`, `staff` (creator)               |
+| `activity_worksheet_cells` | Individual budget cells (category × activity)           | → `activity_worksheets`, `categories`, `activity_codes`         |
 | `work_orders`              | Engagement pricing & budget (strict 1:1 per engagement) | → `engagements`, `staff` (approver)                             |
-| `wo_budget_lines`          | Hours budget by category                                | → `work_orders`, `categories`                                   |
+| `wo_budget_lines`          | Hours budget by category (aggregated from worksheet)    | → `work_orders`, `categories`                                   |
 | `wo_expense_budget`        | Expense budget allocations                              | → `work_orders`, `expense_types`                                |
 | `timesheet_periods`        | Weekly timesheet headers (submission status)            | → `staff`                                                       |
 | `timesheet_line_approvals` | Per-engagement approval status within a period          | → `timesheet_periods`, `engagements`, `staff` (approver)        |
@@ -1014,6 +1016,31 @@ erDiagram
     }
 
     %% ==========================================
+    %% ACTIVITY WORKSHEETS (PLANNING)
+    %% ==========================================
+    activity_worksheets {
+        uuid id PK
+        uuid engagement_id FK
+        uuid wo_id FK
+        uuid created_by_staff_id FK
+        integer version
+        varchar status
+        text notes
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    activity_worksheet_cells {
+        uuid id PK
+        uuid worksheet_id FK
+        uuid category_id FK
+        uuid activity_id FK
+        numeric budget_hours
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    %% ==========================================
     %% WORK ORDER & BUDGET TABLES
     %% ==========================================
     work_orders {
@@ -1128,6 +1155,8 @@ erDiagram
     industries ||--o{ clients : "classifies"
     categories ||--o{ staff : "assigns_rate"
     categories ||--o{ wo_budget_lines : "budgets_by"
+    categories ||--o{ activity_worksheet_cells : "budgets_by"
+    activity_codes ||--o{ activity_worksheet_cells : "budgets_for"
 
     %% Client-Engagement chain
     clients ||--o{ engagements : "has"
@@ -1135,6 +1164,12 @@ erDiagram
     %% Staff assignments on engagements
     staff ||--o{ engagements : "partner_id"
     staff ||--o{ engagements : "manager_id"
+
+    %% Worksheet relationships (planning layer)
+    engagements ||--o{ activity_worksheets : "planned_by"
+    activity_worksheets ||--o{ activity_worksheet_cells : "contains"
+    activity_worksheets ||--o| work_orders : "generates"
+    staff ||--o{ activity_worksheets : "created_by"
 
     %% Work Order relationships (1:1 with engagement)
     engagements ||--|| work_orders : "has_budget"
