@@ -273,7 +273,8 @@ export function WorkOrderForm({
                   <th className="text-left py-1.5 px-2 font-medium text-muted-foreground" colSpan={4}>
                     {t("workOrders.standard")}
                   </th>
-                  <th className="text-left py-1.5 px-2 font-medium text-muted-foreground border-l border-border" colSpan={3}>
+                  <th className="py-1.5 px-2 border-l border-border"></th>
+                  <th className="text-left py-1.5 px-2 font-medium text-muted-foreground border-l border-border" colSpan={2}>
                     {t("workOrders.adjusted")}
                   </th>
                   <th className="w-10"></th>
@@ -283,8 +284,8 @@ export function WorkOrderForm({
                   <th className="text-right py-1.5 px-2 font-medium w-24">{t("workOrders.hours")}</th>
                   <th className="text-right py-1.5 px-2 font-medium w-28">{t("workOrders.rate")}</th>
                   <th className="text-right py-1.5 px-2 font-medium w-32">{t("workOrders.total")}</th>
-                  <th className="text-right py-1.5 px-2 font-medium border-l border-border w-20">{t("workOrders.realization")}</th>
-                  <th className="text-right py-1.5 px-2 font-medium w-28">{t("workOrders.adjRate")}</th>
+                  <th className="text-right py-1.5 px-2 font-medium border-l border-border w-20">%</th>
+                  <th className="text-right py-1.5 px-2 font-medium border-l border-border w-28">{t("workOrders.adjRate")}</th>
                   <th className="text-right py-1.5 px-2 font-medium w-32">{t("workOrders.adjTotal")}</th>
                   <th className="w-10"></th>
                 </tr>
@@ -336,7 +337,7 @@ export function WorkOrderForm({
                       <td className="py-1.5 px-2 text-right font-mono border-l border-border text-muted-foreground">
                         {hoursPercent.toFixed(1)}%
                       </td>
-                      <td className="py-1.5 px-2 text-right font-mono text-muted-foreground">
+                      <td className="py-1.5 px-2 text-right font-mono border-l border-border text-muted-foreground">
                         {formatNumber(adjustedRate)}
                       </td>
                       <td className="py-1.5 px-2 text-right font-mono font-medium">
@@ -367,16 +368,16 @@ export function WorkOrderForm({
                     {formatNumber(totalBudgetedHours)}
                   </td>
                   <td className="py-2 px-2 text-right font-mono text-muted-foreground">
-                    {formatNumber(avgStandardRate)}
+                    {formatCurrencyTotal(avgStandardRate)}
                   </td>
                   <td className="py-2 px-2 text-right font-mono">
                     {formatCurrencyTotal(totalStandardFee)}
                   </td>
                   <td className="py-2 px-2 text-right font-mono border-l border-border">
-                    {realizationPercent.toFixed(1)}%
+                    100.0%
                   </td>
-                  <td className="py-2 px-2 text-right font-mono text-muted-foreground">
-                    {formatNumber(avgAdjustedRate)}
+                  <td className="py-2 px-2 text-right font-mono border-l border-border text-muted-foreground">
+                    {formatCurrencyTotal(avgAdjustedRate)}
                   </td>
                   <td className="py-2 px-2 text-right font-mono">
                     {formatCurrencyTotal(totalAdjustedFee)}
