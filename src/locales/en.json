@@ -394,10 +394,14 @@
       "noEngagements": "No engagements in this period",
       "recentEntries": "Recent Entries",
       "noRecentEntries": "No recent entries",
-      "timeActivity": "Time Tracking Activity",
-      "less": "Less",
-      "more": "More",
-      "hoursOn": "hours on"
+      "timeActivity": "Time Tracking",
+      "weeksLabel": "last 12 weeks",
+      "mapLegend": {
+        "submitted": "Submitted",
+        "draft": "Draft",
+        "notStarted": "Not started",
+        "overdue": "Overdue"
+      }
     },
     "cartera": {
       "activeEngagements": "Active Engagements",

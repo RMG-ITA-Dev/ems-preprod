@@ -394,10 +394,14 @@
       "noEngagements": "Sin encargos en este período",
       "recentEntries": "Entradas Recientes",
       "noRecentEntries": "Sin entradas recientes",
-      "timeActivity": "Actividad de Registro de Tiempo",
-      "less": "Menos",
-      "more": "Más",
-      "hoursOn": "horas el"
+      "timeActivity": "Registro de Tiempo",
+      "weeksLabel": "últimas 12 semanas",
+      "mapLegend": {
+        "submitted": "Enviada",
+        "draft": "Borrador",
+        "notStarted": "Sin iniciar",
+        "overdue": "Atrasada"
+      }
     },
     "cartera": {
       "activeEngagements": "Encargos Activos",
