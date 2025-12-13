@@ -391,6 +391,30 @@
       "noEngagements": "No engagements in this period",
       "recentEntries": "Recent Entries",
       "noRecentEntries": "No recent entries"
+    },
+    "encargo": {
+      "selectEngagement": "Select Engagement",
+      "noSelection": "Select an engagement to view details",
+      "noEngagements": "No engagements available",
+      "budgetHours": "Budget Hours",
+      "actualHours": "Actual Hours",
+      "variance": "variance",
+      "realization": "Realization",
+      "agreedFee": "Agreed Fee",
+      "standardFee": "Standard Fee",
+      "status": "Status",
+      "atRisk": "At Risk",
+      "onTrack": "On Track",
+      "overBudget": "Over Budget",
+      "consumed": "consumed",
+      "budgetConsumption": "Budget Consumption",
+      "used": "used",
+      "budgeted": "budgeted",
+      "categoryBreakdown": "Breakdown by Category",
+      "activityBreakdown": "Breakdown by Activity",
+      "budget": "Budget",
+      "actual": "Actual",
+      "noData": "No data available"
     }
   },
   "timesheet": {
