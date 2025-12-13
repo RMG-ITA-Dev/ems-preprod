@@ -391,6 +391,30 @@
       "noEngagements": "Sin encargos en este período",
       "recentEntries": "Entradas Recientes",
       "noRecentEntries": "Sin entradas recientes"
+    },
+    "encargo": {
+      "selectEngagement": "Seleccionar Encargo",
+      "noSelection": "Seleccione un encargo para ver los detalles",
+      "noEngagements": "Sin encargos disponibles",
+      "budgetHours": "Horas Presupuestadas",
+      "actualHours": "Horas Reales",
+      "variance": "variación",
+      "realization": "Realización",
+      "agreedFee": "Honorario Acordado",
+      "standardFee": "Honorario Estándar",
+      "status": "Estado",
+      "atRisk": "En Riesgo",
+      "onTrack": "En Buen Ritmo",
+      "overBudget": "Excedido",
+      "consumed": "consumido",
+      "budgetConsumption": "Consumo de Presupuesto",
+      "used": "usadas",
+      "budgeted": "presupuestadas",
+      "categoryBreakdown": "Desglose por Categoría",
+      "activityBreakdown": "Desglose por Actividad",
+      "budget": "Presup.",
+      "actual": "Real",
+      "noData": "Sin datos disponibles"
     }
   },
   "timesheet": {
