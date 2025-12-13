@@ -287,6 +287,11 @@ export function PersonalTab() {
         )}
       </div>
 
+      {/* Timesheet Map - Compact, higher position */}
+      {staffRecord?.staff_id && (
+        <TimesheetMap staffId={staffRecord.staff_id} />
+      )}
+
       {/* Middle Row: Engagements & Recent Activity */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* My Engagements */}
@@ -336,11 +341,6 @@ export function PersonalTab() {
         {/* Recent Time Entries */}
         <RecentTimeEntries entries={recentEntriesFormatted} />
       </div>
-
-      {/* Timesheet Map */}
-      {staffRecord?.staff_id && (
-        <TimesheetMap staffId={staffRecord.staff_id} />
-      )}
     </div>
   );
 }
