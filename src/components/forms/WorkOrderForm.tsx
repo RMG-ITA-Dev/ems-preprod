@@ -190,22 +190,23 @@ export function WorkOrderForm({
     onExpenseBudgetChange(expenseBudget.filter((exp) => exp.id !== id));
   };
 
-  // Format number without currency sign (for line items)
+  // Format number without currency sign (for line items) - no decimals
   const formatNumber = (amount: number) => {
+    const rounded = Math.round(amount);
     if (currency === "BOB") {
-      return amount.toLocaleString("es-BO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      return rounded.toLocaleString("es-BO", { maximumFractionDigits: 0 });
     }
-    return amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return rounded.toLocaleString("en-US", { maximumFractionDigits: 0 });
   };
 
-  // Format with currency code (for totals only)
+  // Format with currency code (for totals only) - no decimals
   const formatCurrencyTotal = (amount: number) => {
-    return `${currency} ${formatNumber(amount)}`;
+    return formatNumber(amount);
   };
 
   // Legacy format for expenses and summary sections
   const formatCurrency = (amount: number) => {
-    return formatCurrencyTotal(amount);
+    return formatNumber(amount);
   };
 
   const isDraft = approvalStatus === "Draft";
@@ -280,13 +281,13 @@ export function WorkOrderForm({
                   <th className="w-10"></th>
                 </tr>
                 <tr className="border-b border-border bg-muted/30">
-                  <th className="text-left py-1.5 px-2 font-medium">{t("entities.category")}</th>
-                  <th className="text-right py-1.5 px-2 font-medium w-24">{t("workOrders.hours")}</th>
-                  <th className="text-right py-1.5 px-2 font-medium w-28">{t("workOrders.rate")}</th>
-                  <th className="text-right py-1.5 px-2 font-medium w-32">{t("workOrders.total")}</th>
-                  <th className="text-right py-1.5 px-2 font-medium border-l border-border w-20">%</th>
-                  <th className="text-right py-1.5 px-2 font-medium border-l border-border w-28">{t("workOrders.adjRate")}</th>
-                  <th className="text-right py-1.5 px-2 font-medium w-32">{t("workOrders.adjTotal")}</th>
+                  <th className="text-center py-1.5 px-2 font-medium border-r border-border">{t("entities.category")}</th>
+                  <th className="text-center py-1.5 px-2 font-medium border-r border-border w-24">{t("workOrders.hours")}</th>
+                  <th className="text-center py-1.5 px-2 font-medium border-r border-border w-28">{t("workOrders.rate")} ({currency})</th>
+                  <th className="text-center py-1.5 px-2 font-medium border-r border-border w-32">{t("workOrders.total")} ({currency})</th>
+                  <th className="text-center py-1.5 px-2 font-medium border-r border-border w-20">%</th>
+                  <th className="text-center py-1.5 px-2 font-medium border-r border-border w-28">{t("workOrders.adjRate")} ({currency})</th>
+                  <th className="text-center py-1.5 px-2 font-medium border-r border-border w-32">{t("workOrders.adjTotal")} ({currency})</th>
                   <th className="w-10"></th>
                 </tr>
               </thead>
@@ -299,7 +300,7 @@ export function WorkOrderForm({
                   
                   return (
                     <tr key={line.id} className="border-b border-border hover:bg-muted/20">
-                      <td className="py-1.5 px-2">
+                      <td className="py-1.5 px-2 text-left border-r border-border">
                         <Select
                           value={line.category_id}
                           onValueChange={(v) => updateBudgetLine(line.id, "category_id", v)}
@@ -317,7 +318,7 @@ export function WorkOrderForm({
                           </SelectContent>
                         </Select>
                       </td>
-                      <td className="py-1.5 px-2">
+                      <td className="py-1.5 px-2 border-r border-border">
                         <NumericInput
                           decimals={1}
                           locale={currentLanguage as "es" | "en"}
@@ -328,22 +329,22 @@ export function WorkOrderForm({
                           disabled={!isEditable}
                         />
                       </td>
-                      <td className="py-1.5 px-2 text-right font-mono text-muted-foreground">
+                      <td className="py-1.5 px-2 text-right font-mono text-muted-foreground border-r border-border">
                         {formatNumber(line.standard_rate)}
                       </td>
-                      <td className="py-1.5 px-2 text-right font-mono font-medium">
+                      <td className="py-1.5 px-2 text-right font-mono font-medium border-r border-border">
                         {formatNumber(lineTotal)}
                       </td>
-                      <td className="py-1.5 px-2 text-right font-mono border-l border-border text-muted-foreground">
+                      <td className="py-1.5 px-2 text-center font-mono text-muted-foreground border-r border-border">
                         {hoursPercent.toFixed(1)}%
                       </td>
-                      <td className="py-1.5 px-2 text-right font-mono border-l border-border text-muted-foreground">
+                      <td className="py-1.5 px-2 text-right font-mono text-muted-foreground border-r border-border">
                         {formatNumber(adjustedRate)}
                       </td>
-                      <td className="py-1.5 px-2 text-right font-mono font-medium">
+                      <td className="py-1.5 px-2 text-right font-mono font-medium border-r border-border">
                         {formatNumber(adjustedTotal)}
                       </td>
-                      <td className="py-1.5 px-2">
+                      <td className="py-1.5 px-2 text-center">
                         {isEditable && (
                           <Button
                             variant="ghost"
@@ -361,26 +362,26 @@ export function WorkOrderForm({
               </tbody>
               <tfoot>
                 <tr className="bg-muted/50 font-medium">
-                  <td className="py-2 px-2">
+                  <td className="py-2 px-2 text-left border-r border-border">
                     {t("workOrders.subtotal")}
                   </td>
-                  <td className="py-2 px-2 text-right font-mono">
+                  <td className="py-2 px-2 text-right font-mono border-r border-border">
                     {formatNumber(totalBudgetedHours)}
                   </td>
-                  <td className="py-2 px-2 text-right font-mono text-muted-foreground">
-                    {formatCurrencyTotal(avgStandardRate)}
+                  <td className="py-2 px-2 text-right font-mono text-muted-foreground border-r border-border">
+                    {formatNumber(avgStandardRate)}
                   </td>
-                  <td className="py-2 px-2 text-right font-mono">
-                    {formatCurrencyTotal(totalStandardFee)}
+                  <td className="py-2 px-2 text-right font-mono border-r border-border">
+                    {formatNumber(totalStandardFee)}
                   </td>
-                  <td className="py-2 px-2 text-right font-mono border-l border-border">
+                  <td className="py-2 px-2 text-center font-mono border-r border-border">
                     100.0%
                   </td>
-                  <td className="py-2 px-2 text-right font-mono border-l border-border text-muted-foreground">
-                    {formatCurrencyTotal(avgAdjustedRate)}
+                  <td className="py-2 px-2 text-right font-mono text-muted-foreground border-r border-border">
+                    {formatNumber(avgAdjustedRate)}
                   </td>
-                  <td className="py-2 px-2 text-right font-mono">
-                    {formatCurrencyTotal(totalAdjustedFee)}
+                  <td className="py-2 px-2 text-right font-mono border-r border-border">
+                    {formatNumber(totalAdjustedFee)}
                   </td>
                   <td></td>
                 </tr>

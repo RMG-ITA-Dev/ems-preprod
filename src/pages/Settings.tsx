@@ -128,28 +128,28 @@ const Settings = () => {
       label: t("category.bobHigh"),
       sortable: true,
       className: "text-right",
-      render: (row) => row.rate_high_bob.toLocaleString(),
+      render: (row) => Math.round(row.rate_high_bob).toLocaleString("es-BO", { maximumFractionDigits: 0 }),
     },
     {
       key: "rate_low_bob",
       label: t("category.bobLow"),
       sortable: true,
       className: "text-right",
-      render: (row) => row.rate_low_bob.toLocaleString(),
+      render: (row) => Math.round(row.rate_low_bob).toLocaleString("es-BO", { maximumFractionDigits: 0 }),
     },
     {
       key: "rate_high_usd",
       label: t("category.usdHigh"),
       sortable: true,
       className: "text-right",
-      render: (row) => row.rate_high_usd.toLocaleString(),
+      render: (row) => Math.round(row.rate_high_usd).toLocaleString("en-US", { maximumFractionDigits: 0 }),
     },
     {
       key: "rate_low_usd",
       label: t("category.usdLow"),
       sortable: true,
       className: "text-right",
-      render: (row) => row.rate_low_usd.toLocaleString(),
+      render: (row) => Math.round(row.rate_low_usd).toLocaleString("en-US", { maximumFractionDigits: 0 }),
     },
   ];
 
@@ -184,7 +184,7 @@ const Settings = () => {
       label: t("expense.defaultUnitCost"),
       sortable: true,
       className: "text-right",
-      render: (row) => row.default_unit_cost.toFixed(2),
+      render: (row) => Math.round(row.default_unit_cost).toLocaleString("es-BO", { maximumFractionDigits: 0 }),
     },
   ];
 

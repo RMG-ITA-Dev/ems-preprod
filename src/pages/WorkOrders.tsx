@@ -60,9 +60,11 @@ const WorkOrders = () => {
   const [managerFilterOpen, setManagerFilterOpen] = useState(false);
   const [statusFilterOpen, setStatusFilterOpen] = useState(false);
 
-  const formatCurrency = (amount: number, currency: string) => {
-    const formatted = amount.toLocaleString("es-BO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    return `${currency === "BOB" ? "Bs" : "$"} ${formatted}`;
+  const formatCurrency = (amount: number) => {
+    const rounded = Math.round(amount);
+    return currencyTab === "BOB" 
+      ? rounded.toLocaleString("es-BO", { maximumFractionDigits: 0 })
+      : rounded.toLocaleString("en-US", { maximumFractionDigits: 0 });
   };
 
   const calculateTotals = (wo: WorkOrder) => {
@@ -225,37 +227,37 @@ const WorkOrders = () => {
             <Table className="table-dense">
               <TableHeader>
                 <TableRow className="bg-muted/50">
-                  <TableHead className="w-10 text-center"></TableHead>
-                  <TableHead className="w-10 text-center"></TableHead>
-                  <TableHead className="w-28">
+                  <TableHead className="w-10 text-center border-r border-border"></TableHead>
+                  <TableHead className="w-10 text-center border-r border-border"></TableHead>
+                  <TableHead className="w-28 text-center border-r border-border">
                     <span
-                      className="cursor-pointer hover:text-foreground flex items-center gap-1"
+                      className="cursor-pointer hover:text-foreground flex items-center gap-1 justify-center"
                       onClick={() => handleSort("code")}
                     >
                       {t("engagement.code")}
                       {getSortIcon("code")}
                     </span>
                   </TableHead>
-                  <TableHead className="min-w-[180px]">
+                  <TableHead className="min-w-[180px] text-center border-r border-border">
                     <span
-                      className="cursor-pointer hover:text-foreground flex items-center gap-1"
+                      className="cursor-pointer hover:text-foreground flex items-center gap-1 justify-center"
                       onClick={() => handleSort("name")}
                     >
                       {t("engagement.name")}
                       {getSortIcon("name")}
                     </span>
                   </TableHead>
-                  <TableHead className="min-w-[160px]">
+                  <TableHead className="min-w-[160px] text-center border-r border-border">
                     <span
-                      className="cursor-pointer hover:text-foreground flex items-center gap-1"
+                      className="cursor-pointer hover:text-foreground flex items-center gap-1 justify-center"
                       onClick={() => handleSort("client")}
                     >
                       {t("engagement.client")}
                       {getSortIcon("client")}
                     </span>
                   </TableHead>
-                  <TableHead className="w-28">
-                    <div className="flex items-center gap-1">
+                  <TableHead className="w-28 text-center border-r border-border">
+                    <div className="flex items-center gap-1 justify-center">
                       <span
                         className="cursor-pointer hover:text-foreground flex items-center gap-1"
                         onClick={() => handleSort("partner")}
@@ -296,8 +298,8 @@ const WorkOrders = () => {
                       </Popover>
                     </div>
                   </TableHead>
-                  <TableHead className="w-28">
-                    <div className="flex items-center gap-1">
+                  <TableHead className="w-28 text-center border-r border-border">
+                    <div className="flex items-center gap-1 justify-center">
                       <span
                         className="cursor-pointer hover:text-foreground flex items-center gap-1"
                         onClick={() => handleSort("manager")}
@@ -338,67 +340,67 @@ const WorkOrders = () => {
                       </Popover>
                     </div>
                   </TableHead>
-                  <TableHead className="w-20 text-right">
+                  <TableHead className="w-20 text-center border-r border-border">
                     <span
-                      className="cursor-pointer hover:text-foreground flex items-center gap-1 justify-end"
+                      className="cursor-pointer hover:text-foreground flex items-center gap-1 justify-center"
                       onClick={() => handleSort("hours")}
                     >
                       {t("workOrders.hours")}
                       {getSortIcon("hours")}
                     </span>
                   </TableHead>
-                  <TableHead className="w-28 text-right">
+                  <TableHead className="w-28 text-center border-r border-border">
                     <span
-                      className="cursor-pointer hover:text-foreground flex items-center gap-1 justify-end"
+                      className="cursor-pointer hover:text-foreground flex items-center gap-1 justify-center"
                       onClick={() => handleSort("standardFee")}
                     >
-                      {t("workOrders.standardFee")}
+                      {t("workOrders.standardFee")} ({currencyTab})
                       {getSortIcon("standardFee")}
                     </span>
                   </TableHead>
-                  <TableHead className="w-20 text-right">
+                  <TableHead className="w-20 text-center border-r border-border">
                     <span
-                      className="cursor-pointer hover:text-foreground flex items-center gap-1 justify-end"
+                      className="cursor-pointer hover:text-foreground flex items-center gap-1 justify-center"
                       onClick={() => handleSort("realization")}
                     >
-                      {t("workOrders.realization")}
+                      %
                       {getSortIcon("realization")}
                     </span>
                   </TableHead>
-                  <TableHead className="w-28 text-right">
+                  <TableHead className="w-28 text-center border-r border-border">
                     <span
-                      className="cursor-pointer hover:text-foreground flex items-center gap-1 justify-end"
+                      className="cursor-pointer hover:text-foreground flex items-center gap-1 justify-center"
                       onClick={() => handleSort("adjustedFee")}
                     >
-                      {t("workOrders.adjustedFee")}
+                      {t("workOrders.adjustedFee")} ({currencyTab})
                       {getSortIcon("adjustedFee")}
                     </span>
                   </TableHead>
-                  <TableHead className="w-24 text-right">
+                  <TableHead className="w-24 text-center border-r border-border">
                     <span
-                      className="cursor-pointer hover:text-foreground flex items-center gap-1 justify-end"
+                      className="cursor-pointer hover:text-foreground flex items-center gap-1 justify-center"
                       onClick={() => handleSort("expenses")}
                     >
-                      {t("workOrders.expenses")}
+                      {t("workOrders.expenses")} ({currencyTab})
                       {getSortIcon("expenses")}
                     </span>
                   </TableHead>
-                  <TableHead className="w-28 text-right">
+                  <TableHead className="w-28 text-center border-r border-border">
                     <span
-                      className="cursor-pointer hover:text-foreground flex items-center gap-1 justify-end"
+                      className="cursor-pointer hover:text-foreground flex items-center gap-1 justify-center"
                       onClick={() => handleSort("totalNoVAT")}
                     >
-                      {t("workOrders.totalWithoutVAT")}
+                      {t("workOrders.totalWithoutVAT")} ({currencyTab})
                       {getSortIcon("totalNoVAT")}
                     </span>
                   </TableHead>
-                  <TableHead className="w-28 text-right">
-                    <div className="flex items-center gap-1 justify-end">
+                  <TableHead className="w-28 text-center border-r border-border">
+                    <div className="flex items-center gap-1 justify-center">
                       <span
                         className="cursor-pointer hover:text-foreground flex items-center gap-1"
                         onClick={() => handleSort("totalVAT")}
                       >
-                        {t("workOrders.totalWithVAT")}
+                        {t("workOrders.totalWithVAT")} ({currencyTab})
                         {getSortIcon("totalVAT")}
                       </span>
                       <Popover open={statusFilterOpen} onOpenChange={setStatusFilterOpen}>
@@ -464,7 +466,7 @@ const WorkOrders = () => {
                         onClick={() => navigate(`/work-orders/${wo.wo_id}`)}
                       >
                         {/* Season Icon */}
-                        <TableCell className="text-center">
+                        <TableCell className="text-center border-r border-border">
                           {wo.season_mode === "High" ? (
                             <Sun className="h-4 w-4 text-warning mx-auto" />
                           ) : (
@@ -472,7 +474,7 @@ const WorkOrders = () => {
                           )}
                         </TableCell>
                         {/* Status Dot */}
-                        <TableCell className="text-center">
+                        <TableCell className="text-center border-r border-border">
                           <div
                             className={cn(
                               "h-2.5 w-2.5 rounded-full mx-auto",
@@ -482,59 +484,59 @@ const WorkOrders = () => {
                           />
                         </TableCell>
                         {/* Engagement Code */}
-                        <TableCell className="font-mono text-muted-foreground">
+                        <TableCell className="font-mono text-muted-foreground text-left border-r border-border">
                           {wo.engagement?.engagement_code || "-"}
                         </TableCell>
                         {/* Engagement Name */}
-                        <TableCell className="font-medium truncate max-w-[200px]">
+                        <TableCell className="font-medium truncate max-w-[200px] text-left border-r border-border">
                           {wo.engagement?.engagement_name}
                         </TableCell>
                         {/* Client */}
-                        <TableCell className="truncate max-w-[180px]">
+                        <TableCell className="truncate max-w-[180px] text-left border-r border-border">
                           {wo.engagement?.client?.client_legal_name || "-"}
                         </TableCell>
                         {/* Partner */}
-                        <TableCell>
+                        <TableCell className="text-left border-r border-border">
                           {wo.engagement?.partner 
                             ? wo.engagement.partner.short_name || `${wo.engagement.partner.first_name} ${wo.engagement.partner.last_name}`
                             : "-"}
                         </TableCell>
                         {/* Manager */}
-                        <TableCell>
+                        <TableCell className="text-left border-r border-border">
                           {wo.engagement?.manager
                             ? wo.engagement.manager.short_name || `${wo.engagement.manager.first_name} ${wo.engagement.manager.last_name}`
                             : "-"}
                         </TableCell>
                         {/* Total Hours */}
-                        <TableCell className="text-right font-mono">
+                        <TableCell className="text-right font-mono border-r border-border">
                           {totalHours.toFixed(1)}
                         </TableCell>
                         {/* Standard Fee */}
-                        <TableCell className="text-right font-mono">
-                          {formatCurrency(standardFee, wo.currency)}
+                        <TableCell className="text-right font-mono border-r border-border">
+                          {formatCurrency(standardFee)}
                         </TableCell>
                         {/* Realization % */}
                         <TableCell className={cn(
-                          "text-right font-mono",
+                          "text-center font-mono border-r border-border",
                           realizationPercent < 100 && "text-warning"
                         )}>
                           {realizationPercent.toFixed(1)}%
                         </TableCell>
                         {/* Adjusted Fee */}
-                        <TableCell className="text-right font-mono">
-                          {formatCurrency(adjustedFee, wo.currency)}
+                        <TableCell className="text-right font-mono border-r border-border">
+                          {formatCurrency(adjustedFee)}
                         </TableCell>
                         {/* Expenses */}
-                        <TableCell className="text-right font-mono">
-                          {formatCurrency(totalExpenses, wo.currency)}
+                        <TableCell className="text-right font-mono border-r border-border">
+                          {formatCurrency(totalExpenses)}
                         </TableCell>
                         {/* Total without VAT */}
-                        <TableCell className="text-right font-mono">
-                          {formatCurrency(totalWithoutVAT, wo.currency)}
+                        <TableCell className="text-right font-mono border-r border-border">
+                          {formatCurrency(totalWithoutVAT)}
                         </TableCell>
                         {/* Total with VAT */}
                         <TableCell className="text-right font-mono font-medium">
-                          {formatCurrency(totalWithVAT, wo.currency)}
+                          {formatCurrency(totalWithVAT)}
                         </TableCell>
                       </TableRow>
                     );
