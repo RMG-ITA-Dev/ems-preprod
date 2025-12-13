@@ -358,7 +358,19 @@
     "recentTime": "Recent Time",
     "recentTimeEntries": "Recent Time Entries",
     "vsLastMonth": "vs last month",
-    "hoursProgress": "Hours Progress"
+    "hoursProgress": "Hours Progress",
+    "period": {
+      "calendar": "Calendar Year",
+      "tax_bolivia": "Bolivia Tax Year",
+      "from": "From",
+      "to": "To"
+    },
+    "tabs": {
+      "practica": "Practice",
+      "cartera": "Portfolio",
+      "encargo": "Engagement",
+      "personal": "Personal"
+    }
   },
   "timesheet": {
     "title": "Time Sheet",
