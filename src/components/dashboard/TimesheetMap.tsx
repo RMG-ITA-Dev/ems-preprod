@@ -96,7 +96,7 @@ export function TimesheetMap({ staffId }: TimesheetMapProps) {
       case 'submitted': return 'bg-success';
       case 'draft': return 'bg-warning';
       case 'overdue': return 'bg-destructive';
-      case 'not_started': return 'bg-muted';
+      case 'not_started': return 'bg-accent';
       default: return 'bg-muted';
     }
   };
@@ -203,7 +203,7 @@ export function TimesheetMap({ staffId }: TimesheetMapProps) {
               {t('dashboard.personal.mapLegend.draft')}
             </span>
             <span className="flex items-center gap-1">
-              <div className="w-[10px] h-[10px] rounded-[2px] bg-muted border border-border" />
+              <div className="w-[10px] h-[10px] rounded-[2px] bg-accent" />
               {t('dashboard.personal.mapLegend.notStarted')}
             </span>
             <span className="flex items-center gap-1">
