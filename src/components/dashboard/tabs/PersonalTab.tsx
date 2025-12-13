@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { useDashboard } from "@/contexts/DashboardContext";
 import { RecentTimeEntries } from "@/components/dashboard/RecentTimeEntries";
+import { TimesheetMap } from "@/components/dashboard/TimesheetMap";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Clock, Target, TrendingUp, Calendar, CheckCircle2, AlertCircle } from "lucide-react";
@@ -335,6 +336,11 @@ export function PersonalTab() {
         {/* Recent Time Entries */}
         <RecentTimeEntries entries={recentEntriesFormatted} />
       </div>
+
+      {/* Timesheet Map */}
+      {staffRecord?.staff_id && (
+        <TimesheetMap staffId={staffRecord.staff_id} />
+      )}
     </div>
   );
 }

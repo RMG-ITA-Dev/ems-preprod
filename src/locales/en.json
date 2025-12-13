@@ -349,7 +349,10 @@
     "november": "November",
     "december": "December"
   },
-  "dashboard": {
+"dashboard": {
+    "noData": "No data available for the selected period",
+    "noEngagementsFound": "No engagements found",
+    "selectEngagement": "Select an engagement to view details",
     "title": "Control Panel",
     "activeEngagements": "Active Engagements",
     "hoursLogged": "Hours Logged",
@@ -390,7 +393,14 @@
       "myEngagements": "My Engagements",
       "noEngagements": "No engagements in this period",
       "recentEntries": "Recent Entries",
-      "noRecentEntries": "No recent entries"
+      "noRecentEntries": "No recent entries",
+      "timesheetMap": "Submission Map (12 weeks)",
+      "mapLegend": {
+        "submitted": "Submitted",
+        "draft": "Draft",
+        "not_started": "Not started",
+        "overdue": "Overdue"
+      }
     },
     "cartera": {
       "activeEngagements": "Active Engagements",
