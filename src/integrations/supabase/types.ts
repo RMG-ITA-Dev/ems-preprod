@@ -522,6 +522,44 @@ export type Database = {
           },
         ]
       }
+      staff_capacity: {
+        Row: {
+          created_at: string | null
+          effective_from: string
+          effective_to: string | null
+          id: string
+          staff_id: string
+          updated_at: string | null
+          weekly_capacity_hours: number
+        }
+        Insert: {
+          created_at?: string | null
+          effective_from?: string
+          effective_to?: string | null
+          id?: string
+          staff_id: string
+          updated_at?: string | null
+          weekly_capacity_hours?: number
+        }
+        Update: {
+          created_at?: string | null
+          effective_from?: string
+          effective_to?: string | null
+          id?: string
+          staff_id?: string
+          updated_at?: string | null
+          weekly_capacity_hours?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "staff_capacity_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["staff_id"]
+          },
+        ]
+      }
       time_entries: {
         Row: {
           activity_id: string
