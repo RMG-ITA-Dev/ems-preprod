@@ -363,8 +363,6 @@
     "vsLastMonth": "vs last month",
     "hoursProgress": "Hours Progress",
     "period": {
-      "calendar": "Calendar Year",
-      "tax_bolivia": "Bolivia Tax Year",
       "from": "From",
       "to": "To"
     },
@@ -395,7 +393,6 @@
       "recentEntries": "Recent Entries",
       "noRecentEntries": "No recent entries",
       "timeActivity": "Time Tracking",
-      "weeksLabel": "last 12 weeks",
       "mapLegend": {
         "submitted": "Submitted",
         "draft": "Draft",

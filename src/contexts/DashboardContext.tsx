@@ -3,10 +3,8 @@ import {
   FiscalPeriod, 
   PeriodType, 
   QuarterType,
-  getCalendarYearPeriod,
-  getBoliviaTaxYearPeriod,
+  getFiscalYearPeriod,
   getCustomPeriod,
-  getCurrentFiscalPeriod,
   formatDateForApi,
 } from '@/lib/fiscalCalculations';
 
@@ -20,7 +18,6 @@ interface DashboardContextType {
   selectedQuarter: QuarterType;
   
   // Period actions
-  setPeriodType: (type: PeriodType) => void;
   setYear: (year: number) => void;
   setQuarter: (quarter: QuarterType) => void;
   setCustomRange: (startDate: Date, endDate: Date) => void;
@@ -46,11 +43,14 @@ interface DashboardProviderProps {
 }
 
 export function DashboardProvider({ children, defaultTab = 'personal' }: DashboardProviderProps) {
-  const currentYear = new Date().getFullYear();
+  const today = new Date();
+  const currentMonth = today.getMonth();
+  // Fiscal year starts in October (month 9), so if we're in Oct-Dec, we're in next fiscal year
+  const currentFiscalYear = currentMonth >= 9 ? today.getFullYear() + 1 : today.getFullYear();
   
-  // Period state
-  const [periodType, setPeriodType] = useState<PeriodType>('calendar');
-  const [selectedYear, setSelectedYear] = useState(currentYear);
+  // Period state - default to fiscal year (tax_bolivia type)
+  const [periodType, setPeriodType] = useState<PeriodType>('tax_bolivia');
+  const [selectedYear, setSelectedYear] = useState(currentFiscalYear);
   const [selectedQuarter, setSelectedQuarter] = useState<QuarterType>('ytd');
   const [customStart, setCustomStart] = useState<Date | null>(null);
   const [customEnd, setCustomEnd] = useState<Date | null>(null);
@@ -67,11 +67,7 @@ export function DashboardProvider({ children, defaultTab = 'personal' }: Dashboa
       return getCustomPeriod(customStart, customEnd);
     }
     
-    if (periodType === 'tax_bolivia') {
-      return getBoliviaTaxYearPeriod(selectedYear, selectedQuarter);
-    }
-    
-    return getCalendarYearPeriod(selectedYear, selectedQuarter);
+    return getFiscalYearPeriod(selectedYear, selectedQuarter);
   }, [periodType, selectedYear, selectedQuarter, customStart, customEnd]);
   
   // API-ready date strings
@@ -81,12 +77,15 @@ export function DashboardProvider({ children, defaultTab = 'personal' }: Dashboa
   // Actions
   const setYear = useCallback((year: number) => {
     setSelectedYear(year);
-  }, []);
+    if (periodType === 'custom') {
+      setPeriodType('tax_bolivia');
+    }
+  }, [periodType]);
   
   const setQuarter = useCallback((quarter: QuarterType) => {
     setSelectedQuarter(quarter);
     if (periodType === 'custom') {
-      setPeriodType('calendar');
+      setPeriodType('tax_bolivia');
     }
   }, [periodType]);
   
@@ -101,7 +100,6 @@ export function DashboardProvider({ children, defaultTab = 'personal' }: Dashboa
     periodType,
     selectedYear,
     selectedQuarter,
-    setPeriodType,
     setYear,
     setQuarter,
     setCustomRange,

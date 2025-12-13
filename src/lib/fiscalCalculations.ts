@@ -13,8 +13,8 @@ export interface FiscalPeriod {
   quarter?: QuarterType;
 }
 
-// Bolivia tax year runs April 1 - March 31
-const BOLIVIA_TAX_YEAR_START_MONTH = 3; // April (0-indexed)
+// Fiscal year runs October 1 - September 30
+const FISCAL_YEAR_START_MONTH = 9; // October (0-indexed)
 
 /**
  * Get calendar year period
@@ -61,18 +61,18 @@ export function getCalendarYearPeriod(year: number, quarter?: QuarterType): Fisc
 }
 
 /**
- * Get Bolivia tax year period (April 1 - March 31)
+ * Get fiscal year period (October 1 - September 30)
  */
-export function getBoliviaTaxYearPeriod(fiscalYear: number, quarter?: QuarterType): FiscalPeriod {
-  // Fiscal year 2025 runs April 1, 2024 - March 31, 2025
-  const yearStart = new Date(fiscalYear - 1, BOLIVIA_TAX_YEAR_START_MONTH, 1);
-  const yearEnd = endOfMonth(new Date(fiscalYear, BOLIVIA_TAX_YEAR_START_MONTH - 1, 1));
+export function getFiscalYearPeriod(fiscalYear: number, quarter?: QuarterType): FiscalPeriod {
+  // Fiscal year 2025 runs October 1, 2024 - September 30, 2025
+  const yearStart = new Date(fiscalYear - 1, FISCAL_YEAR_START_MONTH, 1);
+  const yearEnd = endOfMonth(new Date(fiscalYear, FISCAL_YEAR_START_MONTH - 1, 1));
   
   if (!quarter || quarter === 'full') {
     return {
       startDate: yearStart,
       endDate: yearEnd,
-      label: `AF ${fiscalYear}`,
+      label: `${fiscalYear}`,
       type: 'tax_bolivia',
       year: fiscalYear,
       quarter: 'full',
@@ -84,18 +84,18 @@ export function getBoliviaTaxYearPeriod(fiscalYear: number, quarter?: QuarterTyp
     return {
       startDate: yearStart,
       endDate: today,
-      label: `AF ${fiscalYear} YTD`,
+      label: `${fiscalYear} YTD`,
       type: 'tax_bolivia',
       year: fiscalYear,
       quarter: 'ytd',
     };
   }
   
-  // Tax quarters
+  // Fiscal quarters (Q1=Oct-Dec, Q2=Jan-Mar, Q3=Apr-Jun, Q4=Jul-Sep)
   const quarterNum = parseInt(quarter.replace('Q', ''));
-  const quarterStartMonth = BOLIVIA_TAX_YEAR_START_MONTH + (quarterNum - 1) * 3;
-  const quarterStartYear = quarterStartMonth >= 12 ? fiscalYear : fiscalYear - 1;
-  const adjustedMonth = quarterStartMonth >= 12 ? quarterStartMonth - 12 : quarterStartMonth;
+  const quarterStartMonth = FISCAL_YEAR_START_MONTH + (quarterNum - 1) * 3;
+  const quarterStartYear = quarterStartMonth >= 12 ? fiscalYear - 1 + Math.floor(quarterStartMonth / 12) : fiscalYear - 1;
+  const adjustedMonth = quarterStartMonth % 12;
   
   const quarterStart = startOfMonth(new Date(quarterStartYear, adjustedMonth, 1));
   const quarterEnd = endOfMonth(addMonths(quarterStart, 2));
@@ -103,7 +103,7 @@ export function getBoliviaTaxYearPeriod(fiscalYear: number, quarter?: QuarterTyp
   return {
     startDate: quarterStart,
     endDate: quarterEnd,
-    label: `AF ${fiscalYear} ${quarter}`,
+    label: `${fiscalYear} ${quarter}`,
     type: 'tax_bolivia',
     year: fiscalYear,
     quarter,
@@ -132,21 +132,17 @@ export function getAvailableYears(): number[] {
 }
 
 /**
- * Get the current fiscal period based on type
+ * Get the current fiscal period
  */
-export function getCurrentFiscalPeriod(type: PeriodType): FiscalPeriod {
+export function getCurrentFiscalPeriod(): FiscalPeriod {
   const today = new Date();
   const currentYear = getYear(today);
   
-  if (type === 'calendar') {
-    return getCalendarYearPeriod(currentYear, 'ytd');
-  }
-  
-  // Bolivia tax year - determine which fiscal year we're in
+  // Fiscal year - determine which fiscal year we're in
   const currentMonth = today.getMonth();
-  const fiscalYear = currentMonth >= BOLIVIA_TAX_YEAR_START_MONTH ? currentYear + 1 : currentYear;
+  const fiscalYear = currentMonth >= FISCAL_YEAR_START_MONTH ? currentYear + 1 : currentYear;
   
-  return getBoliviaTaxYearPeriod(fiscalYear, 'ytd');
+  return getFiscalYearPeriod(fiscalYear, 'ytd');
 }
 
 /**

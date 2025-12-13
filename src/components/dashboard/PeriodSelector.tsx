@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CalendarIcon, ChevronDown } from 'lucide-react';
+import { CalendarIcon } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
@@ -11,20 +11,8 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { useDashboard } from '@/contexts/DashboardContext';
-import { getAvailableYears, PeriodType, QuarterType } from '@/lib/fiscalCalculations';
-
-const PERIOD_TYPES: { value: PeriodType; labelKey: string }[] = [
-  { value: 'calendar', labelKey: 'dashboard.period.calendar' },
-  { value: 'tax_bolivia', labelKey: 'dashboard.period.tax_bolivia' },
-];
+import { getAvailableYears, QuarterType } from '@/lib/fiscalCalculations';
 
 const QUARTERS: { value: QuarterType; label: string }[] = [
   { value: 'Q1', label: 'Q1' },
@@ -42,7 +30,6 @@ export function PeriodSelector() {
     periodType,
     selectedYear,
     selectedQuarter,
-    setPeriodType,
     setYear,
     setQuarter,
     setCustomRange,
@@ -55,30 +42,8 @@ export function PeriodSelector() {
   
   const years = getAvailableYears();
   
-  const handleCustomDateSelect = () => {
-    if (tempCustomStart && tempCustomEnd) {
-      setCustomRange(tempCustomStart, tempCustomEnd);
-      setCustomStartOpen(false);
-      setCustomEndOpen(false);
-    }
-  };
-  
   return (
     <div className="flex flex-wrap items-center gap-2 p-2 rounded-lg bg-muted/50 backdrop-blur-sm border border-border/50">
-      {/* Period Type Selector */}
-      <Select value={periodType} onValueChange={(value) => setPeriodType(value as PeriodType)}>
-        <SelectTrigger className="w-[140px] h-8 text-xs bg-background">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {PERIOD_TYPES.map((type) => (
-            <SelectItem key={type.value} value={type.value} className="text-xs">
-              {t(type.labelKey)}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      
       {/* Year Buttons */}
       <div className="flex items-center gap-1">
         {years.map((year) => (
@@ -146,7 +111,8 @@ export function PeriodSelector() {
               onSelect={(date) => {
                 setTempCustomStart(date);
                 if (date && tempCustomEnd) {
-                  handleCustomDateSelect();
+                  setCustomRange(date, tempCustomEnd);
+                  setCustomStartOpen(false);
                 }
               }}
               initialFocus
