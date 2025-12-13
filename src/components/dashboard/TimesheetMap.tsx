@@ -52,7 +52,6 @@ export function TimesheetMap({ staffId }: TimesheetMapProps) {
 
       // Map periods to weeks
       periods?.forEach(period => {
-        const periodWeekStart = parseISO(period.week_start_date);
         const weekIdx = weeks.findIndex(w => 
           format(w.weekStart, 'yyyy-MM-dd') === period.week_start_date
         );
@@ -64,6 +63,7 @@ export function TimesheetMap({ staffId }: TimesheetMapProps) {
             weeks[weekIdx].status = 'submitted';
           } else {
             // Check if overdue (past deadline and not submitted)
+            const periodWeekStart = parseISO(period.week_start_date);
             const deadline = period.deadline 
               ? parseISO(period.deadline) 
               : addDays(periodWeekStart, 7);
@@ -77,15 +77,8 @@ export function TimesheetMap({ staffId }: TimesheetMapProps) {
         }
       });
 
-      // Mark past weeks without periods as overdue (except current week)
-      weeks.forEach((week, idx) => {
-        if (week.status === 'not_started' && idx < 51) {
-          const weekEnd = addDays(week.weekStart, 6);
-          if (isBefore(weekEnd, today)) {
-            week.status = 'overdue';
-          }
-        }
-      });
+      // NOTE: Past weeks without records stay as 'not_started' (gray)
+      // Only mark as overdue if there's an actual record that's past deadline
 
       return weeks;
     },
@@ -97,7 +90,7 @@ export function TimesheetMap({ staffId }: TimesheetMapProps) {
       case 'submitted': return 'bg-success';
       case 'draft': return 'bg-warning';
       case 'overdue': return 'bg-destructive';
-      case 'not_started': return 'bg-accent';
+      case 'not_started': return 'bg-muted';
       default: return 'bg-muted';
     }
   };
@@ -145,33 +138,37 @@ export function TimesheetMap({ staffId }: TimesheetMapProps) {
 
   const monthLabels = getMonthLabels();
   const WEEKDAYS = 5; // Mon-Fri only
+  const CELL_SIZE = 8;
+  const GAP = 2;
 
   return (
     <Card className="bg-card/80 backdrop-blur-sm border-border">
       <CardHeader className="py-3 px-4">
         <CardTitle className="text-sm font-medium text-muted-foreground">
-          {t('dashboard.personal.timeActivity')} ({t('dashboard.personal.weeksLabel')})
+          {t('dashboard.personal.timeActivity')}
         </CardTitle>
       </CardHeader>
-      <CardContent className="px-4 pb-4 pt-0">
+      <CardContent className="px-4 pb-4 pt-0 overflow-x-auto">
         <TooltipProvider>
           {/* Month labels row */}
           <div
-            className="grid text-[10px] text-muted-foreground mb-1"
+            className="grid text-[9px] text-muted-foreground mb-1"
             style={{
-              gridTemplateColumns: 'repeat(52, 10px)',
-              gap: '2px',
+              gridTemplateColumns: `repeat(52, ${CELL_SIZE}px)`,
+              gap: `${GAP}px`,
+              minWidth: `${52 * (CELL_SIZE + GAP)}px`,
             }}
           >
             {monthLabels.map((month, idx) => {
               const next = monthLabels[idx + 1];
-              const startCol = month.colStart + 1; // +1 for 1-indexed grid
+              const startCol = month.colStart + 1;
               const endCol = (next ? next.colStart : weeksData?.length ?? 52) + 1;
 
               return (
                 <div
                   key={idx}
                   style={{ gridColumnStart: startCol, gridColumnEnd: endCol }}
+                  className="truncate"
                 >
                   {month.label}
                 </div>
@@ -183,9 +180,10 @@ export function TimesheetMap({ staffId }: TimesheetMapProps) {
           <div
             className="grid"
             style={{
-              gridTemplateColumns: 'repeat(52, 10px)',
-              gridTemplateRows: `repeat(${WEEKDAYS}, 10px)`,
-              gap: '2px',
+              gridTemplateColumns: `repeat(52, ${CELL_SIZE}px)`,
+              gridTemplateRows: `repeat(${WEEKDAYS}, ${CELL_SIZE}px)`,
+              gap: `${GAP}px`,
+              minWidth: `${52 * (CELL_SIZE + GAP)}px`,
             }}
           >
             {Array.from({ length: WEEKDAYS }).map((_, dayIdx) => (
@@ -195,10 +193,11 @@ export function TimesheetMap({ staffId }: TimesheetMapProps) {
                     <TooltipTrigger asChild>
                       <div
                         className={cn(
-                          'w-[10px] h-[10px] rounded-[2px] cursor-default',
+                          'rounded-[2px] cursor-default',
                           'hover:ring-1 hover:ring-foreground/30',
                           getStatusColor(week.status)
                         )}
+                        style={{ width: CELL_SIZE, height: CELL_SIZE }}
                       />
                     </TooltipTrigger>
                     <TooltipContent side="top" className="text-xs">
@@ -214,21 +213,21 @@ export function TimesheetMap({ staffId }: TimesheetMapProps) {
           </div>
           
           {/* Status Legend */}
-          <div className="flex items-center gap-4 mt-2 text-[10px] text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-3 mt-2 text-[9px] text-muted-foreground">
             <span className="flex items-center gap-1">
-              <div className="w-[10px] h-[10px] rounded-[2px] bg-success" />
+              <div className="w-2 h-2 rounded-[2px] bg-success" />
               {t('dashboard.personal.mapLegend.submitted')}
             </span>
             <span className="flex items-center gap-1">
-              <div className="w-[10px] h-[10px] rounded-[2px] bg-warning" />
+              <div className="w-2 h-2 rounded-[2px] bg-warning" />
               {t('dashboard.personal.mapLegend.draft')}
             </span>
             <span className="flex items-center gap-1">
-              <div className="w-[10px] h-[10px] rounded-[2px] bg-accent" />
+              <div className="w-2 h-2 rounded-[2px] bg-muted" />
               {t('dashboard.personal.mapLegend.notStarted')}
             </span>
             <span className="flex items-center gap-1">
-              <div className="w-[10px] h-[10px] rounded-[2px] bg-destructive" />
+              <div className="w-2 h-2 rounded-[2px] bg-destructive" />
               {t('dashboard.personal.mapLegend.overdue')}
             </span>
           </div>
