@@ -373,6 +373,8 @@
       "personal": "Personal"
     },
     "personal": {
+      "thisWeek": "This Week",
+      "thisMonth": "This Month",
       "weeklyHours": "Weekly Hours",
       "hoursRemaining": "{{hours}}h remaining",
       "capacityReached": "Capacity reached",
@@ -382,6 +384,8 @@
       "needsAttention": "Needs attention",
       "deadline": "Deadline",
       "days": "days",
+      "today": "Today",
+      "overdue": "Overdue",
       "pendingApprovals": "Pending Approvals",
       "awaitingReview": "Awaiting review",
       "timesheetStatus": "Timesheet Status",
@@ -389,16 +393,10 @@
       "draft": "Draft",
       "weekOf": "Week of {{date}}",
       "myEngagements": "My Engagements",
+      "hoursByEngagement": "Hours by Engagement",
       "noEngagements": "No engagements in this period",
       "recentEntries": "Recent Entries",
-      "noRecentEntries": "No recent entries",
-      "timeActivity": "Time Tracking",
-      "mapLegend": {
-        "submitted": "Submitted",
-        "draft": "Draft",
-        "notStarted": "Not started",
-        "overdue": "Overdue"
-      }
+      "noRecentEntries": "No recent entries"
     },
     "cartera": {
       "activeEngagements": "Active Engagements",
