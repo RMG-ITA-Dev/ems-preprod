@@ -370,6 +370,27 @@
       "cartera": "Cartera",
       "encargo": "Encargo",
       "personal": "Personal"
+    },
+    "personal": {
+      "weeklyHours": "Horas Semanales",
+      "hoursRemaining": "{{hours}}h restantes",
+      "capacityReached": "Capacidad alcanzada",
+      "utilization": "Utilización",
+      "onTrack": "En buen ritmo",
+      "progressing": "Progresando",
+      "needsAttention": "Necesita atención",
+      "deadline": "Fecha Límite",
+      "days": "días",
+      "pendingApprovals": "Aprobaciones Pendientes",
+      "awaitingReview": "Esperando revisión",
+      "timesheetStatus": "Estado de Hoja",
+      "submitted": "Enviada",
+      "draft": "Borrador",
+      "weekOf": "Semana del {{date}}",
+      "myEngagements": "Mis Encargos",
+      "noEngagements": "Sin encargos en este período",
+      "recentEntries": "Entradas Recientes",
+      "noRecentEntries": "Sin entradas recientes"
     }
   },
   "timesheet": {
