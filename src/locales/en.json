@@ -430,6 +430,18 @@
       "budget": "Budget",
       "actual": "Actual",
       "noData": "No data available"
+    },
+    "practica": {
+      "activeEngagements": "Active Engagements",
+      "totalFees": "Total Fees",
+      "totalHours": "Total Hours",
+      "utilization": "Utilization",
+      "atRisk": "At Risk",
+      "overBudget": "Over Budget",
+      "pendingApprovals": "Pending Approvals",
+      "partnerLeaderboard": "Partner Leaderboard",
+      "engagements": "Engagements",
+      "risks": "Risks"
     }
   },
   "timesheet": {

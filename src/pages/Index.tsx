@@ -3,7 +3,7 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { DashboardProvider, useDashboard, DashboardTab } from "@/contexts/DashboardContext";
 import { useDashboardAccess } from "@/hooks/useDashboardAccess";
 import { PeriodSelector } from "@/components/dashboard/PeriodSelector";
-import { PersonalTab, EncargoTab, CarteraTab } from '@/components/dashboard/tabs';
+import { PersonalTab, EncargoTab, CarteraTab, PracticaTab } from '@/components/dashboard/tabs';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Building2, Briefcase, FolderKanban, User } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -58,7 +58,7 @@ function DashboardContent() {
 
         {/* Tab Content */}
         <TabsContent value="practica" className="mt-4">
-          <PlaceholderTab title={t('dashboard.tabs.practica')} description="Métricas de la práctica a nivel firma" />
+          <PracticaTab />
         </TabsContent>
 
         <TabsContent value="cartera" className="mt-4">
