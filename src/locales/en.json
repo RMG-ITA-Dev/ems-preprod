@@ -370,6 +370,27 @@
       "cartera": "Portfolio",
       "encargo": "Engagement",
       "personal": "Personal"
+    },
+    "personal": {
+      "weeklyHours": "Weekly Hours",
+      "hoursRemaining": "{{hours}}h remaining",
+      "capacityReached": "Capacity reached",
+      "utilization": "Utilization",
+      "onTrack": "On track",
+      "progressing": "Progressing",
+      "needsAttention": "Needs attention",
+      "deadline": "Deadline",
+      "days": "days",
+      "pendingApprovals": "Pending Approvals",
+      "awaitingReview": "Awaiting review",
+      "timesheetStatus": "Timesheet Status",
+      "submitted": "Submitted",
+      "draft": "Draft",
+      "weekOf": "Week of {{date}}",
+      "myEngagements": "My Engagements",
+      "noEngagements": "No engagements in this period",
+      "recentEntries": "Recent Entries",
+      "noRecentEntries": "No recent entries"
     }
   },
   "timesheet": {
