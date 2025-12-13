@@ -13,7 +13,6 @@ interface TimesheetMapProps {
 
 interface WeekStatus {
   weekStart: Date;
-  weekNumber: number;
   status: 'submitted' | 'draft' | 'overdue' | 'not_started';
   totalHours: number;
 }
@@ -23,18 +22,17 @@ export function TimesheetMap({ staffId }: TimesheetMapProps) {
   const dateLocale = i18n.language === 'es' ? es : enUS;
 
   const { data: weeksData, isLoading } = useQuery({
-    queryKey: ['timesheet-status-map', staffId],
+    queryKey: ['timesheet-status-map-52', staffId],
     queryFn: async (): Promise<WeekStatus[]> => {
       const today = new Date();
       const currentWeekStart = startOfWeek(today, { weekStartsOn: 1 });
       
-      // Get 12 weeks of data
+      // Get 52 weeks of data (full year)
       const weeks: WeekStatus[] = [];
-      for (let i = 11; i >= 0; i--) {
+      for (let i = 51; i >= 0; i--) {
         const weekStart = subWeeks(currentWeekStart, i);
         weeks.push({
           weekStart,
-          weekNumber: 12 - i,
           status: 'not_started',
           totalHours: 0,
         });
@@ -78,11 +76,13 @@ export function TimesheetMap({ staffId }: TimesheetMapProps) {
         }
       });
 
-      // Mark past weeks without periods as overdue
+      // Mark past weeks without periods as overdue (except current week)
       weeks.forEach((week, idx) => {
-        if (week.status === 'not_started' && idx < 11) {
-          // Past week with no period = overdue
-          week.status = 'overdue';
+        if (week.status === 'not_started' && idx < 51) {
+          const weekEnd = addDays(week.weekStart, 6);
+          if (isBefore(weekEnd, today)) {
+            week.status = 'overdue';
+          }
         }
       });
 
@@ -111,32 +111,73 @@ export function TimesheetMap({ staffId }: TimesheetMapProps) {
     }
   };
 
+  // Get month labels for the 52 weeks
+  const getMonthLabels = () => {
+    if (!weeksData) return [];
+    
+    const months: { label: string; colStart: number }[] = [];
+    let currentMonth = -1;
+    
+    weeksData.forEach((week, idx) => {
+      const month = week.weekStart.getMonth();
+      if (month !== currentMonth) {
+        currentMonth = month;
+        months.push({
+          label: format(week.weekStart, 'MMM', { locale: dateLocale }),
+          colStart: idx,
+        });
+      }
+    });
+    
+    return months;
+  };
+
   if (isLoading) {
     return (
       <Card className="bg-card/80 backdrop-blur-sm border-border">
-        <CardContent className="p-3">
-          <div className="h-8 bg-muted animate-pulse rounded" />
+        <CardContent className="p-4">
+          <div className="h-24 bg-muted animate-pulse rounded" />
         </CardContent>
       </Card>
     );
   }
 
+  const monthLabels = getMonthLabels();
+
   return (
     <Card className="bg-card/80 backdrop-blur-sm border-border">
-      <CardHeader className="py-2 px-3">
-        <CardTitle className="text-xs font-medium text-muted-foreground">
+      <CardHeader className="py-3 px-4">
+        <CardTitle className="text-sm font-medium text-muted-foreground">
           {t('dashboard.personal.timeActivity')} ({t('dashboard.personal.weeksLabel')})
         </CardTitle>
       </CardHeader>
-      <CardContent className="px-3 pb-3 pt-0">
+      <CardContent className="px-4 pb-4 pt-0">
         <TooltipProvider>
-          <div className="flex items-center gap-1">
+          {/* Month labels */}
+          <div className="flex text-[10px] text-muted-foreground mb-1 ml-0">
+            {monthLabels.map((month, idx) => (
+              <div 
+                key={idx} 
+                className="flex-shrink-0"
+                style={{ 
+                  marginLeft: idx === 0 ? 0 : `${(month.colStart - (monthLabels[idx-1]?.colStart || 0) - 1) * 12}px`,
+                  width: 'auto'
+                }}
+              >
+                {month.label}
+              </div>
+            ))}
+          </div>
+          
+          {/* Week grid - single row of 52 weeks */}
+          <div className="flex items-center gap-[2px] overflow-x-auto pb-2">
             {weeksData?.map((week, idx) => (
               <Tooltip key={idx}>
                 <TooltipTrigger asChild>
                   <div
                     className={cn(
-                      "w-6 h-6 rounded-sm cursor-default transition-all",
+                      "w-[10px] h-[10px] rounded-[2px] cursor-default transition-all flex-shrink-0",
+                      "hover:ring-1 hover:ring-foreground/30",
                       getStatusColor(week.status)
                     )}
                   />
@@ -151,22 +192,22 @@ export function TimesheetMap({ staffId }: TimesheetMapProps) {
             ))}
           </div>
           
-          {/* Compact Legend */}
-          <div className="flex items-center gap-3 mt-2 text-[10px] text-muted-foreground">
+          {/* Status Legend */}
+          <div className="flex items-center gap-4 mt-2 text-[10px] text-muted-foreground">
             <span className="flex items-center gap-1">
-              <div className="w-2.5 h-2.5 rounded-sm bg-success" />
+              <div className="w-[10px] h-[10px] rounded-[2px] bg-success" />
               {t('dashboard.personal.mapLegend.submitted')}
             </span>
             <span className="flex items-center gap-1">
-              <div className="w-2.5 h-2.5 rounded-sm bg-warning" />
+              <div className="w-[10px] h-[10px] rounded-[2px] bg-warning" />
               {t('dashboard.personal.mapLegend.draft')}
             </span>
             <span className="flex items-center gap-1">
-              <div className="w-2.5 h-2.5 rounded-sm bg-muted" />
+              <div className="w-[10px] h-[10px] rounded-[2px] bg-muted border border-border" />
               {t('dashboard.personal.mapLegend.notStarted')}
             </span>
             <span className="flex items-center gap-1">
-              <div className="w-2.5 h-2.5 rounded-sm bg-destructive" />
+              <div className="w-[10px] h-[10px] rounded-[2px] bg-destructive" />
               {t('dashboard.personal.mapLegend.overdue')}
             </span>
           </div>
