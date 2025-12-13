@@ -392,6 +392,21 @@
       "recentEntries": "Recent Entries",
       "noRecentEntries": "No recent entries"
     },
+    "cartera": {
+      "activeEngagements": "Active Engagements",
+      "totalFees": "Total Fees",
+      "totalHours": "Total Hours",
+      "portfolioUtilization": "Portfolio Utilization",
+      "profitabilityTable": "Profitability Table",
+      "engagement": "Engagement",
+      "client": "Client",
+      "consumption": "Consumption",
+      "topRisks": "Top Risks",
+      "noRisks": "No engagements at risk",
+      "approvalQueue": "Approval Queue",
+      "noApprovals": "No pending approvals",
+      "noEngagements": "No engagements in your portfolio"
+    },
     "encargo": {
       "selectEngagement": "Select Engagement",
       "noSelection": "Select an engagement to view details",

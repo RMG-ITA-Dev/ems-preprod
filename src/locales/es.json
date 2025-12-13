@@ -392,6 +392,21 @@
       "recentEntries": "Entradas Recientes",
       "noRecentEntries": "Sin entradas recientes"
     },
+    "cartera": {
+      "activeEngagements": "Encargos Activos",
+      "totalFees": "Honorarios Totales",
+      "totalHours": "Horas Totales",
+      "portfolioUtilization": "Utilización de Cartera",
+      "profitabilityTable": "Tabla de Rentabilidad",
+      "engagement": "Encargo",
+      "client": "Cliente",
+      "consumption": "Consumo",
+      "topRisks": "Principales Riesgos",
+      "noRisks": "Sin encargos en riesgo",
+      "approvalQueue": "Cola de Aprobaciones",
+      "noApprovals": "Sin aprobaciones pendientes",
+      "noEngagements": "No hay encargos en tu cartera"
+    },
     "encargo": {
       "selectEngagement": "Seleccionar Encargo",
       "noSelection": "Seleccione un encargo para ver los detalles",
