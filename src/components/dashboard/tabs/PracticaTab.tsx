@@ -16,6 +16,8 @@ import {
   Target
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Sparkline, SparklineDataPoint } from "@/components/dashboard/Sparkline";
+import { startOfWeek, subWeeks, format } from 'date-fns';
 
 interface PartnerMetrics {
   staffId: string;
@@ -252,6 +254,32 @@ export function PracticaTab() {
     },
   });
 
+  // Fetch weekly hours trend for sparkline (last 8 weeks)
+  const { data: weeklyTrend } = useQuery({
+    queryKey: ['practica-weekly-trend'],
+    queryFn: async (): Promise<SparklineDataPoint[]> => {
+      const weeks: SparklineDataPoint[] = [];
+      const today = new Date();
+      
+      for (let i = 7; i >= 0; i--) {
+        const weekStart = startOfWeek(subWeeks(today, i), { weekStartsOn: 1 });
+        const weekEnd = new Date(weekStart);
+        weekEnd.setDate(weekEnd.getDate() + 6);
+        
+        const { data } = await supabase
+          .from('time_entries')
+          .select('hours_logged')
+          .gte('date_worked', format(weekStart, 'yyyy-MM-dd'))
+          .lte('date_worked', format(weekEnd, 'yyyy-MM-dd'));
+        
+        const totalHours = data?.reduce((sum, e) => sum + Number(e.hours_logged), 0) || 0;
+        weeks.push({ value: totalHours });
+      }
+      
+      return weeks;
+    },
+  });
+
   const isLoading = metricsLoading || leaderboardLoading;
 
   if (isLoading) {
@@ -331,12 +359,17 @@ export function PracticaTab() {
               <Clock className="h-3.5 w-3.5" />
               {t('dashboard.practica.totalHours')}
             </div>
-            <p className="text-2xl font-semibold font-mono">
-              {metrics.totalActualHours.toFixed(1)}
-              <span className="text-sm text-muted-foreground ml-1">
-                / {metrics.totalBudgetHours.toFixed(0)}
-              </span>
-            </p>
+            <div className="flex items-center justify-between">
+              <p className="text-2xl font-semibold font-mono">
+                {metrics.totalActualHours.toFixed(1)}
+                <span className="text-sm text-muted-foreground ml-1">
+                  / {metrics.totalBudgetHours.toFixed(0)}
+                </span>
+              </p>
+              {weeklyTrend && weeklyTrend.length >= 2 && (
+                <Sparkline data={weeklyTrend} color="primary" height={24} className="w-16" />
+              )}
+            </div>
           </CardContent>
         </Card>
 
@@ -346,13 +379,15 @@ export function PracticaTab() {
               <TrendingUp className="h-3.5 w-3.5" />
               {t('dashboard.practica.utilization')}
             </div>
-            <p className={cn(
-              "text-2xl font-semibold font-mono",
-              metrics.utilizationPercent > 100 && "text-destructive",
-              metrics.utilizationPercent > 80 && metrics.utilizationPercent <= 100 && "text-warning"
-            )}>
-              {metrics.utilizationPercent.toFixed(1)}%
-            </p>
+            <div className="flex items-center justify-between">
+              <p className={cn(
+                "text-2xl font-semibold font-mono",
+                metrics.utilizationPercent > 100 && "text-destructive",
+                metrics.utilizationPercent > 80 && metrics.utilizationPercent <= 100 && "text-warning"
+              )}>
+                {metrics.utilizationPercent.toFixed(1)}%
+              </p>
+            </div>
           </CardContent>
         </Card>
       </div>
