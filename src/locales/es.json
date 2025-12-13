@@ -358,7 +358,19 @@
     "recentTime": "Tiempo Reciente",
     "recentTimeEntries": "Entradas de Tiempo Recientes",
     "vsLastMonth": "vs mes anterior",
-    "hoursProgress": "Progreso de Horas"
+    "hoursProgress": "Progreso de Horas",
+    "period": {
+      "calendar": "Año Calendario",
+      "tax_bolivia": "Año Fiscal Bolivia",
+      "from": "Desde",
+      "to": "Hasta"
+    },
+    "tabs": {
+      "practica": "Práctica",
+      "cartera": "Cartera",
+      "encargo": "Encargo",
+      "personal": "Personal"
+    }
   },
   "timesheet": {
     "title": "Hoja de Tiempo",
