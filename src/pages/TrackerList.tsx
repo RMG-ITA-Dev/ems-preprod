@@ -279,8 +279,8 @@ const TrackerList = () => {
               <TableHeader>
                 <TableRow className="bg-muted/50">
                   {/* Fecha - 10% */}
-                  <TableHead style={{ width: "10%" }}>
-                    <div className="flex items-center gap-1">
+                  <TableHead style={{ width: "10%" }} className="text-center border-r border-border">
+                    <div className="flex items-center justify-center gap-1">
                       <span 
                         className="cursor-pointer hover:text-foreground flex items-center gap-1"
                         onClick={() => handleSort("fecha")}
@@ -316,9 +316,9 @@ const TrackerList = () => {
                     </div>
                   </TableHead>
                   {/* Hora - 10% */}
-                  <TableHead style={{ width: "10%" }}>
+                  <TableHead style={{ width: "10%" }} className="text-center border-r border-border">
                     <span 
-                      className="cursor-pointer hover:text-foreground flex items-center gap-1"
+                      className="cursor-pointer hover:text-foreground flex items-center justify-center gap-1"
                       onClick={() => handleSort("hora")}
                     >
                       {t("tracker.time")}
@@ -326,9 +326,9 @@ const TrackerList = () => {
                     </span>
                   </TableHead>
                   {/* Duración - 8% */}
-                  <TableHead style={{ width: "8%" }} className="text-right">
+                  <TableHead style={{ width: "8%" }} className="text-center border-r border-border">
                     <span 
-                      className="cursor-pointer hover:text-foreground flex items-center gap-1 justify-end"
+                      className="cursor-pointer hover:text-foreground flex items-center justify-center gap-1"
                       onClick={() => handleSort("duracion")}
                     >
                       {t("tracker.duration")}
@@ -336,8 +336,8 @@ const TrackerList = () => {
                     </span>
                   </TableHead>
                   {/* Encargo - 24% */}
-                  <TableHead style={{ width: "24%" }}>
-                    <div className="flex items-center gap-1">
+                  <TableHead style={{ width: "24%" }} className="text-center border-r border-border">
+                    <div className="flex items-center justify-center gap-1">
                       <span 
                         className="cursor-pointer hover:text-foreground flex items-center gap-1"
                         onClick={() => handleSort("encargo")}
@@ -378,9 +378,9 @@ const TrackerList = () => {
                     </div>
                   </TableHead>
                   {/* Actividad - 17% */}
-                  <TableHead style={{ width: "17%" }}>
+                  <TableHead style={{ width: "17%" }} className="text-center border-r border-border">
                     <span 
-                      className="cursor-pointer hover:text-foreground flex items-center gap-1"
+                      className="cursor-pointer hover:text-foreground flex items-center justify-center gap-1"
                       onClick={() => handleSort("actividad")}
                     >
                       {t("tracker.activity")}
@@ -388,11 +388,11 @@ const TrackerList = () => {
                     </span>
                   </TableHead>
                   {/* Descripción - 15% */}
-                  <TableHead style={{ width: "15%" }}>
+                  <TableHead style={{ width: "15%" }} className="text-center border-r border-border">
                     {t("tracker.description")}
                   </TableHead>
                   {/* Estado - 8% */}
-                  <TableHead style={{ width: "8%" }}>
+                  <TableHead style={{ width: "8%" }} className="text-center border-r border-border">
                     {t("tracker.status")}
                   </TableHead>
                   {/* Acciones - 8% */}
@@ -428,31 +428,31 @@ const TrackerList = () => {
                         onClick={() => navigate(`/tracker/${entry.timer_id}`)}
                       >
                         {/* Date */}
-                        <TableCell className="font-mono text-muted-foreground">
+                        <TableCell className="font-mono text-muted-foreground text-left border-r border-border">
                           {format(date, "dd/MM/yyyy", { locale: currentLanguage === "es" ? es : undefined })}
                         </TableCell>
                         {/* Time Range */}
-                        <TableCell className="font-mono">
+                        <TableCell className="font-mono text-left border-r border-border">
                           {formatTimeRange(entry.started_at, entry.ended_at)}
                         </TableCell>
                         {/* Duration */}
-                        <TableCell className="text-right font-mono">
+                        <TableCell className="text-right font-mono border-r border-border">
                           {formatDuration(entry.duration_minutes)}
                         </TableCell>
                         {/* Engagement */}
-                        <TableCell className="font-medium truncate max-w-[220px]">
+                        <TableCell className="font-medium truncate max-w-[220px] text-left border-r border-border">
                           {entry.engagement?.engagement_code || "—"} - {entry.engagement?.engagement_name || ""}
                         </TableCell>
                         {/* Activity */}
-                        <TableCell className="truncate max-w-[180px]">
+                        <TableCell className="truncate max-w-[180px] text-left border-r border-border">
                           {entry.activity?.activity_code || "—"} - {entry.activity?.description || ""}
                         </TableCell>
                         {/* Description */}
-                        <TableCell className="truncate max-w-[140px]">
+                        <TableCell className="truncate max-w-[140px] text-left border-r border-border">
                           {entry.description || "—"}
                         </TableCell>
                         {/* Status */}
-                        <TableCell>
+                        <TableCell className="text-center border-r border-border">
                           {!entry.ended_at ? (
                             <Badge className="bg-success/10 text-success border-success/20 animate-pulse">
                               {t("tracker.running")}

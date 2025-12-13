@@ -163,13 +163,13 @@ export function ApprovalTimesheetGrid({
         <table className="w-full">
           <thead>
             <tr className="bg-muted/50 border-b border-border">
-              <th className="text-left p-4 font-semibold text-foreground min-w-[280px]">
+              <th className="text-center p-4 font-semibold text-foreground min-w-[280px] border-r border-border">
                 {t("timesheet.engagement")} / {t("timesheet.activity")}
               </th>
               {weekDates.map((date, index) => (
                 <th
                   key={index}
-                  className="text-center p-4 font-semibold text-foreground w-16"
+                  className="text-center p-4 font-semibold text-foreground w-16 border-r border-border"
                 >
                   <div className="capitalize">{getDayName(date, lang)}</div>
                   <div className="text-xs text-muted-foreground font-normal font-mono">
@@ -177,7 +177,7 @@ export function ApprovalTimesheetGrid({
                   </div>
                 </th>
               ))}
-              <th className="text-center p-4 font-semibold text-foreground w-16 bg-muted">
+              <th className="text-center p-4 font-semibold text-foreground w-16 bg-muted border-r border-border">
                 {t("timesheet.total")}
               </th>
               <th className="text-center p-4 font-semibold text-foreground min-w-[160px]">
@@ -202,7 +202,7 @@ export function ApprovalTimesheetGrid({
                       !isApprovable && "text-muted-foreground"
                     )}
                   >
-                    <td className="p-3">
+                    <td className="p-3 text-left border-r border-border">
                       <div className="flex items-center">
                         <div className="font-medium">
                           <span className="font-mono text-xs mr-2">
@@ -223,7 +223,7 @@ export function ApprovalTimesheetGrid({
                         <td
                           key={dateStr}
                           className={cn(
-                            "p-3 text-center font-mono font-medium",
+                            "p-3 text-right font-mono font-medium border-r border-border",
                             !isApprovable && "text-muted-foreground"
                           )}
                         >
@@ -232,7 +232,7 @@ export function ApprovalTimesheetGrid({
                       );
                     })}
                     <td className={cn(
-                      "p-3 text-center font-semibold bg-muted/50 font-mono",
+                      "p-3 text-right font-semibold bg-muted/50 font-mono border-r border-border",
                       !isApprovable && "text-muted-foreground"
                     )}>
                       {group.totalHours}h
@@ -256,7 +256,7 @@ export function ApprovalTimesheetGrid({
                         !isApprovable && "text-muted-foreground"
                       )}
                     >
-                      <td className="p-3 pl-8">
+                      <td className="p-3 pl-8 text-left border-r border-border">
                         <span className="font-mono text-xs mr-2 text-muted-foreground">
                           {activity.activityCode}
                         </span>
@@ -271,16 +271,16 @@ export function ApprovalTimesheetGrid({
                         return (
                           <td
                             key={dateStr}
-                            className="p-3 text-center font-mono text-sm text-muted-foreground"
+                            className="p-3 text-right font-mono text-sm text-muted-foreground border-r border-border"
                           >
                             {hours > 0 ? hours : "-"}
                           </td>
                         );
                       })}
-                      <td className="p-3 text-center font-mono text-sm text-muted-foreground bg-muted/30">
+                      <td className="p-3 text-right font-mono text-sm text-muted-foreground bg-muted/30 border-r border-border">
                         {activity.total}h
                       </td>
-                      <td></td>
+                      <td className="text-center"></td>
                     </tr>
                   ))}
                 </>
@@ -289,21 +289,21 @@ export function ApprovalTimesheetGrid({
 
             {/* Totals Row */}
             <tr className="bg-primary/5 font-semibold">
-              <td className="p-4 text-foreground">
+              <td className="p-4 text-left text-foreground border-r border-border">
                 {t("timesheet.dailyTotals")}
               </td>
               {weekDates.map((date) => (
                 <td
                   key={toISODateString(date)}
-                  className="p-4 text-center text-foreground font-mono"
+                  className="p-4 text-right text-foreground font-mono border-r border-border"
                 >
                   {calculateColumnTotal(date)}h
                 </td>
               ))}
-              <td className="p-4 text-center text-foreground bg-primary/10 font-mono">
+              <td className="p-4 text-right text-foreground bg-primary/10 font-mono border-r border-border">
                 {calculateGrandTotal()}h
               </td>
-              <td></td>
+              <td className="text-center"></td>
             </tr>
           </tbody>
         </table>

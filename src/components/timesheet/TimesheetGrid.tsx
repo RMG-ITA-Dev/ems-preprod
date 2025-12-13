@@ -272,16 +272,16 @@ export function TimesheetGrid({
         <table className="w-full">
           <thead>
             <tr className="bg-muted/50 border-b border-border">
-              <th className="text-left p-4 font-semibold text-foreground min-w-[200px]">
+              <th className="text-center p-4 font-semibold text-foreground min-w-[200px] border-r border-border">
                 {t("timesheet.engagement")}
               </th>
-              <th className="text-left p-4 font-semibold text-foreground min-w-[140px]">
+              <th className="text-center p-4 font-semibold text-foreground min-w-[140px] border-r border-border">
                 {t("timesheet.activity")}
               </th>
               {weekDates.map((date, index) => (
                 <th
                   key={index}
-                  className="text-center p-4 font-semibold text-foreground w-20"
+                  className="text-center p-4 font-semibold text-foreground w-20 border-r border-border"
                 >
                   <div className="capitalize">{getDayName(date, lang)}</div>
                   <div className="text-xs text-muted-foreground font-normal font-mono">
@@ -289,10 +289,10 @@ export function TimesheetGrid({
                   </div>
                 </th>
               ))}
-              <th className="text-center p-4 font-semibold text-foreground w-20 bg-muted">
+              <th className="text-center p-4 font-semibold text-foreground w-20 bg-muted border-r border-border">
                 {t("timesheet.total")}
               </th>
-              <th className="w-10"></th>
+              <th className="w-10 text-center"></th>
             </tr>
           </thead>
           <tbody>
@@ -301,7 +301,7 @@ export function TimesheetGrid({
                 key={row.id}
                 className="border-b border-border hover:bg-muted/30"
               >
-                <td className="p-2">
+              <td className="p-2 text-left border-r border-border">
                   <div className="flex items-center">
                     <Select
                       value={row.engagementId}
@@ -325,7 +325,7 @@ export function TimesheetGrid({
                     {row.engagementId && renderApprovalBadge(row.engagementId)}
                   </div>
                 </td>
-                <td className="p-2">
+                <td className="p-2 text-left border-r border-border">
                   <Select
                     value={row.activityId}
                     onValueChange={(val) => handleActivityChange(row.id, val)}
@@ -355,7 +355,7 @@ export function TimesheetGrid({
                     isLocked || !row.engagementId || !row.activityId;
 
                   return (
-                    <td key={dateStr} className="p-2 relative">
+                    <td key={dateStr} className="p-2 relative text-center border-r border-border">
                       <div className="relative">
                         <NumericInput
                           decimals={1}
@@ -382,10 +382,10 @@ export function TimesheetGrid({
                     </td>
                   );
                 })}
-                <td className="p-2 text-center font-semibold bg-muted/50 font-mono">
+                <td className="p-2 text-right font-semibold bg-muted/50 font-mono border-r border-border">
                   {calculateRowTotal(row)}h
                 </td>
-                <td className="p-2">
+                <td className="p-2 text-center">
                   {rows.length > 1 && !isLocked && (
                     <Button
                       variant="ghost"

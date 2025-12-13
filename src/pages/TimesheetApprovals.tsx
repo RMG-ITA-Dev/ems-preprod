@@ -81,12 +81,12 @@ const TimesheetApprovals = () => {
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/50">
-                  <TableHead className="font-semibold">{t("staff.name")}</TableHead>
-                  <TableHead className="font-semibold">{t("timesheet.week")}</TableHead>
-                  <TableHead className="font-semibold text-right">
+                  <TableHead className="font-semibold text-center border-r border-border">{t("staff.name")}</TableHead>
+                  <TableHead className="font-semibold text-center border-r border-border">{t("timesheet.week")}</TableHead>
+                  <TableHead className="font-semibold text-center border-r border-border">
                     {t("approval.horasPendientesAprobacion")}
                   </TableHead>
-                  <TableHead className="w-10"></TableHead>
+                  <TableHead className="w-10 text-center"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -96,11 +96,11 @@ const TimesheetApprovals = () => {
                     className="cursor-pointer hover:bg-muted/50"
                     onClick={() => handleRowClick(summary.period_id)}
                   >
-                    <TableCell className="font-medium">
+                    <TableCell className="font-medium text-left border-r border-border">
                       {summary.staff.short_name ||
                         `${summary.staff.first_name} ${summary.staff.last_name}`}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="text-left border-r border-border">
                       <span className="text-muted-foreground mr-2">
                         {t("timesheet.week")} {summary.week_number}, {summary.year}
                       </span>
@@ -108,10 +108,10 @@ const TimesheetApprovals = () => {
                         ({formatWeekRange(summary.week_start_date)})
                       </span>
                     </TableCell>
-                    <TableCell className="text-right font-mono font-semibold">
+                    <TableCell className="text-right font-mono font-semibold border-r border-border">
                       {summary.totalPendingHours}h
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="text-center">
                       <ChevronRight className="h-4 w-4 text-muted-foreground" />
                     </TableCell>
                   </TableRow>
