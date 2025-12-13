@@ -41,7 +41,12 @@ interface PracticeMetrics {
 
 export function PracticaTab() {
   const { t } = useTranslation();
-  const { startDateStr, endDateStr } = useDashboard();
+  const { startDateStr, endDateStr, setActiveTab, setSelectedEngagementId } = useDashboard();
+
+  const handleDrillDown = (engagementId: string) => {
+    setSelectedEngagementId(engagementId);
+    setActiveTab('encargo');
+  };
 
   // Fetch practice-wide metrics
   const { data: practiceMetrics, isLoading: metricsLoading } = useQuery({

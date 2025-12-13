@@ -349,7 +349,10 @@
     "november": "Noviembre",
     "december": "Diciembre"
   },
-  "dashboard": {
+"dashboard": {
+    "noData": "Sin datos disponibles para el período seleccionado",
+    "noEngagementsFound": "No se encontraron encargos",
+    "selectEngagement": "Seleccione un encargo para ver los detalles",
     "title": "Panel de Control",
     "activeEngagements": "Encargos Activos",
     "hoursLogged": "Horas Registradas",
@@ -390,7 +393,14 @@
       "myEngagements": "Mis Encargos",
       "noEngagements": "Sin encargos en este período",
       "recentEntries": "Entradas Recientes",
-      "noRecentEntries": "Sin entradas recientes"
+      "noRecentEntries": "Sin entradas recientes",
+      "timesheetMap": "Mapa de Envíos (12 semanas)",
+      "mapLegend": {
+        "submitted": "Enviada",
+        "draft": "Borrador",
+        "not_started": "Sin iniciar",
+        "overdue": "Atrasada"
+      }
     },
     "cartera": {
       "activeEngagements": "Encargos Activos",
