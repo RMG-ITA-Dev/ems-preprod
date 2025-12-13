@@ -3,8 +3,9 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { DashboardProvider, useDashboard, DashboardTab } from "@/contexts/DashboardContext";
 import { useDashboardAccess } from "@/hooks/useDashboardAccess";
 import { PeriodSelector } from "@/components/dashboard/PeriodSelector";
-import { PersonalTab } from "@/components/dashboard/tabs/PersonalTab";
-import { EncargoTab } from "@/components/dashboard/tabs/EncargoTab";
+import { PersonalTab } from '@/components/dashboard/tabs/PersonalTab';
+import { EncargoTab } from '@/components/dashboard/tabs/EncargoTab';
+import { CarteraTab } from '@/components/dashboard/tabs/CarteraTab';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Building2, Briefcase, FolderKanban, User } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -63,7 +64,7 @@ function DashboardContent() {
         </TabsContent>
 
         <TabsContent value="cartera" className="mt-4">
-          <PlaceholderTab title={t('dashboard.tabs.cartera')} description="Vista de portafolio de encargos" />
+          <CarteraTab />
         </TabsContent>
 
         <TabsContent value="encargo" className="mt-4">
