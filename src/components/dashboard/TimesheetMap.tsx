@@ -144,9 +144,7 @@ export function TimesheetMap({ staffId }: TimesheetMapProps) {
   }
 
   const monthLabels = getMonthLabels();
-  const dayLabels = i18n.language === 'es'
-    ? ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
-    : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const WEEKDAYS = 5; // Mon-Fri only
 
   return (
     <Card className="bg-card/80 backdrop-blur-sm border-border">
@@ -157,21 +155,18 @@ export function TimesheetMap({ staffId }: TimesheetMapProps) {
       </CardHeader>
       <CardContent className="px-4 pb-4 pt-0">
         <TooltipProvider>
-          {/* Month labels row aligned to weeks */}
+          {/* Month labels row */}
           <div
             className="grid text-[10px] text-muted-foreground mb-1"
             style={{
-              gridTemplateColumns: 'auto repeat(52, 10px)',
-              columnGap: '3px',
-              rowGap: '0px',
+              gridTemplateColumns: 'repeat(52, 10px)',
+              gap: '2px',
             }}
           >
-            {/* Empty cell for day labels column */}
-            <div />
             {monthLabels.map((month, idx) => {
               const next = monthLabels[idx + 1];
-              const startCol = month.colStart + 2; // +1 for 0-index, +1 for day label column
-              const endCol = (next ? next.colStart : weeksData?.length ?? 52) + 2;
+              const startCol = month.colStart + 1; // +1 for 1-indexed grid
+              const endCol = (next ? next.colStart : weeksData?.length ?? 52) + 1;
 
               return (
                 <div
@@ -184,47 +179,36 @@ export function TimesheetMap({ staffId }: TimesheetMapProps) {
             })}
           </div>
 
-          {/* 7×52 GitHub-style grid: rows = days, columns = weeks */}
+          {/* 5×52 GitHub-style grid: 5 rows (Mon-Fri), 52 columns (weeks) */}
           <div
-            className="grid overflow-x-auto pb-2"
+            className="grid"
             style={{
-              gridTemplateColumns: 'auto repeat(52, 10px)',
-              columnGap: '3px',
-              rowGap: '3px',
+              gridTemplateColumns: 'repeat(52, 10px)',
+              gridTemplateRows: `repeat(${WEEKDAYS}, 10px)`,
+              gap: '2px',
             }}
           >
-            {dayLabels.map((label, dayIdx) => (
+            {Array.from({ length: WEEKDAYS }).map((_, dayIdx) => (
               <Fragment key={`day-row-${dayIdx}`}>
-                {/* Day label column (show only Mon/Wed/Fri for compactness) */}
-                <div className="text-[10px] text-muted-foreground">
-                  {dayIdx === 1 || dayIdx === 3 || dayIdx === 5 ? label : ''}
-                </div>
-
-                {/* Week columns for this day */}
-                {weeksData?.map((week, weekIdx) => {
-                  const cellDate = addDays(week.weekStart, dayIdx);
-
-                  return (
-                    <Tooltip key={`cell-${dayIdx}-${weekIdx}`}>
-                      <TooltipTrigger asChild>
-                        <div
-                          className={cn(
-                            'w-[10px] h-[10px] rounded-[2px] cursor-default transition-all flex-shrink-0',
-                            'hover:ring-1 hover:ring-foreground/30',
-                            getStatusColor(week.status)
-                          )}
-                        />
-                      </TooltipTrigger>
-                      <TooltipContent side="top" className="text-xs">
-                        <div className="font-medium">{getStatusLabel(week.status)}</div>
-                        <div className="text-muted-foreground">
-                          {format(cellDate, 'd MMM', { locale: dateLocale })} -{' '}
-                          {week.totalHours.toFixed(1)}h
-                        </div>
-                      </TooltipContent>
-                    </Tooltip>
-                  );
-                })}
+                {weeksData?.map((week, weekIdx) => (
+                  <Tooltip key={`cell-${dayIdx}-${weekIdx}`}>
+                    <TooltipTrigger asChild>
+                      <div
+                        className={cn(
+                          'w-[10px] h-[10px] rounded-[2px] cursor-default',
+                          'hover:ring-1 hover:ring-foreground/30',
+                          getStatusColor(week.status)
+                        )}
+                      />
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="text-xs">
+                      <div className="font-medium">{getStatusLabel(week.status)}</div>
+                      <div className="text-muted-foreground">
+                        {format(week.weekStart, 'd MMM', { locale: dateLocale })} - {week.totalHours.toFixed(1)}h
+                      </div>
+                    </TooltipContent>
+                  </Tooltip>
+                ))}
               </Fragment>
             ))}
           </div>
