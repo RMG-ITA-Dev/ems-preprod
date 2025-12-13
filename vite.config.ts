@@ -1,4 +1,4 @@
-// Build version: 2025-12-07 - Force dependency re-optimization
+// Build version: 2025-12-13 - Add @radix-ui/react-tabs to optimizeDeps
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
@@ -33,6 +33,7 @@ export default defineConfig(({ mode }) => ({
       '@radix-ui/react-popover',
       '@radix-ui/react-tooltip',
       '@radix-ui/react-slot',
+      '@radix-ui/react-tabs',
     ],
   },
 }));
