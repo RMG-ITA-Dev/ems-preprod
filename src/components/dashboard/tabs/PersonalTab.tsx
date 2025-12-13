@@ -2,15 +2,16 @@ import { useTranslation } from "react-i18next";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { useDashboard } from "@/contexts/DashboardContext";
 import { RecentTimeEntries } from "@/components/dashboard/RecentTimeEntries";
-import { TimesheetMap } from "@/components/dashboard/TimesheetMap";
+import { Sparkline, SparklineDataPoint } from "@/components/dashboard/Sparkline";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { Clock, Target, TrendingUp, Calendar, CheckCircle2, AlertCircle } from "lucide-react";
+import { Clock, Target, Calendar, CheckCircle2, AlertCircle, BarChart3 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { format, startOfWeek, endOfWeek, parseISO, differenceInDays } from "date-fns";
+import { format, startOfWeek, endOfWeek, parseISO, differenceInDays, subWeeks, startOfMonth, endOfMonth } from "date-fns";
 import { es, enUS } from "date-fns/locale";
 import { cn } from "@/lib/utils";
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Cell } from 'recharts';
 
 export function PersonalTab() {
   const { t, i18n } = useTranslation();
@@ -18,11 +19,13 @@ export function PersonalTab() {
   const { startDateStr, endDateStr } = useDashboard();
   const dateLocale = i18n.language === 'es' ? es : enUS;
 
-  // Fetch this week's time entries for the current staff
   const today = new Date();
   const weekStart = startOfWeek(today, { weekStartsOn: 1 });
   const weekEnd = endOfWeek(today, { weekStartsOn: 1 });
+  const monthStart = startOfMonth(today);
+  const monthEnd = endOfMonth(today);
 
+  // Fetch this week's time entries
   const { data: weekTimeEntries, isLoading: entriesLoading } = useQuery({
     queryKey: ['personal-week-entries', staffRecord?.staff_id, format(weekStart, 'yyyy-MM-dd')],
     queryFn: async () => {
@@ -48,6 +51,51 @@ export function PersonalTab() {
     enabled: !!staffRecord?.staff_id,
   });
 
+  // Fetch last 8 weeks trend for sparkline
+  const { data: weeklyTrend } = useQuery({
+    queryKey: ['personal-weekly-trend', staffRecord?.staff_id],
+    queryFn: async () => {
+      if (!staffRecord?.staff_id) return [];
+      const weeks: SparklineDataPoint[] = [];
+      
+      for (let i = 7; i >= 0; i--) {
+        const ws = startOfWeek(subWeeks(today, i), { weekStartsOn: 1 });
+        const we = endOfWeek(subWeeks(today, i), { weekStartsOn: 1 });
+        
+        const { data } = await supabase
+          .from('time_entries')
+          .select('hours_logged')
+          .eq('staff_id', staffRecord.staff_id)
+          .gte('date_worked', format(ws, 'yyyy-MM-dd'))
+          .lte('date_worked', format(we, 'yyyy-MM-dd'));
+        
+        const total = data?.reduce((sum, e) => sum + Number(e.hours_logged), 0) || 0;
+        weeks.push({ value: total });
+      }
+      
+      return weeks;
+    },
+    enabled: !!staffRecord?.staff_id,
+  });
+
+  // Fetch this month's hours
+  const { data: monthHours } = useQuery({
+    queryKey: ['personal-month-hours', staffRecord?.staff_id, format(monthStart, 'yyyy-MM')],
+    queryFn: async () => {
+      if (!staffRecord?.staff_id) return 0;
+      const { data, error } = await supabase
+        .from('time_entries')
+        .select('hours_logged')
+        .eq('staff_id', staffRecord.staff_id)
+        .gte('date_worked', format(monthStart, 'yyyy-MM-dd'))
+        .lte('date_worked', format(monthEnd, 'yyyy-MM-dd'));
+      
+      if (error) throw error;
+      return data?.reduce((sum, e) => sum + Number(e.hours_logged), 0) || 0;
+    },
+    enabled: !!staffRecord?.staff_id,
+  });
+
   // Fetch pending approvals count (if user can approve)
   const { data: pendingApprovals } = useQuery({
     queryKey: ['personal-pending-approvals', staffRecord?.staff_id],
@@ -64,13 +112,12 @@ export function PersonalTab() {
     enabled: !!staffRecord?.staff_id,
   });
 
-  // Fetch assigned engagements
-  const { data: assignedEngagements } = useQuery({
-    queryKey: ['personal-engagements', staffRecord?.staff_id, startDateStr, endDateStr],
+  // Fetch hours by engagement for the selected period
+  const { data: engagementHours } = useQuery({
+    queryKey: ['personal-engagement-hours', staffRecord?.staff_id, startDateStr, endDateStr],
     queryFn: async () => {
       if (!staffRecord?.staff_id) return [];
       
-      // Get engagements where staff has logged time in the period
       const { data, error } = await supabase
         .from('time_entries')
         .select(`
@@ -79,9 +126,7 @@ export function PersonalTab() {
           engagement:engagements(
             engagement_id,
             engagement_code,
-            engagement_name,
-            status,
-            client:clients(client_legal_name)
+            engagement_name
           )
         `)
         .eq('staff_id', staffRecord.staff_id)
@@ -91,21 +136,24 @@ export function PersonalTab() {
       if (error) throw error;
 
       // Aggregate by engagement
-      const engagementMap = new Map<string, { engagement: any; totalHours: number }>();
+      const engagementMap = new Map<string, { code: string; name: string; hours: number }>();
       data?.forEach(entry => {
+        const eng = entry.engagement as any;
+        if (!eng) return;
         const engId = entry.engagement_id;
         if (!engagementMap.has(engId)) {
           engagementMap.set(engId, {
-            engagement: entry.engagement,
-            totalHours: 0
+            code: eng.engagement_code || '—',
+            name: eng.engagement_name || '—',
+            hours: 0
           });
         }
-        engagementMap.get(engId)!.totalHours += Number(entry.hours_logged);
+        engagementMap.get(engId)!.hours += Number(entry.hours_logged);
       });
 
       return Array.from(engagementMap.values())
-        .sort((a, b) => b.totalHours - a.totalHours)
-        .slice(0, 5);
+        .sort((a, b) => b.hours - a.hours)
+        .slice(0, 7);
     },
     enabled: !!staffRecord?.staff_id,
   });
@@ -142,15 +190,14 @@ export function PersonalTab() {
   const weeklyCapacity = 40;
   const weekHoursLogged = weekTimeEntries?.reduce((sum, e) => sum + Number(e.hours_logged), 0) || 0;
   const utilizationPercent = Math.round((weekHoursLogged / weeklyCapacity) * 100);
-  const hoursRemaining = Math.max(0, weeklyCapacity - weekHoursLogged);
 
-  // Days until deadline (usually Monday for previous week)
+  // Days until deadline
   const deadline = timesheetPeriod?.deadline 
     ? parseISO(timesheetPeriod.deadline) 
-    : new Date(weekEnd.getTime() + 24 * 60 * 60 * 1000); // Day after week end
+    : new Date(weekEnd.getTime() + 24 * 60 * 60 * 1000);
   const daysUntilDeadline = differenceInDays(deadline, today);
 
-  // Check if user can approve timesheets based on category
+  // Check if user can approve timesheets
   const canApprove = (staffRecord?.category as any)?.can_approve_timesheets === true;
 
   // Transform entries for RecentTimeEntries component
@@ -162,58 +209,65 @@ export function PersonalTab() {
     activity: (entry.activity as any)?.description || entry.description || '—',
   }));
 
-  return (
-    <div className="space-y-6">
-      {/* Top Row: North Star Metrics */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Weekly Hours */}
-        <Card className="bg-card/80 backdrop-blur-sm border-border hover:shadow-lg hover:border-primary/30 transition-all duration-300">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <Clock className="h-4 w-4" />
-              {t('dashboard.personal.weeklyHours')}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-end gap-2">
-              <span className="text-3xl font-bold text-foreground font-mono">{weekHoursLogged.toFixed(1)}</span>
-              <span className="text-sm text-muted-foreground mb-1">/ {weeklyCapacity}h</span>
-            </div>
-            <Progress 
-              value={Math.min(utilizationPercent, 100)} 
-              className="h-2 mt-3"
-            />
-            <p className="text-xs text-muted-foreground mt-2">
-              {hoursRemaining > 0 
-                ? t('dashboard.personal.hoursRemaining', { hours: hoursRemaining.toFixed(1) })
-                : t('dashboard.personal.capacityReached')
-              }
-            </p>
-          </CardContent>
-        </Card>
+  // Bar chart colors
+  const barColors = [
+    'hsl(var(--primary))',
+    'hsl(var(--info))',
+    'hsl(var(--success))',
+    'hsl(var(--warning))',
+    'hsl(var(--accent))',
+    'hsl(var(--muted-foreground))',
+    'hsl(var(--secondary))',
+  ];
 
-        {/* Utilization */}
+  return (
+    <div className="space-y-4">
+      {/* Row 1: KPI Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Esta Semana */}
         <Card className="bg-card/80 backdrop-blur-sm border-border hover:shadow-lg hover:border-primary/30 transition-all duration-300">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <Target className="h-4 w-4" />
-              {t('dashboard.personal.utilization')}
+            <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-2">
+              <Clock className="h-4 w-4" />
+              {t('dashboard.personal.thisWeek')}
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="flex items-end gap-2">
+          <CardContent className="space-y-2">
+            <div className="flex items-end justify-between">
+              <div className="flex items-end gap-1">
+                <span className="text-2xl font-bold text-foreground font-mono">{weekHoursLogged.toFixed(1)}</span>
+                <span className="text-xs text-muted-foreground mb-1">/ {weeklyCapacity}h</span>
+              </div>
               <span className={cn(
-                "text-3xl font-bold font-mono",
+                "text-sm font-semibold font-mono",
                 utilizationPercent >= 80 ? "text-success" : 
                 utilizationPercent >= 50 ? "text-warning" : "text-muted-foreground"
               )}>
                 {utilizationPercent}%
               </span>
             </div>
-            <p className="text-xs text-muted-foreground mt-3">
-              {utilizationPercent >= 80 ? t('dashboard.personal.onTrack') : 
-               utilizationPercent >= 50 ? t('dashboard.personal.progressing') : 
-               t('dashboard.personal.needsAttention')}
+            <Progress value={Math.min(utilizationPercent, 100)} className="h-1.5" />
+            {weeklyTrend && weeklyTrend.length > 1 && (
+              <Sparkline data={weeklyTrend} color={utilizationPercent >= 80 ? 'success' : 'primary'} height={24} />
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Este Mes */}
+        <Card className="bg-card/80 backdrop-blur-sm border-border hover:shadow-lg hover:border-primary/30 transition-all duration-300">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-2">
+              <Target className="h-4 w-4" />
+              {t('dashboard.personal.thisMonth')}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-end gap-1">
+              <span className="text-2xl font-bold text-foreground font-mono">{(monthHours || 0).toFixed(1)}</span>
+              <span className="text-xs text-muted-foreground mb-1">h</span>
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">
+              {format(monthStart, 'MMMM yyyy', { locale: dateLocale })}
             </p>
           </CardContent>
         </Card>
@@ -221,23 +275,27 @@ export function PersonalTab() {
         {/* Deadline */}
         <Card className="bg-card/80 backdrop-blur-sm border-border hover:shadow-lg hover:border-primary/30 transition-all duration-300">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+            <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-2">
               <Calendar className="h-4 w-4" />
               {t('dashboard.personal.deadline')}
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex items-end gap-2">
+            <div className="flex items-end gap-1">
               <span className={cn(
-                "text-3xl font-bold font-mono",
+                "text-2xl font-bold font-mono",
                 daysUntilDeadline <= 1 ? "text-destructive" :
                 daysUntilDeadline <= 3 ? "text-warning" : "text-foreground"
               )}>
-                {daysUntilDeadline >= 0 ? daysUntilDeadline : 0}
+                {daysUntilDeadline === 0 ? t('dashboard.personal.today') : 
+                 daysUntilDeadline < 0 ? t('dashboard.personal.overdue') :
+                 daysUntilDeadline}
               </span>
-              <span className="text-sm text-muted-foreground mb-1">{t('dashboard.personal.days')}</span>
+              {daysUntilDeadline > 0 && (
+                <span className="text-xs text-muted-foreground mb-1">{t('dashboard.personal.days')}</span>
+              )}
             </div>
-            <p className="text-xs text-muted-foreground mt-3">
+            <p className="text-xs text-muted-foreground mt-2">
               {format(deadline, 'EEEE, d MMM', { locale: dateLocale })}
             </p>
           </CardContent>
@@ -245,18 +303,18 @@ export function PersonalTab() {
 
         {/* Timesheet Status / Pending Approvals */}
         {canApprove && pendingApprovals && pendingApprovals > 0 ? (
-          <Card className="bg-card/80 backdrop-blur-sm border-border hover:shadow-lg hover:border-warning/30 transition-all duration-300">
+          <Card className="bg-card/80 backdrop-blur-sm border-warning/20 hover:shadow-lg hover:border-warning/40 transition-all duration-300">
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+              <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-2">
                 <AlertCircle className="h-4 w-4 text-warning" />
                 {t('dashboard.personal.pendingApprovals')}
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="flex items-end gap-2">
-                <span className="text-3xl font-bold text-warning font-mono">{pendingApprovals}</span>
+              <div className="flex items-end gap-1">
+                <span className="text-2xl font-bold text-warning font-mono">{pendingApprovals}</span>
               </div>
-              <p className="text-xs text-muted-foreground mt-3">
+              <p className="text-xs text-muted-foreground mt-2">
                 {t('dashboard.personal.awaitingReview')}
               </p>
             </CardContent>
@@ -264,20 +322,18 @@ export function PersonalTab() {
         ) : (
           <Card className="bg-card/80 backdrop-blur-sm border-border hover:shadow-lg hover:border-primary/30 transition-all duration-300">
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+              <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-2">
                 <CheckCircle2 className="h-4 w-4" />
                 {t('dashboard.personal.timesheetStatus')}
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="flex items-center gap-2">
-                {timesheetPeriod?.submitted_at ? (
-                  <span className="text-lg font-semibold text-success">{t('dashboard.personal.submitted')}</span>
-                ) : (
-                  <span className="text-lg font-semibold text-muted-foreground">{t('dashboard.personal.draft')}</span>
-                )}
-              </div>
-              <p className="text-xs text-muted-foreground mt-3">
+              {timesheetPeriod?.submitted_at ? (
+                <span className="text-lg font-semibold text-success">{t('dashboard.personal.submitted')}</span>
+              ) : (
+                <span className="text-lg font-semibold text-muted-foreground">{t('dashboard.personal.draft')}</span>
+              )}
+              <p className="text-xs text-muted-foreground mt-2">
                 {t('dashboard.personal.weekOf', { 
                   date: format(weekStart, 'd MMM', { locale: dateLocale }) 
                 })}
@@ -287,59 +343,69 @@ export function PersonalTab() {
         )}
       </div>
 
-      {/* Middle Row: Engagements, Recent Activity & Timesheet Map */}
+      {/* Row 2: Charts and Recent Entries */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* My Engagements */}
-        <Card className="bg-card/80 backdrop-blur-sm border-border">
+        {/* Hours by Engagement - Bar Chart */}
+        <Card className="lg:col-span-2 bg-card/80 backdrop-blur-sm border-border">
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <TrendingUp className="h-4 w-4 text-primary" />
-              {t('dashboard.personal.myEngagements')}
+              <BarChart3 className="h-4 w-4 text-primary" />
+              {t('dashboard.personal.hoursByEngagement')}
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-2">
-            {assignedEngagements && assignedEngagements.length > 0 ? (
-              assignedEngagements.map((item) => (
-                <div 
-                  key={item.engagement.engagement_id}
-                  className="flex items-center justify-between p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors"
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-medium text-primary">
-                        {item.engagement.engagement_code || '—'}
-                      </span>
-                    </div>
-                    <p className="text-sm font-medium text-foreground truncate">
-                      {item.engagement.engagement_name}
-                    </p>
-                    <p className="text-xs text-muted-foreground truncate">
-                      {item.engagement.client?.client_legal_name || '—'}
-                    </p>
-                  </div>
-                  <div className="text-right ml-3">
-                    <span className="text-lg font-semibold text-foreground font-mono">
-                      {item.totalHours.toFixed(1)}
-                    </span>
-                    <span className="text-xs text-muted-foreground ml-1">h</span>
-                  </div>
-                </div>
-              ))
+          <CardContent>
+            {engagementHours && engagementHours.length > 0 ? (
+              <div className="h-[240px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart 
+                    layout="vertical" 
+                    data={engagementHours}
+                    margin={{ top: 0, right: 20, left: 0, bottom: 0 }}
+                  >
+                    <XAxis type="number" hide />
+                    <YAxis 
+                      type="category" 
+                      dataKey="code" 
+                      width={80}
+                      tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <Tooltip 
+                      formatter={(value: number) => [`${value.toFixed(1)}h`, 'Horas']}
+                      labelFormatter={(label) => {
+                        const eng = engagementHours?.find(e => e.code === label);
+                        return eng?.name || label;
+                      }}
+                      contentStyle={{
+                        backgroundColor: 'hsl(var(--card))',
+                        border: '1px solid hsl(var(--border))',
+                        borderRadius: '8px',
+                        fontSize: '12px'
+                      }}
+                    />
+                    <Bar 
+                      dataKey="hours" 
+                      radius={[0, 4, 4, 0]}
+                      barSize={20}
+                    >
+                      {engagementHours.map((_, index) => (
+                        <Cell key={`cell-${index}`} fill={barColors[index % barColors.length]} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
             ) : (
-              <p className="text-sm text-muted-foreground py-4 text-center">
-                {t('dashboard.personal.noEngagements')}
-              </p>
+              <div className="h-[240px] flex items-center justify-center">
+                <p className="text-sm text-muted-foreground">{t('dashboard.personal.noEngagements')}</p>
+              </div>
             )}
           </CardContent>
         </Card>
 
         {/* Recent Time Entries */}
         <RecentTimeEntries entries={recentEntriesFormatted} />
-
-        {/* Timesheet Map - GitHub style 52 weeks */}
-        {staffRecord?.staff_id && (
-          <TimesheetMap staffId={staffRecord.staff_id} />
-        )}
       </div>
     </div>
   );

@@ -373,6 +373,8 @@
       "personal": "Personal"
     },
     "personal": {
+      "thisWeek": "Esta Semana",
+      "thisMonth": "Este Mes",
       "weeklyHours": "Horas Semanales",
       "hoursRemaining": "{{hours}}h restantes",
       "capacityReached": "Capacidad alcanzada",
@@ -382,6 +384,8 @@
       "needsAttention": "Necesita atención",
       "deadline": "Fecha Límite",
       "days": "días",
+      "today": "Hoy",
+      "overdue": "Vencida",
       "pendingApprovals": "Aprobaciones Pendientes",
       "awaitingReview": "Esperando revisión",
       "timesheetStatus": "Estado de Hoja",
@@ -389,16 +393,10 @@
       "draft": "Borrador",
       "weekOf": "Semana del {{date}}",
       "myEngagements": "Mis Encargos",
+      "hoursByEngagement": "Horas por Encargo",
       "noEngagements": "Sin encargos en este período",
       "recentEntries": "Entradas Recientes",
-      "noRecentEntries": "Sin entradas recientes",
-      "timeActivity": "Registro de Tiempo",
-      "mapLegend": {
-        "submitted": "Enviada",
-        "draft": "Borrador",
-        "notStarted": "Sin iniciar",
-        "overdue": "Atrasada"
-      }
+      "noRecentEntries": "Sin entradas recientes"
     },
     "cartera": {
       "activeEngagements": "Encargos Activos",
