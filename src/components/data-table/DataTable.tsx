@@ -239,10 +239,11 @@ export function DataTable<T extends Record<string, any>>({
                 const hasFilter = !!filterConfig;
                 const filterActive = isFilterActive(col.filterKey);
 
+                const isLast = columns.indexOf(col) === columns.length - 1;
                 return (
                   <TableHead
                     key={col.key}
-                    className={`font-semibold text-sm ${col.className || ""}`}
+                    className={`font-semibold text-sm text-center ${!isLast ? "border-r border-border" : ""} ${col.className || ""}`}
                   >
                     <div className="flex items-center gap-1">
                       {col.sortable ? (
@@ -326,11 +327,14 @@ export function DataTable<T extends Record<string, any>>({
                   className={`${onRowClick ? "cursor-pointer hover:bg-muted/30" : ""}`}
                   onClick={() => onRowClick?.(row)}
                 >
-                  {columns.map((col) => (
-                    <TableCell key={col.key} className={`py-2 text-sm ${col.className || ""}`}>
-                      {col.render ? col.render(row) : row[col.key]}
-                    </TableCell>
-                  ))}
+                  {columns.map((col, idx) => {
+                    const isLast = idx === columns.length - 1;
+                    return (
+                      <TableCell key={col.key} className={`py-2 text-sm ${!isLast ? "border-r border-border" : ""} ${col.className || ""}`}>
+                        {col.render ? col.render(row) : row[col.key]}
+                      </TableCell>
+                    );
+                  })}
                 </TableRow>
               ))
             )}

@@ -164,52 +164,52 @@ const WorksheetList = () => {
             <Table className="table-dense">
               <TableHeader>
                 <TableRow className="bg-muted/50">
-                  <TableHead className="w-28">
+                  <TableHead className="w-28 text-center border-r border-border">
                     <span
-                      className="cursor-pointer hover:text-foreground flex items-center gap-1"
+                      className="cursor-pointer hover:text-foreground flex items-center justify-center gap-1"
                       onClick={() => handleSort("code")}
                     >
                       {t("engagement.code")}
                       {getSortIcon("code")}
                     </span>
                   </TableHead>
-                  <TableHead className="min-w-[200px]">
+                  <TableHead className="min-w-[200px] text-center border-r border-border">
                     <span
-                      className="cursor-pointer hover:text-foreground flex items-center gap-1"
+                      className="cursor-pointer hover:text-foreground flex items-center justify-center gap-1"
                       onClick={() => handleSort("name")}
                     >
                       {t("engagement.name")}
                       {getSortIcon("name")}
                     </span>
                   </TableHead>
-                  <TableHead className="min-w-[180px]">
+                  <TableHead className="min-w-[180px] text-center border-r border-border">
                     <span
-                      className="cursor-pointer hover:text-foreground flex items-center gap-1"
+                      className="cursor-pointer hover:text-foreground flex items-center justify-center gap-1"
                       onClick={() => handleSort("client")}
                     >
                       {t("engagement.client")}
                       {getSortIcon("client")}
                     </span>
                   </TableHead>
-                  <TableHead className="w-32">
+                  <TableHead className="w-32 text-center border-r border-border">
                     <span
-                      className="cursor-pointer hover:text-foreground flex items-center gap-1"
+                      className="cursor-pointer hover:text-foreground flex items-center justify-center gap-1"
                       onClick={() => handleSort("partner")}
                     >
                       {t("engagement.partner")}
                       {getSortIcon("partner")}
                     </span>
                   </TableHead>
-                  <TableHead className="w-32">
+                  <TableHead className="w-32 text-center border-r border-border">
                     <span
-                      className="cursor-pointer hover:text-foreground flex items-center gap-1"
+                      className="cursor-pointer hover:text-foreground flex items-center justify-center gap-1"
                       onClick={() => handleSort("manager")}
                     >
                       {t("engagement.manager")}
                       {getSortIcon("manager")}
                     </span>
                   </TableHead>
-                  <TableHead className="w-24 text-center">
+                  <TableHead className="w-24 text-center border-r border-border">
                     <div className="flex items-center justify-center gap-1">
                       <span
                         className="cursor-pointer hover:text-foreground flex items-center gap-1"
@@ -251,9 +251,9 @@ const WorksheetList = () => {
                       </Popover>
                     </div>
                   </TableHead>
-                  <TableHead className="w-24">
+                  <TableHead className="w-24 text-center">
                     <span
-                      className="cursor-pointer hover:text-foreground flex items-center gap-1"
+                      className="cursor-pointer hover:text-foreground flex items-center justify-center gap-1"
                       onClick={() => handleSort("date")}
                     >
                       {t("tracker.date")}
@@ -288,28 +288,28 @@ const WorksheetList = () => {
                       className="cursor-pointer hover:bg-muted/50"
                       onClick={() => navigate(`/worksheets/${ws.id}`)}
                     >
-                      <TableCell className="font-mono text-muted-foreground">
+                      <TableCell className="font-mono text-muted-foreground text-left border-r border-border">
                         {ws.engagement?.engagement_code || "-"}
                       </TableCell>
-                      <TableCell className="font-medium truncate max-w-[220px]">
+                      <TableCell className="font-medium truncate max-w-[220px] text-left border-r border-border">
                         {ws.engagement?.engagement_name || "-"}
                       </TableCell>
-                      <TableCell className="truncate max-w-[200px]">
+                      <TableCell className="truncate max-w-[200px] text-left border-r border-border">
                         {ws.engagement?.client?.client_legal_name || "-"}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="text-left border-r border-border">
                         {ws.engagement?.partner
                           ? ws.engagement.partner.short_name ||
                             `${ws.engagement.partner.first_name} ${ws.engagement.partner.last_name}`
                           : "-"}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="text-left border-r border-border">
                         {ws.engagement?.manager
                           ? ws.engagement.manager.short_name ||
                             `${ws.engagement.manager.first_name} ${ws.engagement.manager.last_name}`
                           : "-"}
                       </TableCell>
-                      <TableCell className="text-center">
+                      <TableCell className="text-center border-r border-border">
                         <Badge
                           className={cn(
                             "text-xs",
@@ -319,7 +319,7 @@ const WorksheetList = () => {
                           {t(`workMatrix.status.${ws.status}`)}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-muted-foreground">
+                      <TableCell className="text-muted-foreground text-center">
                         {formatDate(ws.created_at)}
                       </TableCell>
                     </TableRow>

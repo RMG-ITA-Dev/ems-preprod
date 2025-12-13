@@ -237,64 +237,64 @@ export function ClientEngagementsTable({ clientId }: ClientEngagementsTableProps
           <TableHeader>
             <TableRow className="bg-muted/50">
               <TableHead
-                className="cursor-pointer hover:bg-muted/80"
+                className="cursor-pointer hover:bg-muted/80 text-center border-r border-border"
                 onClick={() => handleSort("engagement_code")}
               >
-                <div className="flex items-center">
+                <div className="flex items-center justify-center">
                   {t("engagement.code")}
                   {getSortIcon("engagement_code")}
                 </div>
               </TableHead>
               <TableHead
-                className="cursor-pointer hover:bg-muted/80"
+                className="cursor-pointer hover:bg-muted/80 text-center border-r border-border"
                 onClick={() => handleSort("engagement_name")}
               >
-                <div className="flex items-center">
+                <div className="flex items-center justify-center">
                   {t("engagement.name")}
                   {getSortIcon("engagement_name")}
                 </div>
               </TableHead>
               <TableHead
-                className="cursor-pointer hover:bg-muted/80"
+                className="cursor-pointer hover:bg-muted/80 text-center border-r border-border"
                 onClick={() => handleSort("partner")}
               >
-                <div className="flex items-center">
+                <div className="flex items-center justify-center">
                   {t("engagement.partner")}
                   {getSortIcon("partner")}
                 </div>
               </TableHead>
               <TableHead
-                className="cursor-pointer hover:bg-muted/80"
+                className="cursor-pointer hover:bg-muted/80 text-center border-r border-border"
                 onClick={() => handleSort("manager")}
               >
-                <div className="flex items-center">
+                <div className="flex items-center justify-center">
                   {t("engagement.manager")}
                   {getSortIcon("manager")}
                 </div>
               </TableHead>
               <TableHead
-                className="cursor-pointer hover:bg-muted/80"
+                className="cursor-pointer hover:bg-muted/80 text-center border-r border-border"
                 onClick={() => handleSort("start_date")}
               >
-                <div className="flex items-center">
+                <div className="flex items-center justify-center">
                   {t("engagement.startDate")}
                   {getSortIcon("start_date")}
                 </div>
               </TableHead>
               <TableHead
-                className="cursor-pointer hover:bg-muted/80"
+                className="cursor-pointer hover:bg-muted/80 text-center border-r border-border"
                 onClick={() => handleSort("end_date")}
               >
-                <div className="flex items-center">
+                <div className="flex items-center justify-center">
                   {t("engagement.endDate")}
                   {getSortIcon("end_date")}
                 </div>
               </TableHead>
               <TableHead
-                className="cursor-pointer hover:bg-muted/80"
+                className="cursor-pointer hover:bg-muted/80 text-center"
                 onClick={() => handleSort("status")}
               >
-                <div className="flex items-center">
+                <div className="flex items-center justify-center">
                   {t("engagement.status")}
                   {getSortIcon("status")}
                 </div>
@@ -321,13 +321,13 @@ export function ClientEngagementsTable({ clientId }: ClientEngagementsTableProps
                   className="cursor-pointer hover:bg-muted/50"
                   onClick={() => navigate(`/engagements/${engagement.engagement_id}`)}
                 >
-                  <TableCell className="font-mono text-sm">{engagement.engagement_code || "-"}</TableCell>
-                  <TableCell>{engagement.engagement_name}</TableCell>
-                  <TableCell>{getStaffName(engagement.partner_id)}</TableCell>
-                  <TableCell>{getStaffName(engagement.manager_id)}</TableCell>
-                  <TableCell>{formatDate(engagement.start_date)}</TableCell>
-                  <TableCell>{formatDate(engagement.end_date)}</TableCell>
-                  <TableCell>{getStatusBadge(engagement.status)}</TableCell>
+                  <TableCell className="font-mono text-sm text-left border-r border-border">{engagement.engagement_code || "-"}</TableCell>
+                  <TableCell className="text-left border-r border-border">{engagement.engagement_name}</TableCell>
+                  <TableCell className="text-left border-r border-border">{getStaffName(engagement.partner_id)}</TableCell>
+                  <TableCell className="text-left border-r border-border">{getStaffName(engagement.manager_id)}</TableCell>
+                  <TableCell className="text-center border-r border-border">{formatDate(engagement.start_date)}</TableCell>
+                  <TableCell className="text-center border-r border-border">{formatDate(engagement.end_date)}</TableCell>
+                  <TableCell className="text-center">{getStatusBadge(engagement.status)}</TableCell>
                 </TableRow>
               ))
             )}
