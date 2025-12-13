@@ -430,6 +430,18 @@
       "budget": "Presup.",
       "actual": "Real",
       "noData": "Sin datos disponibles"
+    },
+    "practica": {
+      "activeEngagements": "Encargos Activos",
+      "totalFees": "Honorarios Totales",
+      "totalHours": "Horas Totales",
+      "utilization": "Utilización",
+      "atRisk": "En Riesgo",
+      "overBudget": "Excedidos",
+      "pendingApprovals": "Aprobaciones Pend.",
+      "partnerLeaderboard": "Tabla de Socios",
+      "engagements": "Encargos",
+      "risks": "Riesgos"
     }
   },
   "timesheet": {
