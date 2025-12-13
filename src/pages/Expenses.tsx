@@ -159,10 +159,11 @@ const Expenses = () => {
   };
 
   const formatCurrency = (amount: number) => {
+    const rounded = Math.round(amount);
     if (currency === "BOB") {
-      return `Bs ${amount.toLocaleString("es-BO", { minimumFractionDigits: 2 })}`;
+      return rounded.toLocaleString("es-BO", { maximumFractionDigits: 0 });
     }
-    return `$ ${amount.toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
+    return rounded.toLocaleString("en-US", { maximumFractionDigits: 0 });
   };
 
   const formatDate = (dateStr: string) => {
@@ -206,17 +207,17 @@ const Expenses = () => {
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/50">
-                <TableHead className="font-semibold text-sm">
+                <TableHead className="font-semibold text-sm text-center border-r border-border">
                   <span
-                    className="cursor-pointer select-none hover:text-foreground flex items-center gap-1"
+                    className="cursor-pointer select-none hover:text-foreground flex items-center gap-1 justify-center"
                     onClick={() => handleSort("date_incurred")}
                   >
                     {t("expenses.date")}
                     {getSortIcon("date_incurred")}
                   </span>
                 </TableHead>
-                <TableHead className="font-semibold text-sm">
-                  <div className="flex items-center gap-1">
+                <TableHead className="font-semibold text-sm text-center border-r border-border">
+                  <div className="flex items-center gap-1 justify-center">
                     <span
                       className="cursor-pointer select-none hover:text-foreground flex items-center gap-1"
                       onClick={() => handleSort("engagement")}
@@ -259,8 +260,8 @@ const Expenses = () => {
                     </Popover>
                   </div>
                 </TableHead>
-                <TableHead className="font-semibold text-sm">
-                  <div className="flex items-center gap-1">
+                <TableHead className="font-semibold text-sm text-center border-r border-border">
+                  <div className="flex items-center gap-1 justify-center">
                     {t("expenses.type")}
                     <Popover open={expenseTypeFilterOpen} onOpenChange={setExpenseTypeFilterOpen}>
                       <PopoverTrigger asChild>
@@ -297,17 +298,17 @@ const Expenses = () => {
                     </Popover>
                   </div>
                 </TableHead>
-                <TableHead className="font-semibold text-sm text-right">
+                <TableHead className="font-semibold text-sm text-center border-r border-border">
                   <span
-                    className="cursor-pointer select-none hover:text-foreground flex items-center gap-1 justify-end"
+                    className="cursor-pointer select-none hover:text-foreground flex items-center gap-1 justify-center"
                     onClick={() => handleSort("amount")}
                   >
-                    {t("expenses.amount")}
+                    {t("expenses.amount")} ({currency})
                     {getSortIcon("amount")}
                   </span>
                 </TableHead>
-                <TableHead className="font-semibold text-sm">{t("expenses.description")}</TableHead>
-                <TableHead className="font-semibold text-sm w-20">{t("adminExpenseLogs.receipt")}</TableHead>
+                <TableHead className="font-semibold text-sm text-center border-r border-border">{t("expenses.description")}</TableHead>
+                <TableHead className="font-semibold text-sm text-center w-20">{t("adminExpenseLogs.receipt")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -335,29 +336,29 @@ const Expenses = () => {
                       className="cursor-pointer hover:bg-muted/30"
                       onClick={() => navigate(`/expenses/${log.expense_log_id}`)}
                     >
-                      <TableCell className="py-2 text-sm text-muted-foreground">
+                      <TableCell className="py-2 text-sm text-muted-foreground text-left border-r border-border">
                         {formatDate(log.date_incurred)}
                       </TableCell>
-                      <TableCell className="py-2 text-sm font-medium">
+                      <TableCell className="py-2 text-sm font-medium text-left border-r border-border">
                         {log.engagement?.engagement_name || "-"}
                       </TableCell>
-                      <TableCell className="py-2 text-sm">
+                      <TableCell className="py-2 text-sm text-left border-r border-border">
                         {log.expense_type?.expense_name || "-"}
                       </TableCell>
-                      <TableCell className="py-2 text-sm text-right font-mono font-semibold">
+                      <TableCell className="py-2 text-sm text-right font-mono font-semibold border-r border-border">
                         {formatCurrency(log.amount)}
                       </TableCell>
-                      <TableCell className="py-2 text-sm text-muted-foreground truncate max-w-[200px]">
+                      <TableCell className="py-2 text-sm text-muted-foreground truncate max-w-[200px] text-left border-r border-border">
                         {log.description || "-"}
                       </TableCell>
-                      <TableCell className="py-2 text-sm">
+                      <TableCell className="py-2 text-sm text-center">
                         {log.receipt_url ? (
                           <a
                             href={log.receipt_url}
                             target="_blank"
                             rel="noopener noreferrer"
                             onClick={(e) => e.stopPropagation()}
-                            className="text-accent hover:underline flex items-center gap-1"
+                            className="text-accent hover:underline flex items-center gap-1 justify-center"
                           >
                             <ExternalLink className="h-3 w-3" />
                             {t("adminExpenseLogs.viewReceipt")}
@@ -370,10 +371,10 @@ const Expenses = () => {
                   ))}
                   {/* Footer Total Row */}
                   <TableRow className="bg-muted/30 border-t-2 border-border">
-                    <TableCell colSpan={3} className="py-3 text-sm font-bold text-right">
+                    <TableCell colSpan={3} className="py-3 text-sm font-bold text-right border-r border-border">
                       {t("expenses.total")}
                     </TableCell>
-                    <TableCell className="py-3 text-sm text-right font-mono font-bold">
+                    <TableCell className="py-3 text-sm text-right font-mono font-bold border-r border-border">
                       {formatCurrency(total)}
                     </TableCell>
                     <TableCell colSpan={2}></TableCell>
