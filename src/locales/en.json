@@ -394,13 +394,10 @@
       "noEngagements": "No engagements in this period",
       "recentEntries": "Recent Entries",
       "noRecentEntries": "No recent entries",
-      "timesheetMap": "Submission Map (12 weeks)",
-      "mapLegend": {
-        "submitted": "Submitted",
-        "draft": "Draft",
-        "not_started": "Not started",
-        "overdue": "Overdue"
-      }
+      "timeActivity": "Time Tracking Activity",
+      "less": "Less",
+      "more": "More",
+      "hoursOn": "hours on"
     },
     "cartera": {
       "activeEngagements": "Active Engagements",
