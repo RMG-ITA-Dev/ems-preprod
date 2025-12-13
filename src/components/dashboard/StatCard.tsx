@@ -1,6 +1,7 @@
 import { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
+import { Sparkline, SparklineDataPoint } from "./Sparkline";
 
 interface StatCardProps {
   title: string;
@@ -11,10 +12,21 @@ interface StatCardProps {
     value: number;
     positive: boolean;
   };
+  sparklineData?: SparklineDataPoint[];
+  sparklineColor?: 'primary' | 'success' | 'warning' | 'destructive' | 'muted';
   className?: string;
 }
 
-export function StatCard({ title, value, subtitle, icon, trend, className }: StatCardProps) {
+export function StatCard({ 
+  title, 
+  value, 
+  subtitle, 
+  icon, 
+  trend, 
+  sparklineData,
+  sparklineColor = 'primary',
+  className 
+}: StatCardProps) {
   const { t } = useTranslation();
 
   return (
@@ -23,7 +35,7 @@ export function StatCard({ title, value, subtitle, icon, trend, className }: Sta
       className
     )}>
       <div className="flex items-start justify-between">
-        <div>
+        <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-muted-foreground">{title}</p>
           <p className="text-3xl font-bold text-foreground mt-2">{value}</p>
           {subtitle && (
@@ -39,9 +51,17 @@ export function StatCard({ title, value, subtitle, icon, trend, className }: Sta
               <span className="text-muted-foreground">{t("dashboard.vsLastMonth")}</span>
             </div>
           )}
+          {sparklineData && sparklineData.length >= 2 && (
+            <Sparkline 
+              data={sparklineData} 
+              color={sparklineColor}
+              height={28}
+              className="mt-2"
+            />
+          )}
         </div>
         {icon && (
-          <div className="h-12 w-12 rounded-lg bg-accent/10 flex items-center justify-center text-accent">
+          <div className="h-12 w-12 rounded-lg bg-accent/10 flex items-center justify-center text-accent shrink-0 ml-3">
             {icon}
           </div>
         )}

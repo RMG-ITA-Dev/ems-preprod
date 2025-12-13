@@ -9,6 +9,8 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Progress } from '@/components/ui/progress';
 import { Briefcase, TrendingUp, AlertTriangle, Clock, DollarSign, Users } from 'lucide-react';
+import { Sparkline, SparklineDataPoint } from '@/components/dashboard/Sparkline';
+import { startOfWeek, subWeeks, format } from 'date-fns';
 
 interface EngagementWithMetrics {
   engagement_id: string;
@@ -197,6 +199,46 @@ export function CarteraTab() {
     enabled: !!staffRecord?.staff_id,
   });
 
+  // Fetch weekly hours trend for sparkline (last 8 weeks)
+  const { data: weeklyTrend } = useQuery({
+    queryKey: ['cartera-weekly-trend', staffRecord?.staff_id],
+    queryFn: async (): Promise<SparklineDataPoint[]> => {
+      if (!staffRecord?.staff_id) return [];
+      
+      const weeks: SparklineDataPoint[] = [];
+      const today = new Date();
+      
+      // Get engagements where user is partner or manager
+      const { data: engagements } = await supabase
+        .from('engagements')
+        .select('engagement_id')
+        .or(`partner_id.eq.${staffRecord.staff_id},manager_id.eq.${staffRecord.staff_id}`)
+        .eq('status', 'active');
+      
+      if (!engagements?.length) return [];
+      const engagementIds = engagements.map(e => e.engagement_id);
+      
+      for (let i = 7; i >= 0; i--) {
+        const weekStart = startOfWeek(subWeeks(today, i), { weekStartsOn: 1 });
+        const weekEnd = new Date(weekStart);
+        weekEnd.setDate(weekEnd.getDate() + 6);
+        
+        const { data } = await supabase
+          .from('time_entries')
+          .select('hours_logged')
+          .in('engagement_id', engagementIds)
+          .gte('date_worked', format(weekStart, 'yyyy-MM-dd'))
+          .lte('date_worked', format(weekEnd, 'yyyy-MM-dd'));
+        
+        const totalHours = data?.reduce((sum, e) => sum + Number(e.hours_logged), 0) || 0;
+        weeks.push({ value: totalHours });
+      }
+      
+      return weeks;
+    },
+    enabled: !!staffRecord?.staff_id,
+  });
+
   const handleDrillDown = (engagementId: string) => {
     setSelectedEngagementId(engagementId);
     setActiveTab('encargo');
@@ -264,11 +306,16 @@ export function CarteraTab() {
               <Clock className="h-3.5 w-3.5" />
               {t('dashboard.cartera.totalHours')}
             </div>
-            <div className="text-2xl font-bold">
-              {totals.totalActual.toLocaleString('es-BO', { maximumFractionDigits: 1 })}
-              <span className="text-sm text-muted-foreground font-normal ml-1">
-                / {totals.totalBudget.toLocaleString('es-BO', { maximumFractionDigits: 0 })}
-              </span>
+            <div className="flex items-center justify-between">
+              <div className="text-2xl font-bold">
+                {totals.totalActual.toLocaleString('es-BO', { maximumFractionDigits: 1 })}
+                <span className="text-sm text-muted-foreground font-normal ml-1">
+                  / {totals.totalBudget.toLocaleString('es-BO', { maximumFractionDigits: 0 })}
+                </span>
+              </div>
+              {weeklyTrend && weeklyTrend.length >= 2 && (
+                <Sparkline data={weeklyTrend} color="primary" height={24} className="w-16" />
+              )}
             </div>
           </CardContent>
         </Card>
