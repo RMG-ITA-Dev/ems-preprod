@@ -16,7 +16,6 @@ import { useTranslation } from "react-i18next";
 import { NavLink } from "@/components/NavLink";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate } from "react-router-dom";
-import { cn } from "@/lib/utils";
 import {
   Sidebar,
   SidebarContent,
@@ -28,15 +27,12 @@ import {
   SidebarMenuItem,
   SidebarHeader,
   SidebarFooter,
-  useSidebar,
 } from "@/components/ui/sidebar";
 
 export function AppSidebar() {
   const { t } = useTranslation();
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
-  const { state } = useSidebar();
-  const isCollapsed = state === "collapsed";
 
   const mainNavItems = [
     { title: t("nav.dashboard"), url: "/", icon: LayoutDashboard },
@@ -68,25 +64,21 @@ export function AppSidebar() {
     : user?.email || 'User';
 
   return (
-    <Sidebar className="border-r-0" collapsible="icon">
-      <SidebarHeader className={cn("p-6 border-b border-sidebar-border", isCollapsed && "p-3")}>
-        <div className={cn("flex items-center", isCollapsed && "justify-center")}>
-          <h1 className={cn("font-bold text-sidebar-foreground text-xl leading-none", isCollapsed && "text-sm")}>
-            {isCollapsed ? "E" : "EMS 2.0"}
+    <Sidebar className="border-r-0" collapsible="offcanvas">
+      <SidebarHeader className="p-6 border-b border-sidebar-border">
+        <div className="flex items-center">
+          <h1 className="font-bold text-sidebar-foreground text-xl leading-none">
+            EMS 2.0
           </h1>
         </div>
-        {!isCollapsed && (
-          <p className="text-xs text-sidebar-foreground/70 mt-1">Engagement Management System</p>
-        )}
+        <p className="text-xs text-sidebar-foreground/70 mt-1">Engagement Management System</p>
       </SidebarHeader>
 
       <SidebarContent className="px-3 py-4">
         <SidebarGroup>
-          {!isCollapsed && (
-            <SidebarGroupLabel className="text-sidebar-muted text-xs font-medium uppercase tracking-wider px-3 mb-2">
-              {t("nav.main")}
-            </SidebarGroupLabel>
-          )}
+          <SidebarGroupLabel className="text-sidebar-muted text-xs font-medium uppercase tracking-wider px-3 mb-2">
+            {t("nav.main")}
+          </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {mainNavItems.map((item) => (
@@ -109,11 +101,9 @@ export function AppSidebar() {
         </SidebarGroup>
 
         <SidebarGroup className="mt-6">
-          {!isCollapsed && (
-            <SidebarGroupLabel className="text-sidebar-muted text-xs font-medium uppercase tracking-wider px-3 mb-2">
-              {t("nav.operations")}
-            </SidebarGroupLabel>
-          )}
+          <SidebarGroupLabel className="text-sidebar-muted text-xs font-medium uppercase tracking-wider px-3 mb-2">
+            {t("nav.operations")}
+          </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {operationsItems.map((item) => (
@@ -136,11 +126,9 @@ export function AppSidebar() {
         </SidebarGroup>
 
         <SidebarGroup className="mt-6">
-          {!isCollapsed && (
-            <SidebarGroupLabel className="text-sidebar-muted text-xs font-medium uppercase tracking-wider px-3 mb-2">
-              {t("nav.administration")}
-            </SidebarGroupLabel>
-          )}
+          <SidebarGroupLabel className="text-sidebar-muted text-xs font-medium uppercase tracking-wider px-3 mb-2">
+            {t("nav.administration")}
+          </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {adminItems.map((item) => (
@@ -162,13 +150,11 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter className={cn("p-4 border-t border-sidebar-border", isCollapsed && "p-2")}>
-        <div className={cn("flex items-center", isCollapsed ? "justify-center" : "justify-between")}>
-          {!isCollapsed && (
-            <div className="text-xs text-sidebar-muted truncate max-w-[140px]">
-              {userName}
-            </div>
-          )}
+      <SidebarFooter className="p-4 border-t border-sidebar-border">
+        <div className="flex items-center justify-between">
+          <div className="text-xs text-sidebar-muted truncate max-w-[140px]">
+            {userName}
+          </div>
           <button 
             onClick={handleSignOut}
             className="p-2 rounded-lg text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors"
