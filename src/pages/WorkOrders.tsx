@@ -484,7 +484,7 @@ const WorkOrders = () => {
                           />
                         </TableCell>
                         {/* Engagement Code */}
-                        <TableCell className="font-mono text-muted-foreground text-left border-r border-border">
+                        <TableCell className="text-muted-foreground text-left border-r border-border">
                           {wo.engagement?.engagement_code || "-"}
                         </TableCell>
                         {/* Engagement Name */}
