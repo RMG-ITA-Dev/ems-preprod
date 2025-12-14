@@ -95,11 +95,12 @@ const Settings = () => {
 
   // Industry columns
   const industryColumns: Column<Industry>[] = [
-    { key: "industry_name", label: t("industry.name"), sortable: true },
-    { key: "fiscal_year_end", label: t("industry.fiscalYearEnd"), sortable: true },
+    { key: "industry_name", label: t("industry.name"), sortable: true, mobilePriority: 'primary' },
+    { key: "fiscal_year_end", label: t("industry.fiscalYearEnd"), sortable: true, mobilePriority: 'primary' },
     {
       key: "default_season",
       label: t("industry.defaultSeason"),
+      mobilePriority: 'secondary',
       render: (row) => {
         const isHigh = row.fiscal_year_end.includes("December");
         return (
@@ -113,13 +114,14 @@ const Settings = () => {
 
   // Category columns
   const categoryColumns: Column<Category>[] = [
-    { key: "display_order", label: t("category.order"), sortable: true, className: "w-20" },
-    { key: "category_name", label: t("category.name"), sortable: true },
+    { key: "display_order", label: t("category.order"), sortable: true, className: "w-20", mobilePriority: 'secondary' },
+    { key: "category_name", label: t("category.name"), sortable: true, mobilePriority: 'primary' },
     {
       key: "can_approve_wo",
       label: t("category.canApproveWO"),
       sortable: true,
       className: "w-28 text-center",
+      mobilePriority: 'secondary',
       render: (row) =>
         row.can_approve_wo ? (
           <Badge className="bg-success/10 text-success border-success/20">
@@ -135,6 +137,7 @@ const Settings = () => {
       label: t("category.bobHigh"),
       sortable: true,
       className: "text-right",
+      mobilePriority: 'primary',
       render: (row) => Math.round(row.rate_high_bob).toLocaleString("es-BO", { maximumFractionDigits: 0 }),
     },
     {
@@ -142,6 +145,7 @@ const Settings = () => {
       label: t("category.bobLow"),
       sortable: true,
       className: "text-right",
+      mobilePriority: 'secondary',
       render: (row) => Math.round(row.rate_low_bob).toLocaleString("es-BO", { maximumFractionDigits: 0 }),
     },
     {
@@ -149,6 +153,7 @@ const Settings = () => {
       label: t("category.usdHigh"),
       sortable: true,
       className: "text-right",
+      mobilePriority: 'secondary',
       render: (row) => Math.round(row.rate_high_usd).toLocaleString("en-US", { maximumFractionDigits: 0 }),
     },
     {
@@ -156,18 +161,20 @@ const Settings = () => {
       label: t("category.usdLow"),
       sortable: true,
       className: "text-right",
+      mobilePriority: 'secondary',
       render: (row) => Math.round(row.rate_low_usd).toLocaleString("en-US", { maximumFractionDigits: 0 }),
     },
   ];
 
   // Activity code columns
   const activityColumns: Column<ActivityCode>[] = [
-    { key: "activity_code", label: t("activity.code"), sortable: true, className: "font-mono w-24" },
-    { key: "description", label: t("activity.description"), sortable: true },
+    { key: "activity_code", label: t("activity.code"), sortable: true, className: "font-mono w-24", mobilePriority: 'primary' },
+    { key: "description", label: t("activity.description"), sortable: true, mobilePriority: 'primary' },
     {
       key: "is_active",
       label: t("activity.status"),
       sortable: true,
+      mobilePriority: 'secondary',
       render: (row) => (
         <Badge
           variant="outline"
@@ -185,12 +192,13 @@ const Settings = () => {
 
   // Expense type columns
   const expenseTypeColumns: Column<ExpenseType>[] = [
-    { key: "expense_name", label: t("expense.name"), sortable: true },
+    { key: "expense_name", label: t("expense.name"), sortable: true, mobilePriority: 'primary' },
     {
       key: "default_unit_cost",
       label: t("expense.defaultUnitCost"),
       sortable: true,
       className: "text-right",
+      mobilePriority: 'primary',
       render: (row) => Math.round(row.default_unit_cost).toLocaleString("es-BO", { maximumFractionDigits: 0 }),
     },
   ];
