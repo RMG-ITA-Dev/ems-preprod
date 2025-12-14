@@ -32,7 +32,9 @@
     "or": "Or",
     "clear": "Clear",
     "unsavedChanges": "Unsaved",
-    "unsavedChangesConfirm": "You have unsaved changes. Do you want to leave anyway?"
+    "unsavedChangesConfirm": "You have unsaved changes. Do you want to leave anyway?",
+    "showMore": "Show more",
+    "showLess": "Show less"
   },
   "nav": {
     "main": "Main",
