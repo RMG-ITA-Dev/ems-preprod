@@ -65,7 +65,7 @@ export function AppSidebar() {
 
   return (
     <Sidebar className="border-r-0" collapsible="offcanvas">
-      <SidebarHeader className="h-14 px-6 flex items-center border-b border-sidebar-border">
+      <SidebarHeader className="h-16 px-6 flex items-end pb-3 border-b border-sidebar-border">
         <h1 
           className="font-bold text-sidebar-foreground text-xl leading-none"
           style={{ fontFamily: '"IBM Plex Sans", system-ui, sans-serif' }}
