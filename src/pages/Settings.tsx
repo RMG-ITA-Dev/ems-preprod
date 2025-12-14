@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
@@ -41,6 +42,7 @@ import { toast } from "@/hooks/use-toast";
 
 const Settings = () => {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const { isAdmin } = useUserRole();
   const { currentLanguage } = useLanguage();
   
@@ -209,6 +211,7 @@ const Settings = () => {
       }
       await updateSettingMutation.mutateAsync({ key: "ALLOW_WEEKEND_TRACKING", value: allowWeekendTracking.toString() });
       await updateSettingMutation.mutateAsync({ key: "COMPACT_FONT", value: compactFont.toString() });
+      queryClient.invalidateQueries({ queryKey: ["global_settings"] });
       toast({ title: t("messages.settingsSaved") });
     } catch (error) {
       // Error handled by mutation
@@ -380,7 +383,10 @@ const Settings = () => {
                       <Switch
                         id="compactFont"
                         checked={compactFont}
-                        onCheckedChange={setCompactFont}
+                        onCheckedChange={(checked) => {
+                          setCompactFont(checked);
+                          document.documentElement.dataset.compactFont = checked ? "true" : "false";
+                        }}
                       />
                     </div>
 
