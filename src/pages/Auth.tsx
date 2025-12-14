@@ -128,14 +128,9 @@ const Auth = () => {
       {/* Left Panel - Features */}
       <div className="hidden lg:flex lg:w-1/2 bg-primary p-12 flex-col justify-between">
         <div>
-          <div className="flex items-center gap-3 mb-16">
-            <div className="h-12 w-12 rounded-xl bg-primary-foreground/10 backdrop-blur flex items-center justify-center">
-              <Briefcase className="h-6 w-6 text-primary-foreground" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-primary-foreground">EMS 2.0</h1>
-              <p className="text-primary-foreground/70 text-sm">Engagement Management System</p>
-            </div>
+          <div className="mb-16">
+            <h1 className="text-2xl font-bold text-primary-foreground">EMS 2.0</h1>
+            <p className="text-primary-foreground/70 text-sm">Engagement Management System</p>
           </div>
 
           <div className="space-y-8">
