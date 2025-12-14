@@ -184,7 +184,9 @@
     "languageHelp": "Changes language for all users (Admin only)",
     "adminOnly": "Admin Only",
     "allowWeekendTracking": "Allow Weekend Tracking",
-    "allowWeekendTrackingHelp": "Allows staff to track time on Saturdays and Sundays"
+    "allowWeekendTrackingHelp": "Allows staff to track time on Saturdays and Sundays",
+    "compactFont": "Compact Mode",
+    "compactFontHelp": "Uses narrow font everywhere. When off, narrow font is used only on mobile devices."
   },
   "industry": {
     "name": "Industry Name",

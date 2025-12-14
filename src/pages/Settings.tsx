@@ -70,6 +70,7 @@ const Settings = () => {
   const [weeklyLimit, setWeeklyLimit] = useState<string>("");
   const [language, setLanguage] = useState<string>("en");
   const [allowWeekendTracking, setAllowWeekendTracking] = useState<boolean>(false);
+  const [compactFont, setCompactFont] = useState<boolean>(false);
 
   const getSetting = (key: string) => settings?.find((s) => s.setting_key === key)?.setting_value || "";
 
@@ -82,6 +83,10 @@ const Settings = () => {
       const weekendSetting = settings.find((s) => s.setting_key === "ALLOW_WEEKEND_TRACKING");
       if (weekendSetting) {
         setAllowWeekendTracking(weekendSetting.setting_value === "true");
+      }
+      const compactFontSetting = settings.find((s) => s.setting_key === "COMPACT_FONT");
+      if (compactFontSetting) {
+        setCompactFont(compactFontSetting.setting_value === "true");
       }
     }
   }, [settings]);
@@ -203,6 +208,7 @@ const Settings = () => {
         await updateSettingMutation.mutateAsync({ key: "LANGUAGE", value: language });
       }
       await updateSettingMutation.mutateAsync({ key: "ALLOW_WEEKEND_TRACKING", value: allowWeekendTracking.toString() });
+      await updateSettingMutation.mutateAsync({ key: "COMPACT_FONT", value: compactFont.toString() });
       toast({ title: t("messages.settingsSaved") });
     } catch (error) {
       // Error handled by mutation
@@ -363,6 +369,19 @@ const Settings = () => {
                         </SelectContent>
                       </Select>
                       <p className="text-sm text-muted-foreground">{t("settings.languageHelp")}</p>
+                    </div>
+
+                    {/* Compact Font Setting */}
+                    <div className="flex items-center justify-between py-4 border-b border-border">
+                      <div className="space-y-1">
+                        <Label htmlFor="compactFont">{t("settings.compactFont")}</Label>
+                        <p className="text-sm text-muted-foreground">{t("settings.compactFontHelp")}</p>
+                      </div>
+                      <Switch
+                        id="compactFont"
+                        checked={compactFont}
+                        onCheckedChange={setCompactFont}
+                      />
                     </div>
 
                     {/* Weekend Tracking Setting */}
