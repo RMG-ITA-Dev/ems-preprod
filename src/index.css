@@ -197,7 +197,7 @@
 
   /* Simpler number font - sans-serif with tabular figures */
   .font-mono {
-    font-family: "IBM Plex Sans", system-ui, sans-serif !important;
+    font-family: var(--app-font), system-ui, sans-serif !important;
     font-feature-settings: "tnum";
     font-variant-numeric: tabular-nums;
   }
