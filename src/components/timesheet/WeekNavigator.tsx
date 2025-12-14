@@ -71,7 +71,7 @@ export const WeekNavigator = ({
             className="text-center space-y-1 cursor-pointer hover:bg-muted/50 rounded-lg px-4 py-2 transition-colors"
             title={t("timesheet.selectWeek")}
           >
-            <p className="font-semibold text-foreground font-mono">
+            <p className="font-semibold text-foreground">
               {weekInfo.formattedRange}
             </p>
             <div className="flex items-center justify-center gap-2">
