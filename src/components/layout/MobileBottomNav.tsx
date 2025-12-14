@@ -25,8 +25,8 @@ export function MobileBottomNav({ onMoreClick }: MobileBottomNavProps) {
   };
 
   return (
-    <nav className="fixed bottom-0 inset-x-0 z-50 bg-background border-t border-border md:hidden safe-area-bottom">
-      <div className="flex items-center justify-around h-16">
+    <nav className="fixed bottom-0 inset-x-0 z-[100] bg-background border-t-4 border-primary safe-area-bottom">
+      <div className="flex items-center justify-around h-16 bg-red-500">
         {navItems.map((item) => {
           const active = isActive(item.path);
           return (
