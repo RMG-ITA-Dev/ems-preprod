@@ -65,13 +65,13 @@ export function AppSidebar() {
 
   return (
     <Sidebar className="border-r-0" collapsible="offcanvas">
-      <SidebarHeader className="p-6 border-b border-sidebar-border">
-        <div className="flex items-center">
-          <h1 className="font-bold text-sidebar-foreground text-xl leading-none">
-            EMS 2.0
-          </h1>
-        </div>
-        <p className="text-xs text-sidebar-foreground/70 mt-1">Engagement Management System</p>
+      <SidebarHeader className="h-14 px-6 flex items-center border-b border-sidebar-border">
+        <h1 
+          className="font-bold text-sidebar-foreground text-xl leading-none"
+          style={{ fontFamily: '"IBM Plex Sans", system-ui, sans-serif' }}
+        >
+          EMS 2.0
+        </h1>
       </SidebarHeader>
 
       <SidebarContent className="px-3 py-4">
