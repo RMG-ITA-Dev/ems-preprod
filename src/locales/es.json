@@ -32,7 +32,9 @@
     "or": "O",
     "clear": "Limpiar",
     "unsavedChanges": "Sin guardar",
-    "unsavedChangesConfirm": "Tiene cambios sin guardar. ¿Desea salir de todas formas?"
+    "unsavedChangesConfirm": "Tiene cambios sin guardar. ¿Desea salir de todas formas?",
+    "showMore": "Ver más",
+    "showLess": "Ver menos"
   },
   "nav": {
     "main": "Principal",

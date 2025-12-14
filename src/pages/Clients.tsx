@@ -27,6 +27,7 @@ const Clients = () => {
       key: "client_legal_name",
       label: t("client.name"),
       sortable: true,
+      mobilePriority: 'primary',
       render: (row) => (
         <div className="flex items-center gap-3">
           <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
@@ -40,6 +41,7 @@ const Clients = () => {
       key: "unique_tax_id",
       label: t("client.nit"),
       sortable: true,
+      mobilePriority: 'secondary',
       render: (row) => <span className="text-muted-foreground">{row.unique_tax_id}</span>,
     },
     {
@@ -47,18 +49,21 @@ const Clients = () => {
       label: t("client.industry"),
       sortable: true,
       filterKey: "industry_id",
+      mobilePriority: 'primary',
       render: (row) => row.industry?.industry_name || "-",
     },
     {
       key: "contact_name",
       label: t("client.contact"),
       sortable: true,
+      mobilePriority: 'secondary',
       render: (row) => row.contact_name || "-",
     },
     {
       key: "industry.fiscal_year_end",
       label: t("client.closingDate"),
       sortable: true,
+      mobilePriority: 'secondary',
       render: (row) => <span className="text-muted-foreground">{row.industry?.fiscal_year_end || "-"}</span>,
     },
     {
@@ -66,6 +71,7 @@ const Clients = () => {
       label: t("client.status"),
       sortable: true,
       filterKey: "is_active",
+      mobilePriority: 'primary',
       render: (row) => (
         <Badge
           variant="outline"
@@ -79,6 +85,7 @@ const Clients = () => {
       key: "engagements",
       label: t("client.engagements"),
       className: "text-center w-28",
+      mobilePriority: 'secondary',
       render: (row) => <Badge variant="secondary">{getEngagementCount(row.client_id)}</Badge>,
     },
   ];
