@@ -42,6 +42,7 @@ const Staff = () => {
       key: "name",
       label: t("staff.name"),
       sortable: true,
+      mobilePriority: 'primary',
       render: (row) => (
         <div className="flex items-center gap-3">
           <Avatar className="h-8 w-8">
@@ -59,6 +60,7 @@ const Staff = () => {
       key: "short_name",
       label: t("staff.shortName"),
       sortable: true,
+      mobilePriority: 'secondary',
       render: (row) => <span className="text-muted-foreground">{row.short_name || "-"}</span>,
     },
     {
@@ -72,6 +74,7 @@ const Staff = () => {
       key: "email",
       label: t("staff.email"),
       sortable: true,
+      mobilePriority: 'secondary',
       render: (row) => <span className="text-muted-foreground">{row.email || "-"}</span>,
     },
     {
@@ -79,6 +82,7 @@ const Staff = () => {
       label: t("staff.category"),
       sortable: true,
       filterKey: "category_id",
+      mobilePriority: 'primary',
       render: (row) =>
         row.category ? (
           <Badge variant="outline" className={categoryColors[row.category.category_name] || ""}>
@@ -93,6 +97,7 @@ const Staff = () => {
       label: t("staff.status"),
       sortable: true,
       filterKey: "is_active",
+      mobilePriority: 'primary',
       render: (row) => (
         <Badge
           variant="outline"
@@ -106,6 +111,7 @@ const Staff = () => {
       key: "auth_linked",
       label: t("staff.auth"),
       className: "text-center w-20",
+      mobilePriority: 'secondary',
       render: (row) =>
         (row as any).auth_user_id ? (
           <Check className="h-4 w-4 text-success mx-auto" />
@@ -117,6 +123,7 @@ const Staff = () => {
       key: "engagements",
       label: t("staff.engagements"),
       className: "text-center w-28",
+      mobilePriority: 'secondary',
       render: (row) => <Badge variant="secondary">{getEngagementCount(row.staff_id)}</Badge>,
     },
   ];

@@ -27,12 +27,14 @@ const Engagements = () => {
       label: t("engagement.code"),
       sortable: true,
       className: "w-42",
+      mobilePriority: 'secondary',
       render: (row) => <span className="font-mono text-muted-foreground">{row.engagement_code || "-"}</span>,
     },
     {
       key: "engagement_name",
       label: t("engagement.name"),
       sortable: true,
+      mobilePriority: 'primary',
       render: (row) => (
         <span className="font-medium">{row.engagement_name}</span>
       ),
@@ -41,6 +43,7 @@ const Engagements = () => {
       key: "client.client_legal_name",
       label: t("engagement.client"),
       sortable: true,
+      mobilePriority: 'primary',
       render: (row) => row.client?.client_legal_name || "-",
     },
     {
@@ -48,6 +51,7 @@ const Engagements = () => {
       label: t("engagement.partner"),
       sortable: true,
       filterKey: "partner_id",
+      mobilePriority: 'secondary',
       render: (row) => (row.partner ? row.partner.short_name || `${row.partner.first_name} ${row.partner.last_name}` : "-"),
     },
     {
@@ -55,12 +59,14 @@ const Engagements = () => {
       label: t("engagement.manager"),
       sortable: true,
       filterKey: "manager_id",
+      mobilePriority: 'secondary',
       render: (row) => (row.manager ? row.manager.short_name || `${row.manager.first_name} ${row.manager.last_name}` : "-"),
     },
     {
       key: "start_date",
       label: t("engagement.startDate"),
       sortable: true,
+      mobilePriority: 'secondary',
       render: (row) => {
         const engagement = row as any;
         return engagement.start_date ? format(new Date(engagement.start_date), "dd/MM/yyyy") : "-";
@@ -70,6 +76,7 @@ const Engagements = () => {
       key: "end_date",
       label: t("engagement.endDate"),
       sortable: true,
+      mobilePriority: 'secondary',
       render: (row) => {
         const engagement = row as any;
         return engagement.end_date ? format(new Date(engagement.end_date), "dd/MM/yyyy") : "-";
@@ -80,6 +87,7 @@ const Engagements = () => {
       label: t("engagement.status"),
       sortable: true,
       filterKey: "status",
+      mobilePriority: 'primary',
       render: (row) => (
         <Badge variant="outline" className={statusColors[row.status] || statusColors.pending}>
           {t(`status.${row.status}`)}
