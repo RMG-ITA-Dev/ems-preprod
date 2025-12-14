@@ -1,5 +1,7 @@
 {
   "common": {
+    "more": "More",
+    "menu": "Menu",
     "save": "Save",
     "cancel": "Cancel",
     "delete": "Delete",
