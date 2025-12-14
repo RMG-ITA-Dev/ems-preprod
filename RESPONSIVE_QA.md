@@ -43,7 +43,8 @@
 | Engagements | ✅ | ✅ |
 | Staff | ✅ | ✅ |
 | Settings (all tabs) | ✅ | ✅ |
-| Expenses | - | ✅ |
+| Expenses | ✅ | ✅ |
+| WorkOrders | ✅ | - |
 
 ## Testing Checklist
 
