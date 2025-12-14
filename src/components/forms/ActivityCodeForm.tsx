@@ -159,11 +159,11 @@ export function ActivityCodeForm({ open, onOpenChange, activityCode }: ActivityC
               )}
             />
 
-            <SheetFooter className="flex gap-2 pt-4">
+            <SheetFooter className="flex flex-col-reverse sm:flex-row gap-2 pt-4">
               {isEdit && (
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
-                    <Button type="button" variant="destructive" size="icon">
+                    <Button type="button" variant="destructive" size="icon" className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </AlertDialogTrigger>
@@ -183,12 +183,12 @@ export function ActivityCodeForm({ open, onOpenChange, activityCode }: ActivityC
                   </AlertDialogContent>
                 </AlertDialog>
               )}
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
                 {t("common.cancel")}
               </Button>
               <Button
                 type="submit"
-                className="bg-accent hover:bg-accent/90 text-accent-foreground"
+                className="bg-accent hover:bg-accent/90 text-accent-foreground w-full sm:w-auto min-h-[44px] sm:min-h-0"
                 disabled={createMutation.isPending || updateMutation.isPending}
               >
                 {isEdit ? t("common.saveChanges") : t("activity.createActivity")}

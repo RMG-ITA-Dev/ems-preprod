@@ -128,7 +128,7 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6 mt-6">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <FormField
                 control={form.control}
                 name="category_name"
@@ -166,7 +166,7 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
 
             <div className="space-y-4">
               <h4 className="font-medium text-sm text-muted-foreground">{t("category.bobRates")}</h4>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
                   name="rate_high_bob"
@@ -199,7 +199,7 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
 
             <div className="space-y-4">
               <h4 className="font-medium text-sm text-muted-foreground">{t("category.usdRates")}</h4>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
                   name="rate_high_usd"
@@ -276,11 +276,11 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
               />
             </div>
 
-            <SheetFooter className="flex gap-2 pt-4">
+            <SheetFooter className="flex flex-col-reverse sm:flex-row gap-2 pt-4">
               {isEdit && (
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
-                    <Button type="button" variant="destructive" size="icon">
+                    <Button type="button" variant="destructive" size="icon" className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </AlertDialogTrigger>
@@ -300,12 +300,12 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
                   </AlertDialogContent>
                 </AlertDialog>
               )}
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
                 {t("common.cancel")}
               </Button>
               <Button
                 type="submit"
-                className="bg-accent hover:bg-accent/90 text-accent-foreground"
+                className="bg-accent hover:bg-accent/90 text-accent-foreground w-full sm:w-auto min-h-[44px] sm:min-h-0"
                 disabled={createMutation.isPending || updateMutation.isPending}
               >
                 {isEdit ? t("common.saveChanges") : t("category.createCategory")}

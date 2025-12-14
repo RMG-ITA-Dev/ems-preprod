@@ -124,7 +124,7 @@ export function ExpenseLogForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4 form-dense">
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {/* Engagement */}
         <div className="space-y-1.5">
           <Label>{t("expenses.engagement")} *</Label>
@@ -248,12 +248,12 @@ export function ExpenseLogForm({
         />
       </div>
 
-      {/* Actions */}
-      <div className="flex justify-end gap-3 pt-4">
-        <Button type="button" variant="outline" onClick={onCancel} className="btn-action">
+      {/* Actions - stack on mobile */}
+      <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 pt-4">
+        <Button type="button" variant="outline" onClick={onCancel} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
           {t("common.cancel")}
         </Button>
-        <Button type="submit" disabled={!isValid || isLoading} className="btn-action">
+        <Button type="submit" disabled={!isValid || isLoading} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
           {isLoading ? t("common.loading") : t("common.save")}
         </Button>
       </div>

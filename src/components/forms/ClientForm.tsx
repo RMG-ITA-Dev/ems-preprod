@@ -441,13 +441,14 @@ export function ClientForm({ client, compact = false }: ClientFormProps) {
               />
             </div>
 
-            <div className="flex justify-end gap-4 pt-4">
-              <Button type="button" variant="cancel" onClick={() => navigate("/clients")}>
+            <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 sm:gap-4 pt-4">
+              <Button type="button" variant="cancel" onClick={() => navigate("/clients")} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
                 {t("common.cancel")}
               </Button>
               <Button
                 type="submit"
                 variant="default"
+                className="w-full sm:w-auto min-h-[44px] sm:min-h-0"
                 disabled={createMutation.isPending || updateMutation.isPending}
               >
                 {isEdit ? t("common.saveChanges") : t("client.createClient")}
