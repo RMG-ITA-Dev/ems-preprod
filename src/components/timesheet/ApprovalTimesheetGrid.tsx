@@ -205,7 +205,7 @@ export function ApprovalTimesheetGrid({
                     <td className="p-3 text-left border-r border-border">
                       <div className="flex items-center">
                         <div className="font-medium">
-                          <span className="font-mono text-xs mr-2">
+                          <span className="text-xs mr-2">
                             {group.engagementCode}
                           </span>
                           <span className={cn(!isApprovable && "text-muted-foreground")}>
@@ -257,7 +257,7 @@ export function ApprovalTimesheetGrid({
                       )}
                     >
                       <td className="p-3 pl-8 text-left border-r border-border">
-                        <span className="font-mono text-xs mr-2 text-muted-foreground">
+                        <span className="text-xs mr-2 text-muted-foreground">
                           {activity.activityCode}
                         </span>
                         <span className="text-sm text-muted-foreground">

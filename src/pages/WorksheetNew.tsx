@@ -117,7 +117,7 @@ const WorksheetNew = () => {
                       </div>
                       <div>
                         <span className="text-muted-foreground">{t("engagement.code")}:</span>
-                        <p className="font-medium font-mono">
+                        <p className="font-medium">
                           {selectedEngagement.engagement_code || "-"}
                         </p>
                       </div>

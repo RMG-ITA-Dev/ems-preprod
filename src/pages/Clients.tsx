@@ -40,7 +40,7 @@ const Clients = () => {
       key: "unique_tax_id",
       label: t("client.nit"),
       sortable: true,
-      render: (row) => <span className="font-mono text-muted-foreground">{row.unique_tax_id}</span>,
+      render: (row) => <span className="text-muted-foreground">{row.unique_tax_id}</span>,
     },
     {
       key: "industry.industry_name",
