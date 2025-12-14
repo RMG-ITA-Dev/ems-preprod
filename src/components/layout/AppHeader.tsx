@@ -47,7 +47,7 @@ export function AppHeader({ title = "Dashboard" }: AppHeaderProps) {
   return (
     <header className="h-16 border-b border-border bg-card flex items-center justify-between px-6">
       <div className="flex items-center gap-4">
-        <SidebarTrigger className="lg:hidden">
+        <SidebarTrigger>
           <Menu className="h-5 w-5" />
         </SidebarTrigger>
         <h1 className="text-xl font-semibold text-foreground">{title}</h1>
