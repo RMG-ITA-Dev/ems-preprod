@@ -45,12 +45,15 @@ export function AppHeader({ title = "Dashboard" }: AppHeaderProps) {
       : null;
 
   return (
-    <header className="h-16 border-b border-border bg-card flex items-center justify-between px-6">
+    <header className="h-16 border-b border-border bg-card flex items-center justify-between px-4 md:px-6">
       <div className="flex items-center gap-4">
-        <SidebarTrigger>
-          <Menu className="h-5 w-5" />
-        </SidebarTrigger>
-        <h1 className="text-xl font-semibold text-foreground">{title}</h1>
+        {/* Sidebar trigger - hidden on mobile */}
+        <div className="hidden md:block">
+          <SidebarTrigger>
+            <Menu className="h-5 w-5" />
+          </SidebarTrigger>
+        </div>
+        <h1 className="text-lg md:text-xl font-semibold text-foreground">{title}</h1>
       </div>
 
       <div className="flex items-center gap-4">
