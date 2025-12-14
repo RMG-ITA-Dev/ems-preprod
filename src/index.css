@@ -2,7 +2,24 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap");
+/* Font family CSS variables for dynamic switching */
+:root {
+  --font-regular: "IBM Plex Sans";
+  --font-narrow: "IBM Plex Sans Condensed";
+  --app-font: var(--font-regular);
+}
+
+/* Auto mode: use condensed font on mobile (≤768px) */
+@media (max-width: 768px) {
+  :root:not([data-compact-font="true"]) {
+    --app-font: var(--font-narrow);
+  }
+}
+
+/* Force condensed font everywhere when compact mode is enabled */
+:root[data-compact-font="true"] {
+  --app-font: var(--font-narrow);
+}
 
 @layer base {
   :root {

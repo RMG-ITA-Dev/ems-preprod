@@ -184,7 +184,9 @@
     "languageHelp": "Cambia el idioma para todos los usuarios (Solo Admin)",
     "adminOnly": "Solo Admin",
     "allowWeekendTracking": "Permitir registro en fines de semana",
-    "allowWeekendTrackingHelp": "Permite a los empleados registrar tiempo los sábados y domingos"
+    "allowWeekendTrackingHelp": "Permite a los empleados registrar tiempo los sábados y domingos",
+    "compactFont": "Modo Compacto",
+    "compactFontHelp": "Usa fuente angosta en todas partes. Cuando está desactivado, la fuente angosta solo se usa en dispositivos móviles."
   },
   "industry": {
     "name": "Nombre de Industria",
