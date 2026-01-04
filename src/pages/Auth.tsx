@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/useAuth";
+import { useGlobalSettings } from "@/hooks/useEmsData";
 import { toast } from "sonner";
 import { Briefcase, TrendingUp, Users, Shield, Loader2 } from "lucide-react";
 import { z } from "zod";
@@ -13,15 +14,14 @@ const emailSchema = z.string().trim().email({ message: "Invalid email address" }
 const passwordSchema = z.string().min(8, { message: "Password must be at least 8 characters" }).max(100, { message: "Password must be less than 100 characters" });
 const nameSchema = z.string().trim().min(1, { message: "Required" }).max(100, { message: "Must be less than 100 characters" });
 
-// Company email validation - only @ruizmier.com allowed for signup
-const ALLOWED_DOMAIN = "ruizmier.com";
-const companyEmailSchema = z.string()
+// Company email validation function - domain loaded from settings
+const createCompanyEmailSchema = (allowedDomain: string) => z.string()
   .trim()
   .email({ message: "Invalid email address" })
   .max(255, { message: "Email must be less than 255 characters" })
   .refine(
-    (email) => email.toLowerCase().endsWith(`@${ALLOWED_DOMAIN}`),
-    { message: `Solo se permiten correos @${ALLOWED_DOMAIN}` }
+    (email) => !allowedDomain || email.toLowerCase().endsWith(`@${allowedDomain.toLowerCase()}`),
+    { message: `Solo se permiten correos @${allowedDomain}` }
   );
 
 const Auth = () => {
@@ -34,6 +34,10 @@ const Auth = () => {
   const [loading, setLoading] = useState(false);
   const { signIn, signUp } = useAuth();
   const navigate = useNavigate();
+  const { data: settings } = useGlobalSettings();
+
+  // Get allowed domain from settings
+  const allowedDomain = settings?.find(s => s.setting_key === 'ALLOWED_EMAIL_DOMAIN')?.setting_value || '';
 
   // Show demo button only in dev mode or Lovable preview URLs
   const isDev = import.meta.env.DEV;
@@ -46,9 +50,9 @@ const Auth = () => {
     setLoading(true);
 
     try {
-      // Validate inputs - use companyEmailSchema for signup, regular for signin
+      // Validate inputs - use company domain schema for signup, regular for signin
       const validatedEmail = mode === "signup" 
-        ? companyEmailSchema.parse(email)
+        ? createCompanyEmailSchema(allowedDomain).parse(email)
         : emailSchema.parse(email);
       const validatedPassword = passwordSchema.parse(password);
 
@@ -246,13 +250,15 @@ const Auth = () => {
                 <Input
                   id="email"
                   type="email"
-                  placeholder={mode === "signup" ? t("auth.emailPlaceholder") : "tu.correo@ejemplo.com"}
+                  placeholder={mode === "signup" && allowedDomain ? `tu.nombre@${allowedDomain}` : "tu.correo@ejemplo.com"}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
                 />
-                {mode === "signup" && (
-                  <p className="text-xs text-muted-foreground">{t("auth.emailHelper")}</p>
+                {mode === "signup" && allowedDomain && (
+                  <p className="text-xs text-muted-foreground">
+                    {t("auth.emailHelper").replace("@ruizmier.com", `@${allowedDomain}`)}
+                  </p>
                 )}
               </div>
 
