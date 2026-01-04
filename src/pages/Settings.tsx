@@ -74,6 +74,7 @@ const Settings = () => {
   const [language, setLanguage] = useState<string>("en");
   const [allowWeekendTracking, setAllowWeekendTracking] = useState<boolean>(false);
   const [compactFont, setCompactFont] = useState<boolean>(false);
+  const [allowedEmailDomain, setAllowedEmailDomain] = useState<string>("");
 
   const getSetting = (key: string) => settings?.find((s) => s.setting_key === key)?.setting_value || "";
 
@@ -90,6 +91,10 @@ const Settings = () => {
       const compactFontSetting = settings.find((s) => s.setting_key === "COMPACT_FONT");
       if (compactFontSetting) {
         setCompactFont(compactFontSetting.setting_value === "true");
+      }
+      const emailDomainSetting = settings.find((s) => s.setting_key === "ALLOWED_EMAIL_DOMAIN");
+      if (emailDomainSetting) {
+        setAllowedEmailDomain(emailDomainSetting.setting_value);
       }
     }
   }, [settings]);
@@ -220,6 +225,9 @@ const Settings = () => {
       }
       await updateSettingMutation.mutateAsync({ key: "ALLOW_WEEKEND_TRACKING", value: allowWeekendTracking.toString() });
       await updateSettingMutation.mutateAsync({ key: "COMPACT_FONT", value: compactFont.toString() });
+      if (allowedEmailDomain) {
+        await updateSettingMutation.mutateAsync({ key: "ALLOWED_EMAIL_DOMAIN", value: allowedEmailDomain.trim() });
+      }
       queryClient.invalidateQueries({ queryKey: ["global_settings"] });
       toast({ title: t("messages.settingsSaved") });
     } catch (error) {
@@ -412,6 +420,19 @@ const Settings = () => {
                         checked={allowWeekendTracking}
                         onCheckedChange={setAllowWeekendTracking}
                       />
+                    </div>
+
+                    {/* Allowed Email Domain Setting */}
+                    <div className="space-y-2 py-4 border-b border-border">
+                      <Label htmlFor="allowedEmailDomain">{t("settings.allowedEmailDomain")}</Label>
+                      <Input
+                        id="allowedEmailDomain"
+                        value={allowedEmailDomain}
+                        onChange={(e) => setAllowedEmailDomain(e.target.value)}
+                        placeholder="example.com"
+                        className="max-w-[300px]"
+                      />
+                      <p className="text-sm text-muted-foreground">{t("settings.allowedEmailDomainHelp")}</p>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
