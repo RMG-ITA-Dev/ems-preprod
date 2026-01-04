@@ -110,9 +110,9 @@ export function PeriodSelector() {
               selected={tempCustomStart}
               onSelect={(date) => {
                 setTempCustomStart(date);
-                if (date && tempCustomEnd) {
+                setCustomStartOpen(false);
+                if (date && tempCustomEnd && date <= tempCustomEnd) {
                   setCustomRange(date, tempCustomEnd);
-                  setCustomStartOpen(false);
                 }
               }}
               initialFocus
@@ -144,9 +144,9 @@ export function PeriodSelector() {
               selected={tempCustomEnd}
               onSelect={(date) => {
                 setTempCustomEnd(date);
-                if (tempCustomStart && date) {
+                setCustomEndOpen(false);
+                if (tempCustomStart && date && tempCustomStart <= date) {
                   setCustomRange(tempCustomStart, date);
-                  setCustomEndOpen(false);
                 }
               }}
               disabled={(date) => tempCustomStart ? date < tempCustomStart : false}
