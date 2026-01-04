@@ -190,7 +190,9 @@
     "allowWeekendTracking": "Allow Weekend Tracking",
     "allowWeekendTrackingHelp": "Allows staff to track time on Saturdays and Sundays",
     "compactFont": "Compact Mode",
-    "compactFontHelp": "Uses narrow font everywhere. When off, narrow font is used only on mobile devices."
+    "compactFontHelp": "Uses narrow font everywhere. When off, narrow font is used only on mobile devices.",
+    "allowedEmailDomain": "Allowed Email Domain",
+    "allowedEmailDomainHelp": "Only users with this email domain can register. Leave empty to allow any domain."
   },
   "userRoles": {
     "title": "User Roles Management",
