@@ -1179,6 +1179,17 @@ export type Database = {
         }
         Returns: boolean
       }
+      get_all_user_roles: {
+        Args: never
+        Returns: {
+          created_at: string
+          email: string
+          role: Database["public"]["Enums"]["app_role"]
+          role_id: string
+          staff_name: string
+          user_id: string
+        }[]
+      }
       get_line_approver: {
         Args: { p_engagement_id: string; p_staff_id: string }
         Returns: string
