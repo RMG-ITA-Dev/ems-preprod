@@ -36,6 +36,7 @@ import { IndustryForm } from "@/components/forms/IndustryForm";
 import { CategoryForm } from "@/components/forms/CategoryForm";
 import { ActivityCodeForm } from "@/components/forms/ActivityCodeForm";
 import { ExpenseTypeForm } from "@/components/forms/ExpenseTypeForm";
+import { UserRolesManager } from "@/components/settings/UserRolesManager";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Lock, CheckCircle } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
@@ -348,6 +349,8 @@ const Settings = () => {
 
         {isAdmin && (
           <TabsContent value="global" className="space-y-6">
+            <UserRolesManager />
+            
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">

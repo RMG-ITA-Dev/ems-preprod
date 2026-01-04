@@ -192,6 +192,23 @@
     "compactFont": "Compact Mode",
     "compactFontHelp": "Uses narrow font everywhere. When off, narrow font is used only on mobile devices."
   },
+  "userRoles": {
+    "title": "User Roles Management",
+    "description": "Manage system access permissions for users who have signed up.",
+    "email": "Email",
+    "staffName": "Staff Name",
+    "currentRole": "Current Role",
+    "changeRole": "Change Role",
+    "noUsers": "No users found.",
+    "cannotChangeSelf": "Cannot change own role",
+    "roleUpdated": "User role updated successfully",
+    "updateError": "Error updating user role",
+    "roles": {
+      "admin": "Admin",
+      "staff": "Staff",
+      "viewer": "Viewer"
+    }
+  },
   "industry": {
     "name": "Industry Name",
     "fiscalYearEnd": "Fiscal Year-End",

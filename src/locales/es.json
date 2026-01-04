@@ -192,6 +192,23 @@
     "compactFont": "Modo Compacto",
     "compactFontHelp": "Usa fuente angosta en todas partes. Cuando está desactivado, la fuente angosta solo se usa en dispositivos móviles."
   },
+  "userRoles": {
+    "title": "Gestión de Roles de Usuario",
+    "description": "Administra los permisos de acceso del sistema para los usuarios registrados.",
+    "email": "Correo",
+    "staffName": "Nombre del Personal",
+    "currentRole": "Rol Actual",
+    "changeRole": "Cambiar Rol",
+    "noUsers": "No se encontraron usuarios.",
+    "cannotChangeSelf": "No puede cambiar su propio rol",
+    "roleUpdated": "Rol de usuario actualizado exitosamente",
+    "updateError": "Error al actualizar el rol de usuario",
+    "roles": {
+      "admin": "Administrador",
+      "staff": "Personal",
+      "viewer": "Visor"
+    }
+  },
   "industry": {
     "name": "Nombre de Industria",
     "fiscalYearEnd": "Cierre de Año Fiscal",
