@@ -9,9 +9,20 @@ import { toast } from "sonner";
 import { Briefcase, TrendingUp, Users, Shield, Loader2 } from "lucide-react";
 import { z } from "zod";
 
-const emailSchema = z.string().trim().email({ message: "Invalid email address" }).max(255);
-const passwordSchema = z.string().min(6, { message: "Password must be at least 6 characters" });
-const nameSchema = z.string().trim().min(1, { message: "Name is required" }).max(100);
+const emailSchema = z.string().trim().email({ message: "Invalid email address" }).max(255, { message: "Email must be less than 255 characters" });
+const passwordSchema = z.string().min(8, { message: "Password must be at least 8 characters" }).max(100, { message: "Password must be less than 100 characters" });
+const nameSchema = z.string().trim().min(1, { message: "Required" }).max(100, { message: "Must be less than 100 characters" });
+
+// Company email validation - only @ruizmier.com allowed for signup
+const ALLOWED_DOMAIN = "ruizmier.com";
+const companyEmailSchema = z.string()
+  .trim()
+  .email({ message: "Invalid email address" })
+  .max(255, { message: "Email must be less than 255 characters" })
+  .refine(
+    (email) => email.toLowerCase().endsWith(`@${ALLOWED_DOMAIN}`),
+    { message: `Solo se permiten correos @${ALLOWED_DOMAIN}` }
+  );
 
 const Auth = () => {
   const { t } = useTranslation();
@@ -35,8 +46,10 @@ const Auth = () => {
     setLoading(true);
 
     try {
-      // Validate inputs
-      const validatedEmail = emailSchema.parse(email);
+      // Validate inputs - use companyEmailSchema for signup, regular for signin
+      const validatedEmail = mode === "signup" 
+        ? companyEmailSchema.parse(email)
+        : emailSchema.parse(email);
       const validatedPassword = passwordSchema.parse(password);
 
       if (mode === "signup") {
@@ -47,6 +60,8 @@ const Auth = () => {
         if (error) {
           if (error.message.includes("already registered")) {
             toast.error(t("messages.emailAlreadyRegistered"));
+          } else if (error.message.includes("restricted to @")) {
+            toast.error(t("auth.invalidDomain"));
           } else {
             toast.error(error.message);
           }
@@ -231,11 +246,14 @@ const Auth = () => {
                 <Input
                   id="email"
                   type="email"
-                  placeholder="you@company.com"
+                  placeholder={mode === "signup" ? t("auth.emailPlaceholder") : "tu.correo@ejemplo.com"}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
                 />
+                {mode === "signup" && (
+                  <p className="text-xs text-muted-foreground">{t("auth.emailHelper")}</p>
+                )}
               </div>
 
               <div className="space-y-2">
