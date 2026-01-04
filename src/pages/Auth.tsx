@@ -11,7 +11,10 @@ import { Briefcase, TrendingUp, Users, Shield, Loader2 } from "lucide-react";
 import { z } from "zod";
 
 const emailSchema = z.string().trim().email({ message: "Invalid email address" }).max(255, { message: "Email must be less than 255 characters" });
-const passwordSchema = z.string().min(8, { message: "Password must be at least 8 characters" }).max(100, { message: "Password must be less than 100 characters" });
+// Sign-in: allow existing users with 6-char passwords
+const signinPasswordSchema = z.string().min(6, { message: "Password must be at least 6 characters" }).max(100, { message: "Password must be less than 100 characters" });
+// Sign-up: enforce stronger passwords for new accounts
+const signupPasswordSchema = z.string().min(8, { message: "Password must be at least 8 characters" }).max(100, { message: "Password must be less than 100 characters" });
 const nameSchema = z.string().trim().min(1, { message: "Required" }).max(100, { message: "Must be less than 100 characters" });
 
 // Company email validation function - domain loaded from settings
@@ -54,7 +57,9 @@ const Auth = () => {
       const validatedEmail = mode === "signup" 
         ? createCompanyEmailSchema(allowedDomain).parse(email)
         : emailSchema.parse(email);
-      const validatedPassword = passwordSchema.parse(password);
+      const validatedPassword = mode === "signup" 
+        ? signupPasswordSchema.parse(password)
+        : signinPasswordSchema.parse(password);
 
       if (mode === "signup") {
         const validatedFirstName = nameSchema.parse(firstName);
