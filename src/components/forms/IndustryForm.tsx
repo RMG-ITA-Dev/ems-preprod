@@ -40,7 +40,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Industry } from "@/hooks/useEmsData";
-import { useCreateIndustry, useUpdateIndustry, useDeleteIndustry } from "@/hooks/useEmsMutations";
+import { useCreateIndustry, useUpdateIndustry, useDeleteIndustry } from "@/hooks/mutations";
 import { Trash2 } from "lucide-react";
 
 const fiscalYearOptions = [

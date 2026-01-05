@@ -34,7 +34,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Category } from "@/hooks/useEmsData";
-import { useCreateCategory, useUpdateCategory, useDeleteCategory } from "@/hooks/useEmsMutations";
+import { useCreateCategory, useUpdateCategory, useDeleteCategory } from "@/hooks/mutations";
 import { Trash2 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 

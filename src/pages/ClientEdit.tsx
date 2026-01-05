@@ -17,7 +17,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { useDeleteClient } from "@/hooks/useEmsMutations";
+import { useDeleteClient } from "@/hooks/mutations";
 import { Trash2 } from "lucide-react";
 
 const ClientEdit = () => {

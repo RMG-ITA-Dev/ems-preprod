@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { ExpenseLogForm } from "@/components/forms/ExpenseLogForm";
 import { useExpenseLogById } from "@/hooks/useEmsData";
-import { useUpdateExpenseLog } from "@/hooks/useEmsMutations";
+import { useUpdateExpenseLog } from "@/hooks/mutations";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const ExpenseEdit = () => {
