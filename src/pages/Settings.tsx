@@ -39,7 +39,7 @@ import { ExpenseTypeForm } from "@/components/forms/ExpenseTypeForm";
 import { UserRolesManager } from "@/components/settings/UserRolesManager";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Lock, CheckCircle } from "lucide-react";
-import { toast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 
 const Settings = () => {
   const { t } = useTranslation();
@@ -229,7 +229,7 @@ const Settings = () => {
         await updateSettingMutation.mutateAsync({ key: "ALLOWED_EMAIL_DOMAIN", value: allowedEmailDomain.trim() });
       }
       queryClient.invalidateQueries({ queryKey: ["global_settings"] });
-      toast({ title: t("messages.settingsSaved") });
+      toast.success(t("messages.settingsSaved"));
     } catch (error) {
       // Error handled by mutation
     }
@@ -435,58 +435,53 @@ const Settings = () => {
                       <p className="text-sm text-muted-foreground">{t("settings.allowedEmailDomainHelp")}</p>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                      <div className="space-y-2">
-                        <Label htmlFor="taxRate">{t("settings.taxRate")}</Label>
+                    {/* Tax Rate Setting */}
+                    <div className="space-y-2 py-4 border-b border-border">
+                      <Label htmlFor="taxRate">{t("settings.taxRate")}</Label>
+                      <div className="flex items-center gap-2 max-w-[200px]">
                         <NumericInput
+                          id="taxRate"
+                          value={taxRate || (parseFloat(getSetting("TAX_RATE") || "0.13") * 100).toString()}
+                          onValueChange={(value) => setTaxRate(value)}
+                          placeholder="13"
                           decimals={2}
-                          locale="en"
-                          min={0}
-                          max={100}
-                          value={parseFloat(getSetting("TAX_RATE")) * 100 || 13}
-                          onChange={(val) => setTaxRate(String(val))}
-                          className="max-w-[200px]"
                         />
-                        <p className="text-sm text-muted-foreground">{t("settings.taxRateHelp")}</p>
+                        <span className="text-muted-foreground">%</span>
                       </div>
+                      <p className="text-sm text-muted-foreground">{t("settings.taxRateHelp")}</p>
+                    </div>
+
+                    {/* Time Limits */}
+                    <div className="grid grid-cols-2 gap-6 py-4">
                       <div className="space-y-2">
                         <Label htmlFor="dailyLimit">{t("settings.dailyLimit")}</Label>
                         <NumericInput
-                          decimals={0}
-                          locale="en"
-                          min={1}
-                          max={24}
-                          value={getSetting("DAILY_LIMIT") || 10}
-                          onChange={(val) => setDailyLimit(String(val))}
-                          className="max-w-[200px]"
+                          id="dailyLimit"
+                          value={dailyLimit || getSetting("DAILY_LIMIT") || "12"}
+                          onValueChange={(value) => setDailyLimit(value)}
+                          placeholder="12"
+                          decimals={1}
                         />
                         <p className="text-sm text-muted-foreground">{t("settings.dailyLimitHelp")}</p>
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="weeklyLimit">{t("settings.weeklyLimit")}</Label>
                         <NumericInput
-                          decimals={0}
-                          locale="en"
-                          min={1}
-                          max={168}
-                          value={getSetting("WEEKLY_LIMIT") || 50}
-                          onChange={(val) => setWeeklyLimit(String(val))}
-                          className="max-w-[200px]"
+                          id="weeklyLimit"
+                          value={weeklyLimit || getSetting("WEEKLY_LIMIT") || "50"}
+                          onValueChange={(value) => setWeeklyLimit(value)}
+                          placeholder="50"
+                          decimals={1}
                         />
                         <p className="text-sm text-muted-foreground">{t("settings.weeklyLimitHelp")}</p>
                       </div>
                     </div>
+
+                    <Button onClick={handleSaveSettings} disabled={updateSettingMutation.isPending}>
+                      {updateSettingMutation.isPending ? t("common.saving") : t("common.saveChanges")}
+                    </Button>
                   </>
                 )}
-                <div className="flex justify-end">
-                  <Button
-                    onClick={handleSaveSettings}
-                    className="bg-accent hover:bg-accent/90 text-accent-foreground"
-                    disabled={updateSettingMutation.isPending}
-                  >
-                    {t("settings.saveSettings")}
-                  </Button>
-                </div>
               </CardContent>
             </Card>
           </TabsContent>

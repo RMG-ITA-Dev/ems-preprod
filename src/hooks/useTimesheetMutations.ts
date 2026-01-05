@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { toast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 import { toISODateString } from "@/lib/timesheetUtils";
 
 // Upsert a time entry (create or update)
@@ -73,15 +73,10 @@ export function useUpsertTimeEntry() {
     },
     onSuccess: (_, variables) => {
       // Invalidate entries query to refetch
-      const dateStr = toISODateString(variables.dateWorked);
       queryClient.invalidateQueries({ queryKey: ["time-entries"] });
     },
     onError: (error) => {
-      toast({
-        title: "Error saving time entry",
-        description: error.message,
-        variant: "destructive",
-      });
+      toast.error("Error saving time entry", { description: error.message });
     },
   });
 }
@@ -102,11 +97,7 @@ export function useDeleteTimeEntry() {
       queryClient.invalidateQueries({ queryKey: ["time-entries"] });
     },
     onError: (error) => {
-      toast({
-        title: "Error deleting time entry",
-        description: error.message,
-        variant: "destructive",
-      });
+      toast.error("Error deleting time entry", { description: error.message });
     },
   });
 }
@@ -134,6 +125,9 @@ export function useUpdatePeriodTotalHours() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["timesheet-period"] });
+    },
+    onError: (error) => {
+      toast.error("Error updating period total", { description: error.message });
     },
   });
 }
@@ -189,18 +183,13 @@ export function useSubmitTimesheet() {
       queryClient.invalidateQueries({ queryKey: ["timesheet-period"] });
       queryClient.invalidateQueries({ queryKey: ["period-line-approvals"] });
       queryClient.invalidateQueries({ queryKey: ["pending-approvals"] });
-      toast({ 
-        title: data.isAutoApproved 
-          ? "Timesheet auto-approved" 
-          : "Timesheet submitted for approval" 
-      });
+      toast.success(data.isAutoApproved 
+        ? "Timesheet auto-approved" 
+        : "Timesheet submitted for approval"
+      );
     },
     onError: (error) => {
-      toast({
-        title: "Error submitting timesheet",
-        description: error.message,
-        variant: "destructive",
-      });
+      toast.error("Error submitting timesheet", { description: error.message });
     },
   });
 }

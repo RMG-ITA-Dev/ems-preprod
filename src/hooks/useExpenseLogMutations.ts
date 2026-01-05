@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { toast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 
 export function useCreateExpenseLog() {
   const queryClient = useQueryClient();
@@ -25,10 +25,10 @@ export function useCreateExpenseLog() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["expense_logs"] });
       queryClient.invalidateQueries({ queryKey: ["all_expense_logs"] });
-      toast({ title: "Expense log created successfully" });
+      toast.success("Expense log created successfully");
     },
     onError: (error) => {
-      toast({ title: "Error creating expense log", description: error.message, variant: "destructive" });
+      toast.error("Error creating expense log", { description: error.message });
     },
   });
 }
@@ -43,10 +43,10 @@ export function useDeleteExpenseLog() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["expense_logs"] });
       queryClient.invalidateQueries({ queryKey: ["all_expense_logs"] });
-      toast({ title: "Expense log deleted successfully" });
+      toast.success("Expense log deleted successfully");
     },
     onError: (error) => {
-      toast({ title: "Error deleting expense log", description: error.message, variant: "destructive" });
+      toast.error("Error deleting expense log", { description: error.message });
     },
   });
 }

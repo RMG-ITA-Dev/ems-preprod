@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { toast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 import { useCurrentStaff } from "./useCurrentStaff";
 
 export interface LineApproval {
@@ -405,14 +405,10 @@ export function useApproveTimesheetLine() {
       queryClient.invalidateQueries({ queryKey: ["pending-approval-summaries"] });
       queryClient.invalidateQueries({ queryKey: ["period-line-approvals"] });
       queryClient.invalidateQueries({ queryKey: ["staff-timesheet-for-approval"] });
-      toast({ title: "Line approved successfully" });
+      toast.success("Line approved successfully");
     },
     onError: (error) => {
-      toast({
-        title: "Error approving line",
-        description: error.message,
-        variant: "destructive",
-      });
+      toast.error("Error approving line", { description: error.message });
     },
   });
 }
@@ -444,14 +440,10 @@ export function useBulkApproveTimesheetLines() {
       queryClient.invalidateQueries({ queryKey: ["pending-approval-summaries"] });
       queryClient.invalidateQueries({ queryKey: ["period-line-approvals"] });
       queryClient.invalidateQueries({ queryKey: ["staff-timesheet-for-approval"] });
-      toast({ title: `${data?.length || 0} lines approved successfully` });
+      toast.success(`${data?.length || 0} lines approved successfully`);
     },
     onError: (error) => {
-      toast({
-        title: "Error approving lines",
-        description: error.message,
-        variant: "destructive",
-      });
+      toast.error("Error approving lines", { description: error.message });
     },
   });
 }
@@ -491,14 +483,10 @@ export function useRejectTimesheetLine() {
       queryClient.invalidateQueries({ queryKey: ["pending-approval-summaries"] });
       queryClient.invalidateQueries({ queryKey: ["period-line-approvals"] });
       queryClient.invalidateQueries({ queryKey: ["staff-timesheet-for-approval"] });
-      toast({ title: "Line rejected" });
+      toast.success("Line rejected");
     },
     onError: (error) => {
-      toast({
-        title: "Error rejecting line",
-        description: error.message,
-        variant: "destructive",
-      });
+      toast.error("Error rejecting line", { description: error.message });
     },
   });
 }
@@ -537,14 +525,10 @@ export function useBulkRejectTimesheetLines() {
       queryClient.invalidateQueries({ queryKey: ["pending-approval-summaries"] });
       queryClient.invalidateQueries({ queryKey: ["period-line-approvals"] });
       queryClient.invalidateQueries({ queryKey: ["staff-timesheet-for-approval"] });
-      toast({ title: `${data?.length || 0} lines rejected` });
+      toast.success(`${data?.length || 0} lines rejected`);
     },
     onError: (error) => {
-      toast({
-        title: "Error rejecting lines",
-        description: error.message,
-        variant: "destructive",
-      });
+      toast.error("Error rejecting lines", { description: error.message });
     },
   });
 }

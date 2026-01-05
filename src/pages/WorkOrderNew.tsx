@@ -18,7 +18,7 @@ import { WorkOrderForm, BudgetLineInput, ExpenseBudgetInput } from "@/components
 import { useEngagements, useSetting, useCategories, useWorkOrders } from "@/hooks/useEmsData";
 import { useWorksheetByEngagementId } from "@/hooks/useWorksheetData";
 import { useCreateWorkOrder, useCreateBudgetLine, useCreateExpenseBudget } from "@/hooks/useEmsMutations";
-import { toast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 
 const WorkOrderNew = () => {
   const { t } = useTranslation();
@@ -82,7 +82,7 @@ const WorkOrderNew = () => {
 
   const handleSubmit = async () => {
     if (!selectedEngagementId) {
-      toast({ title: t("workOrders.selectEngagementFirst"), variant: "destructive" });
+      toast.error(t("workOrders.selectEngagementFirst"));
       return;
     }
 
@@ -120,7 +120,7 @@ const WorkOrderNew = () => {
         }
       }
 
-      toast({ title: t("messages.createSuccess", { entity: t("entities.workOrder") }) });
+      toast.success(t("messages.createSuccess", { entity: t("entities.workOrder") }));
       navigate(`/work-orders/${wo.wo_id}`);
     } catch (error) {
       // Error handled by mutations

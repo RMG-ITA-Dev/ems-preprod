@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { toast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { Database } from "@/integrations/supabase/types";
 
@@ -42,14 +42,10 @@ export function useUpdateUserRole() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["all_user_roles"] });
-      toast({ title: t("userRoles.roleUpdated") });
+      toast.success(t("userRoles.roleUpdated"));
     },
     onError: (error) => {
-      toast({
-        title: t("userRoles.updateError"),
-        description: error.message,
-        variant: "destructive",
-      });
+      toast.error(t("userRoles.updateError"), { description: error.message });
     },
   });
 }
