@@ -36,7 +36,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Client, useIndustries } from "@/hooks/useEmsData";
-import { useCreateClient, useUpdateClient, useDeleteClient } from "@/hooks/useEmsMutations";
+import { useCreateClient, useUpdateClient, useDeleteClient } from "@/hooks/mutations";
 import { Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 

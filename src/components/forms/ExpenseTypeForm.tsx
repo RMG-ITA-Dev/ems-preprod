@@ -34,7 +34,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { ExpenseType } from "@/hooks/useEmsData";
-import { useCreateExpenseType, useUpdateExpenseType, useDeleteExpenseType } from "@/hooks/useEmsMutations";
+import { useCreateExpenseType, useUpdateExpenseType, useDeleteExpenseType } from "@/hooks/mutations";
 import { Trash2 } from "lucide-react";
 
 const formSchema = z.object({

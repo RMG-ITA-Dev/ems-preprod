@@ -28,7 +28,7 @@ import {
   ActivityCode,
   ExpenseType,
 } from "@/hooks/useEmsData";
-import { useUpdateGlobalSetting } from "@/hooks/useEmsMutations";
+import { useUpdateGlobalSetting } from "@/hooks/mutations";
 import { useUserRole } from "@/hooks/useUserRole";
 import { useLanguage } from "@/hooks/useLanguage";
 import { DataTable, Column } from "@/components/data-table/DataTable";

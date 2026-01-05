@@ -35,7 +35,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Staff, useCategories } from "@/hooks/useEmsData";
-import { useCreateStaff, useUpdateStaff, useDeleteStaff } from "@/hooks/useEmsMutations";
+import { useCreateStaff, useUpdateStaff, useDeleteStaff } from "@/hooks/mutations";
 import { Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 

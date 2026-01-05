@@ -35,7 +35,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { ActivityCode } from "@/hooks/useEmsData";
-import { useCreateActivityCode, useUpdateActivityCode, useDeleteActivityCode } from "@/hooks/useEmsMutations";
+import { useCreateActivityCode, useUpdateActivityCode, useDeleteActivityCode } from "@/hooks/mutations";
 import { Trash2 } from "lucide-react";
 
 const formSchema = z.object({
