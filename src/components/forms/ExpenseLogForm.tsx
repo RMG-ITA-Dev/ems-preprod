@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
+import { LoadingButton } from "@/components/ui/loading-button";
 import { Input } from "@/components/ui/input";
 import { NumericInput } from "@/components/ui/numeric-input";
 import { Textarea } from "@/components/ui/textarea";
@@ -253,9 +254,14 @@ export function ExpenseLogForm({
         <Button type="button" variant="outline" onClick={onCancel} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
           {t("common.cancel")}
         </Button>
-        <Button type="submit" disabled={!isValid || isLoading} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
-          {isLoading ? t("common.loading") : t("common.save")}
-        </Button>
+        <LoadingButton
+          type="submit"
+          loading={isLoading}
+          disabled={!isValid}
+          className="w-full sm:w-auto min-h-[44px] sm:min-h-0"
+        >
+          {t("common.save")}
+        </LoadingButton>
       </div>
     </form>
   );

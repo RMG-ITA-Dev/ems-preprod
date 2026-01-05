@@ -5,6 +5,7 @@ import * as z from "zod";
 import { format } from "date-fns";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
+import { LoadingButton } from "@/components/ui/loading-button";
 import { Input } from "@/components/ui/input";
 import { Calendar } from "@/components/ui/calendar";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -404,14 +405,15 @@ export function EngagementForm({ engagement }: EngagementFormProps) {
               <Button type="button" variant="cancel" onClick={() => navigate("/engagements")} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
                 {t("common.cancel")}
               </Button>
-              <Button
+              <LoadingButton
                 type="submit"
                 variant="default"
                 className="w-full sm:w-auto min-h-[44px] sm:min-h-0"
-                disabled={createMutation.isPending || updateMutation.isPending || (hasMissingCategories && !isEdit)}
+                loading={createMutation.isPending || updateMutation.isPending}
+                disabled={hasMissingCategories && !isEdit}
               >
                 {isEdit ? t("common.saveChanges") : t("engagement.createEngagement")}
-              </Button>
+              </LoadingButton>
             </div>
           </form>
         </Form>
