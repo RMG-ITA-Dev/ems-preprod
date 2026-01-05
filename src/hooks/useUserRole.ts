@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { logger } from "@/lib/logger";
 
 export type AppRole = "admin" | "staff" | "viewer";
 
@@ -22,11 +23,15 @@ export function useUserRole() {
         .from("user_roles")
         .select("*")
         .eq("user_id", user.id)
-        .single();
+        .maybeSingle();
       
       if (error) {
-        // User might not have a role yet, return default
-        console.warn("No role found for user:", error.message);
+        logger.warn("Error fetching user role:", error.message);
+        return null;
+      }
+      
+      if (!data) {
+        logger.debug("No role found for user, defaulting to staff");
         return null;
       }
       

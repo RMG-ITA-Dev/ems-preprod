@@ -108,6 +108,13 @@ export function TimesheetGrid({
     setRows(initialRows);
   }, [initialRows]);
 
+  // Cleanup debounce timers on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      Object.values(debounceTimers.current).forEach(clearTimeout);
+    };
+  }, []);
+
   const addNewRow = () => {
     setRows([
       ...rows,

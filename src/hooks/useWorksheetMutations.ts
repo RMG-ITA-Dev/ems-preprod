@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
+import { logger } from "@/lib/logger";
 
 interface CreateWorksheetInput {
   engagement_id: string;
@@ -55,7 +56,7 @@ export function useCreateWorksheet() {
       toast.success(t("messages.createSuccess", { entity: t("workMatrix.title") }));
     },
     onError: (error) => {
-      console.error("Error creating worksheet:", error);
+      logger.error("Error creating worksheet:", error);
       toast.error(t("messages.createError", { entity: t("workMatrix.title") }));
     },
   });
@@ -87,7 +88,7 @@ export function useUpdateWorksheet() {
       toast.success(t("messages.updateSuccess", { entity: t("workMatrix.title") }));
     },
     onError: (error) => {
-      console.error("Error updating worksheet:", error);
+      logger.error("Error updating worksheet:", error);
       toast.error(t("messages.updateError", { entity: t("workMatrix.title") }));
     },
   });
@@ -112,7 +113,7 @@ export function useDeleteWorksheet() {
       toast.success(t("messages.deleteSuccess", { entity: t("workMatrix.title") }));
     },
     onError: (error) => {
-      console.error("Error deleting worksheet:", error);
+      logger.error("Error deleting worksheet:", error);
       toast.error(t("messages.deleteError", { entity: t("workMatrix.title") }));
     },
   });
@@ -161,6 +162,9 @@ export function useUpsertCell() {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["worksheet", variables.worksheet_id] });
     },
+    onError: (error) => {
+      logger.error("Error upserting cell:", error);
+    },
   });
 }
 
@@ -202,7 +206,7 @@ export function useBatchUpsertCells() {
       toast.success(t("messages.updateSuccess", { entity: t("workMatrix.title") }));
     },
     onError: (error) => {
-      console.error("Error saving worksheet cells:", error);
+      logger.error("Error saving worksheet cells:", error);
       toast.error(t("messages.updateError", { entity: t("workMatrix.title") }));
     },
   });
@@ -225,6 +229,9 @@ export function useDeleteCell() {
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["worksheet", variables.worksheet_id] });
+    },
+    onError: (error) => {
+      logger.error("Error deleting cell:", error);
     },
   });
 }
@@ -277,7 +284,7 @@ export function useCreateWorkOrderFromWorksheet() {
       toast.success(t("messages.createSuccess", { entity: t("entities.workOrder") }));
     },
     onError: (error) => {
-      console.error("Error creating work order from worksheet:", error);
+      logger.error("Error creating work order from worksheet:", error);
       toast.error(t("messages.createError", { entity: t("entities.workOrder") }));
     },
   });

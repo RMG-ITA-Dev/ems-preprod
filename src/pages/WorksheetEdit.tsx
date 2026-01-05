@@ -13,6 +13,7 @@ import { useCategories, useActivityCodes, useSetting } from "@/hooks/useEmsData"
 import { WorksheetGrid } from "@/components/worksheet/WorksheetGrid";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { logger } from "@/lib/logger";
 import {
   Select,
   SelectContent,
@@ -142,7 +143,7 @@ const WorksheetEdit = () => {
       setLocalCells(new Map());
       setHasUnsavedChanges(false);
     } catch (error) {
-      console.error("Error saving worksheet:", error);
+      logger.error("Error saving worksheet:", error);
     }
   };
 
@@ -201,7 +202,7 @@ const WorksheetEdit = () => {
       // Navigate to the new work order
       navigate(`/work-orders/${result.wo_id}`);
     } catch (error) {
-      console.error("Error creating work order:", error);
+      logger.error("Error creating work order:", error);
     }
   };
 

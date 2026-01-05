@@ -17,6 +17,7 @@ import { useCreateWorksheet } from "@/hooks/useWorksheetMutations";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
+import { logger } from "@/lib/logger";
 
 const WorksheetNew = () => {
   const { t } = useTranslation();
@@ -39,7 +40,7 @@ const WorksheetNew = () => {
       // Navigate to edit the newly created worksheet
       navigate(`/worksheets/${result.id}`);
     } catch (error) {
-      console.error("Error creating worksheet:", error);
+      logger.error("Error creating worksheet:", error);
     }
   };
 

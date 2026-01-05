@@ -4,8 +4,6 @@ import App from "./App.tsx";
 import "./index.css";
 import "./i18n";
 
-console.log("EMS 2.0 starting...");
-
 const rootElement = document.getElementById("root");
 if (rootElement) {
   try {
@@ -14,7 +12,6 @@ if (rootElement) {
         <App />
       </React.StrictMode>
     );
-    console.log("EMS 2.0 rendered successfully");
   } catch (error) {
     console.error("Failed to render app:", error);
     rootElement.innerHTML = `

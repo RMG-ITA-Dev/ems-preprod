@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { logger } from "@/lib/logger";
 
 export interface TimesheetPolicies {
   maxBacklogWeeks: number;
@@ -33,7 +34,7 @@ export const useTimesheetPolicies = () => {
         ]);
 
       if (error) {
-        console.error("Error fetching timesheet policies:", error);
+        logger.error("Error fetching timesheet policies:", error);
         return DEFAULT_POLICIES;
       }
 

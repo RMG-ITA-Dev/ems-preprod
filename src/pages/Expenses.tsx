@@ -31,7 +31,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Plus, Search, ArrowUpDown, ArrowUp, ArrowDown, Filter, ExternalLink, ChevronDown } from "lucide-react";
 import { useAllExpenseLogs, useExpenseTypes } from "@/hooks/useEmsData";
 import { format } from "date-fns";
-import { useIsMobile } from "@/hooks/use-mobile";
+import { useIsMobile } from "@/hooks/useMobile";
 import { cn } from "@/lib/utils";
 
 type SortDirection = "asc" | "desc" | null;
