@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
+import { LoadingButton } from "@/components/ui/loading-button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -378,14 +379,14 @@ export function StaffForm({ staff }: StaffFormProps) {
               <Button type="button" variant="cancel" onClick={() => navigate("/staff")} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
                 {t("common.cancel")}
               </Button>
-              <Button
+              <LoadingButton
                 type="submit"
                 variant="default"
                 className="w-full sm:w-auto min-h-[44px] sm:min-h-0"
-                disabled={createMutation.isPending || updateMutation.isPending}
+                loading={createMutation.isPending || updateMutation.isPending}
               >
                 {isEdit ? t("common.saveChanges") : t("staff.createStaff")}
-              </Button>
+              </LoadingButton>
             </div>
           </form>
         </Form>
