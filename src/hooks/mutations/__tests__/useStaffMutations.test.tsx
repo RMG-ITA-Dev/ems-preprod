@@ -1,0 +1,133 @@
+import React from "react";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { renderHook, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import {
+  useCreateStaff,
+  useUpdateStaff,
+  useDeleteStaff,
+} from "../useStaffMutations";
+
+function createWrapper() {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false },
+    },
+  });
+  return ({ children }: { children: React.ReactNode }) => (
+    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  );
+}
+
+describe("useStaffMutations", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  describe("useCreateStaff", () => {
+    it("should create a staff member with required fields", async () => {
+      const mockData = {
+        staff_id: "staff-1",
+        first_name: "John",
+        last_name: "Doe",
+      };
+      const mockSingle = vi.fn().mockResolvedValue({ data: mockData, error: null });
+      const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
+      const mockInsert = vi.fn().mockReturnValue({ select: mockSelect });
+      vi.mocked(supabase.from).mockReturnValue({ insert: mockInsert } as any);
+
+      const { result } = renderHook(() => useCreateStaff(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate({
+        first_name: "John",
+        last_name: "Doe",
+      });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      expect(supabase.from).toHaveBeenCalledWith("staff");
+      expect(mockInsert).toHaveBeenCalledWith({
+        first_name: "John",
+        last_name: "Doe",
+      });
+      expect(toast.success).toHaveBeenCalled();
+    });
+
+    it("should create a staff member with optional fields", async () => {
+      const mockData = {
+        staff_id: "staff-1",
+        first_name: "John",
+        last_name: "Doe",
+        email: "john@example.com",
+        category_id: "cat-1",
+        is_active: true,
+      };
+      const mockSingle = vi.fn().mockResolvedValue({ data: mockData, error: null });
+      const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
+      const mockInsert = vi.fn().mockReturnValue({ select: mockSelect });
+      vi.mocked(supabase.from).mockReturnValue({ insert: mockInsert } as any);
+
+      const { result } = renderHook(() => useCreateStaff(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate({
+        first_name: "John",
+        last_name: "Doe",
+        email: "john@example.com",
+        category_id: "cat-1",
+        is_active: true,
+      });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    });
+  });
+
+  describe("useUpdateStaff", () => {
+    it("should update staff fields", async () => {
+      const mockData = { staff_id: "1", is_active: false };
+      const mockSingle = vi.fn().mockResolvedValue({ data: mockData, error: null });
+      const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
+      const mockEq = vi.fn().mockReturnValue({ select: mockSelect });
+      const mockUpdate = vi.fn().mockReturnValue({ eq: mockEq });
+      vi.mocked(supabase.from).mockReturnValue({ update: mockUpdate } as any);
+
+      const { result } = renderHook(() => useUpdateStaff(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate({ id: "1", data: { is_active: false } });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      expect(supabase.from).toHaveBeenCalledWith("staff");
+      expect(mockEq).toHaveBeenCalledWith("staff_id", "1");
+      expect(toast.success).toHaveBeenCalled();
+    });
+  });
+
+  describe("useDeleteStaff", () => {
+    it("should delete a staff member by id", async () => {
+      const mockEq = vi.fn().mockResolvedValue({ error: null });
+      const mockDelete = vi.fn().mockReturnValue({ eq: mockEq });
+      vi.mocked(supabase.from).mockReturnValue({ delete: mockDelete } as any);
+
+      const { result } = renderHook(() => useDeleteStaff(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate("staff-123");
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      expect(supabase.from).toHaveBeenCalledWith("staff");
+      expect(mockEq).toHaveBeenCalledWith("staff_id", "staff-123");
+      expect(toast.success).toHaveBeenCalled();
+    });
+  });
+});
