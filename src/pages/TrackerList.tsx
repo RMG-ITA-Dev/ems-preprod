@@ -38,7 +38,7 @@ import { AlertCircle } from "lucide-react";
 import { useLanguage } from "@/hooks/useLanguage";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
-import { useIsMobile } from "@/hooks/use-mobile";
+import { useIsMobile } from "@/hooks/useMobile";
 
 type SortDirection = "asc" | "desc" | null;
 type SortColumn = "fecha" | "hora" | "duracion" | "encargo" | "actividad" | null;
