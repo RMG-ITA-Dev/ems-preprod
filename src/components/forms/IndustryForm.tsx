@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
+import { LoadingButton } from "@/components/ui/loading-button";
 import { Input } from "@/components/ui/input";
 import {
   Form,
@@ -191,13 +192,13 @@ export function IndustryForm({ open, onOpenChange, industry }: IndustryFormProps
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
                 {t("common.cancel")}
               </Button>
-              <Button
+              <LoadingButton
                 type="submit"
                 className="bg-accent hover:bg-accent/90 text-accent-foreground"
-                disabled={createMutation.isPending || updateMutation.isPending}
+                loading={createMutation.isPending || updateMutation.isPending}
               >
                 {isEdit ? t("common.saveChanges") : t("industry.createIndustry")}
-              </Button>
+              </LoadingButton>
             </SheetFooter>
           </form>
         </Form>

@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
+import { LoadingButton } from "@/components/ui/loading-button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -186,13 +187,13 @@ export function ActivityCodeForm({ open, onOpenChange, activityCode }: ActivityC
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
                 {t("common.cancel")}
               </Button>
-              <Button
+              <LoadingButton
                 type="submit"
                 className="bg-accent hover:bg-accent/90 text-accent-foreground w-full sm:w-auto min-h-[44px] sm:min-h-0"
-                disabled={createMutation.isPending || updateMutation.isPending}
+                loading={createMutation.isPending || updateMutation.isPending}
               >
                 {isEdit ? t("common.saveChanges") : t("activity.createActivity")}
-              </Button>
+              </LoadingButton>
             </SheetFooter>
           </form>
         </Form>

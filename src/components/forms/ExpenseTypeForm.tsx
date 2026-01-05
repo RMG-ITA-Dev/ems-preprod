@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
+import { LoadingButton } from "@/components/ui/loading-button";
 import { Input } from "@/components/ui/input";
 import { NumericInput } from "@/components/ui/numeric-input";
 import {
@@ -158,13 +159,13 @@ export function ExpenseTypeForm({ open, onOpenChange, expenseType }: ExpenseType
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
                 {t("common.cancel")}
               </Button>
-              <Button
+              <LoadingButton
                 type="submit"
                 className="bg-accent hover:bg-accent/90 text-accent-foreground"
-                disabled={createMutation.isPending || updateMutation.isPending}
+                loading={createMutation.isPending || updateMutation.isPending}
               >
                 {isEdit ? t("common.saveChanges") : t("expense.createExpenseType")}
-              </Button>
+              </LoadingButton>
             </SheetFooter>
           </form>
         </Form>
