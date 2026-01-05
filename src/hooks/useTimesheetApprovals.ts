@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useCurrentStaff } from "./useCurrentStaff";
+import { createMutationErrorHandler } from "@/lib/error-handler";
 
 export interface LineApproval {
   approval_id: string;
@@ -407,9 +408,7 @@ export function useApproveTimesheetLine() {
       queryClient.invalidateQueries({ queryKey: ["staff-timesheet-for-approval"] });
       toast.success("Line approved successfully");
     },
-    onError: (error) => {
-      toast.error("Error approving line", { description: error.message });
-    },
+    onError: createMutationErrorHandler("approving line"),
   });
 }
 
@@ -442,9 +441,7 @@ export function useBulkApproveTimesheetLines() {
       queryClient.invalidateQueries({ queryKey: ["staff-timesheet-for-approval"] });
       toast.success(`${data?.length || 0} lines approved successfully`);
     },
-    onError: (error) => {
-      toast.error("Error approving lines", { description: error.message });
-    },
+    onError: createMutationErrorHandler("approving lines"),
   });
 }
 
@@ -485,9 +482,7 @@ export function useRejectTimesheetLine() {
       queryClient.invalidateQueries({ queryKey: ["staff-timesheet-for-approval"] });
       toast.success("Line rejected");
     },
-    onError: (error) => {
-      toast.error("Error rejecting line", { description: error.message });
-    },
+    onError: createMutationErrorHandler("rejecting line"),
   });
 }
 
@@ -527,8 +522,6 @@ export function useBulkRejectTimesheetLines() {
       queryClient.invalidateQueries({ queryKey: ["staff-timesheet-for-approval"] });
       toast.success(`${data?.length || 0} lines rejected`);
     },
-    onError: (error) => {
-      toast.error("Error rejecting lines", { description: error.message });
-    },
+    onError: createMutationErrorHandler("rejecting lines"),
   });
 }

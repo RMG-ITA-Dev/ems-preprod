@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { createMutationErrorHandler } from "@/lib/error-handler";
 
 // ============= Industries =============
 export function useCreateIndustry() {
@@ -19,9 +20,7 @@ export function useCreateIndustry() {
       queryClient.invalidateQueries({ queryKey: ["industries"] });
       toast.success("Industry created successfully");
     },
-    onError: (error) => {
-      toast.error("Error creating industry", { description: error.message });
-    },
+    onError: createMutationErrorHandler("creating industry"),
   });
 }
 
@@ -42,9 +41,7 @@ export function useUpdateIndustry() {
       queryClient.invalidateQueries({ queryKey: ["industries"] });
       toast.success("Industry updated successfully");
     },
-    onError: (error) => {
-      toast.error("Error updating industry", { description: error.message });
-    },
+    onError: createMutationErrorHandler("updating industry"),
   });
 }
 
@@ -59,9 +56,7 @@ export function useDeleteIndustry() {
       queryClient.invalidateQueries({ queryKey: ["industries"] });
       toast.success("Industry deleted successfully");
     },
-    onError: (error) => {
-      toast.error("Error deleting industry", { description: error.message });
-    },
+    onError: createMutationErrorHandler("deleting industry"),
   });
 }
 
@@ -90,9 +85,7 @@ export function useCreateCategory() {
       queryClient.invalidateQueries({ queryKey: ["categories"] });
       toast.success("Category created successfully");
     },
-    onError: (error) => {
-      toast.error("Error creating category", { description: error.message });
-    },
+    onError: createMutationErrorHandler("creating category"),
   });
 }
 
@@ -127,9 +120,7 @@ export function useUpdateCategory() {
       queryClient.invalidateQueries({ queryKey: ["categories"] });
       toast.success("Category updated successfully");
     },
-    onError: (error) => {
-      toast.error("Error updating category", { description: error.message });
-    },
+    onError: createMutationErrorHandler("updating category"),
   });
 }
 
@@ -144,9 +135,7 @@ export function useDeleteCategory() {
       queryClient.invalidateQueries({ queryKey: ["categories"] });
       toast.success("Category deleted successfully");
     },
-    onError: (error) => {
-      toast.error("Error deleting category", { description: error.message });
-    },
+    onError: createMutationErrorHandler("deleting category"),
   });
 }
 
@@ -167,9 +156,7 @@ export function useCreateActivityCode() {
       queryClient.invalidateQueries({ queryKey: ["activity_codes"] });
       toast.success("Activity code created successfully");
     },
-    onError: (error) => {
-      toast.error("Error creating activity code", { description: error.message });
-    },
+    onError: createMutationErrorHandler("creating activity code"),
   });
 }
 
@@ -196,9 +183,7 @@ export function useUpdateActivityCode() {
       queryClient.invalidateQueries({ queryKey: ["activity_codes"] });
       toast.success("Activity code updated successfully");
     },
-    onError: (error) => {
-      toast.error("Error updating activity code", { description: error.message });
-    },
+    onError: createMutationErrorHandler("updating activity code"),
   });
 }
 
@@ -213,9 +198,7 @@ export function useDeleteActivityCode() {
       queryClient.invalidateQueries({ queryKey: ["activity_codes"] });
       toast.success("Activity code deleted successfully");
     },
-    onError: (error) => {
-      toast.error("Error deleting activity code", { description: error.message });
-    },
+    onError: createMutationErrorHandler("deleting activity code"),
   });
 }
 
@@ -236,9 +219,7 @@ export function useCreateExpenseType() {
       queryClient.invalidateQueries({ queryKey: ["expense_types"] });
       toast.success("Expense type created successfully");
     },
-    onError: (error) => {
-      toast.error("Error creating expense type", { description: error.message });
-    },
+    onError: createMutationErrorHandler("creating expense type"),
   });
 }
 
@@ -265,9 +246,7 @@ export function useUpdateExpenseType() {
       queryClient.invalidateQueries({ queryKey: ["expense_types"] });
       toast.success("Expense type updated successfully");
     },
-    onError: (error) => {
-      toast.error("Error updating expense type", { description: error.message });
-    },
+    onError: createMutationErrorHandler("updating expense type"),
   });
 }
 
@@ -282,9 +261,7 @@ export function useDeleteExpenseType() {
       queryClient.invalidateQueries({ queryKey: ["expense_types"] });
       toast.success("Expense type deleted successfully");
     },
-    onError: (error) => {
-      toast.error("Error deleting expense type", { description: error.message });
-    },
+    onError: createMutationErrorHandler("deleting expense type"),
   });
 }
 
@@ -311,9 +288,7 @@ export function useCreateStaff() {
       queryClient.invalidateQueries({ queryKey: ["staff"] });
       toast.success("Staff member created successfully");
     },
-    onError: (error) => {
-      toast.error("Error creating staff member", { description: error.message });
-    },
+    onError: createMutationErrorHandler("creating staff member"),
   });
 }
 
@@ -346,9 +321,7 @@ export function useUpdateStaff() {
       queryClient.invalidateQueries({ queryKey: ["staff"] });
       toast.success("Staff member updated successfully");
     },
-    onError: (error) => {
-      toast.error("Error updating staff member", { description: error.message });
-    },
+    onError: createMutationErrorHandler("updating staff member"),
   });
 }
 
@@ -363,9 +336,7 @@ export function useDeleteStaff() {
       queryClient.invalidateQueries({ queryKey: ["staff"] });
       toast.success("Staff member deleted successfully");
     },
-    onError: (error) => {
-      toast.error("Error deleting staff member", { description: error.message });
-    },
+    onError: createMutationErrorHandler("deleting staff member"),
   });
 }
 
@@ -395,9 +366,7 @@ export function useCreateClient() {
       queryClient.invalidateQueries({ queryKey: ["clients"] });
       toast.success("Client created successfully");
     },
-    onError: (error) => {
-      toast.error("Error creating client", { description: error.message });
-    },
+    onError: createMutationErrorHandler("creating client"),
   });
 }
 
@@ -433,9 +402,7 @@ export function useUpdateClient() {
       queryClient.invalidateQueries({ queryKey: ["clients"] });
       toast.success("Client updated successfully");
     },
-    onError: (error) => {
-      toast.error("Error updating client", { description: error.message });
-    },
+    onError: createMutationErrorHandler("updating client"),
   });
 }
 
@@ -450,9 +417,7 @@ export function useDeleteClient() {
       queryClient.invalidateQueries({ queryKey: ["clients"] });
       toast.success("Client deleted successfully");
     },
-    onError: (error) => {
-      toast.error("Error deleting client", { description: error.message });
-    },
+    onError: createMutationErrorHandler("deleting client"),
   });
 }
 
@@ -482,9 +447,7 @@ export function useCreateEngagement() {
       queryClient.invalidateQueries({ queryKey: ["engagements"] });
       toast.success("Engagement created successfully");
     },
-    onError: (error) => {
-      toast.error("Error creating engagement", { description: error.message });
-    },
+    onError: createMutationErrorHandler("creating engagement"),
   });
 }
 
@@ -520,9 +483,7 @@ export function useUpdateEngagement() {
       queryClient.invalidateQueries({ queryKey: ["engagements"] });
       toast.success("Engagement updated successfully");
     },
-    onError: (error) => {
-      toast.error("Error updating engagement", { description: error.message });
-    },
+    onError: createMutationErrorHandler("updating engagement"),
   });
 }
 
@@ -537,9 +498,7 @@ export function useDeleteEngagement() {
       queryClient.invalidateQueries({ queryKey: ["engagements"] });
       toast.success("Engagement deleted successfully");
     },
-    onError: (error) => {
-      toast.error("Error deleting engagement", { description: error.message });
-    },
+    onError: createMutationErrorHandler("deleting engagement"),
   });
 }
 
@@ -561,9 +520,7 @@ export function useUpdateGlobalSetting() {
       queryClient.invalidateQueries({ queryKey: ["global_settings"] });
       toast.success("Setting updated successfully");
     },
-    onError: (error) => {
-      toast.error("Error updating setting", { description: error.message });
-    },
+    onError: createMutationErrorHandler("updating setting"),
   });
 }
 
@@ -591,9 +548,7 @@ export function useCreateWorkOrder() {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
       toast.success("Work order created successfully");
     },
-    onError: (error) => {
-      toast.error("Error creating work order", { description: error.message });
-    },
+    onError: createMutationErrorHandler("creating work order"),
   });
 }
 
@@ -626,9 +581,7 @@ export function useUpdateWorkOrder() {
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
       toast.success("Work order updated successfully");
     },
-    onError: (error) => {
-      toast.error("Error updating work order", { description: error.message });
-    },
+    onError: createMutationErrorHandler("updating work order"),
   });
 }
 
@@ -650,9 +603,7 @@ export function useSubmitWorkOrder() {
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
       toast.success("Work order submitted for approval");
     },
-    onError: (error) => {
-      toast.error("Error submitting work order", { description: error.message });
-    },
+    onError: createMutationErrorHandler("submitting work order"),
   });
 }
 
@@ -678,9 +629,7 @@ export function useApproveWorkOrder() {
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
       toast.success("Work order approved");
     },
-    onError: (error) => {
-      toast.error("Error approving work order", { description: error.message });
-    },
+    onError: createMutationErrorHandler("approving work order"),
   });
 }
 
@@ -702,9 +651,7 @@ export function useRejectWorkOrder() {
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
       toast.success("Work order rejected");
     },
-    onError: (error) => {
-      toast.error("Error rejecting work order", { description: error.message });
-    },
+    onError: createMutationErrorHandler("rejecting work order"),
   });
 }
 
@@ -730,9 +677,7 @@ export function useCreateBudgetLine() {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
     },
-    onError: (error) => {
-      toast.error("Error creating budget line", { description: error.message });
-    },
+    onError: createMutationErrorHandler("creating budget line"),
   });
 }
 
@@ -763,9 +708,7 @@ export function useUpdateBudgetLine() {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
     },
-    onError: (error) => {
-      toast.error("Error updating budget line", { description: error.message });
-    },
+    onError: createMutationErrorHandler("updating budget line"),
   });
 }
 
@@ -780,9 +723,7 @@ export function useDeleteBudgetLine() {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
     },
-    onError: (error) => {
-      toast.error("Error deleting budget line", { description: error.message });
-    },
+    onError: createMutationErrorHandler("deleting budget line"),
   });
 }
 
@@ -807,9 +748,7 @@ export function useCreateExpenseBudget() {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
     },
-    onError: (error) => {
-      toast.error("Error creating expense budget", { description: error.message });
-    },
+    onError: createMutationErrorHandler("creating expense budget"),
   });
 }
 
@@ -839,9 +778,7 @@ export function useUpdateExpenseBudget() {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
     },
-    onError: (error) => {
-      toast.error("Error updating expense budget", { description: error.message });
-    },
+    onError: createMutationErrorHandler("updating expense budget"),
   });
 }
 
@@ -856,9 +793,7 @@ export function useDeleteExpenseBudget() {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
     },
-    onError: (error) => {
-      toast.error("Error deleting expense budget", { description: error.message });
-    },
+    onError: createMutationErrorHandler("deleting expense budget"),
   });
 }
 
@@ -889,9 +824,7 @@ export function useUpdateTimeEntry() {
       queryClient.invalidateQueries({ queryKey: ["time_entries"] });
       toast.success("Time entry updated successfully");
     },
-    onError: (error) => {
-      toast.error("Error updating time entry", { description: error.message });
-    },
+    onError: createMutationErrorHandler("updating time entry"),
   });
 }
 
@@ -924,8 +857,6 @@ export function useUpdateExpenseLog() {
       queryClient.invalidateQueries({ queryKey: ["expense_logs"] });
       toast.success("Expense log updated successfully");
     },
-    onError: (error) => {
-      toast.error("Error updating expense log", { description: error.message });
-    },
+    onError: createMutationErrorHandler("updating expense log"),
   });
 }

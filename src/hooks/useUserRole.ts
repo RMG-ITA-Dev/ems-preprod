@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { logger } from "@/lib/logger";
+import { handleError, ErrorCode, AppError } from "@/lib/error-handler";
 
 export type AppRole = "admin" | "staff" | "viewer";
 
@@ -11,13 +12,32 @@ interface UserRole {
   role: AppRole;
 }
 
-export function useUserRole() {
+interface UseUserRoleResult {
+  role: AppRole;
+  isAdmin: boolean;
+  isStaff: boolean;
+  isViewer: boolean;
+  isLoading: boolean;
+  /** True if there was an error fetching the role */
+  hasError: boolean;
+  /** Error details if fetch failed */
+  error: AppError | null;
+  /** True if user has no role assigned (not an error, just missing data) */
+  isRoleMissing: boolean;
+}
+
+export function useUserRole(): UseUserRoleResult {
   const { user } = useAuth();
 
-  const { data: userRole, isLoading } = useQuery({
+  const { data: userRole, isLoading, error, isError } = useQuery({
     queryKey: ["user_role", user?.id],
     queryFn: async () => {
-      if (!user?.id) return null;
+      if (!user?.id) {
+        throw new AppError(
+          "Cannot fetch role: No authenticated user",
+          ErrorCode.AUTH_UNAUTHORIZED
+        );
+      }
       
       const { data, error } = await supabase
         .from("user_roles")
@@ -26,27 +46,58 @@ export function useUserRole() {
         .maybeSingle();
       
       if (error) {
-        logger.warn("Error fetching user role:", error.message);
-        return null;
+        // Log and throw - this is a real error that should be visible
+        logger.error("Failed to fetch user role:", error.message);
+        throw new AppError(
+          `Failed to fetch user role: ${error.message}`,
+          ErrorCode.DB_QUERY,
+          { userId: user.id }
+        );
       }
       
+      // No role found is NOT an error - return null and handle gracefully
       if (!data) {
-        logger.debug("No role found for user, defaulting to staff");
+        logger.debug("No role assigned to user, will use default 'staff' role", { userId: user.id });
         return null;
       }
       
       return data as UserRole;
     },
     enabled: !!user?.id,
+    // Don't retry on auth errors
+    retry: (failureCount, error) => {
+      if (error instanceof AppError && error.code === ErrorCode.AUTH_UNAUTHORIZED) {
+        return false;
+      }
+      return failureCount < 2;
+    },
   });
 
-  const role = userRole?.role || "staff";
+  // Handle error state - show toast only once via error handler
+  const appError = isError && error 
+    ? (error instanceof AppError 
+        ? error 
+        : handleError(error, { 
+            showToast: true, 
+            toastTitle: "Role fetch failed",
+            context: { userId: user?.id }
+          })
+      )
+    : null;
+
+  // Determine effective role - default to staff if no role assigned OR if there was an error
+  // This maintains backwards compatibility while making the error visible
+  const effectiveRole: AppRole = userRole?.role || "staff";
+  const isRoleMissing = !isLoading && !isError && !userRole;
   
   return {
-    role,
-    isAdmin: role === "admin",
-    isStaff: role === "staff",
-    isViewer: role === "viewer",
+    role: effectiveRole,
+    isAdmin: effectiveRole === "admin",
+    isStaff: effectiveRole === "staff",
+    isViewer: effectiveRole === "viewer",
     isLoading,
+    hasError: isError,
+    error: appError,
+    isRoleMissing,
   };
 }
