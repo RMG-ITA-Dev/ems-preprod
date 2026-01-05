@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
+import { LoadingButton } from "@/components/ui/loading-button";
 import { NumericInput } from "@/components/ui/numeric-input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -519,30 +520,30 @@ export function WorkOrderForm({
         )}
         {isDraft && (
           <>
-            <Button onClick={onSubmit} disabled={isSubmitting} className="btn-action">
+            <LoadingButton onClick={onSubmit} loading={isSubmitting} className="btn-action">
               {t("common.save")}
-            </Button>
+            </LoadingButton>
             {onSubmitForApproval && (
-              <Button onClick={onSubmitForApproval} className="bg-info hover:bg-info/90 btn-action" disabled={isSubmitting}>
+              <LoadingButton onClick={onSubmitForApproval} className="bg-info hover:bg-info/90 btn-action" loading={isSubmitting}>
                 <Send className="h-4 w-4 mr-2" />
                 {t("workOrders.submitForApproval")}
-              </Button>
+              </LoadingButton>
             )}
           </>
         )}
         {isPending && canApprove && (
           <>
             {onReject && (
-              <Button variant="outline" onClick={onReject} className="text-destructive border-destructive btn-action" disabled={isSubmitting}>
+              <LoadingButton variant="outline" onClick={onReject} className="text-destructive border-destructive btn-action" loading={isSubmitting}>
                 <XCircle className="h-4 w-4 mr-2" />
                 {t("workOrders.reject")}
-              </Button>
+              </LoadingButton>
             )}
             {onApprove && (
-              <Button onClick={onApprove} className="bg-success hover:bg-success/90 btn-action" disabled={isSubmitting}>
+              <LoadingButton onClick={onApprove} className="bg-success hover:bg-success/90 btn-action" loading={isSubmitting}>
                 <CheckCircle className="h-4 w-4 mr-2" />
                 {t("workOrders.approve")}
-              </Button>
+              </LoadingButton>
             )}
           </>
         )}
