@@ -22,7 +22,7 @@ import {
 } from "@/hooks/useEmsMutations";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { useWorksheetByEngagementId } from "@/hooks/useWorksheetData";
-import { toast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 
 const WorkOrderEdit = () => {
   const { t } = useTranslation();
@@ -164,7 +164,7 @@ const WorkOrderEdit = () => {
         }
       }
 
-      toast({ title: t("messages.updateSuccess", { entity: t("entities.workOrder") }) });
+      toast.success(t("messages.updateSuccess", { entity: t("entities.workOrder") }));
     } catch (error) {
       // Error handled by mutations
     }

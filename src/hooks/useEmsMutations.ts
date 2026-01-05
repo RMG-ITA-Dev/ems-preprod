@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { toast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 
 // ============= Industries =============
 export function useCreateIndustry() {
@@ -17,10 +17,10 @@ export function useCreateIndustry() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["industries"] });
-      toast({ title: "Industry created successfully" });
+      toast.success("Industry created successfully");
     },
     onError: (error) => {
-      toast({ title: "Error creating industry", description: error.message, variant: "destructive" });
+      toast.error("Error creating industry", { description: error.message });
     },
   });
 }
@@ -40,10 +40,10 @@ export function useUpdateIndustry() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["industries"] });
-      toast({ title: "Industry updated successfully" });
+      toast.success("Industry updated successfully");
     },
     onError: (error) => {
-      toast({ title: "Error updating industry", description: error.message, variant: "destructive" });
+      toast.error("Error updating industry", { description: error.message });
     },
   });
 }
@@ -57,10 +57,10 @@ export function useDeleteIndustry() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["industries"] });
-      toast({ title: "Industry deleted successfully" });
+      toast.success("Industry deleted successfully");
     },
     onError: (error) => {
-      toast({ title: "Error deleting industry", description: error.message, variant: "destructive" });
+      toast.error("Error deleting industry", { description: error.message });
     },
   });
 }
@@ -88,10 +88,10 @@ export function useCreateCategory() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["categories"] });
-      toast({ title: "Category created successfully" });
+      toast.success("Category created successfully");
     },
     onError: (error) => {
-      toast({ title: "Error creating category", description: error.message, variant: "destructive" });
+      toast.error("Error creating category", { description: error.message });
     },
   });
 }
@@ -125,10 +125,10 @@ export function useUpdateCategory() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["categories"] });
-      toast({ title: "Category updated successfully" });
+      toast.success("Category updated successfully");
     },
     onError: (error) => {
-      toast({ title: "Error updating category", description: error.message, variant: "destructive" });
+      toast.error("Error updating category", { description: error.message });
     },
   });
 }
@@ -142,10 +142,10 @@ export function useDeleteCategory() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["categories"] });
-      toast({ title: "Category deleted successfully" });
+      toast.success("Category deleted successfully");
     },
     onError: (error) => {
-      toast({ title: "Error deleting category", description: error.message, variant: "destructive" });
+      toast.error("Error deleting category", { description: error.message });
     },
   });
 }
@@ -165,10 +165,10 @@ export function useCreateActivityCode() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["activity_codes"] });
-      toast({ title: "Activity code created successfully" });
+      toast.success("Activity code created successfully");
     },
     onError: (error) => {
-      toast({ title: "Error creating activity code", description: error.message, variant: "destructive" });
+      toast.error("Error creating activity code", { description: error.message });
     },
   });
 }
@@ -194,10 +194,10 @@ export function useUpdateActivityCode() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["activity_codes"] });
-      toast({ title: "Activity code updated successfully" });
+      toast.success("Activity code updated successfully");
     },
     onError: (error) => {
-      toast({ title: "Error updating activity code", description: error.message, variant: "destructive" });
+      toast.error("Error updating activity code", { description: error.message });
     },
   });
 }
@@ -211,10 +211,10 @@ export function useDeleteActivityCode() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["activity_codes"] });
-      toast({ title: "Activity code deleted successfully" });
+      toast.success("Activity code deleted successfully");
     },
     onError: (error) => {
-      toast({ title: "Error deleting activity code", description: error.message, variant: "destructive" });
+      toast.error("Error deleting activity code", { description: error.message });
     },
   });
 }
@@ -234,10 +234,10 @@ export function useCreateExpenseType() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["expense_types"] });
-      toast({ title: "Expense type created successfully" });
+      toast.success("Expense type created successfully");
     },
     onError: (error) => {
-      toast({ title: "Error creating expense type", description: error.message, variant: "destructive" });
+      toast.error("Error creating expense type", { description: error.message });
     },
   });
 }
@@ -263,10 +263,10 @@ export function useUpdateExpenseType() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["expense_types"] });
-      toast({ title: "Expense type updated successfully" });
+      toast.success("Expense type updated successfully");
     },
     onError: (error) => {
-      toast({ title: "Error updating expense type", description: error.message, variant: "destructive" });
+      toast.error("Error updating expense type", { description: error.message });
     },
   });
 }
@@ -280,10 +280,10 @@ export function useDeleteExpenseType() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["expense_types"] });
-      toast({ title: "Expense type deleted successfully" });
+      toast.success("Expense type deleted successfully");
     },
     onError: (error) => {
-      toast({ title: "Error deleting expense type", description: error.message, variant: "destructive" });
+      toast.error("Error deleting expense type", { description: error.message });
     },
   });
 }
@@ -309,10 +309,10 @@ export function useCreateStaff() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["staff"] });
-      toast({ title: "Staff member created successfully" });
+      toast.success("Staff member created successfully");
     },
     onError: (error) => {
-      toast({ title: "Error creating staff member", description: error.message, variant: "destructive" });
+      toast.error("Error creating staff member", { description: error.message });
     },
   });
 }
@@ -344,10 +344,10 @@ export function useUpdateStaff() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["staff"] });
-      toast({ title: "Staff member updated successfully" });
+      toast.success("Staff member updated successfully");
     },
     onError: (error) => {
-      toast({ title: "Error updating staff member", description: error.message, variant: "destructive" });
+      toast.error("Error updating staff member", { description: error.message });
     },
   });
 }
@@ -361,10 +361,10 @@ export function useDeleteStaff() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["staff"] });
-      toast({ title: "Staff member deleted successfully" });
+      toast.success("Staff member deleted successfully");
     },
     onError: (error) => {
-      toast({ title: "Error deleting staff member", description: error.message, variant: "destructive" });
+      toast.error("Error deleting staff member", { description: error.message });
     },
   });
 }
@@ -393,10 +393,10 @@ export function useCreateClient() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["clients"] });
-      toast({ title: "Client created successfully" });
+      toast.success("Client created successfully");
     },
     onError: (error) => {
-      toast({ title: "Error creating client", description: error.message, variant: "destructive" });
+      toast.error("Error creating client", { description: error.message });
     },
   });
 }
@@ -431,10 +431,10 @@ export function useUpdateClient() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["clients"] });
-      toast({ title: "Client updated successfully" });
+      toast.success("Client updated successfully");
     },
     onError: (error) => {
-      toast({ title: "Error updating client", description: error.message, variant: "destructive" });
+      toast.error("Error updating client", { description: error.message });
     },
   });
 }
@@ -448,10 +448,10 @@ export function useDeleteClient() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["clients"] });
-      toast({ title: "Client deleted successfully" });
+      toast.success("Client deleted successfully");
     },
     onError: (error) => {
-      toast({ title: "Error deleting client", description: error.message, variant: "destructive" });
+      toast.error("Error deleting client", { description: error.message });
     },
   });
 }
@@ -480,10 +480,10 @@ export function useCreateEngagement() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["engagements"] });
-      toast({ title: "Engagement created successfully" });
+      toast.success("Engagement created successfully");
     },
     onError: (error) => {
-      toast({ title: "Error creating engagement", description: error.message, variant: "destructive" });
+      toast.error("Error creating engagement", { description: error.message });
     },
   });
 }
@@ -518,10 +518,10 @@ export function useUpdateEngagement() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["engagements"] });
-      toast({ title: "Engagement updated successfully" });
+      toast.success("Engagement updated successfully");
     },
     onError: (error) => {
-      toast({ title: "Error updating engagement", description: error.message, variant: "destructive" });
+      toast.error("Error updating engagement", { description: error.message });
     },
   });
 }
@@ -535,10 +535,10 @@ export function useDeleteEngagement() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["engagements"] });
-      toast({ title: "Engagement deleted successfully" });
+      toast.success("Engagement deleted successfully");
     },
     onError: (error) => {
-      toast({ title: "Error deleting engagement", description: error.message, variant: "destructive" });
+      toast.error("Error deleting engagement", { description: error.message });
     },
   });
 }
@@ -559,10 +559,10 @@ export function useUpdateGlobalSetting() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["global_settings"] });
-      toast({ title: "Setting updated successfully" });
+      toast.success("Setting updated successfully");
     },
     onError: (error) => {
-      toast({ title: "Error updating setting", description: error.message, variant: "destructive" });
+      toast.error("Error updating setting", { description: error.message });
     },
   });
 }
@@ -589,10 +589,10 @@ export function useCreateWorkOrder() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
-      toast({ title: "Work order created successfully" });
+      toast.success("Work order created successfully");
     },
     onError: (error) => {
-      toast({ title: "Error creating work order", description: error.message, variant: "destructive" });
+      toast.error("Error creating work order", { description: error.message });
     },
   });
 }
@@ -624,10 +624,10 @@ export function useUpdateWorkOrder() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
-      toast({ title: "Work order updated successfully" });
+      toast.success("Work order updated successfully");
     },
     onError: (error) => {
-      toast({ title: "Error updating work order", description: error.message, variant: "destructive" });
+      toast.error("Error updating work order", { description: error.message });
     },
   });
 }
@@ -648,10 +648,10 @@ export function useSubmitWorkOrder() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
-      toast({ title: "Work order submitted for approval" });
+      toast.success("Work order submitted for approval");
     },
     onError: (error) => {
-      toast({ title: "Error submitting work order", description: error.message, variant: "destructive" });
+      toast.error("Error submitting work order", { description: error.message });
     },
   });
 }
@@ -676,10 +676,10 @@ export function useApproveWorkOrder() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
-      toast({ title: "Work order approved" });
+      toast.success("Work order approved");
     },
     onError: (error) => {
-      toast({ title: "Error approving work order", description: error.message, variant: "destructive" });
+      toast.error("Error approving work order", { description: error.message });
     },
   });
 }
@@ -700,10 +700,10 @@ export function useRejectWorkOrder() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
-      toast({ title: "Work order rejected" });
+      toast.success("Work order rejected");
     },
     onError: (error) => {
-      toast({ title: "Error rejecting work order", description: error.message, variant: "destructive" });
+      toast.error("Error rejecting work order", { description: error.message });
     },
   });
 }
@@ -731,7 +731,7 @@ export function useCreateBudgetLine() {
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
     },
     onError: (error) => {
-      toast({ title: "Error creating budget line", description: error.message, variant: "destructive" });
+      toast.error("Error creating budget line", { description: error.message });
     },
   });
 }
@@ -764,7 +764,7 @@ export function useUpdateBudgetLine() {
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
     },
     onError: (error) => {
-      toast({ title: "Error updating budget line", description: error.message, variant: "destructive" });
+      toast.error("Error updating budget line", { description: error.message });
     },
   });
 }
@@ -781,7 +781,7 @@ export function useDeleteBudgetLine() {
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
     },
     onError: (error) => {
-      toast({ title: "Error deleting budget line", description: error.message, variant: "destructive" });
+      toast.error("Error deleting budget line", { description: error.message });
     },
   });
 }
@@ -808,7 +808,7 @@ export function useCreateExpenseBudget() {
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
     },
     onError: (error) => {
-      toast({ title: "Error creating expense budget", description: error.message, variant: "destructive" });
+      toast.error("Error creating expense budget", { description: error.message });
     },
   });
 }
@@ -840,7 +840,7 @@ export function useUpdateExpenseBudget() {
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
     },
     onError: (error) => {
-      toast({ title: "Error updating expense budget", description: error.message, variant: "destructive" });
+      toast.error("Error updating expense budget", { description: error.message });
     },
   });
 }
@@ -857,7 +857,7 @@ export function useDeleteExpenseBudget() {
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
     },
     onError: (error) => {
-      toast({ title: "Error deleting expense budget", description: error.message, variant: "destructive" });
+      toast.error("Error deleting expense budget", { description: error.message });
     },
   });
 }
@@ -887,10 +887,10 @@ export function useUpdateTimeEntry() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["all_time_entries"] });
       queryClient.invalidateQueries({ queryKey: ["time_entries"] });
-      toast({ title: "Time entry updated successfully" });
+      toast.success("Time entry updated successfully");
     },
     onError: (error) => {
-      toast({ title: "Error updating time entry", description: error.message, variant: "destructive" });
+      toast.error("Error updating time entry", { description: error.message });
     },
   });
 }
@@ -922,10 +922,10 @@ export function useUpdateExpenseLog() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["all_expense_logs"] });
       queryClient.invalidateQueries({ queryKey: ["expense_logs"] });
-      toast({ title: "Expense log updated successfully" });
+      toast.success("Expense log updated successfully");
     },
     onError: (error) => {
-      toast({ title: "Error updating expense log", description: error.message, variant: "destructive" });
+      toast.error("Error updating expense log", { description: error.message });
     },
   });
 }
