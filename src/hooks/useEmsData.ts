@@ -123,12 +123,36 @@ export interface ExpenseLog {
   expense_log_id: string;
   date_incurred: string;
   amount: number;
-  currency: 'USD' | 'BOB';
+  currency: string;
   engagement_id: string;
   expense_type_id: string;
   description: string | null;
+  receipt_url: string | null;
+  created_at?: string | null;
   engagement?: Engagement;
   expense_type?: ExpenseType;
+}
+
+// Type for expense logs with partial relations (as returned by list queries)
+export interface ExpenseLogListItem {
+  expense_log_id: string;
+  date_incurred: string;
+  amount: number;
+  currency: string;
+  engagement_id: string;
+  expense_type_id: string;
+  description: string | null;
+  receipt_url: string | null;
+  created_at?: string | null;
+  engagement?: {
+    engagement_id: string;
+    engagement_name: string;
+    engagement_code: string | null;
+  };
+  expense_type?: {
+    expense_type_id: string;
+    expense_name: string;
+  };
 }
 
 export interface GlobalSetting {
