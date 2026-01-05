@@ -160,7 +160,8 @@
     "expenseType": "Tipo de Gasto",
     "expenseTypes": "Tipos de Gasto",
     "workOrder": "Orden de Trabajo",
-    "workOrders": "Órdenes de Trabajo"
+    "workOrders": "Órdenes de Trabajo",
+    "expenseLog": "Registro de Gasto"
   },
   "status": {
     "active": "Activo",
@@ -508,7 +509,10 @@
     "periodLocked": "Esta semana está bloqueada y no puede ser editada.",
     "fullyApproved": "Esta semana ha sido completamente aprobada.",
     "hasRejections": "Algunas entradas fueron rechazadas. Por favor revise y reenvíe.",
-    "pendingApproval": "Esta semana está pendiente de aprobación."
+    "pendingApproval": "Esta semana está pendiente de aprobación.",
+    "autoApproved": "Hoja de tiempo auto-aprobada",
+    "submitted": "Hoja de tiempo enviada para aprobación",
+    "entry": "Entrada de tiempo"
   },
   "expenses": {
     "title": "Gastos",
@@ -571,7 +575,10 @@
     },
     "allStatuses": "Todos los Estados",
     "allEngagementsHaveWorkOrders": "Todos los encargos activos ya tienen una orden de trabajo.",
-    "createEngagementFirst": "Crear un nuevo encargo"
+    "createEngagementFirst": "Crear un nuevo encargo",
+    "submittedForApproval": "Orden de trabajo enviada para aprobación",
+    "approved": "Orden de trabajo aprobada",
+    "rejected": "Orden de trabajo rechazada"
   },
   "adminTimeEntries": {
     "title": "Entradas de Tiempo",

@@ -119,45 +119,25 @@ export function useDeleteWorksheet() {
   });
 }
 
-// Upsert a single cell (create or update)
+// Upsert a single cell (create or update) using native Postgres upsert
 export function useUpsertCell() {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async (input: UpsertCellInput) => {
-      // Try to find existing cell first
-      const { data: existing } = await supabase
+      const { error } = await supabase
         .from("activity_worksheet_cells")
-        .select("id")
-        .eq("worksheet_id", input.worksheet_id)
-        .eq("category_id", input.category_id)
-        .eq("activity_id", input.activity_id)
-        .maybeSingle();
+        .upsert({
+          worksheet_id: input.worksheet_id,
+          category_id: input.category_id,
+          activity_id: input.activity_id,
+          budget_hours: input.budget_hours,
+          updated_at: new Date().toISOString(),
+        }, {
+          onConflict: "worksheet_id,category_id,activity_id"
+        });
 
-      if (existing) {
-        // Update existing
-        const { error } = await supabase
-          .from("activity_worksheet_cells")
-          .update({
-            budget_hours: input.budget_hours,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", existing.id);
-
-        if (error) throw error;
-      } else {
-        // Create new
-        const { error } = await supabase
-          .from("activity_worksheet_cells")
-          .insert({
-            worksheet_id: input.worksheet_id,
-            category_id: input.category_id,
-            activity_id: input.activity_id,
-            budget_hours: input.budget_hours,
-          });
-
-        if (error) throw error;
-      }
+      if (error) throw error;
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["worksheet", variables.worksheet_id] });

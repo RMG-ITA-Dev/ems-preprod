@@ -160,7 +160,8 @@
     "expenseType": "Expense Type",
     "expenseTypes": "Expense Types",
     "workOrder": "Work Order",
-    "workOrders": "Work Orders"
+    "workOrders": "Work Orders",
+    "expenseLog": "Expense Log"
   },
   "status": {
     "active": "Active",
@@ -508,7 +509,10 @@
     "periodLocked": "This week is locked and cannot be edited.",
     "fullyApproved": "This week has been fully approved.",
     "hasRejections": "Some entries were rejected. Please review and resubmit.",
-    "pendingApproval": "This week is pending approval."
+    "pendingApproval": "This week is pending approval.",
+    "autoApproved": "Timesheet auto-approved",
+    "submitted": "Timesheet submitted for approval",
+    "entry": "Time entry"
   },
   "expenses": {
     "title": "Expenses",
@@ -571,7 +575,10 @@
     },
     "allStatuses": "All Statuses",
     "allEngagementsHaveWorkOrders": "All active engagements already have a work order.",
-    "createEngagementFirst": "Create a new engagement"
+    "createEngagementFirst": "Create a new engagement",
+    "submittedForApproval": "Work order submitted for approval",
+    "approved": "Work order approved",
+    "rejected": "Work order rejected"
   },
   "adminTimeEntries": {
     "title": "Time Entries",
