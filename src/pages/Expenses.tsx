@@ -29,7 +29,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Plus, Search, ArrowUpDown, ArrowUp, ArrowDown, Filter, ExternalLink, ChevronDown } from "lucide-react";
-import { useAllExpenseLogs, useExpenseTypes } from "@/hooks/useEmsData";
+import { useAllExpenseLogs, useExpenseTypes, type ExpenseLogListItem } from "@/hooks/useEmsData";
 import { format } from "date-fns";
 import { useIsMobile } from "@/hooks/useMobile";
 import { cn } from "@/lib/utils";
@@ -67,13 +67,13 @@ const Expenses = () => {
 
   // Filter by currency first
   const currencyFiltered = useMemo(() => {
-    return expenseLogs.filter((log: any) => log.currency === currency);
+    return expenseLogs.filter((log: ExpenseLogListItem) => log.currency === currency);
   }, [expenseLogs, currency]);
 
   // Get unique engagement options from filtered data
   const engagementOptions = useMemo(() => {
     const unique = new Map<string, string>();
-    currencyFiltered.forEach((log: any) => {
+    currencyFiltered.forEach((log: ExpenseLogListItem) => {
       if (log.engagement) {
         unique.set(log.engagement.engagement_id, log.engagement.engagement_name);
       }
@@ -88,7 +88,7 @@ const Expenses = () => {
     // Search
     if (searchTerm) {
       const lower = searchTerm.toLowerCase();
-      result = result.filter((log: any) =>
+      result = result.filter((log: ExpenseLogListItem) =>
         log.engagement?.engagement_name?.toLowerCase().includes(lower) ||
         log.description?.toLowerCase().includes(lower) ||
         log.expense_type?.expense_name?.toLowerCase().includes(lower)
@@ -97,18 +97,18 @@ const Expenses = () => {
 
     // Expense type filter
     if (expenseTypeFilter !== "all") {
-      result = result.filter((log: any) => log.expense_type_id === expenseTypeFilter);
+      result = result.filter((log: ExpenseLogListItem) => log.expense_type_id === expenseTypeFilter);
     }
 
     // Engagement filter
     if (engagementFilter !== "all") {
-      result = result.filter((log: any) => log.engagement_id === engagementFilter);
+      result = result.filter((log: ExpenseLogListItem) => log.engagement_id === engagementFilter);
     }
 
     // Sorting
     if (sortColumn && sortDirection) {
-      result.sort((a: any, b: any) => {
-        let aVal: any, bVal: any;
+      result.sort((a: ExpenseLogListItem, b: ExpenseLogListItem) => {
+        let aVal: string | number | null | undefined, bVal: string | number | null | undefined;
         
         if (sortColumn === "date_incurred") {
           aVal = a.date_incurred;
@@ -142,7 +142,7 @@ const Expenses = () => {
 
   // Calculate total
   const total = useMemo(() => {
-    return filteredData.reduce((sum: number, log: any) => sum + (log.amount || 0), 0);
+    return filteredData.reduce((sum: number, log: ExpenseLogListItem) => sum + (log.amount || 0), 0);
   }, [filteredData]);
 
   const handleSort = (column: string) => {
@@ -235,7 +235,7 @@ const Expenses = () => {
               </div>
             ) : (
               <>
-                {filteredData.map((log: any) => (
+                {filteredData.map((log: ExpenseLogListItem) => (
                   <Card
                     key={log.expense_log_id}
                     className="cursor-pointer hover:bg-muted/30 transition-colors"
@@ -431,7 +431,7 @@ const Expenses = () => {
                   </TableRow>
                 ) : (
                   <>
-                    {filteredData.map((log: any) => (
+                    {filteredData.map((log: ExpenseLogListItem) => (
                       <TableRow
                         key={log.expense_log_id}
                         className="cursor-pointer hover:bg-muted/30"
