@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { createMutationErrorHandler } from "@/lib/error-handler";
+import i18n from "@/i18n";
 
 // ============= Industries =============
 export function useCreateIndustry() {
@@ -18,7 +19,7 @@ export function useCreateIndustry() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["industries"] });
-      toast.success("Industry created successfully");
+      toast.success(i18n.t("messages.createSuccess", { entity: i18n.t("entities.industry") }));
     },
     onError: createMutationErrorHandler("creating industry"),
   });
@@ -39,7 +40,7 @@ export function useUpdateIndustry() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["industries"] });
-      toast.success("Industry updated successfully");
+      toast.success(i18n.t("messages.updateSuccess", { entity: i18n.t("entities.industry") }));
     },
     onError: createMutationErrorHandler("updating industry"),
   });
@@ -54,7 +55,7 @@ export function useDeleteIndustry() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["industries"] });
-      toast.success("Industry deleted successfully");
+      toast.success(i18n.t("messages.deleteSuccess", { entity: i18n.t("entities.industry") }));
     },
     onError: createMutationErrorHandler("deleting industry"),
   });
@@ -83,7 +84,7 @@ export function useCreateCategory() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["categories"] });
-      toast.success("Category created successfully");
+      toast.success(i18n.t("messages.createSuccess", { entity: i18n.t("entities.category") }));
     },
     onError: createMutationErrorHandler("creating category"),
   });
@@ -118,7 +119,7 @@ export function useUpdateCategory() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["categories"] });
-      toast.success("Category updated successfully");
+      toast.success(i18n.t("messages.updateSuccess", { entity: i18n.t("entities.category") }));
     },
     onError: createMutationErrorHandler("updating category"),
   });
@@ -133,7 +134,7 @@ export function useDeleteCategory() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["categories"] });
-      toast.success("Category deleted successfully");
+      toast.success(i18n.t("messages.deleteSuccess", { entity: i18n.t("entities.category") }));
     },
     onError: createMutationErrorHandler("deleting category"),
   });
@@ -154,7 +155,7 @@ export function useCreateActivityCode() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["activity_codes"] });
-      toast.success("Activity code created successfully");
+      toast.success(i18n.t("messages.createSuccess", { entity: i18n.t("entities.activityCode") }));
     },
     onError: createMutationErrorHandler("creating activity code"),
   });
@@ -181,7 +182,7 @@ export function useUpdateActivityCode() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["activity_codes"] });
-      toast.success("Activity code updated successfully");
+      toast.success(i18n.t("messages.updateSuccess", { entity: i18n.t("entities.activityCode") }));
     },
     onError: createMutationErrorHandler("updating activity code"),
   });
@@ -196,7 +197,7 @@ export function useDeleteActivityCode() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["activity_codes"] });
-      toast.success("Activity code deleted successfully");
+      toast.success(i18n.t("messages.deleteSuccess", { entity: i18n.t("entities.activityCode") }));
     },
     onError: createMutationErrorHandler("deleting activity code"),
   });
@@ -217,7 +218,7 @@ export function useCreateExpenseType() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["expense_types"] });
-      toast.success("Expense type created successfully");
+      toast.success(i18n.t("messages.createSuccess", { entity: i18n.t("entities.expenseType") }));
     },
     onError: createMutationErrorHandler("creating expense type"),
   });
@@ -244,7 +245,7 @@ export function useUpdateExpenseType() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["expense_types"] });
-      toast.success("Expense type updated successfully");
+      toast.success(i18n.t("messages.updateSuccess", { entity: i18n.t("entities.expenseType") }));
     },
     onError: createMutationErrorHandler("updating expense type"),
   });
@@ -259,7 +260,7 @@ export function useDeleteExpenseType() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["expense_types"] });
-      toast.success("Expense type deleted successfully");
+      toast.success(i18n.t("messages.deleteSuccess", { entity: i18n.t("entities.expenseType") }));
     },
     onError: createMutationErrorHandler("deleting expense type"),
   });
@@ -286,7 +287,7 @@ export function useCreateStaff() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["staff"] });
-      toast.success("Staff member created successfully");
+      toast.success(i18n.t("messages.createSuccess", { entity: i18n.t("entities.staffMember") }));
     },
     onError: createMutationErrorHandler("creating staff member"),
   });
@@ -319,7 +320,7 @@ export function useUpdateStaff() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["staff"] });
-      toast.success("Staff member updated successfully");
+      toast.success(i18n.t("messages.updateSuccess", { entity: i18n.t("entities.staffMember") }));
     },
     onError: createMutationErrorHandler("updating staff member"),
   });
@@ -334,7 +335,7 @@ export function useDeleteStaff() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["staff"] });
-      toast.success("Staff member deleted successfully");
+      toast.success(i18n.t("messages.deleteSuccess", { entity: i18n.t("entities.staffMember") }));
     },
     onError: createMutationErrorHandler("deleting staff member"),
   });
@@ -364,7 +365,7 @@ export function useCreateClient() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["clients"] });
-      toast.success("Client created successfully");
+      toast.success(i18n.t("messages.createSuccess", { entity: i18n.t("entities.client") }));
     },
     onError: createMutationErrorHandler("creating client"),
   });
@@ -400,7 +401,7 @@ export function useUpdateClient() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["clients"] });
-      toast.success("Client updated successfully");
+      toast.success(i18n.t("messages.updateSuccess", { entity: i18n.t("entities.client") }));
     },
     onError: createMutationErrorHandler("updating client"),
   });
@@ -415,7 +416,7 @@ export function useDeleteClient() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["clients"] });
-      toast.success("Client deleted successfully");
+      toast.success(i18n.t("messages.deleteSuccess", { entity: i18n.t("entities.client") }));
     },
     onError: createMutationErrorHandler("deleting client"),
   });
@@ -445,7 +446,7 @@ export function useCreateEngagement() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["engagements"] });
-      toast.success("Engagement created successfully");
+      toast.success(i18n.t("messages.createSuccess", { entity: i18n.t("entities.engagement") }));
     },
     onError: createMutationErrorHandler("creating engagement"),
   });
@@ -481,7 +482,7 @@ export function useUpdateEngagement() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["engagements"] });
-      toast.success("Engagement updated successfully");
+      toast.success(i18n.t("messages.updateSuccess", { entity: i18n.t("entities.engagement") }));
     },
     onError: createMutationErrorHandler("updating engagement"),
   });
@@ -496,7 +497,7 @@ export function useDeleteEngagement() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["engagements"] });
-      toast.success("Engagement deleted successfully");
+      toast.success(i18n.t("messages.deleteSuccess", { entity: i18n.t("entities.engagement") }));
     },
     onError: createMutationErrorHandler("deleting engagement"),
   });
@@ -518,7 +519,7 @@ export function useUpdateGlobalSetting() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["global_settings"] });
-      toast.success("Setting updated successfully");
+      toast.success(i18n.t("messages.settingsSaved"));
     },
     onError: createMutationErrorHandler("updating setting"),
   });
@@ -546,7 +547,7 @@ export function useCreateWorkOrder() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
-      toast.success("Work order created successfully");
+      toast.success(i18n.t("messages.createSuccess", { entity: i18n.t("entities.workOrder") }));
     },
     onError: createMutationErrorHandler("creating work order"),
   });
@@ -579,7 +580,7 @@ export function useUpdateWorkOrder() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
-      toast.success("Work order updated successfully");
+      toast.success(i18n.t("messages.updateSuccess", { entity: i18n.t("entities.workOrder") }));
     },
     onError: createMutationErrorHandler("updating work order"),
   });
@@ -601,7 +602,7 @@ export function useSubmitWorkOrder() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
-      toast.success("Work order submitted for approval");
+      toast.success(i18n.t("workOrders.submittedForApproval"));
     },
     onError: createMutationErrorHandler("submitting work order"),
   });
@@ -627,7 +628,7 @@ export function useApproveWorkOrder() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
-      toast.success("Work order approved");
+      toast.success(i18n.t("workOrders.approved"));
     },
     onError: createMutationErrorHandler("approving work order"),
   });
@@ -649,7 +650,7 @@ export function useRejectWorkOrder() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
-      toast.success("Work order rejected");
+      toast.success(i18n.t("workOrders.rejected"));
     },
     onError: createMutationErrorHandler("rejecting work order"),
   });
@@ -822,7 +823,7 @@ export function useUpdateTimeEntry() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["all_time_entries"] });
       queryClient.invalidateQueries({ queryKey: ["time_entries"] });
-      toast.success("Time entry updated successfully");
+      toast.success(i18n.t("messages.updateSuccess", { entity: i18n.t("timesheet.entry") }));
     },
     onError: createMutationErrorHandler("updating time entry"),
   });
@@ -855,7 +856,7 @@ export function useUpdateExpenseLog() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["all_expense_logs"] });
       queryClient.invalidateQueries({ queryKey: ["expense_logs"] });
-      toast.success("Expense log updated successfully");
+      toast.success(i18n.t("messages.updateSuccess", { entity: i18n.t("entities.expenseLog") }));
     },
     onError: createMutationErrorHandler("updating expense log"),
   });

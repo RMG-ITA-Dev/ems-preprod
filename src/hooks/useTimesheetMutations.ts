@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { toISODateString } from "@/lib/timesheetUtils";
 import { createMutationErrorHandler } from "@/lib/error-handler";
+import i18n from "@/i18n";
 
 // Upsert a time entry (create or update)
 export function useUpsertTimeEntry() {
@@ -179,8 +180,8 @@ export function useSubmitTimesheet() {
       queryClient.invalidateQueries({ queryKey: ["period-line-approvals"] });
       queryClient.invalidateQueries({ queryKey: ["pending-approvals"] });
       toast.success(data.isAutoApproved 
-        ? "Timesheet auto-approved" 
-        : "Timesheet submitted for approval"
+        ? i18n.t("timesheet.autoApproved") 
+        : i18n.t("timesheet.submitted")
       );
     },
     onError: createMutationErrorHandler("submitting timesheet"),
