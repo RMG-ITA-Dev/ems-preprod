@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { toISODateString } from "@/lib/timesheetUtils";
+import { createMutationErrorHandler } from "@/lib/error-handler";
 
 // Upsert a time entry (create or update)
 export function useUpsertTimeEntry() {
@@ -75,9 +76,7 @@ export function useUpsertTimeEntry() {
       // Invalidate entries query to refetch
       queryClient.invalidateQueries({ queryKey: ["time-entries"] });
     },
-    onError: (error) => {
-      toast.error("Error saving time entry", { description: error.message });
-    },
+    onError: createMutationErrorHandler("saving time entry"),
   });
 }
 
@@ -96,9 +95,7 @@ export function useDeleteTimeEntry() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["time-entries"] });
     },
-    onError: (error) => {
-      toast.error("Error deleting time entry", { description: error.message });
-    },
+    onError: createMutationErrorHandler("deleting time entry"),
   });
 }
 
@@ -126,9 +123,7 @@ export function useUpdatePeriodTotalHours() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["timesheet-period"] });
     },
-    onError: (error) => {
-      toast.error("Error updating period total", { description: error.message });
-    },
+    onError: createMutationErrorHandler("updating period total"),
   });
 }
 
@@ -188,9 +183,7 @@ export function useSubmitTimesheet() {
         : "Timesheet submitted for approval"
       );
     },
-    onError: (error) => {
-      toast.error("Error submitting timesheet", { description: error.message });
-    },
+    onError: createMutationErrorHandler("submitting timesheet"),
   });
 }
 

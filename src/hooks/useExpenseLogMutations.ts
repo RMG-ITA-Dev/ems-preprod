@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-
+import { createMutationErrorHandler } from "@/lib/error-handler";
 export function useCreateExpenseLog() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -27,9 +27,7 @@ export function useCreateExpenseLog() {
       queryClient.invalidateQueries({ queryKey: ["all_expense_logs"] });
       toast.success("Expense log created successfully");
     },
-    onError: (error) => {
-      toast.error("Error creating expense log", { description: error.message });
-    },
+    onError: createMutationErrorHandler("creating expense log"),
   });
 }
 
@@ -45,8 +43,6 @@ export function useDeleteExpenseLog() {
       queryClient.invalidateQueries({ queryKey: ["all_expense_logs"] });
       toast.success("Expense log deleted successfully");
     },
-    onError: (error) => {
-      toast.error("Error deleting expense log", { description: error.message });
-    },
+    onError: createMutationErrorHandler("deleting expense log"),
   });
 }
