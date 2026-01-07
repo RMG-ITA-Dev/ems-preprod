@@ -665,8 +665,6 @@
     "password": "Password",
     "dontHaveAccount": "Don't have an account?",
     "alreadyHaveAccount": "Already have an account?",
-    "quickAdminLogin": "Quick Admin Login (Demo)",
-    "demoDescription": "For testing purposes - creates/logs into demo admin account",
     "trustedBy": "Trusted by audit & consulting professionals",
     "features": {
       "engagementManagement": "Engagement Management",

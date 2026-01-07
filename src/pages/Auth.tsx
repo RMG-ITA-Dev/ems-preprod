@@ -42,11 +42,6 @@ const Auth = () => {
   // Get allowed domain from settings
   const allowedDomain = settings?.find(s => s.setting_key === 'ALLOWED_EMAIL_DOMAIN')?.setting_value || '';
 
-  // Show demo button only in dev mode or Lovable preview URLs
-  const isDev = import.meta.env.DEV;
-  const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
-  const isLovablePreview = hostname.includes('lovable.app') || hostname.includes('preview');
-  const showDemoButton = isDev || isLovablePreview;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -100,35 +95,6 @@ const Auth = () => {
     }
   };
 
-  const handleQuickAdminLogin = async () => {
-    setLoading(true);
-    const adminEmail = "admin@ems.demo";
-    const adminPassword = "admin123";
-    
-    // Try to sign in first
-    const { error: signInError } = await signIn(adminEmail, adminPassword);
-    
-    if (signInError) {
-      // If sign in fails, create the account
-      const { error: signUpError } = await signUp(adminEmail, adminPassword, "Admin", "User");
-      if (signUpError && !signUpError.message.includes("already registered")) {
-        toast.error("Failed to create demo account: " + signUpError.message);
-        setLoading(false);
-        return;
-      }
-      // Try signing in again after signup
-      const { error: retryError } = await signIn(adminEmail, adminPassword);
-      if (retryError) {
-        toast.error("Failed to sign in: " + retryError.message);
-        setLoading(false);
-        return;
-      }
-    }
-    
-    toast.success(t("messages.welcomeAdmin"));
-    navigate("/");
-    setLoading(false);
-  };
 
   const features = [
     {
@@ -295,35 +261,6 @@ const Auth = () => {
               </Button>
             </form>
 
-            {showDemoButton && (
-              <>
-                <div className="relative my-6">
-                  <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-border" />
-                  </div>
-                  <div className="relative flex justify-center text-xs uppercase">
-                    <span className="bg-card px-2 text-muted-foreground">{t("common.or")}</span>
-                  </div>
-                </div>
-
-                <Button
-                  variant="outline"
-                  className="w-full"
-                  onClick={handleQuickAdminLogin}
-                  disabled={loading}
-                >
-                  {loading ? (
-                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                  ) : (
-                    <Shield className="h-4 w-4 mr-2" />
-                  )}
-                  {t("auth.quickAdminLogin")}
-                </Button>
-                <p className="text-xs text-center text-muted-foreground mt-2">
-                  {t("auth.demoDescription")}
-                </p>
-              </>
-            )}
 
             <p className="text-center text-sm text-muted-foreground mt-6">
               {mode === "signin" ? (
