@@ -1194,6 +1194,7 @@ export type Database = {
         Args: { p_engagement_id: string; p_staff_id: string }
         Returns: string
       }
+      get_my_staff_id: { Args: never; Returns: string }
       get_timesheet_approvers: {
         Args: { p_staff_id: string; p_week_start: string }
         Returns: {
@@ -1207,8 +1208,13 @@ export type Database = {
         }
         Returns: boolean
       }
+      is_admin: { Args: never; Returns: boolean }
       is_auto_approved_category: {
         Args: { p_staff_id: string }
+        Returns: boolean
+      }
+      is_engagement_team_member: {
+        Args: { p_engagement_id: string }
         Returns: boolean
       }
       sync_worksheet_to_wo_budget: {
