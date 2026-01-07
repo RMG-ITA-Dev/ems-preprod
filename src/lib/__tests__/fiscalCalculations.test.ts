@@ -172,22 +172,7 @@ describe("getCustomPeriod", () => {
 });
 
 describe("getAvailableYears", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it("returns previous, current, and next year", () => {
-    vi.setSystemTime(new Date(2024, 5, 15));
-    const years = getAvailableYears();
-    expect(years).toEqual([2023, 2024, 2025]);
-  });
-
-  it("updates with different current year", () => {
-    vi.setSystemTime(new Date(2026, 0, 1));
+  it("returns fixed years [2025, 2026, 2027]", () => {
     const years = getAvailableYears();
     expect(years).toEqual([2025, 2026, 2027]);
   });
