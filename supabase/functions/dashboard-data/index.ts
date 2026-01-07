@@ -1,15 +1,29 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+// Allowed origins for CORS
+const allowedOrigins = [
+  Deno.env.get("FRONTEND_URL") || "",
+  "https://ugqxfnrxvksiltwxzist.lovableproject.com",
+  "http://localhost:5173",
+  "http://localhost:8080",
+].filter(Boolean);
+
+function getCorsHeaders(origin: string | null) {
+  const allowedOrigin = origin && allowedOrigins.includes(origin) ? origin : allowedOrigins[0];
+  return {
+    "Access-Control-Allow-Origin": allowedOrigin,
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  };
+}
 
 // deno-lint-ignore no-explicit-any
 type SupabaseClient = any;
 
 serve(async (req) => {
+  const origin = req.headers.get("origin");
+  const corsHeaders = getCorsHeaders(origin);
+
   // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -18,9 +32,64 @@ serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+    
+    // Validate JWT and get authenticated user
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      console.error("Missing or invalid Authorization header");
+      return new Response(
+        JSON.stringify({ error: "Unauthorized" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Create anon client for JWT verification
+    const supabaseAnon = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: authHeader } }
+    });
+
+    const token = authHeader.replace("Bearer ", "");
+    const { data: claimsData, error: claimsError } = await supabaseAnon.auth.getClaims(token);
+
+    if (claimsError || !claimsData?.claims) {
+      console.error("JWT validation failed:", claimsError);
+      return new Response(
+        JSON.stringify({ error: "Invalid token" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const userId = claimsData.claims.sub;
+    const userEmail = claimsData.claims.email;
+    console.log(`Authenticated user: ${userEmail} (${userId})`);
+
+    // Create service client for database operations
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const { action, startDate, endDate, staffId, role } = await req.json();
+    // Get verified staff/role from database instead of trusting request
+    const { data: staffData } = await supabase
+      .from("staff")
+      .select("staff_id")
+      .eq("email", userEmail)
+      .single();
+
+    const { data: roleData } = await supabase
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", userId)
+      .single();
+
+    const verifiedStaffId = staffData?.staff_id;
+    const verifiedRole = roleData?.role || "staff";
+
+    console.log(`Verified staff: ${verifiedStaffId}, role: ${verifiedRole}`);
+
+    const { action, startDate, endDate } = await req.json();
+    
+    // Use verified staffId and role from database, not from request body
+    const staffId = verifiedStaffId;
+    const role = verifiedRole;
 
     console.log(`Dashboard data request: action=${action}, startDate=${startDate}, endDate=${endDate}, staffId=${staffId}, role=${role}`);
 
