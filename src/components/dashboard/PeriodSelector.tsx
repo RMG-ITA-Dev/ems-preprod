@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { useTranslation } from 'react-i18next';
 import { CalendarIcon } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -24,7 +23,6 @@ const QUARTERS: { value: QuarterType; label: string }[] = [
 ];
 
 export function PeriodSelector() {
-  const { t } = useTranslation();
   const {
     period,
     periodType,
@@ -86,12 +84,12 @@ export function PeriodSelector() {
       {/* Divider */}
       <div className="h-6 w-px bg-border" />
       
-      {/* Custom Date Range */}
+      {/* Custom Date Range - Always show computed dates */}
       <div className="flex items-center gap-1">
         <Popover open={customStartOpen} onOpenChange={setCustomStartOpen}>
           <PopoverTrigger asChild>
             <Button
-              variant="ghost"
+              variant={periodType === 'custom' ? 'secondary' : 'ghost'}
               size="sm"
               className={cn(
                 'h-8 px-2 text-xs font-medium gap-1',
@@ -99,20 +97,22 @@ export function PeriodSelector() {
               )}
             >
               <CalendarIcon className="h-3 w-3" />
-              {periodType === 'custom' && period.startDate
-                ? format(period.startDate, 'dd MMM', { locale: es })
-                : t('dashboard.period.from')}
+              {format(period.startDate, 'dd MMM', { locale: es })}
             </Button>
           </PopoverTrigger>
           <PopoverContent className="w-auto p-0" align="start">
             <Calendar
               mode="single"
-              selected={tempCustomStart}
+              selected={tempCustomStart || period.startDate}
               onSelect={(date) => {
                 setTempCustomStart(date);
                 setCustomStartOpen(false);
-                if (date && tempCustomEnd && date <= tempCustomEnd) {
-                  setCustomRange(date, tempCustomEnd);
+                if (date) {
+                  // Use current period end or temp end as default end
+                  const endDate = tempCustomEnd || period.endDate;
+                  if (date <= endDate) {
+                    setCustomRange(date, endDate);
+                  }
                 }
               }}
               initialFocus
@@ -126,40 +126,40 @@ export function PeriodSelector() {
         <Popover open={customEndOpen} onOpenChange={setCustomEndOpen}>
           <PopoverTrigger asChild>
             <Button
-              variant="ghost"
+              variant={periodType === 'custom' ? 'secondary' : 'ghost'}
               size="sm"
               className={cn(
-                'h-8 px-2 text-xs font-medium gap-1',
+                'h-8 px-2 text-xs font-medium',
                 periodType === 'custom' && 'bg-secondary text-secondary-foreground'
               )}
             >
-              {periodType === 'custom' && period.endDate
-                ? format(period.endDate, 'dd MMM yyyy', { locale: es })
-                : t('dashboard.period.to')}
+              {format(period.endDate, 'dd MMM yyyy', { locale: es })}
             </Button>
           </PopoverTrigger>
           <PopoverContent className="w-auto p-0" align="start">
             <Calendar
               mode="single"
-              selected={tempCustomEnd}
+              selected={tempCustomEnd || period.endDate}
               onSelect={(date) => {
                 setTempCustomEnd(date);
                 setCustomEndOpen(false);
-                if (tempCustomStart && date && tempCustomStart <= date) {
-                  setCustomRange(tempCustomStart, date);
+                if (date) {
+                  // Use current period start or temp start as default start
+                  const startDate = tempCustomStart || period.startDate;
+                  if (startDate <= date) {
+                    setCustomRange(startDate, date);
+                  }
                 }
               }}
-              disabled={(date) => tempCustomStart ? date < tempCustomStart : false}
+              disabled={(date) => {
+                const startDate = tempCustomStart || period.startDate;
+                return date < startDate;
+              }}
               initialFocus
               className="pointer-events-auto"
             />
           </PopoverContent>
         </Popover>
-      </div>
-      
-      {/* Period Label */}
-      <div className="ml-auto text-xs text-muted-foreground font-medium">
-        {period.label}
       </div>
     </div>
   );
