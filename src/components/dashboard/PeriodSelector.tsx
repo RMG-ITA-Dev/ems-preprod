@@ -11,7 +11,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { useDashboard } from '@/contexts/DashboardContext';
-import { getAvailableYears, QuarterType } from '@/lib/fiscalCalculations';
+import { getAvailableYears, formatFiscalYear, QuarterType } from '@/lib/fiscalCalculations';
 
 const QUARTERS: { value: QuarterType; label: string }[] = [
   { value: 'Q1', label: 'Q1' },
@@ -55,7 +55,7 @@ export function PeriodSelector() {
             )}
             onClick={() => setYear(year)}
           >
-            {year}
+            {formatFiscalYear(year)}
           </Button>
         ))}
       </div>
@@ -97,7 +97,12 @@ export function PeriodSelector() {
               )}
             >
               <CalendarIcon className="h-3 w-3" />
-              {format(period.startDate, 'dd MMM', { locale: es })}
+              {format(period.startDate, 
+                period.startDate.getFullYear() !== period.endDate.getFullYear() 
+                  ? 'dd MMM yyyy' 
+                  : 'dd MMM', 
+                { locale: es }
+              )}
             </Button>
           </PopoverTrigger>
           <PopoverContent className="w-auto p-0" align="start">
