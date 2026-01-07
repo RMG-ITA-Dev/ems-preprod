@@ -128,7 +128,7 @@ export function getCustomPeriod(startDate: Date, endDate: Date): FiscalPeriod {
  */
 export function getAvailableYears(): number[] {
   const currentYear = getYear(new Date());
-  return [currentYear, currentYear - 1, currentYear - 2];
+  return [currentYear - 1, currentYear, currentYear + 1];
 }
 
 /**

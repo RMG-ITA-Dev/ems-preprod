@@ -44,13 +44,11 @@ interface DashboardProviderProps {
 
 export function DashboardProvider({ children, defaultTab = 'personal' }: DashboardProviderProps) {
   const today = new Date();
-  const currentMonth = today.getMonth();
-  // Fiscal year starts in October (month 9), so if we're in Oct-Dec, we're in next fiscal year
-  const currentFiscalYear = currentMonth >= 9 ? today.getFullYear() + 1 : today.getFullYear();
+  const currentYear = today.getFullYear(); // Use calendar year (2026)
   
-  // Period state - default to fiscal year (tax_bolivia type)
+  // Period state - default to current calendar year with YTD
   const [periodType, setPeriodType] = useState<PeriodType>('tax_bolivia');
-  const [selectedYear, setSelectedYear] = useState(currentFiscalYear);
+  const [selectedYear, setSelectedYear] = useState(currentYear);
   const [selectedQuarter, setSelectedQuarter] = useState<QuarterType>('ytd');
   const [customStart, setCustomStart] = useState<Date | null>(null);
   const [customEnd, setCustomEnd] = useState<Date | null>(null);

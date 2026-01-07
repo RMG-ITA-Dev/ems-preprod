@@ -180,16 +180,16 @@ describe("getAvailableYears", () => {
     vi.useRealTimers();
   });
 
-  it("returns current year and 2 previous", () => {
+  it("returns previous, current, and next year", () => {
     vi.setSystemTime(new Date(2024, 5, 15));
     const years = getAvailableYears();
-    expect(years).toEqual([2024, 2023, 2022]);
+    expect(years).toEqual([2023, 2024, 2025]);
   });
 
   it("updates with different current year", () => {
     vi.setSystemTime(new Date(2026, 0, 1));
     const years = getAvailableYears();
-    expect(years).toEqual([2026, 2025, 2024]);
+    expect(years).toEqual([2025, 2026, 2027]);
   });
 });
 
