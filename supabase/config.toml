@@ -1,4 +1,4 @@
 project_id = "ugqxfnrxvksiltwxzist"
 
 [functions.dashboard-data]
-verify_jwt = true
+verify_jwt = false

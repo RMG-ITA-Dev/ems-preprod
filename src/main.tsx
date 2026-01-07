@@ -14,13 +14,22 @@ if (rootElement) {
     );
   } catch (error) {
     console.error("Failed to render app:", error);
-    rootElement.innerHTML = `
-      <div style="padding: 20px; font-family: sans-serif;">
-        <h1>Failed to load application</h1>
-        <p>Please refresh the page or try again later.</p>
-        <pre style="background: #f5f5f5; padding: 10px; overflow: auto;">${error}</pre>
-      </div>
-    `;
+    // Safe DOM manipulation to avoid XSS
+    const errorDiv = document.createElement('div');
+    errorDiv.style.cssText = 'padding: 20px; font-family: sans-serif;';
+    
+    const h1 = document.createElement('h1');
+    h1.textContent = 'Failed to load application';
+    
+    const p = document.createElement('p');
+    p.textContent = 'Please refresh the page or try again later.';
+    
+    const pre = document.createElement('pre');
+    pre.style.cssText = 'background: #f5f5f5; padding: 10px; overflow: auto;';
+    pre.textContent = String(error);
+    
+    errorDiv.append(h1, p, pre);
+    rootElement.appendChild(errorDiv);
   }
 } else {
   console.error("Root element not found");
