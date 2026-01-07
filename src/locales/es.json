@@ -665,8 +665,6 @@
     "password": "Contraseña",
     "dontHaveAccount": "¿No tiene una cuenta?",
     "alreadyHaveAccount": "¿Ya tiene una cuenta?",
-    "quickAdminLogin": "Acceso Rápido Admin (Demo)",
-    "demoDescription": "Para pruebas - crea/inicia sesión en cuenta admin demo",
     "trustedBy": "Confiado por profesionales de auditoría y consultoría",
     "features": {
       "engagementManagement": "Gestión de Encargos",
