@@ -4,6 +4,7 @@ import {
   getFiscalYearPeriod,
   getCustomPeriod,
   getAvailableYears,
+  formatFiscalYear,
   getCurrentFiscalPeriod,
   formatDateRange,
   formatDateForApi,
@@ -171,8 +172,43 @@ describe("getCustomPeriod", () => {
   });
 });
 
+describe("formatFiscalYear", () => {
+  it("formats 2024 as FY24", () => {
+    expect(formatFiscalYear(2024)).toBe("FY24");
+  });
+
+  it("formats 2025 as FY25", () => {
+    expect(formatFiscalYear(2025)).toBe("FY25");
+  });
+
+  it("formats 2026 as FY26", () => {
+    expect(formatFiscalYear(2026)).toBe("FY26");
+  });
+});
+
 describe("getAvailableYears", () => {
-  it("returns fixed years [2025, 2026, 2027]", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("returns current fiscal year and 2 previous (before October)", () => {
+    vi.setSystemTime(new Date(2026, 0, 15)); // January 2026 → FY26
+    const years = getAvailableYears();
+    expect(years).toEqual([2024, 2025, 2026]);
+  });
+
+  it("returns next fiscal year when in October or later", () => {
+    vi.setSystemTime(new Date(2025, 9, 15)); // October 2025 → FY26
+    const years = getAvailableYears();
+    expect(years).toEqual([2024, 2025, 2026]);
+  });
+
+  it("updates correctly for different years", () => {
+    vi.setSystemTime(new Date(2027, 5, 1)); // June 2027 → FY27
     const years = getAvailableYears();
     expect(years).toEqual([2025, 2026, 2027]);
   });

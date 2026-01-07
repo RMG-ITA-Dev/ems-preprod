@@ -124,10 +124,24 @@ export function getCustomPeriod(startDate: Date, endDate: Date): FiscalPeriod {
 }
 
 /**
- * Get available years for selection (current + 2 previous)
+ * Format fiscal year as FYxx (e.g., 2024 → "FY24")
+ */
+export function formatFiscalYear(year: number): string {
+  return `FY${String(year).slice(-2)}`;
+}
+
+/**
+ * Get available years for selection (current fiscal year + 2 previous)
  */
 export function getAvailableYears(): number[] {
-  return [2025, 2026, 2027];
+  const today = new Date();
+  const currentMonth = today.getMonth();
+  // Fiscal year runs Oct-Sep, so October or later means next fiscal year
+  const currentFiscalYear = currentMonth >= FISCAL_YEAR_START_MONTH 
+    ? today.getFullYear() + 1 
+    : today.getFullYear();
+  
+  return [currentFiscalYear - 2, currentFiscalYear - 1, currentFiscalYear];
 }
 
 /**
