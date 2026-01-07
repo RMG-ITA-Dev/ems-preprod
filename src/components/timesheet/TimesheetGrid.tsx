@@ -66,6 +66,9 @@ export function TimesheetGrid({
   const [savingCells, setSavingCells] = useState<Set<string>>(new Set());
   const [savedCells, setSavedCells] = useState<Set<string>>(new Set());
   const debounceTimers = useRef<{ [key: string]: NodeJS.Timeout }>({});
+  
+  // Ref to access current rows inside debounced callbacks (fixes stale closure)
+  const rowsRef = useRef<GridRow[]>([]);
 
   // Convert entries to grid rows
   const initialRows = useMemo(() => {
@@ -107,6 +110,11 @@ export function TimesheetGrid({
   useEffect(() => {
     setRows(initialRows);
   }, [initialRows]);
+
+  // Keep rowsRef in sync with current rows state
+  useEffect(() => {
+    rowsRef.current = rows;
+  }, [rows]);
 
   // Cleanup debounce timers on unmount to prevent memory leaks
   useEffect(() => {
@@ -168,12 +176,12 @@ export function TimesheetGrid({
         clearTimeout(debounceTimers.current[cellKey]);
       }
 
-      // Get current row data
-      const row = rows.find((r) => r.id === rowId);
-      if (!row || !row.engagementId || !row.activityId) return;
-
-      // Set debounced save
+      // Set debounced save - read from ref INSIDE callback to get current state
       debounceTimers.current[cellKey] = setTimeout(() => {
+        // Access current rows via ref to avoid stale closure
+        const currentRow = rowsRef.current.find((r) => r.id === rowId);
+        if (!currentRow || !currentRow.engagementId || !currentRow.activityId) return;
+
         setSavingCells((prev) => new Set(prev).add(cellKey));
         setSavedCells((prev) => {
           const next = new Set(prev);
@@ -184,12 +192,12 @@ export function TimesheetGrid({
         upsertEntry.mutate(
           {
             staffId,
-            engagementId: row.engagementId,
-            activityId: row.activityId,
+            engagementId: currentRow.engagementId,
+            activityId: currentRow.activityId,
             dateWorked: date,
             hours,
             periodId,
-            existingEntryId: row.entryIds[dateStr] || null,
+            existingEntryId: currentRow.entryIds[dateStr] || null,
           },
           {
             onSuccess: () => {
@@ -219,7 +227,7 @@ export function TimesheetGrid({
         );
       }, autoSaveSeconds * 1000);
     },
-    [rows, staffId, periodId, autoSaveSeconds, upsertEntry]
+    [staffId, periodId, autoSaveSeconds, upsertEntry]
   );
 
   const calculateRowTotal = (row: GridRow) => {
