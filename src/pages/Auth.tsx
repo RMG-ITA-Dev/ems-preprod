@@ -24,7 +24,7 @@ const createCompanyEmailSchema = (allowedDomain: string) => z.string()
   .max(255, { message: "Email must be less than 255 characters" })
   .refine(
     (email) => !allowedDomain || email.toLowerCase().endsWith(`@${allowedDomain.toLowerCase()}`),
-    { message: `Solo se permiten correos @${allowedDomain}` }
+    { message: allowedDomain ? `Solo se permiten correos @${allowedDomain}` : "Invalid domain" }
   );
 
 const Auth = () => {
@@ -262,7 +262,7 @@ const Auth = () => {
                 />
                 {mode === "signup" && allowedDomain && (
                   <p className="text-xs text-muted-foreground">
-                    {t("auth.emailHelper").replace("@ruizmier.com", `@${allowedDomain}`)}
+                    {t("auth.emailHelperWithDomain", { domain: allowedDomain })}
                   </p>
                 )}
               </div>
