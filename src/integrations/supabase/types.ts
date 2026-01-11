@@ -151,6 +151,13 @@ export type Database = {
             referencedColumns: ["staff_id"]
           },
           {
+            foreignKeyName: "activity_worksheets_created_by_staff_id_fkey"
+            columns: ["created_by_staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff_directory"
+            referencedColumns: ["staff_id"]
+          },
+          {
             foreignKeyName: "activity_worksheets_engagement_id_fkey"
             columns: ["engagement_id"]
             isOneToOne: false
@@ -335,10 +342,24 @@ export type Database = {
             referencedColumns: ["staff_id"]
           },
           {
+            foreignKeyName: "engagements_manager_id_fkey"
+            columns: ["manager_id"]
+            isOneToOne: false
+            referencedRelation: "staff_directory"
+            referencedColumns: ["staff_id"]
+          },
+          {
             foreignKeyName: "engagements_partner_id_fkey"
             columns: ["partner_id"]
             isOneToOne: false
             referencedRelation: "staff"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "engagements_partner_id_fkey"
+            columns: ["partner_id"]
+            isOneToOne: false
+            referencedRelation: "staff_directory"
             referencedColumns: ["staff_id"]
           },
         ]
@@ -558,6 +579,13 @@ export type Database = {
             referencedRelation: "staff"
             referencedColumns: ["staff_id"]
           },
+          {
+            foreignKeyName: "staff_capacity_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff_directory"
+            referencedColumns: ["staff_id"]
+          },
         ]
       }
       time_entries: {
@@ -627,6 +655,13 @@ export type Database = {
             columns: ["staff_id"]
             isOneToOne: false
             referencedRelation: "staff"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "time_entries_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff_directory"
             referencedColumns: ["staff_id"]
           },
         ]
@@ -700,6 +735,13 @@ export type Database = {
             referencedRelation: "staff"
             referencedColumns: ["staff_id"]
           },
+          {
+            foreignKeyName: "timer_entries_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff_directory"
+            referencedColumns: ["staff_id"]
+          },
         ]
       }
       timesheet_line_approvals: {
@@ -742,6 +784,13 @@ export type Database = {
             columns: ["approved_by"]
             isOneToOne: false
             referencedRelation: "staff"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "timesheet_line_approvals_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "staff_directory"
             referencedColumns: ["staff_id"]
           },
           {
@@ -806,6 +855,13 @@ export type Database = {
             columns: ["staff_id"]
             isOneToOne: false
             referencedRelation: "staff"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "timesheet_periods_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff_directory"
             referencedColumns: ["staff_id"]
           },
         ]
@@ -1006,6 +1062,13 @@ export type Database = {
             referencedColumns: ["staff_id"]
           },
           {
+            foreignKeyName: "work_orders_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "staff_directory"
+            referencedColumns: ["staff_id"]
+          },
+          {
             foreignKeyName: "work_orders_engagement_id_fkey"
             columns: ["engagement_id"]
             isOneToOne: true
@@ -1016,6 +1079,53 @@ export type Database = {
       }
     }
     Views: {
+      staff_directory: {
+        Row: {
+          category_id: string | null
+          city: string | null
+          created_at: string | null
+          first_name: string | null
+          initials: string | null
+          is_active: boolean | null
+          last_name: string | null
+          short_name: string | null
+          staff_id: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          category_id?: string | null
+          city?: string | null
+          created_at?: string | null
+          first_name?: string | null
+          initials?: string | null
+          is_active?: boolean | null
+          last_name?: string | null
+          short_name?: string | null
+          staff_id?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          category_id?: string | null
+          city?: string | null
+          created_at?: string | null
+          first_name?: string | null
+          initials?: string | null
+          is_active?: boolean | null
+          last_name?: string | null
+          short_name?: string | null
+          staff_id?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "staff_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["category_id"]
+          },
+        ]
+      }
       vw_actual_hours_by_category_activity: {
         Row: {
           activity_code: string | null
@@ -1154,6 +1264,13 @@ export type Database = {
             columns: ["approved_by"]
             isOneToOne: false
             referencedRelation: "staff"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "work_orders_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "staff_directory"
             referencedColumns: ["staff_id"]
           },
           {

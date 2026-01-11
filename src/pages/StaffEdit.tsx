@@ -1,12 +1,13 @@
 import { useParams } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { StaffForm } from "@/components/forms/StaffForm";
-import { useStaff } from "@/hooks/useEmsData";
+import { useStaffFull } from "@/hooks/useEmsData";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const StaffEdit = () => {
   const { id } = useParams<{ id: string }>();
-  const { data: staffList, isLoading } = useStaff();
+  // Use full staff data (admin-only) since we need PII fields for the form
+  const { data: staffList, isLoading } = useStaffFull();
   
   const staff = staffList?.find((s) => s.staff_id === id);
 
