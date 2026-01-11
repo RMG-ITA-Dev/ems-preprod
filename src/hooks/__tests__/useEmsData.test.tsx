@@ -136,12 +136,12 @@ describe("useEmsData hooks", () => {
   });
 
   describe("useClients", () => {
-    it("fetches clients with industry join", async () => {
+    it("fetches clients from clients_directory with industry join", async () => {
       const mockClients = [
         {
           client_id: "1",
           client_legal_name: "Acme Corp",
-          unique_tax_id: "123456",
+          // Note: unique_tax_id is NOT in the directory view for security
           industry: { industry_id: "1", industry_name: "Tech" },
         },
       ];
@@ -159,7 +159,8 @@ describe("useEmsData hooks", () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-      expect(supabase.from).toHaveBeenCalledWith("clients");
+      // Now queries clients_directory view instead of clients table
+      expect(supabase.from).toHaveBeenCalledWith("clients_directory");
       expect(result.current.data?.[0].industry?.industry_name).toBe("Tech");
     });
   });

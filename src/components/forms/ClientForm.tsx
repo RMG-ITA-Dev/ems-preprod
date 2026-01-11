@@ -35,7 +35,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Client, useIndustries } from "@/hooks/useEmsData";
+import { ClientFull, useIndustries } from "@/hooks/useEmsData";
 import { useCreateClient, useUpdateClient, useDeleteClient } from "@/hooks/mutations";
 import { Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -54,7 +54,7 @@ const formSchema = z.object({
 type FormData = z.infer<typeof formSchema>;
 
 interface ClientFormProps {
-  client?: Client | null;
+  client?: ClientFull | null;
   compact?: boolean;
 }
 

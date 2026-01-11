@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { ClientForm } from "@/components/forms/ClientForm";
 import { ClientEngagementsTable } from "@/components/clients/ClientEngagementsTable";
-import { useClients } from "@/hooks/useEmsData";
+import { useClientsFull } from "@/hooks/useEmsData";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,7 +24,7 @@ const ClientEdit = () => {
   const { id } = useParams<{ id: string }>();
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { data: clients, isLoading } = useClients();
+  const { data: clients, isLoading } = useClientsFull();
   const deleteMutation = useDeleteClient();
   
   const client = clients?.find((c) => c.client_id === id);
