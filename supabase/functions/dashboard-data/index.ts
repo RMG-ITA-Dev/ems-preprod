@@ -61,17 +61,17 @@ serve(async (req) => {
     }
 
     const userId = claimsData.claims.sub;
-    const userEmail = claimsData.claims.email;
-    console.log(`Authenticated user: ${userEmail} (${userId})`);
+    console.log(`Authenticated user ID: ${userId}`);
 
     // Create service client for database operations
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Get verified staff/role from database instead of trusting request
+    // Get verified staff by auth_user_id (cryptographically verified from JWT sub claim)
+    // This is more secure than using email since auth_user_id is the primary identity link
     const { data: staffData } = await supabase
       .from("staff")
       .select("staff_id")
-      .eq("email", userEmail)
+      .eq("auth_user_id", userId)
       .single();
 
     const { data: roleData } = await supabase
