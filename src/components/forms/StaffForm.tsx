@@ -34,7 +34,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Staff, useCategories } from "@/hooks/useEmsData";
+import { StaffFull, useCategories } from "@/hooks/useEmsData";
 import { useCreateStaff, useUpdateStaff, useDeleteStaff } from "@/hooks/mutations";
 import { Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -54,8 +54,9 @@ const formSchema = z.object({
 
 type FormData = z.infer<typeof formSchema>;
 
+// StaffForm uses StaffFull interface since it needs PII fields for editing
 interface StaffFormProps {
-  staff?: Staff | null;
+  staff?: StaffFull | null;
 }
 
 // Helper to generate short_name suggestion

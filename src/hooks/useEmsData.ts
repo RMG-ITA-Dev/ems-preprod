@@ -18,19 +18,25 @@ export interface Industry {
   fiscal_year_end: string;
 }
 
+// Staff interface for staff_directory view (non-sensitive fields only)
+// PII fields (email, id_number, aud_reg_number, auth_user_id) are NOT included
 export interface Staff {
   staff_id: string;
   first_name: string;
   last_name: string;
   short_name: string | null;
   initials: string | null;
-  email: string | null;
   category_id: string | null;
   is_active: boolean;
   city: string | null;
+  category?: Category;
+}
+
+// Full staff interface for admin use only
+export interface StaffFull extends Staff {
+  email: string | null;
   id_number: string | null;
   aud_reg_number: string | null;
-  category?: Category;
 }
 
 export interface Client {
@@ -190,12 +196,15 @@ export function useIndustries() {
   });
 }
 
+// useStaff returns non-sensitive data from staff_directory view (for dropdowns, etc.)
 export function useStaff() {
   return useQuery({
     queryKey: ['staff'],
     queryFn: async () => {
+      // Use staff_directory view to access only non-sensitive fields
+      // This protects PII (email, id_number, aud_reg_number, auth_user_id)
       const { data, error } = await supabase
-        .from('staff')
+        .from('staff_directory')
         .select(`
           *,
           category:categories(*)
@@ -204,6 +213,25 @@ export function useStaff() {
         .order('last_name');
       if (error) throw error;
       return data as Staff[];
+    },
+  });
+}
+
+// useStaffFull returns all staff data including PII (admin-only, from base staff table)
+// This will fail for non-admin users due to RLS policies
+export function useStaffFull() {
+  return useQuery({
+    queryKey: ['staff_full'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('staff')
+        .select(`
+          *,
+          category:categories(*)
+        `)
+        .order('last_name');
+      if (error) throw error;
+      return data as StaffFull[];
     },
   });
 }

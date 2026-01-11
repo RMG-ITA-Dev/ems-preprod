@@ -85,8 +85,84 @@ serve(async (req) => {
 
     console.log(`Verified staff: ${verifiedStaffId}, role: ${verifiedRole}`);
 
-    const { action, startDate, endDate } = await req.json();
-    
+    // Parse request body with error handling
+    let body;
+    try {
+      body = await req.json();
+    } catch {
+      return new Response(
+        JSON.stringify({ error: "Invalid JSON in request body" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+    const { action, startDate, endDate } = body;
+
+    // Validate action parameter against whitelist
+    const validActions = [
+      "time-value", "engagement-kpis", "staff-utilization",
+      "portfolio-risk", "partner-leaderboard", "my-week",
+      "timesheet-status", "practice-pulse"
+    ];
+
+    if (!action || !validActions.includes(action)) {
+      return new Response(
+        JSON.stringify({ error: "Invalid or missing action parameter" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Validate dates for actions that require them
+    const actionsRequiringDates = [
+      "time-value", "engagement-kpis", "staff-utilization",
+      "portfolio-risk", "partner-leaderboard", "practice-pulse"
+    ];
+
+    if (actionsRequiringDates.includes(action)) {
+      if (!startDate || !endDate) {
+        return new Response(
+          JSON.stringify({ error: "Missing required startDate or endDate parameter" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Validate date format (YYYY-MM-DD)
+      const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+      if (!dateRegex.test(startDate) || !dateRegex.test(endDate)) {
+        return new Response(
+          JSON.stringify({ error: "Invalid date format. Use YYYY-MM-DD" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Validate dates are real
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+        return new Response(
+          JSON.stringify({ error: "Invalid date values" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Validate start <= end
+      if (start > end) {
+        return new Response(
+          JSON.stringify({ error: "startDate must be before or equal to endDate" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Limit range to 2 years for performance
+      const maxDays = 730;
+      const diffDays = (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24);
+      if (diffDays > maxDays) {
+        return new Response(
+          JSON.stringify({ error: `Date range exceeds maximum of ${maxDays} days` }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
+
     // Use verified staffId and role from database, not from request body
     const staffId = verifiedStaffId;
     const role = verifiedRole;
@@ -121,7 +197,11 @@ serve(async (req) => {
         result = await getPracticePulse(supabase, startDate, endDate);
         break;
       default:
-        throw new Error(`Unknown action: ${action}`);
+        // This shouldn't happen due to whitelist check above, but keep as safety
+        return new Response(
+          JSON.stringify({ error: `Unknown action: ${action}` }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
     }
 
     return new Response(JSON.stringify(result), {

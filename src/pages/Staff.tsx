@@ -2,7 +2,7 @@ import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { useStaff, useEngagements, useCategories, Staff as StaffType } from "@/hooks/useEmsData";
+import { useStaffFull, useEngagements, useCategories, StaffFull } from "@/hooks/useEmsData";
 import { DataTable, Column } from "@/components/data-table/DataTable";
 import { useNavigate } from "react-router-dom";
 import { Check } from "lucide-react";
@@ -18,11 +18,12 @@ const categoryColors: Record<string, string> = {
 const Staff = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { data: staff, isLoading } = useStaff();
+  // Use full staff data (admin-only) for admin view with PII fields
+  const { data: staff, isLoading } = useStaffFull();
   const { data: engagements } = useEngagements();
   const { data: categories } = useCategories();
 
-  const getInitials = (row: StaffType) => {
+  const getInitials = (row: StaffFull) => {
     // Use stored initials if available, otherwise compute from names
     if (row.initials) return row.initials;
     return `${row.first_name[0]}${row.last_name[0]}`.toUpperCase();
@@ -37,7 +38,7 @@ const Staff = () => {
     label: cat.category_name,
   }));
 
-  const columns: Column<StaffType>[] = [
+  const columns: Column<StaffFull>[] = [
     {
       key: "name",
       label: t("staff.name"),
