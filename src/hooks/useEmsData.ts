@@ -203,17 +203,25 @@ export function useIndustries() {
   });
 }
 
-// useStaff returns non-sensitive data from staff_directory view (for dropdowns, etc.)
+// useStaff returns non-sensitive data (for dropdowns, etc.)
+// Queries base table with explicit non-PII columns to allow embedded joins
 export function useStaff() {
   return useQuery({
     queryKey: ['staff'],
     queryFn: async () => {
-      // Use staff_directory view to access only non-sensitive fields
-      // This protects PII (email, id_number, aud_reg_number, auth_user_id)
+      // Query base table with explicit non-PII columns
+      // This allows embedded joins while excluding sensitive fields
       const { data, error } = await supabase
-        .from('staff_directory')
+        .from('staff')
         .select(`
-          *,
+          staff_id,
+          first_name,
+          last_name,
+          short_name,
+          initials,
+          category_id,
+          city,
+          is_active,
           category:categories(*)
         `)
         .eq('is_active', true)
@@ -243,16 +251,25 @@ export function useStaffFull() {
   });
 }
 
-// useClients returns non-sensitive data from clients_directory view
-// For dropdowns and general client lists - excludes unique_tax_id
+// useClients returns non-sensitive data (for dropdowns, etc.)
+// Queries base table with explicit columns to allow embedded joins - excludes unique_tax_id
 export function useClients() {
   return useQuery({
     queryKey: ['clients'],
     queryFn: async () => {
+      // Query base table with explicit non-sensitive columns
+      // This allows embedded joins while excluding tax ID
       const { data, error } = await supabase
-        .from('clients_directory')
+        .from('clients')
         .select(`
-          *,
+          client_id,
+          client_legal_name,
+          industry_id,
+          contact_name,
+          contact_email,
+          contact_phone,
+          address,
+          is_active,
           industry:industries(*)
         `)
         .order('client_legal_name');
