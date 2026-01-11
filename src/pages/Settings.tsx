@@ -37,6 +37,7 @@ import { CategoryForm } from "@/components/forms/CategoryForm";
 import { ActivityCodeForm } from "@/components/forms/ActivityCodeForm";
 import { ExpenseTypeForm } from "@/components/forms/ExpenseTypeForm";
 import { UserRolesManager } from "@/components/settings/UserRolesManager";
+import { ChangePasswordCard } from "@/components/settings/ChangePasswordCard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Lock, CheckCircle } from "lucide-react";
 import { toast } from "sonner";
@@ -237,8 +238,9 @@ const Settings = () => {
 
   return (
     <AppLayout title={t("settings.title")}>
-      <Tabs defaultValue="industries" className="space-y-6">
+      <Tabs defaultValue="account" className="space-y-6">
         <TabsList className="bg-muted">
+          <TabsTrigger value="account">{t("settings.account")}</TabsTrigger>
           <TabsTrigger value="industries">{t("settings.industries")}</TabsTrigger>
           <TabsTrigger value="rates">{t("settings.categoryRates")}</TabsTrigger>
           <TabsTrigger value="activities">{t("settings.activityCodes")}</TabsTrigger>
@@ -247,6 +249,10 @@ const Settings = () => {
             <TabsTrigger value="global">{t("settings.globalSettings")}</TabsTrigger>
           )}
         </TabsList>
+
+        <TabsContent value="account" className="space-y-6">
+          <ChangePasswordCard />
+        </TabsContent>
 
         <TabsContent value="industries" className="space-y-6">
           <DataTable

@@ -13,6 +13,8 @@ vi.mock("@/integrations/supabase/client", () => ({
       signInWithPassword: vi.fn(),
       signUp: vi.fn(),
       signOut: vi.fn(),
+      updateUser: vi.fn(),
+      resetPasswordForEmail: vi.fn(),
     },
   },
 }));
@@ -190,5 +192,82 @@ describe("useAuth", () => {
     });
 
     expect(supabase.auth.signOut).toHaveBeenCalled();
+  });
+
+  it("updatePassword calls supabase updateUser", async () => {
+    vi.mocked(supabase.auth.updateUser).mockResolvedValue({
+      data: { user: null },
+      error: null,
+    });
+
+    const { result } = renderHook(() => useAuth(), {
+      wrapper: createWrapper(),
+    });
+
+    await act(async () => {
+      const response = await result.current.updatePassword("newPassword123");
+      expect(response.error).toBe(null);
+    });
+
+    expect(supabase.auth.updateUser).toHaveBeenCalledWith({
+      password: "newPassword123",
+    });
+  });
+
+  it("updatePassword returns error on failure", async () => {
+    const mockError = new Error("Password too weak");
+    vi.mocked(supabase.auth.updateUser).mockResolvedValue({
+      data: { user: null },
+      error: mockError as any,
+    });
+
+    const { result } = renderHook(() => useAuth(), {
+      wrapper: createWrapper(),
+    });
+
+    await act(async () => {
+      const response = await result.current.updatePassword("weak");
+      expect(response.error).toBeTruthy();
+    });
+  });
+
+  it("resetPasswordForEmail calls supabase resetPasswordForEmail", async () => {
+    vi.mocked(supabase.auth.resetPasswordForEmail).mockResolvedValue({
+      data: {},
+      error: null,
+    });
+
+    const { result } = renderHook(() => useAuth(), {
+      wrapper: createWrapper(),
+    });
+
+    await act(async () => {
+      const response = await result.current.resetPasswordForEmail("test@example.com");
+      expect(response.error).toBe(null);
+    });
+
+    expect(supabase.auth.resetPasswordForEmail).toHaveBeenCalledWith(
+      "test@example.com",
+      expect.objectContaining({
+        redirectTo: expect.stringContaining("/reset-password"),
+      })
+    );
+  });
+
+  it("resetPasswordForEmail returns error on failure", async () => {
+    const mockError = new Error("Rate limited");
+    vi.mocked(supabase.auth.resetPasswordForEmail).mockResolvedValue({
+      data: {},
+      error: mockError as any,
+    });
+
+    const { result } = renderHook(() => useAuth(), {
+      wrapper: createWrapper(),
+    });
+
+    await act(async () => {
+      const response = await result.current.resetPasswordForEmail("test@example.com");
+      expect(response.error).toBeTruthy();
+    });
   });
 });

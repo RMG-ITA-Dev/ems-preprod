@@ -41,6 +41,8 @@ describe("useCurrentStaff", () => {
       signIn: vi.fn(),
       signUp: vi.fn(),
       signOut: vi.fn(),
+      updatePassword: vi.fn(),
+      resetPasswordForEmail: vi.fn(),
     });
 
     const { result } = renderHook(() => useCurrentStaff(), {
@@ -68,6 +70,8 @@ describe("useCurrentStaff", () => {
       signIn: vi.fn(),
       signUp: vi.fn(),
       signOut: vi.fn(),
+      updatePassword: vi.fn(),
+      resetPasswordForEmail: vi.fn(),
     });
 
     const mockMaybeSingle = vi.fn().mockResolvedValue({
@@ -100,6 +104,8 @@ describe("useCurrentStaff", () => {
       signIn: vi.fn(),
       signUp: vi.fn(),
       signOut: vi.fn(),
+      updatePassword: vi.fn(),
+      resetPasswordForEmail: vi.fn(),
     });
 
     const mockMaybeSingle = vi.fn().mockResolvedValue({
@@ -129,6 +135,8 @@ describe("useCurrentStaff", () => {
       signIn: vi.fn(),
       signUp: vi.fn(),
       signOut: vi.fn(),
+      updatePassword: vi.fn(),
+      resetPasswordForEmail: vi.fn(),
     });
 
     const mockMaybeSingle = vi.fn().mockResolvedValue({
@@ -167,6 +175,8 @@ describe("useCurrentStaff", () => {
       signIn: vi.fn(),
       signUp: vi.fn(),
       signOut: vi.fn(),
+      updatePassword: vi.fn(),
+      resetPasswordForEmail: vi.fn(),
     });
 
     const mockMaybeSingle = vi.fn().mockResolvedValue({

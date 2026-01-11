@@ -33,6 +33,7 @@ import WorksheetList from "./pages/WorksheetList";
 import WorksheetNew from "./pages/WorksheetNew";
 import WorksheetEdit from "./pages/WorksheetEdit";
 import NotFound from "./pages/NotFound";
+import ResetPassword from "./pages/ResetPassword";
 
 const queryClient = new QueryClient();
 
@@ -46,6 +47,7 @@ const App = () => (
             <LanguageSync />
             <Routes>
               <Route path="/auth" element={<Auth />} />
+              <Route path="/reset-password" element={<ResetPassword />} />
               <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
               <Route path="/clients" element={<ProtectedRoute><Clients /></ProtectedRoute>} />
               <Route path="/clients/new" element={<ProtectedRoute><ClientNew /></ProtectedRoute>} />
