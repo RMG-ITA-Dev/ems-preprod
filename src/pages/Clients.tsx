@@ -42,7 +42,7 @@ const Clients = () => {
       label: t("client.nit"),
       sortable: true,
       mobilePriority: 'secondary',
-      render: (row) => <span className="text-muted-foreground">{row.unique_tax_id}</span>,
+      render: (row) => <span className="text-muted-foreground">{row.unique_tax_id || "-"}</span>,
     },
     {
       key: "industry.industry_name",

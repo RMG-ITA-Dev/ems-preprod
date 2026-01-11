@@ -39,10 +39,12 @@ export interface StaffFull extends Staff {
   aud_reg_number: string | null;
 }
 
+// Client interface for clients_directory view (non-sensitive fields)
+// unique_tax_id is NOT included in the view for security
 export interface Client {
   client_id: string;
   client_legal_name: string;
-  unique_tax_id: string;
+  unique_tax_id?: string; // Only available via ClientFull (admin)
   industry_id: string | null;
   contact_name: string | null;
   contact_email: string | null;
@@ -50,6 +52,11 @@ export interface Client {
   address: string | null;
   is_active: boolean;
   industry?: Industry;
+}
+
+// Full client interface for admin use only (includes tax ID)
+export interface ClientFull extends Client {
+  unique_tax_id: string;
 }
 
 export interface Engagement {
@@ -236,9 +243,30 @@ export function useStaffFull() {
   });
 }
 
+// useClients returns non-sensitive data from clients_directory view
+// For dropdowns and general client lists - excludes unique_tax_id
 export function useClients() {
   return useQuery({
     queryKey: ['clients'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('clients_directory')
+        .select(`
+          *,
+          industry:industries(*)
+        `)
+        .order('client_legal_name');
+      if (error) throw error;
+      return data as Client[];
+    },
+  });
+}
+
+// useClientsFull returns all client data including tax ID (admin-only)
+// This will fail for non-admin users due to RLS policies
+export function useClientsFull() {
+  return useQuery({
+    queryKey: ['clients_full'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('clients')
@@ -248,7 +276,7 @@ export function useClients() {
         `)
         .order('client_legal_name');
       if (error) throw error;
-      return data as Client[];
+      return data as ClientFull[];
     },
   });
 }

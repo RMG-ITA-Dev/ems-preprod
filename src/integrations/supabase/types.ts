@@ -335,6 +335,13 @@ export type Database = {
             referencedColumns: ["client_id"]
           },
           {
+            foreignKeyName: "engagements_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients_directory"
+            referencedColumns: ["client_id"]
+          },
+          {
             foreignKeyName: "engagements_manager_id_fkey"
             columns: ["manager_id"]
             isOneToOne: false
@@ -1079,6 +1086,53 @@ export type Database = {
       }
     }
     Views: {
+      clients_directory: {
+        Row: {
+          address: string | null
+          client_id: string | null
+          client_legal_name: string | null
+          contact_email: string | null
+          contact_name: string | null
+          contact_phone: string | null
+          created_at: string | null
+          industry_id: string | null
+          is_active: boolean | null
+          updated_at: string | null
+        }
+        Insert: {
+          address?: string | null
+          client_id?: string | null
+          client_legal_name?: string | null
+          contact_email?: string | null
+          contact_name?: string | null
+          contact_phone?: string | null
+          created_at?: string | null
+          industry_id?: string | null
+          is_active?: boolean | null
+          updated_at?: string | null
+        }
+        Update: {
+          address?: string | null
+          client_id?: string | null
+          client_legal_name?: string | null
+          contact_email?: string | null
+          contact_name?: string | null
+          contact_phone?: string | null
+          created_at?: string | null
+          industry_id?: string | null
+          is_active?: boolean | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "clients_industry_id_fkey"
+            columns: ["industry_id"]
+            isOneToOne: false
+            referencedRelation: "industries"
+            referencedColumns: ["industry_id"]
+          },
+        ]
+      }
       staff_directory: {
         Row: {
           category_id: string | null
