@@ -51,6 +51,8 @@ describe("useUserRole", () => {
       signIn: vi.fn(),
       signUp: vi.fn(),
       signOut: vi.fn(),
+      updatePassword: vi.fn(),
+      resetPasswordForEmail: vi.fn(),
     });
 
     // Mock a pending query
@@ -74,6 +76,8 @@ describe("useUserRole", () => {
       signIn: vi.fn(),
       signUp: vi.fn(),
       signOut: vi.fn(),
+      updatePassword: vi.fn(),
+      resetPasswordForEmail: vi.fn(),
     });
 
     const mockMaybeSingle = vi.fn().mockResolvedValue({
@@ -104,6 +108,8 @@ describe("useUserRole", () => {
       signIn: vi.fn(),
       signUp: vi.fn(),
       signOut: vi.fn(),
+      updatePassword: vi.fn(),
+      resetPasswordForEmail: vi.fn(),
     });
 
     const mockMaybeSingle = vi.fn().mockResolvedValue({
@@ -133,6 +139,8 @@ describe("useUserRole", () => {
       signIn: vi.fn(),
       signUp: vi.fn(),
       signOut: vi.fn(),
+      updatePassword: vi.fn(),
+      resetPasswordForEmail: vi.fn(),
     });
 
     const mockMaybeSingle = vi.fn().mockResolvedValue({
@@ -161,6 +169,8 @@ describe("useUserRole", () => {
       signIn: vi.fn(),
       signUp: vi.fn(),
       signOut: vi.fn(),
+      updatePassword: vi.fn(),
+      resetPasswordForEmail: vi.fn(),
     });
 
     const mockMaybeSingle = vi.fn().mockResolvedValue({
@@ -190,6 +200,8 @@ describe("useUserRole", () => {
       signIn: vi.fn(),
       signUp: vi.fn(),
       signOut: vi.fn(),
+      updatePassword: vi.fn(),
+      resetPasswordForEmail: vi.fn(),
     });
 
     const { result } = renderHook(() => useUserRole(), {

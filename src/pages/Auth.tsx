@@ -9,6 +9,7 @@ import { useGlobalSettings } from "@/hooks/useEmsData";
 import { toast } from "sonner";
 import { Briefcase, TrendingUp, Users, Shield, Loader2 } from "lucide-react";
 import { z } from "zod";
+import { ForgotPasswordDialog } from "@/components/auth/ForgotPasswordDialog";
 
 const emailSchema = z.string().trim().email({ message: "Invalid email address" }).max(255, { message: "Email must be less than 255 characters" });
 // Sign-in: allow existing users with 6-char passwords
@@ -234,7 +235,19 @@ const Auth = () => {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="password">{t("auth.password")}</Label>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="password">{t("auth.password")}</Label>
+                  {mode === "signin" && (
+                    <ForgotPasswordDialog>
+                      <button
+                        type="button"
+                        className="text-xs text-primary hover:underline"
+                      >
+                        {t("auth.forgotPassword")}
+                      </button>
+                    </ForgotPasswordDialog>
+                  )}
+                </div>
                 <Input
                   id="password"
                   type="password"
