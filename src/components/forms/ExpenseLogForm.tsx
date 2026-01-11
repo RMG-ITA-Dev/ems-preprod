@@ -24,6 +24,20 @@ import { cn } from "@/lib/utils";
 import { useEngagements, useExpenseTypes } from "@/hooks/useEmsData";
 import { useState, useEffect } from "react";
 
+/**
+ * Validates that a URL uses only http or https protocol.
+ * Prevents javascript:, data:, and other potentially dangerous protocols.
+ */
+function isValidHttpUrl(urlString: string): boolean {
+  if (!urlString || urlString.trim() === "") return true; // Empty is valid (optional field)
+  try {
+    const url = new URL(urlString);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 interface ExpenseLogFormData {
   expense_log_id?: string;
   engagement_id: string;
@@ -106,6 +120,12 @@ export function ExpenseLogForm({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Only include receipt_url if it's valid
+    const sanitizedReceiptUrl = formData.receipt_url && isValidHttpUrl(formData.receipt_url)
+      ? formData.receipt_url.trim()
+      : null;
+    
     onSubmit({
       engagement_id: formData.engagement_id,
       expense_type_id: formData.expense_type_id,
@@ -113,15 +133,19 @@ export function ExpenseLogForm({
       amount: formData.amount,
       currency: formData.currency,
       description: formData.description || null,
-      receipt_url: formData.receipt_url || null,
+      receipt_url: sanitizedReceiptUrl,
     });
   };
+
+  // Validate receipt URL - only allow http/https protocols
+  const isReceiptUrlValid = isValidHttpUrl(formData.receipt_url);
 
   const isValid =
     formData.engagement_id &&
     formData.expense_type_id &&
     formData.date_incurred &&
-    formData.amount > 0;
+    formData.amount > 0 &&
+    isReceiptUrlValid;
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4 form-dense">
@@ -234,7 +258,13 @@ export function ExpenseLogForm({
             value={formData.receipt_url}
             onChange={(e) => setFormData((prev) => ({ ...prev, receipt_url: e.target.value }))}
             placeholder="https://..."
+            className={cn(!isReceiptUrlValid && "border-destructive focus-visible:ring-destructive")}
           />
+          {!isReceiptUrlValid && (
+            <p className="text-xs text-destructive">
+              {t("validation.invalidUrl", "URL must use http:// or https:// protocol")}
+            </p>
+          )}
         </div>
       </div>
 

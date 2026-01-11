@@ -34,6 +34,20 @@ import { format } from "date-fns";
 import { useIsMobile } from "@/hooks/useMobile";
 import { cn } from "@/lib/utils";
 
+/**
+ * Validates that a URL uses only http or https protocol.
+ * Prevents rendering javascript:, data:, and other potentially dangerous protocols.
+ */
+function isValidHttpUrl(urlString: string | null | undefined): boolean {
+  if (!urlString) return false;
+  try {
+    const url = new URL(urlString);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 type SortDirection = "asc" | "desc" | null;
 
 const Expenses = () => {
@@ -275,9 +289,9 @@ const Expenses = () => {
                           {log.description && (
                             <div className="text-muted-foreground">{log.description}</div>
                           )}
-                          {log.receipt_url && (
+                          {isValidHttpUrl(log.receipt_url) && (
                             <a
-                              href={log.receipt_url}
+                              href={log.receipt_url!}
                               target="_blank"
                               rel="noopener noreferrer"
                               onClick={(e) => e.stopPropagation()}
@@ -453,9 +467,9 @@ const Expenses = () => {
                           {log.description || "-"}
                         </TableCell>
                         <TableCell className="py-2 text-sm text-center">
-                          {log.receipt_url ? (
+                          {isValidHttpUrl(log.receipt_url) ? (
                             <a
-                              href={log.receipt_url}
+                              href={log.receipt_url!}
                               target="_blank"
                               rel="noopener noreferrer"
                               onClick={(e) => e.stopPropagation()}
