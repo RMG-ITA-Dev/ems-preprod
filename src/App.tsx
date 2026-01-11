@@ -1,3 +1,4 @@
+import { Suspense, lazy } from "react";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -6,36 +7,47 @@ import { AuthProvider } from "@/hooks/useAuth";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { LanguageSync } from "@/components/LanguageSync";
 import ErrorBoundary from "@/components/ErrorBoundary";
-import Index from "./pages/Index";
+
+// Eagerly loaded - critical for initial render
 import Auth from "./pages/Auth";
-import Clients from "./pages/Clients";
-import ClientNew from "./pages/ClientNew";
-import ClientEdit from "./pages/ClientEdit";
-import Engagements from "./pages/Engagements";
-import EngagementNew from "./pages/EngagementNew";
-import EngagementEdit from "./pages/EngagementEdit";
-import WorkOrders from "./pages/WorkOrders";
-import WorkOrderNew from "./pages/WorkOrderNew";
-import WorkOrderEdit from "./pages/WorkOrderEdit";
-import TimeSheet from "./pages/TimeSheet";
-import Expenses from "./pages/Expenses";
-import ExpenseNew from "./pages/ExpenseNew";
-import ExpenseEdit from "./pages/ExpenseEdit";
-import Staff from "./pages/Staff";
-import StaffNew from "./pages/StaffNew";
-import StaffEdit from "./pages/StaffEdit";
-import Settings from "./pages/Settings";
-import TimesheetApprovals from "./pages/TimesheetApprovals";
-import TimesheetApprovalDetail from "./pages/TimesheetApprovalDetail";
-import TrackerList from "./pages/TrackerList";
-import TrackerRecord from "./pages/TrackerRecord";
-import WorksheetList from "./pages/WorksheetList";
-import WorksheetNew from "./pages/WorksheetNew";
-import WorksheetEdit from "./pages/WorksheetEdit";
-import NotFound from "./pages/NotFound";
 import ResetPassword from "./pages/ResetPassword";
+import NotFound from "./pages/NotFound";
+
+// Lazy loaded - deferred until route is accessed
+const Index = lazy(() => import("./pages/Index"));
+const Clients = lazy(() => import("./pages/Clients"));
+const ClientNew = lazy(() => import("./pages/ClientNew"));
+const ClientEdit = lazy(() => import("./pages/ClientEdit"));
+const Engagements = lazy(() => import("./pages/Engagements"));
+const EngagementNew = lazy(() => import("./pages/EngagementNew"));
+const EngagementEdit = lazy(() => import("./pages/EngagementEdit"));
+const WorkOrders = lazy(() => import("./pages/WorkOrders"));
+const WorkOrderNew = lazy(() => import("./pages/WorkOrderNew"));
+const WorkOrderEdit = lazy(() => import("./pages/WorkOrderEdit"));
+const TimeSheet = lazy(() => import("./pages/TimeSheet"));
+const Expenses = lazy(() => import("./pages/Expenses"));
+const ExpenseNew = lazy(() => import("./pages/ExpenseNew"));
+const ExpenseEdit = lazy(() => import("./pages/ExpenseEdit"));
+const Staff = lazy(() => import("./pages/Staff"));
+const StaffNew = lazy(() => import("./pages/StaffNew"));
+const StaffEdit = lazy(() => import("./pages/StaffEdit"));
+const Settings = lazy(() => import("./pages/Settings"));
+const TimesheetApprovals = lazy(() => import("./pages/TimesheetApprovals"));
+const TimesheetApprovalDetail = lazy(() => import("./pages/TimesheetApprovalDetail"));
+const TrackerList = lazy(() => import("./pages/TrackerList"));
+const TrackerRecord = lazy(() => import("./pages/TrackerRecord"));
+const WorksheetList = lazy(() => import("./pages/WorksheetList"));
+const WorksheetNew = lazy(() => import("./pages/WorksheetNew"));
+const WorksheetEdit = lazy(() => import("./pages/WorksheetEdit"));
 
 const queryClient = new QueryClient();
+
+// Minimal loading fallback - matches app background
+const PageLoader = () => (
+  <div className="min-h-screen flex items-center justify-center bg-background">
+    <div className="animate-pulse text-muted-foreground">Loading...</div>
+  </div>
+);
 
 const App = () => (
   <ErrorBoundary>
@@ -45,37 +57,39 @@ const App = () => (
           <Toaster />
           <BrowserRouter>
             <LanguageSync />
-            <Routes>
-              <Route path="/auth" element={<Auth />} />
-              <Route path="/reset-password" element={<ResetPassword />} />
-              <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
-              <Route path="/clients" element={<ProtectedRoute><Clients /></ProtectedRoute>} />
-              <Route path="/clients/new" element={<ProtectedRoute><ClientNew /></ProtectedRoute>} />
-              <Route path="/clients/:id" element={<ProtectedRoute><ClientEdit /></ProtectedRoute>} />
-              <Route path="/engagements" element={<ProtectedRoute><Engagements /></ProtectedRoute>} />
-              <Route path="/engagements/new" element={<ProtectedRoute><EngagementNew /></ProtectedRoute>} />
-              <Route path="/engagements/:id" element={<ProtectedRoute><EngagementEdit /></ProtectedRoute>} />
-              <Route path="/worksheets" element={<ProtectedRoute><WorksheetList /></ProtectedRoute>} />
-              <Route path="/worksheets/new" element={<ProtectedRoute><WorksheetNew /></ProtectedRoute>} />
-              <Route path="/worksheets/:id" element={<ProtectedRoute><WorksheetEdit /></ProtectedRoute>} />
-              <Route path="/work-orders" element={<ProtectedRoute><WorkOrders /></ProtectedRoute>} />
-              <Route path="/work-orders/new" element={<ProtectedRoute><WorkOrderNew /></ProtectedRoute>} />
-              <Route path="/work-orders/:id" element={<ProtectedRoute><WorkOrderEdit /></ProtectedRoute>} />
-              <Route path="/tracker" element={<ProtectedRoute><TrackerList /></ProtectedRoute>} />
-              <Route path="/tracker/new" element={<ProtectedRoute><TrackerRecord /></ProtectedRoute>} />
-              <Route path="/tracker/:id" element={<ProtectedRoute><TrackerRecord /></ProtectedRoute>} />
-              <Route path="/timesheet" element={<ProtectedRoute><TimeSheet /></ProtectedRoute>} />
-              <Route path="/timesheet/approvals" element={<ProtectedRoute><TimesheetApprovals /></ProtectedRoute>} />
-              <Route path="/timesheet/approvals/:periodId" element={<ProtectedRoute><TimesheetApprovalDetail /></ProtectedRoute>} />
-              <Route path="/expenses" element={<ProtectedRoute><Expenses /></ProtectedRoute>} />
-              <Route path="/expenses/new" element={<ProtectedRoute><ExpenseNew /></ProtectedRoute>} />
-              <Route path="/expenses/:id" element={<ProtectedRoute><ExpenseEdit /></ProtectedRoute>} />
-              <Route path="/staff" element={<ProtectedRoute><Staff /></ProtectedRoute>} />
-              <Route path="/staff/new" element={<ProtectedRoute><StaffNew /></ProtectedRoute>} />
-              <Route path="/staff/:id" element={<ProtectedRoute><StaffEdit /></ProtectedRoute>} />
-              <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
-              <Route path="*" element={<NotFound />} />
-            </Routes>
+            <Suspense fallback={<PageLoader />}>
+              <Routes>
+                <Route path="/auth" element={<Auth />} />
+                <Route path="/reset-password" element={<ResetPassword />} />
+                <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
+                <Route path="/clients" element={<ProtectedRoute><Clients /></ProtectedRoute>} />
+                <Route path="/clients/new" element={<ProtectedRoute><ClientNew /></ProtectedRoute>} />
+                <Route path="/clients/:id" element={<ProtectedRoute><ClientEdit /></ProtectedRoute>} />
+                <Route path="/engagements" element={<ProtectedRoute><Engagements /></ProtectedRoute>} />
+                <Route path="/engagements/new" element={<ProtectedRoute><EngagementNew /></ProtectedRoute>} />
+                <Route path="/engagements/:id" element={<ProtectedRoute><EngagementEdit /></ProtectedRoute>} />
+                <Route path="/worksheets" element={<ProtectedRoute><WorksheetList /></ProtectedRoute>} />
+                <Route path="/worksheets/new" element={<ProtectedRoute><WorksheetNew /></ProtectedRoute>} />
+                <Route path="/worksheets/:id" element={<ProtectedRoute><WorksheetEdit /></ProtectedRoute>} />
+                <Route path="/work-orders" element={<ProtectedRoute><WorkOrders /></ProtectedRoute>} />
+                <Route path="/work-orders/new" element={<ProtectedRoute><WorkOrderNew /></ProtectedRoute>} />
+                <Route path="/work-orders/:id" element={<ProtectedRoute><WorkOrderEdit /></ProtectedRoute>} />
+                <Route path="/tracker" element={<ProtectedRoute><TrackerList /></ProtectedRoute>} />
+                <Route path="/tracker/new" element={<ProtectedRoute><TrackerRecord /></ProtectedRoute>} />
+                <Route path="/tracker/:id" element={<ProtectedRoute><TrackerRecord /></ProtectedRoute>} />
+                <Route path="/timesheet" element={<ProtectedRoute><TimeSheet /></ProtectedRoute>} />
+                <Route path="/timesheet/approvals" element={<ProtectedRoute><TimesheetApprovals /></ProtectedRoute>} />
+                <Route path="/timesheet/approvals/:periodId" element={<ProtectedRoute><TimesheetApprovalDetail /></ProtectedRoute>} />
+                <Route path="/expenses" element={<ProtectedRoute><Expenses /></ProtectedRoute>} />
+                <Route path="/expenses/new" element={<ProtectedRoute><ExpenseNew /></ProtectedRoute>} />
+                <Route path="/expenses/:id" element={<ProtectedRoute><ExpenseEdit /></ProtectedRoute>} />
+                <Route path="/staff" element={<ProtectedRoute><Staff /></ProtectedRoute>} />
+                <Route path="/staff/new" element={<ProtectedRoute><StaffNew /></ProtectedRoute>} />
+                <Route path="/staff/:id" element={<ProtectedRoute><StaffEdit /></ProtectedRoute>} />
+                <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </Suspense>
           </BrowserRouter>
         </AuthProvider>
       </TooltipProvider>
