@@ -17,7 +17,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Shield, User, Eye, Lock } from "lucide-react";
+import { Shield, User, Eye, Lock, Crown, Briefcase, Users, Star, StarHalf } from "lucide-react";
 import { useAllUserRoles, useUpdateUserRole, UserRoleData } from "@/hooks/useUserRoles";
 import { useAuth } from "@/hooks/useAuth";
 import { Database } from "@/integrations/supabase/types";
@@ -26,12 +26,22 @@ type AppRole = Database["public"]["Enums"]["app_role"];
 
 const roleIcons: Record<AppRole, React.ReactNode> = {
   admin: <Shield className="h-3 w-3" />,
+  partner: <Crown className="h-3 w-3" />,
+  director: <Briefcase className="h-3 w-3" />,
+  manager: <Users className="h-3 w-3" />,
+  senior: <Star className="h-3 w-3" />,
+  semisenior: <StarHalf className="h-3 w-3" />,
   staff: <User className="h-3 w-3" />,
   viewer: <Eye className="h-3 w-3" />,
 };
 
 const roleColors: Record<AppRole, string> = {
   admin: "bg-destructive/10 text-destructive border-destructive/20",
+  partner: "bg-amber-500/10 text-amber-600 border-amber-500/20",
+  director: "bg-purple-500/10 text-purple-600 border-purple-500/20",
+  manager: "bg-blue-500/10 text-blue-600 border-blue-500/20",
+  senior: "bg-green-500/10 text-green-600 border-green-500/20",
+  semisenior: "bg-teal-500/10 text-teal-600 border-teal-500/20",
   staff: "bg-primary/10 text-primary border-primary/20",
   viewer: "bg-muted text-muted-foreground border-muted",
 };
@@ -130,6 +140,11 @@ export function UserRolesManager() {
                             </SelectTrigger>
                             <SelectContent>
                               <SelectItem value="admin">{getRoleLabel("admin")}</SelectItem>
+                              <SelectItem value="partner">{getRoleLabel("partner")}</SelectItem>
+                              <SelectItem value="director">{getRoleLabel("director")}</SelectItem>
+                              <SelectItem value="manager">{getRoleLabel("manager")}</SelectItem>
+                              <SelectItem value="senior">{getRoleLabel("senior")}</SelectItem>
+                              <SelectItem value="semisenior">{getRoleLabel("semisenior")}</SelectItem>
                               <SelectItem value="staff">{getRoleLabel("staff")}</SelectItem>
                               <SelectItem value="viewer">{getRoleLabel("viewer")}</SelectItem>
                             </SelectContent>
