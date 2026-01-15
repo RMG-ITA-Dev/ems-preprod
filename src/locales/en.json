@@ -210,8 +210,13 @@
     "roleUpdated": "User role updated successfully",
     "updateError": "Error updating user role",
     "roles": {
-      "admin": "Admin",
-      "staff": "Staff",
+      "admin": "Administrator",
+      "partner": "Partner (Socio)",
+      "director": "Director",
+      "manager": "Manager (Gerente)",
+      "senior": "Senior",
+      "semisenior": "Semi-Senior",
+      "staff": "Staff (Asistente)",
       "viewer": "Viewer"
     }
   },

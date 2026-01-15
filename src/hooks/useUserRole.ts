@@ -4,7 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { logger } from "@/lib/logger";
 import { handleError, ErrorCode, AppError } from "@/lib/error-handler";
 
-export type AppRole = "admin" | "staff" | "viewer";
+export type AppRole = "admin" | "partner" | "director" | "manager" | "senior" | "semisenior" | "staff" | "viewer";
 
 interface UserRole {
   id: string;
@@ -15,6 +15,11 @@ interface UserRole {
 interface UseUserRoleResult {
   role: AppRole;
   isAdmin: boolean;
+  isPartner: boolean;
+  isDirector: boolean;
+  isManager: boolean;
+  isSenior: boolean;
+  isSemisenior: boolean;
   isStaff: boolean;
   isViewer: boolean;
   isLoading: boolean;
@@ -93,6 +98,11 @@ export function useUserRole(): UseUserRoleResult {
   return {
     role: effectiveRole,
     isAdmin: effectiveRole === "admin",
+    isPartner: effectiveRole === "partner",
+    isDirector: effectiveRole === "director",
+    isManager: effectiveRole === "manager",
+    isSenior: effectiveRole === "senior",
+    isSemisenior: effectiveRole === "semisenior",
     isStaff: effectiveRole === "staff",
     isViewer: effectiveRole === "viewer",
     isLoading,

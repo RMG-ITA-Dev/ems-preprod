@@ -211,8 +211,13 @@
     "updateError": "Error al actualizar el rol de usuario",
     "roles": {
       "admin": "Administrador",
-      "staff": "Personal",
-      "viewer": "Visor"
+      "partner": "Socio",
+      "director": "Director",
+      "manager": "Gerente",
+      "senior": "Senior",
+      "semisenior": "Semi-Senior",
+      "staff": "Asistente",
+      "viewer": "Visualizador"
     }
   },
   "industry": {
