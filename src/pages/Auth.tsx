@@ -61,7 +61,7 @@ const Auth = () => {
         const validatedFirstName = nameSchema.parse(firstName);
         const validatedLastName = nameSchema.parse(lastName);
         
-        const { error } = await signUp(validatedEmail, validatedPassword, validatedFirstName, validatedLastName);
+        const { error, roleData } = await signUp(validatedEmail, validatedPassword, validatedFirstName, validatedLastName);
         if (error) {
           if (error.message.includes("already registered")) {
             toast.error(t("messages.emailAlreadyRegistered"));
@@ -71,7 +71,12 @@ const Auth = () => {
             toast.error(error.message);
           }
         } else {
-          toast.success(t("messages.accountCreated"));
+          // Show special message for first user (admin)
+          if (roleData?.isFirstUser) {
+            toast.success(t("auth.firstUserMessage"));
+          } else {
+            toast.success(t("messages.accountCreated"));
+          }
           navigate("/");
         }
       } else {

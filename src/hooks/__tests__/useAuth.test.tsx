@@ -16,6 +16,9 @@ vi.mock("@/integrations/supabase/client", () => ({
       updateUser: vi.fn(),
       resetPasswordForEmail: vi.fn(),
     },
+    functions: {
+      invoke: vi.fn(),
+    },
   },
 }));
 
@@ -110,9 +113,19 @@ describe("useAuth", () => {
     expect(result.current.user?.id).toBe("user-123");
   });
 
-  it("signIn calls supabase signInWithPassword", async () => {
+  it("signIn calls supabase signInWithPassword and assigns role", async () => {
+    const mockSession = {
+      user: { id: "user-123" },
+      access_token: "token",
+    };
+    
     vi.mocked(supabase.auth.signInWithPassword).mockResolvedValue({
-      data: { user: null, session: null },
+      data: { user: mockSession.user as any, session: mockSession as any },
+      error: null,
+    });
+    
+    vi.mocked(supabase.functions.invoke).mockResolvedValue({
+      data: { role: "staff", isFirstUser: false },
       error: null,
     });
 
@@ -129,6 +142,12 @@ describe("useAuth", () => {
       email: "test@example.com",
       password: "password123",
     });
+    
+    // Should call assign-user-role after successful sign in
+    expect(supabase.functions.invoke).toHaveBeenCalledWith(
+      "assign-user-role",
+      expect.any(Object)
+    );
   });
 
   it("signIn returns error on failure", async () => {
@@ -148,9 +167,19 @@ describe("useAuth", () => {
     });
   });
 
-  it("signUp calls supabase signUp with metadata", async () => {
+  it("signUp calls supabase signUp with metadata and assigns role", async () => {
+    const mockSession = {
+      user: { id: "user-123" },
+      access_token: "token",
+    };
+    
     vi.mocked(supabase.auth.signUp).mockResolvedValue({
-      data: { user: null, session: null },
+      data: { user: mockSession.user as any, session: mockSession as any },
+      error: null,
+    });
+    
+    vi.mocked(supabase.functions.invoke).mockResolvedValue({
+      data: { role: "admin", isFirstUser: true },
       error: null,
     });
 
@@ -166,6 +195,8 @@ describe("useAuth", () => {
         "Doe"
       );
       expect(response.error).toBe(null);
+      expect(response.roleData?.isFirstUser).toBe(true);
+      expect(response.roleData?.role).toBe("admin");
     });
 
     expect(supabase.auth.signUp).toHaveBeenCalledWith({
@@ -178,6 +209,12 @@ describe("useAuth", () => {
         },
       }),
     });
+    
+    // Should call assign-user-role after successful sign up
+    expect(supabase.functions.invoke).toHaveBeenCalledWith(
+      "assign-user-role",
+      expect.any(Object)
+    );
   });
 
   it("signOut calls supabase signOut", async () => {

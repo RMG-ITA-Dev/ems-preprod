@@ -702,7 +702,8 @@
       "staffTrackingDesc": "Registre horas, gestione categorías de personal y monitoree tasas de utilización.",
       "roleBasedAccess": "Acceso Basado en Roles",
       "roleBasedAccessDesc": "Sistema RBAC seguro con permisos de Admin, Personal y Visualizador."
-    }
+    },
+    "firstUserMessage": "¡Bienvenido! Como primer usuario, se te ha asignado el rol de Administrador con acceso completo al sistema."
   },
   "workMatrix": {
     "title": "Matriz de Trabajo",

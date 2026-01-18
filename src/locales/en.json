@@ -702,7 +702,8 @@
       "staffTrackingDesc": "Log hours, manage staff categories, and monitor utilization rates.",
       "roleBasedAccess": "Role-Based Access",
       "roleBasedAccessDesc": "Secure RBAC system with Admin, Staff, and Viewer permissions."
-    }
+    },
+    "firstUserMessage": "Welcome! As the first user, you have been assigned the Administrator role with full system access."
   },
   "workMatrix": {
     "title": "Work Matrix",
