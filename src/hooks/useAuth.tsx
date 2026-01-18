@@ -2,18 +2,45 @@ import { createContext, useContext, useEffect, useState, ReactNode } from 'react
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 
+interface RoleAssignmentResult {
+  role: string;
+  isFirstUser: boolean;
+}
+
 interface AuthContextType {
   user: User | null;
   session: Session | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
-  signUp: (email: string, password: string, firstName: string, lastName: string) => Promise<{ error: Error | null }>;
+  signUp: (email: string, password: string, firstName: string, lastName: string) => Promise<{ error: Error | null; roleData?: RoleAssignmentResult }>;
   signOut: () => Promise<void>;
   updatePassword: (newPassword: string) => Promise<{ error: Error | null }>;
   resetPasswordForEmail: (email: string) => Promise<{ error: Error | null }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+/**
+ * Assigns a role to the user via the edge function.
+ * First user in zero-state becomes admin, subsequent users become staff.
+ */
+async function assignUserRole(session: Session): Promise<RoleAssignmentResult | null> {
+  try {
+    const { data, error } = await supabase.functions.invoke('assign-user-role', {
+      headers: { Authorization: `Bearer ${session.access_token}` }
+    });
+    
+    if (error) {
+      console.error('Failed to assign role:', error);
+      return null;
+    }
+    
+    return data as RoleAssignmentResult;
+  } catch (err) {
+    console.error('Error calling assign-user-role:', err);
+    return null;
+  }
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -41,17 +68,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
+    
+    if (!error && data.session) {
+      // Ensure user has a role (handles users who signed up before this fix)
+      await assignUserRole(data.session);
+    }
+    
     return { error: error as Error | null };
   };
 
   const signUp = async (email: string, password: string, firstName: string, lastName: string) => {
     const redirectUrl = `${window.location.origin}/`;
     
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
@@ -62,6 +95,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         },
       },
     });
+    
+    if (!error && data.session) {
+      // Assign role for new user
+      const roleData = await assignUserRole(data.session);
+      return { error: null, roleData: roleData || undefined };
+    }
+    
     return { error: error as Error | null };
   };
 

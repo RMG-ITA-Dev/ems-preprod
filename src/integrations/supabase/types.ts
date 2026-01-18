@@ -1338,6 +1338,7 @@ export type Database = {
       }
     }
     Functions: {
+      assign_user_role_atomic: { Args: { p_user_id: string }; Returns: Json }
       can_approve_timesheet: {
         Args: { p_approver_auth_id: string; p_period_id: string }
         Returns: boolean
