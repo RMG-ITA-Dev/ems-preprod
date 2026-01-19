@@ -2,7 +2,7 @@
 
 Database schema for the Engagement Management System.
 
-**Last Updated:** 2026-01-13
+**Last Updated:** 2026-01-19
 
 ---
 
@@ -300,6 +300,27 @@ erDiagram
 
 ---
 
+## Key Database Functions
+
+| Function | Purpose |
+|----------|---------|
+| `assign_user_role_atomic(uuid)` | Atomic first-user-admin role assignment with advisory lock |
+| `get_my_staff_id()` | Returns staff_id for current authenticated user |
+| `get_line_approver(uuid, uuid)` | Determines approver for timesheet line based on staff/engagement |
+| `get_timesheet_approvers(uuid, date)` | Returns list of valid approvers for a staff member's week |
+| `can_approve_timesheet(uuid, uuid)` | Validates if user can approve a timesheet period |
+| `can_approve_timesheet_line(uuid, uuid, uuid)` | Validates if user can approve a specific line |
+| `is_auto_approved_category(uuid)` | Checks if staff is in auto-approve category (Partner/Director) |
+| `is_admin()` | Checks if current user has admin role |
+| `is_engagement_team_member(uuid)` | Checks if current user is partner/manager of engagement |
+| `has_role(uuid, app_role)` | Generic role check for a user |
+| `sync_worksheet_to_wo_budget(uuid, uuid)` | Syncs worksheet cells to WO budget lines with rate snapshot |
+| `validate_email_domain()` | Trigger function to enforce allowed email domain on signup |
+| `link_auth_user_to_staff()` | Trigger function to auto-link auth user to matching staff record |
+| `check_wo_approved()` | Trigger function to prevent time entry on unapproved WO |
+
+---
+
 ## Key Business Rules
 
 1. **1:1 Engagement ↔ Work Order** — Each engagement has exactly one work order
@@ -307,3 +328,5 @@ erDiagram
 3. **Fiscal Year** — Runs Oct 1 → Sep 30 (configured in `fiscalCalculations.ts`)
 4. **VAT/IVA** — Always 13% (`tax_rate` default)
 5. **Timesheet Approval** — Line-level approval per engagement per period
+6. **First-User Admin** — First signup gets admin role atomically (race-condition protected)
+7. **Email Domain Restriction** — Signup can be restricted to a specific domain via `global_settings`
