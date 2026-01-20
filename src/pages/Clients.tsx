@@ -5,9 +5,10 @@ import { Building2 } from "lucide-react";
 import { useClients, useEngagements, useIndustries, Client } from "@/hooks/useEmsData";
 import { DataTable, Column } from "@/components/data-table/DataTable";
 import { useNavigate } from "react-router-dom";
+import { formatFiscalYearEnd } from "@/lib/fiscalYearDisplay";
 
 const Clients = () => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const { data: clients, isLoading } = useClients();
   const { data: engagements } = useEngagements();
@@ -64,7 +65,12 @@ const Clients = () => {
       label: t("client.closingDate"),
       sortable: true,
       mobilePriority: 'secondary',
-      render: (row) => <span className="text-muted-foreground">{row.industry?.fiscal_year_end || "-"}</span>,
+      className: "text-center",
+      render: (row) => (
+        <span className="text-muted-foreground">
+          {formatFiscalYearEnd(row.industry?.fiscal_year_end, i18n.language)}
+        </span>
+      ),
     },
     {
       key: "is_active",

@@ -42,13 +42,10 @@ import {
 import { Industry } from "@/hooks/useEmsData";
 import { useCreateIndustry, useUpdateIndustry, useDeleteIndustry } from "@/hooks/mutations";
 import { Trash2 } from "lucide-react";
+import { getFiscalYearOptions, formatFiscalYearEnd } from "@/lib/fiscalYearDisplay";
 
-const fiscalYearOptions = [
-  "December 31",
-  "March 31",
-  "June 30",
-  "September 30",
-];
+// Get standardized fiscal year options (stored in English, displayed localized)
+const fiscalYearOptions = getFiscalYearOptions();
 
 const formSchema = z.object({
   industry_name: z.string().min(1, "Industry name is required"),
@@ -64,7 +61,7 @@ interface IndustryFormProps {
 }
 
 export function IndustryForm({ open, onOpenChange, industry }: IndustryFormProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const isEdit = !!industry;
   const createMutation = useCreateIndustry();
   const updateMutation = useUpdateIndustry();
@@ -135,7 +132,7 @@ export function IndustryForm({ open, onOpenChange, industry }: IndustryFormProps
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>{t("industry.fiscalYearEnd")} *</FormLabel>
-                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+                  <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
                       <SelectTrigger>
                         <SelectValue placeholder={t("industry.selectFiscalYear")} />
@@ -144,7 +141,7 @@ export function IndustryForm({ open, onOpenChange, industry }: IndustryFormProps
                     <SelectContent>
                       {fiscalYearOptions.map((opt) => (
                         <SelectItem key={opt} value={opt}>
-                          {opt}
+                          {formatFiscalYearEnd(opt, i18n.language)}
                         </SelectItem>
                       ))}
                     </SelectContent>
