@@ -42,12 +42,12 @@
     --secondary: 213 77% 25%;
     --secondary-foreground: 0 0% 100%;
 
-    /* MUTED: Light Gray (#a5a4a9) */
+    /* MUTED: Light Gray background */
     --muted: 215 20% 96%;
-    --muted-foreground: 252 3% 65%;
+    --muted-foreground: 215 16% 47%;
 
-    /* ACCENT: Neutral Gray (#727176) for muted highlights */
-    --accent: 252 2% 46%;
+    /* ACCENT: Neutral Gray for muted highlights */
+    --accent: 215 12% 40%;
     --accent-foreground: 0 0% 100%;
 
     --destructive: 348 83% 47%;
@@ -75,7 +75,7 @@
     /* --- Custom Tokens for Reference --- */
     --brand-teal: 186 100% 29%;
     --brand-navy: 213 77% 25%;
-    --brand-gray: 252 2% 46%;
+    --brand-gray: 215 12% 40%;
     --brand-gold: 41 76% 61%;
     --brand-purple: 255 82% 65%;
     --brand-blue: 217 58% 39%;
