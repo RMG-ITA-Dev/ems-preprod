@@ -39,12 +39,11 @@ export interface StaffFull extends Staff {
   aud_reg_number: string | null;
 }
 
-// Client interface for clients_directory view (non-sensitive fields)
-// unique_tax_id is NOT included in the view for security
+// Client interface - includes unique_tax_id (NIT is public tax ID, not sensitive)
 export interface Client {
   client_id: string;
   client_legal_name: string;
-  unique_tax_id?: string; // Only available via ClientFull (admin)
+  unique_tax_id: string;
   industry_id: string | null;
   contact_name: string | null;
   contact_email: string | null;
@@ -251,19 +250,18 @@ export function useStaffFull() {
   });
 }
 
-// useClients returns non-sensitive data (for dropdowns, etc.)
-// Queries base table with explicit columns to allow embedded joins - excludes unique_tax_id
+// useClients returns client data including NIT (unique_tax_id is public tax ID, not sensitive)
+// Queries base table with explicit columns to allow embedded joins
 export function useClients() {
   return useQuery({
     queryKey: ['clients'],
     queryFn: async () => {
-      // Query base table with explicit non-sensitive columns
-      // This allows embedded joins while excluding tax ID
       const { data, error } = await supabase
         .from('clients')
         .select(`
           client_id,
           client_legal_name,
+          unique_tax_id,
           industry_id,
           contact_name,
           contact_email,
