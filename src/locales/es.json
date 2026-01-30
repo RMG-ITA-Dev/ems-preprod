@@ -302,7 +302,8 @@
     "activeDescription": "El personal activo puede registrar entradas de tiempo",
     "selectCategory": "Seleccionar una categoría",
     "supervisor": "Supervisor",
-    "selectSupervisor": "Seleccionar Supervisor"
+    "selectSupervisor": "Seleccionar Supervisor",
+    "deleteExplanation": "Si este miembro del personal tiene entradas de tiempo o encargos, será desactivado en lugar de eliminado."
   },
   "client": {
     "name": "Nombre del Cliente",
@@ -361,7 +362,8 @@
     "invalidCredentials": "Correo o contraseña inválidos. Por favor intente de nuevo.",
     "emailAlreadyRegistered": "Este correo ya está registrado. Por favor inicie sesión.",
     "welcomeAdmin": "¡Bienvenido, Admin!",
-    "missingCategories": "Faltan categorías requeridas: {{categories}}. Por favor agréguelas en Configuración antes de crear encargos."
+    "missingCategories": "Faltan categorías requeridas: {{categories}}. Por favor agréguelas en Configuración antes de crear encargos.",
+    "staffDeactivated": "Miembro del personal desactivado (tiene registros relacionados)"
   },
   "errors": {
     "duplicateNit": "Ya existe un cliente con este NIT",
@@ -478,7 +480,9 @@
       "activityBreakdown": "Desglose por Actividad",
       "budget": "Presup.",
       "actual": "Real",
-      "noData": "Sin datos disponibles"
+      "noData": "Sin datos disponibles",
+      "approved": "aprobadas",
+      "pending": "pendientes"
     },
     "practica": {
       "activeEngagements": "Encargos Activos",
@@ -532,7 +536,8 @@
     "unsubmit": "Retirar Envío",
     "unsubmitted": "Hoja de tiempo retirada para edición",
     "autoSaveHint": "Los cambios se guardan automáticamente",
-    "entry": "Entrada de tiempo"
+    "entry": "Entrada de tiempo",
+    "beforeHireDate": "No puede registrar tiempo para esta semana porque es anterior a su fecha de contratación."
   },
   "expenses": {
     "title": "Gastos",

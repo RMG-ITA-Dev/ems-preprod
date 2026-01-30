@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Loader2, AlertCircle, Lock, Save, RotateCcw, Check } from "lucide-react";
+import { Loader2, AlertCircle, Lock, Save, RotateCcw, Check, AlertTriangle } from "lucide-react";
 import { WeekNavigator } from "@/components/timesheet/WeekNavigator";
 import { TimesheetGrid } from "@/components/timesheet/TimesheetGrid";
 import { useTimesheetPolicies } from "@/hooks/useTimesheetPolicies";
@@ -12,6 +12,7 @@ import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { usePeriodLineApprovals } from "@/hooks/useTimesheetApprovals";
 import { useSubmitTimesheet, useUnsubmitTimesheet } from "@/hooks/useTimesheetMutations";
 import { supabase } from "@/integrations/supabase/client";
+import { parseISO, isBefore, startOfDay } from "date-fns";
 import {
   getWeekInfo,
   getWeekMonday,
@@ -98,11 +99,22 @@ const TimeSheet = () => {
     return currentWeekStart.getTime() === today.getTime();
   }, [currentWeekStart]);
 
+  // BUG #22: Check if week is before staff's hire date
+  const isBeforeHireDate = useMemo(() => {
+    if (!staffRecord?.hire_date) return false;
+    const hireDate = parseISO(staffRecord.hire_date);
+    const weekEnd = weekInfo.weekDates[weekInfo.weekDates.length - 1];
+    return isBefore(startOfDay(weekEnd), startOfDay(hireDate));
+  }, [staffRecord?.hire_date, weekInfo.weekDates]);
+
   // Editable if:
   // - Not submitted and not locked, OR
   // - Submitted but has pending/rejected lines AND is current week (can make corrections)
-  const isEditable = (!isSubmitted && !period?.is_period_locked) || 
-    (isSubmitted && !isFullyApproved && isCurrentWeek && (hasPendingLines || hasRejectedLines));
+  // - AND not before hire date (BUG #22)
+  const isEditable = !isBeforeHireDate && (
+    (!isSubmitted && !period?.is_period_locked) || 
+    (isSubmitted && !isFullyApproved && isCurrentWeek && (hasPendingLines || hasRejectedLines))
+  );
 
   // Can unsubmit if submitted, has pending lines, and is current week
   const canUnsubmit = isSubmitted && hasPendingLines && isCurrentWeek && !isFullyApproved;
@@ -206,8 +218,18 @@ const TimeSheet = () => {
           onWeekSelect={setCurrentWeekStart}
         />
 
+        {/* BUG #22: Before hire date warning */}
+        {isBeforeHireDate && (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>
+              {t("timesheet.beforeHireDate")}
+            </AlertDescription>
+          </Alert>
+        )}
+
         {/* Locked/Submitted indicator */}
-        {(period?.is_period_locked || isSubmitted) && (
+        {!isBeforeHireDate && (period?.is_period_locked || isSubmitted) && (
           <Alert>
             <Lock className="h-4 w-4" />
             <AlertDescription>

@@ -184,7 +184,11 @@ export function StaffForm({ staff }: StaffFormProps) {
               <AlertDialogHeader>
                 <AlertDialogTitle>{t("staff.deleteStaff")}</AlertDialogTitle>
                 <AlertDialogDescription>
-                  {t("common.confirmDelete", { name: `${staff?.first_name} ${staff?.last_name}` })} {t("common.deleteWarning")}
+                  {t("common.confirmDelete", { name: `${staff?.first_name} ${staff?.last_name}` })}
+                  <br />
+                  <span className="text-sm text-muted-foreground mt-2 block">
+                    {t("staff.deleteExplanation")}
+                  </span>
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>

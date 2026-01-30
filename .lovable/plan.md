@@ -25,13 +25,13 @@
 
 ---
 
-## Remaining Work (Phase 5-7)
+### ✅ Phase 5: Data Integrity (COMPLETED)
+- #36: Soft delete implementation - DONE (checks for related records before delete)
+- #19: Engagement assignment filtering - DONE (staff only see assigned engagements)
+- #35: Pending vs approved hours breakdown - DONE (EncargoTab shows breakdown)
+- #22: Hire date validation - DONE (blocks time entry before hire date)
 
-### Phase 5: Data Integrity
-- #36: Soft delete implementation in useStaffMutations
-- #19: Engagement assignment filtering
-- #35: Pending vs approved hours breakdown
-- #22: Hire date validation in TimeSheet
+## Remaining Work (Phase 6-7)
 
 ### Phase 6: Polish
 - #24: File upload for expense receipts

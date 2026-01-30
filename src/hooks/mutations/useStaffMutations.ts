@@ -24,8 +24,13 @@ export function useCreateStaff() {
     mutationFn: async (data: {
       first_name: string;
       last_name: string;
+      short_name?: string;
+      initials?: string;
       email?: string;
       category_id?: string;
+      city?: string;
+      id_number?: string;
+      aud_reg_number?: string;
       is_active?: boolean;
     }) => {
       const { data: result, error } = await supabase
@@ -38,6 +43,7 @@ export function useCreateStaff() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["staff"] });
+      queryClient.invalidateQueries({ queryKey: ["staff_full"] });
       toast.success(i18n.t("messages.createSuccess", { entity: i18n.t("entities.staffMember") }));
     },
     onError: (error) => handleStaffError(error, "creating staff member"),
@@ -55,8 +61,13 @@ export function useUpdateStaff() {
       data: Partial<{
         first_name: string;
         last_name: string;
+        short_name: string;
+        initials: string;
         email: string;
         category_id: string;
+        city: string;
+        id_number: string;
+        aud_reg_number: string;
         is_active: boolean;
       }>;
     }) => {
@@ -71,22 +82,75 @@ export function useUpdateStaff() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["staff"] });
+      queryClient.invalidateQueries({ queryKey: ["staff_full"] });
       toast.success(i18n.t("messages.updateSuccess", { entity: i18n.t("entities.staffMember") }));
     },
-    onError: createMutationErrorHandler("updating staff member"),
+    onError: (error) => handleStaffError(error, "updating staff member"),
   });
 }
 
+// BUG #36: Soft delete when staff has related records
 export function useDeleteStaff() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from("staff").delete().eq("staff_id", id);
-      if (error) throw error;
+      // Check if staff has related records using direct query (since RPC types may be stale)
+      const { data: timeEntries } = await supabase
+        .from("time_entries")
+        .select("time_id")
+        .eq("staff_id", id)
+        .limit(1);
+      
+      const { data: timerEntries } = await supabase
+        .from("timer_entries")
+        .select("timer_id")
+        .eq("staff_id", id)
+        .limit(1);
+        
+      const { data: periods } = await supabase
+        .from("timesheet_periods")
+        .select("period_id")
+        .eq("staff_id", id)
+        .limit(1);
+        
+      const { data: engagements } = await supabase
+        .from("engagements")
+        .select("engagement_id")
+        .or(`partner_id.eq.${id},manager_id.eq.${id}`)
+        .limit(1);
+      
+      const hasRecords = 
+        (timeEntries && timeEntries.length > 0) ||
+        (timerEntries && timerEntries.length > 0) ||
+        (periods && periods.length > 0) ||
+        (engagements && engagements.length > 0);
+      
+      if (hasRecords) {
+        // Soft delete - set deleted_at timestamp
+        const { error } = await supabase
+          .from("staff")
+          .update({ deleted_at: new Date().toISOString(), is_active: false })
+          .eq("staff_id", id);
+        if (error) throw error;
+        return { softDeleted: true };
+      } else {
+        // Hard delete - no related records
+        const { error } = await supabase
+          .from("staff")
+          .delete()
+          .eq("staff_id", id);
+        if (error) throw error;
+        return { softDeleted: false };
+      }
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["staff"] });
-      toast.success(i18n.t("messages.deleteSuccess", { entity: i18n.t("entities.staffMember") }));
+      queryClient.invalidateQueries({ queryKey: ["staff_full"] });
+      if (result.softDeleted) {
+        toast.success(i18n.t("messages.staffDeactivated"));
+      } else {
+        toast.success(i18n.t("messages.deleteSuccess", { entity: i18n.t("entities.staffMember") }));
+      }
     },
     onError: createMutationErrorHandler("deleting staff member"),
   });
