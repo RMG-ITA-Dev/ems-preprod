@@ -23,21 +23,21 @@
 - #28: Status tooltips - ADDED (Work Orders page)
 - #34: Risk assessment UI - ADDED (WorkOrderForm)
 
----
-
 ### ✅ Phase 5: Data Integrity (COMPLETED)
 - #36: Soft delete implementation - DONE (checks for related records before delete)
 - #19: Engagement assignment filtering - DONE (staff only see assigned engagements)
 - #35: Pending vs approved hours breakdown - DONE (EncargoTab shows breakdown)
 - #22: Hire date validation - DONE (blocks time entry before hire date)
 
-## Remaining Work (Phase 6-7)
+### ✅ Phase 6: Polish (COMPLETED)
+- #24: File upload for expense receipts - DONE (Supabase storage integration)
+- #14: Removed non-functional BOB/USD dropdown from header
+- #16: Removed non-functional global search from header
+- #20: Timesheet revert functionality - DONE (useRequestRevision mutation added)
 
-### Phase 6: Polish
-- #24: File upload for expense receipts
-- #14: Remove/implement BOB/USD dropdown
-- #16: Remove/implement global search
-- #20: Timesheet revert functionality
+---
+
+## Remaining Work (Phase 7)
 
 ### Phase 7: Feature Requests
 - #12: Copy Previous Week functionality
@@ -48,8 +48,10 @@
 ---
 
 ## Testing Checklist
-- [ ] Timer tracks correctly when tab is in background
-- [ ] Import to Timesheet button visible and functional
-- [ ] Work Order status tooltips display correctly
-- [ ] Risk assessment section shows during approval
-- [ ] All translations work in both EN/ES
+- [x] Timer tracks correctly when tab is in background
+- [x] Import to Timesheet button visible and functional
+- [x] Work Order status tooltips display correctly
+- [x] Risk assessment section shows during approval
+- [x] All translations work in both EN/ES
+- [ ] File upload for expense receipts works correctly
+- [ ] Request Revision returns timesheet for correction
