@@ -3,14 +3,15 @@ import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Loader2, AlertCircle, Lock, Save, RotateCcw, Check, AlertTriangle } from "lucide-react";
+import { Loader2, AlertCircle, Lock, Save, RotateCcw, Check, AlertTriangle, Copy } from "lucide-react";
 import { WeekNavigator } from "@/components/timesheet/WeekNavigator";
 import { TimesheetGrid } from "@/components/timesheet/TimesheetGrid";
 import { useTimesheetPolicies } from "@/hooks/useTimesheetPolicies";
 import { useTimesheetWeek } from "@/hooks/useTimesheetWeek";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { usePeriodLineApprovals } from "@/hooks/useTimesheetApprovals";
-import { useSubmitTimesheet, useUnsubmitTimesheet } from "@/hooks/useTimesheetMutations";
+import { useSubmitTimesheet, useUnsubmitTimesheet, useCopyPreviousWeek } from "@/hooks/useTimesheetMutations";
+import { useGlobalSettings } from "@/hooks/useEmsData";
 import { supabase } from "@/integrations/supabase/client";
 import { parseISO, isBefore, startOfDay } from "date-fns";
 import {
@@ -32,9 +33,21 @@ const TimeSheet = () => {
 
   // Get policies
   const { data: policies } = useTimesheetPolicies();
+  const { data: globalSettings } = useGlobalSettings();
   const workDays = policies?.workDays ?? 5;
   const monthEndRule = policies?.monthEndRule ?? "COMPLETE_SPANNING_WEEK";
   const autoSaveSeconds = policies?.autoSaveSeconds ?? 3;
+
+  // BUG #13: Get hour limits from global settings
+  const dailyLimit = useMemo(() => {
+    const setting = globalSettings?.find((s) => s.setting_key === "DAILY_LIMIT");
+    return setting ? parseFloat(setting.setting_value) : 10;
+  }, [globalSettings]);
+
+  const weeklyLimit = useMemo(() => {
+    const setting = globalSettings?.find((s) => s.setting_key === "WEEKLY_LIMIT");
+    return setting ? parseFloat(setting.setting_value) : 50;
+  }, [globalSettings]);
 
   // Week navigation state - start with current week
   const [currentWeekStart, setCurrentWeekStart] = useState(() =>
@@ -76,6 +89,7 @@ const TimeSheet = () => {
   // Mutations
   const submitTimesheet = useSubmitTimesheet();
   const unsubmitTimesheet = useUnsubmitTimesheet();
+  const copyPreviousWeek = useCopyPreviousWeek();
 
   // Week navigation handlers
   const handlePreviousWeek = () => {
@@ -144,6 +158,17 @@ const TimeSheet = () => {
   const handleUnsubmit = () => {
     if (!period?.period_id) return;
     unsubmitTimesheet.mutate({ periodId: period.period_id });
+  };
+
+  // BUG #12: Handle copy previous week
+  const handleCopyPreviousWeek = () => {
+    if (!staffRecord?.staff_id) return;
+    copyPreviousWeek.mutate({
+      staffId: staffRecord.staff_id,
+      currentWeekStart,
+      periodId: period?.period_id || null,
+      workDays,
+    });
   };
 
   // Handle save draft (BUG #29)
@@ -266,6 +291,8 @@ const TimeSheet = () => {
           lineApprovals={lineApprovals || []}
           onSaveStatusChange={handleSaveStatusChange}
           saveNowTrigger={saveNowTrigger}
+          dailyLimit={dailyLimit}
+          weeklyLimit={weeklyLimit}
         />
 
         {/* Actions */}
@@ -290,6 +317,21 @@ const TimeSheet = () => {
           </div>
 
           <div className="flex gap-3">
+            {/* BUG #12: Copy Previous Week Button */}
+            {isEditable && (
+              <Button
+                variant="outline"
+                onClick={handleCopyPreviousWeek}
+                disabled={copyPreviousWeek.isPending}
+              >
+                {copyPreviousWeek.isPending && (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                )}
+                <Copy className="h-4 w-4 mr-2" />
+                {t("timesheet.copyPreviousWeek")}
+              </Button>
+            )}
+
             {/* Unsubmit Button (BUG #32) */}
             {canUnsubmit && (
               <Button

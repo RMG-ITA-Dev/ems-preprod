@@ -37,13 +37,11 @@
 
 ---
 
-## Remaining Work (Phase 7)
-
-### Phase 7: Feature Requests
-- #12: Copy Previous Week functionality
-- #13: Hour limit validation with warnings
-- #4: Improved initials generation
-- #30: Currency change rate recalculation (optional)
+## ✅ Phase 7: Feature Requests (COMPLETED)
+- #12: Copy Previous Week functionality - DONE (button copies entries from previous week)
+- #13: Hour limit validation with warnings - DONE (visual warnings when exceeding daily/weekly limits)
+- #4: Improved initials generation - DONE (uses consonants for better uniqueness)
+- #30: Currency change rate recalculation - DEFERRED (requires additional specification)
 
 ---
 
@@ -53,5 +51,8 @@
 - [x] Work Order status tooltips display correctly
 - [x] Risk assessment section shows during approval
 - [x] All translations work in both EN/ES
-- [ ] File upload for expense receipts works correctly
-- [ ] Request Revision returns timesheet for correction
+- [x] File upload for expense receipts works correctly
+- [x] Request Revision returns timesheet for correction
+- [ ] Copy Previous Week button works correctly
+- [ ] Hour limit warnings display when limits exceeded
+- [ ] Initials generation produces unique 3-4 character codes

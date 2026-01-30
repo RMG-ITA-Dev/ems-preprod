@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { NumericInput } from "@/components/ui/numeric-input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2, Loader2, Check, Clock, X } from "lucide-react";
+import { Plus, Trash2, Loader2, Check, Clock, X, AlertTriangle } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -50,6 +50,9 @@ interface TimesheetGridProps {
   // BUG #29: Callbacks for save status
   onSaveStatusChange?: (status: "idle" | "saving" | "saved") => void;
   saveNowTrigger?: number;
+  // BUG #13: Hour limit props
+  dailyLimit?: number;
+  weeklyLimit?: number;
 }
 
 export function TimesheetGrid({
@@ -65,6 +68,8 @@ export function TimesheetGrid({
   lineApprovals,
   onSaveStatusChange,
   saveNowTrigger,
+  dailyLimit = 10,
+  weeklyLimit = 50,
 }: TimesheetGridProps) {
   const { t } = useTranslation();
   const upsertEntry = useUpsertTimeEntry();
@@ -324,6 +329,25 @@ export function TimesheetGrid({
     return rows.reduce((sum, row) => sum + calculateRowTotal(row), 0);
   };
 
+  // BUG #13: Check if daily/weekly limits are exceeded
+  const isDailyOverLimit = (date: Date) => {
+    return calculateColumnTotal(date) > dailyLimit;
+  };
+
+  const isDailyNearLimit = (date: Date) => {
+    const total = calculateColumnTotal(date);
+    return total >= dailyLimit * 0.8 && total <= dailyLimit;
+  };
+
+  const isWeeklyOverLimit = () => {
+    return calculateGrandTotal() > weeklyLimit;
+  };
+
+  const isWeeklyNearLimit = () => {
+    const total = calculateGrandTotal();
+    return total >= weeklyLimit * 0.8 && total <= weeklyLimit;
+  };
+
   // Get approval status for an engagement
   const getApprovalStatus = (engagementId: string) => {
     return lineApprovals.find((la) => la.engagement_id === engagementId);
@@ -523,16 +547,41 @@ export function TimesheetGrid({
               <td colSpan={2} className="p-4 text-foreground">
                 {t("timesheet.dailyTotals")}
               </td>
-              {weekDates.map((date) => (
-                <td
-                  key={toISODateString(date)}
-                  className="p-4 text-center text-foreground font-mono"
-                >
-                  {calculateColumnTotal(date)}h
-                </td>
-              ))}
-              <td className="p-4 text-center text-foreground bg-primary/10 font-mono">
-                {calculateGrandTotal()}h
+              {weekDates.map((date) => {
+                const overLimit = isDailyOverLimit(date);
+                const nearLimit = isDailyNearLimit(date);
+                return (
+                  <td
+                    key={toISODateString(date)}
+                    className={cn(
+                      "p-4 text-center font-mono",
+                      overLimit && "text-destructive bg-destructive/10",
+                      nearLimit && !overLimit && "text-warning-foreground bg-warning/10"
+                    )}
+                  >
+                    <div className="flex items-center justify-center gap-1">
+                      {overLimit && <AlertTriangle className="h-3 w-3" />}
+                      {calculateColumnTotal(date)}h
+                    </div>
+                    {overLimit && (
+                      <div className="text-[10px] text-destructive">{t("timesheet.dailyLimitExceeded")}</div>
+                    )}
+                  </td>
+                );
+              })}
+              <td className={cn(
+                "p-4 text-center font-mono",
+                isWeeklyOverLimit() && "text-destructive bg-destructive/10",
+                isWeeklyNearLimit() && !isWeeklyOverLimit() && "text-warning-foreground bg-warning/10",
+                !isWeeklyOverLimit() && !isWeeklyNearLimit() && "bg-primary/10 text-foreground"
+              )}>
+                <div className="flex items-center justify-center gap-1">
+                  {isWeeklyOverLimit() && <AlertTriangle className="h-3 w-3" />}
+                  {calculateGrandTotal()}h
+                </div>
+                {isWeeklyOverLimit() && (
+                  <div className="text-[10px] text-destructive">{t("timesheet.weeklyLimitExceeded")}</div>
+                )}
               </td>
               <td></td>
             </tr>

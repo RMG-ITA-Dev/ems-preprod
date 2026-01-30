@@ -1,10 +1,9 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { toISODateString } from "@/lib/timesheetUtils";
+import { toISODateString, getPreviousWeek, getWorkDays } from "@/lib/timesheetUtils";
 import { createMutationErrorHandler } from "@/lib/error-handler";
 import i18n from "@/i18n";
-
 // Upsert a time entry (create or update)
 export function useUpsertTimeEntry() {
   const queryClient = useQueryClient();
@@ -226,5 +225,92 @@ export function useUnsubmitTimesheet() {
       toast.success(i18n.t("timesheet.unsubmitted"));
     },
     onError: createMutationErrorHandler("unsubmitting timesheet"),
+  });
+}
+
+// BUG #12: Copy previous week entries to current week
+export function useCopyPreviousWeek() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      staffId,
+      currentWeekStart,
+      periodId,
+      workDays,
+    }: {
+      staffId: string;
+      currentWeekStart: Date;
+      periodId: string | null;
+      workDays: number;
+    }) => {
+      // Get previous week dates
+      const previousWeekStart = getPreviousWeek(currentWeekStart);
+      const prevWeekDates = getWorkDays(previousWeekStart, workDays);
+      const prevWeekStartStr = toISODateString(prevWeekDates[0]);
+      const prevWeekEndStr = toISODateString(prevWeekDates[prevWeekDates.length - 1]);
+
+      // Fetch previous week entries
+      const { data: prevEntries, error: fetchError } = await supabase
+        .from("time_entries")
+        .select("*")
+        .eq("staff_id", staffId)
+        .gte("date_worked", prevWeekStartStr)
+        .lte("date_worked", prevWeekEndStr)
+        .eq("is_forecast", false);
+
+      if (fetchError) throw fetchError;
+      if (!prevEntries || prevEntries.length === 0) {
+        throw new Error("NO_ENTRIES");
+      }
+
+      // Get current week dates
+      const currentWeekDates = getWorkDays(currentWeekStart, workDays);
+
+      // Map entries to current week (same day offset)
+      const newEntries = prevEntries.map((entry) => {
+        const prevDate = new Date(entry.date_worked);
+        const dayIndex = prevWeekDates.findIndex(
+          (d) => toISODateString(d) === entry.date_worked
+        );
+        
+        // Get corresponding day in current week
+        const newDate = currentWeekDates[dayIndex] || currentWeekDates[0];
+
+        return {
+          staff_id: staffId,
+          engagement_id: entry.engagement_id,
+          activity_id: entry.activity_id,
+          date_worked: toISODateString(newDate),
+          hours_logged: entry.hours_logged,
+          period_id: periodId,
+          is_forecast: false,
+          description: entry.description,
+        };
+      });
+
+      // Insert new entries (upsert to avoid duplicates)
+      const { error: insertError } = await supabase
+        .from("time_entries")
+        .upsert(newEntries, {
+          onConflict: "staff_id,engagement_id,activity_id,date_worked",
+          ignoreDuplicates: false,
+        });
+
+      if (insertError) throw insertError;
+
+      return { copiedCount: newEntries.length };
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["time-entries"] });
+      toast.success(i18n.t("timesheet.copiedFromPreviousWeek", { count: data.copiedCount }));
+    },
+    onError: (error: Error) => {
+      if (error.message === "NO_ENTRIES") {
+        toast.error(i18n.t("timesheet.noPreviousEntries"));
+      } else {
+        createMutationErrorHandler("copying previous week")(error);
+      }
+    },
   });
 }
