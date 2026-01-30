@@ -498,8 +498,10 @@ export type Database = {
           category_id: string | null
           city: string | null
           created_at: string | null
+          deleted_at: string | null
           email: string | null
           first_name: string
+          hire_date: string | null
           id_number: string | null
           initials: string | null
           is_active: boolean | null
@@ -514,8 +516,10 @@ export type Database = {
           category_id?: string | null
           city?: string | null
           created_at?: string | null
+          deleted_at?: string | null
           email?: string | null
           first_name: string
+          hire_date?: string | null
           id_number?: string | null
           initials?: string | null
           is_active?: boolean | null
@@ -530,8 +534,10 @@ export type Database = {
           category_id?: string | null
           city?: string | null
           created_at?: string | null
+          deleted_at?: string | null
           email?: string | null
           first_name?: string
+          hire_date?: string | null
           id_number?: string | null
           initials?: string | null
           is_active?: boolean | null
@@ -1023,10 +1029,14 @@ export type Database = {
           approval_status: string | null
           approved_at: string | null
           approved_by: string | null
+          ceac_completed_at: string | null
+          ceac_notes: string | null
           created_at: string | null
           currency: string
           engagement_id: string
           notes: string | null
+          san_completed_at: string | null
+          san_notes: string | null
           season_mode: string
           tax_rate: number | null
           updated_at: string | null
@@ -1037,10 +1047,14 @@ export type Database = {
           approval_status?: string | null
           approved_at?: string | null
           approved_by?: string | null
+          ceac_completed_at?: string | null
+          ceac_notes?: string | null
           created_at?: string | null
           currency: string
           engagement_id: string
           notes?: string | null
+          san_completed_at?: string | null
+          san_notes?: string | null
           season_mode: string
           tax_rate?: number | null
           updated_at?: string | null
@@ -1051,10 +1065,14 @@ export type Database = {
           approval_status?: string | null
           approved_at?: string | null
           approved_by?: string | null
+          ceac_completed_at?: string | null
+          ceac_notes?: string | null
           created_at?: string | null
           currency?: string
           engagement_id?: string
           notes?: string | null
+          san_completed_at?: string | null
+          san_notes?: string | null
           season_mode?: string
           tax_rate?: number | null
           updated_at?: string | null

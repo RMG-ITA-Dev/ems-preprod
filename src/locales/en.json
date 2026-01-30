@@ -360,6 +360,12 @@
     "welcomeAdmin": "Welcome, Admin!",
     "missingCategories": "Missing required categories: {{categories}}. Please add them in Settings before creating engagements."
   },
+  "errors": {
+    "duplicateNit": "A client with this NIT already exists",
+    "duplicateEmail": "A staff member with this email already exists",
+    "invalidEmail": "Invalid email address",
+    "emailTooLong": "Email must be less than 255 characters"
+  },
   "form": {
     "required": "Required",
     "selectOption": "Select an option",
@@ -520,6 +526,9 @@
     "pendingApproval": "This week is pending approval.",
     "autoApproved": "Timesheet auto-approved",
     "submitted": "Timesheet submitted for approval",
+    "unsubmit": "Unsubmit",
+    "unsubmitted": "Timesheet recalled for editing",
+    "autoSaveHint": "Changes are saved automatically",
     "entry": "Time entry"
   },
   "expenses": {

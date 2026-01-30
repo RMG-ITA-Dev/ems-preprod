@@ -360,6 +360,12 @@
     "welcomeAdmin": "¡Bienvenido, Admin!",
     "missingCategories": "Faltan categorías requeridas: {{categories}}. Por favor agréguelas en Configuración antes de crear encargos."
   },
+  "errors": {
+    "duplicateNit": "Ya existe un cliente con este NIT",
+    "duplicateEmail": "Ya existe un miembro del personal con este correo",
+    "invalidEmail": "Dirección de correo inválida",
+    "emailTooLong": "El correo debe tener menos de 255 caracteres"
+  },
   "form": {
     "required": "Requerido",
     "selectOption": "Seleccione una opción",
@@ -520,6 +526,9 @@
     "pendingApproval": "Esta semana está pendiente de aprobación.",
     "autoApproved": "Hoja de tiempo auto-aprobada",
     "submitted": "Hoja de tiempo enviada para aprobación",
+    "unsubmit": "Retirar Envío",
+    "unsubmitted": "Hoja de tiempo retirada para edición",
+    "autoSaveHint": "Los cambios se guardan automáticamente",
     "entry": "Entrada de tiempo"
   },
   "expenses": {

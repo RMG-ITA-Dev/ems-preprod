@@ -16,11 +16,6 @@ import { toast } from "sonner";
 import { Loader2, Mail, CheckCircle } from "lucide-react";
 import { z } from "zod";
 
-const emailSchema = z.string()
-  .trim()
-  .email({ message: "Invalid email address" })
-  .max(255, { message: "Email must be less than 255 characters" });
-
 interface ForgotPasswordDialogProps {
   children: React.ReactNode;
 }
@@ -32,10 +27,18 @@ export function ForgotPasswordDialog({ children }: ForgotPasswordDialogProps) {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
+  const [emailError, setEmailError] = useState<string | null>(null);
+
+  // BUG #6: Move schema inside component to use translated messages
+  const emailSchema = z.string()
+    .trim()
+    .email({ message: t("errors.invalidEmail") })
+    .max(255, { message: t("errors.emailTooLong") });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setEmailError(null);
 
     try {
       // Validate email
@@ -52,7 +55,8 @@ export function ForgotPasswordDialog({ children }: ForgotPasswordDialogProps) {
       setSent(true);
     } catch (err) {
       if (err instanceof z.ZodError) {
-        toast.error(err.errors[0].message);
+        // BUG #6: Show inline error instead of toast only
+        setEmailError(err.errors[0].message);
       }
     } finally {
       setLoading(false);
@@ -65,6 +69,7 @@ export function ForgotPasswordDialog({ children }: ForgotPasswordDialogProps) {
       // Reset state when closing
       setEmail("");
       setSent(false);
+      setEmailError(null);
     }
   };
 
@@ -104,11 +109,18 @@ export function ForgotPasswordDialog({ children }: ForgotPasswordDialogProps) {
                   type="email"
                   placeholder={t("auth.emailPlaceholder")}
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    setEmailError(null);
+                  }}
                   required
-                  className="pl-10"
+                  className={`pl-10 ${emailError ? "border-destructive" : ""}`}
                 />
               </div>
+              {/* BUG #6: Show inline error message */}
+              {emailError && (
+                <p className="text-sm text-destructive">{emailError}</p>
+              )}
             </div>
 
             <div className="flex gap-2">

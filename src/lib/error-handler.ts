@@ -10,6 +10,7 @@ export enum ErrorCode {
   DB_QUERY = "DB_QUERY",
   DB_CONSTRAINT = "DB_CONSTRAINT",
   DB_NOT_FOUND = "DB_NOT_FOUND",
+  DB_DUPLICATE_KEY = "DB_DUPLICATE_KEY", // BUG #11, #15: Specific duplicate key error
   
   // Auth errors
   AUTH_UNAUTHORIZED = "AUTH_UNAUTHORIZED",
@@ -67,7 +68,9 @@ function parseSupabaseErrorCode(error: unknown): ErrorCode {
   if (pgCode) {
     // Connection errors (08xxx)
     if (pgCode.startsWith("08")) return ErrorCode.DB_CONNECTION;
-    // Constraint violations (23xxx)
+    // BUG #11, #15: Unique violation (23505)
+    if (pgCode === "23505") return ErrorCode.DB_DUPLICATE_KEY;
+    // Other constraint violations (23xxx)
     if (pgCode.startsWith("23")) return ErrorCode.DB_CONSTRAINT;
     // Authorization errors (42xxx)
     if (pgCode === "42501") return ErrorCode.AUTH_FORBIDDEN;
@@ -93,6 +96,7 @@ function getUserFriendlyMessage(code: ErrorCode, fallbackMessage?: string): stri
     [ErrorCode.DB_QUERY]: "A database error occurred. Please try again.",
     [ErrorCode.DB_CONSTRAINT]: "This operation violates data constraints. Please check your input.",
     [ErrorCode.DB_NOT_FOUND]: "The requested data was not found.",
+    [ErrorCode.DB_DUPLICATE_KEY]: "A record with this value already exists. Please use a unique value.",
     [ErrorCode.AUTH_UNAUTHORIZED]: "You need to sign in to perform this action.",
     [ErrorCode.AUTH_FORBIDDEN]: "You don't have permission to perform this action.",
     [ErrorCode.AUTH_SESSION_EXPIRED]: "Your session has expired. Please sign in again.",

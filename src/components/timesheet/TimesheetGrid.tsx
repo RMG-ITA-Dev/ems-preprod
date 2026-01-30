@@ -47,6 +47,9 @@ interface TimesheetGridProps {
   autoSaveSeconds: number;
   lang: string;
   lineApprovals: LineApproval[];
+  // BUG #29: Callbacks for save status
+  onSaveStatusChange?: (status: "idle" | "saving" | "saved") => void;
+  saveNowTrigger?: number;
 }
 
 export function TimesheetGrid({
@@ -60,6 +63,8 @@ export function TimesheetGrid({
   autoSaveSeconds,
   lang,
   lineApprovals,
+  onSaveStatusChange,
+  saveNowTrigger,
 }: TimesheetGridProps) {
   const { t } = useTranslation();
   const upsertEntry = useUpsertTimeEntry();
@@ -122,6 +127,79 @@ export function TimesheetGrid({
       Object.values(debounceTimers.current).forEach(clearTimeout);
     };
   }, []);
+
+  // BUG #29: Notify parent of save status changes
+  useEffect(() => {
+    if (savingCells.size > 0) {
+      onSaveStatusChange?.("saving");
+    } else if (savedCells.size > 0) {
+      onSaveStatusChange?.("saved");
+    } else {
+      onSaveStatusChange?.("idle");
+    }
+  }, [savingCells.size, savedCells.size, onSaveStatusChange]);
+
+  // BUG #29: Handle "Save Now" trigger from parent
+  const prevSaveNowTrigger = useRef(0);
+  useEffect(() => {
+    if (saveNowTrigger && saveNowTrigger > prevSaveNowTrigger.current) {
+      prevSaveNowTrigger.current = saveNowTrigger;
+      
+      // Clear all pending debounce timers and save immediately
+      Object.entries(debounceTimers.current).forEach(([key, timer]) => {
+        clearTimeout(timer);
+        delete debounceTimers.current[key];
+      });
+      
+      // Trigger immediate save for all rows with data
+      rowsRef.current.forEach((row) => {
+        if (!row.engagementId || !row.activityId) return;
+        weekDates.forEach((date) => {
+          const dateStr = toISODateString(date);
+          const hours = row.hours[dateStr];
+          if (hours !== undefined && hours > 0) {
+            const cellKey = `${row.id}-${dateStr}`;
+            setSavingCells((prev) => new Set(prev).add(cellKey));
+            upsertEntry.mutate(
+              {
+                staffId,
+                engagementId: row.engagementId,
+                activityId: row.activityId,
+                dateWorked: date,
+                hours,
+                periodId,
+                existingEntryId: row.entryIds[dateStr] || null,
+              },
+              {
+                onSuccess: () => {
+                  setSavingCells((prev) => {
+                    const next = new Set(prev);
+                    next.delete(cellKey);
+                    return next;
+                  });
+                  setSavedCells((prev) => new Set(prev).add(cellKey));
+                  setTimeout(() => {
+                    setSavedCells((prev) => {
+                      const next = new Set(prev);
+                      next.delete(cellKey);
+                      return next;
+                    });
+                  }, 2000);
+                },
+                onError: () => {
+                  setSavingCells((prev) => {
+                    const next = new Set(prev);
+                    next.delete(cellKey);
+                    return next;
+                  });
+                },
+              }
+            );
+          }
+        });
+      });
+    }
+  }, [saveNowTrigger, weekDates, staffId, periodId, upsertEntry]);
 
   const addNewRow = () => {
     setRows([
@@ -329,10 +407,20 @@ export function TimesheetGrid({
                       <SelectContent>
                         {engagements.map((eng) => (
                           <SelectItem key={eng.engagement_id} value={eng.engagement_id}>
-                            <span className="font-mono text-xs text-muted-foreground mr-2">
-                              {eng.engagement_code}
-                            </span>
-                            {eng.engagement_name}
+                            <div className="flex flex-col">
+                              <div className="flex items-center">
+                                <span className="font-mono text-xs text-muted-foreground mr-2">
+                                  {eng.engagement_code}
+                                </span>
+                                {eng.engagement_name}
+                              </div>
+                              {/* BUG #31: Show client name */}
+                              {eng.client?.client_legal_name && (
+                                <span className="text-xs text-muted-foreground">
+                                  {eng.client.client_legal_name}
+                                </span>
+                              )}
+                            </div>
                           </SelectItem>
                         ))}
                       </SelectContent>

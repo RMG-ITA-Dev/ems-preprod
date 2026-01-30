@@ -4,6 +4,20 @@ import { toast } from "sonner";
 import { createMutationErrorHandler } from "@/lib/error-handler";
 import i18n from "@/i18n";
 
+// BUG #15: Handle duplicate email error specifically
+function handleStaffError(error: Error, operation: string) {
+  const err = error as unknown as { code?: string; message?: string };
+  
+  // Check for unique constraint violation on email
+  if (err.code === "23505" && err.message?.includes("email")) {
+    toast.error(i18n.t("errors.duplicateEmail"));
+    return;
+  }
+  
+  // Fall back to default error handling
+  createMutationErrorHandler(operation)(error);
+}
+
 export function useCreateStaff() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -26,7 +40,7 @@ export function useCreateStaff() {
       queryClient.invalidateQueries({ queryKey: ["staff"] });
       toast.success(i18n.t("messages.createSuccess", { entity: i18n.t("entities.staffMember") }));
     },
-    onError: createMutationErrorHandler("creating staff member"),
+    onError: (error) => handleStaffError(error, "creating staff member"),
   });
 }
 
