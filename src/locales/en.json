@@ -302,7 +302,8 @@
     "activeDescription": "Active staff members can log time entries",
     "selectCategory": "Select a category",
     "supervisor": "Supervisor",
-    "selectSupervisor": "Select Supervisor"
+    "selectSupervisor": "Select Supervisor",
+    "deleteExplanation": "If this staff member has time entries or engagements, they will be deactivated instead of deleted."
   },
   "client": {
     "name": "Client Name",
@@ -361,7 +362,8 @@
     "invalidCredentials": "Invalid email or password. Please try again.",
     "emailAlreadyRegistered": "This email is already registered. Please sign in instead.",
     "welcomeAdmin": "Welcome, Admin!",
-    "missingCategories": "Missing required categories: {{categories}}. Please add them in Settings before creating engagements."
+    "missingCategories": "Missing required categories: {{categories}}. Please add them in Settings before creating engagements.",
+    "staffDeactivated": "Staff member deactivated (has related records)"
   },
   "errors": {
     "duplicateNit": "A client with this NIT already exists",
@@ -478,7 +480,9 @@
       "activityBreakdown": "Breakdown by Activity",
       "budget": "Budget",
       "actual": "Actual",
-      "noData": "No data available"
+      "noData": "No data available",
+      "approved": "approved",
+      "pending": "pending"
     },
     "practica": {
       "activeEngagements": "Active Engagements",
@@ -532,7 +536,8 @@
     "unsubmit": "Unsubmit",
     "unsubmitted": "Timesheet recalled for editing",
     "autoSaveHint": "Changes are saved automatically",
-    "entry": "Time entry"
+    "entry": "Time entry",
+    "beforeHireDate": "You cannot log time for this week because it is before your hire date."
   },
   "expenses": {
     "title": "Expenses",

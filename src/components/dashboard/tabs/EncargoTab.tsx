@@ -152,7 +152,65 @@ export function EncargoTab() {
     enabled: !!selectedEngagementId,
   });
 
-  const isLoading = engagementLoading || budgetLoading || woLoading || categoryLoading || actualLoading;
+  // BUG #35: Fetch hours by approval status using direct query
+  const { data: hoursByStatus, isLoading: statusLoading } = useQuery({
+    queryKey: ['encargo-hours-by-status', selectedEngagementId],
+    queryFn: async () => {
+      if (!selectedEngagementId) return { approved: 0, pending: 0 };
+
+      // Get time entries with their approval status
+      const { data: entries, error: entriesError } = await supabase
+        .from('time_entries')
+        .select(`
+          hours_logged,
+          period_id
+        `)
+        .eq('engagement_id', selectedEngagementId)
+        .eq('is_forecast', false);
+
+      if (entriesError) throw entriesError;
+      if (!entries || entries.length === 0) return { approved: 0, pending: 0 };
+
+      // Get unique period IDs
+      const periodIds = [...new Set(entries.filter(e => e.period_id).map(e => e.period_id!))] as string[];
+      
+      if (periodIds.length === 0) {
+        // No periods = all pending
+        const totalHours = entries.reduce((sum, e) => sum + Number(e.hours_logged), 0);
+        return { approved: 0, pending: totalHours };
+      }
+
+      // Get line approvals for this engagement
+      const { data: approvals, error: approvalsError } = await supabase
+        .from('timesheet_line_approvals')
+        .select('period_id, status')
+        .eq('engagement_id', selectedEngagementId)
+        .in('period_id', periodIds);
+
+      if (approvalsError) throw approvalsError;
+
+      // Map period_id to approval status
+      const approvalMap = new Map<string, string>();
+      approvals?.forEach(a => approvalMap.set(a.period_id, a.status));
+
+      // Sum hours by status
+      let approved = 0;
+      let pending = 0;
+      entries.forEach(entry => {
+        const status = entry.period_id ? approvalMap.get(entry.period_id) : null;
+        if (status === 'approved') {
+          approved += Number(entry.hours_logged);
+        } else {
+          pending += Number(entry.hours_logged);
+        }
+      });
+
+      return { approved, pending };
+    },
+    enabled: !!selectedEngagementId,
+  });
+
+  const isLoading = engagementLoading || budgetLoading || woLoading || categoryLoading || actualLoading || statusLoading;
 
   // Calculate totals
   const totalBudgetHours = categoryBudget?.reduce((sum, c) => sum + Number(c.total_budget_hours || 0), 0) || 0;
@@ -254,7 +312,7 @@ export function EncargoTab() {
           </CardContent>
         </Card>
 
-        {/* Actual Hours */}
+        {/* Actual Hours - BUG #35: Show approved vs pending breakdown */}
         <Card className="bg-card/80 backdrop-blur-sm border-border hover:shadow-lg hover:border-primary/30 transition-all duration-300">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
@@ -272,12 +330,19 @@ export function EncargoTab() {
               </span>
               <span className="text-sm text-muted-foreground mb-1">h</span>
             </div>
-            <p className={cn(
-              "text-xs mt-2",
-              varianceHours >= 0 ? "text-success" : "text-destructive"
-            )}>
-              {varianceHours >= 0 ? '+' : ''}{varianceHours.toFixed(1)}h {t('dashboard.encargo.variance')}
-            </p>
+            {/* Approved vs Pending breakdown */}
+            <div className="flex gap-3 mt-2 text-xs">
+              <span className="text-success flex items-center gap-1">
+                <CheckCircle2 className="h-3 w-3" />
+                {(hoursByStatus?.approved || 0).toFixed(1)}h {t('dashboard.encargo.approved')}
+              </span>
+              {(hoursByStatus?.pending || 0) > 0 && (
+                <span className="text-warning flex items-center gap-1">
+                  <Clock className="h-3 w-3" />
+                  {(hoursByStatus?.pending || 0).toFixed(1)}h {t('dashboard.encargo.pending')}
+                </span>
+              )}
+            </div>
           </CardContent>
         </Card>
 

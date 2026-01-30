@@ -29,6 +29,7 @@ export interface Staff {
   category_id: string | null;
   is_active: boolean;
   city: string | null;
+  hire_date?: string | null;
   category?: Category;
 }
 
