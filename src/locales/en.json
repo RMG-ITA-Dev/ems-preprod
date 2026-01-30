@@ -119,6 +119,9 @@
     "willAddToTimesheet": "Will be added to timesheet",
     "importSelected": "Import Selected",
     "importFromTimer": "Import from Timer",
+    "importToTimesheet": "Import to Timesheet",
+    "importSuccess": "{{count}} entries imported successfully",
+    "importError": "Error importing entries",
     "cycles": {
       "title": "Cycles",
       "ready": "Ready to start",
@@ -590,6 +593,20 @@
       "approved": "Approved",
       "rejected": "Rejected"
     },
+    "statusLegend": "Status Legend",
+    "statusTooltip": {
+      "draft": "Draft - Work order is being prepared",
+      "pending": "Pending - Awaiting approval from management",
+      "approved": "Approved - Work order is locked and active",
+      "rejected": "Rejected - Returned to draft for revisions"
+    },
+    "riskAssessment": "Risk Assessment",
+    "riskAssessmentDescription": "Complete risk assessment before approving",
+    "ceacDate": "CEAC Completed",
+    "ceacNotes": "CEAC Notes",
+    "sanDate": "SAN Completed",
+    "sanNotes": "SAN Notes",
+    "riskAssessmentRequired": "Risk assessment must be completed before approval",
     "allStatuses": "All Statuses",
     "allEngagementsHaveWorkOrders": "All active engagements already have a work order.",
     "createEngagementFirst": "Create a new engagement",

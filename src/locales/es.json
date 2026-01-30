@@ -119,6 +119,9 @@
     "willAddToTimesheet": "Se agregará a la hoja de tiempo",
     "importSelected": "Importar Seleccionadas",
     "importFromTimer": "Importar del Cronómetro",
+    "importToTimesheet": "Importar a Hoja de Tiempo",
+    "importSuccess": "{{count}} entradas importadas exitosamente",
+    "importError": "Error al importar entradas",
     "cycles": {
       "title": "Ciclos",
       "ready": "Listo para comenzar",
@@ -590,6 +593,20 @@
       "approved": "Aprobado",
       "rejected": "Rechazado"
     },
+    "statusLegend": "Leyenda de Estados",
+    "statusTooltip": {
+      "draft": "Borrador - Orden de trabajo en preparación",
+      "pending": "Pendiente - Esperando aprobación de gerencia",
+      "approved": "Aprobado - Orden de trabajo bloqueada y activa",
+      "rejected": "Rechazado - Devuelto a borrador para revisiones"
+    },
+    "riskAssessment": "Evaluación de Riesgos",
+    "riskAssessmentDescription": "Complete la evaluación de riesgos antes de aprobar",
+    "ceacDate": "CEAC Completado",
+    "ceacNotes": "Notas CEAC",
+    "sanDate": "SAN Completado",
+    "sanNotes": "Notas SAN",
+    "riskAssessmentRequired": "La evaluación de riesgos debe completarse antes de aprobar",
     "allStatuses": "Todos los Estados",
     "allEngagementsHaveWorkOrders": "Todos los encargos activos ya tienen una orden de trabajo.",
     "createEngagementFirst": "Crear un nuevo encargo",

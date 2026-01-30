@@ -16,6 +16,12 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Plus, Search, Sun, Snowflake, ArrowUpDown, ArrowUp, ArrowDown, Filter, ChevronDown } from "lucide-react";
 import { useWorkOrders, WorkOrder } from "@/hooks/useEmsData";
@@ -602,15 +608,24 @@ const WorkOrders = () => {
                               <Snowflake className="h-4 w-4 text-info mx-auto" />
                             )}
                           </TableCell>
-                          {/* Status Dot */}
+                          {/* Status Dot with Tooltip */}
                           <TableCell className="text-center border-r border-border">
-                            <div
-                              className={cn(
-                                "h-2.5 w-2.5 rounded-full mx-auto",
-                                statusDotColors[status]
-                              )}
-                              title={t(`workOrders.status.${status.toLowerCase().replace("_", "")}`)}
-                            />
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div
+                                    className={cn(
+                                      "h-2.5 w-2.5 rounded-full mx-auto cursor-help",
+                                      statusDotColors[status]
+                                    )}
+                                  />
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p className="font-medium">{t(`workOrders.status.${status.toLowerCase().replace("_", "")}`)}</p>
+                                  <p className="text-xs text-muted-foreground">{t(`workOrders.statusTooltip.${status.toLowerCase().replace("_", "")}`)}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
                           </TableCell>
                           {/* Engagement Code */}
                           <TableCell className="text-muted-foreground text-left border-r border-border">

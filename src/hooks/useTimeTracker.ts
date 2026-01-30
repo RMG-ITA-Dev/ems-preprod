@@ -37,15 +37,13 @@ export function useTimeTracker() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        // IMPORTANT: Do NOT auto-resume timer on page load
-        // Only restore elapsed time, require manual start to resume
+        // If timer was running, calculate elapsed time from startTime
         if (parsed.isRunning && parsed.startTime) {
           const now = Date.now();
           const additionalSeconds = Math.floor((now - parsed.startTime) / 1000);
           parsed.elapsedSeconds += additionalSeconds;
-          // Stop the timer - user must manually restart
-          parsed.isRunning = false;
-          parsed.startTime = null;
+          // Keep running - we'll continue from current time
+          parsed.startTime = now;
         }
         return { ...DEFAULT_STATE, ...parsed };
       } catch {
@@ -62,14 +60,31 @@ export function useTimeTracker() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }, [state]);
 
-  // Timer tick effect
+  // Calculate elapsed time from startTime - this fixes background tracking
+  const calculateElapsedFromStart = useCallback(() => {
+    if (state.isRunning && state.startTime) {
+      const now = Date.now();
+      const totalElapsed = state.elapsedSeconds + Math.floor((now - state.startTime) / 1000);
+      return totalElapsed;
+    }
+    return state.elapsedSeconds;
+  }, [state.isRunning, state.startTime, state.elapsedSeconds]);
+
+  // Timer tick effect - uses timestamp-based calculation
   useEffect(() => {
-    if (state.isRunning) {
+    if (state.isRunning && state.startTime) {
+      // Update display every second, but calculate from startTime
       intervalRef.current = setInterval(() => {
-        setState((prev) => ({
-          ...prev,
-          elapsedSeconds: prev.elapsedSeconds + 1,
-        }));
+        setState((prev) => {
+          if (!prev.isRunning || !prev.startTime) return prev;
+          const now = Date.now();
+          const newElapsed = Math.floor((now - prev.startTime) / 1000);
+          return {
+            ...prev,
+            elapsedSeconds: prev.elapsedSeconds + newElapsed,
+            startTime: now, // Reset startTime to now
+          };
+        });
       }, 1000);
     } else {
       if (intervalRef.current) {
@@ -85,6 +100,29 @@ export function useTimeTracker() {
     };
   }, [state.isRunning]);
 
+  // Visibility change handler - recalculate when tab becomes active
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && state.isRunning && state.startTime) {
+        setState((prev) => {
+          if (!prev.isRunning || !prev.startTime) return prev;
+          const now = Date.now();
+          const additionalSeconds = Math.floor((now - prev.startTime) / 1000);
+          return {
+            ...prev,
+            elapsedSeconds: prev.elapsedSeconds + additionalSeconds,
+            startTime: now,
+          };
+        });
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [state.isRunning, state.startTime]);
+
   const start = useCallback((entryId?: string) => {
     setState((prev) => ({
       ...prev,
@@ -95,11 +133,20 @@ export function useTimeTracker() {
   }, []);
 
   const stop = useCallback(() => {
-    setState((prev) => ({
-      ...prev,
-      isRunning: false,
-      startTime: null,
-    }));
+    setState((prev) => {
+      // Calculate final elapsed before stopping
+      let finalElapsed = prev.elapsedSeconds;
+      if (prev.isRunning && prev.startTime) {
+        const now = Date.now();
+        finalElapsed += Math.floor((now - prev.startTime) / 1000);
+      }
+      return {
+        ...prev,
+        isRunning: false,
+        startTime: null,
+        elapsedSeconds: finalElapsed,
+      };
+    });
   }, []);
 
   const reset = useCallback(() => {
@@ -157,10 +204,13 @@ export function useTimeTracker() {
     return `${hrs.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
 
+  // Get current elapsed including any running time
+  const currentElapsed = calculateElapsedFromStart();
+
   return {
     // State
     isRunning: state.isRunning,
-    elapsedSeconds: state.elapsedSeconds,
+    elapsedSeconds: currentElapsed,
     engagementId: state.engagementId,
     activityId: state.activityId,
     description: state.description,
@@ -177,6 +227,6 @@ export function useTimeTracker() {
     setDescription,
     // Helpers
     formatTime,
-    formattedTime: formatTime(state.elapsedSeconds),
+    formattedTime: formatTime(currentElapsed),
   };
 }

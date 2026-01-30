@@ -14,7 +14,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Trash2, Plus, Lock, CheckCircle, XCircle, Send } from "lucide-react";
+import { Trash2, Plus, Lock, CheckCircle, XCircle, Send, ShieldCheck } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { useCategories, useExpenseTypes, useSetting, Category, ExpenseType, type WorkOrder, type WOBudgetLine } from "@/hooks/useEmsData";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/hooks/useLanguage";
@@ -40,11 +42,17 @@ interface WorkOrderFormProps {
   taxRate: number;
   budgetLines: BudgetLineInput[];
   expenseBudget: ExpenseBudgetInput[];
+  // Risk assessment fields
+  ceacCompletedAt?: string | null;
+  ceacNotes?: string | null;
+  sanCompletedAt?: string | null;
+  sanNotes?: string | null;
   onCurrencyChange: (currency: "USD" | "BOB") => void;
   onSeasonChange: (season: "High" | "Low") => void;
   onAdjustmentChange: (amount: number) => void;
   onBudgetLinesChange: (lines: BudgetLineInput[]) => void;
   onExpenseBudgetChange: (expenses: ExpenseBudgetInput[]) => void;
+  onRiskAssessmentChange?: (field: string, value: string | null) => void;
   onSubmit: () => void;
   onApprove?: () => void;
   onReject?: () => void;
@@ -77,11 +85,16 @@ export function WorkOrderForm({
   taxRate,
   budgetLines,
   expenseBudget,
+  ceacCompletedAt,
+  ceacNotes,
+  sanCompletedAt,
+  sanNotes,
   onCurrencyChange,
   onSeasonChange,
   onAdjustmentChange,
   onBudgetLinesChange,
   onExpenseBudgetChange,
+  onRiskAssessmentChange,
   onSubmit,
   onApprove,
   onReject,
@@ -510,6 +523,57 @@ export function WorkOrderForm({
           </CardContent>
         </Card>
       </div>
+
+      {/* Risk Assessment Section - Visible for approval */}
+      {isPending && canApprove && onRiskAssessmentChange && (
+        <Card className="border-info/30 bg-info/5">
+          <CardHeader className="py-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <ShieldCheck className="h-4 w-4 text-info" />
+              {t("workOrders.riskAssessment")}
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">{t("workOrders.riskAssessmentDescription")}</p>
+          </CardHeader>
+          <CardContent className="pt-0 space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>{t("workOrders.ceacDate")}</Label>
+                <Input
+                  type="date"
+                  value={ceacCompletedAt ? ceacCompletedAt.split('T')[0] : ''}
+                  onChange={(e) => onRiskAssessmentChange('ceacCompletedAt', e.target.value || null)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>{t("workOrders.sanDate")}</Label>
+                <Input
+                  type="date"
+                  value={sanCompletedAt ? sanCompletedAt.split('T')[0] : ''}
+                  onChange={(e) => onRiskAssessmentChange('sanCompletedAt', e.target.value || null)}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>{t("workOrders.ceacNotes")}</Label>
+                <Textarea
+                  value={ceacNotes || ''}
+                  onChange={(e) => onRiskAssessmentChange('ceacNotes', e.target.value || null)}
+                  rows={2}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>{t("workOrders.sanNotes")}</Label>
+                <Textarea
+                  value={sanNotes || ''}
+                  onChange={(e) => onRiskAssessmentChange('sanNotes', e.target.value || null)}
+                  rows={2}
+                />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Actions */}
       <div className="flex justify-end gap-3">
