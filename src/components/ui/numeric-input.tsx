@@ -132,6 +132,18 @@ const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps>(
         return;
       }
 
+      // BUG #33: Allow intermediate states like "0." while typing decimals
+      // Only block if value ends with separator AND has content after
+      const endsWithSeparator = newValue.endsWith(decimalSeparator) || newValue.endsWith(".");
+      if (endsWithSeparator && decimals > 0) {
+        // Allow typing "0." on the way to "0.5"
+        const baseValue = newValue.slice(0, -1);
+        if (baseValue === "" || baseValue === "-" || !isNaN(parseFloat(normalizeValue(baseValue)))) {
+          onValueChange?.(newValue);
+          return;
+        }
+      }
+
       // Check if value matches pattern
       if (!pattern.test(newValue)) {
         return;
@@ -141,11 +153,10 @@ const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps>(
       const normalizedValue = normalizeValue(newValue);
       const numericValue = parseFloat(normalizedValue);
 
-      // Apply min/max constraints
+      // BUG #33: Only enforce min constraint on blur, not during typing
+      // This allows typing "0.5" without blocking at "0"
+      // Max constraint is still enforced during typing to prevent overflow
       if (!isNaN(numericValue)) {
-        if (min !== undefined && numericValue < min) {
-          return;
-        }
         if (max !== undefined && numericValue > max) {
           return;
         }
@@ -159,7 +170,7 @@ const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps>(
       let currentValue = e.target.value;
 
       // Clean up trailing decimal separator
-      if (currentValue.endsWith(decimalSeparator)) {
+      if (currentValue.endsWith(decimalSeparator) || currentValue.endsWith(".")) {
         currentValue = currentValue.slice(0, -1);
         onValueChange?.(currentValue);
       }
@@ -168,6 +179,19 @@ const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps>(
       if (currentValue === "-") {
         onValueChange?.("");
         onChange?.(0);
+        props.onBlur?.(e);
+        return;
+      }
+
+      // BUG #33: Enforce min constraint on blur (after user finishes typing)
+      if (currentValue !== "") {
+        const normalizedValue = normalizeValue(currentValue);
+        const numericValue = parseFloat(normalizedValue);
+        if (!isNaN(numericValue) && min !== undefined && numericValue < min) {
+          const minStr = locale === "es" ? String(min).replace(".", ",") : String(min);
+          onValueChange?.(minStr);
+          onChange?.(min);
+        }
       }
 
       props.onBlur?.(e);

@@ -188,4 +188,43 @@ export function useSubmitTimesheet() {
   });
 }
 
-// Note: useSaveTimesheetDraft was removed - draft state is now implicit when submitted_at is null
+// BUG #32: Unsubmit timesheet to allow corrections before approval
+export function useUnsubmitTimesheet() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      periodId,
+    }: {
+      periodId: string;
+    }) => {
+      // Clear submitted_at to revert to draft state
+      const { error: periodError } = await supabase
+        .from("timesheet_periods")
+        .update({
+          submitted_at: null,
+        })
+        .eq("period_id", periodId);
+
+      if (periodError) throw periodError;
+
+      // Delete pending line approvals (keep approved/rejected for record)
+      const { error: lineError } = await supabase
+        .from("timesheet_line_approvals")
+        .delete()
+        .eq("period_id", periodId)
+        .eq("status", "pending");
+
+      if (lineError) throw lineError;
+
+      return { periodId };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["timesheet-period"] });
+      queryClient.invalidateQueries({ queryKey: ["period-line-approvals"] });
+      queryClient.invalidateQueries({ queryKey: ["pending-approvals"] });
+      toast.success(i18n.t("timesheet.unsubmitted"));
+    },
+    onError: createMutationErrorHandler("unsubmitting timesheet"),
+  });
+}
