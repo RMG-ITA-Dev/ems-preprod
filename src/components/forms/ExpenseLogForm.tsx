@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { NumericInput } from "@/components/ui/numeric-input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
 import {
   Select,
   SelectContent,
@@ -18,25 +19,13 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { CalendarIcon } from "lucide-react";
+import { CalendarIcon, Upload, X, FileText, ExternalLink } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { useEngagements, useExpenseTypes } from "@/hooks/useEmsData";
-import { useState, useEffect } from "react";
-
-/**
- * Validates that a URL uses only http or https protocol.
- * Prevents javascript:, data:, and other potentially dangerous protocols.
- */
-function isValidHttpUrl(urlString: string): boolean {
-  if (!urlString || urlString.trim() === "") return true; // Empty is valid (optional field)
-  try {
-    const url = new URL(urlString);
-    return url.protocol === "http:" || url.protocol === "https:";
-  } catch {
-    return false;
-  }
-}
+import { useState, useEffect, useRef } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 interface ExpenseLogFormData {
   expense_log_id?: string;
@@ -73,6 +62,7 @@ export function ExpenseLogForm({
   const { t } = useTranslation();
   const { data: engagements = [] } = useEngagements();
   const { data: expenseTypes = [] } = useExpenseTypes();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Filter only active engagements with approved work orders for selection
   const activeEngagements = engagements.filter(e => e.status === "active");
@@ -84,12 +74,17 @@ export function ExpenseLogForm({
     amount: initialData?.amount || 0,
     currency: (initialData?.currency || "BOB") as "BOB" | "USD",
     description: initialData?.description || "",
-    receipt_url: "",
   });
 
   const [date, setDate] = useState<Date | undefined>(
     initialData?.date_incurred ? new Date(initialData.date_incurred + "T12:00:00") : undefined
   );
+
+  // File upload state
+  const [uploadedFileUrl, setUploadedFileUrl] = useState<string | null>(initialData?.receipt_url || null);
+  const [uploadingFile, setUploadingFile] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
 
   useEffect(() => {
     if (initialData) {
@@ -100,10 +95,12 @@ export function ExpenseLogForm({
         amount: initialData.amount,
         currency: initialData.currency as "BOB" | "USD",
         description: initialData.description || "",
-        receipt_url: "",
       });
       if (initialData.date_incurred) {
         setDate(new Date(initialData.date_incurred + "T12:00:00"));
+      }
+      if (initialData.receipt_url) {
+        setUploadedFileUrl(initialData.receipt_url);
       }
     }
   }, [initialData]);
@@ -118,13 +115,84 @@ export function ExpenseLogForm({
     }
   };
 
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file size (max 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error(t("expenses.fileTooLarge", "File size must be less than 10MB"));
+      return;
+    }
+
+    // Validate file type
+    const allowedTypes = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
+    if (!allowedTypes.includes(file.type)) {
+      toast.error(t("expenses.invalidFileType", "Only JPG, PNG, WebP and PDF files are allowed"));
+      return;
+    }
+
+    setUploadingFile(true);
+    setUploadProgress(0);
+    setSelectedFileName(file.name);
+
+    try {
+      // Generate unique file path
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+      const filePath = `receipts/${fileName}`;
+
+      // Simulate progress for better UX
+      const progressInterval = setInterval(() => {
+        setUploadProgress(prev => Math.min(prev + 10, 90));
+      }, 100);
+
+      const { data, error } = await supabase.storage
+        .from("expense-receipts")
+        .upload(filePath, file, {
+          cacheControl: "3600",
+          upsert: false,
+        });
+
+      clearInterval(progressInterval);
+
+      if (error) {
+        throw error;
+      }
+
+      // Get signed URL for the uploaded file (valid for 1 year)
+      const { data: signedUrlData, error: urlError } = await supabase.storage
+        .from("expense-receipts")
+        .createSignedUrl(data.path, 60 * 60 * 24 * 365);
+
+      if (urlError) {
+        throw urlError;
+      }
+
+      setUploadProgress(100);
+      setUploadedFileUrl(signedUrlData.signedUrl);
+      toast.success(t("expenses.fileUploaded", "File uploaded successfully"));
+    } catch (error: any) {
+      console.error("Upload error:", error);
+      toast.error(t("expenses.uploadFailed", "Failed to upload file"));
+      setSelectedFileName(null);
+    } finally {
+      setUploadingFile(false);
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  };
+
+  const handleRemoveFile = () => {
+    setUploadedFileUrl(null);
+    setSelectedFileName(null);
+    setUploadProgress(0);
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
-    // Only include receipt_url if it's valid
-    const sanitizedReceiptUrl = formData.receipt_url && isValidHttpUrl(formData.receipt_url)
-      ? formData.receipt_url.trim()
-      : null;
     
     onSubmit({
       engagement_id: formData.engagement_id,
@@ -133,19 +201,15 @@ export function ExpenseLogForm({
       amount: formData.amount,
       currency: formData.currency,
       description: formData.description || null,
-      receipt_url: sanitizedReceiptUrl,
+      receipt_url: uploadedFileUrl,
     });
   };
-
-  // Validate receipt URL - only allow http/https protocols
-  const isReceiptUrlValid = isValidHttpUrl(formData.receipt_url);
 
   const isValid =
     formData.engagement_id &&
     formData.expense_type_id &&
     formData.date_incurred &&
-    formData.amount > 0 &&
-    isReceiptUrlValid;
+    formData.amount > 0;
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4 form-dense">
@@ -250,20 +314,61 @@ export function ExpenseLogForm({
           />
         </div>
 
-        {/* Receipt URL */}
+        {/* Receipt File Upload */}
         <div className="space-y-1.5">
           <Label>{t("expenses.receiptUrl")}</Label>
-          <Input
-            type="url"
-            value={formData.receipt_url}
-            onChange={(e) => setFormData((prev) => ({ ...prev, receipt_url: e.target.value }))}
-            placeholder="https://..."
-            className={cn(!isReceiptUrlValid && "border-destructive focus-visible:ring-destructive")}
-          />
-          {!isReceiptUrlValid && (
-            <p className="text-xs text-destructive">
-              {t("validation.invalidUrl", "URL must use http:// or https:// protocol")}
-            </p>
+          
+          {!uploadedFileUrl ? (
+            <div className="space-y-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".jpg,.jpeg,.png,.webp,.pdf"
+                onChange={handleFileSelect}
+                className="hidden"
+                id="receipt-upload"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadingFile}
+              >
+                <Upload className="h-4 w-4 mr-2" />
+                {uploadingFile ? t("expenses.uploading", "Uploading...") : t("expenses.uploadReceipt", "Upload Receipt")}
+              </Button>
+              {uploadingFile && (
+                <Progress value={uploadProgress} className="h-2" />
+              )}
+              <p className="text-xs text-muted-foreground">
+                {t("expenses.fileTypes", "JPG, PNG, WebP or PDF (max 10MB)")}
+              </p>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 p-2 border rounded-md bg-muted/50">
+              <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+              <span className="text-sm truncate flex-1">
+                {selectedFileName || t("expenses.receiptAttached", "Receipt attached")}
+              </span>
+              <a
+                href={uploadedFileUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="p-1 hover:bg-muted rounded"
+              >
+                <ExternalLink className="h-4 w-4 text-muted-foreground" />
+              </a>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                onClick={handleRemoveFile}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
           )}
         </div>
       </div>
@@ -287,7 +392,7 @@ export function ExpenseLogForm({
         <LoadingButton
           type="submit"
           loading={isLoading}
-          disabled={!isValid}
+          disabled={!isValid || uploadingFile}
           className="w-full sm:w-auto min-h-[44px] sm:min-h-0"
         >
           {t("common.save")}

@@ -525,3 +525,45 @@ export function useBulkRejectTimesheetLines() {
     onError: createMutationErrorHandler("rejecting lines"),
   });
 }
+
+// Request revision - reset approved line back to pending for corrections
+export function useRequestRevision() {
+  const queryClient = useQueryClient();
+  const { staffRecord } = useCurrentStaff();
+
+  return useMutation({
+    mutationFn: async ({
+      approvalId,
+      notes,
+    }: {
+      approvalId: string;
+      notes: string;
+    }) => {
+      if (!staffRecord) throw new Error("No staff record found");
+
+      const { data, error } = await supabase
+        .from("timesheet_line_approvals")
+        .update({
+          status: "pending",
+          approved_by: null,
+          approved_at: null,
+          review_notes: notes,
+        })
+        .eq("approval_id", approvalId)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["pending-approvals"] });
+      queryClient.invalidateQueries({ queryKey: ["pending-approval-summaries"] });
+      queryClient.invalidateQueries({ queryKey: ["period-line-approvals"] });
+      queryClient.invalidateQueries({ queryKey: ["staff-timesheet-for-approval"] });
+      queryClient.invalidateQueries({ queryKey: ["timesheet-week"] });
+      toast.success("Revision requested - timesheet returned for correction");
+    },
+    onError: createMutationErrorHandler("requesting revision"),
+  });
+}
