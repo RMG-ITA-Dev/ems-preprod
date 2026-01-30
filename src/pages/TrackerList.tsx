@@ -30,8 +30,10 @@ import {
 import { Calendar } from "@/components/ui/calendar";
 import { Card, CardContent } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Plus, Search, Pencil, Copy, Trash2, ArrowUpDown, ArrowUp, ArrowDown, Filter, ChevronDown } from "lucide-react";
-import { useTimerEntries, TimerEntry, useDeleteTimerEntry, useCreateTimerEntry } from "@/hooks/useTimerEntries";
+import { Plus, Search, Pencil, Copy, Trash2, ArrowUpDown, ArrowUp, ArrowDown, Filter, ChevronDown, Upload } from "lucide-react";
+import { TimerImportDialog } from "@/components/tracker/TimerImportDialog";
+import { useTimerEntries, TimerEntry, useDeleteTimerEntry, useCreateTimerEntry, useMarkTimerEntriesImported } from "@/hooks/useTimerEntries";
+import { supabase } from "@/integrations/supabase/client";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle } from "lucide-react";
@@ -52,6 +54,8 @@ const TrackerList = () => {
   const { data: entries, isLoading: entriesLoading } = useTimerEntries();
   const deleteEntry = useDeleteTimerEntry();
   const createEntry = useCreateTimerEntry();
+  const markImported = useMarkTimerEntriesImported();
+  const [isImporting, setIsImporting] = useState(false);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [sortColumn, setSortColumn] = useState<SortColumn>(null);
@@ -62,6 +66,7 @@ const TrackerList = () => {
   const [engagementFilter, setEngagementFilter] = useState<string>("all");
   const [dateFilterOpen, setDateFilterOpen] = useState(false);
   const [engagementFilterOpen, setEngagementFilterOpen] = useState(false);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
 
   const formatDuration = (minutes: number | null) => {
     if (!minutes) return "—";
@@ -232,6 +237,59 @@ const TrackerList = () => {
     setEngagementFilterOpen(false);
   };
 
+  // Get entries that are ready to import (completed and not already imported)
+  const importableEntries = useMemo(() => {
+    return entries?.filter(e => e.ended_at && !e.is_imported) || [];
+  }, [entries]);
+
+  // Handle import - creates time_entries and marks timer entries as imported
+  const handleImport = async (selectedIds: string[]) => {
+    if (!staffRecord?.staff_id || selectedIds.length === 0) return;
+    
+    setIsImporting(true);
+    try {
+      const entriesToImport = entries?.filter(e => selectedIds.includes(e.timer_id)) || [];
+      const importedMappings: { timer_id: string; time_id: string }[] = [];
+      
+      for (const timerEntry of entriesToImport) {
+        // Create time entry
+        const dateWorked = format(new Date(timerEntry.started_at), "yyyy-MM-dd");
+        const hoursLogged = (timerEntry.duration_minutes || 0) / 60;
+        
+        const { data: timeEntry, error } = await supabase
+          .from('time_entries')
+          .insert({
+            staff_id: staffRecord.staff_id,
+            engagement_id: timerEntry.engagement_id,
+            activity_id: timerEntry.activity_id,
+            date_worked: dateWorked,
+            hours_logged: hoursLogged,
+            description: timerEntry.description,
+          })
+          .select()
+          .single();
+        
+        if (error) throw error;
+        
+        importedMappings.push({
+          timer_id: timerEntry.timer_id,
+          time_id: timeEntry.time_id,
+        });
+      }
+      
+      // Mark timer entries as imported
+      await markImported.mutateAsync(importedMappings);
+      
+      toast.success(t("tracker.importSuccess", { count: selectedIds.length }));
+      setImportDialogOpen(false);
+    } catch (error) {
+      console.error("Import error:", error);
+      toast.error(t("tracker.importError"));
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
   if (staffLoading) {
     return (
       <AppLayout title={t("tracker.listTitle")}>
@@ -267,14 +325,27 @@ const TrackerList = () => {
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
-          <Button
-            variant="default"
-            onClick={() => navigate("/tracker/new")}
-            className="w-full sm:w-auto min-h-[44px] sm:min-h-0"
+          <div className="flex gap-2 w-full sm:w-auto">
+            {/* Import to Timesheet button - visible when there are ready entries */}
+            {(entries?.filter(e => e.ended_at && !e.is_imported).length || 0) > 0 && (
+              <Button
+                variant="outline"
+                onClick={() => setImportDialogOpen(true)}
+                className="flex-1 sm:flex-none min-h-[44px] sm:min-h-0"
+              >
+                <Upload className="h-4 w-4 mr-2" />
+                {t("tracker.importToTimesheet")}
+              </Button>
+            )}
+            <Button
+              variant="default"
+              onClick={() => navigate("/tracker/new")}
+              className="flex-1 sm:flex-none min-h-[44px] sm:min-h-0"
           >
-            <Plus className="h-4 w-4 mr-2" />
-            {t("tracker.useTimer")}
-          </Button>
+              <Plus className="h-4 w-4 mr-2" />
+              {t("tracker.useTimer")}
+            </Button>
+          </div>
         </div>
 
         {/* Mobile Card View */}
@@ -639,6 +710,15 @@ const TrackerList = () => {
             {totalHours} {t("tracker.hours")}
           </span>
         </div>
+
+        {/* Import Dialog */}
+        <TimerImportDialog
+          open={importDialogOpen}
+          onOpenChange={setImportDialogOpen}
+          entries={importableEntries}
+          onImport={handleImport}
+          isLoading={isImporting}
+        />
       </div>
     </AppLayout>
   );
