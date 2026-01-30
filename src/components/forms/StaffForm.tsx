@@ -69,13 +69,40 @@ const generateShortName = (firstName: string, lastName: string): string => {
   return `${firstWord} ${firstLastName} ${secondLastInitial}`.trim();
 };
 
-// Helper to generate initials suggestion
+// BUG #4: Improved initials generation using consonants for uniqueness
 const generateInitials = (firstName: string, lastName: string): string => {
   if (!firstName || !lastName) return "";
-  const firstInitial = firstName[0] || "";
-  const lastNames = lastName.split(" ");
-  const lastInitials = lastNames.map((n) => n[0] || "").join("");
-  return `${firstInitial}${lastInitials}`.toUpperCase().slice(0, 4);
+  
+  // Get first name initial
+  const firstInitial = firstName[0]?.toUpperCase() || "";
+  
+  // Split last names
+  const lastNames = lastName.trim().split(/\s+/);
+  
+  // Function to get consonants from a word (excluding first letter)
+  const getConsonants = (word: string): string => {
+    return word.slice(1).replace(/[aeiouáéíóúAEIOUÁÉÍÓÚ\s]/g, "");
+  };
+  
+  let initials = firstInitial;
+  
+  if (lastNames.length >= 2) {
+    // Two last names: First initial + First letter of each last name
+    // e.g., "Juan Perez Garcia" -> "JPG"
+    initials += lastNames[0][0]?.toUpperCase() || "";
+    initials += lastNames[1][0]?.toUpperCase() || "";
+  } else if (lastNames.length === 1) {
+    // Single last name: First initial + First letter + first consonant
+    // e.g., "Juan Smith" -> "JSM" (S + M from "Smith")
+    const lastName1 = lastNames[0];
+    initials += lastName1[0]?.toUpperCase() || "";
+    const consonants = getConsonants(lastName1);
+    if (consonants.length > 0) {
+      initials += consonants[0].toUpperCase();
+    }
+  }
+  
+  return initials.slice(0, 4);
 };
 
 export function StaffForm({ staff }: StaffFormProps) {

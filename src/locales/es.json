@@ -537,7 +537,12 @@
     "unsubmitted": "Hoja de tiempo retirada para edición",
     "autoSaveHint": "Los cambios se guardan automáticamente",
     "entry": "Entrada de tiempo",
-    "beforeHireDate": "No puede registrar tiempo para esta semana porque es anterior a su fecha de contratación."
+    "beforeHireDate": "No puede registrar tiempo para esta semana porque es anterior a su fecha de contratación.",
+    "copyPreviousWeek": "Copiar Semana Anterior",
+    "copiedFromPreviousWeek": "Se copiaron {{count}} entradas de la semana anterior",
+    "noPreviousEntries": "No se encontraron entradas en la semana anterior para copiar",
+    "dailyLimitExceeded": "¡Excede límite!",
+    "weeklyLimitExceeded": "¡Excede límite!"
   },
   "expenses": {
     "title": "Gastos",

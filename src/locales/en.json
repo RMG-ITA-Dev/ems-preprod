@@ -537,7 +537,12 @@
     "unsubmitted": "Timesheet recalled for editing",
     "autoSaveHint": "Changes are saved automatically",
     "entry": "Time entry",
-    "beforeHireDate": "You cannot log time for this week because it is before your hire date."
+    "beforeHireDate": "You cannot log time for this week because it is before your hire date.",
+    "copyPreviousWeek": "Copy Previous Week",
+    "copiedFromPreviousWeek": "Copied {{count}} entries from previous week",
+    "noPreviousEntries": "No entries found in the previous week to copy",
+    "dailyLimitExceeded": "Over limit!",
+    "weeklyLimitExceeded": "Over limit!"
   },
   "expenses": {
     "title": "Expenses",
