@@ -84,17 +84,26 @@ describe("NumericInput", () => {
     expect(input.value).toBe("123,45");
   });
 
-  it("respects min constraint", () => {
+  it("respects min constraint on blur", () => {
     const onChange = vi.fn();
-    render(
-      <NumericInput onChange={onChange} min={10} data-testid="numeric-input" />
+    const onValueChange = vi.fn();
+    const { rerender } = render(
+      <NumericInput onChange={onChange} onValueChange={onValueChange} min={10} value="" data-testid="numeric-input" />
     );
     
     const input = screen.getByTestId("numeric-input");
+    // During typing, min is NOT enforced (allows typing intermediate values)
     fireEvent.change(input, { target: { value: "5" } });
+    expect(onChange).toHaveBeenCalledWith(5);
     
-    // Should reject value below min
-    expect(onChange).not.toHaveBeenCalled();
+    // Simulate parent updating value
+    rerender(
+      <NumericInput onChange={onChange} onValueChange={onValueChange} min={10} value={5} data-testid="numeric-input" />
+    );
+    
+    // On blur, min IS enforced
+    fireEvent.blur(input);
+    expect(onChange).toHaveBeenLastCalledWith(10);
   });
 
   it("respects max constraint", () => {
@@ -130,13 +139,20 @@ describe("NumericInput", () => {
   });
 
   it("cleans up trailing decimal on blur", () => {
+    const onChange = vi.fn();
     const onValueChange = vi.fn();
-    render(
-      <NumericInput onValueChange={onValueChange} data-testid="numeric-input" />
+    const { rerender } = render(
+      <NumericInput onChange={onChange} onValueChange={onValueChange} value="" data-testid="numeric-input" />
     );
     
     const input = screen.getByTestId("numeric-input");
+    // Intermediate state with trailing decimal - this sets intermediateValue
     fireEvent.change(input, { target: { value: "123." } });
+    
+    // Simulate parent not updating value since "123." isn't a valid number
+    // The intermediateValue "123." is preserved
+    
+    // Then blur to clean up
     fireEvent.blur(input);
     
     // Should clean up trailing decimal
@@ -170,6 +186,25 @@ describe("NumericInput", () => {
     fireEvent.change(input, { target: { value: "-50" } });
     
     expect(onChange).toHaveBeenCalledWith(-50);
+  });
+
+  it("allows typing minus sign first in empty field", () => {
+    const onChange = vi.fn();
+    const onValueChange = vi.fn();
+    const { rerender } = render(
+      <NumericInput onChange={onChange} onValueChange={onValueChange} value="" data-testid="numeric-input" />
+    );
+    
+    const input = screen.getByTestId("numeric-input");
+    
+    // Type minus first (intermediate state)
+    fireEvent.change(input, { target: { value: "-" } });
+    // Minus is stored in intermediate state, displayed in input
+    expect((input as HTMLInputElement).value).toBe("-");
+    
+    // Now type the number
+    fireEvent.change(input, { target: { value: "-500" } });
+    expect(onChange).toHaveBeenCalledWith(-500);
   });
 
   it("applies custom className", () => {
