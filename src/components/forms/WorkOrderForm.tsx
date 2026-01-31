@@ -115,72 +115,6 @@ export function WorkOrderForm({
   const { data: categories } = useCategories();
   const { data: expenseTypes } = useExpenseTypes();
 
-  // ============================================
-  // FIX: Local state for adjustment input to handle 
-  // intermediate states like "-" when typing negative numbers
-  // ============================================
-  const [adjustmentInputValue, setAdjustmentInputValue] = useState<string>("");
-
-  // Sync local input value with prop when prop changes externally
-  useEffect(() => {
-    // Format the adjustment amount for display
-    const formattedValue = adjustmentAmount === 0 ? "" : formatAdjustmentForInput(adjustmentAmount);
-    // Only update if different to avoid cursor position issues
-    const currentParsedValue = parseAdjustmentValue(adjustmentInputValue);
-    if (currentParsedValue !== adjustmentAmount) {
-      setAdjustmentInputValue(formattedValue);
-    }
-  }, [adjustmentAmount]);
-
-  // Format number for display in input (respecting locale)
-  const formatAdjustmentForInput = (value: number): string => {
-    if (value === 0) return "";
-    const locale = currentLanguage === "es" ? "es-BO" : "en-US";
-    return Math.round(value).toLocaleString(locale, { maximumFractionDigits: 0 });
-  };
-
-  // Parse the input value to a number
-  const parseAdjustmentValue = (value: string): number => {
-    if (value === "" || value === "-") return 0;
-    // Remove thousand separators (both . and , depending on locale)
-    // Spanish uses . for thousands, English uses ,
-    const cleanValue = value.replace(/[.\s]/g, "").replace(",", ".");
-    const parsed = parseFloat(cleanValue);
-    return isNaN(parsed) ? 0 : Math.round(parsed);
-  };
-
-  // Handle adjustment input change
-  const handleAdjustmentInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const inputValue = e.target.value;
-    
-    // Allow empty string, minus sign alone, or valid number patterns
-    // This regex allows: digits, minus sign, dots (thousand sep), commas, spaces
-    const isValidPattern = /^-?[\d.,\s]*$/.test(inputValue);
-    
-    if (!isValidPattern) return;
-    
-    setAdjustmentInputValue(inputValue);
-    
-    // Only update parent if we have a valid number (not just "-")
-    if (inputValue !== "-" && inputValue !== "") {
-      const numericValue = parseAdjustmentValue(inputValue);
-      onAdjustmentChange(numericValue);
-    } else if (inputValue === "") {
-      onAdjustmentChange(0);
-    }
-    // If it's just "-", don't update parent yet - wait for the number
-  };
-
-  // Handle blur to format the value properly
-  const handleAdjustmentBlur = () => {
-    const numericValue = parseAdjustmentValue(adjustmentInputValue);
-    onAdjustmentChange(numericValue);
-    setAdjustmentInputValue(numericValue === 0 ? "" : formatAdjustmentForInput(numericValue));
-  };
-  // ============================================
-  // END OF FIX
-  // ============================================
-
   // Get the appropriate rate based on currency and season
   const getRate = (category: Category) => {
     const key = `rate_${seasonMode.toLowerCase()}_${currency.toLowerCase()}` as keyof Category;
@@ -274,198 +208,171 @@ export function WorkOrderForm({
       {/* Zone A: Header */}
       <Card>
         <CardHeader className="py-3">
-          <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <Badge className={cn("text-xs", statusColors[approvalStatus])}>
+              <Badge variant="outline" className={cn("text-xs px-2.5 py-1", statusColors[approvalStatus])}>
+                {isLocked && <Lock className="h-3 w-3 mr-1" />}
                 {t(statusLabels[approvalStatus])}
               </Badge>
-              {isLocked && <Lock className="h-4 w-4 text-muted-foreground" />}
+              {/* Dirty indicator - same size as status badge, purple to match Guardar button */}
+              {isDirty && (
+                <Badge variant="outline" className="text-xs px-2.5 py-1 bg-brand-purple/10 text-brand-purple border-brand-purple/20">
+                  {t("common.unsavedChanges")}
+                </Badge>
+              )}
             </div>
-            <div className="flex items-center gap-4">
-              {/* Currency selector */}
-              <div className="flex items-center gap-2">
-                <Label className="text-sm text-muted-foreground">{t("workOrders.currency")}</Label>
-                <Select
-                  value={currency}
-                  onValueChange={(val) => onCurrencyChange(val as "USD" | "BOB")}
-                  disabled={!isNew}
-                >
-                  <SelectTrigger className="w-24 h-8">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="BOB">BOB</SelectItem>
-                    <SelectItem value="USD">USD</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              {/* Season selector */}
-              <div className="flex items-center gap-2">
-                <Label className="text-sm text-muted-foreground">{t("workOrders.season")}</Label>
-                <Select
-                  value={seasonMode}
-                  onValueChange={(val) => onSeasonChange(val as "High" | "Low")}
-                  disabled={!isNew}
-                >
-                  <SelectTrigger className="w-24 h-8">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="High">{t("industry.high")}</SelectItem>
-                    <SelectItem value="Low">{t("industry.low")}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+            <div className="flex items-center gap-3">
+              {/* Currency - styled chip, editable only on new */}
+              {isNew ? (
+                <div className="flex items-center gap-2">
+                  <Label className="text-xs text-muted-foreground">{t("workOrders.currency")}:</Label>
+                  <Select value={currency} onValueChange={(v) => onCurrencyChange(v as "USD" | "BOB")}>
+                    <SelectTrigger className="w-20 h-7 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="BOB">BOB</SelectItem>
+                      <SelectItem value="USD">USD</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 bg-muted/50 rounded-md px-2.5 py-1">
+                  <span className="text-xs text-muted-foreground">{t("workOrders.currency")}:</span>
+                  <span className="text-sm font-semibold">{currency}</span>
+                </div>
+              )}
+              {/* Season - styled chip, editable only on new */}
+              {isNew ? (
+                <div className="flex items-center gap-2">
+                  <Label className="text-xs text-muted-foreground">{t("workOrders.season")}:</Label>
+                  <Select value={seasonMode} onValueChange={(v) => onSeasonChange(v as "High" | "Low")}>
+                    <SelectTrigger className="w-20 h-7 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="High">{t("industry.high")}</SelectItem>
+                      <SelectItem value="Low">{t("industry.low")}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 bg-muted/50 rounded-md px-2.5 py-1">
+                  <span className="text-xs text-muted-foreground">{t("workOrders.season")}:</span>
+                  <span className="text-sm font-semibold">
+                    {seasonMode === "High" ? t("industry.high") : t("industry.low")}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         </CardHeader>
       </Card>
 
-      {/* Zone B: Budget Lines Table - Read Only for Edit mode */}
+      {/* Zone B: Budget Grid - Read-only, managed via Work Matrix */}
       <Card>
         <CardHeader className="py-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-base">{t("workOrders.budgetLines")}</CardTitle>
-            {isNew && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  if (!categories?.length) return;
-                  const unusedCategories = categories.filter(
-                    (c) => !budgetLines.some((bl) => bl.category_id === c.category_id)
-                  );
-                  if (unusedCategories.length === 0) return;
-                  const firstUnused = unusedCategories[0];
-                  const newLine: BudgetLineInput = {
-                    id: crypto.randomUUID(),
-                    category_id: firstUnused.category_id,
-                    budgeted_hours: 0,
-                    standard_rate: getRate(firstUnused),
-                  };
-                  onBudgetLinesChange([...budgetLines, newLine]);
-                }}
-                className="gap-2"
-              >
-                <Plus className="h-4 w-4" />
-                {t("workOrders.addLine")}
-              </Button>
-            )}
-          </div>
+          <CardTitle className="text-base">{t("workOrders.budgetLines")}</CardTitle>
         </CardHeader>
         <CardContent className="pt-0">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-dense">
               <thead>
-                <tr className="border-b">
-                  <th className="text-left py-2 font-medium">{t("workOrders.category")}</th>
-                  <th className="text-right py-2 font-medium w-24">{t("workOrders.hours")}</th>
-                  <th className="text-right py-2 font-medium w-28">{t("workOrders.rate")}</th>
-                  <th className="text-right py-2 font-medium w-32">{t("workOrders.total")}</th>
-                  {isNew && <th className="w-10"></th>}
+                <tr className="border-b border-border">
+                  <th className="text-left py-1.5 px-2 font-medium text-muted-foreground" colSpan={4}>
+                    {t("workOrders.standard")}
+                  </th>
+                  <th className="py-1.5 px-2 border-l border-border"></th>
+                  <th className="text-left py-1.5 px-2 font-medium text-muted-foreground border-l border-border" colSpan={2}>
+                    {t("workOrders.adjusted")}
+                  </th>
+                </tr>
+                <tr className="border-b border-border bg-muted/30">
+                  <th className="text-center py-1.5 px-2 font-medium border-r border-border">{t("entities.category")}</th>
+                  <th className="text-center py-1.5 px-2 font-medium border-r border-border w-24">{t("workOrders.hours")}</th>
+                  <th className="text-center py-1.5 px-2 font-medium border-r border-border w-28">{t("workOrders.rate")} ({currency})</th>
+                  <th className="text-center py-1.5 px-2 font-medium border-r border-border w-32">{t("workOrders.total")} ({currency})</th>
+                  <th className="text-center py-1.5 px-2 font-medium border-r border-border w-20">%</th>
+                  <th className="text-center py-1.5 px-2 font-medium border-r border-border w-28">{t("workOrders.adjRate")} ({currency})</th>
+                  <th className="text-center py-1.5 px-2 font-medium w-32">{t("workOrders.adjTotal")} ({currency})</th>
                 </tr>
               </thead>
               <tbody>
                 {budgetLines.map((line) => {
                   const lineTotal = line.budgeted_hours * line.standard_rate;
+                  const adjustedRate = line.standard_rate * (realizationPercent / 100);
+                  const adjustedTotal = line.budgeted_hours * adjustedRate;
+                  const hoursPercent = totalBudgetedHours > 0 ? (line.budgeted_hours / totalBudgetedHours * 100) : 0;
+                  
                   return (
-                    <tr key={line.id} className="border-b border-border/50">
-                      <td className="py-2">
-                        {isNew ? (
-                          <Select
-                            value={line.category_id}
-                            onValueChange={(val) => {
-                              const category = categories?.find((c) => c.category_id === val);
-                              onBudgetLinesChange(
-                                budgetLines.map((bl) =>
-                                  bl.id === line.id
-                                    ? { ...bl, category_id: val, standard_rate: category ? getRate(category) : 0 }
-                                    : bl
-                                )
-                              );
-                            }}
-                          >
-                            <SelectTrigger className="h-8">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {categories?.map((cat) => (
-                                <SelectItem key={cat.category_id} value={cat.category_id}>
-                                  {cat.category_name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        ) : (
-                          <span>{getCategoryName(line.category_id)}</span>
-                        )}
+                    <tr key={line.id} className="border-b border-border hover:bg-muted/20">
+                      {/* Category - always read-only text */}
+                      <td className="py-1.5 px-2 text-left border-r border-border">
+                        {getCategoryName(line.category_id)}
                       </td>
-                      <td className="py-2 text-right">
-                        {isNew ? (
-                          <NumericInput
-                            decimals={1}
-                            locale={currentLanguage as "es" | "en"}
-                            value={line.budgeted_hours || ""}
-                            onChange={(val) =>
-                              onBudgetLinesChange(
-                                budgetLines.map((bl) =>
-                                  bl.id === line.id ? { ...bl, budgeted_hours: val } : bl
-                                )
-                              )
-                            }
-                            className="w-20 text-right h-8 font-mono"
-                          />
-                        ) : (
-                          <span className="font-mono">{line.budgeted_hours.toFixed(1)}</span>
-                        )}
+                      {/* Hours - always read-only */}
+                      <td className="py-1.5 px-2 text-right font-mono border-r border-border">
+                        {line.budgeted_hours.toLocaleString(currency === "BOB" ? "es-BO" : "en-US", { 
+                          minimumFractionDigits: 1, 
+                          maximumFractionDigits: 1 
+                        })}
                       </td>
-                      <td className="py-2 text-right font-mono">{formatNumber(line.standard_rate)}</td>
-                      <td className="py-2 text-right font-mono">{formatNumber(lineTotal)}</td>
-                      {isNew && (
-                        <td className="py-2 text-center">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() =>
-                              onBudgetLinesChange(budgetLines.filter((bl) => bl.id !== line.id))
-                            }
-                            className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </td>
-                      )}
+                      <td className="py-1.5 px-2 text-right font-mono text-muted-foreground border-r border-border">
+                        {formatNumber(line.standard_rate)}
+                      </td>
+                      <td className="py-1.5 px-2 text-right font-mono font-medium border-r border-border">
+                        {formatNumber(lineTotal)}
+                      </td>
+                      <td className="py-1.5 px-2 text-center font-mono text-muted-foreground border-r border-border">
+                        {hoursPercent.toFixed(1)}%
+                      </td>
+                      <td className="py-1.5 px-2 text-right font-mono text-muted-foreground border-r border-border">
+                        {formatNumber(adjustedRate)}
+                      </td>
+                      <td className="py-1.5 px-2 text-right font-mono font-medium">
+                        {formatNumber(adjustedTotal)}
+                      </td>
                     </tr>
                   );
                 })}
-                {/* Subtotal row */}
-                <tr className="bg-muted/30 font-medium">
-                  <td className="py-2">{t("workOrders.subtotal")}</td>
-                  <td className="py-2 text-right font-mono">{totalBudgetedHours.toFixed(1)}</td>
-                  <td className="py-2 text-right font-mono">{formatNumber(avgStandardRate)}</td>
-                  <td className="py-2 text-right font-mono">{formatNumber(totalStandardFee)}</td>
-                  {isNew && <td></td>}
-                </tr>
               </tbody>
+              <tfoot>
+                <tr className="bg-muted/50 font-medium">
+                  <td className="py-2 px-2 text-left border-r border-border">
+                    {t("workOrders.subtotal")}
+                  </td>
+                  <td className="py-2 px-2 text-right font-mono border-r border-border">
+                    {formatNumber(totalBudgetedHours)}
+                  </td>
+                  <td className="py-2 px-2 text-right font-mono text-muted-foreground border-r border-border">
+                    {formatNumber(avgStandardRate)}
+                  </td>
+                  <td className="py-2 px-2 text-right font-mono border-r border-border">
+                    {formatNumber(totalStandardFee)}
+                  </td>
+                  <td className="py-2 px-2 text-center font-mono border-r border-border">
+                    100.0%
+                  </td>
+                  <td className="py-2 px-2 text-right font-mono text-muted-foreground border-r border-border">
+                    {formatNumber(avgAdjustedRate)}
+                  </td>
+                  <td className="py-2 px-2 text-right font-mono">
+                    {formatNumber(totalAdjustedFee)}
+                  </td>
+                </tr>
+              </tfoot>
             </table>
           </div>
+          {/* No "Add Line" button - budget lines are managed via Work Matrix */}
         </CardContent>
       </Card>
 
-      {/* Zone C: Expense Budget and Summary side by side */}
+      {/* Zone C: Footer - Expenses, Adjustment, Tax */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Expense Budget */}
+        {/* Expenses Section - Editable in Draft mode */}
         <Card>
           <CardHeader className="py-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base">{t("workOrders.expenseBudget")}</CardTitle>
-              {isEditable && (
-                <Button variant="outline" size="sm" onClick={addExpenseBudget} className="gap-2">
-                  <Plus className="h-4 w-4" />
-                  {t("workOrders.addExpense")}
-                </Button>
-              )}
-            </div>
+            <CardTitle className="text-base">{t("workOrders.expenses")}</CardTitle>
           </CardHeader>
           <CardContent className="pt-0 form-dense">
             <div className="space-y-2">
@@ -473,11 +380,11 @@ export function WorkOrderForm({
                 <div key={exp.id} className="flex items-center gap-2">
                   <Select
                     value={exp.expense_type_id}
-                    onValueChange={(val) => updateExpenseBudget(exp.id, "expense_type_id", val)}
+                    onValueChange={(v) => updateExpenseBudget(exp.id, "expense_type_id", v)}
                     disabled={!isEditable}
                   >
                     <SelectTrigger className="flex-1 h-8">
-                      <SelectValue placeholder={t("workOrders.selectExpenseType")} />
+                      <SelectValue placeholder={t("workOrders.selectExpense")} />
                     </SelectTrigger>
                     <SelectContent>
                       {expenseTypes?.map((type) => (
@@ -488,27 +395,36 @@ export function WorkOrderForm({
                     </SelectContent>
                   </Select>
                   <NumericInput
-                    decimals={0}
+                    decimals={2}
                     locale={currentLanguage as "es" | "en"}
+                    min={0}
                     value={exp.budgeted_amount || ""}
                     onChange={(val) => updateExpenseBudget(exp.id, "budgeted_amount", val)}
-                    className="w-24 text-right h-8 font-mono"
+                    className="w-28 text-right h-8"
                     disabled={!isEditable}
                   />
                   {isEditable && (
                     <Button
                       variant="ghost"
-                      size="sm"
+                      size="icon"
                       onClick={() => removeExpenseBudget(exp.id)}
-                      className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+                      className="h-7 w-7 text-destructive"
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   )}
                 </div>
               ))}
-              {expenseBudget.length === 0 && (
-                <p className="text-sm text-muted-foreground py-2">{t("workOrders.noExpenses")}</p>
+              {isEditable && (
+                <Button 
+                  variant="outline" 
+                  onClick={addExpenseBudget} 
+                  size="sm"
+                  className="bg-primary/10 hover:bg-primary/20 text-primary border-primary/30"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  {t("workOrders.addExpense")}
+                </Button>
               )}
               <div className="flex justify-between pt-2 border-t border-border font-medium">
                 <span>{t("workOrders.totalExpenses")}</span>
@@ -536,23 +452,21 @@ export function WorkOrderForm({
                   {formatNumber(totalStandardFee)}
                 </span>
               </div>
-              {/* Adjustment - FIXED: Now uses text input with proper negative number handling */}
+              {/* Adjustment - aligned with other rows, negative in red */}
               <div className="flex justify-between items-center">
                 <span className="text-muted-foreground">{t("workOrders.adjustment")}</span>
                 <div className="flex items-center">
                   <span className="text-sm text-muted-foreground mr-2">{currency}</span>
-                  <Input
-                    type="text"
-                    inputMode="numeric"
-                    value={adjustmentInputValue}
-                    onChange={handleAdjustmentInputChange}
-                    onBlur={handleAdjustmentBlur}
+                  <NumericInput
+                    decimals={0}
+                    locale={currentLanguage as "es" | "en"}
+                    value={adjustmentAmount || ""}
+                    onChange={(val) => onAdjustmentChange(val)}
                     className={cn(
                       "w-24 text-right h-8 font-mono",
                       adjustmentAmount < 0 && "text-destructive"
                     )}
                     disabled={!isEditable}
-                    placeholder="0"
                   />
                 </div>
               </div>
