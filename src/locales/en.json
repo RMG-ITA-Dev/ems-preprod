@@ -776,6 +776,10 @@
     "worksheetExistsDescription": "You can create the work order directly from the matrix to use the pre-budgeted hours.",
     "useWorksheet": "Use Existing Worksheet",
     "viewWorksheet": "View Worksheet",
+    "resyncToWorkOrder": "Resync",
+    "resyncConfirmTitle": "Resync Budget Lines?",
+    "resyncConfirmDescription": "This will replace all budget lines in the Work Order with the current worksheet data. This action cannot be undone.",
+    "resyncSuccess": "Budget lines synced from worksheet",
     "status": {
       "draft": "Draft",
       "approved": "Approved",

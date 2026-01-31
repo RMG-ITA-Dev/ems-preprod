@@ -5,7 +5,7 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { FileSpreadsheet } from "lucide-react";
+import { FileSpreadsheet, RefreshCw } from "lucide-react";
 import { WorkOrderForm, BudgetLineInput, ExpenseBudgetInput } from "@/components/forms/WorkOrderForm";
 import { useWorkOrderById, useSetting, useCategories } from "@/hooks/useEmsData";
 import {
@@ -22,7 +22,18 @@ import {
 } from "@/hooks/mutations";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { useWorksheetByEngagementId } from "@/hooks/useWorksheetData";
+import { useResyncWorksheetToWorkOrder } from "@/hooks/useWorksheetMutations";
 import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const WorkOrderEdit = () => {
   const { t } = useTranslation();
@@ -47,6 +58,7 @@ const WorkOrderEdit = () => {
   const submitWorkOrder = useSubmitWorkOrder();
   const approveWorkOrder = useApproveWorkOrder();
   const rejectWorkOrder = useRejectWorkOrder();
+  const resyncWorksheet = useResyncWorksheetToWorkOrder();
 
   const [currency, setCurrency] = useState<"USD" | "BOB">("BOB");
   const [seasonMode, setSeasonMode] = useState<"High" | "Low">("High");
@@ -55,6 +67,7 @@ const WorkOrderEdit = () => {
   const [expenseBudget, setExpenseBudget] = useState<ExpenseBudgetInput[]>([]);
   const [originalBudgetLines, setOriginalBudgetLines] = useState<string[]>([]);
   const [originalExpenses, setOriginalExpenses] = useState<string[]>([]);
+  const [showResyncDialog, setShowResyncDialog] = useState(false);
 
   const taxRate = parseFloat(globalTaxRate || "0.13");
 
@@ -185,6 +198,15 @@ const WorkOrderEdit = () => {
     await rejectWorkOrder.mutateAsync(workOrder.wo_id);
   };
 
+  const handleResync = async () => {
+    if (!workOrder || !linkedWorksheet) return;
+    await resyncWorksheet.mutateAsync({
+      worksheetId: linkedWorksheet.id,
+      woId: workOrder.wo_id,
+    });
+    setShowResyncDialog(false);
+  };
+
   if (isLoading) {
     return (
       <AppLayout title={t("entities.workOrder")}>
@@ -220,17 +242,29 @@ const WorkOrderEdit = () => {
                 </p>
                 <p className="text-sm text-muted-foreground">{workOrder.engagement?.client?.client_legal_name}</p>
               </div>
-              {/* Show linked worksheet badge if exists */}
+              {/* Show linked worksheet buttons if exists */}
               {linkedWorksheet?.wo_id === workOrder.wo_id && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => navigate(`/worksheets/${linkedWorksheet.id}`)}
-                  className="gap-2"
-                >
-                  <FileSpreadsheet className="h-4 w-4" />
-                  {t("workMatrix.viewWorksheet")}
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowResyncDialog(true)}
+                    disabled={isLocked || resyncWorksheet.isPending}
+                    className="gap-2"
+                  >
+                    <RefreshCw className={`h-4 w-4 ${resyncWorksheet.isPending ? "animate-spin" : ""}`} />
+                    {t("workMatrix.resyncToWorkOrder")}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => navigate(`/worksheets/${linkedWorksheet.id}`)}
+                    className="gap-2"
+                  >
+                    <FileSpreadsheet className="h-4 w-4" />
+                    {t("workMatrix.viewWorksheet")}
+                  </Button>
+                </div>
               )}
             </div>
           </CardContent>
@@ -265,6 +299,27 @@ const WorkOrderEdit = () => {
           }
         />
       </div>
+
+      {/* Resync Confirmation Dialog */}
+      <AlertDialog open={showResyncDialog} onOpenChange={setShowResyncDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("workMatrix.resyncConfirmTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("workMatrix.resyncConfirmDescription")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleResync}
+              disabled={resyncWorksheet.isPending}
+            >
+              {resyncWorksheet.isPending ? t("common.loading") : t("workMatrix.resyncToWorkOrder")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppLayout>
   );
 };

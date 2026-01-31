@@ -213,6 +213,32 @@ export function useDeleteCell() {
   });
 }
 
+// Resync Worksheet to existing Work Order
+export function useResyncWorksheetToWorkOrder() {
+  const queryClient = useQueryClient();
+  const { t } = useTranslation();
+
+  return useMutation({
+    mutationFn: async ({ worksheetId, woId }: { worksheetId: string; woId: string }) => {
+      const { error } = await supabase.rpc('sync_worksheet_to_wo_budget', {
+        p_worksheet_id: worksheetId,
+        p_wo_id: woId,
+      });
+
+      if (error) throw error;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
+      queryClient.invalidateQueries({ queryKey: ["work_orders"] });
+      toast.success(t("workMatrix.resyncSuccess"));
+    },
+    onError: (error) => {
+      logger.error("Error resyncing worksheet to work order:", error);
+      toast.error(t("messages.updateError", { entity: t("entities.workOrder") }));
+    },
+  });
+}
+
 // Create Work Order from Worksheet using sync_worksheet_to_wo_budget RPC
 interface CreateWOFromWorksheetInput {
   worksheetId: string;
