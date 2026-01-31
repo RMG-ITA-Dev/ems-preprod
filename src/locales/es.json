@@ -199,7 +199,9 @@
     "compactFont": "Modo Compacto",
     "compactFontHelp": "Usa fuente angosta en todas partes. Cuando está desactivado, la fuente angosta solo se usa en dispositivos móviles.",
     "allowedEmailDomain": "Dominio de Correo Permitido",
-    "allowedEmailDomainHelp": "Solo los usuarios con este dominio de correo pueden registrarse. Dejar vacío para permitir cualquier dominio."
+    "allowedEmailDomainHelp": "Solo los usuarios con este dominio de correo pueden registrarse. Dejar vacío para permitir cualquier dominio.",
+    "realizationLimit": "Límite de Realización (%)",
+    "realizationLimitHelp": "Umbral para codificación por color: verde si R >= X%, rojo si R < X%"
   },
   "userRoles": {
     "title": "Gestión de Roles de Usuario",

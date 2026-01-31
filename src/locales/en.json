@@ -199,7 +199,9 @@
     "compactFont": "Compact Mode",
     "compactFontHelp": "Uses narrow font everywhere. When off, narrow font is used only on mobile devices.",
     "allowedEmailDomain": "Allowed Email Domain",
-    "allowedEmailDomainHelp": "Only users with this email domain can register. Leave empty to allow any domain."
+    "allowedEmailDomainHelp": "Only users with this email domain can register. Leave empty to allow any domain.",
+    "realizationLimit": "Realization Limit (%)",
+    "realizationLimitHelp": "Threshold for color coding: green if R >= X%, red if R < X%"
   },
   "userRoles": {
     "title": "User Roles Management",
