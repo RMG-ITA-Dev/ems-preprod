@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
-import { Save, Loader2, FileText, Sun, Snowflake } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Save, Loader2, FileText, Sun, Snowflake, Lock } from "lucide-react";
 import { useWorksheetById } from "@/hooks/useWorksheetData";
 import { useBatchUpsertCells, useUpdateWorksheet, useCreateWorkOrderFromWorksheet } from "@/hooks/useWorksheetMutations";
 import { useCategories, useActivityCodes, useSetting } from "@/hooks/useEmsData";
@@ -182,7 +183,12 @@ const WorksheetEdit = () => {
 
   const isLoading = wsLoading || catLoading || actLoading;
   const isSaving = batchUpsertCells.isPending || updateWorksheet.isPending;
-  const isReadOnly = worksheet?.status === "approved" || worksheet?.status === "archived";
+  
+  // Determine if the worksheet is locked
+  const linkedWOStatus = worksheet?.work_order?.approval_status;
+  const isWOLocked = linkedWOStatus === "Pending_Approval" || linkedWOStatus === "Approved";
+  const isReadOnly = worksheet?.status === "approved" || worksheet?.status === "archived" || isWOLocked;
+  
   const hasWorkOrder = !!worksheet?.wo_id;
   const canCreateWorkOrder = !hasWorkOrder && worksheet?.status === "draft" && !hasUnsavedChanges;
 
@@ -344,6 +350,17 @@ const WorksheetEdit = () => {
             </div>
           </CardContent>
         </Card>
+
+        {/* Locked by Work Order Banner */}
+        {isWOLocked && (
+          <Alert variant="default" className="border-warning bg-warning/10">
+            <Lock className="h-4 w-4" />
+            <AlertTitle>{t("workMatrix.lockedByWorkOrderTitle")}</AlertTitle>
+            <AlertDescription>
+              {t("workMatrix.lockedByWorkOrder")}
+            </AlertDescription>
+          </Alert>
+        )}
 
         {/* Budget Grid */}
         <div className="space-y-2">

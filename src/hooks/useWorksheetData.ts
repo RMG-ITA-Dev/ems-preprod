@@ -89,7 +89,12 @@ export function useWorksheetById(id: string | undefined) {
             status,
             client:clients (
               client_id,
-              client_legal_name
+              client_legal_name,
+              industry:industries (
+                industry_id,
+                industry_name,
+                fiscal_year_end
+              )
             ),
             partner:staff!engagements_partner_id_fkey (
               staff_id,
@@ -103,6 +108,10 @@ export function useWorksheetById(id: string | undefined) {
               last_name,
               short_name
             )
+          ),
+          work_order:work_orders!activity_worksheets_wo_id_fkey (
+            wo_id,
+            approval_status
           )
         `)
         .eq("id", id)
@@ -134,7 +143,9 @@ export function useWorksheetById(id: string | undefined) {
       return {
         ...worksheet,
         cells: cells || [],
-      } as WorksheetWithCells;
+      } as WorksheetWithCells & {
+        work_order: { wo_id: string; approval_status: string } | null;
+      };
     },
     enabled: !!id,
   });
@@ -200,14 +211,27 @@ export function useWorksheetByEngagementId(engagementId: string | undefined) {
 
       const { data, error } = await supabase
         .from("activity_worksheets")
-        .select("id, engagement_id, wo_id, status, version")
+        .select(`
+          id, engagement_id, wo_id, status, version,
+          work_order:work_orders!activity_worksheets_wo_id_fkey (
+            wo_id,
+            approval_status
+          )
+        `)
         .eq("engagement_id", engagementId)
         .order("version", { ascending: false })
         .limit(1)
         .maybeSingle();
 
       if (error) throw error;
-      return data;
+      return data as {
+        id: string;
+        engagement_id: string;
+        wo_id: string | null;
+        status: string;
+        version: number;
+        work_order: { wo_id: string; approval_status: string } | null;
+      } | null;
     },
     enabled: !!engagementId,
   });

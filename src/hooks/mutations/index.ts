@@ -29,6 +29,7 @@ export {
   useSubmitWorkOrder,
   useApproveWorkOrder,
   useRejectWorkOrder,
+  useUnsubmitWorkOrder,
 } from "./useWorkOrderMutations";
 
 // Budget Lines
