@@ -1,100 +1,160 @@
 
 
-# Plan: Add "Resync from Worksheet" Feature to Work Orders
+# Plan: Lock Worksheet When WO is Pending + Add Unsubmit Button
 
-## Problem Analysis
+## Problem Summary
 
-When a user modifies the **Matriz de Trabajo (Worksheet)** to add hours for specialist categories (IT Specialist, Tax Specialist, SQP), there is currently no way to reload those changes into an existing Work Order. The Work Order shows only the categories that were present when it was originally created.
+The user has identified two workflow issues:
 
-**Current Workflow:**
-1. Worksheet is created and linked to a Work Order
-2. If worksheet is modified later, there's no mechanism to push those changes to the Work Order
+1. **Worksheet Modification Issue**: The Worksheet (Matriz de Trabajo) can currently be modified even when its linked Work Order is in "Pending_Approval" status. This should not be allowed.
 
-**Screenshots Analysis:**
-- Image 1 (Work Order): Shows only Senior, Socio, Gerente - missing specialists
-- Image 2 (Worksheet): Shows Especialista IT and Especialista TAX with hours (3, 8, 11 hours)
+2. **No Way to Unsubmit**: There is no "Unsubmit" button on the Work Order to return it from "Pending_Approval" back to "Draft" status, which would unlock the Worksheet for modifications.
+
+3. **Resync Button Disabled**: The Resync button on WorkOrderEdit is currently disabled for "Pending_Approval" status (by design, since we want strict control).
 
 ## Solution
 
-Add a **"Resync from Worksheet"**  button on the Work Order Edit page (to the left of the {Ver Matriz} button, with the sale look and feel) that calls the existing `sync_worksheet_to_wo_budget` database function to repopulate the budget lines from the linked worksheet.
+### Part 1: Lock Worksheet When Linked WO is Pending/Approved
+
+Update the `WorksheetEdit.tsx` page to:
+1. Fetch the linked Work Order's `approval_status` via the `useWorksheetByEngagementId` hook (or create a new query)
+2. Set `isReadOnly = true` if the linked Work Order is "Pending_Approval" or "Approved"
+3. Display a message explaining why the worksheet is locked
+
+### Part 2: Add Unsubmit Button on Work Order
+
+Update the `WorkOrderEdit.tsx` page to:
+1. Add a new `useUnsubmitWorkOrder` mutation to return status from "Pending_Approval" to "Draft"
+2. Add an "Unsubmit" button that appears only when status is "Pending_Approval"
+3. The Unsubmit button allows the user to recall the submission, enabling further edits
+
+### Part 3: Add a New Hook to Get WO Status
+
+Update `useWorksheetData.ts` to extend the `useWorksheetByEngagementId` query to include the linked Work Order's approval_status, or create a helper that fetches the WO status given the `wo_id`.
 
 ---
 
-## Implementation Steps
+## Implementation Details
 
-### Step 1: Create New Mutation Hook
+### Step 1: Update useWorksheetData.ts - Fetch WO Approval Status
 
-**File:** `src/hooks/useWorksheetMutations.ts`
-
-Add a new mutation `useResyncWorksheetToWorkOrder` that:
-1. Calls the existing `sync_worksheet_to_wo_budget` RPC function
-2. Invalidates the `work_order` and `work_orders` query caches
-3. Shows a success/error toast
+Modify `useWorksheetByEngagementId` to also return the linked Work Order's `approval_status`:
 
 ```typescript
-export function useResyncWorksheetToWorkOrder() {
-  // Call supabase.rpc('sync_worksheet_to_wo_budget', { p_worksheet_id, p_wo_id })
-  // On success: invalidate caches, show toast
+// Current query fetches: id, engagement_id, wo_id, status, version
+// Add: JOIN to work_orders to get approval_status when wo_id exists
+
+const { data, error } = await supabase
+  .from("activity_worksheets")
+  .select(`
+    id, engagement_id, wo_id, status, version,
+    work_order:work_orders!activity_worksheets_wo_id_fkey (
+      wo_id,
+      approval_status
+    )
+  `)
+  ...
+```
+
+This allows the WorksheetEdit page to check the WO's approval_status.
+
+### Step 2: Update WorksheetEdit.tsx - Lock When WO is Pending/Approved
+
+```typescript
+// Current logic:
+const isReadOnly = worksheet?.status === "approved" || worksheet?.status === "archived";
+
+// New logic - also lock if linked WO is not Draft:
+const linkedWOStatus = worksheet?.work_order?.approval_status;
+const isWOLocked = linkedWOStatus === "Pending_Approval" || linkedWOStatus === "Approved";
+const isReadOnly = worksheet?.status === "approved" || worksheet?.status === "archived" || isWOLocked;
+```
+
+Also add a visual indicator showing the user WHY the worksheet is locked (e.g., a banner or badge).
+
+### Step 3: Add useUnsubmitWorkOrder Mutation
+
+Create a new mutation in `useWorkOrderMutations.ts`:
+
+```typescript
+export function useUnsubmitWorkOrder() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (woId: string) => {
+      const { data: result, error } = await supabase
+        .from("work_orders")
+        .update({ approval_status: "Draft" })
+        .eq("wo_id", woId)
+        .select()
+        .single();
+      if (error) throw error;
+      return result;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["work_orders"] });
+      queryClient.invalidateQueries({ queryKey: ["work_order"] });
+      queryClient.invalidateQueries({ queryKey: ["worksheet-by-engagement"] });
+      toast.success(i18n.t("workOrders.unsubmitted"));
+    },
+    onError: createMutationErrorHandler("unsubmitting work order"),
+  });
 }
 ```
 
-### Step 2: Update Work Order Edit Page
+### Step 4: Update WorkOrderEdit.tsx - Add Unsubmit Button
 
-**File:** `src/pages/WorkOrderEdit.tsx`
-
-Add a "Resync from Worksheet" button next to the existing "View Worksheet" button in the engagement info card:
-- Button appears only when the Work Order has a linked worksheet
-- Button is disabled when the Work Order is in "Approved" or "Pending_Approval" status
-- Clicking shows a confirmation dialog (destructive action - replaces existing budget lines)
-
-Changes:
-1. Import the new `useResyncWorksheetToWorkOrder` mutation
-2. Add confirmation dialog state
-3. Add "Resync" button with confirmation flow
-4. Call mutation on confirmation
-
-### Step 3: Add Translations
-
-**Files:** `src/locales/en.json` and `src/locales/es.json`
-
-Add new translation keys under `workMatrix`:
-- `resyncToWorkOrder`: "Resync to Work Order" / "Resincronizar a Orden de Trabajo"
-- `resyncConfirmTitle`: "Resync Budget Lines?" / "¿Resincronizar Líneas de Presupuesto?"
-- `resyncConfirmDescription`: "This will replace all budget lines in the Work Order with the current worksheet data. This action cannot be undone." / "Esto reemplazará todas las líneas de presupuesto en la Orden de Trabajo con los datos actuales de la matriz. Esta acción no se puede deshacer."
-- `resyncSuccess`: "Budget lines synced from worksheet" / "Líneas de presupuesto sincronizadas desde la matriz"
-
----
-
-## Technical Details
-
-### Database Function (Already Exists)
-
-The `sync_worksheet_to_wo_budget(p_worksheet_id, p_wo_id)` function:
-1. Links worksheet to work order by updating `activity_worksheets.wo_id`
-2. Deletes existing `wo_budget_lines` for the work order
-3. Inserts new budget lines aggregated by category from `activity_worksheet_cells`
-4. Uses locked rates from `categories` table based on currency and season
-
-This function already handles the specialist categories correctly - the issue was simply that it wasn't being called when the worksheet was updated.
-
-### UI Flow
-
-```
-+------------------------------------------+
-|  Work Order - PFIE 1                     |
-+------------------------------------------+
-| Engagement: PFIE 1 - Prueba FIE 1        |
-|                          [Ver Matriz] [↻ Resincronizar] |
-+------------------------------------------+
+```typescript
+// In the action buttons area:
+{approvalStatus === "Pending_Approval" && (
+  <Button
+    variant="outline"
+    onClick={handleUnsubmit}
+    disabled={unsubmitWorkOrder.isPending}
+  >
+    <Undo2 className="h-4 w-4 mr-2" />
+    {t("workOrders.unsubmit")}
+  </Button>
+)}
 ```
 
-When "Resincronizar" is clicked:
-1. Show confirmation dialog with warning
-2. User confirms
-3. Call `sync_worksheet_to_wo_budget` RPC
-4. Refresh the page data
-5. Show success toast
-6. Budget lines grid now shows all categories including specialists
+### Step 5: Add Translations
+
+**English (en.json):**
+```json
+"workOrders": {
+  ...
+  "unsubmit": "Unsubmit",
+  "unsubmitted": "Work order returned to draft"
+}
+```
+
+**Spanish (es.json):**
+```json
+"workOrders": {
+  ...
+  "unsubmit": "Retirar",
+  "unsubmitted": "Orden de trabajo devuelta a borrador"
+}
+```
+
+**Also add for worksheet lock message:**
+
+```json
+"workMatrix": {
+  ...
+  "lockedByWorkOrder": "This worksheet is locked because the linked Work Order is pending approval or approved.",
+  "lockedByWorkOrderTitle": "Worksheet Locked"
+}
+```
+
+Spanish:
+```json
+"workMatrix": {
+  ...
+  "lockedByWorkOrder": "Esta matriz está bloqueada porque la Orden de Trabajo vinculada está pendiente de aprobación o aprobada.",
+  "lockedByWorkOrderTitle": "Matriz Bloqueada"
+}
+```
 
 ---
 
@@ -102,29 +162,49 @@ When "Resincronizar" is clicked:
 
 | File | Changes |
 |------|---------|
-| `src/hooks/useWorksheetMutations.ts` | Add `useResyncWorksheetToWorkOrder` mutation |
-| `src/pages/WorkOrderEdit.tsx` | Add resync button, confirmation dialog, and hook integration |
-| `src/locales/en.json` | Add 4 translation keys |
-| `src/locales/es.json` | Add 4 translation keys |
+| `src/hooks/useWorksheetData.ts` | Extend `useWorksheetByEngagementId` to include WO approval_status |
+| `src/pages/WorksheetEdit.tsx` | Add lock logic based on WO status, show locked message banner |
+| `src/hooks/mutations/useWorkOrderMutations.ts` | Add `useUnsubmitWorkOrder` mutation |
+| `src/hooks/mutations/index.ts` | Export new `useUnsubmitWorkOrder` |
+| `src/pages/WorkOrderEdit.tsx` | Add "Unsubmit" button for Pending_Approval WOs |
+| `src/locales/en.json` | Add `unsubmit`, `unsubmitted`, `lockedByWorkOrder` keys |
+| `src/locales/es.json` | Add Spanish translations |
 
 ---
 
-## Edge Cases Handled
+## User Workflow After Implementation
 
-1. **Work Order is locked (Approved/Pending)**: Button disabled, cannot resync
-2. **No linked worksheet**: Button does not appear
-3. **Worksheet has no cells with hours > 0**: Existing budget lines are deleted, none inserted
-4. **Network error during sync**: Error toast shown, no changes made (transaction)
+```
++----------------------------------------+
+|  CORRECT WORKFLOW                      |
++----------------------------------------+
+| 1. Create Worksheet with hours         |
+| 2. Create Work Order from Worksheet    |
+| 3. Submit WO for Approval              |
+|    → Worksheet becomes LOCKED          |
+|    → Resync button becomes DISABLED    |
+|                                        |
+| If changes needed:                     |
+| 4. Go to Work Order                    |
+| 5. Click "Unsubmit" (Retirar)          |
+|    → WO returns to Draft               |
+|    → Worksheet becomes EDITABLE        |
+|    → Resync button becomes ENABLED     |
+| 6. Modify Worksheet                    |
+| 7. Click Resync on Work Order          |
+| 8. Re-submit for Approval              |
++----------------------------------------+
+```
 
 ---
 
 ## Testing Checklist
 
 After implementation:
-- [ ] Open the Work Order that's missing specialist hours
-- [ ] Click "Resincronizar" (or "Resync to Work Order")
-- [ ] Confirm the dialog
-- [ ] Verify that Especialista IT, Especialista TAX, and SQP now appear in the budget grid
-- [ ] Verify hours match the worksheet values
-- [ ] Verify rates are correctly calculated based on currency/season
+- [ ] When WO is "Pending_Approval", the Worksheet should be read-only with a lock message
+- [ ] When WO is "Approved", the Worksheet should be read-only
+- [ ] When WO is "Draft", the Worksheet should be editable
+- [ ] "Unsubmit" button appears only when WO status is "Pending_Approval"
+- [ ] Clicking "Unsubmit" returns WO to "Draft" and unlocks the Worksheet
+- [ ] After unsubmit, the Resync button on WorkOrderEdit is enabled
 
