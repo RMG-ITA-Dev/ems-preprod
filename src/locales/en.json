@@ -632,7 +632,13 @@
     "approved": "Work order approved",
     "rejected": "Work order rejected",
     "unsubmit": "Withdraw from Approval",
-    "unsubmitted": "Work order returned to draft"
+    "unsubmitted": "Work order returned to draft",
+    "saveBeforeSubmit": "Save changes before submitting for approval",
+    "confirmParametersTitle": "Confirm Work Order Parameters",
+    "confirmParametersDescription": "Currency and Season cannot be changed after creation. Please verify these settings are correct.",
+    "selectedCurrency": "Currency",
+    "selectedSeason": "Season",
+    "confirmAndCreate": "Confirm & Create"
   },
   "adminTimeEntries": {
     "title": "Time Entries",

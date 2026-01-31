@@ -632,7 +632,13 @@
     "approved": "Orden de trabajo aprobada",
     "rejected": "Orden de trabajo rechazada",
     "unsubmit": "Retirar de Aprobación",
-    "unsubmitted": "Orden de trabajo devuelta a borrador"
+    "unsubmitted": "Orden de trabajo devuelta a borrador",
+    "saveBeforeSubmit": "Guarde los cambios antes de enviar para aprobación",
+    "confirmParametersTitle": "Confirmar Parámetros de Orden de Trabajo",
+    "confirmParametersDescription": "La Moneda y Temporada no se pueden cambiar después de la creación. Por favor verifique que estos parámetros sean correctos.",
+    "selectedCurrency": "Moneda",
+    "selectedSeason": "Temporada",
+    "confirmAndCreate": "Confirmar y Crear"
   },
   "adminTimeEntries": {
     "title": "Entradas de Tiempo",

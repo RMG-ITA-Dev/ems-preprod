@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -71,6 +71,10 @@ const WorkOrderEdit = () => {
   const [originalExpenses, setOriginalExpenses] = useState<string[]>([]);
   const [showResyncDialog, setShowResyncDialog] = useState(false);
 
+  // Track original values for dirty check
+  const [originalAdjustment, setOriginalAdjustment] = useState(0);
+  const [originalExpenseData, setOriginalExpenseData] = useState<ExpenseBudgetInput[]>([]);
+
   const taxRate = parseFloat(globalTaxRate || "0.13");
 
   // Load work order data
@@ -78,7 +82,9 @@ const WorkOrderEdit = () => {
     if (workOrder) {
       setCurrency(workOrder.currency);
       setSeasonMode(workOrder.season_mode);
-      setAdjustmentAmount(Number(workOrder.adjustment_amount) || 0);
+      const adj = Number(workOrder.adjustment_amount) || 0;
+      setAdjustmentAmount(adj);
+      setOriginalAdjustment(adj);
 
       // Load budget lines - sorted by category display_order
       const lines: BudgetLineInput[] = (workOrder.budget_lines || [])
@@ -104,8 +110,35 @@ const WorkOrderEdit = () => {
       }));
       setExpenseBudget(expenses);
       setOriginalExpenses(expenses.map((e) => e.id));
+      setOriginalExpenseData(JSON.parse(JSON.stringify(expenses))); // Deep copy
     }
   }, [workOrder]);
+
+  // Compute dirty state - only for expenses and adjustment (budget lines are read-only)
+  const isDirty = useMemo(() => {
+    if (!workOrder) return false;
+
+    // Compare adjustment amount
+    if (adjustmentAmount !== originalAdjustment) return true;
+
+    // Compare expense count
+    if (expenseBudget.length !== originalExpenseData.length) return true;
+
+    // Compare expense IDs
+    const currentExpIds = expenseBudget.map((e) => e.id).sort();
+    const originalExpIds = originalExpenseData.map((e) => e.id).sort();
+    if (JSON.stringify(currentExpIds) !== JSON.stringify(originalExpIds)) return true;
+
+    // Compare expense values
+    for (const exp of expenseBudget) {
+      const orig = originalExpenseData.find((e) => e.id === exp.id);
+      if (!orig) return true;
+      if (orig.expense_type_id !== exp.expense_type_id) return true;
+      if (orig.budgeted_amount !== exp.budgeted_amount) return true;
+    }
+
+    return false;
+  }, [workOrder, adjustmentAmount, originalAdjustment, expenseBudget, originalExpenseData]);
 
   // Check if user can approve
   const canApprove = staffRecord?.category?.can_approve_wo || false;
@@ -125,37 +158,8 @@ const WorkOrderEdit = () => {
         },
       });
 
-      // Handle budget lines
-      const currentIds = budgetLines.map((l) => l.id);
-      const deletedIds = originalBudgetLines.filter((id) => !currentIds.includes(id));
-
-      // Delete removed lines
-      for (const lineId of deletedIds) {
-        await deleteBudgetLine.mutateAsync(lineId);
-      }
-
-      // Update or create lines
-      for (const line of budgetLines) {
-        if (line.category_id && line.budgeted_hours > 0) {
-          if (originalBudgetLines.includes(line.id)) {
-            await updateBudgetLine.mutateAsync({
-              id: line.id,
-              data: {
-                category_id: line.category_id,
-                budgeted_hours: line.budgeted_hours,
-                standard_rate: line.standard_rate,
-              },
-            });
-          } else {
-            await createBudgetLine.mutateAsync({
-              wo_id: workOrder.wo_id,
-              category_id: line.category_id,
-              budgeted_hours: line.budgeted_hours,
-              standard_rate: line.standard_rate,
-            });
-          }
-        }
-      }
+      // Handle budget lines - now read-only, so skip budget line updates
+      // Budget lines are only modified via Resync from Work Matrix
 
       // Handle expense budgets
       const currentExpIds = expenseBudget.map((e) => e.id);
@@ -184,6 +188,11 @@ const WorkOrderEdit = () => {
           }
         }
       }
+
+      // Reset dirty state tracking after successful save
+      setOriginalAdjustment(adjustmentAmount);
+      setOriginalExpenses(expenseBudget.map((e) => e.id));
+      setOriginalExpenseData(JSON.parse(JSON.stringify(expenseBudget)));
 
       toast.success(t("messages.updateSuccess", { entity: t("entities.workOrder") }));
     } catch (error) {
@@ -292,6 +301,8 @@ const WorkOrderEdit = () => {
           taxRate={workOrder.tax_rate || taxRate}
           budgetLines={budgetLines}
           expenseBudget={expenseBudget}
+          isNew={false}
+          isDirty={isDirty}
           onCurrencyChange={setCurrency}
           onSeasonChange={setSeasonMode}
           onAdjustmentChange={setAdjustmentAmount}
