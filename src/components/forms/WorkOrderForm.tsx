@@ -466,7 +466,7 @@ export function WorkOrderForm({
                     value={adjustmentAmount || ""}
                     onChange={(val) => onAdjustmentChange(val)}
                     className={cn(
-                      "w-24 text-right h-8 font-mono border-0 bg-transparent px-0 focus-visible:ring-1 focus-visible:ring-border focus-visible:ring-offset-0",
+                      "w-24 text-right h-8 font-mono border-0 bg-transparent px-0 !text-[length:inherit] focus-visible:ring-1 focus-visible:ring-border focus-visible:ring-offset-0",
                       adjustmentAmount < 0 && "text-destructive"
                     )}
                     disabled={!isEditable}
