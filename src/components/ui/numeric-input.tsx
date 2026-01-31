@@ -1,4 +1,5 @@
 import * as React from "react";
+import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 
 interface NumericInputProps
@@ -32,7 +33,17 @@ const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps>(
     },
     ref
   ) => {
+    // Internal state for intermediate values like "-" or "." that aren't valid numbers yet
+    const [intermediateValue, setIntermediateValue] = useState<string | null>(null);
+    
     const decimalSeparator = locale === "es" ? "," : ".";
+    
+    // Clear intermediate state when external value changes
+    useEffect(() => {
+      if (value !== undefined && value !== null && value !== "") {
+        setIntermediateValue(null);
+      }
+    }, [value]);
     
     // Build regex pattern based on decimals
     const buildPattern = () => {
@@ -164,6 +175,7 @@ const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps>(
 
       // Allow just a minus sign or decimal separator while typing
       if (newValue === "-" || newValue === decimalSeparator) {
+        setIntermediateValue(newValue);
         onValueChange?.(newValue);
         return;
       }
@@ -175,6 +187,7 @@ const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps>(
         // Allow typing "0." on the way to "0.5"
         const baseValue = newValue.slice(0, -1);
         if (baseValue === "" || baseValue === "-" || !isNaN(parseFloat(normalizeValue(baseValue)))) {
+          setIntermediateValue(newValue);
           onValueChange?.(newValue);
           return;
         }
@@ -198,17 +211,30 @@ const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps>(
         }
       }
 
+      setIntermediateValue(null);
       onValueChange?.(newValue);
       onChange?.(isNaN(numericValue) ? 0 : numericValue);
     };
 
     const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
-      let currentValue = e.target.value;
+      // Get the actual displayed value (could be from intermediateValue or input)
+      let currentValue = intermediateValue !== null ? intermediateValue : e.target.value;
+      
+      // Clear intermediate state first
+      setIntermediateValue(null);
 
       // Clean up trailing decimal separator
       if (currentValue.endsWith(decimalSeparator) || currentValue.endsWith(".")) {
         currentValue = currentValue.slice(0, -1);
         onValueChange?.(currentValue);
+        // Also need to notify onChange with the cleaned-up numeric value
+        if (currentValue !== "" && currentValue !== "-") {
+          const normalizedValue = normalizeValue(currentValue);
+          const numericValue = parseFloat(normalizedValue);
+          if (!isNaN(numericValue)) {
+            onChange?.(numericValue);
+          }
+        }
       }
 
       // Clean up lone minus sign
@@ -242,7 +268,7 @@ const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps>(
           className
         )}
         ref={ref}
-        value={formatValue(value)}
+        value={intermediateValue !== null ? intermediateValue : formatValue(value)}
         onChange={handleChange}
         onKeyDown={handleKeyDown}
         onBlur={handleBlur}
