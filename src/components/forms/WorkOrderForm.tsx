@@ -214,9 +214,9 @@ export function WorkOrderForm({
                 {isLocked && <Lock className="h-3 w-3 mr-1" />}
                 {t(statusLabels[approvalStatus])}
               </Badge>
-              {/* Dirty indicator - same size as status badge */}
+              {/* Dirty indicator - same size as status badge, purple to match Guardar button */}
               {isDirty && (
-                <Badge variant="outline" className="text-xs px-2.5 py-1 bg-warning/10 text-warning border-warning/20">
+                <Badge variant="outline" className="text-xs px-2.5 py-1 bg-brand-purple/10 text-brand-purple border-brand-purple/20">
                   {t("common.unsavedChanges")}
                 </Badge>
               )}
@@ -416,7 +416,12 @@ export function WorkOrderForm({
                 </div>
               ))}
               {isEditable && (
-                <Button variant="outline" onClick={addExpenseBudget} size="sm">
+                <Button 
+                  variant="outline" 
+                  onClick={addExpenseBudget} 
+                  size="sm"
+                  className="bg-primary/10 hover:bg-primary/20 text-primary border-primary/30"
+                >
                   <Plus className="h-4 w-4 mr-2" />
                   {t("workOrders.addExpense")}
                 </Button>
@@ -424,7 +429,7 @@ export function WorkOrderForm({
               <div className="flex justify-between pt-2 border-t border-border font-medium">
                 <span>{t("workOrders.totalExpenses")}</span>
                 <span className="font-mono">
-                  <span className="text-xs text-muted-foreground mr-1.5">{currency}</span>
+                  <span className="text-sm text-muted-foreground mr-2">{currency}</span>
                   {formatNumber(totalExpenses)}
                 </span>
               </div>
@@ -443,22 +448,22 @@ export function WorkOrderForm({
               <div className="flex justify-between items-center">
                 <span className="text-muted-foreground">{t("workOrders.standardFee")}</span>
                 <span className="font-mono">
-                  <span className="text-xs text-muted-foreground mr-1.5">{currency}</span>
+                  <span className="text-sm text-muted-foreground mr-2">{currency}</span>
                   {formatNumber(totalStandardFee)}
                 </span>
               </div>
-              {/* Adjustment - same font size as other rows, negative in red */}
+              {/* Adjustment - aligned with other rows, negative in red */}
               <div className="flex justify-between items-center">
                 <span className="text-muted-foreground">{t("workOrders.adjustment")}</span>
-                <div className="flex items-center gap-1">
-                  <span className="text-xs text-muted-foreground">{currency}</span>
+                <div className="flex items-center">
+                  <span className="text-sm text-muted-foreground mr-2">{currency}</span>
                   <NumericInput
-                    decimals={2}
+                    decimals={0}
                     locale={currentLanguage as "es" | "en"}
                     value={adjustmentAmount || ""}
                     onChange={(val) => onAdjustmentChange(val)}
                     className={cn(
-                      "w-28 text-right h-8",
+                      "w-24 text-right h-8 font-mono",
                       adjustmentAmount < 0 && "text-destructive"
                     )}
                     disabled={!isEditable}
@@ -475,14 +480,17 @@ export function WorkOrderForm({
                   "font-mono font-medium",
                   realizationPercent >= 75 ? "text-success" : "text-destructive"
                 )}>
-                  {realizationPercent.toFixed(1)}%
+                  {realizationPercent.toLocaleString(currency === "BOB" ? "es-BO" : "en-US", { 
+                    minimumFractionDigits: 1, 
+                    maximumFractionDigits: 1 
+                  })}%
                 </span>
               </div>
               {/* Adjusted Fee */}
               <div className="flex justify-between items-center">
                 <span className="text-muted-foreground">{t("workOrders.adjustedFee")}</span>
                 <span className="font-mono">
-                  <span className="text-xs text-muted-foreground mr-1.5">{currency}</span>
+                  <span className="text-sm text-muted-foreground mr-2">{currency}</span>
                   {formatNumber(totalAdjustedFee)}
                 </span>
               </div>
@@ -490,7 +498,7 @@ export function WorkOrderForm({
               <div className="flex justify-between items-center">
                 <span className="text-muted-foreground">{t("workOrders.expenses")}</span>
                 <span className="font-mono">
-                  <span className="text-xs text-muted-foreground mr-1.5">{currency}</span>
+                  <span className="text-sm text-muted-foreground mr-2">{currency}</span>
                   {formatNumber(totalExpenses)}
                 </span>
               </div>
@@ -499,7 +507,7 @@ export function WorkOrderForm({
                 <div className="flex justify-between items-center text-muted-foreground">
                   <span>{t("workOrders.iva")} ({(taxRate * 100).toFixed(0)}%)</span>
                   <span className="font-mono">
-                    <span className="text-xs mr-1.5">{currency}</span>
+                    <span className="text-sm mr-2">{currency}</span>
                     {formatNumber(feeWithTax - totalAdjustedFee - totalExpenses)}
                   </span>
                 </div>
@@ -508,7 +516,7 @@ export function WorkOrderForm({
               <div className="flex justify-between items-center pt-2 border-t border-border">
                 <span className="font-semibold">{t("workOrders.feeWithTax")}</span>
                 <span className="font-mono font-bold text-accent">
-                  <span className="text-xs font-normal text-muted-foreground mr-1.5">{currency}</span>
+                  <span className="text-sm font-normal text-muted-foreground mr-2">{currency}</span>
                   {formatNumber(feeWithTax)}
                 </span>
               </div>

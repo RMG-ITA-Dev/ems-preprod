@@ -110,9 +110,22 @@ const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps>(
         // If cursor is not at start, prepend minus to value
         e.preventDefault();
         const newValue = "-" + currentValue;
-        onValueChange?.(newValue);
-        const numericValue = parseFloat(normalizeValue(newValue));
-        onChange?.(isNaN(numericValue) ? 0 : numericValue);
+        
+        // Update via callbacks if available
+        if (onValueChange) {
+          onValueChange(newValue);
+          const numericValue = parseFloat(normalizeValue(newValue));
+          onChange?.(isNaN(numericValue) ? 0 : numericValue);
+        } else {
+          // Fallback: directly update input and trigger change via native setter
+          const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+            window.HTMLInputElement.prototype,
+            "value"
+          )?.set;
+          nativeInputValueSetter?.call(input, newValue);
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+        
         // Move cursor after the minus sign
         setTimeout(() => input.setSelectionRange(1, 1), 0);
         return;
