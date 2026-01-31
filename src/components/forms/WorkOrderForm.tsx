@@ -14,7 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Trash2, Plus, Lock, CheckCircle, XCircle, Send, ShieldCheck } from "lucide-react";
+import { Trash2, Plus, Lock, CheckCircle, XCircle, Send, ShieldCheck, Undo2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useCategories, useExpenseTypes, useSetting, Category, ExpenseType, type WorkOrder, type WOBudgetLine } from "@/hooks/useEmsData";
@@ -57,6 +57,7 @@ interface WorkOrderFormProps {
   onApprove?: () => void;
   onReject?: () => void;
   onSubmitForApproval?: () => void;
+  onUnsubmit?: () => void;
   onCancel?: () => void;
   isLocked: boolean;
   canApprove: boolean;
@@ -99,6 +100,7 @@ export function WorkOrderForm({
   onApprove,
   onReject,
   onSubmitForApproval,
+  onUnsubmit,
   onCancel,
   isLocked,
   canApprove,
@@ -594,6 +596,18 @@ export function WorkOrderForm({
               </LoadingButton>
             )}
           </>
+        )}
+        {/* Unsubmit button for Pending status - shown to any user */}
+        {isPending && onUnsubmit && (
+          <LoadingButton
+            variant="destructive"
+            onClick={onUnsubmit}
+            loading={isSubmitting}
+            className="btn-action"
+          >
+            <Undo2 className="h-4 w-4 mr-2" />
+            {t("workOrders.unsubmit")}
+          </LoadingButton>
         )}
         {isPending && canApprove && (
           <>

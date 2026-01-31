@@ -631,7 +631,7 @@
     "submittedForApproval": "Orden de trabajo enviada para aprobación",
     "approved": "Orden de trabajo aprobada",
     "rejected": "Orden de trabajo rechazada",
-    "unsubmit": "Retirar",
+    "unsubmit": "Retirar de Aprobación",
     "unsubmitted": "Orden de trabajo devuelta a borrador"
   },
   "adminTimeEntries": {
