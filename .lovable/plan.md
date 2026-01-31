@@ -1,159 +1,173 @@
 
 
-# Plan: Lock Worksheet When WO is Pending + Add Unsubmit Button
+# Plan: Fix Work Order Button Placement and Text
 
-## Problem Summary
+## Issues Identified
 
-The user has identified two workflow issues:
+From analyzing the code and screenshots:
 
-1. **Worksheet Modification Issue**: The Worksheet (Matriz de Trabajo) can currently be modified even when its linked Work Order is in "Pending_Approval" status. This should not be allowed.
+1. **"Retirar" button in wrong location**: Currently placed in the header card next to "Resincronizar" and "Ver Matriz" buttons. Should be at the BOTTOM of the form (where "Enviar para Aprobación" appears for Draft status), styled in red/destructive.
 
-2. **No Way to Unsubmit**: There is no "Unsubmit" button on the Work Order to return it from "Pending_Approval" back to "Draft" status, which would unlock the Worksheet for modifications.
+2. **Text should be "Retirar de Aprobación"**: Current translation key `workOrders.unsubmit` = "Retirar" should become "Retirar de Aprobación" (Spanish) / "Withdraw from Approval" (English).
 
-3. **Resync Button Disabled**: The Resync button on WorkOrderEdit is currently disabled for "Pending_Approval" status (by design, since we want strict control).
-
-## Solution
-
-### Part 1: Lock Worksheet When Linked WO is Pending/Approved
-
-Update the `WorksheetEdit.tsx` page to:
-1. Fetch the linked Work Order's `approval_status` via the `useWorksheetByEngagementId` hook (or create a new query)
-2. Set `isReadOnly = true` if the linked Work Order is "Pending_Approval" or "Approved"
-3. Display a message explaining why the worksheet is locked
-
-### Part 2: Add Unsubmit Button on Work Order
-
-Update the `WorkOrderEdit.tsx` page to:
-1. Add a new `useUnsubmitWorkOrder` mutation to return status from "Pending_Approval" to "Draft"
-2. Add an "Unsubmit" button that appears only when status is "Pending_Approval"
-3. The Unsubmit button allows the user to recall the submission, enabling further edits
-
-### Part 3: Add a New Hook to Get WO Status
-
-Update `useWorksheetData.ts` to extend the `useWorksheetByEngagementId` query to include the linked Work Order's approval_status, or create a helper that fetches the WO status given the `wo_id`.
+3. **"Resincronizar" and "Ver Matriz" buttons inconsistent**: These buttons should ALWAYS appear in the same location in the header card, regardless of approval status.
 
 ---
 
-## Implementation Details
+## Solution Overview
 
-### Step 1: Update useWorksheetData.ts - Fetch WO Approval Status
+### Visual Layout Goal
 
-Modify `useWorksheetByEngagementId` to also return the linked Work Order's `approval_status`:
+**Header Card (always the same):**
+```
++--------------------------------------------------+
+| Encargo: FIE 2025 - Auditoria EEFF 2025          |
+| Banco FIE S.A.      [Resincronizar] [Ver Matriz] |
++--------------------------------------------------+
+```
+
+**Bottom Actions - Draft Status:**
+```
+[Cancelar]  [Guardar]  [Enviar para Aprobación] (blue)
+```
+
+**Bottom Actions - Pending Approval Status:**
+```
+[Cancelar]  [Retirar de Aprobación] (red)
+```
+(Note: Guardar not shown when locked, only Cancel and the withdraw button)
+
+---
+
+## Implementation Steps
+
+### Step 1: Remove Unsubmit Button from Header Card
+
+**File:** `src/pages/WorkOrderEdit.tsx`
+
+Remove the separate "Retirar" button from the header card area (lines 276-288). The "Resincronizar" and "Ver Matriz" buttons will remain in their consistent position.
+
+### Step 2: Pass Unsubmit Handler to WorkOrderForm
+
+**File:** `src/pages/WorkOrderEdit.tsx`
+
+Add `onUnsubmit={handleUnsubmit}` prop to the `WorkOrderForm` component so it can render the button at the bottom of the form.
+
+### Step 3: Update WorkOrderForm to Show Unsubmit Button at Bottom
+
+**File:** `src/components/forms/WorkOrderForm.tsx`
+
+1. Add `onUnsubmit?: () => void` to the props interface
+2. In the Actions section at the bottom (line 578-614), add a new condition for `isPending` status that shows the "Retirar de Aprobación" button with destructive styling
+
+Current logic:
+- Draft: Cancel + Save + Submit for Approval
+- Pending + canApprove: Reject + Approve
+
+New logic:
+- Draft: Cancel + Save + Submit for Approval  
+- Pending (any user): Cancel + Unsubmit (red)
+- Pending + canApprove: (also) Reject + Approve
+
+### Step 4: Update Translation Keys
+
+**Files:** `src/locales/en.json` and `src/locales/es.json`
+
+Update the `workOrders.unsubmit` key:
+- Spanish: "Retirar de Aprobación"  
+- English: "Withdraw from Approval"
+
+---
+
+## Technical Details
+
+### WorkOrderEdit.tsx Changes
 
 ```typescript
-// Current query fetches: id, engagement_id, wo_id, status, version
-// Add: JOIN to work_orders to get approval_status when wo_id exists
+// REMOVE lines 276-288 (Unsubmit button in header card)
+// The header should ONLY contain Resincronizar + Ver Matriz buttons
 
-const { data, error } = await supabase
-  .from("activity_worksheets")
-  .select(`
-    id, engagement_id, wo_id, status, version,
-    work_order:work_orders!activity_worksheets_wo_id_fkey (
-      wo_id,
-      approval_status
-    )
-  `)
-  ...
+// ADD onUnsubmit prop to WorkOrderForm (around line 310):
+<WorkOrderForm
+  ...existing props...
+  onUnsubmit={handleUnsubmit}
+/>
 ```
 
-This allows the WorksheetEdit page to check the WO's approval_status.
-
-### Step 2: Update WorksheetEdit.tsx - Lock When WO is Pending/Approved
+### WorkOrderForm.tsx Changes
 
 ```typescript
-// Current logic:
-const isReadOnly = worksheet?.status === "approved" || worksheet?.status === "archived";
+// ADD to interface (around line 60):
+onUnsubmit?: () => void;
 
-// New logic - also lock if linked WO is not Draft:
-const linkedWOStatus = worksheet?.work_order?.approval_status;
-const isWOLocked = linkedWOStatus === "Pending_Approval" || linkedWOStatus === "Approved";
-const isReadOnly = worksheet?.status === "approved" || worksheet?.status === "archived" || isWOLocked;
+// ADD to function params:
+onUnsubmit,
+
+// UPDATE Actions section (lines 578-614):
+{/* Actions */}
+<div className="flex justify-end gap-3">
+  {onCancel && (
+    <Button variant="outline" onClick={onCancel} disabled={isSubmitting} className="btn-action">
+      {t("common.cancel")}
+    </Button>
+  )}
+  
+  {isDraft && (
+    <>
+      <LoadingButton onClick={onSubmit} loading={isSubmitting} className="btn-action">
+        {t("common.save")}
+      </LoadingButton>
+      {onSubmitForApproval && (
+        <LoadingButton onClick={onSubmitForApproval} className="bg-info hover:bg-info/90 btn-action" loading={isSubmitting}>
+          <Send className="h-4 w-4 mr-2" />
+          {t("workOrders.submitForApproval")}
+        </LoadingButton>
+      )}
+    </>
+  )}
+  
+  {/* NEW: Unsubmit button for Pending status */}
+  {isPending && onUnsubmit && (
+    <LoadingButton
+      variant="destructive"
+      onClick={onUnsubmit}
+      loading={isSubmitting}
+      className="btn-action"
+    >
+      <Undo2 className="h-4 w-4 mr-2" />
+      {t("workOrders.unsubmit")}
+    </LoadingButton>
+  )}
+  
+  {isPending && canApprove && (
+    <>
+      {onReject && (
+        <LoadingButton variant="outline" onClick={onReject} className="text-destructive border-destructive btn-action" loading={isSubmitting}>
+          <XCircle className="h-4 w-4 mr-2" />
+          {t("workOrders.reject")}
+        </LoadingButton>
+      )}
+      {onApprove && (
+        <LoadingButton onClick={onApprove} className="bg-success hover:bg-success/90 btn-action" loading={isSubmitting}>
+          <CheckCircle className="h-4 w-4 mr-2" />
+          {t("workOrders.approve")}
+        </LoadingButton>
+      )}
+    </>
+  )}
+</div>
 ```
 
-Also add a visual indicator showing the user WHY the worksheet is locked (e.g., a banner or badge).
+### Translation Updates
 
-### Step 3: Add useUnsubmitWorkOrder Mutation
-
-Create a new mutation in `useWorkOrderMutations.ts`:
-
-```typescript
-export function useUnsubmitWorkOrder() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (woId: string) => {
-      const { data: result, error } = await supabase
-        .from("work_orders")
-        .update({ approval_status: "Draft" })
-        .eq("wo_id", woId)
-        .select()
-        .single();
-      if (error) throw error;
-      return result;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["work_orders"] });
-      queryClient.invalidateQueries({ queryKey: ["work_order"] });
-      queryClient.invalidateQueries({ queryKey: ["worksheet-by-engagement"] });
-      toast.success(i18n.t("workOrders.unsubmitted"));
-    },
-    onError: createMutationErrorHandler("unsubmitting work order"),
-  });
-}
-```
-
-### Step 4: Update WorkOrderEdit.tsx - Add Unsubmit Button
-
-```typescript
-// In the action buttons area:
-{approvalStatus === "Pending_Approval" && (
-  <Button
-    variant="outline"
-    onClick={handleUnsubmit}
-    disabled={unsubmitWorkOrder.isPending}
-  >
-    <Undo2 className="h-4 w-4 mr-2" />
-    {t("workOrders.unsubmit")}
-  </Button>
-)}
-```
-
-### Step 5: Add Translations
-
-**English (en.json):**
+**en.json:**
 ```json
-"workOrders": {
-  ...
-  "unsubmit": "Unsubmit",
-  "unsubmitted": "Work order returned to draft"
-}
+"unsubmit": "Withdraw from Approval"
 ```
 
-**Spanish (es.json):**
+**es.json:**
 ```json
-"workOrders": {
-  ...
-  "unsubmit": "Retirar",
-  "unsubmitted": "Orden de trabajo devuelta a borrador"
-}
-```
-
-**Also add for worksheet lock message:**
-
-```json
-"workMatrix": {
-  ...
-  "lockedByWorkOrder": "This worksheet is locked because the linked Work Order is pending approval or approved.",
-  "lockedByWorkOrderTitle": "Worksheet Locked"
-}
-```
-
-Spanish:
-```json
-"workMatrix": {
-  ...
-  "lockedByWorkOrder": "Esta matriz está bloqueada porque la Orden de Trabajo vinculada está pendiente de aprobación o aprobada.",
-  "lockedByWorkOrderTitle": "Matriz Bloqueada"
-}
+"unsubmit": "Retirar de Aprobación"
 ```
 
 ---
@@ -162,49 +176,20 @@ Spanish:
 
 | File | Changes |
 |------|---------|
-| `src/hooks/useWorksheetData.ts` | Extend `useWorksheetByEngagementId` to include WO approval_status |
-| `src/pages/WorksheetEdit.tsx` | Add lock logic based on WO status, show locked message banner |
-| `src/hooks/mutations/useWorkOrderMutations.ts` | Add `useUnsubmitWorkOrder` mutation |
-| `src/hooks/mutations/index.ts` | Export new `useUnsubmitWorkOrder` |
-| `src/pages/WorkOrderEdit.tsx` | Add "Unsubmit" button for Pending_Approval WOs |
-| `src/locales/en.json` | Add `unsubmit`, `unsubmitted`, `lockedByWorkOrder` keys |
-| `src/locales/es.json` | Add Spanish translations |
-
----
-
-## User Workflow After Implementation
-
-```
-+----------------------------------------+
-|  CORRECT WORKFLOW                      |
-+----------------------------------------+
-| 1. Create Worksheet with hours         |
-| 2. Create Work Order from Worksheet    |
-| 3. Submit WO for Approval              |
-|    → Worksheet becomes LOCKED          |
-|    → Resync button becomes DISABLED    |
-|                                        |
-| If changes needed:                     |
-| 4. Go to Work Order                    |
-| 5. Click "Unsubmit" (Retirar)          |
-|    → WO returns to Draft               |
-|    → Worksheet becomes EDITABLE        |
-|    → Resync button becomes ENABLED     |
-| 6. Modify Worksheet                    |
-| 7. Click Resync on Work Order          |
-| 8. Re-submit for Approval              |
-+----------------------------------------+
-```
+| `src/pages/WorkOrderEdit.tsx` | Remove Unsubmit button from header, pass `onUnsubmit` to form |
+| `src/components/forms/WorkOrderForm.tsx` | Add `onUnsubmit` prop, render destructive button at bottom for Pending status |
+| `src/locales/en.json` | Update `workOrders.unsubmit` to "Withdraw from Approval" |
+| `src/locales/es.json` | Update `workOrders.unsubmit` to "Retirar de Aprobación" |
 
 ---
 
 ## Testing Checklist
 
 After implementation:
-- [ ] When WO is "Pending_Approval", the Worksheet should be read-only with a lock message
-- [ ] When WO is "Approved", the Worksheet should be read-only
-- [ ] When WO is "Draft", the Worksheet should be editable
-- [ ] "Unsubmit" button appears only when WO status is "Pending_Approval"
-- [ ] Clicking "Unsubmit" returns WO to "Draft" and unlocks the Worksheet
-- [ ] After unsubmit, the Resync button on WorkOrderEdit is enabled
+- [ ] Draft WO: Header shows [Resincronizar] [Ver Matriz] buttons
+- [ ] Draft WO: Footer shows [Cancelar] [Guardar] [Enviar para Aprobación]
+- [ ] Pending WO: Header shows [Resincronizar] [Ver Matriz] buttons (same position)
+- [ ] Pending WO: Footer shows [Cancelar] [Retirar de Aprobación] (red button)
+- [ ] Pending WO + Approver: Footer also shows [Rechazar] [Aprobar]
+- [ ] Clicking "Retirar de Aprobación" returns WO to Draft status
 
