@@ -183,9 +183,9 @@ export function WorkOrderForm({
     return rounded.toLocaleString("en-US", { maximumFractionDigits: 0 });
   };
 
-  // Format with currency code (for summary totals)
+  // Format with currency code on LEFT (for summary totals - allows right-aligned numbers)
   const formatCurrencyWithCode = (amount: number) => {
-    return `${formatNumber(amount)} ${currency}`;
+    return { currencyCode: currency, value: formatNumber(amount) };
   };
 
   // Legacy format for inline values
@@ -208,26 +208,26 @@ export function WorkOrderForm({
       {/* Zone A: Header */}
       <Card>
         <CardHeader className="py-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <Badge variant="outline" className={cn("text-sm px-3 py-1", statusColors[approvalStatus])}>
+        <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Badge variant="outline" className={cn("text-xs px-2.5 py-1", statusColors[approvalStatus])}>
                 {isLocked && <Lock className="h-3 w-3 mr-1" />}
                 {t(statusLabels[approvalStatus])}
               </Badge>
-              {/* Dirty indicator */}
+              {/* Dirty indicator - same size as status badge */}
               {isDirty && (
-                <Badge variant="outline" className="text-xs px-2 py-0.5 bg-warning/10 text-warning border-warning/20">
+                <Badge variant="outline" className="text-xs px-2.5 py-1 bg-warning/10 text-warning border-warning/20">
                   {t("common.unsavedChanges")}
                 </Badge>
               )}
             </div>
-            <div className="flex items-center gap-4">
-              {/* Currency - editable only on new, read-only on edit */}
-              <div className="flex items-center gap-2">
-                <Label className="text-sm">{t("workOrders.currency")}</Label>
-                {isNew ? (
+            <div className="flex items-center gap-3">
+              {/* Currency - styled chip, editable only on new */}
+              {isNew ? (
+                <div className="flex items-center gap-2">
+                  <Label className="text-xs text-muted-foreground">{t("workOrders.currency")}:</Label>
                   <Select value={currency} onValueChange={(v) => onCurrencyChange(v as "USD" | "BOB")}>
-                    <SelectTrigger className="w-24 h-8">
+                    <SelectTrigger className="w-20 h-7 text-xs">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -235,16 +235,19 @@ export function WorkOrderForm({
                       <SelectItem value="USD">USD</SelectItem>
                     </SelectContent>
                   </Select>
-                ) : (
-                  <span className="text-sm font-medium px-2">{currency}</span>
-                )}
-              </div>
-              {/* Season - editable only on new, read-only on edit */}
-              <div className="flex items-center gap-2">
-                <Label className="text-sm">{t("workOrders.season")}</Label>
-                {isNew ? (
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 bg-muted/50 rounded-md px-2.5 py-1">
+                  <span className="text-xs text-muted-foreground">{t("workOrders.currency")}:</span>
+                  <span className="text-sm font-semibold">{currency}</span>
+                </div>
+              )}
+              {/* Season - styled chip, editable only on new */}
+              {isNew ? (
+                <div className="flex items-center gap-2">
+                  <Label className="text-xs text-muted-foreground">{t("workOrders.season")}:</Label>
                   <Select value={seasonMode} onValueChange={(v) => onSeasonChange(v as "High" | "Low")}>
-                    <SelectTrigger className="w-24 h-8">
+                    <SelectTrigger className="w-20 h-7 text-xs">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -252,12 +255,15 @@ export function WorkOrderForm({
                       <SelectItem value="Low">{t("industry.low")}</SelectItem>
                     </SelectContent>
                   </Select>
-                ) : (
-                  <span className="text-sm font-medium px-2">
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 bg-muted/50 rounded-md px-2.5 py-1">
+                  <span className="text-xs text-muted-foreground">{t("workOrders.season")}:</span>
+                  <span className="text-sm font-semibold">
                     {seasonMode === "High" ? t("industry.high") : t("industry.low")}
                   </span>
-                )}
-              </div>
+                </div>
+              )}
             </div>
           </div>
         </CardHeader>
@@ -417,7 +423,10 @@ export function WorkOrderForm({
               )}
               <div className="flex justify-between pt-2 border-t border-border font-medium">
                 <span>{t("workOrders.totalExpenses")}</span>
-                <span className="font-mono">{formatCurrencyWithCode(totalExpenses)}</span>
+                <span className="font-mono">
+                  <span className="text-xs text-muted-foreground mr-1.5">{currency}</span>
+                  {formatNumber(totalExpenses)}
+                </span>
               </div>
             </div>
           </CardContent>
@@ -430,44 +439,78 @@ export function WorkOrderForm({
           </CardHeader>
           <CardContent className="pt-0 form-dense">
             <div className="space-y-2">
+              {/* Standard Fee */}
               <div className="flex justify-between items-center">
                 <span className="text-muted-foreground">{t("workOrders.standardFee")}</span>
-                <span className="font-mono">{formatCurrencyWithCode(totalStandardFee)}</span>
+                <span className="font-mono">
+                  <span className="text-xs text-muted-foreground mr-1.5">{currency}</span>
+                  {formatNumber(totalStandardFee)}
+                </span>
               </div>
+              {/* Adjustment - same font size as other rows, negative in red */}
               <div className="flex justify-between items-center">
-                <Label className="text-sm">{t("workOrders.adjustment")}</Label>
-                <NumericInput
-                  decimals={2}
-                  locale={currentLanguage as "es" | "en"}
-                  value={adjustmentAmount || ""}
-                  onChange={(val) => onAdjustmentChange(val)}
-                  className="w-36 text-right h-8"
-                  disabled={!isEditable}
-                />
+                <span className="text-muted-foreground">{t("workOrders.adjustment")}</span>
+                <div className="flex items-center gap-1">
+                  <span className="text-xs text-muted-foreground">{currency}</span>
+                  <NumericInput
+                    decimals={2}
+                    locale={currentLanguage as "es" | "en"}
+                    value={adjustmentAmount || ""}
+                    onChange={(val) => onAdjustmentChange(val)}
+                    className={cn(
+                      "w-28 text-right h-8",
+                      adjustmentAmount < 0 && "text-destructive"
+                    )}
+                    disabled={!isEditable}
+                  />
+                </div>
               </div>
+              {/* Realization - full label on desktop, abbreviated on mobile, color coded */}
               <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">{t("workOrders.realization")}</span>
-                <span className={cn("font-mono font-medium", realizationPercent < 100 ? "text-warning" : "text-foreground")}>
+                <span className="text-muted-foreground">
+                  <span className="hidden sm:inline">{t("workOrders.realizationFull")}</span>
+                  <span className="sm:hidden">{t("workOrders.realization")}</span>
+                </span>
+                <span className={cn(
+                  "font-mono font-medium",
+                  realizationPercent >= 75 ? "text-success" : "text-destructive"
+                )}>
                   {realizationPercent.toFixed(1)}%
                 </span>
               </div>
+              {/* Adjusted Fee */}
               <div className="flex justify-between items-center">
                 <span className="text-muted-foreground">{t("workOrders.adjustedFee")}</span>
-                <span className="font-mono">{formatCurrencyWithCode(totalAdjustedFee)}</span>
+                <span className="font-mono">
+                  <span className="text-xs text-muted-foreground mr-1.5">{currency}</span>
+                  {formatNumber(totalAdjustedFee)}
+                </span>
               </div>
+              {/* Expenses */}
               <div className="flex justify-between items-center">
                 <span className="text-muted-foreground">{t("workOrders.expenses")}</span>
-                <span className="font-mono">{formatCurrencyWithCode(totalExpenses)}</span>
+                <span className="font-mono">
+                  <span className="text-xs text-muted-foreground mr-1.5">{currency}</span>
+                  {formatNumber(totalExpenses)}
+                </span>
               </div>
+              {/* IVA */}
               <div className="border-t border-border pt-2">
                 <div className="flex justify-between items-center text-muted-foreground">
                   <span>{t("workOrders.iva")} ({(taxRate * 100).toFixed(0)}%)</span>
-                  <span className="font-mono">{formatCurrencyWithCode(feeWithTax - totalAdjustedFee - totalExpenses)}</span>
+                  <span className="font-mono">
+                    <span className="text-xs mr-1.5">{currency}</span>
+                    {formatNumber(feeWithTax - totalAdjustedFee - totalExpenses)}
+                  </span>
                 </div>
               </div>
+              {/* Fee with Tax */}
               <div className="flex justify-between items-center pt-2 border-t border-border">
                 <span className="font-semibold">{t("workOrders.feeWithTax")}</span>
-                <span className="font-mono font-bold text-accent">{formatCurrencyWithCode(feeWithTax)}</span>
+                <span className="font-mono font-bold text-accent">
+                  <span className="text-xs font-normal text-muted-foreground mr-1.5">{currency}</span>
+                  {formatNumber(feeWithTax)}
+                </span>
               </div>
             </div>
           </CardContent>

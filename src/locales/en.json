@@ -576,6 +576,7 @@
     "standardFee": "Std. Fee",
     "adjustment": "Adjustment",
     "realization": "Real. %",
+    "realizationFull": "Realization %",
     "feeWithTax": "Fee w/Tax",
     "season": "Season",
     "iva": "IVA",
