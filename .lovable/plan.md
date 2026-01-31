@@ -1,93 +1,176 @@
 
 
-# Plan: Fix Ajuste Input Font Size to Match Other Numbers in Resumen
+# Plan: Configurable Realization Limit for Color-Coding
 
-## Root Cause Analysis
+## Current State
 
-The issue is a **CSS specificity conflict** in the NumericInput component.
-
-### How NumericInput Works
-
-The NumericInput component has **hardcoded base styles** (line 266-268 of `numeric-input.tsx`):
+The Realization % color is currently hardcoded in `WorkOrderForm.tsx` (line 484):
 
 ```tsx
-className={cn(
-  "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-base ring-offset-background ... md:text-sm hide-spinners",
-  className  // <-- Your custom classes get merged here
-)}
+realizationPercent >= 75 ? "text-success" : "text-destructive"
 ```
 
-The base styles include:
-- **`text-base`** = 16px font size (mobile)
-- **`md:text-sm`** = 14px font size (desktop)
+This means:
+- **Green** if realization >= 75%
+- **Red** if realization < 75%
 
-### Why Your Custom Classes Don't Work
-
-When you pass `font-mono` in the Ajuste field's className, the `cn()` utility (Tailwind Merge) merges them:
-- ✅ `font-mono` is added correctly
-- ❌ `text-base md:text-sm` from base styles **remain** because you didn't explicitly override them
-
-The static `<span className="font-mono">` elements have **no explicit font size** - they inherit from their parent container. But the NumericInput has hardcoded `text-base md:text-sm`.
-
-### The Result
-
-| Element | Font Size | Font Family |
-|---------|-----------|-------------|
-| Static span (Honorario Standard) | Inherited (larger) | font-mono ✓ |
-| NumericInput (Ajuste) | `md:text-sm` = 14px (smaller) | font-mono ✓ |
-| Static span (Gastos) | Inherited (larger) | font-mono ✓ |
+The user needs this threshold to be **configurable via Global Settings** so an Admin can adjust it based on business needs.
 
 ---
 
-## Solution: Override Font Size with `!important`
+## Solution Overview
 
-Since Tailwind Merge doesn't remove the base `text-base md:text-sm` classes, we need to use Tailwind's `!` modifier to force our font size to take precedence.
+1. Add a new global setting `REALIZATION_LIMIT` in the database
+2. Add UI controls in Settings page (Configuración Global tab)
+3. Fetch and use this setting in WorkOrderForm for color logic
 
-### File: `src/components/forms/WorkOrderForm.tsx`
+---
 
-**Change the Ajuste NumericInput className (lines 468-471):**
+## Technical Changes
+
+### Step 1: Database Migration
+
+Create a new global setting record:
+
+```sql
+INSERT INTO global_settings (setting_key, setting_value, description)
+VALUES (
+  'REALIZATION_LIMIT',
+  '75',
+  'Realization percentage threshold for color coding (green >= X, red < X)'
+);
+```
+
+---
+
+### Step 2: Translation Files
+
+#### File: `src/locales/es.json`
+
+Add to the `settings` section:
+
+```json
+"realizationLimit": "Límite de Realización (%)",
+"realizationLimitHelp": "Umbral para codificación por color: verde si R >= X%, rojo si R < X%"
+```
+
+#### File: `src/locales/en.json`
+
+Add to the `settings` section:
+
+```json
+"realizationLimit": "Realization Limit (%)",
+"realizationLimitHelp": "Threshold for color coding: green if R >= X%, red if R < X%"
+```
+
+---
+
+### Step 3: Settings Page (`src/pages/Settings.tsx`)
+
+#### Add state variable (around line 78):
+
+```tsx
+const [realizationLimit, setRealizationLimit] = useState<string>("");
+```
+
+#### Initialize from settings (in useEffect, around line 100):
+
+```tsx
+const realizationSetting = settings.find((s) => s.setting_key === "REALIZATION_LIMIT");
+if (realizationSetting) {
+  setRealizationLimit(realizationSetting.setting_value);
+}
+```
+
+#### Add UI control after Tax Rate section (around line 458):
+
+```tsx
+{/* Realization Limit Setting */}
+<div className="space-y-2 py-4 border-b border-border">
+  <Label htmlFor="realizationLimit">{t("settings.realizationLimit")}</Label>
+  <div className="flex items-center gap-2 max-w-[200px]">
+    <NumericInput
+      id="realizationLimit"
+      value={realizationLimit || getSetting("REALIZATION_LIMIT") || "75"}
+      onValueChange={(value) => setRealizationLimit(value)}
+      placeholder="75"
+      decimals={1}
+    />
+    <span className="text-muted-foreground">%</span>
+  </div>
+  <p className="text-sm text-muted-foreground">{t("settings.realizationLimitHelp")}</p>
+</div>
+```
+
+#### Update save handler (in `handleSaveSettings`, around line 231):
+
+```tsx
+if (realizationLimit) {
+  await updateSettingMutation.mutateAsync({ key: "REALIZATION_LIMIT", value: realizationLimit });
+}
+```
+
+---
+
+### Step 4: WorkOrderForm.tsx - Use Setting for Color Logic
+
+#### Import `useSetting` (already imported on line 19)
+
+Already imported: `import { useCategories, useExpenseTypes, useSetting, ... }`
+
+#### Fetch the setting (add inside component, around line 113):
+
+```tsx
+const realizationLimitSetting = useSetting("REALIZATION_LIMIT");
+const realizationLimit = parseFloat(realizationLimitSetting || "75");
+```
+
+#### Update color logic (line 484):
 
 **Current:**
 ```tsx
-className={cn(
-  "w-24 text-right h-8 font-mono border-0 bg-transparent px-0 focus-visible:ring-1 focus-visible:ring-border focus-visible:ring-offset-0",
-  adjustmentAmount < 0 && "text-destructive"
-)}
+realizationPercent >= 75 ? "text-success" : "text-destructive"
 ```
 
 **New:**
 ```tsx
-className={cn(
-  "w-24 text-right h-8 font-mono border-0 bg-transparent px-0 !text-[length:inherit] focus-visible:ring-1 focus-visible:ring-border focus-visible:ring-offset-0",
-  adjustmentAmount < 0 && "text-destructive"
-)}
+realizationPercent >= realizationLimit ? "text-success" : "text-destructive"
 ```
 
-The key addition is **`!text-[length:inherit]`**:
-- `!` = Important modifier (overrides specificity)
-- `text-[length:inherit]` = Sets `font-size: inherit` to match parent/sibling elements
-
 ---
 
-## Alternative Solution (Cleaner Long-Term)
-
-If `!text-[length:inherit]` doesn't work as expected, we can wrap the input value in a visually-hidden input approach, or modify the NumericInput component itself to accept a `variant="inline"` prop that removes the default sizing.
-
----
-
-## Files to Modify
+## Summary of Changes
 
 | File | Change |
 |------|--------|
-| `src/components/forms/WorkOrderForm.tsx` | Add `!text-[length:inherit]` to Ajuste NumericInput className |
+| **Database** | Insert `REALIZATION_LIMIT` setting with default value `75` |
+| `src/locales/es.json` | Add `realizationLimit` and `realizationLimitHelp` translations |
+| `src/locales/en.json` | Add `realizationLimit` and `realizationLimitHelp` translations |
+| `src/pages/Settings.tsx` | Add state, initialization, UI control, and save logic for Realization Limit |
+| `src/components/forms/WorkOrderForm.tsx` | Fetch `REALIZATION_LIMIT` setting and use it for color-coding logic |
+
+---
+
+## User Experience
+
+### Settings Page (Configuración Global)
+A new field "Límite de Realización (%)" will appear after the "Tasa de IVA" field:
+- Input for entering the threshold percentage (default: 75)
+- Help text explaining the color logic
+
+### Work Order Form (Resumen)
+- If Realization % >= configured limit → **Green**
+- If Realization % < configured limit → **Red**
 
 ---
 
 ## Testing Checklist
 
 After implementation:
-- [ ] Ajuste number "-12345" is the same size as "61.060", "48.715", "234"
-- [ ] All numbers use the same font family (IBM Plex Sans with tabular figures)
-- [ ] Negative Ajuste still displays in red
-- [ ] Focus ring is still thin and light grey
+- [ ] New setting appears in Configuración Global tab
+- [ ] Default value is 75%
+- [ ] Changing the value and saving persists correctly
+- [ ] Work Order Resumen shows green for R >= limit
+- [ ] Work Order Resumen shows red for R < limit
+- [ ] Setting works correctly with decimal values (e.g., 74.5%)
 
