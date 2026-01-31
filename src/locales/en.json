@@ -631,7 +631,7 @@
     "submittedForApproval": "Work order submitted for approval",
     "approved": "Work order approved",
     "rejected": "Work order rejected",
-    "unsubmit": "Unsubmit",
+    "unsubmit": "Withdraw from Approval",
     "unsubmitted": "Work order returned to draft"
   },
   "adminTimeEntries": {
