@@ -133,3 +133,26 @@ export function useRejectWorkOrder() {
     onError: createMutationErrorHandler("rejecting work order"),
   });
 }
+
+export function useUnsubmitWorkOrder() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (woId: string) => {
+      const { data: result, error } = await supabase
+        .from("work_orders")
+        .update({ approval_status: "Draft" })
+        .eq("wo_id", woId)
+        .select()
+        .single();
+      if (error) throw error;
+      return result;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["work_orders"] });
+      queryClient.invalidateQueries({ queryKey: ["work_order"] });
+      queryClient.invalidateQueries({ queryKey: ["worksheet-by-engagement"] });
+      toast.success(i18n.t("workOrders.unsubmitted"));
+    },
+    onError: createMutationErrorHandler("unsubmitting work order"),
+  });
+}

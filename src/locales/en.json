@@ -630,7 +630,9 @@
     "createEngagementFirst": "Create a new engagement",
     "submittedForApproval": "Work order submitted for approval",
     "approved": "Work order approved",
-    "rejected": "Work order rejected"
+    "rejected": "Work order rejected",
+    "unsubmit": "Unsubmit",
+    "unsubmitted": "Work order returned to draft"
   },
   "adminTimeEntries": {
     "title": "Time Entries",
@@ -784,6 +786,8 @@
       "draft": "Draft",
       "approved": "Approved",
       "archived": "Archived"
-    }
+    },
+    "lockedByWorkOrderTitle": "Worksheet Locked",
+    "lockedByWorkOrder": "This worksheet is locked because the linked Work Order is pending approval or approved. Use the Unsubmit button on the Work Order to unlock."
   }
 }

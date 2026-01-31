@@ -5,7 +5,7 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { FileSpreadsheet, RefreshCw } from "lucide-react";
+import { FileSpreadsheet, RefreshCw, Undo2 } from "lucide-react";
 import { WorkOrderForm, BudgetLineInput, ExpenseBudgetInput } from "@/components/forms/WorkOrderForm";
 import { useWorkOrderById, useSetting, useCategories } from "@/hooks/useEmsData";
 import {
@@ -19,6 +19,7 @@ import {
   useSubmitWorkOrder,
   useApproveWorkOrder,
   useRejectWorkOrder,
+  useUnsubmitWorkOrder,
 } from "@/hooks/mutations";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { useWorksheetByEngagementId } from "@/hooks/useWorksheetData";
@@ -58,6 +59,7 @@ const WorkOrderEdit = () => {
   const submitWorkOrder = useSubmitWorkOrder();
   const approveWorkOrder = useApproveWorkOrder();
   const rejectWorkOrder = useRejectWorkOrder();
+  const unsubmitWorkOrder = useUnsubmitWorkOrder();
   const resyncWorksheet = useResyncWorksheetToWorkOrder();
 
   const [currency, setCurrency] = useState<"USD" | "BOB">("BOB");
@@ -198,6 +200,11 @@ const WorkOrderEdit = () => {
     await rejectWorkOrder.mutateAsync(workOrder.wo_id);
   };
 
+  const handleUnsubmit = async () => {
+    if (!workOrder) return;
+    await unsubmitWorkOrder.mutateAsync(workOrder.wo_id);
+  };
+
   const handleResync = async () => {
     if (!workOrder || !linkedWorksheet) return;
     await resyncWorksheet.mutateAsync({
@@ -266,6 +273,19 @@ const WorkOrderEdit = () => {
                   </Button>
                 </div>
               )}
+              {/* Show Unsubmit button when Pending Approval */}
+              {approvalStatus === "Pending_Approval" && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleUnsubmit}
+                  disabled={unsubmitWorkOrder.isPending}
+                  className="gap-2"
+                >
+                  <Undo2 className="h-4 w-4" />
+                  {t("workOrders.unsubmit")}
+                </Button>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -295,7 +315,8 @@ const WorkOrderEdit = () => {
             updateWorkOrder.isPending ||
             submitWorkOrder.isPending ||
             approveWorkOrder.isPending ||
-            rejectWorkOrder.isPending
+            rejectWorkOrder.isPending ||
+            unsubmitWorkOrder.isPending
           }
         />
       </div>

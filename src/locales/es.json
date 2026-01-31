@@ -630,7 +630,9 @@
     "createEngagementFirst": "Crear un nuevo encargo",
     "submittedForApproval": "Orden de trabajo enviada para aprobación",
     "approved": "Orden de trabajo aprobada",
-    "rejected": "Orden de trabajo rechazada"
+    "rejected": "Orden de trabajo rechazada",
+    "unsubmit": "Retirar",
+    "unsubmitted": "Orden de trabajo devuelta a borrador"
   },
   "adminTimeEntries": {
     "title": "Entradas de Tiempo",
@@ -784,6 +786,8 @@
       "draft": "Borrador",
       "approved": "Aprobada",
       "archived": "Archivada"
-    }
+    },
+    "lockedByWorkOrderTitle": "Matriz Bloqueada",
+    "lockedByWorkOrder": "Esta matriz está bloqueada porque la Orden de Trabajo vinculada está pendiente de aprobación o aprobada. Use el botón Retirar en la Orden de Trabajo para desbloquear."
   }
 }
