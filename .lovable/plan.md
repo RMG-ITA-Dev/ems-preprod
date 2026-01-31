@@ -1,96 +1,144 @@
 
 
-# Plan: Make WO Hours Read-Only and Style Unsubmit Button Orange
+# Plan: Work Order UX Improvements
 
-## Problem Summary
+## Issues Summary
 
-1. **Hours editable in WO**: The "Horas" (Hours) column in the Work Order budget lines table is currently editable. According to business rules, all hour planning must be done in the Work Matrix (Matriz de Trabajo), and the Work Order should only display the aggregated values (read-only).
-
-2. **Unsubmit button color**: The "Retirar de Aprobacion" button is currently red (destructive variant). It should use the same orange/amber tone as the "Borrador" (Draft) badge for consistency.
-
----
-
-## Solution
-
-### Part 1: Make Hours Column Read-Only
-
-In the Budget Lines table, the Hours column should display the value as read-only text (like the Rate column) instead of an editable input. Since edits must be done in the Work Matrix and resynced to the WO, there's no need for the hours input field in the WO at all.
-
-**Current behavior:** NumericInput with `disabled={!isEditable}` condition
-**New behavior:** Plain text display (like the Rate column)
-
-### Part 2: Change Unsubmit Button to Orange (Warning Color)
-
-The "Retirar de Aprobacion" button should use the warning color (`bg-warning`) instead of destructive (`variant="destructive"`). This matches the "Borrador" badge styling and indicates "caution/withdraw" rather than "delete/danger".
+1. **Budget Lines**: Delete buttons (trash icons) and "Agregar Línea" should be removed - all budget line management is done in the Work Matrix
+2. **Expense Lines**: Keep existing add/delete functionality (managed at WO level, not Matrix)
+3. **Submit Button Behavior**: "Enviar para Aprobación" should be disabled when there are unsaved changes - user must Save first
+4. **Currency & Season Locking**: Make Moneda and Temporada immutable after WO creation - can only be set once at creation time
+5. **Temporada Dropdown**: Convert Season toggle to dropdown (like Currency)
+6. **Confirmation Dialog**: Add popup when setting Moneda/Temporada during WO creation with warning they cannot be changed later
+7. **Summary Currency Sign**: Add currency code to monetary values in the Resumen section for clarity
 
 ---
 
-## Implementation Details
+## Part 1: Remove Budget Line Management from WO
 
-### File: `src/components/forms/WorkOrderForm.tsx`
+**Current State**: Budget lines table has delete trash icons and "Agregar Línea" button
+**New State**: Budget lines are completely read-only (hours, categories, actions all locked) - managed only via Work Matrix + Resync
 
-#### Change 1: Make Hours column read-only (lines 337-347)
+### Changes in `WorkOrderForm.tsx`
 
-**Current code:**
-```tsx
-<td className="py-1.5 px-2 border-r border-border">
-  <NumericInput
-    decimals={1}
-    locale={currentLanguage as "es" | "en"}
-    min={0}
-    value={line.budgeted_hours || ""}
-    onChange={(val) => updateBudgetLine(line.id, "budgeted_hours", val)}
-    className="text-right h-8"
-    disabled={!isEditable}
-  />
-</td>
+1. Remove the `addBudgetLine` function call button (lines 402-407)
+2. Remove the delete trash icon for budget lines (lines 358-368)
+3. Make Category dropdown read-only (display text only, no Select)
+
+Since hours editing was already removed, these are the remaining editable elements that need to be locked for budget lines.
+
+---
+
+## Part 2: Disable "Submit for Approval" When Dirty
+
+**Logic**: Track if form has unsaved changes. If dirty, disable "Enviar para Aprobación" button.
+
+### Implementation
+
+1. Add `isDirty` prop to `WorkOrderForm` interface
+2. In `WorkOrderEdit.tsx`, compute `isDirty` by comparing current state to original loaded values
+3. Pass `isDirty` to form and disable submit button accordingly
+4. Show visual indicator when form has unsaved changes
+
+### Dirty Check Logic
+```typescript
+const isDirty = useMemo(() => {
+  if (!workOrder) return false;
+  
+  // Compare adjustment amount
+  if (adjustmentAmount !== (Number(workOrder.adjustment_amount) || 0)) return true;
+  
+  // Compare expense budget count and values
+  const originalExpIds = (workOrder.expense_budget || []).map(e => e.wo_exp_id).sort();
+  const currentExpIds = expenseBudget.map(e => e.id).sort();
+  if (JSON.stringify(originalExpIds) !== JSON.stringify(currentExpIds)) return true;
+  
+  // Compare expense values
+  for (const exp of expenseBudget) {
+    const orig = workOrder.expense_budget?.find(e => e.wo_exp_id === exp.id);
+    if (orig && Number(orig.budgeted_amount) !== exp.budgeted_amount) return true;
+  }
+  
+  return false;
+}, [workOrder, adjustmentAmount, expenseBudget]);
 ```
 
-**New code:**
+---
+
+## Part 3: Lock Currency & Season After Creation
+
+**New Behavior**: 
+- On **WorkOrderNew**: Currency and Season are editable with dropdowns
+- On **WorkOrderEdit**: Currency and Season are read-only display text (not controls)
+
+### WorkOrderForm Changes
+
+1. Add new prop `isNew: boolean` to distinguish create vs edit mode
+2. When `isNew = false`:
+   - Currency: Display as Badge/text, not Select dropdown
+   - Season: Display as Badge/text, not dropdown/toggle
+3. When `isNew = true`:
+   - Show editable dropdowns for both
+
+---
+
+## Part 4: Convert Season to Dropdown
+
+**Current**: Switch toggle (High/Low)
+**New**: Select dropdown with two options (like Currency)
+
+### Changes
+
+Replace the Switch component with a Select dropdown:
 ```tsx
-<td className="py-1.5 px-2 text-right font-mono border-r border-border">
-  {line.budgeted_hours.toLocaleString(currency === "BOB" ? "es-BO" : "en-US", { 
-    minimumFractionDigits: 1, 
-    maximumFractionDigits: 1 
-  })}
-</td>
+<Select value={seasonMode} onValueChange={(v) => onSeasonChange(v as "High" | "Low")} disabled={!isNew}>
+  <SelectTrigger className="w-24 h-8">
+    <SelectValue />
+  </SelectTrigger>
+  <SelectContent>
+    <SelectItem value="High">{t("industry.high")}</SelectItem>
+    <SelectItem value="Low">{t("industry.low")}</SelectItem>
+  </SelectContent>
+</Select>
 ```
 
-This removes the NumericInput and displays hours as plain formatted text, matching the Rate column style.
+---
 
-#### Change 2: Style Unsubmit button with warning color (lines 601-611)
+## Part 5: Confirmation Dialog for Currency/Season
 
-**Current code:**
-```tsx
-{isPending && onUnsubmit && (
-  <LoadingButton
-    variant="destructive"
-    onClick={onUnsubmit}
-    loading={isSubmitting}
-    className="btn-action"
-  >
-    <Undo2 className="h-4 w-4 mr-2" />
-    {t("workOrders.unsubmit")}
-  </LoadingButton>
-)}
+**When**: User is creating a new WO and changes Currency or Season
+**Trigger**: Before submitting/saving the new WO
+**Content**: "Are you sure these parameters are correct? Currency and Season cannot be changed after creation."
+
+### Implementation
+
+Add a confirmation dialog in `WorkOrderNew.tsx`:
+- Show on first save/submit
+- Require explicit confirmation
+- Display selected Currency and Season values
+
+---
+
+## Part 6: Currency Code in Summary Section
+
+**Current**: Numbers displayed without currency indicator
+**New**: Add currency code to key totals (e.g., "61.060 BOB" or "8,580 USD")
+
+### Changes in WorkOrderForm.tsx
+
+Update the `formatCurrency` function for summary section to include currency code:
+```typescript
+const formatCurrencyWithCode = (amount: number) => {
+  return `${formatNumber(amount)} ${currency}`;
+};
 ```
 
-**New code:**
-```tsx
-{isPending && onUnsubmit && (
-  <LoadingButton
-    variant="outline"
-    onClick={onUnsubmit}
-    loading={isSubmitting}
-    className="bg-warning hover:bg-warning/90 text-warning-foreground btn-action"
-  >
-    <Undo2 className="h-4 w-4 mr-2" />
-    {t("workOrders.unsubmit")}
-  </LoadingButton>
-)}
-```
-
-This uses the warning color (`bg-warning`) which is the same orange tone used for the "Borrador" badge.
+Apply to:
+- Hon. Std.
+- Hon. Aj.
+- Gastos
+- IVA
+- Honorario c/IVA
 
 ---
 
@@ -98,28 +146,103 @@ This uses the warning color (`bg-warning`) which is the same orange tone used fo
 
 | File | Changes |
 |------|---------|
-| `src/components/forms/WorkOrderForm.tsx` | 1. Replace Hours NumericInput with read-only text display. 2. Change Unsubmit button from destructive (red) to warning (orange) |
+| `src/components/forms/WorkOrderForm.tsx` | 1. Add `isNew` prop. 2. Remove budget line delete buttons. 3. Remove "Agregar Línea" button. 4. Make Category column read-only text. 5. Convert Season to dropdown. 6. Lock Currency/Season on edit mode. 7. Add `isDirty` prop to disable submit. 8. Add currency code to summary values. |
+| `src/pages/WorkOrderEdit.tsx` | Compute `isDirty` state and pass to form. Pass `isNew={false}`. |
+| `src/pages/WorkOrderNew.tsx` | Pass `isNew={true}`. Add confirmation AlertDialog before saving. |
+| `src/locales/en.json` | Add new translation keys for confirmation dialog |
+| `src/locales/es.json` | Add new translation keys for confirmation dialog |
 
 ---
 
-## Visual Result
+## New Translation Keys
 
-**Budget Lines Table:**
-- Category: Dropdown (editable only in Draft if needed for manual additions)
-- Hours: **Read-only text** (value comes from Work Matrix via Resync)
-- Rate: Read-only text (locked from category rates)
-- All other columns: Calculated values (read-only)
+**English (en.json)**:
+```json
+"workOrders": {
+  ...
+  "confirmParametersTitle": "Confirm Work Order Parameters",
+  "confirmParametersDescription": "Currency and Season cannot be changed after creation. Please verify these settings are correct.",
+  "selectedCurrency": "Currency",
+  "selectedSeason": "Season",
+  "confirmAndCreate": "Confirm & Create"
+}
+```
 
-**Unsubmit Button:**
-- Color: Orange/amber (`--warning: 38 92% 50%`) - matches "Borrador" badge
-- Text: "Retirar de Aprobacion" with Undo2 icon
+**Spanish (es.json)**:
+```json
+"workOrders": {
+  ...
+  "confirmParametersTitle": "Confirmar Parámetros de Orden de Trabajo",
+  "confirmParametersDescription": "La Moneda y Temporada no se pueden cambiar después de la creación. Por favor verifique que estos parámetros sean correctos.",
+  "selectedCurrency": "Moneda",
+  "selectedSeason": "Temporada",
+  "confirmAndCreate": "Confirmar y Crear"
+}
+```
+
+---
+
+## Visual Summary
+
+### Budget Lines Table (After Changes)
+```
++--------------------------------------------------+
+| Líneas de Presupuesto                            |
++--------------------------------------------------+
+| Categoría    | Horas | Tarifa | Total | ...     |
+|              |       |        |       |         |
+| Socio        | 6.0   | 1,530  | 9,180 | ...     | (no trash icon)
+| Director     | 10.0  | 700    | 7,000 | ...     | (no trash icon)
+| ...          |       |        |       |         |
++--------------------------------------------------+
+| (no "Agregar Línea" button)                      |
++--------------------------------------------------+
+```
+
+### Header Card - Create Mode
+```
++---------------------------------------------------------+
+| [Borrador]    [Moneda: BOB ▼]  [Temporada: Alta ▼]     |
++---------------------------------------------------------+
+```
+
+### Header Card - Edit Mode (Locked)
+```
++---------------------------------------------------------+
+| [Borrador]    Moneda: BOB      Temporada: Alta          |
++---------------------------------------------------------+
+```
+(Currency and Season displayed as static text, not dropdowns)
+
+### Summary Section (With Currency Code)
+```
++-----------------------------------+
+| Resumen                           |
++-----------------------------------+
+| Hon. Std.         61.060 BOB     |
+| Ajuste            [___________]   |
+| Real. %                  100.0%   |
+| Hon. Aj.          61.060 BOB     |
+| Gastos               234 BOB     |
+|-----------------------------------|
+| IVA (13%)          9.159 BOB     |
+|-----------------------------------|
+| Honorario c/IVA   70.453 BOB     |
++-----------------------------------+
+```
 
 ---
 
 ## Testing Checklist
 
-- [ ] Open a Draft Work Order - Hours column should be read-only (no input field)
-- [ ] Open a Pending Approval Work Order - "Retirar de Aprobacion" button should be orange, not red
-- [ ] Verify the orange color matches the "Borrador" badge color
-- [ ] Confirm editing hours must be done via Work Matrix and Resync
+After implementation:
+- [ ] **Create WO**: Currency and Season dropdowns are visible and editable
+- [ ] **Create WO**: Confirmation dialog appears before saving
+- [ ] **Edit WO**: Currency and Season are read-only text (not controls)
+- [ ] **Budget Lines**: No delete icons, no "Agregar Línea" button
+- [ ] **Budget Lines**: Category column is read-only text
+- [ ] **Expenses**: Add/delete still works (unchanged)
+- [ ] **Dirty State**: Make a change → "Enviar para Aprobación" disabled
+- [ ] **Dirty State**: Save → "Enviar para Aprobación" enabled
+- [ ] **Summary**: All monetary values show currency code (e.g., "61.060 BOB")
 
