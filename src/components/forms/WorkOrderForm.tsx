@@ -444,15 +444,18 @@ export function WorkOrderForm({
           </CardHeader>
           <CardContent className="pt-0 form-dense">
             <div className="space-y-2">
-              {/* Standard Fee */}
+              {/* Standard Fee - full label on desktop, abbreviated on mobile */}
               <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">{t("workOrders.standardFee")}</span>
-                <span className="font-mono">
-                  <span className="text-sm text-muted-foreground mr-2">{currency}</span>
+                <span className="text-muted-foreground">
+                  <span className="hidden sm:inline">{t("workOrders.standardFeeFull")}</span>
+                  <span className="sm:hidden">{t("workOrders.standardFee")}</span>
+                </span>
+                <span className="text-sm font-mono">
+                  <span className="text-muted-foreground mr-2">{currency}</span>
                   {formatNumber(totalStandardFee)}
                 </span>
               </div>
-              {/* Adjustment - aligned with other rows, negative in red */}
+              {/* Adjustment - styled to match other rows, negative in red */}
               <div className="flex justify-between items-center">
                 <span className="text-muted-foreground">{t("workOrders.adjustment")}</span>
                 <div className="flex items-center">
@@ -463,7 +466,7 @@ export function WorkOrderForm({
                     value={adjustmentAmount || ""}
                     onChange={(val) => onAdjustmentChange(val)}
                     className={cn(
-                      "w-24 text-right h-8 font-mono",
+                      "w-24 text-right h-8 text-sm font-mono border-0 bg-transparent px-0",
                       adjustmentAmount < 0 && "text-destructive"
                     )}
                     disabled={!isEditable}
@@ -486,11 +489,14 @@ export function WorkOrderForm({
                   })}%
                 </span>
               </div>
-              {/* Adjusted Fee */}
+              {/* Adjusted Fee - full label on desktop, abbreviated on mobile */}
               <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">{t("workOrders.adjustedFee")}</span>
-                <span className="font-mono">
-                  <span className="text-sm text-muted-foreground mr-2">{currency}</span>
+                <span className="text-muted-foreground">
+                  <span className="hidden sm:inline">{t("workOrders.adjustedFeeFull")}</span>
+                  <span className="sm:hidden">{t("workOrders.adjustedFee")}</span>
+                </span>
+                <span className="text-sm font-mono">
+                  <span className="text-muted-foreground mr-2">{currency}</span>
                   {formatNumber(totalAdjustedFee)}
                 </span>
               </div>
