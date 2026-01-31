@@ -13,7 +13,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { Trash2, Plus, Lock, CheckCircle, XCircle, Send, ShieldCheck, Undo2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -47,6 +46,9 @@ interface WorkOrderFormProps {
   ceacNotes?: string | null;
   sanCompletedAt?: string | null;
   sanNotes?: string | null;
+  // New props for create/edit mode and dirty state
+  isNew?: boolean;
+  isDirty?: boolean;
   onCurrencyChange: (currency: "USD" | "BOB") => void;
   onSeasonChange: (season: "High" | "Low") => void;
   onAdjustmentChange: (amount: number) => void;
@@ -90,6 +92,8 @@ export function WorkOrderForm({
   ceacNotes,
   sanCompletedAt,
   sanNotes,
+  isNew = false,
+  isDirty = false,
   onCurrencyChange,
   onSeasonChange,
   onAdjustmentChange,
@@ -148,42 +152,6 @@ export function WorkOrderForm({
     return totalBudgetedHours > 0 ? totalAdjustedFee / totalBudgetedHours : 0;
   }, [totalAdjustedFee, totalBudgetedHours]);
 
-  // Add budget line
-  const addBudgetLine = () => {
-    if (!categories?.length) return;
-    const newLine: BudgetLineInput = {
-      id: crypto.randomUUID(),
-      category_id: "",
-      budgeted_hours: 0,
-      standard_rate: 0,
-    };
-    onBudgetLinesChange([...budgetLines, newLine]);
-  };
-
-  // Update budget line
-  const updateBudgetLine = (id: string, field: keyof BudgetLineInput, value: string | number) => {
-    onBudgetLinesChange(
-      budgetLines.map((line) => {
-        if (line.id !== id) return line;
-        
-        if (field === "category_id") {
-          const category = categories?.find((c) => c.category_id === value);
-          return {
-            ...line,
-            category_id: value as string,
-            standard_rate: category ? getRate(category) : 0,
-          };
-        }
-        return { ...line, [field]: value };
-      })
-    );
-  };
-
-  // Remove budget line
-  const removeBudgetLine = (id: string) => {
-    onBudgetLinesChange(budgetLines.filter((line) => line.id !== id));
-  };
-
   // Add expense budget
   const addExpenseBudget = () => {
     const newExpense: ExpenseBudgetInput = {
@@ -215,12 +183,12 @@ export function WorkOrderForm({
     return rounded.toLocaleString("en-US", { maximumFractionDigits: 0 });
   };
 
-  // Format with currency code (for totals only) - no decimals
-  const formatCurrencyTotal = (amount: number) => {
-    return formatNumber(amount);
+  // Format with currency code (for summary totals)
+  const formatCurrencyWithCode = (amount: number) => {
+    return `${formatNumber(amount)} ${currency}`;
   };
 
-  // Legacy format for expenses and summary sections
+  // Legacy format for inline values
   const formatCurrency = (amount: number) => {
     return formatNumber(amount);
   };
@@ -228,6 +196,12 @@ export function WorkOrderForm({
   const isDraft = approvalStatus === "Draft";
   const isPending = approvalStatus === "Pending_Approval";
   const isEditable = !isLocked && isDraft;
+
+  // Get category name by ID
+  const getCategoryName = (categoryId: string) => {
+    const category = categories?.find((c) => c.category_id === categoryId);
+    return category?.category_name || "-";
+  };
 
   return (
     <div className="space-y-4">
@@ -240,44 +214,56 @@ export function WorkOrderForm({
                 {isLocked && <Lock className="h-3 w-3 mr-1" />}
                 {t(statusLabels[approvalStatus])}
               </Badge>
+              {/* Dirty indicator */}
+              {isDirty && (
+                <Badge variant="outline" className="text-xs px-2 py-0.5 bg-warning/10 text-warning border-warning/20">
+                  {t("common.unsavedChanges")}
+                </Badge>
+              )}
             </div>
             <div className="flex items-center gap-4">
-              {/* Currency */}
+              {/* Currency - editable only on new, read-only on edit */}
               <div className="flex items-center gap-2">
                 <Label className="text-sm">{t("workOrders.currency")}</Label>
-                <Select value={currency} onValueChange={(v) => onCurrencyChange(v as "USD" | "BOB")} disabled={isLocked}>
-                  <SelectTrigger className="w-24 h-8">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="BOB">BOB</SelectItem>
-                    <SelectItem value="USD">USD</SelectItem>
-                  </SelectContent>
-                </Select>
+                {isNew ? (
+                  <Select value={currency} onValueChange={(v) => onCurrencyChange(v as "USD" | "BOB")}>
+                    <SelectTrigger className="w-24 h-8">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="BOB">BOB</SelectItem>
+                      <SelectItem value="USD">USD</SelectItem>
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <span className="text-sm font-medium px-2">{currency}</span>
+                )}
               </div>
-              {/* Season Toggle */}
+              {/* Season - editable only on new, read-only on edit */}
               <div className="flex items-center gap-2">
                 <Label className="text-sm">{t("workOrders.season")}</Label>
-                <div className="flex items-center gap-2">
-                  <span className={cn("text-sm", seasonMode === "Low" ? "text-foreground" : "text-muted-foreground")}>
-                    {t("industry.low")}
+                {isNew ? (
+                  <Select value={seasonMode} onValueChange={(v) => onSeasonChange(v as "High" | "Low")}>
+                    <SelectTrigger className="w-24 h-8">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="High">{t("industry.high")}</SelectItem>
+                      <SelectItem value="Low">{t("industry.low")}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <span className="text-sm font-medium px-2">
+                    {seasonMode === "High" ? t("industry.high") : t("industry.low")}
                   </span>
-                  <Switch
-                    checked={seasonMode === "High"}
-                    onCheckedChange={(checked) => onSeasonChange(checked ? "High" : "Low")}
-                    disabled={isLocked}
-                  />
-                  <span className={cn("text-sm", seasonMode === "High" ? "text-accent font-medium" : "text-muted-foreground")}>
-                    {t("industry.high")}
-                  </span>
-                </div>
+                )}
               </div>
             </div>
           </div>
         </CardHeader>
       </Card>
 
-      {/* Zone B: Budget Grid */}
+      {/* Zone B: Budget Grid - Read-only, managed via Work Matrix */}
       <Card>
         <CardHeader className="py-3">
           <CardTitle className="text-base">{t("workOrders.budgetLines")}</CardTitle>
@@ -294,7 +280,6 @@ export function WorkOrderForm({
                   <th className="text-left py-1.5 px-2 font-medium text-muted-foreground border-l border-border" colSpan={2}>
                     {t("workOrders.adjusted")}
                   </th>
-                  <th className="w-10"></th>
                 </tr>
                 <tr className="border-b border-border bg-muted/30">
                   <th className="text-center py-1.5 px-2 font-medium border-r border-border">{t("entities.category")}</th>
@@ -303,8 +288,7 @@ export function WorkOrderForm({
                   <th className="text-center py-1.5 px-2 font-medium border-r border-border w-32">{t("workOrders.total")} ({currency})</th>
                   <th className="text-center py-1.5 px-2 font-medium border-r border-border w-20">%</th>
                   <th className="text-center py-1.5 px-2 font-medium border-r border-border w-28">{t("workOrders.adjRate")} ({currency})</th>
-                  <th className="text-center py-1.5 px-2 font-medium border-r border-border w-32">{t("workOrders.adjTotal")} ({currency})</th>
-                  <th className="w-10"></th>
+                  <th className="text-center py-1.5 px-2 font-medium w-32">{t("workOrders.adjTotal")} ({currency})</th>
                 </tr>
               </thead>
               <tbody>
@@ -316,24 +300,11 @@ export function WorkOrderForm({
                   
                   return (
                     <tr key={line.id} className="border-b border-border hover:bg-muted/20">
+                      {/* Category - always read-only text */}
                       <td className="py-1.5 px-2 text-left border-r border-border">
-                        <Select
-                          value={line.category_id}
-                          onValueChange={(v) => updateBudgetLine(line.id, "category_id", v)}
-                          disabled={!isEditable}
-                        >
-                          <SelectTrigger className="w-full h-8">
-                            <SelectValue placeholder={t("form.selectCategory")} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {categories?.map((cat) => (
-                              <SelectItem key={cat.category_id} value={cat.category_id}>
-                                {cat.category_name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        {getCategoryName(line.category_id)}
                       </td>
+                      {/* Hours - always read-only */}
                       <td className="py-1.5 px-2 text-right font-mono border-r border-border">
                         {line.budgeted_hours.toLocaleString(currency === "BOB" ? "es-BO" : "en-US", { 
                           minimumFractionDigits: 1, 
@@ -352,20 +323,8 @@ export function WorkOrderForm({
                       <td className="py-1.5 px-2 text-right font-mono text-muted-foreground border-r border-border">
                         {formatNumber(adjustedRate)}
                       </td>
-                      <td className="py-1.5 px-2 text-right font-mono font-medium border-r border-border">
+                      <td className="py-1.5 px-2 text-right font-mono font-medium">
                         {formatNumber(adjustedTotal)}
-                      </td>
-                      <td className="py-1.5 px-2 text-center">
-                        {isEditable && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => removeBudgetLine(line.id)}
-                            className="h-7 w-7 text-destructive hover:text-destructive"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        )}
                       </td>
                     </tr>
                   );
@@ -391,26 +350,20 @@ export function WorkOrderForm({
                   <td className="py-2 px-2 text-right font-mono text-muted-foreground border-r border-border">
                     {formatNumber(avgAdjustedRate)}
                   </td>
-                  <td className="py-2 px-2 text-right font-mono border-r border-border">
+                  <td className="py-2 px-2 text-right font-mono">
                     {formatNumber(totalAdjustedFee)}
                   </td>
-                  <td></td>
                 </tr>
               </tfoot>
             </table>
           </div>
-          {isEditable && (
-            <Button variant="outline" onClick={addBudgetLine} className="mt-3" size="sm">
-              <Plus className="h-4 w-4 mr-2" />
-              {t("workOrders.addLine")}
-            </Button>
-          )}
+          {/* No "Add Line" button - budget lines are managed via Work Matrix */}
         </CardContent>
       </Card>
 
       {/* Zone C: Footer - Expenses, Adjustment, Tax */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Expenses Section */}
+        {/* Expenses Section - Editable in Draft mode */}
         <Card>
           <CardHeader className="py-3">
             <CardTitle className="text-base">{t("workOrders.expenses")}</CardTitle>
@@ -464,13 +417,13 @@ export function WorkOrderForm({
               )}
               <div className="flex justify-between pt-2 border-t border-border font-medium">
                 <span>{t("workOrders.totalExpenses")}</span>
-                <span className="font-mono">{formatCurrency(totalExpenses)}</span>
+                <span className="font-mono">{formatCurrencyWithCode(totalExpenses)}</span>
               </div>
             </div>
           </CardContent>
         </Card>
 
-        {/* Summary Section */}
+        {/* Summary Section - With currency codes */}
         <Card>
           <CardHeader className="py-3">
             <CardTitle className="text-base">{t("workOrders.summary")}</CardTitle>
@@ -479,7 +432,7 @@ export function WorkOrderForm({
             <div className="space-y-2">
               <div className="flex justify-between items-center">
                 <span className="text-muted-foreground">{t("workOrders.standardFee")}</span>
-                <span className="font-mono">{formatCurrency(totalStandardFee)}</span>
+                <span className="font-mono">{formatCurrencyWithCode(totalStandardFee)}</span>
               </div>
               <div className="flex justify-between items-center">
                 <Label className="text-sm">{t("workOrders.adjustment")}</Label>
@@ -500,21 +453,21 @@ export function WorkOrderForm({
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-muted-foreground">{t("workOrders.adjustedFee")}</span>
-                <span className="font-mono">{formatCurrency(totalAdjustedFee)}</span>
+                <span className="font-mono">{formatCurrencyWithCode(totalAdjustedFee)}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-muted-foreground">{t("workOrders.expenses")}</span>
-                <span className="font-mono">{formatCurrency(totalExpenses)}</span>
+                <span className="font-mono">{formatCurrencyWithCode(totalExpenses)}</span>
               </div>
               <div className="border-t border-border pt-2">
                 <div className="flex justify-between items-center text-muted-foreground">
                   <span>{t("workOrders.iva")} ({(taxRate * 100).toFixed(0)}%)</span>
-                  <span className="font-mono">{formatCurrency(feeWithTax - totalAdjustedFee - totalExpenses)}</span>
+                  <span className="font-mono">{formatCurrencyWithCode(feeWithTax - totalAdjustedFee - totalExpenses)}</span>
                 </div>
               </div>
               <div className="flex justify-between items-center pt-2 border-t border-border">
                 <span className="font-semibold">{t("workOrders.feeWithTax")}</span>
-                <span className="font-mono font-bold text-accent">{formatCurrency(feeWithTax)}</span>
+                <span className="font-mono font-bold text-accent">{formatCurrencyWithCode(feeWithTax)}</span>
               </div>
             </div>
           </CardContent>
@@ -585,7 +538,13 @@ export function WorkOrderForm({
               {t("common.save")}
             </LoadingButton>
             {onSubmitForApproval && (
-              <LoadingButton onClick={onSubmitForApproval} className="bg-info hover:bg-info/90 btn-action" loading={isSubmitting}>
+              <LoadingButton 
+                onClick={onSubmitForApproval} 
+                className="bg-info hover:bg-info/90 btn-action" 
+                loading={isSubmitting}
+                disabled={isDirty}
+                title={isDirty ? t("workOrders.saveBeforeSubmit") : undefined}
+              >
                 <Send className="h-4 w-4 mr-2" />
                 {t("workOrders.submitForApproval")}
               </LoadingButton>

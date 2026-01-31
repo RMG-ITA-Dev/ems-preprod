@@ -14,6 +14,16 @@ import {
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { WorkOrderForm, BudgetLineInput, ExpenseBudgetInput } from "@/components/forms/WorkOrderForm";
 import { useEngagements, useSetting, useCategories, useWorkOrders } from "@/hooks/useEmsData";
 import { useWorksheetByEngagementId } from "@/hooks/useWorksheetData";
@@ -41,6 +51,7 @@ const WorkOrderNew = () => {
   const [adjustmentAmount, setAdjustmentAmount] = useState(0);
   const [budgetLines, setBudgetLines] = useState<BudgetLineInput[]>([]);
   const [expenseBudget, setExpenseBudget] = useState<ExpenseBudgetInput[]>([]);
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
 
   const taxRate = parseFloat(globalTaxRate || "0.13");
 
@@ -80,12 +91,18 @@ const WorkOrderNew = () => {
     );
   }, [currency, seasonMode, categories]);
 
-  const handleSubmit = async () => {
+  const handleSubmitClick = () => {
     if (!selectedEngagementId) {
       toast.error(t("workOrders.selectEngagementFirst"));
       return;
     }
+    // Show confirmation dialog before creating
+    setShowConfirmDialog(true);
+  };
 
+  const handleConfirmCreate = async () => {
+    setShowConfirmDialog(false);
+    
     try {
       // Create work order
       const wo = await createWorkOrder.mutateAsync({
@@ -226,12 +243,14 @@ const WorkOrderNew = () => {
             taxRate={taxRate}
             budgetLines={budgetLines}
             expenseBudget={expenseBudget}
+            isNew={true}
+            isDirty={false}
             onCurrencyChange={setCurrency}
             onSeasonChange={setSeasonMode}
             onAdjustmentChange={setAdjustmentAmount}
             onBudgetLinesChange={setBudgetLines}
             onExpenseBudgetChange={setExpenseBudget}
-            onSubmit={handleSubmit}
+            onSubmit={handleSubmitClick}
             onCancel={() => navigate("/work-orders")}
             isLocked={false}
             canApprove={false}
@@ -239,6 +258,36 @@ const WorkOrderNew = () => {
           />
         )}
       </div>
+
+      {/* Confirmation Dialog for Currency/Season */}
+      <AlertDialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("workOrders.confirmParametersTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("workOrders.confirmParametersDescription")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="py-4 space-y-2">
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">{t("workOrders.selectedCurrency")}:</span>
+              <span className="font-medium">{currency}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">{t("workOrders.selectedSeason")}:</span>
+              <span className="font-medium">
+                {seasonMode === "High" ? t("industry.high") : t("industry.low")}
+              </span>
+            </div>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmCreate}>
+              {t("workOrders.confirmAndCreate")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppLayout>
   );
 };
