@@ -334,16 +334,11 @@ export function WorkOrderForm({
                           </SelectContent>
                         </Select>
                       </td>
-                      <td className="py-1.5 px-2 border-r border-border">
-                        <NumericInput
-                          decimals={1}
-                          locale={currentLanguage as "es" | "en"}
-                          min={0}
-                          value={line.budgeted_hours || ""}
-                          onChange={(val) => updateBudgetLine(line.id, "budgeted_hours", val)}
-                          className="text-right h-8"
-                          disabled={!isEditable}
-                        />
+                      <td className="py-1.5 px-2 text-right font-mono border-r border-border">
+                        {line.budgeted_hours.toLocaleString(currency === "BOB" ? "es-BO" : "en-US", { 
+                          minimumFractionDigits: 1, 
+                          maximumFractionDigits: 1 
+                        })}
                       </td>
                       <td className="py-1.5 px-2 text-right font-mono text-muted-foreground border-r border-border">
                         {formatNumber(line.standard_rate)}
@@ -600,10 +595,10 @@ export function WorkOrderForm({
         {/* Unsubmit button for Pending status - shown to any user */}
         {isPending && onUnsubmit && (
           <LoadingButton
-            variant="destructive"
+            variant="outline"
             onClick={onUnsubmit}
             loading={isSubmitting}
-            className="btn-action"
+            className="bg-warning hover:bg-warning/90 text-warning-foreground btn-action"
           >
             <Undo2 className="h-4 w-4 mr-2" />
             {t("workOrders.unsubmit")}
