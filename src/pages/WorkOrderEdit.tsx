@@ -80,13 +80,19 @@ const WorkOrderEdit = () => {
       setSeasonMode(workOrder.season_mode);
       setAdjustmentAmount(Number(workOrder.adjustment_amount) || 0);
 
-      // Load budget lines
-      const lines: BudgetLineInput[] = (workOrder.budget_lines || []).map((bl) => ({
-        id: bl.wo_line_id,
-        category_id: bl.category_id,
-        budgeted_hours: Number(bl.budgeted_hours),
-        standard_rate: Number(bl.standard_rate),
-      }));
+      // Load budget lines - sorted by category display_order
+      const lines: BudgetLineInput[] = (workOrder.budget_lines || [])
+        .sort((a, b) => {
+          const orderA = a.category?.display_order ?? 999;
+          const orderB = b.category?.display_order ?? 999;
+          return orderA - orderB;
+        })
+        .map((bl) => ({
+          id: bl.wo_line_id,
+          category_id: bl.category_id,
+          budgeted_hours: Number(bl.budgeted_hours),
+          standard_rate: Number(bl.standard_rate),
+        }));
       setBudgetLines(lines);
       setOriginalBudgetLines(lines.map((l) => l.id));
 
