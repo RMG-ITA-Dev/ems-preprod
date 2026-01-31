@@ -85,13 +85,36 @@ const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps>(
         return;
       }
 
-      // Allow minus sign at the beginning if min is undefined or negative
+      // Allow minus sign - prepend to value if cursor not at start
       if (e.key === "-") {
         const input = e.currentTarget;
-        if (input.selectionStart === 0 && (min === undefined || min < 0)) {
+        const currentValue = input.value;
+        
+        // If min is set to 0 or positive, don't allow negative
+        if (min !== undefined && min >= 0) {
+          e.preventDefault();
           return;
         }
+        
+        // If already has minus sign, block
+        if (currentValue.startsWith("-")) {
+          e.preventDefault();
+          return;
+        }
+        
+        // Allow typing minus at position 0
+        if (input.selectionStart === 0) {
+          return;
+        }
+        
+        // If cursor is not at start, prepend minus to value
         e.preventDefault();
+        const newValue = "-" + currentValue;
+        onValueChange?.(newValue);
+        const numericValue = parseFloat(normalizeValue(newValue));
+        onChange?.(isNaN(numericValue) ? 0 : numericValue);
+        // Move cursor after the minus sign
+        setTimeout(() => input.setSelectionRange(1, 1), 0);
         return;
       }
 

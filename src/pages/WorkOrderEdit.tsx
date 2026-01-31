@@ -272,7 +272,7 @@ const WorkOrderEdit = () => {
                     size="sm"
                     onClick={() => setShowResyncDialog(true)}
                     disabled={isLocked || resyncWorksheet.isPending}
-                    className="gap-2"
+                    className="gap-2 bg-info/10 hover:bg-info/20 text-info border-info/30"
                   >
                     <RefreshCw className={`h-4 w-4 ${resyncWorksheet.isPending ? "animate-spin" : ""}`} />
                     {t("workMatrix.resyncToWorkOrder")}
@@ -281,7 +281,7 @@ const WorkOrderEdit = () => {
                     variant="outline"
                     size="sm"
                     onClick={() => navigate(`/worksheets/${linkedWorksheet.id}`)}
-                    className="gap-2"
+                    className="gap-2 bg-primary/10 hover:bg-primary/20 text-primary border-primary/30"
                   >
                     <FileSpreadsheet className="h-4 w-4" />
                     {t("workMatrix.viewWorksheet")}
