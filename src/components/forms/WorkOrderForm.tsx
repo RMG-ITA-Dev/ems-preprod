@@ -450,7 +450,7 @@ export function WorkOrderForm({
                   <span className="hidden sm:inline">{t("workOrders.standardFeeFull")}</span>
                   <span className="sm:hidden">{t("workOrders.standardFee")}</span>
                 </span>
-                <span className="text-sm font-mono">
+                <span className="font-mono">
                   <span className="text-muted-foreground mr-2">{currency}</span>
                   {formatNumber(totalStandardFee)}
                 </span>
@@ -459,14 +459,14 @@ export function WorkOrderForm({
               <div className="flex justify-between items-center">
                 <span className="text-muted-foreground">{t("workOrders.adjustment")}</span>
                 <div className="flex items-center">
-                  <span className="text-sm text-muted-foreground mr-2">{currency}</span>
+                  <span className="text-muted-foreground mr-2">{currency}</span>
                   <NumericInput
                     decimals={0}
                     locale={currentLanguage as "es" | "en"}
                     value={adjustmentAmount || ""}
                     onChange={(val) => onAdjustmentChange(val)}
                     className={cn(
-                      "w-24 text-right h-8 text-sm font-mono border-0 bg-transparent px-0",
+                      "w-24 text-right h-8 font-mono border-0 bg-transparent px-0 focus-visible:ring-1 focus-visible:ring-border focus-visible:ring-offset-0",
                       adjustmentAmount < 0 && "text-destructive"
                     )}
                     disabled={!isEditable}
@@ -495,7 +495,7 @@ export function WorkOrderForm({
                   <span className="hidden sm:inline">{t("workOrders.adjustedFeeFull")}</span>
                   <span className="sm:hidden">{t("workOrders.adjustedFee")}</span>
                 </span>
-                <span className="text-sm font-mono">
+                <span className="font-mono">
                   <span className="text-muted-foreground mr-2">{currency}</span>
                   {formatNumber(totalAdjustedFee)}
                 </span>
@@ -504,7 +504,7 @@ export function WorkOrderForm({
               <div className="flex justify-between items-center">
                 <span className="text-muted-foreground">{t("workOrders.expenses")}</span>
                 <span className="font-mono">
-                  <span className="text-sm text-muted-foreground mr-2">{currency}</span>
+                  <span className="text-muted-foreground mr-2">{currency}</span>
                   {formatNumber(totalExpenses)}
                 </span>
               </div>
