@@ -776,6 +776,10 @@
     "worksheetExistsDescription": "Puede crear la orden de trabajo directamente desde la matriz para usar las horas ya presupuestadas.",
     "useWorksheet": "Usar Matriz Existente",
     "viewWorksheet": "Ver Matriz",
+    "resyncToWorkOrder": "Resincronizar",
+    "resyncConfirmTitle": "¿Resincronizar Líneas de Presupuesto?",
+    "resyncConfirmDescription": "Esto reemplazará todas las líneas de presupuesto en la Orden de Trabajo con los datos actuales de la matriz. Esta acción no se puede deshacer.",
+    "resyncSuccess": "Líneas de presupuesto sincronizadas desde la matriz",
     "status": {
       "draft": "Borrador",
       "approved": "Aprobada",
