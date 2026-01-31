@@ -114,6 +114,8 @@ export function WorkOrderForm({
   const { currentLanguage } = useLanguage();
   const { data: categories } = useCategories();
   const { data: expenseTypes } = useExpenseTypes();
+  const realizationLimitSetting = useSetting("REALIZATION_LIMIT");
+  const realizationLimitValue = parseFloat(realizationLimitSetting || "75");
 
   // Get the appropriate rate based on currency and season
   const getRate = (category: Category) => {
@@ -479,9 +481,9 @@ export function WorkOrderForm({
                   <span className="hidden sm:inline">{t("workOrders.realizationFull")}</span>
                   <span className="sm:hidden">{t("workOrders.realization")}</span>
                 </span>
-                <span className={cn(
+              <span className={cn(
                   "font-mono font-medium",
-                  realizationPercent >= 75 ? "text-success" : "text-destructive"
+                  realizationPercent >= realizationLimitValue ? "text-success" : "text-destructive"
                 )}>
                   {realizationPercent.toLocaleString(currency === "BOB" ? "es-BO" : "en-US", { 
                     minimumFractionDigits: 1, 

@@ -76,6 +76,7 @@ const Settings = () => {
   const [allowWeekendTracking, setAllowWeekendTracking] = useState<boolean>(false);
   const [compactFont, setCompactFont] = useState<boolean>(false);
   const [allowedEmailDomain, setAllowedEmailDomain] = useState<string>("");
+  const [realizationLimit, setRealizationLimit] = useState<string>("");
 
   const getSetting = (key: string) => settings?.find((s) => s.setting_key === key)?.setting_value || "";
 
@@ -96,6 +97,10 @@ const Settings = () => {
       const emailDomainSetting = settings.find((s) => s.setting_key === "ALLOWED_EMAIL_DOMAIN");
       if (emailDomainSetting) {
         setAllowedEmailDomain(emailDomainSetting.setting_value);
+      }
+      const realizationSetting = settings.find((s) => s.setting_key === "REALIZATION_LIMIT");
+      if (realizationSetting) {
+        setRealizationLimit(realizationSetting.setting_value);
       }
     }
   }, [settings]);
@@ -228,6 +233,9 @@ const Settings = () => {
       await updateSettingMutation.mutateAsync({ key: "COMPACT_FONT", value: compactFont.toString() });
       if (allowedEmailDomain) {
         await updateSettingMutation.mutateAsync({ key: "ALLOWED_EMAIL_DOMAIN", value: allowedEmailDomain.trim() });
+      }
+      if (realizationLimit) {
+        await updateSettingMutation.mutateAsync({ key: "REALIZATION_LIMIT", value: realizationLimit });
       }
       queryClient.invalidateQueries({ queryKey: ["global_settings"] });
       toast.success(t("messages.settingsSaved"));
@@ -455,6 +463,22 @@ const Settings = () => {
                         <span className="text-muted-foreground">%</span>
                       </div>
                       <p className="text-sm text-muted-foreground">{t("settings.taxRateHelp")}</p>
+                    </div>
+
+                    {/* Realization Limit Setting */}
+                    <div className="space-y-2 py-4 border-b border-border">
+                      <Label htmlFor="realizationLimit">{t("settings.realizationLimit")}</Label>
+                      <div className="flex items-center gap-2 max-w-[200px]">
+                        <NumericInput
+                          id="realizationLimit"
+                          value={realizationLimit || getSetting("REALIZATION_LIMIT") || "75"}
+                          onValueChange={(value) => setRealizationLimit(value)}
+                          placeholder="75"
+                          decimals={1}
+                        />
+                        <span className="text-muted-foreground">%</span>
+                      </div>
+                      <p className="text-sm text-muted-foreground">{t("settings.realizationLimitHelp")}</p>
                     </div>
 
                     {/* Time Limits */}
