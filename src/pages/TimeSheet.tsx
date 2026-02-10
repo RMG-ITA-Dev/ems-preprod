@@ -113,6 +113,22 @@ const TimeSheet = () => {
     return currentWeekStart.getTime() === today.getTime();
   }, [currentWeekStart]);
 
+  const isFutureWeek = useMemo(() => {
+    const today = getWeekMonday(new Date());
+    return currentWeekStart.getTime() > today.getTime();
+  }, [currentWeekStart]);
+
+  const isWithinEditableWindow = useMemo(() => {
+    if (isCurrentWeek || isFutureWeek) return true;
+    const retroDays = policies?.employeeRetroDays ?? 30;
+    const today = new Date();
+    const weekEnd = weekInfo.weekDates[weekInfo.weekDates.length - 1];
+    const daysSinceWeekEnd = Math.floor(
+      (today.getTime() - weekEnd.getTime()) / (1000 * 60 * 60 * 24)
+    );
+    return daysSinceWeekEnd <= retroDays;
+  }, [isCurrentWeek, isFutureWeek, currentWeekStart, policies?.employeeRetroDays, weekInfo.weekDates]);
+
   // BUG #22: Check if week is before staff's hire date
   const isBeforeHireDate = useMemo(() => {
     if (!staffRecord?.hire_date) return false;
@@ -125,13 +141,13 @@ const TimeSheet = () => {
   // - Not submitted and not locked, OR
   // - Submitted but has pending/rejected lines AND is current week (can make corrections)
   // - AND not before hire date (BUG #22)
-  const isEditable = !isBeforeHireDate && (
+  const isEditable = !isBeforeHireDate && isWithinEditableWindow && (
     (!isSubmitted && !period?.is_period_locked) || 
-    (isSubmitted && !isFullyApproved && isCurrentWeek && (hasPendingLines || hasRejectedLines))
+    (isSubmitted && !isFullyApproved && (hasPendingLines || hasRejectedLines))
   );
 
   // Can unsubmit if submitted, has pending lines, and is current week
-  const canUnsubmit = isSubmitted && hasPendingLines && isCurrentWeek && !isFullyApproved;
+  const canUnsubmit = isSubmitted && hasPendingLines && !isFullyApproved && isWithinEditableWindow;
 
   // Handle submit
   const handleSubmit = async () => {
@@ -318,7 +334,7 @@ const TimeSheet = () => {
 
           <div className="flex gap-3">
             {/* BUG #12: Copy Previous Week Button */}
-            {isEditable && (
+            {isEditable && !isSubmitted && (
               <Button
                 variant="outline"
                 onClick={handleCopyPreviousWeek}
