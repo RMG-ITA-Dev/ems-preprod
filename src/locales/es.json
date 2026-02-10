@@ -365,7 +365,8 @@
     "emailAlreadyRegistered": "Este correo ya está registrado. Por favor inicie sesión.",
     "welcomeAdmin": "¡Bienvenido, Admin!",
     "missingCategories": "Faltan categorías requeridas: {{categories}}. Por favor agréguelas en Configuración antes de crear encargos.",
-    "staffDeactivated": "Miembro del personal desactivado (tiene registros relacionados)"
+    "staffDeactivated": "Miembro del personal desactivado (tiene registros relacionados)",
+    "accountInactive": "Su cuenta está inactiva. Contacte al administrador."
   },
   "errors": {
     "duplicateNit": "Ya existe un cliente con este NIT",

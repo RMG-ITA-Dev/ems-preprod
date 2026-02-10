@@ -74,6 +74,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
     
     if (!error && data.session) {
+      // Check if linked staff record is inactive
+      const { data: staffCheck } = await supabase
+        .from('staff')
+        .select('is_active')
+        .eq('auth_user_id', data.user.id)
+        .maybeSingle();
+
+      if (staffCheck && staffCheck.is_active === false) {
+        await supabase.auth.signOut();
+        return { error: new Error('ACCOUNT_INACTIVE') };
+      }
+
       // Ensure user has a role (handles users who signed up before this fix)
       await assignUserRole(data.session);
     }
