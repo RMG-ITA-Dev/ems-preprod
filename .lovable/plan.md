@@ -1,87 +1,88 @@
 
 
-# Bug #3 Fix: Action Buttons Unavailable on Non-Current Weeks
+# Bug #5 Fix: Hire Date Control for Timesheets
 
 ## Problem
 
-The "Copiar Semana Anterior", "Retirar Envio", and "Guardar Borrador" buttons are gated by `isCurrentWeek`, making them disappear on any past or future week -- even when business rules say they should be available.
+Users can navigate to and log hours in weeks before their hire/incorporation date. While a `hire_date` column exists in the database and a basic `isBeforeHireDate` check exists in `TimeSheet.tsx`, two gaps remain:
+1. **No UI to set hire_date**: The StaffForm has no date picker for admins to enter the hire date
+2. **No per-day cell locking**: When a hire date falls mid-week (e.g., Wednesday), Monday/Tuesday cells should be locked but currently the entire week is either fully blocked or fully open
+3. **No navigation restriction**: Users can freely browse to weeks before their hire date
 
-## Root Cause
+## Changes
 
-Two variables use `isCurrentWeek` as a hard gate:
-- **`isEditable`** (line 128-131): The submitted-correction branch requires `isCurrentWeek`
-- **`canUnsubmit`** (line 134): Requires `isCurrentWeek`
+### 1. StaffForm -- Add hire_date field (`src/components/forms/StaffForm.tsx`)
 
-Since these gate all three buttons, navigating away from the current week hides them entirely.
+- Add `hire_date: z.string().optional().or(z.literal(""))` to the Zod schema
+- Add the field to `defaultValues` and `form.reset()` in the edit path
+- Add the field to the `onSubmit` payload
+- Render a date `<Input type="date">` in the Personal Info section (alongside city/id_number)
 
-## Fix (single file: `src/pages/TimeSheet.tsx`)
+### 2. StaffFull interface -- Add hire_date (`src/hooks/useEmsData.ts`)
 
-### Step 1: Add `isWithinEditableWindow` flag (after line 114)
+- Add `hire_date: string | null` to `StaffFull` so the form can read/write it
 
-Replace the hard `isCurrentWeek` gate with a policy-driven retro window check using the existing `employeeRetroDays` policy (default 30 days).
+### 3. TimeSheet -- Per-day locking (`src/pages/TimeSheet.tsx`)
 
+- Add a `lockedDaysBeforeHire` Set computed via `useMemo`: for each day in `weekInfo.weekDates`, check if it's before the hire date
+- Pass this set down to `TimesheetGrid`
+
+### 4. TimesheetGrid -- Accept and apply per-day lock (`src/components/timesheet/TimesheetGrid.tsx`)
+
+- Add `lockedDaysBeforeHire?: Set<number>` prop
+- In the cell rendering loop (~line 481), add day-index check to `isDisabled`: `isLocked || lockedDaysBeforeHire?.has(dayIndex) || !row.engagementId || !row.activityId`
+- Add visual indicator (muted background) for pre-hire locked cells
+
+### 5. WeekNavigator -- Restrict backward navigation (`src/components/timesheet/WeekNavigator.tsx`)
+
+- Add optional `earliestWeekStart?: Date` prop
+- Disable the "Previous" button when `currentWeekStart <= earliestWeekStart`
+- Add `fromDate` prop to the Calendar picker to prevent selecting dates before hire date
+
+### 6. Translations (`src/locales/en.json`, `src/locales/es.json`)
+
+- Add `"hireDate": "Hire Date"` / `"Fecha de Ingreso"` and help text under the `staff` namespace
+
+## Technical Details
+
+**Per-day locking logic (TimeSheet.tsx):**
 ```typescript
-const isFutureWeek = useMemo(() => {
-  const today = getWeekMonday(new Date());
-  return currentWeekStart.getTime() > today.getTime();
-}, [currentWeekStart]);
-
-const isWithinEditableWindow = useMemo(() => {
-  if (isCurrentWeek || isFutureWeek) return true;
-  const retroDays = policies?.employeeRetroDays ?? 30;
-  const today = new Date();
-  const weekEnd = weekInfo.weekDates[weekInfo.weekDates.length - 1];
-  const daysSinceWeekEnd = Math.floor(
-    (today.getTime() - weekEnd.getTime()) / (1000 * 60 * 60 * 24)
-  );
-  return daysSinceWeekEnd <= retroDays;
-}, [isCurrentWeek, isFutureWeek, currentWeekStart, policies?.employeeRetroDays, weekInfo.weekDates]);
+const lockedDaysBeforeHire = useMemo(() => {
+  if (!staffRecord?.hire_date) return new Set<number>();
+  const hireDate = parseISO(staffRecord.hire_date);
+  const locked = new Set<number>();
+  weekInfo.weekDates.forEach((date, index) => {
+    if (isBefore(startOfDay(date), startOfDay(hireDate))) {
+      locked.add(index);
+    }
+  });
+  return locked;
+}, [staffRecord?.hire_date, weekInfo.weekDates]);
 ```
 
-### Step 2: Update `isEditable` (line 128-131)
-
-Remove `isCurrentWeek` from the submitted-correction branch; add `isWithinEditableWindow` as the outer guard.
-
+**Navigation restriction (WeekNavigator.tsx):**
 ```typescript
-const isEditable = !isBeforeHireDate && isWithinEditableWindow && (
-  (!isSubmitted && !period?.is_period_locked) || 
-  (isSubmitted && !isFullyApproved && (hasPendingLines || hasRejectedLines))
-);
+const canGoPrevious = !earliestWeekStart || 
+  currentWeekStart.getTime() > earliestWeekStart.getTime();
 ```
+The calendar picker gets `fromDate={earliestWeekStart}` to grey out earlier dates.
 
-### Step 3: Update `canUnsubmit` (line 134)
+**No database migration needed** -- the `hire_date` column already exists in the `staff` table.
 
-Replace `isCurrentWeek` with `isWithinEditableWindow`.
+## Files Modified
 
-```typescript
-const canUnsubmit = isSubmitted && hasPendingLines && !isFullyApproved && isWithinEditableWindow;
-```
-
-### Step 4: Refine "Copy Previous Week" button visibility (~line 321)
-
-Add `!isSubmitted` condition so it only shows on draft (unsubmitted) weeks -- copying structure into an already-submitted week makes no sense.
-
-```tsx
-{isEditable && !isSubmitted && (
-  <Button ...>
-    <Copy /> {t("timesheet.copyPreviousWeek")}
-  </Button>
-)}
-```
-
-## Business Rules After Fix
-
-| Button | Available When |
-|--------|---------------|
-| Copy Previous Week | Week is editable AND not yet submitted |
-| Save Draft | Week is editable (within retro window, not locked, not before hire date) |
-| Unsubmit | Week is submitted, has pending lines, not fully approved, within retro window |
-| Submit | Week is editable and has entries |
+| File | Change |
+|------|--------|
+| `src/components/forms/StaffForm.tsx` | Add hire_date date picker field |
+| `src/hooks/useEmsData.ts` | Add `hire_date` to `StaffFull` interface |
+| `src/pages/TimeSheet.tsx` | Add `lockedDaysBeforeHire` set, pass to grid and navigator |
+| `src/components/timesheet/TimesheetGrid.tsx` | Accept and apply per-day cell locking |
+| `src/components/timesheet/WeekNavigator.tsx` | Add `earliestWeekStart` prop, restrict navigation |
+| `src/locales/en.json` | Add hire date translations |
+| `src/locales/es.json` | Add hire date translations |
 
 ## What Does NOT Change
 
-- No database changes
-- No new dependencies or files
-- `isCurrentWeek` kept for informational use (no removal)
-- All other timesheet logic untouched
-
+- Database schema (column already exists)
+- The existing `isBeforeHireDate` whole-week block continues to work
+- Staff with no hire_date set have no restrictions (backward compatible)
