@@ -1,5 +1,6 @@
 import { Navigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
+import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { Loader2 } from "lucide-react";
 
 interface ProtectedRouteProps {
@@ -7,9 +8,10 @@ interface ProtectedRouteProps {
 }
 
 export function ProtectedRoute({ children }: ProtectedRouteProps) {
-  const { user, loading } = useAuth();
+  const { user, loading, signOut } = useAuth();
+  const { staffRecord, isLoading: staffLoading } = useCurrentStaff();
 
-  if (loading) {
+  if (loading || (user && staffLoading)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
@@ -21,6 +23,12 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
   }
 
   if (!user) {
+    return <Navigate to="/auth" replace />;
+  }
+
+  // If staff record exists but is inactive, force sign out
+  if (staffRecord && staffRecord.is_active === false) {
+    signOut();
     return <Navigate to="/auth" replace />;
   }
 

@@ -365,7 +365,8 @@
     "emailAlreadyRegistered": "This email is already registered. Please sign in instead.",
     "welcomeAdmin": "Welcome, Admin!",
     "missingCategories": "Missing required categories: {{categories}}. Please add them in Settings before creating engagements.",
-    "staffDeactivated": "Staff member deactivated (has related records)"
+    "staffDeactivated": "Staff member deactivated (has related records)",
+    "accountInactive": "Your account is inactive. Please contact an administrator."
   },
   "errors": {
     "duplicateNit": "A client with this NIT already exists",
