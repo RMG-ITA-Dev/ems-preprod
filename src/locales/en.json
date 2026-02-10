@@ -305,7 +305,9 @@
     "selectCategory": "Select a category",
     "supervisor": "Supervisor",
     "selectSupervisor": "Select Supervisor",
-    "deleteExplanation": "If this staff member has time entries or engagements, they will be deactivated instead of deleted."
+    "deleteExplanation": "If this staff member has time entries or engagements, they will be deactivated instead of deleted.",
+    "hireDate": "Hire Date",
+    "hireDateHelp": "Employee start date. Restricts timesheet entry to weeks on or after this date."
   },
   "client": {
     "name": "Client Name",
