@@ -1,11 +1,11 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 
 const STORAGE_KEY = "ems_timer_state";
 
 interface TimerState {
   isRunning: boolean;
-  startTime: number | null;
-  elapsedSeconds: number;
+  originalStartTime: number | null;
+  accumulatedSeconds: number;
   engagementId: string | null;
   activityId: string | null;
   description: string;
@@ -14,8 +14,8 @@ interface TimerState {
 
 const DEFAULT_STATE: TimerState = {
   isRunning: false,
-  startTime: null,
-  elapsedSeconds: 0,
+  originalStartTime: null,
+  accumulatedSeconds: 0,
   engagementId: null,
   activityId: null,
   description: "",
@@ -24,7 +24,6 @@ const DEFAULT_STATE: TimerState = {
 
 export function useTimeTracker() {
   const [state, setState] = useState<TimerState>(() => {
-    // BULLETPROOF: Check URL directly in initializer - runs synchronously before first render
     const isNewEntry = typeof window !== 'undefined' && 
       window.location.pathname === '/tracker/new';
     
@@ -37,14 +36,17 @@ export function useTimeTracker() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        // If timer was running, calculate elapsed time from startTime
-        if (parsed.isRunning && parsed.startTime) {
-          const now = Date.now();
-          const additionalSeconds = Math.floor((now - parsed.startTime) / 1000);
-          parsed.elapsedSeconds += additionalSeconds;
-          // Keep running - we'll continue from current time
-          parsed.startTime = now;
+        // Migrate legacy field names
+        if ('startTime' in parsed && !('originalStartTime' in parsed)) {
+          parsed.originalStartTime = parsed.startTime;
+          delete parsed.startTime;
         }
+        if ('elapsedSeconds' in parsed && !('accumulatedSeconds' in parsed)) {
+          parsed.accumulatedSeconds = parsed.elapsedSeconds;
+          delete parsed.elapsedSeconds;
+        }
+        // If timer was running, keep originalStartTime as-is.
+        // Elapsed will be correctly derived from Date.now() - originalStartTime.
         return { ...DEFAULT_STATE, ...parsed };
       } catch {
         return DEFAULT_STATE;
@@ -53,98 +55,51 @@ export function useTimeTracker() {
     return DEFAULT_STATE;
   });
 
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  // Re-render tick — does NOT mutate time state
+  const [tick, setTick] = useState(0);
 
   // Persist state to localStorage
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }, [state]);
 
-  // Calculate elapsed time from startTime - this fixes background tracking
-  const calculateElapsedFromStart = useCallback(() => {
-    if (state.isRunning && state.startTime) {
-      const now = Date.now();
-      const totalElapsed = state.elapsedSeconds + Math.floor((now - state.startTime) / 1000);
-      return totalElapsed;
-    }
-    return state.elapsedSeconds;
-  }, [state.isRunning, state.startTime, state.elapsedSeconds]);
-
-  // Timer tick effect - uses timestamp-based calculation
+  // Tick effect — only triggers re-renders
   useEffect(() => {
-    if (state.isRunning && state.startTime) {
-      // Update display every second, but calculate from startTime
-      intervalRef.current = setInterval(() => {
-        setState((prev) => {
-          if (!prev.isRunning || !prev.startTime) return prev;
-          const now = Date.now();
-          const newElapsed = Math.floor((now - prev.startTime) / 1000);
-          return {
-            ...prev,
-            elapsedSeconds: prev.elapsedSeconds + newElapsed,
-            startTime: now, // Reset startTime to now
-          };
-        });
-      }, 1000);
-    } else {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
-    }
-
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
-    };
+    if (!state.isRunning) return;
+    const id = setInterval(() => setTick(t => t + 1), 1000);
+    return () => clearInterval(id);
   }, [state.isRunning]);
 
-  // Visibility change handler - recalculate when tab becomes active
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && state.isRunning && state.startTime) {
-        setState((prev) => {
-          if (!prev.isRunning || !prev.startTime) return prev;
-          const now = Date.now();
-          const additionalSeconds = Math.floor((now - prev.startTime) / 1000);
-          return {
-            ...prev,
-            elapsedSeconds: prev.elapsedSeconds + additionalSeconds,
-            startTime: now,
-          };
-        });
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [state.isRunning, state.startTime]);
+  // Pure derived elapsed — single source of truth
+  const currentElapsed = useMemo(() => {
+    if (state.isRunning && state.originalStartTime) {
+      return state.accumulatedSeconds +
+        Math.floor((Date.now() - state.originalStartTime) / 1000);
+    }
+    return state.accumulatedSeconds;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.isRunning, state.originalStartTime, state.accumulatedSeconds, tick]);
 
   const start = useCallback((entryId?: string) => {
     setState((prev) => ({
       ...prev,
       isRunning: true,
-      startTime: Date.now(),
+      originalStartTime: Date.now(),
       runningEntryId: entryId || prev.runningEntryId,
     }));
   }, []);
 
   const stop = useCallback(() => {
     setState((prev) => {
-      // Calculate final elapsed before stopping
-      let finalElapsed = prev.elapsedSeconds;
-      if (prev.isRunning && prev.startTime) {
-        const now = Date.now();
-        finalElapsed += Math.floor((now - prev.startTime) / 1000);
+      let total = prev.accumulatedSeconds;
+      if (prev.isRunning && prev.originalStartTime) {
+        total += Math.floor((Date.now() - prev.originalStartTime) / 1000);
       }
       return {
         ...prev,
         isRunning: false,
-        startTime: null,
-        elapsedSeconds: finalElapsed,
+        originalStartTime: null,
+        accumulatedSeconds: total,
       };
     });
   }, []);
@@ -153,8 +108,8 @@ export function useTimeTracker() {
     setState((prev) => ({
       ...prev,
       isRunning: false,
-      startTime: null,
-      elapsedSeconds: 0,
+      originalStartTime: null,
+      accumulatedSeconds: 0,
       engagementId: null,
       activityId: null,
       description: "",
@@ -162,7 +117,6 @@ export function useTimeTracker() {
     }));
   }, []);
 
-  // Full reset that also clears localStorage - use when creating new entry
   const fullReset = useCallback(() => {
     localStorage.removeItem(STORAGE_KEY);
     setState(DEFAULT_STATE);
@@ -172,7 +126,7 @@ export function useTimeTracker() {
     setState((prev) => ({
       ...prev,
       runningEntryId: null,
-      elapsedSeconds: 0,
+      accumulatedSeconds: 0,
     }));
   }, []);
 
@@ -184,7 +138,6 @@ export function useTimeTracker() {
     setState((prev) => ({
       ...prev,
       engagementId: id,
-      // ALWAYS clear activity when engagement changes or is cleared
       activityId: null,
     }));
   }, []);
@@ -204,18 +157,13 @@ export function useTimeTracker() {
     return `${hrs.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
 
-  // Get current elapsed including any running time
-  const currentElapsed = calculateElapsedFromStart();
-
   return {
-    // State
     isRunning: state.isRunning,
     elapsedSeconds: currentElapsed,
     engagementId: state.engagementId,
     activityId: state.activityId,
     description: state.description,
     runningEntryId: state.runningEntryId,
-    // Actions
     start,
     stop,
     reset,
@@ -225,7 +173,6 @@ export function useTimeTracker() {
     setEngagement,
     setActivity,
     setDescription,
-    // Helpers
     formatTime,
     formattedTime: formatTime(currentElapsed),
   };
