@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useTimeTracker } from "../useTimeTracker";
 
-// Mock localStorage
 const localStorageMock = (() => {
   let store: Record<string, string> = {};
   return {
@@ -45,7 +44,7 @@ describe("useTimeTracker", () => {
     expect(result.current.runningEntryId).toBeNull();
   });
 
-  it("starts timer and increments elapsed time", () => {
+  it("starts timer and derives elapsed from Date.now()", () => {
     const { result } = renderHook(() => useTimeTracker());
 
     act(() => {
@@ -124,7 +123,7 @@ describe("useTimeTracker", () => {
     });
 
     expect(result.current.engagementId).toBe("engagement-1");
-    expect(result.current.activityId).toBeNull(); // Activity cleared
+    expect(result.current.activityId).toBeNull();
   });
 
   it("sets activity", () => {
@@ -150,7 +149,6 @@ describe("useTimeTracker", () => {
   it("formats time correctly", () => {
     const { result } = renderHook(() => useTimeTracker());
 
-    // Test formatTime function
     expect(result.current.formatTime(0)).toBe("00:00:00");
     expect(result.current.formatTime(59)).toBe("00:00:59");
     expect(result.current.formatTime(60)).toBe("00:01:00");
@@ -163,7 +161,7 @@ describe("useTimeTracker", () => {
 
     act(() => {
       result.current.start();
-      vi.advanceTimersByTime(65000); // 1 minute 5 seconds
+      vi.advanceTimersByTime(65000);
     });
 
     expect(result.current.formattedTime).toBe("00:01:05");
@@ -179,7 +177,7 @@ describe("useTimeTracker", () => {
     });
 
     expect(localStorageMock.setItem).toHaveBeenCalled();
-    
+
     const savedState = JSON.parse(
       localStorageMock.setItem.mock.calls[localStorageMock.setItem.mock.calls.length - 1][1]
     );
@@ -222,8 +220,14 @@ describe("useTimeTracker", () => {
 
     act(() => {
       result.current.setRunningEntryId("entry-123");
+    });
+    act(() => {
       result.current.start();
+    });
+    act(() => {
       vi.advanceTimersByTime(5000);
+    });
+    act(() => {
       result.current.stop();
     });
 
@@ -247,5 +251,33 @@ describe("useTimeTracker", () => {
 
     expect(result.current.isRunning).toBe(true);
     expect(result.current.runningEntryId).toBe("new-entry-id");
+  });
+
+  it("accumulates time across start/stop cycles", () => {
+    const { result } = renderHook(() => useTimeTracker());
+
+    // First run: 5 seconds
+    act(() => {
+      result.current.start();
+    });
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    act(() => {
+      result.current.stop();
+    });
+    expect(result.current.elapsedSeconds).toBe(5);
+
+    // Second run: 3 more seconds
+    act(() => {
+      result.current.start();
+    });
+    act(() => {
+      vi.advanceTimersByTime(3000);
+    });
+    act(() => {
+      result.current.stop();
+    });
+    expect(result.current.elapsedSeconds).toBe(8);
   });
 });
