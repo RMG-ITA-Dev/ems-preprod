@@ -53,6 +53,8 @@ interface TimesheetGridProps {
   // BUG #13: Hour limit props
   dailyLimit?: number;
   weeklyLimit?: number;
+  // BUG #5: Per-day hire date locking
+  lockedDaysBeforeHire?: Set<number>;
 }
 
 export function TimesheetGrid({
@@ -70,6 +72,7 @@ export function TimesheetGrid({
   saveNowTrigger,
   dailyLimit = 10,
   weeklyLimit = 50,
+  lockedDaysBeforeHire,
 }: TimesheetGridProps) {
   const { t } = useTranslation();
   const upsertEntry = useUpsertTimeEntry();
@@ -473,16 +476,17 @@ export function TimesheetGrid({
                     </SelectContent>
                   </Select>
                 </td>
-                {weekDates.map((date) => {
+                {weekDates.map((date, dayIndex) => {
                   const dateStr = toISODateString(date);
                   const cellKey = `${row.id}-${dateStr}`;
                   const isSaving = savingCells.has(cellKey);
                   const isSaved = savedCells.has(cellKey);
+                  const isDayLockedByHire = lockedDaysBeforeHire?.has(dayIndex) ?? false;
                   const isDisabled =
-                    isLocked || !row.engagementId || !row.activityId;
+                    isLocked || isDayLockedByHire || !row.engagementId || !row.activityId;
 
                   return (
-                    <td key={dateStr} className="p-2 relative text-center border-r border-border">
+                    <td key={dateStr} className={cn("p-2 relative text-center border-r border-border", isDayLockedByHire && "bg-muted/40")}>
                       <div className="relative">
                         <NumericInput
                           decimals={1}

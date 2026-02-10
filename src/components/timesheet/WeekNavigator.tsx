@@ -31,6 +31,7 @@ interface WeekNavigatorProps {
   onPreviousWeek: () => void;
   onNextWeek: () => void;
   onWeekSelect: (date: Date) => void;
+  earliestWeekStart?: Date;
 }
 
 export const WeekNavigator = ({
@@ -40,6 +41,7 @@ export const WeekNavigator = ({
   onPreviousWeek,
   onNextWeek,
   onWeekSelect,
+  earliestWeekStart,
 }: WeekNavigatorProps) => {
   const { t, i18n } = useTranslation();
   const lang = i18n.language;
@@ -47,6 +49,10 @@ export const WeekNavigator = ({
 
   const deadlinePassed = isDeadlinePassed(deadlineInfo.deadline);
   const deadlineIsToday = isDeadlineToday(deadlineInfo.deadline);
+
+  // BUG #5: Disable backward navigation past hire date
+  const canGoPrevious = !earliestWeekStart || 
+    currentWeekStart.getTime() > earliestWeekStart.getTime();
 
   const handleDateSelect = (date: Date | undefined) => {
     if (date) {
@@ -59,7 +65,7 @@ export const WeekNavigator = ({
   return (
     <div className="flex items-center justify-between bg-card rounded-xl border border-border p-4">
       {/* Previous Week Button */}
-      <Button variant="ghost" size="sm" onClick={onPreviousWeek}>
+      <Button variant="ghost" size="sm" onClick={onPreviousWeek} disabled={!canGoPrevious}>
         <ChevronLeft className="h-4 w-4 mr-1" />
         {t("timesheet.previous")}
       </Button>
@@ -117,6 +123,7 @@ export const WeekNavigator = ({
             selected={currentWeekStart}
             onSelect={handleDateSelect}
             defaultMonth={currentWeekStart}
+            fromDate={earliestWeekStart}
             className="pointer-events-auto"
           />
         </PopoverContent>

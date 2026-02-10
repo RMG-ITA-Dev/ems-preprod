@@ -49,6 +49,7 @@ const formSchema = z.object({
   city: z.string().optional(),
   id_number: z.string().optional(),
   aud_reg_number: z.string().optional(),
+  hire_date: z.string().optional().or(z.literal("")),
   is_active: z.boolean(),
 });
 
@@ -126,6 +127,7 @@ export function StaffForm({ staff }: StaffFormProps) {
       city: "",
       id_number: "",
       aud_reg_number: "",
+      hire_date: "",
       is_active: true,
     },
   });
@@ -142,6 +144,7 @@ export function StaffForm({ staff }: StaffFormProps) {
         city: staff.city || "",
         id_number: staff.id_number || "",
         aud_reg_number: staff.aud_reg_number || "",
+        hire_date: staff.hire_date || "",
         is_active: staff.is_active,
       });
     }
@@ -176,6 +179,7 @@ export function StaffForm({ staff }: StaffFormProps) {
       city: data.city || undefined,
       id_number: data.id_number || undefined,
       aud_reg_number: data.aud_reg_number || undefined,
+      hire_date: data.hire_date || null,
       is_active: data.is_active,
     };
     if (isEdit && staff) {
@@ -308,7 +312,7 @@ export function StaffForm({ staff }: StaffFormProps) {
                 )}
               />
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <FormField
                   control={form.control}
                   name="city"
@@ -354,6 +358,23 @@ export function StaffForm({ staff }: StaffFormProps) {
                       <FormControl>
                         <Input placeholder="AUD-001" {...field} />
                       </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="hire_date"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t("staff.hireDate")}</FormLabel>
+                      <FormControl>
+                        <Input type="date" {...field} />
+                      </FormControl>
+                      <FormDescription className="text-xs">
+                        {t("staff.hireDateHelp")}
+                      </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}

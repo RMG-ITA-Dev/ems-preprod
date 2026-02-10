@@ -305,7 +305,9 @@
     "selectCategory": "Seleccionar una categoría",
     "supervisor": "Supervisor",
     "selectSupervisor": "Seleccionar Supervisor",
-    "deleteExplanation": "Si este miembro del personal tiene entradas de tiempo o encargos, será desactivado en lugar de eliminado."
+    "deleteExplanation": "Si este miembro del personal tiene entradas de tiempo o encargos, será desactivado en lugar de eliminado.",
+    "hireDate": "Fecha de Ingreso",
+    "hireDateHelp": "Fecha de incorporación del empleado. Restringe la carga de hojas de tiempo."
   },
   "client": {
     "name": "Nombre del Cliente",

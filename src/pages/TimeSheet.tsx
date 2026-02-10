@@ -137,6 +137,25 @@ const TimeSheet = () => {
     return isBefore(startOfDay(weekEnd), startOfDay(hireDate));
   }, [staffRecord?.hire_date, weekInfo.weekDates]);
 
+  // BUG #5: Per-day lock map for mid-week hire dates
+  const lockedDaysBeforeHire = useMemo(() => {
+    if (!staffRecord?.hire_date) return new Set<number>();
+    const hireDate = parseISO(staffRecord.hire_date);
+    const locked = new Set<number>();
+    weekInfo.weekDates.forEach((date, index) => {
+      if (isBefore(startOfDay(date), startOfDay(hireDate))) {
+        locked.add(index);
+      }
+    });
+    return locked;
+  }, [staffRecord?.hire_date, weekInfo.weekDates]);
+
+  // BUG #5: Earliest navigable week based on hire date
+  const earliestWeekStart = useMemo(() => {
+    if (!staffRecord?.hire_date) return undefined;
+    return getWeekMonday(parseISO(staffRecord.hire_date));
+  }, [staffRecord?.hire_date]);
+
   // Editable if:
   // - Not submitted and not locked, OR
   // - Submitted but has pending/rejected lines AND is current week (can make corrections)
@@ -257,6 +276,7 @@ const TimeSheet = () => {
           onPreviousWeek={handlePreviousWeek}
           onNextWeek={handleNextWeek}
           onWeekSelect={setCurrentWeekStart}
+          earliestWeekStart={earliestWeekStart}
         />
 
         {/* BUG #22: Before hire date warning */}
@@ -309,6 +329,7 @@ const TimeSheet = () => {
           saveNowTrigger={saveNowTrigger}
           dailyLimit={dailyLimit}
           weeklyLimit={weeklyLimit}
+          lockedDaysBeforeHire={lockedDaysBeforeHire}
         />
 
         {/* Actions */}
