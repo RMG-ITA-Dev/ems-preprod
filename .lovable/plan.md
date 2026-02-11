@@ -1,25 +1,37 @@
 
 
-# Bug #14: Fix Poor Contrast on Client Name in Engagement Dropdown
+# Bug #15: Prevent Multiple Simultaneous Running Timer Entries
 
 ## Problem
 
-In the timesheet engagement dropdown, the engagement code and client name use `text-muted-foreground` which becomes unreadable on hover because the SelectItem's highlighted state changes the background to dark but the child spans keep their fixed gray color.
+Users can start a new timer without the previous one being stopped, creating orphaned running entries (`ended_at IS NULL`) in the database. This happens when localStorage state is cleared (e.g., navigating to `/tracker/new`) while a DB entry remains open.
 
-## Fix
+## Fix: Two layers
 
-Replace `text-muted-foreground` with `opacity-60` / `opacity-70` on the two child spans inside the SelectItem. This way the text inherits the parent's color (which changes on hover) and just dims it, staying readable in both normal and highlighted states.
+### 1. Auto-stop orphaned entries before starting a new timer (`TrackerRecord.tsx`)
 
-## Changes
+In `handleStart`, before creating a new entry, query for any existing running entries (`ended_at IS NULL`) for this staff member and stop them with `ended_at = now` and calculated `duration_minutes` (rounded to nearest 5 minutes, matching existing `roundToNearest5` logic).
+
+### 2. Database constraint (new migration)
+
+Add a partial unique index to enforce at most one running entry per staff member at the DB level:
+
+```sql
+CREATE UNIQUE INDEX idx_timer_entries_one_running_per_staff
+  ON public.timer_entries (staff_id)
+  WHERE ended_at IS NULL;
+```
+
+This is defense-in-depth -- if the frontend logic fails, the DB rejects the duplicate.
+
+## Files Modified
 
 | File | Change |
 |------|--------|
-| `src/components/timesheet/TimesheetGrid.tsx` | Replace `text-muted-foreground` with opacity classes on engagement code span and client name span (lines ~436-445) |
+| `src/pages/TrackerRecord.tsx` | In `handleStart`: query and auto-stop running entries before creating new one |
+| New migration | Partial unique index on `timer_entries(staff_id) WHERE ended_at IS NULL` |
 
-## Technical Detail
+## Not adding `useRunningTimerEntries` hook
 
-- Engagement code span: `text-xs text-muted-foreground` becomes `text-xs opacity-60`
-- Client name span: `text-xs text-muted-foreground` becomes `text-xs opacity-70`
-
-No other files affected. No database or localization changes needed.
+The bug report suggests a dedicated hook, but a simple inline query in `handleStart` is sufficient and avoids unnecessary complexity -- it only needs to run once at start time, not as a reactive query.
 
