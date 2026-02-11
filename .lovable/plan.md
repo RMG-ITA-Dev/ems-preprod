@@ -1,44 +1,49 @@
 
 
-# Bug #18: Duplicate Client Detection (Name + NIT)
+# Bug #19: Engagement Form Validation & Duplicate Code Prevention
 
-## Current State
+## Problem
 
-- The DB already has `UNIQUE` on `clients.unique_tax_id` (initial migration). No DB migration needed.
-- `useClientMutations.ts` already catches the `23505` error for duplicate NIT and shows `errors.duplicateNit`. This works as a last-resort safety net.
-- What is missing: **no frontend pre-save check** for duplicate NIT (friendlier UX) and **no duplicate name detection** at all. The reported "PETROBRAS" duplicates all have different NITs, so the DB constraint allowed them.
+The engagement form accepts junk data: single-character names, no code required, no partner/manager required, no date validation, and no duplicate code check. This led to test records polluting master data.
 
 ## Fix
 
-One file changed + locale updates:
+### 1. Stricter Zod schema (`src/components/forms/EngagementForm.tsx`)
 
-### 1. `src/components/forms/ClientForm.tsx` -- `onSubmit`
+- `engagement_name`: `.min(5)` + `.max(200)` -- prevents junk like "test" or "a"
+- `engagement_code`: required, `.min(1)` + `.max(20)` + regex `/^[A-Za-z0-9._-]+$/` -- alphanumeric with dots/hyphens only
+- `partner_id`: required `.min(1)` -- Socio/Director must be assigned
+- `manager_id`: required `.min(1)` -- Gerente must be assigned
+- `start_date`: required via `z.date({ required_error: ... })`
+- `end_date`: required + `.refine()` cross-validation ensuring end >= start
 
-Before saving, run two checks against the database:
+### 2. Duplicate code check in `onSubmit`
 
-1. **Duplicate NIT check**: Query `clients` for matching `unique_tax_id` (excluding self in edit mode). If found, show error toast with the existing client's name and block save.
-2. **Duplicate name check** (case-insensitive): Query `clients` using `.ilike()` for matching `client_legal_name` (excluding self). If found, show a warning toast with the existing client's NIT and block save.
+Before saving, query `engagements` for matching `engagement_code` (excluding self in edit mode). Block save with error toast if duplicate found.
 
-Both checks run before the mutation, giving immediate feedback without waiting for a DB constraint error.
+### 3. DB unique partial index
 
-### 2. Locale files
+Add `CREATE UNIQUE INDEX idx_engagements_code_unique ON public.engagements (engagement_code) WHERE engagement_code IS NOT NULL` as a migration.
 
-Update the existing `errors.duplicateNit` message and add a new `errors.duplicateClientName` key:
+### 4. UI label updates
 
-| Key | es | en |
-|-----|----|----|
-| `errors.duplicateNit` | `Ya existe un cliente con NIT {{nit}}: {{name}}` | `A client with NIT {{nit}} already exists: {{name}}` |
-| `errors.duplicateClientName` | `Ya existe un cliente con este nombre (NIT: {{nit}}). Verifique que no sea un duplicado.` | `A client with this name already exists (NIT: {{nit}}). Please verify it is not a duplicate.` |
+Add asterisks (*) to all newly-required field labels: code, partner, manager, start date, end date.
+
+### 5. i18n strings
+
+Add `engagement.duplicateCode` to both locale files.
 
 ## Files Modified
 
 | File | Change |
 |------|--------|
-| `src/components/forms/ClientForm.tsx` | Add duplicate NIT and name checks in `onSubmit` before calling mutation |
-| `src/locales/en.json` | Update `errors.duplicateNit`, add `errors.duplicateClientName` |
-| `src/locales/es.json` | Update `errors.duplicateNit`, add `errors.duplicateClientName` |
+| `src/components/forms/EngagementForm.tsx` | Stricter schema, duplicate code check in onSubmit, required asterisks on labels, import supabase + toast |
+| `src/locales/en.json` | Add `engagement.duplicateCode` |
+| `src/locales/es.json` | Add `engagement.duplicateCode` |
+| DB migration | Unique partial index on `engagement_code` |
 
-## No DB migration needed
+## Notes
 
-The UNIQUE constraint on `unique_tax_id` already exists. No schema changes required.
+- Existing records with missing codes/partners/managers can still be edited (the form will require filling those fields to save, effectively forcing data cleanup on next edit).
+- The `hasMissingCategories` guard already prevents creating engagements if Partner/Manager categories don't exist in the system; the new required fields complement this by ensuring they are selected.
 
