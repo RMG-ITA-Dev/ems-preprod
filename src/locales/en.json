@@ -747,6 +747,8 @@
     "alreadyHaveAccount": "Already have an account?",
     "trustedBy": "Trusted by audit & consulting professionals",
     "forgotPassword": "Forgot Password?",
+    "showPassword": "Show password",
+    "hidePassword": "Hide password",
     "resetPassword": "Reset Password",
     "sendResetLink": "Send Reset Link",
     "resetEmailSent": "If an account exists with this email, you'll receive a password reset link.",

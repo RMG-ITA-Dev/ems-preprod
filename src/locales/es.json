@@ -747,6 +747,8 @@
     "alreadyHaveAccount": "¿Ya tiene una cuenta?",
     "trustedBy": "Confiado por profesionales de auditoría y consultoría en RuizmierGroup.",
     "forgotPassword": "¿Olvidó su contraseña?",
+    "showPassword": "Mostrar contraseña",
+    "hidePassword": "Ocultar contraseña",
     "resetPassword": "Restablecer Contraseña",
     "sendResetLink": "Enviar Enlace",
     "resetEmailSent": "Si existe una cuenta con este correo, recibirá un enlace para restablecer su contraseña.",
