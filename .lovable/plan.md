@@ -1,52 +1,59 @@
 
+# Plan: Rewrite `docs/CHANGELOG-2026-02-06.md` with All 21 Bugs
 
-# Bug #21: Prevent Re-submission of Already Submitted Timesheet
+## Overview
 
-## Problem
+Replace the current `docs/CHANGELOG-2026-02-06.md` (which only documents 3 bugs) with a comprehensive changelog covering all 21 bugs from the February 6, 2026 testing session (`TestEMS20-060226_v3.json`), fixed during the February 10, 2026 debugging session.
 
-The "Enviar Semana" button stays active after a week is submitted and pending approval. Clicking it again overwrites the `submitted_at` timestamp and could reset approval statuses. The root cause: `isEditable` (which controls grid cell editing) is also used to gate the Submit button -- these are two different concerns.
+## Source Data
 
-## Fix
+The uploaded JSON file `TestEMS20-060226_v3.json` contains 21 bugs (IDs 1-21) reported by testers `lcandia` and `jyamaca`. Each bug includes: ID, date, type, title, description, suggestion, route, priority, and status.
 
-### 1. Add `canSubmit` flag (`src/pages/TimeSheet.tsx`, after line 171)
+## Mapping: JSON Bug IDs to Code Changes
 
-A new flag separates "can submit" from "can edit cells":
+Based on codebase analysis (searching for `BUG #` comments), the fixes map as follows:
 
-```
-canSubmit = !isBeforeHireDate && isWithinEditableWindow && entries.length > 0 && (
-  (!isSubmitted && !period?.is_period_locked) ||
-  (isSubmitted && hasRejectedLines && !isFullyApproved)
-)
-```
+| JSON ID | Title | Code BUG # Ref | Files Changed |
+|---------|-------|----------------|---------------|
+| 1 | Registro de usuario inactivo | (auth/login logic) | `src/hooks/useCurrentStaff.ts`, `src/hooks/useAuth.tsx` |
+| 2 | Cronometro no registra tiempo correctamente | (timer rewrite) | `src/hooks/useTimeTracker.ts` |
+| 3 | Botones no disponibles en semanas distintas | BUG #32 | `src/pages/TimeSheet.tsx`, `src/hooks/useTimesheetMutations.ts` |
+| 4 | Transferencia Cronometro a Hoja de Tiempo | (import dialog) | `src/components/tracker/TimerImportDialog.tsx`, `src/pages/TrackerList.tsx` |
+| 5 | Control semanas vs fecha ingreso | BUG #5 | `src/pages/TimeSheet.tsx`, `src/components/timesheet/WeekNavigator.tsx`, `src/components/timesheet/TimesheetGrid.tsx` |
+| 6 | Leyendas estados ordenes de trabajo | (status legend) | `src/pages/WorkOrders.tsx` |
+| 7 | Crear nueva categoria - campos vacios | (zod validation) | `src/components/forms/CategoryForm.tsx` |
+| 8 | No se puede seleccionar encargo | BUG #19 | `src/hooks/useTimesheetWeek.ts` |
+| 9 | Control campos crear usuario | (zod required) | `src/components/forms/StaffForm.tsx` |
+| 10 | Roles faltantes SQR, Especialista IT/TAX | (enum + UI) | `src/components/settings/UserRolesManager.tsx`, DB migration |
+| 11 | Mostrar/Ocultar contrasena login | (Eye toggle) | `src/pages/Auth.tsx` |
+| 12 | Cuenta correo repetida | BUG #15 | `src/hooks/mutations/useStaffMutations.ts`, `src/lib/error-handler.ts` |
+| 13 | Mensaje cuenta no vinculada | (email fallback) | `src/hooks/useCurrentStaff.ts` |
+| 14 | Dropdown Seleccionar Encargo - contraste | BUG #31 | `src/components/timesheet/TimesheetGrid.tsx` |
+| 15 | Cronometro permite multiples actividades | (single timer) | `src/hooks/useTimeTracker.ts`, `src/components/tracker/TrackerBar.tsx` |
+| 16 | Aprobacion de horas desde gerente | (RPC fix) | `src/hooks/useTimesheetApprovals.ts`, DB function |
+| 17 | Comportamiento erratico Hoja de Tiempo | BUG #29, #33 | `src/components/timesheet/TimesheetGrid.tsx`, `src/components/ui/numeric-input.tsx` |
+| 18 | Nombre cliente repetido | BUG #11 | `src/hooks/mutations/useClientMutations.ts`, `src/lib/error-handler.ts` |
+| 19 | Fecha inicio encargo anterior a creacion | (date validation) | `src/components/forms/EngagementForm.tsx` |
+| 20 | Error deleting client | BUG #20 fix | `src/pages/ClientEdit.tsx`, `src/components/forms/ClientForm.tsx` |
+| 21 | Aprobar semana no enviada | BUG #21 fix | `src/pages/TimeSheet.tsx` |
 
-- Fresh (unsubmitted) week with entries: can submit
-- Submitted with pending lines: CANNOT submit (this is the fix)
-- Submitted with rejected lines: CAN resubmit (after corrections)
-- Fully approved: cannot submit
+## What Will Be Created
 
-### 2. Update Submit button (lines 407-416)
+A single file `docs/CHANGELOG-2026-02-06.md` (replacing the existing one) structured as:
 
-- Conditionally render with `{canSubmit && (...)}` instead of always showing
-- Use `canSubmit`-based disabled logic (only `submitTimesheet.isPending`)
-- Change label to "Resubmit Week" when resubmitting after rejections
+1. **Header**: Session metadata (dates, version, session focus)
+2. **Completion Summary Table**: All 21 bugs with ID, title, priority, type, and status
+3. **Per-Bug Sections** (21 sections): Each with:
+   - Original bug description (from JSON)
+   - Problem analysis
+   - Files changed
+   - Technical details of the fix
+4. **Translation Keys Added**: Summary of all i18n keys added
+5. **Testing Checklist**: Organized by module
 
-### 3. Locale strings
+## Technical Details
 
-| Key | en | es |
-|-----|----|----|
-| `timesheet.resubmitWeek` | Resubmit Week | Reenviar Semana |
-
-## Files Modified
-
-| File | Change |
-|------|--------|
-| `src/pages/TimeSheet.tsx` | Add `canSubmit` flag; conditionally render Submit button using it; dynamic label for resubmit |
-| `src/locales/en.json` | Add `timesheet.resubmitWeek` |
-| `src/locales/es.json` | Add `timesheet.resubmitWeek` |
-
-## What stays unchanged
-
-- `isEditable` remains as-is -- it correctly controls grid cell editing for correction scenarios
-- `canUnsubmit` remains as-is -- allows withdrawing a submitted week
-- Copy Previous Week and Save Draft buttons continue using `isEditable`
-
+- The file will reference actual code patterns found in the codebase (e.g., `BUG #5`, `BUG #11`, `BUG #29`, etc.)
+- Each bug section will include the specific files modified and the approach taken
+- The document will be written primarily in English with Spanish bug titles preserved from the original test report
+- Estimated length: ~400-500 lines of Markdown
