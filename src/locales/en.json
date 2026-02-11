@@ -310,7 +310,9 @@
     "selectSupervisor": "Select Supervisor",
     "deleteExplanation": "If this staff member has time entries or engagements, they will be deactivated instead of deleted.",
     "hireDate": "Hire Date",
-    "hireDateHelp": "Employee start date. Restricts timesheet entry to weeks on or after this date."
+    "hireDateHelp": "Employee start date. Restricts timesheet entry to weeks on or after this date.",
+    "emailAlreadyUsed": "This email is already assigned to {{name}}. Each staff member must have a unique email.",
+    "emailLinkedWarning": "This member has a linked login account. Changing the email does not update their login credentials."
   },
   "client": {
     "name": "Client Name",
