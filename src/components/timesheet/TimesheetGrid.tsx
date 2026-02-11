@@ -436,16 +436,16 @@ export function TimesheetGrid({
                           <SelectItem key={eng.engagement_id} value={eng.engagement_id}>
                             <div className="flex flex-col">
                               <div className="flex items-center">
-                                <span className="font-mono text-xs text-muted-foreground mr-2">
+                                <span className="font-mono text-xs opacity-60 mr-2">
                                   {eng.engagement_code}
                                 </span>
                                 {eng.engagement_name}
                               </div>
                               {/* BUG #31: Show client name */}
                               {eng.client?.client_legal_name && (
-                                <span className="text-xs text-muted-foreground">
-                                  {eng.client.client_legal_name}
-                                </span>
+                              <span className="text-xs opacity-70">
+                                {eng.client.client_legal_name}
+                              </span>
                               )}
                             </div>
                           </SelectItem>
