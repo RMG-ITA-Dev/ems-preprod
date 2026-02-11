@@ -243,6 +243,43 @@ const WorkOrders = () => {
           </Button>
         </div>
 
+        {/* Status & Season Legend — desktop only */}
+        {!isMobile && (
+          <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground px-1">
+            <div className="flex items-center gap-3">
+              <span className="font-medium">{t("workOrders.season")}:</span>
+              <span className="flex items-center gap-1">
+                <Sun className="h-3.5 w-3.5 text-warning" />
+                {t("workOrders.seasonHigh")}
+              </span>
+              <span className="flex items-center gap-1">
+                <Snowflake className="h-3.5 w-3.5 text-info" />
+                {t("workOrders.seasonLow")}
+              </span>
+            </div>
+            <span className="text-border">|</span>
+            <div className="flex items-center gap-3">
+              <span className="font-medium">{t("workOrders.statusColumn")}:</span>
+              <span className="flex items-center gap-1">
+                <div className="h-2.5 w-2.5 rounded-full bg-warning" />
+                {t("workOrders.status.draft")}
+              </span>
+              <span className="flex items-center gap-1">
+                <div className="h-2.5 w-2.5 rounded-full bg-info" />
+                {t("workOrders.status.pending")}
+              </span>
+              <span className="flex items-center gap-1">
+                <div className="h-2.5 w-2.5 rounded-full bg-success" />
+                {t("workOrders.status.approved")}
+              </span>
+              <span className="flex items-center gap-1">
+                <div className="h-2.5 w-2.5 rounded-full bg-destructive" />
+                {t("workOrders.status.rejected")}
+              </span>
+            </div>
+          </div>
+        )}
+
         {/* Mobile Cards View */}
         {isMobile ? (
           <div className="space-y-3">
@@ -362,8 +399,26 @@ const WorkOrders = () => {
               <Table className="table-dense">
                 <TableHeader>
                   <TableRow className="bg-muted/50">
-                    <TableHead className="w-10 text-center border-r border-border"></TableHead>
-                    <TableHead className="w-10 text-center border-r border-border"></TableHead>
+                    <TableHead className="w-10 text-center border-r border-border">
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="cursor-help text-xs text-muted-foreground">T</span>
+                          </TooltipTrigger>
+                          <TooltipContent><p>{t("workOrders.seasonColumn")}</p></TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </TableHead>
+                    <TableHead className="w-10 text-center border-r border-border">
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="cursor-help text-xs text-muted-foreground">E</span>
+                          </TooltipTrigger>
+                          <TooltipContent><p>{t("workOrders.statusColumn")}</p></TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </TableHead>
                     <TableHead className="w-28 text-center border-r border-border">
                       <span
                         className="cursor-pointer hover:text-foreground flex items-center gap-1 justify-center"
@@ -602,11 +657,20 @@ const WorkOrders = () => {
                         >
                           {/* Season Icon */}
                           <TableCell className="text-center border-r border-border">
-                            {wo.season_mode === "High" ? (
-                              <Sun className="h-4 w-4 text-warning mx-auto" />
-                            ) : (
-                              <Snowflake className="h-4 w-4 text-info mx-auto" />
-                            )}
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  {wo.season_mode === "High" ? (
+                                    <Sun className="h-4 w-4 text-warning mx-auto cursor-help" />
+                                  ) : (
+                                    <Snowflake className="h-4 w-4 text-info mx-auto cursor-help" />
+                                  )}
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>{wo.season_mode === "High" ? t("workOrders.seasonHigh") : t("workOrders.seasonLow")}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
                           </TableCell>
                           {/* Status Dot with Tooltip */}
                           <TableCell className="text-center border-r border-border">
