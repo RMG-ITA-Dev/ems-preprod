@@ -4,7 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { logger } from "@/lib/logger";
 import { handleError, ErrorCode, AppError } from "@/lib/error-handler";
 
-export type AppRole = "admin" | "partner" | "director" | "manager" | "senior" | "semisenior" | "staff" | "viewer";
+export type AppRole = "admin" | "partner" | "director" | "manager" | "senior" | "semisenior" | "staff" | "viewer" | "sqr" | "specialist_it" | "specialist_tax";
 
 interface UserRole {
   id: string;
@@ -22,6 +22,9 @@ interface UseUserRoleResult {
   isSemisenior: boolean;
   isStaff: boolean;
   isViewer: boolean;
+  isSQR: boolean;
+  isSpecialistIT: boolean;
+  isSpecialistTAX: boolean;
   isLoading: boolean;
   /** True if there was an error fetching the role */
   hasError: boolean;
@@ -105,6 +108,9 @@ export function useUserRole(): UseUserRoleResult {
     isSemisenior: effectiveRole === "semisenior",
     isStaff: effectiveRole === "staff",
     isViewer: effectiveRole === "viewer",
+    isSQR: effectiveRole === "sqr",
+    isSpecialistIT: effectiveRole === "specialist_it",
+    isSpecialistTAX: effectiveRole === "specialist_tax",
     isLoading,
     hasError: isError,
     error: appError,
