@@ -170,6 +170,12 @@ const TimeSheet = () => {
   // Can unsubmit if submitted, has pending lines, and is current week
   const canUnsubmit = isSubmitted && hasPendingLines && !isFullyApproved && isWithinEditableWindow;
 
+  // BUG #21: Separate "can submit" from "can edit cells"
+  const canSubmit = !isBeforeHireDate && isWithinEditableWindow && entries.length > 0 && (
+    (!isSubmitted && !period?.is_period_locked) ||
+    (isSubmitted && hasRejectedLines && !isFullyApproved)
+  );
+
   // Handle submit
   const handleSubmit = async () => {
     if (!period?.period_id || !staffRecord) return;
@@ -404,16 +410,20 @@ const TimeSheet = () => {
               </Button>
             )}
 
-            <Button
-              className="bg-brand-purple hover:bg-brand-purple/90 text-primary-foreground btn-action"
-              onClick={handleSubmit}
-              disabled={!isEditable || submitTimesheet.isPending || entries.length === 0}
-            >
-              {submitTimesheet.isPending && (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              )}
-              {t("timesheet.submitWeek")}
-            </Button>
+            {canSubmit && (
+              <Button
+                className="bg-brand-purple hover:bg-brand-purple/90 text-primary-foreground btn-action"
+                onClick={handleSubmit}
+                disabled={submitTimesheet.isPending}
+              >
+                {submitTimesheet.isPending && (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                )}
+                {isSubmitted && hasRejectedLines
+                  ? t("timesheet.resubmitWeek")
+                  : t("timesheet.submitWeek")}
+              </Button>
+            )}
           </div>
         </div>
       </div>

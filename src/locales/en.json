@@ -523,6 +523,7 @@
     "addRow": "Add Row",
     "saveDraft": "Save Draft",
     "submitWeek": "Submit Week",
+    "resubmitWeek": "Resubmit Week",
     "selectEngagement": "Select engagement",
     "selectActivity": "Select activity",
     "weekDays": {
