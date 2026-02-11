@@ -9,6 +9,7 @@ import { TimesheetGrid } from "@/components/timesheet/TimesheetGrid";
 import { useTimesheetPolicies } from "@/hooks/useTimesheetPolicies";
 import { useTimesheetWeek } from "@/hooks/useTimesheetWeek";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
+import { useAuth } from "@/hooks/useAuth";
 import { usePeriodLineApprovals } from "@/hooks/useTimesheetApprovals";
 import { useSubmitTimesheet, useUnsubmitTimesheet, useCopyPreviousWeek } from "@/hooks/useTimesheetMutations";
 import { useGlobalSettings } from "@/hooks/useEmsData";
@@ -27,6 +28,7 @@ type SaveStatus = "idle" | "saving" | "saved";
 const TimeSheet = () => {
   const { t, i18n } = useTranslation();
   const lang = i18n.language;
+  const { user } = useAuth();
 
   // Get current staff
   const { staffRecord, isLoading: staffLoading } = useCurrentStaff();
@@ -245,7 +247,13 @@ const TimeSheet = () => {
       <AppLayout title={t("timesheet.title")}>
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{t("timesheet.noStaffRecord")}</AlertDescription>
+          <AlertDescription>
+            {t("timesheet.noStaffRecord")}
+            <br />
+            <span className="text-sm mt-1 block">
+              {t("timesheet.noStaffRecordHelp", { email: user?.email })}
+            </span>
+          </AlertDescription>
         </Alert>
       </AppLayout>
     );

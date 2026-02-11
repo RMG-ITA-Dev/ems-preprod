@@ -534,6 +534,7 @@
     "selectWeek": "Click to select week",
     "noEngagements": "No engagements available for time entry. Work orders must be approved first.",
     "noStaffRecord": "Your account is not linked to a staff record. Please contact an administrator.",
+    "noStaffRecordHelp": "Your login email is {{email}}. Verify that a staff record exists with this email, or contact an administrator.",
     "saving": "Saving...",
     "saved": "Saved",
     "deleteRow": "Delete row",

@@ -534,6 +534,7 @@
     "selectWeek": "Click para seleccionar semana",
     "noEngagements": "No hay encargos disponibles para registrar tiempo. Las órdenes de trabajo deben estar aprobadas primero.",
     "noStaffRecord": "Su cuenta no está vinculada a un registro de personal. Por favor contacte a un administrador.",
+    "noStaffRecordHelp": "Su correo de acceso es {{email}}. Verifique que exista un registro de personal con este mismo correo, o contacte a un administrador.",
     "saving": "Guardando...",
     "saved": "Guardado",
     "deleteRow": "Eliminar fila",
