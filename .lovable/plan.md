@@ -1,37 +1,35 @@
 
 
-# Bug #15: Prevent Multiple Simultaneous Running Timer Entries
+# Bug #16: Filter Approval List by Approver Eligibility
 
 ## Problem
 
-Users can start a new timer without the previous one being stopped, creating orphaned running entries (`ended_at IS NULL`) in the database. This happens when localStorage state is cleared (e.g., navigating to `/tracker/new`) while a DB entry remains open.
+The `usePendingApprovalSummaries()` hook fetches ALL pending line approvals from the database without filtering by whether the current user can actually approve them. A Manager sees timesheets they have no authority over, then finds no actionable items when drilling into the detail view. This is confusing and makes legitimate approvals hard to find.
 
-## Fix: Two layers
+## Fix
 
-### 1. Auto-stop orphaned entries before starting a new timer (`TrackerRecord.tsx`)
+Filter the approval summaries by calling `can_approve_timesheet_line` for each unique period+engagement combination, keeping only periods where the current user can approve at least one engagement line. Also recalculate `totalPendingHours` to reflect only the approvable engagements (not all pending hours).
 
-In `handleStart`, before creating a new entry, query for any existing running entries (`ended_at IS NULL`) for this staff member and stop them with `ended_at = now` and calculated `duration_minutes` (rounded to nearest 5 minutes, matching existing `roundToNearest5` logic).
+## Scope
 
-### 2. Database constraint (new migration)
-
-Add a partial unique index to enforce at most one running entry per staff member at the DB level:
-
-```sql
-CREATE UNIQUE INDEX idx_timer_entries_one_running_per_staff
-  ON public.timer_entries (staff_id)
-  WHERE ended_at IS NULL;
-```
-
-This is defense-in-depth -- if the frontend logic fails, the DB rejects the duplicate.
+The DB function `can_approve_timesheet_line` is correct by design -- it enforces that only the assigned manager/partner (or higher-ranked staff) can approve. No DB changes needed. The fix is purely frontend filtering.
 
 ## Files Modified
 
 | File | Change |
 |------|--------|
-| `src/pages/TrackerRecord.tsx` | In `handleStart`: query and auto-stop running entries before creating new one |
-| New migration | Partial unique index on `timer_entries(staff_id) WHERE ended_at IS NULL` |
+| `src/hooks/useTimesheetApprovals.ts` | In `usePendingApprovalSummaries` queryFn: after building `summaryMap`, call `can_approve_timesheet_line` RPC per period+engagement pair, filter out non-approvable periods, and recalculate hours to only count approvable engagement hours |
 
-## Not adding `useRunningTimerEntries` hook
+## Technical Detail
 
-The bug report suggests a dedicated hook, but a simple inline query in `handleStart` is sufficient and avoids unnecessary complexity -- it only needs to run once at start time, not as a reactive query.
+After the existing `summaryMap` is built (line ~174), add a filtering step:
+
+1. Get the current auth user ID via `supabase.auth.getUser()`
+2. Collect all unique `(period_id, engagement_id)` pairs from the approvals
+3. Call `can_approve_timesheet_line` RPC for each pair (batched, not N+1 per summary)
+4. Build a Set of approvable `period_id:engagement_id` keys
+5. Rebuild summaries keeping only approvable lines, recalculating `totalPendingHours` and `pendingLineCount`
+6. Drop any summary with zero approvable lines
+
+This means a Manager will only see timesheets where they are the assigned manager on at least one engagement, and the hours shown will reflect only the engagements they can approve.
 
