@@ -222,7 +222,10 @@
       "senior": "Senior",
       "semisenior": "Semi-Senior",
       "staff": "Asistente",
-      "viewer": "Visualizador"
+      "viewer": "Visualizador",
+      "sqr": "Calidad-Riesgo (SQR)",
+      "specialist_it": "Especialista IT",
+      "specialist_tax": "Especialista TAX"
     }
   },
   "industry": {
