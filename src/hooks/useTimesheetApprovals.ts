@@ -173,8 +173,72 @@ export function usePendingApprovalSummaries() {
         summary.totalPendingHours += engagementHours;
       });
 
-      return Array.from(summaryMap.values()).sort((a, b) => {
-        // Sort by week_start_date desc, then by staff name
+      // Filter by approver eligibility
+      const authUser = (await supabase.auth.getUser()).data.user;
+      if (!authUser) return [];
+
+      // Collect unique (period_id, engagement_id) pairs
+      const pairs = [...new Set(
+        (approvals || []).map((a) => `${a.period_id}:${a.engagement_id}`)
+      )].map((key) => {
+        const [period_id, engagement_id] = key.split(":");
+        return { period_id, engagement_id };
+      });
+
+      // Check approval eligibility for each pair
+      const approvableKeys = new Set<string>();
+      await Promise.all(
+        pairs.map(async ({ period_id, engagement_id }) => {
+          const { data: canApprove } = await supabase.rpc("can_approve_timesheet_line", {
+            p_approver_auth_id: authUser.id,
+            p_engagement_id: engagement_id,
+            p_period_id: period_id,
+          });
+          if (canApprove) {
+            approvableKeys.add(`${period_id}:${engagement_id}`);
+          }
+        })
+      );
+
+      // Rebuild summaries with only approvable lines
+      const filteredMap = new Map<string, PendingApprovalSummary>();
+
+      (approvals || []).forEach((approval) => {
+        const key = `${approval.period_id}:${approval.engagement_id}`;
+        if (!approvableKeys.has(key)) return;
+
+        const periodId = approval.period_id;
+        const period = approval.period as any;
+        if (!period || !period.staff) return;
+
+        if (!filteredMap.has(periodId)) {
+          filteredMap.set(periodId, {
+            period_id: periodId,
+            staff_id: period.staff_id,
+            week_start_date: period.week_start_date,
+            week_number: period.week_number,
+            year: period.year,
+            staff: period.staff,
+            totalPendingHours: 0,
+            pendingLineCount: 0,
+          });
+        }
+
+        const summary = filteredMap.get(periodId)!;
+        summary.pendingLineCount++;
+
+        const engagementHours = (timeEntries || [])
+          .filter(
+            (te) =>
+              te.period_id === periodId &&
+              te.engagement_id === approval.engagement_id
+          )
+          .reduce((sum, te) => sum + (te.hours_logged || 0), 0);
+
+        summary.totalPendingHours += engagementHours;
+      });
+
+      return Array.from(filteredMap.values()).sort((a, b) => {
         const dateCompare = b.week_start_date.localeCompare(a.week_start_date);
         if (dateCompare !== 0) return dateCompare;
         const nameA = a.staff.short_name || `${a.staff.first_name} ${a.staff.last_name}`;
