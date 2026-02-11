@@ -523,6 +523,7 @@
     "addRow": "Agregar Fila",
     "saveDraft": "Guardar Borrador",
     "submitWeek": "Enviar Semana",
+    "resubmitWeek": "Reenviar Semana",
     "selectEngagement": "Seleccionar Encargo",
     "selectActivity": "Seleccionar actividad",
     "weekDays": {
