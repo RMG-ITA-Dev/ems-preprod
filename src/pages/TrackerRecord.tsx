@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
+import { supabase } from "@/integrations/supabase/client";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router-dom";
 import { format, isWeekend } from "date-fns";
@@ -108,6 +109,26 @@ const TrackerRecord = () => {
     }
 
     try {
+      // Auto-stop any orphaned running entries before starting a new one
+      const { data: runningEntries } = await supabase
+        .from('timer_entries')
+        .select('timer_id, started_at')
+        .eq('staff_id', staffRecord.staff_id)
+        .is('ended_at', null);
+
+      if (runningEntries && runningEntries.length > 0) {
+        const now = new Date().toISOString();
+        for (const running of runningEntries) {
+          const durationMinutes = roundToNearest5(
+            Math.floor((Date.now() - new Date(running.started_at).getTime()) / 60000)
+          );
+          await supabase
+            .from('timer_entries')
+            .update({ ended_at: now, duration_minutes: durationMinutes })
+            .eq('timer_id', running.timer_id);
+        }
+      }
+
       const result = await createEntry.mutateAsync({
         staff_id: staffRecord.staff_id,
         engagement_id: tracker.engagementId,
