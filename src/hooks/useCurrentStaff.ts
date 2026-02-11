@@ -16,6 +16,7 @@ export function useCurrentStaff() {
     queryFn: async () => {
       if (!user?.id) return null;
       
+      // Primary lookup: by auth_user_id
       const { data, error } = await supabase
         .from('staff')
         .select(`
@@ -34,7 +35,46 @@ export function useCurrentStaff() {
         .maybeSingle();
       
       if (error) throw error;
-      return data as StaffWithHireDate | null;
+      if (data) return data as StaffWithHireDate | null;
+
+      // Fallback: try to find and link by email
+      const userEmail = user.email;
+      if (!userEmail) return null;
+
+      const { data: staffByEmail, error: emailError } = await supabase
+        .from('staff')
+        .select(`
+          staff_id,
+          first_name,
+          last_name,
+          short_name,
+          initials,
+          category_id,
+          city,
+          is_active,
+          hire_date,
+          category:categories(*)
+        `)
+        .eq('email', userEmail)
+        .is('auth_user_id', null)
+        .maybeSingle();
+
+      if (emailError) throw emailError;
+
+      if (staffByEmail) {
+        // Auto-link: set auth_user_id on the matching staff record
+        const { error: linkError } = await supabase
+          .from('staff')
+          .update({ auth_user_id: user.id, updated_at: new Date().toISOString() })
+          .eq('staff_id', staffByEmail.staff_id)
+          .is('auth_user_id', null);
+
+        if (!linkError) {
+          return staffByEmail as StaffWithHireDate;
+        }
+      }
+
+      return null;
     },
     enabled: !!user?.id,
   });

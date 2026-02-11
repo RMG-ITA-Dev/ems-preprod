@@ -10,6 +10,7 @@ import { TrackerBar } from "@/components/tracker/TrackerBar";
 import { ManualEntryDialog } from "@/components/tracker/ManualEntryDialog";
 import { useTimeTracker } from "@/hooks/useTimeTracker";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
+import { useAuth } from "@/hooks/useAuth";
 import {
   useTimerEntries,
   useCreateTimerEntry,
@@ -25,6 +26,7 @@ const TrackerRecord = () => {
   const isEditMode = !!id && id !== "new";
 
   // Timer initialization happens synchronously in useState using URL check
+  const { user } = useAuth();
   const tracker = useTimeTracker();
   const { staffRecord, isLoading: staffLoading } = useCurrentStaff();
   const { data: entries } = useTimerEntries();
@@ -294,7 +296,13 @@ const TrackerRecord = () => {
       <AppLayout title={t("tracker.title")}>
         <Alert>
           <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{t("timesheet.noStaffRecord")}</AlertDescription>
+          <AlertDescription>
+            {t("timesheet.noStaffRecord")}
+            <br />
+            <span className="text-sm mt-1 block">
+              {t("timesheet.noStaffRecordHelp", { email: user?.email })}
+            </span>
+          </AlertDescription>
         </Alert>
       </AppLayout>
     );

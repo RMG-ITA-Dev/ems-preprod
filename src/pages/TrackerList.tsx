@@ -35,6 +35,7 @@ import { TimerImportDialog } from "@/components/tracker/TimerImportDialog";
 import { useTimerEntries, TimerEntry, useDeleteTimerEntry, useCreateTimerEntry, useMarkTimerEntriesImported } from "@/hooks/useTimerEntries";
 import { supabase } from "@/integrations/supabase/client";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
+import { useAuth } from "@/hooks/useAuth";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle } from "lucide-react";
 import { useLanguage } from "@/hooks/useLanguage";
@@ -50,6 +51,7 @@ const TrackerList = () => {
   const navigate = useNavigate();
   const { currentLanguage } = useLanguage();
   const isMobile = useIsMobile();
+  const { user } = useAuth();
   const { staffRecord, isLoading: staffLoading } = useCurrentStaff();
   const { data: entries, isLoading: entriesLoading } = useTimerEntries();
   const deleteEntry = useDeleteTimerEntry();
@@ -305,7 +307,13 @@ const TrackerList = () => {
       <AppLayout title={t("tracker.listTitle")}>
         <Alert>
           <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{t("timesheet.noStaffRecord")}</AlertDescription>
+          <AlertDescription>
+            {t("timesheet.noStaffRecord")}
+            <br />
+            <span className="text-sm mt-1 block">
+              {t("timesheet.noStaffRecordHelp", { email: user?.email })}
+            </span>
+          </AlertDescription>
         </Alert>
       </AppLayout>
     );
