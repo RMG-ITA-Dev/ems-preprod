@@ -1,46 +1,60 @@
 
 
-# Bug #12: Prevent Duplicate Staff Emails and Warn on Linked Account Changes
+# Bug #13: Auto-Link Staff Records by Email (Self-Healing)
 
-## What's Already Fixed
+## Problem
 
-- The database **already has a UNIQUE constraint** (`staff_email_key`) on `staff.email` -- no migration needed.
-- The corrupted data (susymiranda / vpelaez emails) has been manually corrected.
-- The `useStaffMutations.ts` already handles the `23505` unique constraint error (Bug #15 fix).
+When a staff record is created **after** a user signs up, the `link_auth_user_to_staff()` trigger (which fires on auth signup) has already missed. The staff record's `auth_user_id` is never set, and the user sees "Su cuenta no esta vinculada a un registro de personal" with no way to fix it.
 
-## What's Still Missing
+## Solution: Three layers of defense
 
-The DB constraint catches duplicates, but the user gets a generic error. We need:
+### 1. Database Trigger (reverse direction) -- New Migration
 
-1. **A friendlier duplicate check** before saving -- so the error message says *who* already has that email
-2. **A warning** when editing the email on a staff record that has a linked login account (`auth_user_id`), since changing the staff email does NOT change their login credentials
+Create a new trigger on the `staff` table that fires on INSERT or UPDATE of email. If the staff record has no `auth_user_id` and its email matches an existing auth user (who isn't already linked to another staff record), it auto-links them.
 
-## Changes
+This is the **primary fix** -- it prevents the problem from occurring in the future.
 
-### 1. `src/hooks/useEmsData.ts` -- Expose `auth_user_id` in `StaffFull`
+### 2. Self-Healing Fallback in `useCurrentStaff.ts`
 
-Add `auth_user_id` to the `StaffFull` interface so the form can detect linked accounts. The DB query already returns it (uses `select(*)`), it's just missing from the TypeScript type.
+If the primary lookup by `auth_user_id` returns null, attempt a fallback:
+- Look up `staff` by `email` (matching the logged-in user's email) where `auth_user_id IS NULL`
+- If found, update the staff record to set `auth_user_id` to the current user
+- Return the now-linked staff record
 
-### 2. `src/components/forms/StaffForm.tsx` -- Add pre-save email check and warning
+This heals **existing** broken links (like cinthyahuanca) on next login -- no manual DB intervention needed.
 
-- Import `supabase` client
-- In `onSubmit`: before saving, query `staff` table for any other record with the same email. If found, show a toast with the name of the conflicting staff member and stop.
-- Below the email field: if editing a staff member who has `auth_user_id` set, show a small warning text explaining that changing the email won't update their login credentials.
+### 3. Better Error Message in TimeSheet, TrackerList, TrackerRecord
 
-### 3. `src/locales/es.json` and `src/locales/en.json` -- Add translation keys
-
-- `staff.emailAlreadyUsed`: "This email is already assigned to {{name}}."
-- `staff.emailLinkedWarning`: "This member has a linked login account. Changing the email does not update their login credentials."
+If the fallback still fails (no email match at all), show the user's login email so they or an admin can verify the staff record exists with the correct email.
 
 ## Files Modified
 
 | File | Change |
 |------|--------|
-| `src/hooks/useEmsData.ts` | Add `auth_user_id` to `StaffFull` interface |
-| `src/components/forms/StaffForm.tsx` | Pre-save duplicate check + linked account warning |
-| `src/locales/es.json` | 2 new translation keys |
-| `src/locales/en.json` | 2 new translation keys |
+| New migration | `link_staff_to_auth_user()` function + trigger on `staff` table |
+| `src/hooks/useCurrentStaff.ts` | Add email-based fallback with auto-link |
+| `src/pages/TimeSheet.tsx` | Show user email in error message |
+| `src/pages/TrackerList.tsx` | Show user email in error message |
+| `src/pages/TrackerRecord.tsx` | Show user email in error message |
+| `src/locales/es.json` | Add `noStaffRecordHelp` translation |
+| `src/locales/en.json` | Add `noStaffRecordHelp` translation |
 
-## No database migration needed
+## Technical Details
 
-The UNIQUE constraint already exists. No schema changes required.
+**Database trigger** (`link_staff_to_auth_user`):
+- Fires BEFORE INSERT OR UPDATE OF email on `public.staff`
+- Only acts when `NEW.email IS NOT NULL AND NEW.auth_user_id IS NULL`
+- Looks up `auth.users` by email match
+- Checks no other staff record is already linked to that auth user (prevents double-linking)
+- Uses SECURITY DEFINER to access `auth.users`
+
+**Frontend fallback** (in `useCurrentStaff` queryFn):
+- Only runs when the primary `auth_user_id` lookup returns null
+- Uses `user.email` from the auth session
+- Guards with `.is('auth_user_id', null)` to never overwrite existing links
+- On successful link, returns the staff record immediately
+
+**Error message improvement**:
+- Adds a second line: "Your login email is {{email}}. Verify that a staff record exists with this email, or contact an administrator."
+- Applied consistently to TimeSheet, TrackerList, and TrackerRecord pages
+
