@@ -46,16 +46,31 @@ import { useCreateEngagement, useUpdateEngagement, useDeleteEngagement } from "@
 import { Trash2, CalendarIcon, AlertCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 const formSchema = z.object({
-  engagement_name: z.string().min(1, "Engagement name is required"),
-  engagement_code: z.string().optional(),
+  engagement_name: z.string()
+    .min(5, "Engagement name must be at least 5 characters")
+    .max(200, "Engagement name cannot exceed 200 characters"),
+  engagement_code: z.string()
+    .min(1, "Engagement code is required")
+    .max(20, "Code cannot exceed 20 characters")
+    .regex(/^[A-Za-z0-9._-]+$/, "Code can only contain letters, numbers, dots, and hyphens"),
   client_id: z.string().min(1, "Client is required"),
-  partner_id: z.string().optional(),
-  manager_id: z.string().optional(),
-  start_date: z.date().optional(),
-  end_date: z.date().optional(),
+  partner_id: z.string().min(1, "Partner/Director is required"),
+  manager_id: z.string().min(1, "Manager is required"),
+  start_date: z.date({ required_error: "Start date is required" }),
+  end_date: z.date({ required_error: "End date is required" }),
   status: z.string(),
+}).refine((data) => {
+  if (data.start_date && data.end_date) {
+    return data.end_date >= data.start_date;
+  }
+  return true;
+}, {
+  message: "End date must be on or after the start date",
+  path: ["end_date"],
 });
 
 type FormData = z.infer<typeof formSchema>;
@@ -115,9 +130,25 @@ export function EngagementForm({ engagement }: EngagementFormProps) {
   }, [engagement, form]);
 
   const onSubmit = async (data: FormData) => {
+    // Duplicate engagement code check
+    const { data: existingByCode } = await supabase
+      .from("engagements")
+      .select("engagement_id, engagement_name")
+      .eq("engagement_code", data.engagement_code)
+      .neq("engagement_id", engagement?.engagement_id || "")
+      .maybeSingle();
+
+    if (existingByCode) {
+      toast.error(t("engagement.duplicateCode", {
+        code: data.engagement_code,
+        name: existingByCode.engagement_name,
+      }));
+      return;
+    }
+
     const payload = {
       engagement_name: data.engagement_name,
-      engagement_code: data.engagement_code || undefined,
+      engagement_code: data.engagement_code,
       client_id: data.client_id,
       partner_id: data.partner_id || undefined,
       manager_id: data.manager_id || undefined,
@@ -206,7 +237,7 @@ export function EngagementForm({ engagement }: EngagementFormProps) {
                   name="engagement_code"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>{t("engagement.engagementCode")}</FormLabel>
+                      <FormLabel>{t("engagement.engagementCode")} *</FormLabel>
                       <FormControl>
                         <Input placeholder="ENG-001" {...field} />
                       </FormControl>
@@ -277,7 +308,7 @@ export function EngagementForm({ engagement }: EngagementFormProps) {
                   name="partner_id"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>{t("engagement.partner")}</FormLabel>
+                      <FormLabel>{t("engagement.partner")} *</FormLabel>
                       <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger>
@@ -302,7 +333,7 @@ export function EngagementForm({ engagement }: EngagementFormProps) {
                   name="manager_id"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>{t("engagement.manager")}</FormLabel>
+                      <FormLabel>{t("engagement.manager")} *</FormLabel>
                       <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger>
@@ -332,7 +363,7 @@ export function EngagementForm({ engagement }: EngagementFormProps) {
                   name="start_date"
                   render={({ field }) => (
                     <FormItem className="flex flex-col">
-                      <FormLabel>{t("engagement.startDate")}</FormLabel>
+                      <FormLabel>{t("engagement.startDate")} *</FormLabel>
                       <Popover>
                         <PopoverTrigger asChild>
                           <FormControl>
@@ -368,7 +399,7 @@ export function EngagementForm({ engagement }: EngagementFormProps) {
                   name="end_date"
                   render={({ field }) => (
                     <FormItem className="flex flex-col">
-                      <FormLabel>{t("engagement.endDate")}</FormLabel>
+                      <FormLabel>{t("engagement.endDate")} *</FormLabel>
                       <Popover>
                         <PopoverTrigger asChild>
                           <FormControl>

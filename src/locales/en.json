@@ -356,7 +356,8 @@
     "selectClient": "Select a client",
     "selectStatus": "Select status",
     "selectPartner": "Select Partner/Director",
-    "selectManager": "Select Manager/Supervisor"
+    "selectManager": "Select Manager/Supervisor",
+    "duplicateCode": "An engagement with code {{code}} already exists: {{name}}. Each engagement must have a unique code."
   },
   "messages": {
     "createSuccess": "{{entity}} created successfully",
