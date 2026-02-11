@@ -1,39 +1,44 @@
 
 
-# Bug #17: Prevent Duplicate Engagement+Activity Rows in Timesheet
+# Bug #18: Duplicate Client Detection (Name + NIT)
 
-## Problem
+## Current State
 
-The timesheet grid allows users to create multiple rows with the same engagement+activity combination. Hours get scattered across duplicate rows, causing data integrity issues and confusing totals.
+- The DB already has `UNIQUE` on `clients.unique_tax_id` (initial migration). No DB migration needed.
+- `useClientMutations.ts` already catches the `23505` error for duplicate NIT and shows `errors.duplicateNit`. This works as a last-resort safety net.
+- What is missing: **no frontend pre-save check** for duplicate NIT (friendlier UX) and **no duplicate name detection** at all. The reported "PETROBRAS" duplicates all have different NITs, so the DB constraint allowed them.
 
 ## Fix
 
-Three changes to `TimesheetGrid.tsx` plus i18n strings:
+One file changed + locale updates:
 
-### 1. Duplicate detection in `handleEngagementChange` and `handleActivityChange`
+### 1. `src/components/forms/ClientForm.tsx` -- `onSubmit`
 
-When the user changes the engagement or activity on a row, check if another row already has the same combination. If so, merge the current row's hours into the existing row (summing per day) and remove the duplicate row. Show a toast warning.
+Before saving, run two checks against the database:
 
-### 2. Disable already-used activities in the dropdown
+1. **Duplicate NIT check**: Query `clients` for matching `unique_tax_id` (excluding self in edit mode). If found, show error toast with the existing client's name and block save.
+2. **Duplicate name check** (case-insensitive): Query `clients` using `.ilike()` for matching `client_legal_name` (excluding self). If found, show a warning toast with the existing client's NIT and block save.
 
-Add a `useMemo` that tracks which activity IDs are already used per engagement across all rows. In the activity `SelectContent`, disable items that are already in use for the same engagement (excluding the current row's own selection).
+Both checks run before the mutation, giving immediate feedback without waiting for a DB constraint error.
 
-### 3. i18n strings
+### 2. Locale files
 
-Add `timesheet.rowMerged` to both locale files.
+Update the existing `errors.duplicateNit` message and add a new `errors.duplicateClientName` key:
+
+| Key | es | en |
+|-----|----|----|
+| `errors.duplicateNit` | `Ya existe un cliente con NIT {{nit}}: {{name}}` | `A client with NIT {{nit}} already exists: {{name}}` |
+| `errors.duplicateClientName` | `Ya existe un cliente con este nombre (NIT: {{nit}}). Verifique que no sea un duplicado.` | `A client with this name already exists (NIT: {{nit}}). Please verify it is not a duplicate.` |
 
 ## Files Modified
 
 | File | Change |
 |------|--------|
-| `src/components/timesheet/TimesheetGrid.tsx` | Add duplicate detection + merge in `handleEngagementChange` (lines 229-235) and `handleActivityChange` (lines 237-243). Add `usedActivitiesByEngagement` memo. Disable used activities in dropdown (lines 468-475). |
-| `src/locales/en.json` | Add `timesheet.rowMerged` |
-| `src/locales/es.json` | Add `timesheet.rowMerged` |
+| `src/components/forms/ClientForm.tsx` | Add duplicate NIT and name checks in `onSubmit` before calling mutation |
+| `src/locales/en.json` | Update `errors.duplicateNit`, add `errors.duplicateClientName` |
+| `src/locales/es.json` | Update `errors.duplicateNit`, add `errors.duplicateClientName` |
 
-## Technical Detail
+## No DB migration needed
 
-- `handleEngagementChange`: Before updating the row, check `rows.find(r => r.id !== rowId && r.engagementId === engagementId && r.activityId === currentRow.activityId && currentRow.activityId !== '')`. If found, merge hours (sum per day), keep existing row's entryIds, remove duplicate, show toast.
-- `handleActivityChange`: Same pattern with engagement held constant.
-- `usedActivitiesByEngagement`: A `useMemo` building `Map<engagementId, Set<activityId>>` from current rows. Used to set `disabled` on `SelectItem` in the activity dropdown when the activity is already used for that engagement by another row.
-- The merge approach is preferred over blocking because it handles the edge case where a user changes an engagement on a row that already has hours, inadvertently creating a duplicate. Merging preserves their data rather than losing it.
+The UNIQUE constraint on `unique_tax_id` already exists. No schema changes required.
 
