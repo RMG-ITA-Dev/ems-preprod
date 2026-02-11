@@ -1,52 +1,57 @@
 
 
-# Bug #6 Fix: Add Legends for Work Order Icon Columns
+# Bug #7 Fix: Prevent Zero/Empty Rates in Category Form
 
 ## Problem
 
-The Work Orders table has two icon-only columns (Season and Status) with no headers, no legend, and season icons lack tooltips. Users must hover individual status dots to understand their meaning.
+The Category form accepts zero values for all four rate fields (BOB High/Low, USD High/Low). Since rates are hourly billing rates, zero is economically invalid and causes downstream calculation errors in work orders.
 
-## Changes (single file: `src/pages/WorkOrders.tsx` + translations)
+## Changes (single file: `src/components/forms/CategoryForm.tsx`)
 
-### 1. Add a compact legend strip between the search bar and the table (line ~245)
+### 1. Zod schema: change `.min(0)` to `.positive()` (lines 44-47)
 
-A single-line strip showing all icon meanings:
+Replace all four rate validations so zero is rejected:
 
+```typescript
+rate_high_bob: z.coerce.number().positive("Rate must be greater than 0"),
+rate_low_bob: z.coerce.number().positive("Rate must be greater than 0"),
+rate_high_usd: z.coerce.number().positive("Rate must be greater than 0"),
+rate_low_usd: z.coerce.number().positive("Rate must be greater than 0"),
 ```
-Temporada: [sun] Alta  [snowflake] Baja  |  Estado: [orange dot] Borrador  [blue dot] Pendiente  [green dot] Aprobada  [red dot] Rechazada
+
+Note: The schema is defined outside the component so `t()` is not available. The error message stays in English to match the existing `category_name` validation pattern on line 42. The `FormMessage` component renders whatever Zod returns.
+
+### 2. Default values: use `undefined` instead of `0` for new categories (lines 72-75)
+
+So rate fields appear blank (not pre-filled with 0) when creating a new category:
+
+```typescript
+rate_high_bob: undefined as unknown as number,
+rate_low_bob: undefined as unknown as number,
+rate_high_usd: undefined as unknown as number,
+rate_low_usd: undefined as unknown as number,
 ```
 
-- Uses `text-xs text-muted-foreground` for minimal visual weight
-- Renders only on desktop (legend is unnecessary on mobile cards which already show text labels)
+### 3. Edit reset: use `??` instead of `||` (lines 86-89)
 
-### 2. Add abbreviated column headers with tooltips (lines 365-366)
+So actual DB values are preserved and null/undefined shows as empty:
 
-Replace empty `<TableHead>` cells with single-letter headers ("T" for Temporada, "E" for Estado) wrapped in tooltips showing the full word on hover.
-
-### 3. Add tooltips to season icons in table body (lines 604-610)
-
-Wrap Sun/Snowflake icons with `TooltipProvider > Tooltip` showing "Temporada Alta" / "Temporada Baja" on hover, matching the existing status dot tooltip pattern.
-
-### 4. Add translations (`en.json` and `es.json`)
-
-Under the `workOrders` namespace:
-- `seasonColumn`: "Season" / "Temporada"
-- `statusColumn`: "Status" / "Estado"
-- `season`: "Season" / "Temporada"
-- `seasonHigh`: "High Season" / "Temporada Alta"
-- `seasonLow`: "Low Season" / "Temporada Baja"
+```typescript
+rate_high_bob: category?.rate_high_bob ?? (undefined as unknown as number),
+rate_low_bob: category?.rate_low_bob ?? (undefined as unknown as number),
+rate_high_usd: category?.rate_high_usd ?? (undefined as unknown as number),
+rate_low_usd: category?.rate_low_usd ?? (undefined as unknown as number),
+```
 
 ## Files Modified
 
 | File | Change |
 |------|--------|
-| `src/pages/WorkOrders.tsx` | Legend strip, column headers, season tooltips |
-| `src/locales/en.json` | Add 5 translation keys |
-| `src/locales/es.json` | Add 5 translation keys |
+| `src/components/forms/CategoryForm.tsx` | Zod `.positive()`, blank defaults, nullish coalescing on edit reset |
 
 ## What Does NOT Change
 
-- Mobile card view (already shows text labels for status/season)
-- Status dot tooltips (already working)
-- Table structure, sorting, filtering logic
 - No database changes
+- No translation changes (error messages use static English, matching existing pattern)
+- Form layout, permissions section, delete logic all untouched
+
