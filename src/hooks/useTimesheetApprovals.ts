@@ -136,68 +136,31 @@ export function usePendingApprovalSummaries() {
 
       if (entriesError) throw entriesError;
 
-      // Group by period and calculate hours
-      const summaryMap = new Map<string, PendingApprovalSummary>();
-
-      (approvals || []).forEach((approval) => {
-        const periodId = approval.period_id;
-        const period = approval.period as any;
-        
-        if (!period || !period.staff) return;
-
-        if (!summaryMap.has(periodId)) {
-          summaryMap.set(periodId, {
-            period_id: periodId,
-            staff_id: period.staff_id,
-            week_start_date: period.week_start_date,
-            week_number: period.week_number,
-            year: period.year,
-            staff: period.staff,
-            totalPendingHours: 0,
-            pendingLineCount: 0,
-          });
-        }
-
-        const summary = summaryMap.get(periodId)!;
-        summary.pendingLineCount++;
-
-        // Calculate hours for this engagement in this period
-        const engagementHours = (timeEntries || [])
-          .filter(
-            (te) =>
-              te.period_id === periodId &&
-              te.engagement_id === approval.engagement_id
-          )
-          .reduce((sum, te) => sum + (te.hours_logged || 0), 0);
-
-        summary.totalPendingHours += engagementHours;
-      });
-
-      // Filter by approver eligibility
-      const authUser = (await supabase.auth.getUser()).data.user;
-      if (!authUser) return [];
-
-      // Collect unique (period_id, engagement_id) pairs
-      const pairs = [...new Set(
+      // ── Batch eligibility check (single RPC) ─────────────────────────
+      // Build parallel arrays of unique (period_id, engagement_id) pairs
+      const uniquePairKeys = [...new Set(
         (approvals || []).map((a) => `${a.period_id}:${a.engagement_id}`)
-      )].map((key) => {
-        const [period_id, engagement_id] = key.split(":");
-        return { period_id, engagement_id };
-      });
+      )];
+      const pairPeriodIds = uniquePairKeys.map((k) => k.split(":")[0]);
+      const pairEngagementIds = uniquePairKeys.map((k) => k.split(":")[1]);
 
-      // Check approval eligibility for each pair
-      const approvableKeys = new Set<string>();
-      await Promise.all(
-        pairs.map(async ({ period_id, engagement_id }) => {
-          const { data: canApprove } = await supabase.rpc("can_approve_timesheet_line", {
-            p_approver_auth_id: authUser.id,
-            p_engagement_id: engagement_id,
-            p_period_id: period_id,
-          });
-          if (canApprove) {
-            approvableKeys.add(`${period_id}:${engagement_id}`);
-          }
-        })
+      // Single RPC replaces N individual can_approve_timesheet_line calls
+      const { data: approvablePairs, error: eligibilityError } = await supabase.rpc(
+        "get_approvable_pairs",
+        {
+          p_period_ids: pairPeriodIds,
+          p_engagement_ids: pairEngagementIds,
+        }
+      );
+
+      if (eligibilityError) throw eligibilityError;
+
+      // Build lookup set from returned pairs
+      const approvableKeys = new Set<string>(
+        (approvablePairs || []).map(
+          (p: { period_id: string; engagement_id: string }) =>
+            `${p.period_id}:${p.engagement_id}`
+        )
       );
 
       // Rebuild summaries with only approvable lines
@@ -246,6 +209,7 @@ export function usePendingApprovalSummaries() {
         return nameA.localeCompare(nameB);
       });
     },
+    staleTime: 5 * 60 * 1000, // Cache for 5 minutes — approval eligibility doesn't change within a session
     enabled: !!staffRecord,
   });
 }
@@ -324,21 +288,27 @@ export function useStaffTimesheetForApproval(periodId: string | null) {
 
       if (approvalsError) throw approvalsError;
 
-      // Determine which engagements the current approver can approve
-      // Get unique engagement IDs from time entries
+      // ── Batch eligibility check (single RPC) ─────────────────────────
       const engagementIds = [...new Set((timeEntries || []).map((te) => te.engagement_id))];
-      
-      // Check which engagements this approver can approve
-      const approvableEngagementIds: string[] = [];
-      for (const engagementId of engagementIds) {
-        const { data: canApprove } = await supabase.rpc("can_approve_timesheet_line", {
-          p_approver_auth_id: (await supabase.auth.getUser()).data.user?.id || "",
-          p_engagement_id: engagementId,
-          p_period_id: periodId,
-        });
-        if (canApprove) {
-          approvableEngagementIds.push(engagementId);
-        }
+      let approvableEngagementIds: string[] = [];
+
+      if (engagementIds.length > 0) {
+        // All pairs share the same periodId — build parallel arrays
+        const batchPeriodIds = engagementIds.map(() => periodId);
+
+        const { data: approvablePairs, error: eligibilityError } = await supabase.rpc(
+          "get_approvable_pairs",
+          {
+            p_period_ids: batchPeriodIds,
+            p_engagement_ids: engagementIds,
+          }
+        );
+
+        if (eligibilityError) throw eligibilityError;
+
+        approvableEngagementIds = (approvablePairs || []).map(
+          (p: { period_id: string; engagement_id: string }) => p.engagement_id
+        );
       }
 
       return {
@@ -364,6 +334,7 @@ export function useStaffTimesheetForApproval(periodId: string | null) {
         approvableEngagementIds,
       };
     },
+    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
     enabled: !!periodId && !!staffRecord,
   });
 }
