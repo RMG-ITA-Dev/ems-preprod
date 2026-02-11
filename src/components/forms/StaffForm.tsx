@@ -44,10 +44,10 @@ const formSchema = z.object({
   last_name: z.string().min(1, "Last name is required"),
   short_name: z.string().optional(),
   initials: z.string().max(4, "Max 4 characters").optional(),
-  email: z.string().email("Invalid email").optional().or(z.literal("")),
-  category_id: z.string().optional(),
-  city: z.string().optional(),
-  id_number: z.string().optional(),
+  email: z.string().min(1, "Email is required").email("Invalid email"),
+  category_id: z.string().min(1, "Category is required"),
+  city: z.string().min(1, "City is required"),
+  id_number: z.string().min(1, "ID number is required"),
   aud_reg_number: z.string().optional(),
   hire_date: z.string().optional().or(z.literal("")),
   is_active: z.boolean(),
@@ -174,10 +174,10 @@ export function StaffForm({ staff }: StaffFormProps) {
       last_name: data.last_name,
       short_name: data.short_name || undefined,
       initials: data.initials || undefined,
-      email: data.email || undefined,
-      category_id: data.category_id || undefined,
-      city: data.city || undefined,
-      id_number: data.id_number || undefined,
+      email: data.email,
+      category_id: data.category_id,
+      city: data.city,
+      id_number: data.id_number,
       aud_reg_number: data.aud_reg_number || undefined,
       hire_date: data.hire_date || null,
       is_active: data.is_active,
@@ -303,7 +303,7 @@ export function StaffForm({ staff }: StaffFormProps) {
                 name="email"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{t("staff.email")}</FormLabel>
+                    <FormLabel>{t("staff.email")} *</FormLabel>
                     <FormControl>
                       <Input type="email" placeholder="john.doe@example.com" {...field} />
                     </FormControl>
@@ -318,7 +318,7 @@ export function StaffForm({ staff }: StaffFormProps) {
                   name="city"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>{t("staff.city")}</FormLabel>
+                      <FormLabel>{t("staff.city")} *</FormLabel>
                       <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger>
@@ -340,7 +340,7 @@ export function StaffForm({ staff }: StaffFormProps) {
                   name="id_number"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>{t("staff.idNumber")}</FormLabel>
+                      <FormLabel>{t("staff.idNumber")} *</FormLabel>
                       <FormControl>
                         <Input placeholder="12345678" {...field} />
                       </FormControl>
@@ -389,7 +389,7 @@ export function StaffForm({ staff }: StaffFormProps) {
                 name="category_id"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{t("staff.category")}</FormLabel>
+                    <FormLabel>{t("staff.category")} *</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>

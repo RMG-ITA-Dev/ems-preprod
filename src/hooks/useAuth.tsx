@@ -12,7 +12,7 @@ interface AuthContextType {
   session: Session | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
-  signUp: (email: string, password: string, firstName: string, lastName: string) => Promise<{ error: Error | null; roleData?: RoleAssignmentResult }>;
+  signUp: (email: string, password: string, firstName: string, lastName: string) => Promise<{ error: Error | null; roleData?: RoleAssignmentResult; emailConfirmationRequired?: boolean }>;
   signOut: () => Promise<void>;
   updatePassword: (newPassword: string) => Promise<{ error: Error | null }>;
   resetPasswordForEmail: (email: string) => Promise<{ error: Error | null }>;
@@ -108,8 +108,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
     });
     
+    if (!error && data.user && !data.session) {
+      // Email confirmation required - user exists but no session yet
+      if (data.user.identities && data.user.identities.length > 0) {
+        return { error: null, emailConfirmationRequired: true };
+      }
+    }
+
     if (!error && data.session) {
-      // Assign role for new user
+      // Auto-confirm is on (shouldn't happen now, but handle gracefully)
       const roleData = await assignUserRole(data.session);
       return { error: null, roleData: roleData || undefined };
     }
