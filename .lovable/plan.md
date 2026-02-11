@@ -1,35 +1,46 @@
 
 
-# Bug #11: Add Show/Hide Password Toggle on Auth Page
+# Bug #12: Prevent Duplicate Staff Emails and Warn on Linked Account Changes
 
-## Summary
+## What's Already Fixed
 
-Add an eye icon button inside the password field on the login and signup forms so users can toggle password visibility before submitting.
+- The database **already has a UNIQUE constraint** (`staff_email_key`) on `staff.email` -- no migration needed.
+- The corrupted data (susymiranda / vpelaez emails) has been manually corrected.
+- The `useStaffMutations.ts` already handles the `23505` unique constraint error (Bug #15 fix).
+
+## What's Still Missing
+
+The DB constraint catches duplicates, but the user gets a generic error. We need:
+
+1. **A friendlier duplicate check** before saving -- so the error message says *who* already has that email
+2. **A warning** when editing the email on a staff record that has a linked login account (`auth_user_id`), since changing the staff email does NOT change their login credentials
 
 ## Changes
 
-### 1. `src/pages/Auth.tsx`
+### 1. `src/hooks/useEmsData.ts` -- Expose `auth_user_id` in `StaffFull`
 
-- Add `Eye` and `EyeOff` to the lucide-react imports (line 11)
-- Add `showPassword` state: `const [showPassword, setShowPassword] = useState(false)`
-- Wrap the password `<Input>` in a `<div className="relative">` and add a toggle button with the eye icon
-- Toggle `type` between `"password"` and `"text"` based on state
-- Reset `showPassword` to `false` when switching between sign-in and sign-up modes
+Add `auth_user_id` to the `StaffFull` interface so the form can detect linked accounts. The DB query already returns it (uses `select(*)`), it's just missing from the TypeScript type.
 
-### 2. `src/locales/es.json` and `src/locales/en.json`
+### 2. `src/components/forms/StaffForm.tsx` -- Add pre-save email check and warning
 
-Add two translation keys under `auth`:
-- `"showPassword"` / `"hidePassword"` for the button's `aria-label` (accessibility)
+- Import `supabase` client
+- In `onSubmit`: before saving, query `staff` table for any other record with the same email. If found, show a toast with the name of the conflicting staff member and stop.
+- Below the email field: if editing a staff member who has `auth_user_id` set, show a small warning text explaining that changing the email won't update their login credentials.
+
+### 3. `src/locales/es.json` and `src/locales/en.json` -- Add translation keys
+
+- `staff.emailAlreadyUsed`: "This email is already assigned to {{name}}."
+- `staff.emailLinkedWarning`: "This member has a linked login account. Changing the email does not update their login credentials."
 
 ## Files Modified
 
 | File | Change |
 |------|--------|
-| `src/pages/Auth.tsx` | Import icons, add state, wrap password field with toggle button |
-| `src/locales/es.json` | Add `showPassword` and `hidePassword` keys |
-| `src/locales/en.json` | Add `showPassword` and `hidePassword` keys |
+| `src/hooks/useEmsData.ts` | Add `auth_user_id` to `StaffFull` interface |
+| `src/components/forms/StaffForm.tsx` | Pre-save duplicate check + linked account warning |
+| `src/locales/es.json` | 2 new translation keys |
+| `src/locales/en.json` | 2 new translation keys |
 
-## No other files affected
+## No database migration needed
 
-No database, hook, or component changes needed -- this is purely a UI enhancement on the Auth page.
-
+The UNIQUE constraint already exists. No schema changes required.
