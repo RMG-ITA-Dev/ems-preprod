@@ -1,4 +1,4 @@
-# EMS 2.0 Bug Fixes — Session Changelog (v2 — Verified)
+# EMS 2.0 Bug Fixes — Session Changelog (v3 — Verified)
 
 **Testing Date:** February 6, 2026  
 **Fix Date:** February 10, 2026  
