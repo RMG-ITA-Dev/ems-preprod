@@ -1380,6 +1380,13 @@ export type Database = {
           user_id: string
         }[]
       }
+      get_approvable_pairs: {
+        Args: { p_engagement_ids: string[]; p_period_ids: string[] }
+        Returns: {
+          engagement_id: string
+          period_id: string
+        }[]
+      }
       get_line_approver: {
         Args: { p_engagement_id: string; p_staff_id: string }
         Returns: string
