@@ -1,57 +1,59 @@
 
 
-# Bug #7 Fix: Prevent Zero/Empty Rates in Category Form
+# Bug #8 Fix: Staff Cannot Select Engagements in Timesheet
 
 ## Problem
 
-The Category form accepts zero values for all four rate fields (BOB High/Low, USD High/Low). Since rates are hourly billing rates, zero is economically invalid and causes downstream calculation errors in work orders.
+New staff members (not assigned as partner or manager) see an empty engagement dropdown in the timesheet because the three-condition filter creates a chicken-and-egg problem -- they can never log their first time entry.
 
-## Changes (single file: `src/components/forms/CategoryForm.tsx`)
+The `engagement_team` table referenced in the changelog was never actually created in the database.
 
-### 1. Zod schema: change `.min(0)` to `.positive()` (lines 44-47)
+## Proposed Fix
 
-Replace all four rate validations so zero is rejected:
+**Immediate approach**: Remove the restrictive client-side filter. Return all active engagements with approved work orders. For a small audit firm, this is appropriate -- the work order approval process already gates which engagements are billable.
 
+### Single file change: `src/hooks/useTimesheetWeek.ts`
+
+**Lines 131-185** (the `engagementsQuery`): Remove the second query for prior time entries and the client-side filter. Keep only the approved-WO check and active status filter.
+
+Before:
 ```typescript
-rate_high_bob: z.coerce.number().positive("Rate must be greater than 0"),
-rate_low_bob: z.coerce.number().positive("Rate must be greater than 0"),
-rate_high_usd: z.coerce.number().positive("Rate must be greater than 0"),
-rate_low_usd: z.coerce.number().positive("Rate must be greater than 0"),
+// 3 queries: work_orders -> engagements -> time_entries + client-side filter
 ```
 
-Note: The schema is defined outside the component so `t()` is not available. The error message stays in English to match the existing `category_name` validation pattern on line 42. The `FormMessage` component renders whatever Zod returns.
-
-### 2. Default values: use `undefined` instead of `0` for new categories (lines 72-75)
-
-So rate fields appear blank (not pre-filled with 0) when creating a new category:
-
+After:
 ```typescript
-rate_high_bob: undefined as unknown as number,
-rate_low_bob: undefined as unknown as number,
-rate_high_usd: undefined as unknown as number,
-rate_low_usd: undefined as unknown as number,
+// 2 queries: work_orders -> engagements (no client-side filter)
+const { data: workOrders } = await supabase
+  .from("work_orders")
+  .select("engagement_id")
+  .eq("approval_status", "Approved");
+
+const approvedIds = workOrders?.map(wo => wo.engagement_id) || [];
+if (approvedIds.length === 0) return [];
+
+const { data: engagements } = await supabase
+  .from("engagements")
+  .select(`engagement_id, engagement_code, engagement_name,
+           client:clients!client_id(client_id, client_legal_name)`)
+  .in("engagement_id", approvedIds)
+  .eq("status", "active");
+
+return (engagements || []) as ApprovedEngagement[];
 ```
 
-### 3. Edit reset: use `??` instead of `||` (lines 86-89)
-
-So actual DB values are preserved and null/undefined shows as empty:
-
-```typescript
-rate_high_bob: category?.rate_high_bob ?? (undefined as unknown as number),
-rate_low_bob: category?.rate_low_bob ?? (undefined as unknown as number),
-rate_high_usd: category?.rate_high_usd ?? (undefined as unknown as number),
-rate_low_usd: category?.rate_low_usd ?? (undefined as unknown as number),
-```
+The `partner_id` and `manager_id` fields are no longer selected since they're not needed for filtering. The `ApprovedEngagement` interface doesn't include them either.
 
 ## Files Modified
 
 | File | Change |
 |------|--------|
-| `src/components/forms/CategoryForm.tsx` | Zod `.positive()`, blank defaults, nullish coalescing on edit reset |
+| `src/hooks/useTimesheetWeek.ts` | Remove prior-time query and partner/manager/prior-time filter from engagementsQuery |
 
 ## What Does NOT Change
 
-- No database changes
-- No translation changes (error messages use static English, matching existing pattern)
-- Form layout, permissions section, delete logic all untouched
+- No database migration
+- Work order approval gating remains (only "Approved" WOs surface engagements)
+- Active status filter remains
+- All other timesheet logic untouched
 
