@@ -4,7 +4,7 @@
 **Fix Date:** February 10, 2026  
 **Source:** `TestEMS20-060226_v3.json` (21 bugs reported by `lcandia` and `jyamaca`)  
 **Session Focus:** Comprehensive bug-fix session covering authentication, timer, timesheet, forms, roles, approvals, and client management  
-**Changelog Version:** v2 — corrected against independent code diff verification (Feb 11, 2026)
+**Changelog Version:** v3 — corrected against independent code diff verification (Feb 11, 2026); v3 correction pass based on Claude Opus 4.6 Extended verification report
 
 > **Note:** This changelog was rewritten after an independent line-by-line diff verification revealed
 > 7 files falsely claimed as changed (features pre-existed) and 4 genuinely changed files omitted.
@@ -518,7 +518,7 @@ All migrations created during this session (dated `20260211*`):
 | `20260211010034` | `link_staff_to_auth_user()` trigger function — reverse auto-link from staff email to auth user | #13 |
 | `20260211010728` | `CREATE UNIQUE INDEX idx_timer_entries_one_running_per_staff ON timer_entries(staff_id) WHERE ended_at IS NULL` | #15 |
 | `20260211012646` | `CREATE UNIQUE INDEX idx_engagements_code_unique ON engagements(engagement_code) WHERE engagement_code IS NOT NULL` | #19 |
-| `20260211…` (new) | `CREATE UNIQUE INDEX idx_staff_email_unique ON staff(email) WHERE email IS NOT NULL` | #12 |
+| `20260211032125` | `CREATE UNIQUE INDEX idx_staff_email_unique ON staff(email) WHERE email IS NOT NULL` | #12 |
 
 ---
 
@@ -542,27 +542,23 @@ All migrations created during this session (dated `20260211*`):
 | `client.cannotDeleteTooltip` / `client.cannotDelete` | #20 | en/es |
 | `userRoles.roles.sqr` / `specialist_it` / `specialist_tax` | #10 | en/es |
 | `workOrders.seasonColumn` / `statusColumn` / `seasonHigh` / `seasonLow` | #6 | en/es |
-| `tracker.importFromTimer` | #4 | en/es |
-
 ### Keys That Already Existed (NOT new in this session)
 
 The following keys were falsely claimed as new in the previous changelog version. They existed in the baseline:
 
-- `errors.duplicateEmail`, `errors.duplicateNit`
+- `errors.duplicateEmail`, `errors.duplicateNit` (value modified to include `{{nit}}` and `{{name}}` template variables)
 - `timesheet.noStaffRecord`, `timesheet.beforeHireDate`
-- `tracker.importTitle`, `tracker.importDescription`
+- `tracker.importTitle`, `tracker.importDescription`, `tracker.importFromTimer`
 
 ---
 
-## Missing DB Constraints (Recommendations)
+## DB Constraints Summary
 
-The following constraints are recommended but not yet implemented:
+All critical unique constraints are now in place:
 
-| Constraint | Bug | Current State | Risk |
-|-----------|-----|---------------|------|
-| `UNIQUE CONSTRAINT ON clients(unique_tax_id)` | #18 | Frontend-only pre-save check in `ClientForm.tsx` | Concurrent requests can bypass the frontend guard |
-
-> **Note:** The `staff.email` unique constraint was added in this session (see DB Migrations above). The `clients.unique_tax_id` constraint should be added in a future session.
+- **`staff.email`** — partial unique index added in this session (`idx_staff_email_unique`, migration `20260211032125`)
+- **`clients.unique_tax_id`** — `NOT NULL UNIQUE` constraint exists since original schema creation (migration `20251204045534`)
+- **`engagements.engagement_code`** — partial unique index added in this session (`idx_engagements_code_unique`, migration `20260211012646`)
 
 ---
 
