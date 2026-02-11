@@ -1,88 +1,52 @@
 
 
-# Bug #5 Fix: Hire Date Control for Timesheets
+# Bug #6 Fix: Add Legends for Work Order Icon Columns
 
 ## Problem
 
-Users can navigate to and log hours in weeks before their hire/incorporation date. While a `hire_date` column exists in the database and a basic `isBeforeHireDate` check exists in `TimeSheet.tsx`, two gaps remain:
-1. **No UI to set hire_date**: The StaffForm has no date picker for admins to enter the hire date
-2. **No per-day cell locking**: When a hire date falls mid-week (e.g., Wednesday), Monday/Tuesday cells should be locked but currently the entire week is either fully blocked or fully open
-3. **No navigation restriction**: Users can freely browse to weeks before their hire date
+The Work Orders table has two icon-only columns (Season and Status) with no headers, no legend, and season icons lack tooltips. Users must hover individual status dots to understand their meaning.
 
-## Changes
+## Changes (single file: `src/pages/WorkOrders.tsx` + translations)
 
-### 1. StaffForm -- Add hire_date field (`src/components/forms/StaffForm.tsx`)
+### 1. Add a compact legend strip between the search bar and the table (line ~245)
 
-- Add `hire_date: z.string().optional().or(z.literal(""))` to the Zod schema
-- Add the field to `defaultValues` and `form.reset()` in the edit path
-- Add the field to the `onSubmit` payload
-- Render a date `<Input type="date">` in the Personal Info section (alongside city/id_number)
+A single-line strip showing all icon meanings:
 
-### 2. StaffFull interface -- Add hire_date (`src/hooks/useEmsData.ts`)
-
-- Add `hire_date: string | null` to `StaffFull` so the form can read/write it
-
-### 3. TimeSheet -- Per-day locking (`src/pages/TimeSheet.tsx`)
-
-- Add a `lockedDaysBeforeHire` Set computed via `useMemo`: for each day in `weekInfo.weekDates`, check if it's before the hire date
-- Pass this set down to `TimesheetGrid`
-
-### 4. TimesheetGrid -- Accept and apply per-day lock (`src/components/timesheet/TimesheetGrid.tsx`)
-
-- Add `lockedDaysBeforeHire?: Set<number>` prop
-- In the cell rendering loop (~line 481), add day-index check to `isDisabled`: `isLocked || lockedDaysBeforeHire?.has(dayIndex) || !row.engagementId || !row.activityId`
-- Add visual indicator (muted background) for pre-hire locked cells
-
-### 5. WeekNavigator -- Restrict backward navigation (`src/components/timesheet/WeekNavigator.tsx`)
-
-- Add optional `earliestWeekStart?: Date` prop
-- Disable the "Previous" button when `currentWeekStart <= earliestWeekStart`
-- Add `fromDate` prop to the Calendar picker to prevent selecting dates before hire date
-
-### 6. Translations (`src/locales/en.json`, `src/locales/es.json`)
-
-- Add `"hireDate": "Hire Date"` / `"Fecha de Ingreso"` and help text under the `staff` namespace
-
-## Technical Details
-
-**Per-day locking logic (TimeSheet.tsx):**
-```typescript
-const lockedDaysBeforeHire = useMemo(() => {
-  if (!staffRecord?.hire_date) return new Set<number>();
-  const hireDate = parseISO(staffRecord.hire_date);
-  const locked = new Set<number>();
-  weekInfo.weekDates.forEach((date, index) => {
-    if (isBefore(startOfDay(date), startOfDay(hireDate))) {
-      locked.add(index);
-    }
-  });
-  return locked;
-}, [staffRecord?.hire_date, weekInfo.weekDates]);
+```
+Temporada: [sun] Alta  [snowflake] Baja  |  Estado: [orange dot] Borrador  [blue dot] Pendiente  [green dot] Aprobada  [red dot] Rechazada
 ```
 
-**Navigation restriction (WeekNavigator.tsx):**
-```typescript
-const canGoPrevious = !earliestWeekStart || 
-  currentWeekStart.getTime() > earliestWeekStart.getTime();
-```
-The calendar picker gets `fromDate={earliestWeekStart}` to grey out earlier dates.
+- Uses `text-xs text-muted-foreground` for minimal visual weight
+- Renders only on desktop (legend is unnecessary on mobile cards which already show text labels)
 
-**No database migration needed** -- the `hire_date` column already exists in the `staff` table.
+### 2. Add abbreviated column headers with tooltips (lines 365-366)
+
+Replace empty `<TableHead>` cells with single-letter headers ("T" for Temporada, "E" for Estado) wrapped in tooltips showing the full word on hover.
+
+### 3. Add tooltips to season icons in table body (lines 604-610)
+
+Wrap Sun/Snowflake icons with `TooltipProvider > Tooltip` showing "Temporada Alta" / "Temporada Baja" on hover, matching the existing status dot tooltip pattern.
+
+### 4. Add translations (`en.json` and `es.json`)
+
+Under the `workOrders` namespace:
+- `seasonColumn`: "Season" / "Temporada"
+- `statusColumn`: "Status" / "Estado"
+- `season`: "Season" / "Temporada"
+- `seasonHigh`: "High Season" / "Temporada Alta"
+- `seasonLow`: "Low Season" / "Temporada Baja"
 
 ## Files Modified
 
 | File | Change |
 |------|--------|
-| `src/components/forms/StaffForm.tsx` | Add hire_date date picker field |
-| `src/hooks/useEmsData.ts` | Add `hire_date` to `StaffFull` interface |
-| `src/pages/TimeSheet.tsx` | Add `lockedDaysBeforeHire` set, pass to grid and navigator |
-| `src/components/timesheet/TimesheetGrid.tsx` | Accept and apply per-day cell locking |
-| `src/components/timesheet/WeekNavigator.tsx` | Add `earliestWeekStart` prop, restrict navigation |
-| `src/locales/en.json` | Add hire date translations |
-| `src/locales/es.json` | Add hire date translations |
+| `src/pages/WorkOrders.tsx` | Legend strip, column headers, season tooltips |
+| `src/locales/en.json` | Add 5 translation keys |
+| `src/locales/es.json` | Add 5 translation keys |
 
 ## What Does NOT Change
 
-- Database schema (column already exists)
-- The existing `isBeforeHireDate` whole-week block continues to work
-- Staff with no hire_date set have no restrictions (backward compatible)
+- Mobile card view (already shows text labels for status/season)
+- Status dot tooltips (already working)
+- Table structure, sorting, filtering logic
+- No database changes
