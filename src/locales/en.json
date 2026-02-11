@@ -336,7 +336,9 @@
     "activeDescription": "Active clients can have engagements",
     "selectIndustry": "Select an industry",
     "clientEngagements": "Client Engagements",
-    "noEngagements": "No engagements for this client"
+    "noEngagements": "No engagements for this client",
+    "cannotDeleteTooltip": "To delete this client, all associated engagements must be deleted first.",
+    "cannotDelete": "Cannot delete this client"
   },
   "engagement": {
     "code": "Code",
