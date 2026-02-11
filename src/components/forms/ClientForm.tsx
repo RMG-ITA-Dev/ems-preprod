@@ -35,12 +35,19 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { ClientFull, useIndustries } from "@/hooks/useEmsData";
 import { useCreateClient, useUpdateClient, useDeleteClient } from "@/hooks/mutations";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 
 const formSchema = z.object({
   client_legal_name: z.string().min(1, "Client name is required"),
@@ -68,6 +75,20 @@ export function ClientForm({ client, compact = false }: ClientFormProps) {
   const createMutation = useCreateClient();
   const updateMutation = useUpdateClient();
   const deleteMutation = useDeleteClient();
+
+  const { data: engagementCount } = useQuery({
+    queryKey: ['client-engagement-count', client?.client_id],
+    queryFn: async () => {
+      const { count } = await supabase
+        .from('engagements')
+        .select('engagement_id', { count: 'exact', head: true })
+        .eq('client_id', client!.client_id);
+      return count || 0;
+    },
+    enabled: isEdit && !!client?.client_id,
+  });
+
+  const hasEngagements = isEdit && (engagementCount || 0) > 0;
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -144,10 +165,23 @@ export function ClientForm({ client, compact = false }: ClientFormProps) {
   };
 
   const handleDelete = async () => {
-    if (client) {
-      await deleteMutation.mutateAsync(client.client_id);
-      navigate("/clients");
+    if (!client) return;
+
+    // Safety pre-check
+    const { count } = await supabase
+      .from('engagements')
+      .select('engagement_id', { count: 'exact', head: true })
+      .eq('client_id', client.client_id);
+
+    if (count && count > 0) {
+      toast.error(t("client.cannotDelete"), {
+        description: t("client.cannotDeleteTooltip"),
+      });
+      return;
     }
+
+    await deleteMutation.mutateAsync(client.client_id);
+    navigate("/clients");
   };
 
   // Compact layout for edit page with engagement list
@@ -302,7 +336,24 @@ export function ClientForm({ client, compact = false }: ClientFormProps) {
         <h1 className="text-lg font-semibold">
           {isEdit ? t("client.editClient") : t("client.newClient")}
         </h1>
-        {isEdit && (
+        {isEdit && hasEngagements && (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span>
+                  <Button variant="destructive" disabled>
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    {t("common.delete")}
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>{t("client.cannotDeleteTooltip")}</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
+        {isEdit && !hasEngagements && (
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button variant="destructive">

@@ -336,7 +336,9 @@
     "activeDescription": "Los clientes activos pueden tener encargos",
     "selectIndustry": "Seleccionar una industria",
     "clientEngagements": "Encargos del Cliente",
-    "noEngagements": "Sin encargos para este cliente"
+    "noEngagements": "Sin encargos para este cliente",
+    "cannotDeleteTooltip": "Para eliminar este cliente, primero debe eliminar todos los encargos asociados.",
+    "cannotDelete": "No se puede eliminar este cliente"
   },
   "engagement": {
     "code": "Código",
