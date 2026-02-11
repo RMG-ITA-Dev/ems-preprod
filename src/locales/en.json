@@ -553,7 +553,8 @@
     "copiedFromPreviousWeek": "Copied {{count}} entries from previous week",
     "noPreviousEntries": "No entries found in the previous week to copy",
     "dailyLimitExceeded": "Over limit!",
-    "weeklyLimitExceeded": "Over limit!"
+    "weeklyLimitExceeded": "Over limit!",
+    "rowMerged": "A row with this engagement and activity already exists. Hours were merged automatically."
   },
   "expenses": {
     "title": "Expenses",
