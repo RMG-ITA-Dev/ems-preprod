@@ -20,6 +20,7 @@ import { getDayName, formatDayMonth, toISODateString } from "@/lib/timesheetUtil
 import type { TimeEntry, ApprovedEngagement, ActivityCode } from "@/hooks/useTimesheetWeek";
 import { useUpsertTimeEntry } from "@/hooks/useTimesheetMutations";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 interface LineApproval {
   approval_id: string;
@@ -227,17 +228,59 @@ export function TimesheetGrid({
   };
 
   const handleEngagementChange = (rowId: string, engagementId: string) => {
+    const currentRow = rows.find(r => r.id === rowId);
+    if (!currentRow) return;
+    const activityId = currentRow.activityId;
+
+    // Check for duplicate — another row with same engagement+activity
+    const existingRow = rows.find(r => r.id !== rowId && r.engagementId === engagementId && r.activityId === activityId && activityId !== '');
+    if (existingRow) {
+      const mergedHours = { ...existingRow.hours };
+      const mergedEntryIds = { ...existingRow.entryIds };
+      Object.entries(currentRow.hours).forEach(([dateStr, hrs]) => {
+        mergedHours[dateStr] = (mergedHours[dateStr] || 0) + (hrs || 0);
+      });
+      setRows(
+        rows
+          .map(row => row.id === existingRow.id ? { ...row, hours: mergedHours, entryIds: mergedEntryIds } : row)
+          .filter(r => r.id !== rowId)
+      );
+      toast.warning(t('timesheet.rowMerged'));
+      return;
+    }
+
     setRows(
       rows.map((row) =>
-        row.id === rowId ? { ...row, engagementId, id: `${engagementId}-${row.activityId || 'new'}` } : row
+        row.id === rowId ? { ...row, engagementId, id: activityId ? `${engagementId}-${activityId}` : `${engagementId}-new` } : row
       )
     );
   };
 
   const handleActivityChange = (rowId: string, activityId: string) => {
+    const currentRow = rows.find(r => r.id === rowId);
+    if (!currentRow) return;
+    const engagementId = currentRow.engagementId;
+
+    // Check for duplicate
+    const existingRow = rows.find(r => r.id !== rowId && r.engagementId === engagementId && r.activityId === activityId && engagementId !== '');
+    if (existingRow) {
+      const mergedHours = { ...existingRow.hours };
+      const mergedEntryIds = { ...existingRow.entryIds };
+      Object.entries(currentRow.hours).forEach(([dateStr, hrs]) => {
+        mergedHours[dateStr] = (mergedHours[dateStr] || 0) + (hrs || 0);
+      });
+      setRows(
+        rows
+          .map(row => row.id === existingRow.id ? { ...row, hours: mergedHours, entryIds: mergedEntryIds } : row)
+          .filter(r => r.id !== rowId)
+      );
+      toast.warning(t('timesheet.rowMerged'));
+      return;
+    }
+
     setRows(
       rows.map((row) =>
-        row.id === rowId ? { ...row, activityId, id: `${row.engagementId || 'new'}-${activityId}` } : row
+        row.id === rowId ? { ...row, activityId, id: engagementId ? `${engagementId}-${activityId}` : `new-${activityId}` } : row
       )
     );
   };
@@ -350,6 +393,18 @@ export function TimesheetGrid({
     const total = calculateGrandTotal();
     return total >= weeklyLimit * 0.8 && total <= weeklyLimit;
   };
+
+  // Track used activities per engagement for dropdown filtering
+  const usedActivitiesByEngagement = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    rows.forEach(row => {
+      if (row.engagementId && row.activityId) {
+        if (!map.has(row.engagementId)) map.set(row.engagementId, new Set());
+        map.get(row.engagementId)!.add(row.activityId);
+      }
+    });
+    return map;
+  }, [rows]);
 
   // Get approval status for an engagement
   const getApprovalStatus = (engagementId: string) => {
@@ -465,14 +520,18 @@ export function TimesheetGrid({
                       <SelectValue placeholder={t("timesheet.selectActivity")} />
                     </SelectTrigger>
                     <SelectContent>
-                      {activities.map((act) => (
-                        <SelectItem key={act.activity_id} value={act.activity_id}>
-                          <span className="font-mono text-xs text-muted-foreground mr-2">
-                            {act.activity_code}
-                          </span>
-                          {act.description}
-                        </SelectItem>
-                      ))}
+                      {activities.map((act) => {
+                        const isUsedElsewhere = usedActivitiesByEngagement
+                          .get(row.engagementId)?.has(act.activity_id) && row.activityId !== act.activity_id;
+                        return (
+                          <SelectItem key={act.activity_id} value={act.activity_id} disabled={!!isUsedElsewhere}>
+                            <span className={cn("font-mono text-xs text-muted-foreground mr-2", isUsedElsewhere && "opacity-50")}>
+                              {act.activity_code}
+                            </span>
+                            <span className={cn(isUsedElsewhere && "opacity-50")}>{act.description}</span>
+                          </SelectItem>
+                        );
+                      })}
                     </SelectContent>
                   </Select>
                 </td>
