@@ -772,7 +772,9 @@
       "roleBasedAccess": "Role-Based Access",
       "roleBasedAccessDesc": "Secure RBAC system with Admin, Staff, and Viewer permissions."
     },
-    "firstUserMessage": "Welcome! As the first user, you have been assigned the Administrator role with full system access."
+    "firstUserMessage": "Welcome! As the first user, you have been assigned the Administrator role with full system access.",
+    "verifyYourEmail": "Check Your Email",
+    "confirmationSent": "We've sent a confirmation link to {{email}}. Please open your email and click the link to activate your account."
   },
   "workMatrix": {
     "title": "Work Matrix",

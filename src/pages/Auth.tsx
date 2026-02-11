@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/useAuth";
 import { useGlobalSettings } from "@/hooks/useEmsData";
 import { toast } from "sonner";
-import { Briefcase, TrendingUp, Users, Shield, Loader2 } from "lucide-react";
+import { Briefcase, TrendingUp, Users, Shield, Loader2, Mail } from "lucide-react";
 import { z } from "zod";
 import { ForgotPasswordDialog } from "@/components/auth/ForgotPasswordDialog";
 
@@ -36,6 +36,8 @@ const Auth = () => {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [loading, setLoading] = useState(false);
+  const [emailSent, setEmailSent] = useState(false);
+  const [sentToEmail, setSentToEmail] = useState("");
   const { signIn, signUp } = useAuth();
   const navigate = useNavigate();
   const { data: settings } = useGlobalSettings();
@@ -61,7 +63,7 @@ const Auth = () => {
         const validatedFirstName = nameSchema.parse(firstName);
         const validatedLastName = nameSchema.parse(lastName);
         
-        const { error, roleData } = await signUp(validatedEmail, validatedPassword, validatedFirstName, validatedLastName);
+        const { error, emailConfirmationRequired } = await signUp(validatedEmail, validatedPassword, validatedFirstName, validatedLastName);
         if (error) {
           if (error.message.includes("already registered")) {
             toast.error(t("messages.emailAlreadyRegistered"));
@@ -70,13 +72,11 @@ const Auth = () => {
           } else {
             toast.error(error.message);
           }
+        } else if (emailConfirmationRequired) {
+          setSentToEmail(validatedEmail);
+          setEmailSent(true);
         } else {
-          // Show special message for first user (admin)
-          if (roleData?.isFirstUser) {
-            toast.success(t("auth.firstUserMessage"));
-          } else {
-            toast.success(t("messages.accountCreated"));
-          }
+          toast.success(t("messages.accountCreated"));
           navigate("/");
         }
       } else {
@@ -159,7 +159,30 @@ const Auth = () => {
 
       {/* Right Panel - Auth Form */}
       <div className="flex-1 flex items-center justify-center p-8 bg-background">
-        <div className="w-full max-w-md">
+          <div className="w-full max-w-md">
+          {emailSent ? (
+            <div className="bg-card rounded-2xl border border-border shadow-xl p-8 text-center">
+              <div className="mx-auto h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center mb-6">
+                <Mail className="h-8 w-8 text-primary" />
+              </div>
+              <h2 className="text-2xl font-bold text-foreground mb-2">
+                {t("auth.verifyYourEmail")}
+              </h2>
+              <p className="text-muted-foreground mb-6">
+                {t("auth.confirmationSent", { email: sentToEmail })}
+              </p>
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => {
+                  setEmailSent(false);
+                  setMode("signin");
+                }}
+              >
+                {t("auth.backToSignIn")}
+              </Button>
+            </div>
+          ) : (
           <div className="bg-card rounded-2xl border border-border shadow-xl p-8">
             {/* Slider Toggle */}
             <div className="flex bg-muted rounded-full p-1 mb-8">
@@ -306,6 +329,7 @@ const Auth = () => {
               )}
             </p>
           </div>
+          )}
         </div>
       </div>
     </div>
