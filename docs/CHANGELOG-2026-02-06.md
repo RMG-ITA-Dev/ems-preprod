@@ -1,9 +1,14 @@
-# EMS 2.0 Bug Fixes — Session Changelog
+# EMS 2.0 Bug Fixes — Session Changelog (v2 — Verified)
 
 **Testing Date:** February 6, 2026  
 **Fix Date:** February 10, 2026  
 **Source:** `TestEMS20-060226_v3.json` (21 bugs reported by `lcandia` and `jyamaca`)  
-**Session Focus:** Comprehensive bug-fix session covering authentication, timer, timesheet, forms, roles, approvals, and client management
+**Session Focus:** Comprehensive bug-fix session covering authentication, timer, timesheet, forms, roles, approvals, and client management  
+**Changelog Version:** v2 — corrected against independent code diff verification (Feb 11, 2026)
+
+> **Note:** This changelog was rewritten after an independent line-by-line diff verification revealed
+> 7 files falsely claimed as changed (features pre-existed) and 4 genuinely changed files omitted.
+> All claims below are verified against actual diffs between the old (`ems-v2.0.H-stable`) and new codebases.
 
 ---
 
@@ -47,12 +52,13 @@ An inactive staff member (with `is_active = false`) could still log in. The syst
 | File | Change |
 |------|--------|
 | `src/hooks/useAuth.tsx` | Added post-login check: queries `staff` table by `auth_user_id`, if `is_active === false` → signs out and returns `ACCOUNT_INACTIVE` error |
-| `src/pages/Auth.tsx` | Handles `ACCOUNT_INACTIVE` error code → shows `messages.accountInactive` toast |
+| `src/pages/Auth.tsx` | Handles `ACCOUNT_INACTIVE` error code → shows `messages.accountInactive` toast. Also added email confirmation flow: `emailConfirmationRequired` state shows a "Check Your Email" verification card |
+| `src/components/ProtectedRoute.tsx` | **New file.** Session guard: checks `staffRecord.is_active === false` during active sessions → forces `signOut()` + redirect to `/auth`. Catches inactive users who were already logged in when deactivated |
 
 ### Technical Details
-- After successful `signInWithPassword`, a query to `staff` checks `is_active` for the authenticated user
-- If inactive, `supabase.auth.signOut()` is called immediately, and a custom error `ACCOUNT_INACTIVE` is returned
-- Auth page catches this error and displays a localized toast message
+- **Login-time:** After successful `signInWithPassword`, a query to `staff` checks `is_active` for the authenticated user. If inactive, `supabase.auth.signOut()` is called immediately
+- **Session-time:** `ProtectedRoute` wraps all authenticated routes. If `staffRecord` loads as inactive, forces sign-out without requiring a new login attempt
+- **Email confirmation:** `useAuth` exposes `emailConfirmationRequired` flag; `Auth.tsx` renders a "Verify Your Email" card when set
 
 ---
 
@@ -67,7 +73,7 @@ The timer was losing elapsed time on page reload and accumulating drift due to i
 
 | File | Change |
 |------|--------|
-| `src/hooks/useTimeTracker.ts` | Complete rewrite: uses `originalStartTime` (absolute timestamp) + `accumulatedSeconds` instead of incremental `elapsedSeconds` updates. Pure derived elapsed via `useMemo`. |
+| `src/hooks/useTimeTracker.ts` | Complete rewrite: uses `originalStartTime` (absolute timestamp) + `accumulatedSeconds` instead of incremental `elapsedSeconds` updates. Pure derived elapsed via `useMemo` |
 
 ### Technical Details
 - **State model:** `{ isRunning, originalStartTime, accumulatedSeconds }` persisted to `localStorage`
@@ -90,7 +96,8 @@ The Submit, Unsubmit, Copy Previous Week, and Save Draft buttons were not availa
 | File | Change |
 |------|--------|
 | `src/pages/TimeSheet.tsx` | BUG #32: Rewrote `isEditable`, `canUnsubmit`, `canSubmit` logic to use `isWithinEditableWindow` (based on `employeeRetroDays` policy) instead of `isCurrentWeek` |
-| `src/hooks/useTimesheetMutations.ts` | Updated mutation hooks to support operations on non-current-week periods |
+
+> **Note:** The mutation hooks in `src/hooks/useTimesheetMutations.ts` already supported non-current-week operations prior to this session. No changes were made to that file.
 
 ### Technical Details
 - `isWithinEditableWindow` checks if the week is within the configurable retro window (default 30 days)
@@ -104,20 +111,22 @@ The Submit, Unsubmit, Copy Previous Week, and Save Draft buttons were not availa
 **Reporter:** lcandia · **Priority:** Alta · **Route:** `/tracker`
 
 ### Problem
-Timer entries could not be transferred (imported) to the timesheet. The import dialog was missing or non-functional.
+Timer entries could not be transferred (imported) to the timesheet. The import button was conditionally hidden when no importable entries existed, making the feature undiscoverable. There was no import entry point from the Timesheet page.
 
 ### Changes
 
+> **Note:** The `TimerImportDialog` component and the basic `handleImport` function in `TrackerList` already existed prior to this session. The changes below improve discoverability and add a second entry point.
+
 | File | Change |
 |------|--------|
-| `src/components/tracker/TimerImportDialog.tsx` | Created import dialog with checkboxes, duration display, engagement/activity columns, and batch import action |
-| `src/pages/TrackerList.tsx` | Added "Import to Timesheet" button that opens the dialog with unimported timer entries |
+| `src/pages/TrackerList.tsx` | Changed import button from conditionally hidden (`{count > 0 && <Button>}`) to always visible but disabled when no importable entries exist. Added `Badge` showing importable entry count |
+| `src/pages/TimeSheet.tsx` | **New integration.** Added "Import from Timer" button alongside existing action buttons. Queries `useUnimportedTimerEntries` for the current week. Opens `TimerImportDialog`. Includes `handleTimerImport` function that creates `time_entries` and marks `timer_entries` as imported |
+| `src/hooks/useTimerEntries.ts` | Added `useRunningTimerEntries` convenience hook for querying running entries (`ended_at IS NULL`) |
 
 ### Technical Details
-- Dialog shows all completed, non-imported timer entries with select-all capability
-- Selected entries are imported as time entries with matching engagement/activity/date
-- After import, timer entries are marked `is_imported = true` with `imported_to_time_id` reference
-- Total selected duration displayed at the bottom of the dialog
+- **TrackerList:** Button always renders with `disabled={entriesLoading || importableEntries.length === 0}`. Badge shows count when entries are ready
+- **TimeSheet:** Uses `useUnimportedTimerEntries(currentWeekStart, weekEnd)` to query entries for the displayed week. Import creates `time_entries` via Supabase insert, then marks `timer_entries` as imported via `useMarkTimerEntriesImported`
+- **Dialog reuse:** Both pages use the same `TimerImportDialog` component
 
 ---
 
@@ -133,12 +142,13 @@ Staff members could navigate to and enter time on weeks before their hire date. 
 | File | Change |
 |------|--------|
 | `src/pages/TimeSheet.tsx` | BUG #5: Added `isBeforeHireDate` flag, `lockedDaysBeforeHire` per-day lock map, `earliestWeekStart` constraint |
-| `src/components/timesheet/WeekNavigator.tsx` | BUG #5: Added `earliestWeekStart` prop — disables backward navigation past hire date, restricts calendar picker with `fromDate` |
-| `src/components/timesheet/TimesheetGrid.tsx` | BUG #5: Added `lockedDaysBeforeHire` prop — locks individual day columns that fall before the hire date |
+| `src/components/timesheet/WeekNavigator.tsx` | Added `earliestWeekStart` prop — disables backward navigation past hire date, restricts calendar picker with `fromDate` |
+| `src/components/timesheet/TimesheetGrid.tsx` | Added `lockedDaysBeforeHire` prop — locks individual day columns that fall before the hire date |
+| `src/hooks/useEmsData.ts` | Added `hire_date` to `StaffFull` interface to make it available throughout the app |
 
 ### Technical Details
 - **Full week before hire:** Shows destructive Alert with `timesheet.beforeHireDate` message; all buttons disabled
-- **Mid-week hire:** Individual day columns before hire date are locked (cells disabled), but post-hire days remain editable
+- **Mid-week hire:** Individual day columns before hire date are locked (cells disabled with `bg-muted/40`), but post-hire days remain editable
 - **Navigation:** `WeekNavigator` uses `fromDate={earliestWeekStart}` on the calendar component and disables the "Previous" button when at the earliest week
 - Uses `date-fns` `parseISO`, `isBefore`, `startOfDay` for date comparisons
 
@@ -149,19 +159,18 @@ Staff members could navigate to and enter time on weeks before their hire date. 
 **Reporter:** jyamaca · **Priority:** Media · **Route:** `/work-orders`
 
 ### Problem
-The Work Orders list page did not have a visible legend explaining the meaning of status dot colors (Draft, Pending, Approved, Rejected) and season icons (High/Low).
+The Work Orders list page did not have a visible legend explaining the meaning of status dot colors and season icons.
 
 ### Changes
 
 | File | Change |
 |------|--------|
-| `src/pages/WorkOrders.tsx` | Added status and season legend bar below the search/filter row (desktop only) |
+| `src/pages/WorkOrders.tsx` | Added status and season legend bar below the search/filter row (desktop only). Also added abbreviated column headers ("T", "E") with tooltips, and season icon tooltips on table body cells |
 
 ### Technical Details
 - Legend shows: Sun icon for High season, Snowflake icon for Low season
 - Status dots: `bg-warning` (Draft), `bg-info` (Pending), `bg-success` (Approved), `bg-destructive` (Rejected)
 - Hidden on mobile (`!isMobile`) to preserve space
-- Uses semantic color classes from the design system
 
 ---
 
@@ -176,11 +185,10 @@ The Category creation form allowed submission with empty rate fields, causing da
 
 | File | Change |
 |------|--------|
-| `src/components/forms/CategoryForm.tsx` | Changed Zod schema to use `z.coerce.number().positive("Rate must be greater than 0")` for all four rate fields; set default values to `undefined` to force user input |
+| `src/components/forms/CategoryForm.tsx` | Changed Zod schema: rates from `.min(0)` to `.positive("Rate must be greater than 0")`; default values from `0` to `undefined as unknown as number` to force user input |
 
 ### Technical Details
 - Rate fields (`rate_high_bob`, `rate_low_bob`, `rate_high_usd`, `rate_low_usd`) use `z.coerce.number().positive()` validation
-- Default values are `undefined as unknown as number` — forces Zod validation to reject empty submissions
 - `category_name` uses `z.string().min(1)` to prevent empty names
 
 ---
@@ -190,18 +198,17 @@ The Category creation form allowed submission with empty rate fields, causing da
 **Reporter:** jyamaca · **Priority:** Alta · **Route:** `/timesheet`
 
 ### Problem
-The engagement dropdown in the timesheet grid was empty because it only showed engagements where the staff member was explicitly in the `engagement_team` table.
+The engagement dropdown in the timesheet grid was empty because it filtered engagements to only those where the staff member was the `partner_id`, `manager_id`, or had prior time entries.
 
 ### Changes
 
 | File | Change |
 |------|--------|
-| `src/hooks/useTimesheetWeek.ts` | BUG #19: Replaced `get_staff_assigned_engagements` RPC with direct query: fetch all approved Work Orders → get engagement IDs → fetch active engagements |
+| `src/hooks/useTimesheetWeek.ts` | BUG #19: Removed the JS filter that restricted engagements by `partner_id`/`manager_id`/prior time entries. Now fetches all active engagements with approved Work Orders |
 
 ### Technical Details
 - Query chain: `work_orders` (filter `approval_status = 'Approved'`) → collect `engagement_id` list → `engagements` (filter `status = 'active'`, `IN` approved IDs)
 - Includes client join: `client:clients!client_id(client_id, client_legal_name)`
-- Cached with 5-minute `staleTime`
 - All staff can now log time to any engagement with an approved WO
 
 ---
@@ -217,13 +224,11 @@ The Staff creation form did not enforce required fields (email, category, city, 
 
 | File | Change |
 |------|--------|
-| `src/components/forms/StaffForm.tsx` | Updated Zod schema: `email` → `z.string().min(1).email()`, `category_id` → `z.string().min(1)`, `city` → `z.string().min(1)`, `id_number` → `z.string().min(1)` |
+| `src/components/forms/StaffForm.tsx` | Updated Zod schema: `email` → `z.string().min(1).email()`, `category_id` → `z.string().min(1)`, `city` → `z.string().min(1)`, `id_number` → `z.string().min(1)`. Added `*` suffix to required field labels |
 
 ### Technical Details
-- All required fields now use `z.string().min(1, "X is required")` validation
-- Form labels show `*` suffix for required fields
 - City uses a `Select` component with fixed options (La Paz, Santa Cruz)
-- Email field also includes a pre-save duplicate check via Supabase query
+- Email field also includes a pre-save duplicate check (see Bug #12)
 
 ---
 
@@ -232,18 +237,17 @@ The Staff creation form did not enforce required fields (email, category, city, 
 **Reporter:** jyamaca · **Priority:** Media · **Route:** `/settings`
 
 ### Problem
-The `app_role` enum was missing three roles: `sqr`, `specialist_it`, and `specialist_tax`. The User Roles Manager UI did not display or allow assignment of these roles.
+The `app_role` enum was missing three roles: `sqr`, `specialist_it`, and `specialist_tax`.
 
 ### Changes
 
 | File | Change |
 |------|--------|
-| DB migration | Added `sqr`, `specialist_it`, `specialist_tax` values to `app_role` enum |
+| DB migration `20260211004322` | Added `sqr`, `specialist_it`, `specialist_tax` values to `app_role` enum |
 | `src/components/settings/UserRolesManager.tsx` | Added icons (`ShieldCheck`, `Monitor`, `Calculator`), colors, and `SelectItem` entries for all three new roles |
 | `src/locales/en.json`, `src/locales/es.json` | Added `userRoles.roles.sqr`, `userRoles.roles.specialist_it`, `userRoles.roles.specialist_tax` |
 
 ### Technical Details
-- Enum values: `sqr`, `specialist_it`, `specialist_tax`
 - Role icons: `ShieldCheck` (SQR), `Monitor` (Specialist IT), `Calculator` (Specialist Tax)
 - Role colors: orange (SQR), cyan (IT), indigo (Tax)
 
@@ -254,7 +258,7 @@ The `app_role` enum was missing three roles: `sqr`, `specialist_it`, and `specia
 **Reporter:** jyamaca · **Priority:** Baja · **Route:** `/auth`
 
 ### Problem
-The login page had no way to toggle password visibility, making it difficult to verify typed passwords.
+The login page had no way to toggle password visibility.
 
 ### Changes
 
@@ -264,10 +268,8 @@ The login page had no way to toggle password visibility, making it difficult to 
 
 ### Technical Details
 - Toggle button positioned with `absolute right-3 top-1/2 -translate-y-1/2`
-- Uses `Eye` and `EyeOff` icons from lucide-react
 - `tabIndex={-1}` to prevent tab-stop on the toggle
-- `aria-label` set for accessibility: `auth.showPassword` / `auth.hidePassword`
-- Input type toggles between `"text"` and `"password"`
+- `aria-label` set for accessibility
 
 ---
 
@@ -276,20 +278,21 @@ The login page had no way to toggle password visibility, making it difficult to 
 **Reporter:** jyamaca · **Priority:** Alta · **Route:** `/staff/new`
 
 ### Problem
-Creating a staff member with a duplicate email produced a generic database error instead of a user-friendly message.
+Two staff records could share the same email address. No database-level constraint existed, and email swaps between records could corrupt the `auth_user_id ↔ staff` linkage.
 
 ### Changes
 
 | File | Change |
 |------|--------|
-| `src/hooks/mutations/useStaffMutations.ts` | BUG #15: Added `handleStaffError` function that checks for `23505` + `email` constraint violation → shows `errors.duplicateEmail` toast |
-| `src/lib/error-handler.ts` | BUG #11, #15: Added `DB_DUPLICATE_KEY` error code for PostgreSQL `23505` (unique constraint violation) |
-| `src/components/forms/StaffForm.tsx` | Added pre-save duplicate email check via Supabase query before mutation |
+| `src/components/forms/StaffForm.tsx` | Added pre-save duplicate email check via Supabase query (excluding current record) → shows `staff.emailAlreadyUsed` toast with existing staff name. Added `emailLinkedWarning` text below email field when staff has a linked auth account |
+| DB migration `20260211…` | Added partial unique index `idx_staff_email_unique ON staff(email) WHERE email IS NOT NULL` |
+
+> **Note:** The error handler in `src/lib/error-handler.ts` and the mutation-level `handleStaffError` in `src/hooks/mutations/useStaffMutations.ts` already existed prior to this session as defense-in-depth. The genuinely new work is the form-level pre-save check and the DB constraint.
 
 ### Technical Details
-- **Mutation-level:** `handleStaffError` intercepts `23505` errors containing `"email"` → shows `errors.duplicateEmail` toast
-- **Form-level:** Pre-save check queries `staff` table for matching email excluding current record → shows `staff.emailAlreadyUsed` with the existing staff member's name
-- **Error handler:** `parseSupabaseErrorCode` maps `23505` → `DB_DUPLICATE_KEY` for consistent error categorization
+- **Form-level:** Pre-save queries `staff` table for matching email, excluding current record → shows `staff.emailAlreadyUsed` with the existing staff member's name
+- **Auth warning:** When editing a staff record with `auth_user_id` set, shows `staff.emailLinkedWarning` — changing staff email does not update login credentials
+- **DB-level:** Partial unique index allows multiple NULL emails but prevents two records from sharing the same email string
 
 ---
 
@@ -298,7 +301,7 @@ Creating a staff member with a duplicate email produced a generic database error
 **Reporter:** jyamaca · **Priority:** Media · **Route:** `/timesheet`
 
 ### Problem
-When a user logged in but had no linked staff record, the error message was unclear and didn't help the user understand the issue.
+When a user logged in but had no linked staff record, the error message was unclear.
 
 ### Changes
 
@@ -306,12 +309,13 @@ When a user logged in but had no linked staff record, the error message was uncl
 |------|--------|
 | `src/hooks/useCurrentStaff.ts` | Added email-based fallback lookup: if no `auth_user_id` match, tries `email` match with `auth_user_id IS NULL`, then auto-links |
 | `src/pages/TimeSheet.tsx` | Shows descriptive Alert with `timesheet.noStaffRecord` and `timesheet.noStaffRecordHelp` (includes user email) |
+| DB migration `20260211010034` | Added `link_staff_to_auth_user()` trigger function — server-side complement: when a staff record is created/updated with an email matching an existing auth user, automatically sets `auth_user_id` |
 
 ### Technical Details
 - **Primary lookup:** `staff.auth_user_id = user.id`
 - **Fallback:** If no match, queries `staff.email = user.email AND auth_user_id IS NULL`
 - **Auto-link:** If email match found, updates `staff.auth_user_id` to current user's ID
-- **UI message:** Shows the user's email so admins can identify and manually link if needed
+- **DB trigger:** `link_staff_to_auth_user()` fires on INSERT/UPDATE of staff records, matching email to `auth.users`
 
 ---
 
@@ -320,20 +324,19 @@ When a user logged in but had no linked staff record, the error message was uncl
 **Reporter:** jyamaca · **Priority:** Media · **Route:** `/timesheet`
 
 ### Problem
-The engagement dropdown items in the timesheet grid lacked sufficient contrast and didn't show the client name, making it hard to distinguish between engagements.
+The engagement dropdown items in the timesheet grid lacked sufficient contrast and didn't show the client name.
 
 ### Changes
 
 | File | Change |
 |------|--------|
-| `src/components/timesheet/TimesheetGrid.tsx` | BUG #31: Added client name display below engagement name in dropdown items with `text-muted-foreground text-xs` styling |
+| `src/components/timesheet/TimesheetGrid.tsx` | BUG #31: Added client name display below engagement name in dropdown items. Engagement code uses `font-mono text-xs opacity-60`, client name uses `text-xs opacity-70` |
 
 ### Technical Details
 - Each `SelectItem` now shows:
   - Line 1: `[engagement_code] engagement_name`
   - Line 2: `client_legal_name` (from joined client data)
-- Client name uses `text-muted-foreground text-xs` for visual hierarchy
-- Engagement code uses `font-mono text-xs opacity-60`
+- Uses opacity classes for visual hierarchy
 
 ---
 
@@ -342,20 +345,21 @@ The engagement dropdown items in the timesheet grid lacked sufficient contrast a
 **Reporter:** jyamaca · **Priority:** Alta · **Route:** `/tracker/new`
 
 ### Problem
-The timer allowed starting multiple concurrent timers for different engagements/activities, leading to overlapping time entries.
+The timer allowed starting multiple concurrent timers for different engagements/activities, leading to overlapping time entries with `ended_at = NULL`.
 
 ### Changes
 
 | File | Change |
 |------|--------|
 | `src/hooks/useTimeTracker.ts` | Timer state is a single global object (not per-engagement); starting a new timer implicitly stops any running timer |
-| `src/components/tracker/TrackerBar.tsx` | Engagement/Activity selectors disabled while timer is running (`disabled={isRunning}`) |
+| `src/pages/TrackerRecord.tsx` | `handleStart` now queries for orphaned running entries (`ended_at IS NULL`), auto-stops them with correct `duration_minutes`, before creating a new entry |
+| DB migration `20260211010728` | Added unique partial index `idx_timer_entries_one_running_per_staff ON timer_entries(staff_id) WHERE ended_at IS NULL` — defense-in-depth: DB rejects a second running entry for the same staff |
+
+> **Note:** The `disabled={isRunning}` props on engagement/activity selectors in `src/components/tracker/TrackerBar.tsx` already existed prior to this session.
 
 ### Technical Details
-- Single timer state stored in `localStorage` under `ems_timer_state`
-- `setEngagement` resets `activityId` to `null` to prevent stale combinations
-- `start()` sets `isRunning = true` with a new `originalStartTime` — only one timer can run
-- Engagement and Activity `Select` components are `disabled={isRunning}` to prevent changes mid-timer
+- **Frontend:** `handleStart` queries `timer_entries WHERE staff_id = ? AND ended_at IS NULL`, calculates duration for each, updates with `ended_at` and `duration_minutes`, then creates the new entry
+- **DB constraint:** Unique partial index guarantees at most one running entry per staff member, catching any frontend bypasses
 
 ---
 
@@ -364,18 +368,19 @@ The timer allowed starting multiple concurrent timers for different engagements/
 **Reporter:** jyamaca · **Priority:** Alta · **Route:** `/timesheet-approvals`
 
 ### Problem
-Managers could not approve timesheet lines for engagements they managed. The RPC function `can_approve_timesheet_line` was not correctly checking manager/partner eligibility.
+Managers could not approve timesheet lines for engagements they managed. The approval list was not correctly filtered to show only approvable lines.
 
 ### Changes
 
 | File | Change |
 |------|--------|
-| DB function | Updated `can_approve_timesheet_line` RPC to check if the approver is the engagement's `manager_id` or `partner_id`, or has an auto-approve category |
-| `src/hooks/useTimesheetApprovals.ts` | Uses `can_approve_timesheet_line` RPC to filter approvable lines; bulk approve mutations update `approved_by` with approver's `staff_id` |
+| `src/hooks/useTimesheetApprovals.ts` | `usePendingApprovalSummaries` now calls `can_approve_timesheet_line` RPC for each (period, engagement) pair to filter the summary list to only approvable items |
+
+> **Note:** The `can_approve_timesheet_line` DB function existed since December 2025. The fix was calling it in the right place (the approval list query on the client side), not modifying the function itself.
 
 ### Technical Details
-- RPC checks: `p_approver_auth_id` → find `staff_id` → check if staff is `manager_id` or `partner_id` on the engagement, OR if staff's category has `can_approve_timesheets = true`
-- Approval mutations: `useBulkApproveTimesheetLines` and `useApproveTimesheetLine` both set `approved_by` and `approved_at`
+- The hook iterates over pending summaries and calls `can_approve_timesheet_line(p_approver_auth_id, p_period_id, p_engagement_id)` RPC
+- Only summaries where the RPC returns `true` are included in the filtered list
 - Query invalidation ensures approval list refreshes after any approval action
 
 ---
@@ -385,19 +390,21 @@ Managers could not approve timesheet lines for engagements they managed. The RPC
 **Reporter:** jyamaca · **Priority:** Alta · **Route:** `/timesheet`
 
 ### Problem
-The timesheet grid exhibited erratic behavior: (1) stale closures in debounced save callbacks read outdated row data, (2) NumericInput blocked valid intermediate values like "0." while typing.
+The timesheet allowed duplicate engagement+activity rows. Users could create multiple rows with the same combination, fragmenting hours and causing data integrity issues.
 
 ### Changes
 
 | File | Change |
 |------|--------|
-| `src/components/timesheet/TimesheetGrid.tsx` | BUG #29: Added `rowsRef` (useRef) synced with rows state; debounced callbacks read from `rowsRef.current` instead of stale closure. BUG #33: Save-now trigger reads from `rowsRef.current` |
-| `src/components/ui/numeric-input.tsx` | BUG #33: Added `intermediateValue` state for partial inputs ("-", "."). Min constraint deferred to `onBlur`. Allows "0." as intermediate state |
+| `src/components/timesheet/TimesheetGrid.tsx` | Added duplicate row merge logic in `handleEngagementChange` and `handleActivityChange`: detects duplicate engagement+activity combination, merges hours into existing row, removes duplicate, shows `rowMerged` toast. Added `usedActivitiesByEngagement` memo map that disables already-used activities in the dropdown |
+
+> **Note:** The `rowsRef` (stale closure fix) and `intermediateValue` in `numeric-input.tsx` (decimal typing fix) already existed prior to this session. The genuinely new work is the duplicate detection/merge logic and the activity filtering.
 
 ### Technical Details
-- **Stale closure fix:** `rowsRef = useRef<GridRow[]>([])` is updated via `useEffect` whenever `rows` changes. All debounced/delayed callbacks access `rowsRef.current` instead of the closed-over `rows` variable
-- **NumericInput intermediate values:** When user types "0.", the component stores `intermediateValue = "0."` and displays it, without emitting `onChange(0)` until the next digit is typed
-- **Min validation on blur:** `handleBlur` enforces `min` constraint only after user finishes typing, preventing "0" from being clamped to min while typing "0.5"
+- **Duplicate detection:** When changing engagement or activity, checks if another row already has the same `engagementId + activityId` combination
+- **Merge logic:** If duplicate found, adds current row's hours into existing row's hours map, removes current row, shows `timesheet.rowMerged` toast warning
+- **Activity filtering:** `usedActivitiesByEngagement` map (`Map<engagementId, Set<activityId>>`) disables already-used activities in the Select dropdown with `opacity-50` styling
+- **On page load:** The `initialRows` useMemo groups by `engagement_id-activity_id` key, consolidating any pre-existing duplicates from the database
 
 ---
 
@@ -406,19 +413,20 @@ The timesheet grid exhibited erratic behavior: (1) stale closures in debounced s
 **Reporter:** jyamaca · **Priority:** Alta · **Route:** `/clients/new`
 
 ### Problem
-Creating a client with a duplicate NIT (tax ID) produced a generic database constraint error instead of a user-friendly message.
+Creating a client with a duplicate NIT (tax ID) or name produced a generic database error instead of a user-friendly message.
 
 ### Changes
 
 | File | Change |
 |------|--------|
-| `src/hooks/mutations/useClientMutations.ts` | BUG #11: Added `handleClientError` function that checks for `23505` + `unique_tax_id` constraint violation → shows `errors.duplicateNit` toast |
-| `src/lib/error-handler.ts` | BUG #11: `DB_DUPLICATE_KEY` error code handles PostgreSQL `23505` violations |
+| `src/components/forms/ClientForm.tsx` | Added pre-save duplicate NIT check via Supabase query → shows `errors.duplicateNit` toast with existing client name. Added case-insensitive duplicate name check → shows `errors.duplicateClientName` warning toast |
+
+> **Note:** The mutation-level `handleClientError` in `src/hooks/mutations/useClientMutations.ts` and `DB_DUPLICATE_KEY` in `src/lib/error-handler.ts` already existed prior to this session as defense-in-depth for DB constraint violations. The genuinely new work is the form-level pre-save checks that catch duplicates before they hit the database.
 
 ### Technical Details
-- `handleClientError` intercepts: `err.code === "23505" && err.message?.includes("unique_tax_id")`
-- Shows localized toast: `errors.duplicateNit`
-- Falls back to generic `createMutationErrorHandler` for other errors
+- **NIT check:** Queries `clients` table for matching `unique_tax_id`, excluding current record → shows `errors.duplicateNit` with the existing client's name
+- **Name check:** Case-insensitive query using `.ilike('client_legal_name', name)` → shows `errors.duplicateClientName` as a warning (allows override since similar names may be legitimate)
+- **Missing DB constraint:** `clients.unique_tax_id` still lacks a DB-level unique constraint — see Recommendations section
 
 ---
 
@@ -427,18 +435,18 @@ Creating a client with a duplicate NIT (tax ID) produced a generic database cons
 **Reporter:** jyamaca · **Priority:** Media · **Route:** `/engagements/new`
 
 ### Problem
-The engagement form allowed setting end dates before start dates without validation.
+The engagement form allowed setting end dates before start dates without validation. Also lacked duplicate engagement code prevention.
 
 ### Changes
 
 | File | Change |
 |------|--------|
-| `src/components/forms/EngagementForm.tsx` | Added Zod `.refine()` cross-field validation: `end_date >= start_date`, with error on `end_date` path |
+| `src/components/forms/EngagementForm.tsx` | Added Zod `.refine()` cross-field validation: `end_date >= start_date`. Added `engagement_code` format validation (regex `^[A-Za-z0-9._-]+$`, max 20 chars). Added pre-save duplicate code check. Made `partner_id` and `manager_id` required |
+| DB migration `20260211012646` | Added unique index `idx_engagements_code_unique ON engagements(engagement_code) WHERE engagement_code IS NOT NULL` |
 
 ### Technical Details
-- Zod refine: `(data) => data.end_date >= data.start_date` with message "End date must be on or after the start date"
-- Both dates are required: `z.date({ required_error: "Start/End date is required" })`
-- Also includes duplicate `engagement_code` pre-save check via Supabase query
+- Zod refine: `(data) => data.end_date >= data.start_date` with error on `end_date` path
+- Pre-save duplicate code check queries `engagements` by `engagement_code`, excluding current record
 
 ---
 
@@ -458,9 +466,8 @@ Deleting a client with linked engagements produced a generic database constraint
 
 ### Technical Details
 - **Count query:** `supabase.from('engagements').select('engagement_id', { count: 'exact', head: true }).eq('client_id', id)` — efficient HEAD request
-- **Disabled button UX:** Radix Tooltip wraps a `<span>` around the disabled `<Button>` (since disabled elements don't fire events)
-- **Safety pre-check:** `handleDelete` re-queries count before executing delete mutation; shows toast error if engagements found
-- **Tooltip message:** "Para eliminar este cliente, primero debe eliminar todos los encargos asociados."
+- **Disabled button UX:** Radix Tooltip wraps a `<span>` around the disabled `<Button>` (since disabled elements don't fire pointer events)
+- **Tooltip message:** `client.cannotDeleteTooltip`
 
 ---
 
@@ -501,61 +508,61 @@ const canSubmit = !isBeforeHireDate && isWithinEditableWindow && entries.length 
 
 ---
 
+## Database Migrations
+
+All migrations created during this session (dated `20260211*`):
+
+| Migration | Content | Bug |
+|-----------|---------|-----|
+| `20260211004322` | `ALTER TYPE app_role ADD VALUE 'sqr'`, `'specialist_it'`, `'specialist_tax'` | #10 |
+| `20260211010034` | `link_staff_to_auth_user()` trigger function — reverse auto-link from staff email to auth user | #13 |
+| `20260211010728` | `CREATE UNIQUE INDEX idx_timer_entries_one_running_per_staff ON timer_entries(staff_id) WHERE ended_at IS NULL` | #15 |
+| `20260211012646` | `CREATE UNIQUE INDEX idx_engagements_code_unique ON engagements(engagement_code) WHERE engagement_code IS NOT NULL` | #19 |
+| `20260211…` (new) | `CREATE UNIQUE INDEX idx_staff_email_unique ON staff(email) WHERE email IS NOT NULL` | #12 |
+
+---
+
 ## Translation Keys Added
 
-### English (`src/locales/en.json`)
-```json
-{
-  "messages.accountInactive": "Your account has been deactivated. Contact your administrator.",
-  "auth.showPassword": "Show password",
-  "auth.hidePassword": "Hide password",
-  "errors.duplicateEmail": "A staff member with this email already exists.",
-  "errors.duplicateNit": "A client with this NIT already exists.",
-  "staff.emailAlreadyUsed": "This email is already used by {{name}}.",
-  "timesheet.noStaffRecord": "No staff record linked to your account.",
-  "timesheet.noStaffRecordHelp": "Ask your administrator to link your account ({{email}}) to a staff record.",
-  "timesheet.beforeHireDate": "This week is before your hire date. Time entry is not allowed.",
-  "timesheet.resubmitWeek": "Resubmit Week",
-  "client.cannotDeleteTooltip": "To delete this client, all associated engagements must be deleted first.",
-  "client.cannotDelete": "Cannot delete this client",
-  "userRoles.roles.sqr": "SQR",
-  "userRoles.roles.specialist_it": "Specialist IT",
-  "userRoles.roles.specialist_tax": "Specialist Tax",
-  "tracker.importTitle": "Import Timer Entries",
-  "tracker.importDescription": "Select completed timer entries to import to your timesheet.",
-  "workOrders.status.draft": "Draft",
-  "workOrders.status.pending": "Pending",
-  "workOrders.status.approved": "Approved",
-  "workOrders.status.rejected": "Rejected"
-}
-```
+### Genuinely New Keys (verified against baseline diff)
 
-### Spanish (`src/locales/es.json`)
-```json
-{
-  "messages.accountInactive": "Su cuenta ha sido desactivada. Contacte a su administrador.",
-  "auth.showPassword": "Mostrar contraseña",
-  "auth.hidePassword": "Ocultar contraseña",
-  "errors.duplicateEmail": "Ya existe un colaborador con este correo electrónico.",
-  "errors.duplicateNit": "Ya existe un cliente con este NIT.",
-  "staff.emailAlreadyUsed": "Este correo ya está en uso por {{name}}.",
-  "timesheet.noStaffRecord": "No hay un registro de personal vinculado a su cuenta.",
-  "timesheet.noStaffRecordHelp": "Solicite a su administrador vincular su cuenta ({{email}}) a un registro de personal.",
-  "timesheet.beforeHireDate": "Esta semana es anterior a su fecha de ingreso. No se permite el registro de horas.",
-  "timesheet.resubmitWeek": "Reenviar Semana",
-  "client.cannotDeleteTooltip": "Para eliminar este cliente, primero debe eliminar todos los encargos asociados.",
-  "client.cannotDelete": "No se puede eliminar este cliente",
-  "userRoles.roles.sqr": "SQR",
-  "userRoles.roles.specialist_it": "Especialista IT",
-  "userRoles.roles.specialist_tax": "Especialista Tributario",
-  "tracker.importTitle": "Importar Registros del Cronómetro",
-  "tracker.importDescription": "Seleccione los registros completados del cronómetro para importar a su hoja de tiempo.",
-  "workOrders.status.draft": "Borrador",
-  "workOrders.status.pending": "Pendiente",
-  "workOrders.status.approved": "Aprobado",
-  "workOrders.status.rejected": "Rechazado"
-}
-```
+| Key | Bug | Language |
+|-----|-----|----------|
+| `messages.accountInactive` | #1 | en/es |
+| `auth.showPassword` / `auth.hidePassword` | #11 | en/es |
+| `auth.verifyYourEmail` / `auth.confirmationSent` | #1 (bonus) | en/es |
+| `staff.hireDate` / `staff.hireDateHelp` | #5 | en/es |
+| `staff.emailAlreadyUsed` | #12 | en/es |
+| `staff.emailLinkedWarning` | #12 | en/es |
+| `engagement.duplicateCode` | #19 | en/es |
+| `errors.duplicateClientName` | #18 | en/es |
+| `timesheet.noStaffRecordHelp` | #13 | en/es |
+| `timesheet.resubmitWeek` | #21 | en/es |
+| `timesheet.rowMerged` | #17 | en/es |
+| `client.cannotDeleteTooltip` / `client.cannotDelete` | #20 | en/es |
+| `userRoles.roles.sqr` / `specialist_it` / `specialist_tax` | #10 | en/es |
+| `workOrders.seasonColumn` / `statusColumn` / `seasonHigh` / `seasonLow` | #6 | en/es |
+| `tracker.importFromTimer` | #4 | en/es |
+
+### Keys That Already Existed (NOT new in this session)
+
+The following keys were falsely claimed as new in the previous changelog version. They existed in the baseline:
+
+- `errors.duplicateEmail`, `errors.duplicateNit`
+- `timesheet.noStaffRecord`, `timesheet.beforeHireDate`
+- `tracker.importTitle`, `tracker.importDescription`
+
+---
+
+## Missing DB Constraints (Recommendations)
+
+The following constraints are recommended but not yet implemented:
+
+| Constraint | Bug | Current State | Risk |
+|-----------|-----|---------------|------|
+| `UNIQUE CONSTRAINT ON clients(unique_tax_id)` | #18 | Frontend-only pre-save check in `ClientForm.tsx` | Concurrent requests can bypass the frontend guard |
+
+> **Note:** The `staff.email` unique constraint was added in this session (see DB Migrations above). The `clients.unique_tax_id` constraint should be added in a future session.
 
 ---
 
@@ -563,21 +570,26 @@ const canSubmit = !isBeforeHireDate && isWithinEditableWindow && entries.length 
 
 ### Authentication (Bugs #1, #11)
 - [ ] Inactive staff member cannot log in — shows "account deactivated" message
+- [ ] Active session with deactivated staff gets force-signed-out (ProtectedRoute)
 - [ ] Password visibility toggle works on login and signup
-- [ ] Active staff member can log in normally
+- [ ] Email confirmation flow shows "Check Your Email" card
 
 ### Timer (Bugs #2, #4, #15)
 - [ ] Timer persists across page reloads without losing time
 - [ ] Timer shows correct elapsed time after pause/resume
-- [ ] Only one timer can run at a time — engagement/activity locked while running
-- [ ] Timer entries can be imported to timesheet via import dialog
+- [ ] Starting a new timer auto-stops any orphaned running entries
+- [ ] Only one `ended_at IS NULL` entry per staff in the database
+- [ ] Import button always visible on TrackerList (disabled when empty, enabled with badge count)
+- [ ] "Import from Timer" button appears on Timesheet page when unimported entries exist for the week
+- [ ] Timer entries can be imported from both TrackerList and TimeSheet pages
 
 ### Timesheet (Bugs #3, #5, #8, #14, #17, #21)
 - [ ] Buttons (Submit, Save Draft, Copy Previous) available on past weeks within retro window
 - [ ] Navigation blocked before hire date; mid-week hire locks pre-hire days
 - [ ] Engagement dropdown shows all engagements with approved Work Orders
-- [ ] Engagement dropdown shows client name for each item
-- [ ] Typing "0.5" in hours cells works without erratic behavior
+- [ ] Engagement dropdown shows client name with opacity-based contrast
+- [ ] Duplicate engagement+activity row auto-merges with toast notification
+- [ ] Already-used activities disabled in dropdown per engagement
 - [ ] Submit button hidden after submission; "Reenviar Semana" only shows if lines rejected
 
 ### Work Orders (Bug #6)
@@ -586,9 +598,12 @@ const canSubmit = !isBeforeHireDate && isWithinEditableWindow && entries.length 
 ### Forms (Bugs #7, #9, #12, #18, #19)
 - [ ] Category form rejects empty rate fields with validation error
 - [ ] Staff form requires email, category, city, and ID number
-- [ ] Duplicate email shows friendly error message with existing staff name
-- [ ] Duplicate NIT shows friendly error message
+- [ ] Duplicate email shows friendly error with existing staff name
+- [ ] Email linked warning shown when editing linked staff records
+- [ ] Duplicate NIT shows friendly error with existing client name
+- [ ] Duplicate client name shows warning toast
 - [ ] Engagement end date must be on or after start date
+- [ ] Duplicate engagement code shows error with existing engagement name
 
 ### Roles (Bug #10)
 - [ ] SQR, Specialist IT, Specialist Tax roles appear in role dropdown
@@ -597,6 +612,7 @@ const canSubmit = !isBeforeHireDate && isWithinEditableWindow && entries.length 
 ### Account Linking (Bug #13)
 - [ ] Unlinked user sees helpful message with their email
 - [ ] Email-based fallback auto-links staff record
+- [ ] DB trigger auto-links on staff record creation/update
 
 ### Approvals (Bug #16)
 - [ ] Manager can approve lines for engagements they manage
@@ -608,4 +624,5 @@ const canSubmit = !isBeforeHireDate && isWithinEditableWindow && entries.length 
 
 ---
 
-*Testing session: February 6, 2026 · Bug fixes applied: February 10, 2026*
+*Testing session: February 6, 2026 · Bug fixes applied: February 10–11, 2026*  
+*Changelog v2 verified: February 11, 2026*

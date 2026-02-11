@@ -152,6 +152,28 @@ export function useDeleteTimerEntry() {
   });
 }
 
+export function useRunningTimerEntries() {
+  const { staffRecord } = useCurrentStaff();
+
+  return useQuery({
+    queryKey: ['timer_entries_running', staffRecord?.staff_id],
+    queryFn: async () => {
+      if (!staffRecord?.staff_id) return [];
+
+      const { data, error } = await supabase
+        .from('timer_entries')
+        .select('timer_id, started_at, engagement_id, activity_id')
+        .eq('staff_id', staffRecord.staff_id)
+        .is('ended_at', null)
+        .order('started_at', { ascending: false });
+
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!staffRecord?.staff_id,
+  });
+}
+
 export function useMarkTimerEntriesImported() {
   const queryClient = useQueryClient();
   

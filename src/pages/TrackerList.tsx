@@ -334,17 +334,21 @@ const TrackerList = () => {
             />
           </div>
           <div className="flex gap-2 w-full sm:w-auto">
-            {/* Import to Timesheet button - visible when there are ready entries */}
-            {(entries?.filter(e => e.ended_at && !e.is_imported).length || 0) > 0 && (
-              <Button
-                variant="outline"
-                onClick={() => setImportDialogOpen(true)}
-                className="flex-1 sm:flex-none min-h-[44px] sm:min-h-0"
-              >
-                <Upload className="h-4 w-4 mr-2" />
-                {t("tracker.importToTimesheet")}
-              </Button>
-            )}
+            {/* Import to Timesheet button - always visible, disabled when no entries */}
+            <Button
+              variant="outline"
+              onClick={() => setImportDialogOpen(true)}
+              className="flex-1 sm:flex-none min-h-[44px] sm:min-h-0"
+              disabled={entriesLoading || importableEntries.length === 0}
+            >
+              <Upload className="h-4 w-4 mr-2" />
+              {t("tracker.importToTimesheet")}
+              {importableEntries.length > 0 && (
+                <Badge className="ml-2 bg-accent text-accent-foreground text-xs">
+                  {importableEntries.length}
+                </Badge>
+              )}
+            </Button>
             <Button
               variant="default"
               onClick={() => navigate("/tracker/new")}
