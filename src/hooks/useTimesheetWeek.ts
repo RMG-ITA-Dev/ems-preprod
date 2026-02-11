@@ -146,42 +146,22 @@ export function useTimesheetWeek(weekStartDate: Date, workDays: number = 5): Tim
 
       if (approvedEngagementIds.length === 0) return [];
 
-      // Get engagements where staff is partner, manager, or has logged time before
+      // Get all active engagements with approved work orders
+      // All staff can log time on any engagement with an approved WO
       const { data: engagements, error: engError } = await supabase
         .from("engagements")
         .select(`
           engagement_id,
           engagement_code,
           engagement_name,
-          partner_id,
-          manager_id,
           client:clients!client_id(client_id, client_legal_name)
         `)
         .in("engagement_id", approvedEngagementIds)
         .eq("status", "active");
 
       if (engError) throw engError;
-      
-      // Get engagements where staff has logged time before
-      const { data: previousTimeEntries, error: teError } = await supabase
-        .from("time_entries")
-        .select("engagement_id")
-        .eq("staff_id", staffId);
-      
-      if (teError) throw teError;
-      
-      const engagementsWithPriorTime = new Set(
-        previousTimeEntries?.map((te) => te.engagement_id) || []
-      );
-      
-      // Filter to only engagements where staff is assigned or has prior time
-      const filteredEngagements = (engagements || []).filter((eng) => 
-        eng.partner_id === staffId ||
-        eng.manager_id === staffId ||
-        engagementsWithPriorTime.has(eng.engagement_id)
-      );
 
-      return filteredEngagements as ApprovedEngagement[];
+      return (engagements || []) as ApprovedEngagement[];
     },
     enabled: !!staffId,
     staleTime: 5 * 60 * 1000, // Cache for 5 minutes
