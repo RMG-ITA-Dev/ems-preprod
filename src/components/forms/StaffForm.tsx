@@ -36,8 +36,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import { StaffFull, useCategories } from "@/hooks/useEmsData";
 import { useCreateStaff, useUpdateStaff, useDeleteStaff } from "@/hooks/mutations";
-import { Trash2 } from "lucide-react";
+import { Trash2, AlertTriangle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 const formSchema = z.object({
   first_name: z.string().min(1, "First name is required"),
@@ -169,6 +171,23 @@ export function StaffForm({ staff }: StaffFormProps) {
   }, [firstName, lastName, isEdit, currentShortName, currentInitials, form]);
 
   const onSubmit = async (data: FormData) => {
+    // Pre-save duplicate email check
+    if (data.email) {
+      const { data: existing } = await supabase
+        .from('staff')
+        .select('staff_id, first_name, last_name')
+        .eq('email', data.email)
+        .neq('staff_id', staff?.staff_id || '')
+        .maybeSingle();
+
+      if (existing) {
+        toast.error(t('staff.emailAlreadyUsed', {
+          name: `${existing.first_name} ${existing.last_name}`
+        }));
+        return;
+      }
+    }
+
     const payload = {
       first_name: data.first_name,
       last_name: data.last_name,
@@ -308,6 +327,12 @@ export function StaffForm({ staff }: StaffFormProps) {
                       <Input type="email" placeholder="john.doe@example.com" {...field} />
                     </FormControl>
                     <FormMessage />
+                    {isEdit && staff?.auth_user_id && (
+                      <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1 mt-1">
+                        <AlertTriangle className="h-3 w-3 shrink-0" />
+                        {t('staff.emailLinkedWarning')}
+                      </p>
+                    )}
                   </FormItem>
                 )}
               />

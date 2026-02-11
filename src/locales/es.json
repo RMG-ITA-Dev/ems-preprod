@@ -310,7 +310,9 @@
     "selectSupervisor": "Seleccionar Supervisor",
     "deleteExplanation": "Si este miembro del personal tiene entradas de tiempo o encargos, será desactivado en lugar de eliminado.",
     "hireDate": "Fecha de Ingreso",
-    "hireDateHelp": "Fecha de incorporación del empleado. Restringe la carga de hojas de tiempo."
+    "hireDateHelp": "Fecha de incorporación del empleado. Restringe la carga de hojas de tiempo.",
+    "emailAlreadyUsed": "Este correo ya está asignado a {{name}}. Cada miembro debe tener un correo único.",
+    "emailLinkedWarning": "Este miembro tiene una cuenta de acceso vinculada. Cambiar el correo no actualiza sus credenciales de inicio de sesión."
   },
   "client": {
     "name": "Nombre del Cliente",

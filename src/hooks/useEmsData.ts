@@ -39,6 +39,7 @@ export interface StaffFull extends Staff {
   id_number: string | null;
   aud_reg_number: string | null;
   hire_date: string | null;
+  auth_user_id: string | null;
 }
 
 // Client interface - includes unique_tax_id (NIT is public tax ID, not sensitive)
