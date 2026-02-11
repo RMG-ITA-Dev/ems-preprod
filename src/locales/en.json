@@ -376,7 +376,8 @@
     "accountInactive": "Your account is inactive. Please contact an administrator."
   },
   "errors": {
-    "duplicateNit": "A client with this NIT already exists",
+    "duplicateNit": "A client with NIT {{nit}} already exists: {{name}}",
+    "duplicateClientName": "A client with this name already exists (NIT: {{nit}}). Please verify it is not a duplicate.",
     "duplicateEmail": "A staff member with this email already exists",
     "invalidEmail": "Invalid email address",
     "emailTooLong": "Email must be less than 255 characters"

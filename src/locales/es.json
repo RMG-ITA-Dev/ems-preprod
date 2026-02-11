@@ -376,7 +376,8 @@
     "accountInactive": "Su cuenta está inactiva. Contacte al administrador."
   },
   "errors": {
-    "duplicateNit": "Ya existe un cliente con este NIT",
+    "duplicateNit": "Ya existe un cliente con NIT {{nit}}: {{name}}",
+    "duplicateClientName": "Ya existe un cliente con este nombre (NIT: {{nit}}). Verifique que no sea un duplicado.",
     "duplicateEmail": "Ya existe un miembro del personal con este correo",
     "invalidEmail": "Dirección de correo inválida",
     "emailTooLong": "El correo debe tener menos de 255 caracteres"

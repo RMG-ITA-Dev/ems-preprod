@@ -37,6 +37,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { ClientFull, useIndustries } from "@/hooks/useEmsData";
 import { useCreateClient, useUpdateClient, useDeleteClient } from "@/hooks/mutations";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 import { Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
@@ -97,6 +99,32 @@ export function ClientForm({ client, compact = false }: ClientFormProps) {
   }, [client, form]);
 
   const onSubmit = async (data: FormData) => {
+    // Pre-save duplicate NIT check
+    const { data: existingByNit } = await supabase
+      .from("clients")
+      .select("client_id, client_legal_name")
+      .eq("unique_tax_id", data.unique_tax_id)
+      .neq("client_id", client?.client_id || "")
+      .maybeSingle();
+
+    if (existingByNit) {
+      toast.error(t("errors.duplicateNit", { nit: data.unique_tax_id, name: existingByNit.client_legal_name }));
+      return;
+    }
+
+    // Pre-save duplicate name check (case-insensitive)
+    const { data: existingByName } = await supabase
+      .from("clients")
+      .select("client_id, unique_tax_id")
+      .ilike("client_legal_name", data.client_legal_name)
+      .neq("client_id", client?.client_id || "")
+      .maybeSingle();
+
+    if (existingByName) {
+      toast.warning(t("errors.duplicateClientName", { nit: existingByName.unique_tax_id }));
+      return;
+    }
+
     const payload = {
       client_legal_name: data.client_legal_name,
       unique_tax_id: data.unique_tax_id,
