@@ -1,49 +1,49 @@
 
 
-# Bug #19: Engagement Form Validation & Duplicate Code Prevention
+# Bug #20: Friendly Delete Prevention for Clients With Engagements
 
 ## Problem
 
-The engagement form accepts junk data: single-character names, no code required, no partner/manager required, no date validation, and no duplicate code check. This led to test records polluting master data.
+Deleting a client with linked engagements shows a generic "violates data constraints" error. The delete button should be disabled when engagements exist, and hovering over it should explain that all engagements must be deleted first.
 
 ## Fix
 
-### 1. Stricter Zod schema (`src/components/forms/EngagementForm.tsx`)
+### 1. `src/pages/ClientEdit.tsx`
 
-- `engagement_name`: `.min(5)` + `.max(200)` -- prevents junk like "test" or "a"
-- `engagement_code`: required, `.min(1)` + `.max(20)` + regex `/^[A-Za-z0-9._-]+$/` -- alphanumeric with dots/hyphens only
-- `partner_id`: required `.min(1)` -- Socio/Director must be assigned
-- `manager_id`: required `.min(1)` -- Gerente must be assigned
-- `start_date`: required via `z.date({ required_error: ... })`
-- `end_date`: required + `.refine()` cross-validation ensuring end >= start
+- Add a `useQuery` count query for engagements linked to the client.
+- If `count > 0`: replace the AlertDialog with a **disabled** Button wrapped in a Tooltip. The tooltip message: "To delete this client, all associated engagements must be deleted first."
+- If `count === 0`: keep the existing AlertDialog delete flow.
+- Add a safety pre-check in `handleDelete` (queries engagement count before executing delete; shows toast if any exist).
 
-### 2. Duplicate code check in `onSubmit`
+### 2. `src/components/forms/ClientForm.tsx`
 
-Before saving, query `engagements` for matching `engagement_code` (excluding self in edit mode). Block save with error toast if duplicate found.
+- Same pattern for the full-layout (non-compact) delete button: count query, conditional disable with Tooltip, pre-check in `handleDelete`.
 
-### 3. DB unique partial index
+### 3. Locale strings
 
-Add `CREATE UNIQUE INDEX idx_engagements_code_unique ON public.engagements (engagement_code) WHERE engagement_code IS NOT NULL` as a migration.
+| Key | en | es |
+|-----|----|----|
+| `client.cannotDeleteTooltip` | To delete this client, all associated engagements must be deleted first. | Para eliminar este cliente, primero debe eliminar todos los encargos asociados. |
+| `client.cannotDelete` | Cannot delete this client | No se puede eliminar este cliente |
 
-### 4. UI label updates
+### 4. Imports needed
 
-Add asterisks (*) to all newly-required field labels: code, partner, manager, start date, end date.
-
-### 5. i18n strings
-
-Add `engagement.duplicateCode` to both locale files.
+- `useQuery` from `@tanstack/react-query` (already used in the project)
+- `Tooltip, TooltipTrigger, TooltipContent, TooltipProvider` from `@/components/ui/tooltip`
+- `supabase` from `@/integrations/supabase/client`
 
 ## Files Modified
 
 | File | Change |
 |------|--------|
-| `src/components/forms/EngagementForm.tsx` | Stricter schema, duplicate code check in onSubmit, required asterisks on labels, import supabase + toast |
-| `src/locales/en.json` | Add `engagement.duplicateCode` |
-| `src/locales/es.json` | Add `engagement.duplicateCode` |
-| DB migration | Unique partial index on `engagement_code` |
+| `src/pages/ClientEdit.tsx` | Add engagement count query, conditional disabled button with hover tooltip, pre-check in `handleDelete` |
+| `src/components/forms/ClientForm.tsx` | Same pattern for full-layout delete button |
+| `src/locales/en.json` | Add `client.cannotDeleteTooltip`, `client.cannotDelete` |
+| `src/locales/es.json` | Add `client.cannotDeleteTooltip`, `client.cannotDelete` |
 
-## Notes
+## Technical Notes
 
-- Existing records with missing codes/partners/managers can still be edited (the form will require filling those fields to save, effectively forcing data cleanup on next edit).
-- The `hasMissingCategories` guard already prevents creating engagements if Partner/Manager categories don't exist in the system; the new required fields complement this by ensuring they are selected.
+- Count query: `supabase.from('engagements').select('engagement_id', { count: 'exact', head: true }).eq('client_id', clientId)` -- efficient, returns no row data.
+- Radix Tooltip requires a non-disabled element as trigger, so the disabled Button is wrapped in a `<span>` inside `TooltipTrigger asChild`.
+- The hover tooltip clearly states: the user must delete all engagements before they can delete the client.
 
