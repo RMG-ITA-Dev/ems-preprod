@@ -509,6 +509,7 @@ export type Database = {
           short_name: string | null
           staff_id: string
           updated_at: string | null
+          weekly_capacity_hours: number
         }
         Insert: {
           aud_reg_number?: string | null
@@ -527,6 +528,7 @@ export type Database = {
           short_name?: string | null
           staff_id?: string
           updated_at?: string | null
+          weekly_capacity_hours?: number
         }
         Update: {
           aud_reg_number?: string | null
@@ -545,6 +547,7 @@ export type Database = {
           short_name?: string | null
           staff_id?: string
           updated_at?: string | null
+          weekly_capacity_hours?: number
         }
         Relationships: [
           {
@@ -553,51 +556,6 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "categories"
             referencedColumns: ["category_id"]
-          },
-        ]
-      }
-      staff_capacity: {
-        Row: {
-          created_at: string | null
-          effective_from: string
-          effective_to: string | null
-          id: string
-          staff_id: string
-          updated_at: string | null
-          weekly_capacity_hours: number
-        }
-        Insert: {
-          created_at?: string | null
-          effective_from?: string
-          effective_to?: string | null
-          id?: string
-          staff_id: string
-          updated_at?: string | null
-          weekly_capacity_hours?: number
-        }
-        Update: {
-          created_at?: string | null
-          effective_from?: string
-          effective_to?: string | null
-          id?: string
-          staff_id?: string
-          updated_at?: string | null
-          weekly_capacity_hours?: number
-        }
-        Relationships: [
-          {
-            foreignKeyName: "staff_capacity_staff_id_fkey"
-            columns: ["staff_id"]
-            isOneToOne: false
-            referencedRelation: "staff"
-            referencedColumns: ["staff_id"]
-          },
-          {
-            foreignKeyName: "staff_capacity_staff_id_fkey"
-            columns: ["staff_id"]
-            isOneToOne: false
-            referencedRelation: "staff_directory"
-            referencedColumns: ["staff_id"]
           },
         ]
       }

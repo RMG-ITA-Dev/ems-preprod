@@ -319,12 +319,7 @@ interface StaffMember {
   categories?: { category_name: string; display_order: number };
 }
 
-interface StaffCapacity {
-  staff_id: string;
-  weekly_capacity_hours: number;
-  effective_from: string;
-  effective_to?: string;
-}
+// StaffCapacity interface removed — weekly_capacity_hours now lives on staff table
 
 interface TimesheetPeriod {
   period_id: string;
@@ -571,17 +566,10 @@ async function getStaffUtilization(
 
   const typedEntries = (entries || []) as { staff_id: string; date_worked: string; hours_logged: number }[];
 
-  // Get staff capacity
-  const { data: capacities } = await supabase
-    .from("staff_capacity")
-    .select("staff_id, weekly_capacity_hours, effective_from, effective_to");
-
-  const typedCapacities = (capacities || []) as StaffCapacity[];
-
-  // Get staff info
+  // Get staff info (includes weekly_capacity_hours)
   let staffQuery = supabase
     .from("staff")
-    .select("staff_id, first_name, last_name, short_name, category_id, categories(category_name, display_order)")
+    .select("staff_id, first_name, last_name, short_name, category_id, weekly_capacity_hours, categories(category_name, display_order)")
     .eq("is_active", true);
 
   if (staffId && role !== "partner") {
@@ -589,14 +577,12 @@ async function getStaffUtilization(
   }
 
   const { data: staffList } = await staffQuery;
-  const typedStaffList = (staffList || []) as StaffMember[];
+  const typedStaffList = (staffList || []) as (StaffMember & { weekly_capacity_hours?: number })[];
 
-  // Calculate capacity per staff (use latest active capacity or default 40)
+  // Build capacity map directly from staff records
   const capacityByStaff: Record<string, number> = {};
-  for (const cap of typedCapacities) {
-    if (!cap.effective_to || new Date(cap.effective_to) >= new Date()) {
-      capacityByStaff[cap.staff_id] = Number(cap.weekly_capacity_hours);
-    }
+  for (const s of typedStaffList) {
+    capacityByStaff[s.staff_id] = Number(s.weekly_capacity_hours ?? 40);
   }
 
   // Group hours by staff and week
@@ -800,17 +786,14 @@ async function getMyWeek(
 
   const typedEntries = (entries || []) as { hours_logged: number; engagement_id: string }[];
 
-  // Get staff capacity
-  const { data: capacity } = await supabase
-    .from("staff_capacity")
+  // Get staff capacity from staff table
+  const { data: staffRecord } = await supabase
+    .from("staff")
     .select("weekly_capacity_hours")
     .eq("staff_id", staffId)
-    .is("effective_to", null)
-    .order("effective_from", { ascending: false })
-    .limit(1)
     .maybeSingle();
 
-  const weeklyCapacity = capacity?.weekly_capacity_hours || 40;
+  const weeklyCapacity = staffRecord?.weekly_capacity_hours || 40;
   const hoursLogged = typedEntries.reduce((sum, e) => sum + Number(e.hours_logged), 0);
   const uniqueEngagements = new Set(typedEntries.map((e) => e.engagement_id)).size;
 
