@@ -73,15 +73,9 @@ erDiagram
         varchar id_number
         varchar aud_reg_number
         boolean is_active
+        numeric weekly_capacity_hours
     }
     
-    staff_capacity {
-        uuid id PK
-        uuid staff_id FK
-        numeric weekly_capacity_hours
-        date effective_from
-        date effective_to
-    }
 
     %% ═══════════════════════════════════════════════════════════════
     %% CLIENT & ENGAGEMENT
@@ -238,7 +232,7 @@ erDiagram
     %% Staff relationships
     categories ||--o{ staff : "categorizes"
     categories ||--o{ activity_codes : "default for"
-    staff ||--o{ staff_capacity : "has capacity"
+    
     staff ||--o{ time_entries : "logs"
     staff ||--o{ timesheet_periods : "owns"
     staff ||--o{ timer_entries : "tracks"

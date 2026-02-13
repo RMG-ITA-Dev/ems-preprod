@@ -155,19 +155,12 @@ CREATE TABLE public.staff (
   initials VARCHAR(4),
   city VARCHAR(100),
   id_number VARCHAR(50),
-  aud_reg_number VARCHAR(50)
+  aud_reg_number VARCHAR(50),
+  weekly_capacity_hours NUMERIC NOT NULL DEFAULT 40
 );
 
--- Staff Capacity
-CREATE TABLE public.staff_capacity (
-  id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
-  staff_id UUID NOT NULL REFERENCES public.staff(staff_id),
-  weekly_capacity_hours NUMERIC NOT NULL DEFAULT 40,
-  effective_from DATE NOT NULL DEFAULT CURRENT_DATE,
-  effective_to DATE,
-  created_at TIMESTAMPTZ DEFAULT now(),
-  updated_at TIMESTAMPTZ DEFAULT now()
-);
+-- NOTE: staff_capacity table removed in 2026-02-13 migration.
+-- weekly_capacity_hours is now a column on the staff table (DEFAULT 40).
 
 -- Time Entries
 CREATE TABLE public.time_entries (
@@ -279,8 +272,7 @@ CREATE INDEX idx_activity_worksheet_cells_category ON public.activity_worksheet_
 CREATE INDEX idx_activity_worksheet_cells_worksheet ON public.activity_worksheet_cells (worksheet_id);
 CREATE INDEX idx_activity_worksheets_engagement ON public.activity_worksheets (engagement_id);
 CREATE INDEX idx_activity_worksheets_wo ON public.activity_worksheets (wo_id);
-CREATE INDEX idx_staff_capacity_effective_dates ON public.staff_capacity (staff_id, effective_from, effective_to);
-CREATE INDEX idx_staff_capacity_staff_id ON public.staff_capacity (staff_id);
+-- staff_capacity indexes removed (table dropped)
 CREATE INDEX idx_time_entries_period ON public.time_entries (period_id);
 CREATE INDEX idx_timer_entries_is_imported ON public.timer_entries (is_imported);
 CREATE INDEX idx_timer_entries_staff_id ON public.timer_entries (staff_id);
@@ -929,7 +921,7 @@ ALTER TABLE public.expense_types ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.global_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.industries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.staff ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.staff_capacity ENABLE ROW LEVEL SECURITY;
+-- staff_capacity RLS removed (table dropped)
 ALTER TABLE public.time_entries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.timer_entries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.timesheet_line_approvals ENABLE ROW LEVEL SECURITY;
@@ -1067,16 +1059,7 @@ CREATE POLICY "Users can update their linked staff record" ON public.staff
   USING ((auth_user_id = auth.uid())) 
   WITH CHECK ((auth_user_id = auth.uid()));
 
--- Staff Capacity
-CREATE POLICY "Admins can manage all capacity" ON public.staff_capacity 
-  FOR ALL TO authenticated 
-  USING (is_admin()) WITH CHECK (is_admin());
-CREATE POLICY "Admins can view all capacity" ON public.staff_capacity 
-  FOR SELECT TO authenticated 
-  USING (is_admin());
-CREATE POLICY "Staff can view own capacity" ON public.staff_capacity 
-  FOR SELECT TO authenticated 
-  USING ((staff_id = get_my_staff_id()));
+-- Staff Capacity policies removed (table dropped; weekly_capacity_hours now on staff table)
 
 -- Time Entries
 CREATE POLICY "Admins can delete all time entries" ON public.time_entries 
