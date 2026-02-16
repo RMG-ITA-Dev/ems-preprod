@@ -194,10 +194,8 @@ const TimeSheet = () => {
   // - Not submitted and not locked, OR
   // - Submitted but has pending/rejected lines AND is current week (can make corrections)
   // - AND not before hire date (BUG #22)
-  const isEditable = !isBeforeHireDate && isWithinEditableWindow && (
-    (!isSubmitted && !period?.is_period_locked) || 
-    (isSubmitted && !isFullyApproved && (hasPendingLines || hasRejectedLines))
-  );
+  const isEditable = !isBeforeHireDate && isWithinEditableWindow &&
+    !isSubmitted && !isFullyApproved && !period?.is_period_locked;
 
   // BUG #0206-3: Dedicated button visibility flags (decoupled from isEditable/lineApprovals)
   const hasNonZeroEntry = entries.some((e) => e.hours_logged > 0);
@@ -215,15 +213,14 @@ const TimeSheet = () => {
 
   const canSaveDraft = !isBeforeHireDate
     && isWithinEditableWindow
-    && !period?.is_period_locked
+    && !isSubmitted
     && !isFullyApproved
+    && !period?.is_period_locked
     && hasNonZeroEntry;
 
   // BUG #21: Separate "can submit" from "can edit cells"
-  const canSubmit = !isBeforeHireDate && isWithinEditableWindow && entries.length > 0 && (
-    (!isSubmitted && !period?.is_period_locked) ||
-    (isSubmitted && hasRejectedLines && !isFullyApproved)
-  );
+  const canSubmit = !isBeforeHireDate && isWithinEditableWindow && entries.length > 0 &&
+    !isSubmitted && !period?.is_period_locked;
 
   // Handle submit
   const handleSubmit = async () => {
