@@ -1,5 +1,15 @@
 {
+  "header": {
+    "userPrefix": "Usuario:",
+    "linkedToStaff": "Vinculado al personal:",
+    "notLinkedToStaff": "No vinculado a registro de personal"
+  },
+  "notFound": {
+    "title": "¡Página no encontrada!",
+    "returnHome": "Volver al Inicio"
+  },
   "common": {
+    "user": "Usuario",
     "more": "Más",
     "menu": "Menú",
     "save": "Guardar",
