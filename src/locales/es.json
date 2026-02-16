@@ -562,7 +562,9 @@
     "weeklyLimitExceeded": "¡Excede límite!",
     "rowMerged": "Ya existe una fila con este encargo y actividad. Las horas se combinaron automáticamente.",
     "saveDraftSuccess": "Borrador guardado exitosamente",
-    "saveDraftPartialError": "Error al guardar {{count}} registros. Intente nuevamente."
+    "saveDraftPartialError": "Error al guardar {{count}} registros. Intente nuevamente.",
+    "previousWeekAlreadyCopied": "La estructura de la semana anterior ya existe en la semana actual",
+    "cannotModifyLockedWeek": "Esta semana está bloqueada y no puede modificarse"
   },
   "expenses": {
     "title": "Gastos",

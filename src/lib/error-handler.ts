@@ -139,7 +139,11 @@ export function handleError(
 
   // Parse error
   const errorCode = parseSupabaseErrorCode(error);
-  const originalMessage = error instanceof Error ? error.message : String(error);
+  const originalMessage = error instanceof Error
+    ? error.message
+    : (typeof error === "object" && error !== null && "message" in error)
+      ? String((error as { message: unknown }).message)
+      : String(error);
   const userMessage = getUserFriendlyMessage(errorCode, originalMessage);
   
   // Create structured error
