@@ -1,114 +1,112 @@
 
 
-# Bug 0206-3: Timesheet Buttons Not Available on Non-Current Weeks
+# Bug 0206-19: Start Date Allows Values Before Engagement Creation Date
 
 ## Problem
 
-The "Copiar Semana Anterior", "Retirar Envio", and "Guardar Borrador" buttons disappear when navigating to past or future weeks. Root cause: button visibility depends on `isEditable`, which depends on `lineApprovals` data — often empty/undefined for non-current weeks.
+The Engagement form allows users to select a Start Date earlier than the engagement's creation date. There is no UI restriction on the Calendar picker and no save-time validation. The `Engagement` interface also lacks the `created_at` field, preventing the form from referencing it.
 
 ## Solution
 
-Decouple each button from `isEditable` with its own self-contained visibility flag.
+Add a `minStartDate` constraint (today for new, `created_at` for edits) enforced via Calendar `disabled` prop + onSubmit validation guard. Also restrict end_date Calendar to not allow dates before the selected start_date.
 
 ## Changes
 
-### File: `src/pages/TimeSheet.tsx`
+### 1. `src/hooks/useEmsData.ts` -- Add `created_at` to Engagement interface
 
-**1. Add previous-week period query** (near existing period/data hooks)
+Add `created_at: string | null;` after `end_date` (line 73). No other changes needed since the `useEngagements` query already uses `select(*)` which includes `created_at`.
 
-Query `timesheet_periods` for the previous week to check if it was submitted or approved. This is a lightweight single-row lookup used only to gate the "Copy Previous Week" button.
+### 2. `src/components/forms/EngagementForm.tsx`
 
-```typescript
-// BUG #0206-3: Check if previous week was submitted (for Copy button gating)
-const previousWeekStart = useMemo(() => getPreviousWeek(currentWeekStart), [currentWeekStart]);
+**Imports (line 1, 5):**
+- Add `useMemo` to the React import
+- Add `startOfDay, isBefore` to the date-fns import
 
-const { data: previousPeriod } = useQuery({
-  queryKey: ["timesheet-period-prev", staffRecord?.staff_id, toISODateString(previousWeekStart)],
-  queryFn: async () => {
-    const { data } = await supabase
-      .from("timesheet_periods")
-      .select("period_id, submitted_at, is_period_locked")
-      .eq("staff_id", staffRecord!.staff_id)
-      .eq("week_start_date", toISODateString(previousWeekStart))
-      .maybeSingle();
-    return data;
-  },
-  enabled: !!staffRecord?.staff_id,
-  staleTime: 5 * 60 * 1000,
-});
-
-const prevWeekSubmittedOrApproved = !!previousPeriod?.submitted_at;
-```
-
-**2. Add `hasNonZeroEntry` derived boolean** (near existing derived state)
+**`minStartDate` computation (after line 85, after `isEdit`):**
 
 ```typescript
-const hasNonZeroEntry = entries.some((e) => e.hours_logged > 0);
+const minStartDate = useMemo(() => {
+  if (isEdit && engagement?.created_at) {
+    return startOfDay(new Date(engagement.created_at));
+  }
+  return startOfDay(new Date());
+}, [isEdit, engagement?.created_at]);
 ```
 
-**3. Add three dedicated visibility variables** (replacing inline conditions)
+**onSubmit validation guard (line 132, top of onSubmit):**
 
 ```typescript
-const canCopyPreviousWeek = !isBeforeHireDate
-  && isWithinEditableWindow
-  && !isSubmitted
-  && !period?.is_period_locked
-  && prevWeekSubmittedOrApproved;
-
-const canUnsubmit = isSubmitted
-  && !isFullyApproved
-  && isWithinEditableWindow
-  && !period?.is_period_locked;
-
-const canSaveDraft = !isBeforeHireDate
-  && isWithinEditableWindow
-  && !period?.is_period_locked
-  && !isFullyApproved
-  && hasNonZeroEntry;
+// BUG #0206-19: Validate start_date >= creation date
+if (data.start_date && isBefore(startOfDay(data.start_date), minStartDate)) {
+  form.setError("start_date", {
+    message: t("engagement.startDateBeforeCreation"),
+  });
+  return;
+}
 ```
 
-**4. Update JSX button conditions**
+**Start Date Calendar (line 383-389) -- add `disabled` prop:**
 
-| Button | Old condition | New condition |
-|--------|--------------|---------------|
-| Copiar Semana Anterior | `isEditable && !isSubmitted` | `canCopyPreviousWeek` |
-| Retirar Envio | `canUnsubmit` (old, required `hasPendingLines`) | `canUnsubmit` (new, no line-approval dependency) |
-| Guardar Borrador | `isEditable` | `canSaveDraft` |
+```tsx
+<Calendar
+  mode="single"
+  selected={field.value}
+  onSelect={field.onChange}
+  disabled={(date) => isBefore(startOfDay(date), minStartDate)}
+  initialFocus
+  className="pointer-events-auto"
+/>
+```
 
-**5. Add defense-in-depth guards inside handlers**
+**End Date Calendar (line 419-425) -- add `disabled` prop:**
 
-Add early-return checks (`if (!canCopyPreviousWeek) return;`, etc.) at the top of each handler function.
+```tsx
+<Calendar
+  mode="single"
+  selected={field.value}
+  onSelect={field.onChange}
+  disabled={(date) => {
+    const startDate = form.getValues("start_date");
+    if (startDate) return isBefore(startOfDay(date), startOfDay(startDate));
+    return isBefore(startOfDay(date), minStartDate);
+  }}
+  initialFocus
+  className="pointer-events-auto"
+/>
+```
 
-**6. New imports needed**
+### 3. `src/locales/en.json` (line 362, inside engagement namespace)
 
-- `useQuery` from `@tanstack/react-query` (already imported indirectly but needs explicit import)
-- `toISODateString` from `@/lib/timesheetUtils` (already imported via `getPreviousWeek` etc.)
+Add: `"startDateBeforeCreation": "Start date cannot be before the engagement creation date"`
 
-### File: `docs/CHANGELOG-2026-02-13.md`
+### 4. `src/locales/es.json` (same location)
 
-Append full bug documentation (ID, name, root cause, per-file changes).
+Add: `"startDateBeforeCreation": "La fecha de inicio no puede ser anterior a la fecha de creación del encargo"`
 
-## What Stays Unchanged
+### 5. `docs/CHANGELOG-2026-02-13.md`
 
-- `isEditable` remains as-is (still controls grid cell editability and Import from Timer button)
-- `canSubmit` remains as-is
-- No mutation logic changes
-- No backend/database changes
+Append full bug documentation entry.
 
 ## Files Modified
 
 | File | Action |
 |------|--------|
-| `src/pages/TimeSheet.tsx` | Add prev-period query, 3 visibility variables, update 3 JSX conditions, add handler guards |
-| `docs/CHANGELOG-2026-02-13.md` | Append bug fix entry |
+| `src/hooks/useEmsData.ts` | Add `created_at` to `Engagement` interface |
+| `src/components/forms/EngagementForm.tsx` | Add imports, `minStartDate`, onSubmit guard, Calendar `disabled` props |
+| `src/locales/en.json` | Add `startDateBeforeCreation` key |
+| `src/locales/es.json` | Add `startDateBeforeCreation` key |
+| `docs/CHANGELOG-2026-02-13.md` | Append bug entry |
+
+## Risk Assessment
+
+- **Low risk** -- adds constraint only; no existing data or mutations modified.
+- Legacy engagements with `start_date < created_at` will still display but will be blocked on save unless corrected. If retroactive dates are needed, a grandfather clause (`minStartDate = min(created_at, existing start_date)`) can be added.
 
 ## Testing
 
-1. Navigate to a past unsubmitted week where the previous week IS submitted -- "Copiar Semana Anterior" should be visible
-2. Navigate to a past unsubmitted week where the previous week is NOT submitted -- "Copiar Semana Anterior" should be hidden
-3. On any unsubmitted week, enter zero hours only -- "Guardar Borrador" stays hidden; enter non-zero hours -- it appears
-4. Navigate to a submitted-but-not-approved week (past or current) -- "Retirar Envio" should be visible
-5. Navigate to a fully approved or locked week -- none of the three buttons appear
-6. Navigate to a week before hire date -- none appear
-7. Regression: grid editability and submit button unchanged
+1. New engagement: calendar disables all dates before today
+2. Edit existing engagement: calendar disables dates before `created_at`
+3. End date calendar disables dates before selected start date
+4. Attempting to save with an invalid start date shows localized error
+5. Existing engagements load and display correctly
 
