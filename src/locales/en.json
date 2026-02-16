@@ -589,7 +589,10 @@
     "fileTooLarge": "File size must be less than 10MB",
     "invalidFileType": "Only JPG, PNG, WebP and PDF files are allowed",
     "fileTypes": "JPG, PNG, WebP or PDF (max 10MB)",
-    "receiptAttached": "Receipt attached"
+    "receiptAttached": "Receipt attached",
+    "myExpenses": "My Expenses",
+    "loggedBy": "Logged By",
+    "allTeamExpenses": "All Team Expenses"
   },
   "workOrders": {
     "title": "Work Orders",

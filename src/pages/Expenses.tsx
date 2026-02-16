@@ -33,6 +33,9 @@ import { useAllExpenseLogs, useExpenseTypes, type ExpenseLogListItem } from "@/h
 import { format } from "date-fns";
 import { useIsMobile } from "@/hooks/useMobile";
 import { cn } from "@/lib/utils";
+import { useCurrentStaff } from "@/hooks/useCurrentStaff";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 
 /**
  * Validates that a URL uses only http or https protocol.
@@ -63,7 +66,9 @@ const Expenses = () => {
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>(null);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  const [myExpensesOnly, setMyExpensesOnly] = useState(false);
   const isMobile = useIsMobile();
+  const { staffRecord } = useCurrentStaff();
   
   // Filter popover states
   const [expenseTypeFilterOpen, setExpenseTypeFilterOpen] = useState(false);
@@ -98,6 +103,11 @@ const Expenses = () => {
   // Apply search and filters
   const filteredData = useMemo(() => {
     let result = [...currencyFiltered];
+
+    // My expenses filter
+    if (myExpensesOnly && staffRecord?.staff_id) {
+      result = result.filter((log: ExpenseLogListItem) => log.created_by_staff_id === staffRecord.staff_id);
+    }
 
     // Search
     if (searchTerm) {
@@ -152,7 +162,7 @@ const Expenses = () => {
     }
 
     return result;
-  }, [currencyFiltered, searchTerm, expenseTypeFilter, engagementFilter, sortColumn, sortDirection]);
+  }, [currencyFiltered, searchTerm, expenseTypeFilter, engagementFilter, sortColumn, sortDirection, myExpensesOnly, staffRecord?.staff_id]);
 
   // Calculate total
   const total = useMemo(() => {
@@ -222,6 +232,16 @@ const Expenses = () => {
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
+            <div className="flex items-center gap-2">
+              <Switch
+                id="my-expenses"
+                checked={myExpensesOnly}
+                onCheckedChange={setMyExpensesOnly}
+              />
+              <Label htmlFor="my-expenses" className="text-sm whitespace-nowrap cursor-pointer">
+                {t("expenses.myExpenses")}
+              </Label>
+            </div>
           </div>
           <Button
             variant="default"
@@ -257,9 +277,16 @@ const Expenses = () => {
                   >
                     <CardContent className="p-4 space-y-2">
                       {/* Primary info */}
-                      <div className="flex items-center justify-between">
-                        <div className="font-medium truncate flex-1 mr-2">
-                          {log.engagement?.engagement_name || "-"}
+                       <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 flex-1 mr-2">
+                          <div className="font-medium truncate">
+                            {log.engagement?.engagement_name || "-"}
+                          </div>
+                          {(log as any).created_by_staff?.initials && (
+                            <span className="inline-flex items-center justify-center h-5 min-w-[28px] px-1 rounded bg-muted text-[10px] font-medium text-muted-foreground shrink-0">
+                              {(log as any).created_by_staff.initials}
+                            </span>
+                          )}
                         </div>
                         <div className="font-mono font-semibold text-right">
                           {formatCurrency(log.amount)}
@@ -423,6 +450,7 @@ const Expenses = () => {
                     </span>
                   </TableHead>
                   <TableHead className="font-semibold text-sm text-center border-r border-border">{t("expenses.description")}</TableHead>
+                  <TableHead className="font-semibold text-sm text-center border-r border-border w-20">{t("expenses.loggedBy")}</TableHead>
                   <TableHead className="font-semibold text-sm text-center w-20">{t("adminExpenseLogs.receipt")}</TableHead>
                 </TableRow>
               </TableHeader>
@@ -430,7 +458,7 @@ const Expenses = () => {
                 {isLoading ? (
                   Array.from({ length: 5 }).map((_, i) => (
                     <TableRow key={i}>
-                      {Array.from({ length: 6 }).map((_, j) => (
+                      {Array.from({ length: 7 }).map((_, j) => (
                         <TableCell key={j}>
                           <Skeleton className="h-5 w-full max-w-[120px]" />
                         </TableCell>
@@ -439,7 +467,7 @@ const Expenses = () => {
                   ))
                 ) : filteredData.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                    <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
                       {t("common.noResults")}
                     </TableCell>
                   </TableRow>
@@ -465,6 +493,9 @@ const Expenses = () => {
                         </TableCell>
                         <TableCell className="py-2 text-sm text-muted-foreground truncate max-w-[200px] text-left border-r border-border">
                           {log.description || "-"}
+                        </TableCell>
+                        <TableCell className="py-2 text-sm text-center border-r border-border">
+                          {log.created_by_staff?.initials || "-"}
                         </TableCell>
                         <TableCell className="py-2 text-sm text-center">
                           {isValidHttpUrl(log.receipt_url) ? (
@@ -492,7 +523,7 @@ const Expenses = () => {
                       <TableCell className="py-3 text-sm text-right font-mono font-bold border-r border-border">
                         {formatCurrency(total)}
                       </TableCell>
-                      <TableCell colSpan={2}></TableCell>
+                      <TableCell colSpan={3}></TableCell>
                     </TableRow>
                   </>
                 )}

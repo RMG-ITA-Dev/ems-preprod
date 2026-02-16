@@ -375,6 +375,7 @@ export type Database = {
         Row: {
           amount: number
           created_at: string | null
+          created_by_staff_id: string | null
           currency: string | null
           date_incurred: string
           description: string | null
@@ -386,6 +387,7 @@ export type Database = {
         Insert: {
           amount: number
           created_at?: string | null
+          created_by_staff_id?: string | null
           currency?: string | null
           date_incurred: string
           description?: string | null
@@ -397,6 +399,7 @@ export type Database = {
         Update: {
           amount?: number
           created_at?: string | null
+          created_by_staff_id?: string | null
           currency?: string | null
           date_incurred?: string
           description?: string | null
@@ -406,6 +409,20 @@ export type Database = {
           receipt_url?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "expense_logs_created_by_staff_id_fkey"
+            columns: ["created_by_staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "expense_logs_created_by_staff_id_fkey"
+            columns: ["created_by_staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff_directory"
+            referencedColumns: ["staff_id"]
+          },
           {
             foreignKeyName: "expense_logs_engagement_id_fkey"
             columns: ["engagement_id"]

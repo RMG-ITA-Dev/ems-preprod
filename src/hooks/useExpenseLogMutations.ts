@@ -14,6 +14,7 @@ export function useCreateExpenseLog() {
       currency: string;
       description?: string | null;
       receipt_url?: string | null;
+      created_by_staff_id?: string | null;
     }) => {
       const { data: result, error } = await supabase
         .from("expense_logs")
