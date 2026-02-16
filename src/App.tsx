@@ -36,6 +36,7 @@ const TimesheetApprovals = lazy(() => import("./pages/TimesheetApprovals"));
 const TimesheetApprovalDetail = lazy(() => import("./pages/TimesheetApprovalDetail"));
 const TrackerList = lazy(() => import("./pages/TrackerList"));
 const TrackerRecord = lazy(() => import("./pages/TrackerRecord"));
+const TrackerEdit = lazy(() => import("./pages/TrackerEdit"));
 const WorksheetList = lazy(() => import("./pages/WorksheetList"));
 const WorksheetNew = lazy(() => import("./pages/WorksheetNew"));
 const WorksheetEdit = lazy(() => import("./pages/WorksheetEdit"));
@@ -76,7 +77,7 @@ const App = () => (
                 <Route path="/work-orders/:id" element={<ProtectedRoute><WorkOrderEdit /></ProtectedRoute>} />
                 <Route path="/tracker" element={<ProtectedRoute><TrackerList /></ProtectedRoute>} />
                 <Route path="/tracker/new" element={<ProtectedRoute><TrackerRecord /></ProtectedRoute>} />
-                <Route path="/tracker/:id" element={<ProtectedRoute><TrackerRecord /></ProtectedRoute>} />
+                <Route path="/tracker/:id" element={<ProtectedRoute><TrackerEdit /></ProtectedRoute>} />
                 <Route path="/timesheet" element={<ProtectedRoute><TimeSheet /></ProtectedRoute>} />
                 <Route path="/timesheet/approvals" element={<ProtectedRoute><TimesheetApprovals /></ProtectedRoute>} />
                 <Route path="/timesheet/approvals/:periodId" element={<ProtectedRoute><TimesheetApprovalDetail /></ProtectedRoute>} />

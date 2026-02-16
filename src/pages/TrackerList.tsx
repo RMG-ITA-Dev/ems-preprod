@@ -31,9 +31,9 @@ import { Calendar } from "@/components/ui/calendar";
 import { Card, CardContent } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, Search, Pencil, Copy, Trash2, ArrowUpDown, ArrowUp, ArrowDown, Filter, ChevronDown, ArrowUpFromLine, FileText } from "lucide-react";
+import { Plus, Search, ArrowUpDown, ArrowUp, ArrowDown, Filter, ChevronDown, ArrowUpFromLine } from "lucide-react";
 import { ManualEntryDialog } from "@/components/tracker/ManualEntryDialog";
-import { useTimerEntries, TimerEntry, useDeleteTimerEntry, useCreateTimerEntry } from "@/hooks/useTimerEntries";
+import { useTimerEntries, TimerEntry, useCreateTimerEntry } from "@/hooks/useTimerEntries";
 import { useTimesheetImport } from "@/hooks/useTimesheetImport";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { useAuth } from "@/hooks/useAuth";
@@ -55,7 +55,6 @@ const TrackerList = () => {
   const { user } = useAuth();
   const { staffRecord, isLoading: staffLoading } = useCurrentStaff();
   const { data: entries, isLoading: entriesLoading } = useTimerEntries();
-  const deleteEntry = useDeleteTimerEntry();
   const createEntry = useCreateTimerEntry();
 
   // Selection state
@@ -293,41 +292,6 @@ const TrackerList = () => {
     }
   };
 
-  const handleDelete = async (entry: TimerEntry, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (entry.is_imported) return;
-    
-    try {
-      await deleteEntry.mutateAsync(entry.timer_id);
-      toast.success(t("common.deleted"));
-    } catch (error) {
-      toast.error(t("common.error"));
-    }
-  };
-
-  const handleDuplicate = async (entry: TimerEntry, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (entry.is_imported) return;
-
-    try {
-      await createEntry.mutateAsync({
-        staff_id: entry.staff_id,
-        engagement_id: entry.engagement_id,
-        activity_id: entry.activity_id,
-        description: entry.description,
-        started_at: new Date().toISOString(),
-      });
-      toast.success(t("common.duplicated"));
-    } catch (error) {
-      toast.error(t("common.error"));
-    }
-  };
-
-  const handleEdit = (entry: TimerEntry, e: React.MouseEvent) => {
-    e.stopPropagation();
-    navigate(`/tracker/${entry.timer_id}`);
-  };
-
   const clearDateFilter = () => {
     setDateFilter(undefined);
     setDateFilterOpen(false);
@@ -395,22 +359,22 @@ const TrackerList = () => {
                 </Badge>
               )}
             </Button>
-            {/* Use Timer */}
+            {/* Use Timer - S8: yellow/warning */}
             <Button
               variant="default"
               onClick={() => navigate("/tracker/new")}
-              className="flex-1 sm:flex-none min-h-[44px] sm:min-h-0"
+              className="flex-1 sm:flex-none min-h-[44px] sm:min-h-0 bg-warning text-warning-foreground hover:bg-warning/90"
             >
               <Plus className="h-4 w-4 mr-2" />
               {t("tracker.useTimer")}
             </Button>
-            {/* New Manual Record */}
+            {/* New Manual Record - S8: purple/default with Plus icon */}
             <Button
-              variant="outline"
+              variant="default"
               onClick={() => setManualDialogOpen(true)}
               className="flex-1 sm:flex-none min-h-[44px] sm:min-h-0"
             >
-              <FileText className="h-4 w-4 mr-2" />
+              <Plus className="h-4 w-4 mr-2" />
               {t("tracker.newManualEntry")}
             </Button>
           </div>
@@ -437,7 +401,6 @@ const TrackerList = () => {
             ) : (
               filteredEntries.map((entry) => {
                 const date = new Date(entry.started_at);
-                const canEdit = !entry.is_imported && entry.ended_at;
                 const selectable = isSelectable(entry);
                 
                 return (
@@ -508,36 +471,6 @@ const TrackerList = () => {
                             <p className="text-sm text-muted-foreground">
                               <span className="font-medium">{t("tracker.description")}:</span> {entry.description}
                             </p>
-                          )}
-                          {canEdit && (
-                            <div className="flex gap-2 pt-2">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="flex-1 min-h-[44px]"
-                                onClick={(e) => handleEdit(entry, e)}
-                              >
-                                <Pencil className="h-4 w-4 mr-2" />
-                                {t("common.edit")}
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="flex-1 min-h-[44px]"
-                                onClick={(e) => handleDuplicate(entry, e)}
-                              >
-                                <Copy className="h-4 w-4 mr-2" />
-                                {t("common.duplicate")}
-                              </Button>
-                              <Button
-                                variant="destructive"
-                                size="sm"
-                                className="min-h-[44px]"
-                                onClick={(e) => handleDelete(entry, e)}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
                           )}
                         </CollapsibleContent>
                       </Collapsible>
@@ -618,8 +551,8 @@ const TrackerList = () => {
                         {getSortIcon("duracion")}
                       </span>
                     </TableHead>
-                    {/* Encargo - 22% */}
-                    <TableHead style={{ width: "22%" }} className="text-center border-r border-border">
+                    {/* Encargo - 26% (was 22%) */}
+                    <TableHead style={{ width: "26%" }} className="text-center border-r border-border">
                       <div className="flex items-center justify-center gap-1">
                         <span 
                           className="cursor-pointer hover:text-foreground flex items-center gap-1"
@@ -660,8 +593,8 @@ const TrackerList = () => {
                         </Popover>
                       </div>
                     </TableHead>
-                    {/* Actividad - 15% */}
-                    <TableHead style={{ width: "15%" }} className="text-center border-r border-border">
+                    {/* Actividad - 16% (was 15%) */}
+                    <TableHead style={{ width: "16%" }} className="text-center border-r border-border">
                       <span 
                         className="cursor-pointer hover:text-foreground flex items-center justify-center gap-1"
                         onClick={() => handleSort("actividad")}
@@ -670,17 +603,13 @@ const TrackerList = () => {
                         {getSortIcon("actividad")}
                       </span>
                     </TableHead>
-                    {/* Descripción - 13% */}
-                    <TableHead style={{ width: "13%" }} className="text-center border-r border-border">
+                    {/* Descripción - 16% (was 13%) */}
+                    <TableHead style={{ width: "16%" }} className="text-center border-r border-border">
                       {t("tracker.description")}
                     </TableHead>
-                    {/* Estado - 8% */}
-                    <TableHead style={{ width: "8%" }} className="text-center border-r border-border">
+                    {/* Estado - 10% (was 8%) */}
+                    <TableHead style={{ width: "10%" }} className="text-center">
                       {t("tracker.status")}
-                    </TableHead>
-                    {/* Acciones - 8% */}
-                    <TableHead style={{ width: "8%" }} className="text-center">
-                      {t("common.actions")}
                     </TableHead>
                   </TableRow>
                 </TableHeader>
@@ -688,21 +617,20 @@ const TrackerList = () => {
                   {entriesLoading ? (
                     Array.from({ length: 8 }).map((_, i) => (
                       <TableRow key={i}>
-                        {Array.from({ length: 9 }).map((_, j) => (
+                        {Array.from({ length: 8 }).map((_, j) => (
                           <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
                         ))}
                       </TableRow>
                     ))
                   ) : filteredEntries.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                         {t("common.noResults")}
                       </TableCell>
                     </TableRow>
                   ) : (
                     filteredEntries.map((entry) => {
                       const date = new Date(entry.started_at);
-                      const canEdit = !entry.is_imported && entry.ended_at;
                       const selectable = isSelectable(entry);
 
                       return (
@@ -734,18 +662,18 @@ const TrackerList = () => {
                           </TableCell>
                           {/* Engagement */}
                           <TableCell className="font-medium truncate max-w-[220px] text-left border-r border-border">
-                            {entry.engagement?.engagement_code || "—"} - {entry.engagement?.engagement_name || ""}
+                            {entry.engagement?.engagement_code || "—"} - {entry.engagement?.engagement_name || "—"}
                           </TableCell>
                           {/* Activity */}
                           <TableCell className="truncate max-w-[180px] text-left border-r border-border">
-                            {entry.activity?.activity_code || "—"} - {entry.activity?.description || ""}
+                            {entry.activity?.activity_code || "—"} - {entry.activity?.description || "—"}
                           </TableCell>
                           {/* Description */}
                           <TableCell className="truncate max-w-[140px] text-left border-r border-border">
                             {entry.description || "—"}
                           </TableCell>
                           {/* Status */}
-                          <TableCell className="text-center border-r border-border">
+                          <TableCell className="text-center">
                             {!entry.ended_at ? (
                               <Badge className="bg-success/10 text-success border-success/20 animate-pulse">
                                 {t("tracker.running")}
@@ -758,37 +686,6 @@ const TrackerList = () => {
                               <Badge className="bg-info/10 text-info border-info/20">
                                 {t("tracker.ready")}
                               </Badge>
-                            )}
-                          </TableCell>
-                          {/* Actions */}
-                          <TableCell className="text-center">
-                            {canEdit && (
-                              <div className="flex items-center justify-center gap-1">
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-7 w-7"
-                                  onClick={(e) => handleEdit(entry, e)}
-                                >
-                                  <Pencil className="h-3.5 w-3.5" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-7 w-7"
-                                  onClick={(e) => handleDuplicate(entry, e)}
-                                >
-                                  <Copy className="h-3.5 w-3.5" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-7 w-7 text-destructive hover:text-destructive"
-                                  onClick={(e) => handleDelete(entry, e)}
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </Button>
-                              </div>
                             )}
                           </TableCell>
                         </TableRow>

@@ -112,6 +112,7 @@ export function useUpdateTimerEntry() {
   return useMutation({
     mutationFn: async ({ timer_id, ...updates }: {
       timer_id: string;
+      started_at?: string;
       ended_at?: string;
       duration_minutes?: number;
       description?: string;

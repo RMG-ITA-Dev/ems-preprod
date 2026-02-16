@@ -164,7 +164,15 @@
       "pauseDesc": "Time is saved, you can continue later",
       "logAndReset": "Log & Reset",
       "logAndResetDesc": "Save this entry and clear everything"
-    }
+    },
+    "editRecord": "Edit Time Record",
+    "deleteRecordConfirm": "This will permanently delete this time record.",
+    "readOnlyImported": "This record has been exported and cannot be modified.",
+    "sectionTime": "Time",
+    "sectionEngagement": "Engagement",
+    "sectionDetail": "Detail",
+    "recordSaved": "Record updated successfully",
+    "recordDeleted": "Record deleted successfully"
   },
   "entities": {
     "client": "Client",
