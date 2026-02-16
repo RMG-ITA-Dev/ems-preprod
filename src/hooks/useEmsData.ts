@@ -145,6 +145,7 @@ export interface ExpenseLog {
   description: string | null;
   receipt_url: string | null;
   created_at?: string | null;
+  created_by_staff_id?: string | null;
   engagement?: Engagement;
   expense_type?: ExpenseType;
 }
@@ -160,6 +161,7 @@ export interface ExpenseLogListItem {
   description: string | null;
   receipt_url: string | null;
   created_at?: string | null;
+  created_by_staff_id?: string | null;
   engagement?: {
     engagement_id: string;
     engagement_name: string;
@@ -169,6 +171,12 @@ export interface ExpenseLogListItem {
     expense_type_id: string;
     expense_name: string;
   };
+  created_by_staff?: {
+    staff_id: string;
+    first_name: string;
+    last_name: string;
+    initials: string | null;
+  } | null;
 }
 
 export interface GlobalSetting {
@@ -499,7 +507,8 @@ export function useAllExpenseLogs() {
         .select(`
           *,
           engagement:engagements(engagement_id, engagement_name, engagement_code),
-          expense_type:expense_types(expense_type_id, expense_name)
+          expense_type:expense_types(expense_type_id, expense_name),
+          created_by_staff:staff!created_by_staff_id(staff_id, first_name, last_name, initials)
         `)
         .order('date_incurred', { ascending: false });
       if (error) throw error;
@@ -518,7 +527,8 @@ export function useExpenseLogById(id: string) {
         .select(`
           *,
           engagement:engagements(engagement_id, engagement_name, engagement_code),
-          expense_type:expense_types(*)
+          expense_type:expense_types(*),
+          created_by_staff:staff!created_by_staff_id(staff_id, first_name, last_name, initials)
         `)
         .eq('expense_log_id', id)
         .maybeSingle();

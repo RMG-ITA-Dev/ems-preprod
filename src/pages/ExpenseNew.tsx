@@ -3,11 +3,13 @@ import { useNavigate } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { ExpenseLogForm } from "@/components/forms/ExpenseLogForm";
 import { useCreateExpenseLog } from "@/hooks/useExpenseLogMutations";
+import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 
 const ExpenseNew = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const createExpenseLog = useCreateExpenseLog();
+  const { staffRecord } = useCurrentStaff();
 
   const handleSubmit = async (data: {
     engagement_id: string;
@@ -18,7 +20,10 @@ const ExpenseNew = () => {
     description: string | null;
     receipt_url: string | null;
   }) => {
-    await createExpenseLog.mutateAsync(data);
+    await createExpenseLog.mutateAsync({
+      ...data,
+      created_by_staff_id: staffRecord?.staff_id ?? null,
+    });
     navigate("/expenses");
   };
 
