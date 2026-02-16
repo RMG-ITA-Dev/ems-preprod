@@ -1,5 +1,15 @@
 {
+  "header": {
+    "userPrefix": "User:",
+    "linkedToStaff": "Linked to staff:",
+    "notLinkedToStaff": "Not linked to staff record"
+  },
+  "notFound": {
+    "title": "Oops! Page not found",
+    "returnHome": "Return to Home"
+  },
   "common": {
+    "user": "User",
     "more": "More",
     "menu": "Menu",
     "save": "Save",

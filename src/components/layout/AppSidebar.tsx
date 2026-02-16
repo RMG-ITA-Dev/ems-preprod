@@ -25,13 +25,12 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarHeader,
   SidebarFooter,
 } from "@/components/ui/sidebar";
 
 export function AppSidebar() {
   const { t } = useTranslation();
-  const { user, signOut } = useAuth();
+  const { signOut } = useAuth();
   const navigate = useNavigate();
 
   const mainNavItems = [
@@ -59,21 +58,8 @@ export function AppSidebar() {
     navigate("/auth");
   };
 
-  const userName = user?.user_metadata?.first_name 
-    ? `${user.user_metadata.first_name} ${user.user_metadata.last_name || ''}`
-    : user?.email || 'User';
-
   return (
     <Sidebar className="border-r-0" collapsible="offcanvas">
-      <SidebarHeader className="h-16 px-6 !items-start justify-center border-b border-sidebar-border">
-        <h1 
-          className="font-bold text-sidebar-foreground text-xl leading-none"
-          style={{ fontFamily: '"IBM Plex Sans", system-ui, sans-serif' }}
-        >
-          EMS 2.0
-        </h1>
-      </SidebarHeader>
-
       <SidebarContent className="px-3 py-4">
         <SidebarGroup>
           <SidebarGroupLabel className="text-sidebar-muted text-xs font-medium uppercase tracking-wider px-3 mb-2">
@@ -151,10 +137,7 @@ export function AppSidebar() {
       </SidebarContent>
 
       <SidebarFooter className="p-4 border-t border-sidebar-border">
-        <div className="flex items-center justify-between">
-          <div className="text-xs text-sidebar-muted truncate max-w-[140px]">
-            {userName}
-          </div>
+        <div className="flex items-center justify-center">
           <button 
             onClick={handleSignOut}
             className="p-2 rounded-lg text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors"

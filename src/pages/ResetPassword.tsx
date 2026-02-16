@@ -63,7 +63,13 @@ const ResetPassword = () => {
 
   if (!isValidSession) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-8 bg-background">
+      <div className="min-h-screen flex flex-col items-center justify-center p-8 bg-background">
+        <h1
+          className="mb-6 font-bold text-primary text-2xl"
+          style={{ fontFamily: '"IBM Plex Sans", system-ui, sans-serif' }}
+        >
+          EMS 2.0
+        </h1>
         <Card className="w-full max-w-md">
           <CardHeader className="text-center">
             <div className="mx-auto h-12 w-12 rounded-full bg-muted flex items-center justify-center mb-4">
@@ -83,7 +89,13 @@ const ResetPassword = () => {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-8 bg-background">
+    <div className="min-h-screen flex flex-col items-center justify-center p-8 bg-background">
+      <h1
+        className="mb-6 font-bold text-primary text-2xl"
+        style={{ fontFamily: '"IBM Plex Sans", system-ui, sans-serif' }}
+      >
+        EMS 2.0
+      </h1>
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <div className="mx-auto h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center mb-4">
