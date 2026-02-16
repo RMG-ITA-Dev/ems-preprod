@@ -25,7 +25,7 @@ export function AppHeader({ title = "Dashboard" }: AppHeaderProps) {
   const navigate = useNavigate();
 
   const displayName = staffRecord 
-    ? `${staffRecord.first_name} ${staffRecord.last_name}`
+    ? (staffRecord.short_name || `${staffRecord.first_name} ${staffRecord.last_name}`)
     : user?.user_metadata?.first_name 
       ? `${user.user_metadata.first_name} ${user.user_metadata.last_name || ''}`
       : null;
