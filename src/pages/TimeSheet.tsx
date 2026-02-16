@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback } from "react";
 import { useTranslation } from "react-i18next";
+import { useQuery } from "@tanstack/react-query";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -24,6 +25,7 @@ import {
   getPreviousWeek,
   getNextWeek,
   calculateDeadline,
+  toISODateString,
 } from "@/lib/timesheetUtils";
 
 type SaveStatus = "idle" | "saving" | "saved";
@@ -91,6 +93,26 @@ const TimeSheet = () => {
 
   // Fetch line approvals for the current period
   const { data: lineApprovals } = usePeriodLineApprovals(period?.period_id || null);
+
+  // BUG #0206-3: Check if previous week was submitted (for Copy button gating)
+  const previousWeekStart = useMemo(() => getPreviousWeek(currentWeekStart), [currentWeekStart]);
+
+  const { data: previousPeriod } = useQuery({
+    queryKey: ["timesheet-period-prev", staffRecord?.staff_id, toISODateString(previousWeekStart)],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("timesheet_periods")
+        .select("period_id, submitted_at, is_period_locked")
+        .eq("staff_id", staffRecord!.staff_id)
+        .eq("week_start_date", toISODateString(previousWeekStart))
+        .maybeSingle();
+      return data;
+    },
+    enabled: !!staffRecord?.staff_id,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const prevWeekSubmittedOrApproved = !!previousPeriod?.submitted_at;
 
   // BUG #4b: Fetch unimported timer entries for current week
   const weekEnd = weekInfo.weekDates[weekInfo.weekDates.length - 1];
@@ -177,8 +199,25 @@ const TimeSheet = () => {
     (isSubmitted && !isFullyApproved && (hasPendingLines || hasRejectedLines))
   );
 
-  // Can unsubmit if submitted, has pending lines, and is current week
-  const canUnsubmit = isSubmitted && hasPendingLines && !isFullyApproved && isWithinEditableWindow;
+  // BUG #0206-3: Dedicated button visibility flags (decoupled from isEditable/lineApprovals)
+  const hasNonZeroEntry = entries.some((e) => e.hours_logged > 0);
+
+  const canCopyPreviousWeek = !isBeforeHireDate
+    && isWithinEditableWindow
+    && !isSubmitted
+    && !period?.is_period_locked
+    && prevWeekSubmittedOrApproved;
+
+  const canUnsubmit = isSubmitted
+    && !isFullyApproved
+    && isWithinEditableWindow
+    && !period?.is_period_locked;
+
+  const canSaveDraft = !isBeforeHireDate
+    && isWithinEditableWindow
+    && !period?.is_period_locked
+    && !isFullyApproved
+    && hasNonZeroEntry;
 
   // BUG #21: Separate "can submit" from "can edit cells"
   const canSubmit = !isBeforeHireDate && isWithinEditableWindow && entries.length > 0 && (
@@ -207,15 +246,15 @@ const TimeSheet = () => {
     });
   };
 
-  // Handle unsubmit (BUG #32)
+  // Handle unsubmit (BUG #32, guard BUG #0206-3)
   const handleUnsubmit = () => {
-    if (!period?.period_id) return;
+    if (!canUnsubmit || !period?.period_id) return;
     unsubmitTimesheet.mutate({ periodId: period.period_id });
   };
 
-  // BUG #12: Handle copy previous week
+  // BUG #12: Handle copy previous week (guard BUG #0206-3)
   const handleCopyPreviousWeek = () => {
-    if (!staffRecord?.staff_id) return;
+    if (!canCopyPreviousWeek || !staffRecord?.staff_id) return;
     copyPreviousWeek.mutate({
       staffId: staffRecord.staff_id,
       currentWeekStart,
@@ -224,10 +263,11 @@ const TimeSheet = () => {
     });
   };
 
-  // Handle save draft (BUG #29)
+  // Handle save draft (BUG #29, guard BUG #0206-3)
   const handleSaveDraft = useCallback(() => {
+    if (!canSaveDraft) return;
     setSaveNowTrigger((prev) => prev + 1);
-  }, []);
+  }, [canSaveDraft]);
 
   // BUG #4b: Handle timer import from timesheet
   const handleTimerImport = async (selectedIds: string[]) => {
@@ -430,8 +470,8 @@ const TimeSheet = () => {
               </Button>
             )}
 
-            {/* BUG #12: Copy Previous Week Button */}
-            {isEditable && !isSubmitted && (
+            {/* BUG #12 / BUG #0206-3: Copy Previous Week Button */}
+            {canCopyPreviousWeek && (
               <Button
                 variant="outline"
                 onClick={handleCopyPreviousWeek}
@@ -460,8 +500,8 @@ const TimeSheet = () => {
               </Button>
             )}
 
-            {/* Save Draft Button (BUG #29) */}
-            {isEditable && (
+            {/* Save Draft Button (BUG #29 / BUG #0206-3) */}
+            {canSaveDraft && (
               <Button
                 variant="outline"
                 onClick={handleSaveDraft}

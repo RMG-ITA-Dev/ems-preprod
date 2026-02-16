@@ -50,3 +50,48 @@ Consolidate `staff_capacity` into the `staff` table by adding a single column.
 - **Data loss:** None — table had 0 rows; all capacity values defaulted to 40.
 - **Performance:** Slight improvement — dashboard edge function eliminates one extra query/join per request.
 - **Rollback:** The migration can be reversed by re-creating the table if needed.
+
+---
+
+## BUG #0206-3: Timesheet Buttons Not Available on Non-Current Weeks
+
+**Date:** 2026-02-13  
+**Priority:** Alta  
+**Version:** v2.0.3 → v2.0.4  
+**Route:** OPERACIONES → Hoja de Tiempo
+
+### Problem
+
+The "Copiar Semana Anterior", "Retirar Envío", and "Guardar Borrador" buttons disappeared when navigating to past or future weeks. Root cause: button visibility was coupled to the monolithic `isEditable` flag, which depends on `lineApprovals` data (`hasPendingLines`, `hasRejectedLines`, `isFullyApproved`). For non-current weeks where no `lineApprovals` records exist yet, these derived booleans evaluate to `false`, hiding the buttons.
+
+### Root Cause Detail
+
+1. `isEditable` requires `lineApprovals` to contain pending/rejected lines for submitted weeks — often empty for past/future weeks.
+2. `canUnsubmit` required `hasPendingLines`, making it `false` while `lineApprovals` is loading or absent.
+3. Button rules should be independent of line-approval record availability.
+
+### Solution
+
+Decoupled each button's visibility from `isEditable`/`lineApprovals` into three self-contained flags. Added a previous-week period query to gate "Copy Previous Week" correctly. `isEditable` remains unchanged (still controls grid cell editability and Import from Timer).
+
+### Changes — `src/pages/TimeSheet.tsx`
+
+| Change | Detail |
+|--------|--------|
+| **Import added** | `useQuery` from `@tanstack/react-query`; `toISODateString` from `@/lib/timesheetUtils` |
+| **Previous-week period query** | New `useQuery` fetching `timesheet_periods` for the previous week (`previousWeekStart`). Derives `prevWeekSubmittedOrApproved` = `!!previousPeriod?.submitted_at`. |
+| **`hasNonZeroEntry`** | New derived boolean: `entries.some((e) => e.hours_logged > 0)` |
+| **`canCopyPreviousWeek`** | `!isBeforeHireDate && isWithinEditableWindow && !isSubmitted && !period?.is_period_locked && prevWeekSubmittedOrApproved` |
+| **`canUnsubmit` (simplified)** | Old: `isSubmitted && hasPendingLines && !isFullyApproved && isWithinEditableWindow`. New: `isSubmitted && !isFullyApproved && isWithinEditableWindow && !period?.is_period_locked` (removed `hasPendingLines` dependency, added lock guard) |
+| **`canSaveDraft`** | `!isBeforeHireDate && isWithinEditableWindow && !period?.is_period_locked && !isFullyApproved && hasNonZeroEntry` |
+| **JSX: Copy button** | Condition changed from `isEditable && !isSubmitted` → `canCopyPreviousWeek` |
+| **JSX: Unsubmit button** | Uses new `canUnsubmit` (unchanged variable name, simplified logic) |
+| **JSX: Save Draft button** | Condition changed from `isEditable` → `canSaveDraft` |
+| **Handler guards** | Added `if (!canCopyPreviousWeek) return;`, `if (!canUnsubmit) return;`, `if (!canSaveDraft) return;` at top of respective handlers |
+
+### What Stays Unchanged
+
+- `isEditable` — still controls grid cell editability and Import from Timer button
+- `canSubmit` — unchanged
+- No mutation logic changes
+- No backend/database changes
