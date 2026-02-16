@@ -193,7 +193,7 @@ export function ManualEntryDialog({
           <Button
             onClick={handleSubmit}
             disabled={!canSubmit}
-            style={{ backgroundColor: "hsl(var(--brand-purple))" }}
+            className="bg-brand-purple hover:bg-brand-purple/90 text-primary-foreground"
           >
             {t("tracker.addEntry")}
           </Button>

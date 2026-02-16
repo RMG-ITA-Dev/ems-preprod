@@ -1,0 +1,247 @@
+import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { format, parseISO, getISOWeek, getYear } from "date-fns";
+import { supabase } from "@/integrations/supabase/client";
+import { useMarkTimerEntriesImported, type TimerEntry } from "@/hooks/useTimerEntries";
+import { getWeekMonday, toISODateString } from "@/lib/timesheetUtils";
+
+export interface ImportResult {
+  newCount: number;
+  mergedCount: number;
+  blockedCount: number;
+  blockedWeeks: string[];
+}
+
+interface AggregatedGroup {
+  engagement_id: string;
+  activity_id: string;
+  date_worked: string;
+  totalMinutes: number;
+  timerIds: string[];
+  description: string | null;
+}
+
+interface ResolvedPeriod {
+  period_id: string;
+  submitted_at: string | null;
+}
+
+export function useTimesheetImport({ staffId }: { staffId: string }) {
+  const [isExporting, setIsExporting] = useState(false);
+  const queryClient = useQueryClient();
+  const markImported = useMarkTimerEntriesImported();
+
+  const exportEntries = async (entries: TimerEntry[]): Promise<ImportResult> => {
+    if (!staffId || entries.length === 0) {
+      return { newCount: 0, mergedCount: 0, blockedCount: 0, blockedWeeks: [] };
+    }
+
+    setIsExporting(true);
+    try {
+      // Step 1 & 2: Extract dates and aggregate by (engagement, activity, date)
+      const grouped = new Map<string, AggregatedGroup>();
+      for (const entry of entries) {
+        const dateWorked = format(parseISO(entry.started_at), "yyyy-MM-dd");
+        const key = `${entry.engagement_id}|${entry.activity_id}|${dateWorked}`;
+        const existing = grouped.get(key);
+        if (existing) {
+          existing.totalMinutes += entry.duration_minutes || 0;
+          existing.timerIds.push(entry.timer_id);
+          // Keep first non-null description
+          if (!existing.description && entry.description) {
+            existing.description = entry.description;
+          }
+        } else {
+          grouped.set(key, {
+            engagement_id: entry.engagement_id,
+            activity_id: entry.activity_id,
+            date_worked: dateWorked,
+            totalMinutes: entry.duration_minutes || 0,
+            timerIds: [entry.timer_id],
+            description: entry.description,
+          });
+        }
+      }
+
+      // Step 4 & 5: Resolve periods per unique week
+      const weekPeriods = new Map<string, ResolvedPeriod | null>();
+      const uniqueWeekStarts = new Set<string>();
+      
+      for (const group of grouped.values()) {
+        const [year, month, day] = group.date_worked.split("-").map(Number);
+        const dateObj = new Date(year, month - 1, day);
+        const weekMonday = getWeekMonday(dateObj);
+        uniqueWeekStarts.add(toISODateString(weekMonday));
+      }
+
+      for (const weekStartStr of uniqueWeekStarts) {
+        try {
+          // Look up existing period
+          const { data: existing, error: fetchError } = await supabase
+            .from("timesheet_periods")
+            .select("period_id, submitted_at")
+            .eq("staff_id", staffId)
+            .eq("week_start_date", weekStartStr)
+            .maybeSingle();
+
+          if (fetchError) throw fetchError;
+
+          if (existing) {
+            weekPeriods.set(weekStartStr, existing);
+          } else {
+            // Auto-create period (same logic as useTimesheetWeek)
+            const [y, m, d] = weekStartStr.split("-").map(Number);
+            const weekDate = new Date(y, m - 1, d);
+            const weekNumber = getISOWeek(weekDate);
+            const year = getYear(weekDate);
+
+            const { data: newPeriod, error: createError } = await supabase
+              .from("timesheet_periods")
+              .insert({
+                staff_id: staffId,
+                week_start_date: weekStartStr,
+                week_number: weekNumber,
+                year: year,
+                total_hours: 0,
+              })
+              .select("period_id, submitted_at")
+              .single();
+
+            if (createError) {
+              console.error("Period creation failed for week:", weekStartStr, createError);
+              weekPeriods.set(weekStartStr, null); // blocked
+            } else {
+              weekPeriods.set(weekStartStr, newPeriod);
+            }
+          }
+        } catch (err) {
+          console.error("Period resolution error for week:", weekStartStr, err);
+          weekPeriods.set(weekStartStr, null); // blocked
+        }
+      }
+
+      // Step 6 & 7: Process groups, blocking submitted weeks
+      let newCount = 0;
+      let mergedCount = 0;
+      let blockedCount = 0;
+      const blockedWeeks: string[] = [];
+      const exportedTimerIds: string[] = [];
+      const importedMappings: { timer_id: string; time_id: string }[] = [];
+
+      for (const group of grouped.values()) {
+        const [year, month, day] = group.date_worked.split("-").map(Number);
+        const dateObj = new Date(year, month - 1, day);
+        const weekMonday = getWeekMonday(dateObj);
+        const weekStartStr = toISODateString(weekMonday);
+        const period = weekPeriods.get(weekStartStr);
+
+        // Block if period couldn't be resolved or is already submitted
+        if (!period) {
+          blockedCount += group.timerIds.length;
+          const formattedWeek = format(dateObj, "dd/MM/yyyy");
+          if (!blockedWeeks.includes(formattedWeek)) {
+            blockedWeeks.push(formattedWeek);
+          }
+          continue;
+        }
+
+        if (period.submitted_at !== null) {
+          blockedCount += group.timerIds.length;
+          // Format the week start date for the message
+          const [wy, wm, wd] = weekStartStr.split("-").map(Number);
+          const formattedWeek = format(new Date(wy, wm - 1, wd), "dd/MM/yyyy");
+          if (!blockedWeeks.includes(formattedWeek)) {
+            blockedWeeks.push(formattedWeek);
+          }
+          continue;
+        }
+
+        // Step 3: Round hours
+        const roundedHours = Math.round((group.totalMinutes / 60) * 10) / 10;
+
+        // Step 7: Deterministic upsert (SELECT-first)
+        const { data: existingEntry, error: selectError } = await supabase
+          .from("time_entries")
+          .select("time_id, hours_logged")
+          .eq("staff_id", staffId)
+          .eq("engagement_id", group.engagement_id)
+          .eq("activity_id", group.activity_id)
+          .eq("date_worked", group.date_worked)
+          .eq("is_forecast", false)
+          .maybeSingle();
+
+        if (selectError) {
+          console.error("Select existing entry error:", selectError);
+          blockedCount += group.timerIds.length;
+          continue;
+        }
+
+        if (existingEntry) {
+          // Additive merge
+          const newHours = existingEntry.hours_logged + roundedHours;
+          const { error: updateError } = await supabase
+            .from("time_entries")
+            .update({ hours_logged: newHours })
+            .eq("time_id", existingEntry.time_id);
+
+          if (updateError) {
+            console.error("Update merge error:", updateError);
+            blockedCount += group.timerIds.length;
+            continue;
+          }
+
+          mergedCount++;
+          exportedTimerIds.push(...group.timerIds);
+          for (const tid of group.timerIds) {
+            importedMappings.push({ timer_id: tid, time_id: existingEntry.time_id });
+          }
+        } else {
+          // Insert new
+          const { data: newEntry, error: insertError } = await supabase
+            .from("time_entries")
+            .insert({
+              staff_id: staffId,
+              engagement_id: group.engagement_id,
+              activity_id: group.activity_id,
+              date_worked: group.date_worked,
+              hours_logged: roundedHours,
+              description: group.description,
+              period_id: period.period_id,
+              is_forecast: false,
+            })
+            .select("time_id")
+            .single();
+
+          if (insertError) {
+            console.error("Insert error:", insertError);
+            blockedCount += group.timerIds.length;
+            continue;
+          }
+
+          newCount++;
+          exportedTimerIds.push(...group.timerIds);
+          for (const tid of group.timerIds) {
+            importedMappings.push({ timer_id: tid, time_id: newEntry.time_id });
+          }
+        }
+      }
+
+      // Step 8: Mark only exported entries as imported
+      if (importedMappings.length > 0) {
+        await markImported.mutateAsync(importedMappings);
+      }
+
+      // Step 9: Cache invalidation
+      queryClient.invalidateQueries({ queryKey: ["time-entries"] });
+      queryClient.invalidateQueries({ queryKey: ["timesheet-period"] });
+      queryClient.invalidateQueries({ queryKey: ["timer_entries"] });
+      queryClient.invalidateQueries({ queryKey: ["timer_entries_unimported"] });
+
+      return { newCount, mergedCount, blockedCount, blockedWeeks };
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  return { exportEntries, isExporting };
+}

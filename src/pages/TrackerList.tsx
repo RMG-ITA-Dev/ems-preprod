@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { format } from "date-fns";
+import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
@@ -30,10 +30,11 @@ import {
 import { Calendar } from "@/components/ui/calendar";
 import { Card, CardContent } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Plus, Search, Pencil, Copy, Trash2, ArrowUpDown, ArrowUp, ArrowDown, Filter, ChevronDown, Upload } from "lucide-react";
-import { TimerImportDialog } from "@/components/tracker/TimerImportDialog";
-import { useTimerEntries, TimerEntry, useDeleteTimerEntry, useCreateTimerEntry, useMarkTimerEntriesImported } from "@/hooks/useTimerEntries";
-import { supabase } from "@/integrations/supabase/client";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Plus, Search, Pencil, Copy, Trash2, ArrowUpDown, ArrowUp, ArrowDown, Filter, ChevronDown, ArrowUpFromLine, FileText } from "lucide-react";
+import { ManualEntryDialog } from "@/components/tracker/ManualEntryDialog";
+import { useTimerEntries, TimerEntry, useDeleteTimerEntry, useCreateTimerEntry } from "@/hooks/useTimerEntries";
+import { useTimesheetImport } from "@/hooks/useTimesheetImport";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { useAuth } from "@/hooks/useAuth";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -56,8 +57,13 @@ const TrackerList = () => {
   const { data: entries, isLoading: entriesLoading } = useTimerEntries();
   const deleteEntry = useDeleteTimerEntry();
   const createEntry = useCreateTimerEntry();
-  const markImported = useMarkTimerEntriesImported();
-  const [isImporting, setIsImporting] = useState(false);
+
+  // Selection state
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [manualDialogOpen, setManualDialogOpen] = useState(false);
+
+  // Shared export hook
+  const { exportEntries, isExporting } = useTimesheetImport({ staffId: staffRecord?.staff_id || "" });
 
   const [searchQuery, setSearchQuery] = useState("");
   const [sortColumn, setSortColumn] = useState<SortColumn>(null);
@@ -68,7 +74,6 @@ const TrackerList = () => {
   const [engagementFilter, setEngagementFilter] = useState<string>("all");
   const [dateFilterOpen, setDateFilterOpen] = useState(false);
   const [engagementFilterOpen, setEngagementFilterOpen] = useState(false);
-  const [importDialogOpen, setImportDialogOpen] = useState(false);
 
   const formatDuration = (minutes: number | null) => {
     if (!minutes) return "—";
@@ -131,7 +136,6 @@ const TrackerList = () => {
   const filteredEntries = useMemo(() => {
     let result = entries || [];
 
-    // Apply search filter
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       result = result.filter((entry) => {
@@ -144,7 +148,6 @@ const TrackerList = () => {
       });
     }
 
-    // Apply date filter
     if (dateFilter) {
       const filterDateStr = format(dateFilter, "yyyy-MM-dd");
       result = result.filter((entry) => {
@@ -153,12 +156,10 @@ const TrackerList = () => {
       });
     }
 
-    // Apply engagement filter
     if (engagementFilter && engagementFilter !== "all") {
       result = result.filter((entry) => entry.engagement_id === engagementFilter);
     }
 
-    // Apply sorting
     if (sortColumn && sortDirection) {
       result = [...result].sort((a, b) => {
         let comparison = 0;
@@ -193,6 +194,104 @@ const TrackerList = () => {
   // Calculate totals for footer
   const totalMinutes = filteredEntries.reduce((sum, e) => sum + (e.duration_minutes || 0), 0);
   const totalHours = (totalMinutes / 60).toFixed(1);
+
+  // Selection helpers
+  const isSelectable = (entry: TimerEntry) => !!entry.ended_at && !entry.is_imported;
+
+  const selectableEntries = useMemo(
+    () => filteredEntries.filter(isSelectable),
+    [filteredEntries]
+  );
+
+  const toggleSelect = (timerId: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(timerId)) next.delete(timerId);
+      else next.add(timerId);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === selectableEntries.length && selectableEntries.length > 0) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(selectableEntries.map(e => e.timer_id)));
+    }
+  };
+
+  // Export handler
+  const handleExport = async () => {
+    const selected = entries?.filter(e => selectedIds.has(e.timer_id)) || [];
+    if (selected.length === 0) return;
+
+    try {
+      const result = await exportEntries(selected);
+      setSelectedIds(new Set());
+
+      if (result.mergedCount > 0) {
+        toast.success(t("tracker.exportSuccessMerged", {
+          newCount: result.newCount,
+          mergedCount: result.mergedCount
+        }));
+      } else if (result.newCount > 0) {
+        toast.success(t("tracker.exportSuccess", { count: result.newCount }));
+      }
+      if (result.blockedCount > 0) {
+        toast.warning(t("tracker.exportBlocked", {
+          blockedCount: result.blockedCount,
+          weeks: result.blockedWeeks.join(", ")
+        }));
+      }
+    } catch (error) {
+      console.error("Export error:", error);
+      toast.error(t("tracker.exportError"));
+    }
+  };
+
+  // Manual entry handler
+  const handleManualSubmit = async (data: {
+    engagement_id: string;
+    activity_id: string;
+    description: string;
+    date: Date;
+    startTime: string;
+    endTime: string;
+  }) => {
+    if (!staffRecord?.staff_id) return;
+
+    const [startHour, startMin] = data.startTime.split(":").map(Number);
+    const [endHour, endMin] = data.endTime.split(":").map(Number);
+
+    const startDate = new Date(data.date);
+    startDate.setHours(startHour, startMin, 0, 0);
+    const endDate = new Date(data.date);
+    endDate.setHours(endHour, endMin, 0, 0);
+
+    if (endDate <= startDate) {
+      toast.error(t("tracker.invalidTimeRange"));
+      return;
+    }
+
+    const durationMinutes = Math.round((endDate.getTime() - startDate.getTime()) / 60000);
+
+    try {
+      await createEntry.mutateAsync({
+        staff_id: staffRecord.staff_id,
+        engagement_id: data.engagement_id,
+        activity_id: data.activity_id,
+        description: data.description || undefined,
+        started_at: startDate.toISOString(),
+        ended_at: endDate.toISOString(),
+        duration_minutes: durationMinutes,
+      });
+      toast.success(t("tracker.entryAdded"));
+      setManualDialogOpen(false);
+    } catch (error) {
+      toast.error(t("tracker.errorAdding"));
+    }
+  };
 
   const handleDelete = async (entry: TimerEntry, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -239,59 +338,6 @@ const TrackerList = () => {
     setEngagementFilterOpen(false);
   };
 
-  // Get entries that are ready to import (completed and not already imported)
-  const importableEntries = useMemo(() => {
-    return entries?.filter(e => e.ended_at && !e.is_imported) || [];
-  }, [entries]);
-
-  // Handle import - creates time_entries and marks timer entries as imported
-  const handleImport = async (selectedIds: string[]) => {
-    if (!staffRecord?.staff_id || selectedIds.length === 0) return;
-    
-    setIsImporting(true);
-    try {
-      const entriesToImport = entries?.filter(e => selectedIds.includes(e.timer_id)) || [];
-      const importedMappings: { timer_id: string; time_id: string }[] = [];
-      
-      for (const timerEntry of entriesToImport) {
-        // Create time entry
-        const dateWorked = format(new Date(timerEntry.started_at), "yyyy-MM-dd");
-        const hoursLogged = (timerEntry.duration_minutes || 0) / 60;
-        
-        const { data: timeEntry, error } = await supabase
-          .from('time_entries')
-          .insert({
-            staff_id: staffRecord.staff_id,
-            engagement_id: timerEntry.engagement_id,
-            activity_id: timerEntry.activity_id,
-            date_worked: dateWorked,
-            hours_logged: hoursLogged,
-            description: timerEntry.description,
-          })
-          .select()
-          .single();
-        
-        if (error) throw error;
-        
-        importedMappings.push({
-          timer_id: timerEntry.timer_id,
-          time_id: timeEntry.time_id,
-        });
-      }
-      
-      // Mark timer entries as imported
-      await markImported.mutateAsync(importedMappings);
-      
-      toast.success(t("tracker.importSuccess", { count: selectedIds.length }));
-      setImportDialogOpen(false);
-    } catch (error) {
-      console.error("Import error:", error);
-      toast.error(t("tracker.importError"));
-    } finally {
-      setIsImporting(false);
-    }
-  };
-
   if (staffLoading) {
     return (
       <AppLayout title={t("tracker.listTitle")}>
@@ -322,7 +368,7 @@ const TrackerList = () => {
   return (
     <AppLayout title={t("tracker.listTitle")}>
       <div className="space-y-4">
-        {/* Filters Row - only search + button */}
+        {/* Filters Row + Buttons */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
           <div className="relative w-full sm:min-w-[200px] sm:max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -333,29 +379,39 @@ const TrackerList = () => {
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
-          <div className="flex gap-2 w-full sm:w-auto">
-            {/* Import to Timesheet button - always visible, disabled when no entries */}
+          <div className="flex gap-2 w-full sm:w-auto flex-wrap">
+            {/* Export to Timesheet */}
             <Button
               variant="outline"
-              onClick={() => setImportDialogOpen(true)}
+              onClick={handleExport}
               className="flex-1 sm:flex-none min-h-[44px] sm:min-h-0"
-              disabled={entriesLoading || importableEntries.length === 0}
+              disabled={selectedIds.size === 0 || isExporting}
             >
-              <Upload className="h-4 w-4 mr-2" />
+              <ArrowUpFromLine className="h-4 w-4 mr-2" />
               {t("tracker.importToTimesheet")}
-              {importableEntries.length > 0 && (
+              {selectedIds.size > 0 && (
                 <Badge className="ml-2 bg-accent text-accent-foreground text-xs">
-                  {importableEntries.length}
+                  {selectedIds.size}
                 </Badge>
               )}
             </Button>
+            {/* Use Timer */}
             <Button
               variant="default"
               onClick={() => navigate("/tracker/new")}
               className="flex-1 sm:flex-none min-h-[44px] sm:min-h-0"
-          >
+            >
               <Plus className="h-4 w-4 mr-2" />
               {t("tracker.useTimer")}
+            </Button>
+            {/* New Manual Record */}
+            <Button
+              variant="outline"
+              onClick={() => setManualDialogOpen(true)}
+              className="flex-1 sm:flex-none min-h-[44px] sm:min-h-0"
+            >
+              <FileText className="h-4 w-4 mr-2" />
+              {t("tracker.newManualEntry")}
             </Button>
           </div>
         </div>
@@ -382,23 +438,38 @@ const TrackerList = () => {
               filteredEntries.map((entry) => {
                 const date = new Date(entry.started_at);
                 const canEdit = !entry.is_imported && entry.ended_at;
+                const selectable = isSelectable(entry);
                 
                 return (
                   <Card 
                     key={entry.timer_id} 
-                    className="cursor-pointer hover:bg-muted/50 transition-colors"
+                    className={`cursor-pointer hover:bg-muted/50 transition-colors ${selectedIds.has(entry.timer_id) ? "ring-2 ring-accent" : ""}`}
                     onClick={() => navigate(`/tracker/${entry.timer_id}`)}
                   >
                     <CardContent className="p-4">
                       {/* Primary Info */}
                       <div className="flex items-start justify-between gap-2 mb-2">
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium truncate">
-                            {entry.engagement?.engagement_code || "—"} - {entry.engagement?.engagement_name || ""}
-                          </p>
-                          <p className="text-sm text-muted-foreground truncate">
-                            {entry.activity?.activity_code || "—"} - {entry.activity?.description || ""}
-                          </p>
+                        <div className="flex items-start gap-3 flex-1 min-w-0">
+                          {/* Checkbox */}
+                          {selectable && (
+                            <div 
+                              className="min-h-[44px] min-w-[44px] flex items-center justify-center shrink-0"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <Checkbox
+                                checked={selectedIds.has(entry.timer_id)}
+                                onCheckedChange={() => toggleSelect(entry.timer_id)}
+                              />
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium truncate">
+                              {entry.engagement?.engagement_code || "—"} - {entry.engagement?.engagement_name || ""}
+                            </p>
+                            <p className="text-sm text-muted-foreground truncate">
+                              {entry.activity?.activity_code || "—"} - {entry.activity?.description || ""}
+                            </p>
+                          </div>
                         </div>
                         <div className="text-right shrink-0">
                           <p className="font-mono font-bold">{formatDuration(entry.duration_minutes)}</p>
@@ -483,6 +554,13 @@ const TrackerList = () => {
               <Table className="table-dense">
                 <TableHeader>
                   <TableRow className="bg-muted/50">
+                    {/* Checkbox - 4% */}
+                    <TableHead style={{ width: "4%" }} className="text-center border-r border-border">
+                      <Checkbox
+                        checked={selectedIds.size === selectableEntries.length && selectableEntries.length > 0}
+                        onCheckedChange={toggleSelectAll}
+                      />
+                    </TableHead>
                     {/* Fecha - 10% */}
                     <TableHead style={{ width: "10%" }} className="text-center border-r border-border">
                       <div className="flex items-center justify-center gap-1">
@@ -540,8 +618,8 @@ const TrackerList = () => {
                         {getSortIcon("duracion")}
                       </span>
                     </TableHead>
-                    {/* Encargo - 24% */}
-                    <TableHead style={{ width: "24%" }} className="text-center border-r border-border">
+                    {/* Encargo - 22% */}
+                    <TableHead style={{ width: "22%" }} className="text-center border-r border-border">
                       <div className="flex items-center justify-center gap-1">
                         <span 
                           className="cursor-pointer hover:text-foreground flex items-center gap-1"
@@ -582,8 +660,8 @@ const TrackerList = () => {
                         </Popover>
                       </div>
                     </TableHead>
-                    {/* Actividad - 17% */}
-                    <TableHead style={{ width: "17%" }} className="text-center border-r border-border">
+                    {/* Actividad - 15% */}
+                    <TableHead style={{ width: "15%" }} className="text-center border-r border-border">
                       <span 
                         className="cursor-pointer hover:text-foreground flex items-center justify-center gap-1"
                         onClick={() => handleSort("actividad")}
@@ -592,8 +670,8 @@ const TrackerList = () => {
                         {getSortIcon("actividad")}
                       </span>
                     </TableHead>
-                    {/* Descripción - 15% */}
-                    <TableHead style={{ width: "15%" }} className="text-center border-r border-border">
+                    {/* Descripción - 13% */}
+                    <TableHead style={{ width: "13%" }} className="text-center border-r border-border">
                       {t("tracker.description")}
                     </TableHead>
                     {/* Estado - 8% */}
@@ -610,14 +688,14 @@ const TrackerList = () => {
                   {entriesLoading ? (
                     Array.from({ length: 8 }).map((_, i) => (
                       <TableRow key={i}>
-                        {Array.from({ length: 8 }).map((_, j) => (
+                        {Array.from({ length: 9 }).map((_, j) => (
                           <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
                         ))}
                       </TableRow>
                     ))
                   ) : filteredEntries.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                         {t("common.noResults")}
                       </TableCell>
                     </TableRow>
@@ -625,13 +703,23 @@ const TrackerList = () => {
                     filteredEntries.map((entry) => {
                       const date = new Date(entry.started_at);
                       const canEdit = !entry.is_imported && entry.ended_at;
+                      const selectable = isSelectable(entry);
 
                       return (
                         <TableRow
                           key={entry.timer_id}
-                          className="cursor-pointer hover:bg-muted/50"
+                          className={`cursor-pointer hover:bg-muted/50 ${selectedIds.has(entry.timer_id) ? "bg-muted/50" : ""}`}
                           onClick={() => navigate(`/tracker/${entry.timer_id}`)}
                         >
+                          {/* Checkbox */}
+                          <TableCell className="text-center border-r border-border" onClick={(e) => e.stopPropagation()}>
+                            {selectable && (
+                              <Checkbox
+                                checked={selectedIds.has(entry.timer_id)}
+                                onCheckedChange={() => toggleSelect(entry.timer_id)}
+                              />
+                            )}
+                          </TableCell>
                           {/* Date */}
                           <TableCell className="font-mono text-muted-foreground text-left border-r border-border">
                             {format(date, "dd/MM/yyyy", { locale: currentLanguage === "es" ? es : undefined })}
@@ -723,13 +811,11 @@ const TrackerList = () => {
           </span>
         </div>
 
-        {/* Import Dialog */}
-        <TimerImportDialog
-          open={importDialogOpen}
-          onOpenChange={setImportDialogOpen}
-          entries={importableEntries}
-          onImport={handleImport}
-          isLoading={isImporting}
+        {/* Manual Entry Dialog */}
+        <ManualEntryDialog
+          open={manualDialogOpen}
+          onOpenChange={setManualDialogOpen}
+          onSubmit={handleManualSubmit}
         />
       </div>
     </AppLayout>
