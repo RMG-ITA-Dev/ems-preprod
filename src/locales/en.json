@@ -562,7 +562,9 @@
     "weeklyLimitExceeded": "Over limit!",
     "rowMerged": "A row with this engagement and activity already exists. Hours were merged automatically.",
     "saveDraftSuccess": "Draft saved successfully",
-    "saveDraftPartialError": "Failed to save {{count}} entries. Please try again."
+    "saveDraftPartialError": "Failed to save {{count}} entries. Please try again.",
+    "previousWeekAlreadyCopied": "Previous week structure already exists in current week",
+    "cannotModifyLockedWeek": "This week is locked and cannot be modified"
   },
   "expenses": {
     "title": "Expenses",

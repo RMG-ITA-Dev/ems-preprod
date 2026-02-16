@@ -208,3 +208,51 @@ Replaced the synchronous `.mutate()` loop with `mutateAsync()` +
 | `src/components/timesheet/TimesheetGrid.tsx` | Refactored `saveNowTrigger` effect |
 | `src/locales/en.json` | Added `saveDraftSuccess`, `saveDraftPartialError` |
 | `src/locales/es.json` | Added `saveDraftSuccess`, `saveDraftPartialError` |
+
+---
+
+## BUG #0213-24: Copy Previous Week Error + [object Object]
+
+**Date:** 2026-02-16
+**Priority:** Media
+**Version:** v2.0.4
+**Route:** OPERACIONES - Hoja de Tiempo
+
+### Problem
+
+Clicking "Copiar Semana Anterior" showed error toast:
+"Error copying previous week [object Object]"
+
+### Root Cause
+
+1. Upsert used a conflict target with no matching unique index in the database.
+2. Supabase errors (plain objects) were stringified as [object Object] by the
+   error handler.
+
+### Solution
+
+1. DB: Added unique index on time_entries
+   (staff_id, engagement_id, activity_id, date_worked, is_forecast).
+2. Mutation: Rewrote Copy Previous Week as deduplicated insert (zero upsert
+   calls). Structure-only copy (hours_logged = 0). Skips unmappable day
+   offsets with double guard. Selects only needed columns. Uses resolved
+   period_id to prevent orphaned time entries.
+3. Governance: Added fail-closed destination guard via unified helper
+   resolveDestinationPeriod(). Handles both periodId and natural-key
+   lookup. Returns resolved period_id for inserts.
+4. Error handler: Extract .message from plain objects globally.
+5. Typed errors: New src/lib/timesheetErrors.ts with TimesheetAppError
+   class extending Error. Provides branded createTimesheetError() /
+   isTimesheetError() with proper stack traces.
+6. Dedup keys include is_forecast to match unique index shape.
+
+### Files Modified
+
+| File | Change |
+|------|--------|
+| migration | Added idx_time_entries_unique_entry |
+| src/lib/timesheetErrors.ts | New typed error utility (extends Error) |
+| src/hooks/useTimesheetMutations.ts | Rewrote useCopyPreviousWeek + added helper |
+| src/lib/error-handler.ts | Fixed plain-object error extraction |
+| src/locales/en.json | Added 2 keys |
+| src/locales/es.json | Added 2 keys |
