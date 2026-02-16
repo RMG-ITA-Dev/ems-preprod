@@ -21,6 +21,7 @@ import type { TimeEntry, ApprovedEngagement, ActivityCode } from "@/hooks/useTim
 import { useUpsertTimeEntry } from "@/hooks/useTimesheetMutations";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { logger } from "@/lib/logger";
 
 interface LineApproval {
   approval_id: string;
@@ -83,6 +84,8 @@ export function TimesheetGrid({
   
   // Ref to access current rows inside debounced callbacks (fixes stale closure)
   const rowsRef = useRef<GridRow[]>([]);
+  const isMountedRef = useRef(true);
+  const isBatchSavingRef = useRef(false);
 
   // Convert entries to grid rows
   const initialRows = useMemo(() => {
@@ -132,7 +135,9 @@ export function TimesheetGrid({
 
   // Cleanup debounce timers on unmount to prevent memory leaks
   useEffect(() => {
+    isMountedRef.current = true;
     return () => {
+      isMountedRef.current = false;
       Object.values(debounceTimers.current).forEach(clearTimeout);
     };
   }, []);
@@ -148,67 +153,132 @@ export function TimesheetGrid({
     }
   }, [savingCells.size, savedCells.size, onSaveStatusChange]);
 
-  // BUG #29: Handle "Save Now" trigger from parent
+  // BUG #0213-23: Handle "Save Now" trigger from parent
+  const BATCH_SIZE = 10;
   const prevSaveNowTrigger = useRef(0);
   useEffect(() => {
     if (saveNowTrigger && saveNowTrigger > prevSaveNowTrigger.current) {
       prevSaveNowTrigger.current = saveNowTrigger;
-      
+
+      // Double-click guard: ignore if a batch is already in progress
+      if (isBatchSavingRef.current) return;
+
       // Clear all pending debounce timers and save immediately
       Object.entries(debounceTimers.current).forEach(([key, timer]) => {
         clearTimeout(timer);
         delete debounceTimers.current[key];
       });
-      
-      // Trigger immediate save for all rows with data
+
+      // 1. Collect all cells that need saving or deleting
+      const cellsToSave: {
+        cellKey: string;
+        params: Parameters<typeof upsertEntry.mutateAsync>[0];
+      }[] = [];
+
       rowsRef.current.forEach((row) => {
         if (!row.engagementId || !row.activityId) return;
         weekDates.forEach((date) => {
           const dateStr = toISODateString(date);
           const hours = row.hours[dateStr];
-          if (hours !== undefined && hours > 0) {
-            const cellKey = `${row.id}-${dateStr}`;
-            setSavingCells((prev) => new Set(prev).add(cellKey));
-            upsertEntry.mutate(
-              {
+          const existingEntryId = row.entryIds[dateStr] || null;
+          const hasHours = hours !== undefined && hours > 0;
+          // Only treat explicit zero as deletion (not undefined)
+          const needsDeletion = hours === 0 && !!existingEntryId;
+
+          if (hasHours || needsDeletion) {
+            cellsToSave.push({
+              cellKey: `${row.id}-${dateStr}`,
+              params: {
                 staffId,
                 engagementId: row.engagementId,
                 activityId: row.activityId,
                 dateWorked: date,
-                hours,
+                hours: hasHours ? hours : 0,
                 periodId,
-                existingEntryId: row.entryIds[dateStr] || null,
+                existingEntryId,
               },
-              {
-                onSuccess: () => {
-                  setSavingCells((prev) => {
-                    const next = new Set(prev);
-                    next.delete(cellKey);
-                    return next;
-                  });
-                  setSavedCells((prev) => new Set(prev).add(cellKey));
-                  setTimeout(() => {
-                    setSavedCells((prev) => {
-                      const next = new Set(prev);
-                      next.delete(cellKey);
-                      return next;
-                    });
-                  }, 2000);
-                },
-                onError: () => {
-                  setSavingCells((prev) => {
-                    const next = new Set(prev);
-                    next.delete(cellKey);
-                    return next;
-                  });
-                },
-              }
-            );
+            });
           }
         });
       });
+
+      if (cellsToSave.length === 0) return;
+
+      // 2. Mark all cells as saving and lock the batch
+      isBatchSavingRef.current = true;
+      const allCellKeys = new Set(cellsToSave.map((c) => c.cellKey));
+      setSavingCells((prev) => new Set([...prev, ...allCellKeys]));
+
+      // 3. Execute batch with concurrency limit
+      const executeBatch = async () => {
+        try {
+          const allResults: PromiseSettledResult<unknown>[] = [];
+
+          for (let i = 0; i < cellsToSave.length; i += BATCH_SIZE) {
+            const chunk = cellsToSave.slice(i, i + BATCH_SIZE);
+            const results = await Promise.allSettled(
+              chunk.map((cell) => upsertEntry.mutateAsync(cell.params))
+            );
+            allResults.push(...results);
+          }
+
+          // Guard against unmount
+          if (!isMountedRef.current) return;
+
+          // Clear all saving indicators atomically
+          setSavingCells((prev) => {
+            const next = new Set(prev);
+            allCellKeys.forEach((key) => next.delete(key));
+            return next;
+          });
+
+          // Handle results
+          const failCount = allResults.filter(
+            (r) => r.status === "rejected"
+          ).length;
+
+          if (failCount > 0) {
+            const errors = allResults
+              .filter((r) => r.status === "rejected")
+              .map((r) => (r as PromiseRejectedResult).reason);
+            logger.error("Batch save partial failure", {
+              failCount,
+              total: allResults.length,
+              errors,
+            });
+            toast.error(
+              t("timesheet.saveDraftPartialError", { count: failCount })
+            );
+          } else {
+            toast.success(t("timesheet.saveDraftSuccess"));
+            // Mark successful cells with green checkmark
+            const savedKeySet = new Set(cellsToSave.map((c) => c.cellKey));
+            setSavedCells((prev) => new Set([...prev, ...savedKeySet]));
+            setTimeout(() => {
+              if (!isMountedRef.current) return;
+              setSavedCells((prev) => {
+                const next = new Set(prev);
+                savedKeySet.forEach((key) => next.delete(key));
+                return next;
+              });
+            }, 2000);
+          }
+        } finally {
+          // Fail-safe: always clear savingCells and unlock batch flag
+          if (isMountedRef.current) {
+            setSavingCells((prev) => {
+              const next = new Set(prev);
+              allCellKeys.forEach((k) => next.delete(k));
+              return next;
+            });
+          }
+          isBatchSavingRef.current = false;
+        }
+      };
+
+      executeBatch();
     }
-  }, [saveNowTrigger, weekDates, staffId, periodId, upsertEntry]);
+  }, [saveNowTrigger, weekDates, staffId, periodId, upsertEntry, t]);
 
   const addNewRow = () => {
     setRows([

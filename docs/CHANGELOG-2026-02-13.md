@@ -166,3 +166,45 @@ Created a `useInactivityTimeout` hook that monitors user activity (mouse, keyboa
 - **Low risk** — purely additive; no existing auth or session logic modified.
 - `BroadcastChannel` falls back gracefully to single-tab behavior if unsupported.
 - Time Tracker data persists in DB so no data loss on auto-logout.
+
+---
+
+## BUG #0213-23: Timesheet "Save Draft" Stuck in Loading Loop
+
+**Date:** 2026-02-16
+**Priority:** Baja
+**Version:** v2.0.4
+**Route:** OPERACIONES - Hoja de Tiempo
+
+### Problem
+
+The "Guardar Borrador" button saved data correctly but the UI spinner
+("Guardando...") persisted indefinitely. Users had no confirmation that the
+save completed.
+
+### Root Cause
+
+TanStack Query's `useMutation` discards per-call `onSuccess`/`onError`
+callbacks for all but the last `.mutate()` invocation when called rapidly in
+a loop. With N cells to save, only the Nth cell's callback fired, leaving
+N-1 cell keys stuck in `savingCells`.
+
+### Solution
+
+Replaced the synchronous `.mutate()` loop with `mutateAsync()` +
+`Promise.allSettled()` for reliable batch completion tracking. Added:
+- Concurrency limiter (10 parallel mutations per chunk)
+- Zero-hours deletion handling (cells cleared to 0 with existing entries)
+- Unmount guard (`isMountedRef`) to prevent React state-update warnings
+- Double-click guard (`isBatchSavingRef`) to prevent overlapping batches
+- `try/finally` fail-safe to guarantee batch flag reset and `savingCells` clear on any error path
+- Failure logging via `logger.error` for debugging
+- Success/partial-error toasts for clear user feedback
+
+### Files Modified
+
+| File | Change |
+|------|--------|
+| `src/components/timesheet/TimesheetGrid.tsx` | Refactored `saveNowTrigger` effect |
+| `src/locales/en.json` | Added `saveDraftSuccess`, `saveDraftPartialError` |
+| `src/locales/es.json` | Added `saveDraftSuccess`, `saveDraftPartialError` |
