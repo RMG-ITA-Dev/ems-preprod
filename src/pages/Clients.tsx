@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Badge } from "@/components/ui/badge";
-import { Building2 } from "lucide-react";
+
 import { useClients, useEngagements, useIndustries, Client } from "@/hooks/useEmsData";
 import { DataTable, Column } from "@/components/data-table/DataTable";
 import { useNavigate } from "react-router-dom";
@@ -30,12 +30,7 @@ const Clients = () => {
       sortable: true,
       mobilePriority: 'primary',
       render: (row) => (
-        <div className="flex items-center gap-3">
-          <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
-            <Building2 className="h-4 w-4 text-primary" />
-          </div>
-          <span className="font-medium">{row.client_legal_name}</span>
-        </div>
+        <span className="font-medium">{row.client_legal_name}</span>
       ),
     },
     {
