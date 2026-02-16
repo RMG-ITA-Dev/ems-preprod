@@ -5,9 +5,7 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Loader2, AlertCircle, Lock, Save, RotateCcw, Check, AlertTriangle, Copy, Upload } from "lucide-react";
-import { TimerImportDialog } from "@/components/tracker/TimerImportDialog";
-import { useUnimportedTimerEntries, useMarkTimerEntriesImported } from "@/hooks/useTimerEntries";
+import { Loader2, AlertCircle, Lock, Save, RotateCcw, Check, AlertTriangle, Copy } from "lucide-react";
 import { WeekNavigator } from "@/components/timesheet/WeekNavigator";
 import { TimesheetGrid } from "@/components/timesheet/TimesheetGrid";
 import { useTimesheetPolicies } from "@/hooks/useTimesheetPolicies";
@@ -64,7 +62,7 @@ const TimeSheet = () => {
   // Save status state (BUG #29)
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
-  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  
 
   // Manual save trigger
   const [saveNowTrigger, setSaveNowTrigger] = useState(0);
@@ -114,11 +112,7 @@ const TimeSheet = () => {
 
   const prevWeekSubmittedOrApproved = !!previousPeriod?.submitted_at;
 
-  // BUG #4b: Fetch unimported timer entries for current week
-  const weekEnd = weekInfo.weekDates[weekInfo.weekDates.length - 1];
-  const { data: unimportedTimerEntries } = useUnimportedTimerEntries(currentWeekStart, weekEnd);
-  const markTimerImported = useMarkTimerEntriesImported();
-  const [isTimerImporting, setIsTimerImporting] = useState(false);
+  // (Timer import removed — export now happens from Registros de Tiempo list)
 
   // Mutations
   const submitTimesheet = useSubmitTimesheet();
@@ -266,43 +260,7 @@ const TimeSheet = () => {
     setSaveNowTrigger((prev) => prev + 1);
   }, [canSaveDraft]);
 
-  // BUG #4b: Handle timer import from timesheet
-  const handleTimerImport = async (selectedIds: string[]) => {
-    if (!staffRecord?.staff_id || selectedIds.length === 0) return;
-    setIsTimerImporting(true);
-    try {
-      const entriesToImport = unimportedTimerEntries?.filter(e => selectedIds.includes(e.timer_id)) || [];
-      const importedMappings: { timer_id: string; time_id: string }[] = [];
-      
-      for (const timerEntry of entriesToImport) {
-        const dateWorked = new Date(timerEntry.started_at).toISOString().split('T')[0];
-        const hoursLogged = (timerEntry.duration_minutes || 0) / 60;
-        
-        const { data: timeEntry, error } = await supabase
-          .from('time_entries')
-          .insert({
-            staff_id: staffRecord.staff_id,
-            engagement_id: timerEntry.engagement_id,
-            activity_id: timerEntry.activity_id,
-            date_worked: dateWorked,
-            hours_logged: hoursLogged,
-            description: timerEntry.description,
-          })
-          .select()
-          .single();
-        
-        if (error) throw error;
-        importedMappings.push({ timer_id: timerEntry.timer_id, time_id: timeEntry.time_id });
-      }
-      
-      await markTimerImported.mutateAsync(importedMappings);
-      setImportDialogOpen(false);
-    } catch (error) {
-      console.error("Timer import error:", error);
-    } finally {
-      setIsTimerImporting(false);
-    }
-  };
+  // (Timer import handler removed — export now happens from Registros de Tiempo list)
 
   // Callback from TimesheetGrid when save status changes
   const handleSaveStatusChange = useCallback((status: SaveStatus) => {
@@ -453,19 +411,6 @@ const TimeSheet = () => {
           </div>
 
           <div className="flex gap-3 flex-wrap">
-            {/* BUG #4b: Import from Timer Button */}
-            {isEditable && (unimportedTimerEntries?.length || 0) > 0 && (
-              <Button
-                variant="outline"
-                onClick={() => setImportDialogOpen(true)}
-              >
-                <Upload className="h-4 w-4 mr-2" />
-                {t("tracker.importFromTimer")}
-                <Badge className="ml-2 bg-accent text-accent-foreground text-xs">
-                  {unimportedTimerEntries!.length}
-                </Badge>
-              </Button>
-            )}
 
             {/* BUG #12 / BUG #0206-3: Copy Previous Week Button */}
             {canCopyPreviousWeek && (
@@ -526,14 +471,6 @@ const TimeSheet = () => {
           </div>
         </div>
 
-        {/* BUG #4b: Timer Import Dialog */}
-        <TimerImportDialog
-          open={importDialogOpen}
-          onOpenChange={setImportDialogOpen}
-          entries={unimportedTimerEntries || []}
-          onImport={handleTimerImport}
-          isLoading={isTimerImporting}
-        />
       </div>
     </AppLayout>
   );
