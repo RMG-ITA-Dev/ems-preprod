@@ -219,11 +219,11 @@ export function ExpenseLogForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-4 form-dense">
       {initialData?.created_by_staff && (
-        <div className="text-sm text-muted-foreground">
-          <span className="font-medium">{t("expenses.loggedBy")}:</span>{" "}
+        <div className="text-base text-foreground">
+          <span className="font-semibold">{t("expenses.loggedBy")}:</span>{" "}
           {initialData.created_by_staff.first_name} {initialData.created_by_staff.last_name}
           {initialData.created_by_staff.initials && (
-            <span className="ml-1">({initialData.created_by_staff.initials})</span>
+            <span className="ml-1 text-muted-foreground">({initialData.created_by_staff.initials})</span>
           )}
         </div>
       )}
