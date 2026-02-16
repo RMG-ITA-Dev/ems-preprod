@@ -1,38 +1,31 @@
 
 
-# Fix: "My Expenses" Toggle Shows Empty — Backfill `created_by_staff_id`
+# Show "Logged By" in Expense Edit View
 
 ## Problem
 
-The toggle works correctly in code, but all 41 existing expense records have `created_by_staff_id = NULL`. The filter finds zero matches because no expense is attributed to any staff member yet.
+The expense edit form does not display who logged the expense. The `created_by_staff` data is already fetched by `useExpenseLogById` but is not passed to or displayed in the form.
 
 ## Solution
 
-Run a database migration to backfill existing expenses. Since there is no audit trail of who created each expense, we have two options:
-
-**Option A (Recommended):** Backfill based on the engagement's manager. Since managers typically log expenses for their engagements, we attribute each expense to the engagement's `manager_id`. Expenses with no linked engagement or no manager stay NULL.
-
-**Option B:** Leave existing data as-is and only track going forward. Add a visual indicator ("-" or "N/A") for un-attributed expenses so the toggle behavior is understood.
-
-We will implement **Option A** with a single migration.
+Add a read-only "Logged By" info line at the top of the form when editing an existing expense. This will show the staff member's name (or initials) who created the expense.
 
 ---
 
 ## Changes
 
-### 1. Database Migration — Backfill `created_by_staff_id`
+### 1. `src/components/forms/ExpenseLogForm.tsx`
 
-```sql
--- Backfill created_by_staff_id from engagement manager
-UPDATE public.expense_logs el
-SET created_by_staff_id = e.manager_id
-FROM public.engagements e
-WHERE el.engagement_id = e.engagement_id
-  AND el.created_by_staff_id IS NULL
-  AND e.manager_id IS NOT NULL;
-```
+- Expand the `ExpenseLogFormData` interface (line 30) to include an optional `created_by_staff` object with `first_name`, `last_name`, `initials`.
+- Add a read-only display row at the top of the form (before the grid, around line 216) that shows "Logged By: [Name]" when `initialData?.created_by_staff` is present. Styled as a subtle info line with muted text -- not an editable field.
 
-This attributes existing expenses to their engagement's manager. Rows where the engagement has no manager remain NULL (shown as "-" in the UI).
+### 2. `src/pages/ExpenseEdit.tsx`
+
+- The `useExpenseLogById` query already fetches `created_by_staff`. No changes needed here since `expenseLog` is passed directly as `initialData` and already contains the nested relation.
+
+### 3. Localization
+
+- The key `expenses.loggedBy` ("Logged By" / "Registrado Por") was already added in the previous implementation. No new keys needed.
 
 ---
 
@@ -40,20 +33,5 @@ This attributes existing expenses to their engagement's manager. Rows where the 
 
 | # | File | Action |
 |---|------|--------|
-| 1 | Database migration | `UPDATE` to backfill from engagement manager |
-
-No code changes needed — the toggle, filter logic, and "Logged By" column already work correctly.
-
-## Risk Assessment
-
-- **Low risk** — only fills NULL values, does not overwrite any existing data
-- Expenses where the engagement has no manager stay NULL (safe)
-- If the attribution is wrong for some rows, users can note it and it will self-correct as new expenses are created with accurate `created_by_staff_id`
-
-## Testing
-
-1. After migration, toggle "My Expenses" ON — verify expenses for engagements you manage appear
-2. Toggle OFF — verify all team expenses are visible
-3. Check "Logged By" column — verify initials now appear for backfilled rows
-4. Create a new expense — verify it shows your initials correctly
+| 1 | `src/components/forms/ExpenseLogForm.tsx` | Add `created_by_staff` to interface + read-only display |
 
