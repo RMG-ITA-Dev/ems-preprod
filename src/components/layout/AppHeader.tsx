@@ -78,9 +78,9 @@ export function AppHeader({ title = "Dashboard" }: AppHeaderProps) {
         </Button>
         <span
           className="text-base font-bold text-brand-purple truncate hidden sm:inline"
-          title={`${t("header.userPrefix")} ${displayName || t("common.user")}`}
-        >
-          {t("header.userPrefix")} {displayName || t("common.user")}
+    title={displayName || t("common.user")}
+  >
+    {displayName || t("common.user")}
         </span>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
