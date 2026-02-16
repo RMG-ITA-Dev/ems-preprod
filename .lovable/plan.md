@@ -1,112 +1,96 @@
 
 
-# Bug 0206-19: Start Date Allows Values Before Engagement Creation Date
+# Bug 0213-22: Auto-Logout After 30 Minutes of Inactivity (Final)
 
 ## Problem
 
-The Engagement form allows users to select a Start Date earlier than the engagement's creation date. There is no UI restriction on the Calendar picker and no save-time validation. The `Engagement` interface also lacks the `created_at` field, preventing the form from referencing it.
+Sessions persist indefinitely. A user left the system unattended for 4 hours and it remained active -- a security risk for an audit/consulting firm.
 
 ## Solution
 
-Add a `minStartDate` constraint (today for new, `created_at` for edits) enforced via Calendar `disabled` prop + onSubmit validation guard. Also restrict end_date Calendar to not allow dates before the selected start_date.
+Create a `useInactivityTimeout` hook with:
+- Configurable timeout via `global_settings.SESSION_TIMEOUT_MINUTES` (default 30)
+- Throttled activity monitoring (reset once per minute max)
+- Warning toast 2 minutes before logout
+- Cross-tab sync via `BroadcastChannel` -- logout in one tab logs out all tabs
+- Visibility change handler for backgrounded tabs
 
 ## Changes
 
-### 1. `src/hooks/useEmsData.ts` -- Add `created_at` to Engagement interface
+### 1. Database: Insert `SESSION_TIMEOUT_MINUTES` setting
 
-Add `created_at: string | null;` after `end_date` (line 73). No other changes needed since the `useEngagements` query already uses `select(*)` which includes `created_at`.
+```sql
+INSERT INTO public.global_settings (setting_key, setting_value, description)
+VALUES ('SESSION_TIMEOUT_MINUTES', '30', 'Minutes of inactivity before automatic logout');
+```
 
-### 2. `src/components/forms/EngagementForm.tsx`
+### 2. New file: `src/hooks/useInactivityTimeout.ts`
 
-**Imports (line 1, 5):**
-- Add `useMemo` to the React import
-- Add `startOfDay, isBefore` to the date-fns import
+Core design:
+- Events monitored: `mousedown`, `mousemove`, `keydown`, `scroll`, `touchstart`, `click`
+- `THROTTLE_MS = 60_000` -- only reset timers once per minute
+- `WARNING_BEFORE_MS = 2 * 60_000` -- warning toast 2 min before logout
+- `BroadcastChannel("ems_session_channel")` -- posts `{ type: "LOGOUT" }` on timeout; listens for same from other tabs
+- `visibilitychange` listener -- refreshes timers when tab becomes visible
+- Accepts `timeoutMinutes` param (number, from parsed setting); defaults to 30
+- On timeout: calls `signOut()`, navigates to `/auth`, shows toast
+- Only active when `user` is truthy
+- Cleans up all listeners, timers, and channel on unmount
 
-**`minStartDate` computation (after line 85, after `isEdit`):**
+### 3. Modify: `src/components/ProtectedRoute.tsx`
+
+- Import `useInactivityTimeout` and `useSetting`
+- After the existing `useCurrentStaff` call (line 12), add:
 
 ```typescript
-const minStartDate = useMemo(() => {
-  if (isEdit && engagement?.created_at) {
-    return startOfDay(new Date(engagement.created_at));
-  }
-  return startOfDay(new Date());
-}, [isEdit, engagement?.created_at]);
+const timeoutSetting = useSetting("SESSION_TIMEOUT_MINUTES");
+const timeoutMinutes = timeoutSetting ? parseInt(timeoutSetting, 10) : 30;
+useInactivityTimeout(timeoutMinutes);
 ```
 
-**onSubmit validation guard (line 132, top of onSubmit):**
+### 4. Localization
 
-```typescript
-// BUG #0206-19: Validate start_date >= creation date
-if (data.start_date && isBefore(startOfDay(data.start_date), minStartDate)) {
-  form.setError("start_date", {
-    message: t("engagement.startDateBeforeCreation"),
-  });
-  return;
-}
+**`src/locales/en.json`** -- add 2 keys at end of `auth` object (before line 793 closing brace):
+
+```json
+"sessionExpiredInactivity": "Your session has expired due to inactivity. Please sign in again.",
+"sessionWarningInactivity": "Your session will expire in 2 minutes due to inactivity."
 ```
 
-**Start Date Calendar (line 383-389) -- add `disabled` prop:**
+**`src/locales/es.json`** -- same location:
 
-```tsx
-<Calendar
-  mode="single"
-  selected={field.value}
-  onSelect={field.onChange}
-  disabled={(date) => isBefore(startOfDay(date), minStartDate)}
-  initialFocus
-  className="pointer-events-auto"
-/>
+```json
+"sessionExpiredInactivity": "Su sesion ha expirado por inactividad. Por favor, inicie sesion nuevamente.",
+"sessionWarningInactivity": "Su sesion expirara en 2 minutos por inactividad."
 ```
 
-**End Date Calendar (line 419-425) -- add `disabled` prop:**
+### 5. Documentation: `docs/CHANGELOG-2026-02-13.md`
 
-```tsx
-<Calendar
-  mode="single"
-  selected={field.value}
-  onSelect={field.onChange}
-  disabled={(date) => {
-    const startDate = form.getValues("start_date");
-    if (startDate) return isBefore(startOfDay(date), startOfDay(startDate));
-    return isBefore(startOfDay(date), minStartDate);
-  }}
-  initialFocus
-  className="pointer-events-auto"
-/>
-```
+Append bug fix entry covering problem, solution, files modified.
 
-### 3. `src/locales/en.json` (line 362, inside engagement namespace)
-
-Add: `"startDateBeforeCreation": "Start date cannot be before the engagement creation date"`
-
-### 4. `src/locales/es.json` (same location)
-
-Add: `"startDateBeforeCreation": "La fecha de inicio no puede ser anterior a la fecha de creación del encargo"`
-
-### 5. `docs/CHANGELOG-2026-02-13.md`
-
-Append full bug documentation entry.
-
-## Files Modified
+## Files Summary
 
 | File | Action |
 |------|--------|
-| `src/hooks/useEmsData.ts` | Add `created_at` to `Engagement` interface |
-| `src/components/forms/EngagementForm.tsx` | Add imports, `minStartDate`, onSubmit guard, Calendar `disabled` props |
-| `src/locales/en.json` | Add `startDateBeforeCreation` key |
-| `src/locales/es.json` | Add `startDateBeforeCreation` key |
-| `docs/CHANGELOG-2026-02-13.md` | Append bug entry |
+| Migration SQL | Insert `SESSION_TIMEOUT_MINUTES` into `global_settings` |
+| `src/hooks/useInactivityTimeout.ts` | New hook |
+| `src/components/ProtectedRoute.tsx` | Add `useSetting` + `useInactivityTimeout` calls |
+| `src/locales/en.json` | Add 2 keys under `auth` |
+| `src/locales/es.json` | Add 2 keys under `auth` |
+| `docs/CHANGELOG-2026-02-13.md` | Append entry |
 
 ## Risk Assessment
 
-- **Low risk** -- adds constraint only; no existing data or mutations modified.
-- Legacy engagements with `start_date < created_at` will still display but will be blocked on save unless corrected. If retroactive dates are needed, a grandfather clause (`minStartDate = min(created_at, existing start_date)`) can be added.
+- **Low risk** -- purely additive; no existing auth or session logic modified.
+- `BroadcastChannel` supported in all modern browsers; if unavailable, single-tab behavior still works.
+- `useSetting` reuses existing `global_settings` query cache -- no extra network request.
+- Time Tracker data persists in DB so no data loss on auto-logout.
 
 ## Testing
 
-1. New engagement: calendar disables all dates before today
-2. Edit existing engagement: calendar disables dates before `created_at`
-3. End date calendar disables dates before selected start date
-4. Attempting to save with an invalid start date shows localized error
-5. Existing engagements load and display correctly
+1. Set `SESSION_TIMEOUT_MINUTES` to `2` in Settings, idle for 2+ minutes -- verify warning toast at ~0:00 and logout at ~2:00
+2. Move mouse periodically -- verify session stays alive
+3. Open two tabs: when one times out, both log out
+4. Change setting value in Settings -- verify new timeout applies on next page load
+5. Logged-out user on `/auth` -- hook does nothing, no errors
 
