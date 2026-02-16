@@ -789,7 +789,9 @@
     },
     "firstUserMessage": "¡Bienvenido! Como primer usuario, se te ha asignado el rol de Administrador con acceso completo al sistema.",
     "verifyYourEmail": "Revisa tu Correo Electrónico",
-    "confirmationSent": "Hemos enviado un enlace de confirmación a {{email}}. Por favor abre tu correo y haz clic en el enlace para activar tu cuenta."
+    "confirmationSent": "Hemos enviado un enlace de confirmación a {{email}}. Por favor abre tu correo y haz clic en el enlace para activar tu cuenta.",
+    "sessionExpiredInactivity": "Su sesión ha expirado por inactividad. Por favor, inicie sesión nuevamente.",
+    "sessionWarningInactivity": "Su sesión expirará en 2 minutos por inactividad."
   },
   "workMatrix": {
     "title": "Matriz de Trabajo",

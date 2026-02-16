@@ -133,3 +133,36 @@ Added a `minStartDate` constraint (today for new engagements, `created_at` for e
 
 - **Low risk** — adds constraint only; no existing data or mutations modified.
 - Legacy engagements with `start_date < created_at` will still display but will be blocked on save unless corrected.
+
+---
+
+## BUG #0213-22: Auto-Logout After 30 Minutes of Inactivity
+
+**Date:** 2026-02-16  
+**Priority:** Baja  
+**Version:** v2.0.4  
+**Route:** PRINCIPAL → Panel de Control
+
+### Problem
+
+Sessions persisted indefinitely. A user left the system unattended for 4 hours and it remained active — a security risk for an audit/consulting firm.
+
+### Solution
+
+Created a `useInactivityTimeout` hook that monitors user activity (mouse, keyboard, touch, scroll, click) with throttled resets (once per minute). After the configured timeout (default 30 minutes from `global_settings.SESSION_TIMEOUT_MINUTES`), it signs the user out and redirects to `/auth`. A warning toast appears 2 minutes before logout. Cross-tab synchronization via `BroadcastChannel` ensures all tabs log out together. A `visibilitychange` listener refreshes timers when backgrounded tabs return to focus.
+
+### Changes
+
+| File | Change |
+|------|--------|
+| Migration SQL | Inserted `SESSION_TIMEOUT_MINUTES` = `30` into `global_settings` |
+| `src/hooks/useInactivityTimeout.ts` | New hook: activity monitoring, throttle, warning toast, cross-tab sync, visibility handling |
+| `src/components/ProtectedRoute.tsx` | Added `useSetting("SESSION_TIMEOUT_MINUTES")` + `useInactivityTimeout(timeoutMinutes)` |
+| `src/locales/en.json` | Added `auth.sessionExpiredInactivity`, `auth.sessionWarningInactivity` |
+| `src/locales/es.json` | Added `auth.sessionExpiredInactivity`, `auth.sessionWarningInactivity` |
+
+### Risk Assessment
+
+- **Low risk** — purely additive; no existing auth or session logic modified.
+- `BroadcastChannel` falls back gracefully to single-tab behavior if unsupported.
+- Time Tracker data persists in DB so no data loss on auto-logout.

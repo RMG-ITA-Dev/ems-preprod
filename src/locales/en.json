@@ -789,7 +789,9 @@
     },
     "firstUserMessage": "Welcome! As the first user, you have been assigned the Administrator role with full system access.",
     "verifyYourEmail": "Check Your Email",
-    "confirmationSent": "We've sent a confirmation link to {{email}}. Please open your email and click the link to activate your account."
+    "confirmationSent": "We've sent a confirmation link to {{email}}. Please open your email and click the link to activate your account.",
+    "sessionExpiredInactivity": "Your session has expired due to inactivity. Please sign in again.",
+    "sessionWarningInactivity": "Your session will expire in 2 minutes due to inactivity."
   },
   "workMatrix": {
     "title": "Work Matrix",
