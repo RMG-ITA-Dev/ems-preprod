@@ -9,6 +9,8 @@ import {
   UserCog,
   Settings,
   LogOut,
+  UserCheck,
+  UserX,
 } from "lucide-react";
 import {
   Drawer,
@@ -16,9 +18,10 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
+import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/useAuth";
+import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { useUserRole } from "@/hooks/useUserRole";
-import { cn } from "@/lib/utils";
 
 interface MobileMoreDrawerProps {
   open: boolean;
@@ -28,8 +31,23 @@ interface MobileMoreDrawerProps {
 export function MobileMoreDrawer({ open, onOpenChange }: MobileMoreDrawerProps) {
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const { signOut } = useAuth();
+  const { user, signOut } = useAuth();
+  const { data: staffRecord } = useCurrentStaff();
   const { isAdmin } = useUserRole();
+
+  const userInitials = staffRecord?.initials
+    ? staffRecord.initials
+    : staffRecord
+      ? `${staffRecord.first_name[0]}${staffRecord.last_name[0]}`.toUpperCase()
+      : user?.user_metadata?.first_name && user?.user_metadata?.last_name
+        ? `${user.user_metadata.first_name[0]}${user.user_metadata.last_name[0]}`.toUpperCase()
+        : user?.email?.substring(0, 2).toUpperCase() || "U";
+
+  const displayName = staffRecord
+    ? `${staffRecord.first_name} ${staffRecord.last_name}`
+    : user?.user_metadata?.first_name
+      ? `${user.user_metadata.first_name} ${user.user_metadata.last_name || ''}`
+      : null;
 
   const handleNavigate = (path: string) => {
     navigate(path);
@@ -63,6 +81,38 @@ export function MobileMoreDrawer({ open, onOpenChange }: MobileMoreDrawerProps) 
         <DrawerHeader className="text-left">
           <DrawerTitle>{t("common.menu")}</DrawerTitle>
         </DrawerHeader>
+
+        {/* Profile section */}
+        <div className="px-4 pb-4 mb-2 border-b border-border">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-full bg-accent flex items-center justify-center flex-shrink-0">
+              <span className="text-accent-foreground font-medium text-sm">{userInitials}</span>
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-medium truncate">{displayName || t("common.user")}</p>
+              <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
+            </div>
+          </div>
+          <div className="mt-2 px-1">
+            {staffRecord ? (
+              <div className="flex items-center gap-2 text-xs">
+                <UserCheck className="h-3.5 w-3.5 text-success" />
+                <span className="text-muted-foreground">{t("header.linkedToStaff")} </span>
+                {staffRecord.category?.category_name && (
+                  <Badge variant="secondary" className="text-xs">
+                    {staffRecord.category.category_name}
+                  </Badge>
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <UserX className="h-3.5 w-3.5" />
+                <span>{t("header.notLinkedToStaff")}</span>
+              </div>
+            )}
+          </div>
+        </div>
+
         <div className="px-4 pb-8 space-y-6 overflow-y-auto">
           {/* Main Navigation */}
           <div className="space-y-1">
@@ -124,7 +174,7 @@ export function MobileMoreDrawer({ open, onOpenChange }: MobileMoreDrawerProps) 
               className="flex items-center gap-3 w-full px-3 py-3 rounded-lg text-destructive hover:bg-destructive/10 transition-colors"
             >
               <LogOut className="h-5 w-5" />
-              <span className="text-sm font-medium">{t("auth.signOut")}</span>
+              <span className="text-sm font-medium">{t("nav.signOut")}</span>
             </button>
           </div>
         </div>

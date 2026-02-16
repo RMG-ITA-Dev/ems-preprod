@@ -134,7 +134,7 @@ const Auth = () => {
       <div className="hidden lg:flex lg:w-1/2 bg-primary p-12 flex-col justify-between">
         <div>
           <div className="mb-16">
-            <h1 className="text-2xl font-bold text-primary-foreground">EMS 2.0</h1>
+            <h1 className="text-2xl font-bold text-primary-foreground">RuizmierGroup - EMS 2.0</h1>
             <p className="text-primary-foreground/70 text-sm">Engagement Management System</p>
           </div>
 
