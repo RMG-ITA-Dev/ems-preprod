@@ -1,29 +1,34 @@
 
 
-# Remove "Usuario:" Prefix from Header User Name
+# Align Sidebar Icons with Dashboard Tab Icons
 
 ## What Changes
 
-The header currently shows **"Usuario: Isaac Cori Alvarez"**. After this change it will show just **"Isaac Cori Alvarez"**.
+Match the sidebar icons for Clients and Engagements to their dashboard counterparts:
 
-Since the header is a shared component used on every authenticated page (Dashboard, Clients, Engagements, Staff, etc.), this single change covers all pages automatically.
+| Sidebar Item | Current Icon | New Icon | Matches Dashboard Tab |
+|-------------|-------------|----------|----------------------|
+| Clients | `Building2` | `Briefcase` | Cartera (client portfolio) |
+| Engagements | `Briefcase` | `FolderKanban` | Encargo (engagement drill-down) |
+
+`Building2` is reserved exclusively for "Practica" (firm-wide practice view) in the dashboard.
 
 ## Technical Details
 
-### 1. `src/components/layout/AppHeader.tsx`
+### File: `src/components/layout/AppSidebar.tsx`
 
-**Lines 81-83** -- Remove the `t("header.userPrefix")` usage:
+**Imports (lines 1-14):**
+- Remove `Building2` from lucide import
+- Add `FolderKanban` to lucide import
+- `Briefcase` stays (reassigned to Clients)
 
-- Line 81: Change `title={\`${t("header.userPrefix")} ${displayName || t("common.user")}\`}` to `title={displayName || t("common.user")}`
-- Line 83: Change `{t("header.userPrefix")} {displayName || t("common.user")}` to `{displayName || t("common.user")}`
-
-No other file uses `header.userPrefix`. The i18n keys (`header.userPrefix` in en.json and es.json) can be left in place as dormant -- removing them is optional and harmless either way.
+**Nav items (lines 42-44):**
+- Line 43: Change Clients from `icon: Building2` to `icon: Briefcase`
+- Line 44: Change Engagements from `icon: Briefcase` to `icon: FolderKanban`
 
 ### Files changed: 1
 
 | File | Change |
 |------|--------|
-| `AppHeader.tsx` | Remove two references to `t("header.userPrefix")` (lines 81, 83) |
-
-No changes to: MobileMoreDrawer (it does not use this prefix), locale files, or any other component.
+| `AppSidebar.tsx` | Swap Clients icon to `Briefcase`, Engagements icon to `FolderKanban`; update imports |
 
