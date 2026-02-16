@@ -1,179 +1,322 @@
 
+# Header/Sidebar Layout Reorganization + Brand Rename (v9 -- Final)
 
-# Relocate "EMS 2.0" Brand + Add User Context to Header (v3 -- Final)
+## Verified Ground Truth (every claim proven by file reads)
 
-## Summary
+### AppSidebar.tsx (152 lines)
+- Line 28: Imports `SidebarFooter` (NO `SidebarHeader` -- confirmed absent from import list and JSX)
+- Line 9: `LogOut` IS imported
+- Line 15: `useTranslation` IS imported; line 32: `const { t } = useTranslation()` exists
+- Line 33: `const { signOut } = useAuth()` exists
+- Line 56-59: `handleSignOut` EXISTS (calls `signOut()` then `navigate("/auth")`)
+- Line 63: `SidebarContent className="px-3 py-4"`
+- Lines 139-149: `SidebarFooter` with simple sign-out icon button (centered via `justify-center`)
+- NO `SidebarHeader` block, NO `userName` variable, NO "EMS 2.0" in this file
 
-Two layout changes applied globally across the entire frontend:
+### AppHeader.tsx (123 lines)
+- Line 51: Uses `grid grid-cols-[1fr_auto_1fr] items-center` (IS CSS grid, 3-zone)
+- Lines 46-48: `compositeTitle` variable EXISTS
+- Lines 32-38: `userInitials` computation exists
+- Lines 40-44: `displayName` computation exists
+- Lines 68-76: Center zone with "EMS 2.0" brand (line 74)
+- Lines 85-119: Full `DropdownMenu` with avatar circle trigger
+- Line 1: Imports `Bell, Menu, LogOut, UserCheck, UserX`
+- Line 8: Imports `Badge`
+- Lines 9-15: Imports `DropdownMenu*`
+- Line 100: Uses `text-success` class (valid -- defined in index.css line 65)
 
-1. **Header title** becomes `"{UserPrefix} [Staff Name] - [Page Title]"` (e.g., "Usuario: Isaac Cori - Panel de Control") using i18n keys with colon included in the translation.
-2. **"EMS 2.0"** moves from the sidebar header to the **true center of the top header bar** (teal, IBM Plex Sans, bold). Visible on all breakpoints regardless of sidebar state.
-3. **Public/standalone pages** are explicitly handled for brand consistency.
+### NotFound.tsx (59 lines)
+- Line 3: `useTranslation` IS imported
+- Line 5: `useAuth` IS imported
+- Line 6: `AppLayout` IS imported
+- Lines 15-17: Uses `t("notFound.title")` and `t("notFound.returnHome")`
+- Line 52: "EMS 2.0" EXISTS (unauthenticated standalone view)
 
----
+### ResetPassword.tsx (154 lines)
+- Line 71: "EMS 2.0" EXISTS (invalid-session state)
+- Line 97: "EMS 2.0" EXISTS (valid-session state)
 
-## Coverage Audit
+### Auth.tsx
+- Line 137: "EMS 2.0" EXISTS
 
-### "EMS 2.0" occurrences in the codebase:
+### MobileMoreDrawer.tsx (134 lines)
+- Line 2: `useTranslation` IS imported; line 30: `const { t } = useTranslation()` exists
+- Line 19: `useAuth` IS imported; line 31: `const { signOut } = useAuth()` -- destructures ONLY `signOut`
+- Line 127: Uses `t("auth.signOut")` -- BUG: key `auth.signOut` does NOT exist
+- NO profile section (no avatar, no name, no email, no staff badge, no `useCurrentStaff`)
 
-| Location | Action |
-|----------|--------|
-| `src/components/layout/AppSidebar.tsx` (line 73) | **REMOVE** |
-| `src/pages/Auth.tsx` (line 137) | **LEAVE AS-IS** -- login page has its own independent branding |
-| `index.html` (title/meta tags) | **LEAVE AS-IS** -- browser tab title |
-| README, docs, migrations | **LEAVE AS-IS** -- documentation only |
+### index.html (35 lines)
+- Line 6: `<title>EMS 2.0 - Engagement Management System</title>`
+- Line 8: `<meta name="author" content="EMS 2.0" />`
+- Line 11: `<meta property="og:title" content="EMS 2.0 - Engagement Management System" />`
+- Line 17: `<meta name="twitter:title" content="EMS 2.0 - Engagement Management System" />`
 
-### Route coverage (all 25 authenticated routes use AppLayout):
+### i18n keys -- ALL 7 EXIST (verified by search):
+| Key | en.json | es.json |
+|-----|---------|---------|
+| `header.userPrefix` | "User:" | "Usuario:" |
+| `header.linkedToStaff` | "Linked to staff:" | "Vinculado al personal:" |
+| `header.notLinkedToStaff` | "Not linked to staff record" | "No vinculado a registro de personal" |
+| `notFound.title` | "Oops! Page not found" | "Pagina no encontrada!" |
+| `notFound.returnHome` | "Return to Home" | "Volver al Inicio" |
+| `common.user` | "User" | "Usuario" |
+| `nav.signOut` | "Sign out" | "Cerrar sesion" |
 
-Index, Clients, ClientNew, ClientEdit, Engagements, EngagementNew, EngagementEdit, WorkOrders, WorkOrderNew, WorkOrderEdit, WorksheetList, WorksheetNew, WorksheetEdit, TimeSheet, TimesheetApprovals, TimesheetApprovalDetail, TrackerList, TrackerRecord, Expenses, ExpenseNew, ExpenseEdit, Staff, StaffNew, StaffEdit, Settings.
+### `text-success` -- VALID (defined in src/index.css line 65 as HSL `142 76% 36%`, used in 22 files)
 
-### Public/standalone pages (3 pages, handled explicitly below):
+### `entities.staff` -- DOES NOT EXIST in any locale file. Must NOT be used.
 
-| Page | Current state | Action |
-|------|--------------|--------|
-| `Auth.tsx` | Has its own "EMS 2.0" branding | **LEAVE AS-IS** |
-| `ResetPassword.tsx` | No "EMS 2.0" branding anywhere | **ADD** centered "EMS 2.0" above the card |
-| `NotFound.tsx` | No branding, no `ProtectedRoute` wrapper | **WRAP** in conditional: if authenticated, render inside `AppLayout`; if not, show standalone page with "EMS 2.0" branding |
-
----
-
-## Changes
-
-### 1. `src/components/layout/AppHeader.tsx` -- 3-zone true-centered header
-
-**New layout using CSS Grid `grid-cols-[1fr_auto_1fr]`:**
-
-```text
-[LEFT: min-w-0 truncate]          [CENTER: auto]          [RIGHT: justify-self-end]
-[=] Usuario: Isaac Cori - Panel   EMS 2.0                 [bell] [ICA]
-```
-
-Implementation details:
-
-- Change the header's inner container from `flex justify-between` to `grid grid-cols-[1fr_auto_1fr] items-center`.
-- **Left zone** (`min-w-0`): Sidebar trigger (keep existing `hidden md:block` -- do NOT add trigger on mobile) + composite title with `truncate` class and `title` attribute containing the full text for accessibility.
-- **Center zone**: "EMS 2.0" in `text-primary font-bold text-xl` with `fontFamily: "IBM Plex Sans"`. On mobile use `text-lg`. This zone is `auto`-sized so it stays perfectly centered regardless of left/right content width.
-- **Right zone** (`justify-self-end`): Bell icon + user avatar dropdown (unchanged structure).
-- **Composite title format**: `{t("header.userPrefix")} {displayName} - {title}`. Uses the existing `displayName` variable (already computed at line 38-42). If no staff record is linked and no user metadata name exists, fall back to just `{title}`.
-- On mobile, the full string is kept (truncation via CSS, full text accessible via `title` attribute). The prefix is NOT hidden on mobile.
-- Add `useTranslation` import.
-- **i18n cleanup** of hardcoded English strings in the dropdown:
-  - Line 70: `'User'` fallback -> `t("common.user")`
-  - Line 78: `"Linked to staff: "` -> `t("header.linkedToStaff")`
-  - Line 86: `"Not linked to staff record"` -> `t("header.notLinkedToStaff")`
-  - Line 93: `"Sign out"` already uses text -- replace with `t("nav.signOut")` (key confirmed to exist in both locale files)
-
-### 2. `src/components/layout/AppSidebar.tsx` -- Remove brand + redundant username
-
-- **Remove** the entire `<SidebarHeader>` block (lines 68-75). Sidebar uses `collapsible="offcanvas"` (collapses fully off-screen), so no spacer/placeholder is needed.
-- **Remove** the `SidebarHeader` import from the UI import list (line 28).
-- **Sidebar Footer**: Remove the `userName` display text (lines 154-157) since the user's name now appears prominently in the header. Keep only the sign-out icon button.
-- Remove the `userName` variable computation (lines 62-64) since it is no longer used.
-
-### 3. `src/pages/NotFound.tsx` -- Conditional layout with brand
-
-Currently `NotFound` renders standalone for both authenticated and unauthenticated users (route `path="*"` has no `ProtectedRoute` wrapper in `App.tsx`).
-
-Change:
-- Import `useAuth` to check if user is authenticated.
-- Import `AppLayout` for the authenticated case.
-- **If authenticated**: Render inside `<AppLayout title="404">` so the full header (with "EMS 2.0" center + user prefix) is visible. The 404 content renders in the main area.
-- **If not authenticated**: Render standalone with a centered "EMS 2.0" brand above the 404 card (same teal styling: `text-primary font-bold text-xl`, IBM Plex Sans). Also i18n the hardcoded "Oops! Page not found" and "Return to Home" strings.
-- Handle `loading` state from `useAuth` to avoid flash.
-
-### 4. `src/pages/ResetPassword.tsx` -- Add brand
-
-This page is always standalone (no sidebar/header). Currently has no "EMS 2.0" branding.
-
-Change:
-- Add a centered "EMS 2.0" text above the card, matching Auth.tsx styling: `text-primary font-bold text-2xl` with `fontFamily: "IBM Plex Sans"`. Placed between the top of the page and the card, with appropriate margin.
-
-### 5. `src/locales/en.json` -- Add i18n keys
-
-```json
-"header": {
-  "userPrefix": "User:",
-  "linkedToStaff": "Linked to staff:",
-  "notLinkedToStaff": "Not linked to staff record"
-}
-```
-
-Note: `nav.signOut` already exists ("Sign out" / "Cerrar sesion"). No new key needed for sign-out.
-
-### 6. `src/locales/es.json` -- Add i18n keys
-
-```json
-"header": {
-  "userPrefix": "Usuario:",
-  "linkedToStaff": "Vinculado al personal:",
-  "notLinkedToStaff": "No vinculado a registro de personal"
-}
-```
-
-### 7. No changes to these files (confirmed):
-
-- `App.tsx` -- route structure unchanged (NotFound handles its own layout internally)
-- `AppLayout.tsx` -- structure unchanged
-- `MobileBottomNav.tsx` -- unaffected
-- `MobileMoreDrawer.tsx` -- unaffected
-- `Auth.tsx` -- keeps its own independent branding
-- All 25 page components -- they already pass `title` props
+No locale file changes needed. No SidebarHeader removal needed.
 
 ---
 
-## Visual Result
+## "EMS 2.0" Audit (7 user-facing instances across 4 files + 4 metadata in index.html)
 
-```text
-Desktop (sidebar open):
-+--SIDEBAR---+---HEADER BAR (white bg, grid 1fr auto 1fr)-------------------+
-|  PRINCIPAL |  [=] Usuario: Isaac Cori - Panel de Co...  EMS 2.0  [b] [ICA] |
-|  Panel...  |                                                                |
-|  Clientes  |  (page content)                                                |
-|  ...       |                                                                |
-|  [logout]  |                                                                |
-+------------+----------------------------------------------------------------+
+| File | Line | Action |
+|------|------|--------|
+| `src/components/layout/AppHeader.tsx` | 74 | **REPLACE** with `RuizmierGroup - EMS 2.0` |
+| `src/pages/Auth.tsx` | 137 | **REPLACE** with `RuizmierGroup - EMS 2.0` |
+| `src/pages/ResetPassword.tsx` | 71 | **REPLACE** with `RuizmierGroup - EMS 2.0` |
+| `src/pages/ResetPassword.tsx` | 97 | **REPLACE** with `RuizmierGroup - EMS 2.0` |
+| `src/pages/NotFound.tsx` | 52 | **REPLACE** with `RuizmierGroup - EMS 2.0` |
+| `index.html` | 6 | **REPLACE** title |
+| `index.html` | 8 | **REPLACE** author |
+| `index.html` | 11 | **REPLACE** og:title |
+| `index.html` | 17 | **REPLACE** twitter:title |
 
-Desktop (sidebar collapsed -- offcanvas, fully hidden):
-+---HEADER BAR (white bg, grid 1fr auto 1fr)---------------------------+
-| [=] Usuario: Isaac Cori - Panel de Control   EMS 2.0     [b] [ICA]   |
-|                                                                       |
-| (page content)                                                        |
-+-----------------------------------------------------------------------+
+Exempted: `src/lib/logger.ts` line 2 (code comment, not user-facing).
 
-Mobile (<768px):
-+---HEADER BAR (grid 1fr auto 1fr)------------------+
-| Usuario: Isaac C...  EMS 2.0  [b] [IC]            |
-+----------------------------------------------------+
-| (page content)                                     |
-+----------------------------------------------------+
-| [home] [time] [track] [exp] [more]                 |
-+----------------------------------------------------+
+---
 
-404 (not authenticated):
-+----------------------------------------------------+
-|                    EMS 2.0                          |
-|                                                    |
-|                     404                            |
-|           Oops! Page not found                     |
-|             Return to Home                         |
-+----------------------------------------------------+
+## Detailed Changes
 
-404 (authenticated -- inside AppLayout):
-+---HEADER BAR----------------------------------------+
-| [=] Usuario: Isaac Cori - 404    EMS 2.0   [b] [ICA]|
-|                                                      |
-|                     404                              |
-|           Oops! Page not found                       |
-|             Return to Home                           |
-+------------------------------------------------------+
+### 1. `src/components/layout/AppHeader.tsx` (123 lines)
 
-Reset Password:
-+----------------------------------------------------+
-|                    EMS 2.0                          |
-|                                                    |
-|          [Reset Password Card]                     |
-+----------------------------------------------------+
+**Current layout (grid 1fr auto 1fr):**
 ```
+LEFT: [=] {compositeTitle}  |  CENTER: EMS 2.0  |  RIGHT: [bell] [ICA dropdown]
+```
+
+**New layout (same grid):**
+```
+LEFT: [=] {title}  |  CENTER: RuizmierGroup - EMS 2.0 (md+ only)  |  RIGHT: [bell] Usuario: Name
+```
+
+**Imports to REMOVE:**
+- Line 1: Remove `LogOut`, `UserCheck`, `UserX` from lucide import (keep `Bell`, `Menu`)
+- Line 6: Remove `useNavigate` import
+- Line 8: Remove `Badge` import
+- Lines 9-15: Remove entire `DropdownMenu*` import block
+
+**Variables/functions to REMOVE:**
+- Lines 25, 27-30: Remove `navigate` and `handleSignOut`
+- Lines 32-38: Remove `userInitials` computation
+- Lines 46-48: Remove `compositeTitle` variable
+
+**Left zone (lines 52-66):**
+- Line 62: Change `title={compositeTitle}` to `title={title}`
+- Line 64: Change `{compositeTitle}` to `{title}`
+
+**Center zone (lines 68-76):**
+- Line 69: Change `"flex items-center justify-center px-2"` to `"hidden md:flex items-center justify-center px-2"`
+- Line 74: Change `EMS 2.0` to `RuizmierGroup - EMS 2.0`
+
+**Right zone (lines 78-120):**
+- Keep the Bell button (lines 80-83)
+- Remove the entire `DropdownMenu` block (lines 85-119)
+- After the Bell, add plain text:
+```jsx
+<span
+  className="text-sm font-semibold text-foreground truncate"
+  title={`${t("header.userPrefix")} ${displayName || t("common.user")}`}
+>
+  {t("header.userPrefix")} {displayName || t("common.user")}
+</span>
+```
+- Add `min-w-0` to the right zone container div (line 79) for truncation safety
+
+**Keep:** `useAuth` (for `user`), `useCurrentStaff` (for `displayName`/`staffRecord`), `useTranslation`, `Bell`, `Menu`, `Button`, `SidebarTrigger`
+
+### 2. `src/components/layout/AppSidebar.tsx` (152 lines)
+
+No SidebarHeader exists. No removal needed.
+
+**A) Top spacer (line 63):**
+- Change `<SidebarContent className="px-3 py-4">` to `<SidebarContent className="px-3 pb-4">`
+- Insert `<div className="h-16" />` as first child inside SidebarContent (before line 64's `<SidebarGroup>`)
+- Result: exactly 64px top offset (matching header h-16), no double-push
+
+**B) Footer (lines 139-149) -- replace sign-out button with avatar + dropdown:**
+
+**New imports to ADD:**
+- `useCurrentStaff` from `@/hooks/useCurrentStaff`
+- `DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger` from `@/components/ui/dropdown-menu`
+- `Badge` from `@/components/ui/badge`
+- `UserCheck, UserX` from lucide-react (add to existing lucide import on lines 1-14)
+
+**Note:** `LogOut` is ALREADY imported (line 9). `useTranslation` and `{ t }` ALREADY in scope (lines 15, 32). `useAuth` ALREADY imported (line 17). `handleSignOut` ALREADY defined (lines 56-59).
+
+**Inside the component function, ADD after line 34:**
+- `const { user } = useAuth()` -- WAIT: line 33 already has `const { signOut } = useAuth()`. Change to `const { user, signOut } = useAuth()`
+- `const { data: staffRecord } = useCurrentStaff()`
+- `userInitials` computation (copied from current AppHeader lines 32-38):
+```typescript
+const userInitials = staffRecord?.initials
+  ? staffRecord.initials
+  : staffRecord
+    ? `${staffRecord.first_name[0]}${staffRecord.last_name[0]}`.toUpperCase()
+    : user?.user_metadata?.first_name && user?.user_metadata?.last_name
+      ? `${user.user_metadata.first_name[0]}${user.user_metadata.last_name[0]}`.toUpperCase()
+      : user?.email?.substring(0, 2).toUpperCase() || "U";
+```
+- `displayName` computation (copied from current AppHeader lines 40-44):
+```typescript
+const displayName = staffRecord
+  ? `${staffRecord.first_name} ${staffRecord.last_name}`
+  : user?.user_metadata?.first_name
+    ? `${user.user_metadata.first_name} ${user.user_metadata.last_name || ''}`
+    : null;
+```
+
+**Replace lines 139-149 with:**
+```jsx
+<SidebarFooter className="p-4 border-t border-sidebar-border">
+  <div className="flex items-center justify-start">
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button className="h-9 w-9 rounded-full bg-accent flex items-center justify-center cursor-pointer hover:opacity-90 transition-opacity">
+          <span className="text-accent-foreground font-medium text-sm">{userInitials}</span>
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent side="top" align="start" className="w-64">
+        <div className="px-2 py-1.5">
+          <p className="text-sm font-medium">{displayName || t("common.user")}</p>
+          <p className="text-xs text-muted-foreground">{user?.email}</p>
+        </div>
+        <DropdownMenuSeparator />
+        <div className="px-2 py-1.5">
+          {staffRecord ? (
+            <div className="flex items-center gap-2 text-xs">
+              <UserCheck className="h-3.5 w-3.5 text-success" />
+              <span className="text-muted-foreground">{t("header.linkedToStaff")} </span>
+              {staffRecord.category?.category_name && (
+                <Badge variant="secondary" className="text-xs">
+                  {staffRecord.category.category_name}
+                </Badge>
+              )}
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <UserX className="h-3.5 w-3.5" />
+              <span>{t("header.notLinkedToStaff")}</span>
+            </div>
+          )}
+        </div>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={handleSignOut} className="text-destructive focus:text-destructive">
+          <LogOut className="mr-2 h-4 w-4" />
+          {t("nav.signOut")}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  </div>
+</SidebarFooter>
+```
+
+**Key compile-safety notes:**
+- `handleSignOut` is ALREADY defined at lines 56-59 (calls `signOut()` then `navigate("/auth")`). Reused directly.
+- `LogOut` is ALREADY imported at line 9. Reused directly.
+- `t(...)` is ALREADY in scope from line 32.
+- `text-success` is VALID (defined in index.css).
+- `t("entities.staff")` is NOT used. Badge only renders if `staffRecord.category?.category_name` is truthy.
+- Footer uses `justify-start` (not `justify-center`) to position avatar in lower-LEFT.
+
+This is the ONE AND ONLY full user dropdown on desktop.
+
+### 3. `src/components/layout/MobileMoreDrawer.tsx` (134 lines)
+
+**A) New imports to ADD:**
+- `useCurrentStaff` from `@/hooks/useCurrentStaff`
+- `Badge` from `@/components/ui/badge`
+- `UserCheck, UserX` from lucide-react (add to existing lucide import on lines 3-12)
+
+**Inside the component function (after line 32), ADD:**
+- Change line 31 from `const { signOut } = useAuth()` to `const { user, signOut } = useAuth()`
+- `const { data: staffRecord } = useCurrentStaff()`
+- `userInitials` computation (same as sidebar, copied from AppHeader)
+- `displayName` computation (same as sidebar, copied from AppHeader)
+
+**B) Insert profile block (between line 65 DrawerHeader closing and line 66 div.px-4):**
+
+```jsx
+{/* Profile section */}
+<div className="px-4 pb-4 mb-2 border-b border-border">
+  <div className="flex items-center gap-3">
+    <div className="h-10 w-10 rounded-full bg-accent flex items-center justify-center flex-shrink-0">
+      <span className="text-accent-foreground font-medium text-sm">{userInitials}</span>
+    </div>
+    <div className="min-w-0">
+      <p className="text-sm font-medium truncate">{displayName || t("common.user")}</p>
+      <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
+    </div>
+  </div>
+  <div className="mt-2 px-1">
+    {staffRecord ? (
+      <div className="flex items-center gap-2 text-xs">
+        <UserCheck className="h-3.5 w-3.5 text-success" />
+        <span className="text-muted-foreground">{t("header.linkedToStaff")} </span>
+        {staffRecord.category?.category_name && (
+          <Badge variant="secondary" className="text-xs">
+            {staffRecord.category.category_name}
+          </Badge>
+        )}
+      </div>
+    ) : (
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <UserX className="h-3.5 w-3.5" />
+        <span>{t("header.notLinkedToStaff")}</span>
+      </div>
+    )}
+  </div>
+</div>
+```
+
+**C) Fix broken i18n key (line 127):**
+- Change `t("auth.signOut")` to `t("nav.signOut")`
+
+### 4. `src/pages/Auth.tsx`
+- Line 137: Replace `EMS 2.0` with `RuizmierGroup - EMS 2.0`
+
+### 5. `src/pages/ResetPassword.tsx`
+- Line 71: Replace `EMS 2.0` with `RuizmierGroup - EMS 2.0`
+- Line 97: Replace `EMS 2.0` with `RuizmierGroup - EMS 2.0`
+
+### 6. `src/pages/NotFound.tsx`
+- Line 52: Replace `EMS 2.0` with `RuizmierGroup - EMS 2.0`
+
+### 7. `index.html`
+- Line 6: `<title>RuizmierGroup - EMS 2.0 - Engagement Management System</title>`
+- Line 8: `<meta name="author" content="RuizmierGroup - EMS 2.0" />`
+- Line 11: `<meta property="og:title" content="RuizmierGroup - EMS 2.0 - Engagement Management System" />`
+- Line 17: `<meta name="twitter:title" content="RuizmierGroup - EMS 2.0 - Engagement Management System" />`
+
+### 8. Locale files -- NO CHANGES
+All 7 required keys verified to exist. `entities.staff` is NOT used anywhere in v9.
+
+---
+
+## Compile-Safety Checklist
+
+| Potential issue | Status |
+|----------------|--------|
+| `handleSignOut` undefined in sidebar | SAFE -- already defined at lines 56-59 |
+| `LogOut` not imported in sidebar | SAFE -- already imported at line 9 |
+| `t(...)` not in scope in sidebar | SAFE -- already from line 32 |
+| `t("entities.staff")` used as fallback | NOT USED -- badge only renders if `category_name` is truthy |
+| `text-success` not a valid class | VALID -- defined in index.css line 65 |
+| `t("auth.signOut")` broken key | FIXED to `t("nav.signOut")` |
+| `useTranslation` missing in MobileMoreDrawer | SAFE -- already imported line 2, used line 30 |
+| Footer avatar not left-aligned | FIXED -- uses `justify-start` instead of `justify-center` |
 
 ---
 
@@ -181,25 +324,40 @@ Reset Password:
 
 | # | File | Action |
 |---|------|--------|
-| 1 | `src/components/layout/AppHeader.tsx` | 3-zone grid layout (`1fr auto 1fr`): user prefix + title left (truncate), "EMS 2.0" true-centered, actions right; i18n all hardcoded strings |
-| 2 | `src/components/layout/AppSidebar.tsx` | Remove `SidebarHeader` ("EMS 2.0"), remove userName from footer, keep only sign-out icon |
-| 3 | `src/pages/NotFound.tsx` | Conditional: authenticated users get `AppLayout` wrapper; unauthenticated get standalone with "EMS 2.0" brand |
-| 4 | `src/pages/ResetPassword.tsx` | Add centered "EMS 2.0" brand above the card |
-| 5 | `src/locales/en.json` | Add `header.userPrefix`, `header.linkedToStaff`, `header.notLinkedToStaff` |
-| 6 | `src/locales/es.json` | Add `header.userPrefix`, `header.linkedToStaff`, `header.notLinkedToStaff` |
+| 1 | `AppHeader.tsx` | Remove dropdown/avatar/compositeTitle/handleSignOut/navigate; left = title only; center = brand with `hidden md:flex`; right = bell + plain text "Usuario: Name" with `min-w-0 truncate` |
+| 2 | `AppSidebar.tsx` | Change `py-4` to `pb-4` + add `h-16` spacer; replace footer with avatar + upward dropdown (reusing existing `handleSignOut`, `LogOut`, `t()`) |
+| 3 | `MobileMoreDrawer.tsx` | Add profile section (avatar/name/email/badge) at top; fix `auth.signOut` to `nav.signOut` |
+| 4 | `Auth.tsx` | Replace "EMS 2.0" line 137 |
+| 5 | `ResetPassword.tsx` | Replace "EMS 2.0" lines 71, 97 |
+| 6 | `NotFound.tsx` | Replace "EMS 2.0" line 52 |
+| 7 | `index.html` | Replace 4 metadata occurrences lines 6, 8, 11, 17 |
+
+No changes to: `App.tsx`, `AppLayout.tsx`, `MobileBottomNav.tsx`, locale files, page components.
 
 ---
 
-## Acceptance Tests
+## Post-Change Verification Checklist
 
-1. **Desktop, sidebar open** -- Header shows "Usuario: Isaac Cori - Panel de Control" on the left (truncates if needed), "EMS 2.0" (teal) perfectly centered, bell + avatar on the right. Sidebar has NO "EMS 2.0" branding. Sidebar footer has NO username text, only sign-out icon.
-2. **Desktop, sidebar collapsed** -- Same header. Brand does NOT disappear. Center stays centered.
-3. **Long page title test** -- Navigate to a page with a long title. "EMS 2.0" must remain centered; the left title truncates with ellipsis.
-4. **Mobile/Tablet** -- Same header format (truncates but full text in `title` attribute). "EMS 2.0" still visible and centered. Bottom nav works normally.
-5. **Language switch to English** -- Header shows "User: Isaac Cori - Dashboard". Dropdown shows "Linked to staff:" and "Sign out" in English.
-6. **User not linked to staff** -- Header falls back to just the page title (no prefix). Dropdown shows "Not linked to staff record".
-7. **Login page** -- Still shows its own independent "EMS 2.0" branding. Unaffected.
-8. **Reset Password page** -- Shows centered "EMS 2.0" above the card. Teal, IBM Plex Sans, bold.
-9. **404 page (authenticated)** -- Renders inside AppLayout with header showing "Usuario: Isaac Cori - 404" and centered "EMS 2.0".
-10. **404 page (not authenticated)** -- Renders standalone with centered "EMS 2.0" brand above the 404 content.
+**Repo search:**
+```
+grep -rn "EMS 2\.0" src/ index.html
+```
+Expected: all matches show "RuizmierGroup - EMS 2.0" except `src/lib/logger.ts` line 2 (code comment, exempted).
 
+**UI tests:**
+
+| # | Test | Expected |
+|---|------|----------|
+| 1 | Desktop, sidebar open | Header: `[=] Panel de Control` left, `RuizmierGroup - EMS 2.0` centered (teal), `[bell] Usuario: Isaac Cori Alvarez` right as plain text. No avatar/dropdown in header. |
+| 2 | Desktop, sidebar collapsed | Same header. Brand stays centered. |
+| 3 | Sidebar footer | ICA avatar at bottom-LEFT. Click opens upward dropdown: name, email, staff badge (only if category exists), sign-out. Only user dropdown on desktop. |
+| 4 | "PRINCIPAL" alignment | Starts below header bar line (h-16 spacer + pb-4 only, no double gap). |
+| 5 | Long title/name | Left truncates. Right truncates. Center does not wrap. |
+| 6 | Mobile (<768px) | Header: title left, bell + "Usuario: Name" right (truncated). Brand HIDDEN. Bottom nav works. |
+| 7 | MobileMoreDrawer | Profile at top: avatar, name, email, staff badge. Sign-out works (uses `nav.signOut`). |
+| 8 | Language switch | All strings render correctly in both EN and ES. No raw keys. |
+| 9 | Auth page | "RuizmierGroup - EMS 2.0" on left panel. |
+| 10 | ResetPassword | "RuizmierGroup - EMS 2.0" above card (both states). |
+| 11 | NotFound (auth) | Inside AppLayout, header has brand. |
+| 12 | NotFound (unauth) | Standalone with "RuizmierGroup - EMS 2.0". |
+| 13 | Browser tab | "RuizmierGroup - EMS 2.0 - Engagement Management System". |
