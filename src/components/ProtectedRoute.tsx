@@ -1,6 +1,8 @@
 import { Navigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
+import { useInactivityTimeout } from "@/hooks/useInactivityTimeout";
+import { useSetting } from "@/hooks/useEmsData";
 import { Loader2 } from "lucide-react";
 
 interface ProtectedRouteProps {
@@ -10,6 +12,11 @@ interface ProtectedRouteProps {
 export function ProtectedRoute({ children }: ProtectedRouteProps) {
   const { user, loading, signOut } = useAuth();
   const { staffRecord, isLoading: staffLoading } = useCurrentStaff();
+
+  // BUG #0213-22: Auto-logout after inactivity
+  const timeoutSetting = useSetting("SESSION_TIMEOUT_MINUTES");
+  const timeoutMinutes = timeoutSetting ? parseInt(timeoutSetting, 10) : 30;
+  useInactivityTimeout(timeoutMinutes);
 
   if (loading || (user && staffLoading)) {
     return (
