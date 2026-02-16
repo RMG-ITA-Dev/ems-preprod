@@ -1,92 +1,76 @@
 
 
-# v3 Plan -- Bug 0213-25: Strict Locking of Submitted Timesheets
+## Add Changelog Entry for BUG #0213-25
 
-## Summary
+Append a new section to `docs/CHANGELOG-2026-02-13.md` following the established format used by previous bug entries in the file.
 
-Same strict-locking strategy as v2, with CODEX's recommended defensive improvement: keep `!isFullyApproved` alongside `!isSubmitted` in all three flags for belt-and-suspenders safety.
+### Entry to append after line 258 (end of file)
 
-## File: `src/pages/TimeSheet.tsx` (only file changed)
+```markdown
+---
 
-### Change 1: `isEditable` (lines 197-200)
+## BUG #0213-25: Submitted Timesheet Remains Editable
 
-BEFORE:
-```typescript
-const isEditable = !isBeforeHireDate && isWithinEditableWindow && (
-  (!isSubmitted && !period?.is_period_locked) || 
-  (isSubmitted && !isFullyApproved && (hasPendingLines || hasRejectedLines))
-);
+**Date:** 2026-02-16
+**Priority:** Alta
+**Version:** v2.0.4
+**Route:** OPERACIONES - Hoja de Tiempo
+
+### Problem
+
+After submitting a weekly timesheet for approval, the entire grid remained
+fully editable: hour cells accepted input, engagement/activity dropdowns
+were active, "Agregar Fila" and delete icons were visible, and autosave
+continued to fire. The banner correctly showed "pendiente de aprobacion"
+but nothing was actually locked.
+
+### Root Cause
+
+In `src/pages/TimeSheet.tsx`, the `isEditable` flag included a second
+branch that re-enabled editing whenever the week was submitted but had
+pending or rejected lines:
+
+    (isSubmitted && !isFullyApproved && (hasPendingLines || hasRejectedLines))
+
+Since every freshly submitted week has pending lines, the grid was never
+locked after submission. Additionally, `canSaveDraft` did not guard on
+`!isSubmitted`, and `canSubmit` allowed re-submission while already
+submitted (for rejected lines), bypassing the recall workflow.
+
+### Solution
+
+Implemented strict locking: once submitted, the timesheet is fully
+read-only. Corrections (including rejected lines) require the user to
+click "Retirar Envio" (unsubmit) first, edit, then re-submit. Added
+defensive `!isFullyApproved` guards alongside `!isSubmitted` for
+belt-and-suspenders safety against data anomalies.
+
+### Changes -- `src/pages/TimeSheet.tsx`
+
+| Change | Detail |
+|--------|--------|
+| **`isEditable`** | Replaced two-branch OR with flat AND: `!isBeforeHireDate && isWithinEditableWindow && !isSubmitted && !isFullyApproved && !period?.is_period_locked` |
+| **`canSaveDraft`** | Added `!isSubmitted` and kept `!isFullyApproved`; reordered conditions |
+| **`canSubmit`** | Removed branch allowing re-submit while submitted with rejected lines; now requires `!isSubmitted && !period?.is_period_locked` |
+
+### What Stays Unchanged
+
+- `canUnsubmit` -- already correct (shows "Retirar Envio" when submitted + not fully approved)
+- `TimesheetGrid.tsx` -- already respects `isLocked={!isEditable}` globally
+- Import-from-timer and Copy Previous Week buttons -- already gated on `isEditable` or `!isSubmitted`
+- No backend/database changes
+- No mutation logic changes
+
+### Risk Assessment
+
+- **Low risk** -- removes permissive branches only; no new state or data paths.
+- Autosave cannot fire when inputs are disabled via `isLocked`.
+- Users with rejected lines must use "Retirar Envio" before editing, which matches audit integrity expectations.
 ```
 
-AFTER:
-```typescript
-const isEditable = !isBeforeHireDate && isWithinEditableWindow &&
-  !isSubmitted && !isFullyApproved && !period?.is_period_locked;
-```
+### Files Modified
 
-### Change 2: `canSaveDraft` (lines 216-220)
-
-BEFORE:
-```typescript
-const canSaveDraft = !isBeforeHireDate
-  && isWithinEditableWindow
-  && !period?.is_period_locked
-  && !isFullyApproved
-  && hasNonZeroEntry;
-```
-
-AFTER:
-```typescript
-const canSaveDraft = !isBeforeHireDate
-  && isWithinEditableWindow
-  && !isSubmitted
-  && !isFullyApproved
-  && !period?.is_period_locked
-  && hasNonZeroEntry;
-```
-
-### Change 3: `canSubmit` (lines 223-226)
-
-BEFORE:
-```typescript
-const canSubmit = !isBeforeHireDate && isWithinEditableWindow && entries.length > 0 && (
-  (!isSubmitted && !period?.is_period_locked) ||
-  (isSubmitted && hasRejectedLines && !isFullyApproved)
-);
-```
-
-AFTER:
-```typescript
-const canSubmit = !isBeforeHireDate && isWithinEditableWindow && entries.length > 0 &&
-  !isSubmitted && !period?.is_period_locked;
-```
-
-## Why `!isFullyApproved` is kept (CODEX improvement)
-
-- Logically, `isFullyApproved` implies `isSubmitted`, so `!isFullyApproved` should be redundant when `!isSubmitted` is present.
-- However, keeping it is zero-cost defensive coding: if a data anomaly ever produces a period that is fully approved but has `submitted_at = null`, the extra guard prevents editing an approved week.
-- Applied to `isEditable` and `canSaveDraft`. Not needed on `canSubmit` since submitting an already-approved week makes no sense and `entries.length > 0` plus UI flow already prevent it.
-
-## No other files need changes
-
-- `TimesheetGrid.tsx` already respects `isLocked` globally (inputs, selects, add/delete row all disabled).
-- Import-from-timer, Copy Previous Week buttons are already gated on `isEditable` or `!isSubmitted`.
-- `canUnsubmit` (lines 211-214) is already correct and unchanged.
-- Autosave cannot fire when inputs are disabled.
-
-## Manual Acceptance Tests
-
-**Test 1: Submitted week is read-only**
-1. Open a draft week with entries. Verify cells are editable.
-2. Click "Enviar Semana". Verify banner shows pending approval.
-3. Verify: hour cells locked, dropdowns disabled, Add Row hidden, delete icons hidden, Save Draft hidden, Submit hidden, no "Guardando..." appears.
-
-**Test 2: Retirar Envio restores editing**
-1. On submitted week, click "Retirar Envio".
-2. Verify week becomes editable again. Edit a value, re-submit, verify it locks.
-
-**Test 3: Rejected lines still require recall**
-1. Have approver reject a line. As staff, open that week.
-2. Verify week is still read-only despite rejection.
-3. Click "Retirar Envio", edit, re-submit. Verify it locks again.
+| File | Change |
+|------|--------|
+| `docs/CHANGELOG-2026-02-13.md` | Append BUG #0213-25 section at end of file |
 
