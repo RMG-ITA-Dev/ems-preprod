@@ -1,70 +1,114 @@
 
 
-# Plan: Merge `staff_capacity` into `staff`
+# Bug 0206-3: Timesheet Buttons Not Available on Non-Current Weeks
 
-## Why This Makes Sense
+## Problem
 
-The `staff_capacity` table stores a single value (`weekly_capacity_hours`, default 40) per staff member. It currently has **zero rows** of data, meaning the system always falls back to the default of 40. It is only referenced in one file outside of auto-generated types and documentation: the `dashboard-data` edge function.
+The "Copiar Semana Anterior", "Retirar Envio", and "Guardar Borrador" buttons disappear when navigating to past or future weeks. Root cause: button visibility depends on `isEditable`, which depends on `lineApprovals` data — often empty/undefined for non-current weeks.
 
-The date-range columns (`effective_from`, `effective_to`) were designed for historical capacity tracking but are unused in practice — the code always takes the latest active record or defaults to 40.
+## Solution
 
----
+Decouple each button from `isEditable` with its own self-contained visibility flag.
 
-## What Changes
+## Changes
 
-### Step 1 — Database Migration
+### File: `src/pages/TimeSheet.tsx`
 
-- Add column `weekly_capacity_hours NUMERIC NOT NULL DEFAULT 40` to the `staff` table
-- Copy any existing data from `staff_capacity` to `staff` (currently 0 rows, but handled for safety)
-- Drop the `staff_capacity` table along with its RLS policies, indexes, and trigger
+**1. Add previous-week period query** (near existing period/data hooks)
 
-```text
-staff table (after)
-+---------------------------+
-| ... existing columns ...  |
-| weekly_capacity_hours (40)|  <-- NEW
-+---------------------------+
+Query `timesheet_periods` for the previous week to check if it was submitted or approved. This is a lightweight single-row lookup used only to gate the "Copy Previous Week" button.
+
+```typescript
+// BUG #0206-3: Check if previous week was submitted (for Copy button gating)
+const previousWeekStart = useMemo(() => getPreviousWeek(currentWeekStart), [currentWeekStart]);
+
+const { data: previousPeriod } = useQuery({
+  queryKey: ["timesheet-period-prev", staffRecord?.staff_id, toISODateString(previousWeekStart)],
+  queryFn: async () => {
+    const { data } = await supabase
+      .from("timesheet_periods")
+      .select("period_id, submitted_at, is_period_locked")
+      .eq("staff_id", staffRecord!.staff_id)
+      .eq("week_start_date", toISODateString(previousWeekStart))
+      .maybeSingle();
+    return data;
+  },
+  enabled: !!staffRecord?.staff_id,
+  staleTime: 5 * 60 * 1000,
+});
+
+const prevWeekSubmittedOrApproved = !!previousPeriod?.submitted_at;
 ```
 
-### Step 2 — Update Edge Function
+**2. Add `hasNonZeroEntry` derived boolean** (near existing derived state)
 
-**File:** `supabase/functions/dashboard-data/index.ts`
+```typescript
+const hasNonZeroEntry = entries.some((e) => e.hours_logged > 0);
+```
 
-Two changes:
+**3. Add three dedicated visibility variables** (replacing inline conditions)
 
-1. **Lines 574-600 (team utilization):** Remove the separate `staff_capacity` query. Instead, add `weekly_capacity_hours` to the existing staff query on line 584. Build `capacityByStaff` directly from the staff list.
+```typescript
+const canCopyPreviousWeek = !isBeforeHireDate
+  && isWithinEditableWindow
+  && !isSubmitted
+  && !period?.is_period_locked
+  && prevWeekSubmittedOrApproved;
 
-2. **Lines 803-813 (individual capacity):** Remove the separate `staff_capacity` query. Instead, read `weekly_capacity_hours` from the staff record already fetched earlier in the function (or add it to the staff query for that code path).
+const canUnsubmit = isSubmitted
+  && !isFullyApproved
+  && isWithinEditableWindow
+  && !period?.is_period_locked;
 
-### Step 3 — Update Documentation
+const canSaveDraft = !isBeforeHireDate
+  && isWithinEditableWindow
+  && !period?.is_period_locked
+  && !isFullyApproved
+  && hasNonZeroEntry;
+```
 
-| File | Change |
-|------|--------|
-| `docs/database-schema.sql` | Remove `staff_capacity` table definition and policies; add column to `staff` |
-| `supabase/ems-er-diagram.md` | Remove `staff_capacity` entity and its relationship arrow |
-| `docs/CHANGELOG-2026-02-13.md` | Document the consolidation |
+**4. Update JSX button conditions**
 
-### Step 4 — No Frontend Changes Needed
+| Button | Old condition | New condition |
+|--------|--------------|---------------|
+| Copiar Semana Anterior | `isEditable && !isSubmitted` | `canCopyPreviousWeek` |
+| Retirar Envio | `canUnsubmit` (old, required `hasPendingLines`) | `canUnsubmit` (new, no line-approval dependency) |
+| Guardar Borrador | `isEditable` | `canSaveDraft` |
 
-No component, hook, or page in `src/` ever queries `staff_capacity`. The auto-generated `types.ts` will update automatically after the migration.
+**5. Add defense-in-depth guards inside handlers**
 
----
+Add early-return checks (`if (!canCopyPreviousWeek) return;`, etc.) at the top of each handler function.
 
-## Files Modified (Complete List)
+**6. New imports needed**
+
+- `useQuery` from `@tanstack/react-query` (already imported indirectly but needs explicit import)
+- `toISODateString` from `@/lib/timesheetUtils` (already imported via `getPreviousWeek` etc.)
+
+### File: `docs/CHANGELOG-2026-02-13.md`
+
+Append full bug documentation (ID, name, root cause, per-file changes).
+
+## What Stays Unchanged
+
+- `isEditable` remains as-is (still controls grid cell editability and Import from Timer button)
+- `canSubmit` remains as-is
+- No mutation logic changes
+- No backend/database changes
+
+## Files Modified
 
 | File | Action |
 |------|--------|
-| New migration `.sql` | Add column, migrate data, drop table + policies + trigger + indexes |
-| `supabase/functions/dashboard-data/index.ts` | Replace 2 `staff_capacity` queries with reads from `staff` |
-| `docs/database-schema.sql` | Schema documentation update |
-| `supabase/ems-er-diagram.md` | Remove entity from ER diagram |
-| `docs/CHANGELOG-2026-02-13.md` | New changelog entry |
+| `src/pages/TimeSheet.tsx` | Add prev-period query, 3 visibility variables, update 3 JSX conditions, add handler guards |
+| `docs/CHANGELOG-2026-02-13.md` | Append bug fix entry |
 
----
+## Testing
 
-## Risk Assessment
-
-- **Data loss:** None. The table has 0 rows; all capacity values currently default to 40.
-- **Frontend impact:** None. No frontend file references `staff_capacity`.
-- **Rollback:** The migration can be reversed by re-creating the table if needed.
+1. Navigate to a past unsubmitted week where the previous week IS submitted -- "Copiar Semana Anterior" should be visible
+2. Navigate to a past unsubmitted week where the previous week is NOT submitted -- "Copiar Semana Anterior" should be hidden
+3. On any unsubmitted week, enter zero hours only -- "Guardar Borrador" stays hidden; enter non-zero hours -- it appears
+4. Navigate to a submitted-but-not-approved week (past or current) -- "Retirar Envio" should be visible
+5. Navigate to a fully approved or locked week -- none of the three buttons appear
+6. Navigate to a week before hire date -- none appear
+7. Regression: grid editability and submit button unchanged
 
