@@ -36,6 +36,11 @@ interface ExpenseLogFormData {
   currency: string;
   description: string | null;
   receipt_url?: string | null;
+  created_by_staff?: {
+    first_name: string;
+    last_name: string;
+    initials: string | null;
+  } | null;
 }
 
 interface ExpenseLogFormProps {
@@ -213,6 +218,15 @@ export function ExpenseLogForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4 form-dense">
+      {initialData?.created_by_staff && (
+        <div className="text-sm text-muted-foreground">
+          <span className="font-medium">{t("expenses.loggedBy")}:</span>{" "}
+          {initialData.created_by_staff.first_name} {initialData.created_by_staff.last_name}
+          {initialData.created_by_staff.initials && (
+            <span className="ml-1">({initialData.created_by_staff.initials})</span>
+          )}
+        </div>
+      )}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {/* Engagement */}
         <div className="space-y-1.5">
