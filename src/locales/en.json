@@ -560,7 +560,9 @@
     "noPreviousEntries": "No entries found in the previous week to copy",
     "dailyLimitExceeded": "Over limit!",
     "weeklyLimitExceeded": "Over limit!",
-    "rowMerged": "A row with this engagement and activity already exists. Hours were merged automatically."
+    "rowMerged": "A row with this engagement and activity already exists. Hours were merged automatically.",
+    "saveDraftSuccess": "Draft saved successfully",
+    "saveDraftPartialError": "Failed to save {{count}} entries. Please try again."
   },
   "expenses": {
     "title": "Expenses",
