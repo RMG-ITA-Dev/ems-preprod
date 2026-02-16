@@ -1,7 +1,7 @@
 import { 
   LayoutDashboard, 
-  Building2, 
   Briefcase, 
+  FolderKanban, 
   Users, 
   Settings,
   FileText,
@@ -40,8 +40,8 @@ export function AppSidebar() {
 
   const mainNavItems = [
     { title: t("nav.dashboard"), url: "/", icon: LayoutDashboard },
-    { title: t("nav.clients"), url: "/clients", icon: Building2 },
-    { title: t("nav.engagements"), url: "/engagements", icon: Briefcase },
+    { title: t("nav.clients"), url: "/clients", icon: Briefcase },
+    { title: t("nav.engagements"), url: "/engagements", icon: FolderKanban },
     { title: t("nav.workMatrix"), url: "/worksheets", icon: TableProperties },
     { title: t("nav.workOrders"), url: "/work-orders", icon: FileText },
   ];
