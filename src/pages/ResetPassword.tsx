@@ -68,7 +68,7 @@ const ResetPassword = () => {
           className="mb-6 font-bold text-primary text-2xl"
           style={{ fontFamily: '"IBM Plex Sans", system-ui, sans-serif' }}
         >
-          EMS 2.0
+          RuizmierGroup - EMS 2.0
         </h1>
         <Card className="w-full max-w-md">
           <CardHeader className="text-center">
@@ -94,7 +94,7 @@ const ResetPassword = () => {
         className="mb-6 font-bold text-primary text-2xl"
         style={{ fontFamily: '"IBM Plex Sans", system-ui, sans-serif' }}
       >
-        EMS 2.0
+        RuizmierGroup - EMS 2.0
       </h1>
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
