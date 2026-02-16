@@ -316,3 +316,79 @@ belt-and-suspenders safety against data anomalies.
 - **Low risk** -- removes permissive branches only; no new state or data paths.
 - Autosave cannot fire when inputs are disabled via `isLocked`.
 - Users with rejected lines must use "Retirar Envio" before editing, which matches audit integrity expectations.
+
+---
+
+## BUG #0213-26: Redesign "Cronometro" into "Registros de Tiempo"
+
+**Date:** 2026-02-16  
+**Priority:** Alta  
+**Version:** v2.0.4  
+**Route:** OPERACIONES → Registros de Tiempo / Hoja de Tiempo
+
+### Problem
+
+The "Importar del Cronómetro" feature had 6 functional defects plus a UX mismatch with business workflow (S1–S5 requirements):
+
+1. **UTC date shift** — `new Date(started_at)` shifted Bolivia UTC-4 dates across day boundaries.
+2. **Missing `period_id`** — Inserts left `period_id` null, creating orphaned time entries invisible to the Timesheet grid.
+3. **No aggregation** — Each timer entry became a separate `time_entries` row, producing duplicates for the same engagement+activity+day.
+4. **No duplicate handling** — Relied on DB constraint errors (23505) instead of deterministic SELECT-first logic.
+5. **No user feedback** — No success/warning/error toasts after import; spinner had no completion state.
+6. **No grid refresh** — TanStack Query cache was not invalidated after import; Timesheet showed stale data until manual refresh.
+
+Additionally, the feature was accessible from both TrackerList and Timesheet pages with duplicated logic, and there was no submission blocking (S5) — users could import into already-submitted weeks.
+
+### Root Cause
+
+1. Import logic duplicated in `TrackerList.tsx` and `TimeSheet.tsx` with no shared abstraction.
+2. No aggregation step before DB writes.
+3. Error-driven duplicate handling (catch 23505) instead of deterministic SELECT-first.
+4. No `submitted_at` check before inserting into a week's timesheet.
+5. Reactive architecture — no cache invalidation after mutations.
+
+### Solution
+
+Created a shared `useTimesheetImport` hook (`src/hooks/useTimesheetImport.ts`) with a 9-step pipeline:
+
+1. **Date extraction** — `format(parseISO(started_at), "yyyy-MM-dd")` avoids UTC shift.
+2. **Aggregation** — Groups entries by `(engagement_id, activity_id, date_worked)` and sums `duration_minutes`.
+3. **Rounding** — `Math.round((totalMinutes / 60) * 10) / 10` (1 decimal, matches Timesheet grid).
+4. **Week computation** — `getWeekMonday` from `@/lib/timesheetUtils` (same Monday-based function used by Timesheet).
+5. **Deterministic period resolution** — SELECT existing period or INSERT new one; if INSERT fails, week is blocked (not thrown).
+6. **S5 submission block** — Checks `submitted_at` per period; blocks export for submitted weeks.
+7. **SELECT-first upsert** — SELECT existing `time_entries` row; UPDATE (additive merge) if found, INSERT if not.
+8. **Selective marking** — Only successfully exported timer entries are marked `is_imported = true`.
+9. **Cache invalidation** — Prefix-level invalidation for `time-entries`, `timesheet-period`, `timer_entries`, `timer_entries_unimported`.
+
+Redesigned TrackerList with 3-button layout, checkbox selection (desktop table + mobile cards with 44px touch targets), and inline ManualEntryDialog. Removed import from Timesheet page. Deleted TimerImportDialog.
+
+### Files Modified
+
+| File | Action |
+|------|--------|
+| `src/hooks/useTimesheetImport.ts` | CREATE — shared 9-step export hook |
+| `src/pages/TrackerList.tsx` | MODIFY — 3-button layout, checkbox selection, ManualEntryDialog, export handler |
+| `src/pages/TimeSheet.tsx` | MODIFY — removed import button, dialog, and ~60 lines of related state/hooks |
+| `src/components/tracker/TimerImportDialog.tsx` | DELETE |
+| `src/components/tracker/ManualEntryDialog.tsx` | MODIFY — fixed hardcoded purple background to use Tailwind token |
+| `src/locales/es.json` | MODIFY — renamed nav/tracker keys, added 7 export feedback keys |
+| `src/locales/en.json` | MODIFY — same |
+| `docs/CHANGELOG-2026-02-13.md` | MODIFY — this entry |
+
+### S1–S5 Requirement Mapping
+
+| Req | Description | How Addressed |
+|-----|-------------|---------------|
+| S1 | Cronómetro is one input method; export records → timesheet | Shared hook handles export; list view is the single control plane |
+| S2 | Sidebar "Registros de Tiempo"; 3 buttons in list | `nav.tracker` renamed; 3-button layout: Export, +Cronómetro, +Nuevo Registro |
+| S3 | Manual entry equally valid; accessible from list | ManualEntryDialog opens via "+Nuevo Registro de Tiempo" button |
+| S4 | Checkbox selection on list rows before export | Checkbox column on desktop table + mobile cards; "select all" header |
+| S5 | Export multiple times until submitted, then block | Hook checks `submitted_at` per resolved period; blocked entries NOT marked imported |
+
+### Risk Assessment
+
+- **Low risk** — no database schema changes; purely frontend refactor with shared hook.
+- Deterministic SELECT-first upsert avoids race conditions (single user on own data).
+- Period auto-creation uses same INSERT pattern as `useTimesheetWeek` (already in production).
+- Blocked timer entries remain selectable after "Retirar Envío" (unsubmit).
