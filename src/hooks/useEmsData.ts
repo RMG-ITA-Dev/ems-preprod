@@ -71,6 +71,7 @@ export interface Engagement {
   status: string;
   start_date: string | null;
   end_date: string | null;
+  created_at: string | null;
   client?: Client;
   partner?: Staff;
   manager?: Staff;

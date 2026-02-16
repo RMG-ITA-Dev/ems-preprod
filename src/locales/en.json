@@ -359,7 +359,8 @@
     "selectStatus": "Select status",
     "selectPartner": "Select Partner/Director",
     "selectManager": "Select Manager/Supervisor",
-    "duplicateCode": "An engagement with code {{code}} already exists: {{name}}. Each engagement must have a unique code."
+    "duplicateCode": "An engagement with code {{code}} already exists: {{name}}. Each engagement must have a unique code.",
+    "startDateBeforeCreation": "Start date cannot be before the engagement creation date"
   },
   "messages": {
     "createSuccess": "{{entity}} created successfully",

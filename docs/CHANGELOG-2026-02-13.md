@@ -95,3 +95,41 @@ Decoupled each button's visibility from `isEditable`/`lineApprovals` into three 
 - `canSubmit` — unchanged
 - No mutation logic changes
 - No backend/database changes
+
+---
+
+## BUG #0206-19: Start Date Allows Values Before Engagement Creation Date
+
+**Date:** 2026-02-16  
+**Priority:** Alta  
+**Version:** v2.0.3 → v2.0.4  
+**Route:** PRINCIPAL → Encargos
+
+### Problem
+
+The Engagement form allowed users to select a Start Date earlier than the engagement's creation date. The `Engagement` interface lacked `created_at`, the Calendar picker had no date restrictions, and no save-time validation existed.
+
+### Root Cause
+
+1. `Engagement` interface missing `created_at` field — form couldn't reference creation date.
+2. Start Date Calendar had no `disabled` prop — any past date was selectable.
+3. No `onSubmit` guard to block invalid values.
+
+### Solution
+
+Added a `minStartDate` constraint (today for new engagements, `created_at` for edits) enforced via Calendar `disabled` prop + `onSubmit` validation guard. Also restricted End Date Calendar to not allow dates before the selected Start Date.
+
+### Changes
+
+| File | Change |
+|------|--------|
+| `src/hooks/useEmsData.ts` | Added `created_at: string \| null` to `Engagement` interface |
+| `src/components/forms/EngagementForm.tsx` | Added `useMemo`, `startOfDay`, `isBefore` imports; computed `minStartDate`; added `onSubmit` validation guard; added `disabled` prop to both Start Date and End Date Calendars |
+| `src/locales/en.json` | Added `engagement.startDateBeforeCreation` key |
+| `src/locales/es.json` | Added `engagement.startDateBeforeCreation` key |
+| `docs/CHANGELOG-2026-02-13.md` | This changelog entry |
+
+### Risk Assessment
+
+- **Low risk** — adds constraint only; no existing data or mutations modified.
+- Legacy engagements with `start_date < created_at` will still display but will be blocked on save unless corrected.

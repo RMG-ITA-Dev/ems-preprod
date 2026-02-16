@@ -1,8 +1,8 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { format } from "date-fns";
+import { format, startOfDay, isBefore } from "date-fns";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { LoadingButton } from "@/components/ui/loading-button";
@@ -83,6 +83,15 @@ export function EngagementForm({ engagement }: EngagementFormProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const isEdit = !!engagement;
+
+  // BUG #0206-19: Minimum allowed start date
+  const minStartDate = useMemo(() => {
+    if (isEdit && engagement?.created_at) {
+      return startOfDay(new Date(engagement.created_at));
+    }
+    return startOfDay(new Date());
+  }, [isEdit, engagement?.created_at]);
+
   const { data: clients } = useClients();
   const { partners, managerOptions, hasPartnerCategory, hasManagerCategory } = useCategoryStaff();
   const createMutation = useCreateEngagement();
@@ -130,6 +139,14 @@ export function EngagementForm({ engagement }: EngagementFormProps) {
   }, [engagement, form]);
 
   const onSubmit = async (data: FormData) => {
+    // BUG #0206-19: Validate start_date >= creation date
+    if (data.start_date && isBefore(startOfDay(data.start_date), minStartDate)) {
+      form.setError("start_date", {
+        message: t("engagement.startDateBeforeCreation"),
+      });
+      return;
+    }
+
     // Duplicate engagement code check
     const { data: existingByCode } = await supabase
       .from("engagements")
@@ -384,6 +401,7 @@ export function EngagementForm({ engagement }: EngagementFormProps) {
                             mode="single"
                             selected={field.value}
                             onSelect={field.onChange}
+                            disabled={(date) => isBefore(startOfDay(date), minStartDate)}
                             initialFocus
                             className="pointer-events-auto"
                           />
@@ -420,6 +438,11 @@ export function EngagementForm({ engagement }: EngagementFormProps) {
                             mode="single"
                             selected={field.value}
                             onSelect={field.onChange}
+                            disabled={(date) => {
+                              const startDate = form.getValues("start_date");
+                              if (startDate) return isBefore(startOfDay(date), startOfDay(startDate));
+                              return isBefore(startOfDay(date), minStartDate);
+                            }}
                             initialFocus
                             className="pointer-events-auto"
                           />
