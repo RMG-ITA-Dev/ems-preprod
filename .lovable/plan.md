@@ -1,282 +1,174 @@
-# Plan v5 -- PROGRAMER_REQUEST_FIX_#2: Registros de Tiempo UI Refinements (S6, S7, S8)
-
-Three UI changes to the "Registros de Tiempo" module plus a new dedicated edit page following the exact "Editar Encargo" layout pattern.
-
----
-
-## CODEX v5 Corrections Applied
 
 
-| #   | Issue                                                | Resolution                                                                         |
-| --- | ---------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| A   | Loading condition: don't rely solely on `!isFetched` | Skeleton shown when `!isFetched && !entries` (robust against refetch/error states) |
-| B   | Guard #2 should also depend on `isFetched`           | Both guards now gated on `isFetched` before acting                                 |
+# Plan v1 -- Hours Field Enhancement for Add & Edit Time Records
 
+## Objective
+
+Add a direct "Hours" input field to both the ManualEntryDialog (Add) and TrackerEdit (Edit) forms, with three behaviors:
+
+1. **Max 8 hours restriction** on the hours field
+2. **Default start time 08:00** and auto-compute end time from hours
+3. **Bidirectional sync**: if the user touches start or end time fields, compute the interval and populate the hours field automatically
 
 ---
 
-## S6: Remove "Acciones" Column and All Inline Action Buttons
+## How It Works
 
-**File: `src/pages/TrackerList.tsx**`
+The new "Horas" field sits between the Start Time and End Time fields (or below the time range row in the dialog). It is a standard numeric input (type="number", step 0.5, min 0, max 8).
 
-**Desktop table:**
+### Interaction Logic
 
-- Delete the "Acciones" `<TableHead>` (lines 681-684, width 8%)
-- Delete the "Actions" `<TableCell>` with edit/copy/delete buttons (lines 763-793)
-- Reduce skeleton column count from 9 to 8 (line 691)
-- Reduce `colSpan` from 9 to 8 (line 698)
-- Redistribute freed 8% width: Engagement 22% to 26%, Description 13% to 16%
-- Remove `canEdit` variable (line 705)
+- **User changes Hours**: End time = start time + hours. If no start time, default to 08:00 first.
+- **User changes Start Time**: If hours is set, recompute end time = start + hours. If end time is already set, recompute hours = end - start.
+- **User changes End Time**: Recompute hours = end - start. If result exceeds 8, clamp to 8 and adjust end time back.
+- **Default state (Add dialog only)**: startTime = "08:00", hours = 1, endTime = "09:00" (instead of current 09:00/10:00).
 
-**Mobile cards:**
+### Validation
 
-- Remove the action buttons section inside `CollapsibleContent` (lines 512-541: the `canEdit &&` block with edit/duplicate/delete buttons). Keep description display.
-- Remove `canEdit` variable (line 440)
-
-**Cleanup:**
-
-- Remove `handleEdit`, `handleDuplicate`, `handleDelete` functions (lines 296-329)
-- Remove `Pencil`, `Copy`, `Trash2`, `FileText` from lucide imports (line 34)
-
-**Checkpoint -- checkbox isolation:**
-Checkbox click already uses `e.stopPropagation()` at lines 457 (mobile) and 715 (desktop). No changes needed.
+- Hours clamped to 0-8 range
+- If computed hours from start/end exceeds 8, show toast error and clamp
+- Save handler already validates end > start (existing logic, unchanged)
 
 ---
 
-## S7: New Dedicated Edit Page (`TrackerEdit.tsx`)
+## File Changes
 
-### Layout (matching EngagementForm / "Editar Encargo" screenshot exactly)
+### 1. `src/components/tracker/ManualEntryDialog.tsx` (MODIFY)
 
+**Add hours state:**
+```typescript
+const [hours, setHours] = useState<number>(1);
+```
+
+**Change defaults:**
+- `startTime` default from `"09:00"` to `"08:00"`
+- `endTime` default from `"10:00"` to `"09:00"`
+- Reset also resets hours to 1
+
+**Add "Horas" input** between Start Time and End Time in the grid (change from `grid-cols-2` to `grid-cols-3`):
 ```text
-+----------------------------------------------------------+
-| Editar Registro de Tiempo              [Eliminar] (red)  |
-+----------------------------------------------------------+
-| Card (bg-card rounded-xl border border-border p-6):      |
-|                                                           |
-|   Section: "Tiempo"                                       |
-|     Date picker  |  Start Time  |  End Time              |
-|                                                           |
-|   Section: "Encargo"                                      |
-|     Engagement (select)  |  Activity (select)             |
-|                                                           |
-|   Section: "Detalle"                                      |
-|     Description (textarea, full width)                    |
-|                                                           |
-|                           [Cancelar]  [Guardar Cambios]   |
-+----------------------------------------------------------+
+[ Hora inicio ]  [ Horas ]  [ Hora fin ]
 ```
 
-### Guards (all via useEffect, both gated on isFetched)
+The Horas field uses a standard `<Input type="number" min={0} max={8} step={0.5} />`.
 
+**Add handler functions:**
+- `handleHoursChange(newHours)`: clamp 0-8, compute endTime from startTime + hours
+- `handleStartTimeChange(newStart)`: if hours is set, recompute endTime; else if endTime is set, recompute hours
+- `handleEndTimeChange(newEnd)`: compute hours from start-end interval; if > 8, clamp and show toast
+
+### 2. `src/pages/TrackerEdit.tsx` (MODIFY)
+
+**Add hours state:**
 ```typescript
-const { data: entries, isFetched } = useTimerEntries();
-const entry = entries?.find(e => e.timer_id === id);
-
-// Guard 1: Not found -- runs only after query settles
-useEffect(() => {
-  if (isFetched && !entry) navigate("/tracker", { replace: true });
-}, [isFetched, entry, navigate]);
-
-// Guard 2: Running timer -- also gated on isFetched to avoid transient redirects
-useEffect(() => {
-  if (isFetched && entry && !entry.ended_at) navigate("/tracker/new", { replace: true });
-}, [isFetched, entry, navigate]);
+const [hours, setHours] = useState<number>(0);
 ```
 
-### Loading state (robust)
-
+**Populate hours from entry data** (in the existing useEffect that sets startTime/endTime):
 ```typescript
-// Skeleton shown only when query hasn't settled AND we have no data
-if (!isFetched && !entries) {
-  return <LoadingSkeleton />;
+if (entry.ended_at) {
+  const durationHours = (end.getTime() - start.getTime()) / 3600000;
+  setHours(Math.min(8, Math.round(durationHours * 2) / 2)); // round to 0.5
 }
 ```
 
-This avoids flicker during background refetches (where `isFetched` stays `true` and data is already available) and handles error states gracefully.
+**Change defaults for new entries**: startTime defaults to "08:00" when loaded.
 
-### Imported entry handling
+**Add "Horas" input** in the Time section grid (change from `sm:grid-cols-3` with Date/Start/End to `sm:grid-cols-4` with Date/Start/Hours/End):
+```text
+[ Fecha ]  [ Hora inicio ]  [ Horas ]  [ Hora fin ]
+```
 
-- **Imported entry** (`is_imported === true`): Render the edit page with all inputs disabled, Save and Delete buttons hidden. Show an `Alert` component with `t("tracker.readOnlyImported")`.
+**Add same handler functions** as ManualEntryDialog (handleHoursChange, handleStartTimeChange, handleEndTimeChange).
 
-### Data loading
+### 3. `src/locales/es.json` (MODIFY)
 
-- `useTimerEntries()` returns ALL entries for the current staff (no pagination, no filters) -- confirmed from hook code (lines 27-50). Direct URL load is safe.
-- Find entry: `entries?.find(e => e.timer_id === id)`
-- If `isFetched && !entry`, redirect via useEffect (Guard 1)
+Add under `"tracker"`:
+```json
+"hours": "Horas",
+"maxHoursExceeded": "El maximo permitido es 8 horas"
+```
 
-### Save handler
+### 4. `src/locales/en.json` (MODIFY)
 
-- Reconstruct `started_at` and `ended_at` from date + startTime + endTime (ISO strings)
-- Recalculate `duration_minutes = Math.round((end - start) / 60000)`
-- Call `useUpdateTimerEntry` with `{ timer_id, started_at, ended_at, duration_minutes, engagement_id, activity_id, description }`
-- On success: `toast.success(t("tracker.recordSaved"))`, `navigate("/tracker")`
+Add under `"tracker"`:
+```json
+"hours": "Hours",
+"maxHoursExceeded": "Maximum allowed is 8 hours"
+```
 
-### Delete handler
+### 5. `docs/CHANGELOG-2026-02-13.md` (MODIFY)
 
-- `AlertDialog` confirmation (same pattern as EngagementForm lines 197-220)
-- Confirmation text uses `t("tracker.deleteRecordConfirm")`
-- Call `useDeleteTimerEntry` with `timer_id`
-- On success: `toast.success(t("tracker.recordDeleted"))`, `navigate("/tracker")`
-
-### Key implementation details (matching EngagementForm exactly)
-
-- **Header row**: `<div className="flex items-center justify-between">` (EngagementForm line 193)
-  - `<h1 className="text-lg font-semibold">` with `t("tracker.editRecord")`
-  - `<Button variant="destructive">` with `<Trash2>` icon inside `AlertDialog` (EngagementForm lines 197-220)
-- **Form card**: `<div className="bg-card rounded-xl border border-border p-6">` (EngagementForm line 232)
-- **Section headers**: `<h3 className="font-medium text-lg">` (EngagementForm line 236)
-- **Footer buttons**: `<div className="flex flex-col-reverse sm:flex-row justify-end gap-3 sm:gap-4 pt-4">` (EngagementForm line 458)
-  - `<Button variant="cancel" className="w-full sm:w-auto min-h-[44px] sm:min-h-0">` using `t("common.cancel")` (EngagementForm line 459)
-  - `<LoadingButton variant="default" className="w-full sm:w-auto min-h-[44px] sm:min-h-0">` using `t("common.saveChanges")` (EngagementForm line 462-470)
-
-### Hooks used
-
-- `useTimerEntries`, `useUpdateTimerEntry`, `useDeleteTimerEntry` from `@/hooks/useTimerEntries`
-- `useEngagements`, `useActivityCodes` from `@/hooks/useEmsData` (for select dropdowns)
-- Active filtering: engagements `status === "active"`, activities `is_active === true`
-
-### Route change in `App.tsx`
-
-- Add lazy import at line 38: `const TrackerEdit = lazy(() => import("./pages/TrackerEdit"));`
-- Line 79: Change `<TrackerRecord />` to `<TrackerEdit />`
-- `/tracker/new` (line 78) remains `TrackerRecord` (stopwatch) -- unchanged
-
-### Mutation extension in `useTimerEntries.ts`
-
-- Line 113: Add `started_at?: string` to the `useUpdateTimerEntry` mutation type (currently missing)
-
-## One tiny implementation note (non-scope, just don’t miss it)
-
-- In `TrackerEdit.tsx`, make sure `LoadingSkeleton` refers to an existing component (or replace with your standard `<Skeleton />` layout). In the plan it’s a placeholder name, which is fine as long as you implement/replace it consistently.
+Append entry documenting the hours field enhancement.
 
 ---
 
-## S8: Button Icon and Color Changes
+## Helper Function (shared logic)
 
-**File: `src/pages/TrackerList.tsx**` button bar (lines 398-415)
+Both components need the same time arithmetic. To avoid duplication, add a small utility function at the top of each file (or extract to a shared helper if preferred):
 
+```typescript
+function addHoursToTime(time: string, hours: number): string {
+  const [h, m] = time.split(":").map(Number);
+  const totalMinutes = h * 60 + m + Math.round(hours * 60);
+  const newH = Math.floor(totalMinutes / 60) % 24;
+  const newM = totalMinutes % 60;
+  return `${String(newH).padStart(2, "0")}:${String(newM).padStart(2, "0")}`;
+}
 
-| Button                                   | Before                                    | After                                                                                                             |
-| ---------------------------------------- | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| Usar Cronometro (lines 399-406)          | `variant="default"` (purple), `Plus` icon | `variant="default" className="bg-warning text-warning-foreground hover:bg-warning/90"` (yellow), keep `Plus` icon |
-| Nuevo Registro de Tiempo (lines 408-415) | `variant="outline"`, `FileText` icon      | `variant="default"` (purple), `Plus` icon                                                                         |
-
-
-**Critical preservation**: "Nuevo Registro de Tiempo" continues to call `setManualDialogOpen(true)` (line 410). Only icon and style change. No navigation change.
-
-Button order unchanged (left to right):
-
-1. Exportar a la Hoja de Tiempo (outline)
-2. Usar Cronometro (yellow/warning)
-3. Nuevo Registro de Tiempo (purple/default)
+function computeHoursBetween(start: string, end: string): number {
+  const [sh, sm] = start.split(":").map(Number);
+  const [eh, em] = end.split(":").map(Number);
+  const diff = (eh * 60 + em - sh * 60 - sm) / 60;
+  return Math.max(0, diff);
+}
+```
 
 ---
 
-## i18n Keys
+## Detailed Interaction Table
 
-### Existing keys confirmed present (reuse, NO additions):
-
-- `common.cancel` = "Cancel" / "Cancelar"
-- `common.delete` = "Delete" / "Eliminar"
-- `common.saveChanges` = "Save Changes" / "Guardar Cambios"
-- `common.confirmDelete` = exists (uses `{{name}}` interpolation)
-- `common.deleteWarning` = exists
-
-### New keys under `"tracker": { ... }` (8 keys per locale):
-
-**EN (`src/locales/en.json`):**
-
-```json
-"editRecord": "Edit Time Record",
-"deleteRecordConfirm": "This will permanently delete this time record.",
-"readOnlyImported": "This record has been exported and cannot be modified.",
-"sectionTime": "Time",
-"sectionEngagement": "Engagement",
-"sectionDetail": "Detail",
-"recordSaved": "Record updated successfully",
-"recordDeleted": "Record deleted successfully"
-```
-
-**ES (`src/locales/es.json`):**
-
-```json
-"editRecord": "Editar Registro de Tiempo",
-"deleteRecordConfirm": "Esta accion eliminara este registro de tiempo permanentemente.",
-"readOnlyImported": "Este registro ya fue exportado y no puede ser modificado.",
-"sectionTime": "Tiempo",
-"sectionEngagement": "Encargo",
-"sectionDetail": "Detalle",
-"recordSaved": "Registro actualizado exitosamente",
-"recordDeleted": "Registro eliminado exitosamente"
-```
+| User Action | Effect |
+|---|---|
+| Changes **Hours** (0-8) | endTime = startTime + hours. If startTime is empty, set startTime to "08:00" first. |
+| Changes **Start Time** | If hours > 0, endTime = startTime + hours. If endTime already set and hours is 0, compute hours = end - start (clamped to 8). |
+| Changes **End Time** | Compute hours = endTime - startTime. If > 8, clamp to 8, adjust endTime = startTime + 8h, show toast. |
+| Form **opens (Add)** | startTime = "08:00", hours = 1, endTime = "09:00" |
+| Form **loads (Edit)** | Populate from entry data, compute hours from actual start/end interval (clamped to 8) |
 
 ---
 
 ## File Summary
 
-
-| File                           | Action                                                                                                             |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
-| `src/pages/TrackerEdit.tsx`    | CREATE -- dedicated edit page following EngagementForm pattern                                                     |
-| `src/pages/TrackerList.tsx`    | MODIFY -- remove Acciones column + mobile actions (S6), change button icons/colors (S8), clean up handlers/imports |
-| `src/hooks/useTimerEntries.ts` | MODIFY -- add `started_at?: string` to `useUpdateTimerEntry` type (line 113)                                       |
-| `src/App.tsx`                  | MODIFY -- add TrackerEdit lazy import, change `/tracker/:id` route                                                 |
-| `src/locales/es.json`          | MODIFY -- add 8 tracker keys                                                                                       |
-| `src/locales/en.json`          | MODIFY -- add 8 tracker keys                                                                                       |
-| `docs/CHANGELOG-2026-02-13.md` | MODIFY -- append PROGRAMER_REQUEST_FIX_#2 entry                                                                    |
-
-
----
-
-## Column Width After Removing Acciones
-
-
-| Column      | Before | After   |
-| ----------- | ------ | ------- |
-| Checkbox    | 4%     | 4%      |
-| Fecha       | 10%    | 10%     |
-| Hora        | 10%    | 10%     |
-| Duracion    | 8%     | 8%      |
-| Encargo     | 22%    | 26%     |
-| Actividad   | 15%    | 16%     |
-| Descripcion | 13%    | 16%     |
-| Estado      | 8%     | 10%     |
-| Acciones    | 8%     | removed |
-
+| File | Action |
+|---|---|
+| `src/components/tracker/ManualEntryDialog.tsx` | MODIFY -- add Hours field, change defaults to 08:00, sync logic |
+| `src/pages/TrackerEdit.tsx` | MODIFY -- add Hours field, sync logic, populate from entry |
+| `src/locales/es.json` | MODIFY -- add 2 keys (hours, maxHoursExceeded) |
+| `src/locales/en.json` | MODIFY -- add 2 keys (hours, maxHoursExceeded) |
+| `docs/CHANGELOG-2026-02-13.md` | MODIFY -- append documentation entry |
 
 ---
 
 ## Risk Assessment
 
-
-| Area                               | Risk | Mitigation                                                                                                                                                      |
-| ---------------------------------- | ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Route change `/tracker/:id`        | Low  | `/tracker/new` still uses TrackerRecord for stopwatch. TrackerEdit handles completed entries only, redirecting running ones via useEffect.                      |
-| Removing mobile action buttons     | Low  | Users tap the card row to navigate to edit page -- same pattern as Engagements list.                                                                            |
-| Warning color on button            | None | `variant="default"` preserved for CVA base styles (h-10 px-4 py-2); only color overridden. `--warning` and `--warning-foreground` confirmed in `src/index.css`. |
-| Imported entry guard               | Low  | Read-only state (disabled inputs, hidden Save/Delete, Alert message). Not a redirect.                                                                           |
-| "Nuevo Registro" button regression | None | `onClick={() => setManualDialogOpen(true)}` explicitly preserved. Only icon/style change.                                                                       |
-| Mutation type extension            | None | Adding optional `started_at` field to existing mutation; backward compatible.                                                                                   |
-| Loading/guard flicker              | None | Skeleton gated on `!isFetched && !entries`. Both guards gated on `isFetched`. No transient redirects.                                                           |
-
+| Area | Risk | Mitigation |
+|---|---|---|
+| Existing save logic | None | Save handler still uses startTime/endTime to compute duration_minutes. Hours field is UI-only convenience. |
+| Clamping to 8h | Low | Toast feedback when exceeding 8h. End time adjusted automatically. |
+| Half-hour precision | None | step=0.5 on input allows 0.5h increments. Rounded to nearest 0.5 when computing from time interval. |
+| Imported entries (Edit) | None | Hours field is also disabled when isImported is true. |
 
 ---
 
 ## Acceptance Tests
 
-1. **S6 -- Desktop**: Open `/tracker`. No "Acciones" column. No edit/copy/delete icons in table rows.
-2. **S6 -- Mobile**: Open `/tracker` on mobile. No action buttons in collapsible card section.
-3. **S7 -- Edit page**: Click completed entry row. Full edit page: title "Editar Registro de Tiempo", red "Eliminar" top-right, form pre-filled, "Cancelar"/"Guardar Cambios" bottom-right.
-4. **S7 -- Save**: Edit description, click "Guardar Cambios". Toast success, redirects to list, data updated.
-5. **S7 -- Delete**: Click "Eliminar", confirm in AlertDialog. Entry removed, redirects to list.
-6. **S7 -- Imported guard**: Navigate to imported entry. Inputs disabled, no Save/Delete, Alert shown.
-7. **S7 -- Running guard**: Navigate to running entry via URL. Redirects to `/tracker/new`.
-8. **S8 -- Purple button**: "+ Nuevo Registro de Tiempo" has Plus icon, is purple, opens ManualEntryDialog.
-9. **S8 -- Yellow button**: "+ Usar Cronometro" is yellow (warning color).
-10. **Checkbox**: Clicking checkbox does NOT navigate (stopPropagation already in place).
+1. **Add dialog defaults**: Open "Nuevo Registro de Tiempo". Start time is 08:00, Hours is 1, End time is 09:00.
+2. **Hours changes end time**: Set hours to 4. End time updates to 12:00.
+3. **Max 8h**: Try to type 10 in hours. Clamped to 8.
+4. **Start time syncs**: Change start to 10:00 with hours=4. End time updates to 14:00.
+5. **End time syncs**: Change end to 15:00 with start=08:00. Hours shows 7.
+6. **End time over 8h**: Set start=08:00, end=18:00. Hours clamped to 8, end adjusted to 16:00, toast shown.
+7. **Edit page**: Open existing record. Hours pre-populated from the actual interval.
+8. **Imported read-only**: Hours field is disabled on imported entries.
 
----
-
-## Documentation Step
-
-Append **PROGRAMER_REQUEST_FIX_#2** entry to `docs/CHANGELOG-2026-02-13.md` documenting S6/S7/S8 changes, file modifications, and risk assessment following the established changelog format.
