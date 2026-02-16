@@ -164,7 +164,15 @@
       "pauseDesc": "El tiempo se guarda, puedes continuar después",
       "logAndReset": "Guardar y Reiniciar",
       "logAndResetDesc": "Guarda esta entrada y limpia todo"
-    }
+    },
+    "editRecord": "Editar Registro de Tiempo",
+    "deleteRecordConfirm": "Esta accion eliminara este registro de tiempo permanentemente.",
+    "readOnlyImported": "Este registro ya fue exportado y no puede ser modificado.",
+    "sectionTime": "Tiempo",
+    "sectionEngagement": "Encargo",
+    "sectionDetail": "Detalle",
+    "recordSaved": "Registro actualizado exitosamente",
+    "recordDeleted": "Registro eliminado exitosamente"
   },
   "entities": {
     "client": "Cliente",

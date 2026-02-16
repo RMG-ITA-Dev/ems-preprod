@@ -392,3 +392,51 @@ Redesigned TrackerList with 3-button layout, checkbox selection (desktop table +
 - Deterministic SELECT-first upsert avoids race conditions (single user on own data).
 - Period auto-creation uses same INSERT pattern as `useTimesheetWeek` (already in production).
 - Blocked timer entries remain selectable after "Retirar Envío" (unsubmit).
+
+---
+
+## PROGRAMER_REQUEST_FIX_#2: Registros de Tiempo UI Refinements (S6, S7, S8)
+
+**Date:** 2026-02-16  
+**Priority:** Alta  
+**Version:** v2.0.4  
+**Route:** OPERACIONES → Registros de Tiempo
+
+### Problem
+
+Three UI refinements needed for the "Registros de Tiempo" module:
+1. (S6) The "Acciones" column with inline edit/copy/delete buttons cluttered the table and duplicated functionality now handled by row-click navigation.
+2. (S7) No dedicated edit page existed for completed timer entries — users had no way to modify time, engagement, or activity after recording.
+3. (S8) Button styling inconsistencies: "Usar Cronómetro" and "Nuevo Registro de Tiempo" lacked visual differentiation.
+
+### Solution
+
+1. **S6 — Remove Acciones column**: Deleted the 8%-width "Acciones" column and all inline action buttons (edit/copy/delete) from both desktop table and mobile cards. Redistributed width to Engagement (22%→26%), Description (13%→16%), Activity (15%→16%), Status (8%→10%). Cleaned up unused `handleEdit`, `handleDuplicate`, `handleDelete` functions and `Pencil`, `Copy`, `Trash2`, `FileText` imports.
+
+2. **S7 — TrackerEdit page**: Created `src/pages/TrackerEdit.tsx` following the "Editar Encargo" layout pattern. Features:
+   - Navigation guards via `useEffect` gated on `isFetched` (not-found → `/tracker`, running timer → `/tracker/new`)
+   - Robust loading state: skeleton shown only when `!isFetched && !entries`
+   - Read-only mode for imported entries (disabled inputs, hidden Save/Delete, Alert banner)
+   - Save reconstructs `started_at`/`ended_at` from date+time inputs, recalculates `duration_minutes`
+   - Delete via AlertDialog confirmation
+   - Extended `useUpdateTimerEntry` mutation type to include `started_at?: string`
+
+3. **S8 — Button styling**: "Usar Cronómetro" now uses warning color (yellow), "Nuevo Registro de Tiempo" uses default (purple) with Plus icon. Both preserve `variant="default"` for CVA base styles. ManualEntryDialog inline behavior preserved.
+
+### Files Modified
+
+| File | Action |
+|------|--------|
+| `src/pages/TrackerEdit.tsx` | CREATE — dedicated edit page |
+| `src/pages/TrackerList.tsx` | MODIFY — remove Acciones column/buttons (S6), button styling (S8), cleanup |
+| `src/hooks/useTimerEntries.ts` | MODIFY — add `started_at?: string` to update mutation type |
+| `src/App.tsx` | MODIFY — add TrackerEdit lazy import, route `/tracker/:id` → TrackerEdit |
+| `src/locales/es.json` | MODIFY — add 8 tracker keys |
+| `src/locales/en.json` | MODIFY — add 8 tracker keys |
+| `docs/CHANGELOG-2026-02-13.md` | MODIFY — this entry |
+
+### Risk Assessment
+
+- **Low risk** — S6 removes UI only (row click navigation already existed). S7 adds new page with safe guards. S8 changes only visual styling.
+- `/tracker/new` still routes to TrackerRecord (stopwatch) — unchanged.
+- "Nuevo Registro de Tiempo" button still opens ManualEntryDialog inline — no navigation change.
