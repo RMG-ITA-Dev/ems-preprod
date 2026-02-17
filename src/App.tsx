@@ -2,7 +2,7 @@ import { Suspense, lazy } from "react";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { createBrowserRouter, RouterProvider, Outlet } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useAuth";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { LanguageSync } from "@/components/LanguageSync";
@@ -50,48 +50,62 @@ const PageLoader = () => (
   </div>
 );
 
+// Root layout rendered inside the data router
+function RootLayout() {
+  return (
+    <>
+      <LanguageSync />
+      <Suspense fallback={<PageLoader />}>
+        <Outlet />
+      </Suspense>
+    </>
+  );
+}
+
+const router = createBrowserRouter([
+  {
+    element: <RootLayout />,
+    children: [
+      { path: "/auth", element: <Auth /> },
+      { path: "/reset-password", element: <ResetPassword /> },
+      { path: "/", element: <ProtectedRoute><Index /></ProtectedRoute> },
+      { path: "/clients", element: <ProtectedRoute><Clients /></ProtectedRoute> },
+      { path: "/clients/new", element: <ProtectedRoute><ClientNew /></ProtectedRoute> },
+      { path: "/clients/:id", element: <ProtectedRoute><ClientEdit /></ProtectedRoute> },
+      { path: "/engagements", element: <ProtectedRoute><Engagements /></ProtectedRoute> },
+      { path: "/engagements/new", element: <ProtectedRoute><EngagementNew /></ProtectedRoute> },
+      { path: "/engagements/:id", element: <ProtectedRoute><EngagementEdit /></ProtectedRoute> },
+      { path: "/worksheets", element: <ProtectedRoute><WorksheetList /></ProtectedRoute> },
+      { path: "/worksheets/new", element: <ProtectedRoute><WorksheetNew /></ProtectedRoute> },
+      { path: "/worksheets/:id", element: <ProtectedRoute><WorksheetEdit /></ProtectedRoute> },
+      { path: "/work-orders", element: <ProtectedRoute><WorkOrders /></ProtectedRoute> },
+      { path: "/work-orders/new", element: <ProtectedRoute><WorkOrderNew /></ProtectedRoute> },
+      { path: "/work-orders/:id", element: <ProtectedRoute><WorkOrderEdit /></ProtectedRoute> },
+      { path: "/tracker", element: <ProtectedRoute><TrackerList /></ProtectedRoute> },
+      { path: "/tracker/new", element: <ProtectedRoute><TrackerRecord /></ProtectedRoute> },
+      { path: "/tracker/:id", element: <ProtectedRoute><TrackerEdit /></ProtectedRoute> },
+      { path: "/timesheet", element: <ProtectedRoute><TimeSheet /></ProtectedRoute> },
+      { path: "/timesheet/approvals", element: <ProtectedRoute><TimesheetApprovals /></ProtectedRoute> },
+      { path: "/timesheet/approvals/:periodId", element: <ProtectedRoute><TimesheetApprovalDetail /></ProtectedRoute> },
+      { path: "/expenses", element: <ProtectedRoute><Expenses /></ProtectedRoute> },
+      { path: "/expenses/new", element: <ProtectedRoute><ExpenseNew /></ProtectedRoute> },
+      { path: "/expenses/:id", element: <ProtectedRoute><ExpenseEdit /></ProtectedRoute> },
+      { path: "/staff", element: <ProtectedRoute><Staff /></ProtectedRoute> },
+      { path: "/staff/new", element: <ProtectedRoute><StaffNew /></ProtectedRoute> },
+      { path: "/staff/:id", element: <ProtectedRoute><StaffEdit /></ProtectedRoute> },
+      { path: "/settings", element: <ProtectedRoute><Settings /></ProtectedRoute> },
+      { path: "*", element: <NotFound /> },
+    ],
+  },
+]);
+
 const App = () => (
   <ErrorBoundary>
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <AuthProvider>
           <Toaster />
-          <BrowserRouter>
-            <LanguageSync />
-            <Suspense fallback={<PageLoader />}>
-              <Routes>
-                <Route path="/auth" element={<Auth />} />
-                <Route path="/reset-password" element={<ResetPassword />} />
-                <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
-                <Route path="/clients" element={<ProtectedRoute><Clients /></ProtectedRoute>} />
-                <Route path="/clients/new" element={<ProtectedRoute><ClientNew /></ProtectedRoute>} />
-                <Route path="/clients/:id" element={<ProtectedRoute><ClientEdit /></ProtectedRoute>} />
-                <Route path="/engagements" element={<ProtectedRoute><Engagements /></ProtectedRoute>} />
-                <Route path="/engagements/new" element={<ProtectedRoute><EngagementNew /></ProtectedRoute>} />
-                <Route path="/engagements/:id" element={<ProtectedRoute><EngagementEdit /></ProtectedRoute>} />
-                <Route path="/worksheets" element={<ProtectedRoute><WorksheetList /></ProtectedRoute>} />
-                <Route path="/worksheets/new" element={<ProtectedRoute><WorksheetNew /></ProtectedRoute>} />
-                <Route path="/worksheets/:id" element={<ProtectedRoute><WorksheetEdit /></ProtectedRoute>} />
-                <Route path="/work-orders" element={<ProtectedRoute><WorkOrders /></ProtectedRoute>} />
-                <Route path="/work-orders/new" element={<ProtectedRoute><WorkOrderNew /></ProtectedRoute>} />
-                <Route path="/work-orders/:id" element={<ProtectedRoute><WorkOrderEdit /></ProtectedRoute>} />
-                <Route path="/tracker" element={<ProtectedRoute><TrackerList /></ProtectedRoute>} />
-                <Route path="/tracker/new" element={<ProtectedRoute><TrackerRecord /></ProtectedRoute>} />
-                <Route path="/tracker/:id" element={<ProtectedRoute><TrackerEdit /></ProtectedRoute>} />
-                <Route path="/timesheet" element={<ProtectedRoute><TimeSheet /></ProtectedRoute>} />
-                <Route path="/timesheet/approvals" element={<ProtectedRoute><TimesheetApprovals /></ProtectedRoute>} />
-                <Route path="/timesheet/approvals/:periodId" element={<ProtectedRoute><TimesheetApprovalDetail /></ProtectedRoute>} />
-                <Route path="/expenses" element={<ProtectedRoute><Expenses /></ProtectedRoute>} />
-                <Route path="/expenses/new" element={<ProtectedRoute><ExpenseNew /></ProtectedRoute>} />
-                <Route path="/expenses/:id" element={<ProtectedRoute><ExpenseEdit /></ProtectedRoute>} />
-                <Route path="/staff" element={<ProtectedRoute><Staff /></ProtectedRoute>} />
-                <Route path="/staff/new" element={<ProtectedRoute><StaffNew /></ProtectedRoute>} />
-                <Route path="/staff/:id" element={<ProtectedRoute><StaffEdit /></ProtectedRoute>} />
-                <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
-                <Route path="*" element={<NotFound />} />
-              </Routes>
-            </Suspense>
-          </BrowserRouter>
+          <RouterProvider router={router} />
         </AuthProvider>
       </TooltipProvider>
     </QueryClientProvider>
