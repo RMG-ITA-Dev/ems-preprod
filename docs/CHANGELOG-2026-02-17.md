@@ -155,8 +155,9 @@ Created a shared `useApprovedEngagements` hook that pre-filters engagements to o
 | `src/components/tracker/TrackerBar.tsx` | MODIFY | Switched from `useEngagements` to `useApprovedEngagements`; added "no approved engagements" alert; gated Start button on `isEngagementApproved` |
 | `src/components/tracker/ManualEntryDialog.tsx` | MODIFY | Switched to `useApprovedEngagements`; added save-time guard rejecting unapproved selections |
 | `src/pages/TrackerEdit.tsx` | MODIFY | Switched to `useApprovedEngagements`; added unapproved-engagement inline warning alert; added save-time block with toast |
-| `src/hooks/useTimesheetWeek.ts` | MODIFY | Engagement dropdown query filtered to approved WOs only (BUG #19) |
 | `src/locales/en.json` | MODIFY | Added keys: `woNotApproved`, `woNotApprovedSave`, `woNotApprovedEdit`, `noApprovedEngagements` |
+
+> **Note:** `src/hooks/useTimesheetWeek.ts` was previously listed here but removed after audit confirmed the approved-WO filter pre-existed in the prior stable snapshot (file was byte-identical between snapshots).
 | `src/locales/es.json` | MODIFY | Same 4 keys |
 
 ### Risk Assessment
@@ -164,3 +165,93 @@ Created a shared `useApprovedEngagements` hook that pre-filters engagements to o
 - **Low risk** — no database schema changes; purely frontend filtering + validation
 - DB trigger `check_wo_approved` remains the authoritative enforcement; UI filtering is a UX improvement that prevents confusing rejections
 - Backward compatible: if an engagement's WO status changes after selection, save-time guards catch it gracefully
+
+---
+
+## Expense Ownership Tracking ("My Expenses" Toggle)
+
+**Date:** 2026-02-17  
+**Priority:** Baja  
+**Version:** v2.0.5  
+
+### Problem
+
+All expense log entries were displayed in a single flat list with no indication of who logged each expense. Users had no way to quickly filter to their own entries, making it difficult to review personal expense submissions in a shared list.
+
+### Solution
+
+Added a `created_by_staff_id` field to expense log creation and a "My Expenses" toggle switch to the Expenses list page. When enabled, the toggle filters the table to only show expenses logged by the current user. A "Logged By" indicator was also added for attribution visibility.
+
+### Files Modified
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/pages/Expenses.tsx` | MODIFY | Added `useCurrentStaff` import, `Switch`/`Label` imports, `myExpensesOnly` state, `created_by_staff_id` filter logic, and a Switch toggle in the toolbar |
+| `src/hooks/useExpenseLogMutations.ts` | MODIFY | Added `created_by_staff_id?: string \| null` to the create mutation type signature |
+| `src/locales/en.json` | MODIFY | Added "My Expenses" key |
+| `src/locales/es.json` | MODIFY | Added "Mis Gastos" key |
+
+### Risk Assessment
+
+- **Low risk** — additive UI filter with no schema changes; existing expense records unaffected
+- Filter is client-side only; RLS policies unchanged
+
+---
+
+## UI Reorganization and Branding Consolidation
+
+**Date:** 2026-02-17  
+**Priority:** Media  
+**Version:** v2.0.5  
+
+### Problem
+
+The application branding ("EMS 2.0") was inconsistently applied across the sidebar header, login page, reset-password page, and 404 page. Navigation icons for Clients and Engagements did not align with the Dashboard tab iconography. The mobile "More" drawer lacked user identity information.
+
+### Solution
+
+Consolidated branding to "RuizmierGroup - EMS 2.0" across all standalone/public pages. Moved the brand from the sidebar header to the AppHeader center zone. Aligned sidebar icons with Dashboard tab icons (Clients → `Briefcase`, Engagements → `FolderKanban`). Added staff identity display (name, initials, category badge) to the mobile "More" drawer.
+
+### Files Modified
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/components/layout/AppSidebar.tsx` | MODIFY | Removed `SidebarHeader` with "EMS 2.0" branding, changed Clients icon from `Building2` to `Briefcase`, changed Engagements icon from `Briefcase` to `FolderKanban`, removed `userName` computation, adjusted padding |
+| `src/pages/Auth.tsx` | MODIFY | Changed "EMS 2.0" to "RuizmierGroup - EMS 2.0" |
+| `src/pages/ResetPassword.tsx` | MODIFY | Added "RuizmierGroup - EMS 2.0" header to both password-reset views |
+| `src/pages/Clients.tsx` | MODIFY | Removed `Building2` icon from client name cells (consistency with new `Briefcase` icon usage) |
+| `src/components/layout/MobileMoreDrawer.tsx` | MODIFY | Added `useCurrentStaff`, user initials calculation, display name logic, `UserCheck`/`UserX` icons, `Badge` import for staff info display |
+
+### Risk Assessment
+
+- **Low risk** — purely visual/branding changes; no business logic or data access changes
+- Icon changes are consistent with Dashboard tab iconography established earlier
+
+---
+
+## NotFound (404) Page Rewrite
+
+**Date:** 2026-02-17  
+**Priority:** Baja  
+**Version:** v2.0.5  
+
+### Problem
+
+The 404 page was a simple static component with no authentication awareness, no application layout integration, and no i18n support. Authenticated users landing on a bad URL lost all navigation context (header, sidebar).
+
+### Solution
+
+Complete rewrite of `NotFound.tsx`: authenticated users now see the 404 content wrapped in `AppLayout` (preserving header and navigation), while unauthenticated users see a standalone branded page with "RuizmierGroup - EMS 2.0". All text uses i18n keys (`notFound.title`, `notFound.returnHome`).
+
+### Files Modified
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/pages/NotFound.tsx` | REWRITE | Added `useAuth` check, `AppLayout` wrapper for authenticated users, standalone branded page for guests, i18n support via `notFound.title` and `notFound.returnHome` keys |
+| `src/locales/en.json` | MODIFY | Added `notFound.title`, `notFound.returnHome` keys |
+| `src/locales/es.json` | MODIFY | Added `notFound.title`, `notFound.returnHome` keys |
+
+### Risk Assessment
+
+- **Low risk** — isolated page with no dependencies; purely additive UX improvement
+- Authentication check uses existing `useAuth` hook; no new auth logic
