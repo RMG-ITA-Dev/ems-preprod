@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import i18n from "@/i18n";
+import { supabase } from "@/integrations/supabase/client";
 
 const DEFAULT_TIMEOUT_MIN = 30;
 const WARNING_BEFORE_MS = 2 * 60 * 1000;
@@ -47,6 +48,8 @@ export function useInactivityTimeout(timeoutMinutes: number = DEFAULT_TIMEOUT_MI
       toast.info(i18n.t("auth.sessionExpiredInactivity"));
     }
     try {
+      // Finalize stale timers (>8h) before logout — no-op if under 8h
+      await supabase.rpc('finalize_my_stale_timers');
       await signOut();
     } finally {
       navigate("/auth", { replace: true });

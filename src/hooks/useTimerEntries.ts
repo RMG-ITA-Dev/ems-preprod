@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useCurrentStaff } from "./useCurrentStaff";
+import { useCallback } from "react";
 
 export interface TimerEntry {
   timer_id: string;
@@ -197,4 +198,116 @@ export function useMarkTimerEntriesImported() {
       queryClient.invalidateQueries({ queryKey: ['timer_entries_unimported'] });
     },
   });
+}
+
+/**
+ * Query: returns the single running timer entry (ended_at IS NULL) for current staff, or null.
+ */
+export function useRunningTimerEntry() {
+  const { staffRecord } = useCurrentStaff();
+
+  return useQuery({
+    queryKey: ['running_timer', staffRecord?.staff_id],
+    queryFn: async () => {
+      if (!staffRecord?.staff_id) return null;
+
+      const { data, error } = await supabase
+        .from('timer_entries')
+        .select(`
+          *,
+          engagement:engagements(engagement_name, engagement_code),
+          activity:activity_codes(activity_code, description)
+        `)
+        .eq('staff_id', staffRecord.staff_id)
+        .is('ended_at', null)
+        .maybeSingle();
+
+      if (error) throw error;
+      return data as TimerEntry | null;
+    },
+    enabled: !!staffRecord?.staff_id,
+  });
+}
+
+/**
+ * Mutation: calls start_timer_entry RPC.
+ * On RUNNING_TIMER_EXISTS error, extracts existing timer_id for reattach.
+ */
+export function useStartTimerRPC() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (params: {
+      engagement_id: string;
+      activity_id: string;
+      description?: string;
+    }) => {
+      const { data, error } = await supabase.rpc('start_timer_entry', {
+        p_engagement_id: params.engagement_id,
+        p_activity_id: params.activity_id,
+        p_description: params.description || null,
+      });
+
+      if (error) {
+        // Check for RUNNING_TIMER_EXISTS pattern
+        const match = error.message?.match(/RUNNING_TIMER_EXISTS:(.+)/);
+        if (match) {
+          const existingId = match[1].trim();
+          throw Object.assign(new Error('RUNNING_TIMER_EXISTS'), { existingTimerId: existingId });
+        }
+        throw error;
+      }
+      return data as string; // returns timer_id
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['running_timer'] });
+      queryClient.invalidateQueries({ queryKey: ['timer_entries'] });
+      queryClient.invalidateQueries({ queryKey: ['timer_entries_running'] });
+    },
+  });
+}
+
+/**
+ * Mutation: calls stop_timer_entry RPC. Server handles clamp + round.
+ */
+export function useStopTimerRPC() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (params: { timer_id: string }) => {
+      const { data, error } = await supabase.rpc('stop_timer_entry', {
+        p_timer_id: params.timer_id,
+      });
+
+      if (error) throw error;
+      return data as { timer_id: string; duration_minutes: number }[];
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['running_timer'] });
+      queryClient.invalidateQueries({ queryKey: ['timer_entries'] });
+      queryClient.invalidateQueries({ queryKey: ['timer_entries_running'] });
+    },
+  });
+}
+
+/**
+ * Imperative: calls finalize_my_stale_timers RPC. Returns count of finalized entries.
+ */
+export function useFinalizeMyStaleTimers() {
+  const queryClient = useQueryClient();
+
+  const finalize = useCallback(async (): Promise<number> => {
+    const { data, error } = await supabase.rpc('finalize_my_stale_timers');
+    if (error) {
+      console.error('finalize_my_stale_timers error:', error);
+      return 0;
+    }
+    if (data && data > 0) {
+      queryClient.invalidateQueries({ queryKey: ['running_timer'] });
+      queryClient.invalidateQueries({ queryKey: ['timer_entries'] });
+    }
+    return (data as number) || 0;
+  }, [queryClient]);
+
+  return finalize;
 }

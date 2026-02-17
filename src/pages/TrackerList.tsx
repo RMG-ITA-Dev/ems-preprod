@@ -415,7 +415,7 @@ const TrackerList = () => {
                   <Card 
                     key={entry.timer_id} 
                     className={`cursor-pointer hover:bg-muted/50 transition-colors ${selectedIds.has(entry.timer_id) ? "ring-2 ring-accent" : ""}`}
-                    onClick={() => navigate(`/tracker/${entry.timer_id}`)}
+                    onClick={() => entry.ended_at ? navigate(`/tracker/${entry.timer_id}`) : navigate("/tracker/new")}
                   >
                     <CardContent className="p-4">
                       {/* Primary Info */}
@@ -649,7 +649,7 @@ const TrackerList = () => {
                         <TableRow
                           key={entry.timer_id}
                           className={`cursor-pointer hover:bg-muted/50 ${selectedIds.has(entry.timer_id) ? "bg-muted/50" : ""}`}
-                          onClick={() => navigate(`/tracker/${entry.timer_id}`)}
+                          onClick={() => entry.ended_at ? navigate(`/tracker/${entry.timer_id}`) : navigate("/tracker/new")}
                         >
                           {/* Checkbox */}
                           <TableCell className="text-center border-r border-border" onClick={(e) => e.stopPropagation()}>

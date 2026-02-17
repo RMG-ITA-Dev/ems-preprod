@@ -179,7 +179,11 @@
     "recordSaved": "Record updated successfully",
     "recordDeleted": "Record deleted successfully",
     "hours": "Hours",
-    "maxHoursExceeded": "Maximum allowed is 8 hours"
+    "maxHoursExceeded": "Maximum allowed is 8 hours",
+    "timerAutoStopped": "Timer auto-stopped at 8 hours maximum.",
+    "timerAlreadyRunning": "You already have a running timer. Resuming it.",
+    "timerRecovered": "A previous timer was recovered.",
+    "timerFinalized": "An expired timer was automatically closed at 8 hours."
   },
   "entities": {
     "client": "Client",

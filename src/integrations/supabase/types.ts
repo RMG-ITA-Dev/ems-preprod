@@ -1344,6 +1344,8 @@ export type Database = {
         }
         Returns: boolean
       }
+      finalize_all_stale_timers: { Args: never; Returns: number }
+      finalize_my_stale_timers: { Args: never; Returns: number }
       get_all_user_roles: {
         Args: never
         Returns: {
@@ -1388,6 +1390,21 @@ export type Database = {
       is_engagement_team_member: {
         Args: { p_engagement_id: string }
         Returns: boolean
+      }
+      start_timer_entry: {
+        Args: {
+          p_activity_id: string
+          p_description?: string
+          p_engagement_id: string
+        }
+        Returns: string
+      }
+      stop_timer_entry: {
+        Args: { p_ended_at?: string; p_timer_id: string }
+        Returns: {
+          duration_minutes: number
+          timer_id: string
+        }[]
       }
       sync_worksheet_to_wo_budget: {
         Args: { p_wo_id: string; p_worksheet_id: string }
