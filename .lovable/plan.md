@@ -1,53 +1,55 @@
 
 
-# Document Undocumented Changes in Changelog
+# Merge Changelog Files
 
-## Context
+## What Will Happen
 
-An audit identified 7 significant file changes between stable snapshots that were never documented. These group into 3 logical changelog entries, plus one correction to an existing entry.
+1. **Append** the entire contents of `docs/CHANGELOG-2026-02-17.md` (257 lines, 6 entries) to the end of `docs/CHANGELOG-2026-02-13.md` (currently 532 lines), preceded by a `---` separator for visual continuity.
 
-## 1. Correction: Remove `useTimesheetWeek.ts` from Plan v2
+2. **Verify** the merged file contains all entries from both files in the correct order (oldest to newest -- the 02-17 entries are already in chronological order and will appear after the existing 02-13 entries).
 
-The audit confirmed that `useTimesheetWeek.ts` is byte-identical between snapshots -- the approved-WO filter already existed before the Plan v2 implementation period. The changelog inaccurately lists it as modified.
+3. **Delete** `docs/CHANGELOG-2026-02-17.md`.
 
-**Action:** Remove the `useTimesheetWeek.ts` row from the Plan v2 "Files Modified" table (line 158 of `CHANGELOG-2026-02-17.md`). Add a note that the filter pre-existed.
+## Order of Entries in the Merged File
 
----
+The final `docs/CHANGELOG-2026-02-13.md` will contain these entries top-to-bottom:
 
-## 2. New Entry: Expense Ownership Tracking ("My Expenses" Toggle)
+| # | Entry (from 02-13) |
+|---|---|
+| 1 | Schema: Merge `staff_capacity` into `staff` |
+| 2 | BUG #0206-3: Timesheet Buttons Not Available on Non-Current Weeks |
+| 3 | BUG #0206-19: Start Date Allows Values Before Engagement Creation Date |
+| 4 | BUG #0213-22: Auto-Logout After 30 Minutes of Inactivity |
+| 5 | BUG #0213-23: Timesheet "Save Draft" Stuck in Loading Loop |
+| 6 | BUG #0213-24: Copy Previous Week Error + [object Object] |
+| 7 | BUG #0213-25: Submitted Timesheet Remains Editable |
+| 8 | BUG #0213-26: Redesign "Cronometro" into "Registros de Tiempo" |
+| 9 | PROGRAMER_REQUEST_FIX_#2: Registros de Tiempo UI Refinements (S6, S7, S8) |
+| 10 | Hours Field Enhancement for Add and Edit Time Records |
+| 11 | FIX: Export Error Feedback for Unapproved Work Orders |
 
-Documents changes to:
-- `src/pages/Expenses.tsx` -- Added `useCurrentStaff`, `Switch`/`Label` imports, `myExpensesOnly` state, `created_by_staff_id` filter logic, and a Switch toggle in the toolbar
-- `src/hooks/useExpenseLogMutations.ts` -- Added `created_by_staff_id?: string | null` to the create mutation type
-- `src/locales/en.json` / `src/locales/es.json` -- Added "My Expenses" / "Mis Gastos" keys
+| # | Entry (appended from 02-17) |
+|---|---|
+| 12 | Stopwatch Persistence, Single Running Timer, 8h Hard Cap (Plan v4) |
+| 13 | Focus Mode Layout + Hard Navigation Lock + Stopwatch Exception (Plan v3) |
+| 14 | Filter Tracker and Timesheet Engagement Dropdowns to Approved Work Orders Only (Plan v2) |
+| 15 | Expense Ownership Tracking ("My Expenses" Toggle) |
+| 16 | UI Reorganization and Branding Consolidation |
+| 17 | NotFound (404) Page Rewrite |
 
----
-
-## 3. New Entry: UI Reorganization and Branding Consolidation
-
-Documents the header/sidebar/branding restructuring:
-- `src/components/layout/AppSidebar.tsx` -- Removed `SidebarHeader` with "EMS 2.0" branding (moved to header center zone), changed Clients icon from `Building2` to `Briefcase`, changed Engagements icon from `Briefcase` to `FolderKanban`, removed `userName` computation, adjusted padding
-- `src/pages/Auth.tsx` -- Changed "EMS 2.0" to "RuizmierGroup - EMS 2.0"
-- `src/pages/ResetPassword.tsx` -- Added "RuizmierGroup - EMS 2.0" header to both password-reset views
-- `src/pages/Clients.tsx` -- Removed `Building2` icon from client name cells (consistency with new `Briefcase` icon usage)
-- `src/components/layout/MobileMoreDrawer.tsx` -- Added `useCurrentStaff`, user initials calculation, display name logic, `UserCheck`/`UserX` icons, `Badge` import for staff info display in the mobile "More" drawer
-
----
-
-## 4. New Entry: NotFound (404) Page Rewrite
-
-Documents:
-- `src/pages/NotFound.tsx` -- Complete rewrite: added authentication check, `AppLayout` wrapper for authenticated users (shows header), i18n support (`notFound.title`, `notFound.returnHome`), standalone branded page for unauthenticated users
-
----
-
-## File to Modify
+## Files
 
 | File | Action |
-|------|--------|
-| `docs/CHANGELOG-2026-02-17.md` | MODIFY -- fix Plan v2 entry + append 3 new changelog sections |
+|---|---|
+| `docs/CHANGELOG-2026-02-13.md` | MODIFY -- append 02-17 content after line 532 |
+| `docs/CHANGELOG-2026-02-17.md` | DELETE |
 
-## Technical Details
+## Verification Step
 
-All three new entries will follow the established changelog format (Problem/Solution/Files Modified/Risk Assessment). They will be appended after the existing Plan v2 entry. The entries are purely retroactive documentation -- no code changes.
+After the append, I will read the merged file to confirm:
+- All 17 entries are present
+- No content was lost or duplicated
+- The separator between old and new content is clean
+
+Only after verification will I delete the 02-17 file.
 
