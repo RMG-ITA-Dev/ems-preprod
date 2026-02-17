@@ -2,6 +2,8 @@ import { useState, useCallback, useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
+import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";
+import { LeavePageDialog } from "@/components/ui/leave-page-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -57,6 +59,7 @@ const WorksheetEdit = () => {
   const [localCells, setLocalCells] = useState<Map<string, number>>(new Map());
   const [notes, setNotes] = useState<string>("");
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty: hasUnsavedChanges });
   
   // Create WO dialog state
   const [showCreateWODialog, setShowCreateWODialog] = useState(false);
@@ -206,6 +209,7 @@ const WorksheetEdit = () => {
 
       setShowCreateWODialog(false);
       // Navigate to the new work order
+      allowNextNavigation();
       navigate(`/work-orders/${result.wo_id}`);
     } catch (error) {
       logger.error("Error creating work order:", error);
@@ -214,7 +218,7 @@ const WorksheetEdit = () => {
 
   if (isLoading) {
     return (
-      <AppLayout>
+      <AppLayout focusMode>
         <div className="space-y-4">
           <Skeleton className="h-8 w-48" />
           <Skeleton className="h-[400px] w-full" />
@@ -225,7 +229,7 @@ const WorksheetEdit = () => {
 
   if (!worksheet) {
     return (
-      <AppLayout>
+      <AppLayout focusMode>
         <div className="flex flex-col items-center justify-center py-12">
           <p className="text-muted-foreground">{t("common.noResults")}</p>
           <Button variant="link" onClick={() => navigate("/worksheets")}>
@@ -237,7 +241,7 @@ const WorksheetEdit = () => {
   }
 
   return (
-    <AppLayout>
+    <AppLayout focusMode>
       <div className="space-y-4">
       {/* Header */}
         <div className="flex items-center justify-between gap-4">
@@ -253,15 +257,7 @@ const WorksheetEdit = () => {
             )}
             <Button
               variant="cancel"
-              onClick={() => {
-                if (hasUnsavedChanges) {
-                  if (window.confirm(t("common.unsavedChangesConfirm"))) {
-                    navigate("/worksheets");
-                  }
-                } else {
-                  navigate("/worksheets");
-                }
-              }}
+              onClick={() => { allowNextNavigation(); navigate("/worksheets"); }}
               className="btn-action"
             >
               {t("common.cancel")}
@@ -338,7 +334,7 @@ const WorksheetEdit = () => {
                     <Button
                       variant="link"
                       className="p-0 h-auto"
-                      onClick={() => navigate(`/work-orders/${worksheet.wo_id}`)}
+                      onClick={() => { allowNextNavigation(); navigate(`/work-orders/${worksheet.wo_id}`); }}
                     >
                       {t("common.yes")}
                     </Button>
@@ -483,6 +479,7 @@ const WorksheetEdit = () => {
           </DialogContent>
         </Dialog>
       </div>
+      <LeavePageDialog blocker={blocker} isDirty={hasUnsavedChanges} />
     </AppLayout>
   );
 };

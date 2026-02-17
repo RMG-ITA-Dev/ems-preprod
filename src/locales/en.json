@@ -48,7 +48,13 @@
     "showMore": "Show more",
     "showLess": "Show less",
     "close": "Close",
-    "saving": "Saving..."
+    "saving": "Saving...",
+    "leavePageDirtyTitle": "You have unsaved changes",
+    "leavePageDirtyBody": "If you leave, your changes will be lost.",
+    "leavePageTitle": "Leave this screen?",
+    "leavePageLockedBody": "Use Save or Cancel to leave this screen.",
+    "leaveAnyway": "Leave anyway",
+    "stay": "Stay"
   },
   "nav": {
     "main": "Main",
@@ -183,7 +189,14 @@
     "timerAutoStopped": "Timer auto-stopped at 8 hours maximum.",
     "timerAlreadyRunning": "You already have a running timer. Resuming it.",
     "timerRecovered": "A previous timer was recovered.",
-    "timerFinalized": "An expired timer was automatically closed at 8 hours."
+    "timerFinalized": "An expired timer was automatically closed at 8 hours.",
+    "timerRunningTitle": "Timer running",
+    "timerRunningBody": "The timer will keep running in the background. Leave this screen?",
+    "leave": "Leave",
+    "dontAskAgain": "Don't ask again",
+    "runInBackground": "Run in background",
+    "timerStillRunning": "Timer is still running.",
+    "stay": "Stay"
   },
   "entities": {
     "client": "Client",

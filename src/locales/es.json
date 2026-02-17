@@ -48,7 +48,13 @@
     "showMore": "Ver más",
     "showLess": "Ver menos",
     "close": "Cerrar",
-    "saving": "Guardando..."
+    "saving": "Guardando...",
+    "leavePageDirtyTitle": "Tiene cambios sin guardar",
+    "leavePageDirtyBody": "Si sale, sus cambios se perderán.",
+    "leavePageTitle": "¿Salir de esta pantalla?",
+    "leavePageLockedBody": "Use Guardar o Cancelar para salir de esta pantalla.",
+    "leaveAnyway": "Salir de todas formas",
+    "stay": "Quedarme"
   },
   "nav": {
     "main": "Principal",
@@ -183,7 +189,14 @@
     "timerAutoStopped": "El cronómetro se detuvo automáticamente al máximo de 8 horas.",
     "timerAlreadyRunning": "Ya tiene un cronómetro en curso. Retomándolo.",
     "timerRecovered": "Se recuperó un cronómetro anterior.",
-    "timerFinalized": "Un cronómetro expirado fue cerrado automáticamente a 8 horas."
+    "timerFinalized": "Un cronómetro expirado fue cerrado automáticamente a 8 horas.",
+    "timerRunningTitle": "Cronómetro en curso",
+    "timerRunningBody": "El cronómetro seguirá corriendo en segundo plano. ¿Desea salir de esta pantalla?",
+    "leave": "Salir",
+    "dontAskAgain": "No volver a preguntar",
+    "runInBackground": "Seguir en segundo plano",
+    "timerStillRunning": "El cronómetro sigue en curso.",
+    "stay": "Quedarme"
   },
   "entities": {
     "client": "Cliente",

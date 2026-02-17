@@ -103,6 +103,21 @@ Implemented three complementary mechanisms:
 | `src/locales/en.json` | MODIFY | Add ~12 i18n keys (common.leavePageDirtyTitle/Body, tracker.timerRunningTitle/Body, etc.) |
 | `src/locales/es.json` | MODIFY | Add ~12 i18n keys |
 
+### Pages Completed (Phase 2)
+
+**Date:** 2026-02-17
+
+The remaining pages from Phase 1 have been wired with Focus Mode and navigation locks:
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/pages/WorksheetNew.tsx` | MODIFY | Added `focusMode`, `usePageLeaveLock` (isDirty: false), `LeavePageDialog`, wired Cancel/Create bypass |
+| `src/pages/WorksheetEdit.tsx` | MODIFY | Added `focusMode`, `usePageLeaveLock` (isDirty: hasUnsavedChanges), `LeavePageDialog`, removed `window.confirm`, wired all `navigate()` calls including WO link |
+| `src/pages/TrackerEdit.tsx` | MODIFY | Added `focusMode`, `usePageLeaveLock` with custom `isDirty` (useMemo comparing form vs entry), `LeavePageDialog`, wired Save/Cancel/Delete bypass |
+| `src/pages/TrackerRecord.tsx` | MODIFY | Added stopwatch-specific `useBlocker` (NOT focusMode), "Run in Background" button with bypass ref, `LeaveStopwatchDialog` with "Don't ask again" |
+| `src/locales/en.json` | MODIFY | Added 13 i18n keys: `common.leavePageDirtyTitle/Body/Title/LockedBody/leaveAnyway/stay` + `tracker.timerRunningTitle/Body/leave/dontAskAgain/runInBackground/timerStillRunning/stay` |
+| `src/locales/es.json` | MODIFY | Same 13 i18n keys in Spanish |
+
 ### Pages Pending (Phase 2)
 - `WorksheetNew.tsx`, `WorksheetEdit.tsx`, `TrackerEdit.tsx`, `TrackerRecord.tsx` — to be wired with focus mode and lock in next implementation pass
 
