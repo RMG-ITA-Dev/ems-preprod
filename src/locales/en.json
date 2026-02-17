@@ -138,6 +138,7 @@
     "exportError": "Error exporting records",
     "exportBlockedSubmitted": "The week of {{weekStart}} is already submitted. You must unsubmit before exporting.",
     "exportBlocked": "{{blockedCount}} records blocked (weeks already submitted: {{weeks}})",
+    "exportBlockedWO": "{{count}} record(s) not exported: Work Order not approved ({{engagements}})",
     "noPeriodForWeek": "Could not create timesheet period for the week of {{weekStart}}",
     "cycles": {
       "title": "Cycles",

@@ -237,6 +237,14 @@ const TrackerList = () => {
       } else if (result.newCount > 0) {
         toast.success(t("tracker.exportSuccess", { count: result.newCount }));
       }
+      // WO-blocked toast FIRST (error -- red)
+      if (result.woBlockedCount > 0) {
+        toast.error(t("tracker.exportBlockedWO", {
+          count: result.woBlockedCount,
+          engagements: result.woBlockedEngagements.join(", ")
+        }));
+      }
+      // Generic week-submitted toast SECOND (warning -- yellow)
       if (result.blockedCount > 0) {
         toast.warning(t("tracker.exportBlocked", {
           blockedCount: result.blockedCount,

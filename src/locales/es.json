@@ -138,6 +138,7 @@
     "exportError": "Error al exportar registros",
     "exportBlockedSubmitted": "La semana del {{weekStart}} ya fue enviada. Debe retirar el envio antes de exportar.",
     "exportBlocked": "{{blockedCount}} registros bloqueados (semanas ya enviadas: {{weeks}})",
+    "exportBlockedWO": "{{count}} registro(s) no exportados: la Orden de Trabajo no está aprobada ({{engagements}})",
     "noPeriodForWeek": "No se pudo crear la hoja de tiempo para la semana del {{weekStart}}",
     "cycles": {
       "title": "Ciclos",
