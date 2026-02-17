@@ -677,7 +677,7 @@ const TrackerList = () => {
                             {entry.description || "—"}
                           </TableCell>
                           {/* Status */}
-                          <TableCell className="text-center">
+                          <TableCell className="text-center border-r border-border">
                             {!entry.ended_at ? (
                               <Badge className="bg-success/10 text-success border-success/20 animate-pulse">
                                 {t("tracker.running")}
