@@ -38,6 +38,7 @@ import { ActivityCodeForm } from "@/components/forms/ActivityCodeForm";
 import { ExpenseTypeForm } from "@/components/forms/ExpenseTypeForm";
 import { UserRolesManager } from "@/components/settings/UserRolesManager";
 import { ChangePasswordCard } from "@/components/settings/ChangePasswordCard";
+import { HolidaysManager } from "@/components/settings/HolidaysManager";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Lock, CheckCircle } from "lucide-react";
 import { toast } from "sonner";
@@ -255,6 +256,9 @@ const Settings = () => {
           <TabsTrigger value="expense-types">{t("settings.expenseTypes")}</TabsTrigger>
           {isAdmin && (
             <TabsTrigger value="global">{t("settings.globalSettings")}</TabsTrigger>
+          )}
+          {isAdmin && (
+            <TabsTrigger value="holidays">{t("settings.holidays")}</TabsTrigger>
           )}
         </TabsList>
 
@@ -514,6 +518,12 @@ const Settings = () => {
                 )}
               </CardContent>
             </Card>
+          </TabsContent>
+        )}
+
+        {isAdmin && (
+          <TabsContent value="holidays" className="space-y-6">
+            <HolidaysManager />
           </TabsContent>
         )}
       </Tabs>

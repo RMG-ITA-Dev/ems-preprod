@@ -250,7 +250,11 @@
     "allowedEmailDomain": "Allowed Email Domain",
     "allowedEmailDomainHelp": "Only users with this email domain can register. Leave empty to allow any domain.",
     "realizationLimit": "Realization Limit (%)",
-    "realizationLimitHelp": "Threshold for color coding: green if R >= X%, red if R < X%"
+    "realizationLimitHelp": "Threshold for color coding: green if R >= X%, red if R < X%",
+    "holidays": "Holidays",
+    "holidayEngagement": "Holiday Engagement",
+    "holidayEngagementHelp": "Select the engagement allowed for time entries on holiday dates",
+    "holidayNotConfigured": "Holiday blocking is inactive until an engagement is selected"
   },
   "userRoles": {
     "title": "User Roles Management",
@@ -426,7 +430,10 @@
     "welcomeAdmin": "Welcome, Admin!",
     "missingCategories": "Missing required categories: {{categories}}. Please add them in Settings before creating engagements.",
     "staffDeactivated": "Staff member deactivated (has related records)",
-    "accountInactive": "Your account is inactive. Please contact an administrator."
+    "accountInactive": "Your account is inactive. Please contact an administrator.",
+    "holidayCreated": "Holiday created",
+    "holidayUpdated": "Holiday updated",
+    "holidayDeleted": "Holiday deleted"
   },
   "errors": {
     "duplicateNit": "A client with NIT {{nit}} already exists: {{name}}",
@@ -458,7 +465,16 @@
     "november": "November",
     "december": "December"
   },
-"dashboard": {
+ "holiday": {
+    "addHoliday": "Add Holiday",
+    "editHoliday": "Edit Holiday",
+    "deleteHoliday": "Delete Holiday",
+    "date": "Date",
+    "name": "Name",
+    "createdBy": "Created By",
+    "deleteConfirm": "Are you sure you want to delete this holiday?"
+  },
+ "dashboard": {
     "noData": "No data available for the selected period",
     "noEngagementsFound": "No engagements found",
     "selectEngagement": "Select an engagement to view details",
@@ -613,7 +629,11 @@
     "saveDraftSuccess": "Draft saved successfully",
     "saveDraftPartialError": "Failed to save {{count}} entries. Please try again.",
     "previousWeekAlreadyCopied": "Previous week structure already exists in current week",
-    "cannotModifyLockedWeek": "This week is locked and cannot be modified"
+    "cannotModifyLockedWeek": "This week is locked and cannot be modified",
+    "holidayBlocked": "Cannot log time on {{name}} for this engagement. Only the holiday engagement is allowed.",
+    "holidayNotConfiguredAttempt": "Cannot log time on holidays. The holiday engagement has not been configured by an administrator.",
+    "holidayTooltip": "Holiday: {{name}}",
+    "holidayEntriesSkipped": "{{count}} entries skipped due to holidays"
   },
   "expenses": {
     "title": "Expenses",

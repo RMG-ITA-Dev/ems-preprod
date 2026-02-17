@@ -275,11 +275,15 @@ export function useCopyPreviousWeek() {
       currentWeekStart,
       periodId,
       workDays,
+      holidayDates,
+      holidayEngagementId,
     }: {
       staffId: string;
       currentWeekStart: Date;
       periodId: string | null;
       workDays: number;
+      holidayDates?: Set<string>;
+      holidayEngagementId?: string | null;
     }) => {
       // 1. Resolve destination period + lock guard (unified, fail-closed)
       const { resolvedPeriodId, isLocked } = await resolveDestinationPeriod(
@@ -372,24 +376,45 @@ export function useCopyPreviousWeek() {
             )
         );
 
+      // Filter out holiday-blocked entries
+      let holidaySkippedCount = 0;
+      const filteredEntries = newEntries.filter((entry) => {
+        if (
+          holidayDates &&
+          holidayDates.has(entry.date_worked) &&
+          entry.engagement_id !== holidayEngagementId
+        ) {
+          holidaySkippedCount++;
+          return false;
+        }
+        return true;
+      });
+
       // 7. If nothing to insert, return early
-      if (newEntries.length === 0) {
-        return { copiedCount: 0 };
+      if (filteredEntries.length === 0) {
+        return { copiedCount: 0, holidaySkippedCount };
       }
 
       // 8. Insert only new entries (NOT upsert -- dedup already done)
       const { error: insertError } = await supabase
         .from("time_entries")
-        .insert(newEntries);
+        .insert(filteredEntries);
 
       if (insertError) throw insertError;
 
       // 9. Return accurate count
-      return { copiedCount: newEntries.length };
+      return { copiedCount: filteredEntries.length, holidaySkippedCount };
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["time-entries"] });
-      if (data.copiedCount === 0) {
+      if (data.holidaySkippedCount > 0) {
+        toast.info(
+          i18n.t("timesheet.holidayEntriesSkipped", {
+            count: data.holidaySkippedCount,
+          })
+        );
+      }
+      if (data.copiedCount === 0 && data.holidaySkippedCount === 0) {
         toast.info(
           i18n.t("timesheet.previousWeekAlreadyCopied")
         );

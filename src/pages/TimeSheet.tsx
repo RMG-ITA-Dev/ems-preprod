@@ -8,6 +8,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, AlertCircle, Lock, Save, RotateCcw, Check, AlertTriangle, Copy } from "lucide-react";
 import { WeekNavigator } from "@/components/timesheet/WeekNavigator";
 import { TimesheetGrid } from "@/components/timesheet/TimesheetGrid";
+import { useHolidaysForWeek, useHolidayEngagementId } from "@/hooks/useHolidays";
 import { useTimesheetPolicies } from "@/hooks/useTimesheetPolicies";
 import { useTimesheetWeek } from "@/hooks/useTimesheetWeek";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
@@ -89,6 +90,9 @@ const TimeSheet = () => {
     error,
   } = useTimesheetWeek(currentWeekStart, workDays);
 
+  // Holiday data for the current week
+  const holidayMap = useHolidaysForWeek(weekInfo.weekDates);
+  const holidayEngagementId = useHolidayEngagementId();
   // Fetch line approvals for the current period
   const { data: lineApprovals } = usePeriodLineApprovals(period?.period_id || null);
 
@@ -246,11 +250,15 @@ const TimeSheet = () => {
   // BUG #12: Handle copy previous week (guard BUG #0206-3)
   const handleCopyPreviousWeek = () => {
     if (!canCopyPreviousWeek || !staffRecord?.staff_id) return;
+    // Build holiday dates set for the target week
+    const holidayDates = new Set<string>(holidayMap.keys());
     copyPreviousWeek.mutate({
       staffId: staffRecord.staff_id,
       currentWeekStart,
       periodId: period?.period_id || null,
       workDays,
+      holidayDates: holidayDates.size > 0 ? holidayDates : undefined,
+      holidayEngagementId,
     });
   };
 
@@ -387,6 +395,8 @@ const TimeSheet = () => {
           dailyLimit={dailyLimit}
           weeklyLimit={weeklyLimit}
           lockedDaysBeforeHire={lockedDaysBeforeHire}
+          holidayMap={holidayMap}
+          holidayEngagementId={holidayEngagementId}
         />
 
         {/* Actions */}

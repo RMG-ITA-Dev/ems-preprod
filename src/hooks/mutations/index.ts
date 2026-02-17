@@ -40,3 +40,6 @@ export { useCreateExpenseBudget, useUpdateExpenseBudget, useDeleteExpenseBudget 
 
 // Admin mutations
 export { useUpdateTimeEntry, useUpdateExpenseLog } from "./useAdminMutations";
+
+// Holidays
+export { useCreateHoliday, useUpdateHoliday, useDeleteHoliday } from "./useHolidayMutations";

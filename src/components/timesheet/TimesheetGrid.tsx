@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { NumericInput } from "@/components/ui/numeric-input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2, Loader2, Check, Clock, X, AlertTriangle } from "lucide-react";
+import { Plus, Trash2, Loader2, Check, Clock, X, AlertTriangle, Calendar as CalendarIcon } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -57,6 +57,9 @@ interface TimesheetGridProps {
   weeklyLimit?: number;
   // BUG #5: Per-day hire date locking
   lockedDaysBeforeHire?: Set<number>;
+  // Holiday blocking
+  holidayMap?: Map<string, string>;
+  holidayEngagementId?: string | null;
 }
 
 export function TimesheetGrid({
@@ -75,6 +78,8 @@ export function TimesheetGrid({
   dailyLimit = 10,
   weeklyLimit = 50,
   lockedDaysBeforeHire,
+  holidayMap,
+  holidayEngagementId,
 }: TimesheetGridProps) {
   const { t } = useTranslation();
   const upsertEntry = useUpsertTimeEntry();
@@ -361,6 +366,20 @@ export function TimesheetGrid({
       const hours = parseFloat(value) || 0;
       const cellKey = `${rowId}-${dateStr}`;
 
+      // Holiday guard: check before saving
+      const holidayName = holidayMap?.get(dateStr);
+      if (holidayName && hours > 0) {
+        const currentRow = rowsRef.current.find((r) => r.id === rowId);
+        if (!holidayEngagementId) {
+          toast.error(t("timesheet.holidayNotConfiguredAttempt"));
+          return;
+        }
+        if (currentRow && currentRow.engagementId !== holidayEngagementId) {
+          toast.error(t("timesheet.holidayBlocked", { name: holidayName }));
+          return;
+        }
+      }
+
       // Update local state immediately
       setRows((prevRows) =>
         prevRows.map((row) =>
@@ -421,12 +440,14 @@ export function TimesheetGrid({
                 next.delete(cellKey);
                 return next;
               });
+              // Parse holiday errors from DB trigger
+              // (handled generically by error handler toast)
             },
           }
         );
       }, autoSaveSeconds * 1000);
     },
-    [staffId, periodId, autoSaveSeconds, upsertEntry]
+    [staffId, periodId, autoSaveSeconds, upsertEntry, holidayMap, holidayEngagementId, t]
   );
 
   const calculateRowTotal = (row: GridRow) => {
@@ -523,17 +544,36 @@ export function TimesheetGrid({
               <th className="text-center p-4 font-semibold text-foreground min-w-[140px] border-r border-border">
                 {t("timesheet.activity")}
               </th>
-              {weekDates.map((date, index) => (
-                <th
-                  key={index}
-                  className="text-center p-4 font-semibold text-foreground w-20 border-r border-border"
-                >
-                  <div className="capitalize">{getDayName(date, lang)}</div>
-                  <div className="text-xs text-muted-foreground font-normal font-mono">
-                    {formatDayMonth(date, lang)}
-                  </div>
-                </th>
-              ))}
+              {weekDates.map((date, index) => {
+                const dateStr = toISODateString(date);
+                const holidayName = holidayMap?.get(dateStr);
+                return (
+                  <th
+                    key={index}
+                    className={cn(
+                      "text-center p-4 font-semibold text-foreground w-20 border-r border-border",
+                      holidayName && "bg-warning/10"
+                    )}
+                  >
+                    <div className="capitalize flex items-center justify-center gap-1">
+                      {getDayName(date, lang)}
+                      {holidayName && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <CalendarIcon className="h-3 w-3 text-warning-foreground" />
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>{t("timesheet.holidayTooltip", { name: holidayName })}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
+                    </div>
+                    <div className="text-xs text-muted-foreground font-normal font-mono">
+                      {formatDayMonth(date, lang)}
+                    </div>
+                  </th>
+                );
+              })}
               <th className="text-center p-4 font-semibold text-foreground w-20 bg-muted border-r border-border">
                 {t("timesheet.total")}
               </th>
@@ -611,11 +651,13 @@ export function TimesheetGrid({
                   const isSaving = savingCells.has(cellKey);
                   const isSaved = savedCells.has(cellKey);
                   const isDayLockedByHire = lockedDaysBeforeHire?.has(dayIndex) ?? false;
+                  const holidayName = holidayMap?.get(dateStr);
+                  const isHolidayBlocked = !!holidayName && row.engagementId !== holidayEngagementId;
                   const isDisabled =
-                    isLocked || isDayLockedByHire || !row.engagementId || !row.activityId;
+                    isLocked || isDayLockedByHire || isHolidayBlocked || !row.engagementId || !row.activityId;
 
                   return (
-                    <td key={dateStr} className={cn("p-2 relative text-center border-r border-border", isDayLockedByHire && "bg-muted/40")}>
+                    <td key={dateStr} className={cn("p-2 relative text-center border-r border-border", isDayLockedByHire && "bg-muted/40", isHolidayBlocked && "bg-warning/5")}>
                       <div className="relative">
                         <NumericInput
                           decimals={1}
