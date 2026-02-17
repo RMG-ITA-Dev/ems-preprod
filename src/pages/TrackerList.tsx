@@ -551,8 +551,8 @@ const TrackerList = () => {
                         {getSortIcon("duracion")}
                       </span>
                     </TableHead>
-                    {/* Encargo - 26% (was 22%) */}
-                    <TableHead style={{ width: "26%" }} className="text-center border-r border-border">
+                    {/* Encargo - 24% */}
+                    <TableHead style={{ width: "24%" }} className="text-center border-r border-border">
                       <div className="flex items-center justify-center gap-1">
                         <span 
                           className="cursor-pointer hover:text-foreground flex items-center gap-1"
@@ -593,8 +593,8 @@ const TrackerList = () => {
                         </Popover>
                       </div>
                     </TableHead>
-                    {/* Actividad - 16% (was 15%) */}
-                    <TableHead style={{ width: "16%" }} className="text-center border-r border-border">
+                    {/* Actividad - 14% */}
+                    <TableHead style={{ width: "14%" }} className="text-center border-r border-border">
                       <span 
                         className="cursor-pointer hover:text-foreground flex items-center justify-center gap-1"
                         onClick={() => handleSort("actividad")}
@@ -603,13 +603,17 @@ const TrackerList = () => {
                         {getSortIcon("actividad")}
                       </span>
                     </TableHead>
-                    {/* Descripción - 16% (was 13%) */}
-                    <TableHead style={{ width: "16%" }} className="text-center border-r border-border">
+                    {/* Descripción - 14% */}
+                    <TableHead style={{ width: "14%" }} className="text-center border-r border-border">
                       {t("tracker.description")}
                     </TableHead>
-                    {/* Estado - 10% (was 8%) */}
-                    <TableHead style={{ width: "10%" }} className="text-center">
+                    {/* Estado - 8% */}
+                    <TableHead style={{ width: "8%" }} className="text-center border-r border-border">
                       {t("tracker.status")}
+                    </TableHead>
+                    {/* Horas - 6% */}
+                    <TableHead style={{ width: "6%" }} className="text-center">
+                      {t("tracker.hours")}
                     </TableHead>
                   </TableRow>
                 </TableHeader>
@@ -617,14 +621,14 @@ const TrackerList = () => {
                   {entriesLoading ? (
                     Array.from({ length: 8 }).map((_, i) => (
                       <TableRow key={i}>
-                        {Array.from({ length: 8 }).map((_, j) => (
+                        {Array.from({ length: 9 }).map((_, j) => (
                           <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
                         ))}
                       </TableRow>
                     ))
                   ) : filteredEntries.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                         {t("common.noResults")}
                       </TableCell>
                     </TableRow>
@@ -687,6 +691,10 @@ const TrackerList = () => {
                                 {t("tracker.ready")}
                               </Badge>
                             )}
+                          </TableCell>
+                          {/* Hours (decimal) */}
+                          <TableCell className="text-right font-mono">
+                            {entry.duration_minutes ? (entry.duration_minutes / 60).toFixed(1) : "—"}
                           </TableCell>
                         </TableRow>
                       );
