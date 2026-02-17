@@ -1,12 +1,14 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useBlocker } from "react-router-dom";
 import { format, isWeekend } from "date-fns";
 import { toast } from "sonner";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { AlertCircle } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { AlertCircle, PlayCircle } from "lucide-react";
 import { TrackerBar } from "@/components/tracker/TrackerBar";
+import { LeaveStopwatchDialog, shouldSkipTimerLeaveConfirm } from "@/components/tracker/LeaveStopwatchDialog";
 import { useTimeTracker } from "@/hooks/useTimeTracker";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { useAuth } from "@/hooks/useAuth";
@@ -149,6 +151,17 @@ const TrackerRecord = () => {
   const isWeekendToday = isWeekend(new Date());
   const isRunning = !!runningEntry;
 
+  // Stopwatch-specific blocker (NOT focus mode)
+  const skipConfirm = shouldSkipTimerLeaveConfirm();
+  const stopwatchBypassRef = useRef(false);
+  const stopwatchBlocker = useBlocker(
+    ({ currentLocation, nextLocation }) =>
+      isRunning &&
+      !skipConfirm &&
+      !stopwatchBypassRef.current &&
+      currentLocation.pathname !== nextLocation.pathname
+  );
+
   // ─── Handlers ───────────────────────────────────────────────────
 
   const handleStart = async () => {
@@ -274,7 +287,22 @@ const TrackerRecord = () => {
           onEngagementChange={tracker.setEngagement}
           onActivityChange={tracker.setActivity}
         />
+
+        {isRunning && (
+          <Button
+            variant="outline"
+            onClick={() => {
+              stopwatchBypassRef.current = true;
+              queueMicrotask(() => { stopwatchBypassRef.current = false; });
+              navigate("/tracker");
+            }}
+          >
+            <PlayCircle className="h-4 w-4 mr-2" />
+            {t("tracker.runInBackground")}
+          </Button>
+        )}
       </div>
+      <LeaveStopwatchDialog blocker={stopwatchBlocker} />
     </AppLayout>
   );
 };

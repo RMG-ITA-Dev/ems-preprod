@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { format } from "date-fns";
+import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";
+import { LeavePageDialog } from "@/components/ui/leave-page-dialog";
 import { es } from "date-fns/locale";
 import { toast } from "sonner";
 
@@ -74,7 +76,7 @@ const TrackerEdit = () => {
   const entry = entries?.find(e => e.timer_id === id);
   const isImported = entry?.is_imported ?? false;
 
-  // Form state
+  // Form state (must be declared before isDirty useMemo)
   const [date, setDate] = useState<Date | undefined>(undefined);
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
@@ -83,6 +85,21 @@ const TrackerEdit = () => {
   const [activityId, setActivityId] = useState("");
   const [description, setDescription] = useState("");
   const [datePickerOpen, setDatePickerOpen] = useState(false);
+
+  // Dirty tracking: compare current form values against initial entry values
+  const isDirty = useMemo(() => {
+    if (!entry) return false;
+    const origStart = new Date(entry.started_at);
+    return (
+      engagementId !== entry.engagement_id ||
+      activityId !== entry.activity_id ||
+      (description || "") !== (entry.description || "") ||
+      startTime !== format(origStart, "HH:mm") ||
+      (entry.ended_at ? endTime !== format(new Date(entry.ended_at), "HH:mm") : false)
+    );
+  }, [entry, engagementId, activityId, description, startTime, endTime]);
+
+  const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty });
 
   const handleHoursChange = (newHours: number) => {
     const clamped = Math.min(8, Math.max(0, newHours));
@@ -211,6 +228,7 @@ const TrackerEdit = () => {
         description: description || undefined,
       });
       toast.success(t("tracker.recordSaved"));
+      allowNextNavigation();
       navigate("/tracker");
     } catch (error) {
       console.error("Update error:", error);
@@ -223,6 +241,7 @@ const TrackerEdit = () => {
     try {
       await deleteEntry.mutateAsync(entry.timer_id);
       toast.success(t("tracker.recordDeleted"));
+      allowNextNavigation();
       navigate("/tracker");
     } catch (error) {
       console.error("Delete error:", error);
@@ -233,7 +252,7 @@ const TrackerEdit = () => {
   // Loading skeleton
   if (!isFetched && !entries) {
     return (
-      <AppLayout title={t("tracker.editRecord")}>
+      <AppLayout title={t("tracker.editRecord")} focusMode>
         <div className="space-y-6">
           <Skeleton className="h-8 w-64" />
           <div className="bg-card rounded-xl border border-border p-6 space-y-6">
@@ -259,7 +278,7 @@ const TrackerEdit = () => {
   if (!entry) return null;
 
   return (
-    <AppLayout title={t("tracker.editRecord")}>
+    <AppLayout title={t("tracker.editRecord")} focusMode>
       <div className="space-y-6">
         {/* Header row */}
         <div className="flex items-center justify-between">
@@ -437,7 +456,7 @@ const TrackerEdit = () => {
               <Button
                 variant="cancel"
                 className="w-full sm:w-auto min-h-[44px] sm:min-h-0"
-                onClick={() => navigate("/tracker")}
+                onClick={() => { allowNextNavigation(); navigate("/tracker"); }}
               >
                 {t("common.cancel")}
               </Button>
@@ -453,6 +472,7 @@ const TrackerEdit = () => {
           )}
         </div>
       </div>
+      <LeavePageDialog blocker={blocker} isDirty={isDirty} />
     </AppLayout>
   );
 };

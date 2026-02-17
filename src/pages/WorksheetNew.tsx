@@ -18,6 +18,8 @@ import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { logger } from "@/lib/logger";
+import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";
+import { LeavePageDialog } from "@/components/ui/leave-page-dialog";
 
 const WorksheetNew = () => {
   const { t } = useTranslation();
@@ -25,6 +27,7 @@ const WorksheetNew = () => {
   const { data: engagements, isLoading } = useEngagementsWithoutWorksheet();
   const { data: currentStaff } = useCurrentStaff();
   const createWorksheet = useCreateWorksheet();
+  const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty: false });
 
   const [selectedEngagementId, setSelectedEngagementId] = useState<string>("");
 
@@ -38,6 +41,7 @@ const WorksheetNew = () => {
       });
 
       // Navigate to edit the newly created worksheet
+      allowNextNavigation();
       navigate(`/worksheets/${result.id}`);
     } catch (error) {
       logger.error("Error creating worksheet:", error);
@@ -49,7 +53,7 @@ const WorksheetNew = () => {
   );
 
   return (
-    <AppLayout>
+    <AppLayout focusMode>
       <div className="space-y-4 max-w-2xl">
         <h1 className="text-lg font-semibold text-foreground">
           {t("workMatrix.newWorksheet")}
@@ -147,7 +151,7 @@ const WorksheetNew = () => {
                 <div className="flex justify-end gap-2 pt-4">
                   <Button
                     variant="cancel"
-                    onClick={() => navigate("/worksheets")}
+                    onClick={() => { allowNextNavigation(); navigate("/worksheets"); }}
                     className="btn-action"
                   >
                     {t("common.cancel")}
@@ -167,6 +171,7 @@ const WorksheetNew = () => {
           </CardContent>
         </Card>
       </div>
+      <LeavePageDialog blocker={blocker} isDirty={false} />
     </AppLayout>
   );
 };
