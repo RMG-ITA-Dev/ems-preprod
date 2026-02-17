@@ -4,11 +4,13 @@
 
 const TIMESHEET_ERROR_BRAND = "__timesheetError__" as const;
 
-export type TimesheetErrorCode = "WEEK_LOCKED" | "NO_ENTRIES";
+export type TimesheetErrorCode = "WEEK_LOCKED" | "NO_ENTRIES" | "HOLIDAY_BLOCKED" | "HOLIDAY_NOT_CONFIGURED";
 
 const messages: Record<TimesheetErrorCode, string> = {
   WEEK_LOCKED: "This week is locked and cannot be modified",
   NO_ENTRIES: "No entries found in the previous week to copy",
+  HOLIDAY_BLOCKED: "Cannot log time on a holiday for this engagement",
+  HOLIDAY_NOT_CONFIGURED: "Holiday blocking is active but no holiday engagement has been configured",
 };
 
 export class TimesheetAppError extends Error {

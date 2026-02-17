@@ -250,7 +250,11 @@
     "allowedEmailDomain": "Dominio de Correo Permitido",
     "allowedEmailDomainHelp": "Solo los usuarios con este dominio de correo pueden registrarse. Dejar vacío para permitir cualquier dominio.",
     "realizationLimit": "Límite de Realización (%)",
-    "realizationLimitHelp": "Umbral para codificación por color: verde si R >= X%, rojo si R < X%"
+    "realizationLimitHelp": "Umbral para codificación por color: verde si R >= X%, rojo si R < X%",
+    "holidays": "Feriados",
+    "holidayEngagement": "Encargo de Feriados",
+    "holidayEngagementHelp": "Seleccione el encargo permitido para registros en dias feriados",
+    "holidayNotConfigured": "El bloqueo de feriados esta inactivo hasta seleccionar un encargo"
   },
   "userRoles": {
     "title": "Gestión de Roles de Usuario",
@@ -426,7 +430,10 @@
     "welcomeAdmin": "¡Bienvenido, Admin!",
     "missingCategories": "Faltan categorías requeridas: {{categories}}. Por favor agréguelas en Configuración antes de crear encargos.",
     "staffDeactivated": "Miembro del personal desactivado (tiene registros relacionados)",
-    "accountInactive": "Su cuenta está inactiva. Contacte al administrador."
+    "accountInactive": "Su cuenta está inactiva. Contacte al administrador.",
+    "holidayCreated": "Feriado creado",
+    "holidayUpdated": "Feriado actualizado",
+    "holidayDeleted": "Feriado eliminado"
   },
   "errors": {
     "duplicateNit": "Ya existe un cliente con NIT {{nit}}: {{name}}",
@@ -458,7 +465,16 @@
     "november": "Noviembre",
     "december": "Diciembre"
   },
-"dashboard": {
+ "holiday": {
+    "addHoliday": "Agregar Feriado",
+    "editHoliday": "Editar Feriado",
+    "deleteHoliday": "Eliminar Feriado",
+    "date": "Fecha",
+    "name": "Nombre",
+    "createdBy": "Creado Por",
+    "deleteConfirm": "¿Está seguro que desea eliminar este feriado?"
+  },
+ "dashboard": {
     "noData": "Sin datos disponibles para el período seleccionado",
     "noEngagementsFound": "No se encontraron encargos",
     "selectEngagement": "Seleccione un encargo para ver los detalles",
@@ -613,7 +629,11 @@
     "saveDraftSuccess": "Borrador guardado exitosamente",
     "saveDraftPartialError": "Error al guardar {{count}} registros. Intente nuevamente.",
     "previousWeekAlreadyCopied": "La estructura de la semana anterior ya existe en la semana actual",
-    "cannotModifyLockedWeek": "Esta semana está bloqueada y no puede modificarse"
+    "cannotModifyLockedWeek": "Esta semana está bloqueada y no puede modificarse",
+    "holidayBlocked": "No se puede registrar tiempo en {{name}} para este encargo. Solo el encargo de feriados esta permitido.",
+    "holidayNotConfiguredAttempt": "No se puede registrar tiempo en feriados. El encargo de feriados no ha sido configurado por un administrador.",
+    "holidayTooltip": "Feriado: {{name}}",
+    "holidayEntriesSkipped": "{{count}} registros omitidos por feriados"
   },
   "expenses": {
     "title": "Gastos",
