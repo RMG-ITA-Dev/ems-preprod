@@ -118,9 +118,6 @@ The remaining pages from Phase 1 have been wired with Focus Mode and navigation 
 | `src/locales/en.json` | MODIFY | Added 13 i18n keys: `common.leavePageDirtyTitle/Body/Title/LockedBody/leaveAnyway/stay` + `tracker.timerRunningTitle/Body/leave/dontAskAgain/runInBackground/timerStillRunning/stay` |
 | `src/locales/es.json` | MODIFY | Same 13 i18n keys in Spanish |
 
-### Pages Pending (Phase 2)
-- `WorksheetNew.tsx`, `WorksheetEdit.tsx`, `TrackerEdit.tsx`, `TrackerRecord.tsx` — to be wired with focus mode and lock in next implementation pass
-
 ### Risk Assessment
 
 - **Low risk** — purely additive UI/UX layer; no database changes, no mutation logic changes
