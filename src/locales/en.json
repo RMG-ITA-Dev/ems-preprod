@@ -139,6 +139,10 @@
     "exportBlockedSubmitted": "The week of {{weekStart}} is already submitted. You must unsubmit before exporting.",
     "exportBlocked": "{{blockedCount}} records blocked (weeks already submitted: {{weeks}})",
     "exportBlockedWO": "{{count}} record(s) not exported: Work Order not approved ({{engagements}})",
+    "woNotApproved": "Work Order is not approved for this engagement.",
+    "woNotApprovedSave": "Cannot save: the Work Order for this engagement is not approved. Select an approved engagement.",
+    "woNotApprovedEdit": "This engagement's Work Order is not approved. Select an approved engagement to save.",
+    "noApprovedEngagements": "No approved engagements available. Ask a manager to approve the Work Order.",
     "noPeriodForWeek": "Could not create timesheet period for the week of {{weekStart}}",
     "cycles": {
       "title": "Cycles",
