@@ -491,3 +491,42 @@ Added a bidirectional "Horas" numeric input field to both the ManualEntryDialog 
 - **None** — Hours field is UI-only convenience; save logic still uses startTime/endTime to compute duration_minutes.
 - Imported entries have Hours field disabled (consistent with other fields).
 - Clamping to 8h prevents unreasonable entries with toast feedback.
+
+---
+
+## FIX: Export Error Feedback for Unapproved Work Orders
+
+**Date:** 2026-02-17  
+**Priority:** Media  
+**Version:** v2.0.4  
+**Route:** OPERACIONES → Registros de Tiempo
+
+### Problem
+
+When exporting timer entries to the Hoja de Tiempo, a DB trigger (`check_wo_approved`) rejects inserts if the engagement's Work Order is not approved. The error was silently lumped into `blockedCount` and the user saw a misleading toast about "weeks already submitted" instead of the real reason.
+
+### Root Cause
+
+1. In `useTimesheetImport.ts`, insert/update error handlers incremented `blockedCount` without inspecting the error message.
+2. `TrackerList.tsx` displayed a single `exportBlocked` toast referencing submitted weeks for all blocked entries, regardless of the actual block reason.
+
+### Solution
+
+1. **Resilient error detector** — Added `isWoNotApprovedError()` helper using case-insensitive partial matching on both "work order" and "not approved" to handle trigger wording variations.
+2. **Separate WO-blocked tracking** — New `woBlockedCount` and `woBlockedEngagementsSet` track WO-specific failures with correct count semantics (`group.timerIds.length`).
+3. **Engagement code pre-fetch** — Batch-fetches `engagement_code` from `engagements` table before the main loop; falls back to `engagement_id.slice(0, 8)` if lookup fails.
+4. **Bounded engagement list** — Shows at most 3 engagement codes in the toast, appending "(+N más)" for larger sets.
+5. **Ordered toasts** — WO-blocked toast (red/error) fires first, then generic week-submitted toast (yellow/warning). Both can appear in the same export run.
+
+### Files Modified
+
+| File | Change |
+|------|--------|
+| `src/hooks/useTimesheetImport.ts` | Added `isWoNotApprovedError()`, expanded `ImportResult`, pre-fetch engagement codes, separate WO-blocked tracking, bounded engagement list |
+| `src/pages/TrackerList.tsx` | Ordered toast logic (WO error first, then generic warning) |
+| `src/locales/es.json` | Added `exportBlockedWO` key |
+| `src/locales/en.json` | Added `exportBlockedWO` key |
+
+### Risk Assessment
+
+- **None** — No database changes. Purely additive TypeScript fields and UI feedback. Backward-compatible since new `ImportResult` fields default to zero/empty.

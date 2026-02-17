@@ -10,6 +10,8 @@ export interface ImportResult {
   mergedCount: number;
   blockedCount: number;
   blockedWeeks: string[];
+  woBlockedCount: number;
+  woBlockedEngagements: string[];
 }
 
 interface AggregatedGroup {
@@ -26,6 +28,12 @@ interface ResolvedPeriod {
   submitted_at: string | null;
 }
 
+function isWoNotApprovedError(message?: string): boolean {
+  if (!message) return false;
+  const lower = message.toLowerCase();
+  return lower.includes("work order") && lower.includes("not approved");
+}
+
 export function useTimesheetImport({ staffId }: { staffId: string }) {
   const [isExporting, setIsExporting] = useState(false);
   const queryClient = useQueryClient();
@@ -33,7 +41,7 @@ export function useTimesheetImport({ staffId }: { staffId: string }) {
 
   const exportEntries = async (entries: TimerEntry[]): Promise<ImportResult> => {
     if (!staffId || entries.length === 0) {
-      return { newCount: 0, mergedCount: 0, blockedCount: 0, blockedWeeks: [] };
+      return { newCount: 0, mergedCount: 0, blockedCount: 0, blockedWeeks: [], woBlockedCount: 0, woBlockedEngagements: [] };
     }
 
     setIsExporting(true);
@@ -47,7 +55,6 @@ export function useTimesheetImport({ staffId }: { staffId: string }) {
         if (existing) {
           existing.totalMinutes += entry.duration_minutes || 0;
           existing.timerIds.push(entry.timer_id);
-          // Keep first non-null description
           if (!existing.description && entry.description) {
             existing.description = entry.description;
           }
@@ -60,6 +67,23 @@ export function useTimesheetImport({ staffId }: { staffId: string }) {
             timerIds: [entry.timer_id],
             description: entry.description,
           });
+        }
+      }
+
+      // Pre-fetch engagement codes for WO-blocked toast display
+      const uniqueEngagementIds = Array.from(new Set(Array.from(grouped.values()).map(g => g.engagement_id)));
+      const engagementCodeMap = new Map<string, string>();
+      if (uniqueEngagementIds.length > 0) {
+        const { data: engagements } = await supabase
+          .from("engagements")
+          .select("engagement_id, engagement_code")
+          .in("engagement_id", uniqueEngagementIds);
+        if (engagements) {
+          for (const eng of engagements) {
+            if (eng.engagement_code) {
+              engagementCodeMap.set(eng.engagement_id, eng.engagement_code);
+            }
+          }
         }
       }
 
@@ -76,7 +100,6 @@ export function useTimesheetImport({ staffId }: { staffId: string }) {
 
       for (const weekStartStr of uniqueWeekStarts) {
         try {
-          // Look up existing period
           const { data: existing, error: fetchError } = await supabase
             .from("timesheet_periods")
             .select("period_id, submitted_at")
@@ -89,7 +112,6 @@ export function useTimesheetImport({ staffId }: { staffId: string }) {
           if (existing) {
             weekPeriods.set(weekStartStr, existing);
           } else {
-            // Auto-create period (same logic as useTimesheetWeek)
             const [y, m, d] = weekStartStr.split("-").map(Number);
             const weekDate = new Date(y, m - 1, d);
             const weekNumber = getISOWeek(weekDate);
@@ -109,22 +131,24 @@ export function useTimesheetImport({ staffId }: { staffId: string }) {
 
             if (createError) {
               console.error("Period creation failed for week:", weekStartStr, createError);
-              weekPeriods.set(weekStartStr, null); // blocked
+              weekPeriods.set(weekStartStr, null);
             } else {
               weekPeriods.set(weekStartStr, newPeriod);
             }
           }
         } catch (err) {
           console.error("Period resolution error for week:", weekStartStr, err);
-          weekPeriods.set(weekStartStr, null); // blocked
+          weekPeriods.set(weekStartStr, null);
         }
       }
 
-      // Step 6 & 7: Process groups, blocking submitted weeks
+      // Step 6 & 7: Process groups
       let newCount = 0;
       let mergedCount = 0;
       let blockedCount = 0;
       const blockedWeeks: string[] = [];
+      let woBlockedCount = 0;
+      const woBlockedEngagementsSet = new Set<string>();
       const exportedTimerIds: string[] = [];
       const importedMappings: { timer_id: string; time_id: string }[] = [];
 
@@ -135,7 +159,6 @@ export function useTimesheetImport({ staffId }: { staffId: string }) {
         const weekStartStr = toISODateString(weekMonday);
         const period = weekPeriods.get(weekStartStr);
 
-        // Block if period couldn't be resolved or is already submitted
         if (!period) {
           blockedCount += group.timerIds.length;
           const formattedWeek = format(dateObj, "dd/MM/yyyy");
@@ -147,7 +170,6 @@ export function useTimesheetImport({ staffId }: { staffId: string }) {
 
         if (period.submitted_at !== null) {
           blockedCount += group.timerIds.length;
-          // Format the week start date for the message
           const [wy, wm, wd] = weekStartStr.split("-").map(Number);
           const formattedWeek = format(new Date(wy, wm - 1, wd), "dd/MM/yyyy");
           if (!blockedWeeks.includes(formattedWeek)) {
@@ -156,10 +178,9 @@ export function useTimesheetImport({ staffId }: { staffId: string }) {
           continue;
         }
 
-        // Step 3: Round hours
         const roundedHours = Math.round((group.totalMinutes / 60) * 10) / 10;
 
-        // Step 7: Deterministic upsert (SELECT-first)
+        // Deterministic upsert (SELECT-first)
         const { data: existingEntry, error: selectError } = await supabase
           .from("time_entries")
           .select("time_id, hours_logged")
@@ -186,7 +207,14 @@ export function useTimesheetImport({ staffId }: { staffId: string }) {
 
           if (updateError) {
             console.error("Update merge error:", updateError);
-            blockedCount += group.timerIds.length;
+            if (isWoNotApprovedError(updateError.message)) {
+              woBlockedCount += group.timerIds.length;
+              const code = engagementCodeMap.get(group.engagement_id)
+                || group.engagement_id.slice(0, 8);
+              woBlockedEngagementsSet.add(code);
+            } else {
+              blockedCount += group.timerIds.length;
+            }
             continue;
           }
 
@@ -214,7 +242,14 @@ export function useTimesheetImport({ staffId }: { staffId: string }) {
 
           if (insertError) {
             console.error("Insert error:", insertError);
-            blockedCount += group.timerIds.length;
+            if (isWoNotApprovedError(insertError.message)) {
+              woBlockedCount += group.timerIds.length;
+              const code = engagementCodeMap.get(group.engagement_id)
+                || group.engagement_id.slice(0, 8);
+              woBlockedEngagementsSet.add(code);
+            } else {
+              blockedCount += group.timerIds.length;
+            }
             continue;
           }
 
@@ -226,18 +261,24 @@ export function useTimesheetImport({ staffId }: { staffId: string }) {
         }
       }
 
-      // Step 8: Mark only exported entries as imported
+      // Mark only exported entries as imported
       if (importedMappings.length > 0) {
         await markImported.mutateAsync(importedMappings);
       }
 
-      // Step 9: Cache invalidation
+      // Bound engagement list for toast readability
+      const woEngArr = Array.from(woBlockedEngagementsSet);
+      const woBlockedEngagements = woEngArr.length > 3
+        ? [...woEngArr.slice(0, 3), `(+${woEngArr.length - 3} más)`]
+        : woEngArr;
+
+      // Cache invalidation
       queryClient.invalidateQueries({ queryKey: ["time-entries"] });
       queryClient.invalidateQueries({ queryKey: ["timesheet-period"] });
       queryClient.invalidateQueries({ queryKey: ["timer_entries"] });
       queryClient.invalidateQueries({ queryKey: ["timer_entries_unimported"] });
 
-      return { newCount, mergedCount, blockedCount, blockedWeeks };
+      return { newCount, mergedCount, blockedCount, blockedWeeks, woBlockedCount, woBlockedEngagements };
     } finally {
       setIsExporting(false);
     }
