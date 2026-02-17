@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/select";
 import { useActivityCodes } from "@/hooks/useEmsData";
 import { useApprovedEngagements } from "@/hooks/useApprovedEngagements";
+import { useAdminActivityId } from "@/hooks/useAdminActivity";
 import { cn } from "@/lib/utils";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle } from "lucide-react";
@@ -56,14 +57,16 @@ export function TrackerBar({
   const { t } = useTranslation();
   const { data: engagements = [] } = useApprovedEngagements();
   const { data: activityCodes = [] } = useActivityCodes();
+  const adminActivityId = useAdminActivityId();
 
   const activeActivities = activityCodes.filter((a) => a.is_active);
 
   const selectedEngagement = engagements.find(e => e.engagement_id === engagementId);
+  const isActivityNotRequired = selectedEngagement && !selectedEngagement.activity_required;
   const selectedActivity = activeActivities.find(a => a.activity_id === activityId);
 
   const isEngagementApproved = engagements.some(e => e.engagement_id === engagementId);
-  const canStart = engagementId && activityId && isEngagementApproved && (remainingHours === null || remainingHours > 0);
+  const canStart = engagementId && (activityId || isActivityNotRequired) && isEngagementApproved && (remainingHours === null || remainingHours > 0) && (!isActivityNotRequired || !!adminActivityId);
   const hasTime = elapsedSeconds > 0;
 
   const showStartButton = !isRunning;
@@ -89,7 +92,16 @@ export function TrackerBar({
             <Label className="text-xs text-muted-foreground mb-1.5 block">{t("tracker.engagement")}</Label>
             <Select
               value={engagementId || ""}
-              onValueChange={(val) => onEngagementChange(val || null)}
+              onValueChange={(val) => {
+                onEngagementChange(val || null);
+                // Auto-assign ADM activity for activity-not-required engagements
+                const eng = engagements.find(e => e.engagement_id === val);
+                if (eng && !eng.activity_required && adminActivityId) {
+                  onActivityChange(adminActivityId);
+                } else if (eng && !eng.activity_required) {
+                  onActivityChange(null);
+                }
+              }}
               disabled={isRunning}
             >
               <SelectTrigger className="h-10">
@@ -115,7 +127,7 @@ export function TrackerBar({
             <Select
               value={engagementId ? (activityId || "") : ""}
               onValueChange={(val) => onActivityChange(val || null)}
-              disabled={isRunning || !engagementId}
+              disabled={isRunning || !engagementId || !!isActivityNotRequired}
             >
               <SelectTrigger className="h-10">
                 <SelectValue placeholder={t("tracker.selectActivity")}>

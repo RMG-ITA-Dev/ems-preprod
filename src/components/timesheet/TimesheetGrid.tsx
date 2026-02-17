@@ -60,6 +60,9 @@ interface TimesheetGridProps {
   // Holiday blocking
   holidayMap?: Map<string, string>;
   holidayEngagementId?: string | null;
+  // Non-chargeable engagement policy
+  activityNotRequiredIds?: Set<string>;
+  adminActivityId?: string | null;
 }
 
 export function TimesheetGrid({
@@ -80,6 +83,8 @@ export function TimesheetGrid({
   lockedDaysBeforeHire,
   holidayMap,
   holidayEngagementId,
+  activityNotRequiredIds,
+  adminActivityId,
 }: TimesheetGridProps) {
   const { t } = useTranslation();
   const upsertEntry = useUpsertTimeEntry();
@@ -181,7 +186,10 @@ export function TimesheetGrid({
       }[] = [];
 
       rowsRef.current.forEach((row) => {
-        if (!row.engagementId || !row.activityId) return;
+        if (!row.engagementId) return;
+        const isActNotReq = activityNotRequiredIds?.has(row.engagementId);
+        const effectiveActivityId = isActNotReq && adminActivityId ? adminActivityId : row.activityId;
+        if (!effectiveActivityId) return;
         weekDates.forEach((date) => {
           const dateStr = toISODateString(date);
           const hours = row.hours[dateStr];
@@ -196,7 +204,7 @@ export function TimesheetGrid({
               params: {
                 staffId,
                 engagementId: row.engagementId,
-                activityId: row.activityId,
+                activityId: effectiveActivityId,
                 dateWorked: date,
                 hours: hasHours ? hours : 0,
                 periodId,
@@ -305,7 +313,12 @@ export function TimesheetGrid({
   const handleEngagementChange = (rowId: string, engagementId: string) => {
     const currentRow = rows.find(r => r.id === rowId);
     if (!currentRow) return;
-    const activityId = currentRow.activityId;
+
+    // Auto-assign ADM activity for activity-not-required engagements
+    const isActivityNotRequired = activityNotRequiredIds?.has(engagementId);
+    const activityId = isActivityNotRequired && adminActivityId
+      ? adminActivityId
+      : currentRow.activityId;
 
     // Check for duplicate — another row with same engagement+activity
     const existingRow = rows.find(r => r.id !== rowId && r.engagementId === engagementId && r.activityId === activityId && activityId !== '');
@@ -326,7 +339,7 @@ export function TimesheetGrid({
 
     setRows(
       rows.map((row) =>
-        row.id === rowId ? { ...row, engagementId, id: activityId ? `${engagementId}-${activityId}` : `${engagementId}-new` } : row
+        row.id === rowId ? { ...row, engagementId, activityId, id: activityId ? `${engagementId}-${activityId}` : `${engagementId}-new` } : row
       )
     );
   };
@@ -398,7 +411,12 @@ export function TimesheetGrid({
       debounceTimers.current[cellKey] = setTimeout(() => {
         // Access current rows via ref to avoid stale closure
         const currentRow = rowsRef.current.find((r) => r.id === rowId);
-        if (!currentRow || !currentRow.engagementId || !currentRow.activityId) return;
+        if (!currentRow || !currentRow.engagementId) return;
+        // For activity-not-required rows, use adminActivityId
+        const effectiveActivityId = activityNotRequiredIds?.has(currentRow.engagementId) && adminActivityId
+          ? adminActivityId
+          : currentRow.activityId;
+        if (!effectiveActivityId) return;
 
         setSavingCells((prev) => new Set(prev).add(cellKey));
         setSavedCells((prev) => {
@@ -411,7 +429,7 @@ export function TimesheetGrid({
           {
             staffId,
             engagementId: currentRow.engagementId,
-            activityId: currentRow.activityId,
+            activityId: effectiveActivityId,
             dateWorked: date,
             hours,
             periodId,
@@ -624,10 +642,14 @@ export function TimesheetGrid({
                   <Select
                     value={row.activityId}
                     onValueChange={(val) => handleActivityChange(row.id, val)}
-                    disabled={isLocked}
+                    disabled={isLocked || (activityNotRequiredIds?.has(row.engagementId) ?? false)}
                   >
                     <SelectTrigger className="border-0 bg-transparent focus:ring-1">
-                      <SelectValue placeholder={t("timesheet.selectActivity")} />
+                      <SelectValue placeholder={
+                        activityNotRequiredIds?.has(row.engagementId)
+                          ? "ADM - Administrative"
+                          : t("timesheet.selectActivity")
+                      } />
                     </SelectTrigger>
                     <SelectContent>
                       {activities.map((act) => {
@@ -653,8 +675,10 @@ export function TimesheetGrid({
                   const isDayLockedByHire = lockedDaysBeforeHire?.has(dayIndex) ?? false;
                   const holidayName = holidayMap?.get(dateStr);
                   const isHolidayBlocked = !!holidayName && row.engagementId !== holidayEngagementId;
+                  const isActivityNotRequired = activityNotRequiredIds?.has(row.engagementId);
+                  const isAdmMissing = isActivityNotRequired && !adminActivityId;
                   const isDisabled =
-                    isLocked || isDayLockedByHire || isHolidayBlocked || !row.engagementId || !row.activityId;
+                    isLocked || isDayLockedByHire || isHolidayBlocked || isAdmMissing || !row.engagementId || (!row.activityId && !isActivityNotRequired);
 
                   return (
                     <td key={dateStr} className={cn("p-2 relative text-center border-r border-border", isDayLockedByHire && "bg-muted/40", isHolidayBlocked && "bg-warning/5")}>

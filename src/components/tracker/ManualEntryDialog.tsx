@@ -28,6 +28,7 @@ import {
 import { CalendarIcon } from "lucide-react";
 import { useActivityCodes } from "@/hooks/useEmsData";
 import { useApprovedEngagements } from "@/hooks/useApprovedEngagements";
+import { useAdminActivityId } from "@/hooks/useAdminActivity";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -69,6 +70,7 @@ export function ManualEntryDialog({
   const { t } = useTranslation();
   const { data: engagements = [] } = useApprovedEngagements();
   const { data: activityCodes = [] } = useActivityCodes();
+  const adminActivityId = useAdminActivityId();
 
   const [engagementId, setEngagementId] = useState("");
   const [activityId, setActivityId] = useState("");
@@ -120,7 +122,10 @@ export function ManualEntryDialog({
   };
 
   const handleSubmit = () => {
-    if (!engagementId || !activityId) return;
+    const selectedEng = engagements.find(e => e.engagement_id === engagementId);
+    const isActNotReq = selectedEng && !selectedEng.activity_required;
+    const effectiveActivityId = isActNotReq && adminActivityId ? adminActivityId : activityId;
+    if (!engagementId || !effectiveActivityId) return;
     if (!engagements.some(e => e.engagement_id === engagementId)) {
       toast.error(t("tracker.woNotApproved"));
       return;
@@ -128,7 +133,7 @@ export function ManualEntryDialog({
 
     onSubmit({
       engagement_id: engagementId,
-      activity_id: activityId,
+      activity_id: effectiveActivityId,
       description,
       date,
       startTime,
@@ -146,7 +151,9 @@ export function ManualEntryDialog({
     onOpenChange(false);
   };
 
-  const canSubmit = engagementId && activityId && startTime && endTime;
+  const selectedEng = engagements.find(e => e.engagement_id === engagementId);
+  const isActNotReq = selectedEng && !selectedEng.activity_required;
+  const canSubmit = engagementId && (activityId || (isActNotReq && adminActivityId)) && startTime && endTime;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -225,7 +232,15 @@ export function ManualEntryDialog({
           {/* Engagement */}
           <div className="space-y-2">
             <Label>{t("tracker.engagement")}</Label>
-            <Select value={engagementId} onValueChange={setEngagementId}>
+            <Select value={engagementId} onValueChange={(val) => {
+              setEngagementId(val);
+              const eng = engagements.find(e => e.engagement_id === val);
+              if (eng && !eng.activity_required && adminActivityId) {
+                setActivityId(adminActivityId);
+              } else {
+                setActivityId("");
+              }
+            }}>
               <SelectTrigger>
                 <SelectValue placeholder={t("tracker.selectEngagement")} />
               </SelectTrigger>
@@ -242,7 +257,7 @@ export function ManualEntryDialog({
           {/* Activity */}
           <div className="space-y-2">
             <Label>{t("tracker.activity")}</Label>
-            <Select value={activityId} onValueChange={setActivityId}>
+            <Select value={activityId} onValueChange={setActivityId} disabled={!!(selectedEng && !selectedEng.activity_required)}>
               <SelectTrigger>
                 <SelectValue placeholder={t("tracker.selectActivity")} />
               </SelectTrigger>

@@ -6,7 +6,7 @@ export function useApprovedEngagements() {
   return useQuery({
     queryKey: ["approved-engagements-for-tracker"],
     queryFn: async () => {
-      // Step 1: Get engagement IDs with approved WOs
+      // Group A: Engagements with approved WOs
       const { data: workOrders, error: woError } = await supabase
         .from("work_orders")
         .select("engagement_id")
@@ -16,10 +16,32 @@ export function useApprovedEngagements() {
       const approvedIds = [...new Set(
         (workOrders || []).map(wo => wo.engagement_id)
       )];
-      if (approvedIds.length === 0) return [];
 
-      // Step 2: Fetch engagements -- same select shape as useEngagements()
-      const { data, error } = await supabase
+      let groupA: Engagement[] = [];
+      if (approvedIds.length > 0) {
+        const { data, error } = await supabase
+          .from("engagements")
+          .select(`
+            *,
+            client:clients(*),
+            partner:staff!engagements_partner_id_fkey(*),
+            manager:staff!engagements_manager_id_fkey(*)
+          `)
+          .in("engagement_id", approvedIds)
+          .eq("status", "active")
+          .order("created_at", { ascending: false });
+        if (error) throw error;
+        groupA = (data || []) as Engagement[];
+      }
+
+      // Group B: work_order_required=false, visibility filter
+      const { data: isAdminResult } = await supabase.rpc("is_admin");
+      const isAdmin = !!isAdminResult;
+
+      // Get current staff_id for visibility filter
+      const { data: myStaffId } = await supabase.rpc("get_my_staff_id");
+
+      let groupBQuery = supabase
         .from("engagements")
         .select(`
           *,
@@ -27,11 +49,26 @@ export function useApprovedEngagements() {
           partner:staff!engagements_partner_id_fkey(*),
           manager:staff!engagements_manager_id_fkey(*)
         `)
-        .in("engagement_id", approvedIds)
+        .eq("work_order_required", false)
         .eq("status", "active")
         .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data as Engagement[];
+
+      if (!isAdmin && myStaffId) {
+        groupBQuery = groupBQuery.or(
+          `is_internal.eq.true,partner_id.eq.${myStaffId},manager_id.eq.${myStaffId}`
+        );
+      }
+
+      const { data: groupBData, error: groupBError } = await groupBQuery;
+      if (groupBError) throw groupBError;
+      const groupB = (groupBData || []) as Engagement[];
+
+      // Merge and deduplicate
+      const merged = new Map<string, Engagement>();
+      for (const e of groupA) merged.set(e.engagement_id, e);
+      for (const e of groupB) merged.set(e.engagement_id, e);
+
+      return Array.from(merged.values());
     },
   });
 }

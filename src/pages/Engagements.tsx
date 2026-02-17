@@ -89,9 +89,16 @@ const Engagements = () => {
       filterKey: "status",
       mobilePriority: 'primary',
       render: (row) => (
-        <Badge variant="outline" className={statusColors[row.status] || statusColors.pending}>
-          {t(`status.${row.status}`)}
-        </Badge>
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className={statusColors[row.status] || statusColors.pending}>
+            {t(`status.${row.status}`)}
+          </Badge>
+          {(row as any).is_internal && (
+            <Badge variant="outline" className="bg-accent/10 text-accent border-accent/20 text-xs">
+              {t("engagement.internal")}
+            </Badge>
+          )}
+        </div>
       ),
     },
   ];

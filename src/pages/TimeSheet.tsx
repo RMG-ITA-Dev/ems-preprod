@@ -9,6 +9,7 @@ import { Loader2, AlertCircle, Lock, Save, RotateCcw, Check, AlertTriangle, Copy
 import { WeekNavigator } from "@/components/timesheet/WeekNavigator";
 import { TimesheetGrid } from "@/components/timesheet/TimesheetGrid";
 import { useHolidaysForWeek, useHolidayEngagementId } from "@/hooks/useHolidays";
+import { useAdminActivityId } from "@/hooks/useAdminActivity";
 import { useTimesheetPolicies } from "@/hooks/useTimesheetPolicies";
 import { useTimesheetWeek } from "@/hooks/useTimesheetWeek";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
@@ -93,6 +94,16 @@ const TimeSheet = () => {
   // Holiday data for the current week
   const holidayMap = useHolidaysForWeek(weekInfo.weekDates);
   const holidayEngagementId = useHolidayEngagementId();
+  const adminActivityId = useAdminActivityId();
+
+  // Compute activityNotRequiredIds from engagement data
+  const activityNotRequiredIds = useMemo(() => {
+    const ids = new Set<string>();
+    engagements.forEach(e => {
+      if (!e.activity_required) ids.add(e.engagement_id);
+    });
+    return ids;
+  }, [engagements]);
   // Fetch line approvals for the current period
   const { data: lineApprovals } = usePeriodLineApprovals(period?.period_id || null);
 
@@ -397,6 +408,8 @@ const TimeSheet = () => {
           lockedDaysBeforeHire={lockedDaysBeforeHire}
           holidayMap={holidayMap}
           holidayEngagementId={holidayEngagementId}
+          activityNotRequiredIds={activityNotRequiredIds}
+          adminActivityId={adminActivityId}
         />
 
         {/* Actions */}
