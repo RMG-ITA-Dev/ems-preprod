@@ -172,7 +172,9 @@
     "sectionEngagement": "Encargo",
     "sectionDetail": "Detalle",
     "recordSaved": "Registro actualizado exitosamente",
-    "recordDeleted": "Registro eliminado exitosamente"
+    "recordDeleted": "Registro eliminado exitosamente",
+    "hours": "Horas",
+    "maxHoursExceeded": "El máximo permitido es 8 horas"
   },
   "entities": {
     "client": "Cliente",

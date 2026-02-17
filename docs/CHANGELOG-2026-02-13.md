@@ -440,3 +440,54 @@ Three UI refinements needed for the "Registros de Tiempo" module:
 - **Low risk** — S6 removes UI only (row click navigation already existed). S7 adds new page with safe guards. S8 changes only visual styling.
 - `/tracker/new` still routes to TrackerRecord (stopwatch) — unchanged.
 - "Nuevo Registro de Tiempo" button still opens ManualEntryDialog inline — no navigation change.
+
+---
+
+## Hours Field Enhancement for Add & Edit Time Records
+
+### Problem
+
+Users had to manually calculate hours from start/end times. No direct way to input the number of hours worked, and no maximum hour restriction was enforced at the UI level.
+
+### Solution
+
+Added a bidirectional "Horas" numeric input field to both the ManualEntryDialog (Add) and TrackerEdit (Edit) forms with three behaviors:
+
+1. **Max 8 hours restriction** — input clamped to 0-8 range with toast feedback
+2. **Default start time 08:00** — new entries default to 08:00 start, 1 hour duration
+3. **Bidirectional sync** — changing start/end time recomputes hours; changing hours recomputes end time
+
+### What Changed
+
+#### `src/components/tracker/ManualEntryDialog.tsx`
+- Added `hours` state (default: 1) and helper functions `addHoursToTime`, `computeHoursBetween`
+- Changed default `startTime` from "09:00" to "08:00", `endTime` from "10:00" to "09:00"
+- Changed time grid from `grid-cols-2` to `grid-cols-3` (Start Time | Hours | End Time)
+- Added `handleHoursChange`, `handleStartTimeChange`, `handleEndTimeChange` with sync logic
+- Reset now includes `hours = 1`
+
+#### `src/pages/TrackerEdit.tsx`
+- Added `hours` state and same helper functions
+- Populate hours from entry data on load (computed from start/end interval, rounded to 0.5, clamped to 8)
+- Changed time grid from `sm:grid-cols-3` to `sm:grid-cols-4` (Date | Start | Hours | End)
+- Added same bidirectional sync handlers
+- Hours field disabled when `isImported` is true
+
+#### `src/locales/en.json` & `src/locales/es.json`
+- Added keys: `tracker.hours`, `tracker.maxHoursExceeded`
+
+### Files Changed
+
+| File | Action |
+|---|---|
+| `src/components/tracker/ManualEntryDialog.tsx` | MODIFY — add Hours field, defaults, sync logic |
+| `src/pages/TrackerEdit.tsx` | MODIFY — add Hours field, populate from entry, sync logic |
+| `src/locales/en.json` | MODIFY — add 2 tracker keys |
+| `src/locales/es.json` | MODIFY — add 2 tracker keys |
+| `docs/CHANGELOG-2026-02-13.md` | MODIFY — this entry |
+
+### Risk Assessment
+
+- **None** — Hours field is UI-only convenience; save logic still uses startTime/endTime to compute duration_minutes.
+- Imported entries have Hours field disabled (consistent with other fields).
+- Clamping to 8h prevents unreasonable entries with toast feedback.

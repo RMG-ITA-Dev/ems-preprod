@@ -172,7 +172,9 @@
     "sectionEngagement": "Engagement",
     "sectionDetail": "Detail",
     "recordSaved": "Record updated successfully",
-    "recordDeleted": "Record deleted successfully"
+    "recordDeleted": "Record deleted successfully",
+    "hours": "Hours",
+    "maxHoursExceeded": "Maximum allowed is 8 hours"
   },
   "entities": {
     "client": "Client",
