@@ -1,165 +1,235 @@
+# Plan v2: Filter Tracker Engagement Dropdowns to Approved Work Orders Only (Final)
 
+## Problem
 
-# Plan v3: Fix Export Error Feedback for Unapproved Work Orders (Final)
+The stopwatch (TrackerBar), manual entry dialog (ManualEntryDialog), and timer edit page (TrackerEdit) show all active engagements. Users can select an engagement whose Work Order is not approved, record time, and only get blocked at export. The validation should happen upstream -- unapproved engagements should not appear in the dropdown, and stale selections should be guarded at start/save time.
 
-This is the hardened, final version incorporating all codex feedback. No database changes required.
+## Only two tiny implementation cautions (non-blocking)
 
-## Summary
-
-When timer entries are exported to the Hoja de Tiempo, a DB trigger rejects inserts if the engagement's Work Order is not approved. Currently this is silently lumped into "blocked (weeks already submitted)" -- misleading. This fix surfaces the real reason with a specific toast naming the affected engagement(s).
+1. Ensure `useEngagements()` and your new hook truly match “select shape” everywhere the tracker expects it (you already state it matches lines 317–321; good).
+2. In ManualEntryDialog and TrackerBar, the empty-state Alert should be placed where it won’t shift layouts awkwardly (but that’s purely UI polish).
 
 ## File Changes
 
-### 1. `src/hooks/useTimesheetImport.ts`
-
-**a) Expand `ImportResult` (lines 8-13):**
+### 1. NEW: `src/hooks/useApprovedEngagements.ts`
 
 ```typescript
-export interface ImportResult {
-  newCount: number;
-  mergedCount: number;
-  blockedCount: number;
-  blockedWeeks: string[];
-  woBlockedCount: number;
-  woBlockedEngagements: string[];
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import type { Engagement } from "@/hooks/useEmsData";
+
+export function useApprovedEngagements() {
+  return useQuery({
+    queryKey: ["approved-engagements-for-tracker"],
+    queryFn: async () => {
+      // Step 1: Get engagement IDs with approved WOs
+      const { data: workOrders, error: woError } = await supabase
+        .from("work_orders")
+        .select("engagement_id")
+        .eq("approval_status", "Approved");
+      if (woError) throw woError;
+
+      const approvedIds = [...new Set(
+        (workOrders || []).map(wo => wo.engagement_id)
+      )];
+      if (approvedIds.length === 0) return [];
+
+      // Step 2: Fetch engagements -- same select shape as useEngagements()
+      const { data, error } = await supabase
+        .from("engagements")
+        .select(`
+          *,
+          client:clients(*),
+          partner:staff!engagements_partner_id_fkey(*),
+          manager:staff!engagements_manager_id_fkey(*)
+        `)
+        .in("engagement_id", approvedIds)
+        .eq("status", "active")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data as Engagement[];
+    },
+  });
 }
 ```
 
-**b) Add resilient error detector (new helper above the hook):**
+Key details:
 
-```typescript
-function isWoNotApprovedError(message?: string): boolean {
-  if (!message) return false;
-  const lower = message.toLowerCase();
-  return lower.includes("work order") && lower.includes("not approved");
-}
-```
-
-Case-insensitive partial match on both key phrases handles any wording variation from the trigger.
-
-**c) Pre-fetch engagement codes (inside `exportEntries`, after grouping, before the main loop around line 123):**
-
-Collect unique `engagement_id` values from grouped entries, batch-fetch `engagement_id, engagement_code` from the `engagements` table, and store in a `Map<string, string>`. This avoids per-group queries.
-
-**d) Initialize new counters (around line 124-129):**
-
-```typescript
-let woBlockedCount = 0;
-const woBlockedEngagementsSet = new Set<string>();
-```
-
-**e) Update error handlers -- using `group.timerIds.length` for correct count semantics:**
-
-In the **insert** error handler (lines 215-218):
-```typescript
-if (insertError) {
-  console.error("Insert error:", insertError);
-  if (isWoNotApprovedError(insertError.message)) {
-    woBlockedCount += group.timerIds.length;
-    const code = engagementCodeMap.get(group.engagement_id)
-      || group.engagement_id.slice(0, 8);
-    woBlockedEngagementsSet.add(code);
-  } else {
-    blockedCount += group.timerIds.length;
-  }
-  continue;
-}
-```
-
-In the **update/merge** error handler (lines 187-190):
-```typescript
-if (updateError) {
-  console.error("Update merge error:", updateError);
-  if (isWoNotApprovedError(updateError.message)) {
-    woBlockedCount += group.timerIds.length;
-    const code = engagementCodeMap.get(group.engagement_id)
-      || group.engagement_id.slice(0, 8);
-    woBlockedEngagementsSet.add(code);
-  } else {
-    blockedCount += group.timerIds.length;
-  }
-  continue;
-}
-```
-
-Key guardrails:
-- **Count by `group.timerIds.length`** (not by 1) so counts reflect actual timer records, not aggregated groups.
-- **Fallback to `engagement_id.slice(0, 8)`** if the Map lookup returns undefined, so the toast never prints empty names.
-
-**f) Bound the engagement list before returning (after the main loop, before the return on line 240):**
-
-```typescript
-const woEngArr = Array.from(woBlockedEngagementsSet);
-const woBlockedEngagements = woEngArr.length > 3
-  ? [...woEngArr.slice(0, 3), `(+${woEngArr.length - 3} más)`]
-  : woEngArr;
-```
-
-**g) Update both return statements** (early return on line 36 and final return on line 240) to include `woBlockedCount: 0, woBlockedEngagements: []`.
+- Dedupes via `Set` before `.in()`.
+- Same select/joins as `useEngagements()` (lines 317-321) so the return type is identical.
+- Separate query key avoids cache contamination with the full engagements list used on admin pages.
 
 ---
 
-### 2. `src/pages/TrackerList.tsx` (lines 240-245)
+### 2. MODIFY: `src/components/tracker/TrackerBar.tsx`
 
-Replace the single blocked-toast block with ordered, non-overlapping toasts:
+**a) Import swap:**
+
+- Replace `useEngagements` import with `useApprovedEngagements`.
+- Keep `useActivityCodes` from `useEmsData`.
+
+**b) Data source swap:**
+
+- `const { data: engagements = [] } = useApprovedEngagements();`
+- Remove the `activeEngagements` filter line (hook already returns active + approved).
+- Replace all `activeEngagements` references with `engagements`.
+
+**c) Stale-state guard -- tighten `canStart` (line 64):**
 
 ```typescript
-// WO-blocked toast FIRST (error -- red)
-if (result.woBlockedCount > 0) {
-  toast.error(t("tracker.exportBlockedWO", {
-    count: result.woBlockedCount,
-    engagements: result.woBlockedEngagements.join(", ")
-  }));
-}
-// Generic week-submitted toast SECOND (warning -- yellow)
-if (result.blockedCount > 0) {
-  toast.warning(t("tracker.exportBlocked", {
-    blockedCount: result.blockedCount,
-    weeks: result.blockedWeeks.join(", ")
-  }));
-}
+const isEngagementApproved = engagements.some(
+  e => e.engagement_id === engagementId
+);
+const canStart = engagementId && activityId && isEngagementApproved
+  && (remainingHours === null || remainingHours > 0);
 ```
 
-Both can fire in the same export run if entries span different block reasons.
+**d) Empty-state alert when no approved engagements exist:**
+Add an `<Alert>` above the selectors when `engagements.length === 0`:
+
+```typescript
+{engagements.length === 0 && (
+  <Alert>
+    <AlertCircle className="h-4 w-4" />
+    <AlertDescription>{t("tracker.noApprovedEngagements")}</AlertDescription>
+  </Alert>
+)}
+```
 
 ---
 
-### 3. `src/locales/es.json` (after line 140)
+### 3. MODIFY: `src/components/tracker/ManualEntryDialog.tsx`
+
+**a) Import swap:** same as TrackerBar.
+
+**b) Data source swap:**
+
+- `const { data: engagements = [] } = useApprovedEngagements();`
+- Remove `activeEngagements` filter.
+- Map over `engagements` directly in `<SelectContent>`.
+
+**c) Stale-state guard on submit:**
+
+```typescript
+const handleSubmit = () => {
+  if (!engagementId || !activityId) return;
+  if (!engagements.some(e => e.engagement_id === engagementId)) {
+    toast.error(t("tracker.woNotApproved"));
+    return;
+  }
+  // ... existing logic
+};
+```
+
+**d) Empty-state alert** inside dialog body when `engagements.length === 0`.
+
+---
+
+### 4. MODIFY: `src/pages/TrackerEdit.tsx`
+
+**a) Add import:** `import { useApprovedEngagements } from "@/hooks/useApprovedEngagements";`
+Keep existing `useEngagements` for fallback lookup.
+
+**b) Replace `activeEngagements` memo (lines 152-156):**
+
+```typescript
+const { data: approvedEngagements = [] } = useApprovedEngagements();
+
+const activeEngagements = useMemo(() => {
+  // Include current entry's engagement even if its WO is unapproved
+  if (
+    entry?.engagement_id &&
+    !approvedEngagements.find(e => e.engagement_id === entry.engagement_id)
+  ) {
+    const currentEng = engagements?.find(
+      e => e.engagement_id === entry.engagement_id
+    );
+    return currentEng
+      ? [currentEng, ...approvedEngagements]
+      : approvedEngagements;
+  }
+  return approvedEngagements;
+}, [approvedEngagements, entry?.engagement_id, engagements]);
+```
+
+**c) Unapproved warning alert** below engagement dropdown:
+
+```typescript
+{entry?.engagement_id &&
+  !approvedEngagements.some(e => e.engagement_id === entry.engagement_id) && (
+  <Alert variant="destructive" className="mt-2">
+    <AlertCircle className="h-4 w-4" />
+    <AlertDescription>{t("tracker.woNotApprovedEdit")}</AlertDescription>
+  </Alert>
+)}
+```
+
+**d) Block save if unapproved (in `handleSave`, line 164):**
+
+```typescript
+const isApproved = approvedEngagements.some(
+  e => e.engagement_id === engagementId
+);
+if (!isApproved) {
+  toast.error(t("tracker.woNotApprovedSave"));
+  return;
+}
+```
+
+---
+
+### 5. MODIFY: `src/locales/en.json` -- Add 4 keys (in tracker section, after line 141)
 
 ```json
-"exportBlockedWO": "{{count}} registro(s) no exportados: la Orden de Trabajo no está aprobada ({{engagements}})"
+"woNotApproved": "Work Order is not approved for this engagement.",
+"woNotApprovedSave": "Cannot save: the Work Order for this engagement is not approved. Select an approved engagement.",
+"woNotApprovedEdit": "This engagement's Work Order is not approved. Select an approved engagement to save.",
+"noApprovedEngagements": "No approved engagements available. Ask a manager to approve the Work Order."
 ```
 
-### 4. `src/locales/en.json` (after line 140)
+### 6. MODIFY: `src/locales/es.json` -- Add matching keys
 
 ```json
-"exportBlockedWO": "{{count}} record(s) not exported: Work Order not approved ({{engagements}})"
+"woNotApproved": "La Orden de Trabajo no está aprobada para este encargo.",
+"woNotApprovedSave": "No se puede guardar: la Orden de Trabajo de este encargo no está aprobada. Seleccione un encargo aprobado.",
+"woNotApprovedEdit": "La Orden de Trabajo de este encargo no está aprobada. Seleccione un encargo aprobado para guardar.",
+"noApprovedEngagements": "No hay encargos con Orden de Trabajo aprobada. Solicite a un gerente que apruebe la Orden de Trabajo."
 ```
 
 ---
+
+## Existing Safety Nets (No Changes)
+
+The DB trigger (`check_wo_approved`) and the WO-specific export toast from Plan v3 remain intact as defense-in-depth.
 
 ## File Summary
 
-| File | Action |
-|------|--------|
-| `src/hooks/useTimesheetImport.ts` | MODIFY -- add `isWoNotApprovedError()`, expand `ImportResult`, pre-fetch engagement codes, separate WO-blocked tracking with correct count semantics and ID fallback, bound engagement list |
-| `src/pages/TrackerList.tsx` | MODIFY -- ordered toast logic (WO error first, then generic warning) |
-| `src/locales/es.json` | MODIFY -- add `exportBlockedWO` key |
-| `src/locales/en.json` | MODIFY -- add `exportBlockedWO` key |
+
+| File                                           | Action                                                                                            |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `src/hooks/useApprovedEngagements.ts`          | NEW -- shared hook returning active engagements with approved WOs                                 |
+| `src/components/tracker/TrackerBar.tsx`        | MODIFY -- use `useApprovedEngagements`, stale guard on `canStart`, empty-state Alert              |
+| `src/components/tracker/ManualEntryDialog.tsx` | MODIFY -- use `useApprovedEngagements`, stale guard on submit, empty-state Alert                  |
+| `src/pages/TrackerEdit.tsx`                    | MODIFY -- use `useApprovedEngagements` with fallback, block save if unapproved, destructive Alert |
+| `src/locales/en.json`                          | MODIFY -- add 4 tracker i18n keys                                                                 |
+| `src/locales/es.json`                          | MODIFY -- add 4 tracker i18n keys                                                                 |
+
 
 ## Risk
 
-None. No database changes. Purely additive TypeScript fields and UI feedback. Backward-compatible since new `ImportResult` fields default to zero/empty.
+Low. DB trigger remains as safety net. Purely UI/data filtering plus local guards. No database changes.
 
 ## Acceptance Tests
 
-1. **WO-blocked toast**: Export entries for an engagement with WO in Draft/Pending_Approval -- red toast names the engagement code.
-2. **Mixed scenario**: Export a batch spanning a submitted week AND an unapproved WO -- two distinct toasts appear (red WO first, yellow week second).
-3. **Large list**: Export records across 5+ blocked engagements -- toast shows first 3 codes plus "(+2 mas)".
-4. **Fallback**: If an engagement code lookup fails, toast shows the first 8 chars of the UUID instead of blank.
-5. **Happy path**: Export entries for an approved WO into an open week -- success toast only, no error toasts.
+1. **Stopwatch dropdown**: Engagement with WO in `Draft`/`Pending_Approval` does not appear.
+2. **Manual Entry dropdown**: Same filtering.
+3. **Stale selection guard (Stopwatch)**: Stale `engagementId` in state -- Start button stays disabled.
+4. **Stale selection guard (Manual Entry)**: Stale `engagementId` -- Save blocked with toast.
+5. **Edit existing unapproved entry**: Page loads, shows destructive Alert; Save blocked until user picks an approved engagement.
+6. **Empty list**: No approved WOs exist -- Alert shown, controls disabled.
+7. **Happy path**: Approved engagement works unchanged in all three entry points.
+8. **Export safety net**: If something slips through, DB trigger + WO-specific export toast still fires.
 
 ## Documentation
 
-Append an entry to `docs/CHANGELOG-2026-02-13.md` documenting: problem (misleading "week submitted" error), root cause (DB trigger message not surfaced), solution (resilient detection + separate toast), files changed, and risk assessment.
-
+Append entry to `docs/CHANGELOG-2026-02-13.md`.
