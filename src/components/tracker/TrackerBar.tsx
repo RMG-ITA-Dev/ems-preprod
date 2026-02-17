@@ -9,8 +9,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useEngagements, useActivityCodes } from "@/hooks/useEmsData";
+import { useActivityCodes } from "@/hooks/useEmsData";
+import { useApprovedEngagements } from "@/hooks/useApprovedEngagements";
 import { cn } from "@/lib/utils";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { AlertCircle } from "lucide-react";
 
 interface TrackerBarProps {
   isRunning: boolean;
@@ -47,16 +50,16 @@ export function TrackerBar({
   onActivityChange,
 }: TrackerBarProps) {
   const { t } = useTranslation();
-  const { data: engagements = [] } = useEngagements();
+  const { data: engagements = [] } = useApprovedEngagements();
   const { data: activityCodes = [] } = useActivityCodes();
 
-  const activeEngagements = engagements.filter((e) => e.status === "active");
   const activeActivities = activityCodes.filter((a) => a.is_active);
 
-  const selectedEngagement = activeEngagements.find(e => e.engagement_id === engagementId);
+  const selectedEngagement = engagements.find(e => e.engagement_id === engagementId);
   const selectedActivity = activeActivities.find(a => a.activity_id === activityId);
 
-  const canStart = engagementId && activityId && (remainingHours === null || remainingHours > 0);
+  const isEngagementApproved = engagements.some(e => e.engagement_id === engagementId);
+  const canStart = engagementId && activityId && isEngagementApproved && (remainingHours === null || remainingHours > 0);
   const hasTime = formattedTime !== "00:00:00";
 
   // Button visibility logic
@@ -68,6 +71,14 @@ export function TrackerBar({
 
   return (
     <div className="space-y-4">
+      {/* Empty-state alert */}
+      {engagements.length === 0 && (
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{t("tracker.noApprovedEngagements")}</AlertDescription>
+        </Alert>
+      )}
+
       {/* BOX A: SELECTORS */}
       <div className="bg-card border border-border rounded-lg p-4 shadow-sm">
         <div className="flex flex-col lg:flex-row gap-4">
@@ -87,7 +98,7 @@ export function TrackerBar({
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                {activeEngagements.map((eng) => (
+                {engagements.map((eng) => (
                   <SelectItem key={eng.engagement_id} value={eng.engagement_id}>
                     <span className="font-medium">{eng.engagement_code}</span>
                     <span className="text-muted-foreground ml-2">- {eng.engagement_name}</span>

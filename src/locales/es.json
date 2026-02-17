@@ -139,6 +139,10 @@
     "exportBlockedSubmitted": "La semana del {{weekStart}} ya fue enviada. Debe retirar el envio antes de exportar.",
     "exportBlocked": "{{blockedCount}} registros bloqueados (semanas ya enviadas: {{weeks}})",
     "exportBlockedWO": "{{count}} registro(s) no exportados: la Orden de Trabajo no está aprobada ({{engagements}})",
+    "woNotApproved": "La Orden de Trabajo no está aprobada para este encargo.",
+    "woNotApprovedSave": "No se puede guardar: la Orden de Trabajo de este encargo no está aprobada. Seleccione un encargo aprobado.",
+    "woNotApprovedEdit": "La Orden de Trabajo de este encargo no está aprobada. Seleccione un encargo aprobado para guardar.",
+    "noApprovedEngagements": "No hay encargos con Orden de Trabajo aprobada. Solicite a un gerente que apruebe la Orden de Trabajo.",
     "noPeriodForWeek": "No se pudo crear la hoja de tiempo para la semana del {{weekStart}}",
     "cycles": {
       "title": "Ciclos",

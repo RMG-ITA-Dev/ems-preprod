@@ -26,7 +26,10 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { CalendarIcon } from "lucide-react";
-import { useEngagements, useActivityCodes } from "@/hooks/useEmsData";
+import { useActivityCodes } from "@/hooks/useEmsData";
+import { useApprovedEngagements } from "@/hooks/useApprovedEngagements";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -64,7 +67,7 @@ export function ManualEntryDialog({
   onSubmit,
 }: ManualEntryDialogProps) {
   const { t } = useTranslation();
-  const { data: engagements = [] } = useEngagements();
+  const { data: engagements = [] } = useApprovedEngagements();
   const { data: activityCodes = [] } = useActivityCodes();
 
   const [engagementId, setEngagementId] = useState("");
@@ -75,7 +78,6 @@ export function ManualEntryDialog({
   const [endTime, setEndTime] = useState("09:00");
   const [hours, setHours] = useState<number>(1);
 
-  const activeEngagements = engagements.filter((e) => e.status === "active");
   const activeActivities = activityCodes.filter((a) => a.is_active);
 
   const handleHoursChange = (newHours: number) => {
@@ -119,6 +121,10 @@ export function ManualEntryDialog({
 
   const handleSubmit = () => {
     if (!engagementId || !activityId) return;
+    if (!engagements.some(e => e.engagement_id === engagementId)) {
+      toast.error(t("tracker.woNotApproved"));
+      return;
+    }
 
     onSubmit({
       engagement_id: engagementId,
@@ -150,6 +156,13 @@ export function ManualEntryDialog({
         </DialogHeader>
 
         <div className="space-y-4 py-4">
+          {/* Empty-state alert */}
+          {engagements.length === 0 && (
+            <Alert>
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{t("tracker.noApprovedEngagements")}</AlertDescription>
+            </Alert>
+          )}
           {/* Date */}
           <div className="space-y-2">
             <Label>{t("tracker.date")}</Label>
@@ -217,7 +230,7 @@ export function ManualEntryDialog({
                 <SelectValue placeholder={t("tracker.selectEngagement")} />
               </SelectTrigger>
               <SelectContent>
-                {activeEngagements.map((eng) => (
+                {engagements.map((eng) => (
                   <SelectItem key={eng.engagement_id} value={eng.engagement_id}>
                     {eng.engagement_code || eng.engagement_name}
                   </SelectItem>

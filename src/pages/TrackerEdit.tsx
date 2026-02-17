@@ -54,6 +54,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Trash2, CalendarIcon, AlertCircle } from "lucide-react";
 import { useTimerEntries, useUpdateTimerEntry, useDeleteTimerEntry } from "@/hooks/useTimerEntries";
 import { useEngagements, useActivityCodes } from "@/hooks/useEmsData";
+import { useApprovedEngagements } from "@/hooks/useApprovedEngagements";
 import { useLanguage } from "@/hooks/useLanguage";
 // toast imported at top of file
 import { cn } from "@/lib/utils";
@@ -65,6 +66,7 @@ const TrackerEdit = () => {
   const { currentLanguage } = useLanguage();
   const { data: entries, isFetched } = useTimerEntries();
   const { data: engagements } = useEngagements();
+  const { data: approvedEngagements = [] } = useApprovedEngagements();
   const { data: activityCodes } = useActivityCodes();
   const updateEntry = useUpdateTimerEntry();
   const deleteEntry = useDeleteTimerEntry();
@@ -149,11 +151,21 @@ const TrackerEdit = () => {
     }
   }, [entry]);
 
-  // Filter active engagements + include current even if inactive
+  // Filter to approved engagements + include current even if unapproved
   const activeEngagements = useMemo(() => {
-    if (!engagements) return [];
-    return engagements.filter(e => e.status === "active" || e.engagement_id === entry?.engagement_id);
-  }, [engagements, entry?.engagement_id]);
+    if (
+      entry?.engagement_id &&
+      !approvedEngagements.find(e => e.engagement_id === entry.engagement_id)
+    ) {
+      const currentEng = engagements?.find(
+        e => e.engagement_id === entry.engagement_id
+      );
+      return currentEng
+        ? [currentEng, ...approvedEngagements]
+        : approvedEngagements;
+    }
+    return approvedEngagements;
+  }, [approvedEngagements, entry?.engagement_id, engagements]);
 
   // Filter active activities + include current even if inactive
   const activeActivities = useMemo(() => {
@@ -163,6 +175,15 @@ const TrackerEdit = () => {
 
   const handleSave = async () => {
     if (!entry || !date || !startTime || !endTime) return;
+
+    // Block save if selected engagement is not approved
+    const isApproved = approvedEngagements.some(
+      e => e.engagement_id === engagementId
+    );
+    if (!isApproved) {
+      toast.error(t("tracker.woNotApprovedSave"));
+      return;
+    }
 
     const [startHour, startMin] = startTime.split(":").map(Number);
     const [endHour, endMin] = endTime.split(":").map(Number);
@@ -372,6 +393,13 @@ const TrackerEdit = () => {
                     ))}
                   </SelectContent>
                 </Select>
+                {entry?.engagement_id &&
+                  !approvedEngagements.some(e => e.engagement_id === engagementId) && (
+                  <Alert variant="destructive" className="mt-2">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>{t("tracker.woNotApprovedEdit")}</AlertDescription>
+                  </Alert>
+                )}
               </div>
               {/* Activity */}
               <div className="space-y-2">
