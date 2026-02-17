@@ -4,6 +4,8 @@ import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { FileSpreadsheet } from "lucide-react";
+import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";
+import { LeavePageDialog } from "@/components/ui/leave-page-dialog";
 import {
   Select,
   SelectContent,
@@ -53,6 +55,8 @@ const WorkOrderNew = () => {
   const [expenseBudget, setExpenseBudget] = useState<ExpenseBudgetInput[]>([]);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
 
+  const woIsDirty = !!(selectedEngagementId || budgetLines.length > 0 || expenseBudget.length > 0);
+  const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty: woIsDirty });
   const taxRate = parseFloat(globalTaxRate || "0.13");
 
   // Get list of engagement IDs that already have work orders
@@ -138,6 +142,7 @@ const WorkOrderNew = () => {
       }
 
       toast.success(t("messages.createSuccess", { entity: t("entities.workOrder") }));
+      allowNextNavigation();
       navigate(`/work-orders/${wo.wo_id}`);
     } catch (error) {
       // Error handled by mutations
@@ -145,7 +150,7 @@ const WorkOrderNew = () => {
   };
 
   return (
-    <AppLayout title={t("workOrders.newWorkOrder")}>
+    <AppLayout title={t("workOrders.newWorkOrder")} focusMode>
       <div className="space-y-6">
         {/* Engagement Selection */}
         {!selectedEngagementId && (
@@ -251,7 +256,7 @@ const WorkOrderNew = () => {
             onBudgetLinesChange={setBudgetLines}
             onExpenseBudgetChange={setExpenseBudget}
             onSubmit={handleSubmitClick}
-            onCancel={() => navigate("/work-orders")}
+            onCancel={() => { allowNextNavigation(); navigate("/work-orders"); }}
             isLocked={false}
             canApprove={false}
             isSubmitting={createWorkOrder.isPending}
@@ -288,6 +293,7 @@ const WorkOrderNew = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <LeavePageDialog blocker={blocker} isDirty={woIsDirty} />
     </AppLayout>
   );
 };

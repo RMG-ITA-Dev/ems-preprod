@@ -56,6 +56,7 @@ interface ExpenseLogFormProps {
   }) => void;
   onCancel: () => void;
   isLoading?: boolean;
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 export function ExpenseLogForm({
@@ -63,6 +64,7 @@ export function ExpenseLogForm({
   onSubmit,
   onCancel,
   isLoading = false,
+  onDirtyChange,
 }: ExpenseLogFormProps) {
   const { t } = useTranslation();
   const { data: engagements = [] } = useEngagements();
@@ -109,6 +111,27 @@ export function ExpenseLogForm({
       }
     }
   }, [initialData]);
+
+  // Track dirty state: compare current form data against initial values
+  useEffect(() => {
+    if (!onDirtyChange) return;
+    if (!initialData) {
+      // New form: dirty if any field has been filled
+      const hasData = formData.engagement_id || formData.expense_type_id || formData.date_incurred || formData.amount > 0 || formData.description;
+      onDirtyChange(!!hasData);
+    } else {
+      // Edit form: dirty if any field changed from initial
+      const changed =
+        formData.engagement_id !== initialData.engagement_id ||
+        formData.expense_type_id !== initialData.expense_type_id ||
+        formData.date_incurred !== initialData.date_incurred ||
+        formData.amount !== initialData.amount ||
+        formData.currency !== (initialData.currency || "BOB") ||
+        (formData.description || "") !== (initialData.description || "") ||
+        uploadedFileUrl !== (initialData.receipt_url || null);
+      onDirtyChange(changed);
+    }
+  }, [formData, uploadedFileUrl, initialData, onDirtyChange]);
 
   const handleDateSelect = (selectedDate: Date | undefined) => {
     setDate(selectedDate);

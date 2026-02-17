@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -5,6 +6,8 @@ import { ExpenseLogForm } from "@/components/forms/ExpenseLogForm";
 import { useExpenseLogById } from "@/hooks/useEmsData";
 import { useUpdateExpenseLog } from "@/hooks/mutations";
 import { Skeleton } from "@/components/ui/skeleton";
+import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";
+import { LeavePageDialog } from "@/components/ui/leave-page-dialog";
 
 const ExpenseEdit = () => {
   const { t } = useTranslation();
@@ -12,6 +15,8 @@ const ExpenseEdit = () => {
   const { id } = useParams<{ id: string }>();
   const { data: expenseLog, isLoading } = useExpenseLogById(id || "");
   const updateExpenseLog = useUpdateExpenseLog();
+  const [isDirty, setIsDirty] = useState(false);
+  const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty });
 
   const handleSubmit = async (data: {
     engagement_id: string;
@@ -31,12 +36,18 @@ const ExpenseEdit = () => {
       description: data.description,
       receipt_url: data.receipt_url,
     });
+    allowNextNavigation();
+    navigate("/expenses");
+  };
+
+  const handleCancel = () => {
+    allowNextNavigation();
     navigate("/expenses");
   };
 
   if (isLoading) {
     return (
-      <AppLayout title={t("expenses.editExpense")}>
+      <AppLayout title={t("expenses.editExpense")} focusMode>
         <div className="max-w-2xl space-y-4">
           <Skeleton className="h-8 w-32" />
           <div className="bg-card rounded-xl border border-border p-6">
@@ -53,7 +64,7 @@ const ExpenseEdit = () => {
 
   if (!expenseLog) {
     return (
-      <AppLayout title={t("expenses.editExpense")}>
+      <AppLayout title={t("expenses.editExpense")} focusMode>
         <div className="max-w-2xl">
           <div className="bg-card rounded-xl border border-border p-6 text-center text-muted-foreground">
             {t("common.noResults")}
@@ -64,17 +75,19 @@ const ExpenseEdit = () => {
   }
 
   return (
-    <AppLayout title={t("expenses.editExpense")}>
+    <AppLayout title={t("expenses.editExpense")} focusMode>
       <div className="max-w-2xl">
         <div className="bg-card rounded-xl border border-border p-6">
           <ExpenseLogForm
             initialData={expenseLog}
             onSubmit={handleSubmit}
-            onCancel={() => navigate("/expenses")}
+            onCancel={handleCancel}
             isLoading={updateExpenseLog.isPending}
+            onDirtyChange={setIsDirty}
           />
         </div>
       </div>
+      <LeavePageDialog blocker={blocker} isDirty={isDirty} />
     </AppLayout>
   );
 };

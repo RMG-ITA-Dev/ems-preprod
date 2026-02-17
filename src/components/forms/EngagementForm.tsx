@@ -77,9 +77,12 @@ type FormData = z.infer<typeof formSchema>;
 
 interface EngagementFormProps {
   engagement?: Engagement | null;
+  onDirtyChange?: (dirty: boolean) => void;
+  onCancel?: () => void;
+  onSaveSuccess?: () => void;
 }
 
-export function EngagementForm({ engagement }: EngagementFormProps) {
+export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSuccess }: EngagementFormProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const isEdit = !!engagement;
@@ -138,6 +141,12 @@ export function EngagementForm({ engagement }: EngagementFormProps) {
     }
   }, [engagement, form]);
 
+  // Report dirty state to parent
+  const { isDirty } = form.formState;
+  useEffect(() => {
+    onDirtyChange?.(isDirty);
+  }, [isDirty, onDirtyChange]);
+
   const onSubmit = async (data: FormData) => {
     // BUG #0206-19: Validate start_date >= creation date
     if (data.start_date && isBefore(startOfDay(data.start_date), minStartDate)) {
@@ -178,13 +187,21 @@ export function EngagementForm({ engagement }: EngagementFormProps) {
     } else {
       await createMutation.mutateAsync(payload);
     }
-    navigate("/engagements");
+    if (onSaveSuccess) {
+      onSaveSuccess();
+    } else {
+      navigate("/engagements");
+    }
   };
 
   const handleDelete = async () => {
     if (engagement) {
       await deleteMutation.mutateAsync(engagement.engagement_id);
-      navigate("/engagements");
+      if (onSaveSuccess) {
+        onSaveSuccess();
+      } else {
+        navigate("/engagements");
+      }
     }
   };
 
@@ -456,7 +473,7 @@ export function EngagementForm({ engagement }: EngagementFormProps) {
             </div>
 
             <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 sm:gap-4 pt-4">
-              <Button type="button" variant="cancel" onClick={() => navigate("/engagements")} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
+              <Button type="button" variant="cancel" onClick={() => onCancel ? onCancel() : navigate("/engagements")} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
                 {t("common.cancel")}
               </Button>
               <LoadingButton
