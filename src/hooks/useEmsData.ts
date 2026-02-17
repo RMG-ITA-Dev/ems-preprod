@@ -72,6 +72,9 @@ export interface Engagement {
   start_date: string | null;
   end_date: string | null;
   created_at: string | null;
+  work_order_required: boolean;
+  activity_required: boolean;
+  is_internal: boolean;
   client?: Client;
   partner?: Staff;
   manager?: Staff;

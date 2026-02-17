@@ -33,6 +33,9 @@ export interface ApprovedEngagement {
   engagement_id: string;
   engagement_code: string | null;
   engagement_name: string;
+  activity_required: boolean;
+  work_order_required: boolean;
+  is_internal: boolean;
   client: {
     client_id: string;
     client_legal_name: string;
@@ -128,43 +131,70 @@ export function useTimesheetWeek(weekStartDate: Date, workDays: number = 5): Tim
     enabled: !!staffId && !staffLoading,
   });
 
-  // BUG #19: Fetch engagements assigned to this staff member with approved work orders
+  // BUG #19: Fetch engagements eligible for timesheet (two-filter: eligibility + visibility)
   const engagementsQuery = useQuery({
     queryKey: ["approved-engagements", staffId],
     queryFn: async () => {
       if (!staffId) return [];
-      
-      // First get approved work orders
+
+      // Group A: Active engagements with approved WOs (existing logic)
       const { data: workOrders, error: woError } = await supabase
         .from("work_orders")
         .select("engagement_id")
         .eq("approval_status", "Approved");
-
       if (woError) throw woError;
 
       const approvedEngagementIds = workOrders?.map((wo) => wo.engagement_id) || [];
 
-      if (approvedEngagementIds.length === 0) return [];
+      let groupA: ApprovedEngagement[] = [];
+      if (approvedEngagementIds.length > 0) {
+        const { data, error } = await supabase
+          .from("engagements")
+          .select(`
+            engagement_id, engagement_code, engagement_name,
+            activity_required, work_order_required, is_internal,
+            client:clients!client_id(client_id, client_legal_name)
+          `)
+          .in("engagement_id", approvedEngagementIds)
+          .eq("status", "active");
+        if (error) throw error;
+        groupA = (data || []) as ApprovedEngagement[];
+      }
 
-      // Get all active engagements with approved work orders
-      // All staff can log time on any engagement with an approved WO
-      const { data: engagements, error: engError } = await supabase
+      // Group B: Active engagements where work_order_required = false
+      // Visibility: is_internal=true (all staff) OR assigned (partner/manager) OR admin
+      const { data: isAdminResult } = await supabase.rpc("is_admin");
+      const isAdmin = !!isAdminResult;
+
+      let groupBQuery = supabase
         .from("engagements")
         .select(`
-          engagement_id,
-          engagement_code,
-          engagement_name,
+          engagement_id, engagement_code, engagement_name,
+          activity_required, work_order_required, is_internal,
           client:clients!client_id(client_id, client_legal_name)
         `)
-        .in("engagement_id", approvedEngagementIds)
+        .eq("work_order_required", false)
         .eq("status", "active");
 
-      if (engError) throw engError;
+      if (!isAdmin) {
+        groupBQuery = groupBQuery.or(
+          `is_internal.eq.true,partner_id.eq.${staffId},manager_id.eq.${staffId}`
+        );
+      }
 
-      return (engagements || []) as ApprovedEngagement[];
+      const { data: groupBData, error: groupBError } = await groupBQuery;
+      if (groupBError) throw groupBError;
+      const groupB = (groupBData || []) as ApprovedEngagement[];
+
+      // Merge and deduplicate by engagement_id
+      const merged = new Map<string, ApprovedEngagement>();
+      for (const e of groupA) merged.set(e.engagement_id, e);
+      for (const e of groupB) merged.set(e.engagement_id, e);
+
+      return Array.from(merged.values());
     },
     enabled: !!staffId,
-    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+    staleTime: 5 * 60 * 1000,
   });
 
   // Fetch active activity codes

@@ -288,43 +288,52 @@ export type Database = {
       }
       engagements: {
         Row: {
+          activity_required: boolean
           client_id: string
           created_at: string | null
           end_date: string | null
           engagement_code: string | null
           engagement_id: string
           engagement_name: string
+          is_internal: boolean
           manager_id: string | null
           partner_id: string | null
           start_date: string | null
           status: string | null
           updated_at: string | null
+          work_order_required: boolean
         }
         Insert: {
+          activity_required?: boolean
           client_id: string
           created_at?: string | null
           end_date?: string | null
           engagement_code?: string | null
           engagement_id?: string
           engagement_name: string
+          is_internal?: boolean
           manager_id?: string | null
           partner_id?: string | null
           start_date?: string | null
           status?: string | null
           updated_at?: string | null
+          work_order_required?: boolean
         }
         Update: {
+          activity_required?: boolean
           client_id?: string
           created_at?: string | null
           end_date?: string | null
           engagement_code?: string | null
           engagement_id?: string
           engagement_name?: string
+          is_internal?: boolean
           manager_id?: string | null
           partner_id?: string | null
           start_date?: string | null
           status?: string | null
           updated_at?: string | null
+          work_order_required?: boolean
         }
         Relationships: [
           {

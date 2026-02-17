@@ -413,7 +413,15 @@
     "selectPartner": "Select Partner/Director",
     "selectManager": "Select Manager/Supervisor",
     "duplicateCode": "An engagement with code {{code}} already exists: {{name}}. Each engagement must have a unique code.",
-    "startDateBeforeCreation": "Start date cannot be before the engagement creation date"
+    "startDateBeforeCreation": "Start date cannot be before the engagement creation date",
+    "workOrderRequired": "Work Order Required",
+    "workOrderRequiredHelp": "When off, appears in timesheets without a Work Order",
+    "activityRequired": "Activity Required",
+    "activityRequiredHelp": "When off, the ADM activity code is auto-assigned",
+    "isInternal": "Internal (All Staff)",
+    "isInternalHelp": "All active staff can log time against this engagement",
+    "internal": "Internal",
+    "timesheetPolicy": "Timesheet Policy"
   },
   "messages": {
     "createSuccess": "{{entity}} created successfully",
@@ -618,6 +626,7 @@
     "unsubmit": "Unsubmit",
     "unsubmitted": "Timesheet recalled for editing",
     "autoSaveHint": "Changes are saved automatically",
+    "admActivityNotConfigured": "System ADM activity is not configured. Contact an administrator.",
     "entry": "Time entry",
     "beforeHireDate": "You cannot log time for this week because it is before your hire date.",
     "copyPreviousWeek": "Copy Previous Week",

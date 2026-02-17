@@ -16,6 +16,9 @@ export function useCreateEngagement() {
       start_date?: string;
       end_date?: string;
       status?: string;
+      work_order_required?: boolean;
+      activity_required?: boolean;
+      is_internal?: boolean;
     }) => {
       const { data: result, error } = await supabase
         .from("engagements")
@@ -50,6 +53,9 @@ export function useUpdateEngagement() {
         start_date: string;
         end_date: string;
         status: string;
+        work_order_required: boolean;
+        activity_required: boolean;
+        is_internal: boolean;
       }>;
     }) => {
       const { data: result, error } = await supabase

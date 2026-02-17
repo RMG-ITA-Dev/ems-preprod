@@ -413,7 +413,15 @@
     "selectPartner": "Seleccionar Socio/Director",
     "selectManager": "Seleccionar Gerente/Supervisor",
     "duplicateCode": "Ya existe un encargo con código {{code}}: {{name}}. Cada encargo debe tener un código único.",
-    "startDateBeforeCreation": "La fecha de inicio no puede ser anterior a la fecha de creación del encargo"
+    "startDateBeforeCreation": "La fecha de inicio no puede ser anterior a la fecha de creación del encargo",
+    "workOrderRequired": "Requiere Orden de Trabajo",
+    "workOrderRequiredHelp": "Cuando esta desactivado, aparece en planillas sin Orden de Trabajo",
+    "activityRequired": "Requiere Actividad",
+    "activityRequiredHelp": "Cuando esta desactivado, se asigna el código ADM automáticamente",
+    "isInternal": "Interno (Todo el Personal)",
+    "isInternalHelp": "Todo el personal activo puede registrar tiempo en este encargo",
+    "internal": "Interno",
+    "timesheetPolicy": "Política de Planilla"
   },
   "messages": {
     "createSuccess": "{{entity}} creado/a exitosamente",
@@ -618,6 +626,7 @@
     "unsubmit": "Retirar Envío",
     "unsubmitted": "Hoja de tiempo retirada para edición",
     "autoSaveHint": "Los cambios se guardan automáticamente",
+    "admActivityNotConfigured": "La actividad ADM del sistema no esta configurada. Contacte al administrador.",
     "entry": "Entrada de tiempo",
     "beforeHireDate": "No puede registrar tiempo para esta semana porque es anterior a su fecha de contratación.",
     "copyPreviousWeek": "Copiar Semana Anterior",

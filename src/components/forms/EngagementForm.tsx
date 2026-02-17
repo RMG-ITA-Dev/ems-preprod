@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -48,6 +48,8 @@ import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { Switch } from "@/components/ui/switch";
+import { useUserRole } from "@/hooks/useUserRole";
 
 const formSchema = z.object({
   engagement_name: z.string()
@@ -85,6 +87,7 @@ interface EngagementFormProps {
 export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSuccess }: EngagementFormProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const { isAdmin } = useUserRole();
   const isEdit = !!engagement;
 
   // BUG #0206-19: Minimum allowed start date
@@ -126,6 +129,11 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     },
   });
 
+  // Policy flags state (outside react-hook-form since they're admin-only)
+  const [workOrderRequired, setWorkOrderRequired] = useState(engagement?.work_order_required ?? true);
+  const [activityRequired, setActivityRequired] = useState(engagement?.activity_required ?? true);
+  const [isInternal, setIsInternal] = useState(engagement?.is_internal ?? false);
+
   useEffect(() => {
     if (engagement) {
       form.reset({
@@ -138,6 +146,9 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
         start_date: engagement.start_date ? new Date(engagement.start_date) : undefined,
         end_date: engagement.end_date ? new Date(engagement.end_date) : undefined,
       });
+      setWorkOrderRequired(engagement.work_order_required ?? true);
+      setActivityRequired(engagement.activity_required ?? true);
+      setIsInternal(engagement.is_internal ?? false);
     }
   }, [engagement, form]);
 
@@ -181,6 +192,9 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       start_date: data.start_date ? format(data.start_date, "yyyy-MM-dd") : undefined,
       end_date: data.end_date ? format(data.end_date, "yyyy-MM-dd") : undefined,
       status: data.status,
+      work_order_required: workOrderRequired,
+      activity_required: activityRequired,
+      is_internal: isInternal,
     };
     if (isEdit && engagement) {
       await updateMutation.mutateAsync({ id: engagement.engagement_id, data: payload });
