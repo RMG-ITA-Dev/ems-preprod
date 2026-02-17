@@ -1,44 +1,157 @@
-# Document Plan v2: Filter Tracker Engagement Dropdowns to Approved Work Orders Only
 
-## What Needs to Be Done
+# Complete Remaining Focus Mode Implementation
 
-Add a changelog entry to `docs/CHANGELOG-2026-02-13.md` documenting this previously undocumented plan. The entry will be appended after the existing "Focus Mode" entry.
+## What remains from Plan v3
 
-## Changelog Entry Content
+The core infrastructure is done. These 4 pages + i18n keys still need wiring.
 
-The entry will document the following implemented changes:
+---
 
-### Problem
+## 1. WorksheetNew.tsx
 
-Users could select engagements whose Work Orders were not yet approved when logging time via the Stopwatch, Manual Entry, or Edit Record forms. This led to database trigger rejections (`check_wo_approved`) at save/export time with confusing error messages, since the DB enforces that time entries can only be inserted against engagements with approved Work Orders.
+- Add imports: `usePageLeaveLock`, `LeavePageDialog`
+- Add hook: `const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty: false });`
+- Change `<AppLayout>` to `<AppLayout focusMode>`
+- Cancel button: `onClick={() => { allowNextNavigation(); navigate("/worksheets"); }}`
+- After create success (line 41): add `allowNextNavigation();` before `navigate()`
+- Add `<LeavePageDialog blocker={blocker} isDirty={false} />` before `</AppLayout>`
 
-### Solution
+## 2. WorksheetEdit.tsx
 
-Created a shared `useApprovedEngagements` hook that pre-filters engagements to only those with an associated Work Order in `approval_status = 'Approved'`. Applied this filter to all Tracker engagement dropdowns (Stopwatch, Manual Entry, Edit Record) and the Timesheet engagement dropdown. Added defensive save-time validation and user-facing warnings for edge cases (e.g., an entry originally linked to a now-unapproved engagement).
+- Add imports: `usePageLeaveLock`, `LeavePageDialog`
+- Add hook after line 59: `const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty: hasUnsavedChanges });`
+- Change all 3 `<AppLayout>` instances (lines 217, 228, 240) to `<AppLayout focusMode>`
+- Replace Cancel button (lines 256-264) -- remove `window.confirm` logic, replace with:
+  ```typescript
+  onClick={() => { allowNextNavigation(); navigate("/worksheets"); }}
+  ```
+- Navigate to linked WO (line 341): add `allowNextNavigation();` before `navigate()`
+- Navigate after create WO (line 209): add `allowNextNavigation();` before `navigate()`
+- Add `<LeavePageDialog blocker={blocker} isDirty={hasUnsavedChanges} />` before the closing `</div>` and `</AppLayout>` at the end
 
-### Files to Document
+## 3. TrackerEdit.tsx
 
+- Add imports: `usePageLeaveLock`, `LeavePageDialog`
+- Add dirty tracking: compare current form values against initial entry values
+  ```typescript
+  const isDirty = useMemo(() => {
+    if (!entry) return false;
+    const origStart = new Date(entry.started_at);
+    return (
+      engagementId !== entry.engagement_id ||
+      activityId !== entry.activity_id ||
+      (description || "") !== (entry.description || "") ||
+      startTime !== format(origStart, "HH:mm") ||
+      (entry.ended_at && endTime !== format(new Date(entry.ended_at), "HH:mm"))
+    );
+  }, [entry, engagementId, activityId, description, startTime, endTime]);
+  ```
+- Add hook: `const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty: !!isDirty });`
+- Change all `<AppLayout ...>` to add `focusMode` (lines 236, 239, 262)
+- Cancel button (line 440): `onClick={() => { allowNextNavigation(); navigate("/tracker"); }}`
+- After save success (line 214): add `allowNextNavigation();` before `navigate("/tracker")`
+- After delete success (line 226): add `allowNextNavigation();` before `navigate("/tracker")`
+- Add `<LeavePageDialog blocker={blocker} isDirty={!!isDirty} />` before `</AppLayout>`
 
-| File                                           | Action | Description                                                                                                                                     |
-| ---------------------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/hooks/useApprovedEngagements.ts`          | CREATE | Shared hook: 2-step query (work_orders -> engagements) filtered to approved + active                                                            |
-| `src/components/tracker/TrackerBar.tsx`        | MODIFY | Switched from `useEngagements` to `useApprovedEngagements`; added "no approved engagements" alert; gated Start button on `isEngagementApproved` |
-| `src/components/tracker/ManualEntryDialog.tsx` | MODIFY | Switched to `useApprovedEngagements`; added save-time guard rejecting unapproved selections                                                     |
-| `src/pages/TrackerEdit.tsx`                    | MODIFY | Switched to `useApprovedEngagements`; added unapproved-engagement inline warning alert; added save-time block with toast                        |
-| `src/hooks/useTimesheetWeek.ts`                | MODIFY | Engagement dropdown query filtered to approved WOs only (BUG #19)                                                                               |
-| `src/locales/en.json`                          | MODIFY | Added keys: `woNotApproved`, `woNotApprovedSave`, `woNotApprovedEdit`, `noApprovedEngagements`                                                  |
-| `src/locales/es.json`                          | MODIFY | Same 4 keys                                                                                                                                     |
+## 4. TrackerRecord.tsx (Stopwatch Exception -- NOT Focus Mode)
 
+This page keeps the normal layout. It uses its own blocker for the "timer running" confirmation.
 
-### Technical Details
+- Add imports: `useBlocker` from `react-router-dom`, `LeaveStopwatchDialog` + `shouldSkipTimerLeaveConfirm`, `Button` (for Run in Background), `PlayCircle` icon
+- Add a `bypassRef` for the "Run in Background" button
+- Add stopwatch-specific blocker:
+  ```typescript
+  const skipConfirm = shouldSkipTimerLeaveConfirm();
+  const stopwatchBypassRef = useRef(false);
+  const stopwatchBlocker = useBlocker(
+    ({ currentLocation, nextLocation }) =>
+      isRunning &&
+      !skipConfirm &&
+      !stopwatchBypassRef.current &&
+      currentLocation.pathname !== nextLocation.pathname
+  );
+  ```
+- Add "Run in Background" button (visible only when `isRunning`), placed after the TrackerBar:
+  ```typescript
+  {isRunning && (
+    <Button
+      variant="outline"
+      onClick={() => {
+        stopwatchBypassRef.current = true;
+        queueMicrotask(() => { stopwatchBypassRef.current = false; });
+        navigate("/tracker");
+      }}
+    >
+      <PlayCircle className="h-4 w-4 mr-2" />
+      {t("tracker.runInBackground")}
+    </Button>
+  )}
+  ```
+- Add `<LeaveStopwatchDialog blocker={stopwatchBlocker} />` before `</AppLayout>`
+- No `focusMode` -- sidebar stays visible
 
-- **Two-step query pattern**: Step 1 fetches `engagement_id` from `work_orders` where `approval_status = 'Approved'`; Step 2 fetches full engagement records (with client, partner, manager joins) filtered by those IDs and `status = 'active'`
-- **Graceful fallback in TrackerEdit**: If the current entry's engagement is no longer approved, it is still included in the dropdown (so the user sees what was selected) but a destructive alert warns them and save is blocked until they select an approved engagement
-- **Timesheet uses same pattern**: `useTimesheetWeek` has its own inline approved-engagements query with the same two-step logic, cached for 5 minutes
+## 5. i18n Keys
 
-## File to Modify
+### en.json -- add to `common` section (after line 51, before closing brace):
 
+```json
+"leavePageDirtyTitle": "You have unsaved changes",
+"leavePageDirtyBody": "If you leave, your changes will be lost.",
+"leavePageTitle": "Leave this screen?",
+"leavePageLockedBody": "Use Save or Cancel to leave this screen.",
+"leaveAnyway": "Leave anyway",
+"stay": "Stay"
+```
 
-| File                           | Action                                                      |
-| ------------------------------ | ----------------------------------------------------------- |
-| `docs/CHANGELOG-2026-02-17.md` | MODIFY -- append new changelog entry after existing content |
+### en.json -- add to `tracker` section (after line 186, before closing brace):
+
+```json
+"timerRunningTitle": "Timer running",
+"timerRunningBody": "The timer will keep running in the background. Leave this screen?",
+"leave": "Leave",
+"dontAskAgain": "Don't ask again",
+"runInBackground": "Run in background",
+"timerStillRunning": "Timer is still running.",
+"stay": "Stay"
+```
+
+### es.json -- add to `common` section (after line 51, before closing brace):
+
+```json
+"leavePageDirtyTitle": "Tiene cambios sin guardar",
+"leavePageDirtyBody": "Si sale, sus cambios se perderan.",
+"leavePageTitle": "Salir de esta pantalla?",
+"leavePageLockedBody": "Use Guardar o Cancelar para salir de esta pantalla.",
+"leaveAnyway": "Salir de todas formas",
+"stay": "Quedarme"
+```
+
+### es.json -- add to `tracker` section (after line 186, before closing brace):
+
+```json
+"timerRunningTitle": "Cronometro en curso",
+"timerRunningBody": "El cronometro seguira corriendo en segundo plano. Desea salir de esta pantalla?",
+"leave": "Salir",
+"dontAskAgain": "No volver a preguntar",
+"runInBackground": "Seguir en segundo plano",
+"timerStillRunning": "El cronometro sigue en curso.",
+"stay": "Quedarme"
+```
+
+## 6. Update Changelog
+
+Append to `docs/CHANGELOG-2026-02-17.md` documenting the completion of the remaining pages (WorksheetNew, WorksheetEdit, TrackerEdit, TrackerRecord) and i18n keys.
+
+---
+
+## File Summary
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/pages/WorksheetNew.tsx` | MODIFY | Add focusMode, lock hook, wire Cancel/Create bypass |
+| `src/pages/WorksheetEdit.tsx` | MODIFY | Add focusMode, lock hook, remove window.confirm, wire all navigate() calls |
+| `src/pages/TrackerEdit.tsx` | MODIFY | Add focusMode, lock hook with custom isDirty, wire Save/Cancel/Delete bypass |
+| `src/pages/TrackerRecord.tsx` | MODIFY | Add stopwatch blocker + "Run in Background" button (NOT focusMode) |
+| `src/locales/en.json` | MODIFY | Add 12 i18n keys (common + tracker sections) |
+| `src/locales/es.json` | MODIFY | Add 12 i18n keys (common + tracker sections) |
+| `docs/CHANGELOG-2026-02-17.md` | MODIFY | Document completion of remaining pages |
