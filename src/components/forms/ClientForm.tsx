@@ -65,9 +65,12 @@ type FormData = z.infer<typeof formSchema>;
 interface ClientFormProps {
   client?: ClientFull | null;
   compact?: boolean;
+  onDirtyChange?: (dirty: boolean) => void;
+  onCancel?: () => void;
+  onSaveSuccess?: () => void;
 }
 
-export function ClientForm({ client, compact = false }: ClientFormProps) {
+export function ClientForm({ client, compact = false, onDirtyChange, onCancel, onSaveSuccess }: ClientFormProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const isEdit = !!client;
@@ -119,6 +122,12 @@ export function ClientForm({ client, compact = false }: ClientFormProps) {
     }
   }, [client, form]);
 
+  // Report dirty state to parent
+  const { isDirty } = form.formState;
+  useEffect(() => {
+    onDirtyChange?.(isDirty);
+  }, [isDirty, onDirtyChange]);
+
   const onSubmit = async (data: FormData) => {
     // Pre-save duplicate NIT check
     const { data: existingByNit } = await supabase
@@ -161,7 +170,11 @@ export function ClientForm({ client, compact = false }: ClientFormProps) {
     } else {
       await createMutation.mutateAsync(payload);
     }
-    navigate("/clients");
+    if (onSaveSuccess) {
+      onSaveSuccess();
+    } else {
+      navigate("/clients");
+    }
   };
 
   const handleDelete = async () => {
@@ -181,7 +194,11 @@ export function ClientForm({ client, compact = false }: ClientFormProps) {
     }
 
     await deleteMutation.mutateAsync(client.client_id);
-    navigate("/clients");
+    if (onSaveSuccess) {
+      onSaveSuccess();
+    } else {
+      navigate("/clients");
+    }
   };
 
   // Compact layout for edit page with engagement list
@@ -311,7 +328,7 @@ export function ClientForm({ client, compact = false }: ClientFormProps) {
             </div>
 
             <div className="flex justify-end gap-2 pt-2">
-              <Button type="button" variant="cancel" size="sm" onClick={() => navigate("/clients")}>
+              <Button type="button" variant="cancel" size="sm" onClick={() => onCancel ? onCancel() : navigate("/clients")}>
                 {t("common.cancel")}
               </Button>
               <LoadingButton
@@ -522,7 +539,7 @@ export function ClientForm({ client, compact = false }: ClientFormProps) {
             </div>
 
             <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 sm:gap-4 pt-4">
-              <Button type="button" variant="cancel" onClick={() => navigate("/clients")} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
+              <Button type="button" variant="cancel" onClick={() => onCancel ? onCancel() : navigate("/clients")} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
                 {t("common.cancel")}
               </Button>
               <LoadingButton

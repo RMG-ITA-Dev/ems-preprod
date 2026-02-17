@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
+import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";
+import { LeavePageDialog } from "@/components/ui/leave-page-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -140,6 +142,8 @@ const WorkOrderEdit = () => {
     return false;
   }, [workOrder, adjustmentAmount, originalAdjustment, expenseBudget, originalExpenseData]);
 
+  const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty });
+
   // Check if user can approve
   const canApprove = staffRecord?.category?.can_approve_wo || false;
 
@@ -231,7 +235,7 @@ const WorkOrderEdit = () => {
 
   if (isLoading) {
     return (
-      <AppLayout title={t("entities.workOrder")}>
+      <AppLayout title={t("entities.workOrder")} focusMode>
         <div className="space-y-6">
           <Skeleton className="h-10 w-48" />
           <Skeleton className="h-64 w-full" />
@@ -242,7 +246,7 @@ const WorkOrderEdit = () => {
 
   if (!workOrder) {
     return (
-      <AppLayout title={t("entities.workOrder")}>
+      <AppLayout title={t("entities.workOrder")} focusMode>
         <div className="text-center py-12 text-muted-foreground">
           {t("common.noResults")}
         </div>
@@ -251,7 +255,7 @@ const WorkOrderEdit = () => {
   }
 
   return (
-    <AppLayout title={`${t("entities.workOrder")} - ${workOrder.engagement?.engagement_code || ""}`}>
+    <AppLayout title={`${t("entities.workOrder")} - ${workOrder.engagement?.engagement_code || ""}`} focusMode>
       <div className="space-y-6">
         {/* Engagement Info */}
         <Card className="bg-muted/30">
@@ -280,7 +284,7 @@ const WorkOrderEdit = () => {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => navigate(`/worksheets/${linkedWorksheet.id}`)}
+                    onClick={() => { allowNextNavigation(); navigate(`/worksheets/${linkedWorksheet.id}`); }}
                     className="gap-2 bg-primary/10 hover:bg-primary/20 text-primary border-primary/30"
                   >
                     <FileSpreadsheet className="h-4 w-4" />
@@ -313,7 +317,7 @@ const WorkOrderEdit = () => {
           onApprove={handleApprove}
           onReject={handleReject}
           onUnsubmit={handleUnsubmit}
-          onCancel={() => navigate("/work-orders")}
+          onCancel={() => { allowNextNavigation(); navigate("/work-orders"); }}
           isLocked={isLocked}
           canApprove={canApprove}
           isSubmitting={
@@ -346,6 +350,7 @@ const WorkOrderEdit = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <LeavePageDialog blocker={blocker} isDirty={isDirty} />
     </AppLayout>
   );
 };

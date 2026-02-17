@@ -60,6 +60,9 @@ type FormData = z.infer<typeof formSchema>;
 // StaffForm uses StaffFull interface since it needs PII fields for editing
 interface StaffFormProps {
   staff?: StaffFull | null;
+  onDirtyChange?: (dirty: boolean) => void;
+  onCancel?: () => void;
+  onSaveSuccess?: () => void;
 }
 
 // Helper to generate short_name suggestion
@@ -108,7 +111,7 @@ const generateInitials = (firstName: string, lastName: string): string => {
   return initials.slice(0, 4);
 };
 
-export function StaffForm({ staff }: StaffFormProps) {
+export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess }: StaffFormProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const isEdit = !!staff;
@@ -151,6 +154,12 @@ export function StaffForm({ staff }: StaffFormProps) {
       });
     }
   }, [staff, form]);
+
+  // Report dirty state to parent
+  const { isDirty } = form.formState;
+  useEffect(() => {
+    onDirtyChange?.(isDirty);
+  }, [isDirty, onDirtyChange]);
 
   // Watch first_name and last_name to auto-suggest short_name and initials
   const firstName = form.watch("first_name");
@@ -206,13 +215,21 @@ export function StaffForm({ staff }: StaffFormProps) {
     } else {
       await createMutation.mutateAsync(payload);
     }
-    navigate("/staff");
+    if (onSaveSuccess) {
+      onSaveSuccess();
+    } else {
+      navigate("/staff");
+    }
   };
 
   const handleDelete = async () => {
     if (staff) {
       await deleteMutation.mutateAsync(staff.staff_id);
-      navigate("/staff");
+      if (onSaveSuccess) {
+        onSaveSuccess();
+      } else {
+        navigate("/staff");
+      }
     }
   };
 
@@ -454,7 +471,7 @@ export function StaffForm({ staff }: StaffFormProps) {
             </div>
 
             <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 sm:gap-4 pt-4">
-              <Button type="button" variant="cancel" onClick={() => navigate("/staff")} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
+              <Button type="button" variant="cancel" onClick={() => onCancel ? onCancel() : navigate("/staff")} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
                 {t("common.cancel")}
               </Button>
               <LoadingButton
