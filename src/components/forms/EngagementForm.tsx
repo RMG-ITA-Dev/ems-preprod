@@ -486,6 +486,33 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
               </div>
             </div>
 
+            {isAdmin && (
+              <div className="space-y-4 pt-2">
+                <h3 className="text-sm font-semibold text-foreground">{t("engagement.timesheetPolicy")}</h3>
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-medium">{t("engagement.workOrderRequired")}</p>
+                    <p className="text-xs text-muted-foreground">{t("engagement.workOrderRequiredHelp")}</p>
+                  </div>
+                  <Switch checked={workOrderRequired} onCheckedChange={setWorkOrderRequired} />
+                </div>
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-medium">{t("engagement.activityRequired")}</p>
+                    <p className="text-xs text-muted-foreground">{t("engagement.activityRequiredHelp")}</p>
+                  </div>
+                  <Switch checked={activityRequired} onCheckedChange={setActivityRequired} />
+                </div>
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-medium">{t("engagement.isInternal")}</p>
+                    <p className="text-xs text-muted-foreground">{t("engagement.isInternalHelp")}</p>
+                  </div>
+                  <Switch checked={isInternal} onCheckedChange={setIsInternal} />
+                </div>
+              </div>
+            )}
+
             <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 sm:gap-4 pt-4">
               <Button type="button" variant="cancel" onClick={() => onCancel ? onCancel() : navigate("/engagements")} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
                 {t("common.cancel")}
