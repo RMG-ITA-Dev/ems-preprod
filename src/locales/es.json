@@ -179,7 +179,11 @@
     "recordSaved": "Registro actualizado exitosamente",
     "recordDeleted": "Registro eliminado exitosamente",
     "hours": "Horas",
-    "maxHoursExceeded": "El máximo permitido es 8 horas"
+    "maxHoursExceeded": "El máximo permitido es 8 horas",
+    "timerAutoStopped": "El cronómetro se detuvo automáticamente al máximo de 8 horas.",
+    "timerAlreadyRunning": "Ya tiene un cronómetro en curso. Retomándolo.",
+    "timerRecovered": "Se recuperó un cronómetro anterior.",
+    "timerFinalized": "Un cronómetro expirado fue cerrado automáticamente a 8 horas."
   },
   "entities": {
     "client": "Cliente",

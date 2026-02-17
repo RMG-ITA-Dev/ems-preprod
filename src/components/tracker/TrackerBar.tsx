@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { Play, Pause, Save, X, Trash2 } from "lucide-react";
+import { Play, Save, X, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
@@ -15,17 +15,16 @@ import { cn } from "@/lib/utils";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle } from "lucide-react";
 
+const MAX_DISPLAY_SECONDS = 28800; // 8h
+
 interface TrackerBarProps {
   isRunning: boolean;
-  isPaused: boolean;
-  formattedTime: string;
+  elapsedSeconds: number;
   engagementId: string | null;
   activityId: string | null;
   remainingHours: number | null;
-  isEditMode?: boolean;
   // Handlers
   onStart: () => void;
-  onPause: () => void;
   onSaveAndReset: () => void;
   onCancel: () => void;
   onDelete?: () => void;
@@ -33,16 +32,21 @@ interface TrackerBarProps {
   onActivityChange: (id: string | null) => void;
 }
 
+function formatTime(seconds: number): string {
+  const clamped = Math.min(seconds, MAX_DISPLAY_SECONDS);
+  const hrs = Math.floor(clamped / 3600);
+  const mins = Math.floor((clamped % 3600) / 60);
+  const secs = clamped % 60;
+  return `${hrs.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+}
+
 export function TrackerBar({
   isRunning,
-  isPaused,
-  formattedTime,
+  elapsedSeconds,
   engagementId,
   activityId,
   remainingHours,
-  isEditMode = false,
   onStart,
-  onPause,
   onSaveAndReset,
   onCancel,
   onDelete,
@@ -60,18 +64,17 @@ export function TrackerBar({
 
   const isEngagementApproved = engagements.some(e => e.engagement_id === engagementId);
   const canStart = engagementId && activityId && isEngagementApproved && (remainingHours === null || remainingHours > 0);
-  const hasTime = formattedTime !== "00:00:00";
+  const hasTime = elapsedSeconds > 0;
 
-  // Button visibility logic
   const showStartButton = !isRunning;
-  const showPauseButton = isRunning;
-  const showSaveButton = hasTime;
+  const showSaveButton = isRunning || hasTime;
   const showCancelButton = true;
-  const showDeleteButton = hasTime || isEditMode;
+  const showDeleteButton = isRunning || hasTime;
+
+  const formattedTime = formatTime(elapsedSeconds);
 
   return (
     <div className="space-y-4">
-      {/* Empty-state alert */}
       {engagements.length === 0 && (
         <Alert>
           <AlertCircle className="h-4 w-4" />
@@ -82,7 +85,6 @@ export function TrackerBar({
       {/* BOX A: SELECTORS */}
       <div className="bg-card border border-border rounded-lg p-4 shadow-sm">
         <div className="flex flex-col lg:flex-row gap-4">
-          {/* Engagement Selector */}
           <div className="flex-1">
             <Label className="text-xs text-muted-foreground mb-1.5 block">{t("tracker.engagement")}</Label>
             <Select
@@ -108,7 +110,6 @@ export function TrackerBar({
             </Select>
           </div>
 
-          {/* Activity Selector - disabled and shows placeholder when no engagement selected */}
           <div className="flex-1">
             <Label className="text-xs text-muted-foreground mb-1.5 block">{t("tracker.activity")}</Label>
             <Select
@@ -136,23 +137,19 @@ export function TrackerBar({
         </div>
       </div>
 
-      {/* BOX B: TIMER CONTROLS - Timer LEFT, Buttons RIGHT */}
+      {/* BOX B: TIMER CONTROLS */}
       <div className="bg-card border border-border rounded-lg p-4 shadow-sm">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-          {/* LEFT: Timer Display + Remaining Hours */}
           <div className="flex items-center gap-4">
             <div
               className={cn(
                 "font-mono text-3xl font-bold px-4 py-3 rounded-lg min-w-[160px] text-center",
-                isRunning ? "bg-success/10 text-success" : 
-                isPaused ? "bg-warning/10 text-warning" : 
-                "bg-muted text-muted-foreground"
+                isRunning ? "bg-success/10 text-success" : "bg-muted text-muted-foreground"
               )}
             >
               {formattedTime}
             </div>
             
-            {/* Remaining Hours Indicator */}
             {remainingHours !== null && (
               <div className={cn(
                 "text-sm px-3 py-2 rounded-lg whitespace-nowrap",
@@ -163,9 +160,7 @@ export function TrackerBar({
             )}
           </div>
 
-          {/* RIGHT: Control Buttons */}
           <div className="flex flex-wrap items-center gap-2">
-            {/* START Button - Teal #008795 */}
             {showStartButton && (
               <Button
                 onClick={onStart}
@@ -177,18 +172,6 @@ export function TrackerBar({
               </Button>
             )}
 
-            {/* PAUSE Button - Blue-gray #5e7eb9 */}
-            {showPauseButton && (
-              <Button
-                onClick={onPause}
-                className="h-9 px-4 text-sm font-semibold bg-tracker-pause hover:bg-tracker-pause/90 text-primary-foreground"
-              >
-                <Pause className="h-4 w-4 mr-1.5" />
-                {t("tracker.pause")}
-              </Button>
-            )}
-
-            {/* SAVE & RESET Button - Gold #e7b952 */}
             {showSaveButton && (
               <Button
                 onClick={onSaveAndReset}
@@ -199,7 +182,6 @@ export function TrackerBar({
               </Button>
             )}
 
-            {/* CANCEL Button - Gray #727176 */}
             {showCancelButton && (
               <Button
                 onClick={onCancel}
@@ -210,7 +192,6 @@ export function TrackerBar({
               </Button>
             )}
 
-            {/* DELETE Button - Crimson */}
             {showDeleteButton && (
               <Button
                 onClick={onDelete}
