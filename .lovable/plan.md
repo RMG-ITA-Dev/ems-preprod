@@ -1,87 +1,62 @@
 
 
-# Plan_0213-35_v1: Make Adjustment Field Visually Identifiable as Editable
+# Plan_0213-36_v1: Close as Working-As-Designed (No Code Changes)
 
 ## Bug Reference
 
 | Field | Value |
 |-------|-------|
-| ID | 0213-35 |
-| Title | El campo Ajuste no es visualmente identificable como un campo de entrada editable |
-| Priority | Baja |
-| Route | PRINCIPAL - Ordenes de Trabajo |
+| ID | 0213-36 |
+| Title | Horas de socio |
+| Priority | Media |
+| Route | OPERACIONES - Hoja de Tiempo |
 
-## Problem
+## Analysis
 
-In the Work Order form summary section, the Adjustment (`NumericInput`) field uses `border-0 bg-transparent` classes, making it visually indistinguishable from the static text rows around it (e.g., "Honorario Standard", "% Realizacion"). Users cannot tell it is an editable input.
+The tester reported that Partner (Socio) timesheets are auto-approved without going through the standard review flow. After reviewing with the product owner, this is **confirmed as intended behavior**:
 
-## Root Cause
+- Partners (display_order <= 2) do not require approval from other Partners.
+- The database function `is_auto_approved_category()` returns `true` for these categories by design.
+- The `get_line_approver()` function returns `NULL` for Partners, meaning "no approver needed."
+- On submit, the system creates line approvals with status `"approved"` and shows a distinct toast: **"Hoja de tiempo auto-aprobada"**.
 
-Line 471 of `WorkOrderForm.tsx`:
+## Verdict
 
-```
-"w-24 text-right h-8 font-mono border-0 bg-transparent px-0 ..."
-```
+**No code changes required.** The auto-approval behavior is a deliberate business rule, not a bug.
 
-The `border-0` and `bg-transparent` classes strip all visual affordance from the input.
+## Recommended Action
 
-## Solution
-
-Replace the transparent/borderless styling with a subtle but visible input style **when the field is editable** (`isEditable === true`). When locked (`!isEditable`), keep the current transparent look since it is read-only.
-
-This gives the user a clear visual cue (border + slight background) that the field accepts input, while maintaining the clean summary appearance when the Work Order is locked/approved.
+Update the bug status to **"Cerrado - Funcionalidad Esperada"** (Closed - Expected Functionality) and add a changelog note documenting the decision for traceability.
 
 ## Changes
 
-### 1. `src/components/forms/WorkOrderForm.tsx`
+### 1. `docs/CHANGELOG-2026-02-17.md`
 
-**Modify the NumericInput className** (lines 470-473):
+Append a documentation-only entry:
 
-Replace:
-```typescript
-className={cn(
-  "w-24 text-right h-8 font-mono border-0 bg-transparent px-0 !text-[length:inherit] focus-visible:ring-1 focus-visible:ring-border focus-visible:ring-offset-0",
-  adjustmentAmount < 0 && "text-destructive"
-)}
+```text
+## BUG #0213-36: Partner Timesheet Auto-Approval (Closed - Expected Behavior)
+
+**Date:** 2026-02-18
+**Priority:** Media
+**Version:** v2.0.10
+**Route:** OPERACIONES -> Hoja de Tiempo
+
+### Report
+Tester reported that Partner (Socio) timesheets are auto-approved without standard review.
+
+### Resolution
+Confirmed as **working as designed**. Business rule: Partners (display_order <= 2) do not require
+approval from other Partners. The `is_auto_approved_category()` DB function and `get_line_approver()`
+function implement this intentionally. The UI already shows a distinct toast ("Hoja de tiempo
+auto-aprobada") to communicate the auto-approval to the user.
+
+**Status:** Closed - Expected Functionality. No code changes.
 ```
-
-With:
-```typescript
-className={cn(
-  "w-24 text-right h-8 font-mono !text-[length:inherit]",
-  isEditable
-    ? "border border-input bg-background px-2 rounded-md focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-0"
-    : "border-0 bg-transparent px-0",
-  adjustmentAmount < 0 && "text-destructive"
-)}
-```
-
-When editable: standard input border (`border-input`), background (`bg-background`), padding, and rounded corners -- matching the project's `Input` component styling.
-
-When locked: transparent and borderless as before.
-
-### 2. `docs/CHANGELOG-2026-02-17.md`
-
-Append entry for BUG #0213-35.
 
 ## Files Summary
 
 | File | Action | Description |
 |------|--------|-------------|
-| `src/components/forms/WorkOrderForm.tsx` | MODIFY | Conditional styling on Adjustment NumericInput: visible border when editable, transparent when locked |
-| `docs/CHANGELOG-2026-02-17.md` | MODIFY | Append BUG #0213-35 changelog entry |
-
-## Acceptance Criteria
-
-1. In Draft mode (editable), the Adjustment field displays with a visible border and background, clearly distinguishable as an input.
-2. In locked/approved mode, the field remains transparent and borderless (read-only appearance).
-3. Negative values still render in red (`text-destructive`).
-4. No other summary row styling is affected.
-
-## Risk Assessment
-
-| Risk | Mitigation |
-|------|-----------|
-| Style mismatch with other inputs | Uses same semantic tokens as the project's `Input` component (`border-input`, `bg-background`) |
-| Visual regression when locked | Conditional class: locked state retains existing `border-0 bg-transparent` |
+| `docs/CHANGELOG-2026-02-17.md` | MODIFY | Append BUG #0213-36 closure note (documentation only, no code changes) |
 
