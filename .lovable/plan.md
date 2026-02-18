@@ -1,284 +1,203 @@
 
-
-# Plan_0213-28_C04_v5: No Staff Record = No Access + Bootstrap Screen + Default Inactive + Auto-Activate on Link
+# Plan_0213-29_C05_v5: Disable "Usar Cronometro" When Running + Fix Stale Leave Dialog After Save
 
 ## Bug Reference
 
 | Field | Value |
 |-------|-------|
-| ID | 0213-28 |
-| Title | Log in de usuario con solo registro |
-| Priority | Baja |
-| Route | ADMINISTRACION - Personal |
+| ID | 0213-29 |
+| Title | El usuario puede iniciar varios cronometros aunque estos no se listen |
+| Priority | Media |
+| Route | OPERACIONES - Cronometro |
 
-## Changes from v4 (Mandatory Corrections Applied)
+## Changes from v4
 
-| Correction | What changed in v5 |
-|------------|-------------------|
-| MC #1 -- No signOut() during render | `ProtectedRoute` now computes `shouldSignOut` + target route as derived state, then calls `signOut()` inside a `useEffect` with a ref guard. Render path only returns `<Navigate>` or children -- no side effects. |
-| MC #2 -- Soft-delete guard in `link_staff_to_auth_user` | Added early return `IF NEW.deleted_at IS NOT NULL THEN RETURN NEW; END IF;` at the top. Added `AND deleted_at IS NULL` inside the `NOT EXISTS` duplicate check. Both link functions now consistently guard against soft-deleted records. |
-| Optional (A) -- `user_roles` uniqueness | Confirmed: `user_roles_user_id_role_key` unique constraint on `(user_id, role)` exists. `.maybeSingle()` is safe. |
-| Optional (B) -- BootstrapRoute loading | `BootstrapRoute` waits for `roleLoading` and `staffLoading` before enforcing any redirect, same pattern as `ProtectedRoute`. |
+| Change | Detail |
+|--------|--------|
+| Changelog | Added mandatory step to append implementation entry to `docs/CHANGELOG-2026-02-17.md` |
 
-## Solution (5 Layers)
+All other content is unchanged from v4.
 
-### Layer 1: ProtectedRoute -- No side effects during render (MC #1)
+## Problems
 
-**`src/components/ProtectedRoute.tsx`** -- Complete rewrite of gating logic:
+**Problem 1 (Bug 0213-29):** The "Usar cronometro" button on `/tracker` is always enabled even when a timer is running. DB prevents duplicates but UI gives no indication.
 
-```text
-ProtectedRoute logic:
-  1. Import useUserRole (adds isAdmin, isLoading: roleLoading)
-  2. Wait for ALL loading states: loading || (user && (staffLoading || roleLoading))
-  3. Compute derived state (no side effects):
-     - shouldSignOut = false, redirectTo = null
-     - if (!user) -> redirectTo = "/auth"
-     - else if (!staffRecord && isAdmin) -> redirectTo = "/bootstrap"
-     - else if (!staffRecord && !isAdmin) -> shouldSignOut = true, redirectTo = "/auth"
-     - else if (staffRecord.is_active === false) -> shouldSignOut = true, redirectTo = "/auth"
-  4. useEffect: if shouldSignOut and not already done (ref guard) -> call signOut()
-  5. Render: if redirectTo -> <Navigate to={redirectTo} replace />
-            else -> children
-```
+**Problem 2 (User-reported):** After clicking "Guardar" on `/tracker/new`, the "Cronometro en curso" leave dialog appears because the `useBlocker` still sees stale `isRunning = true` before the query cache updates.
 
-Key points:
-- `signOut()` is **never** called during render -- only inside `useEffect`
-- A `hasSignedOut` ref prevents double-calls across StrictMode re-renders
-- The `useEffect` dependency is `[shouldSignOut, signOut]`
+## Solution
 
-### Layer 2: Block at login (belt + suspenders)
+### Fix 1 -- TrackerList: Disable button + "Ver cronometro activo" CTA
 
-**`src/hooks/useAuth.tsx`** (signIn method, after existing `is_active` check around line 82):
+**`src/pages/TrackerList.tsx`**
 
-```text
-Current code checks: staffCheck && staffCheck.is_active === false -> sign out, return ACCOUNT_INACTIVE
+1. Add `useRunningTimerEntry` to the existing import on line 36:
+   ```typescript
+   import { useTimerEntries, TimerEntry, useCreateTimerEntry, useRunningTimerEntry } from "@/hooks/useTimerEntries";
+   ```
 
-New code adds (after the is_active check):
-  if (!staffCheck):
-    Query user_roles for specific admin role:
-      .from("user_roles").select("role").eq("user_id", data.user.id).eq("role", "admin").maybeSingle()
-    If no admin role found:
-      sign out, return Error('NO_STAFF_RECORD')
-    If admin: allow login (ProtectedRoute will redirect to /bootstrap)
-```
+2. Call the hook inside the component (near other hook calls around line 52):
+   ```typescript
+   const { data: runningEntry } = useRunningTimerEntry();
+   const hasRunningTimer = !!runningEntry;
+   ```
 
-### Layer 3: Auth page error handling
+3. Replace the "Usar cronometro" button block (lines 387-395) with:
+   ```typescript
+   {/* Use Timer - disabled when a timer is running */}
+   <span
+     className="inline-flex"
+     title={hasRunningTimer ? t("tracker.timerAlreadyRunningHint") : undefined}
+   >
+     <Button
+       variant="default"
+       onClick={() => navigate("/tracker/new")}
+       disabled={hasRunningTimer}
+       className="flex-1 sm:flex-none min-h-[44px] sm:min-h-0 bg-warning text-warning-foreground hover:bg-warning/90"
+     >
+       <Plus className="h-4 w-4 mr-2" />
+       {t("tracker.useTimer")}
+     </Button>
+   </span>
+   {/* View active timer CTA - only when running */}
+   {hasRunningTimer && (
+     <Button
+       variant="outline"
+       onClick={() => navigate("/tracker/new")}
+       className="flex-1 sm:flex-none min-h-[44px] sm:min-h-0"
+     >
+       {t("tracker.viewActiveTimer")}
+     </Button>
+   )}
+   ```
 
-**`src/pages/Auth.tsx`** (line 86-91, inside the signIn error handling):
+### Fix 2 -- TrackerRecord: Bypass blocker before navigating
 
-Add a new `else if` branch using strict equality:
+**`src/pages/TrackerRecord.tsx`**
 
+Set `stopwatchBypassRef.current = true` immediately after the async operation succeeds, before `tracker.resetForm()`, `toast`, or `navigate()`.
+
+**`handleSaveAndReset` (lines 203-207):**
 ```typescript
-} else if (error.message === 'NO_STAFF_RECORD') {
-  toast.error(t('messages.noStaffRecord'));
+await stopRPC.mutateAsync({ timer_id: runningEntry.timer_id });
+stopwatchBypassRef.current = true;
+tracker.resetForm();
+toast.success(t("tracker.entrySaved"));
+navigate("/tracker");
+```
+
+**`handleCancel` (lines 213-222):**
+```typescript
+if (runningEntry) {
+  try {
+    await deleteEntry.mutateAsync(runningEntry.timer_id);
+  } catch {
+    // Entry may already be gone
+  }
 }
+stopwatchBypassRef.current = true;
+tracker.resetForm();
+navigate("/tracker");
 ```
 
-### Layer 4: Staff creation defaults + helper text
-
-**`src/components/forms/StaffForm.tsx`**:
-
-- Line 136: `is_active: true` changes to `is_active: false`
-- Lines 461-463: Conditional description based on `isEdit` (which is `!!staff`, already defined at line 117):
-
+**`handleDelete` (lines 225-235):**
 ```typescript
-<FormDescription>
-  {isEdit ? t("staff.activeDescription") : t("staff.activeDescriptionNew")}
-</FormDescription>
+if (runningEntry) {
+  try {
+    await deleteEntry.mutateAsync(runningEntry.timer_id);
+    toast.success(t("tracker.entryDeleted"));
+  } catch {
+    toast.error(t("tracker.errorDeleting"));
+  }
+}
+stopwatchBypassRef.current = true;
+tracker.resetForm();
+navigate("/tracker");
 ```
 
-### Layer 5: Database migration -- Auto-activate on link + email normalization + soft-delete guards
+No `queueMicrotask` reset needed -- the component unmounts on navigation.
 
-Single migration file with two `CREATE OR REPLACE FUNCTION` statements:
+### Fix 3 -- i18n keys
 
-**`link_staff_to_auth_user()`** (BEFORE INSERT OR UPDATE ON staff, returns NEW):
-
-```sql
-CREATE OR REPLACE FUNCTION public.link_staff_to_auth_user()
-  RETURNS trigger
-  LANGUAGE plpgsql
-  SECURITY DEFINER
-  SET search_path TO 'public'
-AS $function$
-DECLARE
-  v_auth_user_id UUID;
-BEGIN
-  -- Guard: skip soft-deleted staff records
-  IF NEW.deleted_at IS NOT NULL THEN
-    RETURN NEW;
-  END IF;
-
-  IF NEW.email IS NOT NULL AND NEW.auth_user_id IS NULL THEN
-    SELECT id INTO v_auth_user_id
-    FROM auth.users
-    WHERE lower(trim(email)) = lower(trim(NEW.email))
-    LIMIT 1;
-
-    IF v_auth_user_id IS NOT NULL THEN
-      IF NOT EXISTS (
-        SELECT 1 FROM public.staff
-        WHERE auth_user_id = v_auth_user_id
-          AND staff_id != NEW.staff_id
-          AND deleted_at IS NULL
-      ) THEN
-        NEW.auth_user_id := v_auth_user_id;
-        NEW.is_active := true;  -- Auto-activate on link
-      END IF;
-    END IF;
-  END IF;
-
-  RETURN NEW;
-END;
-$function$;
+**`src/locales/en.json`** (in the `tracker` section, after line 192):
+```json
+"timerAlreadyRunningHint": "A timer is already running. Stop it before starting a new one.",
+"viewActiveTimer": "View active timer"
 ```
 
-**`link_auth_user_to_staff()`** (AFTER INSERT ON auth.users, uses UPDATE):
-
-```sql
-CREATE OR REPLACE FUNCTION public.link_auth_user_to_staff()
-  RETURNS trigger
-  LANGUAGE plpgsql
-  SECURITY DEFINER
-  SET search_path TO 'public'
-AS $function$
-BEGIN
-  UPDATE public.staff
-  SET auth_user_id = NEW.id,
-      is_active = true,
-      updated_at = now()
-  WHERE lower(trim(email)) = lower(trim(NEW.email))
-    AND auth_user_id IS NULL
-    AND deleted_at IS NULL;
-
-  RETURN NEW;
-END;
-$function$;
+**`src/locales/es.json`** (in the `tracker` section, after line 192):
+```json
+"timerAlreadyRunningHint": "Ya hay un cronómetro en curso. Deténgalo antes de iniciar uno nuevo.",
+"viewActiveTimer": "Ver cronómetro activo"
 ```
 
-### Layer 6: Bootstrap page + route
+Existing key `tracker.timerAlreadyRunning` (line 190) is unchanged.
 
-**New file: `src/pages/Bootstrap.tsx`**
+### Fix 4 -- Documentation
 
-A minimal page accessible only to admins without a staff record:
-- Uses `useAuth()` to get the admin's email for pre-filling the StaffForm
-- Renders a card with `bootstrap.title` heading and `bootstrap.description` text
-- Embeds `StaffForm` in create mode with email pre-filled
-- On successful save: `toast.success(t('bootstrap.complete'))` then `navigate('/')`
-
-**New file: `src/components/BootstrapRoute.tsx`**
-
-Guard component that waits for loading before enforcing (Optional B):
-- Uses `useAuth`, `useCurrentStaff`, `useUserRole`
-- While any of `loading`, `staffLoading`, `roleLoading` is true: show loading spinner
-- If `!user`: redirect to `/auth`
-- If `!isAdmin`: redirect to `/`
-- If `staffRecord` exists: redirect to `/` (already bootstrapped)
-- Otherwise: render children
-
-**`src/App.tsx`** -- Add lazy import + route:
-
-```typescript
-const Bootstrap = lazy(() => import("./pages/Bootstrap"));
-```
-
-Add to router children (before the catch-all):
-
-```typescript
-{ path: "/bootstrap", element: <BootstrapRoute><Bootstrap /></BootstrapRoute> }
-```
-
-## i18n Keys
-
-| Key | English | Spanish |
-|-----|---------|---------|
-| `messages.noStaffRecord` | No staff profile is linked to your account. Please contact an administrator. | No hay un perfil de personal vinculado a su cuenta. Contacte al administrador. |
-| `staff.activeDescriptionNew` | New staff will be automatically activated when they complete account registration. | El nuevo personal se activara automaticamente cuando complete su registro de cuenta. |
-| `bootstrap.title` | Complete Your Setup | Complete su Configuracion |
-| `bootstrap.description` | As the first administrator, create your staff profile to continue. | Como primer administrador, cree su perfil de personal para continuar. |
-| `bootstrap.complete` | Setup complete! Welcome to EMS. | Configuracion completa! Bienvenido a EMS. |
-
-## Access Flow After Fix
+**`docs/CHANGELOG-2026-02-17.md`** -- Append the following entry at the end of the file:
 
 ```text
-User signs up + verifies email
-  |
-  v
-assign_user_role_atomic() gives them 'staff' role
-link_auth_user_to_staff() trigger:
-  if matching staff row exists (admin pre-created)
-    AND deleted_at IS NULL
-  --> sets auth_user_id + is_active = true (auto-activate)
-  |
-  v
-User tries to log in
-  |
-  v
-signIn() checks:
-  1. Auth credentials valid?      --> No  --> "Invalid credentials"
-  2. Staff.is_active = false?     --> Yes --> "Account inactive"
-  3. No staff record at all?      --> Is admin? --> Yes --> allow (bootstrap)
-                                              --> No  --> "No staff profile linked"
-  4. All OK --> allow login
-  |
-  v
-ProtectedRoute (waits for staffLoading + roleLoading):
-  Computes shouldSignOut + redirectTo (NO side effects in render)
-  useEffect: if shouldSignOut -> signOut() once (ref guard)
-  Render:
-    redirectTo="/bootstrap" if !staffRecord + isAdmin
-    redirectTo="/auth"      if !staffRecord + !isAdmin (or inactive)
-    children                if all OK
+---
 
-Admin bootstrap:
-  First user signs up --> gets 'admin' role
-  Logs in --> passes signIn (admin exception)
-  ProtectedRoute --> no staff record + isAdmin --> /bootstrap
-  Bootstrap page --> create staff profile (email pre-filled)
-  link trigger fires --> auth_user_id set + is_active = true
-  Toast: "Setup complete!" --> redirect to /
+## BUG #0213-29: Disable Timer Button When Running + Fix Stale Leave Dialog
 
-Normal staff onboarding:
-  Admin creates staff in Personal (is_active defaults to false)
-  Staff person registers + verifies email
-  link_auth_user_to_staff trigger --> sets auth_user_id + is_active = true
-  Staff logs in --> all gates pass --> app access
+**Date:** 2026-02-18
+**Priority:** Media
+**Version:** v2.0.9
+**Route:** OPERACIONES -> Cronometro
+
+### Problem
+
+Two issues with the Tracker:
+1. The "Usar cronometro" button on `/tracker` was always enabled, allowing users to click it repeatedly even when a timer was already running. Although the DB prevents duplicate running timers, the UI gave no indication.
+2. After clicking "Guardar" on `/tracker/new`, the "Cronometro en curso" leave-confirmation dialog appeared incorrectly because the `useBlocker` navigation guard still evaluated stale `isRunning = true` from cached query data.
+
+### Root Cause
+
+1. `TrackerList.tsx` did not check for a running timer entry.
+2. `handleSaveAndReset` in `TrackerRecord.tsx` called `navigate()` before the `running_timer` query cache updated, so the `useBlocker` condition was still true. The "Run in Background" button already solved this with `stopwatchBypassRef`, but the save/cancel/delete handlers did not use it.
+
+### Solution
+
+1. **TrackerList:** Import `useRunningTimerEntry()`, disable "Usar cronometro" button when `hasRunningTimer` is true (wrapped in `<span className="inline-flex">` for tooltip accessibility), and show a secondary "Ver cronometro activo" CTA.
+2. **TrackerRecord:** Set `stopwatchBypassRef.current = true` in `handleSaveAndReset`, `handleCancel`, and `handleDelete` immediately after the async DB operation succeeds, before `resetForm()` or `navigate()`.
+
+### Files Modified
+
+| File | Change |
+|------|--------|
+| `src/pages/TrackerList.tsx` | Import `useRunningTimerEntry`, disable button when running, add tooltip wrapper, add "Ver cronometro activo" CTA |
+| `src/pages/TrackerRecord.tsx` | Add `stopwatchBypassRef.current = true` in `handleSaveAndReset`, `handleCancel`, `handleDelete` before navigation |
+| `src/locales/en.json` | Added `tracker.timerAlreadyRunningHint`, `tracker.viewActiveTimer` |
+| `src/locales/es.json` | Added `tracker.timerAlreadyRunningHint`, `tracker.viewActiveTimer` |
+| `docs/CHANGELOG-2026-02-17.md` | This entry |
+
+### Risk Assessment
+
+| Risk | Mitigation |
+|------|-----------|
+| Extra query on TrackerList | Already cached by `RunningTimerChip` in header; no extra network request |
+| Button re-enables after stop | `useStopTimerRPC` invalidates `running_timer` query key; instant re-enable |
+| Disabled button tooltip not showing | Wrapped in `<span className="inline-flex" title=...>` |
+| Bypass ref stays true | Component unmounts on navigation; ref is garbage-collected |
 ```
 
 ## Files Summary
 
 | File | Action | Description |
 |------|--------|-------------|
-| `supabase/migrations/` (new) | CREATE | Update `link_staff_to_auth_user()` and `link_auth_user_to_staff()` with auto-activate, email normalization (`lower(trim())`), soft-delete guards (`deleted_at IS NULL`) |
-| `src/components/ProtectedRoute.tsx` | MODIFY | Add `useUserRole`, wait for `roleLoading`, compute `shouldSignOut`/`redirectTo` as derived state, call `signOut()` in `useEffect` with ref guard -- no side effects during render |
-| `src/components/BootstrapRoute.tsx` | CREATE | Guard: waits for loading, then only admin + no staff record can access `/bootstrap` |
-| `src/pages/Bootstrap.tsx` | CREATE | Admin self-profile creation page with pre-filled email, toast + redirect on success |
-| `src/hooks/useAuth.tsx` | MODIFY | Add `NO_STAFF_RECORD` check in `signIn` with admin-specific role query using `.eq("role", "admin")` |
-| `src/pages/Auth.tsx` | MODIFY | Handle `NO_STAFF_RECORD` error with exact `===` match |
-| `src/components/forms/StaffForm.tsx` | MODIFY | Default `is_active: false`; conditional helper text based on `isEdit` |
-| `src/locales/en.json` | MODIFY | Add 5 i18n keys |
-| `src/locales/es.json` | MODIFY | Add 5 i18n keys |
-| `src/App.tsx` | MODIFY | Add lazy import for Bootstrap, add `/bootstrap` route with `BootstrapRoute` guard |
-| `docs/CHANGELOG-2026-02-17.md` | MODIFY | Append C04_v5 entry |
-
-## Correction Coverage
-
-| Correction | Status | Implementation |
-|------------|--------|----------------|
-| MC #1 -- No signOut() during render | Fixed | Derived `shouldSignOut` boolean + `useEffect` with `hasSignedOut` ref; render path only returns JSX |
-| MC #2 -- Soft-delete guard in `link_staff_to_auth_user` | Fixed | Early return for `NEW.deleted_at IS NOT NULL`; `AND deleted_at IS NULL` in `NOT EXISTS` sub-query |
-| Optional A -- `user_roles` uniqueness for `.maybeSingle()` | Confirmed | `user_roles_user_id_role_key` unique constraint on `(user_id, role)` exists in DB |
-| Optional B -- BootstrapRoute loading | Applied | `BootstrapRoute` waits for `loading`, `staffLoading`, `roleLoading` before enforcing redirects |
+| `src/pages/TrackerList.tsx` | MODIFY | Import `useRunningTimerEntry`, disable button when running, tooltip wrapper, "Ver cronometro activo" CTA |
+| `src/pages/TrackerRecord.tsx` | MODIFY | Add `stopwatchBypassRef.current = true` in all three handlers before `resetForm`/`navigate` |
+| `src/locales/en.json` | MODIFY | Add `tracker.timerAlreadyRunningHint` and `tracker.viewActiveTimer` |
+| `src/locales/es.json` | MODIFY | Add `tracker.timerAlreadyRunningHint` and `tracker.viewActiveTimer` |
+| `docs/CHANGELOG-2026-02-17.md` | MODIFY | Append BUG #0213-29 changelog entry |
 
 ## Risk Assessment
 
 | Risk | Mitigation |
 |------|-----------|
-| Admin bootstrap locked out | Explicit admin exception in both `signIn` and `ProtectedRoute`; dedicated `/bootstrap` page |
-| React StrictMode double-effects | `hasSignedOut` ref ensures `signOut()` is called exactly once |
-| App crashes if admin reaches main app without staff record | `ProtectedRoute` redirects to `/bootstrap` before rendering children; admin never reaches main app without staff record |
-| Soft-deleted staff accidentally re-linked | Both triggers guard with `deleted_at IS NULL`; `link_staff_to_auth_user` also exits early if `NEW.deleted_at IS NOT NULL` |
-| Email case/whitespace mismatch prevents linking | `lower(trim())` normalization on both sides of comparison in both triggers |
-| Auto-activate changes `is_active` semantics | `is_active` now means "has completed registration"; aligns with SUGERENCIA intent |
-| Race condition: role not yet assigned when signIn checks | `signIn` calls `assignUserRole()` before the staff/role check |
-| Edit form affected by `is_active` default change | No -- edit form loads actual DB values via `useEffect` reset (line 140) |
-
+| Extra query on TrackerList | Already cached by `RunningTimerChip` in header; no extra network request |
+| Button re-enables after stop | `useStopTimerRPC` invalidates `running_timer` query key; instant re-enable |
+| Disabled button tooltip not showing | Wrapped in `<span className="inline-flex" title=...>` |
+| Bypass ref stays true | Component unmounts on navigation; ref is garbage-collected |
+| i18n key collision | `timerAlreadyRunningHint` is distinct from existing `timerAlreadyRunning` |
