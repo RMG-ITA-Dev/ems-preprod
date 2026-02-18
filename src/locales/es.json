@@ -196,7 +196,9 @@
     "dontAskAgain": "No volver a preguntar",
     "runInBackground": "Seguir en segundo plano",
     "timerStillRunning": "El cronómetro sigue en curso.",
-    "stay": "Quedarme"
+    "stay": "Quedarme",
+    "statusActive": "Activos",
+    "statusAll": "Todos"
   },
   "entities": {
     "client": "Cliente",

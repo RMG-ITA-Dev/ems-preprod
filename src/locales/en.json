@@ -196,7 +196,9 @@
     "dontAskAgain": "Don't ask again",
     "runInBackground": "Run in background",
     "timerStillRunning": "Timer is still running.",
-    "stay": "Stay"
+    "stay": "Stay",
+    "statusActive": "Active",
+    "statusAll": "All"
   },
   "entities": {
     "client": "Client",

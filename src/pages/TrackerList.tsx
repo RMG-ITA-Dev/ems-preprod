@@ -71,8 +71,10 @@ const TrackerList = () => {
   // Filter states
   const [dateFilter, setDateFilter] = useState<Date | undefined>(undefined);
   const [engagementFilter, setEngagementFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>("active");
   const [dateFilterOpen, setDateFilterOpen] = useState(false);
   const [engagementFilterOpen, setEngagementFilterOpen] = useState(false);
+  const [statusFilterOpen, setStatusFilterOpen] = useState(false);
 
   const formatDuration = (minutes: number | null) => {
     if (!minutes) return "—";
@@ -159,6 +161,16 @@ const TrackerList = () => {
       result = result.filter((entry) => entry.engagement_id === engagementFilter);
     }
 
+    if (statusFilter === "active") {
+      result = result.filter((e) => !e.is_imported);
+    } else if (statusFilter === "ready") {
+      result = result.filter((e) => !!e.ended_at && !e.is_imported);
+    } else if (statusFilter === "imported") {
+      result = result.filter((e) => e.is_imported);
+    } else if (statusFilter === "running") {
+      result = result.filter((e) => !e.ended_at);
+    }
+
     if (sortColumn && sortDirection) {
       result = [...result].sort((a, b) => {
         let comparison = 0;
@@ -188,7 +200,7 @@ const TrackerList = () => {
     }
 
     return result;
-  }, [entries, searchQuery, dateFilter, engagementFilter, sortColumn, sortDirection]);
+  }, [entries, searchQuery, dateFilter, engagementFilter, statusFilter, sortColumn, sortDirection]);
 
   // Calculate totals for footer
   const totalMinutes = filteredEntries.reduce((sum, e) => sum + (e.duration_minutes || 0), 0);
@@ -308,6 +320,11 @@ const TrackerList = () => {
   const clearEngagementFilter = () => {
     setEngagementFilter("all");
     setEngagementFilterOpen(false);
+  };
+
+  const clearStatusFilter = () => {
+    setStatusFilter("active");
+    setStatusFilterOpen(false);
   };
 
   if (staffLoading) {
@@ -617,7 +634,38 @@ const TrackerList = () => {
                     </TableHead>
                     {/* Estado - 8% */}
                     <TableHead style={{ width: "8%" }} className="text-center border-r border-border">
-                      {t("tracker.status")}
+                      <div className="flex items-center justify-center gap-1">
+                        <span>{t("tracker.status")}</span>
+                        <Popover open={statusFilterOpen} onOpenChange={setStatusFilterOpen}>
+                          <PopoverTrigger asChild>
+                            <button className="p-0.5 hover:bg-muted rounded">
+                              <Filter className={`h-3 w-3 ${statusFilter !== "active" ? "text-accent" : "opacity-50"}`} />
+                            </button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-48 p-2" align="start">
+                            <Select value={statusFilter} onValueChange={(val) => {
+                              setStatusFilter(val);
+                              setStatusFilterOpen(false);
+                            }}>
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="active">{t("tracker.statusActive")}</SelectItem>
+                                <SelectItem value="all">{t("common.all")}</SelectItem>
+                                <SelectItem value="ready">{t("tracker.ready")}</SelectItem>
+                                <SelectItem value="imported">{t("tracker.imported")}</SelectItem>
+                                <SelectItem value="running">{t("tracker.running")}</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            {statusFilter !== "active" && (
+                              <Button variant="ghost" size="sm" onClick={clearStatusFilter} className="w-full mt-2">
+                                {t("common.clear")}
+                              </Button>
+                            )}
+                          </PopoverContent>
+                        </Popover>
+                      </div>
                     </TableHead>
                     {/* Horas - 6% */}
                     <TableHead style={{ width: "6%" }} className="text-center">
