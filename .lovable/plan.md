@@ -1,180 +1,118 @@
-# Plan_0213-32_C01_v3: Apply Mandatory Corrections to Approval Persistence Fix
+
+# Plan_0213-33_v3: Block Timesheet Submission When Weekly Hour Limit Is Exceeded
 
 ## Bug Reference
 
+| Field | Value |
+|-------|-------|
+| ID | 0213-33 |
+| Title | El sistema permite enviar hojas de tiempo con total de horas mayor al limite semanal |
+| Priority | Media |
+| Route | OPERACIONES - Hoja de Tiempo |
 
-| Field    | Value                                                                        |
-| -------- | ---------------------------------------------------------------------------- |
-| ID       | 0213-32                                                                      |
-| Title    | Inconsistencia en el proceso de aprobacion despues de una aprobacion parcial |
-| Priority | Alta                                                                         |
-| Route    | OPERACIONES - Aprobaciones                                                   |
+## What Changed from v2
 
+Two mandatory tweaks applied:
 
-## What This Plan Does
+| Tweak | Description |
+|-------|-------------|
+| #1 Numeric coercion | Use `Number()` on `hours_logged` and `weeklyLimit` to prevent string concatenation bugs |
+| #2 Alert eligibility | Mirror full base-eligibility checks in alert condition so it only shows when the user would otherwise be able to submit |
 
-Applies 3 corrections to the already-implemented v2 code in `TimesheetApprovalDetail.tsx`, plus adds a missing i18n key and documents the changes.
-
-## Verified Code State
-
-The current implementation (v2) at lines 96-154 has:
-
-- Optimistic cache update (correct)
-- `type: "active"` on refetchQueries (needs fix)
-- No try/catch (needs fix -- no rollback on failure)
-- No `isSaving` state (needs fix -- double-submit possible)
-- `common.saveError` missing from both locale files (needs fix)
+Plus one minor polish: use `isWeeklyLimitExceeded` in the `handleSubmit` guard for consistency.
 
 ## Changes
 
-### 1. `src/pages/TimesheetApprovalDetail.tsx`
+### 1. `src/pages/TimeSheet.tsx`
 
-**Add `isSaving` state** (line 43, after `rejectNotes` state):
+**A. Add `weeklyGrandTotal` and `isWeeklyLimitExceeded`** (after `weeklyLimit` memo, around line 57):
 
 ```typescript
-const [isSaving, setIsSaving] = useState(false);
+const weeklyGrandTotal = useMemo(() => {
+  return entries.reduce((sum, e) => sum + Number(e.hours_logged ?? 0), 0);
+}, [entries]);
+
+const isWeeklyLimitExceeded = weeklyGrandTotal > Number(weeklyLimit);
 ```
 
-**Rewrite `processDecisions**` (lines 96-154) with try/catch/finally:
+**B. Gate `canSubmit`** (line 231): append `&& !isWeeklyLimitExceeded`:
 
 ```typescript
-const processDecisions = async (notes: string) => {
-  setIsSaving(true);
-  const detailKey = ["staff-timesheet-for-approval", periodId, staffRecord?.staff_id];
-
-  // Snapshot for rollback
-  const previousData = queryClient.getQueryData(detailKey);
-
-  // Step A: Optimistic cache update
-  queryClient.setQueryData(detailKey, (prev: StaffTimesheetForApproval | null | undefined) => {
-    if (!prev) return prev;
-    return {
-      ...prev,
-      lineApprovals: prev.lineApprovals.map((la) => {
-        const decision = approvalDecisions.get(la.approval_id);
-        if (decision === "approve") return { ...la, status: "approved" as const };
-        if (decision === "reject") return { ...la, status: "rejected" as const };
-        return la;
-      }),
-    };
-  });
-
-  // Step B: Fire mutations
-  const promises: Promise<void>[] = [];
-
-  if (summary.toApprove.length > 0) {
-    promises.push(
-      new Promise((resolve, reject) => {
-        bulkApprove.mutate(summary.toApprove, {
-          onSuccess: () => resolve(),
-          onError: reject,
-        });
-      })
-    );
-  }
-
-  if (summary.toReject.length > 0) {
-    promises.push(
-      new Promise((resolve, reject) => {
-        bulkReject.mutate(
-          { approvalIds: summary.toReject, notes },
-          {
-            onSuccess: () => resolve(),
-            onError: reject,
-          }
-        );
-      })
-    );
-  }
-
-  try {
-    // Step C: Await mutations, then sync cache with DB
-    await Promise.all(promises);
-    await queryClient.invalidateQueries({ queryKey: detailKey });
-    await queryClient.refetchQueries({ queryKey: detailKey, type: "all" });
-
-    // Step D: Clear local state AFTER cache is synced
-    setApprovalDecisions(new Map());
-    setRejectDialogOpen(false);
-
-    // Step E: Navigate only when all lines resolved
-    if (summary.stillPending === 0) {
-      navigate("/timesheet/approvals");
-    }
-  } catch (error) {
-    // Restore snapshot immediately, then reconcile with DB
-    queryClient.setQueryData(detailKey, previousData);
-    await queryClient.invalidateQueries({ queryKey: detailKey });
-    await queryClient.refetchQueries({ queryKey: detailKey, type: "all" });
-    toast.error(t("common.saveError"));
-  } finally {
-    setIsSaving(false);
-  }
-};
+const canSubmit = !isBeforeHireDate && isWithinEditableWindow && entries.length > 0 &&
+  !isSubmitted && !period?.is_period_locked && !isWeeklyLimitExceeded;
 ```
 
-**Add `toast` import** (line 16 area):
+**C. Add hard guard inside `handleSubmit`** (line 236, after the opening brace, before the existing `if (!period...)` check):
 
 ```typescript
-import { toast } from "sonner";
+// DEFENSE-IN-DEPTH: weekly limit guard (do NOT rely only on canSubmit)
+if (isWeeklyLimitExceeded) return;
 ```
 
-**Disable button with `isSaving**` (line 223):
+**D. Add inline alert** (after the "no engagements" alert block, around line 390). Uses full base-eligibility condition so it only appears when the user would otherwise be able to submit:
 
 ```typescript
-// Before:
-disabled={!hasDecisions || isProcessing}
-
-// After:
-disabled={!hasDecisions || isProcessing || isSaving}
+{isWeeklyLimitExceeded &&
+  !isBeforeHireDate &&
+  isWithinEditableWindow &&
+  entries.length > 0 &&
+  !isSubmitted &&
+  !period?.is_period_locked && (
+    <Alert variant="destructive">
+      <AlertTriangle className="h-4 w-4" />
+      <AlertDescription>
+        {t("timesheet.cannotSubmitWeeklyLimit", {
+          total: weeklyGrandTotal.toFixed(1),
+          limit: weeklyLimit,
+        })}
+      </AlertDescription>
+    </Alert>
+)}
 ```
 
 ### 2. `src/locales/en.json`
 
-Add after `"stay": "Stay"` (line 57, inside `common` block):
+Inside the `"timesheet"` block, add:
 
 ```json
-"saveError": "Error saving changes. Please try again."
+"cannotSubmitWeeklyLimit": "Cannot submit: total hours ({{total}}h) exceed the weekly limit ({{limit}}h). Please reduce hours before submitting."
 ```
 
 ### 3. `src/locales/es.json`
 
-Same position inside `common` block:
+Inside the `"timesheet"` block, add:
 
 ```json
-"saveError": "Error al guardar los cambios. Intente nuevamente."
+"cannotSubmitWeeklyLimit": "No se puede enviar: el total de horas ({{total}}h) excede el límite semanal ({{limit}}h). Reduzca las horas antes de enviar."
 ```
 
 ### 4. `docs/CHANGELOG-2026-02-17.md`
 
-Append addendum to the existing BUG #0213-32 entry noting v3 corrections: `isSaving` guard, snapshot rollback with DB reconciliation on failure, `type: "all"` on refetch, `common.saveError` i18n key.
-
-## 5. Hardening
-
-1. **Snapshot restore typing**
-  - `const previousData = queryClient.getQueryData(detailKey);` is fine, but if you want cleaner TS, you can type it:
-    - `const previousData = queryClient.getQueryData<StaffTimesheetForApproval | null>(detailKey);`  
-    Not required.
-2. **Promise wrapping**
-  - The `new Promise((resolve, reject) => bulkApprove.mutate(...))` pattern is OK. If you ever switch to `mutateAsync`, this could simplify, but it’s not required for correctness.
+Append a new entry for BUG #0213-33 documenting both enforcement layers (UI gating + handleSubmit guard) and the numeric coercion safety measure.
 
 ## Files Summary
 
+| File | Action | Description |
+|------|--------|-------------|
+| `src/pages/TimeSheet.tsx` | MODIFY | Add `weeklyGrandTotal` (with `Number()` coercion), `isWeeklyLimitExceeded`, gate `canSubmit`, add early-return guard in `handleSubmit`, add inline alert with full eligibility condition |
+| `src/locales/en.json` | MODIFY | Add `timesheet.cannotSubmitWeeklyLimit` |
+| `src/locales/es.json` | MODIFY | Add `timesheet.cannotSubmitWeeklyLimit` |
+| `docs/CHANGELOG-2026-02-17.md` | MODIFY | Append BUG #0213-33 changelog entry |
 
-| File                                    | Action | Description                                                                                                                |
-| --------------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------- |
-| `src/pages/TimesheetApprovalDetail.tsx` | MODIFY | Add isSaving state, try/catch/finally with snapshot rollback + DB reconciliation, type:"all", toast import, button disable |
-| `src/locales/en.json`                   | MODIFY | Add `common.saveError`                                                                                                     |
-| `src/locales/es.json`                   | MODIFY | Add `common.saveError`                                                                                                     |
-| `docs/CHANGELOG-2026-02-17.md`          | MODIFY | Append v3 corrections addendum                                                                                             |
+## Acceptance Criteria
 
+1. When `weeklyGrandTotal > weeklyLimit`, the "Enviar Semana" button is disabled.
+2. A red destructive alert is shown only when the limit is exceeded AND the user would otherwise be eligible to submit (all base checks pass).
+3. Even if `handleSubmit` is triggered programmatically, submission is blocked (early return via `isWeeklyLimitExceeded`).
+4. Once hours are reduced to within the limit, the button re-enables and the alert disappears.
+5. `Number()` coercion prevents string concatenation bugs regardless of DB column type.
+6. No daily-limit validation on submit. No "submit anyway" override dialog.
 
 ## Risk Assessment
 
-
-| Risk                                            | Mitigation                                                                            |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------- |
-| Partial mutation failure leaves DB inconsistent | Snapshot restore for instant UI recovery + invalidate + refetch for DB reconciliation |
-| isSaving stuck on error                         | `finally` block always clears it                                                      |
-| previousData undefined                          | Refetch after restore corrects any edge case                                          |
-| Minimal change surface                          | 4 localized edits; no architectural changes                                           |
+| Risk | Mitigation |
+|------|-----------|
+| Client-side only | Sufficient for this priority; server guard is future scope |
+| Entries array empty | `reduce` on empty returns 0; `canSubmit` already checks `entries.length > 0` |
+| `hours_logged` as string | `Number()` coercion handles it safely |
+| Alert showing in irrelevant states | Full eligibility condition prevents it |
