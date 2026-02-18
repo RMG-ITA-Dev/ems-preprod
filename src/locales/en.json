@@ -190,6 +190,8 @@
     "timerAlreadyRunning": "You already have a running timer. Resuming it.",
     "timerRecovered": "A previous timer was recovered.",
     "timerFinalized": "An expired timer was automatically closed at 8 hours.",
+    "timerAlreadyRunningHint": "A timer is already running. Stop it before starting a new one.",
+    "viewActiveTimer": "View active timer",
     "timerRunningTitle": "Timer running",
     "timerRunningBody": "The timer will keep running in the background. Leave this screen?",
     "leave": "Leave",

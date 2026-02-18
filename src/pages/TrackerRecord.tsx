@@ -202,6 +202,7 @@ const TrackerRecord = () => {
 
     try {
       await stopRPC.mutateAsync({ timer_id: runningEntry.timer_id });
+      stopwatchBypassRef.current = true;
       tracker.resetForm();
       toast.success(t("tracker.entrySaved"));
       navigate("/tracker");
@@ -218,6 +219,7 @@ const TrackerRecord = () => {
         // Entry may already be gone
       }
     }
+    stopwatchBypassRef.current = true;
     tracker.resetForm();
     navigate("/tracker");
   };
@@ -231,6 +233,7 @@ const TrackerRecord = () => {
         toast.error(t("tracker.errorDeleting"));
       }
     }
+    stopwatchBypassRef.current = true;
     tracker.resetForm();
     navigate("/tracker");
   };
