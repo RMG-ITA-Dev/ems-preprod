@@ -27,23 +27,23 @@ The key innovation over v1.0 is the CODEX arbitration loop: rather than a single
 │       ▼                                                             │
 │  ┌──────────────────┐                                               │
 │  │  CLAUDE OPUS 4.6 │──── Analyzes codebase, triages bugs           │
-│  │    (Analyst)      │──── Generates OPUS_PLAN                      │
+│  │    (Analyst)     │──── Generates OPUS_PLAN                       │
 │  └────────┬─────────┘                                               │
 │           │                                                         │
 │           ▼                                                         │
 │  ┌──────────────────┐                                               │
-│  │     LOVABLE       │──── Reviews in Plan Mode                     │
-│  │  (Plan Engine)    │──── Generates LOVABLE_PLAN                   │
+│  │     LOVABLE      │──── Reviews in Plan Mode                      │
+│  │  (Plan Engine)   │──── Generates LOVABLE_PLAN                    │
 │  └────────┬─────────┘                                               │
 │           │                                                         │
 │           ▼                                                         │
 │  ┌──────────────────┐                                               │
-│  │   CODEX (GPT-5.2)│──── Compares OPUS_PLAN vs LOVABLE_PLAN       │
-│  │    (Arbiter)      │──── Merges best ideas, gives feedback        │
+│  │   CODEX (GPT-5.2)│──── Compares OPUS_PLAN vs LOVABLE_PLAN        │
+│  │    (Arbiter)     │──── Merges best ideas, gives feedback         │
 │  └────────┬─────────┘                                               │
 │           │                                                         │
 │           ▼                                                         │
-│  ┌─────────────────────────────────────────────┐                    │
+│  ┌──────────────────────────────────────────────┐                   │
 │  │            VERSION LOOP                      │                   │
 │  │                                              │                   │
 │  │  ┌────────────┐    verify    ┌────────────┐  │                   │
@@ -52,18 +52,18 @@ The key innovation over v1.0 is the CODEX arbitration loop: rather than a single
 │  │  └──────┬─────┘             └──────┬──────┘  │                   │
 │  │         │ comments                 │         │                   │
 │  │         ▼                          │         │                   │
-│  │  ┌────────────┐   next     ┌──────┴──────┐  │                   │
-│  │  │  LOVABLE    │──version──►│   CODEX     │  │                   │
-│  │  │ (Iterator)  │  (v2,v3)  │ (Approver)  │  │                   │
-│  │  └────────────┘            └─────────────┘  │                   │
+│  │  ┌────────────┐   next     ┌──────┴──────┐   │                   │
+│  │  │  LOVABLE   │──version──►│   CODEX     │   │                   │
+│  │  │ (Iterator) │  (v2,v3)   │ (Approver)  │   │                   │
+│  │  └────────────┘            └─────────────┘   │                   │
 │  │                                              │                   │
 │  │  REPEAT until CODEX approves                 │                   │
 │  └──────────────────────────────┬───────────────┘                   │
 │                                 │                                   │
 │                                 ▼                                   │
 │  ┌──────────────────┐                                               │
-│  │     LOVABLE       │──── Implements final approved plan           │
-│  │ (Implementor)     │──── (e.g., v4)                               │
+│  │     LOVABLE      │──── Implements final approved plan            │
+│  │ (Implementor)    │──── (e.g., v4)                                │
 │  └──────────────────┘                                               │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
