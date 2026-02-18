@@ -492,3 +492,24 @@ Deleting a timesheet row removed it only from local UI state (`setRows` filter).
 | `src/locales/en.json` | Added `deleteRowTitle`, `deleteRowDescription`, `deleteRowError` |
 | `src/locales/es.json` | Added Spanish equivalents |
 | `docs/CHANGELOG-2026-02-17.md` | This entry |
+
+---
+
+## BUG #0213-35: Make Adjustment Field Visually Identifiable as Editable
+
+**Date:** 2026-02-18
+**Priority:** Baja
+**Version:** v2.0.10
+**Route:** PRINCIPAL -> Ordenes de Trabajo
+
+### Problem
+The Adjustment (`NumericInput`) field in the Work Order summary used `border-0 bg-transparent`, making it visually indistinguishable from static text rows.
+
+### Solution
+Conditional styling: when `isEditable`, the field shows a standard input border (`border-input`), background (`bg-background`), padding, and rounded corners. When locked, it retains the transparent borderless look.
+
+### Files Modified
+| File | Change |
+|------|--------|
+| `src/components/forms/WorkOrderForm.tsx` | Conditional className on Adjustment NumericInput |
+| `docs/CHANGELOG-2026-02-17.md` | This entry |
