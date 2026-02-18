@@ -13,6 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { toast } from "sonner";
 import { Loader2, Save } from "lucide-react";
 import {
   useStaffTimesheetForApproval,
@@ -41,6 +42,7 @@ const TimesheetApprovalDetail = () => {
   const [approvalDecisions, setApprovalDecisions] = useState<Map<string, ApprovalDecision>>(new Map());
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectNotes, setRejectNotes] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
 
   const handleBack = () => {
     navigate("/timesheet/approvals");
@@ -94,7 +96,11 @@ const TimesheetApprovalDetail = () => {
   };
 
   const processDecisions = async (notes: string) => {
+    setIsSaving(true);
     const detailKey = ["staff-timesheet-for-approval", periodId, staffRecord?.staff_id];
+
+    // Snapshot for rollback
+    const previousData = queryClient.getQueryData(detailKey);
 
     // Step A: Optimistic cache update
     queryClient.setQueryData(detailKey, (prev: StaffTimesheetForApproval | null | undefined) => {
@@ -138,18 +144,28 @@ const TimesheetApprovalDetail = () => {
       );
     }
 
-    // Step C: Await mutations, then sync cache with DB
-    await Promise.all(promises);
-    await queryClient.invalidateQueries({ queryKey: detailKey });
-    await queryClient.refetchQueries({ queryKey: detailKey, type: "active" });
+    try {
+      // Step C: Await mutations, then sync cache with DB
+      await Promise.all(promises);
+      await queryClient.invalidateQueries({ queryKey: detailKey });
+      await queryClient.refetchQueries({ queryKey: detailKey, type: "all" });
 
-    // Step D: Clear local state AFTER cache is synced
-    setApprovalDecisions(new Map());
-    setRejectDialogOpen(false);
+      // Step D: Clear local state AFTER cache is synced
+      setApprovalDecisions(new Map());
+      setRejectDialogOpen(false);
 
-    // Step E: Navigate only when all lines resolved
-    if (summary.stillPending === 0) {
-      navigate("/timesheet/approvals");
+      // Step E: Navigate only when all lines resolved
+      if (summary.stillPending === 0) {
+        navigate("/timesheet/approvals");
+      }
+    } catch (error) {
+      // Restore snapshot immediately, then reconcile with DB
+      queryClient.setQueryData(detailKey, previousData);
+      await queryClient.invalidateQueries({ queryKey: detailKey });
+      await queryClient.refetchQueries({ queryKey: detailKey, type: "all" });
+      toast.error(t("common.saveError"));
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -220,7 +236,7 @@ const TimesheetApprovalDetail = () => {
             </Button>
             <Button
               onClick={handleSaveDecisions}
-              disabled={!hasDecisions || isProcessing}
+              disabled={!hasDecisions || isProcessing || isSaving}
               variant="default"
               className="btn-action"
             >

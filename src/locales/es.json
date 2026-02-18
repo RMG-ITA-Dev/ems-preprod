@@ -54,7 +54,8 @@
     "leavePageTitle": "¿Salir de esta pantalla?",
     "leavePageLockedBody": "Use Guardar o Cancelar para salir de esta pantalla.",
     "leaveAnyway": "Salir de todas formas",
-    "stay": "Quedarme"
+    "stay": "Quedarme",
+    "saveError": "Error al guardar los cambios. Intente nuevamente."
   },
   "nav": {
     "main": "Principal",

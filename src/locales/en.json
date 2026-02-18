@@ -54,7 +54,8 @@
     "leavePageTitle": "Leave this screen?",
     "leavePageLockedBody": "Use Save or Cancel to leave this screen.",
     "leaveAnyway": "Leave anyway",
-    "stay": "Stay"
+    "stay": "Stay",
+    "saveError": "Error saving changes. Please try again."
   },
   "nav": {
     "main": "Main",
