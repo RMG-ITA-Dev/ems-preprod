@@ -51,7 +51,7 @@ const formSchema = z.object({
   city: z.string().min(1, "City is required"),
   id_number: z.string().min(1, "ID number is required"),
   aud_reg_number: z.string().optional(),
-  hire_date: z.string().optional().or(z.literal("")),
+  hire_date: z.string().min(1, "Hire date is required"),
   is_active: z.boolean(),
 });
 
@@ -410,7 +410,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess }: Sta
                   name="hire_date"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>{t("staff.hireDate")}</FormLabel>
+                      <FormLabel>{t("staff.hireDate")} *</FormLabel>
                       <FormControl>
                         <Input type="date" {...field} />
                       </FormControl>
