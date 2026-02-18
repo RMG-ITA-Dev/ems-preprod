@@ -186,3 +186,45 @@ Three issues with the TrackerList page:
 | Default hides imported records | Users can switch filter to "Todos" or "Importado" |
 | DB trigger blocks admin cleanup | Only blocks `is_imported=true`; admin can UPDATE flag first if needed |
 | Hard delete still works for non-imported | Intentional — only imported records are protected |
+
+---
+
+## Plan_0213-28_C04_v5: No Staff Record = No Access + Bootstrap + Auto-Activate
+
+**Date:** 2026-02-18  
+**Priority:** Baja  
+**Version:** v2.0.8  
+**Route:** AUTH / ADMINISTRACION → Personal
+
+### Problem
+
+A user who self-registers (signs up + verifies email) could access the app even without a linked staff record. The system only checked `is_active === false` on existing staff records but allowed access when no staff record existed at all.
+
+### Solution
+
+5-layer defense implementing "no staff record = no access":
+
+1. **ProtectedRoute** — Waits for role+staff loading; gates on `!staffRecord` (admin → `/bootstrap`, non-admin → sign out); uses `useEffect` for sign-out (no side effects during render)
+2. **signIn()** — Checks for staff record after auth; admin without staff allowed (bootstrap); non-admin gets `NO_STAFF_RECORD` error
+3. **Auth.tsx** — Handles `NO_STAFF_RECORD` with exact `===` match and user-friendly message
+4. **StaffForm** — Defaults `is_active: false` for new records; auto-activated when registration completes
+5. **DB triggers** — `link_staff_to_auth_user` and `link_auth_user_to_staff` updated with auto-activate (`is_active = true`), email normalization (`lower(trim())`), and soft-delete guards (`deleted_at IS NULL`)
+
+### Files Created
+
+| File | Description |
+|------|-------------|
+| `src/pages/Bootstrap.tsx` | Admin self-profile creation page with pre-filled email |
+| `src/components/BootstrapRoute.tsx` | Guard: only admin + no staff record can access `/bootstrap` |
+
+### Files Modified
+
+| File | Change |
+|------|--------|
+| `src/components/ProtectedRoute.tsx` | Added `useUserRole`, `useMemo` for derived state, `useEffect` for sign-out |
+| `src/hooks/useAuth.tsx` | Added `NO_STAFF_RECORD` check with admin exception in `signIn` |
+| `src/pages/Auth.tsx` | Handle `NO_STAFF_RECORD` error with exact match |
+| `src/components/forms/StaffForm.tsx` | Default `is_active: false`; conditional helper text |
+| `src/App.tsx` | Added `/bootstrap` route with `BootstrapRoute` guard |
+| `src/locales/en.json` | Added bootstrap + noStaffRecord + activeDescriptionNew keys |
+| `src/locales/es.json` | Added bootstrap + noStaffRecord + activeDescriptionNew keys |

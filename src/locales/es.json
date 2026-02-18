@@ -360,6 +360,7 @@
     "deleteStaff": "Eliminar Miembro del Personal",
     "searchPlaceholder": "Buscar por nombre o correo...",
     "activeDescription": "El personal activo puede registrar entradas de tiempo",
+    "activeDescriptionNew": "El nuevo personal se activará automáticamente cuando complete su registro de cuenta.",
     "selectCategory": "Seleccionar una categoría",
     "supervisor": "Supervisor",
     "selectSupervisor": "Seleccionar Supervisor",
@@ -443,7 +444,8 @@
     "accountInactive": "Su cuenta está inactiva. Contacte al administrador.",
     "holidayCreated": "Feriado creado",
     "holidayUpdated": "Feriado actualizado",
-    "holidayDeleted": "Feriado eliminado"
+    "holidayDeleted": "Feriado eliminado",
+    "noStaffRecord": "No hay un perfil de personal vinculado a su cuenta. Contacte al administrador."
   },
   "errors": {
     "duplicateNit": "Ya existe un cliente con NIT {{nit}}: {{name}}",
@@ -913,5 +915,10 @@
     },
     "lockedByWorkOrderTitle": "Matriz Bloqueada",
     "lockedByWorkOrder": "Esta matriz está bloqueada porque la Orden de Trabajo vinculada está pendiente de aprobación o aprobada. Use el botón Retirar en la Orden de Trabajo para desbloquear."
+  },
+  "bootstrap": {
+    "title": "Complete su Configuración",
+    "description": "Como primer administrador, cree su perfil de personal para continuar.",
+    "complete": "¡Configuración completa! Bienvenido a EMS."
   }
 }

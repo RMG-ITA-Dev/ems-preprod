@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createBrowserRouter, RouterProvider, Outlet } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useAuth";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { BootstrapRoute } from "@/components/BootstrapRoute";
 import { LanguageSync } from "@/components/LanguageSync";
 import ErrorBoundary from "@/components/ErrorBoundary";
 
@@ -40,6 +41,7 @@ const TrackerEdit = lazy(() => import("./pages/TrackerEdit"));
 const WorksheetList = lazy(() => import("./pages/WorksheetList"));
 const WorksheetNew = lazy(() => import("./pages/WorksheetNew"));
 const WorksheetEdit = lazy(() => import("./pages/WorksheetEdit"));
+const Bootstrap = lazy(() => import("./pages/Bootstrap"));
 
 const queryClient = new QueryClient();
 
@@ -68,6 +70,7 @@ const router = createBrowserRouter([
     children: [
       { path: "/auth", element: <Auth /> },
       { path: "/reset-password", element: <ResetPassword /> },
+      { path: "/bootstrap", element: <BootstrapRoute><Bootstrap /></BootstrapRoute> },
       { path: "/", element: <ProtectedRoute><Index /></ProtectedRoute> },
       { path: "/clients", element: <ProtectedRoute><Clients /></ProtectedRoute> },
       { path: "/clients/new", element: <ProtectedRoute><ClientNew /></ProtectedRoute> },

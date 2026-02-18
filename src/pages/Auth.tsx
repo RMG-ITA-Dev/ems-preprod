@@ -83,8 +83,10 @@ const Auth = () => {
       } else {
         const { error } = await signIn(validatedEmail, validatedPassword);
         if (error) {
-          if (error.message.includes('ACCOUNT_INACTIVE')) {
+          if (error.message === 'ACCOUNT_INACTIVE') {
             toast.error(t('messages.accountInactive'));
+          } else if (error.message === 'NO_STAFF_RECORD') {
+            toast.error(t('messages.noStaffRecord'));
           } else if (error.message.includes("Invalid login credentials")) {
             toast.error(t("messages.invalidCredentials"));
           } else {
