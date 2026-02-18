@@ -56,7 +56,8 @@
     "leavePageLockedBody": "Use Guardar o Cancelar para salir de esta pantalla.",
     "leaveAnyway": "Salir de todas formas",
     "stay": "Quedarme",
-    "saveError": "Error al guardar los cambios. Intente nuevamente."
+    "saveError": "Error al guardar los cambios. Intente nuevamente.",
+    "status": "Estado"
   },
   "nav": {
     "main": "Principal",
