@@ -642,3 +642,33 @@ Two compounding issues:
 |------|--------|
 | `src/components/forms/EngagementForm.tsx` | Include inactive client in dropdown; guard form.reset(); add useMemo for client options |
 | `docs/CHANGELOG-2026-02-17.md` | This entry |
+
+---
+
+## BUG #0213-41: Add Missing common.status i18n Key
+
+**Date:** 2026-02-18
+**Priority:** Baja
+**Version:** v2.0.10
+**Route:** PRINCIPAL -> Panel de Control -> Cartera
+
+### Report
+The last column header in the "Tabla de Rentabilidad" on the Cartera tab displayed
+the raw key `common.status` instead of the translated word "Estado" / "Status".
+
+### Root Cause
+The `common` section in both locale files did not contain a `status` key.
+`t('common.status')` fell back to displaying the key string.
+
+### Fix
+Added `"status": "Estado"` / `"Status"` to the `common` section in both locale files.
+Purely additive i18n key; no component code changes.
+
+**Note on BUG #0213-38:** `common.partner` already existed in both locale files.
+No change needed.
+
+| File | Change |
+|------|--------|
+| `src/locales/es.json` | Added `common.status` = "Estado" |
+| `src/locales/en.json` | Added `common.status` = "Status" |
+| `docs/CHANGELOG-2026-02-17.md` | This entry |
