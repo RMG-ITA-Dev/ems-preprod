@@ -1,172 +1,200 @@
 
 
-# Plan_0213-31_C05_v1: Legacy Data Cleanup for Oversized Timer/Time Entries
+# Plan_0213-32_C05_v2: Fix Approval Persistence After Partial Approval (Optimistic + Refetch)
 
 ## Bug Reference
 
 | Field | Value |
 |-------|-------|
-| ID | 0213-31 |
-| Title | El cronometro contabiliza y permite registrar mas de ocho horas por proceso |
-| Priority | Media |
-| Route | OPERACIONES - Cronometro |
+| ID | 0213-32 |
+| Title | Inconsistencia en el proceso de aprobacion despues de una aprobacion parcial |
+| Priority | Alta |
+| Route | OPERACIONES - Aprobaciones |
+
+## Changes from v1
+
+| Change | Detail |
+|--------|--------|
+| Removed "always navigate back" | v1 forced navigation after every save as a workaround. v2 keeps the user on the detail page after partial approval, showing persisted statuses correctly. Navigation only happens when all pending lines are resolved (stillPending === 0). |
+| Added optimistic cache update | Before mutations fire, the detail query cache is updated optimistically so approved/rejected lines reflect immediately with no flash. |
+| Added await + refetch after mutations | After mutations complete, the detail query is invalidated and refetched before clearing local state. This replaces optimistic data with authoritative DB state. |
+| staleTime + refetchOnMount | Detail query gets `staleTime: 0` and `refetchOnMount: 'always'` to guarantee fresh data on every visit. |
 
 ## Problem
 
-Legacy timer entries created before the 8-hour cap was implemented (migration 20260217) still contain inflated durations (19h 15m, 99h 20m). These entries already had `ended_at` set, so the original migration's pre-cleanup (which only targeted `ended_at IS NULL`) did not fix them. Additionally, 7 `time_entries` rows have `hours_logged > 8`, likely from the same era.
+After a partial approval (approving some engagement lines, leaving others pending), the system shows all records as pending again. The approver sees previously approved lines reset to pending with active toggles, as if no decision was saved.
 
-All forward-looking protections are already in place (DB trigger, RPCs, frontend clamps). This fix is a **one-time data cleanup migration only** -- no frontend changes needed.
+## Root Cause
 
-## Data Impact (Verified)
-
-| Table | Affected Rows | Details |
-|-------|--------------|---------|
-| `timer_entries` | 1 | duration_minutes = 1155 (19h 15m), already imported |
-| `time_entries` | 7 | hours_logged = 9.00 or 10.00, across multiple staff |
-| `timesheet_periods` | 2 | period_id `371aa...` and `8913c...` need total_hours recalculated |
+1. `processDecisions` clears `approvalDecisions` state synchronously after mutations resolve, but the background query refetch (from `invalidateQueries`) is asynchronous. During this gap, the component renders with stale cached data (all lines as "pending") plus empty decisions map -- making everything appear actionable/pending.
+2. `useStaffTimesheetForApproval` has `staleTime: 5 * 60 * 1000`, so re-entering the detail view may serve cached pre-approval data.
 
 ## Solution
 
-### Single DB Migration
+### Fix 1 -- Optimistic cache update + awaited refetch in processDecisions
 
-A one-time cleanup migration that:
+In `src/pages/TimesheetApprovalDetail.tsx`:
 
-1. **Disables blocking triggers** temporarily:
-   - `trg_validate_timer_duration` on `timer_entries` (would reject UPDATE of rows already exceeding 8h)
-   - `trg_protect_approved_time_entries` on `time_entries` (one oversized `time_entries` row belongs to an approved line -- the trigger would block the cleanup UPDATE)
+1. Import `useQueryClient` (already available via TanStack Query).
+2. Get `queryClient` instance and define the detail query key.
+3. Before firing mutations, apply an optimistic update to the cached `StaffTimesheetForApproval` data -- setting decided lines' statuses to `approved` or `rejected` immediately.
+4. Make `processDecisions` async. After `Promise.all(promises)` resolves, await `invalidateQueries` + `refetchQueries` on the detail key to replace optimistic data with authoritative DB state.
+5. Only then clear `approvalDecisions` and close the reject dialog.
+6. Navigate back only when `stillPending === 0`.
 
-2. **Caps `timer_entries`**: Sets `ended_at = started_at + 8h` and `duration_minutes = 480` for all entries where duration exceeds 480 minutes or elapsed time exceeds 8h.
+```typescript
+import { useQueryClient } from "@tanstack/react-query";
 
-3. **Caps `time_entries`**: Sets `hours_logged = 8` for all entries where `hours_logged > 8`.
+// Inside component:
+const queryClient = useQueryClient();
 
-4. **Re-enables triggers** immediately after cleanup.
+const processDecisions = async (notes: string) => {
+  const detailKey = ["staff-timesheet-for-approval", periodId, /* staffRecord?.staff_id from hook */];
 
-5. **Recalculates `timesheet_periods.total_hours`** for the 2 affected periods.
+  // Step A: Optimistic cache update
+  queryClient.setQueryData(detailKey, (prev: StaffTimesheetForApproval | null | undefined) => {
+    if (!prev) return prev;
+    return {
+      ...prev,
+      lineApprovals: prev.lineApprovals.map((la) => {
+        const decision = approvalDecisions.get(la.approval_id);
+        if (decision === "approve") return { ...la, status: "approved" as const };
+        if (decision === "reject") return { ...la, status: "rejected" as const };
+        return la;
+      }),
+    };
+  });
 
-6. **Adds a function comment** documenting the legacy cleanup.
+  // Step B: Fire mutations
+  const promises: Promise<void>[] = [];
+  // ... (existing mutation logic unchanged) ...
 
-```sql
--- ============================================================
--- ONE-TIME CLEANUP: Cap legacy entries exceeding 8 hours
--- Bug 0213-31
--- ============================================================
+  // Step C: Await mutations, then sync cache with DB
+  await Promise.all(promises);
+  await queryClient.invalidateQueries({ queryKey: detailKey });
+  await queryClient.refetchQueries({ queryKey: detailKey, type: "active" });
 
--- Step 1: Temporarily disable blocking triggers
-ALTER TABLE timer_entries DISABLE TRIGGER trg_validate_timer_duration;
-ALTER TABLE time_entries DISABLE TRIGGER trg_protect_approved_time_entries;
+  // Step D: Clear local state AFTER cache is synced
+  setApprovalDecisions(new Map());
+  setRejectDialogOpen(false);
 
--- Step 2: Cap timer_entries
-UPDATE timer_entries
-SET ended_at = started_at + INTERVAL '8 hours',
-    duration_minutes = 480
-WHERE ended_at IS NOT NULL
-  AND (
-    duration_minutes > 480
-    OR EXTRACT(EPOCH FROM (ended_at - started_at)) / 60 > 480
-  );
-
--- Step 3: Cap time_entries
-UPDATE time_entries
-SET hours_logged = 8,
-    updated_at = now()
-WHERE hours_logged > 8;
-
--- Step 4: Re-enable triggers
-ALTER TABLE timer_entries ENABLE TRIGGER trg_validate_timer_duration;
-ALTER TABLE time_entries ENABLE TRIGGER trg_protect_approved_time_entries;
-
--- Step 5: Recalculate affected timesheet_periods
-UPDATE timesheet_periods tp
-SET total_hours = (
-  SELECT COALESCE(SUM(te.hours_logged), 0)
-  FROM time_entries te
-  WHERE te.period_id = tp.period_id
-),
-updated_at = now()
-WHERE tp.period_id IN (
-  SELECT DISTINCT period_id
-  FROM time_entries
-  WHERE period_id IS NOT NULL
-    AND hours_logged = 8
-);
-
--- Step 6: Document
-COMMENT ON FUNCTION validate_timer_entry_duration() IS
-  'Validates 8h max on timer_entries. Legacy data cleaned by migration (Bug 0213-31).';
+  // Step E: Navigate only when all lines resolved
+  if (summary.stillPending === 0) {
+    navigate("/timesheet/approvals");
+  }
+};
 ```
 
-### Documentation
+To access `staffRecord.staff_id` for the query key, destructure the hook result already available via `useStaffTimesheetForApproval`. Since the component uses `periodId` from `useParams` and the query key includes `staffRecord?.staff_id`, we need to get `staffRecord` from `useCurrentStaff`:
 
-Append entry to `docs/CHANGELOG-2026-02-17.md`:
+```typescript
+import { useCurrentStaff } from "@/hooks/useCurrentStaff";
+// ...
+const { staffRecord } = useCurrentStaff();
+```
+
+The `StaffTimesheetForApproval` type import is needed for the optimistic updater:
+
+```typescript
+import type { StaffTimesheetForApproval } from "@/hooks/useTimesheetApprovals";
+```
+
+### Fix 2 -- Fresh data on every detail view mount
+
+In `src/hooks/useTimesheetApprovals.ts`, update the `useStaffTimesheetForApproval` query options:
+
+```typescript
+// Before (line 337):
+staleTime: 5 * 60 * 1000,
+
+// After:
+staleTime: 0,
+refetchOnMount: "always" as const,
+refetchOnWindowFocus: true,
+```
+
+The summary list query (`usePendingApprovalSummaries`) keeps its existing `staleTime: 5 * 60 * 1000` since it is properly invalidated by mutations and only shows pending items.
+
+### Fix 3 -- Documentation
+
+Append entry to `docs/CHANGELOG-2026-02-17.md`.
+
+## What the Approver Sees After the Fix
+
+1. Opens period detail: sees 2 pending engagement lines with toggles.
+2. Sets line A to "Approve", leaves line B pending.
+3. Clicks "Guardar Decisiones".
+4. Immediately: line A shows "Aprobada" badge (optimistic), line B stays with toggle.
+5. Within ~1s: DB refetch confirms state -- no flash, no reset.
+6. Summary reads "0 a aprobar, 0 a rechazar, 1 pendientes".
+7. User can now decide on line B or click Cancel to return to list.
+
+## Changelog Entry
 
 ```text
 ---
 
-## BUG #0213-31: Legacy Data Cleanup for Oversized Timer Entries
+## BUG #0213-32: Fix Approval Persistence After Partial Approval
 
 **Date:** 2026-02-18
-**Priority:** Media
+**Priority:** Alta
 **Version:** v2.0.9
-**Route:** OPERACIONES -> Cronometro
+**Route:** OPERACIONES -> Aprobaciones
 
 ### Problem
 
-Legacy timer entries created before the 8-hour cap (migration 20260217) still contained inflated durations (19h 15m, 99h 20m). These entries already had `ended_at` set, so the original migration's pre-cleanup (targeting only `ended_at IS NULL`) did not fix them. Additionally, 7 `time_entries` rows had `hours_logged > 8`.
+After partially approving timesheet lines (e.g., approving 1 of 2 engagement lines), the detail view showed all lines as pending again. Previously approved/rejected lines lost their visual status and displayed toggles as if no decision had been made.
 
 ### Root Cause
 
-The pre-cleanup in migration 20260217035038 only targeted entries with `ended_at IS NULL`. Entries that were already stopped (status 'Listo' or 'Importado') with oversized durations were not affected.
+1. `processDecisions` cleared `approvalDecisions` state synchronously after mutations, but query refetch was async. During the gap, stale cached data (all pending) was rendered with empty decisions.
+2. `useStaffTimesheetForApproval` had a 5-minute staleTime, potentially serving cached pre-approval data on re-entry.
 
 ### Solution
 
-One-time data cleanup migration:
-1. Temporarily disabled `trg_validate_timer_duration` and `trg_protect_approved_time_entries` triggers (they would block UPDATE of already-oversized rows)
-2. Capped all `timer_entries` with duration > 480 min to 480 min and `ended_at` to `started_at + 8h`
-3. Capped all `time_entries` with `hours_logged > 8` to 8
-4. Re-enabled triggers
-5. Recalculated `timesheet_periods.total_hours` for affected periods
-6. No frontend changes -- all forward-looking protections were already in place
-
-### Database Migration
-
-| Object | Detail |
-|--------|--------|
-| `timer_entries` cleanup | 1 row: duration 1155 -> 480, ended_at clamped |
-| `time_entries` cleanup | 7 rows: hours_logged 9-10 -> 8 |
-| `timesheet_periods` recalc | 2 periods with updated totals |
-| Trigger disable/re-enable | `trg_validate_timer_duration`, `trg_protect_approved_time_entries` |
+1. **Optimistic cache update:** Before firing mutations, the detail query cache is updated to reflect decided statuses immediately. No flash of stale "pending" data.
+2. **Awaited refetch after mutations:** After mutations resolve, the detail query is invalidated and refetched before clearing local state. Replaces optimistic data with authoritative DB state.
+3. **Conditional navigation:** User stays on the detail page after partial approval (can continue deciding). Navigates back only when all pending lines are resolved.
+4. **Fresh data on mount:** `staleTime: 0` and `refetchOnMount: 'always'` on the detail query ensures fresh data every visit.
 
 ### Files Modified
 
 | File | Change |
 |------|--------|
-| Migration SQL | One-time cleanup of legacy oversized entries |
+| `src/pages/TimesheetApprovalDetail.tsx` | Optimistic update + awaited refetch in processDecisions; import queryClient, useCurrentStaff, StaffTimesheetForApproval type |
+| `src/hooks/useTimesheetApprovals.ts` | staleTime=0, refetchOnMount='always', refetchOnWindowFocus=true on detail query |
 | `docs/CHANGELOG-2026-02-17.md` | This entry |
 
 ### Risk Assessment
 
 | Risk | Mitigation |
 |------|-----------|
-| Data modification is irreversible | Only 8 rows affected; values are clearly erroneous (19h, 99h) |
-| Trigger disabled during migration | Re-enabled immediately after; migration runs in single transaction |
-| Approved line updated | `trg_protect_approved_time_entries` temporarily disabled; re-enabled after |
-| Timesheet period totals wrong after cap | Explicitly recalculated in Step 5 |
+| Optimistic state diverges from DB | Refetch immediately after mutations replaces optimistic data |
+| No staleTime on detail query | Only used on one page; cost is one fetch per visit |
+| User stays on page after partial save | Correct behavior per requirement; can continue or navigate back manually |
 ```
 
 ## Files Summary
 
 | File | Action | Description |
 |------|--------|-------------|
-| DB Migration | CREATE | One-time cleanup: cap oversized timer_entries and time_entries, recalculate period totals |
-| `docs/CHANGELOG-2026-02-17.md` | MODIFY | Append BUG #0213-31 changelog entry |
+| `src/pages/TimesheetApprovalDetail.tsx` | MODIFY | Optimistic cache update before mutations, awaited refetch after, conditional navigation, new imports |
+| `src/hooks/useTimesheetApprovals.ts` | MODIFY | `staleTime: 0`, `refetchOnMount: 'always'`, `refetchOnWindowFocus: true` on detail query |
+| `docs/CHANGELOG-2026-02-17.md` | MODIFY | Append BUG #0213-32 changelog entry |
+
+## Acceptance Criteria
+
+1. After partial approval, the user stays on the detail page and previously decided lines show their persisted status (badge, no toggle) -- not reset to pending.
+2. Remaining pending lines still show active toggles.
+3. Summary counter updates correctly after save.
+4. Navigating away and back to the same period shows correct persisted statuses.
+5. When all lines are decided, user is navigated back to the approvals list automatically.
 
 ## Risk Assessment
 
 | Risk | Mitigation |
 |------|-----------|
-| Data modification is irreversible | Only 8 total rows affected; all have clearly erroneous values (19h, 99h, 9h, 10h) |
-| Triggers disabled during migration | Re-enabled immediately; migration runs atomically |
-| Approved line entry gets capped | Correct behavior -- 9h on an approved line is still invalid data |
-| Timesheet period totals recalculation | Scoped to affected periods only |
-| No frontend changes needed | All forward-looking protections (DB trigger, RPCs, frontend clamps) already in place |
+| Optimistic state briefly differs from DB | Refetch replaces optimistic data within ~1s |
+| Detail query always refetches on mount | Single indexed query; negligible cost |
+| Mutation error after optimistic update | Refetch will restore correct DB state; existing error toasts remain |
 
