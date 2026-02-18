@@ -18,7 +18,12 @@ import {
 } from "@/components/ui/tooltip";
 import { getDayName, formatDayMonth, toISODateString } from "@/lib/timesheetUtils";
 import type { TimeEntry, ApprovedEngagement, ActivityCode } from "@/hooks/useTimesheetWeek";
-import { useUpsertTimeEntry } from "@/hooks/useTimesheetMutations";
+import { useUpsertTimeEntry, useDeleteRowEntries } from "@/hooks/useTimesheetMutations";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { logger } from "@/lib/logger";
@@ -88,6 +93,8 @@ export function TimesheetGrid({
 }: TimesheetGridProps) {
   const { t } = useTranslation();
   const upsertEntry = useUpsertTimeEntry();
+  const deleteRowEntries = useDeleteRowEntries();
+  const [deleteRowId, setDeleteRowId] = useState<string | null>(null);
   const [savingCells, setSavingCells] = useState<Set<string>>(new Set());
   const [savedCells, setSavedCells] = useState<Set<string>>(new Set());
   const debounceTimers = useRef<{ [key: string]: NodeJS.Timeout }>({});
@@ -310,7 +317,58 @@ export function TimesheetGrid({
   };
 
   const removeRow = (rowId: string) => {
-    setRows(rows.filter((r) => r.id !== rowId));
+    const row = rows.find((r) => r.id === rowId);
+    if (!row) return;
+
+    const entryIdsToDelete = Object.values(row.entryIds).filter(
+      (id): id is string => !!id
+    );
+
+    // Empty/new row: remove locally, no DB call, no confirmation
+    if (entryIdsToDelete.length === 0) {
+      setRows((prev) => prev.filter((r) => r.id !== rowId));
+      return;
+    }
+
+    // Row has saved entries: require confirmation
+    setDeleteRowId(rowId);
+  };
+
+  const confirmDeleteRow = async () => {
+    if (!deleteRowId) return;
+
+    const row = rows.find((r) => r.id === deleteRowId);
+    if (!row) {
+      setDeleteRowId(null);
+      return;
+    }
+
+    const entryIdsToDelete = Object.values(row.entryIds).filter(
+      (id): id is string => !!id
+    );
+
+    if (entryIdsToDelete.length === 0) {
+      setRows((prev) => prev.filter((r) => r.id !== deleteRowId));
+      setDeleteRowId(null);
+      return;
+    }
+
+    // Snapshot for rollback
+    const previousRows = rows;
+
+    // Optimistic UI removal
+    setRows((prev) => prev.filter((r) => r.id !== deleteRowId));
+
+    try {
+      await deleteRowEntries.mutateAsync(entryIdsToDelete);
+      setDeleteRowId(null);
+    } catch (e) {
+      // Deterministic logging + rollback
+      logger.error("Failed to delete timesheet row entries", e);
+      setRows(previousRows);
+      setDeleteRowId(null);
+      toast.error(t("timesheet.deleteRowError"));
+    }
   };
 
   const handleEngagementChange = (rowId: string, engagementId: string) => {
@@ -744,6 +802,7 @@ export function TimesheetGrid({
                       size="icon"
                       className="h-8 w-8 text-muted-foreground hover:text-destructive"
                       onClick={() => removeRow(row.id)}
+                      disabled={deleteRowEntries.isPending}
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -814,6 +873,32 @@ export function TimesheetGrid({
           </tbody>
         </table>
       </div>
+
+      <AlertDialog
+        open={!!deleteRowId}
+        onOpenChange={(open) => { if (!open) setDeleteRowId(null); }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("timesheet.deleteRowTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("timesheet.deleteRowDescription")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteRowEntries.isPending}>
+              {t("common.cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDeleteRow}
+              disabled={deleteRowEntries.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {t("common.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
