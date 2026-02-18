@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { useQueryClient } from "@tanstack/react-query";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -18,6 +19,8 @@ import {
   useBulkApproveTimesheetLines,
   useBulkRejectTimesheetLines,
 } from "@/hooks/useTimesheetApprovals";
+import type { StaffTimesheetForApproval } from "@/hooks/useTimesheetApprovals";
+import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { ApprovalTimesheetGrid } from "@/components/timesheet/ApprovalTimesheetGrid";
 import type { ApprovalDecision } from "@/components/ui/approval-toggle";
 import { format, addDays } from "date-fns";
@@ -29,6 +32,8 @@ const TimesheetApprovalDetail = () => {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const { currentLanguage } = useLanguage();
+  const queryClient = useQueryClient();
+  const { staffRecord } = useCurrentStaff();
   const { data: timesheetData, isLoading } = useStaffTimesheetForApproval(periodId || null);
   const bulkApprove = useBulkApproveTimesheetLines();
   const bulkReject = useBulkRejectTimesheetLines();
@@ -88,7 +93,24 @@ const TimesheetApprovalDetail = () => {
     }
   };
 
-  const processDecisions = (notes: string) => {
+  const processDecisions = async (notes: string) => {
+    const detailKey = ["staff-timesheet-for-approval", periodId, staffRecord?.staff_id];
+
+    // Step A: Optimistic cache update
+    queryClient.setQueryData(detailKey, (prev: StaffTimesheetForApproval | null | undefined) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        lineApprovals: prev.lineApprovals.map((la) => {
+          const decision = approvalDecisions.get(la.approval_id);
+          if (decision === "approve") return { ...la, status: "approved" as const };
+          if (decision === "reject") return { ...la, status: "rejected" as const };
+          return la;
+        }),
+      };
+    });
+
+    // Step B: Fire mutations
     const promises: Promise<void>[] = [];
 
     if (summary.toApprove.length > 0) {
@@ -116,14 +138,19 @@ const TimesheetApprovalDetail = () => {
       );
     }
 
-    Promise.all(promises).then(() => {
-      setApprovalDecisions(new Map());
-      setRejectDialogOpen(false);
-      // Navigate back if all decisions were made
-      if (summary.stillPending === 0) {
-        navigate("/timesheet/approvals");
-      }
-    });
+    // Step C: Await mutations, then sync cache with DB
+    await Promise.all(promises);
+    await queryClient.invalidateQueries({ queryKey: detailKey });
+    await queryClient.refetchQueries({ queryKey: detailKey, type: "active" });
+
+    // Step D: Clear local state AFTER cache is synced
+    setApprovalDecisions(new Map());
+    setRejectDialogOpen(false);
+
+    // Step E: Navigate only when all lines resolved
+    if (summary.stillPending === 0) {
+      navigate("/timesheet/approvals");
+    }
   };
 
   const handleRejectConfirm = () => {
