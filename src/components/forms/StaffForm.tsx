@@ -133,7 +133,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess }: Sta
       id_number: "",
       aud_reg_number: "",
       hire_date: "",
-      is_active: true,
+      is_active: false,
     },
   });
 
@@ -459,7 +459,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess }: Sta
                     <div className="space-y-0.5">
                       <FormLabel className="text-base">{t("common.active")}</FormLabel>
                       <FormDescription>
-                        {t("staff.activeDescription")}
+                        {isEdit ? t("staff.activeDescription") : t("staff.activeDescriptionNew")}
                       </FormDescription>
                     </div>
                     <FormControl>

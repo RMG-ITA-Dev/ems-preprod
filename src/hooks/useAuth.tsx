@@ -86,6 +86,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { error: new Error('ACCOUNT_INACTIVE') };
       }
 
+      // No staff record at all — check if admin (bootstrap) or block
+      if (!staffCheck) {
+        const { data: adminRole } = await supabase
+          .from("user_roles")
+          .select("role")
+          .eq("user_id", data.user.id)
+          .eq("role", "admin")
+          .maybeSingle();
+
+        if (!adminRole) {
+          await supabase.auth.signOut();
+          return { error: new Error('NO_STAFF_RECORD') };
+        }
+        // Admin without staff record: allow login, ProtectedRoute sends to /bootstrap
+      }
+
       // Ensure user has a role (handles users who signed up before this fix)
       await assignUserRole(data.session);
     }

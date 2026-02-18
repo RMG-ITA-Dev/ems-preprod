@@ -360,6 +360,7 @@
     "deleteStaff": "Delete Staff Member",
     "searchPlaceholder": "Search by name or email...",
     "activeDescription": "Active staff members can log time entries",
+    "activeDescriptionNew": "New staff will be automatically activated when they complete account registration.",
     "selectCategory": "Select a category",
     "supervisor": "Supervisor",
     "selectSupervisor": "Select Supervisor",
@@ -443,7 +444,8 @@
     "accountInactive": "Your account is inactive. Please contact an administrator.",
     "holidayCreated": "Holiday created",
     "holidayUpdated": "Holiday updated",
-    "holidayDeleted": "Holiday deleted"
+    "holidayDeleted": "Holiday deleted",
+    "noStaffRecord": "No staff profile is linked to your account. Please contact an administrator."
   },
   "errors": {
     "duplicateNit": "A client with NIT {{nit}} already exists: {{name}}",
@@ -913,5 +915,10 @@
     },
     "lockedByWorkOrderTitle": "Worksheet Locked",
     "lockedByWorkOrder": "This worksheet is locked because the linked Work Order is pending approval or approved. Use the Unsubmit button on the Work Order to unlock."
+  },
+  "bootstrap": {
+    "title": "Complete Your Setup",
+    "description": "As the first administrator, create your staff profile to continue.",
+    "complete": "Setup complete! Welcome to EMS."
   }
 }
