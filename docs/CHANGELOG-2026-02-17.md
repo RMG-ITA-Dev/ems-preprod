@@ -513,3 +513,20 @@ Conditional styling: when `isEditable`, the field shows a standard input border 
 |------|--------|
 | `src/components/forms/WorkOrderForm.tsx` | Conditional className on Adjustment NumericInput |
 | `docs/CHANGELOG-2026-02-17.md` | This entry |
+
+---
+
+## BUG #0213-36: Partner Timesheet Auto-Approval (Closed - Expected Behavior)
+
+**Date:** 2026-02-18
+**Priority:** Media
+**Version:** v2.0.10
+**Route:** OPERACIONES -> Hoja de Tiempo
+
+### Report
+Tester reported that Partner (Socio) timesheets are auto-approved without standard review.
+
+### Resolution
+Confirmed as **working as designed**. Business rule: Partners (display_order <= 2) do not require approval from other Partners. The `is_auto_approved_category()` DB function and `get_line_approver()` function implement this intentionally. The UI already shows a distinct toast ("Hoja de tiempo auto-aprobada") to communicate the auto-approval to the user.
+
+**Status:** Closed - Expected Functionality. No code changes.
