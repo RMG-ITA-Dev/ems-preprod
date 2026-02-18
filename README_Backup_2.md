@@ -8,7 +8,7 @@ A comprehensive bilingual (English/Spanish) engagement management system designe
 
 ## Overview
 
-EMS 2.0 manages the complete lifecycle of professional engagements from client onboarding through work order budgeting, time tracking, expense management, and timesheet approval. The system supports multi-currency operations (USD/BOB) with seasonal rate variations.
+EMS 2.0 manages the complete lifecycle of professional engagements from client onboarding through work order budgeting, time tracking, and expense management. The system supports multi-currency operations (USD/BOB) with seasonal rate variations.
 
 ---
 
@@ -20,15 +20,14 @@ EMS 2.0 manages the complete lifecycle of professional engagements from client o
 |--------|-------------|
 | **Dashboard** | Tab-driven analytics (Práctica, Cartera, Encargo, Personal) with role-based access |
 | **Clients** | Client management with industry classification and engagement history |
-| **Engagements** | Engagement lifecycle with partner/manager assignments and policy flags |
-| **Work Orders** | Budget management with multi-currency, seasonal rates, risk assessment (CEAC/SAN), and approval workflow |
-| **Worksheets** | Activity planning matrices (category × activity) with budget hour allocation and WO sync |
-| **Timesheets** | Weekly timesheet grid with auto-save, copy previous week, and line-level approval workflow |
-| **Timesheet Approvals** | Batch approval interface with per-engagement approve/reject/revision actions |
-| **Time Tracker** | Real-time stopwatch with aggregated import to timesheets |
-| **Expenses** | Expense type configuration, expense logging per engagement, and receipt upload |
-| **Staff** | Staff management with category-based roles, billing rates, and soft-delete |
-| **Settings** | System configuration (categories, industries, activity codes, holidays, global settings, user roles) |
+| **Engagements** | Engagement lifecycle with partner/manager assignments |
+| **Work Orders** | Budget management with multi-currency, seasonal rates, and approval workflow |
+| **Worksheets** | Activity planning matrices (category × activity) with budget hour allocation |
+| **Timesheets** | Weekly timesheet grid with line-level approval workflow |
+| **Time Tracker** | Real-time stopwatch with import to timesheets |
+| **Expenses** | Expense type configuration and expense logging per engagement |
+| **Staff** | Staff management with category-based roles and billing rates |
+| **Settings** | System configuration (categories, industries, activity codes, global settings) |
 
 ### Business Logic
 
@@ -39,23 +38,15 @@ EMS 2.0 manages the complete lifecycle of professional engagements from client o
 - **Approval Workflow**: Draft → Pending Approval → Approved/Rejected
 - **Timesheet Approval**: Line-level (per engagement) approval by Manager/Partner
 - **Auto-Approval**: Partners/Directors (display_order ≤ 2) are auto-approved
-- **Approved Line Protection**: DB trigger prevents INSERT/UPDATE/DELETE on time entries linked to approved lines
 - **Month-End Deadline Rule**: Week spanning month-end → deadline shifts to month-end date
-- **Holiday Blocking**: Admin-configurable holidays with DB trigger enforcement; visual indicators in timesheet grid
-- **Non-Chargeable Engagement Policies**: Three flags (`work_order_required`, `activity_required`, `is_internal`) control engagement behavior in timesheets
-- **Weekly/Daily Limit Enforcement**: Configurable hour limits with visual warnings at 80% and hard warnings at limit
-- **Hire Date Validation**: Prevents time entry before staff hire date (full-week block or per-day lock)
-- **Inactivity Timeout**: Auto-logout after configurable idle period with cross-tab synchronization
-- **No Staff Record = No Access**: 5-layer defense requiring linked staff record for app access; admin bootstrap flow for first user
-- **Role-Based Access**: Admin, Partner, Director, Manager, Senior, Semi-Senior, Staff, Viewer, SQR, Specialist IT, Specialist Tax
+- **Role-Based Access**: Admin, Partner, Director, Manager, Senior, Semi-Senior, Staff, Viewer
 
 ### Internationalization
 
 - Full English and Spanish language support
 - Language setting stored in `global_settings.LANGUAGE` (admin-configurable)
 - Date format: DD/MM/YYYY throughout
-- Locale-aware numeric inputs (Spanish uses comma decimals) via `<NumericInput />` component
-- Validation message localization via Zod schema factory pattern (`createFormSchema(t)` + `useMemo`)
+- Locale-aware numeric inputs (Spanish uses comma decimals)
 
 ---
 
@@ -106,26 +97,21 @@ src/
 │   ├── data-table/     # Reusable DataTable component
 │   ├── forms/          # Entity forms (Client, Engagement, WorkOrder, etc.)
 │   ├── layout/         # AppLayout, Sidebar, Header, Mobile navigation
-│   ├── settings/       # Settings page components (categories, holidays, roles)
-│   ├── timesheet/      # Timesheet grid, week navigator, approval grid
-│   ├── tracker/        # Time tracker (stopwatch, manual entry, import)
-│   ├── ui/             # shadcn/ui primitives + custom (NumericInput, ApprovalToggle)
+│   ├── settings/       # Settings page components
+│   ├── timesheet/      # Timesheet grid and approval components
+│   ├── tracker/        # Time tracker components
+│   ├── ui/             # shadcn/ui primitives
 │   └── worksheet/      # Activity worksheet grid
 ├── contexts/           # React contexts (DashboardContext)
 ├── hooks/
-│   ├── mutations/      # TanStack Query mutations (per entity)
-│   └── *.ts            # Custom hooks (useAuth, useCurrentStaff, useHolidays, etc.)
+│   ├── mutations/      # TanStack Query mutations
+│   └── *.ts            # Custom hooks (useAuth, useCurrentStaff, etc.)
 ├── integrations/
 │   └── supabase/       # Supabase client and types (auto-generated)
-├── lib/                # Utilities (fiscalCalculations, validation, timesheetErrors, etc.)
+├── lib/                # Utilities (fiscalCalculations, validation, etc.)
 ├── locales/            # Translation files (en.json, es.json)
 ├── pages/              # Route pages
 └── test/               # Test setup and utilities
-
-supabase/
-└── functions/
-    ├── assign-user-role/   # Atomic first-user-admin role assignment
-    └── dashboard-data/     # Dashboard analytics aggregation
 ```
 
 ---
@@ -136,26 +122,26 @@ supabase/
 
 | Table | Purpose |
 |-------|---------|
-| `global_settings` | System configuration (LANGUAGE, TAX_RATE, REALIZATION_LIMIT, SESSION_TIMEOUT_MINUTES, etc.) |
+| `global_settings` | System configuration (LANGUAGE, TAX_RATE, REALIZATION_LIMIT, etc.) |
 | `industries` | Client industry classification with fiscal year end |
-| `categories` | Staff categories with seasonal/currency billing rates and approval permissions |
-| `activity_codes` | Time entry classification codes (includes system ADM code) |
+| `categories` | Staff categories with seasonal/currency billing rates |
+| `activity_codes` | Time entry classification codes |
 | `expense_types` | Expense type definitions |
-| `holidays` | Admin-managed holiday dates with blocking enforcement |
 | `user_roles` | User role assignments (app_role enum) |
-| `staff` | Employee records linked to auth.users; includes `weekly_capacity_hours`, `hire_date`, `deleted_at` |
+| `staff` | Employee records linked to auth.users |
+| `staff_capacity` | Weekly capacity hours per staff |
 | `clients` | Client company records |
-| `engagements` | Projects/jobs with partner/manager assignments and policy flags (`work_order_required`, `activity_required`, `is_internal`) |
-| `work_orders` | Budget engine (strict 1:1 per engagement) with risk assessment fields (CEAC/SAN) |
+| `engagements` | Projects/jobs with partner/manager assignments |
+| `work_orders` | Budget engine (strict 1:1 per engagement) |
 | `wo_budget_lines` | Hours budget by category (aggregated from worksheet) |
 | `wo_expense_budget` | Expense budget allocations |
-| `activity_worksheets` | Planning matrices per engagement (versioned, status-tracked) |
-| `activity_worksheet_cells` | Budget cells (category × activity) with hours allocation |
-| `timesheet_periods` | Weekly timesheet headers with deadline and lock status |
-| `timesheet_line_approvals` | Per-engagement approval status (pending/approved/rejected) |
-| `time_entries` | Actual hours logged with period linkage |
-| `timer_entries` | Real-time stopwatch staging with import tracking |
-| `expense_logs` | Expenses incurred by engagement with receipt URLs |
+| `activity_worksheets` | Planning matrices per engagement |
+| `activity_worksheet_cells` | Budget cells (category × activity) |
+| `timesheet_periods` | Weekly timesheet headers |
+| `timesheet_line_approvals` | Per-engagement approval status |
+| `time_entries` | Actual hours logged |
+| `timer_entries` | Real-time stopwatch staging |
+| `expense_logs` | Expenses incurred by engagement |
 
 ### Key Views
 
@@ -166,7 +152,7 @@ supabase/
 | `vw_wo_budget_hours_by_category_activity` | Budget hours by category + activity |
 | `vw_actual_hours_by_category_activity` | Actual logged hours by category + activity |
 | `vw_budget_vs_actual_hours_by_category_activity` | Variance analysis view |
-| `staff_directory` | Public staff info (excludes auth/PII, filters soft-deleted) |
+| `staff_directory` | Public staff info (excludes auth/PII) |
 | `clients_directory` | Public client info (excludes sensitive data) |
 
 ### Key Database Functions
@@ -182,26 +168,11 @@ supabase/
 | `get_timesheet_approvers(uuid, date)` | Returns valid approvers for a week |
 | `can_approve_timesheet(uuid, uuid)` | Validates timesheet approval permission |
 | `can_approve_timesheet_line(uuid, uuid, uuid)` | Validates line approval permission |
-| `get_approvable_pairs(uuid[], uuid[])` | Batch approval eligibility check (replaces N+1 RPCs) |
 | `sync_worksheet_to_wo_budget(uuid, uuid)` | Syncs worksheet cells to WO budget lines |
+| `check_wo_approved()` | Trigger: prevents time entry on unapproved WO |
+| `link_auth_user_to_staff()` | Trigger: auto-links auth user to staff by email |
+| `validate_email_domain()` | Trigger: enforces allowed email domain on signup |
 | `assign_user_role_atomic(uuid)` | Atomic first-user-admin role assignment |
-| `start_timer_entry(uuid, uuid, text?)` | Starts stopwatch with single-timer enforcement |
-| `stop_timer_entry(uuid, timestamptz?)` | Stops timer and calculates duration |
-| `finalize_my_stale_timers()` | Cleans up orphaned running timers |
-
-### Key Database Triggers
-
-| Trigger | Purpose |
-|---------|---------|
-| `check_wo_approved` | Prevents time entry on unapproved WO (bypassed when `work_order_required = false`) |
-| `enforce_holiday_blocking` | Blocks time entry on holiday dates (except holiday engagement) |
-| `enforce_activity_default` | Auto-assigns ADM activity when `activity_required = false` |
-| `protect_approved_time_entries` | Prevents INSERT/UPDATE/DELETE on approved timesheet lines |
-| `validate_timer_duration` | Caps timer duration at 8 hours |
-| `prevent_imported_timer_delete` | Prevents deletion of imported timer entries |
-| `link_auth_user_to_staff` | Auto-links auth user to staff by email on signup |
-| `link_staff_to_auth_user` | Auto-links staff to auth user when staff email matches |
-| `validate_email_domain` | Enforces allowed email domain on signup |
 
 ---
 
@@ -213,15 +184,6 @@ supabase/
 | `TAX_RATE` | `0.13` | Default VAT/IVA rate (13%) |
 | `REALIZATION_LIMIT` | `75` | Threshold for realization color coding (%) |
 | `ALLOWED_EMAIL_DOMAIN` | *(empty)* | Restrict signup to specific email domain |
-| `HOLIDAY_ENGAGEMENT_ID` | *(uuid)* | Engagement used for holiday time entries |
-| `ADM_ACTIVITY_ID` | *(uuid)* | System activity code for non-chargeable engagements |
-| `SESSION_TIMEOUT_MINUTES` | `30` | Auto-logout after inactivity (minutes) |
-| `DAILY_LIMIT` | `10` | Maximum hours per day |
-| `WEEKLY_LIMIT` | `50` | Maximum hours per week |
-| `TS_MAX_BACKLOG_WEEKS` | `1` | Timesheet backlog window |
-| `TS_EMPLOYEE_RETRO_DAYS` | `30` | Days staff can edit past timesheets |
-| `TS_WORK_DAYS` | `5` | Work days per week |
-| `TS_AUTO_SAVE_SECONDS` | `3` | Auto-save interval for timesheet grid |
 
 ---
 
@@ -239,9 +201,6 @@ The `app_role` enum supports hierarchical access:
 | `semisenior` | Log time, view assigned engagements |
 | `staff` | Log time, view own data |
 | `viewer` | Read-only access |
-| `sqr` | Quality review specialist |
-| `specialist_it` | IT specialist role |
-| `specialist_tax` | Tax specialist role |
 
 ---
 
@@ -303,15 +262,6 @@ Heavy dependencies are pre-bundled to prevent 504 timeout errors:
 
 ---
 
-## Edge Functions
-
-| Function | Purpose |
-|----------|---------|
-| `assign-user-role` | Atomic first-user-admin role assignment during bootstrap |
-| `dashboard-data` | Aggregates dashboard analytics (utilization, hours, budget vs actual) |
-
----
-
 ## Development
 
 ### Prerequisites
@@ -359,11 +309,7 @@ The application is deployed via Lovable Cloud:
 | ER Diagram | `supabase/ems-er-diagram.md` |
 | Database Schema | `docs/database-schema.sql` |
 | Access Rules | `docs/access_rules.md` |
-| Changelog (Jan 30) | `docs/CHANGELOG-2026-01-30.md` |
-| Changelog (Feb 6) | `docs/CHANGELOG-2026-02-06.md` |
-| Changelog (Feb 11) | `docs/CHANGELOG-2026-02-11.md` |
-| Changelog (Feb 13) | `docs/CHANGELOG-2026-02-13.md` |
-| Changelog (Feb 17) | `docs/CHANGELOG-2026-02-17.md` |
+| Changelog | `docs/CHANGELOG-*.md` |
 | Responsive QA | `RESPONSIVE_QA.md` |
 
 ---
@@ -374,4 +320,4 @@ Proprietary — Ruizmier & Asociados
 
 ---
 
-*Last Updated: February 18, 2026*
+*Last Updated: February 2026*
