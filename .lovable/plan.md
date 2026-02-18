@@ -1,176 +1,90 @@
 
 
-# Plan_0213-40_v4: Fix Lost Client Dropdown on Engagement Edit
+# Plan_0213-41_v2: Add Missing `common.status` i18n Key for Dashboard Table Header
 
-## Bug Reference
+## Bug References
 
 | Field | Value |
 |-------|-------|
-| ID | 0213-40 |
-| Title | Al ingresar a cualquier Encargo se borra el dato guardado del dropdown |
+| Primary ID | 0213-41 |
+| Title | Cartera tab Profitability table header shows raw key `common.status` |
 | Priority | Baja |
-| Route | PRINCIPAL - Encargos |
-| Type | Funcional |
-| Base Plan | Plan_0213-40_v3 (with 2 CODEX refinements) |
+| Route | PRINCIPAL - Panel de Control - Cartera |
+| Type | UI |
+
+| Field | Value |
+|-------|-------|
+| Batched ID | 0213-38 |
+| Title | Practica tab Partner leaderboard header shows raw key `common.partner` |
+| Status | **Already resolved** -- `common.partner` exists at line 51 in both locale files |
 
 ## Problem
 
-When editing an existing Engagement, the **Client** dropdown shows its placeholder ("Seleccionar un cliente") instead of the saved client name. All other fields load correctly.
+The Cartera tab's "Tabla de Rentabilidad" renders the raw i18n key `common.status` as a column header because the `common` section in both locale files lacks a `status` entry. The component (`CarteraTab.tsx` line 362) correctly calls `t('common.status')`, but i18next falls back to the key string.
+
+**BUG #0213-38 note:** CODEX requested batching `common.partner`, but this key already exists at line 51 in both `es.json` ("Socio") and `en.json` ("Partner"). If the tester still sees the raw key, it would be a different issue (caching, build artifact). No locale change needed for 0213-38.
 
 ## Root Cause
 
-1. **Inactive client filter**: `clients?.filter((c) => c.is_active)` excludes the engagement's client if it is inactive. Radix Select shows the placeholder when `value` has no matching `SelectItem`.
-2. **Race condition**: `form.reset()` fires before `useClients()` data loads, so Radix Select locks in the placeholder.
+The `common` object (lines 11-59 in both locale files) does not contain a `status` key. The word "Estado"/"Status" exists in many other sections (`tracker.status`, `engagement.status`, `staff.status`, etc.) but not under `common`.
 
-## Changes from v3 (per CODEX review)
+## Solution
 
-1. **`isDirty` added to effect dependency array**: Line 156 already destructures `const { isDirty } = form.formState;`. The reset effect will now include `isDirty` in its dependency array so React always sees the current value, avoiding stale-closure edge cases.
-2. **`status.inactive` key confirmed as single adjective**: Both locale files use plain words ("Inactive" / "Inactivo"). No action needed, but noted for future maintainers.
+Add `"status": "Estado"` / `"Status"` to the `common` section in both locale files. No component code changes needed -- `CarteraTab.tsx` already references `t('common.status')` correctly.
 
 ## Changes
 
-### 1. `src/components/forms/EngagementForm.tsx`
+### 1. `src/locales/es.json`
 
-**a) Add `useRef` to imports** (line 1):
+Add one key to the `common` object (after line 59, before the closing brace):
 
-```typescript
-// FROM:
-import { useEffect, useMemo, useState } from "react";
-// TO:
-import { useEffect, useMemo, useRef, useState } from "react";
+```json
+"saveError": "Error al guardar los cambios. Intente nuevamente.",
+"status": "Estado"
 ```
 
-**b) Add memoized client options** (after line 105, near data hooks):
+### 2. `src/locales/en.json`
 
-```typescript
-const clientOptions = useMemo(
-  () => clients?.filter(c => c.is_active || c.client_id === engagement?.client_id) ?? [],
-  [clients, engagement?.client_id]
-);
+Same addition to the `common` object (after line 59):
+
+```json
+"saveError": "Error saving changes. Please try again.",
+"status": "Status"
 ```
 
-**c) Add reset guard ref** (after the line above):
-
-```typescript
-const initializedEngagementIdRef = useRef<string | null>(null);
-```
-
-**d) Update `useEffect` for `form.reset()`** (lines 137-153):
-
-From:
-```typescript
-useEffect(() => {
-    if (engagement) {
-      form.reset({
-        engagement_name: engagement.engagement_name,
-        engagement_code: engagement.engagement_code || "",
-        client_id: engagement.client_id,
-        partner_id: engagement.partner_id || "",
-        manager_id: engagement.manager_id || "",
-        status: engagement.status,
-        start_date: engagement.start_date ? new Date(engagement.start_date) : undefined,
-        end_date: engagement.end_date ? new Date(engagement.end_date) : undefined,
-      });
-      setWorkOrderRequired(engagement.work_order_required ?? true);
-      setActivityRequired(engagement.activity_required ?? true);
-      setIsInternal(engagement.is_internal ?? false);
-    }
-  }, [engagement, form]);
-```
-
-To:
-```typescript
-useEffect(() => {
-    if (
-      engagement &&
-      clients &&
-      !isDirty &&
-      initializedEngagementIdRef.current !== engagement.engagement_id
-    ) {
-      initializedEngagementIdRef.current = engagement.engagement_id;
-      form.reset({
-        engagement_name: engagement.engagement_name,
-        engagement_code: engagement.engagement_code || "",
-        client_id: engagement.client_id,
-        partner_id: engagement.partner_id || "",
-        manager_id: engagement.manager_id || "",
-        status: engagement.status,
-        start_date: engagement.start_date ? new Date(engagement.start_date) : undefined,
-        end_date: engagement.end_date ? new Date(engagement.end_date) : undefined,
-      });
-      setWorkOrderRequired(engagement.work_order_required ?? true);
-      setActivityRequired(engagement.activity_required ?? true);
-      setIsInternal(engagement.is_internal ?? false);
-    }
-  }, [engagement, clients, form, isDirty]);
-```
-
-Key points:
-- `clients` guard -- waits for client data before resetting (FIX-2: race condition)
-- `!isDirty` -- prevents overwriting user edits; `isDirty` is already destructured at line 156 and now explicitly in the dependency array per CODEX comment #1
-- `initializedEngagementIdRef` -- prevents refetch resets but allows re-init for different engagement IDs
-
-Note: `isDirty` is already destructured at line 156 (`const { isDirty } = form.formState;`), so using it directly in the dependency array is clean and avoids the stale-proxy issue CODEX flagged.
-
-**e) Update Client dropdown** (lines 312-316):
-
-From:
-```typescript
-{clients?.filter((c) => c.is_active).map((client) => (
-    <SelectItem key={client.client_id} value={client.client_id}>
-      {client.client_legal_name}
-    </SelectItem>
-  ))}
-```
-
-To:
-```typescript
-{clientOptions.map((client) => (
-    <SelectItem key={client.client_id} value={client.client_id}>
-      {client.client_legal_name}
-      {!client.is_active && ` (${t("status.inactive")})`}
-    </SelectItem>
-  ))}
-```
-
-### 2. `docs/CHANGELOG-2026-02-17.md`
+### 3. `docs/CHANGELOG-2026-02-17.md`
 
 Append:
 
 ```text
 ---
 
-## BUG #0213-40: Fix Lost Client Dropdown on Engagement Edit
+## BUG #0213-41: Add Missing common.status i18n Key
 
 **Date:** 2026-02-18
 **Priority:** Baja
 **Version:** v2.0.10
-**Route:** PRINCIPAL -> Encargos
+**Route:** PRINCIPAL -> Panel de Control -> Cartera
 
 ### Report
-When opening an existing Engagement for editing, the Client dropdown showed the
-placeholder ("Seleccionar un cliente") instead of the saved client name. All other
-fields loaded correctly.
+The last column header in the "Tabla de Rentabilidad" on the Cartera tab displayed
+the raw key `common.status` instead of the translated word "Estado" / "Status".
 
 ### Root Cause
-Two compounding issues:
-1. The Client dropdown filtered items with `.filter(c => c.is_active)`, excluding
-   inactive clients. If the engagement's client was inactive, Radix Select showed
-   the placeholder because the selected value had no matching SelectItem.
-2. `form.reset()` fired before `useClients()` data was loaded, causing Radix Select
-   to lock in the placeholder when no SelectItems existed at render time.
+The `common` section in both locale files did not contain a `status` key.
+`t('common.status')` fell back to displaying the key string.
 
 ### Fix
-1. Include the current engagement's client in the dropdown even if inactive, with
-   a visual "(Inactivo)"/"(Inactive)" suffix via `t("status.inactive")`.
-2. Guard `form.reset()` to only fire when both engagement and clients data are available.
-3. Use an engagement ID ref + isDirty check to prevent background refetches from
-   resetting user edits.
-4. Memoize filtered client list with `useMemo`.
+Added `"status": "Estado"` / `"Status"` to the `common` section in both locale files.
+Purely additive i18n key; no component code changes.
+
+**Note on BUG #0213-38:** `common.partner` already existed in both locale files.
+No change needed.
 
 | File | Change |
 |------|--------|
-| `src/components/forms/EngagementForm.tsx` | Include inactive client in dropdown; guard form.reset(); add useMemo for client options |
+| `src/locales/es.json` | Added `common.status` = "Estado" |
+| `src/locales/en.json` | Added `common.status` = "Status" |
 | `docs/CHANGELOG-2026-02-17.md` | This entry |
 ```
 
@@ -178,24 +92,29 @@ Two compounding issues:
 
 | File | Action | Description |
 |------|--------|-------------|
-| `src/components/forms/EngagementForm.tsx` | MODIFY | FIX-1: inactive client filter with useMemo; FIX-2: guard reset until clients loaded; FIX-3: engagement ID ref + isDirty guard with proper deps |
-| `docs/CHANGELOG-2026-02-17.md` | MODIFY | Append BUG #0213-40 changelog entry |
+| `src/locales/es.json` | MODIFY | Add `"status": "Estado"` to `common` section |
+| `src/locales/en.json` | MODIFY | Add `"status": "Status"` to `common` section |
+| `docs/CHANGELOG-2026-02-17.md` | MODIFY | Append BUG #0213-41 changelog entry |
 
 ## Acceptance Criteria
 
-1. Editing any existing Engagement shows the correct saved client name in the Client dropdown.
-2. If the engagement's client is inactive, the dropdown shows the client name with "(Inactivo)" / "(Inactive)" suffix.
-3. Creating a new Engagement shows only active clients.
-4. Partner and Manager dropdowns continue to work correctly.
-5. Background refetches do not reset the form while the user is editing.
-6. Navigating to a different engagement re-initializes the form correctly.
+1. Cartera tab Profitability table last column header shows "Estado" (ES) / "Status" (EN), not `common.status`.
+2. Practica tab Partner leaderboard header shows "Socio" (ES) / "Partner" (EN) (already working -- regression check only).
+3. Switching language ES/EN updates both headers correctly.
+4. No other translations are affected.
+
+## Test Checklist
+
+- TC-01 (0213-41): Panel de Control -> Cartera -> Tabla de Rentabilidad -> last header shows "Estado" (ES) / "Status" (EN).
+- TC-02 (0213-38): Panel de Control -> Practica -> Tabla de Socios -> header shows "Socio" (ES) / "Partner" (EN) -- confirm already working.
+- TC-03: Switch language ES/EN and verify both headers update correctly.
+- TC-04: Regression sanity -- table cell values still render normally.
 
 ## Risk Assessment
 
 | Risk | Mitigation |
 |------|-----------|
-| `isDirty` prevents legitimate re-init | Only blocks when user has edits; different engagement_id resets the ref |
-| Extra deps trigger effect | Ref guard + isDirty check prevent redundant/destructive resets |
-| New engagement (no engagement prop) | `engagement` is falsy so effect is a no-op; `engagement?.client_id` is undefined so OR short-circuits in filter |
-| `status.inactive` becomes a phrase | Key confirmed as single adjective in both locales; noted for maintainers |
+| Key collision | No existing `common.status` key; verified in both files |
+| Other code using `common.status` | Any other references will now resolve correctly (net positive) |
+| Purely additive change | Zero risk of breaking existing translations |
 
