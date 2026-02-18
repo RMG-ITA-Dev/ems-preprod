@@ -1,86 +1,196 @@
-# Plan_0213-42_v2: Make Hire Date Required on Staff Form
+# Plan_0213-43_v4: Localize Zod Validation Messages in StaffForm
 
 ## Bug Reference
 
 
 | Field    | Value                                                  |
 | -------- | ------------------------------------------------------ |
-| ID       | 0213-42                                                |
-| Title    | Fecha de ingreso en blanco                             |
+| ID       | 0213-43                                                |
+| Title    | Cambiar títulos a español                              |
 | Priority | Baja                                                   |
 | Route    | ADMINISTRACION - Personal - Nuevo Miembro del Personal |
-| Type     | Funcional                                              |
+| Type     | Datos / i18n                                           |
 
 
 ## Problem
 
-The "Fecha de Ingreso" (Hire Date) field on the Staff form is optional, but business rules require it to be mandatory. The field gates timesheet entry restrictions (the helper text itself says "Restringe la carga de hojas de tiempo"). Without a hire date, the timesheet date-gating logic cannot function.
+Validation error messages on the Staff form appear in English ("Last name is required", "City is required", etc.) even when the UI is set to Spanish.
 
 ## Root Cause
 
-In `src/components/forms/StaffForm.tsx`, the Zod schema defines `hire_date` as:
+Zod schema defined at module level (line 44) with hardcoded English strings. No access to `t()` at schema creation time.
 
-```typescript
-hire_date: z.string().optional().or(z.literal("")),
-```
+## v4 Changes Over v3
 
-The label lacks the `*` required indicator that all other mandatory fields display.
 
-## Solution
+| Item           | v3                | v4                                                              |
+| -------------- | ----------------- | --------------------------------------------------------------- |
+| `useMemo` deps | `[i18n.language]` | `[t, i18n.language]` -- lint-safe, no ESLint suppression needed |
 
-Two changes in `StaffForm.tsx`: make `hire_date` required in the Zod schema and add the asterisk to the label. No component-level i18n for the validation message is needed because the existing codebase pattern uses hardcoded English strings in Zod (e.g., `"First name is required"`, `"City is required"`) -- these are shown via `<FormMessage />` which renders Zod's error string directly.
 
-**DB hardening (NOT NULL constraint)** is noted as a recommended follow-up task but is out of scope for this bug. Existing staff with NULL hire_date will be prompted to fill it on their next edit, which is desirable forced cleanup.
+All other items from v3 remain unchanged (approved by CODEX).
+
+&nbsp;
+
+Comments
+
+
+
+1. `TFunction` **import placement**
+  - Fine as written. If your codebase already imports types elsewhere, keep style consistent.
+2. **Locale JSON placement**
+  - Ensure `"validation"` is added at the **top level** with correct commas/braces (your plan states this, just reinforcing).
+3. **Changelog accuracy**
+  - Looks good and matches the fix.
 
 ## Changes
 
 ### 1. `src/components/forms/StaffForm.tsx`
 
-**a) Update Zod schema** (line 54):
+**a) Update imports** (line 1):
 
 From:
 
 ```typescript
-hire_date: z.string().optional().or(z.literal("")),
+import { useEffect } from "react";
 ```
 
 To:
 
 ```typescript
-hire_date: z.string().min(1, "Hire date is required"),
+import { useEffect, useMemo } from "react";
 ```
 
-**b) Add asterisk to label** (line 413):
+**b) Add TFunction import** (after line 5):
+
+```typescript
+import type { TFunction } from "i18next";
+```
+
+**c) Replace static schema with factory function** (lines 44-58):
 
 From:
 
-```tsx
-<FormLabel>{t("staff.hireDate")}</FormLabel>
+```typescript
+const formSchema = z.object({
+  first_name: z.string().min(1, "First name is required"),
+  last_name: z.string().min(1, "Last name is required"),
+  short_name: z.string().optional(),
+  initials: z.string().max(4, "Max 4 characters").optional(),
+  email: z.string().min(1, "Email is required").email("Invalid email"),
+  category_id: z.string().min(1, "Category is required"),
+  city: z.string().min(1, "City is required"),
+  id_number: z.string().min(1, "ID number is required"),
+  aud_reg_number: z.string().optional(),
+  hire_date: z.string().min(1, "Hire date is required"),
+  is_active: z.boolean(),
+});
+
+type FormData = z.infer<typeof formSchema>;
 ```
 
 To:
 
-```tsx
-<FormLabel>{t("staff.hireDate")} *</FormLabel>
+```typescript
+const createFormSchema = (t: TFunction) =>
+  z.object({
+    first_name: z.string().min(1, t("validation.firstNameRequired")),
+    last_name: z.string().min(1, t("validation.lastNameRequired")),
+    short_name: z.string().optional(),
+    initials: z.string().max(4, t("validation.initialsMax4")).optional(),
+    email: z.string().min(1, t("validation.emailRequired")).email(t("validation.emailInvalid")),
+    category_id: z.string().min(1, t("validation.categoryRequired")),
+    city: z.string().min(1, t("validation.cityRequired")),
+    id_number: z.string().min(1, t("validation.idNumberRequired")),
+    aud_reg_number: z.string().optional(),
+    hire_date: z.string().min(1, t("validation.hireDateRequired")),
+    is_active: z.boolean(),
+  });
+
+type FormSchema = ReturnType<typeof createFormSchema>;
+type FormData = z.infer<FormSchema>;
 ```
 
-###  Ensure the date input actually writes a non-empty **string**
+**d) Update component internals** (lines 114-124):
 
-Your schema enforces `string().min(1)`. That’s perfect **if** the date picker stores `"YYYY-MM-DD"` or similar in the form state.  
-If the date picker stores a `Date` object (or `undefined`) you’d need `z.date()` / preprocess. Your plan assumes string (consistent with the existing code), so just double-check that the current `hire_date` field is indeed a string in `react-hook-form`.
+From:
 
-### 2) Keep changelog wording consistent with product naming
+```typescript
+export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess }: StaffFormProps) {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const isEdit = !!staff;
+  const { data: categories } = useCategories();
+  const createMutation = useCreateStaff();
+  const updateMutation = useUpdateStaff();
+  const deleteMutation = useDeleteStaff();
 
-Minor: your changelog route says `ADMINISTRACION -> Personal -> Nuevo Miembro del Personal`. That’s fine; just keep accenting consistent elsewhere if you do (ADMINISTRACIÓN).
+  const form = useForm<FormData>({
+    resolver: zodResolver(formSchema),
+```
 
-### 2. `docs/CHANGELOG-2026-02-17.md`
+To:
+
+```typescript
+export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess }: StaffFormProps) {
+  const { t, i18n } = useTranslation();
+  const navigate = useNavigate();
+  const isEdit = !!staff;
+  const { data: categories } = useCategories();
+  const createMutation = useCreateStaff();
+  const updateMutation = useUpdateStaff();
+  const deleteMutation = useDeleteStaff();
+
+  const formSchema = useMemo(() => createFormSchema(t), [t, i18n.language]);
+
+  const form = useForm<FormData>({
+    resolver: zodResolver(formSchema),
+```
+
+### 2. `src/locales/es.json`
+
+Add new top-level `validation` section:
+
+```json
+"validation": {
+  "firstNameRequired": "El nombre es requerido",
+  "lastNameRequired": "El apellido es requerido",
+  "emailRequired": "El correo electrónico es requerido",
+  "emailInvalid": "Correo electrónico inválido",
+  "categoryRequired": "La categoría es requerida",
+  "cityRequired": "La ciudad es requerida",
+  "idNumberRequired": "El número de CI es requerido",
+  "hireDateRequired": "La fecha de ingreso es requerida",
+  "initialsMax4": "Máximo 4 caracteres"
+}
+```
+
+### 3. `src/locales/en.json`
+
+Add same `validation` section:
+
+```json
+"validation": {
+  "firstNameRequired": "First name is required",
+  "lastNameRequired": "Last name is required",
+  "emailRequired": "Email is required",
+  "emailInvalid": "Invalid email",
+  "categoryRequired": "Category is required",
+  "cityRequired": "City is required",
+  "idNumberRequired": "ID number is required",
+  "hireDateRequired": "Hire date is required",
+  "initialsMax4": "Max 4 characters"
+}
+```
+
+### 4. `docs/CHANGELOG-2026-02-17.md`
 
 Append:
 
 ```text
 ---
 
-## BUG #0213-42: Make Hire Date Required on Staff Form
+## BUG #0213-43: Localize Validation Messages in Staff Form
 
 **Date:** 2026-02-18
 **Priority:** Baja
@@ -88,58 +198,67 @@ Append:
 **Route:** ADMINISTRACION -> Personal -> Nuevo Miembro del Personal
 
 ### Report
-The "Fecha de Ingreso" (Hire Date) field was optional, allowing staff to be created
-without a hire date. Business rules require it because hire_date gates timesheet
-entry restrictions.
+Required-field validation errors appeared in English even when the UI was set to
+Spanish. The tester flagged messages like "Last name is required" under "Apellido *".
 
 ### Root Cause
-Zod schema defined `hire_date` as `z.string().optional().or(z.literal(""))`. The
-label lacked the `*` required indicator.
+Zod schema was defined at module level with hardcoded English strings. No access
+to the `t()` translation function at schema creation time.
 
 ### Fix
-1. Changed Zod validation to `z.string().min(1, "Hire date is required")`.
-2. Added `*` to the form label.
-Existing staff with NULL hire_date will be prompted to fill it on next edit
-(intentional forced cleanup).
+1. Converted static schema to factory function `createFormSchema(t: TFunction)`.
+2. Schema built inside component with `useMemo(() => createFormSchema(t), [t, i18n.language])`.
+3. Two-step type alias: `type FormSchema = ReturnType<typeof createFormSchema>; type FormData = z.infer<FormSchema>;`
+4. Added `validation` section with 9 keys to both `es.json` and `en.json`.
 
-**Note:** DB-level NOT NULL constraint recommended as a follow-up task.
+**Note:** Other forms (EngagementForm, ClientForm, CategoryForm, etc.) have the
+same pattern and should be addressed in a follow-up ticket.
 
 | File | Change |
 |------|--------|
-| `src/components/forms/StaffForm.tsx` | Made `hire_date` required in Zod schema; added `*` to label |
+| `src/components/forms/StaffForm.tsx` | Schema factory + useMemo + TFunction typing |
+| `src/locales/es.json` | Added `validation` section (9 Spanish messages) |
+| `src/locales/en.json` | Added `validation` section (9 English messages) |
 | `docs/CHANGELOG-2026-02-17.md` | This entry |
 ```
 
 ## Files Summary
 
 
-| File                                 | Action | Description                                               |
-| ------------------------------------ | ------ | --------------------------------------------------------- |
-| `src/components/forms/StaffForm.tsx` | MODIFY | Make `hire_date` required in Zod schema; add `*` to label |
-| `docs/CHANGELOG-2026-02-17.md`       | MODIFY | Append BUG #0213-42 changelog entry                       |
+| File                                 | Action | Description                                 |
+| ------------------------------------ | ------ | ------------------------------------------- |
+| `src/components/forms/StaffForm.tsx` | MODIFY | Schema factory + useMemo + TFunction typing |
+| `src/locales/es.json`                | MODIFY | Add `validation` section (9 keys)           |
+| `src/locales/en.json`                | MODIFY | Add `validation` section (9 keys)           |
+| `docs/CHANGELOG-2026-02-17.md`       | MODIFY | Append BUG #0213-43 entry                   |
 
 
 ## Acceptance Criteria
 
-1. New Staff form: "Fecha de Ingreso" label shows `*`.
-2. Submitting without a hire date shows a validation error.
-3. Submitting with a valid date works normally.
-4. Editing existing staff with a hire date loads and saves correctly.
-5. Editing legacy staff with NULL hire_date: field is empty, user must fill it before saving (forced cleanup -- intentional).
+1. Spanish UI: all Staff form validation errors appear in Spanish.
+2. English UI: all Staff form validation errors appear in English.
+3. Form submission with valid data works normally.
+4. Editing existing staff loads and saves correctly.
 
 ## Test Checklist
 
-- TC-01: Open "Nuevo Miembro del Personal" -- "Fecha de Ingreso" label shows asterisk (*).
-- TC-02: Fill all required fields except Fecha de Ingreso -- click Save -- validation error appears.
-- TC-03: Fill Fecha de Ingreso -- click Save -- staff created successfully.
-- TC-04: Open existing staff with hire_date set -- field displays correctly, can be modified and saved.
-- TC-05: If any legacy staff has NULL hire_date -- edit shows empty field, must fill before saving.
+- TC-01: Set language to Spanish, open Nuevo Miembro del Personal, submit empty -- all messages in Spanish.
+- TC-02: Verify: "El apellido es requerido", "El correo electrónico es requerido", "La ciudad es requerida", "El número de CI es requerido", "La categoría es requerida", "La fecha de ingreso es requerida".
+- TC-03: Enter invalid email -- shows "Correo electrónico inválido" (ES).
+- TC-04: Enter initials > 4 chars -- shows "Máximo 4 caracteres" (ES).
+- TC-05: Set language to English, submit empty -- all messages in English.
+- TC-06: Fill all fields correctly, submit -- staff created successfully.
+
+## Systemic Note
+
+This fix addresses StaffForm only. Other forms (EngagementForm, ClientForm, CategoryForm, ActivityCodeForm, IndustryForm) have the same hardcoded pattern and should be addressed in a follow-up ticket using the same `createFormSchema(t)` + `useMemo` approach established here.
 
 ## Risk Assessment
 
 
-| Risk                                 | Mitigation                                                                           |
-| ------------------------------------ | ------------------------------------------------------------------------------------ |
-| Legacy NULL hire_date blocks editing | Intentional -- forces data cleanup on next edit                                      |
-| Validation message in English        | Consistent with all other Zod messages in this form (e.g., "First name is required") |
-| DB still allows NULL                 | Frontend enforces; DB hardening recommended as separate follow-up                    |
+| Risk                                   | Mitigation                                                                   |
+| -------------------------------------- | ---------------------------------------------------------------------------- |
+| `useMemo` staleness on language switch | `[t, i18n.language]` deps ensure rebuild; lint-safe                          |
+| Type safety of `FormData`              | Two-step alias `FormSchema` then `FormData` avoids TS ambiguity              |
+| JSON validity in locale files          | New `validation` key added at top level; no existing key conflict (verified) |
+| Other forms still English              | Out of scope; follow-up ticket recommended                                   |
