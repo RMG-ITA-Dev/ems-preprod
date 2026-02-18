@@ -1,55 +1,49 @@
-
-
-# Plan_0213-32_C05_v2: Fix Approval Persistence After Partial Approval (Optimistic + Refetch)
+# Plan_0213-32_C01_v3: Apply Mandatory Corrections to Approval Persistence Fix
 
 ## Bug Reference
 
-| Field | Value |
-|-------|-------|
-| ID | 0213-32 |
-| Title | Inconsistencia en el proceso de aprobacion despues de una aprobacion parcial |
-| Priority | Alta |
-| Route | OPERACIONES - Aprobaciones |
 
-## Changes from v1
+| Field    | Value                                                                        |
+| -------- | ---------------------------------------------------------------------------- |
+| ID       | 0213-32                                                                      |
+| Title    | Inconsistencia en el proceso de aprobacion despues de una aprobacion parcial |
+| Priority | Alta                                                                         |
+| Route    | OPERACIONES - Aprobaciones                                                   |
 
-| Change | Detail |
-|--------|--------|
-| Removed "always navigate back" | v1 forced navigation after every save as a workaround. v2 keeps the user on the detail page after partial approval, showing persisted statuses correctly. Navigation only happens when all pending lines are resolved (stillPending === 0). |
-| Added optimistic cache update | Before mutations fire, the detail query cache is updated optimistically so approved/rejected lines reflect immediately with no flash. |
-| Added await + refetch after mutations | After mutations complete, the detail query is invalidated and refetched before clearing local state. This replaces optimistic data with authoritative DB state. |
-| staleTime + refetchOnMount | Detail query gets `staleTime: 0` and `refetchOnMount: 'always'` to guarantee fresh data on every visit. |
 
-## Problem
+## What This Plan Does
 
-After a partial approval (approving some engagement lines, leaving others pending), the system shows all records as pending again. The approver sees previously approved lines reset to pending with active toggles, as if no decision was saved.
+Applies 3 corrections to the already-implemented v2 code in `TimesheetApprovalDetail.tsx`, plus adds a missing i18n key and documents the changes.
 
-## Root Cause
+## Verified Code State
 
-1. `processDecisions` clears `approvalDecisions` state synchronously after mutations resolve, but the background query refetch (from `invalidateQueries`) is asynchronous. During this gap, the component renders with stale cached data (all lines as "pending") plus empty decisions map -- making everything appear actionable/pending.
-2. `useStaffTimesheetForApproval` has `staleTime: 5 * 60 * 1000`, so re-entering the detail view may serve cached pre-approval data.
+The current implementation (v2) at lines 96-154 has:
 
-## Solution
+- Optimistic cache update (correct)
+- `type: "active"` on refetchQueries (needs fix)
+- No try/catch (needs fix -- no rollback on failure)
+- No `isSaving` state (needs fix -- double-submit possible)
+- `common.saveError` missing from both locale files (needs fix)
 
-### Fix 1 -- Optimistic cache update + awaited refetch in processDecisions
+## Changes
 
-In `src/pages/TimesheetApprovalDetail.tsx`:
+### 1. `src/pages/TimesheetApprovalDetail.tsx`
 
-1. Import `useQueryClient` (already available via TanStack Query).
-2. Get `queryClient` instance and define the detail query key.
-3. Before firing mutations, apply an optimistic update to the cached `StaffTimesheetForApproval` data -- setting decided lines' statuses to `approved` or `rejected` immediately.
-4. Make `processDecisions` async. After `Promise.all(promises)` resolves, await `invalidateQueries` + `refetchQueries` on the detail key to replace optimistic data with authoritative DB state.
-5. Only then clear `approvalDecisions` and close the reject dialog.
-6. Navigate back only when `stillPending === 0`.
+**Add `isSaving` state** (line 43, after `rejectNotes` state):
 
 ```typescript
-import { useQueryClient } from "@tanstack/react-query";
+const [isSaving, setIsSaving] = useState(false);
+```
 
-// Inside component:
-const queryClient = useQueryClient();
+**Rewrite `processDecisions**` (lines 96-154) with try/catch/finally:
 
+```typescript
 const processDecisions = async (notes: string) => {
-  const detailKey = ["staff-timesheet-for-approval", periodId, /* staffRecord?.staff_id from hook */];
+  setIsSaving(true);
+  const detailKey = ["staff-timesheet-for-approval", periodId, staffRecord?.staff_id];
+
+  // Snapshot for rollback
+  const previousData = queryClient.getQueryData(detailKey);
 
   // Step A: Optimistic cache update
   queryClient.setQueryData(detailKey, (prev: StaffTimesheetForApproval | null | undefined) => {
@@ -67,134 +61,120 @@ const processDecisions = async (notes: string) => {
 
   // Step B: Fire mutations
   const promises: Promise<void>[] = [];
-  // ... (existing mutation logic unchanged) ...
 
-  // Step C: Await mutations, then sync cache with DB
-  await Promise.all(promises);
-  await queryClient.invalidateQueries({ queryKey: detailKey });
-  await queryClient.refetchQueries({ queryKey: detailKey, type: "active" });
+  if (summary.toApprove.length > 0) {
+    promises.push(
+      new Promise((resolve, reject) => {
+        bulkApprove.mutate(summary.toApprove, {
+          onSuccess: () => resolve(),
+          onError: reject,
+        });
+      })
+    );
+  }
 
-  // Step D: Clear local state AFTER cache is synced
-  setApprovalDecisions(new Map());
-  setRejectDialogOpen(false);
+  if (summary.toReject.length > 0) {
+    promises.push(
+      new Promise((resolve, reject) => {
+        bulkReject.mutate(
+          { approvalIds: summary.toReject, notes },
+          {
+            onSuccess: () => resolve(),
+            onError: reject,
+          }
+        );
+      })
+    );
+  }
 
-  // Step E: Navigate only when all lines resolved
-  if (summary.stillPending === 0) {
-    navigate("/timesheet/approvals");
+  try {
+    // Step C: Await mutations, then sync cache with DB
+    await Promise.all(promises);
+    await queryClient.invalidateQueries({ queryKey: detailKey });
+    await queryClient.refetchQueries({ queryKey: detailKey, type: "all" });
+
+    // Step D: Clear local state AFTER cache is synced
+    setApprovalDecisions(new Map());
+    setRejectDialogOpen(false);
+
+    // Step E: Navigate only when all lines resolved
+    if (summary.stillPending === 0) {
+      navigate("/timesheet/approvals");
+    }
+  } catch (error) {
+    // Restore snapshot immediately, then reconcile with DB
+    queryClient.setQueryData(detailKey, previousData);
+    await queryClient.invalidateQueries({ queryKey: detailKey });
+    await queryClient.refetchQueries({ queryKey: detailKey, type: "all" });
+    toast.error(t("common.saveError"));
+  } finally {
+    setIsSaving(false);
   }
 };
 ```
 
-To access `staffRecord.staff_id` for the query key, destructure the hook result already available via `useStaffTimesheetForApproval`. Since the component uses `periodId` from `useParams` and the query key includes `staffRecord?.staff_id`, we need to get `staffRecord` from `useCurrentStaff`:
+**Add `toast` import** (line 16 area):
 
 ```typescript
-import { useCurrentStaff } from "@/hooks/useCurrentStaff";
-// ...
-const { staffRecord } = useCurrentStaff();
+import { toast } from "sonner";
 ```
 
-The `StaffTimesheetForApproval` type import is needed for the optimistic updater:
+**Disable button with `isSaving**` (line 223):
 
 ```typescript
-import type { StaffTimesheetForApproval } from "@/hooks/useTimesheetApprovals";
-```
-
-### Fix 2 -- Fresh data on every detail view mount
-
-In `src/hooks/useTimesheetApprovals.ts`, update the `useStaffTimesheetForApproval` query options:
-
-```typescript
-// Before (line 337):
-staleTime: 5 * 60 * 1000,
+// Before:
+disabled={!hasDecisions || isProcessing}
 
 // After:
-staleTime: 0,
-refetchOnMount: "always" as const,
-refetchOnWindowFocus: true,
+disabled={!hasDecisions || isProcessing || isSaving}
 ```
 
-The summary list query (`usePendingApprovalSummaries`) keeps its existing `staleTime: 5 * 60 * 1000` since it is properly invalidated by mutations and only shows pending items.
+### 2. `src/locales/en.json`
 
-### Fix 3 -- Documentation
+Add after `"stay": "Stay"` (line 57, inside `common` block):
 
-Append entry to `docs/CHANGELOG-2026-02-17.md`.
-
-## What the Approver Sees After the Fix
-
-1. Opens period detail: sees 2 pending engagement lines with toggles.
-2. Sets line A to "Approve", leaves line B pending.
-3. Clicks "Guardar Decisiones".
-4. Immediately: line A shows "Aprobada" badge (optimistic), line B stays with toggle.
-5. Within ~1s: DB refetch confirms state -- no flash, no reset.
-6. Summary reads "0 a aprobar, 0 a rechazar, 1 pendientes".
-7. User can now decide on line B or click Cancel to return to list.
-
-## Changelog Entry
-
-```text
----
-
-## BUG #0213-32: Fix Approval Persistence After Partial Approval
-
-**Date:** 2026-02-18
-**Priority:** Alta
-**Version:** v2.0.9
-**Route:** OPERACIONES -> Aprobaciones
-
-### Problem
-
-After partially approving timesheet lines (e.g., approving 1 of 2 engagement lines), the detail view showed all lines as pending again. Previously approved/rejected lines lost their visual status and displayed toggles as if no decision had been made.
-
-### Root Cause
-
-1. `processDecisions` cleared `approvalDecisions` state synchronously after mutations, but query refetch was async. During the gap, stale cached data (all pending) was rendered with empty decisions.
-2. `useStaffTimesheetForApproval` had a 5-minute staleTime, potentially serving cached pre-approval data on re-entry.
-
-### Solution
-
-1. **Optimistic cache update:** Before firing mutations, the detail query cache is updated to reflect decided statuses immediately. No flash of stale "pending" data.
-2. **Awaited refetch after mutations:** After mutations resolve, the detail query is invalidated and refetched before clearing local state. Replaces optimistic data with authoritative DB state.
-3. **Conditional navigation:** User stays on the detail page after partial approval (can continue deciding). Navigates back only when all pending lines are resolved.
-4. **Fresh data on mount:** `staleTime: 0` and `refetchOnMount: 'always'` on the detail query ensures fresh data every visit.
-
-### Files Modified
-
-| File | Change |
-|------|--------|
-| `src/pages/TimesheetApprovalDetail.tsx` | Optimistic update + awaited refetch in processDecisions; import queryClient, useCurrentStaff, StaffTimesheetForApproval type |
-| `src/hooks/useTimesheetApprovals.ts` | staleTime=0, refetchOnMount='always', refetchOnWindowFocus=true on detail query |
-| `docs/CHANGELOG-2026-02-17.md` | This entry |
-
-### Risk Assessment
-
-| Risk | Mitigation |
-|------|-----------|
-| Optimistic state diverges from DB | Refetch immediately after mutations replaces optimistic data |
-| No staleTime on detail query | Only used on one page; cost is one fetch per visit |
-| User stays on page after partial save | Correct behavior per requirement; can continue or navigate back manually |
+```json
+"saveError": "Error saving changes. Please try again."
 ```
+
+### 3. `src/locales/es.json`
+
+Same position inside `common` block:
+
+```json
+"saveError": "Error al guardar los cambios. Intente nuevamente."
+```
+
+### 4. `docs/CHANGELOG-2026-02-17.md`
+
+Append addendum to the existing BUG #0213-32 entry noting v3 corrections: `isSaving` guard, snapshot rollback with DB reconciliation on failure, `type: "all"` on refetch, `common.saveError` i18n key.
+
+## 5. Hardening
+
+1. **Snapshot restore typing**
+  - `const previousData = queryClient.getQueryData(detailKey);` is fine, but if you want cleaner TS, you can type it:
+    - `const previousData = queryClient.getQueryData<StaffTimesheetForApproval | null>(detailKey);`  
+    Not required.
+2. **Promise wrapping**
+  - The `new Promise((resolve, reject) => bulkApprove.mutate(...))` pattern is OK. If you ever switch to `mutateAsync`, this could simplify, but it’s not required for correctness.
 
 ## Files Summary
 
-| File | Action | Description |
-|------|--------|-------------|
-| `src/pages/TimesheetApprovalDetail.tsx` | MODIFY | Optimistic cache update before mutations, awaited refetch after, conditional navigation, new imports |
-| `src/hooks/useTimesheetApprovals.ts` | MODIFY | `staleTime: 0`, `refetchOnMount: 'always'`, `refetchOnWindowFocus: true` on detail query |
-| `docs/CHANGELOG-2026-02-17.md` | MODIFY | Append BUG #0213-32 changelog entry |
 
-## Acceptance Criteria
+| File                                    | Action | Description                                                                                                                |
+| --------------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------- |
+| `src/pages/TimesheetApprovalDetail.tsx` | MODIFY | Add isSaving state, try/catch/finally with snapshot rollback + DB reconciliation, type:"all", toast import, button disable |
+| `src/locales/en.json`                   | MODIFY | Add `common.saveError`                                                                                                     |
+| `src/locales/es.json`                   | MODIFY | Add `common.saveError`                                                                                                     |
+| `docs/CHANGELOG-2026-02-17.md`          | MODIFY | Append v3 corrections addendum                                                                                             |
 
-1. After partial approval, the user stays on the detail page and previously decided lines show their persisted status (badge, no toggle) -- not reset to pending.
-2. Remaining pending lines still show active toggles.
-3. Summary counter updates correctly after save.
-4. Navigating away and back to the same period shows correct persisted statuses.
-5. When all lines are decided, user is navigated back to the approvals list automatically.
 
 ## Risk Assessment
 
-| Risk | Mitigation |
-|------|-----------|
-| Optimistic state briefly differs from DB | Refetch replaces optimistic data within ~1s |
-| Detail query always refetches on mount | Single indexed query; negligible cost |
-| Mutation error after optimistic update | Refetch will restore correct DB state; existing error toasts remain |
 
+| Risk                                            | Mitigation                                                                            |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------- |
+| Partial mutation failure leaves DB inconsistent | Snapshot restore for instant UI recovery + invalidate + refetch for DB reconciliation |
+| isSaving stuck on error                         | `finally` block always clears it                                                      |
+| previousData undefined                          | Refetch after restore corrects any edge case                                          |
+| Minimal change surface                          | 4 localized edits; no architectural changes                                           |
