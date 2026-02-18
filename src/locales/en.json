@@ -605,6 +605,7 @@
     "saveDraft": "Save Draft",
     "submitWeek": "Submit Week",
     "resubmitWeek": "Resubmit Week",
+    "cannotSubmitWeeklyLimit": "Cannot submit: total hours ({{total}}h) exceed the weekly limit ({{limit}}h). Please reduce hours before submitting.",
     "selectEngagement": "Select engagement",
     "selectActivity": "Select activity",
     "weekDays": {
