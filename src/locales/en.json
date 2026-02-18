@@ -933,5 +933,16 @@
     "title": "Complete Your Setup",
     "description": "As the first administrator, create your staff profile to continue.",
     "complete": "Setup complete! Welcome to EMS."
+  },
+  "validation": {
+    "firstNameRequired": "First name is required",
+    "lastNameRequired": "Last name is required",
+    "emailRequired": "Email is required",
+    "emailInvalid": "Invalid email",
+    "categoryRequired": "Category is required",
+    "cityRequired": "City is required",
+    "idNumberRequired": "ID number is required",
+    "hireDateRequired": "Hire date is required",
+    "initialsMax4": "Max 4 characters"
   }
 }

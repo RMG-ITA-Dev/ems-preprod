@@ -703,3 +703,36 @@ Existing staff with NULL hire_date will be prompted to fill it on next edit
 |------|--------|
 | `src/components/forms/StaffForm.tsx` | Made `hire_date` required in Zod schema; added `*` to label |
 | `docs/CHANGELOG-2026-02-17.md` | This entry |
+
+---
+
+## BUG #0213-43: Localize Validation Messages in Staff Form
+
+**Date:** 2026-02-18
+**Priority:** Baja
+**Version:** v2.0.10
+**Route:** ADMINISTRACION -> Personal -> Nuevo Miembro del Personal
+
+### Report
+Required-field validation errors appeared in English even when the UI was set to
+Spanish. The tester flagged messages like "Last name is required" under "Apellido *".
+
+### Root Cause
+Zod schema was defined at module level with hardcoded English strings. No access
+to the `t()` translation function at schema creation time.
+
+### Fix
+1. Converted static schema to factory function `createFormSchema(t: TFunction)`.
+2. Schema built inside component with `useMemo(() => createFormSchema(t), [t, i18n.language])`.
+3. Two-step type alias: `type FormSchema = ReturnType<typeof createFormSchema>; type FormData = z.infer<FormSchema>;`
+4. Added `validation` section with 9 keys to both `es.json` and `en.json`.
+
+**Note:** Other forms (EngagementForm, ClientForm, CategoryForm, etc.) have the
+same pattern and should be addressed in a follow-up ticket.
+
+| File | Change |
+|------|--------|
+| `src/components/forms/StaffForm.tsx` | Schema factory + useMemo + TFunction typing |
+| `src/locales/es.json` | Added `validation` section (9 Spanish messages) |
+| `src/locales/en.json` | Added `validation` section (9 English messages) |
+| `docs/CHANGELOG-2026-02-17.md` | This entry |

@@ -933,5 +933,16 @@
     "title": "Complete su Configuración",
     "description": "Como primer administrador, cree su perfil de personal para continuar.",
     "complete": "¡Configuración completa! Bienvenido a EMS."
+  },
+  "validation": {
+    "firstNameRequired": "El nombre es requerido",
+    "lastNameRequired": "El apellido es requerido",
+    "emailRequired": "El correo electrónico es requerido",
+    "emailInvalid": "Correo electrónico inválido",
+    "categoryRequired": "La categoría es requerida",
+    "cityRequired": "La ciudad es requerida",
+    "idNumberRequired": "El número de CI es requerido",
+    "hireDateRequired": "La fecha de ingreso es requerida",
+    "initialsMax4": "Máximo 4 caracteres"
   }
 }
