@@ -410,3 +410,10 @@ After partially approving timesheet lines (e.g., approving 1 of 2 engagement lin
 | Optimistic state diverges from DB | Refetch immediately after mutations replaces optimistic data |
 | No staleTime on detail query | Only used on one page; cost is one fetch per visit |
 | User stays on page after partial save | Correct behavior per requirement; can continue or navigate back manually |
+
+#### v3 Corrections (2026-02-18)
+
+- **`isSaving` guard:** Added `isSaving` state to disable "Guardar Decisiones" button during async processing, preventing double-submit races.
+- **Snapshot rollback + DB reconciliation:** On mutation failure, the optimistic cache update is immediately rolled back to a pre-save snapshot, then `invalidateQueries` + `refetchQueries(type: "all")` reconciles with partial DB changes. Error toast uses localized `common.saveError`.
+- **`refetchQueries` type fix:** Changed from `type: "active"` to `type: "all"` to ensure cache sync regardless of query activity status.
+- **i18n key added:** `common.saveError` in both `en.json` and `es.json`.
