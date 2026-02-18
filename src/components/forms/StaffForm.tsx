@@ -1,8 +1,9 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { Button } from "@/components/ui/button";
 import { LoadingButton } from "@/components/ui/loading-button";
 import { Input } from "@/components/ui/input";
@@ -41,21 +42,23 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
-const formSchema = z.object({
-  first_name: z.string().min(1, "First name is required"),
-  last_name: z.string().min(1, "Last name is required"),
-  short_name: z.string().optional(),
-  initials: z.string().max(4, "Max 4 characters").optional(),
-  email: z.string().min(1, "Email is required").email("Invalid email"),
-  category_id: z.string().min(1, "Category is required"),
-  city: z.string().min(1, "City is required"),
-  id_number: z.string().min(1, "ID number is required"),
-  aud_reg_number: z.string().optional(),
-  hire_date: z.string().min(1, "Hire date is required"),
-  is_active: z.boolean(),
-});
+const createFormSchema = (t: TFunction) =>
+  z.object({
+    first_name: z.string().min(1, t("validation.firstNameRequired")),
+    last_name: z.string().min(1, t("validation.lastNameRequired")),
+    short_name: z.string().optional(),
+    initials: z.string().max(4, t("validation.initialsMax4")).optional(),
+    email: z.string().min(1, t("validation.emailRequired")).email(t("validation.emailInvalid")),
+    category_id: z.string().min(1, t("validation.categoryRequired")),
+    city: z.string().min(1, t("validation.cityRequired")),
+    id_number: z.string().min(1, t("validation.idNumberRequired")),
+    aud_reg_number: z.string().optional(),
+    hire_date: z.string().min(1, t("validation.hireDateRequired")),
+    is_active: z.boolean(),
+  });
 
-type FormData = z.infer<typeof formSchema>;
+type FormSchema = ReturnType<typeof createFormSchema>;
+type FormData = z.infer<FormSchema>;
 
 // StaffForm uses StaffFull interface since it needs PII fields for editing
 interface StaffFormProps {
@@ -112,13 +115,15 @@ const generateInitials = (firstName: string, lastName: string): string => {
 };
 
 export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess }: StaffFormProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const isEdit = !!staff;
   const { data: categories } = useCategories();
   const createMutation = useCreateStaff();
   const updateMutation = useUpdateStaff();
   const deleteMutation = useDeleteStaff();
+
+  const formSchema = useMemo(() => createFormSchema(t), [t, i18n.language]);
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
