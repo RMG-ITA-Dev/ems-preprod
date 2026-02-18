@@ -369,3 +369,44 @@ One-time data cleanup migration:
 | Trigger disabled during migration | Re-enabled immediately after; migration runs in single transaction |
 | Approved line updated | `trg_protect_approved_time_entries` temporarily disabled; re-enabled after |
 | Timesheet period totals wrong after cap | Explicitly recalculated in Step 5 |
+
+---
+
+## BUG #0213-32: Fix Approval Persistence After Partial Approval
+
+**Date:** 2026-02-18
+**Priority:** Alta
+**Version:** v2.0.9
+**Route:** OPERACIONES -> Aprobaciones
+
+### Problem
+
+After partially approving timesheet lines (e.g., approving 1 of 2 engagement lines), the detail view showed all lines as pending again. Previously approved/rejected lines lost their visual status and displayed toggles as if no decision had been made.
+
+### Root Cause
+
+1. `processDecisions` cleared `approvalDecisions` state synchronously after mutations, but query refetch was async. During the gap, stale cached data (all pending) was rendered with empty decisions.
+2. `useStaffTimesheetForApproval` had a 5-minute staleTime, potentially serving cached pre-approval data on re-entry.
+
+### Solution
+
+1. **Optimistic cache update:** Before firing mutations, the detail query cache is updated to reflect decided statuses immediately. No flash of stale "pending" data.
+2. **Awaited refetch after mutations:** After mutations resolve, the detail query is invalidated and refetched before clearing local state. Replaces optimistic data with authoritative DB state.
+3. **Conditional navigation:** User stays on the detail page after partial approval (can continue deciding). Navigates back only when all pending lines are resolved.
+4. **Fresh data on mount:** `staleTime: 0` and `refetchOnMount: 'always'` on the detail query ensures fresh data every visit.
+
+### Files Modified
+
+| File | Change |
+|------|--------|
+| `src/pages/TimesheetApprovalDetail.tsx` | Optimistic update + awaited refetch in processDecisions; import queryClient, useCurrentStaff, StaffTimesheetForApproval type |
+| `src/hooks/useTimesheetApprovals.ts` | staleTime=0, refetchOnMount='always', refetchOnWindowFocus=true on detail query |
+| `docs/CHANGELOG-2026-02-17.md` | This entry |
+
+### Risk Assessment
+
+| Risk | Mitigation |
+|------|-----------|
+| Optimistic state diverges from DB | Refetch immediately after mutations replaces optimistic data |
+| No staleTime on detail query | Only used on one page; cost is one fetch per visit |
+| User stays on page after partial save | Correct behavior per requirement; can continue or navigate back manually |
