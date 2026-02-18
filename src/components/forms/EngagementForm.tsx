@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -104,6 +104,13 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   const updateMutation = useUpdateEngagement();
   const deleteMutation = useDeleteEngagement();
 
+  const clientOptions = useMemo(
+    () => clients?.filter(c => c.is_active || c.client_id === engagement?.client_id) ?? [],
+    [clients, engagement?.client_id]
+  );
+
+  const initializedEngagementIdRef = useRef<string | null>(null);
+
   // Build missing categories message
   const missingCategories: string[] = [];
   if (!hasPartnerCategory) missingCategories.push(t("engagement.partner"));
@@ -134,8 +141,17 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   const [activityRequired, setActivityRequired] = useState(engagement?.activity_required ?? true);
   const [isInternal, setIsInternal] = useState(engagement?.is_internal ?? false);
 
+  // Destructure isDirty before effects that depend on it
+  const { isDirty } = form.formState;
+
   useEffect(() => {
-    if (engagement) {
+    if (
+      engagement &&
+      clients &&
+      !isDirty &&
+      initializedEngagementIdRef.current !== engagement.engagement_id
+    ) {
+      initializedEngagementIdRef.current = engagement.engagement_id;
       form.reset({
         engagement_name: engagement.engagement_name,
         engagement_code: engagement.engagement_code || "",
@@ -150,10 +166,9 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       setActivityRequired(engagement.activity_required ?? true);
       setIsInternal(engagement.is_internal ?? false);
     }
-  }, [engagement, form]);
+  }, [engagement, clients, form, isDirty]);
 
   // Report dirty state to parent
-  const { isDirty } = form.formState;
   useEffect(() => {
     onDirtyChange?.(isDirty);
   }, [isDirty, onDirtyChange]);
@@ -309,9 +324,10 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {clients?.filter((c) => c.is_active).map((client) => (
+                          {clientOptions.map((client) => (
                             <SelectItem key={client.client_id} value={client.client_id}>
                               {client.client_legal_name}
+                              {!client.is_active && ` (${t("status.inactive")})`}
                             </SelectItem>
                           ))}
                         </SelectContent>

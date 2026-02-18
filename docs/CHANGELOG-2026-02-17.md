@@ -607,3 +607,38 @@ No locale file changes needed.
 |------|--------|
 | `src/pages/WorkOrders.tsx` | Added `statusI18nKey` map; updated tooltip key references |
 | `docs/CHANGELOG-2026-02-17.md` | This entry |
+
+---
+
+## BUG #0213-40: Fix Lost Client Dropdown on Engagement Edit
+
+**Date:** 2026-02-18
+**Priority:** Baja
+**Version:** v2.0.10
+**Route:** PRINCIPAL -> Encargos
+
+### Report
+When opening an existing Engagement for editing, the Client dropdown showed the
+placeholder ("Seleccionar un cliente") instead of the saved client name. All other
+fields loaded correctly.
+
+### Root Cause
+Two compounding issues:
+1. The Client dropdown filtered items with `.filter(c => c.is_active)`, excluding
+   inactive clients. If the engagement's client was inactive, Radix Select showed
+   the placeholder because the selected value had no matching SelectItem.
+2. `form.reset()` fired before `useClients()` data was loaded, causing Radix Select
+   to lock in the placeholder when no SelectItems existed at render time.
+
+### Fix
+1. Include the current engagement's client in the dropdown even if inactive, with
+   a visual "(Inactivo)"/"(Inactive)" suffix via `t("status.inactive")`.
+2. Guard `form.reset()` to only fire when both engagement and clients data are available.
+3. Use an engagement ID ref + isDirty check to prevent background refetches from
+   resetting user edits.
+4. Memoize filtered client list with `useMemo`.
+
+| File | Change |
+|------|--------|
+| `src/components/forms/EngagementForm.tsx` | Include inactive client in dropdown; guard form.reset(); add useMemo for client options |
+| `docs/CHANGELOG-2026-02-17.md` | This entry |
