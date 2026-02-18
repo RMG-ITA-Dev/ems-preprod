@@ -459,3 +459,36 @@ Two layers of enforcement (defense in depth):
 | Entries array empty | `reduce` on empty returns 0; `canSubmit` already checks `entries.length > 0` |
 | `hours_logged` as string | `Number()` coercion handles it safely |
 | Alert showing in irrelevant states | Full eligibility condition prevents it |
+
+---
+
+## BUG #0213-34: Fix Timesheet Row Deletion Persistence
+
+**Date:** 2026-02-18
+**Priority:** Alta
+**Version:** v2.0.10
+**Route:** OPERACIONES -> Hoja de Tiempo
+
+### Problem
+Deleting a timesheet row removed it only from local UI state (`setRows` filter). Because underlying `time_entries` were not deleted from the database, the row reappeared on autosave/refetch/reload.
+
+### Root Cause
+`removeRow` in `TimesheetGrid.tsx` only called `setRows(rows.filter(...))` without any database mutation.
+
+### Solution
+1. **Bulk DB delete:** New `useDeleteRowEntries` mutation deletes all `time_id` values via `.delete().in('time_id', ids)`.
+2. **Confirmation dialog:** AlertDialog shown only when the row has saved DB entries. Empty/new rows removed instantly.
+3. **Optimistic UI + rollback:** Row removed immediately; restored with error toast on failure.
+4. **Double-click protection:** Trash button disabled while `deleteRowEntries.isPending`.
+5. **Cache sync:** `["time-entries"]` query invalidated on success.
+6. **Toast de-duplication:** `useDeleteRowEntries` omits `onError`; caller's `catch` handles toast.
+7. **Deterministic logging:** `logger.error()` in `catch` block ensures errors are always logged regardless of React Query config.
+
+### Files Modified
+| File | Change |
+|------|--------|
+| `src/hooks/useTimesheetMutations.ts` | Added `useDeleteRowEntries` bulk delete mutation |
+| `src/components/timesheet/TimesheetGrid.tsx` | Rewrote `removeRow` with confirmation, optimistic UI, rollback, `logger.error`, disabled trash |
+| `src/locales/en.json` | Added `deleteRowTitle`, `deleteRowDescription`, `deleteRowError` |
+| `src/locales/es.json` | Added Spanish equivalents |
+| `docs/CHANGELOG-2026-02-17.md` | This entry |

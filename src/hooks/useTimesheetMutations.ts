@@ -108,6 +108,25 @@ export function useDeleteTimeEntry() {
   });
 }
 
+// BUG #0213-34: Bulk delete all time entries for a row
+export function useDeleteRowEntries() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (timeIds: string[]) => {
+      const { error } = await supabase
+        .from("time_entries")
+        .delete()
+        .in("time_id", timeIds);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["time-entries"] });
+    },
+    // No onError here -- caller handles toast + logging to avoid duplicates
+  });
+}
+
 // Update period total hours
 export function useUpdatePeriodTotalHours() {
   const queryClient = useQueryClient();

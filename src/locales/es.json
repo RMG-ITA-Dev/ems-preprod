@@ -652,7 +652,10 @@
     "holidayTooltip": "Feriado: {{name}}",
     "holidayEntriesSkipped": "{{count}} registros omitidos por feriados",
     "lineApproved": "Esta línea fue aprobada y no puede modificarse.",
-    "approvedLineCannotEdit": "No se pueden modificar horas de una línea aprobada. Solo las líneas rechazadas pueden editarse."
+    "approvedLineCannotEdit": "No se pueden modificar horas de una línea aprobada. Solo las líneas rechazadas pueden editarse.",
+    "deleteRowTitle": "Eliminar fila de la hoja de tiempo",
+    "deleteRowDescription": "Esto eliminará permanentemente todas las horas registradas en esta fila para la semana actual. Esta acción no se puede deshacer.",
+    "deleteRowError": "Error al eliminar la fila. Se ha restaurado."
   },
   "expenses": {
     "title": "Gastos",
