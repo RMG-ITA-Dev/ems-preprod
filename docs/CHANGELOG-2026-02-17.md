@@ -317,3 +317,55 @@ When a user unsubmitted a week to correct rejected lines, all rows became editab
 | Stale lineApprovals in UI | Query invalidated on submit/unsubmit |
 | Performance of trigger | UNIQUE index on (period_id, engagement_id); negligible cost |
 | period_id NULL entries | NULL check skips trigger; no approval can exist for NULL period |
+
+---
+
+## BUG #0213-31: Legacy Data Cleanup for Oversized Timer Entries
+
+**Date:** 2026-02-18
+**Priority:** Media
+**Version:** v2.0.9
+**Route:** OPERACIONES -> Cronometro
+
+### Problem
+
+Legacy timer entries created before the 8-hour cap (migration 20260217) still contained inflated durations (19h 15m, 99h 20m). These entries already had `ended_at` set, so the original migration's pre-cleanup (targeting only `ended_at IS NULL`) did not fix them. Additionally, 7 `time_entries` rows had `hours_logged > 8`.
+
+### Root Cause
+
+The pre-cleanup in migration 20260217035038 only targeted entries with `ended_at IS NULL`. Entries that were already stopped (status 'Listo' or 'Importado') with oversized durations were not affected.
+
+### Solution
+
+One-time data cleanup migration:
+1. Temporarily disabled `trg_validate_timer_duration` and `trg_protect_approved_time_entries` triggers (they would block UPDATE of already-oversized rows)
+2. Capped all `timer_entries` with duration > 480 min to 480 min and `ended_at` to `started_at + 8h`
+3. Capped all `time_entries` with `hours_logged > 8` to 8
+4. Re-enabled triggers
+5. Recalculated `timesheet_periods.total_hours` for affected periods
+6. No frontend changes -- all forward-looking protections were already in place
+
+### Database Migration
+
+| Object | Detail |
+|--------|--------|
+| `timer_entries` cleanup | 1 row: duration 1155 -> 480, ended_at clamped |
+| `time_entries` cleanup | 7 rows: hours_logged 9-10 -> 8 |
+| `timesheet_periods` recalc | 2 periods with updated totals |
+| Trigger disable/re-enable | `trg_validate_timer_duration`, `trg_protect_approved_time_entries` |
+
+### Files Modified
+
+| File | Change |
+|------|--------|
+| Migration SQL | One-time cleanup of legacy oversized entries |
+| `docs/CHANGELOG-2026-02-17.md` | This entry |
+
+### Risk Assessment
+
+| Risk | Mitigation |
+|------|-----------|
+| Data modification is irreversible | Only 8 rows affected; values are clearly erroneous (19h, 99h) |
+| Trigger disabled during migration | Re-enabled immediately after; migration runs in single transaction |
+| Approved line updated | `trg_protect_approved_time_entries` temporarily disabled; re-enabled after |
+| Timesheet period totals wrong after cap | Explicitly recalculated in Step 5 |
