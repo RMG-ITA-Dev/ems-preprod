@@ -648,7 +648,9 @@
     "holidayBlocked": "Cannot log time on {{name}} for this engagement. Only the holiday engagement is allowed.",
     "holidayNotConfiguredAttempt": "Cannot log time on holidays. The holiday engagement has not been configured by an administrator.",
     "holidayTooltip": "Holiday: {{name}}",
-    "holidayEntriesSkipped": "{{count}} entries skipped due to holidays"
+    "holidayEntriesSkipped": "{{count}} entries skipped due to holidays",
+    "lineApproved": "This line is approved and cannot be modified.",
+    "approvedLineCannotEdit": "Cannot modify hours on an approved line. Only rejected lines can be edited."
   },
   "expenses": {
     "title": "Expenses",

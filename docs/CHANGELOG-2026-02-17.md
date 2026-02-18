@@ -272,3 +272,48 @@ Two issues with the Tracker:
 | Button re-enables after stop | `useStopTimerRPC` invalidates `running_timer` query key; instant re-enable |
 | Disabled button tooltip not showing | Wrapped in `<span className="inline-flex" title=...>` |
 | Bypass ref stays true | Component unmounts on navigation; ref is garbage-collected |
+
+---
+
+## BUG #0213-30: Block Editing/Deletion/Insertion of Approved Timesheet Lines
+
+**Date:** 2026-02-18
+**Priority:** Alta
+**Version:** v2.0.9
+**Route:** OPERACIONES -> Hoja de Tiempo
+
+### Problem
+
+When a user unsubmitted a week to correct rejected lines, all rows became editable -- including rows with approved engagement lines. Users could edit hours, change engagement/activity selections, and delete rows on already-approved lines. No database-level protection existed either, meaning direct API calls could also insert, modify, or delete entries on approved lines.
+
+### Root Cause
+
+1. `TimesheetGrid` applied a single `isLocked` boolean uniformly. No per-row check against `lineApprovals` existed.
+2. No database trigger prevented INSERT/UPDATE/DELETE on `time_entries` linked to approved line approvals.
+
+### Solution
+
+1. **DB Trigger (hard guard):** Created `protect_approved_time_entries()` trigger on `time_entries`. Fires BEFORE INSERT OR UPDATE OR DELETE. DELETE checks OLD pair only. INSERT checks NEW pair only. UPDATE checks both OLD pair (editing approved line) and NEW pair (moving into approved line). Raises `APPROVED_LINE_LOCKED` exception. Performance verified: `timesheet_line_approvals` has UNIQUE index on `(period_id, engagement_id)`.
+2. **Per-row UI locking:** Each row computes `isRowApproved` from `lineApprovals`. Approved rows have disabled selectors, disabled hour inputs, lock icon with tooltip, and subtle green tint.
+3. **Client-side save guards:** `handleHoursChange` and batch "Save Now" skip approved rows.
+4. **Error handling:** `useUpsertTimeEntry` catches `APPROVED_LINE_LOCKED` (message + details fallback) and shows localized toast.
+
+### Files Modified
+
+| File | Change |
+|------|--------|
+| Migration SQL | `protect_approved_time_entries()` function + trigger (INSERT + UPDATE + DELETE, explicit TG_OP branching, OLD+NEW pair checks) |
+| `src/components/timesheet/TimesheetGrid.tsx` | Per-row `isRowLocked`, disabled controls, lock icon, row tint, save guards |
+| `src/hooks/useTimesheetMutations.ts` | `APPROVED_LINE_LOCKED` error handling with details fallback |
+| `src/locales/en.json` | Added `timesheet.lineApproved`, `timesheet.approvedLineCannotEdit` |
+| `src/locales/es.json` | Added `timesheet.lineApproved`, `timesheet.approvedLineCannotEdit` |
+| `docs/CHANGELOG-2026-02-17.md` | This entry |
+
+### Risk Assessment
+
+| Risk | Mitigation |
+|------|-----------|
+| Trigger blocks legitimate admin corrections | Admins can update line approval status to "pending" before correcting |
+| Stale lineApprovals in UI | Query invalidated on submit/unsubmit |
+| Performance of trigger | UNIQUE index on (period_id, engagement_id); negligible cost |
+| period_id NULL entries | NULL check skips trigger; no approval can exist for NULL period |

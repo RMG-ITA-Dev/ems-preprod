@@ -77,7 +77,15 @@ export function useUpsertTimeEntry() {
       // Invalidate entries query to refetch
       queryClient.invalidateQueries({ queryKey: ["time-entries"] });
     },
-    onError: createMutationErrorHandler("saving time entry"),
+    onError: (error: Error) => {
+      const errorMsg = error.message || '';
+      const errorDetails = (error as any).details || '';
+      if (errorMsg.includes("APPROVED_LINE_LOCKED") || errorDetails.includes("APPROVED_LINE_LOCKED")) {
+        toast.error(i18n.t("timesheet.approvedLineCannotEdit"));
+        return;
+      }
+      createMutationErrorHandler("saving time entry")(error);
+    },
   });
 }
 

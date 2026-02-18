@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { NumericInput } from "@/components/ui/numeric-input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2, Loader2, Check, Clock, X, AlertTriangle, Calendar as CalendarIcon } from "lucide-react";
+import { Plus, Trash2, Loader2, Check, Clock, X, AlertTriangle, Calendar as CalendarIcon, Lock } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -187,6 +187,9 @@ export function TimesheetGrid({
 
       rowsRef.current.forEach((row) => {
         if (!row.engagementId) return;
+        // Approved line guard: skip approved rows in batch save
+        const rowApproval = lineApprovals.find(la => la.engagement_id === row.engagementId);
+        if (rowApproval?.status === "approved") return;
         const isActNotReq = activityNotRequiredIds?.has(row.engagementId);
         const effectiveActivityId = isActNotReq && adminActivityId ? adminActivityId : row.activityId;
         if (!effectiveActivityId) return;
@@ -393,6 +396,13 @@ export function TimesheetGrid({
         }
       }
 
+      // Approved line guard
+      const currentRowForApproval = rowsRef.current.find((r) => r.id === rowId);
+      if (currentRowForApproval) {
+        const rowApproval = lineApprovals.find(la => la.engagement_id === currentRowForApproval.engagementId);
+        if (rowApproval?.status === "approved") return;
+      }
+
       // Update local state immediately
       setRows((prevRows) =>
         prevRows.map((row) =>
@@ -465,7 +475,7 @@ export function TimesheetGrid({
         );
       }, autoSaveSeconds * 1000);
     },
-    [staffId, periodId, autoSaveSeconds, upsertEntry, holidayMap, holidayEngagementId, t]
+    [staffId, periodId, autoSaveSeconds, upsertEntry, holidayMap, holidayEngagementId, t, lineApprovals]
   );
 
   const calculateRowTotal = (row: GridRow) => {
@@ -599,17 +609,24 @@ export function TimesheetGrid({
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => (
+            {rows.map((row) => {
+              const rowApproval = getApprovalStatus(row.engagementId);
+              const isRowApproved = rowApproval?.status === "approved";
+              const isRowLocked = isLocked || isRowApproved;
+              return (
               <tr
                 key={row.id}
-                className="border-b border-border hover:bg-muted/30"
+                className={cn(
+                  "border-b border-border hover:bg-muted/30",
+                  isRowApproved && !isLocked && "bg-success/5"
+                )}
               >
               <td className="p-2 text-left border-r border-border">
                   <div className="flex items-center">
                     <Select
                       value={row.engagementId}
                       onValueChange={(val) => handleEngagementChange(row.id, val)}
-                      disabled={isLocked}
+                      disabled={isRowLocked}
                     >
                       <SelectTrigger className="border-0 bg-transparent focus:ring-1">
                         <SelectValue placeholder={t("timesheet.selectEngagement")} />
@@ -642,7 +659,7 @@ export function TimesheetGrid({
                   <Select
                     value={row.activityId}
                     onValueChange={(val) => handleActivityChange(row.id, val)}
-                    disabled={isLocked || (activityNotRequiredIds?.has(row.engagementId) ?? false)}
+                    disabled={isRowLocked || (activityNotRequiredIds?.has(row.engagementId) ?? false)}
                   >
                     <SelectTrigger className="border-0 bg-transparent focus:ring-1">
                       <SelectValue placeholder={
@@ -678,7 +695,7 @@ export function TimesheetGrid({
                   const isActivityNotRequired = activityNotRequiredIds?.has(row.engagementId);
                   const isAdmMissing = isActivityNotRequired && !adminActivityId;
                   const isDisabled =
-                    isLocked || isDayLockedByHire || isHolidayBlocked || isAdmMissing || !row.engagementId || (!row.activityId && !isActivityNotRequired);
+                    isRowLocked || isDayLockedByHire || isHolidayBlocked || isAdmMissing || !row.engagementId || (!row.activityId && !isActivityNotRequired);
 
                   return (
                     <td key={dateStr} className={cn("p-2 relative text-center border-r border-border", isDayLockedByHire && "bg-muted/40", isHolidayBlocked && "bg-warning/5")}>
@@ -712,7 +729,16 @@ export function TimesheetGrid({
                   {calculateRowTotal(row)}h
                 </td>
                 <td className="p-2 text-center">
-                  {rows.length > 1 && !isLocked && (
+                  {isRowApproved && rows.length > 1 ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Lock className="h-4 w-4 text-muted-foreground mx-auto" />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>{t("timesheet.lineApproved")}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : rows.length > 1 && !isLocked ? (
                     <Button
                       variant="ghost"
                       size="icon"
@@ -721,10 +747,11 @@ export function TimesheetGrid({
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
-                  )}
+                  ) : null}
                 </td>
               </tr>
-            ))}
+              );
+            })}
             {/* Add Row Button */}
             {!isLocked && (
               <tr className="border-b border-border">
