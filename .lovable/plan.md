@@ -1,53 +1,74 @@
-# Plan: Update README.md
+
+
+# Plan: Create AI-Assisted Debugging Workflow v2.0
 
 ## Task
 
-1. Save current `README.md` as `README_Backup_2.md` (exact copy).
-2. Create a new `README.md` reflecting the current state of the system (v2.0.10, February 2026).
+Create `docs/AI-Assisted-Debugging-Workflow-v2.md` documenting the three-AI debugging workflow refined through the February 2026 EMS 2.0 sessions.
 
-## Content Strategy
+## The Three-AI System
 
-Follow the style of the **current README.md** (no emojis, `---` separators, tables, clean Markdown). Incorporate all features and changes from changelogs through 2026-02-18.
+| AI | Model | Role |
+|----|-------|------|
+| Claude | Opus 4.6 Extended | Primary analyst: codebase analysis, bug triage, fix plan generation (OPUS_PLAN) |
+| Lovable | Claude-based | Plan Mode review, generates LOVABLE_PLAN, produces versioned iterations with CODEX input, implements final approved plan |
+| CODEX | OpenAI GPT-5.2 Extended | Independent arbiter: compares plans, merges best ideas, drives version loop until satisfied |
 
-## Key Updates for the New README
+## The Version Loop (Corrected)
 
+```text
+1. Claude Opus generates OPUS_PLAN
+2. Lovable generates LOVABLE_PLAN (its own interpretation)
+3. Developer feeds BOTH plans to CODEX (GPT-5.2 Extended)
+4. CODEX compares, merges best ideas, gives feedback
+   --> CODEX may produce a merged JSON or annotated corrections
+5. Developer prompts Claude Opus:
+   "Please verify against requirements and comment or approve
+    LOVABLE=[CODEX output / merged plan]"
+6. LOVABLE produces next version (v2, v3, etc.) with CODEX input
+7. Developer feeds new version back to CODEX
+8. REPEAT steps 5-7 until CODEX is satisfied
+9. Final approved version (e.g., v4) is implemented by Lovable
+```
 
-| Section                         | What Changes                                                                                                                                                                        |
-| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Version badge                   | `2.0` -> `2.0 (do not change)`                                                                                                                                                      |
-| Core Modules table              | Add **Worksheets**, **Time Tracker**, **Timesheet Approvals**; update descriptions to match current state (e.g., Dashboard now has 4 tabs)                                          |
-| Business Logic                  | Add: Rate Locking, Month-End Deadline Rule, Holiday Blocking, Non-Chargeable Engagement Policies, Auto-Approval, Weekly Limit Enforcement, Approved Line Protection                 |
-| Internationalization            | Add: locale-aware numeric inputs, validation message localization (factory pattern)                                                                                                 |
-| Design System                   | Add Brand Purple `#7c3aed` (already present); confirm all tokens current                                                                                                            |
-| Database Schema - Core Tables   | Add `holidays`, `staff_capacity` merged note (`weekly_capacity_hours` on `staff`), `activity_worksheets`, `activity_worksheet_cells`; update `engagements` with policy flags        |
-| Database Schema - Key Functions | Add: `enforce_holiday_blocking`, `enforce_activity_default`, `protect_approved_time_entries`, `validate_timer_duration`, `prevent_imported_timer_delete`, `assign_user_role_atomic` |
-| Global Settings                 | Add `HOLIDAY_ENGAGEMENT_ID`, `ADM_ACTIVITY_ID`                                                                                                                                      |
-| User Roles                      | Update enum to include all 8 roles (admin, partner, director, manager, senior, semisenior, staff, viewer)                                                                           |
-| Dashboard Architecture          | Already current; keep as-is                                                                                                                                                         |
-| Fiscal Year                     | Already current; keep as-is                                                                                                                                                         |
-| Design Consistency Rules        | Already current; keep as-is                                                                                                                                                         |
-| Project Structure               | Add `tracker/`, `worksheet/` directories (already listed); confirm current                                                                                                          |
-| Edge Functions                  | List current: `assign-user-role`, `dashboard-data`                                                                                                                                  |
-| Documentation table             | Add all 5 changelogs                                                                                                                                                                |
-| Development section             | Keep as-is                                                                                                                                                                          |
-| Deployment section              | Keep URLs current                                                                                                                                                                   |
-| Last Updated                    | Change to `February 18, 2026`                                                                                                                                                       |
+Key distinction from previous draft: Step 6 -- it is **Lovable** (not Claude Opus) that produces each subsequent plan version incorporating CODEX feedback. Claude Opus serves as a verification checkpoint (step 5), while Lovable is the iterating engine.
 
+Evidence from project: `Plan_0213-27_C01_v5` (5 iterations), `Plan_0213-43_v4` (4 iterations).
 
-## Files
+## Document Outline
 
+1. **Title Page** -- Version 2.0, February 2026, Author: SERGIO RUIZ-MIER
+2. **Executive Summary** -- Three-AI workflow with CODEX arbitration loop
+3. **Workflow Overview** -- ASCII diagram showing the three-AI version loop
+4. **Phase 1: Bug Submission** -- JSON structure from v1.0 (proven, unchanged)
+5. **Phase 2: Claude Project Setup** -- Claude Opus 4.6, Knowledge Base, codebase artifacts
+6. **Phase 3: Codebase Analysis** -- Lovable Custom Knowledge reference
+7. **Phase 4: Bug Analysis and Triage** -- Session-scoped ID format (MMDD-NN), batch processing
+8. **Phase 5: Fix Plan Generation (OPUS_PLAN)** -- Claude generates initial plan
+9. **Phase 6: Lovable Plan Review (LOVABLE_PLAN)** -- Lovable generates its own plan in Plan Mode
+10. **Phase 7: CODEX Arbitration and Version Loop** -- GPT-5.2 compares both plans; Lovable iterates versions; Claude verifies; loop until CODEX approves
+11. **Phase 8: Implementation** -- Final approved version executed by Lovable
+12. **Phase 9: Changelog Documentation** -- Standardized format
+13. **Phase 10: Verification and Iteration** -- Post-implementation delta handling
+14. **Best Practices** -- From 27+ bugs across 5 sessions
+15. **Appendix A: Bug JSON Template**
+16. **Appendix B: Plan Template** -- `Plan_MMDD-NN_vX` format
+17. **Appendix C: Changelog Entry Template**
+18. **Appendix D: CODEX Arbitration Syntax**
+19. **Appendix E: Lovable Knowledge Base Template**
 
-| File                 | Action             | Description                               |
-| -------------------- | ------------------ | ----------------------------------------- |
-| `README_Backup_2.md` | CREATE             | Exact copy of current `README.md`         |
-| `README.md`          | CREATE (overwrite) | New version with all updates listed above |
-
-
-## Style Rules (from current README)
+## Style Rules
 
 - No emojis in headers
 - `---` horizontal rules between major sections
 - Tables for structured data
-- No embedded SQL (reference `docs/database-schema.sql` instead)
+- ASCII box-drawing diagrams for workflows
 - Clean, professional tone
-- Badge shields at top
+- Concrete examples from actual EMS 2.0 bugs
+
+## File
+
+| File | Action | Description |
+|------|--------|-------------|
+| `docs/AI-Assisted-Debugging-Workflow-v2.md` | CREATE | Three-AI workflow with corrected version loop |
+
