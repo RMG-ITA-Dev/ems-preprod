@@ -1,263 +1,87 @@
 
 
-# Plan_0213-34_v4: Fix Timesheet Row Deletion Persistence
+# Plan_0213-35_v1: Make Adjustment Field Visually Identifiable as Editable
 
 ## Bug Reference
 
 | Field | Value |
 |-------|-------|
-| ID | 0213-34 |
-| Title | La funcionalidad de eliminacion de registros en la Hoja de Tiempo no funciona correctamente |
-| Priority | Alta |
-| Route | OPERACIONES - Hoja de Tiempo |
+| ID | 0213-35 |
+| Title | El campo Ajuste no es visualmente identificable como un campo de entrada editable |
+| Priority | Baja |
+| Route | PRINCIPAL - Ordenes de Trabajo |
 
-## What Changed from v3
+## Problem
 
-| Note | Resolution |
-|------|-----------|
-| Deterministic logging | Added `logger.error("Failed to delete timesheet row entries", e)` in the `catch` block of `confirmDeleteRow`, using the project's existing `logger` utility from `@/lib/logger`. This ensures errors are always logged to the console regardless of React Query configuration, without affecting UX (no duplicate toasts). |
+In the Work Order form summary section, the Adjustment (`NumericInput`) field uses `border-0 bg-transparent` classes, making it visually indistinguishable from the static text rows around it (e.g., "Honorario Standard", "% Realizacion"). Users cannot tell it is an editable input.
 
-All other changes remain identical to v3.
+## Root Cause
+
+Line 471 of `WorkOrderForm.tsx`:
+
+```
+"w-24 text-right h-8 font-mono border-0 bg-transparent px-0 ..."
+```
+
+The `border-0` and `bg-transparent` classes strip all visual affordance from the input.
+
+## Solution
+
+Replace the transparent/borderless styling with a subtle but visible input style **when the field is editable** (`isEditable === true`). When locked (`!isEditable`), keep the current transparent look since it is read-only.
+
+This gives the user a clear visual cue (border + slight background) that the field accepts input, while maintaining the clean summary appearance when the Work Order is locked/approved.
 
 ## Changes
 
-### 1. `src/hooks/useTimesheetMutations.ts`
+### 1. `src/components/forms/WorkOrderForm.tsx`
 
-**Add `useDeleteRowEntries`** after the existing `useDeleteTimeEntry` (around line 109):
+**Modify the NumericInput className** (lines 470-473):
 
+Replace:
 ```typescript
-// BUG #0213-34: Bulk delete all time entries for a row
-export function useDeleteRowEntries() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (timeIds: string[]) => {
-      const { error } = await supabase
-        .from("time_entries")
-        .delete()
-        .in("time_id", timeIds);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["time-entries"] });
-    },
-    // No onError here -- caller handles toast + logging to avoid duplicates
-  });
-}
+className={cn(
+  "w-24 text-right h-8 font-mono border-0 bg-transparent px-0 !text-[length:inherit] focus-visible:ring-1 focus-visible:ring-border focus-visible:ring-offset-0",
+  adjustmentAmount < 0 && "text-destructive"
+)}
 ```
 
-### 2. `src/components/timesheet/TimesheetGrid.tsx`
-
-**A. Add imports** (add to existing import lines):
-
-- Add `useDeleteRowEntries` to the existing `useTimesheetMutations` import.
-- Add AlertDialog components import.
-- Add `import { logger } from "@/lib/logger";`
-- `toast` from `sonner` is already imported at line 23.
-
+With:
 ```typescript
-import { useUpsertTimeEntry, useDeleteRowEntries } from "@/hooks/useTimesheetMutations";
-import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel,
-  AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
-  AlertDialogHeader, AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { logger } from "@/lib/logger";
+className={cn(
+  "w-24 text-right h-8 font-mono !text-[length:inherit]",
+  isEditable
+    ? "border border-input bg-background px-2 rounded-md focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-0"
+    : "border-0 bg-transparent px-0",
+  adjustmentAmount < 0 && "text-destructive"
+)}
 ```
 
-**B. Add state and hook** (near line 91, after `upsertEntry`):
+When editable: standard input border (`border-input`), background (`bg-background`), padding, and rounded corners -- matching the project's `Input` component styling.
 
-```typescript
-const deleteRowEntries = useDeleteRowEntries();
-const [deleteRowId, setDeleteRowId] = useState<string | null>(null);
-```
+When locked: transparent and borderless as before.
 
-**C. Replace `removeRow`** (lines 312-314) with `removeRow` + `confirmDeleteRow`:
+### 2. `docs/CHANGELOG-2026-02-17.md`
 
-```typescript
-const removeRow = (rowId: string) => {
-  const row = rows.find((r) => r.id === rowId);
-  if (!row) return;
-
-  const entryIdsToDelete = Object.values(row.entryIds).filter(
-    (id): id is string => !!id
-  );
-
-  // Empty/new row: remove locally, no DB call, no confirmation
-  if (entryIdsToDelete.length === 0) {
-    setRows((prev) => prev.filter((r) => r.id !== rowId));
-    return;
-  }
-
-  // Row has saved entries: require confirmation
-  setDeleteRowId(rowId);
-};
-
-const confirmDeleteRow = async () => {
-  if (!deleteRowId) return;
-
-  const row = rows.find((r) => r.id === deleteRowId);
-  if (!row) {
-    setDeleteRowId(null);
-    return;
-  }
-
-  const entryIdsToDelete = Object.values(row.entryIds).filter(
-    (id): id is string => !!id
-  );
-
-  if (entryIdsToDelete.length === 0) {
-    setRows((prev) => prev.filter((r) => r.id !== deleteRowId));
-    setDeleteRowId(null);
-    return;
-  }
-
-  // Snapshot for rollback
-  const previousRows = rows;
-
-  // Optimistic UI removal
-  setRows((prev) => prev.filter((r) => r.id !== deleteRowId));
-
-  try {
-    await deleteRowEntries.mutateAsync(entryIdsToDelete);
-    setDeleteRowId(null);
-  } catch (e) {
-    // Deterministic logging + rollback
-    logger.error("Failed to delete timesheet row entries", e);
-    setRows(previousRows);
-    setDeleteRowId(null);
-    toast.error(t("timesheet.deleteRowError"));
-  }
-};
-```
-
-**D. Disable trash button while pending** (around lines 742-749):
-
-```typescript
-<Button
-  variant="ghost"
-  size="icon"
-  className="h-8 w-8 text-muted-foreground hover:text-destructive"
-  onClick={() => removeRow(row.id)}
-  disabled={deleteRowEntries.isPending}
->
-  <Trash2 className="h-4 w-4" />
-</Button>
-```
-
-**E. Add AlertDialog JSX** (before the closing wrapper `</div>`, after the table):
-
-```typescript
-<AlertDialog
-  open={!!deleteRowId}
-  onOpenChange={(open) => { if (!open) setDeleteRowId(null); }}
->
-  <AlertDialogContent>
-    <AlertDialogHeader>
-      <AlertDialogTitle>{t("timesheet.deleteRowTitle")}</AlertDialogTitle>
-      <AlertDialogDescription>
-        {t("timesheet.deleteRowDescription")}
-      </AlertDialogDescription>
-    </AlertDialogHeader>
-    <AlertDialogFooter>
-      <AlertDialogCancel disabled={deleteRowEntries.isPending}>
-        {t("common.cancel")}
-      </AlertDialogCancel>
-      <AlertDialogAction
-        onClick={confirmDeleteRow}
-        disabled={deleteRowEntries.isPending}
-        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-      >
-        {t("common.delete")}
-      </AlertDialogAction>
-    </AlertDialogFooter>
-  </AlertDialogContent>
-</AlertDialog>
-```
-
-### 3. `src/locales/en.json`
-
-Inside the `"timesheet"` block, add:
-
-```json
-"deleteRowTitle": "Delete timesheet row",
-"deleteRowDescription": "This will permanently delete all hours logged in this row for the current week. This action cannot be undone.",
-"deleteRowError": "Failed to delete row. It has been restored."
-```
-
-### 4. `src/locales/es.json`
-
-Inside the `"timesheet"` block, add:
-
-```json
-"deleteRowTitle": "Eliminar fila de la hoja de tiempo",
-"deleteRowDescription": "Esto eliminará permanentemente todas las horas registradas en esta fila para la semana actual. Esta acción no se puede deshacer.",
-"deleteRowError": "Error al eliminar la fila. Se ha restaurado."
-```
-
-### 5. `docs/CHANGELOG-2026-02-17.md`
-
-Append entry for BUG #0213-34:
-
-```text
-## BUG #0213-34: Fix Timesheet Row Deletion Persistence
-
-**Date:** 2026-02-18
-**Priority:** Alta
-**Version:** v2.0.10
-**Route:** OPERACIONES -> Hoja de Tiempo
-
-### Problem
-Deleting a timesheet row removed it only from local UI state (`setRows` filter). Because underlying `time_entries` were not deleted from the database, the row reappeared on autosave/refetch/reload.
-
-### Root Cause
-`removeRow` in `TimesheetGrid.tsx` only called `setRows(rows.filter(...))` without any database mutation.
-
-### Solution
-1. **Bulk DB delete:** New `useDeleteRowEntries` mutation deletes all `time_id` values via `.delete().in('time_id', ids)`.
-2. **Confirmation dialog:** AlertDialog shown only when the row has saved DB entries. Empty/new rows removed instantly.
-3. **Optimistic UI + rollback:** Row removed immediately; restored with error toast on failure.
-4. **Double-click protection:** Trash button disabled while `deleteRowEntries.isPending`.
-5. **Cache sync:** `["time-entries"]` query invalidated on success.
-6. **Toast de-duplication:** `useDeleteRowEntries` omits `onError`; caller's `catch` handles toast.
-7. **Deterministic logging:** `logger.error()` in `catch` block ensures errors are always logged regardless of React Query config.
-
-### Files Modified
-| File | Change |
-|------|--------|
-| `src/hooks/useTimesheetMutations.ts` | Added `useDeleteRowEntries` bulk delete mutation |
-| `src/components/timesheet/TimesheetGrid.tsx` | Rewrote `removeRow` with confirmation, optimistic UI, rollback, `logger.error`, disabled trash |
-| `src/locales/en.json` | Added `deleteRowTitle`, `deleteRowDescription`, `deleteRowError` |
-| `src/locales/es.json` | Added Spanish equivalents |
-| `docs/CHANGELOG-2026-02-17.md` | This entry |
-```
+Append entry for BUG #0213-35.
 
 ## Files Summary
 
 | File | Action | Description |
 |------|--------|-------------|
-| `src/hooks/useTimesheetMutations.ts` | MODIFY | Add `useDeleteRowEntries` bulk delete mutation (no `onError`) |
-| `src/components/timesheet/TimesheetGrid.tsx` | MODIFY | Add imports (including `logger`), state, rewrite `removeRow` with confirmation + optimistic UI + rollback + `logger.error`, add AlertDialog, disable trash while pending |
-| `src/locales/en.json` | MODIFY | Add `deleteRowTitle`, `deleteRowDescription`, `deleteRowError` |
-| `src/locales/es.json` | MODIFY | Add Spanish equivalents |
-| `docs/CHANGELOG-2026-02-17.md` | MODIFY | Append BUG #0213-34 changelog entry |
+| `src/components/forms/WorkOrderForm.tsx` | MODIFY | Conditional styling on Adjustment NumericInput: visible border when editable, transparent when locked |
+| `docs/CHANGELOG-2026-02-17.md` | MODIFY | Append BUG #0213-35 changelog entry |
 
 ## Acceptance Criteria
 
-1. Deleting a row with saved entries prompts a confirmation dialog.
-2. Confirming deletion removes the row immediately and deletes all associated `time_entries` in DB so it does not reappear after refetch/reload.
-3. Deleting a new/empty row removes it immediately without confirmation and without DB calls.
-4. If DB deletion fails, the row is restored, a single error toast is shown, and the error is logged via `logger.error`.
-5. Trash action is disabled while deletion is pending.
-6. Locked/approved rows remain protected (existing lock logic unchanged).
+1. In Draft mode (editable), the Adjustment field displays with a visible border and background, clearly distinguishable as an input.
+2. In locked/approved mode, the field remains transparent and borderless (read-only appearance).
+3. Negative values still render in red (`text-destructive`).
+4. No other summary row styling is affected.
 
 ## Risk Assessment
 
 | Risk | Mitigation |
 |------|-----------|
-| Double-click | `isPending` disables the button |
-| Double toast | `useDeleteRowEntries` has no `onError`; only `catch` toasts |
-| Non-deterministic logging | Explicit `logger.error` in `catch` block |
-| Rollback restores full snapshot | Acceptable; delete is fast, minimal concurrent-edit risk |
-| Query key mismatch | Verified: `["time-entries"]` prefix matches `useTimesheetWeek.ts` |
+| Style mismatch with other inputs | Uses same semantic tokens as the project's `Input` component (`border-input`, `bg-background`) |
+| Visual regression when locked | Conditional class: locked state retains existing `border-0 bg-transparent` |
 
