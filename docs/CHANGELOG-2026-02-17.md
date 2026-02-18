@@ -557,3 +557,26 @@ worksheet page, and used the same message for both Pending_Approval and Approved
 | `src/locales/es.json` | Split i18n keys + goToWorkOrder |
 | `src/locales/en.json` | Split i18n keys + goToWorkOrder |
 | `docs/CHANGELOG-2026-02-17.md` | This entry |
+
+---
+
+## BUG #0213-38: Missing i18n Key for Partner Column Header
+
+**Date:** 2026-02-18
+**Priority:** Baja
+**Version:** v2.0.10
+**Route:** PRINCIPAL -> Panel de Control
+
+### Report
+The Partner Leaderboard table in the Practica dashboard tab displayed the raw key
+`common.partner` instead of "Socio" as the column header.
+
+### Fix
+Added the missing `common.partner` key to both locale files (es: "Socio", en: "Partner").
+No component code changes required.
+
+| File | Change |
+|------|--------|
+| `src/locales/es.json` | Added `common.partner` = "Socio" |
+| `src/locales/en.json` | Added `common.partner` = "Partner" |
+| `docs/CHANGELOG-2026-02-17.md` | This entry |
