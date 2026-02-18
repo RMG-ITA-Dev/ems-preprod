@@ -580,3 +580,30 @@ No component code changes required.
 | `src/locales/es.json` | Added `common.partner` = "Socio" |
 | `src/locales/en.json` | Added `common.partner` = "Partner" |
 | `docs/CHANGELOG-2026-02-17.md` | This entry |
+
+---
+
+## BUG #0213-39: Fix Status Tooltip Key Mapping for Work Orders
+
+**Date:** 2026-02-18
+**Priority:** Baja
+**Version:** v2.0.10
+**Route:** PRINCIPAL -> Ordenes de Trabajo
+
+### Report
+Hovering over the status dot for a Pending_Approval work order showed raw i18n keys
+(`workOrders.status.pendingapproval`) instead of the translated text ("Pendiente Aprobacion").
+
+### Root Cause
+Dynamic key construction used `.toLowerCase().replace("_", "")`, which turned
+`Pending_Approval` into `pendingapproval` instead of the correct key `pending`.
+
+### Fix
+Added a `statusI18nKey` lookup map to correctly map database status values to their
+i18n key suffixes. Fallback uses `status.toLowerCase()` for unknown statuses.
+No locale file changes needed.
+
+| File | Change |
+|------|--------|
+| `src/pages/WorkOrders.tsx` | Added `statusI18nKey` map; updated tooltip key references |
+| `docs/CHANGELOG-2026-02-17.md` | This entry |

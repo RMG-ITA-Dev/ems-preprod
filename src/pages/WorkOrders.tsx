@@ -47,6 +47,13 @@ const statusDotColors: Record<string, string> = {
   Rejected: "bg-destructive",
 };
 
+const statusI18nKey: Record<string, string> = {
+  Draft: "draft",
+  Pending_Approval: "pending",
+  Approved: "approved",
+  Rejected: "rejected",
+};
+
 type SortDirection = "asc" | "desc" | null;
 type SortColumn = "code" | "name" | "client" | "partner" | "manager" | "hours" | "standardFee" | "realization" | "adjustedFee" | "expenses" | "totalNoVAT" | "totalVAT" | null;
 
@@ -685,8 +692,12 @@ const WorkOrders = () => {
                                   />
                                 </TooltipTrigger>
                                 <TooltipContent>
-                                  <p className="font-medium">{t(`workOrders.status.${status.toLowerCase().replace("_", "")}`)}</p>
-                                  <p className="text-xs text-muted-foreground">{t(`workOrders.statusTooltip.${status.toLowerCase().replace("_", "")}`)}</p>
+                                  {(() => { const key = statusI18nKey[status] ?? status.toLowerCase(); return (
+                                    <>
+                                      <p className="font-medium">{t(`workOrders.status.${key}`)}</p>
+                                      <p className="text-xs text-muted-foreground">{t(`workOrders.statusTooltip.${key}`)}</p>
+                                    </>
+                                  ); })()}
                                 </TooltipContent>
                               </Tooltip>
                             </TooltipProvider>
