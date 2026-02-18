@@ -1,72 +1,90 @@
 
 
-# Plan_0213-38_v1: Add Missing i18n Key for Partner Column Header
+# Plan_0213-39_v2: Fix Status Tooltip Key Mapping for Work Orders
 
 ## Bug Reference
 
 | Field | Value |
 |-------|-------|
-| ID | 0213-38 |
-| Title | El titulo de la Tabla de Socios deberia indicar el nombre de la columna Socio en espanol |
+| ID | 0213-39 |
+| Title | La bandera que identifica el estado de la Orden de Trabajo deberia estar en espanol |
 | Priority | Baja |
-| Route | PRINCIPAL - Panel de Control |
+| Route | PRINCIPAL - Ordenes de Trabajo |
+| Base Plan | Plan_0213-39_v1 (with CODEX tweak for safer fallback) |
 
 ## Problem
 
-In the Dashboard's Practica tab, the Partner Leaderboard table ("Tabla de Socios") shows the raw i18n key `common.partner` as the column header instead of the translated word "Socio". This happens because the key `common.partner` does not exist in either locale file.
+In the Work Orders list page, hovering over the status dot for a `Pending_Approval` work order shows raw i18n keys (`workOrders.status.pendingapproval`) instead of translated text, because dynamic key construction via `.toLowerCase().replace("_", "")` produces the wrong suffix.
 
-## Root Cause
+## Changes from v1
 
-`PracticaTab.tsx` line 448 uses `t('common.partner')`, but neither `src/locales/es.json` nor `src/locales/en.json` defines a `partner` key inside the `common` block. When react-i18next cannot find a key, it renders the key path as-is.
-
-## Solution
-
-Add the missing `partner` key to the `common` block in both locale files. No component code changes needed.
+**CODEX tweak**: The fallback in v1 was `statusI18nKey[status] || status`, which would pass raw DB values like `On_Hold` directly into the i18n key. Updated to `statusI18nKey[status] ?? status.toLowerCase()` so unknown statuses at least get a lowercased key, which has a better chance of matching.
 
 ## Changes
 
-### 1. `src/locales/es.json` -- common block
+### 1. `src/pages/WorkOrders.tsx`
 
-Add after an existing key (e.g., after `"close"`):
+**Add mapping constant** (near `statusDotColors`, around line 43):
 
-```json
-"partner": "Socio"
+```typescript
+const statusI18nKey: Record<string, string> = {
+  Draft: "draft",
+  Pending_Approval: "pending",
+  Approved: "approved",
+  Rejected: "rejected",
+};
 ```
 
-### 2. `src/locales/en.json` -- common block
+**Update lines 688-689** from:
 
-Add in the same position:
-
-```json
-"partner": "Partner"
+```typescript
+<p className="font-medium">{t(`workOrders.status.${status.toLowerCase().replace("_", "")}`)}</p>
+<p className="text-xs text-muted-foreground">{t(`workOrders.statusTooltip.${status.toLowerCase().replace("_", "")}`)}</p>
 ```
 
-### 3. `docs/CHANGELOG-2026-02-17.md`
+to:
+
+```typescript
+{(() => { const key = statusI18nKey[status] ?? status.toLowerCase(); return (
+  <>
+    <p className="font-medium">{t(`workOrders.status.${key}`)}</p>
+    <p className="text-xs text-muted-foreground">{t(`workOrders.statusTooltip.${key}`)}</p>
+  </>
+); })()}
+```
+
+Or equivalently, compute `key` once before the JSX return and use it in both lines. The exact implementation will follow whichever pattern reads cleanest in context.
+
+### 2. `docs/CHANGELOG-2026-02-17.md`
 
 Append:
 
 ```text
 ---
 
-## BUG #0213-38: Missing i18n Key for Partner Column Header
+## BUG #0213-39: Fix Status Tooltip Key Mapping for Work Orders
 
 **Date:** 2026-02-18
 **Priority:** Baja
 **Version:** v2.0.10
-**Route:** PRINCIPAL -> Panel de Control
+**Route:** PRINCIPAL -> Ordenes de Trabajo
 
 ### Report
-The Partner Leaderboard table in the Practica dashboard tab displayed the raw key
-`common.partner` instead of "Socio" as the column header.
+Hovering over the status dot for a Pending_Approval work order showed raw i18n keys
+(`workOrders.status.pendingapproval`) instead of the translated text ("Pendiente Aprobacion").
+
+### Root Cause
+Dynamic key construction used `.toLowerCase().replace("_", "")`, which turned
+`Pending_Approval` into `pendingapproval` instead of the correct key `pending`.
 
 ### Fix
-Added the missing `common.partner` key to both locale files (es: "Socio", en: "Partner").
-No component code changes required.
+Added a `statusI18nKey` lookup map to correctly map database status values to their
+i18n key suffixes. Fallback uses `status.toLowerCase()` for unknown statuses.
+No locale file changes needed.
 
 | File | Change |
 |------|--------|
-| `src/locales/es.json` | Added `common.partner` = "Socio" |
-| `src/locales/en.json` | Added `common.partner` = "Partner" |
+| `src/pages/WorkOrders.tsx` | Added `statusI18nKey` map; updated tooltip key references |
 | `docs/CHANGELOG-2026-02-17.md` | This entry |
 ```
 
@@ -74,19 +92,20 @@ No component code changes required.
 
 | File | Action | Description |
 |------|--------|-------------|
-| `src/locales/es.json` | MODIFY | Add `"partner": "Socio"` to `common` block |
-| `src/locales/en.json` | MODIFY | Add `"partner": "Partner"` to `common` block |
-| `docs/CHANGELOG-2026-02-17.md` | MODIFY | Append BUG #0213-38 changelog entry |
+| `src/pages/WorkOrders.tsx` | MODIFY | Add `statusI18nKey` map + fix tooltip key lookup with safe fallback |
+| `docs/CHANGELOG-2026-02-17.md` | MODIFY | Append BUG #0213-39 changelog entry |
 
 ## Acceptance Criteria
 
-1. The Partner Leaderboard column header in the Practica tab displays "Socio" (in Spanish) or "Partner" (in English) instead of the raw key.
-2. No other components are affected (this is a new key, not a rename).
+1. Hovering the status dot for a `Pending_Approval` WO shows "Pendiente Aprobacion" (es) / "Pending Approval" (en).
+2. Tooltip description shows the full text from `statusTooltip.pending`.
+3. All other statuses (Draft, Approved, Rejected) continue to display correctly.
+4. Unknown future statuses fall back to `status.toLowerCase()` instead of raw DB values.
 
 ## Risk Assessment
 
 | Risk | Mitigation |
 |------|-----------|
-| Key name collides with existing key | Confirmed: no `partner` key exists under `common` in either locale file |
-| Other components use `common.partner` | This is the only reference; adding the key fixes it without side effects |
+| Unknown status still produces bad key | `toLowerCase()` fallback is best-effort; renders key string rather than crashing |
+| Other places use same pattern | Searched codebase; this is the only instance of this dynamic key construction for WO statuses |
 
