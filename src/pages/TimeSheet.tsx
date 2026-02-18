@@ -56,6 +56,7 @@ const TimeSheet = () => {
     return setting ? parseFloat(setting.setting_value) : 50;
   }, [globalSettings]);
 
+
   // Week navigation state - start with current week
   const [currentWeekStart, setCurrentWeekStart] = useState(() =>
     getWeekMonday(new Date())
@@ -90,6 +91,13 @@ const TimeSheet = () => {
     isError,
     error,
   } = useTimesheetWeek(currentWeekStart, workDays);
+
+  // BUG #0213-33: Weekly limit submission guard
+  const weeklyGrandTotal = useMemo(() => {
+    return entries.reduce((sum, e) => sum + Number(e.hours_logged ?? 0), 0);
+  }, [entries]);
+
+  const isWeeklyLimitExceeded = weeklyGrandTotal > Number(weeklyLimit);
 
   // Holiday data for the current week
   const holidayMap = useHolidaysForWeek(weekInfo.weekDates);
@@ -228,11 +236,14 @@ const TimeSheet = () => {
     && hasNonZeroEntry;
 
   // BUG #21: Separate "can submit" from "can edit cells"
+  // BUG #0213-33: Also gate on weekly limit
   const canSubmit = !isBeforeHireDate && isWithinEditableWindow && entries.length > 0 &&
-    !isSubmitted && !period?.is_period_locked;
+    !isSubmitted && !period?.is_period_locked && !isWeeklyLimitExceeded;
 
   // Handle submit
   const handleSubmit = async () => {
+    // DEFENSE-IN-DEPTH: weekly limit guard (do NOT rely only on canSubmit)
+    if (isWeeklyLimitExceeded) return;
     if (!period?.period_id || !staffRecord) return;
 
     // Get unique engagement IDs from entries
@@ -387,6 +398,24 @@ const TimeSheet = () => {
             <AlertCircle className="h-4 w-4" />
             <AlertDescription>{t("timesheet.noEngagements")}</AlertDescription>
           </Alert>
+        )}
+
+        {/* BUG #0213-33: Weekly limit exceeded alert */}
+        {isWeeklyLimitExceeded &&
+          !isBeforeHireDate &&
+          isWithinEditableWindow &&
+          entries.length > 0 &&
+          !isSubmitted &&
+          !period?.is_period_locked && (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>
+                {t("timesheet.cannotSubmitWeeklyLimit", {
+                  total: weeklyGrandTotal.toFixed(1),
+                  limit: weeklyLimit,
+                })}
+              </AlertDescription>
+            </Alert>
         )}
 
         {/* Time Entry Grid */}

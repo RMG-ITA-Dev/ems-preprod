@@ -605,6 +605,7 @@
     "saveDraft": "Guardar Borrador",
     "submitWeek": "Enviar Semana",
     "resubmitWeek": "Reenviar Semana",
+    "cannotSubmitWeeklyLimit": "No se puede enviar: el total de horas ({{total}}h) excede el límite semanal ({{limit}}h). Reduzca las horas antes de enviar.",
     "selectEngagement": "Seleccionar Encargo",
     "selectActivity": "Seleccionar actividad",
     "weekDays": {

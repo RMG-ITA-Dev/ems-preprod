@@ -417,3 +417,45 @@ After partially approving timesheet lines (e.g., approving 1 of 2 engagement lin
 - **Snapshot rollback + DB reconciliation:** On mutation failure, the optimistic cache update is immediately rolled back to a pre-save snapshot, then `invalidateQueries` + `refetchQueries(type: "all")` reconciles with partial DB changes. Error toast uses localized `common.saveError`.
 - **`refetchQueries` type fix:** Changed from `type: "active"` to `type: "all"` to ensure cache sync regardless of query activity status.
 - **i18n key added:** `common.saveError` in both `en.json` and `es.json`.
+
+---
+
+## BUG #0213-33: Block Timesheet Submission When Weekly Limit Exceeded
+
+**Date:** 2026-02-18
+**Priority:** Media
+**Version:** v2.0.10
+**Route:** OPERACIONES -> Hoja de Tiempo
+
+### Problem
+
+The system allowed submitting timesheets with total hours exceeding the configured weekly limit (e.g., 50h). Visual warnings existed in the grid (red cells, "Excede limite!" text) but did not prevent submission.
+
+### Root Cause
+
+No validation existed in the submit flow — neither in the `canSubmit` flag nor inside `handleSubmit`. The weekly limit was only enforced visually in the grid component.
+
+### Solution
+
+Two layers of enforcement (defense in depth):
+
+1. **UI gating:** Computed `weeklyGrandTotal` (with `Number()` coercion to prevent string concatenation bugs) and `isWeeklyLimitExceeded`. Added `!isWeeklyLimitExceeded` to `canSubmit` flag, disabling the submit button. Added a destructive inline alert (shown only when all base eligibility checks pass).
+2. **handleSubmit guard:** Early return at the top of `handleSubmit` using `isWeeklyLimitExceeded`, blocking submission even if `canSubmit` is bypassed programmatically.
+
+### Files Modified
+
+| File | Change |
+|------|--------|
+| `src/pages/TimeSheet.tsx` | Added `weeklyGrandTotal` (with `Number()` coercion), `isWeeklyLimitExceeded`, gated `canSubmit`, added early-return guard in `handleSubmit`, added inline alert with full eligibility condition |
+| `src/locales/en.json` | Added `timesheet.cannotSubmitWeeklyLimit` |
+| `src/locales/es.json` | Added `timesheet.cannotSubmitWeeklyLimit` |
+| `docs/CHANGELOG-2026-02-17.md` | This entry |
+
+### Risk Assessment
+
+| Risk | Mitigation |
+|------|-----------|
+| Client-side only (no server guard) | Sufficient for this priority; server-side trigger is future scope |
+| Entries array empty | `reduce` on empty returns 0; `canSubmit` already checks `entries.length > 0` |
+| `hours_logged` as string | `Number()` coercion handles it safely |
+| Alert showing in irrelevant states | Full eligibility condition prevents it |
