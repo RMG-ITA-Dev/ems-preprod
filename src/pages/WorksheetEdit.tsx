@@ -348,12 +348,25 @@ const WorksheetEdit = () => {
         </Card>
 
         {/* Locked by Work Order Banner */}
-        {isWOLocked && (
+        {isWOLocked && worksheet.wo_id &&
+         (linkedWOStatus === "Pending_Approval" || linkedWOStatus === "Approved") && (
           <Alert variant="default" className="border-warning bg-warning/10">
             <Lock className="h-4 w-4" />
             <AlertTitle>{t("workMatrix.lockedByWorkOrderTitle")}</AlertTitle>
-            <AlertDescription>
-              {t("workMatrix.lockedByWorkOrder")}
+            <AlertDescription className="flex items-center justify-between gap-4">
+              <span>
+                {linkedWOStatus === "Pending_Approval"
+                  ? t("workMatrix.lockedByWorkOrderPending")
+                  : t("workMatrix.lockedByWorkOrderApproved")}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0 border-warning text-warning-foreground hover:bg-warning/20"
+                onClick={() => { allowNextNavigation(); navigate(`/work-orders/${worksheet.wo_id}`); }}
+              >
+                {t("workMatrix.goToWorkOrder")}
+              </Button>
             </AlertDescription>
           </Alert>
         )}

@@ -923,7 +923,9 @@
       "archived": "Archived"
     },
     "lockedByWorkOrderTitle": "Worksheet Locked",
-    "lockedByWorkOrder": "This worksheet is locked because the linked Work Order is pending approval or approved. Use the Unsubmit button on the Work Order to unlock."
+    "lockedByWorkOrderPending": "This worksheet is locked because the linked Work Order is pending approval. To unlock it, use the \"Withdraw from Approval\" button on the Work Order.",
+    "lockedByWorkOrderApproved": "This worksheet is locked because the linked Work Order has been approved. To unlock it, the Work Order status must be changed.",
+    "goToWorkOrder": "Go to Work Order"
   },
   "bootstrap": {
     "title": "Complete Your Setup",

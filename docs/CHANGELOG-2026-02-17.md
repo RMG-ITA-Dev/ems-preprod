@@ -530,3 +530,30 @@ Tester reported that Partner (Socio) timesheets are auto-approved without standa
 Confirmed as **working as designed**. Business rule: Partners (display_order <= 2) do not require approval from other Partners. The `is_auto_approved_category()` DB function and `get_line_approver()` function implement this intentionally. The UI already shows a distinct toast ("Hoja de tiempo auto-aprobada") to communicate the auto-approval to the user.
 
 **Status:** Closed - Expected Functionality. No code changes.
+
+---
+
+## BUG #0213-37: Worksheet Lock Banner — Actionable & Status-Aware
+
+**Date:** 2026-02-18
+**Priority:** Baja
+**Version:** v2.0.10
+**Route:** PRINCIPAL -> Ordenes de Trabajo
+
+### Report
+The worksheet lock banner mentioned a "Retirar" button that users could not see from the
+worksheet page, and used the same message for both Pending_Approval and Approved statuses.
+
+### Fix
+- Banner now shows status-specific messages: Pending_Approval references "Retirar de Aprobación";
+  Approved explains the WO must change status.
+- Added "Ir a Orden de Trabajo" / "Go to Work Order" button inside the banner for direct navigation.
+- Banner only renders for the two expected locked states (Pending_Approval, Approved).
+- Removed the old combined-state i18n key `lockedByWorkOrder` (confirmed no other references).
+
+| File | Change |
+|------|--------|
+| `src/pages/WorksheetEdit.tsx` | Status-aware banner with navigation button |
+| `src/locales/es.json` | Split i18n keys + goToWorkOrder |
+| `src/locales/en.json` | Split i18n keys + goToWorkOrder |
+| `docs/CHANGELOG-2026-02-17.md` | This entry |
