@@ -672,3 +672,34 @@ No change needed.
 | `src/locales/es.json` | Added `common.status` = "Estado" |
 | `src/locales/en.json` | Added `common.status` = "Status" |
 | `docs/CHANGELOG-2026-02-17.md` | This entry |
+
+---
+
+## BUG #0213-42: Make Hire Date Required on Staff Form
+
+**Date:** 2026-02-18
+**Priority:** Baja
+**Version:** v2.0.10
+**Route:** ADMINISTRACION -> Personal -> Nuevo Miembro del Personal
+
+### Report
+The "Fecha de Ingreso" (Hire Date) field was optional, allowing staff to be created
+without a hire date. Business rules require it because hire_date gates timesheet
+entry restrictions.
+
+### Root Cause
+Zod schema defined `hire_date` as `z.string().optional().or(z.literal(""))`. The
+label lacked the `*` required indicator.
+
+### Fix
+1. Changed Zod validation to `z.string().min(1, "Hire date is required")`.
+2. Added `*` to the form label.
+Existing staff with NULL hire_date will be prompted to fill it on next edit
+(intentional forced cleanup).
+
+**Note:** DB-level NOT NULL constraint recommended as a follow-up task.
+
+| File | Change |
+|------|--------|
+| `src/components/forms/StaffForm.tsx` | Made `hire_date` required in Zod schema; added `*` to label |
+| `docs/CHANGELOG-2026-02-17.md` | This entry |
