@@ -140,3 +140,49 @@ A system "ADM" activity code is auto-assigned by a trigger when `activity_requir
 | Unique index with ADM activity | `activity_id` stays NOT NULL; ADM provides a real value |
 | Non-WO engagement visible to wrong users | `is_internal=false` engagements only visible to assigned team or admin (SQL `.or()` filter) |
 | Trigger ordering | Four triggers coexist independently; no ordering dependency |
+
+---
+
+## Plan_0213-27_C03_v2: Estado Filter, Delete Guard, Default View
+
+**Date:** 2026-02-17  
+**Priority:** Media  
+**Version:** v2.0.7  
+**Route:** OPERACIONES → Registros de Tiempo
+
+### Problem
+
+Three issues with the TrackerList page:
+1. No filter on "Estado" column — unlike Fecha and Encargo columns
+2. Imported records could be hard-deleted — no DB-level guard
+3. Default view showed all records, including already-imported ones
+
+### Solution
+
+1. **DB trigger** `trg_prevent_imported_timer_delete`: BEFORE DELETE on `timer_entries` raises exception if `is_imported = true`
+2. **Estado filter**: Excel-style funnel icon on Estado column header with Popover + Select (Activos, Todos, Listo, Importado, En Curso)
+3. **Default view**: `statusFilter` defaults to `"active"` showing Running + Ready entries; imported records hidden until user explicitly filters
+
+### Database Migration
+
+| Object | Detail |
+|--------|--------|
+| `prevent_imported_timer_delete()` | Trigger function — raises exception on DELETE of imported timer entries |
+| `trg_prevent_imported_timer_delete` | BEFORE DELETE ON `timer_entries` FOR EACH ROW |
+
+### Files Modified
+
+| File | Change |
+|------|--------|
+| `src/pages/TrackerList.tsx` | Added `statusFilter` state (default "active"), filter logic in `filteredEntries`, funnel icon + Popover + Select on Estado column header |
+| `src/locales/en.json` | Added `tracker.statusActive`, `tracker.statusAll` |
+| `src/locales/es.json` | Added `tracker.statusActive`, `tracker.statusAll` |
+| `docs/CHANGELOG-2026-02-17.md` | This entry |
+
+### Risk Assessment
+
+| Risk | Mitigation |
+|------|-----------|
+| Default hides imported records | Users can switch filter to "Todos" or "Importado" |
+| DB trigger blocks admin cleanup | Only blocks `is_imported=true`; admin can UPDATE flag first if needed |
+| Hard delete still works for non-imported | Intentional — only imported records are protected |
