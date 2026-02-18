@@ -228,3 +228,47 @@ A user who self-registers (signs up + verifies email) could access the app even 
 | `src/App.tsx` | Added `/bootstrap` route with `BootstrapRoute` guard |
 | `src/locales/en.json` | Added bootstrap + noStaffRecord + activeDescriptionNew keys |
 | `src/locales/es.json` | Added bootstrap + noStaffRecord + activeDescriptionNew keys |
+
+---
+
+## BUG #0213-29: Disable Timer Button When Running + Fix Stale Leave Dialog
+
+**Date:** 2026-02-18
+**Priority:** Media
+**Version:** v2.0.9
+**Route:** OPERACIONES -> Cronometro
+
+### Problem
+
+Two issues with the Tracker:
+1. The "Usar cronometro" button on `/tracker` was always enabled, allowing users to click it repeatedly even when a timer was already running. Although the DB prevents duplicate running timers, the UI gave no indication.
+2. After clicking "Guardar" on `/tracker/new`, the "Cronometro en curso" leave-confirmation dialog appeared incorrectly because the `useBlocker` navigation guard still evaluated stale `isRunning = true` from cached query data.
+
+### Root Cause
+
+1. `TrackerList.tsx` did not check for a running timer entry.
+2. `handleSaveAndReset` in `TrackerRecord.tsx` called `navigate()` before the `running_timer` query cache updated, so the `useBlocker` condition was still true. The "Run in Background" button already solved this with `stopwatchBypassRef`, but the save/cancel/delete handlers did not use it.
+
+### Solution
+
+1. **TrackerList:** Import `useRunningTimerEntry()`, disable "Usar cronometro" button when `hasRunningTimer` is true (wrapped in `<span className="inline-flex">` for tooltip accessibility), and show a secondary "Ver cronometro activo" CTA.
+2. **TrackerRecord:** Set `stopwatchBypassRef.current = true` in `handleSaveAndReset`, `handleCancel`, and `handleDelete` immediately after the async DB operation succeeds, before `resetForm()` or `navigate()`.
+
+### Files Modified
+
+| File | Change |
+|------|--------|
+| `src/pages/TrackerList.tsx` | Import `useRunningTimerEntry`, disable button when running, add tooltip wrapper, add "Ver cronometro activo" CTA |
+| `src/pages/TrackerRecord.tsx` | Add `stopwatchBypassRef.current = true` in `handleSaveAndReset`, `handleCancel`, `handleDelete` before navigation |
+| `src/locales/en.json` | Added `tracker.timerAlreadyRunningHint`, `tracker.viewActiveTimer` |
+| `src/locales/es.json` | Added `tracker.timerAlreadyRunningHint`, `tracker.viewActiveTimer` |
+| `docs/CHANGELOG-2026-02-17.md` | This entry |
+
+### Risk Assessment
+
+| Risk | Mitigation |
+|------|-----------|
+| Extra query on TrackerList | Already cached by `RunningTimerChip` in header; no extra network request |
+| Button re-enables after stop | `useStopTimerRPC` invalidates `running_timer` query key; instant re-enable |
+| Disabled button tooltip not showing | Wrapped in `<span className="inline-flex" title=...>` |
+| Bypass ref stays true | Component unmounts on navigation; ref is garbage-collected |

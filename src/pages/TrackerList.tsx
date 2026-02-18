@@ -33,7 +33,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Checkbox } from "@/components/ui/checkbox";
 import { Plus, Search, ArrowUpDown, ArrowUp, ArrowDown, Filter, ChevronDown, ArrowUpFromLine } from "lucide-react";
 import { ManualEntryDialog } from "@/components/tracker/ManualEntryDialog";
-import { useTimerEntries, TimerEntry, useCreateTimerEntry } from "@/hooks/useTimerEntries";
+import { useTimerEntries, TimerEntry, useCreateTimerEntry, useRunningTimerEntry } from "@/hooks/useTimerEntries";
 import { useTimesheetImport } from "@/hooks/useTimesheetImport";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { useAuth } from "@/hooks/useAuth";
@@ -56,6 +56,8 @@ const TrackerList = () => {
   const { staffRecord, isLoading: staffLoading } = useCurrentStaff();
   const { data: entries, isLoading: entriesLoading } = useTimerEntries();
   const createEntry = useCreateTimerEntry();
+  const { data: runningEntry } = useRunningTimerEntry();
+  const hasRunningTimer = !!runningEntry;
 
   // Selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -384,15 +386,31 @@ const TrackerList = () => {
                 </Badge>
               )}
             </Button>
-            {/* Use Timer - S8: yellow/warning */}
-            <Button
-              variant="default"
-              onClick={() => navigate("/tracker/new")}
-              className="flex-1 sm:flex-none min-h-[44px] sm:min-h-0 bg-warning text-warning-foreground hover:bg-warning/90"
+            {/* Use Timer - disabled when a timer is running */}
+            <span
+              className="inline-flex"
+              title={hasRunningTimer ? t("tracker.timerAlreadyRunningHint") : undefined}
             >
-              <Plus className="h-4 w-4 mr-2" />
-              {t("tracker.useTimer")}
-            </Button>
+              <Button
+                variant="default"
+                onClick={() => navigate("/tracker/new")}
+                disabled={hasRunningTimer}
+                className="flex-1 sm:flex-none min-h-[44px] sm:min-h-0 bg-warning text-warning-foreground hover:bg-warning/90"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                {t("tracker.useTimer")}
+              </Button>
+            </span>
+            {/* View active timer CTA - only when running */}
+            {hasRunningTimer && (
+              <Button
+                variant="outline"
+                onClick={() => navigate("/tracker/new")}
+                className="flex-1 sm:flex-none min-h-[44px] sm:min-h-0"
+              >
+                {t("tracker.viewActiveTimer")}
+              </Button>
+            )}
             {/* New Manual Record - S8: purple/default with Plus icon */}
             <Button
               variant="default"
