@@ -923,7 +923,9 @@
       "archived": "Archivada"
     },
     "lockedByWorkOrderTitle": "Matriz Bloqueada",
-    "lockedByWorkOrder": "Esta matriz está bloqueada porque la Orden de Trabajo vinculada está pendiente de aprobación o aprobada. Use el botón Retirar en la Orden de Trabajo para desbloquear."
+    "lockedByWorkOrderPending": "Esta matriz está bloqueada porque la Orden de Trabajo vinculada está pendiente de aprobación. Para desbloquearla, use el botón \"Retirar de Aprobación\" en la Orden de Trabajo.",
+    "lockedByWorkOrderApproved": "Esta matriz está bloqueada porque la Orden de Trabajo vinculada fue aprobada. Para desbloquearla, la OT debe cambiar de estado.",
+    "goToWorkOrder": "Ir a Orden de Trabajo"
   },
   "bootstrap": {
     "title": "Complete su Configuración",
