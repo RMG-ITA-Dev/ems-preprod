@@ -1,11 +1,13 @@
-# Plan_0220-18_v5: Prevent Duplicate Client Names (UI fix + DB constraint + mutation handler)
+
+
+# Plan_0220-45_v3: Deletion + Un-push Exported Timer Entries; Delete Un-pushed Timer Entries from Edit Form
 
 **Session**: 260222_EMS2.0.5_Debugg_Session
-**Bug ID**: 0220-18
+**Bug ID**: 0220-45
 **Priority**: Baja
 **Version**: v2.0.5
-**Route**: PRINCIPAL - Clientes
-**Previous version**: Plan_0220-18_v4
+**Route**: OPERACIONES - Hoja de Tiempo / Registros de Tiempo
+**Previous version**: Plan_0220-45_v2
 
 ---
 
@@ -16,213 +18,130 @@
 
 ---
 
-## Changes from v4 (CODEX Corrections Applied)
+## Changes from v2 (CODEX Corrections Applied)
 
+| # | CODEX Directive | Action Taken |
+|---|----------------|--------------|
+| C1 | `isImported` must cover both `is_imported` and `imported_to_time_id` to avoid edge-case UX mismatches | Fixed: line 77 in `TrackerEdit.tsx` changes from `entry?.is_imported ?? false` to `Boolean(entry?.is_imported) \|\| Boolean(entry?.imported_to_time_id)` |
+| C2 | Confirm FK constraint name exists exactly as written before dropping | Verified via DB query: constraint name is exactly `timer_entries_imported_to_time_id_fkey`. Confirmed. |
 
-| #   | CODEX Directive                                                                    | Action Taken                                                                                             |
-| --- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| F1  | Spanish accent still missing: "conexion" must be "conexion"                        | Fixed: ES string now reads `"problema de conexión"` with proper accent                                   |
-| F2  | Layer 2 constraint matching should prefer structured fields over message substring | Added robustness: code will check `err.constraint` first, then fall back to `err.message?.includes(...)` |
+---
 
+## Product Decision (Lock-in)
+
+- **Pushed/Imported timer entry**: `timer_entries.imported_to_time_id IS NOT NULL` and `is_imported = true`.
+- **Un-push behavior**: When a linked timesheet row is deleted, the system must set `imported_to_time_id = NULL` AND `is_imported = false` for the associated timer entries.
+- **Deletion permission**: timer_entries rows are deletable only when `is_imported = false` (un-pushed / never pushed). Enforced by existing trigger `trg_prevent_imported_timer_delete`.
+- **UI guard**: `isImported` computed as `Boolean(entry?.is_imported) || Boolean(entry?.imported_to_time_id)` to cover edge cases where one field is set but not the other.
 
 ---
 
 ## Problem
 
-When creating or editing a client, the system allows saving duplicate client names. Screenshot shows multiple "PETROBRAS" entries with different NITs, which should not be permitted.
+In OPERACIONES - Hoja de Tiempo, rows exported from "Registros de Tiempo" cannot be deleted. Clicking delete shows "Error al eliminar la fila. Se ha restaurado." The FK constraint `timer_entries.imported_to_time_id -> time_entries(time_id)` uses `NO ACTION`, blocking deletion of referenced `time_entries` rows.
 
 ## Root Cause
 
-1. **Frontend `maybeSingle()` footgun**: The duplicate-name check query uses `maybeSingle()`. When more than one row matches, `maybeSingle()` returns an error and `data` becomes `null`. Since the code only checks `if (existingByName)`, duplicates slip through silently.
-2. **No DB-level unique constraint** on normalized `client_legal_name`, so concurrent saves or direct inserts can bypass the UI check entirely.
-3. **Update mutation** uses the generic `createMutationErrorHandler` instead of `handleClientError`, so DB-level duplicate name violations produce an unhelpful generic error message.
-4. **Existing `handleClientError**` uses brittle `message.includes("unique_tax_id")` substring matching instead of constraint name matching.
+The FK `timer_entries_imported_to_time_id_fkey` uses the default `NO ACTION` delete rule. When a `time_entries` row is referenced by `timer_entries.imported_to_time_id`, PostgreSQL blocks the delete.
 
 ---
 
 ## Solution
 
-### Layer 0: Fix Frontend Duplicate-Name Check (remove maybeSingle() footgun)
-
-**File**: `src/components/forms/ClientForm.tsx`
-
-**Changes to `onSubmit` function**:
-
-1. Normalize the name before any checks:
-  ```ts
-   const trimmedName = data.client_legal_name.trim();
-  ```
-2. **NIT check**: Replace `.maybeSingle()` with `.limit(1)`:
-  ```ts
-   const { data: existingByNit, error: nitError } = await supabase
-     .from("clients")
-     .select("client_id, client_legal_name")
-     .eq("unique_tax_id", data.unique_tax_id)
-     .neq("client_id", client?.client_id || "")
-     .limit(1);
-
-   if (nitError) {
-     toast.error(t("errors.duplicateCheckFailed"));
-     return;
-   }
-   if (existingByNit && existingByNit.length > 0) {
-     toast.error(t("errors.duplicateNit", { nit: data.unique_tax_id, name: existingByNit[0].client_legal_name }));
-     return;
-   }
-  ```
-3. **Name check**: Replace `.maybeSingle()` with `.limit(1)`, using `.ilike()` on already-trimmed input:
-  ```ts
-   const { data: existingByName, error: nameError } = await supabase
-     .from("clients")
-     .select("client_id, unique_tax_id")
-     .ilike("client_legal_name", trimmedName)
-     .neq("client_id", client?.client_id || "")
-     .limit(1);
-
-   if (nameError) {
-     toast.error(t("errors.duplicateCheckFailed"));
-     return;
-   }
-   if (existingByName && existingByName.length > 0) {
-     toast.error(t("errors.duplicateClientNameWithNit", { nit: existingByName[0].unique_tax_id }));
-     return;
-   }
-  ```
-   **Note**: UI check is best-effort; the DB constraint (`LOWER(TRIM(...))`) is the source of truth for normalization.
-4. **Use trimmed name in save payload**:
-  ```ts
-   const payload = {
-     client_legal_name: trimmedName,
-     // ... rest unchanged
-   };
-  ```
-
-### Layer 0B: i18n Updates
-
-**Files**: `src/locales/en.json`, `src/locales/es.json`
-
-**New keys**:
-
-
-| Key                                 | EN                                                                                              | ES                                                                                                      |
-| ----------------------------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `errors.duplicateCheckFailed`       | `"We couldn't check for duplicate client names (connection issue). Please try again."`          | `"No pudimos verificar si el nombre del cliente ya existe (problema de conexión). Intente nuevamente."` |
-| `errors.duplicateClientNameWithNit` | `"A client with this name already exists (NIT: {{nit}}). Please verify it is not a duplicate."` | `"El nombre de cliente ya existe (NIT: {{nit}})."`                                                      |
-
-
-**Updated keys** (remove `{{nit}}` dependency so DB fallback renders cleanly):
-
-
-| Key                          | EN (new)                                    | ES (new)                            |
-| ---------------------------- | ------------------------------------------- | ----------------------------------- |
-| `errors.duplicateClientName` | `"A client with this name already exists."` | `"El nombre de cliente ya existe."` |
-
-
-### Layer 1: Database Constraint (safety net)
+### Layer 1: Database Migration -- Change FK to ON DELETE SET NULL + un-push trigger
 
 **File**: Database migration
 
 ```sql
--- Pre-check (run manually on Live before publishing):
--- SELECT LOWER(TRIM(client_legal_name)) AS norm_name, COUNT(*)
--- FROM public.clients
--- WHERE client_legal_name IS NOT NULL
--- GROUP BY LOWER(TRIM(client_legal_name))
--- HAVING COUNT(*) > 1;
---
--- Result on Test DB: zero duplicates. Safe to apply.
+-- FK constraint name verified via pg_constraint query: timer_entries_imported_to_time_id_fkey
 
-CREATE UNIQUE INDEX clients_client_legal_name_unique
-ON public.clients (LOWER(TRIM(client_legal_name)));
+-- Step 1: Drop the existing FK
+ALTER TABLE public.timer_entries
+  DROP CONSTRAINT timer_entries_imported_to_time_id_fkey;
+
+-- Step 2: Re-create with ON DELETE SET NULL
+ALTER TABLE public.timer_entries
+  ADD CONSTRAINT timer_entries_imported_to_time_id_fkey
+  FOREIGN KEY (imported_to_time_id)
+  REFERENCES public.time_entries(time_id)
+  ON DELETE SET NULL;
+
+-- Step 3: Trigger to reset is_imported when imported_to_time_id becomes NULL
+-- Fires both when ON DELETE SET NULL nullifies the column
+-- AND when an explicit UPDATE sets it to NULL.
+-- PostgreSQL's ON DELETE SET NULL DOES fire BEFORE UPDATE triggers.
+CREATE OR REPLACE FUNCTION public.reset_timer_import_on_unlink()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF NEW.imported_to_time_id IS NULL AND OLD.imported_to_time_id IS NOT NULL THEN
+    NEW.is_imported := false;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER trg_reset_timer_import_on_unlink
+  BEFORE UPDATE ON public.timer_entries
+  FOR EACH ROW
+  EXECUTE FUNCTION public.reset_timer_import_on_unlink();
 ```
 
-### Layer 2: Mutation Error Handler (structured constraint matching with message fallback)
+### Layer 2: Frontend -- Fix isImported guard in TrackerEdit.tsx
 
-**File**: `src/hooks/mutations/useClientMutations.ts`
+**File**: `src/pages/TrackerEdit.tsx`
 
-Replace current `handleClientError` with robust constraint matching that prefers structured fields:
-
-```ts
-function handleClientError(error: Error, operation: string) {
-  const err = error as unknown as {
-    code?: string;
-    message?: string;
-    constraint?: string;
-    details?: string;
-  };
-
-  if (err.code === "23505") {
-    // Prefer err.constraint when available; fall back to message.includes()
-    const constraintName = err.constraint || err.message || "";
-
-    if (constraintName.includes("clients_client_legal_name_unique")) {
-      toast.error(i18n.t("errors.duplicateClientName"));
-      return;
-    }
-    if (constraintName.includes("clients_unique_tax_id_key")) {
-      toast.error(i18n.t("errors.duplicateNit"));
-      return;
-    }
-  }
-
-  createMutationErrorHandler(operation)(error);
-}
-```
-
-**Robustness note**: Supabase JS typically includes the constraint/index name in `message`. The code checks `err.constraint` first (if the error shape includes it), then falls back to `message.includes(...)`. This ensures compatibility if the error shape changes across Supabase versions.
-
-Change `useUpdateClient` `onError`:
+**Line 77** -- change:
 
 ```ts
 // FROM:
-onError: createMutationErrorHandler("updating client"),
+const isImported = entry?.is_imported ?? false;
+
 // TO:
-onError: (error) => handleClientError(error, "updating client"),
+const isImported = Boolean(entry?.is_imported) || Boolean(entry?.imported_to_time_id);
 ```
+
+This ensures the Delete button is hidden and all fields are disabled if **either** `is_imported` is true **or** `imported_to_time_id` is not null, covering any transient state where the two fields are temporarily out of sync.
+
+All other existing UX (Delete button visibility, confirmation dialog, imported alert, field disabling) remains unchanged -- it already uses this `isImported` variable throughout.
 
 ### Layer 3: Changelog Documentation
 
-**File**: `docs/CHANGELOG-2026-02-22.md` (CREATE)
+**File**: `docs/CHANGELOG-2026-02-22.md` (APPEND)
 
-Append entry for 0220-18 with standardized format (Problem, Root Cause, Solution, Files Modified, Risk Assessment).
+Append entry for 0220-45.
 
 ---
 
 ## Files Modified
 
-
-| File                                        | Action | Description                                                                                                                                                                |
-| ------------------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/components/forms/ClientForm.tsx`       | EDIT   | Replace `maybeSingle()` with `.limit(1)` on NIT and name checks; add error handling; trim name; use `toast.error`; use `duplicateClientNameWithNit` key                    |
-| `src/locales/en.json`                       | EDIT   | Add `duplicateCheckFailed` and `duplicateClientNameWithNit`; simplify `duplicateClientName` (remove nit)                                                                   |
-| `src/locales/es.json`                       | EDIT   | Add `duplicateCheckFailed` and `duplicateClientNameWithNit`; simplify `duplicateClientName`; fix accent on "conexion"                                                      |
-| Database migration                          | CREATE | Unique index on `LOWER(TRIM(client_legal_name))`                                                                                                                           |
-| `src/hooks/mutations/useClientMutations.ts` | EDIT   | Structured constraint matching (`err.constraint` first, `message` fallback) in `handleClientError`; use generic `duplicateClientName` (no nit); apply to `useUpdateClient` |
-| `docs/CHANGELOG-2026-02-22.md`              | CREATE | Session changelog with 0220-18 entry                                                                                                                                       |
-
+| File | Action | Description |
+|------|--------|-------------|
+| Database migration | CREATE | Drop/re-add FK with `ON DELETE SET NULL`; add `trg_reset_timer_import_on_unlink` trigger |
+| `src/pages/TrackerEdit.tsx` | EDIT | Line 77: `isImported` now checks both `is_imported` and `imported_to_time_id` |
+| `docs/CHANGELOG-2026-02-22.md` | APPEND | Add 0220-45 entry |
 
 ---
 
 ## Acceptance Tests
 
-1. Create client "PETROBRAS" -- save OK (if first instance).
-2. Create client " petrobras " (spaces + different case) -- blocked with `errors.duplicateClientNameWithNit`.
-3. Edit another client and change name to "PETROBRAS" -- blocked with `errors.duplicateClientNameWithNit`.
-4. Simulate DB unique violation (23505) by bypassing UI -- UI shows `errors.duplicateClientName` (without nit, renders cleanly).
-5. If duplicate-check query fails (forced network error), UI shows `errors.duplicateCheckFailed` and does not save.
-6. Spanish locale shows "El nombre de cliente ya existe." for DB fallback and "El nombre de cliente ya existe (NIT: ...)." for UI pre-check.
-7. Spanish `duplicateCheckFailed` renders with proper accent: "problema de conexión".
+1. Create 2 timer entries (manual + stopwatch). Export to timesheet. In Hoja de Tiempo, delete one exported row: deletion succeeds, and the corresponding timer entry becomes un-pushed (`imported_to_time_id = NULL`, `is_imported = false`) and appears as Ready in Registros de Tiempo.
+2. Re-export the un-pushed timer entry: export works and it becomes pushed again.
+3. Create a timesheet row directly (not from timer export): deletion still works (no regression).
+4. Open a pushed/imported timer entry in edit form: Delete button is hidden; read-only alert is shown.
+5. Open an un-pushed timer entry in edit form: red Delete button appears; confirm deletion; record is deleted; list refreshes; success toast shown.
 
 ---
 
 ## Risk Assessment
 
+| Risk | Level | Mitigation |
+|------|-------|------------|
+| Timer entries lose import tracking on timesheet row deletion | None | This is the desired "un-push" behavior |
+| ON DELETE SET NULL not firing UPDATE trigger | None | PostgreSQL fires BEFORE UPDATE triggers for ON DELETE SET NULL (verified behavior) |
+| Existing `trg_prevent_imported_timer_delete` conflict | None | Checks `is_imported = true`; after un-push sets it to `false`, deletion is allowed |
+| FK constraint name mismatch | None | Verified via `pg_constraint` query: name is exactly `timer_entries_imported_to_time_id_fkey` |
+| Edge case: `imported_to_time_id` set but `is_imported` false (or vice versa) | None | UI now guards on both fields with `Boolean(is_imported) \|\| Boolean(imported_to_time_id)` |
+| Approved timesheet lines | None | `trg_protect_approved_time_entries` still blocks deletion independently |
 
-| Risk                                                                    | Level | Mitigation                                                                                                         |
-| ----------------------------------------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------ |
-| Existing duplicate names in production                                  | None  | Verified: zero duplicates in current DB. Pre-check query included in migration comments for Live verification.     |
-| Index creation lock time                                                | None  | `clients` table is small (< 100 rows); standard CREATE INDEX completes in milliseconds.                            |
-| `maybeSingle()` to `.limit(1)` changes return type from object to array | Low   | All consuming code updated in the same change; no external callers.                                                |
-| NIT constraint name assumption (`clients_unique_tax_id_key`)            | Low   | Postgres auto-generated name for existing unique constraint on `unique_tax_id`. Will verify before implementation. |
-| UI check vs DB normalization gap (internal extra spaces)                | Low   | Documented as best-effort; DB constraint is authoritative.                                                         |
-| `err.constraint` field availability                                     | Low   | Code checks `err.constraint` first, falls back to `err.message`; works regardless of Supabase error shape.         |
