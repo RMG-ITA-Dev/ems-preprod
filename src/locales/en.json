@@ -554,7 +554,17 @@
       "hoursByEngagement": "Hours by Engagement",
       "noEngagements": "No engagements in this period",
       "recentEntries": "Recent Entries",
-      "noRecentEntries": "No recent entries"
+      "noRecentEntries": "No recent entries",
+      "pendingHours": {
+        "title": "Missing Hours to Report",
+        "summary": "{{weeks}} week(s) with {{hours}} unreported hours",
+        "weekOf": "Week of {{date}}",
+        "expected": "Expected",
+        "logged": "Logged",
+        "missing": "Missing",
+        "goToTimesheet": "Go to Timesheet",
+        "andMore": "...and {{count}} more week(s)"
+      }
     },
     "cartera": {
       "activeEngagements": "Active Engagements",

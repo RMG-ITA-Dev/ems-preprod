@@ -956,3 +956,84 @@ No other files require changes.
 | Regression in engagement selection | None | Only the empty-state branch changed; populated list path untouched |
 | Business logic impact | None | Zero logic changes; only empty-state rendering |
 | Other Select components affected | None | Sweep confirmed this is the sole occurrence in the codebase |
+
+---
+
+### Bug 0220-50: Pending Hours Indicator on Dashboard Personal Tab
+
+**Plan**: Plan_0220-50_v3
+**Priority**: Baja
+**Route**: PRINCIPAL - Panel de Control (Personal tab)
+
+#### Problem
+The Dashboard Personal tab had no indicator showing how many weeks and/or hours the user has pending to report since their hire date. Users could not quickly identify periods with missing or unreported hours.
+
+#### Solution — DB RPC + Collapsible Component
+
+**Edit 1 — Database migration: New RPC `get_my_pending_hours(uuid)`**
+
+```sql
+CREATE OR REPLACE FUNCTION public.get_my_pending_hours(p_staff_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+-- Iterates weeks from hire_date to LEAST(termination_date, CURRENT_DATE)
+-- Skips current incomplete week (v_week_end >= CURRENT_DATE → EXIT)
+-- For each completed week: computes expected hours (workdays × daily rate, minus holidays)
+-- vs actual hours (SUM time_entries WHERE is_forecast=false)
+-- Returns JSONB array of {week_start, expected_hours, actual_hours, gap} for gap > 0
+$$;
+GRANT EXECUTE ON FUNCTION public.get_my_pending_hours(uuid) TO authenticated;
+```
+
+Key design decisions:
+- All tables schema-qualified (`public.staff`, `public.time_entries`, `public.holidays`)
+- `SECURITY DEFINER` with `search_path = 'public'`
+- Mirrors proven `check_pending_hours_before_termination` algorithm
+- Excludes forecast entries and holidays from expected workdays
+
+**Edit 2 — New component: `src/components/dashboard/PendingHoursAlert.tsx`**
+
+Self-contained component that:
+1. Calls `supabase.rpc('get_my_pending_hours')` via React Query (staleTime: 5 min)
+2. Renders nothing when loading or array is empty (zero UI noise)
+3. Shows warning-styled Card with summary: "X week(s) with Y unreported hours"
+4. Chevron toggle expands detail table (12 most recent deficient weeks)
+5. Footer "...and X more" if beyond 12
+6. "Go to Timesheet" link button
+
+**Edit 3 — `PersonalTab.tsx`: Import + insert `<PendingHoursAlert />` between KPI cards and charts**
+
+**Edit 4 — i18n keys added under `dashboard.personal.pendingHours.*`**
+
+| Key | EN | ES |
+|-----|----|----|
+| `title` | Missing Hours to Report | Horas Pendientes de Reporte |
+| `summary` | {{weeks}} week(s) with {{hours}} unreported hours | {{weeks}} semana(s) con {{hours}} horas sin registrar |
+| `weekOf` | Week of {{date}} | Semana del {{date}} |
+| `expected` | Expected | Esperadas |
+| `logged` | Logged | Registradas |
+| `missing` | Missing | Faltantes |
+| `goToTimesheet` | Go to Timesheet | Ir a Hoja de Tiempo |
+| `andMore` | ...and {{count}} more week(s) | ...y {{count}} semana(s) más |
+
+#### Files Modified
+
+| File | Change |
+|------|--------|
+| Database migration | `get_my_pending_hours(uuid)` RPC with GRANT |
+| `src/components/dashboard/PendingHoursAlert.tsx` | New collapsible alert component |
+| `src/components/dashboard/tabs/PersonalTab.tsx` | Import + insert `<PendingHoursAlert />` |
+| `src/locales/es.json` | Add `dashboard.personal.pendingHours.*` (8 keys) |
+| `src/locales/en.json` | Add `dashboard.personal.pendingHours.*` (8 keys) |
+
+#### Risk Assessment
+
+| Risk | Level | Mitigation |
+|------|-------|------------|
+| RPC performance | Low | Mirrors proven algorithm; single function call |
+| Security | None | `SECURITY DEFINER` + UI always passes own staff_id |
+| UI clutter | None | Component renders nothing when no gaps exist |
+| Business logic duplication | None | All computation in DB RPC; frontend is display-only |

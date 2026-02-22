@@ -554,7 +554,17 @@
       "hoursByEngagement": "Horas por Encargo",
       "noEngagements": "Sin encargos en este período",
       "recentEntries": "Entradas Recientes",
-      "noRecentEntries": "Sin entradas recientes"
+      "noRecentEntries": "Sin entradas recientes",
+      "pendingHours": {
+        "title": "Horas Pendientes de Reporte",
+        "summary": "{{weeks}} semana(s) con {{hours}} horas sin registrar",
+        "weekOf": "Semana del {{date}}",
+        "expected": "Esperadas",
+        "logged": "Registradas",
+        "missing": "Faltantes",
+        "goToTimesheet": "Ir a Hoja de Tiempo",
+        "andMore": "...y {{count}} semana(s) más"
+      }
     },
     "cartera": {
       "activeEngagements": "Encargos Activos",

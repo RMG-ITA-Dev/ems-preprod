@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
+import { PendingHoursAlert } from "@/components/dashboard/PendingHoursAlert";
 import { useDashboard } from "@/contexts/DashboardContext";
 import { RecentTimeEntries } from "@/components/dashboard/RecentTimeEntries";
 import { Sparkline, SparklineDataPoint } from "@/components/dashboard/Sparkline";
@@ -342,6 +343,9 @@ export function PersonalTab() {
           </Card>
         )}
       </div>
+
+      {/* Pending Hours Alert */}
+      <PendingHoursAlert />
 
       {/* Row 2: Charts and Recent Entries */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
