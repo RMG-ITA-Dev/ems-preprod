@@ -135,6 +135,7 @@
     "noEntriesToImport": "No entries to import this week.",
     "selectedEntries": "{{count}} selected",
     "hours": "hours",
+    "useExplicitTimes": "Specify times",
     "willAddToTimesheet": "Will be added to timesheet",
     "importSelected": "Import Selected",
     "importFromTimer": "Import from Timer",

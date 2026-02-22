@@ -713,6 +713,7 @@ export type Database = {
           duration_minutes: number | null
           ended_at: string | null
           engagement_id: string
+          has_explicit_times: boolean
           imported_to_time_id: string | null
           is_imported: boolean
           staff_id: string
@@ -726,6 +727,7 @@ export type Database = {
           duration_minutes?: number | null
           ended_at?: string | null
           engagement_id: string
+          has_explicit_times?: boolean
           imported_to_time_id?: string | null
           is_imported?: boolean
           staff_id: string
@@ -739,6 +741,7 @@ export type Database = {
           duration_minutes?: number | null
           ended_at?: string | null
           engagement_id?: string
+          has_explicit_times?: boolean
           imported_to_time_id?: string | null
           is_imported?: boolean
           staff_id?: string

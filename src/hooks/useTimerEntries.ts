@@ -14,6 +14,7 @@ export interface TimerEntry {
   duration_minutes: number | null;
   is_imported: boolean;
   imported_to_time_id: string | null;
+  has_explicit_times: boolean;
   created_at: string;
   engagement?: {
     engagement_name: string;
@@ -91,6 +92,7 @@ export function useCreateTimerEntry() {
       started_at: string;
       ended_at?: string;
       duration_minutes?: number;
+      has_explicit_times?: boolean;
     }) => {
       const { data, error } = await supabase
         .from('timer_entries')
@@ -119,6 +121,7 @@ export function useUpdateTimerEntry() {
       description?: string;
       engagement_id?: string;
       activity_id?: string;
+      has_explicit_times?: boolean;
     }) => {
       const { data, error } = await supabase
         .from('timer_entries')

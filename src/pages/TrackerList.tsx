@@ -279,23 +279,37 @@ const TrackerList = () => {
     date: Date;
     startTime: string;
     endTime: string;
+    has_explicit_times: boolean;
+    hours: number;
   }) => {
     if (!staffRecord?.staff_id) return;
 
-    const [startHour, startMin] = data.startTime.split(":").map(Number);
-    const [endHour, endMin] = data.endTime.split(":").map(Number);
+    let startDate: Date;
+    let endDate: Date;
+    let durationMinutes: number;
 
-    const startDate = new Date(data.date);
-    startDate.setHours(startHour, startMin, 0, 0);
-    const endDate = new Date(data.date);
-    endDate.setHours(endHour, endMin, 0, 0);
+    if (data.has_explicit_times) {
+      const [startHour, startMin] = data.startTime.split(":").map(Number);
+      const [endHour, endMin] = data.endTime.split(":").map(Number);
 
-    if (endDate <= startDate) {
-      toast.error(t("tracker.invalidTimeRange"));
-      return;
+      startDate = new Date(data.date);
+      startDate.setHours(startHour, startMin, 0, 0);
+      endDate = new Date(data.date);
+      endDate.setHours(endHour, endMin, 0, 0);
+
+      if (endDate <= startDate) {
+        toast.error(t("tracker.invalidTimeRange"));
+        return;
+      }
+
+      durationMinutes = Math.round((endDate.getTime() - startDate.getTime()) / 60000);
+    } else {
+      // Hours-only mode: synthetic timestamps
+      startDate = new Date(data.date);
+      startDate.setHours(0, 0, 0, 0);
+      durationMinutes = Math.round(data.hours * 60);
+      endDate = new Date(startDate.getTime() + durationMinutes * 60000);
     }
-
-    const durationMinutes = Math.round((endDate.getTime() - startDate.getTime()) / 60000);
 
     try {
       await createEntry.mutateAsync({
@@ -306,6 +320,7 @@ const TrackerList = () => {
         started_at: startDate.toISOString(),
         ended_at: endDate.toISOString(),
         duration_minutes: durationMinutes,
+        has_explicit_times: data.has_explicit_times,
       });
       toast.success(t("tracker.entryAdded"));
       setManualDialogOpen(false);

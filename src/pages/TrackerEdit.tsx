@@ -54,6 +54,7 @@ import {
 } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { Trash2, CalendarIcon, AlertCircle } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { useTimerEntries, useUpdateTimerEntry, useDeleteTimerEntry } from "@/hooks/useTimerEntries";
 import { useEngagements, useActivityCodes } from "@/hooks/useEmsData";
 import { useApprovedEngagements } from "@/hooks/useApprovedEngagements";
@@ -85,6 +86,7 @@ const TrackerEdit = () => {
   const [activityId, setActivityId] = useState("");
   const [description, setDescription] = useState("");
   const [datePickerOpen, setDatePickerOpen] = useState(false);
+  const [useExplicitTimes, setUseExplicitTimes] = useState(true);
 
   // Dirty tracking: compare current form values against initial entry values
   const isDirty = useMemo(() => {
@@ -101,15 +103,28 @@ const TrackerEdit = () => {
 
   const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty });
 
+  const handleToggleExplicitTimes = (checked: boolean) => {
+    setUseExplicitTimes(checked);
+    if (checked) {
+      setStartTime("08:00");
+      setEndTime(addHoursToTime("08:00", hours));
+    } else {
+      setStartTime("");
+      setEndTime("");
+    }
+  };
+
   const handleHoursChange = (newHours: number) => {
     const clamped = Math.min(8, Math.max(0, newHours));
     if (newHours > 8) {
       toast.error(t("tracker.maxHoursExceeded"));
     }
     setHours(clamped);
-    const start = startTime || "08:00";
-    if (!startTime) setStartTime("08:00");
-    setEndTime(addHoursToTime(start, clamped));
+    if (useExplicitTimes) {
+      const start = startTime || "08:00";
+      if (!startTime) setStartTime("08:00");
+      setEndTime(addHoursToTime(start, clamped));
+    }
   };
 
   const handleStartTimeChange = (newStart: string) => {
@@ -155,12 +170,22 @@ const TrackerEdit = () => {
     if (entry) {
       const start = new Date(entry.started_at);
       setDate(start);
-      setStartTime(format(start, "HH:mm"));
-      if (entry.ended_at) {
-        const end = new Date(entry.ended_at);
-        setEndTime(format(end, "HH:mm"));
-        const durationHours = (end.getTime() - start.getTime()) / 3600000;
-        setHours(Math.min(8, Math.round(durationHours * 2) / 2));
+      const hasExplicit = entry.has_explicit_times !== false;
+      setUseExplicitTimes(hasExplicit);
+      if (hasExplicit) {
+        setStartTime(format(start, "HH:mm"));
+        if (entry.ended_at) {
+          const end = new Date(entry.ended_at);
+          setEndTime(format(end, "HH:mm"));
+          const durationHours = (end.getTime() - start.getTime()) / 3600000;
+          setHours(Math.min(8, Math.round(durationHours * 2) / 2));
+        }
+      } else {
+        setStartTime("");
+        setEndTime("");
+        if (entry.duration_minutes) {
+          setHours(Math.min(8, Math.round((entry.duration_minutes / 60) * 2) / 2));
+        }
       }
       setEngagementId(entry.engagement_id);
       setActivityId(entry.activity_id);
@@ -191,7 +216,7 @@ const TrackerEdit = () => {
   }, [activityCodes, entry?.activity_id]);
 
   const handleSave = async () => {
-    if (!entry || !date || !startTime || !endTime) return;
+    if (!entry || !date) return;
 
     // Block save if selected engagement is not approved
     const isApproved = approvedEngagements.some(
@@ -202,20 +227,33 @@ const TrackerEdit = () => {
       return;
     }
 
-    const [startHour, startMin] = startTime.split(":").map(Number);
-    const [endHour, endMin] = endTime.split(":").map(Number);
+    let startDate: Date;
+    let endDate: Date;
+    let durationMinutes: number;
 
-    const startDate = new Date(date);
-    startDate.setHours(startHour, startMin, 0, 0);
-    const endDate = new Date(date);
-    endDate.setHours(endHour, endMin, 0, 0);
+    if (useExplicitTimes) {
+      if (!startTime || !endTime) return;
+      const [startHour, startMin] = startTime.split(":").map(Number);
+      const [endHour, endMin] = endTime.split(":").map(Number);
 
-    if (endDate <= startDate) {
-      toast.error(t("tracker.invalidTimeRange"));
-      return;
+      startDate = new Date(date);
+      startDate.setHours(startHour, startMin, 0, 0);
+      endDate = new Date(date);
+      endDate.setHours(endHour, endMin, 0, 0);
+
+      if (endDate <= startDate) {
+        toast.error(t("tracker.invalidTimeRange"));
+        return;
+      }
+
+      durationMinutes = Math.round((endDate.getTime() - startDate.getTime()) / 60000);
+    } else {
+      // Hours-only mode: synthetic timestamps
+      startDate = new Date(date);
+      startDate.setHours(0, 0, 0, 0);
+      durationMinutes = Math.round(hours * 60);
+      endDate = new Date(startDate.getTime() + durationMinutes * 60000);
     }
-
-    const durationMinutes = Math.round((endDate.getTime() - startDate.getTime()) / 60000);
 
     try {
       await updateEntry.mutateAsync({
@@ -226,6 +264,7 @@ const TrackerEdit = () => {
         engagement_id: engagementId,
         activity_id: activityId,
         description: description || undefined,
+        has_explicit_times: useExplicitTimes,
       });
       toast.success(t("tracker.recordSaved"));
       allowNextNavigation();
@@ -359,12 +398,26 @@ const TrackerEdit = () => {
               </div>
               {/* Start Time */}
               <div className="space-y-2">
-                <Label>{t("tracker.startTime")}</Label>
+                <div className="flex items-center justify-between">
+                  <Label>{t("tracker.startTime")}</Label>
+                  {!isImported && (
+                    <div className="flex items-center gap-1.5">
+                      <Switch
+                        checked={useExplicitTimes}
+                        onCheckedChange={handleToggleExplicitTimes}
+                        className="scale-75"
+                      />
+                      <span className="text-xs text-muted-foreground">
+                        {t("tracker.useExplicitTimes")}
+                      </span>
+                    </div>
+                  )}
+                </div>
                 <Input
                   type="time"
                   value={startTime}
                   onChange={(e) => handleStartTimeChange(e.target.value)}
-                  disabled={isImported}
+                  disabled={isImported || !useExplicitTimes}
                 />
               </div>
               {/* Hours */}
@@ -387,7 +440,7 @@ const TrackerEdit = () => {
                   type="time"
                   value={endTime}
                   onChange={(e) => handleEndTimeChange(e.target.value)}
-                  disabled={isImported}
+                  disabled={isImported || !useExplicitTimes}
                 />
               </div>
             </div>
