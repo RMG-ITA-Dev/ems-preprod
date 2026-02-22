@@ -374,7 +374,7 @@ const TrackerEdit = () => {
                       variant="outline"
                       disabled={isImported}
                       className={cn(
-                        "w-1/2 justify-start text-left font-normal",
+                        "w-full justify-start text-left font-normal",
                         !date && "text-muted-foreground"
                       )}
                     >
@@ -418,7 +418,6 @@ const TrackerEdit = () => {
                   value={startTime}
                   onChange={(e) => handleStartTimeChange(e.target.value)}
                   disabled={isImported || !useExplicitTimes}
-                  className="w-1/2"
                 />
               </div>
               {/* Hours */}
