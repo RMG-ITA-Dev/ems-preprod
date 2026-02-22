@@ -221,28 +221,20 @@ export function ManualEntryDialog({
           </div>
 
           {/* Time Range */}
-          <div className="grid grid-cols-3 gap-4">
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label>{t("tracker.startTime")}</Label>
-                <div className="flex items-center gap-1.5">
-                  <Switch
-                    checked={useExplicitTimes}
-                    onCheckedChange={handleToggleExplicitTimes}
-                    className="scale-75"
-                  />
-                  <span className="text-xs text-muted-foreground">
-                    {t("tracker.useExplicitTimes")}
-                  </span>
-                </div>
-              </div>
-              <Input
-                type="time"
-                value={startTime}
-                onChange={(e) => handleStartTimeChange(e.target.value)}
-                disabled={!useExplicitTimes}
+          <div className="flex items-center justify-between mb-2">
+            <Label className="font-medium">{t("tracker.sectionTime")}</Label>
+            <div className="flex items-center gap-1.5">
+              <Switch
+                checked={useExplicitTimes}
+                onCheckedChange={handleToggleExplicitTimes}
+                className="scale-75"
               />
+              <span className="text-xs text-muted-foreground">
+                {t("tracker.useExplicitTimes")}
+              </span>
             </div>
+          </div>
+          <div className="grid grid-cols-3 gap-4">
             <div className="space-y-2">
               <Label>{t("tracker.hours")}</Label>
               <Input
@@ -252,6 +244,15 @@ export function ManualEntryDialog({
                 step={0.5}
                 value={hours}
                 onChange={(e) => handleHoursChange(parseFloat(e.target.value) || 0)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>{t("tracker.startTime")}</Label>
+              <Input
+                type="time"
+                value={startTime}
+                onChange={(e) => handleStartTimeChange(e.target.value)}
+                disabled={!useExplicitTimes}
               />
             </div>
             <div className="space-y-2">
