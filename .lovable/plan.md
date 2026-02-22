@@ -1,116 +1,101 @@
 
 
-# Plan_0220-45_v3: Deletion + Un-push Exported Timer Entries; Delete Un-pushed Timer Entries from Edit Form
+# Plan: Hours-Only Toggle for Timer Entry Forms (v2)
 
 **Session**: 260222_EMS2.0.5_Debugg_Session
-**Bug ID**: 0220-45
-**Priority**: Baja
 **Version**: v2.0.5
-**Route**: OPERACIONES - Hoja de Tiempo / Registros de Tiempo
-**Previous version**: Plan_0220-45_v2
+**Scope**: TrackerEdit.tsx (edit form) + ManualEntryDialog.tsx (new entry form) + TrackerList.tsx (submit handler)
 
 ---
 
-## Session Rules (Active for 260222 Session)
+## Feature Summary
 
-1. All plans use versioned naming: `Plan_MMDD-NN_vX`
-2. Every implementation must append documentation to `docs/CHANGELOG-2026-02-22.md`
-
----
-
-## Changes from v2 (CODEX Corrections Applied)
-
-| # | CODEX Directive | Action Taken |
-|---|----------------|--------------|
-| C1 | `isImported` must cover both `is_imported` and `imported_to_time_id` to avoid edge-case UX mismatches | Fixed: line 77 in `TrackerEdit.tsx` changes from `entry?.is_imported ?? false` to `Boolean(entry?.is_imported) \|\| Boolean(entry?.imported_to_time_id)` |
-| C2 | Confirm FK constraint name exists exactly as written before dropping | Verified via DB query: constraint name is exactly `timer_entries_imported_to_time_id_fkey`. Confirmed. |
+Add a toggle switch above "Hora inicio" that lets users choose between two input modes:
+- **Toggle ON**: All 4 fields active -- Fecha, Hora inicio, Horas, Hora fin (current behavior).
+- **Toggle OFF (default for new entries)**: Hora inicio and Hora fin are cleared (empty) and disabled. User only enters Fecha + Horas.
 
 ---
 
-## Product Decision (Lock-in)
+## Key Decision: Default Toggle State
 
-- **Pushed/Imported timer entry**: `timer_entries.imported_to_time_id IS NOT NULL` and `is_imported = true`.
-- **Un-push behavior**: When a linked timesheet row is deleted, the system must set `imported_to_time_id = NULL` AND `is_imported = false` for the associated timer entries.
-- **Deletion permission**: timer_entries rows are deletable only when `is_imported = false` (un-pushed / never pushed). Enforced by existing trigger `trg_prevent_imported_timer_delete`.
-- **UI guard**: `isImported` computed as `Boolean(entry?.is_imported) || Boolean(entry?.imported_to_time_id)` to cover edge cases where one field is set but not the other.
+| Context | Default |
+|---------|---------|
+| **New entry** (ManualEntryDialog) | **OFF** (hours-only) |
+| **Edit existing entry** | Derived from `has_explicit_times` column (existing entries default `true`, so toggle ON) |
 
 ---
 
-## Problem
+## DB Constraint: `started_at` is NOT NULL
 
-In OPERACIONES - Hoja de Tiempo, rows exported from "Registros de Tiempo" cannot be deleted. Clicking delete shows "Error al eliminar la fila. Se ha restaurado." The FK constraint `timer_entries.imported_to_time_id -> time_entries(time_id)` uses `NO ACTION`, blocking deletion of referenced `time_entries` rows.
+The `timer_entries.started_at` column has a `NOT NULL` constraint. When the toggle is OFF (hours-only mode), the system stores synthetic timestamps:
+- `started_at` = midnight (00:00) of the selected date
+- `ended_at` = midnight + hours
+- `duration_minutes` = hours x 60
+- `has_explicit_times` = false
 
-## Root Cause
-
-The FK `timer_entries_imported_to_time_id_fkey` uses the default `NO ACTION` delete rule. When a `time_entries` row is referenced by `timer_entries.imported_to_time_id`, PostgreSQL blocks the delete.
+This new boolean column lets the edit form know whether to initialize the toggle as ON or OFF.
 
 ---
 
 ## Solution
 
-### Layer 1: Database Migration -- Change FK to ON DELETE SET NULL + un-push trigger
-
-**File**: Database migration
+### Layer 1: Database Migration
 
 ```sql
--- FK constraint name verified via pg_constraint query: timer_entries_imported_to_time_id_fkey
-
--- Step 1: Drop the existing FK
 ALTER TABLE public.timer_entries
-  DROP CONSTRAINT timer_entries_imported_to_time_id_fkey;
-
--- Step 2: Re-create with ON DELETE SET NULL
-ALTER TABLE public.timer_entries
-  ADD CONSTRAINT timer_entries_imported_to_time_id_fkey
-  FOREIGN KEY (imported_to_time_id)
-  REFERENCES public.time_entries(time_id)
-  ON DELETE SET NULL;
-
--- Step 3: Trigger to reset is_imported when imported_to_time_id becomes NULL
--- Fires both when ON DELETE SET NULL nullifies the column
--- AND when an explicit UPDATE sets it to NULL.
--- PostgreSQL's ON DELETE SET NULL DOES fire BEFORE UPDATE triggers.
-CREATE OR REPLACE FUNCTION public.reset_timer_import_on_unlink()
-RETURNS trigger
-LANGUAGE plpgsql
-AS $$
-BEGIN
-  IF NEW.imported_to_time_id IS NULL AND OLD.imported_to_time_id IS NOT NULL THEN
-    NEW.is_imported := false;
-  END IF;
-  RETURN NEW;
-END;
-$$;
-
-CREATE TRIGGER trg_reset_timer_import_on_unlink
-  BEFORE UPDATE ON public.timer_entries
-  FOR EACH ROW
-  EXECUTE FUNCTION public.reset_timer_import_on_unlink();
+  ADD COLUMN has_explicit_times boolean NOT NULL DEFAULT true;
 ```
 
-### Layer 2: Frontend -- Fix isImported guard in TrackerEdit.tsx
+All existing entries get `true` (toggle ON when re-opened). No RLS changes needed.
 
-**File**: `src/pages/TrackerEdit.tsx`
+### Layer 2: ManualEntryDialog.tsx (New Entry Form)
 
-**Line 77** -- change:
+- Add state: `useExplicitTimes`, default **`false`** (toggle OFF).
+- Add a `Switch` component inline with the "Hora inicio" label.
+- When toggle OFF:
+  - `startTime` and `endTime` fields are empty (`""`) and `disabled`.
+  - User only fills Fecha + Horas.
+  - `startTime` / `endTime` default values removed (no "08:00" / "09:00" default).
+- When toggle ON:
+  - Fields become active. Start defaults to "08:00", End computed from hours.
+- `onSubmit` now passes `has_explicit_times: boolean` alongside existing fields.
+- Default hours value remains `1`.
 
-```ts
-// FROM:
-const isImported = entry?.is_imported ?? false;
+### Layer 3: TrackerList.tsx (handleManualSubmit)
 
-// TO:
-const isImported = Boolean(entry?.is_imported) || Boolean(entry?.imported_to_time_id);
-```
+Update `handleManualSubmit` to accept `has_explicit_times` from the dialog:
+- When `has_explicit_times = false`: compute synthetic `started_at` = midnight of date, `ended_at` = midnight + hours. Skip the `endDate <= startDate` validation (synthetic times are always valid).
+- When `has_explicit_times = true`: current behavior (use real start/end times).
+- Include `has_explicit_times` in the insert payload.
 
-This ensures the Delete button is hidden and all fields are disabled if **either** `is_imported` is true **or** `imported_to_time_id` is not null, covering any transient state where the two fields are temporarily out of sync.
+### Layer 4: TrackerEdit.tsx (Edit Form)
 
-All other existing UX (Delete button visibility, confirmation dialog, imported alert, field disabling) remains unchanged -- it already uses this `isImported` variable throughout.
+- Add state: `useExplicitTimes`, initialized from `entry.has_explicit_times` (defaults `true` for existing entries).
+- Add a `Switch` component inline with the "Hora inicio" label.
+- When toggle OFF:
+  - Clear `startTime` and `endTime` to `""`, disable those fields.
+  - Hours field remains active.
+- When toggle ON:
+  - Set `startTime` to "08:00", compute `endTime` from hours. Fields active.
+- `handleSave`:
+  - When toggle OFF: build synthetic `started_at`/`ended_at` from midnight + hours. Skip time range validation. Include `has_explicit_times: false`.
+  - When toggle ON: current behavior + `has_explicit_times: true`.
+- Update `useUpdateTimerEntry` mutation type to accept `has_explicit_times`.
 
-### Layer 3: Changelog Documentation
+### Layer 5: useTimerEntries.ts (Mutation Types)
 
-**File**: `docs/CHANGELOG-2026-02-22.md` (APPEND)
+- Add `has_explicit_times?: boolean` to the `useCreateTimerEntry` and `useUpdateTimerEntry` mutation input types.
+- Add `has_explicit_times` to the `TimerEntry` interface.
 
-Append entry for 0220-45.
+### Layer 6: i18n
+
+| Key | EN | ES |
+|-----|----|----|
+| `tracker.useExplicitTimes` | `"Specify times"` | `"Especificar horas"` |
+
+### Layer 7: Changelog
+
+Append entry to `docs/CHANGELOG-2026-02-22.md`.
 
 ---
 
@@ -118,19 +103,25 @@ Append entry for 0220-45.
 
 | File | Action | Description |
 |------|--------|-------------|
-| Database migration | CREATE | Drop/re-add FK with `ON DELETE SET NULL`; add `trg_reset_timer_import_on_unlink` trigger |
-| `src/pages/TrackerEdit.tsx` | EDIT | Line 77: `isImported` now checks both `is_imported` and `imported_to_time_id` |
-| `docs/CHANGELOG-2026-02-22.md` | APPEND | Add 0220-45 entry |
+| Database migration | CREATE | Add `has_explicit_times` boolean column |
+| `src/components/tracker/ManualEntryDialog.tsx` | EDIT | Add toggle (default OFF), hours-only mode, pass `has_explicit_times` |
+| `src/pages/TrackerList.tsx` | EDIT | `handleManualSubmit` handles `has_explicit_times` + synthetic times |
+| `src/pages/TrackerEdit.tsx` | EDIT | Add toggle (init from entry), hours-only mode, save with synthetic times |
+| `src/hooks/useTimerEntries.ts` | EDIT | Add `has_explicit_times` to `TimerEntry` interface + mutation types |
+| `src/locales/en.json` | EDIT | Add `tracker.useExplicitTimes` |
+| `src/locales/es.json` | EDIT | Add `tracker.useExplicitTimes` |
+| `docs/CHANGELOG-2026-02-22.md` | APPEND | Document feature |
 
 ---
 
 ## Acceptance Tests
 
-1. Create 2 timer entries (manual + stopwatch). Export to timesheet. In Hoja de Tiempo, delete one exported row: deletion succeeds, and the corresponding timer entry becomes un-pushed (`imported_to_time_id = NULL`, `is_imported = false`) and appears as Ready in Registros de Tiempo.
-2. Re-export the un-pushed timer entry: export works and it becomes pushed again.
-3. Create a timesheet row directly (not from timer export): deletion still works (no regression).
-4. Open a pushed/imported timer entry in edit form: Delete button is hidden; read-only alert is shown.
-5. Open an un-pushed timer entry in edit form: red Delete button appears; confirm deletion; record is deleted; list refreshes; success toast shown.
+1. **New entry dialog, default state**: Toggle is OFF. Start/End fields are empty and disabled. User enters only Date + Hours. Save succeeds with `has_explicit_times = false` and synthetic midnight-based times in DB.
+2. **New entry dialog, toggle ON**: Start/End fields activate (Start defaults "08:00", End computed). Save succeeds with `has_explicit_times = true` and real times.
+3. **Edit form, existing entry (has_explicit_times=true)**: Toggle initializes ON. All time fields populated. Current behavior preserved.
+4. **Edit form, re-open hours-only entry**: Toggle initializes OFF. Start/End empty and disabled. Hours shows saved value.
+5. **Edit form, toggle OFF then save**: Synthetic times stored, `has_explicit_times = false`.
+6. **Toggle ON then OFF then ON**: Fields restore properly (start defaults to 08:00, end computed from hours).
 
 ---
 
@@ -138,10 +129,7 @@ Append entry for 0220-45.
 
 | Risk | Level | Mitigation |
 |------|-------|------------|
-| Timer entries lose import tracking on timesheet row deletion | None | This is the desired "un-push" behavior |
-| ON DELETE SET NULL not firing UPDATE trigger | None | PostgreSQL fires BEFORE UPDATE triggers for ON DELETE SET NULL (verified behavior) |
-| Existing `trg_prevent_imported_timer_delete` conflict | None | Checks `is_imported = true`; after un-push sets it to `false`, deletion is allowed |
-| FK constraint name mismatch | None | Verified via `pg_constraint` query: name is exactly `timer_entries_imported_to_time_id_fkey` |
-| Edge case: `imported_to_time_id` set but `is_imported` false (or vice versa) | None | UI now guards on both fields with `Boolean(is_imported) \|\| Boolean(imported_to_time_id)` |
-| Approved timesheet lines | None | `trg_protect_approved_time_entries` still blocks deletion independently |
+| Existing entries lack `has_explicit_times` | None | Default `true`; all existing entries behave as before |
+| Synthetic midnight times in reports | Low | Reports use `duration_minutes` / `hours_logged`, not raw timestamps |
+| Export pipeline compatibility | None | Export uses `duration_minutes` to compute `hours_logged`; start/end not carried to `time_entries` |
 
