@@ -1437,6 +1437,10 @@ export type Database = {
           approver_staff_id: string
         }[]
       }
+      get_week_statuses: {
+        Args: { p_end_date: string; p_staff_id: string; p_start_date: string }
+        Returns: Json
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]

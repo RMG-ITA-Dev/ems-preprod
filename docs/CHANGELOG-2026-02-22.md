@@ -1394,3 +1394,133 @@ Browser automation could not interact with the engagement form (observe returned
 | Phase 5: i18n | Console log verification | ✅ PASS |
 
 **All acceptance criteria met. System ready for production publish.**
+
+---
+
+### Feature 0220-50 v5: Unified Week Status Engine
+
+**Plan**: Plan_0220-50_v5
+**Priority**: Alta
+**Route**: PRINCIPAL - Panel de Control (Personal tab)
+
+#### Summary
+Replaced the hire-date-based `PendingHoursAlert` (which was invisible due to null `hire_date`) with a unified "Week Status" engine. A new DB RPC `get_week_statuses` returns workflow-compliant status for every week in any date range. The dashboard indicator is now period-aware (driven by the Period Selector) and shows four status groups: Red (NOT_LOGGED/NOT_SUBMITTED/DRAFT), Violet (REJECTED), Yellow (PENDING_APPROVAL), Green (APPROVED). The same `useWeekStatuses` hook is designed for future reuse in calendar coloring on the Timesheet WeekNavigator.
+
+#### Solution — Detailed Edits
+
+**Edit 1 — Database migration: New RPC `get_week_statuses`**
+
+```sql
+CREATE OR REPLACE FUNCTION public.get_week_statuses(
+  p_staff_id UUID, p_start_date DATE, p_end_date DATE
+) RETURNS JSONB
+```
+
+Key logic:
+- Iterates Monday-to-Friday weeks in the requested range
+- Clamps to hire_date / termination_date boundaries
+- CURRENT week returned with status='CURRENT' (not EXIT — Amendment A2)
+- FUTURE weeks returned with status='FUTURE'
+- Holiday-aware expected hours calculation
+- missing_hours = GREATEST(expected - actual, 0) (Amendment A5)
+- Includes week_end in output (Amendment A5)
+- Status determination:
+  - No period row + no hours → NOT_LOGGED
+  - No period row + hours > 0 → NOT_SUBMITTED (Amendment A3)
+  - Period exists, submitted_at IS NULL → DRAFT
+  - Period submitted, zero approval rows → PENDING_APPROVAL (Amendment A6)
+  - Period submitted, all approved → APPROVED
+  - Period submitted, any rejected → REJECTED
+- NOTE: timesheet_periods.status column is vestigial (Amendment A4)
+
+**Edit 2 — `supabase/functions/dashboard-data/index.ts`: Refactor `getTimesheetStatus()` (lines 822-923)**
+
+```typescript
+// BEFORE: ~100 lines of inline week-status logic duplicating DB concerns
+
+// AFTER: Thin wrapper calling the RPC
+const { data, error } = await supabase.rpc('get_week_statuses', {
+  p_staff_id: staffId,
+  p_start_date: startStr,
+  p_end_date: endStr,
+});
+// Maps RPC statuses to legacy format for backward compatibility
+```
+
+**Edit 3 — `src/hooks/useWeekStatuses.ts`: New reusable hook**
+
+```typescript
+export type WeekStatusCode =
+  | 'APPROVED' | 'PENDING_APPROVAL' | 'NOT_LOGGED'
+  | 'NOT_SUBMITTED' | 'DRAFT' | 'REJECTED' | 'CURRENT' | 'FUTURE';
+
+export interface WeekStatus {
+  week_start: string;
+  week_end: string;
+  status: WeekStatusCode;
+  total_logged_hours: number;
+  expected_hours: number;
+  missing_hours: number;
+  is_submitted: boolean;
+  is_current_week: boolean;
+}
+```
+
+**Edit 4 — `src/components/dashboard/PendingHoursAlert.tsx`: Complete rewrite**
+
+- Uses `useDashboard()` for period-awareness (startDateStr, endDateStr)
+- Calls `useWeekStatuses()` instead of old `get_my_pending_hours` RPC
+- Four-segment colored summary chips (Red, Violet, Yellow, Green)
+- Collapsible detail table with Status column using color-coded badges
+- Status badge colors: Red (destructive), Violet, Yellow (warning), Green, Purple (primary)
+
+**Edit 5 — i18n keys updated (`en.json` + `es.json`)**
+
+| Key | EN | ES |
+|-----|----|----|
+| `pendingHours.title` | Week Status Report | Reporte de Estado Semanal |
+| `pendingHours.summaryNotLogged` | {{count}} not reported ({{hours}}h missing) | {{count}} sin registrar ({{hours}}h faltantes) |
+| `pendingHours.summaryPending` | {{count}} pending approval | {{count}} pendiente(s) de aprobación |
+| `pendingHours.summaryRejected` | {{count}} rejected | {{count}} rechazada(s) |
+| `pendingHours.summaryApproved` | {{count}} approved | {{count}} aprobada(s) |
+| `pendingHours.statusApproved` | Approved | Aprobado |
+| `pendingHours.statusPending` | Pending | Pendiente |
+| `pendingHours.statusNotLogged` | Not Logged | Sin Registrar |
+| `pendingHours.statusNotSubmitted` | Not Submitted | No Enviado |
+| `pendingHours.statusDraft` | Draft | Borrador |
+| `pendingHours.statusRejected` | Rejected | Rechazado |
+| `pendingHours.statusCurrent` | Current Week | Semana Actual |
+| `pendingHours.status` | Status | Estado |
+
+#### Files Modified
+
+| File | Change |
+|------|--------|
+| Database migration | New RPC `get_week_statuses(p_staff_id, p_start_date, p_end_date)` |
+| `supabase/functions/dashboard-data/index.ts` | Refactor `getTimesheetStatus()` to call RPC (single source of truth) |
+| `src/hooks/useWeekStatuses.ts` | New reusable hook |
+| `src/components/dashboard/PendingHoursAlert.tsx` | Complete rewrite with 4-color status groups |
+| `src/components/dashboard/__tests__/PendingHoursAlert.test.tsx` | Updated tests for new component |
+| `src/locales/en.json` | Updated pendingHours keys |
+| `src/locales/es.json` | Updated pendingHours keys |
+
+#### Amendment Checklist
+
+| ID | Amendment | Addressed |
+|----|-----------|-----------|
+| A1 | Single source of truth: edge function calls RPC | ✅ |
+| A2 | Return CURRENT week, don't EXIT | ✅ |
+| A3 | Distinguish NOT_SUBMITTED (hours exist, no period) | ✅ |
+| A4 | Document timesheet_periods.status is vestigial | ✅ |
+| A5 | Include week_end + clamp missing_hours >= 0 | ✅ |
+| A6 | Submitted with zero line_approvals = PENDING_APPROVAL | ✅ |
+| v5 | REJECTED color = violet (not red) | ✅ |
+
+#### Risk Assessment
+
+| Risk | Level | Mitigation |
+|------|-------|------------|
+| RPC performance on large date ranges | Low | STABLE function; typical range is 1 fiscal year (~52 weeks) |
+| Backward compatibility of edge function | None | Maps RPC statuses to legacy format |
+| Old `get_my_pending_hours` RPC | None | Left untouched (used by termination gate) |
+| Null hire_date | None | No lower clamp; all weeks in period evaluated |

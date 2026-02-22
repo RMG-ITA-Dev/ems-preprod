@@ -818,108 +818,63 @@ async function getMyWeek(
   };
 }
 
-// ACTION: timesheet-status - 12-week submission status grid
+// ACTION: timesheet-status - Week status grid (single source of truth via DB RPC)
+// NOTE: timesheet_periods.status is vestigial; status is derived from
+// submitted_at + timesheet_line_approvals (Amendment A4).
 async function getTimesheetStatus(
   supabase: SupabaseClient,
   staffId: string
 ) {
-  // Generate last 12 weeks
-  const weeks: { weekStart: string; weekEnd: string }[] = [];
   const today = new Date();
-  
-  for (let i = 0; i < 12; i++) {
-    const weekOffset = new Date(today);
-    weekOffset.setDate(today.getDate() - (i * 7));
-    
-    const dayOfWeek = weekOffset.getDay();
-    const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-    
-    const weekStart = new Date(weekOffset);
-    weekStart.setDate(weekOffset.getDate() + diffToMonday);
-    
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekStart.getDate() + 6);
-    
-    weeks.push({
-      weekStart: weekStart.toISOString().split("T")[0],
-      weekEnd: weekEnd.toISOString().split("T")[0],
-    });
-  }
+  // Last 12 weeks
+  const startDate = new Date(today);
+  startDate.setDate(today.getDate() - 12 * 7);
+  const startStr = startDate.toISOString().split("T")[0];
+  const endStr = today.toISOString().split("T")[0];
 
-  // Get timesheet periods for this staff
-  const { data: periods } = await supabase
-    .from("timesheet_periods")
-    .select("period_id, week_start_date, submitted_at, is_period_locked, deadline")
-    .eq("staff_id", staffId)
-    .gte("week_start_date", weeks[weeks.length - 1].weekStart);
+  const { data, error } = await supabase.rpc('get_week_statuses', {
+    p_staff_id: staffId,
+    p_start_date: startStr,
+    p_end_date: endStr,
+  });
 
-  const typedPeriods = (periods || []) as TimesheetPeriod[];
+  if (error) throw error;
 
-  // Get line approvals for these periods
-  const periodIds = typedPeriods.map((p) => p.period_id);
-  const { data: approvals } = periodIds.length > 0 
-    ? await supabase
-        .from("timesheet_line_approvals")
-        .select("period_id, status")
-        .in("period_id", periodIds)
-    : { data: [] };
-
-  const typedApprovals = (approvals || []) as LineApproval[];
-
-  // Map weeks to status
-  const weekStatuses = weeks.map((week) => {
-    const period = typedPeriods.find((p) => p.week_start_date === week.weekStart);
-    
-    if (!period) {
-      return {
-        week_start: week.weekStart,
-        week_end: week.weekEnd,
-        status: "missing" as const,
-        is_overdue: new Date(week.weekEnd) < today,
-      };
-    }
-
-    const periodApprovals = typedApprovals.filter((a) => a.period_id === period.period_id);
-    const allApproved = periodApprovals.length > 0 && periodApprovals.every((a) => a.status === "approved");
-    const hasRejections = periodApprovals.some((a) => a.status === "rejected");
-
-    let status: "approved" | "pending" | "draft" | "rejected" | "missing";
-    if (allApproved && period.is_period_locked) {
-      status = "approved";
-    } else if (hasRejections) {
-      status = "rejected";
-    } else if (period.submitted_at) {
-      status = "pending";
-    } else {
-      status = "draft";
-    }
-
-    const isOverdue = period.deadline 
-      ? new Date(period.deadline) < today && !period.is_period_locked
-      : false;
+  // deno-lint-ignore no-explicit-any
+  const weeks = ((data as any[]) || []).map((w: any) => {
+    // Map RPC statuses to legacy format for backward compatibility
+    const statusMap: Record<string, string> = {
+      'APPROVED': 'approved',
+      'PENDING_APPROVAL': 'pending',
+      'NOT_LOGGED': 'missing',
+      'NOT_SUBMITTED': 'missing',
+      'DRAFT': 'draft',
+      'REJECTED': 'rejected',
+      'CURRENT': 'draft',
+      'FUTURE': 'draft',
+    };
 
     return {
-      week_start: week.weekStart,
-      week_end: week.weekEnd,
-      period_id: period.period_id,
-      status,
-      submitted_at: period.submitted_at,
-      deadline: period.deadline,
-      is_overdue: isOverdue,
+      week_start: w.week_start,
+      week_end: w.week_end,
+      status: statusMap[w.status] || 'missing',
+      is_overdue: w.status === 'NOT_LOGGED' || w.status === 'NOT_SUBMITTED',
+      submitted_at: w.is_submitted ? 'submitted' : null,
+      is_current_week: w.is_current_week,
     };
   });
 
   // Summary counts
   const summary = {
-    approved: weekStatuses.filter((w) => w.status === "approved").length,
-    pending: weekStatuses.filter((w) => w.status === "pending").length,
-    draft: weekStatuses.filter((w) => w.status === "draft").length,
-    rejected: weekStatuses.filter((w) => w.status === "rejected").length,
-    missing: weekStatuses.filter((w) => w.status === "missing").length,
-    overdue: weekStatuses.filter((w) => w.is_overdue).length,
+    approved: weeks.filter((w: any) => w.status === "approved").length,
+    pending: weeks.filter((w: any) => w.status === "pending").length,
+    draft: weeks.filter((w: any) => w.status === "draft").length,
+    rejected: weeks.filter((w: any) => w.status === "rejected").length,
+    missing: weeks.filter((w: any) => w.status === "missing").length,
+    overdue: weeks.filter((w: any) => w.is_overdue).length,
   };
 
-  return { weeks: weekStatuses, summary };
+  return { weeks, summary };
 }
 
 // ACTION: practice-pulse - Firm-wide KPIs

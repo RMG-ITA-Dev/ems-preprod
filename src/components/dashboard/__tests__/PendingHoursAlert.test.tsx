@@ -1,6 +1,6 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { PendingHoursAlert } from "../PendingHoursAlert";
@@ -25,6 +25,14 @@ vi.mock("@/hooks/useCurrentStaff", () => ({
   useCurrentStaff: () => mockUseCurrentStaff(),
 }));
 
+// Mock useDashboard
+vi.mock("@/contexts/DashboardContext", () => ({
+  useDashboard: () => ({
+    startDateStr: "2026-01-01",
+    endDateStr: "2026-02-28",
+  }),
+}));
+
 // Mock supabase.rpc
 const mockRpc = vi.fn();
 vi.mock("@/integrations/supabase/client", () => ({
@@ -47,12 +55,12 @@ function createWrapper() {
 }
 
 const sampleWeeks = [
-  { week_start: "2026-01-05", expected_hours: 40, actual_hours: 32, gap: 8 },
-  { week_start: "2026-01-12", expected_hours: 40, actual_hours: 20, gap: 20 },
-  { week_start: "2026-01-19", expected_hours: 40, actual_hours: 35, gap: 5 },
+  { week_start: "2026-01-05", week_end: "2026-01-09", status: "NOT_LOGGED", total_logged_hours: 0, expected_hours: 40, missing_hours: 40, is_submitted: false, is_current_week: false },
+  { week_start: "2026-01-12", week_end: "2026-01-16", status: "PENDING_APPROVAL", total_logged_hours: 38.5, expected_hours: 40, missing_hours: 1.5, is_submitted: true, is_current_week: false },
+  { week_start: "2026-01-19", week_end: "2026-01-23", status: "APPROVED", total_logged_hours: 40, expected_hours: 40, missing_hours: 0, is_submitted: true, is_current_week: false },
 ];
 
-describe("PendingHoursAlert (Feature 0220-50)", () => {
+describe("PendingHoursAlert (Feature 0220-50 v5)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockUseCurrentStaff.mockReturnValue({
@@ -60,14 +68,13 @@ describe("PendingHoursAlert (Feature 0220-50)", () => {
     });
   });
 
-  it("renders nothing when pendingWeeks is empty", async () => {
+  it("renders nothing when weekStatuses is empty", async () => {
     mockRpc.mockResolvedValue({ data: [], error: null });
 
     const { container } = render(<PendingHoursAlert />, {
       wrapper: createWrapper(),
     });
 
-    // Wait for query to settle, then check nothing rendered
     await vi.waitFor(() => {
       expect(container.innerHTML).toBe("");
     });
@@ -83,7 +90,7 @@ describe("PendingHoursAlert (Feature 0220-50)", () => {
     expect(container.innerHTML).toBe("");
   });
 
-  it("renders summary card with correct week count and total hours", async () => {
+  it("renders the alert when there are actionable weeks", async () => {
     mockRpc.mockResolvedValue({ data: sampleWeeks, error: null });
 
     render(<PendingHoursAlert />, { wrapper: createWrapper() });
@@ -93,11 +100,21 @@ describe("PendingHoursAlert (Feature 0220-50)", () => {
         screen.getByText("dashboard.personal.pendingHours.title")
       ).toBeInTheDocument();
     });
+  });
 
-    // Summary should mention weeks=3 and hours=33.0
-    expect(
-      screen.getByText(/dashboard\.personal\.pendingHours\.summary/)
-    ).toBeInTheDocument();
+  it("renders nothing when all weeks are APPROVED", async () => {
+    const allApproved = [
+      { week_start: "2026-01-05", week_end: "2026-01-09", status: "APPROVED", total_logged_hours: 40, expected_hours: 40, missing_hours: 0, is_submitted: true, is_current_week: false },
+    ];
+    mockRpc.mockResolvedValue({ data: allApproved, error: null });
+
+    const { container } = render(<PendingHoursAlert />, {
+      wrapper: createWrapper(),
+    });
+
+    await vi.waitFor(() => {
+      expect(container.innerHTML).toBe("");
+    });
   });
 
   it("displays 'Go to Timesheet' link pointing to /timesheet", async () => {
@@ -114,63 +131,20 @@ describe("PendingHoursAlert (Feature 0220-50)", () => {
     });
   });
 
-  it("does not show 'and X more' footer when 12 or fewer weeks", async () => {
+  it("shows summary chips for NOT_LOGGED and PENDING_APPROVAL counts", async () => {
     mockRpc.mockResolvedValue({ data: sampleWeeks, error: null });
 
     render(<PendingHoursAlert />, { wrapper: createWrapper() });
 
     await vi.waitFor(() => {
+      // Red chip: 1 not reported with 40h missing
       expect(
-        screen.getByText("dashboard.personal.pendingHours.title")
+        screen.getByText(/summaryNotLogged/)
       ).toBeInTheDocument();
-    });
-
-    expect(
-      screen.queryByText(/dashboard\.personal\.pendingHours\.andMore/)
-    ).not.toBeInTheDocument();
-  });
-
-  it("shows 'and X more' footer when more than 12 weeks exist", async () => {
-    // Generate 15 weeks with valid dates
-    const manyWeeks = Array.from({ length: 15 }, (_, i) => ({
-      week_start: `2025-${String(Math.floor(i / 4) + 1).padStart(2, "0")}-${String(((i % 4) * 7) + 1).padStart(2, "0")}`,
-      expected_hours: 40,
-      actual_hours: 30,
-      gap: 10,
-    }));
-    mockRpc.mockResolvedValue({ data: manyWeeks, error: null });
-
-    render(<PendingHoursAlert />, { wrapper: createWrapper() });
-
-    // Wait for data to load
-    await vi.waitFor(() => {
+      // Yellow chip: 1 pending
       expect(
-        screen.getByText("dashboard.personal.pendingHours.title")
+        screen.getByText(/summaryPending/)
       ).toBeInTheDocument();
-    });
-
-    // Expand the collapsible by clicking the trigger button
-    const triggerButton = screen.getByText("dashboard.personal.pendingHours.title").closest("button");
-    expect(triggerButton).not.toBeNull();
-    fireEvent.click(triggerButton!);
-
-    // The "and X more" text should appear in the expanded content
-    await vi.waitFor(() => {
-      expect(
-        screen.getByText(/dashboard\.personal\.pendingHours\.andMore/)
-      ).toBeInTheDocument();
-    }, { timeout: 2000 });
-  });
-
-  it("computes totalGap correctly from week gaps", async () => {
-    mockRpc.mockResolvedValue({ data: sampleWeeks, error: null });
-
-    render(<PendingHoursAlert />, { wrapper: createWrapper() });
-
-    await vi.waitFor(() => {
-      // totalGap = 8 + 20 + 5 = 33.0
-      const summary = screen.getByText(/dashboard\.personal\.pendingHours\.summary/);
-      expect(summary.textContent).toContain("33.0");
     });
   });
 });
