@@ -134,12 +134,14 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
     const trimmedName = data.client_legal_name.trim();
 
     // Pre-save duplicate NIT check
-    const { data: existingByNit, error: nitError } = await supabase
+    let nitQuery = supabase
       .from("clients")
       .select("client_id, client_legal_name")
-      .eq("unique_tax_id", data.unique_tax_id)
-      .neq("client_id", client?.client_id || "")
-      .limit(1);
+      .eq("unique_tax_id", data.unique_tax_id);
+    if (client?.client_id) {
+      nitQuery = nitQuery.neq("client_id", client.client_id);
+    }
+    const { data: existingByNit, error: nitError } = await nitQuery.limit(1);
 
     if (nitError) {
       toast.error(t("errors.duplicateCheckFailed"));
@@ -151,12 +153,14 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
     }
 
     // Pre-save duplicate name check (case-insensitive)
-    const { data: existingByName, error: nameError } = await supabase
+    let nameQuery = supabase
       .from("clients")
       .select("client_id, unique_tax_id")
-      .ilike("client_legal_name", trimmedName)
-      .neq("client_id", client?.client_id || "")
-      .limit(1);
+      .ilike("client_legal_name", trimmedName);
+    if (client?.client_id) {
+      nameQuery = nameQuery.neq("client_id", client.client_id);
+    }
+    const { data: existingByName, error: nameError } = await nameQuery.limit(1);
 
     if (nameError) {
       toast.error(t("errors.duplicateCheckFailed"));
