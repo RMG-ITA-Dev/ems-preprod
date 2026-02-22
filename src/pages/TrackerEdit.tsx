@@ -374,7 +374,7 @@ const TrackerEdit = () => {
                       variant="outline"
                       disabled={isImported}
                       className={cn(
-                        "w-full justify-start text-left font-normal",
+                        "w-1/2 justify-start text-left font-normal",
                         !date && "text-muted-foreground"
                       )}
                     >
