@@ -126,4 +126,104 @@ describe("useClientMutations", () => {
       expect(toast.success).toHaveBeenCalled();
     });
   });
+
+  describe("duplicate client name handling (BUG 0220-18)", () => {
+    it("shows duplicateClientName toast on 23505 with clients_client_legal_name_unique", async () => {
+      const error = {
+        code: "23505",
+        message: "duplicate key value violates unique constraint",
+        constraint: "clients_client_legal_name_unique",
+      };
+      const mockSingle = vi.fn().mockResolvedValue({ data: null, error });
+      const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
+      const mockInsert = vi.fn().mockReturnValue({ select: mockSelect });
+      vi.mocked(supabase.from).mockReturnValue({ insert: mockInsert } as any);
+
+      const { result } = renderHook(() => useCreateClient(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate({
+        client_legal_name: "Duplicate Corp",
+        unique_tax_id: "999",
+      });
+
+      await waitFor(() => expect(result.current.isError).toBe(true));
+      expect(toast.error).toHaveBeenCalledWith("errors.duplicateClientName");
+    });
+
+    it("shows duplicateNit toast on 23505 with clients_unique_tax_id_key", async () => {
+      const error = {
+        code: "23505",
+        message: "duplicate key value violates unique constraint",
+        constraint: "clients_unique_tax_id_key",
+      };
+      const mockSingle = vi.fn().mockResolvedValue({ data: null, error });
+      const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
+      const mockInsert = vi.fn().mockReturnValue({ select: mockSelect });
+      vi.mocked(supabase.from).mockReturnValue({ insert: mockInsert } as any);
+
+      const { result } = renderHook(() => useCreateClient(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate({
+        client_legal_name: "Some Corp",
+        unique_tax_id: "DUPLICATE-NIT",
+      });
+
+      await waitFor(() => expect(result.current.isError).toBe(true));
+      expect(toast.error).toHaveBeenCalledWith("errors.duplicateNit");
+    });
+
+    it("falls back to generic error handler for non-23505 errors", async () => {
+      const error = {
+        code: "42501",
+        message: "permission denied",
+      };
+      const mockSingle = vi.fn().mockResolvedValue({ data: null, error });
+      const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
+      const mockInsert = vi.fn().mockReturnValue({ select: mockSelect });
+      vi.mocked(supabase.from).mockReturnValue({ insert: mockInsert } as any);
+
+      const { result } = renderHook(() => useCreateClient(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate({
+        client_legal_name: "Test",
+        unique_tax_id: "123",
+      });
+
+      await waitFor(() => expect(result.current.isError).toBe(true));
+      // Should NOT call toast.error with duplicate-specific messages
+      expect(toast.error).not.toHaveBeenCalledWith("errors.duplicateClientName");
+      expect(toast.error).not.toHaveBeenCalledWith("errors.duplicateNit");
+    });
+
+    it("falls back to generic error handler for 23505 with unknown constraint", async () => {
+      const error = {
+        code: "23505",
+        message: "duplicate key value violates unique constraint",
+        constraint: "some_other_constraint",
+      };
+      const mockSingle = vi.fn().mockResolvedValue({ data: null, error });
+      const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
+      const mockInsert = vi.fn().mockReturnValue({ select: mockSelect });
+      vi.mocked(supabase.from).mockReturnValue({ insert: mockInsert } as any);
+
+      const { result } = renderHook(() => useCreateClient(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate({
+        client_legal_name: "Test",
+        unique_tax_id: "123",
+      });
+
+      await waitFor(() => expect(result.current.isError).toBe(true));
+      expect(toast.error).not.toHaveBeenCalledWith("errors.duplicateClientName");
+      expect(toast.error).not.toHaveBeenCalledWith("errors.duplicateNit");
+    });
+  });
 });
