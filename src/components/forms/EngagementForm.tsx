@@ -90,14 +90,6 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   const { isAdmin } = useUserRole();
   const isEdit = !!engagement;
 
-  // BUG #0206-19: Minimum allowed start date
-  const minStartDate = useMemo(() => {
-    if (isEdit && engagement?.created_at) {
-      return startOfDay(new Date(engagement.created_at));
-    }
-    return startOfDay(new Date());
-  }, [isEdit, engagement?.created_at]);
-
   const { data: clients } = useClients();
   const { partners, managerOptions, hasPartnerCategory, hasManagerCategory } = useCategoryStaff();
   const createMutation = useCreateEngagement();
@@ -141,6 +133,15 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   const [activityRequired, setActivityRequired] = useState(engagement?.activity_required ?? true);
   const [isInternal, setIsInternal] = useState(engagement?.is_internal ?? false);
 
+  // BUG #0206-19 + #0220-48: Minimum allowed start date (bypassed for internal)
+  const minStartDate = useMemo(() => {
+    if (isInternal) return undefined;
+    if (isEdit && engagement?.created_at) {
+      return startOfDay(new Date(engagement.created_at));
+    }
+    return startOfDay(new Date());
+  }, [isInternal, isEdit, engagement?.created_at]);
+
   // Destructure isDirty before effects that depend on it
   const { isDirty } = form.formState;
 
@@ -174,8 +175,8 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   }, [isDirty, onDirtyChange]);
 
   const onSubmit = async (data: FormData) => {
-    // BUG #0206-19: Validate start_date >= creation date
-    if (data.start_date && isBefore(startOfDay(data.start_date), minStartDate)) {
+    // BUG #0206-19 + #0220-48: skip for internal engagements
+    if (!isInternal && minStartDate && data.start_date && isBefore(startOfDay(data.start_date), minStartDate)) {
       form.setError("start_date", {
         message: t("engagement.startDateBeforeCreation"),
       });
@@ -448,7 +449,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                             mode="single"
                             selected={field.value}
                             onSelect={field.onChange}
-                            disabled={(date) => isBefore(startOfDay(date), minStartDate)}
+                            disabled={minStartDate ? (date) => isBefore(startOfDay(date), minStartDate) : undefined}
                             initialFocus
                             className="pointer-events-auto"
                           />
@@ -488,7 +489,8 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                             disabled={(date) => {
                               const startDate = form.getValues("start_date");
                               if (startDate) return isBefore(startOfDay(date), startOfDay(startDate));
-                              return isBefore(startOfDay(date), minStartDate);
+                              if (minStartDate) return isBefore(startOfDay(date), minStartDate);
+                              return false;
                             }}
                             initialFocus
                             className="pointer-events-auto"
