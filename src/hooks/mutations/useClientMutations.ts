@@ -4,17 +4,29 @@ import { toast } from "sonner";
 import { createMutationErrorHandler, handleError, ErrorCode } from "@/lib/error-handler";
 import i18n from "@/i18n";
 
-// BUG #11: Handle duplicate NIT error specifically
+// Handle duplicate constraint errors with structured matching
 function handleClientError(error: Error, operation: string) {
-  const err = error as unknown as { code?: string; message?: string };
-  
-  // Check for unique constraint violation on NIT
-  if (err.code === "23505" && err.message?.includes("unique_tax_id")) {
-    toast.error(i18n.t("errors.duplicateNit"));
-    return;
+  const err = error as unknown as {
+    code?: string;
+    message?: string;
+    constraint?: string;
+    details?: string;
+  };
+
+  if (err.code === "23505") {
+    // Prefer err.constraint when available; fall back to message.includes()
+    const constraintName = err.constraint || err.message || "";
+
+    if (constraintName.includes("clients_client_legal_name_unique")) {
+      toast.error(i18n.t("errors.duplicateClientName"));
+      return;
+    }
+    if (constraintName.includes("clients_unique_tax_id_key")) {
+      toast.error(i18n.t("errors.duplicateNit"));
+      return;
+    }
   }
-  
-  // Fall back to default error handling
+
   createMutationErrorHandler(operation)(error);
 }
 
@@ -79,7 +91,7 @@ export function useUpdateClient() {
       queryClient.invalidateQueries({ queryKey: ["clients"] });
       toast.success(i18n.t("messages.updateSuccess", { entity: i18n.t("entities.client") }));
     },
-    onError: createMutationErrorHandler("updating client"),
+    onError: (error) => handleClientError(error, "updating client"),
   });
 }
 

@@ -454,7 +454,9 @@
   },
   "errors": {
     "duplicateNit": "A client with NIT {{nit}} already exists: {{name}}",
-    "duplicateClientName": "A client with this name already exists (NIT: {{nit}}). Please verify it is not a duplicate.",
+    "duplicateClientName": "A client with this name already exists.",
+    "duplicateClientNameWithNit": "A client with this name already exists (NIT: {{nit}}). Please verify it is not a duplicate.",
+    "duplicateCheckFailed": "We couldn't check for duplicate client names (connection issue). Please try again.",
     "duplicateEmail": "A staff member with this email already exists",
     "invalidEmail": "Invalid email address",
     "emailTooLong": "Email must be less than 255 characters"
