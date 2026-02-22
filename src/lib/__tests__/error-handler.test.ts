@@ -93,10 +93,10 @@ describe("handleError", () => {
     expect(result.code).toBe(ErrorCode.DB_CONNECTION);
   });
 
-  it("parses PostgreSQL constraint violations", () => {
+  it("parses PostgreSQL 23505 as duplicate key", () => {
     const error = { code: "23505", message: "Unique violation" };
     const result = handleError(error, { showToast: false });
-    expect(result.code).toBe(ErrorCode.DB_CONSTRAINT);
+    expect(result.code).toBe(ErrorCode.DB_DUPLICATE_KEY);
   });
 
   it("parses PGRST116 as not found", () => {

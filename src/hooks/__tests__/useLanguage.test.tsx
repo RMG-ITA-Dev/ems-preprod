@@ -4,12 +4,14 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useLanguage } from "../useLanguage";
 
-// Mock react-i18next
+// Mutable language state for controlling i18n.language per-test
+let mockLanguage = "en";
 const mockChangeLanguage = vi.fn();
+
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     i18n: {
-      language: "en",
+      get language() { return mockLanguage; },
       changeLanguage: mockChangeLanguage,
     },
     t: (key: string) => key,
@@ -35,6 +37,8 @@ function createWrapper() {
 describe("useLanguage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockLanguage = "en";
+    mockChangeLanguage.mockClear();  // HC-03: explicit intent
   });
 
   it("returns current language and loading state", () => {
@@ -70,16 +74,7 @@ describe("useLanguage", () => {
   });
 
   it("does not change language if already matches", () => {
-    // Mock i18n.language as "es" already
-    vi.mock("react-i18next", () => ({
-      useTranslation: () => ({
-        i18n: {
-          language: "es",
-          changeLanguage: mockChangeLanguage,
-        },
-        t: (key: string) => key,
-      }),
-    }));
+    mockLanguage = "es";  // Simulates i18n already set to "es"
 
     vi.mocked(useGlobalSettings).mockReturnValue({
       data: [
@@ -88,12 +83,9 @@ describe("useLanguage", () => {
       isLoading: false,
     } as any);
 
-    renderHook(() => useLanguage(), {
-      wrapper: createWrapper(),
-    });
+    renderHook(() => useLanguage(), { wrapper: createWrapper() });
 
-    // Should not call changeLanguage since it's already "es"
-    // (This test verifies the conditional logic)
+    expect(mockChangeLanguage).not.toHaveBeenCalled();  // Real assertion
   });
 
   it("exposes changeLanguage function", () => {

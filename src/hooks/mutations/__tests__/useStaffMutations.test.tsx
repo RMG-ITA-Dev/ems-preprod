@@ -1,5 +1,5 @@
 import React from "react";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -112,10 +112,34 @@ describe("useStaffMutations", () => {
   });
 
   describe("useDeleteStaff", () => {
-    it("should delete a staff member by id", async () => {
-      const mockEq = vi.fn().mockResolvedValue({ error: null });
-      const mockDelete = vi.fn().mockReturnValue({ eq: mockEq });
-      vi.mocked(supabase.from).mockReturnValue({ delete: mockDelete } as any);
+    afterEach(() => {
+      vi.mocked(supabase.from).mockReset();  // HC-02: prevent leakage
+    });
+
+    it("should delete a staff member by id (hard delete, no dependencies)", async () => {
+      const mockDeleteEq = vi.fn().mockResolvedValue({ error: null });  // HC-01: named ref
+      const mockDeleteFn = vi.fn().mockReturnValue({ eq: mockDeleteEq });
+
+      vi.mocked(supabase.from).mockImplementation((table: string) => {
+        if (["time_entries", "timer_entries", "timesheet_periods", "engagements"].includes(table)) {
+          const base = { limit: vi.fn().mockResolvedValue({ data: [], error: null }) };
+          return {
+            select: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue(base),
+              or: vi.fn().mockReturnValue(base),
+            }),
+          } as any;
+        }
+        if (table === "staff") {
+          return {
+            delete: mockDeleteFn,
+            update: vi.fn().mockReturnValue({
+              eq: vi.fn().mockResolvedValue({ error: null }),
+            }),
+          } as any;
+        }
+        throw new Error(`Unexpected table: ${table}`);
+      });
 
       const { result } = renderHook(() => useDeleteStaff(), {
         wrapper: createWrapper(),
@@ -126,7 +150,7 @@ describe("useStaffMutations", () => {
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
       expect(supabase.from).toHaveBeenCalledWith("staff");
-      expect(mockEq).toHaveBeenCalledWith("staff_id", "staff-123");
+      expect(mockDeleteEq).toHaveBeenCalledWith("staff_id", "staff-123");  // HC-01: strong assertion
       expect(toast.success).toHaveBeenCalled();
     });
   });

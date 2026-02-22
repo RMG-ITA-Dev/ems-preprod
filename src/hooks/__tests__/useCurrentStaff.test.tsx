@@ -108,13 +108,22 @@ describe("useCurrentStaff", () => {
       resetPasswordForEmail: vi.fn(),
     });
 
-    const mockMaybeSingle = vi.fn().mockResolvedValue({
-      data: null,
-      error: null,
-    });
-    const mockEq = vi.fn().mockReturnValue({ maybeSingle: mockMaybeSingle });
-    const mockSelect = vi.fn().mockReturnValue({ eq: mockEq });
-    vi.mocked(supabase.from).mockReturnValue({ select: mockSelect } as any);
+    const primaryMaybeSingle = vi.fn().mockResolvedValue({ data: null, error: null });
+    const fallbackMaybeSingle = vi.fn().mockResolvedValue({ data: null, error: null });
+
+    vi.mocked(supabase.from)
+      .mockReturnValueOnce({
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({ maybeSingle: primaryMaybeSingle }),
+        }),
+      } as any)
+      .mockReturnValueOnce({
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            is: vi.fn().mockReturnValue({ maybeSingle: fallbackMaybeSingle }),
+          }),
+        }),
+      } as any);
 
     const { result } = renderHook(() => useCurrentStaff(), {
       wrapper: createWrapper(),

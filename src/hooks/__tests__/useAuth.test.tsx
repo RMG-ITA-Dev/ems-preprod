@@ -19,6 +19,35 @@ vi.mock("@/integrations/supabase/client", () => ({
     functions: {
       invoke: vi.fn(),
     },
+    from: vi.fn((table: string) => {
+      if (table === 'staff') {
+        return {
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              maybeSingle: vi.fn().mockResolvedValue({
+                data: { is_active: true },
+                error: null,
+              }),
+            }),
+          }),
+        } as any;
+      }
+      if (table === 'user_roles') {
+        return {
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                maybeSingle: vi.fn().mockResolvedValue({
+                  data: null,
+                  error: null,
+                }),
+              }),
+            }),
+          }),
+        } as any;
+      }
+      throw new Error(`Unexpected table in useAuth test: ${table}`);
+    }),
   },
 }));
 
