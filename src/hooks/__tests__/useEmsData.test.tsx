@@ -159,8 +159,8 @@ describe("useEmsData hooks", () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-      // Now queries clients_directory view instead of clients table
-      expect(supabase.from).toHaveBeenCalledWith("clients_directory");
+      // Queries base clients table with explicit non-sensitive columns
+      expect(supabase.from).toHaveBeenCalledWith("clients");
       expect(result.current.data?.[0].industry?.industry_name).toBe("Tech");
     });
   });
