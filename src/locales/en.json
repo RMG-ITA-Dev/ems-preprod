@@ -374,7 +374,17 @@
     "hireDate": "Hire Date",
     "hireDateHelp": "Employee start date. Restricts timesheet entry to weeks on or after this date.",
     "emailAlreadyUsed": "This email is already assigned to {{name}}. Each staff member must have a unique email.",
-    "emailLinkedWarning": "This member has a linked login account. Changing the email does not update their login credentials."
+    "emailLinkedWarning": "This member has a linked login account. Changing the email does not update their login credentials.",
+    "terminationDate": "Termination Date",
+    "terminationDateHelp": "Restricts time entry after this date",
+    "pendingHoursTitle": "Pending Hours",
+    "pendingHoursDescription": "Cannot deactivate. The following weeks have missing hours that must be completed before deactivation:",
+    "pendingHoursCheckError": "Could not verify hours completeness. Deactivation blocked as a safety measure. Please try again.",
+    "weekOf": "Week of",
+    "expected": "Expected",
+    "actual": "Actual",
+    "gap": "Missing",
+    "totalMissing": "Total missing hours"
   },
   "client": {
     "name": "Client Name",
@@ -459,8 +469,11 @@
     "duplicateClientNameWithNit": "A client with this name already exists (NIT: {{nit}}). Please verify it is not a duplicate.",
     "duplicateCheckFailed": "We couldn't check for duplicate client names (connection issue). Please try again.",
     "duplicateEmail": "A staff member with this email already exists",
+    "duplicateIdNumber": "A staff member with this ID number already exists. Delete the previous record first.",
     "invalidEmail": "Invalid email address",
-    "emailTooLong": "Email must be less than 255 characters"
+    "emailTooLong": "Email must be less than 255 characters",
+    "afterTerminationDate": "Cannot log time after termination date",
+    "noReingreso": "Reactivation is not allowed. To rehire this person, delete the previous record and create a new one."
   },
   "form": {
     "required": "Required",
@@ -642,6 +655,7 @@
     "admActivityNotConfigured": "System ADM activity is not configured. Contact an administrator.",
     "entry": "Time entry",
     "beforeHireDate": "You cannot log time for this week because it is before your hire date.",
+    "afterTerminationDate": "You cannot log time for this week because it is after your termination date.",
     "copyPreviousWeek": "Copy Previous Week",
     "copiedFromPreviousWeek": "Copied {{count}} entries from previous week",
     "noPreviousEntries": "No entries found in the previous week to copy",
@@ -946,6 +960,8 @@
     "cityRequired": "City is required",
     "idNumberRequired": "ID number is required",
     "hireDateRequired": "Hire date is required",
-    "initialsMax4": "Max 4 characters"
+    "initialsMax4": "Max 4 characters",
+    "terminationDateBeforeHire": "Termination date cannot be before hire date",
+    "terminationDateRequired": "Termination date is required when deactivating"
   }
 }

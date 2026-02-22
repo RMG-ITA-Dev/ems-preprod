@@ -576,6 +576,7 @@ export type Database = {
           last_name: string
           short_name: string | null
           staff_id: string
+          termination_date: string | null
           updated_at: string | null
           weekly_capacity_hours: number
         }
@@ -595,6 +596,7 @@ export type Database = {
           last_name: string
           short_name?: string | null
           staff_id?: string
+          termination_date?: string | null
           updated_at?: string | null
           weekly_capacity_hours?: number
         }
@@ -614,6 +616,7 @@ export type Database = {
           last_name?: string
           short_name?: string | null
           staff_id?: string
+          termination_date?: string | null
           updated_at?: string | null
           weekly_capacity_hours?: number
         }
@@ -1397,6 +1400,10 @@ export type Database = {
           p_period_id: string
         }
         Returns: boolean
+      }
+      check_pending_hours_before_termination: {
+        Args: { p_staff_id: string; p_termination_date: string }
+        Returns: Json
       }
       finalize_all_stale_timers: { Args: never; Returns: number }
       finalize_my_stale_timers: { Args: never; Returns: number }

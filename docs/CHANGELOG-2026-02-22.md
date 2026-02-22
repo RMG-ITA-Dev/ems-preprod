@@ -142,3 +142,75 @@ Added a toggle switch ("Especificar horas" / "Specify times") to both the Manual
 | `src/hooks/useTimerEntries.ts` | Add `has_explicit_times` to `TimerEntry` interface + mutation types |
 | `src/locales/en.json` | Add `tracker.useExplicitTimes` |
 | `src/locales/es.json` | Add `tracker.useExplicitTimes` |
+
+---
+
+### Feature 0220-47: Fecha de Salida + Hours Completeness Gate + No-Reingreso Policy
+
+**Plan**: Plan_0220-47_v6
+**Priority**: Alta
+**Route**: ADMINISTRACIÓN - Personal
+
+#### Summary
+Added `termination_date` (Fecha de Salida) to staff records with multi-layer enforcement:
+1. **DB trigger** blocks time entries after termination date (`trg_enforce_termination_date`)
+2. **DB trigger** prevents staff reactivation (`trg_prevent_staff_reactivation`) — No-Reingreso policy
+3. **DB CHECK constraint** ensures `termination_date >= hire_date`
+4. **Pending-hours completeness gate** via RPC `check_pending_hours_before_termination` — blocks deactivation until all expected hours are logged (holiday-aware)
+5. **Updated unique indexes** on `email` and `id_number` to exclude soft-deleted records, enabling the "delete old + create new" rehire workflow
+
+#### Solution
+
+**Layer 1 — Database Migration**:
+- Added `termination_date date` column to `staff` (nullable)
+- Idempotent CHECK constraint `chk_termination_after_hire`
+- Trigger `trg_enforce_termination_date`: blocks `time_entries` where `date_worked > termination_date`
+- Trigger `trg_prevent_staff_reactivation`: blocks `is_active: false → true` transitions
+- Updated `idx_staff_email_unique` and `idx_staff_id_number_unique` to `WHERE deleted_at IS NULL`
+- RPC `check_pending_hours_before_termination`: returns JSONB array of weeks with missing hours (holiday-aware, capacity-based)
+
+**Layer 2 — Type Updates**:
+- Added `termination_date` to `StaffFull` interface and `useCurrentStaff` queries
+
+**Layer 3 — Mutation Error Handler** (`useStaffMutations.ts`):
+- Constraint-name-based matching for 23505 errors (`idx_staff_email_unique`, `idx_staff_id_number_unique`)
+- Maps `REACTIVATION_BLOCKED` and `TERMINATION_DATE_BLOCKED` to localized toasts
+
+**Layer 4 — Staff Form** (`StaffForm.tsx`):
+- Added `termination_date` date field (edit mode only)
+- Zod refine: `termination_date >= hire_date`
+- Pending-hours gate: calls RPC on deactivation, shows dialog with gap weeks or blocks on error
+- No-Reingreso: disables `is_active` switch when staff is deactivated with termination_date
+- Pre-save `id_number` duplicate check (excluding soft-deleted)
+
+**Layer 5 — Timesheet** (`TimeSheet.tsx`, `TimesheetGrid.tsx`, `WeekNavigator.tsx`):
+- `isAfterTerminationDate`: banner + locked grid for weeks after termination
+- `lockedDaysAfterTermination`: per-day locking for mid-week terminations
+- `latestWeekStart` prop caps forward navigation in WeekNavigator
+
+**Layer 6 — i18n**: Added 15+ translation keys for both EN and ES
+
+#### Files Modified
+
+| File | Change |
+|------|--------|
+| Database migration | Column, CHECK, 2 triggers, updated indexes, RPC |
+| `src/hooks/useEmsData.ts` | Add `termination_date` to `StaffFull` |
+| `src/hooks/useCurrentStaff.ts` | Add `termination_date` to interface + queries |
+| `src/hooks/mutations/useStaffMutations.ts` | `termination_date` in payloads; constraint-name error mapping |
+| `src/components/forms/StaffForm.tsx` | Field, pending-hours gate, No-Reingreso, id_number check |
+| `src/pages/TimeSheet.tsx` | Post-termination locking + banner |
+| `src/components/timesheet/TimesheetGrid.tsx` | `lockedDaysAfterTermination` prop |
+| `src/components/timesheet/WeekNavigator.tsx` | `latestWeekStart` prop |
+| `src/locales/en.json` | Add translation keys |
+| `src/locales/es.json` | Add translation keys |
+
+#### Risk Assessment
+
+| Risk | Level | Mitigation |
+|------|-------|------------|
+| Nullable `termination_date` | None | Existing records unaffected |
+| DB reactivation trigger | Low | Policy is explicit; delete + recreate workflow documented |
+| Soft-delete + unique indexes | None | Indexes exclude `deleted_at IS NOT NULL` records |
+| Pending-hours RPC SECURITY DEFINER | None | Returns only aggregate data |
+| Fail-safe on RPC error | None | Deactivation blocked if completeness unverifiable |

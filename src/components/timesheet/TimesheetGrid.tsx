@@ -62,6 +62,8 @@ interface TimesheetGridProps {
   weeklyLimit?: number;
   // BUG #5: Per-day hire date locking
   lockedDaysBeforeHire?: Set<number>;
+  // Per-day termination date locking
+  lockedDaysAfterTermination?: Set<number>;
   // Holiday blocking
   holidayMap?: Map<string, string>;
   holidayEngagementId?: string | null;
@@ -86,6 +88,7 @@ export function TimesheetGrid({
   dailyLimit = 10,
   weeklyLimit = 50,
   lockedDaysBeforeHire,
+  lockedDaysAfterTermination,
   holidayMap,
   holidayEngagementId,
   activityNotRequiredIds,
@@ -748,12 +751,13 @@ export function TimesheetGrid({
                   const isSaving = savingCells.has(cellKey);
                   const isSaved = savedCells.has(cellKey);
                   const isDayLockedByHire = lockedDaysBeforeHire?.has(dayIndex) ?? false;
+                  const isDayLockedByTermination = lockedDaysAfterTermination?.has(dayIndex) ?? false;
                   const holidayName = holidayMap?.get(dateStr);
                   const isHolidayBlocked = !!holidayName && row.engagementId !== holidayEngagementId;
                   const isActivityNotRequired = activityNotRequiredIds?.has(row.engagementId);
                   const isAdmMissing = isActivityNotRequired && !adminActivityId;
                   const isDisabled =
-                    isRowLocked || isDayLockedByHire || isHolidayBlocked || isAdmMissing || !row.engagementId || (!row.activityId && !isActivityNotRequired);
+                    isRowLocked || isDayLockedByHire || isDayLockedByTermination || isHolidayBlocked || isAdmMissing || !row.engagementId || (!row.activityId && !isActivityNotRequired);
 
                   return (
                     <td key={dateStr} className={cn("p-2 relative text-center border-r border-border", isDayLockedByHire && "bg-muted/40", isHolidayBlocked && "bg-warning/5")}>
