@@ -1037,3 +1037,132 @@ Self-contained component that:
 | Security | None | `SECURITY DEFINER` + UI always passes own staff_id |
 | UI clutter | None | Component renders nothing when no gaps exist |
 | Business logic duplication | None | All computation in DB RPC; frontend is display-only |
+
+---
+
+### Plan_0222-TESTFIX_v3: Fix 7 Pre-Existing Test Failures (Hardened)
+
+**Priority**: Mantenimiento
+**Scope**: Test-only changes — zero production code modified
+
+#### Problem
+7 pre-existing test failures across 5 files caused by production code updates that were not reflected in their corresponding test mocks.
+
+#### Fixes Applied
+
+**FAIL-01 — `src/lib/__tests__/error-handler.test.ts` (line 96-100)**
+
+```typescript
+// BEFORE:
+it("parses PostgreSQL constraint violations", () => {
+  expect(result.code).toBe(ErrorCode.DB_CONSTRAINT);
+});
+
+// AFTER:
+it("parses PostgreSQL 23505 as duplicate key", () => {
+  expect(result.code).toBe(ErrorCode.DB_DUPLICATE_KEY);
+});
+```
+
+**Root cause:** Source maps `23505` to `DB_DUPLICATE_KEY`; test asserted `DB_CONSTRAINT`.
+
+---
+
+**FAIL-02 — `src/hooks/__tests__/useAuth.test.tsx` (lines 8-23)**
+
+```typescript
+// ADDED to supabase mock at root level (HC-04):
+from: vi.fn((table: string) => {
+  if (table === 'staff') {
+    return { select → eq → maybeSingle → { data: { is_active: true }, error: null } };
+  }
+  if (table === 'user_roles') {
+    return { select → eq → eq → maybeSingle → { data: null, error: null } };
+  }
+  throw new Error(`Unexpected table in useAuth test: ${table}`);
+}),
+```
+
+**Root cause:** `signIn` queries `staff` and `user_roles` via `supabase.from()`. Mock had no `from` property.
+
+---
+
+**FAIL-04 — `src/hooks/__tests__/useCurrentStaff.test.tsx` (lines 111-117)**
+
+```typescript
+// BEFORE: Single mock chain without .is() support
+vi.mocked(supabase.from).mockReturnValue({ select → eq → maybeSingle(null) });
+
+// AFTER: Two sequential calls with .is() for fallback path
+vi.mocked(supabase.from)
+  .mockReturnValueOnce({ select → eq → maybeSingle(null) })           // primary lookup
+  .mockReturnValueOnce({ select → eq → is → maybeSingle(null) });     // fallback email lookup
+```
+
+**Root cause:** Hook runs fallback `.eq('email', ...).is('auth_user_id', null).maybeSingle()` when primary lookup returns null. Mock lacked `.is()`.
+
+---
+
+**FAIL-05 — `src/hooks/mutations/__tests__/useStaffMutations.test.tsx` (lines 114-132)**
+
+```typescript
+// BEFORE: Simple delete().eq() mock
+// AFTER: Table-branching mock with:
+//   - 4 dependency tables: select → eq/or → limit → { data: [], error: null }
+//   - staff table: delete + update chains (future-proof)
+//   - Named ref mockDeleteEq for strong assertion (HC-01)
+//   - afterEach mockReset (HC-02)
+
+expect(mockDeleteEq).toHaveBeenCalledWith("staff_id", "staff-123");  // HC-01
+```
+
+**Root cause:** `useDeleteStaff` checks 4 dependency tables before hard/soft delete. `engagements` uses `.or()` not `.eq()`.
+
+---
+
+**FAIL-06/07/08 — `src/hooks/__tests__/useLanguage.test.tsx` (full file)**
+
+```typescript
+// BEFORE: Inline vi.mock("react-i18next") inside test at line 74 (hoisted by Vitest)
+// AFTER: Module-level mutable mockLanguage variable with getter
+let mockLanguage = "en";
+vi.mock("react-i18next", () => ({
+  useTranslation: () => ({
+    i18n: { get language() { return mockLanguage; }, changeLanguage: mockChangeLanguage },
+  }),
+}));
+
+// beforeEach resets mockLanguage + explicit mockClear (HC-03)
+// "does not change language" test: mockLanguage = "es" + real assertion
+expect(mockChangeLanguage).not.toHaveBeenCalled();
+```
+
+**Root cause:** Vitest hoists all `vi.mock` calls to file top; inline re-declaration corrupted mock state for all tests.
+
+#### Hardening Measures
+
+| ID | Measure | File |
+|----|---------|------|
+| HC-01 | Named `mockDeleteEq` ref for strong `staff_id` assertion | useStaffMutations.test.tsx |
+| HC-02 | `afterEach` mock reset to prevent leakage | useStaffMutations.test.tsx |
+| HC-03 | Explicit `mockChangeLanguage.mockClear()` in `beforeEach` | useLanguage.test.tsx |
+| HC-04 | `from` placed at supabase mock root level (same as `auth`) | useAuth.test.tsx |
+
+#### Files Modified
+
+| File | Fix IDs | Change |
+|------|---------|--------|
+| `src/lib/__tests__/error-handler.test.ts` | FAIL-01 | Assertion `DB_CONSTRAINT` → `DB_DUPLICATE_KEY` |
+| `src/hooks/__tests__/useAuth.test.tsx` | FAIL-02, HC-04 | Add `from()` mock with staff/user_roles branching |
+| `src/hooks/__tests__/useCurrentStaff.test.tsx` | FAIL-04 | Two-call mock with `.is()` for fallback path |
+| `src/hooks/mutations/__tests__/useStaffMutations.test.tsx` | FAIL-05, HC-01, HC-02 | Table-branching mock, named refs, afterEach reset |
+| `src/hooks/__tests__/useLanguage.test.tsx` | FAIL-06/07/08, HC-03 | Mutable `mockLanguage`, explicit `mockClear`, real assertion |
+
+#### Test Results
+
+| Metric | Result |
+|--------|--------|
+| Total test files | 31 passed |
+| Total tests | 341 passed |
+| Failures | 0 |
+| Production code changes | None |
