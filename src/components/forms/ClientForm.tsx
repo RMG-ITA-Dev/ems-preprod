@@ -129,34 +129,46 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
   }, [isDirty, onDirtyChange]);
 
   const onSubmit = async (data: FormData) => {
+    // Normalize name to match DB constraint: LOWER(TRIM(client_legal_name))
+    // UI check is best-effort; DB constraint is source of truth for TRIM+LOWER normalization.
+    const trimmedName = data.client_legal_name.trim();
+
     // Pre-save duplicate NIT check
-    const { data: existingByNit } = await supabase
+    const { data: existingByNit, error: nitError } = await supabase
       .from("clients")
       .select("client_id, client_legal_name")
       .eq("unique_tax_id", data.unique_tax_id)
       .neq("client_id", client?.client_id || "")
-      .maybeSingle();
+      .limit(1);
 
-    if (existingByNit) {
-      toast.error(t("errors.duplicateNit", { nit: data.unique_tax_id, name: existingByNit.client_legal_name }));
+    if (nitError) {
+      toast.error(t("errors.duplicateCheckFailed"));
+      return;
+    }
+    if (existingByNit && existingByNit.length > 0) {
+      toast.error(t("errors.duplicateNit", { nit: data.unique_tax_id, name: existingByNit[0].client_legal_name }));
       return;
     }
 
     // Pre-save duplicate name check (case-insensitive)
-    const { data: existingByName } = await supabase
+    const { data: existingByName, error: nameError } = await supabase
       .from("clients")
       .select("client_id, unique_tax_id")
-      .ilike("client_legal_name", data.client_legal_name)
+      .ilike("client_legal_name", trimmedName)
       .neq("client_id", client?.client_id || "")
-      .maybeSingle();
+      .limit(1);
 
-    if (existingByName) {
-      toast.warning(t("errors.duplicateClientName", { nit: existingByName.unique_tax_id }));
+    if (nameError) {
+      toast.error(t("errors.duplicateCheckFailed"));
+      return;
+    }
+    if (existingByName && existingByName.length > 0) {
+      toast.error(t("errors.duplicateClientNameWithNit", { nit: existingByName[0].unique_tax_id }));
       return;
     }
 
     const payload = {
-      client_legal_name: data.client_legal_name,
+      client_legal_name: trimmedName,
       unique_tax_id: data.unique_tax_id,
       industry_id: data.industry_id || undefined,
       contact_name: data.contact_name || undefined,

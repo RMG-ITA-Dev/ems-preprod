@@ -454,7 +454,9 @@
   },
   "errors": {
     "duplicateNit": "Ya existe un cliente con NIT {{nit}}: {{name}}",
-    "duplicateClientName": "Ya existe un cliente con este nombre (NIT: {{nit}}). Verifique que no sea un duplicado.",
+    "duplicateClientName": "El nombre de cliente ya existe.",
+    "duplicateClientNameWithNit": "El nombre de cliente ya existe (NIT: {{nit}}).",
+    "duplicateCheckFailed": "No pudimos verificar si el nombre del cliente ya existe (problema de conexión). Intente nuevamente.",
     "duplicateEmail": "Ya existe un miembro del personal con este correo",
     "invalidEmail": "Dirección de correo inválida",
     "emailTooLong": "El correo debe tener menos de 255 caracteres"
