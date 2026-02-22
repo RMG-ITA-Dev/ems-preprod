@@ -62,3 +62,46 @@ Creating or editing a client allowed saving duplicate client names (e.g., multip
 | Index creation lock time | None | Small table (<100 rows) |
 | Return type change (`maybeSingle` → array) | Low | All consuming code updated in same change |
 | UI vs DB normalization gap | Low | Documented as best-effort; DB is authoritative |
+
+---
+
+### Bug 0220-45: Fix Deletion of Exported Time Entries in Timesheet
+
+**Plan**: Plan_0220-45_v3
+**Priority**: Baja
+**Route**: OPERACIONES - Hoja de Tiempo / Registros de Tiempo
+
+#### Problem
+In OPERACIONES → Hoja de Tiempo, rows exported from "Registros de Tiempo" could not be deleted. Clicking the delete icon showed "Error al eliminar la fila. Se ha restaurado." Rows created directly in the timesheet deleted normally.
+
+#### Root Cause
+The FK constraint `timer_entries.imported_to_time_id → time_entries(time_id)` used the default `NO ACTION` delete rule. When a `time_entries` row was referenced by `timer_entries.imported_to_time_id`, PostgreSQL blocked the delete.
+
+#### Solution
+
+**Layer 1 — Database Migration**:
+- Changed FK `timer_entries_imported_to_time_id_fkey` to `ON DELETE SET NULL`. Deleting a `time_entries` row now sets `timer_entries.imported_to_time_id = NULL` instead of failing.
+- Added trigger `trg_reset_timer_import_on_unlink` (BEFORE UPDATE on `timer_entries`): when `imported_to_time_id` transitions from NOT NULL to NULL, sets `is_imported = false`. This "un-pushes" the timer entry back to Ready status for re-export.
+- PostgreSQL's `ON DELETE SET NULL` fires BEFORE UPDATE triggers, so the un-push trigger fires automatically when a timesheet row is deleted.
+
+**Layer 2 — Frontend (`TrackerEdit.tsx`)**:
+- Changed `isImported` guard from `entry?.is_imported ?? false` to `Boolean(entry?.is_imported) || Boolean(entry?.imported_to_time_id)`.
+- This ensures the Delete button is hidden and fields are disabled if **either** `is_imported` is true **or** `imported_to_time_id` is not null, covering edge cases where the two fields are temporarily out of sync.
+
+#### Files Modified
+
+| File | Change |
+|------|--------|
+| Database migration | Drop/re-add FK with `ON DELETE SET NULL`; add `trg_reset_timer_import_on_unlink` trigger |
+| `src/pages/TrackerEdit.tsx` | Line 77: `isImported` now checks both `is_imported` and `imported_to_time_id` |
+
+#### Risk Assessment
+
+| Risk | Level | Mitigation |
+|------|-------|------------|
+| Timer entries lose import tracking on deletion | None | Desired "un-push" behavior; entries return to Ready for re-export |
+| ON DELETE SET NULL not firing UPDATE trigger | None | PostgreSQL fires BEFORE UPDATE triggers for ON DELETE SET NULL (verified) |
+| `trg_prevent_imported_timer_delete` conflict | None | Checks `is_imported = true`; after un-push it's `false`, so deletion is allowed |
+| FK constraint name mismatch | None | Verified via `pg_constraint` query |
+| Edge case: fields out of sync | None | UI guards on both fields with OR logic |
+| Approved timesheet lines | None | `trg_protect_approved_time_entries` still blocks independently |

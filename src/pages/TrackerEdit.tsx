@@ -74,7 +74,7 @@ const TrackerEdit = () => {
   const deleteEntry = useDeleteTimerEntry();
 
   const entry = entries?.find(e => e.timer_id === id);
-  const isImported = entry?.is_imported ?? false;
+  const isImported = Boolean(entry?.is_imported) || Boolean(entry?.imported_to_time_id);
 
   // Form state (must be declared before isDirty useMemo)
   const [date, setDate] = useState<Date | undefined>(undefined);
