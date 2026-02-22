@@ -1,102 +1,98 @@
 
 
-# Plan_0220-48_v2: Allow Historical Start Dates for Internal Engagements (external remains restricted; start+end null-guards)
+# Plan_0220-49_v2: Fix Encargo Tab Select Crash + Sweep for Empty-Value SelectItem Anti-Pattern
 
 ## Problem
 
-BUG 0220-48: When creating internal/administrative engagements, the system blocks selection of historical start dates. Internal engagements (e.g., fiscal year Oct 2025 - Sep 2026) frequently need past start dates. External/client engagements must remain restricted.
+BUG 0220-49: A new user (adrianespinoza) with no time entries switches from the "Personal" tab to "Encargo" on the Dashboard. The app crashes with:
+
+> Error: A `<SelectItem />` must have a value prop that is not an empty string.
 
 ## Root Cause
 
-In `EngagementForm.tsx`:
-- `minStartDate` is always set (today for new, `created_at` for edit) regardless of engagement type.
-- The start_date calendar (line 451) passes `minStartDate` directly to `disabled` with no null-guard.
-- The end_date calendar (line 491) falls back to `minStartDate` when `start_date` is empty -- this will break if `minStartDate` becomes `undefined` for internal engagements.
-- Submit-time validation (line 178) also lacks a null-guard and does not account for `isInternal`.
+**File:** `src/components/dashboard/EngagementSelector.tsx`, line 128:
+
+```typescript
+<SelectItem value="" disabled>
+  {t('dashboard.encargo.noEngagements')}
+</SelectItem>
+```
+
+Radix UI `SelectItem` throws at runtime if `value=""`. When the engagements query returns an empty list (new user, no time entries), this code path fires and crashes the page.
 
 ## Solution
 
-Four targeted edits in `EngagementForm.tsx`:
+### Layer 1: Primary Fix (EngagementSelector)
+
+Replace the empty-state `<SelectItem value="">` with a non-interactive `<div>` inside `SelectContent`.
+
+### Layer 2: Preventative Sweep (project-wide)
+
+A codebase-wide search for the anti-pattern (`<SelectItem value="">`, `value={""}`, `value="" disabled`) found **no additional occurrences** beyond the one in `EngagementSelector.tsx`. The sweep is clean -- no other files require changes.
 
 ---
 
-### Edit 1: `minStartDate` memo (lines 93-99)
+## Technical Changes
 
-Add `isInternal` dependency. Return `undefined` for internal engagements.
+### File: `src/components/dashboard/EngagementSelector.tsx`
 
+**Edit 1 (lines 127-130): Replace empty-state SelectItem with plain div**
+
+Before:
 ```typescript
-// BUG #0206-19 + #0220-48: Minimum allowed start date (bypassed for internal)
-const minStartDate = useMemo(() => {
-  if (isInternal) return undefined;
-  if (isEdit && engagement?.created_at) {
-    return startOfDay(new Date(engagement.created_at));
-  }
-  return startOfDay(new Date());
-}, [isInternal, isEdit, engagement?.created_at]);
+) : (
+  <SelectItem value="" disabled>
+    {t('dashboard.encargo.noEngagements')}
+  </SelectItem>
+)}
 ```
 
-### Edit 2: Start-date calendar `disabled` prop (line 451)
-
-Null-guard so past dates become selectable when `minStartDate` is `undefined`:
-
+After:
 ```typescript
-disabled={minStartDate ? (date) => isBefore(startOfDay(date), minStartDate) : undefined}
+) : (
+  <div className="px-2 py-4 text-sm text-muted-foreground text-center">
+    {t('dashboard.encargo.noEngagements')}
+  </div>
+)}
 ```
 
-### Edit 3: End-date calendar `disabled` prop (lines 488-492)
+**Logic:** Radix `SelectItem` requires a non-empty `value`. A plain `<div>` inside `SelectContent` renders the empty-state message without participating in the Select value system, avoiding the crash entirely.
 
-Add null-guard on `minStartDate` fallback to prevent over-restricting internal engagements when `start_date` is empty:
+### File: `docs/CHANGELOG-2026-02-22.md`
 
-```typescript
-disabled={(date) => {
-  const startDate = form.getValues("start_date");
-  if (startDate) return isBefore(startOfDay(date), startOfDay(startDate));
-  if (minStartDate) return isBefore(startOfDay(date), minStartDate);
-  return false;
-}}
-```
-
-### Edit 4: Submit-time validation (lines 177-183)
-
-Add `isInternal` bypass and null-guard:
-
-```typescript
-// BUG #0206-19 + #0220-48: skip for internal engagements
-if (!isInternal && minStartDate && data.start_date && isBefore(startOfDay(data.start_date), minStartDate)) {
-  form.setError("start_date", {
-    message: t("engagement.startDateBeforeCreation"),
-  });
-  return;
-}
-```
-
-### Edit 5: Changelog (`docs/CHANGELOG-2026-02-22.md`)
-
-Append entry for BUG 0220-48.
+Append detailed entry for BUG 0220-49 with before/after code snippets, sweep results, and risk assessment.
 
 ---
 
 ## Files Changed
 
-| File | Change |
-|------|--------|
-| `src/components/forms/EngagementForm.tsx` | 4 edits: minStartDate memo, start calendar null-guard, end calendar null-guard, submit validation |
-| `docs/CHANGELOG-2026-02-22.md` | Append BUG 0220-48 entry |
+| File | Lines | Change |
+|------|-------|--------|
+| `src/components/dashboard/EngagementSelector.tsx` | 127-130 | Replace `<SelectItem value="" disabled>` with `<div>` for empty state |
+| `docs/CHANGELOG-2026-02-22.md` | append | BUG 0220-49 entry with before/after snippets and sweep results |
+
+## Preventative Sweep Results
+
+| Search Pattern | Matches Found |
+|---|---|
+| `<SelectItem value="">` | 1 (EngagementSelector.tsx -- the primary fix) |
+| `value={""}` | 0 |
+| `value="" disabled` | 1 (same match above) |
+
+No additional files require changes.
 
 ## Acceptance Tests
 
 | Case | Expected |
 |------|----------|
-| New INTERNAL engagement: select start_date in the past (e.g., 01/10/2025) | Calendar allows selection; save succeeds |
-| New EXTERNAL engagement: select past start_date | Calendar blocks past dates; submit validation also blocks |
-| Edit EXTERNAL engagement: start_date restricted to >= created_at | Existing behavior preserved |
-| Internal engagement with empty start_date: open end_date calendar | All dates selectable (no incorrect restriction from undefined minStartDate) |
-| Internal engagement with start_date set: end_date calendar | Still enforces end_date >= start_date |
-| Toggle is_internal ON then OFF | Past-date restriction re-applies immediately |
+| New user with no time entries switches to Encargo tab | No crash; dropdown shows "no engagements" text |
+| User with engagements opens the dropdown | Engagement list renders normally; selection works |
+| Select an engagement, change period so list becomes empty | No crash; selector handles empty list gracefully |
+| Open every other Select component in the app with an empty list | No crash (sweep confirmed no other occurrences) |
 
 ## Risk Assessment
 
-- Low risk: only affects date selection logic; no DB changes.
-- External engagement restriction is fully preserved (both calendar and submit-time).
-- The `isInternal` state already exists in the form; adding it to the `useMemo` dependency is safe.
+- Minimal risk: single element swap in one component, no DB or logic changes.
+- Zero business-logic changes; only empty-state rendering.
+- Sweep confirms this is the sole occurrence in the codebase.
 
