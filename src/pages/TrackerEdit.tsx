@@ -363,7 +363,21 @@ const TrackerEdit = () => {
         <div className="bg-card rounded-xl border border-border p-6 space-y-6">
           {/* Section: Time */}
           <div className="space-y-4">
-            <h3 className="font-medium text-lg">{t("tracker.sectionTime")}</h3>
+            <div className="flex items-center justify-between">
+              <h3 className="font-medium text-lg">{t("tracker.sectionTime")}</h3>
+              {!isImported && (
+                <div className="flex items-center gap-1.5">
+                  <Switch
+                    checked={useExplicitTimes}
+                    onCheckedChange={handleToggleExplicitTimes}
+                    className="scale-75"
+                  />
+                  <span className="text-xs text-muted-foreground">
+                    {t("tracker.useExplicitTimes")}
+                  </span>
+                </div>
+              )}
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
               {/* Date */}
               <div className="space-y-2">
@@ -396,30 +410,6 @@ const TrackerEdit = () => {
                   </PopoverContent>
                 </Popover>
               </div>
-              {/* Start Time */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label>{t("tracker.startTime")}</Label>
-                  {!isImported && (
-                    <div className="flex items-center gap-1.5">
-                      <Switch
-                        checked={useExplicitTimes}
-                        onCheckedChange={handleToggleExplicitTimes}
-                        className="scale-75"
-                      />
-                      <span className="text-xs text-muted-foreground">
-                        {t("tracker.useExplicitTimes")}
-                      </span>
-                    </div>
-                  )}
-                </div>
-                <Input
-                  type="time"
-                  value={startTime}
-                  onChange={(e) => handleStartTimeChange(e.target.value)}
-                  disabled={isImported || !useExplicitTimes}
-                />
-              </div>
               {/* Hours */}
               <div className="space-y-2">
                 <Label>{t("tracker.hours")}</Label>
@@ -431,6 +421,16 @@ const TrackerEdit = () => {
                   value={hours}
                   onChange={(e) => handleHoursChange(parseFloat(e.target.value) || 0)}
                   disabled={isImported}
+                />
+              </div>
+              {/* Start Time */}
+              <div className="space-y-2">
+                <Label>{t("tracker.startTime")}</Label>
+                <Input
+                  type="time"
+                  value={startTime}
+                  onChange={(e) => handleStartTimeChange(e.target.value)}
+                  disabled={isImported || !useExplicitTimes}
                 />
               </div>
               {/* End Time */}
