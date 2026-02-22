@@ -418,6 +418,7 @@ const TrackerEdit = () => {
                   value={startTime}
                   onChange={(e) => handleStartTimeChange(e.target.value)}
                   disabled={isImported || !useExplicitTimes}
+                  className="w-1/2"
                 />
               </div>
               {/* Hours */}
