@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -35,6 +35,14 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { StaffFull, useCategories } from "@/hooks/useEmsData";
 import { useCreateStaff, useUpdateStaff, useDeleteStaff } from "@/hooks/mutations";
 import { Trash2, AlertTriangle } from "lucide-react";
@@ -54,11 +62,32 @@ const createFormSchema = (t: TFunction) =>
     id_number: z.string().min(1, t("validation.idNumberRequired")),
     aud_reg_number: z.string().optional(),
     hire_date: z.string().min(1, t("validation.hireDateRequired")),
+    termination_date: z.string().optional(),
     is_active: z.boolean(),
-  });
+  }).refine(
+    (data) => {
+      if (data.termination_date && data.hire_date) {
+        return data.termination_date >= data.hire_date;
+      }
+      return true;
+    },
+    {
+      message: t("validation.terminationDateBeforeHire"),
+      path: ["termination_date"],
+    }
+  );
 
 type FormSchema = ReturnType<typeof createFormSchema>;
 type FormData = z.infer<FormSchema>;
+
+interface PendingWeek {
+  week_start: string;
+  effective_start: string;
+  effective_end: string;
+  expected_hours: number;
+  actual_hours: number;
+  gap: number;
+}
 
 // StaffForm uses StaffFull interface since it needs PII fields for editing
 interface StaffFormProps {
@@ -82,13 +111,9 @@ const generateShortName = (firstName: string, lastName: string): string => {
 const generateInitials = (firstName: string, lastName: string): string => {
   if (!firstName || !lastName) return "";
   
-  // Get first name initial
   const firstInitial = firstName[0]?.toUpperCase() || "";
-  
-  // Split last names
   const lastNames = lastName.trim().split(/\s+/);
   
-  // Function to get consonants from a word (excluding first letter)
   const getConsonants = (word: string): string => {
     return word.slice(1).replace(/[aeiouáéíóúAEIOUÁÉÍÓÚ\s]/g, "");
   };
@@ -96,13 +121,9 @@ const generateInitials = (firstName: string, lastName: string): string => {
   let initials = firstInitial;
   
   if (lastNames.length >= 2) {
-    // Two last names: First initial + First letter of each last name
-    // e.g., "Juan Perez Garcia" -> "JPG"
     initials += lastNames[0][0]?.toUpperCase() || "";
     initials += lastNames[1][0]?.toUpperCase() || "";
   } else if (lastNames.length === 1) {
-    // Single last name: First initial + First letter + first consonant
-    // e.g., "Juan Smith" -> "JSM" (S + M from "Smith")
     const lastName1 = lastNames[0];
     initials += lastName1[0]?.toUpperCase() || "";
     const consonants = getConsonants(lastName1);
@@ -123,6 +144,10 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess }: Sta
   const updateMutation = useUpdateStaff();
   const deleteMutation = useDeleteStaff();
 
+  // Pending hours dialog state
+  const [pendingWeeks, setPendingWeeks] = useState<PendingWeek[]>([]);
+  const [showPendingDialog, setShowPendingDialog] = useState(false);
+
   const formSchema = useMemo(() => createFormSchema(t), [t, i18n.language]);
 
   const form = useForm<FormData>({
@@ -138,6 +163,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess }: Sta
       id_number: "",
       aud_reg_number: "",
       hire_date: "",
+      termination_date: "",
       is_active: false,
     },
   });
@@ -155,6 +181,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess }: Sta
         id_number: staff.id_number || "",
         aud_reg_number: staff.aud_reg_number || "",
         hire_date: staff.hire_date || "",
+        termination_date: staff.termination_date || "",
         is_active: staff.is_active,
       });
     }
@@ -171,6 +198,11 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess }: Sta
   const lastName = form.watch("last_name");
   const currentShortName = form.watch("short_name");
   const currentInitials = form.watch("initials");
+  const watchIsActive = form.watch("is_active");
+  const watchTerminationDate = form.watch("termination_date");
+
+  // No-Reingreso: block reactivation for deactivated staff with termination_date
+  const isReactivationBlocked = isEdit && staff && !staff.is_active && !!staff.termination_date;
 
   useEffect(() => {
     // Only auto-suggest if fields are empty (don't override user edits)
@@ -184,6 +216,13 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess }: Sta
     }
   }, [firstName, lastName, isEdit, currentShortName, currentInitials, form]);
 
+  // Auto-set termination_date when toggling is_active from true to false
+  useEffect(() => {
+    if (isEdit && staff?.is_active && !watchIsActive && !watchTerminationDate) {
+      form.setValue("termination_date", new Date().toISOString().split("T")[0]);
+    }
+  }, [watchIsActive, isEdit, staff?.is_active, watchTerminationDate, form]);
+
   const onSubmit = async (data: FormData) => {
     // Pre-save duplicate email check
     if (data.email) {
@@ -191,13 +230,56 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess }: Sta
         .from('staff')
         .select('staff_id, first_name, last_name')
         .eq('email', data.email)
+        .is('deleted_at', null)
         .neq('staff_id', staff?.staff_id || '')
-        .maybeSingle();
+        .limit(1);
 
-      if (existing) {
+      if (existing && existing.length > 0) {
         toast.error(t('staff.emailAlreadyUsed', {
-          name: `${existing.first_name} ${existing.last_name}`
+          name: `${existing[0].first_name} ${existing[0].last_name}`
         }));
+        return;
+      }
+    }
+
+    // Pre-save duplicate id_number check
+    if (data.id_number) {
+      const { data: existingIdNum } = await supabase
+        .from('staff')
+        .select('staff_id, first_name, last_name')
+        .eq('id_number', data.id_number)
+        .is('deleted_at', null)
+        .neq('staff_id', staff?.staff_id || '')
+        .limit(1);
+
+      if (existingIdNum && existingIdNum.length > 0) {
+        toast.error(t('errors.duplicateIdNumber'));
+        return;
+      }
+    }
+
+    // Pending-hours completeness gate: only on deactivation with termination_date
+    if (isEdit && staff && staff.is_active && !data.is_active && data.termination_date) {
+      try {
+        const { data: rpcResult, error: rpcError } = await supabase
+          .rpc('check_pending_hours_before_termination', {
+            p_staff_id: staff.staff_id,
+            p_termination_date: data.termination_date,
+          });
+
+        if (rpcError) {
+          toast.error(t('staff.pendingHoursCheckError'));
+          return;
+        }
+
+        const gaps = (rpcResult as unknown as PendingWeek[]) || [];
+        if (gaps.length > 0) {
+          setPendingWeeks(gaps);
+          setShowPendingDialog(true);
+          return;
+        }
+      } catch {
+        toast.error(t('staff.pendingHoursCheckError'));
         return;
       }
     }
@@ -213,6 +295,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess }: Sta
       id_number: data.id_number,
       aud_reg_number: data.aud_reg_number || undefined,
       hire_date: data.hire_date || null,
+      termination_date: data.termination_date || null,
       is_active: data.is_active,
     };
     if (isEdit && staff) {
@@ -237,6 +320,8 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess }: Sta
       }
     }
   };
+
+  const totalMissingHours = pendingWeeks.reduce((sum, w) => sum + w.gap, 0);
 
   return (
     <div className="space-y-6">
@@ -427,6 +512,28 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess }: Sta
                   )}
                 />
               </div>
+
+              {/* Termination Date - only in edit mode */}
+              {isEdit && (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="termination_date"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t("staff.terminationDate")}</FormLabel>
+                        <FormControl>
+                          <Input type="date" {...field} />
+                        </FormControl>
+                        <FormDescription className="text-xs">
+                          {t("staff.terminationDateHelp")}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              )}
             </div>
 
             <div className="space-y-4">
@@ -464,11 +571,17 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess }: Sta
                     <div className="space-y-0.5">
                       <FormLabel className="text-base">{t("common.active")}</FormLabel>
                       <FormDescription>
-                        {isEdit ? t("staff.activeDescription") : t("staff.activeDescriptionNew")}
+                        {isReactivationBlocked
+                          ? t("errors.noReingreso")
+                          : isEdit ? t("staff.activeDescription") : t("staff.activeDescriptionNew")}
                       </FormDescription>
                     </div>
                     <FormControl>
-                      <Switch checked={field.value} onCheckedChange={field.onChange} />
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                        disabled={isReactivationBlocked}
+                      />
                     </FormControl>
                   </FormItem>
                 )}
@@ -491,6 +604,54 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess }: Sta
           </form>
         </Form>
       </div>
+
+      {/* Pending Hours Dialog */}
+      <Dialog open={showPendingDialog} onOpenChange={setShowPendingDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+              {t("staff.pendingHoursTitle")}
+            </DialogTitle>
+            <DialogDescription>
+              {t("staff.pendingHoursDescription")}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-60 overflow-y-auto">
+            <table className="w-full text-sm table-dense">
+              <thead>
+                <tr className="border-b">
+                  <th className="text-left py-1.5 px-2">{t("staff.weekOf")}</th>
+                  <th className="text-right py-1.5 px-2">{t("staff.expected")}</th>
+                  <th className="text-right py-1.5 px-2">{t("staff.actual")}</th>
+                  <th className="text-right py-1.5 px-2">{t("staff.gap")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pendingWeeks.map((week) => (
+                  <tr key={week.week_start} className="border-b">
+                    <td className="py-1.5 px-2">{week.week_start}</td>
+                    <td className="text-right py-1.5 px-2">{Number(week.expected_hours).toFixed(1)}</td>
+                    <td className="text-right py-1.5 px-2">{Number(week.actual_hours).toFixed(1)}</td>
+                    <td className="text-right py-1.5 px-2 text-destructive font-medium">{Number(week.gap).toFixed(1)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="font-semibold">
+                  <td className="py-1.5 px-2" colSpan={3}>{t("staff.totalMissing")}</td>
+                  <td className="text-right py-1.5 px-2 text-destructive">{totalMissingHours.toFixed(1)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowPendingDialog(false)}>
+              {t("common.close")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

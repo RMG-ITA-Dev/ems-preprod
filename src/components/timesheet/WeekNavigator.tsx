@@ -32,6 +32,7 @@ interface WeekNavigatorProps {
   onNextWeek: () => void;
   onWeekSelect: (date: Date) => void;
   earliestWeekStart?: Date;
+  latestWeekStart?: Date;
 }
 
 export const WeekNavigator = ({
@@ -42,6 +43,7 @@ export const WeekNavigator = ({
   onNextWeek,
   onWeekSelect,
   earliestWeekStart,
+  latestWeekStart,
 }: WeekNavigatorProps) => {
   const { t, i18n } = useTranslation();
   const lang = i18n.language;
@@ -53,6 +55,10 @@ export const WeekNavigator = ({
   // BUG #5: Disable backward navigation past hire date
   const canGoPrevious = !earliestWeekStart || 
     currentWeekStart.getTime() > earliestWeekStart.getTime();
+
+  // Disable forward navigation past termination date
+  const canGoNext = !latestWeekStart ||
+    currentWeekStart.getTime() < latestWeekStart.getTime();
 
   const handleDateSelect = (date: Date | undefined) => {
     if (date) {
@@ -124,13 +130,14 @@ export const WeekNavigator = ({
             onSelect={handleDateSelect}
             defaultMonth={currentWeekStart}
             fromDate={earliestWeekStart}
+            toDate={latestWeekStart ? new Date(latestWeekStart.getTime() + 6 * 86400000) : undefined}
             className="pointer-events-auto"
           />
         </PopoverContent>
       </Popover>
 
       {/* Next Week Button */}
-      <Button variant="ghost" size="sm" onClick={onNextWeek}>
+      <Button variant="ghost" size="sm" onClick={onNextWeek} disabled={!canGoNext}>
         {t("timesheet.next")}
         <ChevronRight className="h-4 w-4 ml-1" />
       </Button>

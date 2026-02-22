@@ -201,23 +201,51 @@ const TimeSheet = () => {
     return locked;
   }, [staffRecord?.hire_date, weekInfo.weekDates]);
 
+  // Termination date: check if entire week is after termination_date
+  const isAfterTerminationDate = useMemo(() => {
+    if (!staffRecord?.termination_date) return false;
+    const termDate = parseISO(staffRecord.termination_date);
+    const weekStart = weekInfo.weekDates[0];
+    return isBefore(startOfDay(termDate), startOfDay(weekStart));
+  }, [staffRecord?.termination_date, weekInfo.weekDates]);
+
+  // Per-day lock map for mid-week termination dates
+  const lockedDaysAfterTermination = useMemo(() => {
+    if (!staffRecord?.termination_date) return new Set<number>();
+    const termDate = parseISO(staffRecord.termination_date);
+    const locked = new Set<number>();
+    weekInfo.weekDates.forEach((date, index) => {
+      if (isBefore(startOfDay(termDate), startOfDay(date))) {
+        locked.add(index);
+      }
+    });
+    return locked;
+  }, [staffRecord?.termination_date, weekInfo.weekDates]);
+
   // BUG #5: Earliest navigable week based on hire date
   const earliestWeekStart = useMemo(() => {
     if (!staffRecord?.hire_date) return undefined;
     return getWeekMonday(parseISO(staffRecord.hire_date));
   }, [staffRecord?.hire_date]);
 
+  // Latest navigable week based on termination date
+  const latestWeekStart = useMemo(() => {
+    if (!staffRecord?.termination_date) return undefined;
+    return getWeekMonday(parseISO(staffRecord.termination_date));
+  }, [staffRecord?.termination_date]);
+
   // Editable if:
   // - Not submitted and not locked, OR
   // - Submitted but has pending/rejected lines AND is current week (can make corrections)
   // - AND not before hire date (BUG #22)
-  const isEditable = !isBeforeHireDate && isWithinEditableWindow &&
+  const isEditable = !isBeforeHireDate && !isAfterTerminationDate && isWithinEditableWindow &&
     !isSubmitted && !isFullyApproved && !period?.is_period_locked;
 
   // BUG #0206-3: Dedicated button visibility flags (decoupled from isEditable/lineApprovals)
   const hasNonZeroEntry = entries.some((e) => e.hours_logged > 0);
 
   const canCopyPreviousWeek = !isBeforeHireDate
+    && !isAfterTerminationDate
     && isWithinEditableWindow
     && !isSubmitted
     && !period?.is_period_locked
@@ -229,6 +257,7 @@ const TimeSheet = () => {
     && !period?.is_period_locked;
 
   const canSaveDraft = !isBeforeHireDate
+    && !isAfterTerminationDate
     && isWithinEditableWindow
     && !isSubmitted
     && !isFullyApproved
@@ -237,7 +266,7 @@ const TimeSheet = () => {
 
   // BUG #21: Separate "can submit" from "can edit cells"
   // BUG #0213-33: Also gate on weekly limit
-  const canSubmit = !isBeforeHireDate && isWithinEditableWindow && entries.length > 0 &&
+  const canSubmit = !isBeforeHireDate && !isAfterTerminationDate && isWithinEditableWindow && entries.length > 0 &&
     !isSubmitted && !period?.is_period_locked && !isWeeklyLimitExceeded;
 
   // Handle submit
@@ -364,6 +393,7 @@ const TimeSheet = () => {
           onNextWeek={handleNextWeek}
           onWeekSelect={setCurrentWeekStart}
           earliestWeekStart={earliestWeekStart}
+          latestWeekStart={latestWeekStart}
         />
 
         {/* BUG #22: Before hire date warning */}
@@ -372,6 +402,16 @@ const TimeSheet = () => {
             <AlertTriangle className="h-4 w-4" />
             <AlertDescription>
               {t("timesheet.beforeHireDate")}
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* After termination date warning */}
+        {isAfterTerminationDate && (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>
+              {t("timesheet.afterTerminationDate")}
             </AlertDescription>
           </Alert>
         )}
@@ -435,6 +475,7 @@ const TimeSheet = () => {
           dailyLimit={dailyLimit}
           weeklyLimit={weeklyLimit}
           lockedDaysBeforeHire={lockedDaysBeforeHire}
+          lockedDaysAfterTermination={lockedDaysAfterTermination}
           holidayMap={holidayMap}
           holidayEngagementId={holidayEngagementId}
           activityNotRequiredIds={activityNotRequiredIds}

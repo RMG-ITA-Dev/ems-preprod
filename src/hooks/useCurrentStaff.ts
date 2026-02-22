@@ -6,6 +6,7 @@ import type { Staff } from "./useEmsData";
 // Extended Staff type that includes hire_date for timesheet validation
 interface StaffWithHireDate extends Staff {
   hire_date: string | null;
+  termination_date: string | null;
 }
 
 export function useCurrentStaff() {
@@ -29,6 +30,7 @@ export function useCurrentStaff() {
           city,
           is_active,
           hire_date,
+          termination_date,
           category:categories(*)
         `)
         .eq('auth_user_id', user.id)
@@ -53,6 +55,7 @@ export function useCurrentStaff() {
           city,
           is_active,
           hire_date,
+          termination_date,
           category:categories(*)
         `)
         .eq('email', userEmail)

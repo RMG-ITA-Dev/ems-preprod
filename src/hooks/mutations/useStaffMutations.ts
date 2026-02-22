@@ -4,16 +4,33 @@ import { toast } from "sonner";
 import { createMutationErrorHandler } from "@/lib/error-handler";
 import i18n from "@/i18n";
 
-// BUG #15: Handle duplicate email error specifically
+// Constraint-name-based error detection + custom DB trigger exceptions
 function handleStaffError(error: Error, operation: string) {
   const err = error as unknown as { code?: string; message?: string };
-  
-  // Check for unique constraint violation on email
-  if (err.code === "23505" && err.message?.includes("email")) {
-    toast.error(i18n.t("errors.duplicateEmail"));
+  const msg = err.message || "";
+
+  // Unique constraint violations (23505) — match index/constraint names
+  if (err.code === "23505") {
+    if (msg.includes("idx_staff_email_unique") || msg.includes("staff_email_key")) {
+      toast.error(i18n.t("errors.duplicateEmail"));
+      return;
+    }
+    if (msg.includes("idx_staff_id_number_unique")) {
+      toast.error(i18n.t("errors.duplicateIdNumber"));
+      return;
+    }
+  }
+
+  // Custom DB trigger exceptions
+  if (msg.includes("REACTIVATION_BLOCKED")) {
+    toast.error(i18n.t("errors.noReingreso"));
     return;
   }
-  
+  if (msg.includes("TERMINATION_DATE_BLOCKED")) {
+    toast.error(i18n.t("errors.afterTerminationDate"));
+    return;
+  }
+
   // Fall back to default error handling
   createMutationErrorHandler(operation)(error);
 }
@@ -32,6 +49,8 @@ export function useCreateStaff() {
       id_number?: string;
       aud_reg_number?: string;
       is_active?: boolean;
+      hire_date?: string | null;
+      termination_date?: string | null;
     }) => {
       const { data: result, error } = await supabase
         .from("staff")
@@ -69,6 +88,8 @@ export function useUpdateStaff() {
         id_number: string;
         aud_reg_number: string;
         is_active: boolean;
+        hire_date: string | null;
+        termination_date: string | null;
       }>;
     }) => {
       const { data: result, error } = await supabase
@@ -83,6 +104,7 @@ export function useUpdateStaff() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["staff"] });
       queryClient.invalidateQueries({ queryKey: ["staff_full"] });
+      queryClient.invalidateQueries({ queryKey: ["current_staff"] });
       toast.success(i18n.t("messages.updateSuccess", { entity: i18n.t("entities.staffMember") }));
     },
     onError: (error) => handleStaffError(error, "updating staff member"),

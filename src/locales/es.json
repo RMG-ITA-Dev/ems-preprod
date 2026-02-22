@@ -374,7 +374,17 @@
     "hireDate": "Fecha de Ingreso",
     "hireDateHelp": "Fecha de incorporación del empleado. Restringe la carga de hojas de tiempo.",
     "emailAlreadyUsed": "Este correo ya está asignado a {{name}}. Cada miembro debe tener un correo único.",
-    "emailLinkedWarning": "Este miembro tiene una cuenta de acceso vinculada. Cambiar el correo no actualiza sus credenciales de inicio de sesión."
+    "emailLinkedWarning": "Este miembro tiene una cuenta de acceso vinculada. Cambiar el correo no actualiza sus credenciales de inicio de sesión.",
+    "terminationDate": "Fecha de Salida",
+    "terminationDateHelp": "Restringe la carga de horas después de esta fecha",
+    "pendingHoursTitle": "Horas Pendientes",
+    "pendingHoursDescription": "No se puede desactivar. Las siguientes semanas tienen horas pendientes que deben completarse antes de la desvinculación:",
+    "pendingHoursCheckError": "No se pudo verificar la completitud de horas. La desactivación fue bloqueada como medida de seguridad. Intente nuevamente.",
+    "weekOf": "Semana del",
+    "expected": "Esperadas",
+    "actual": "Reales",
+    "gap": "Faltantes",
+    "totalMissing": "Total horas faltantes"
   },
   "client": {
     "name": "Nombre del Cliente",
@@ -459,8 +469,11 @@
     "duplicateClientNameWithNit": "El nombre de cliente ya existe (NIT: {{nit}}).",
     "duplicateCheckFailed": "No pudimos verificar si el nombre del cliente ya existe (problema de conexión). Intente nuevamente.",
     "duplicateEmail": "Ya existe un miembro del personal con este correo",
+    "duplicateIdNumber": "Ya existe un miembro del personal con este número de CI. Debe eliminar el registro anterior antes de crear uno nuevo.",
     "invalidEmail": "Dirección de correo inválida",
-    "emailTooLong": "El correo debe tener menos de 255 caracteres"
+    "emailTooLong": "El correo debe tener menos de 255 caracteres",
+    "afterTerminationDate": "No se puede registrar tiempo después de la fecha de salida",
+    "noReingreso": "No se permite reingreso. Para reincorporar a esta persona, elimine el registro anterior y cree uno nuevo."
   },
   "form": {
     "required": "Requerido",
@@ -642,6 +655,7 @@
     "admActivityNotConfigured": "La actividad ADM del sistema no esta configurada. Contacte al administrador.",
     "entry": "Entrada de tiempo",
     "beforeHireDate": "No puede registrar tiempo para esta semana porque es anterior a su fecha de contratación.",
+    "afterTerminationDate": "No puede registrar tiempo para esta semana porque es posterior a su fecha de salida.",
     "copyPreviousWeek": "Copiar Semana Anterior",
     "copiedFromPreviousWeek": "Se copiaron {{count}} entradas de la semana anterior",
     "noPreviousEntries": "No se encontraron entradas en la semana anterior para copiar",
@@ -946,6 +960,8 @@
     "cityRequired": "La ciudad es requerida",
     "idNumberRequired": "El número de CI es requerido",
     "hireDateRequired": "La fecha de ingreso es requerida",
-    "initialsMax4": "Máximo 4 caracteres"
+    "initialsMax4": "Máximo 4 caracteres",
+    "terminationDateBeforeHire": "La fecha de salida no puede ser anterior a la fecha de ingreso",
+    "terminationDateRequired": "La fecha de salida es obligatoria al desactivar"
   }
 }
