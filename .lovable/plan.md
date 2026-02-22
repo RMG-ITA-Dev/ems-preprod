@@ -1,269 +1,203 @@
-# Plan_0222-TESTFIX_v3: Fix 7 Remaining Test Failures (Hardened)
+
+# Plan_0222-E2E_v1: Comprehensive End-to-End Testing Plan
 
 ## Overview
 
-Test-only fixes for 7 pre-existing failures across 5 files. Zero production code changes. Incorporates all CODEX amendments (AMEND-01 through AMEND-05) plus hardening changes (HC-01 through HC-04).
+This plan covers manual and automated verification of all 9 session items (7 bug fixes/features + TESTFIX_v3 + FAIL-03 fix) using Lovable's browser automation, database queries, edge function testing, and test runner capabilities.
 
 ---
 
-## FAIL-01: `src/lib/__tests__/error-handler.test.ts` (lines 96-100)
+## Phase 1: Automated Unit Test Suite (Full Regression)
 
-**Root cause:** Source code (line 72) maps `23505` to `ErrorCode.DB_DUPLICATE_KEY`. Test asserts `DB_CONSTRAINT`.
+**Tool:** Lovable test runner
+**Goal:** Confirm 341/341 pass, 0 failures
 
-**Fix:** Update assertion and rename test description.
+Run the complete test suite to verify Plan_0222-TESTFIX_v3 holds and no regressions from any session changes.
 
-```typescript
-// Before (lines 96-100):
-it("parses PostgreSQL constraint violations", () => {
-  const error = { code: "23505", message: "Unique violation" };
-  const result = handleError(error, { showToast: false });
-  expect(result.code).toBe(ErrorCode.DB_CONSTRAINT);
-});
+| Check | Expected |
+|-------|----------|
+| Total tests | 341 |
+| Failures | 0 |
+| FAIL-01 through FAIL-08 (all 7 fixed tests) | Green |
+| All 21 new session tests | Green |
 
-// After:
-it("parses PostgreSQL 23505 as duplicate key", () => {
-  const error = { code: "23505", message: "Unique violation" };
-  const result = handleError(error, { showToast: false });
-  expect(result.code).toBe(ErrorCode.DB_DUPLICATE_KEY);
-});
+---
+
+## Phase 2: Browser-Based E2E Verification
+
+### 2.1 BUG 0220-18: Duplicate Client Name/NIT Prevention
+
+**Route:** /clients (must be logged in as admin)
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | Navigate to Clients page, click "New Client" | Form opens |
+| 2 | Enter a client name that already exists (case-insensitive match) | Toast error with NIT of conflicting record |
+| 3 | Enter a NIT that already exists | Toast error identifying the existing client name |
+| 4 | Enter unique name + unique NIT, save | Success toast, client appears in list |
+| 5 | Edit an existing client, change name to match another client | Toast error on save |
+
+**DB verification:** Query `clients` table to confirm unique index exists:
+```sql
+SELECT indexname FROM pg_indexes WHERE tablename = 'clients' AND indexname = 'clients_client_legal_name_unique';
+```
+
+### 2.2 BUG 0220-45: Deletion of Exported Time Entries
+
+**Route:** /timesheet + /tracker
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | Create a timer entry in Tracker, export it to Timesheet | Entry appears in timesheet grid |
+| 2 | Delete the timesheet row | Row deletes successfully (no FK error) |
+| 3 | Check Tracker: the original timer entry | `is_imported` reset to false, `imported_to_time_id` is null |
+
+**DB verification:**
+```sql
+SELECT conname, confdeltype FROM pg_constraint WHERE conname = 'timer_entries_imported_to_time_id_fkey';
+-- Expected: confdeltype = 'n' (SET NULL)
+```
+
+### 2.3 Hours-Only Toggle (Timer Entries)
+
+**Route:** /tracker
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | Open Manual Entry dialog | Toggle "Specify times" visible, default OFF |
+| 2 | With toggle OFF: enter Date + Hours, leave times empty | Save succeeds; `has_explicit_times = false` in DB |
+| 3 | With toggle ON: enter Date + Start + End times | Save succeeds; `has_explicit_times = true` |
+| 4 | Edit entry created in step 2 | Toggle initializes OFF; time fields disabled |
+| 5 | Edit entry created in step 3 | Toggle initializes ON; time fields enabled |
+
+### 2.4 Feature 0220-47: Exit Date + Hours Gate + No-Reingreso
+
+**Route:** /staff (admin only)
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | Edit active staff, set termination_date, deactivate | Pending-hours RPC runs; if gaps exist, dialog blocks save |
+| 2 | If no gaps: save succeeds | Staff deactivated, termination_date saved |
+| 3 | Edit deactivated+terminated staff, try to toggle Active ON | Switch disabled; "No reingreso" helper text shown |
+| 4 | Navigate to Timesheet for terminated staff | Days after termination_date are locked; forward nav capped |
+| 5 | Try to create time entry after termination_date via DB | DB trigger raises TERMINATION_DATE_BLOCKED |
+
+**DB verification:**
+```sql
+SELECT tgname FROM pg_trigger WHERE tgname IN ('trg_enforce_termination_date', 'trg_prevent_staff_reactivation');
+-- Expected: both triggers exist
+```
+
+```sql
+SELECT proname FROM pg_proc WHERE proname = 'check_pending_hours_before_termination';
+-- Expected: RPC exists
+```
+
+### 2.5 BUG 0220-48: Historical Start Dates for Internal Engagements
+
+**Route:** /engagements/new
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | Create new engagement, leave "Internal" OFF | Calendar blocks dates before today |
+| 2 | Toggle "Internal" ON | Calendar allows all past dates |
+| 3 | Select a historical start date (e.g., Oct 1, 2025), save | Engagement saves successfully |
+| 4 | Toggle "Internal" OFF again | Calendar re-blocks past dates |
+
+### 2.6 BUG 0220-49: Encargo Tab Crash Fix
+
+**Route:** / (Dashboard)
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | Log in as user with NO assigned engagements | Dashboard loads without crash |
+| 2 | Click "Encargo" tab | Tab renders empty state (no crash, no white screen) |
+| 3 | Log in as user WITH engagements | Encargo tab shows engagement selector and data |
+
+### 2.7 Feature 0220-50: Pending Hours Indicator
+
+**Route:** / (Dashboard)
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | Log in as staff with incomplete hours for current week | Yellow/amber alert banner visible |
+| 2 | Log in as staff with all hours logged | No alert banner |
+| 3 | Check alert text | Shows missing hours count and links to timesheet |
+
+---
+
+## Phase 3: Database Integrity Checks
+
+Run these SQL queries to verify all schema changes are in place:
+
+```sql
+-- 1. Client name unique index
+SELECT indexname FROM pg_indexes WHERE tablename = 'clients' AND indexname = 'clients_client_legal_name_unique';
+
+-- 2. Timer entries FK with SET NULL
+SELECT conname, confdeltype FROM pg_constraint WHERE conname = 'timer_entries_imported_to_time_id_fkey';
+
+-- 3. has_explicit_times column
+SELECT column_name, data_type, column_default FROM information_schema.columns 
+WHERE table_name = 'timer_entries' AND column_name = 'has_explicit_times';
+
+-- 4. termination_date column
+SELECT column_name, data_type FROM information_schema.columns 
+WHERE table_name = 'staff' AND column_name = 'termination_date';
+
+-- 5. Triggers
+SELECT tgname FROM pg_trigger WHERE tgname IN (
+  'trg_enforce_termination_date', 
+  'trg_prevent_staff_reactivation',
+  'trg_reset_timer_import_on_unlink'
+);
+
+-- 6. Staff unique indexes (soft-delete aware)
+SELECT indexname FROM pg_indexes WHERE tablename = 'staff' 
+AND indexname IN ('idx_staff_email_unique', 'idx_staff_id_number_unique');
+
+-- 7. Pending hours RPC
+SELECT proname FROM pg_proc WHERE proname = 'check_pending_hours_before_termination';
 ```
 
 ---
 
-## FAIL-02: `src/hooks/__tests__/useAuth.test.tsx` (lines 8-23)
+## Phase 4: Error Handler Verification
 
-**Root cause:** `signIn` (lines 78-82) queries `supabase.from('staff').select('is_active').eq('auth_user_id', userId).maybeSingle()`, then conditionally `supabase.from('user_roles')` (lines 91-96). The test mock has no `from` property.
+Verify via unit tests (already covered in FAIL-01 fix):
 
-**Fix (HC-04 verified):** Add `from` at the root level of the supabase mock (same level as `auth` and `functions`), with table-name branching:
-
-```typescript
-// Add at line 9, after signOut/updateUser/resetPasswordForEmail and before closing brace:
-from: vi.fn((table: string) => {
-  if (table === 'staff') {
-    return {
-      select: vi.fn().mockReturnValue({
-        eq: vi.fn().mockReturnValue({
-          maybeSingle: vi.fn().mockResolvedValue({
-            data: { is_active: true },
-            error: null,
-          }),
-        }),
-      }),
-    } as any;
-  }
-  if (table === 'user_roles') {
-    return {
-      select: vi.fn().mockReturnValue({
-        eq: vi.fn().mockReturnValue({
-          eq: vi.fn().mockReturnValue({
-            maybeSingle: vi.fn().mockResolvedValue({
-              data: null,
-              error: null,
-            }),
-          }),
-        }),
-      }),
-    } as any;
-  }
-  throw new Error(`Unexpected table in useAuth test: ${table}`);
-}),
-```
-
-Placement: inside the `supabase` object at lines 9-22, alongside `auth` and `functions`.
+| PostgreSQL Code | Expected ErrorCode |
+|-----------------|-------------------|
+| 23505 | DB_DUPLICATE_KEY |
+| 23503 | DB_CONSTRAINT |
+| 42501 | AUTH_FORBIDDEN |
 
 ---
 
-## FAIL-04: `src/hooks/__tests__/useCurrentStaff.test.tsx` (lines 111-117)
+## Phase 5: i18n Verification
 
-**Root cause:** When primary lookup returns `null`, the hook (lines 46-63) runs a fallback: `.from('staff').select(...).eq('email', ...).is('auth_user_id', null).maybeSingle()`. The test mock lacks `.is()` support.
+**Tool:** Browser automation with language toggle
 
-**Fix:** Use `mockReturnValueOnce` twice -- first call for primary lookup (returns null), second call for fallback with `.is()` in chain (also returns null).
-
-```typescript
-// Replace lines 111-117:
-const primaryMaybeSingle = vi.fn().mockResolvedValue({ data: null, error: null });
-const fallbackMaybeSingle = vi.fn().mockResolvedValue({ data: null, error: null });
-
-vi.mocked(supabase.from)
-  .mockReturnValueOnce({
-    select: vi.fn().mockReturnValue({
-      eq: vi.fn().mockReturnValue({ maybeSingle: primaryMaybeSingle }),
-    }),
-  } as any)
-  .mockReturnValueOnce({
-    select: vi.fn().mockReturnValue({
-      eq: vi.fn().mockReturnValue({
-        is: vi.fn().mockReturnValue({ maybeSingle: fallbackMaybeSingle }),
-      }),
-    }),
-  } as any);
-```
+| Step | Action | Expected |
+|------|--------|----------|
+| 1 | Set language to EN in Settings | All new keys render in English |
+| 2 | Set language to ES in Settings | All new keys render in Spanish |
+| 3 | Verify no missing translation keys (check console for i18n warnings) | No warnings |
 
 ---
 
-## FAIL-05: `src/hooks/mutations/__tests__/useStaffMutations.test.tsx` (lines 114-132)
+## Execution Order
 
-**Root cause:** `useDeleteStaff` (lines 118-166 in source) checks 4 dependency tables before deleting. Three use `.select().eq().limit(1)`, `engagements` uses `.select().or(...).limit(1)`. Test only mocks `delete().eq()`.
-
-**Fix (HC-01 + HC-02):** Replace with table-branching mock. Keep named references for strong assertions. Add `afterEach` mock reset.
-
-```typescript
-describe("useDeleteStaff", () => {
-  afterEach(() => {
-    vi.mocked(supabase.from).mockReset();  // HC-02: prevent leakage
-  });
-
-  it("should delete a staff member by id (hard delete, no dependencies)", async () => {
-    const mockDeleteEq = vi.fn().mockResolvedValue({ error: null });  // HC-01: named ref
-    const mockDeleteFn = vi.fn().mockReturnValue({ eq: mockDeleteEq });
-
-    vi.mocked(supabase.from).mockImplementation((table: string) => {
-      if (["time_entries", "timer_entries", "timesheet_periods", "engagements"].includes(table)) {
-        const base = { limit: vi.fn().mockResolvedValue({ data: [], error: null }) };
-        return {
-          select: vi.fn().mockReturnValue({
-            eq: vi.fn().mockReturnValue(base),
-            or: vi.fn().mockReturnValue(base),
-          }),
-        } as any;
-      }
-      if (table === "staff") {
-        return {
-          delete: mockDeleteFn,
-          update: vi.fn().mockReturnValue({
-            eq: vi.fn().mockResolvedValue({ error: null }),
-          }),
-        } as any;
-      }
-      throw new Error(`Unexpected table: ${table}`);
-    });
-
-    const { result } = renderHook(() => useDeleteStaff(), {
-      wrapper: createWrapper(),
-    });
-
-    result.current.mutate("staff-123");
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-    expect(supabase.from).toHaveBeenCalledWith("staff");
-    expect(mockDeleteEq).toHaveBeenCalledWith("staff_id", "staff-123");  // HC-01: strong assertion
-    expect(toast.success).toHaveBeenCalled();
-  });
-});
-```
-
----
-
-## FAIL-06, FAIL-07, FAIL-08: `src/hooks/__tests__/useLanguage.test.tsx`
-
-**Root cause:** Inline `vi.mock("react-i18next", ...)` at line 74 is hoisted by Vitest, corrupting mock state for all tests. The "does not change language" test also lacks a real assertion.
-
-**Fix (HC-03):** Rewrite mock infrastructure with mutable `mockLanguage` variable. Add explicit `mockChangeLanguage.mockClear()` in `beforeEach`. Add `expect(mockChangeLanguage).not.toHaveBeenCalled()` assertion.
-
-Full replacement of the file's mock and test structure:
-
-```typescript
-import React from "react";
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { renderHook, waitFor } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useLanguage } from "../useLanguage";
-
-// Mutable language state for controlling i18n.language per-test
-let mockLanguage = "en";
-const mockChangeLanguage = vi.fn();
-
-vi.mock("react-i18next", () => ({
-  useTranslation: () => ({
-    i18n: {
-      get language() { return mockLanguage; },
-      changeLanguage: mockChangeLanguage,
-    },
-    t: (key: string) => key,
-  }),
-}));
-
-vi.mock("@/hooks/useEmsData", () => ({
-  useGlobalSettings: vi.fn(),
-}));
-
-import { useGlobalSettings } from "@/hooks/useEmsData";
-
-function createWrapper() {
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  });
-  return ({ children }: { children: React.ReactNode }) => (
-    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-  );
-}
-
-describe("useLanguage", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockLanguage = "en";
-    mockChangeLanguage.mockClear();  // HC-03: explicit intent
-  });
-
-  // ... all 5 tests remain, with line 72-97 replaced:
-
-  it("does not change language if already matches", () => {
-    mockLanguage = "es";  // Simulates i18n already set to "es"
-
-    vi.mocked(useGlobalSettings).mockReturnValue({
-      data: [
-        { setting_key: "LANGUAGE", setting_value: "es", description: null },
-      ],
-      isLoading: false,
-    } as any);
-
-    renderHook(() => useLanguage(), { wrapper: createWrapper() });
-
-    expect(mockChangeLanguage).not.toHaveBeenCalled();  // Real assertion
-  });
-
-  // Other 4 tests unchanged (returns current language, syncs language,
-  // exposes changeLanguage, handles missing setting)
-});
-```
-
----
-
-## Files to Modify
-
-
-| File                                                       | Fix IDs               | Key Change                                                                             |
-| ---------------------------------------------------------- | --------------------- | -------------------------------------------------------------------------------------- |
-| `src/lib/__tests__/error-handler.test.ts`                  | FAIL-01               | Line 96-100: assertion `DB_CONSTRAINT` to `DB_DUPLICATE_KEY`                           |
-| `src/hooks/__tests__/useAuth.test.tsx`                     | FAIL-02, HC-04        | Lines 8-23: add `from()` at root level with staff/user_roles branching                 |
-| `src/hooks/__tests__/useCurrentStaff.test.tsx`             | FAIL-04               | Lines 111-117: two-call mock with `.is()` for fallback path                            |
-| `src/hooks/mutations/__tests__/useStaffMutations.test.tsx` | FAIL-05, HC-01, HC-02 | Lines 114-132: table-branching mock, named refs for strong assertions, afterEach reset |
-| `src/hooks/__tests__/useLanguage.test.tsx`                 | FAIL-06/07/08, HC-03  | Full mock rewrite: mutable `mockLanguage`, explicit `mockClear`, real assertion        |
-
-
----
-
-Please document the implementation of this PLAN by appending it to the [CHANGELOG-2026-02-2.md](http://CHANGELOG-2026-02-2.md) file In the Codebase.
-
-&nbsp;
-
-## Constraints
-
-- Zero production code changes (test-only)
-- No inline `vi.mock` re-declarations inside individual tests
-- All mocks match actual hook code paths
-- Named mock references for strong argument assertions (HC-01)
-- Mock reset in afterEach to prevent leakage (HC-02)
-- Explicit mockClear for intent clarity (HC-03)
-- `from` placed at supabase root level (HC-04)
+1. Run full automated test suite (Phase 1) -- immediate pass/fail gate
+2. Run database integrity queries (Phase 3) -- schema verification
+3. Browser E2E tests in order: 2.6 (crash fix, quickest), 2.1, 2.3, 2.5, 2.2, 2.4, 2.7
+4. i18n spot check (Phase 5)
 
 ## Acceptance Criteria
 
-
-| Criterion                           | Target   |
-| ----------------------------------- | -------- |
-| FAIL-01 through FAIL-08 all pass    | Green    |
-| All 21 session tests remain passing | Green    |
-| Full suite: 0 failures              | Green    |
-| Only test files changed             | Verified |
+| Criterion | Target |
+|-----------|--------|
+| Unit tests: 341/341 | 0 failures |
+| DB schema: 7 queries | All return expected results |
+| Browser E2E: 7 features | All steps pass |
+| i18n: EN + ES | No missing keys |
