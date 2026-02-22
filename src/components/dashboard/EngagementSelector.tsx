@@ -125,9 +125,9 @@ export function EngagementSelector() {
               </SelectItem>
             ))
           ) : (
-            <SelectItem value="" disabled>
+            <div className="px-2 py-4 text-sm text-muted-foreground text-center">
               {t('dashboard.encargo.noEngagements')}
-            </SelectItem>
+            </div>
           )}
         </SelectContent>
       </Select>

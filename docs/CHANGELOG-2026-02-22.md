@@ -886,3 +886,73 @@ if (!isInternal && minStartDate && data.start_date && isBefore(startOfDay(data.s
 | External engagements lose restriction | None | `isInternal` check preserves existing behavior for external engagements |
 | Toggle is_internal ON/OFF | None | `useMemo` dependency on `isInternal` recomputes immediately |
 | End-date over-restriction | None | Null-guard on `minStartDate` fallback prevents false disabling |
+
+---
+
+### Bug 0220-49: Fix Encargo Tab Crash for Users with No Engagements
+
+**Plan**: Plan_0220-49_v2
+**Priority**: Baja
+**Route**: PRINCIPAL — Panel de Control → Encargo tab
+
+#### Problem
+
+A new user (`adrianespinoza`) with no time entries switches from the "Personal" tab to "Encargo" on the Dashboard. The app crashes with:
+
+> Error: A `<SelectItem />` must have a value prop that is not an empty string.
+
+The screen becomes completely blocked, requiring a page reload.
+
+#### Root Cause
+
+`src/components/dashboard/EngagementSelector.tsx`, line 128, renders a `<SelectItem value="" disabled>` when the engagements query returns an empty list. Radix UI's `SelectItem` component strictly forbids an empty string for the `value` prop and throws a runtime error.
+
+#### Solution — Detailed Edits
+
+**Edit 1 — `EngagementSelector.tsx`: Replace empty-state `<SelectItem value="">` with plain `<div>` (lines 127-130)**
+
+```typescript
+// BEFORE (lines 127-130):
+) : (
+  <SelectItem value="" disabled>
+    {t('dashboard.encargo.noEngagements')}
+  </SelectItem>
+)}
+```
+
+```typescript
+// AFTER:
+) : (
+  <div className="px-2 py-4 text-sm text-muted-foreground text-center">
+    {t('dashboard.encargo.noEngagements')}
+  </div>
+)}
+```
+
+**Logic:** Radix `SelectItem` requires a non-empty `value` prop. A plain `<div>` inside `SelectContent` renders the empty-state message without participating in the Select value system, completely avoiding the crash. The `<div>` is non-interactive — users cannot select it — which matches the intended behavior of the original `disabled` `SelectItem`.
+
+#### Preventative Sweep Results
+
+A project-wide search for the same anti-pattern found **no additional occurrences**:
+
+| Search Pattern | Matches Found |
+|---|---|
+| `<SelectItem value="">` | 1 (EngagementSelector.tsx — the primary fix) |
+| `value={""}` | 0 |
+| `value="" disabled` | 1 (same match as above) |
+
+No other files require changes.
+
+#### Files Modified
+
+| File | Lines | Change |
+|------|-------|--------|
+| `src/components/dashboard/EngagementSelector.tsx` | 127-130 | Replace `<SelectItem value="" disabled>` with non-interactive `<div>` for empty state |
+
+#### Risk Assessment
+
+| Risk | Level | Mitigation |
+|------|-------|------------|
+| Regression in engagement selection | None | Only the empty-state branch changed; populated list path untouched |
+| Business logic impact | None | Zero logic changes; only empty-state rendering |
+| Other Select components affected | None | Sweep confirmed this is the sole occurrence in the codebase |
