@@ -105,3 +105,40 @@ The FK constraint `timer_entries.imported_to_time_id → time_entries(time_id)` 
 | FK constraint name mismatch | None | Verified via `pg_constraint` query |
 | Edge case: fields out of sync | None | UI guards on both fields with OR logic |
 | Approved timesheet lines | None | `trg_protect_approved_time_entries` still blocks independently |
+
+---
+
+### Feature: Hours-Only Toggle for Timer Entry Forms
+
+**Plan**: Plan_HoursOnlyToggle_v2
+**Priority**: Media
+**Route**: OPERACIONES - Registros de Tiempo
+
+#### Summary
+Added a toggle switch ("Especificar horas" / "Specify times") to both the Manual Entry dialog and the Edit form for timer entries. When OFF (default for new entries), users only enter Date + Hours; Start/End Time fields are cleared and disabled. When ON, all four fields are active (current behavior).
+
+#### Solution
+
+**Layer 1 — Database**: Added `has_explicit_times boolean NOT NULL DEFAULT true` to `timer_entries`. Existing entries default to `true` (toggle ON when re-opened).
+
+**Layer 2 — ManualEntryDialog.tsx**: Toggle defaults OFF for new entries. Start/End fields empty and disabled. `onSubmit` passes `has_explicit_times` and `hours`.
+
+**Layer 3 — TrackerList.tsx**: `handleManualSubmit` computes synthetic `started_at` (midnight) and `ended_at` (midnight + hours) when `has_explicit_times = false`.
+
+**Layer 4 — TrackerEdit.tsx**: Toggle initializes from `entry.has_explicit_times`. When OFF, start/end fields cleared and disabled; save uses synthetic timestamps.
+
+**Layer 5 — useTimerEntries.ts**: Added `has_explicit_times` to `TimerEntry` interface and mutation input types.
+
+**Layer 6 — i18n**: Added `tracker.useExplicitTimes` key (EN: "Specify times", ES: "Especificar horas").
+
+#### Files Modified
+
+| File | Change |
+|------|--------|
+| Database migration | Add `has_explicit_times boolean NOT NULL DEFAULT true` to `timer_entries` |
+| `src/components/tracker/ManualEntryDialog.tsx` | Add toggle (default OFF), hours-only mode, pass `has_explicit_times` |
+| `src/pages/TrackerList.tsx` | `handleManualSubmit` handles `has_explicit_times` + synthetic times |
+| `src/pages/TrackerEdit.tsx` | Add toggle (init from entry), hours-only mode, save with synthetic times |
+| `src/hooks/useTimerEntries.ts` | Add `has_explicit_times` to `TimerEntry` interface + mutation types |
+| `src/locales/en.json` | Add `tracker.useExplicitTimes` |
+| `src/locales/es.json` | Add `tracker.useExplicitTimes` |

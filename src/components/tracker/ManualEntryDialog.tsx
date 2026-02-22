@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -59,6 +60,8 @@ interface ManualEntryDialogProps {
     date: Date;
     startTime: string;
     endTime: string;
+    has_explicit_times: boolean;
+    hours: number;
   }) => void;
 }
 
@@ -76,11 +79,25 @@ export function ManualEntryDialog({
   const [activityId, setActivityId] = useState("");
   const [description, setDescription] = useState("");
   const [date, setDate] = useState<Date>(new Date());
-  const [startTime, setStartTime] = useState("08:00");
-  const [endTime, setEndTime] = useState("09:00");
+  const [startTime, setStartTime] = useState("");
+  const [endTime, setEndTime] = useState("");
   const [hours, setHours] = useState<number>(1);
+  const [useExplicitTimes, setUseExplicitTimes] = useState(false);
 
   const activeActivities = activityCodes.filter((a) => a.is_active);
+
+  const handleToggleExplicitTimes = (checked: boolean) => {
+    setUseExplicitTimes(checked);
+    if (checked) {
+      // Activate times: set defaults
+      setStartTime("08:00");
+      setEndTime(addHoursToTime("08:00", hours));
+    } else {
+      // Deactivate times: clear
+      setStartTime("");
+      setEndTime("");
+    }
+  };
 
   const handleHoursChange = (newHours: number) => {
     const clamped = Math.min(8, Math.max(0, newHours));
@@ -88,9 +105,11 @@ export function ManualEntryDialog({
       toast.error(t("tracker.maxHoursExceeded"));
     }
     setHours(clamped);
-    const start = startTime || "08:00";
-    if (!startTime) setStartTime("08:00");
-    setEndTime(addHoursToTime(start, clamped));
+    if (useExplicitTimes) {
+      const start = startTime || "08:00";
+      if (!startTime) setStartTime("08:00");
+      setEndTime(addHoursToTime(start, clamped));
+    }
   };
 
   const handleStartTimeChange = (newStart: string) => {
@@ -138,6 +157,8 @@ export function ManualEntryDialog({
       date,
       startTime,
       endTime,
+      has_explicit_times: useExplicitTimes,
+      hours,
     });
 
     // Reset form
@@ -145,15 +166,16 @@ export function ManualEntryDialog({
     setActivityId("");
     setDescription("");
     setDate(new Date());
-    setStartTime("08:00");
-    setEndTime("09:00");
+    setStartTime("");
+    setEndTime("");
     setHours(1);
+    setUseExplicitTimes(false);
     onOpenChange(false);
   };
 
   const selectedEng = engagements.find(e => e.engagement_id === engagementId);
   const isActNotReq = selectedEng && !selectedEng.activity_required;
-  const canSubmit = engagementId && (activityId || (isActNotReq && adminActivityId)) && startTime && endTime;
+  const canSubmit = engagementId && (activityId || (isActNotReq && adminActivityId)) && hours > 0 && (!useExplicitTimes || (startTime && endTime));
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -201,11 +223,24 @@ export function ManualEntryDialog({
           {/* Time Range */}
           <div className="grid grid-cols-3 gap-4">
             <div className="space-y-2">
-              <Label>{t("tracker.startTime")}</Label>
+              <div className="flex items-center justify-between">
+                <Label>{t("tracker.startTime")}</Label>
+                <div className="flex items-center gap-1.5">
+                  <Switch
+                    checked={useExplicitTimes}
+                    onCheckedChange={handleToggleExplicitTimes}
+                    className="scale-75"
+                  />
+                  <span className="text-xs text-muted-foreground">
+                    {t("tracker.useExplicitTimes")}
+                  </span>
+                </div>
+              </div>
               <Input
                 type="time"
                 value={startTime}
                 onChange={(e) => handleStartTimeChange(e.target.value)}
+                disabled={!useExplicitTimes}
               />
             </div>
             <div className="space-y-2">
@@ -225,6 +260,7 @@ export function ManualEntryDialog({
                 type="time"
                 value={endTime}
                 onChange={(e) => handleEndTimeChange(e.target.value)}
+                disabled={!useExplicitTimes}
               />
             </div>
           </div>

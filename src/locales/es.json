@@ -135,6 +135,7 @@
     "noEntriesToImport": "No hay entradas para importar esta semana.",
     "selectedEntries": "{{count}} seleccionadas",
     "hours": "horas",
+    "useExplicitTimes": "Especificar horas",
     "willAddToTimesheet": "Se agregará a la hoja de tiempo",
     "importSelected": "Importar Seleccionadas",
     "importFromTimer": "Importar del Cronómetro",
