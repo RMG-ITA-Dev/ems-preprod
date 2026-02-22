@@ -380,7 +380,7 @@ const TrackerEdit = () => {
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
               {/* Date */}
-              <div className="space-y-2">
+              <div className="space-y-2 sm:max-w-[160px]">
                 <Label>{t("tracker.date")}</Label>
                 <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
                   <PopoverTrigger asChild>
