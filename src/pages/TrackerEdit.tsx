@@ -411,7 +411,7 @@ const TrackerEdit = () => {
                 </Popover>
               </div>
               {/* Hours */}
-              <div className="space-y-2">
+              <div className="space-y-2 sm:max-w-[120px]">
                 <Label>{t("tracker.hours")}</Label>
                 <Input
                   type="number"
