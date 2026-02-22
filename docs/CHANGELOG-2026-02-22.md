@@ -214,3 +214,41 @@ Added `termination_date` (Fecha de Salida) to staff records with multi-layer enf
 | Soft-delete + unique indexes | None | Indexes exclude `deleted_at IS NOT NULL` records |
 | Pending-hours RPC SECURITY DEFINER | None | Returns only aggregate data |
 | Fail-safe on RPC error | None | Deactivation blocked if completeness unverifiable |
+
+---
+
+### Bug 0220-48: Allow Historical Start Dates for Internal Engagements
+
+**Plan**: Plan_0220-48_v2
+**Priority**: Baja
+**Route**: PRINCIPAL - Encargos
+
+#### Problem
+When creating internal/administrative engagements (e.g., fiscal year Oct 2025 - Sep 2026), the calendar blocked selection of historical start dates. Internal engagements frequently need past start dates to cover periods that have already begun.
+
+#### Root Cause
+In `EngagementForm.tsx`, `minStartDate` was always set (today for new, `created_at` for edit) regardless of engagement type. The start_date and end_date calendars passed `minStartDate` to `disabled` with no null-guard, and submit-time validation did not account for `isInternal`.
+
+#### Solution
+
+**Edit 1 — `minStartDate` memo**: Added `isInternal` dependency; returns `undefined` for internal engagements (bypasses date restriction).
+
+**Edit 2 — Start-date calendar**: Added null-guard on `disabled` prop so past dates become selectable when `minStartDate` is `undefined`.
+
+**Edit 3 — End-date calendar**: Added null-guard on `minStartDate` fallback when `start_date` is empty, preventing over-restriction for internal engagements.
+
+**Edit 4 — Submit-time validation**: Added `!isInternal` and `minStartDate` null-guard to skip past-date validation for internal engagements.
+
+#### Files Modified
+
+| File | Change |
+|------|--------|
+| `src/components/forms/EngagementForm.tsx` | 4 edits: minStartDate memo, start calendar null-guard, end calendar null-guard, submit validation |
+
+#### Risk Assessment
+
+| Risk | Level | Mitigation |
+|------|-------|------------|
+| External engagements lose restriction | None | `isInternal` check preserves existing behavior for external engagements |
+| Toggle is_internal ON/OFF | None | `useMemo` dependency on `isInternal` recomputes immediately |
+| End-date over-restriction | None | Null-guard on `minStartDate` fallback prevents false disabling |
