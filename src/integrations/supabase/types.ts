@@ -1429,6 +1429,7 @@ export type Database = {
         Args: { p_engagement_id: string; p_staff_id: string }
         Returns: string
       }
+      get_my_pending_hours: { Args: { p_staff_id: string }; Returns: Json }
       get_my_staff_id: { Args: never; Returns: string }
       get_timesheet_approvers: {
         Args: { p_staff_id: string; p_week_start: string }
