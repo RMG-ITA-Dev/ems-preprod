@@ -1,287 +1,186 @@
 
 
-# Plan_0220-50_v3: Pending Hours Indicator via DB RPC + Collapsible Detail
+# Plan_0222-TEST_v1: Comprehensive Test Suite for Session 260222 Changes
 
-## Problem
+## Scope
 
-BUG 0220-50: The Dashboard Personal tab has no indicator showing how many weeks and/or hours the user has pending to report since their hire date. Users cannot quickly identify periods with missing or unreported hours.
+This plan covers unit and integration tests for all 7 items implemented during this debugging session:
 
-## Changes from v2
-
-Applied reviewer comments:
-- SQL tables explicitly schema-qualified (`public.staff`, `public.time_entries`, `public.holidays`) inside the RPC since `search_path` is set
-- i18n keys confirmed consistent under `dashboard.personal.pendingHours.*` -- no leftover key names from prior drafts (`missingHours.*` removed)
-- Security: component always passes `staffRecord.staff_id` from `useCurrentStaff()` (current user's own ID) -- confirmed safe with `SECURITY DEFINER`
-- Skip-current-week logic (`v_week_end >= CURRENT_DATE THEN EXIT`) confirmed correct since weeks iterate in ascending order
+1. BUG 0220-18: Duplicate Client Name Prevention
+2. BUG 0220-45: Deletion of Exported Time Entries in Timesheet
+3. Feature: Hours-Only Toggle for Timer Entry Forms
+4. Feature 0220-47: Fecha de Salida + Hours Completeness Gate
+5. BUG 0220-48: Historical Start Dates for Internal Engagements
+6. BUG 0220-49: Encargo Tab Select Crash Fix
+7. Feature 0220-50: Pending Hours Indicator (PendingHoursAlert)
 
 ---
 
-## Layer 1: Database RPC
+## Test Infrastructure
 
-### New Migration: `get_my_pending_hours(uuid)` RPC
+The project already has a mature Vitest + React Testing Library setup:
+- `vitest.config.ts` with jsdom environment and globals
+- `src/test/setup.ts` with mocks for sonner, i18n, and Supabase client
+- `src/test/utils.tsx` with `render` wrapper including QueryClientProvider
+- Established patterns in `src/hooks/__tests__/` and `src/hooks/mutations/__tests__/`
 
-```sql
-CREATE OR REPLACE FUNCTION public.get_my_pending_hours(p_staff_id uuid)
-RETURNS jsonb
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path TO 'public'
-AS $$
-DECLARE
-  v_hire_date date;
-  v_end_date date;
-  v_capacity numeric;
-  v_daily numeric;
-  v_cursor date;
-  v_week_end date;
-  v_eff_start date;
-  v_eff_end date;
-  v_working_days integer;
-  v_holiday_count integer;
-  v_expected numeric;
-  v_actual numeric;
-  v_gap numeric;
-  v_result jsonb := '[]'::jsonb;
-BEGIN
-  SELECT s.hire_date, s.weekly_capacity_hours, s.termination_date
-  INTO v_hire_date, v_capacity, v_end_date
-  FROM public.staff s WHERE s.staff_id = p_staff_id;
+No infrastructure changes needed -- all new tests follow existing conventions.
 
-  IF v_hire_date IS NULL THEN
-    RETURN '[]'::jsonb;
-  END IF;
+---
 
-  v_end_date := LEAST(COALESCE(v_end_date, CURRENT_DATE), CURRENT_DATE);
-  v_daily := COALESCE(v_capacity, 40) / 5.0;
+## Technical Details: New Test Files
 
-  -- Start from Monday of hire_date's week
-  v_cursor := v_hire_date - (EXTRACT(ISODOW FROM v_hire_date)::int - 1);
+### 1. `src/hooks/mutations/__tests__/useClientMutations.test.tsx` -- ADD tests for BUG 0220-18
 
-  WHILE v_cursor <= v_end_date LOOP
-    v_week_end := v_cursor + 4;  -- Friday
+The existing test file already tests happy-path create/update/delete. Add new tests for the `handleClientError` duplicate-name handling:
 
-    -- Skip current/incomplete week (ascending order, so EXIT is safe)
-    IF v_week_end >= CURRENT_DATE THEN
-      EXIT;
-    END IF;
-
-    v_eff_start := GREATEST(v_cursor, v_hire_date);
-    v_eff_end := LEAST(v_week_end, v_end_date);
-
-    SELECT COUNT(*) INTO v_working_days
-    FROM generate_series(v_eff_start, v_eff_end, '1 day'::interval) d
-    WHERE EXTRACT(ISODOW FROM d) <= 5;
-
-    SELECT COUNT(*) INTO v_holiday_count
-    FROM public.holidays h
-    WHERE h.holiday_date BETWEEN v_eff_start AND v_eff_end
-      AND EXTRACT(ISODOW FROM h.holiday_date) <= 5;
-
-    v_working_days := v_working_days - v_holiday_count;
-
-    IF v_working_days > 0 THEN
-      v_expected := v_working_days * v_daily;
-
-      SELECT COALESCE(SUM(te.hours_logged), 0) INTO v_actual
-      FROM public.time_entries te
-      WHERE te.staff_id = p_staff_id
-        AND te.date_worked BETWEEN v_eff_start AND v_eff_end
-        AND te.is_forecast = false;
-
-      v_gap := v_expected - v_actual;
-
-      IF v_gap > 0 THEN
-        v_result := v_result || jsonb_build_object(
-          'week_start', v_cursor,
-          'expected_hours', v_expected,
-          'actual_hours', v_actual,
-          'gap', v_gap
-        );
-      END IF;
-    END IF;
-
-    v_cursor := v_cursor + 7;
-  END LOOP;
-
-  RETURN v_result;
-END;
-$$;
-
-GRANT EXECUTE ON FUNCTION public.get_my_pending_hours(uuid) TO authenticated;
+```
+describe("duplicate client name handling (BUG 0220-18)")
+  it("shows duplicateClientName toast on 23505 error with clients_client_legal_name_unique constraint")
+  it("shows duplicateNit toast on 23505 error with clients_unique_tax_id_key constraint")
+  it("falls back to generic error handler for non-23505 errors")
+  it("falls back to generic error handler for 23505 with unknown constraint")
 ```
 
-Key points:
-- All tables explicitly schema-qualified (`public.staff`, `public.time_entries`, `public.holidays`)
-- `SECURITY DEFINER` with `search_path = 'public'`
-- Skips current incomplete week via `EXIT` (safe -- ascending iteration)
-- Respects `termination_date` as upper bound
-- Excludes forecast entries (`is_forecast = false`)
-- Excludes holidays from expected workdays
+These tests mock `supabase.from().insert().select().single()` to reject with structured error objects containing `code: "23505"` and the relevant `constraint` string, then verify the correct `toast.error()` message.
+
+### 2. `src/components/dashboard/__tests__/EngagementSelector.test.tsx` -- NEW file for BUG 0220-49
+
+Tests that the empty-state renders a plain `<div>` instead of a `<SelectItem value="">`:
+
+```
+describe("EngagementSelector (BUG 0220-49)")
+  it("renders 'no engagements' message as div (not SelectItem) when engagement list is empty")
+  it("renders SelectItem elements when engagements exist")
+  it("does not crash when switching to Encargo tab with zero engagements")
+```
+
+Requires mocking `useCurrentStaff`, `useDashboard`, `useDashboardAccess`, and the Supabase query. Uses `render()` from test utils with a `MemoryRouter` wrapper.
+
+### 3. `src/components/dashboard/__tests__/PendingHoursAlert.test.tsx` -- NEW file for Feature 0220-50
+
+Tests the collapsible pending-hours component:
+
+```
+describe("PendingHoursAlert (Feature 0220-50)")
+  it("renders nothing when pendingWeeks is empty")
+  it("renders nothing while loading")
+  it("renders summary card with correct week count and total hours")
+  it("shows detail table when expanded with up to 12 weeks")
+  it("shows 'and X more' footer when more than 12 weeks exist")
+  it("does not show 'and X more' footer when 12 or fewer weeks")
+  it("displays 'Go to Timesheet' link pointing to /timesheet")
+  it("formats dates according to locale (es vs en)")
+  it("computes totalGap correctly from week gaps")
+```
+
+Requires mocking `useCurrentStaff` (returning a `staffRecord` with `staff_id`), `supabase.rpc` (returning mock `PendingWeek[]` data), and wrapping in `MemoryRouter` + `QueryClientProvider`.
+
+### 4. `src/components/forms/__tests__/EngagementForm.test.tsx` -- NEW file for BUG 0220-48
+
+Tests the `minStartDate` logic that bypasses date restriction for internal engagements:
+
+```
+describe("EngagementForm start date (BUG 0220-48)")
+  it("allows historical start dates when is_internal is true")
+  it("restricts start date to today or later for non-internal new engagements")
+  it("restricts start date to created_at for non-internal edits")
+```
+
+This is a focused test on the `minStartDate` useMemo logic. Because `EngagementForm` is a large form component with many dependencies (clients, staff, categories), these tests will mock all data dependencies and verify the calendar disabled-days behavior.
+
+### 5. `src/hooks/__tests__/useTimesheetMutations.test.tsx` -- NEW file for BUG 0220-45
+
+Tests that deletion of exported time entries is handled correctly:
+
+```
+describe("useTimesheetMutations (BUG 0220-45)")
+  it("allows deletion of time entries that are not exported")
+  it("prevents deletion of exported/locked time entries with appropriate error")
+```
+
+Mocks the Supabase delete chain and verifies error handling for locked periods.
+
+### 6. DB RPC Test: `get_my_pending_hours` -- SQL-level verification
+
+Since the RPC is the authoritative computation for Feature 0220-50, add a direct SQL test using the `supabase--read-query` tool during implementation to verify:
+
+```
+-- Test: Staff with no hire_date returns empty array
+SELECT get_my_pending_hours('staff-id-without-hire-date');
+
+-- Test: Staff with all hours filled returns empty array
+-- (insert test data, run RPC, verify empty result)
+
+-- Test: Staff with gaps returns correct week_start, expected, actual, gap
+-- (insert partial time entries, run RPC, verify JSON output)
+```
+
+These will be executed as manual verification queries during implementation, not as automated tests (DB RPCs cannot be unit-tested in jsdom).
 
 ---
 
-## Layer 2: New Component `PendingHoursAlert.tsx`
+## Files to Create/Modify
 
-### New File: `src/components/dashboard/PendingHoursAlert.tsx`
+| File | Action | Tests |
+|------|--------|-------|
+| `src/hooks/mutations/__tests__/useClientMutations.test.tsx` | Modify | Add 4 tests for duplicate constraint handling |
+| `src/components/dashboard/__tests__/EngagementSelector.test.tsx` | Create | 3 tests for empty-state rendering |
+| `src/components/dashboard/__tests__/PendingHoursAlert.test.tsx` | Create | 9 tests for alert component |
+| `src/components/forms/__tests__/EngagementForm.test.tsx` | Create | 3 tests for internal engagement date bypass |
+| `src/hooks/__tests__/useTimesheetMutations.test.tsx` | Create | 2 tests for exported entry deletion |
+| `docs/CHANGELOG-2026-02-22.md` | Append | Test suite addition entry |
 
-Self-contained component that:
-1. Calls `supabase.rpc('get_my_pending_hours', { p_staff_id })` via React Query (`staleTime: 5 min`)
-2. Renders nothing when loading or array is empty
-3. Shows a warning-styled `Card` with summary: "X week(s) with Y unreported hours"
-4. Chevron toggle (Radix `Collapsible`) expands a detail table
-5. Detail table shows the 12 most recent deficient weeks (week_start, expected, actual, gap)
-6. Footer "...and X more week(s)" if beyond 12
-7. "Go to Timesheet" link button
-
-All i18n keys use the `dashboard.personal.pendingHours.*` namespace consistently:
-- `t('dashboard.personal.pendingHours.title')`
-- `t('dashboard.personal.pendingHours.summary', { weeks, hours })`
-- `t('dashboard.personal.pendingHours.weekOf', { date })`
-- `t('dashboard.personal.pendingHours.expected')`
-- `t('dashboard.personal.pendingHours.logged')`
-- `t('dashboard.personal.pendingHours.missing')`
-- `t('dashboard.personal.pendingHours.goToTimesheet')`
-- `t('dashboard.personal.pendingHours.andMore', { count })`
-
-Security: always passes `staffRecord.staff_id` from `useCurrentStaff()` -- never an arbitrary ID.
+**Total: 21 new automated tests across 5 files**
 
 ---
 
-## Layer 3: PersonalTab Integration
+## Mock Patterns (Consistent with Existing Tests)
 
-### File: `src/components/dashboard/tabs/PersonalTab.tsx`
+All tests follow the project's established mock patterns:
 
-**Edit 1 (line 2): Add import**
-
-Before:
 ```typescript
-import { useCurrentStaff } from "@/hooks/useCurrentStaff";
-```
+// Supabase client mock (from setup.ts, extended per test)
+vi.mock("@/integrations/supabase/client", () => ({
+  supabase: {
+    from: vi.fn(),
+    rpc: vi.fn(),  // Added for PendingHoursAlert
+  },
+}));
 
-After:
-```typescript
-import { useCurrentStaff } from "@/hooks/useCurrentStaff";
-import { PendingHoursAlert } from "@/components/dashboard/PendingHoursAlert";
-```
+// Hook mocks (per existing pattern in useUserRole.test.tsx)
+vi.mock("@/hooks/useCurrentStaff", () => ({
+  useCurrentStaff: vi.fn(),
+}));
 
-**Edit 2 (line 344-346): Insert component between KPI cards and charts row**
+vi.mock("@/hooks/useAuth", () => ({
+  useAuth: vi.fn(),
+}));
 
-Before:
-```typescript
-      </div>
-
-      {/* Row 2: Charts and Recent Entries */}
-```
-
-After:
-```typescript
-      </div>
-
-      {/* Pending Hours Alert */}
-      <PendingHoursAlert />
-
-      {/* Row 2: Charts and Recent Entries */}
-```
-
----
-
-## Layer 4: i18n Keys
-
-### `src/locales/es.json` (after line 557)
-
-Before:
-```json
-      "noRecentEntries": "Sin entradas recientes"
-    },
-```
-
-After:
-```json
-      "noRecentEntries": "Sin entradas recientes",
-      "pendingHours": {
-        "title": "Horas Pendientes de Reporte",
-        "summary": "{{weeks}} semana(s) con {{hours}} horas sin registrar",
-        "weekOf": "Semana del {{date}}",
-        "expected": "Esperadas",
-        "logged": "Registradas",
-        "missing": "Faltantes",
-        "goToTimesheet": "Ir a Hoja de Tiempo",
-        "andMore": "...y {{count}} semana(s) más"
-      }
-    },
-```
-
-### `src/locales/en.json` (after line 557)
-
-Before:
-```json
-      "noRecentEntries": "No recent entries"
-    },
-```
-
-After:
-```json
-      "noRecentEntries": "No recent entries",
-      "pendingHours": {
-        "title": "Missing Hours to Report",
-        "summary": "{{weeks}} week(s) with {{hours}} unreported hours",
-        "weekOf": "Week of {{date}}",
-        "expected": "Expected",
-        "logged": "Logged",
-        "missing": "Missing",
-        "goToTimesheet": "Go to Timesheet",
-        "andMore": "...and {{count}} more week(s)"
-      }
-    },
+// react-i18next mock
+vi.mock("react-i18next", () => ({
+  useTranslation: () => ({
+    t: (key: string, opts?: any) => key,
+    i18n: { language: "en" },
+  }),
+}));
 ```
 
 ---
 
-## Layer 5: Changelog
+## Execution
 
-### `docs/CHANGELOG-2026-02-22.md` -- Append
-
-Entry for BUG 0220-50 including:
-- Problem and user impact
-- DB RPC creation with full SQL
-- Component creation with i18n key mapping
-- PersonalTab integration with before/after snippets
-- Risk assessment
+After implementation, all tests will be run using the Vitest test runner. The GitHub Actions workflow (`.github/workflows/test.yml`) will also execute them on push.
 
 ---
 
-## Files Changed
+## Acceptance Criteria
 
-| File | Type | Change |
-|------|------|--------|
-| Migration SQL | New | `get_my_pending_hours(uuid)` RPC with explicit schema-qualified tables + GRANT |
-| `src/components/dashboard/PendingHoursAlert.tsx` | New | Collapsible alert component calling RPC via React Query |
-| `src/components/dashboard/tabs/PersonalTab.tsx` | Edit | Import + insert `<PendingHoursAlert />` (2 small edits) |
-| `src/locales/es.json` | Edit | Add `dashboard.personal.pendingHours.*` (8 keys) |
-| `src/locales/en.json` | Edit | Add `dashboard.personal.pendingHours.*` (8 keys) |
-| `docs/CHANGELOG-2026-02-22.md` | Append | BUG 0220-50 entry |
-
-## Acceptance Tests
-
-| Case | Expected |
-|------|----------|
-| New user with `hire_date` and zero time entries | Alert shows correct week count and total missing hours |
-| User with all hours logged | Alert does not render |
-| Current (incomplete) week | Not counted as missing |
-| User with `termination_date` in the past | Computation stops at termination_date |
-| Holiday in a week | Expected hours reduced; no false positive |
-| Expand/collapse toggle | Detail table appears/hides; shows up to 12 weeks |
-| More than 12 gap weeks | Footer shows "...and X more" |
-| Click "Go to Timesheet" | Navigates to `/timesheet` |
-| User without `hire_date` | Alert does not render |
-
-## Risk Assessment
-
-| Risk | Level | Mitigation |
-|------|-------|------------|
-| RPC performance | Low | Mirrors proven algorithm; single function call, no N+1 |
-| Security | None | `SECURITY DEFINER` + UI always passes own `staff_id` from `useCurrentStaff()` |
-| UI clutter | None | Component renders nothing when no gaps exist |
-| Business logic duplication | None | All computation in DB RPC; frontend is display-only |
-| i18n key collisions | None | Clean namespace `pendingHours.*`; no leftover keys from prior drafts |
+| Criterion | Target |
+|-----------|--------|
+| All 21 new tests pass | Green |
+| No regressions in existing tests | Green |
+| Coverage for changed files improves | Incremental |
+| Each bug fix has at least 1 regression test | Verified |
+| DB RPC verified via manual SQL queries | Verified |
 
