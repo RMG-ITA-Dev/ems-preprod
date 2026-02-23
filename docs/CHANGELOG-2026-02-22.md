@@ -2026,3 +2026,120 @@ isFullyApproved={isFullyApproved}
 | Regression on editable empty weeks | None | Guard condition `&& !isFullyApproved` preserves existing behavior |
 | Missing totals row | None | Totals row renders unconditionally; shows 0h values correctly |
 | Lock logic regression | None | No changes to `isLocked` or `isRowApproved` computation |
+
+---
+
+### DB Consistency Fix: Orphan Timesheet Periods
+
+**Plan**: Plan_DB_Consistency_Orphan_Periods_v1_REVISION_A
+**Priority**: Alta
+**Route**: DATABASE — Data Integrity
+
+#### Problem
+16 `timesheet_periods` records across 3 staff members (Isaac Cori, Lourdes Gomez, Victor Pelaez) had `total_hours > 0` and `submitted_at IS NOT NULL` but **zero corresponding `time_entries`**. 6 `timesheet_line_approvals` referenced these orphan periods. All data was from the pre-production testing phase (Sep-Dec 2025).
+
+#### Root Cause (Probable)
+Records were likely created via bulk import or manual SQL during pre-production testing. The `time_entries` rows were either never created or deleted before the `trg_protect_approved_time_entries` trigger was deployed. The current codebase has no code path that could produce this inconsistency.
+
+#### Solution — Phase 1: Data Remediation
+
+Executed the transactional remediation runbook per plan: PREVIEW → BACKUP → APPLY → VERIFY.
+
+**Step 1 — PREVIEW**: Ran candidate selection queries. Confirmed exactly 16 orphan periods and 6 orphan approvals matching the plan's allowlists.
+
+**Step 2 — BACKUP**: Created timestamped backup tables:
+- `_backup_orphan_periods_20260223` (16 rows)
+- `_backup_orphan_approvals_20260223` (6 rows)
+
+**Step 3 — APPLY**: Using explicit ID allowlists (not dynamic subqueries):
+- Deleted 6 orphan `timesheet_line_approvals` records
+- Reset 16 orphan `timesheet_periods` records (`total_hours = 0`, `submitted_at = NULL`)
+
+**Step 4 — VERIFY**: All 4 verification queries passed:
+- V1: 0 orphan periods remain
+- V2: 54 total approvals (60 − 6 = 54)
+- V3: Yandira's approval untouched (status = rejected)
+- V4: 16 submitted periods (32 − 16 = 16)
+
+#### Solution — Phase 2: Preventive Trigger
+
+**Database migration: `trg_validate_submission_has_entries`**
+
+```sql
+CREATE OR REPLACE FUNCTION validate_submission_has_entries()
+RETURNS trigger LANGUAGE plpgsql
+SECURITY DEFINER SET search_path TO 'public' AS $$
+DECLARE
+  v_entry_count integer;
+BEGIN
+  SELECT COUNT(*) INTO v_entry_count
+  FROM time_entries te
+  WHERE te.staff_id = NEW.staff_id
+    AND te.date_worked >= NEW.week_start_date
+    AND te.date_worked <= NEW.week_start_date + 4
+    AND te.is_forecast = false;
+
+  IF v_entry_count = 0 THEN
+    RAISE EXCEPTION 'SUBMIT_NO_ENTRIES: Cannot submit a timesheet with no time entries for week starting %', NEW.week_start_date;
+  END IF;
+  RETURN NEW;
+END; $$;
+
+CREATE TRIGGER trg_validate_submission_has_entries
+  BEFORE UPDATE ON timesheet_periods
+  FOR EACH ROW
+  WHEN (NEW.submitted_at IS NOT NULL AND OLD.submitted_at IS NULL)
+  EXECUTE FUNCTION validate_submission_has_entries();
+```
+
+**Logic**: Fires ONLY when `submitted_at` transitions from NULL → NOT NULL. Checks Mon-Fri (inclusive) for at least one non-forecast time entry. Raises `SUBMIT_NO_ENTRIES` error if count = 0.
+
+**Downgrade path**: `DROP TRIGGER IF EXISTS trg_validate_submission_has_entries ON timesheet_periods; DROP FUNCTION IF EXISTS validate_submission_has_entries();`
+
+#### Solution — Frontend Error Handling
+
+**Edit 1 — `src/lib/timesheetErrors.ts` (line 7)**: Added `SUBMIT_NO_ENTRIES` to `TimesheetErrorCode` union type and messages map.
+
+**Edit 2 — `src/hooks/useTimesheetMutations.ts` (line 214)**: `useSubmitTimesheet.onError` now checks for `SUBMIT_NO_ENTRIES` in error message and shows localized toast instead of generic error.
+
+```typescript
+// BEFORE:
+onError: createMutationErrorHandler("submitting timesheet"),
+
+// AFTER:
+onError: (error: Error) => {
+  const msg = error.message || '';
+  if (msg.includes('SUBMIT_NO_ENTRIES')) {
+    toast.error(i18n.t("timesheet.submitNoEntries"));
+    return;
+  }
+  createMutationErrorHandler("submitting timesheet")(error);
+},
+```
+
+**Edit 3 — i18n keys**
+
+| Key | EN | ES |
+|-----|----|----|
+| `timesheet.submitNoEntries` | Cannot submit: no time entries logged for this week. Please log your hours first. | No se puede enviar: no hay registros de tiempo para esta semana. Por favor registre sus horas primero. |
+
+#### Files Modified
+
+| File | Lines Affected | Change |
+|------|----------------|--------|
+| Database (SQL operation) | — | Backup tables created; 6 approvals deleted; 16 periods reset |
+| Database (migration) | — | New trigger `trg_validate_submission_has_entries` + function `validate_submission_has_entries()` |
+| `src/lib/timesheetErrors.ts` | 7, 14 | Added `SUBMIT_NO_ENTRIES` error code |
+| `src/hooks/useTimesheetMutations.ts` | 214 | `useSubmitTimesheet.onError` handles `SUBMIT_NO_ENTRIES` |
+| `src/locales/en.json` | 675 | Added `timesheet.submitNoEntries` |
+| `src/locales/es.json` | 675 | Added `timesheet.submitNoEntries` |
+
+#### Risk Assessment
+
+| Risk | Level | Mitigation |
+|------|-------|------------|
+| Data loss from remediation | None | Backup tables `_backup_orphan_*` available for rollback |
+| Collateral damage to real data | None | All 4 verification queries passed; explicit ID allowlists used |
+| Trigger blocks legitimate submissions | None | Only fires on NULL→NOT NULL transition; normal workflow always has entries before submit |
+| Trigger conflicts with existing triggers | None | No other trigger on `timesheet_periods` guards submission |
+| Rollback needed | Low | Drop trigger + restore from backup tables (SQL documented in plan) |
