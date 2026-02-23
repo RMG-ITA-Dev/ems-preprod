@@ -115,6 +115,8 @@ export const WeekNavigator = ({
     allDays.forEach((day) => {
       // Layer 1: exclude today from all modifiers so day_today styling wins
       if (isSameDay(day, today)) return;
+      // Skip weekends — Sat/Sun remain untinted
+      if (day.getDay() === 0 || day.getDay() === 6) return;
 
       const monday = getWeekMonday(day);
       const key = format(monday, "yyyy-MM-dd");
@@ -138,11 +140,11 @@ export const WeekNavigator = ({
         currentWeek: groups.currentWeek,
       },
       modifiersClassNames: {
-        approved: "bg-success/15",
-        pending: "bg-warning/20",
-        rejected: "bg-[hsl(var(--week-rejected))]/20",
-        notReported: "bg-destructive/15",
-        currentWeek: "bg-[hsl(var(--brand-purple))]/20",
+        approved: "bg-success/30",
+        pending: "bg-warning/35",
+        rejected: "bg-[hsl(var(--week-rejected))]/30",
+        notReported: "bg-destructive/25",
+        currentWeek: "bg-[hsl(var(--brand-teal))]/20",
       },
     };
   }, [weekStatuses, gridStart, gridEnd]);
@@ -242,7 +244,7 @@ export const WeekNavigator = ({
               {t("timesheet.legend.notReported")}
             </span>
             <span className="flex items-center gap-1">
-              <span className="inline-block h-2.5 w-2.5 rounded-sm bg-[hsl(var(--brand-purple))]/40" />
+              <span className="inline-block h-2.5 w-2.5 rounded-sm bg-[hsl(var(--brand-teal))]/40" />
               {t("timesheet.legend.currentWeek")}
             </span>
           </div>
