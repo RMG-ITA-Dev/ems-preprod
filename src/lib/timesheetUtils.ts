@@ -3,7 +3,6 @@ import {
   endOfWeek,
   addWeeks,
   subWeeks,
-  getISOWeek,
   getYear,
   format,
   eachDayOfInterval,
@@ -13,6 +12,7 @@ import {
   isSameDay,
   parseISO,
 } from "date-fns";
+import { getFiscalWeekNumber } from "@/lib/fiscalCalculations";
 import { es, enUS } from "date-fns/locale";
 
 // Types
@@ -63,7 +63,7 @@ export const getWeekInfo = (date: Date, workDays: number = 5, lang: string = "es
   const weekEndDate = new Date(weekStartDate);
   weekEndDate.setDate(weekEndDate.getDate() + workDays - 1);
   
-  const weekNumber = getISOWeek(weekStartDate);
+  const weekNumber = getFiscalWeekNumber(weekStartDate);
   const year = getYear(weekStartDate);
   const weekDates = getWorkDays(weekStartDate, workDays);
   

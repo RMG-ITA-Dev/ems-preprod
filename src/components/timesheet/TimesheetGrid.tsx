@@ -849,15 +849,19 @@ export function TimesheetGrid({
                 {t("timesheet.dailyTotals")}
               </td>
               {weekDates.map((date) => {
+                const total = calculateColumnTotal(date);
                 const overLimit = isDailyOverLimit(date);
                 const nearLimit = isDailyNearLimit(date);
+                const DAILY_TARGET_HOURS = 8;
+                const atTarget = total > 0 && Math.round(total * 100) === Math.round(DAILY_TARGET_HOURS * 100);
                 return (
                   <td
                     key={toISODateString(date)}
                     className={cn(
                       "p-4 text-center font-mono",
                       overLimit && "text-destructive bg-destructive/10",
-                      nearLimit && !overLimit && "text-warning-foreground bg-warning/10"
+                      !overLimit && atTarget && "text-foreground bg-success/15",
+                      !overLimit && !atTarget && nearLimit && "text-warning-foreground bg-warning/10"
                     )}
                   >
                     <div className="flex items-center justify-center gap-1">

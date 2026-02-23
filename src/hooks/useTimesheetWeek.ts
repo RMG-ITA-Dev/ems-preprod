@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toISODateString, getWorkDays } from "@/lib/timesheetUtils";
+import { getFiscalWeekNumber } from "@/lib/fiscalCalculations";
 import { useCurrentStaff } from "./useCurrentStaff";
 import { useEffect } from "react";
 
@@ -88,10 +89,7 @@ export function useTimesheetWeek(weekStartDate: Date, workDays: number = 5): Tim
       if (existing) return existing as TimesheetPeriod;
 
       // Create new period if doesn't exist
-      const weekNumber = Math.ceil(
-        (weekStartDate.getTime() - new Date(weekStartDate.getFullYear(), 0, 1).getTime()) /
-          (7 * 24 * 60 * 60 * 1000)
-      ) + 1;
+      const weekNumber = getFiscalWeekNumber(weekStartDate);
 
       const { data: newPeriod, error: createError } = await supabase
         .from("timesheet_periods")

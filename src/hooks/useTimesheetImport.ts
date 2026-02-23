@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { format, parseISO, getISOWeek, getYear } from "date-fns";
+import { format, parseISO, getYear } from "date-fns";
+import { getFiscalWeekNumber } from "@/lib/fiscalCalculations";
 import { supabase } from "@/integrations/supabase/client";
 import { useMarkTimerEntriesImported, type TimerEntry } from "@/hooks/useTimerEntries";
 import { getWeekMonday, toISODateString } from "@/lib/timesheetUtils";
@@ -114,7 +115,7 @@ export function useTimesheetImport({ staffId }: { staffId: string }) {
           } else {
             const [y, m, d] = weekStartStr.split("-").map(Number);
             const weekDate = new Date(y, m - 1, d);
-            const weekNumber = getISOWeek(weekDate);
+            const weekNumber = getFiscalWeekNumber(weekDate);
             const year = getYear(weekDate);
 
             const { data: newPeriod, error: createError } = await supabase

@@ -2143,3 +2143,218 @@ onError: (error: Error) => {
 | Trigger blocks legitimate submissions | None | Only fires on NULL→NOT NULL transition; normal workflow always has entries before submit |
 | Trigger conflicts with existing triggers | None | No other trigger on `timesheet_periods` guards submission |
 | Rollback needed | Low | Drop trigger + restore from backup tables (SQL documented in plan) |
+
+---
+
+### Plan_Timesheet_Three_Fixes_v4: Three Timesheet UI Fixes
+
+**Plan**: Plan_Timesheet_Three_Fixes_v4
+**Priority**: Media
+**Route**: OPERACIONES - Hoja de Tiempo
+
+#### Summary
+
+Three UI fixes for the Timesheet module:
+1. **ISSUE 1 — Fiscal Week Numbering**: Replaced ISO/manual week calculation with fiscal-year-aligned week numbers (Oct 1 anchor with Saturday/Sunday shift).
+2. **ISSUE 2 — Remove "Semana actual" Calendar Tint**: CURRENT status no longer applies purple tint; legend entry removed.
+3. **ISSUE 3 — Daily Totals at-Target Styling**: Added light-green background for days with exactly 8.0h logged.
+
+---
+
+#### ISSUE 1: Fiscal Week Numbering
+
+**Problem**: Week numbers used ISO week (`getISOWeek`) or manual January-based formula, misaligning with the firm's Oct 1–Sep 30 fiscal year. Feb 9, 2026 showed as ISO Week 7 instead of Fiscal Week 20.
+
+**Root Cause**: No fiscal-week function existed; three separate call sites computed week numbers independently using incompatible methods.
+
+**Edit 1 — `src/lib/fiscalCalculations.ts`: Add three new functions (appended after line 173)**
+
+```typescript
+// BEFORE: No fiscal week functions existed.
+
+// AFTER: Three exported functions added:
+export function getFiscalYearForDate(date: Date): number {
+  return date.getMonth() >= 9 ? date.getFullYear() + 1 : date.getFullYear();
+}
+
+export function getFiscalWeekOneMonday(fiscalYear: number): Date {
+  let anchor = new Date(fiscalYear - 1, 9, 1); // Oct 1
+  const dow = anchor.getDay();
+  if (dow === 6) anchor = new Date(anchor.getFullYear(), anchor.getMonth(), 3); // Sat→Mon
+  else if (dow === 0) anchor = new Date(anchor.getFullYear(), anchor.getMonth(), 2); // Sun→Mon
+  return startOfWeek(anchor, { weekStartsOn: 1 });
+}
+
+export function getFiscalWeekNumber(date: Date): number {
+  let fiscalYear = getFiscalYearForDate(date);
+  const inputMonday = startOfWeek(date, { weekStartsOn: 1 });
+  // Forward check: if inputMonday >= next FY anchor, bump FY
+  const nextFYAnchor = getFiscalWeekOneMonday(fiscalYear + 1);
+  if (inputMonday.getTime() >= nextFYAnchor.getTime()) fiscalYear++;
+  const anchorMonday = getFiscalWeekOneMonday(fiscalYear);
+  let daysDiff = Math.round((inputMonday.getTime() - anchorMonday.getTime()) / 86400000);
+  if (daysDiff < 0) {
+    const prevAnchor = getFiscalWeekOneMonday(fiscalYear - 1);
+    daysDiff = Math.round((inputMonday.getTime() - prevAnchor.getTime()) / 86400000);
+  }
+  return Math.floor(daysDiff / 7) + 1; // INV-1: always >= 1
+}
+```
+
+**Logic**: Single source of truth for fiscal week numbering. Handles late-September overlap (when Oct 1 is mid-week, Week 1 Monday falls in September). Pre-anchor pivot ensures the result is always >= 1.
+
+**Edit 2 — `src/lib/timesheetUtils.ts` (line 6, 66): Replace `getISOWeek` with `getFiscalWeekNumber`**
+
+```typescript
+// BEFORE (line 6):
+import { ..., getISOWeek, ... } from "date-fns";
+// BEFORE (line 66):
+const weekNumber = getISOWeek(weekStartDate);
+
+// AFTER (line 6):
+import { getFiscalWeekNumber } from "@/lib/fiscalCalculations";
+// AFTER (line 66):
+const weekNumber = getFiscalWeekNumber(weekStartDate);
+```
+
+**Edit 3 — `src/hooks/useTimesheetWeek.ts` (lines 1-5, 91-94): Replace manual Math.ceil formula**
+
+```typescript
+// BEFORE (line 91-94):
+const weekNumber = Math.ceil(
+  (weekStartDate.getTime() - new Date(weekStartDate.getFullYear(), 0, 1).getTime()) /
+    (7 * 24 * 60 * 60 * 1000)
+) + 1;
+
+// AFTER:
+const weekNumber = getFiscalWeekNumber(weekStartDate);
+```
+
+**Edit 4 — `src/hooks/useTimesheetImport.ts` (lines 3, 117): Replace `getISOWeek`**
+
+```typescript
+// BEFORE (line 3):
+import { format, parseISO, getISOWeek, getYear } from "date-fns";
+// BEFORE (line 117):
+const weekNumber = getISOWeek(weekDate);
+
+// AFTER (line 3):
+import { format, parseISO, getYear } from "date-fns";
+import { getFiscalWeekNumber } from "@/lib/fiscalCalculations";
+// AFTER (line 117):
+const weekNumber = getFiscalWeekNumber(weekDate);
+```
+
+---
+
+#### ISSUE 2: Remove "Semana actual" Calendar Tint
+
+**Problem**: The current week displayed with purple tint in the calendar, but business preference is no tint for the current week.
+
+**Root Cause**: CURRENT status mapped to `currentWeekStart` and `currentWeek` modifier groups with purple styling.
+
+**Edit 5 — `src/components/timesheet/WeekNavigator.tsx`: Remove CURRENT tinting (5 locations)**
+
+```typescript
+// BEFORE (groups object, ~line 108-110):
+currentWeekStart: [],
+currentWeek: [],
+
+// AFTER: Removed entirely.
+
+// BEFORE (CURRENT branch, ~line 131-134):
+else if (status === "CURRENT") {
+  if (day.getDay() === 1) groups.currentWeekStart.push(day);
+  else groups.currentWeek.push(day);
+}
+
+// AFTER:
+else if (status === "CURRENT") { return; } // Explicit no-op: no tint
+
+// BEFORE (modifiers return, ~line 144-145):
+currentWeekStart: groups.currentWeekStart,
+currentWeek: groups.currentWeek,
+
+// AFTER: Removed entirely.
+
+// BEFORE (modifiersClassNames, ~line 152-153):
+currentWeekStart: "bg-[hsl(var(--brand-purple))]/35",
+currentWeek: "bg-[hsl(var(--brand-purple))]/15",
+
+// AFTER: Removed entirely.
+
+// BEFORE (legend, ~line 252-255):
+<span className="flex items-center gap-1">
+  <span className="inline-block h-2.5 w-2.5 rounded-sm bg-[hsl(var(--brand-purple))]/40" />
+  {t("timesheet.legend.currentWeek")}
+</span>
+
+// AFTER: Removed entirely.
+```
+
+---
+
+#### ISSUE 3: Daily Totals at-Target Styling
+
+**Problem**: Days with exactly 8.0h logged had no positive visual feedback. Only over-limit (red) and near-limit (yellow) states existed.
+
+**Root Cause**: No "at target" condition in the totals row styling.
+
+**Edit 6 — `src/components/timesheet/TimesheetGrid.tsx` (lines 851-862): Add at-target green styling**
+
+```typescript
+// BEFORE:
+{weekDates.map((date) => {
+  const overLimit = isDailyOverLimit(date);
+  const nearLimit = isDailyNearLimit(date);
+  return (
+    <td key={toISODateString(date)}
+      className={cn(
+        "p-4 text-center font-mono",
+        overLimit && "text-destructive bg-destructive/10",
+        nearLimit && !overLimit && "text-warning-foreground bg-warning/10"
+      )}>
+
+// AFTER:
+{weekDates.map((date) => {
+  const total = calculateColumnTotal(date);
+  const overLimit = isDailyOverLimit(date);
+  const nearLimit = isDailyNearLimit(date);
+  const DAILY_TARGET_HOURS = 8;
+  const atTarget = total > 0 && Math.round(total * 100) === Math.round(DAILY_TARGET_HOURS * 100);
+  return (
+    <td key={toISODateString(date)}
+      className={cn(
+        "p-4 text-center font-mono",
+        overLimit && "text-destructive bg-destructive/10",
+        !overLimit && atTarget && "text-foreground bg-success/15",
+        !overLimit && !atTarget && nearLimit && "text-warning-foreground bg-warning/10"
+      )}>
+```
+
+**Logic**: Precedence: overLimit (red) > atTarget (green) > nearLimit (yellow) > default. Fixed 8.0h target, precision-safe comparison via `Math.round(x * 100)`.
+
+---
+
+#### Files Modified
+
+| File | Lines Affected | Change |
+|------|----------------|--------|
+| `src/lib/fiscalCalculations.ts` | 1 (import), 175-237 (new) | Added `startOfWeek` import; added `getFiscalYearForDate`, `getFiscalWeekOneMonday`, `getFiscalWeekNumber` |
+| `src/lib/timesheetUtils.ts` | 1-15, 66 | Replaced `getISOWeek` import with `getFiscalWeekNumber`; updated `getWeekInfo()` |
+| `src/hooks/useTimesheetWeek.ts` | 1-5, 90-91 | Added `getFiscalWeekNumber` import; replaced manual week calculation |
+| `src/hooks/useTimesheetImport.ts` | 3, 117 | Replaced `getISOWeek` with `getFiscalWeekNumber` |
+| `src/components/timesheet/WeekNavigator.tsx` | 104-111, 128-135, 138-154, 252-255 | Removed CURRENT tint groups, modifiers, classNames, and legend entry |
+| `src/components/timesheet/TimesheetGrid.tsx` | 851-862 | Added `DAILY_TARGET_HOURS = 8`, `atTarget` check, 4-level precedence in `cn()` |
+| `src/lib/__tests__/fiscalCalculations.test.ts` | 2-12, 271+ | Added imports and 17 new test cases for fiscal week functions |
+
+#### Risk Assessment
+
+| Risk | Level | Mitigation |
+|------|-------|------------|
+| Historical week_number mismatch | None | `week_number` is informational metadata; period lookup uses `staff_id + week_start_date` |
+| Late-September overlap zone | None | Forward-check compares inputMonday against next FY anchor; tested with Sep 29 case |
+| Pre-anchor pivot returns week 0 | None | INV-1 invariant enforced; all test dates return >= 1 |
+| CURRENT week fallthrough to notReported | None | Explicit `return` (no-op skip) prevents any tint |
+| Float precision in atTarget | None | `Math.round(total * 100) === 800` avoids float comparison issues |
+| Over-limit red regression | None | `overLimit` remains highest priority in `cn()` chain; unchanged condition |
