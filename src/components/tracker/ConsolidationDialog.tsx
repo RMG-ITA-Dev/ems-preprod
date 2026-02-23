@@ -193,7 +193,7 @@ export function ConsolidationDialog({
               >
                 {t("tracker.consolidation.excludeConflicting")}
               </Button>
-              <AlertDialogCancel onClick={onCancel}>
+              <AlertDialogCancel>
                 {t("tracker.consolidation.cancel")}
               </AlertDialogCancel>
             </>
@@ -202,7 +202,7 @@ export function ConsolidationDialog({
               <Button onClick={onProceed}>
                 {t("tracker.consolidation.proceed")}
               </Button>
-              <AlertDialogCancel onClick={onCancel}>
+              <AlertDialogCancel>
                 {t("tracker.consolidation.cancel")}
               </AlertDialogCancel>
             </>

@@ -2420,3 +2420,48 @@ Resubmitting a timesheet after partial approval overwrote ALL line approvals to 
 - 8 unit tests, 5 component tests, 10 DB scenarios — all passing
 - Full journey test (S10) validates submit → approve/reject → unsubmit → edit → resubmit with `approval_id` immutability
 - Edge function trace_id: `31228830-8162-4d6b-b64f-056d8ad18bcb`
+
+---
+
+### Bug 0220-64: Timer Entries Consolidation on Export
+
+**Plan**: Bug_0220-64_v8 (supersedes v7)
+**Priority**: Alta
+**Route**: OPERACIONES - Registros de Tiempo
+
+#### Problem
+Silent consolidation of timer entries sharing Date+Engagement+Activity. No conflict detection for unselected matching entries. Partial pushes possible despite business rule forbidding it.
+
+#### Root Cause
+`exportEntries` in `useTimesheetImport.ts` aggregates entries by (engagement, activity, date) but the UI never informs the user about this consolidation. When a user selects only some entries from a duplicate group, the unselected matching entries are silently ignored, allowing partial pushes that violate the ATOMIC_GROUP_EXPORT policy.
+
+#### Implementation
+
+**NEW files:**
+- `src/lib/timerExportUtils.ts` — Pure utility with 5 functions: `buildExportGroups` (deterministic grouping by dateWorked/engagementCode/activityCode with ID fallback for null codes), `detectSplitSelectionConflicts`, `resolveFinalExportSet`, `buildConsolidationPreview`, `analysisEquals` (normalized sort+dedupe comparison of eligibleIds, conflict keys, per-group membership, selectedIdsSnapshot)
+- `src/components/tracker/ConsolidationDialog.tsx` — AlertDialog with Info mode (consolidation preview) and Conflict mode (3 buttons: Include All Matching, Exclude Conflicting Groups, Cancel). Stale-refresh highlights changed conflict rows via CSS animation.
+
+**MODIFIED files:**
+- `src/hooks/useTimesheetImport.ts` — Added `analyzeExport` function returning `PreflightAnalysis` with `eligibleIds` and `selectedIdsSnapshot` for stale detection. Return signature: `{ exportEntries, isExporting, analyzeExport }`. `exportEntries` body unchanged.
+- `src/pages/TrackerList.tsx` — Rewrote `handleExport` for two-phase flow. Added `consolidationAnalysis`/`consolidationDialogOpen` state. Four confirm handlers (`handleIncludeAllMatching`, `handleExcludeConflicting`, `handleProceedExport`, `handleCancelExport`) each with stale-preflight guard via `analysisEquals`. `selectedIds` cleared on success, preserved on cancel/stale-abort. `previousAnalysis` reset to null on dialog close.
+- `src/locales/en.json`, `src/locales/es.json` — Added `tracker.consolidation.*` keys (20 keys each).
+
+**Bug fix during testing:**
+- `ConsolidationDialog.tsx` — Removed redundant `onClick={onCancel}` from `AlertDialogCancel` buttons; `onOpenChange` handler already calls `onCancel()` on close, preventing double-invocation.
+
+#### Policy
+ATOMIC_GROUP_EXPORT: Include All Matching | Exclude Conflicting Groups | Cancel. No "Selected Only" option.
+
+#### Test Coverage
+- 14 utility tests (`src/lib/__tests__/timerExportUtils.test.ts`) — grouping, conflict detection, resolution, preview, analysisEquals normalization
+- 3 hook contract tests (`src/hooks/__tests__/useTimesheetImport.analyzeExport.test.ts`) — utility consistency, defensive re-filter, stale-detection fields
+- 6 UI/integration tests (`src/pages/__tests__/TrackerList.export-conflicts.test.tsx`) — conflict dialog buttons, include/exclude/cancel callbacks, info mode, stale-refresh highlight
+- All 23 tests passing
+
+#### Risk Assessment
+| Risk | Likelihood | Mitigation |
+|---|---|---|
+| Grouping logic drift between utility and hook | Low | Single shared utility module |
+| Hidden filtered entries not considered | Low | handleExport uses `entries`, never `filteredEntries` |
+| Regression in export merge semantics | Low | `exportEntries` body NOT modified |
+| Stale preflight due to concurrent changes | Low | Confirm-time revalidation via normalized `analysisEquals` |
