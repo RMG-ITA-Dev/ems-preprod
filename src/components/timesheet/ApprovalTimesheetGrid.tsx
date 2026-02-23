@@ -20,6 +20,7 @@ interface ApprovalTimesheetGridProps {
   approvalDecisions: Map<string, ApprovalDecision>;
   onDecisionChange: (approvalId: string, decision: ApprovalDecision) => void;
   lang: string;
+  engagementBudgets?: Record<string, { budgetedHours: number | null }>;
 }
 
 interface EngagementGroup {
@@ -33,6 +34,8 @@ interface EngagementGroup {
   totalHours: number;
   hoursByDate: { [dateStr: string]: number };
   activities: ActivityRow[];
+  budgetedHours: number | null;
+  remainingHours: number | null;
 }
 
 interface ActivityRow {
@@ -51,6 +54,7 @@ export function ApprovalTimesheetGrid({
   approvalDecisions,
   onDecisionChange,
   lang,
+  engagementBudgets = {},
 }: ApprovalTimesheetGridProps) {
   const { t } = useTranslation();
 
@@ -70,6 +74,9 @@ export function ApprovalTimesheetGrid({
         const approval = lineApprovals.find((la) => la.engagement_id === engId);
         const canApprove = approvableEngagementIds.includes(engId) && approval?.status === "pending";
 
+        const budget = engagementBudgets[engId];
+        const budgetedHours = budget?.budgetedHours ?? null;
+
         groupMap.set(engId, {
           engagementId: engId,
           engagementCode: entry.engagement?.engagement_code || null,
@@ -81,6 +88,8 @@ export function ApprovalTimesheetGrid({
           totalHours: 0,
           hoursByDate: {},
           activities: [],
+          budgetedHours,
+          remainingHours: null, // computed after totals
         });
       }
 
@@ -107,16 +116,19 @@ export function ApprovalTimesheetGrid({
       activity.total += entry.hours_logged;
     });
 
-    // Sort activities within each group
+    // Sort activities within each group + compute remaining hours
     groupMap.forEach((group) => {
       group.activities.sort((a, b) => a.activityCode.localeCompare(b.activityCode));
+      if (group.budgetedHours !== null) {
+        group.remainingHours = group.budgetedHours - group.totalHours;
+      }
     });
 
     // Sort groups by engagement code
     return Array.from(groupMap.values()).sort((a, b) => 
       (a.engagementCode || "").localeCompare(b.engagementCode || "")
     );
-  }, [timeEntries, lineApprovals, approvableEngagementIds]);
+  }, [timeEntries, lineApprovals, approvableEngagementIds, engagementBudgets]);
 
   // Calculate column totals
   const calculateColumnTotal = (date: Date) => {
@@ -235,7 +247,24 @@ export function ApprovalTimesheetGrid({
                       "p-3 text-right font-semibold bg-muted/50 font-mono border-r border-border",
                       !isApprovable && "text-muted-foreground"
                     )}>
-                      {group.totalHours}h
+                      <div>{group.totalHours}h</div>
+                      <div className="text-[10px] font-normal text-muted-foreground">
+                        {group.budgetedHours !== null ? (
+                          <>
+                            / {group.budgetedHours}h
+                            {group.remainingHours !== null && (
+                              <span className={cn(
+                                "ml-1",
+                                group.remainingHours < 0 && "text-destructive"
+                              )}>
+                                ({group.remainingHours}h {t("approval.remainingLabel")})
+                              </span>
+                            )}
+                          </>
+                        ) : (
+                          <>/ {t("approval.budgetNA")}</>
+                        )}
+                      </div>
                     </td>
                     <td className="p-3 text-center">
                       {isApprovable && group.approvalId && (

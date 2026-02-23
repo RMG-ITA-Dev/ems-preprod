@@ -155,7 +155,7 @@ export function useUpdatePeriodTotalHours() {
   });
 }
 
-// Submit timesheet for approval - creates line approvals for each engagement
+// Submit timesheet for approval - calls backend-authoritative RPC (BUG 0220-51)
 export function useSubmitTimesheet() {
   const queryClient = useQueryClient();
 
@@ -171,43 +171,27 @@ export function useSubmitTimesheet() {
       engagementIds: string[];
       isAutoApproved: boolean;
     }) => {
-      // First, update the period's submitted_at timestamp
-      const { error: periodError } = await supabase
-        .from("timesheet_periods")
-        .update({
-          submitted_at: new Date().toISOString(),
-        })
-        .eq("period_id", periodId);
+      // Defense-in-depth: deduplicate + filter nulls before RPC call
+      const uniqueEngagementIds = [...new Set(engagementIds.filter(Boolean))];
 
-      if (periodError) throw periodError;
+      const { data, error } = await supabase.rpc('submit_timesheet_safe', {
+        p_period_id: periodId,
+        p_staff_id: staffId,
+        p_engagement_ids: uniqueEngagementIds,
+        p_is_auto_approved: isAutoApproved,
+      });
 
-      // Create line approvals for each unique engagement
-      const lineApprovals = engagementIds.map((engagementId) => ({
-        period_id: periodId,
-        engagement_id: engagementId,
-        status: isAutoApproved ? "approved" : "pending",
-        approved_by: isAutoApproved ? staffId : null,
-        approved_at: isAutoApproved ? new Date().toISOString() : null,
-      }));
-
-      // Upsert line approvals (in case some already exist)
-      const { error: lineError } = await supabase
-        .from("timesheet_line_approvals")
-        .upsert(lineApprovals, { 
-          onConflict: "period_id,engagement_id",
-          ignoreDuplicates: false 
-        });
-
-      if (lineError) throw lineError;
-
-      return { periodId, isAutoApproved };
+      if (error) throw error;
+      return { periodId, isAutoApproved, summary: data };
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["timesheet-period"] });
       queryClient.invalidateQueries({ queryKey: ["period-line-approvals"] });
       queryClient.invalidateQueries({ queryKey: ["pending-approvals"] });
-      toast.success(data.isAutoApproved 
-        ? i18n.t("timesheet.autoApproved") 
+      queryClient.invalidateQueries({ queryKey: ["pending-approval-summaries"] });
+      queryClient.invalidateQueries({ queryKey: ["staff-timesheet-for-approval"] });
+      toast.success(data.isAutoApproved
+        ? i18n.t("timesheet.autoApproved")
         : i18n.t("timesheet.submitted")
       );
     },
@@ -222,7 +206,7 @@ export function useSubmitTimesheet() {
   });
 }
 
-// BUG #32: Unsubmit timesheet to allow corrections before approval
+// BUG #32 + BUG 0220-51: Unsubmit timesheet (no DELETE on line approvals)
 export function useUnsubmitTimesheet() {
   const queryClient = useQueryClient();
 
@@ -232,7 +216,7 @@ export function useUnsubmitTimesheet() {
     }: {
       periodId: string;
     }) => {
-      // Clear submitted_at to revert to draft state
+      // Only clear submitted_at. Line approval records persist for audit trail.
       const { error: periodError } = await supabase
         .from("timesheet_periods")
         .update({
@@ -242,21 +226,14 @@ export function useUnsubmitTimesheet() {
 
       if (periodError) throw periodError;
 
-      // Delete pending line approvals (keep approved/rejected for record)
-      const { error: lineError } = await supabase
-        .from("timesheet_line_approvals")
-        .delete()
-        .eq("period_id", periodId)
-        .eq("status", "pending");
-
-      if (lineError) throw lineError;
-
       return { periodId };
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["timesheet-period"] });
       queryClient.invalidateQueries({ queryKey: ["period-line-approvals"] });
       queryClient.invalidateQueries({ queryKey: ["pending-approvals"] });
+      queryClient.invalidateQueries({ queryKey: ["pending-approval-summaries"] });
+      queryClient.invalidateQueries({ queryKey: ["staff-timesheet-for-approval"] });
       toast.success(i18n.t("timesheet.unsubmitted"));
     },
     onError: createMutationErrorHandler("unsubmitting timesheet"),

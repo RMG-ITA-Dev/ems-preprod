@@ -884,7 +884,10 @@
       "toApprove": "a aprobar",
       "toReject": "a rechazar",
       "stillPending": "pendientes"
-    }
+    },
+    "budgetLabel": "Presupuesto",
+    "remainingLabel": "rest",
+    "budgetNA": "N/D"
   },
   "auth": {
     "signIn": "Iniciar Sesión",

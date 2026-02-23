@@ -1550,6 +1550,15 @@ export type Database = {
           timer_id: string
         }[]
       }
+      submit_timesheet_safe: {
+        Args: {
+          p_engagement_ids: string[]
+          p_is_auto_approved: boolean
+          p_period_id: string
+          p_staff_id: string
+        }
+        Returns: Json
+      }
       sync_worksheet_to_wo_budget: {
         Args: { p_wo_id: string; p_worksheet_id: string }
         Returns: undefined
