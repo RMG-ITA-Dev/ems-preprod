@@ -481,6 +481,7 @@ const TimeSheet = () => {
           holidayEngagementId={holidayEngagementId}
           activityNotRequiredIds={activityNotRequiredIds}
           adminActivityId={adminActivityId}
+          isFullyApproved={isFullyApproved}
         />
 
         {/* Actions */}

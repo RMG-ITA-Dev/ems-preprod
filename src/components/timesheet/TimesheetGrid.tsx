@@ -70,6 +70,8 @@ interface TimesheetGridProps {
   // Non-chargeable engagement policy
   activityNotRequiredIds?: Set<string>;
   adminActivityId?: string | null;
+  // Approved-week empty state
+  isFullyApproved?: boolean;
 }
 
 export function TimesheetGrid({
@@ -93,6 +95,7 @@ export function TimesheetGrid({
   holidayEngagementId,
   activityNotRequiredIds,
   adminActivityId,
+  isFullyApproved = false,
 }: TimesheetGridProps) {
   const { t } = useTranslation();
   const upsertEntry = useUpsertTimeEntry();
@@ -128,8 +131,8 @@ export function TimesheetGrid({
     });
 
     const rows = Array.from(rowMap.values());
-    // Add an empty row if no entries exist
-    if (rows.length === 0) {
+    // Add an empty row if no entries exist (skip when fully approved)
+    if (rows.length === 0 && !isFullyApproved) {
       rows.push({
         id: `new-${Date.now()}`,
         engagementId: "",
@@ -139,7 +142,7 @@ export function TimesheetGrid({
       });
     }
     return rows;
-  }, [entries]);
+  }, [entries, isFullyApproved]);
 
   const [rows, setRows] = useState<GridRow[]>(initialRows);
 
@@ -815,6 +818,15 @@ export function TimesheetGrid({
               </tr>
               );
             })}
+            {/* Approved empty state */}
+            {rows.length === 0 && isFullyApproved && (
+              <tr>
+                <td colSpan={weekDates.length + 4} className="p-8 text-center text-muted-foreground">
+                  <Lock className="h-5 w-5 mx-auto mb-2 opacity-50" />
+                  <p>{t("timesheet.approvedNoEntries")}</p>
+                </td>
+              </tr>
+            )}
             {/* Add Row Button */}
             {!isLocked && (
               <tr className="border-b border-border">
