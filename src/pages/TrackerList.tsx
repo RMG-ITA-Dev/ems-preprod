@@ -33,8 +33,14 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Checkbox } from "@/components/ui/checkbox";
 import { Plus, Search, ArrowUpDown, ArrowUp, ArrowDown, Filter, ChevronDown, ArrowUpFromLine } from "lucide-react";
 import { ManualEntryDialog } from "@/components/tracker/ManualEntryDialog";
+import { ConsolidationDialog } from "@/components/tracker/ConsolidationDialog";
 import { useTimerEntries, TimerEntry, useCreateTimerEntry, useRunningTimerEntry } from "@/hooks/useTimerEntries";
 import { useTimesheetImport } from "@/hooks/useTimesheetImport";
+import {
+  resolveFinalExportSet,
+  analysisEquals,
+  type PreflightAnalysis,
+} from "@/lib/timerExportUtils";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { useAuth } from "@/hooks/useAuth";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -62,9 +68,12 @@ const TrackerList = () => {
   // Selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [manualDialogOpen, setManualDialogOpen] = useState(false);
+  const [consolidationDialogOpen, setConsolidationDialogOpen] = useState(false);
+  const [consolidationAnalysis, setConsolidationAnalysis] = useState<PreflightAnalysis | null>(null);
+  const [previousAnalysis, setPreviousAnalysis] = useState<PreflightAnalysis | null>(null);
 
   // Shared export hook
-  const { exportEntries, isExporting } = useTimesheetImport({ staffId: staffRecord?.staff_id || "" });
+  const { exportEntries, isExporting, analyzeExport } = useTimesheetImport({ staffId: staffRecord?.staff_id || "" });
 
   const [searchQuery, setSearchQuery] = useState("");
   const [sortColumn, setSortColumn] = useState<SortColumn>(null);
@@ -236,39 +245,141 @@ const TrackerList = () => {
 
   // Export handler
   const handleExport = async () => {
-    const selected = entries?.filter(e => selectedIds.has(e.timer_id)) || [];
+    const allEligible = (entries || []).filter(e => e.ended_at && !e.is_imported);
+    const selected = allEligible.filter(e => selectedIds.has(e.timer_id));
     if (selected.length === 0) return;
 
-    try {
-      const result = await exportEntries(selected);
-      setSelectedIds(new Set());
+    const analysis = analyzeExport(allEligible, selectedIds);
 
-      if (result.mergedCount > 0) {
-        toast.success(t("tracker.exportSuccessMerged", {
-          newCount: result.newCount,
-          mergedCount: result.mergedCount
-        }));
-      } else if (result.newCount > 0) {
-        toast.success(t("tracker.exportSuccess", { count: result.newCount }));
+    if (!analysis.hasConsolidation && !analysis.hasConflicts) {
+      // Direct export, no dialog needed
+      try {
+        const result = await exportEntries(selected);
+        setSelectedIds(new Set());
+        showExportToasts(result);
+      } catch (error) {
+        console.error("Export error:", error);
+        toast.error(t("tracker.exportError"));
       }
-      // WO-blocked toast FIRST (error -- red)
-      if (result.woBlockedCount > 0) {
-        toast.error(t("tracker.exportBlockedWO", {
-          count: result.woBlockedCount,
-          engagements: result.woBlockedEngagements.join(", ")
-        }));
-      }
-      // Generic week-submitted toast SECOND (warning -- yellow)
-      if (result.blockedCount > 0) {
-        toast.warning(t("tracker.exportBlocked", {
-          blockedCount: result.blockedCount,
-          weeks: result.blockedWeeks.join(", ")
-        }));
-      }
+      return;
+    }
+
+    // Open consolidation dialog
+    setPreviousAnalysis(null);
+    setConsolidationAnalysis(analysis);
+    setConsolidationDialogOpen(true);
+  };
+
+  const showExportToasts = (result: { newCount: number; mergedCount: number; blockedCount: number; blockedWeeks: string[]; woBlockedCount: number; woBlockedEngagements: string[] }) => {
+    if (result.mergedCount > 0) {
+      toast.success(t("tracker.exportSuccessMerged", {
+        newCount: result.newCount,
+        mergedCount: result.mergedCount
+      }));
+    } else if (result.newCount > 0) {
+      toast.success(t("tracker.exportSuccess", { count: result.newCount }));
+    }
+    if (result.woBlockedCount > 0) {
+      toast.error(t("tracker.exportBlockedWO", {
+        count: result.woBlockedCount,
+        engagements: result.woBlockedEngagements.join(", ")
+      }));
+    }
+    if (result.blockedCount > 0) {
+      toast.warning(t("tracker.exportBlocked", {
+        blockedCount: result.blockedCount,
+        weeks: result.blockedWeeks.join(", ")
+      }));
+    }
+  };
+
+  const handleIncludeAllMatching = async () => {
+    const allEligible = (entries || []).filter(e => e.ended_at && !e.is_imported);
+    const freshAnalysis = analyzeExport(allEligible, selectedIds);
+    if (consolidationAnalysis && !analysisEquals(consolidationAnalysis, freshAnalysis)) {
+      setPreviousAnalysis(consolidationAnalysis);
+      setConsolidationAnalysis(freshAnalysis);
+      toast.warning(t("tracker.consolidation.dataChanged"));
+      return;
+    }
+    const resolved = resolveFinalExportSet(allEligible, selectedIds, freshAnalysis.conflicts, "include_all_matching");
+    try {
+      const result = await exportEntries(resolved);
+      setSelectedIds(new Set());
+      setConsolidationDialogOpen(false);
+      setConsolidationAnalysis(null);
+      setPreviousAnalysis(null);
+      showExportToasts(result);
     } catch (error) {
       console.error("Export error:", error);
       toast.error(t("tracker.exportError"));
     }
+  };
+
+  const handleExcludeConflicting = async () => {
+    const allEligible = (entries || []).filter(e => e.ended_at && !e.is_imported);
+    const freshAnalysis = analyzeExport(allEligible, selectedIds);
+    if (consolidationAnalysis && !analysisEquals(consolidationAnalysis, freshAnalysis)) {
+      setPreviousAnalysis(consolidationAnalysis);
+      setConsolidationAnalysis(freshAnalysis);
+      toast.warning(t("tracker.consolidation.dataChanged"));
+      return;
+    }
+    const resolved = resolveFinalExportSet(allEligible, selectedIds, freshAnalysis.conflicts, "exclude_conflicting_groups");
+    if (resolved.length === 0) {
+      toast.info(t("tracker.consolidation.emptyAfterExclude"));
+      setConsolidationDialogOpen(false);
+      setConsolidationAnalysis(null);
+      setPreviousAnalysis(null);
+      setSelectedIds(new Set());
+      return;
+    }
+    try {
+      const result = await exportEntries(resolved);
+      setSelectedIds(new Set());
+      setConsolidationDialogOpen(false);
+      setConsolidationAnalysis(null);
+      setPreviousAnalysis(null);
+      showExportToasts(result);
+      const excludedCount = freshAnalysis.conflicts.reduce((s, c) => s + c.selectedEntries.length + c.unselectedEntries.length, 0);
+      toast.info(t("tracker.consolidation.excludedToast", {
+        excluded: excludedCount,
+        groups: freshAnalysis.conflicts.length,
+      }));
+    } catch (error) {
+      console.error("Export error:", error);
+      toast.error(t("tracker.exportError"));
+    }
+  };
+
+  const handleProceedExport = async () => {
+    const allEligible = (entries || []).filter(e => e.ended_at && !e.is_imported);
+    const freshAnalysis = analyzeExport(allEligible, selectedIds);
+    if (consolidationAnalysis && !analysisEquals(consolidationAnalysis, freshAnalysis)) {
+      setPreviousAnalysis(consolidationAnalysis);
+      setConsolidationAnalysis(freshAnalysis);
+      toast.warning(t("tracker.consolidation.dataChanged"));
+      return;
+    }
+    const selected = (entries || []).filter(e => selectedIds.has(e.timer_id));
+    try {
+      const result = await exportEntries(selected);
+      setSelectedIds(new Set());
+      setConsolidationDialogOpen(false);
+      setConsolidationAnalysis(null);
+      setPreviousAnalysis(null);
+      showExportToasts(result);
+    } catch (error) {
+      console.error("Export error:", error);
+      toast.error(t("tracker.exportError"));
+    }
+  };
+
+  const handleCancelExport = () => {
+    setConsolidationDialogOpen(false);
+    setConsolidationAnalysis(null);
+    setPreviousAnalysis(null);
+    // selectedIds preserved on cancel
   };
 
   // Manual entry handler
@@ -810,6 +921,17 @@ const TrackerList = () => {
           open={manualDialogOpen}
           onOpenChange={setManualDialogOpen}
           onSubmit={handleManualSubmit}
+        />
+
+        {/* Consolidation Dialog */}
+        <ConsolidationDialog
+          open={consolidationDialogOpen}
+          analysis={consolidationAnalysis}
+          previousAnalysis={previousAnalysis}
+          onIncludeAllMatching={handleIncludeAllMatching}
+          onExcludeConflicting={handleExcludeConflicting}
+          onProceed={handleProceedExport}
+          onCancel={handleCancelExport}
         />
       </div>
     </AppLayout>
