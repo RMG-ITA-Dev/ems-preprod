@@ -1,6 +1,7 @@
 import React from "react";
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { ApprovalTimesheetGrid } from "../ApprovalTimesheetGrid";
 import type { TimeEntryForApproval, LineApproval } from "@/hooks/useTimesheetApprovals";
 
@@ -60,70 +61,62 @@ const defaultProps = {
   lang: "en",
 };
 
+const renderGrid = (props: Partial<Parameters<typeof ApprovalTimesheetGrid>[0]> = {}) =>
+  render(
+    <TooltipProvider>
+      <ApprovalTimesheetGrid {...defaultProps} timeEntries={[]} lineApprovals={[]} approvableEngagementIds={[]} {...props} />
+    </TooltipProvider>
+  );
+
 describe("ApprovalTimesheetGrid budget summary", () => {
   it("GT-1: renders budget and remaining when data available", () => {
-    render(
-      <ApprovalTimesheetGrid
-        {...defaultProps}
-        timeEntries={[makeEntry({ hours_logged: 25 })]}
-        lineApprovals={[makeApproval()]}
-        approvableEngagementIds={["eng-a"]}
-        engagementBudgets={{ "eng-a": { budgetedHours: 100 } }}
-      />
-    );
+    renderGrid({
+      timeEntries: [makeEntry({ hours_logged: 25 })],
+      lineApprovals: [makeApproval()],
+      approvableEngagementIds: ["eng-a"],
+      engagementBudgets: { "eng-a": { budgetedHours: 100 } },
+    });
     expect(screen.getByText(/100h/)).toBeInTheDocument();
     expect(screen.getByText(/approval\.remainingLabel/)).toBeInTheDocument();
   });
 
   it("GT-2: renders N/A when budget unavailable", () => {
-    render(
-      <ApprovalTimesheetGrid
-        {...defaultProps}
-        timeEntries={[makeEntry()]}
-        lineApprovals={[makeApproval()]}
-        approvableEngagementIds={["eng-a"]}
-        engagementBudgets={{ "eng-a": { budgetedHours: null } }}
-      />
-    );
+    renderGrid({
+      timeEntries: [makeEntry()],
+      lineApprovals: [makeApproval()],
+      approvableEngagementIds: ["eng-a"],
+      engagementBudgets: { "eng-a": { budgetedHours: null } },
+    });
     expect(screen.getByText(/approval\.budgetNA/)).toBeInTheDocument();
   });
 
   it("GT-3: renders N/A when engagement missing from budgets map", () => {
-    render(
-      <ApprovalTimesheetGrid
-        {...defaultProps}
-        timeEntries={[makeEntry()]}
-        lineApprovals={[makeApproval()]}
-        approvableEngagementIds={["eng-a"]}
-        engagementBudgets={{}}
-      />
-    );
+    renderGrid({
+      timeEntries: [makeEntry()],
+      lineApprovals: [makeApproval()],
+      approvableEngagementIds: ["eng-a"],
+      engagementBudgets: {},
+    });
     expect(screen.getByText(/approval\.budgetNA/)).toBeInTheDocument();
   });
 
   it("GT-4: approved rows show locked badge, no toggle", () => {
-    render(
-      <ApprovalTimesheetGrid
-        {...defaultProps}
-        timeEntries={[makeEntry()]}
-        lineApprovals={[makeApproval({ status: "approved" })]}
-        approvableEngagementIds={[]}
-        engagementBudgets={{}}
-      />
-    );
+    renderGrid({
+      timeEntries: [makeEntry()],
+      lineApprovals: [makeApproval({ status: "approved" })],
+      approvableEngagementIds: [],
+      engagementBudgets: {},
+    });
     expect(screen.getByText("approval.status.approved")).toBeInTheDocument();
   });
 
   it("GT-5: zero budget renders 0h not N/A", () => {
-    render(
-      <ApprovalTimesheetGrid
-        {...defaultProps}
-        timeEntries={[makeEntry()]}
-        lineApprovals={[makeApproval()]}
-        approvableEngagementIds={["eng-a"]}
-        engagementBudgets={{ "eng-a": { budgetedHours: 0 } }}
-      />
-    );
+    renderGrid({
+      timeEntries: [makeEntry()],
+      lineApprovals: [makeApproval()],
+      approvableEngagementIds: ["eng-a"],
+      engagementBudgets: { "eng-a": { budgetedHours: 0 } },
+    });
     expect(screen.getByText(/\/ 0h/)).toBeInTheDocument();
   });
 });

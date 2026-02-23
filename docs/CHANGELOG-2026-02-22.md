@@ -2358,3 +2358,65 @@ currentWeek: "bg-[hsl(var(--brand-purple))]/15",
 | CURRENT week fallthrough to notReported | None | Explicit `return` (no-op skip) prevents any tint |
 | Float precision in atTarget | None | `Math.round(total * 100) === 800` avoids float comparison issues |
 | Over-limit red regression | None | `overLimit` remains highest priority in `cn()` chain; unchanged condition |
+
+---
+
+### Bug 0220-51: Fix Timesheet Resubmission State Reset
+
+**Plan**: Plan_Fix_Resubmission_State_v5
+**Priority**: Alta
+**Route**: OPERACIONES - Aprobaciones
+
+#### Problem
+Resubmitting a timesheet after partial approval overwrote ALL line approvals to "pending" via blind `upsert`, including already-approved lines. `useUnsubmitTimesheet` attempted DELETE on pending approvals but silently failed (no DELETE RLS policy).
+
+#### Root Cause
+1. `useSubmitTimesheet` used `.upsert()` with `ignoreDuplicates: false`, overwriting existing statuses.
+2. `useUnsubmitTimesheet` called `.delete().eq("status", "pending")` on a table with no DELETE RLS policy.
+
+#### Solution — Detailed Edits
+
+**Edit 1 — Migration: `submit_timesheet_safe` RPC**
+- File: `supabase/migrations/20260223061005_6edd71a8-c894-41b2-91c7-c65347263e30.sql`
+- PL/pgSQL function with `SELECT ... FOR UPDATE` locking on period row
+- State machine: approved NEVER reset; rejected → pending only if entries modified (`MAX(updated_at)` comparison); new → pending (or auto-approved)
+- Guarded UPDATE with `AND status = 'rejected'` to prevent concurrent approval overwrites
+- `guarded_update_skips` counter in return payload for observability
+- Input sanitization: deduplicates and filters NULL engagement IDs
+- Architecture comment documenting vestigial status column
+
+**Edit 2 — `src/hooks/useTimesheetMutations.ts`**
+- `useSubmitTimesheet` (lines 158–207): replaced blind upsert with `supabase.rpc('submit_timesheet_safe', ...)`; frontend deduplicates engagement IDs before call
+- `useUnsubmitTimesheet` (lines 209–241): removed silent-fail DELETE; only nullifies `submitted_at`
+- Both hooks: expanded invalidation from 3 keys to 5 keys (added `pending-approval-summaries`, `staff-timesheet-for-approval`)
+
+**Edit 3 — Engagement-level budget summary**
+- `src/hooks/useTimesheetApprovals.ts`: added budget hours query via `work_orders` + `wo_budget_lines`; returns `engagementBudgets` and `budgetQueryMs`
+- `src/components/timesheet/ApprovalTimesheetGrid.tsx`: displays executed/budget/remaining per engagement with N/A fallback; zero budget shows "0h"
+- `src/pages/TimesheetApprovalDetail.tsx`: passes budget data to grid
+- `src/locales/en.json`, `src/locales/es.json`: added `approval.budgetLabel`, `approval.remainingLabel`, `approval.budgetNA`
+
+**Edit 4 — Tests**
+- `src/hooks/__tests__/useTimesheetMutations.test.tsx`: 8 unit tests (T1–T7 + existing)
+- `src/components/timesheet/__tests__/ApprovalTimesheetGrid.test.tsx`: 5 component tests (GT-1 through GT-5)
+- `supabase/functions/test-resubmission-state/index.ts`: 10 automated DB scenarios (S1–S10) with `trace_id`
+
+**Edit 5 — Test infrastructure**
+- `src/test/setup.ts`: added `rpc: vi.fn()` to supabase mock for RPC-based mutations
+
+#### Risk Assessment
+
+| Risk | Level | Mitigation |
+|------|-------|------------|
+| RPC bug in modified-since-rejection detection | Low | S1/S2 validate both paths |
+| `trg_validate_submission_has_entries` conflict | None | Trigger fires on `submitted_at` update — desired behavior; T4 tests error path |
+| Concurrent submit race condition | Low | Period-level `FOR UPDATE` lock; S5 tests idempotency |
+| `SECURITY DEFINER` escalation | Low | Function validates period ownership (`staff_id` match) |
+| Frontend re-introduces direct status writes | Low | T1 verifies RPC called; T2 verifies no DELETE |
+| Concurrent approver races with rejected-line reset | Low | `AND status = 'rejected'` guard; `guarded_update_skips` counter; S7 validates |
+| Duplicate/NULL engagement IDs | None | RPC sanitizes server-side; frontend deduplicates; S8/S9/T7 verify |
+
+#### Test Coverage
+- 8 unit tests, 5 component tests, 10 DB scenarios — all passing
+- Full journey test (S10) validates submit → approve/reject → unsubmit → edit → resubmit with `approval_id` immutability
+- Edge function trace_id: `31228830-8162-4d6b-b64f-056d8ad18bcb`
