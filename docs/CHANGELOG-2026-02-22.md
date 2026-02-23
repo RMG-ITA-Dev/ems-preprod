@@ -1930,3 +1930,99 @@ Changed `bg-[hsl(var(--brand-teal))]/40` → `bg-[hsl(var(--brand-purple))]/40`.
 |------|-------|------------|
 | Monday emphasis too subtle | Low | 35% opacity is 2.3× the Tue-Fri 15%; clearly visible |
 | Purple/rejected confusion | Eliminated | Rejected uses magenta hue 290, purple uses hue 255 |
+
+---
+
+### Fix: Approved Week Read-Only Display (Empty Entries)
+
+**Plan**: Plan_ApprovedWeek_ReadOnly_DisplayFix_v2
+**Task ID**: APPROVED_WEEK_READONLY_DISPLAY_FIX
+**Priority**: Media
+**Route**: OPERACIONES - Hoja de Tiempo
+
+#### Problem
+When navigating to a fully approved week with no time entries (e.g., Dec 1-5, 2025), the grid rendered a blank placeholder row with "Seleccionar Encargo" and "Seleccionar Actividad" dropdowns — making it look editable. Users need to review approved weeks but see a misleading empty state.
+
+#### Root Cause
+The `initialRows` useMemo in `TimesheetGrid.tsx` unconditionally inserted a blank editable placeholder row when `entries.length === 0`, regardless of approval status. Combined with `timesheet_line_approvals` records existing (status = "approved") but zero `time_entries` for the period, this produced `isFullyApproved = true` with an editable-looking empty row.
+
+#### Solution — Detailed Edits
+
+**Edit 1 — `TimesheetGrid.tsx`: Add `isFullyApproved` prop (line 73)**
+
+```typescript
+// ADDED to TimesheetGridProps interface:
+isFullyApproved?: boolean;
+
+// ADDED to destructuring (line 96):
+isFullyApproved = false,
+```
+
+**Edit 2 — `TimesheetGrid.tsx`: Guard empty-row fallback (line 131-132)**
+
+```typescript
+// BEFORE:
+if (rows.length === 0) {
+  rows.push({ id: `new-${Date.now()}`, ... });
+}
+
+// AFTER:
+if (rows.length === 0 && !isFullyApproved) {
+  rows.push({ id: `new-${Date.now()}`, ... });
+}
+```
+
+**Logic**: Prevents generating an editable-looking placeholder row when the week is fully approved.
+
+**Edit 3 — `TimesheetGrid.tsx`: Add informational empty state row (before "Add Row" button, line 818)**
+
+```typescript
+// ADDED:
+{rows.length === 0 && isFullyApproved && (
+  <tr>
+    <td colSpan={weekDates.length + 4} className="p-8 text-center text-muted-foreground">
+      <Lock className="h-5 w-5 mx-auto mb-2 opacity-50" />
+      <p>{t("timesheet.approvedNoEntries")}</p>
+    </td>
+  </tr>
+)}
+```
+
+**Edit 4 — `TimeSheet.tsx`: Pass `isFullyApproved` prop (line 484)**
+
+```typescript
+// ADDED to <TimesheetGrid> callsite:
+isFullyApproved={isFullyApproved}
+```
+
+**Edit 5 — i18n keys added**
+
+| Key | EN | ES |
+|-----|----|----|
+| `timesheet.approvedNoEntries` | This approved week has no recorded time entries. | Esta semana aprobada no tiene registros de tiempo. |
+
+#### Lock Chain (No Changes)
+
+| Scenario | Lock source | Result |
+|----------|------------|--------|
+| Approved + entries exist | `isLocked=true` + row-level `isRowApproved` | All rows visible, read-only |
+| Approved + no entries | `isLocked=true` + new empty-state guard | Informational message row |
+| Editable + no entries | `isLocked=false`, `isFullyApproved=false` | Normal blank placeholder row |
+| Submitted/pending/rejected | `isLocked=true` (from `isSubmitted=true`) | Rows visible, read-only |
+
+#### Files Modified
+
+| File | Lines Affected | Change |
+|------|----------------|--------|
+| `src/components/timesheet/TimesheetGrid.tsx` | 46-74, 94-96, 131-132, 142, 818-827 | Add `isFullyApproved` prop; guard empty-row creation; render informational empty state |
+| `src/pages/TimeSheet.tsx` | 484 | Pass `isFullyApproved` to TimesheetGrid |
+| `src/locales/en.json` | 670 | Add `timesheet.approvedNoEntries` |
+| `src/locales/es.json` | 670 | Add `timesheet.approvedNoEntries` |
+
+#### Risk Assessment
+
+| Risk | Level | Mitigation |
+|------|-------|------------|
+| Regression on editable empty weeks | None | Guard condition `&& !isFullyApproved` preserves existing behavior |
+| Missing totals row | None | Totals row renders unconditionally; shows 0h values correctly |
+| Lock logic regression | None | No changes to `isLocked` or `isRowApproved` computation |

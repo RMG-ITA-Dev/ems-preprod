@@ -667,6 +667,7 @@
     "deleteRow": "Eliminar fila",
     "periodLocked": "Esta semana está bloqueada y no puede ser editada.",
     "fullyApproved": "Esta semana ha sido completamente aprobada.",
+    "approvedNoEntries": "Esta semana aprobada no tiene registros de tiempo.",
     "hasRejections": "Algunas entradas fueron rechazadas. Por favor revise y reenvíe.",
     "pendingApproval": "Esta semana está pendiente de aprobación.",
     "autoApproved": "Hoja de tiempo auto-aprobada",

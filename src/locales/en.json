@@ -667,6 +667,7 @@
     "deleteRow": "Delete row",
     "periodLocked": "This week is locked and cannot be edited.",
     "fullyApproved": "This week has been fully approved.",
+    "approvedNoEntries": "This approved week has no recorded time entries.",
     "hasRejections": "Some entries were rejected. Please review and resubmit.",
     "pendingApproval": "This week is pending approval.",
     "autoApproved": "Timesheet auto-approved",
