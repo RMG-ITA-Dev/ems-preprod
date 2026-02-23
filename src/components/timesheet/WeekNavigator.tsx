@@ -106,6 +106,7 @@ export const WeekNavigator = ({
       pending: [],
       rejected: [],
       notReported: [],
+      currentWeekStart: [],
       currentWeek: [],
     };
 
@@ -127,7 +128,10 @@ export const WeekNavigator = ({
       if (status === "APPROVED") groups.approved.push(day);
       else if (status === "PENDING_APPROVAL") groups.pending.push(day);
       else if (status === "REJECTED") groups.rejected.push(day);
-      else if (status === "CURRENT") groups.currentWeek.push(day);
+      else if (status === "CURRENT") {
+        if (day.getDay() === 1) groups.currentWeekStart.push(day);
+        else groups.currentWeek.push(day);
+      }
       else groups.notReported.push(day); // DRAFT, NOT_SUBMITTED, NOT_LOGGED
     });
 
@@ -137,6 +141,7 @@ export const WeekNavigator = ({
         pending: groups.pending,
         rejected: groups.rejected,
         notReported: groups.notReported,
+        currentWeekStart: groups.currentWeekStart,
         currentWeek: groups.currentWeek,
       },
       modifiersClassNames: {
@@ -144,7 +149,8 @@ export const WeekNavigator = ({
         pending: "bg-warning/35",
         rejected: "bg-[hsl(var(--week-rejected))]/30",
         notReported: "bg-destructive/25",
-        currentWeek: "bg-[hsl(var(--brand-teal))]/20",
+        currentWeekStart: "bg-[hsl(var(--brand-purple))]/35",
+        currentWeek: "bg-[hsl(var(--brand-purple))]/15",
       },
     };
   }, [weekStatuses, gridStart, gridEnd]);
@@ -244,7 +250,7 @@ export const WeekNavigator = ({
               {t("timesheet.legend.notReported")}
             </span>
             <span className="flex items-center gap-1">
-              <span className="inline-block h-2.5 w-2.5 rounded-sm bg-[hsl(var(--brand-teal))]/40" />
+              <span className="inline-block h-2.5 w-2.5 rounded-sm bg-[hsl(var(--brand-purple))]/40" />
               {t("timesheet.legend.currentWeek")}
             </span>
           </div>

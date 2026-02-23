@@ -1877,3 +1877,56 @@ modifiersClassNames: {
 | Weekend cells unexpectedly tinted | Eliminated | Explicit `getDay()` check before modifier assignment |
 | Tint too strong, obscuring day numbers | Low | Opacities kept at 20-35% range; tested against both themes |
 | Teal/violet confusion | Eliminated | Hue separation now 104° (teal 186 vs magenta 290) |
+
+---
+
+### Revision B: Current Week Purple with Monday Emphasis
+
+**Plan**: Plan_CurrentWeekPurple_v1
+
+#### Summary
+Reverted the "Semana Actual" (Current Week) tint from teal back to Ruizmier purple, and split it into two modifier groups: Monday gets a heavier purple (`/35`) for emphasis, Tuesday-Friday get a lighter purple (`/15`).
+
+#### Solution — Detailed Edits
+
+**Edit 1 — `WeekNavigator.tsx`: Split `currentWeek` group into two buckets**
+
+Added `currentWeekStart: []` to the groups object for Monday-only cells.
+
+**Edit 2 — `WeekNavigator.tsx`: Update forEach loop for CURRENT status**
+
+When status is `CURRENT`, Monday (`getDay() === 1`) pushes into `currentWeekStart`; Tue-Fri push into `currentWeek`.
+
+**Edit 3 — `WeekNavigator.tsx`: Update modifiers and modifiersClassNames**
+
+```typescript
+currentWeekStart: "bg-[hsl(var(--brand-purple))]/35",  // heavier Monday
+currentWeek: "bg-[hsl(var(--brand-purple))]/15",        // lighter Tue-Fri
+```
+
+**Edit 4 — `WeekNavigator.tsx`: Legend dot reverted to purple**
+
+Changed `bg-[hsl(var(--brand-teal))]/40` → `bg-[hsl(var(--brand-purple))]/40`.
+
+#### Acceptance Criteria
+
+| AC | Criterion | Status |
+|----|-----------|--------|
+| AC-1 | Current week Monday cell has heavier purple tint | ✅ |
+| AC-2 | Current week Tue-Fri cells have lighter purple tint | ✅ |
+| AC-3 | Legend dot for "Semana Actual" is purple | ✅ |
+| AC-4 | All other status tints unchanged | ✅ |
+| AC-5 | Today still excluded (grey), selected still wins (primary) | ✅ |
+
+#### Files Changed
+
+| File | Change |
+|------|--------|
+| `src/components/timesheet/WeekNavigator.tsx` | Split currentWeek into two modifier groups (Monday heavier, Tue-Fri lighter); swapped teal back to brand-purple; updated legend dot |
+
+#### Risk Assessment
+
+| Risk | Level | Mitigation |
+|------|-------|------------|
+| Monday emphasis too subtle | Low | 35% opacity is 2.3× the Tue-Fri 15%; clearly visible |
+| Purple/rejected confusion | Eliminated | Rejected uses magenta hue 290, purple uses hue 255 |
