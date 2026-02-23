@@ -501,7 +501,7 @@ const TrackerList = () => {
             <Button
               variant="outline"
               onClick={handleExport}
-              className="flex-1 sm:flex-none min-h-[44px] sm:min-h-0"
+              className="flex-1 sm:flex-none min-h-[44px] sm:min-h-0 bg-teal-600 text-white border-teal-600 hover:bg-teal-700 hover:text-white"
               disabled={selectedIds.size === 0 || isExporting}
             >
               <ArrowUpFromLine className="h-4 w-4 mr-2" />
