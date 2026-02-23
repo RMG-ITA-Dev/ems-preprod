@@ -1770,3 +1770,110 @@ DayPicker props added: `month`, `onMonthChange`, `modifiers`, `modifiersClassNam
 | Excess refetching on month navigation | Low | TanStack Query caching (staleTime 5min) + queryKey dedup |
 | Dark mode tints washed out | Low | Separate `--week-rejected` dark value |
 | Other calendars affected | Eliminated | All CSS scoped to `.week-status-calendar` |
+
+---
+
+### Feature: CALENDAR_WEEKS_COLORCHANGE v2 — Revision A (Visual Refinements)
+
+**Plan**: Plan: Calendar Coloring Refinements (3 tweaks)
+**Priority**: Baja
+**Route**: Hoja de Tiempo — Week Navigator Calendar
+
+#### Problem
+
+Three visual issues with the initial calendar week coloring implementation:
+1. Saturdays and Sundays were tinted with status colors despite not being workdays.
+2. Tint opacities were too pastel/faint to be easily distinguishable.
+3. The CURRENT week marker used `--brand-purple` (hue 255), which was too close to the REJECTED violet (hue 270), causing confusion.
+
+#### Solution — Detailed Edits
+
+**Edit 1 — `src/components/timesheet/WeekNavigator.tsx` line 118: Add weekend exclusion in modifier loop**
+
+```typescript
+// BEFORE (line 117):
+if (isSameDay(day, today)) return;
+// (next line: const monday = getWeekMonday(day);)
+
+// AFTER (lines 117-119):
+if (isSameDay(day, today)) return;
+if (day.getDay() === 0 || day.getDay() === 6) return;  // Skip weekends
+// (next line: const monday = getWeekMonday(day);)
+```
+
+**Edit 2 — `src/components/timesheet/WeekNavigator.tsx` lines 140-146: Bump opacity values + swap currentWeek to teal**
+
+```typescript
+// BEFORE:
+modifiersClassNames: {
+  approved: "bg-success/15",
+  pending: "bg-warning/20",
+  rejected: "bg-[hsl(var(--week-rejected))]/20",
+  notReported: "bg-destructive/15",
+  currentWeek: "bg-[hsl(var(--brand-purple))]/20",
+},
+
+// AFTER:
+modifiersClassNames: {
+  approved: "bg-success/30",
+  pending: "bg-warning/35",
+  rejected: "bg-[hsl(var(--week-rejected))]/30",
+  notReported: "bg-destructive/25",
+  currentWeek: "bg-[hsl(var(--brand-teal))]/20",
+},
+```
+
+**Edit 3 — `src/components/timesheet/WeekNavigator.tsx` line 245: Swap legend dot to teal**
+
+```typescript
+// BEFORE:
+<span className="inline-block h-2.5 w-2.5 rounded-sm bg-[hsl(var(--brand-purple))]/40" />
+
+// AFTER:
+<span className="inline-block h-2.5 w-2.5 rounded-sm bg-[hsl(var(--brand-teal))]/40" />
+```
+
+**Edit 4 — `src/index.css` line 85: Shift --week-rejected hue (light mode)**
+
+```css
+/* BEFORE: */
+--week-rejected: 270 60% 70%;
+
+/* AFTER: */
+--week-rejected: 290 50% 65%;
+```
+
+**Edit 5 — `src/index.css` line 154: Shift --week-rejected hue (dark mode)**
+
+```css
+/* BEFORE: */
+--week-rejected: 270 55% 65%;
+
+/* AFTER: */
+--week-rejected: 290 45% 60%;
+```
+
+#### Acceptance Criteria
+
+| AC | Criterion | Status |
+|----|-----------|--------|
+| AC-1 | Saturdays and Sundays have no tint | ✅ |
+| AC-2 | Monday-Friday cells show stronger, more visible tints | ✅ |
+| AC-3 | Current week uses light teal tint (not purple) | ✅ |
+| AC-4 | REJECTED weeks are clearly violet/magenta, distinct from teal | ✅ |
+| AC-5 | All existing precedence rules still hold (today grey, selected primary) | ✅ |
+
+#### Files Changed Summary
+
+| File | Change |
+|------|--------|
+| `src/components/timesheet/WeekNavigator.tsx` | Weekend skip in modifier loop; bumped opacity values; swapped currentWeek from brand-purple to brand-teal (tints + legend dot) |
+| `src/index.css` | Shifted `--week-rejected` from hue 270 to 290 in both light and dark modes |
+
+#### Risk Assessment
+
+| Risk | Level | Mitigation |
+|------|-------|------------|
+| Weekend cells unexpectedly tinted | Eliminated | Explicit `getDay()` check before modifier assignment |
+| Tint too strong, obscuring day numbers | Low | Opacities kept at 20-35% range; tested against both themes |
+| Teal/violet confusion | Eliminated | Hue separation now 104° (teal 186 vs magenta 290) |
