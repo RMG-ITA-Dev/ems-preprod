@@ -5,6 +5,12 @@ import { getFiscalWeekNumber } from "@/lib/fiscalCalculations";
 import { supabase } from "@/integrations/supabase/client";
 import { useMarkTimerEntriesImported, type TimerEntry } from "@/hooks/useTimerEntries";
 import { getWeekMonday, toISODateString } from "@/lib/timesheetUtils";
+import {
+  buildExportGroups,
+  detectSplitSelectionConflicts,
+  buildConsolidationPreview,
+  type PreflightAnalysis,
+} from "@/lib/timerExportUtils";
 
 export interface ImportResult {
   newCount: number;
@@ -285,5 +291,43 @@ export function useTimesheetImport({ staffId }: { staffId: string }) {
     }
   };
 
-  return { exportEntries, isExporting };
+  const analyzeExport = (
+    allEntries: TimerEntry[],
+    selectedIds: Set<string>
+  ): PreflightAnalysis => {
+    // Defensive re-filter to eligible only
+    const eligible = allEntries.filter(
+      (e) => e.ended_at != null && !e.is_imported
+    );
+    const eligibleIds = new Set(eligible.map((e) => e.timer_id));
+
+    const groups = buildExportGroups(eligible);
+    const conflicts = detectSplitSelectionConflicts(groups, selectedIds);
+
+    // Determine if any group in the selected set has 2+ entries (consolidation)
+    let hasConsolidation = false;
+    for (const group of groups.values()) {
+      const selectedInGroup = group.entries.filter((e) =>
+        selectedIds.has(e.timer_id)
+      );
+      if (selectedInGroup.length >= 2) {
+        hasConsolidation = true;
+        break;
+      }
+    }
+
+    const preview = buildConsolidationPreview(groups, selectedIds);
+
+    return {
+      groups,
+      conflicts,
+      hasConsolidation,
+      hasConflicts: conflicts.length > 0,
+      preview,
+      eligibleIds,
+      selectedIdsSnapshot: new Set(selectedIds),
+    };
+  };
+
+  return { exportEntries, isExporting, analyzeExport };
 }
