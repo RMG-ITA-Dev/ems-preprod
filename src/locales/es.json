@@ -672,6 +672,7 @@
     "pendingApproval": "Esta semana está pendiente de aprobación.",
     "autoApproved": "Hoja de tiempo auto-aprobada",
     "submitted": "Hoja de tiempo enviada para aprobación",
+    "submitNoEntries": "No se puede enviar: no hay registros de tiempo para esta semana. Por favor registre sus horas primero.",
     "unsubmit": "Retirar Envío",
     "unsubmitted": "Hoja de tiempo retirada para edición",
     "autoSaveHint": "Los cambios se guardan automáticamente",

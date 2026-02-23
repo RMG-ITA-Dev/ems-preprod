@@ -211,7 +211,14 @@ export function useSubmitTimesheet() {
         : i18n.t("timesheet.submitted")
       );
     },
-    onError: createMutationErrorHandler("submitting timesheet"),
+    onError: (error: Error) => {
+      const msg = error.message || '';
+      if (msg.includes('SUBMIT_NO_ENTRIES')) {
+        toast.error(i18n.t("timesheet.submitNoEntries"));
+        return;
+      }
+      createMutationErrorHandler("submitting timesheet")(error);
+    },
   });
 }
 

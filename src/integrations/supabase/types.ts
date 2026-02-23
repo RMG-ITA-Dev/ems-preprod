@@ -14,6 +14,84 @@ export type Database = {
   }
   public: {
     Tables: {
+      _backup_orphan_approvals_20260223: {
+        Row: {
+          approval_id: string | null
+          approved_at: string | null
+          approved_by: string | null
+          created_at: string | null
+          engagement_id: string | null
+          period_id: string | null
+          review_notes: string | null
+          status: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          approval_id?: string | null
+          approved_at?: string | null
+          approved_by?: string | null
+          created_at?: string | null
+          engagement_id?: string | null
+          period_id?: string | null
+          review_notes?: string | null
+          status?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          approval_id?: string | null
+          approved_at?: string | null
+          approved_by?: string | null
+          created_at?: string | null
+          engagement_id?: string | null
+          period_id?: string | null
+          review_notes?: string | null
+          status?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      _backup_orphan_periods_20260223: {
+        Row: {
+          created_at: string | null
+          deadline: string | null
+          is_period_locked: boolean | null
+          period_id: string | null
+          staff_id: string | null
+          submitted_at: string | null
+          total_hours: number | null
+          updated_at: string | null
+          week_number: number | null
+          week_start_date: string | null
+          year: number | null
+        }
+        Insert: {
+          created_at?: string | null
+          deadline?: string | null
+          is_period_locked?: boolean | null
+          period_id?: string | null
+          staff_id?: string | null
+          submitted_at?: string | null
+          total_hours?: number | null
+          updated_at?: string | null
+          week_number?: number | null
+          week_start_date?: string | null
+          year?: number | null
+        }
+        Update: {
+          created_at?: string | null
+          deadline?: string | null
+          is_period_locked?: boolean | null
+          period_id?: string | null
+          staff_id?: string | null
+          submitted_at?: string | null
+          total_hours?: number | null
+          updated_at?: string | null
+          week_number?: number | null
+          week_start_date?: string | null
+          year?: number | null
+        }
+        Relationships: []
+      }
       activity_codes: {
         Row: {
           activity_code: string

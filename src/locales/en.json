@@ -672,6 +672,7 @@
     "pendingApproval": "This week is pending approval.",
     "autoApproved": "Timesheet auto-approved",
     "submitted": "Timesheet submitted for approval",
+    "submitNoEntries": "Cannot submit: no time entries logged for this week. Please log your hours first.",
     "unsubmit": "Unsubmit",
     "unsubmitted": "Timesheet recalled for editing",
     "autoSaveHint": "Changes are saved automatically",
