@@ -1,386 +1,282 @@
-# Plan: DB Consistency Fix for Orphan Timesheet Periods (Revision A)
-
-**Plan ID:** Plan_DB_Consistency_Orphan_Periods_v1_REVISION_A
-**Task ID:** DB_CONSISTENCY_ORPHAN_PERIODS
-**Status:** READY_FOR_IMPLEMENTATION (all BLOCKER additions included)
-
----
-
-## 1. Confirmed Diagnosis vs. Hypothesis
-
-### Confirmed Facts (reproduced via DB queries)
-
-**16 orphan `timesheet_periods**` exist: rows with `total_hours > 0` and `submitted_at IS NOT NULL`, but **zero matching `time_entries**`.
 
 
-| Staff                         | staff_id     | Orphan Weeks | Phantom Hours | Date Range           |
-| ----------------------------- | ------------ | ------------ | ------------- | -------------------- |
-| Isaac Cori Alvarez            | e311d219-... | 3            | 126.00h       | Nov 17 - Dec 1, 2025 |
-| Lourdes Gomez Vargas          | 7d3c23dd-... | 10           | 388.70h       | Sep 29 - Dec 1, 2025 |
-| Victor Delfin Pelaez Mariscal | 1a60b0b4-... | 3            | 91.00h        | Nov 17 - Dec 1, 2025 |
+# Plan: Three Timesheet UI Fixes v4
 
-
-**6 orphan `timesheet_line_approvals**` reference these orphan periods, all tied to engagement `11111111-1111-1111-1111-111111111111` (Auditoria Financiera 2024, BMSC-2025):
-
-
-| approval_id  | Staff   | Week       | Status       |
-| ------------ | ------- | ---------- | ------------ |
-| 5ed40956-... | Isaac   | 2025-11-17 | pending      |
-| 9a735334-... | Isaac   | 2025-11-24 | pending      |
-| 6681dc1f-... | Isaac   | 2025-12-01 | **approved** |
-| 75f42a3f-... | Lourdes | 2025-11-17 | pending      |
-| 811b5dac-... | Lourdes | 2025-11-24 | pending      |
-| 7769bfee-... | Lourdes | 2025-12-01 | **approved** |
-
-
-**1 non-orphan approval (excluded):** Yandira Quispe's rejected approval for 2026-03-02 has 5 real time entries -- this is legitimate data and will NOT be touched.
-
-### Probable Cause (not confirmed as fact)
-
-These 16 periods and 6 approvals were **probably** created via bulk import or manual SQL during the pre-production testing phase (Sep-Dec 2025). The `time_entries` rows were either never created or were deleted before the `trg_protect_approved_time_entries` trigger was deployed.
-
-**Proof criteria to upgrade to confirmed:** If someone can identify the import script or manual SQL session that generated these records, the cause is confirmed. Until then, it remains probable.
-
-**STOP condition:** If any orphan period_id is found to have been created AFTER the system went into production use (post Jan 2026), escalate immediately -- this would indicate an active code bug rather than legacy data.
-
-### Safety Confirmation
-
-The `trg_protect_approved_time_entries` trigger is ACTIVE on the `time_entries` table, preventing deletion of entries linked to approved period+engagement pairs. No code path in the current codebase performs direct SQL deletes on `time_entries`.
+**Plan ID:** Plan_Timesheet_Three_Fixes_v4
+**Task ID:** TIMESHEET_THREE_FIXES
 
 ---
 
-## 2. Candidate Selection SQL (Dry-Run Only)
+## What Was Added (vs. v3)
 
-These queries identify the exact rows to remediate. They must be run and reviewed BEFORE any mutation.
+| ID | Addition |
+|---|---|
+| ADD-1 | Fixed daily target rule: at-target is exactly 8.0h (not proportional to dailyLimit). Precision-safe comparison required. Future workday policy changes require a separate change request. |
+| ADD-2 | Test-separation rule: fiscal-week algorithm tests stay in `src/lib/__tests__/fiscalCalculations.test.ts`; UI behavior tests (CURRENT no-tint, daily totals styling) are manual-only since component test files for WeekNavigator and TimesheetGrid do not exist. |
 
-### Query A: Orphan Periods (16 rows expected)
+## What Was Changed (vs. v3)
 
-```text
-SELECT tp.period_id, tp.staff_id, tp.week_start_date, tp.total_hours, tp.submitted_at
-FROM timesheet_periods tp
-WHERE tp.total_hours > 0
-AND tp.submitted_at IS NOT NULL
-AND NOT EXISTS (
-  SELECT 1 FROM time_entries te
-  WHERE te.staff_id = tp.staff_id
-  AND te.date_worked >= tp.week_start_date
-  AND te.date_worked < tp.week_start_date + 7
-  AND te.is_forecast = false
-)
-ORDER BY tp.staff_id, tp.week_start_date;
-```
+| ID | From | To |
+|---|---|---|
+| CHG-1 | `dailyTarget = dailyLimit * 0.8` | `dailyTarget = 8.0` (fixed business constant), precision-safe comparison |
+| CHG-2 | CURRENT no-tint and daily totals tests in `src/lib/__tests__/timesheetUtils.test.ts` | Fiscal-week tests in utility test file; UI behavior checks are manual-only |
+| CHG-3 | General AC-6 | Explicit: exactly 8.0h triggers green+dark style regardless of DAILY_LIMIT setting |
 
-### Query B: Orphan Approvals (6 rows expected)
+## What Was Removed (vs. v3)
 
-```text
-SELECT tla.approval_id, tla.period_id, tla.engagement_id, tla.status
-FROM timesheet_line_approvals tla
-WHERE tla.period_id IN (
-  -- Exactly the orphan period IDs from Query A
-  SELECT tp.period_id FROM timesheet_periods tp
-  WHERE tp.total_hours > 0
-  AND tp.submitted_at IS NOT NULL
-  AND NOT EXISTS (
-    SELECT 1 FROM time_entries te
-    WHERE te.staff_id = tp.staff_id
-    AND te.date_worked >= tp.week_start_date
-    AND te.date_worked < tp.week_start_date + 7
-    AND te.is_forecast = false
-  )
-)
-ORDER BY tla.period_id;
-```
+| ID | Removal |
+|---|---|
+| DEL-1 | All references defining at-target as `dailyLimit * 0.8` or proportional |
+| DEL-2 | All statements placing UI/component behavior tests inside utility test files |
 
 ---
 
-## 3. Safety Gates and Approval Checkpoints
+## ISSUE 1: Fiscal Week Numbering
 
+### Algorithm
 
-| Gate                    | Condition                                                                             | Action if Failed                                            |
-| ----------------------- | ------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| GATE-1: Scope Check     | Candidate set contains ONLY period_ids from the 16 listed above                       | ABORT. Do not proceed.                                      |
-| GATE-2: Staff Allowlist | Affected staff_ids are ONLY: `e311d219-...`, `7d3c23dd-...`, `1a60b0b4-...`           | ABORT. Investigate new orphans.                             |
-| GATE-3: Date Window     | All candidate `week_start_date` values fall within 2025-09-29 to 2025-12-01 inclusive | ABORT. Post-production orphan = possible code bug.          |
-| GATE-4: Row Count       | Query A returns exactly 16 rows, Query B returns exactly 6 rows                       | ABORT. Unexpected count means data changed since diagnosis. |
-| GATE-5: Sergio Approval | Plan reviewed and explicitly approved by Sergio                                       | Do not proceed without approval.                            |
+1. **Fiscal year pivot (`getFiscalYearForDate`):** If date's month index >= 9 (October+), fiscal year = `date.year + 1`; otherwise fiscal year = `date.year`.
 
+2. **Week 1 anchor (`getFiscalWeekOneMonday`):** Start with October 1 of `fiscalYear - 1`. If Oct 1 is Saturday, shift to Oct 3 (Monday). If Oct 1 is Sunday, shift to Oct 2 (Monday). Otherwise use Oct 1 as-is. Then get the Monday of the week containing that anchor date (`startOfWeek` with `weekStartsOn: 1`).
 
----
+3. **Week number (`getFiscalWeekNumber`):** Get the Monday of the input date's week. Compute `daysDiff = (inputMonday - anchorMonday) / msPerDay`. If `daysDiff < 0`, the date falls before the current FY anchor -- pivot to the previous fiscal year (`fiscalYear - 1`), recompute the anchor, and recalculate. Result = `Math.floor(daysDiff / 7) + 1`.
 
-## 4. Transactional Remediation Runbook
+### Algorithm Invariants
 
-### Phase 1: PREVIEW
+- **INV-1:** `getFiscalWeekNumber` always returns an integer >= 1 for any valid date.
+- **INV-2:** Dates before the current FY Week 1 Monday automatically pivot to the previous FY anchor.
+- **INV-3:** The fiscal week function is the single source of truth for all week numbering across display, period creation, and import.
 
-Run Query A and Query B above. Verify outputs match the expected row counts and IDs. Save output for audit record.
+### Boundary Rules
 
-### Phase 2: BACKUP
+| Oct 1 Day | Anchor | Week 1 Monday | Week 1 Range |
+|---|---|---|---|
+| Oct 1, 2025 (Wed) | Oct 1 | Sep 29, 2025 | Sep 29 - Oct 3 |
+| Oct 1, 2028 (Sun) | Shifts to Oct 2 | Oct 2, 2028 | Oct 2 - Oct 6 |
+| Oct 1, 2033 (Sat) | Shifts to Oct 3 | Oct 3, 2033 | Oct 3 - Oct 7 |
 
-Create timestamped backup tables containing only the affected rows:
+### Pre-Anchor Pivot Example
 
-```text
-CREATE TABLE _backup_orphan_periods_20260223 AS
-SELECT * FROM timesheet_periods
-WHERE period_id IN ( <16 period_ids from Query A> );
+Sep 28, 2025 (Sunday) belongs to FY2025 by pivot rule (month = Sep = index 8, so FY = 2025). FY2025 anchor: Oct 1, 2024 (Tuesday), Week 1 Monday = Sep 30, 2024. Sep 28, 2025 Monday = Sep 22, 2025. daysDiff = 357. Week = floor(357/7) + 1 = 52. Valid positive number.
 
-CREATE TABLE _backup_orphan_approvals_20260223 AS
-SELECT * FROM timesheet_line_approvals
-WHERE approval_id IN ( <6 approval_ids from Query B> );
-```
+### Worked Examples
 
-Verify backup row counts: 16 periods, 6 approvals.
+| Date | FY | Anchor Monday | Days | Week |
+|---|---|---|---|---|
+| Sep 29, 2025 | 2026 | Sep 29, 2025 | 0 | 1 |
+| Oct 1, 2025 | 2026 | Sep 29, 2025 | 2 | 1 |
+| Oct 6, 2025 | 2026 | Sep 29, 2025 | 7 | 2 |
+| Feb 9, 2026 | 2026 | Sep 29, 2025 | 133 | 20 |
+| Feb 16, 2026 | 2026 | Sep 29, 2025 | 140 | 21 |
 
-### Phase 3: APPLY (within transaction)
+### Function Signatures (description only)
 
-All mutations run inside a single transaction using explicit ID allowlists (NOT dynamic subqueries):
+- `getFiscalYearForDate(date: Date): number` -- Returns fiscal year using October pivot.
+- `getFiscalWeekOneMonday(fiscalYear: number): Date` -- Returns Monday starting fiscal Week 1, with Saturday/Sunday adjustment.
+- `getFiscalWeekNumber(date: Date): number` -- Computes fiscal week number; pivots to prior FY if needed. Always returns >= 1.
 
-```text
-BEGIN;
+### Compatibility Note
 
--- Step 3A: Delete orphan approvals (6 rows)
-DELETE FROM timesheet_line_approvals
-WHERE approval_id IN (
-  '5ed40956-0a68-405c-947f-d5a54ef55dcc',
-  '9a735334-7dc7-4738-b4f7-a73d6ac448d8',
-  '6681dc1f-6a1c-4344-b4bf-61283e7f8be5',
-  '75f42a3f-b4cb-470f-b5c8-c882d5ad0262',
-  '811b5dac-0ea9-40a9-97df-b4ccbc40282c',
-  '7769bfee-a03b-483e-a565-e6582569a535'
-);
--- Expected: 6 rows deleted
+Existing `timesheet_periods.week_number` values in the database were computed using ISO week or manual January-based formula. This plan does NOT migrate historical values. Going forward, newly created/imported periods use the fiscal formula. Historical values remain as-is -- `week_number` is informational metadata; period lookup is by `staff_id + week_start_date`.
 
--- Step 3B: Reset orphan periods (16 rows)
-UPDATE timesheet_periods
-SET total_hours = 0, submitted_at = NULL
-WHERE period_id IN (
-  '1a24d4be-8ca2-43b3-bfb8-88e9ca49a917',
-  'c58bbd63-0c4f-42ba-99b4-dcfef87e2654',
-  '6f7cb6ca-9229-47c1-af37-b7c7087f1f6a',
-  '6ef06941-4427-409f-aff3-67d722154f38',
-  '289456c8-1965-4e16-91bd-de65ae78e253',
-  '7ca3163e-cbce-46fc-9c0a-90b3674633d5',
-  'e14b4677-6fa9-4c80-b31b-a0f41db6b76c',
-  '90b46679-754f-43d7-98a0-eeeadc35ddc9',
-  '8854c324-6ebc-432e-be1e-6ca7fc4961ca',
-  'ec17a1d7-7030-4957-9d6f-fa82b317774b',
-  'd68d23bd-d883-4099-9da5-198cfecefd1f',
-  'e0d41e9b-b6e6-41b7-b5c3-c78b43e00d84',
-  '66be6476-9844-4ac3-b283-6a952961b05c',
-  'a67c9fcf-997c-4a44-94de-76986ea9d08d',
-  '9be69459-97c4-4d3b-a4a1-24fa177fca03',
-  '1f14e822-b640-479e-bd74-4c4021f802cc'
-);
--- Expected: 16 rows updated
+### Rollout Safety
 
--- Phase 4 (VERIFY) runs here before COMMIT
-```
-
-### Phase 4: VERIFY (before committing)
-
-Run within the same transaction:
-
-```text
--- V1: Zero orphan periods remain
-SELECT count(*) FROM timesheet_periods tp
-WHERE tp.total_hours > 0 AND tp.submitted_at IS NOT NULL
-AND NOT EXISTS (
-  SELECT 1 FROM time_entries te
-  WHERE te.staff_id = tp.staff_id
-  AND te.date_worked >= tp.week_start_date
-  AND te.date_worked < tp.week_start_date + 7
-  AND te.is_forecast = false
-);
--- Expected: 0
-
--- V2: No collateral damage to other approvals
-SELECT count(*) FROM timesheet_line_approvals;
--- Expected: previous total minus 6
-
--- V3: Yandira's approval untouched
-SELECT approval_id, status FROM timesheet_line_approvals
-WHERE approval_id = '1f4b451b-ae9f-452b-b216-14674b0c1090';
--- Expected: 1 row, status = 'rejected'
-
--- V4: All non-orphan periods untouched
-SELECT count(*) FROM timesheet_periods
-WHERE submitted_at IS NOT NULL AND total_hours > 0;
--- Expected: previous total minus 16
-```
-
-If all verifications pass: `COMMIT;`
-If any verification fails: `ROLLBACK;`
-
-### Phase 5: ROLLBACK (if needed after commit)
-
-If issues are discovered post-commit, restore from backup tables:
-
-```text
--- Restore approvals
-INSERT INTO timesheet_line_approvals
-SELECT * FROM _backup_orphan_approvals_20260223;
-
--- Restore periods
-UPDATE timesheet_periods tp
-SET total_hours = bk.total_hours, submitted_at = bk.submitted_at
-FROM _backup_orphan_periods_20260223 bk
-WHERE tp.period_id = bk.period_id;
-
--- Clean up backup tables after confirmed restore
--- DROP TABLE _backup_orphan_periods_20260223;
--- DROP TABLE _backup_orphan_approvals_20260223;
-```
+No destructive data updates.
 
 ---
 
-## 5. Preventive Trigger Migration (Phase 2)
+## ISSUE 2: Remove "Semana actual" Calendar Coloring
 
-### Design
+### CURRENT Status Rule
 
-**Trigger name:** `trg_validate_submission_has_entries`
-**Table:** `timesheet_periods`
-**Fires:** BEFORE UPDATE
-**Condition:** Only when `submitted_at` transitions from NULL to NOT NULL
+**CURRENT status must receive NO calendar tint.** The CURRENT status branch must be an explicit no-op skip -- it must NOT fall through to `notReported` or any other colored bucket.
 
-**Logic (pseudocode):**
+### Exact Removals in `src/components/timesheet/WeekNavigator.tsx`
 
-```text
-IF NEW.submitted_at IS NOT NULL AND OLD.submitted_at IS NULL THEN
-  COUNT time_entries WHERE
-    staff_id = NEW.staff_id
-    AND date_worked >= NEW.week_start_date       -- Monday (inclusive)
-    AND date_worked <= NEW.week_start_date + 4    -- Friday (inclusive)
-    AND is_forecast = false
+1. **Groups object (~lines 108-110):** Remove `currentWeekStart: []` and `currentWeek: []` entries.
 
-  IF count = 0 THEN
-    RAISE EXCEPTION 'SUBMIT_NO_ENTRIES: Cannot submit a timesheet with no time entries for week starting %', NEW.week_start_date
-  END IF
-END IF
-RETURN NEW
-```
+2. **CURRENT status branch (~lines 131-134):** Replace with explicit skip: `else if (status === "CURRENT") { return; }` -- no fall-through.
 
-**Week boundary:** Monday (inclusive) through Friday (inclusive), matching the business workday policy (Mon-Fri). Uses `week_start_date + 4` for Friday, consistent with the existing `get_week_statuses` RPC which uses `v_cursor + 4` for `v_week_end`.
+3. **Modifiers return (~lines 144-145):** Remove `currentWeekStart` and `currentWeek` from modifiers object.
 
-**Error contract:**
+4. **modifiersClassNames (~lines 152-153):** Remove `currentWeekStart` and `currentWeek` entries.
 
-- Error code prefix: `SUBMIT_NO_ENTRIES`
-- Expected caller behavior: Frontend catches this and displays a toast explaining that entries must be logged before submitting
+5. **Legend markup (~lines 252-255):** Remove the "Semana actual" legend span (purple dot + label).
 
-**Idempotent deployment:**
+### What Remains Unchanged
 
-```text
-DROP TRIGGER IF EXISTS trg_validate_submission_has_entries ON timesheet_periods;
-DROP FUNCTION IF EXISTS validate_submission_has_entries();
-
-CREATE OR REPLACE FUNCTION validate_submission_has_entries() ...
-
-CREATE TRIGGER trg_validate_submission_has_entries
-  BEFORE UPDATE ON timesheet_periods
-  FOR EACH ROW
-  WHEN (NEW.submitted_at IS NOT NULL AND OLD.submitted_at IS NULL)
-  EXECUTE FUNCTION validate_submission_has_entries();
-```
-
-**Downgrade path (reversible):**
-
-```text
-DROP TRIGGER IF EXISTS trg_validate_submission_has_entries ON timesheet_periods;
-DROP FUNCTION IF EXISTS validate_submission_has_entries();
-```
+- Today's cell styling (`day_today`) -- unaffected.
+- Selected day primary highlight -- unaffected.
+- All other status tints (approved/green, pending/yellow, rejected, notReported/red) -- unaffected.
+- Month navigation and date selection -- unaffected.
 
 ---
 
-## 6. Validation Matrix
+## ISSUE 3: Daily Totals at-Target Styling
 
-### DB-Level Tests (post Phase 1)
+### Business Rule (Fixed 8.0h Target)
 
+The daily "at target" threshold is **fixed at 8.0 hours** -- it represents a standard full workday. This value is NOT derived from `dailyLimit` (which is the overwork warning threshold, typically 10h). If the firm's standard workday policy changes in the future, updating this constant will be a separate change request.
 
-| Test                  | Query                                  | Expected        | Validates |
-| --------------------- | -------------------------------------- | --------------- | --------- |
-| Zero orphans remain   | V1 query above                         | count = 0       | AC-1      |
-| Yandira untouched     | V3 query above                         | 1 row, rejected | AC-5      |
-| No collateral periods | V4 query above                         | correct count   | AC-5      |
-| Backup tables exist   | SELECT count(*) FROM each backup table | 16 + 6          | AC-6      |
+### Style Precedence (Explicit)
 
+| Priority | Condition | Classes | Visual |
+|---|---|---|---|
+| 1 (highest) | `overLimit`: total > dailyLimit | `text-destructive bg-destructive/10` | Red bg, red text (UNCHANGED) |
+| 2 | `atTarget`: total rounds to 8.0h | `text-foreground bg-success/15` | Light green bg, dark/black text (NEW) |
+| 3 | `nearLimit` and NOT `atTarget` | `text-warning-foreground bg-warning/10` | Yellow/warning (UNCHANGED logic) |
+| 4 (default) | None of the above | No special classes | Default styling (UNCHANGED) |
 
-### DB-Level Tests (post Phase 2 -- trigger)
+### Precision-Safe Comparison
 
+`Math.round(total * 100) === Math.round(8.0 * 100)` (i.e., `=== 800`)
 
-| Test                          | Method                                                                         | Expected                                              | Validates |
-| ----------------------------- | ------------------------------------------------------------------------------ | ----------------------------------------------------- | --------- |
-| Normal submit with entries    | UPDATE timesheet_periods SET submitted_at = now() for a period WITH entries    | Succeeds                                              | AC-4      |
-| Submit with zero entries      | UPDATE timesheet_periods SET submitted_at = now() for a period with NO entries | Raises SUBMIT_NO_ENTRIES                              | AC-3      |
-| Non-submit update unaffected  | UPDATE timesheet_periods SET total_hours = 10 (submitted_at unchanged)         | Succeeds                                              | AC-4      |
-| Re-submit (already submitted) | UPDATE submitted_at from one timestamp to another                              | Trigger does not fire (OLD.submitted_at was not NULL) | AC-4      |
+This handles floating-point edge cases. The constant `8.0` can be extracted as `DAILY_TARGET_HOURS = 8` for clarity.
 
+### Implementation Location
 
-### UI Smoke Checks
+In `src/components/timesheet/TimesheetGrid.tsx`, Totals Row (lines 851-871):
+- Define `const DAILY_TARGET_HOURS = 8;`
+- Add `atTarget` check using precision-safe comparison against `DAILY_TARGET_HOURS`.
+- Update `cn()` class list: overLimit first, then atTarget, then nearLimit.
 
+### Future-Proofing Note
 
-| Test                                            | Expected                                    | Validates |
-| ----------------------------------------------- | ------------------------------------------- | --------- |
-| Navigate to Isaac Dec 1-5, 2025                 | Week shows as empty/editable (NOT approved) | AC-2      |
-| Navigate to any real approved week with entries | Rows visible, locked, read-only             | AC-5      |
-| Submit a week with entries                      | Normal flow completes                       | AC-4      |
-
-
-### Production-Safety Dry-Run Requirement
-
-Phase 1 PREVIEW queries must be executed and output reviewed BEFORE proceeding to BACKUP and APPLY phases. This serves as the dry-run gate.
+If the standard workday changes from 8h, update the `DAILY_TARGET_HOURS` constant. This is intentionally separate from `dailyLimit` which controls overwork warnings.
 
 ---
 
-## 7. Rollback Plan
+## File-by-File Plan
 
+### 1. `src/lib/fiscalCalculations.ts`
 
-| Scenario                                        | Action                                                        |
-| ----------------------------------------------- | ------------------------------------------------------------- |
-| Phase 1 verification fails (within transaction) | `ROLLBACK;` -- no data changed                                |
-| Phase 1 post-commit issue discovered            | Restore from `_backup_orphan_*` tables (SQL in Phase 5 above) |
-| Phase 2 trigger causes production issues        | Drop trigger and function (downgrade path in Section 5)       |
-| Backup tables no longer needed                  | Drop after 30 days of confirmed stability                     |
+Add three new exported functions: `getFiscalYearForDate`, `getFiscalWeekOneMonday`, `getFiscalWeekNumber`. No existing functions modified or removed.
 
+### 2. `src/lib/timesheetUtils.ts`
 
----
+In `getWeekInfo()` (~line 56): replace `getISOWeek(weekStartDate)` with `getFiscalWeekNumber(weekStartDate)`. Import from `fiscalCalculations.ts`. Remove `getISOWeek` import from date-fns if no longer used in this file.
 
-## Tables Touched
+### 3. `src/hooks/useTimesheetWeek.ts`
 
+Lines 91-94: Replace manual `Math.ceil(...)` week calculation with `getFiscalWeekNumber(weekStartDate)`. Import from `@/lib/fiscalCalculations`.
 
-| Phase   | Table                                     | Operation                 |
-| ------- | ----------------------------------------- | ------------------------- |
-| Phase 1 | `timesheet_line_approvals`                | DELETE 6 specific rows    |
-| Phase 1 | `timesheet_periods`                       | UPDATE 16 specific rows   |
-| Phase 1 | `_backup_orphan_periods_20260223` (new)   | CREATE + INSERT           |
-| Phase 1 | `_backup_orphan_approvals_20260223` (new) | CREATE + INSERT           |
-| Phase 2 | `timesheet_periods`                       | New BEFORE UPDATE trigger |
+### 4. `src/hooks/useTimesheetImport.ts`
 
+Line 117: Replace `getISOWeek(weekDate)` with `getFiscalWeekNumber(weekDate)`. Update imports.
 
----
+### 5. `src/components/timesheet/WeekNavigator.tsx`
 
-Wrap. Please document the implementation of this PLAN by appending it to the [CHANGELOG-2026-02-2.md](http://CHANGELOG-2026-02-2.md) file In the Codebase.
+Remove all CURRENT week tinting (5 deletion points listed above). Add explicit `return` for CURRENT status.
 
-&nbsp;
+### 6. `src/components/timesheet/TimesheetGrid.tsx`
 
-## Acceptance Criteria (Measurable)
+In Totals Row (lines 851-871): define `DAILY_TARGET_HOURS = 8`, add precision-safe `atTarget` check, update `cn()` with 4-level precedence.
 
+### 7. `docs/CHANGELOG-2026-02-22.md`
 
-| AC   | Criterion                                                         | Verification Method                                            |
-| ---- | ----------------------------------------------------------------- | -------------------------------------------------------------- |
-| AC-1 | Zero orphan periods remain after remediation                      | V1 query returns 0                                             |
-| AC-2 | Affected weeks show as NOT_LOGGED/DRAFT in UI                     | Navigate to Isaac Dec 1-5 in timesheet                         |
-| AC-3 | New trigger prevents submitting periods with zero entries         | Attempt UPDATE with no entries, expect SUBMIT_NO_ENTRIES error |
-| AC-4 | Normal submission flow (entries exist) works without interference | Submit a real week with entries, succeeds                      |
-| AC-5 | Non-orphan data completely unaffected (zero collateral)           | V3 + V4 queries confirm exact counts                           |
-| AC-6 | Backup tables available for rollback                              | Backup tables exist with correct row counts                    |
-
+Append implementation entry documenting all three fixes with exact file paths, before/after descriptions, and risk assessment.
 
 ---
 
-## STOP Conditions
+## Test Strategy (by File Type)
 
-1. **Candidate count mismatch:** If PREVIEW returns anything other than exactly 16 periods / 6 approvals, ABORT.
-2. **Unexpected staff:** If any staff_id outside the 3 listed appears in candidates, ABORT.
-3. **Post-production orphan:** If any orphan `week_start_date` is after 2025-12-31, ABORT and investigate code bug.
-4. **Verification failure:** If any Phase 4 verification query returns unexpected results, ROLLBACK.
+### Utility Tests: `src/lib/__tests__/fiscalCalculations.test.ts` (new file)
+
+Fiscal week algorithm tests only. No UI behavior tests here.
+
+| Test Case | Input | Expected FY | Expected Week | Validates |
+|---|---|---|---|---|
+| Oct 1, 2025 (Wed) -- in Week 1 | 2025-10-01 | 2026 | 1 | AC-1 |
+| Sep 29, 2025 (Mon) -- Week 1 Monday | 2025-09-29 | 2026 | 1 | AC-1 |
+| Oct 6, 2025 (Mon) | 2025-10-06 | 2026 | 2 | AC-1 |
+| Feb 9, 2026 (Mon) | 2026-02-09 | 2026 | 20 | AC-2 |
+| Feb 16, 2026 (Mon) | 2026-02-16 | 2026 | 21 | AC-2 |
+| Sep 28, 2026 (Mon) -- last week FY2026 | 2026-09-28 | 2026 | 53 | AC-1 |
+| Oct 1, 2028 (Sun) -- shifts to Oct 2 | 2028-10-02 | 2029 | 1 | AC-1 |
+| Oct 1, 2033 (Sat) -- shifts to Oct 3 | 2033-10-03 | 2034 | 1 | AC-1 |
+| Pre-anchor pivot (Sep 28, 2025 Sun) | 2025-09-28 | 2025 | 52 | AC-3 |
+| Invariant: all cases return >= 1 | all above | -- | >= 1 | AC-3 |
+
+### UI Behavior Tests: Manual-Only
+
+Component test files for `WeekNavigator` and `TimesheetGrid` do not exist in the project. The following checks are manual-only (included in the Manual Test Matrix below):
+
+- CURRENT status produces no tint class in calendar (AC-4)
+- "Semana actual" legend item absent (AC-5)
+- Daily totals at 8.0h: light green bg + dark text (AC-6)
+- Daily totals over limit: red styling unchanged (AC-7)
+
+### Regression Guards
+
+| Existing Behavior | Guard |
+|---|---|
+| `getWeekMonday` returns correct Monday | No change to function; existing tests remain |
+| Calendar month navigation | No change to `displayedMonth` / `onMonthChange` logic |
+| Today cell stays grey | `isSameDay(day, today) return` guard untouched |
+| Selected day primary highlight | CSS rule untouched |
+| Over-limit red styling | `overLimit` check remains highest priority |
+| Weekend cells untinted | `day.getDay() === 0 || day.getDay() === 6` guard untouched |
+
+---
+
+## Files Summary
+
+| File | Change |
+|---|---|
+| `src/lib/fiscalCalculations.ts` | Add `getFiscalYearForDate`, `getFiscalWeekOneMonday`, `getFiscalWeekNumber` |
+| `src/lib/timesheetUtils.ts` | Use `getFiscalWeekNumber` in `getWeekInfo()` |
+| `src/hooks/useTimesheetWeek.ts` | Use `getFiscalWeekNumber` for period creation |
+| `src/hooks/useTimesheetImport.ts` | Use `getFiscalWeekNumber` for import |
+| `src/components/timesheet/WeekNavigator.tsx` | Remove CURRENT tint (explicit no-op skip) + remove legend entry |
+| `src/components/timesheet/TimesheetGrid.tsx` | Add at-target green styling with fixed 8.0h constant and precision-safe check |
+| `src/lib/__tests__/fiscalCalculations.test.ts` | New file: fiscal week algorithm unit tests |
+| `docs/CHANGELOG-2026-02-22.md` | Append implementation entry documenting all three fixes |
+
+## Files NOT Modified
+
+- No database migrations
+- No approval workflow files
+- No unrelated modules
+
+---
+
+## Acceptance Criteria
+
+| AC | Criterion | Verification |
+|---|---|---|
+| AC-1 | Fiscal week display follows Oct-1 rule with weekend shift | Unit tests for Oct boundary dates pass |
+| AC-2 | 2026-02-09 displays Week 20; 2026-02-16 displays Week 21 | Unit tests + navigate in UI |
+| AC-3 | Fiscal week function returns >= 1 for all tested dates including pre-anchor pivot | Unit test asserts >= 1 on all cases |
+| AC-4 | CURRENT status applies no tint class in calendar | Manual: open calendar on current week, no purple tint |
+| AC-5 | "Semana actual" legend item removed | Manual: open calendar popover, verify 4 legend items |
+| AC-6 | Daily totals exactly 8.0h renders light green bg + dark readable text, regardless of DAILY_LIMIT | Manual: log 8h on a day, verify styling |
+| AC-7 | Over-limit red behavior unchanged | Manual: log 11h, verify red styling |
+| AC-8 | No regression in Monday selection, month navigation, today/selected precedence | Manual: navigate weeks, select dates |
+
+---
+
+## Manual Test Matrix
+
+| Case | Expected | Validates |
+|---|---|---|
+| Navigate to Feb 9, 2026 week | Displays "Semana 20" | AC-1, AC-2 |
+| Navigate to Feb 16, 2026 week | Displays "Semana 21" | AC-1, AC-2 |
+| Navigate to Oct 1, 2025 week | Displays "Semana 1" | AC-1 |
+| Open calendar popover on current week | No purple tint on any day | AC-4 |
+| Check calendar legend | 4 items: Approved, Pending, Rejected, Not Reported | AC-5 |
+| Log exactly 8h on one day | Light green bg, dark readable numbers | AC-6 |
+| Log 11h on one day | Red bg, red text | AC-7 |
+| Log 9h on one day | Yellow/warning style | AC-7 |
+| Click different dates in calendar | Correct Monday selected, navigation works | AC-8 |
+| Check today cell in calendar | Grey highlight (unchanged) | AC-8 |
+
+---
+
+## Documentation
+
+Implementation will be documented by appending a detailed entry to `docs/CHANGELOG-2026-02-22.md` covering all three fixes with exact file paths, before/after descriptions, and risk assessment.
 
 ---
 
 **Implementation requires explicit Sergio approval after this plan review.**
+
