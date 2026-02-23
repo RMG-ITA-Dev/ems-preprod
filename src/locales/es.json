@@ -696,7 +696,14 @@
     "approvedLineCannotEdit": "No se pueden modificar horas de una línea aprobada. Solo las líneas rechazadas pueden editarse.",
     "deleteRowTitle": "Eliminar fila de la hoja de tiempo",
     "deleteRowDescription": "Esto eliminará permanentemente todas las horas registradas en esta fila para la semana actual. Esta acción no se puede deshacer.",
-    "deleteRowError": "Error al eliminar la fila. Se ha restaurado."
+    "deleteRowError": "Error al eliminar la fila. Se ha restaurado.",
+    "legend": {
+      "approved": "Aprobado",
+      "pending": "Pendiente",
+      "rejected": "Rechazado",
+      "notReported": "Sin registrar",
+      "currentWeek": "Semana actual"
+    }
   },
   "expenses": {
     "title": "Gastos",

@@ -80,6 +80,9 @@
     --brand-purple: 255 82% 65%;
     --brand-blue: 217 58% 39%;
     --brand-blue-light: 226 33% 57%;
+
+    /* Week calendar rejected status (violet) */
+    --week-rejected: 270 60% 70%;
     
     /* Tracker control buttons */
     --tracker-start: 186 100% 29%;
@@ -146,6 +149,9 @@
     /* --- Brand Colors (same in dark mode) --- */
     --brand-blue: 217 58% 39%;
     --brand-blue-light: 226 33% 57%;
+
+    /* Week calendar rejected status (violet, dark mode) */
+    --week-rejected: 270 55% 65%;
 
     /* Sidebar (Dark Mode) - Darker Teal with Reference Blue */
     --sidebar-background: 186 100% 20%;
@@ -234,6 +240,12 @@
   /* Purple switch globally for Radix switches */
   [data-state="checked"][data-radix-switch-root] {
     background-color: hsl(var(--brand-purple)) !important;
+  }
+
+  /* Week status calendar: ensure selected day always wins over tint modifiers */
+  .week-status-calendar button[aria-selected="true"] {
+    background-color: hsl(var(--primary)) !important;
+    color: hsl(var(--primary-foreground)) !important;
   }
 
   /* Safe area for bottom navigation on notched phones */
