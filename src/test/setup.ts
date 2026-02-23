@@ -44,5 +44,6 @@ vi.mock("@/integrations/supabase/client", () => ({
       })),
       upsert: vi.fn(),
     })),
+    rpc: vi.fn(),
   },
 }));
