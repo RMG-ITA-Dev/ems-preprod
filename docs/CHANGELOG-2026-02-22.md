@@ -1524,3 +1524,249 @@ export interface WeekStatus {
 | Backward compatibility of edge function | None | Maps RPC statuses to legacy format |
 | Old `get_my_pending_hours` RPC | None | Left untouched (used by termination gate) |
 | Null hire_date | None | No lower clamp; all weeks in period evaluated |
+
+---
+
+### Feature 0220-51: Timesheet Week Calendar Coloring (CALENDAR_WEEKS_COLORCHANGE v2)
+
+**Plan**: Plan_CALENDAR_WEEKS_COLORCHANGE_v1_REVISION_A
+**Priority**: Media
+**Route**: OPERACIONES → Hoja de Tiempo → WeekNavigator calendar popover
+
+#### Problem
+
+The WeekNavigator calendar popover in the Timesheet page showed no visual indication of week statuses. Users had to navigate week-by-week to discover which weeks were approved, pending, rejected, or missing hours. No at-a-glance overview existed.
+
+#### Solution
+
+Added week-based background tinting to calendar day cells using DayPicker v8 `modifiers` and `modifiersClassNames` props. Each day is tinted based on its ISO week's status, fetched from the existing `get_week_statuses` RPC via `useWeekStatuses` hook (single source of truth). A compact legend is displayed below the calendar.
+
+#### Precedence Strategy (Two-Layer)
+
+**Layer 1 — JS exclusion (today):** Today's date is explicitly excluded from all modifier arrays so `day_today` classes (`bg-muted`) apply with zero conflict.
+
+**Layer 2 — CSS override (selected):** Scoped CSS rule `.week-status-calendar button[aria-selected="true"]` with `!important` ensures selected day's `bg-primary` always wins over tint classes.
+
+Verified via browser DOM inspection: DayPicker v8 applies modifier classes to `<button>` element (same as `day_today`/`day_selected`). `aria-selected="true"` confirmed present on selected days. No reliable `data-today` or `aria-current` attribute exists — hence JS exclusion for today.
+
+#### Status-to-Color Mapping
+
+| Status | Modifier Key | CSS Class | Token |
+|--------|-------------|-----------|-------|
+| APPROVED | approved | `bg-success/15` | `--success` (existing) |
+| PENDING_APPROVAL | pending | `bg-warning/20` | `--warning` (existing) |
+| REJECTED | rejected | `bg-[hsl(var(--week-rejected))]/20` | `--week-rejected` (NEW, violet) |
+| DRAFT | notReported | `bg-destructive/15` | `--destructive` (existing) |
+| NOT_SUBMITTED | notReported | `bg-destructive/15` | `--destructive` (existing) |
+| NOT_LOGGED | notReported | `bg-destructive/15` | `--destructive` (existing) |
+| CURRENT | currentWeek | `bg-[hsl(var(--brand-purple))]/20` | `--brand-purple` (existing) |
+| FUTURE | (none) | no tint | — |
+
+REJECTED is **VIOLET** (not red). Explicit requirement.
+
+#### Solution — Detailed Edits
+
+**Edit 1 — `src/index.css`: Add `--week-rejected` CSS variable (lines 84-85 in `:root`, lines 153-154 in `.dark`)**
+
+```css
+/* BEFORE: (no --week-rejected variable existed) */
+
+/* AFTER — :root: */
+--week-rejected: 270 60% 70%;
+
+/* AFTER — .dark: */
+--week-rejected: 270 55% 65%;
+```
+
+**Edit 2 — `src/index.css`: Add scoped CSS for selected-day precedence (lines 246-249 in `@layer components`)**
+
+```css
+/* BEFORE: (no .week-status-calendar rules existed) */
+
+/* AFTER: */
+.week-status-calendar button[aria-selected="true"] {
+  background-color: hsl(var(--primary)) !important;
+  color: hsl(var(--primary-foreground)) !important;
+}
+```
+
+Scoped to `.week-status-calendar` — no other calendar instance affected.
+
+**Edit 3 — `src/pages/TimeSheet.tsx`: Pass `staffId` prop to WeekNavigator (line ~397)**
+
+```tsx
+// BEFORE:
+<WeekNavigator
+  weekInfo={weekInfo}
+  deadlineInfo={deadlineInfo}
+  currentWeekStart={currentWeekStart}
+  onPreviousWeek={handlePreviousWeek}
+  onNextWeek={handleNextWeek}
+  onWeekSelect={handleWeekSelect}
+  earliestWeekStart={earliestWeekStart}
+  latestWeekStart={latestWeekStart}
+/>
+
+// AFTER:
+<WeekNavigator
+  weekInfo={weekInfo}
+  deadlineInfo={deadlineInfo}
+  currentWeekStart={currentWeekStart}
+  onPreviousWeek={handlePreviousWeek}
+  onNextWeek={handleNextWeek}
+  onWeekSelect={handleWeekSelect}
+  earliestWeekStart={earliestWeekStart}
+  latestWeekStart={latestWeekStart}
+  staffId={staffRecord.staff_id}
+/>
+```
+
+**Edit 4 — `src/components/timesheet/WeekNavigator.tsx`: Core implementation (full file changes)**
+
+4a. **Props**: Added `staffId?: string` to `WeekNavigatorProps` interface.
+
+4b. **Imports**: Added `useState`, `useMemo`, `useEffect`, date-fns functions (`startOfWeek`, `endOfWeek`, `startOfMonth`, `endOfMonth`, `eachDayOfInterval`, `format`, `isSameDay`), `useWeekStatuses`, `WeekStatusCode`.
+
+4c. **Controlled month state**:
+```tsx
+// NEW:
+const [displayedMonth, setDisplayedMonth] = useState(currentWeekStart);
+
+useEffect(() => {
+  setDisplayedMonth(currentWeekStart);
+}, [currentWeekStart]);
+```
+
+4d. **Visible grid range** (Sunday-start to match DayPicker default):
+```tsx
+// NEW:
+const gridStart = useMemo(
+  () => startOfWeek(startOfMonth(displayedMonth), { weekStartsOn: 0 }),
+  [displayedMonth]
+);
+const gridEnd = useMemo(
+  () => endOfWeek(endOfMonth(displayedMonth), { weekStartsOn: 0 }),
+  [displayedMonth]
+);
+const gridStartISO = format(gridStart, "yyyy-MM-dd");
+const gridEndISO = format(gridEnd, "yyyy-MM-dd");
+```
+
+4e. **Hook call**:
+```tsx
+const { data: weekStatuses } = useWeekStatuses(staffId, gridStartISO, gridEndISO);
+```
+
+4f. **Build modifiers** (useMemo):
+- Build `Map<string, WeekStatusCode>` from `weekStatuses` keyed by `week_start`
+- Iterate all days in grid range via `eachDayOfInterval`
+- **Layer 1**: Skip today (`isSameDay(day, today)`) — excluded from all modifier arrays
+- Map each day to its ISO Monday via `getWeekMonday(day)`, look up status, push into bucket
+- Return `{ modifiers, modifiersClassNames }`
+
+4g. **CalendarComponent props update**:
+```tsx
+// BEFORE:
+<CalendarComponent
+  mode="single"
+  selected={currentWeekStart}
+  onSelect={handleDateSelect}
+  defaultMonth={currentWeekStart}
+  fromDate={earliestWeekStart}
+  toDate={...}
+  className="pointer-events-auto"
+/>
+
+// AFTER:
+<CalendarComponent
+  mode="single"
+  selected={currentWeekStart}
+  onSelect={handleDateSelect}
+  month={displayedMonth}
+  onMonthChange={setDisplayedMonth}
+  fromDate={earliestWeekStart}
+  toDate={...}
+  className="pointer-events-auto week-status-calendar"
+  modifiers={modifiers}
+  modifiersClassNames={modifiersClassNames}
+/>
+```
+
+DayPicker props added: `month`, `onMonthChange`, `modifiers`, `modifiersClassNames`.
+
+4h. **Compact legend** (below CalendarComponent in PopoverContent):
+```tsx
+<div className="flex flex-wrap gap-x-3 gap-y-1 px-3 pb-3 pt-1 text-[0.65rem] text-muted-foreground">
+  <span className="flex items-center gap-1">
+    <span className="inline-block h-2.5 w-2.5 rounded-sm bg-success/40" />
+    {t("timesheet.legend.approved")}
+  </span>
+  <!-- ...similar for pending (warning), rejected (week-rejected), notReported (destructive), currentWeek (brand-purple) -->
+</div>
+```
+
+**Edit 5 — `src/locales/en.json`: Add legend keys**
+
+```json
+"timesheet.legend.approved": "Approved",
+"timesheet.legend.pending": "Pending",
+"timesheet.legend.rejected": "Rejected",
+"timesheet.legend.notReported": "Not reported",
+"timesheet.legend.currentWeek": "Current week"
+```
+
+**Edit 6 — `src/locales/es.json`: Add legend keys**
+
+```json
+"timesheet.legend.approved": "Aprobado",
+"timesheet.legend.pending": "Pendiente",
+"timesheet.legend.rejected": "Rechazado",
+"timesheet.legend.notReported": "Sin registrar",
+"timesheet.legend.currentWeek": "Semana actual"
+```
+
+#### Files NOT Modified
+
+- `src/components/ui/calendar.tsx` — unchanged (already spreads `...props` including `modifiers`)
+- `src/hooks/useWeekStatuses.ts` — consumed as-is (single source of truth)
+- `src/lib/timesheetUtils.ts` — imported `getWeekMonday()`, no changes
+- No database files — RPC `get_week_statuses` already deployed
+- No other calendar instances (PeriodSelector, HolidayForm, EngagementForm, ExpenseLogForm)
+
+#### Acceptance Criteria
+
+| AC | Criterion | Status |
+|----|-----------|--------|
+| AC-1 | Current week tinted purple; today cell remains grey | ✅ |
+| AC-2 | APPROVED weeks tinted light green | ✅ |
+| AC-3 | PENDING_APPROVAL weeks tinted yellow | ✅ |
+| AC-4 | REJECTED weeks tinted violet (NOT red) | ✅ |
+| AC-5 | DRAFT / NOT_SUBMITTED / NOT_LOGGED tinted red | ✅ |
+| AC-6 | FUTURE weeks have no tint | ✅ |
+| AC-7 | Selected day styling remains fully visible | ✅ |
+| AC-8 | Month navigation updates coloring (refetch) | ✅ |
+| AC-9 | Clicking date still selects ISO week Monday | ✅ |
+| AC-10 | No duplicate status logic (useWeekStatuses only) | ✅ |
+| AC-11 | fromDate restriction still enforced | ✅ |
+| AC-12 | Dark mode tints visible | ✅ |
+
+#### Files Changed Summary
+
+| File | Change |
+|------|--------|
+| `src/index.css` | Added `--week-rejected` variable (light + dark) + scoped `.week-status-calendar` selected override |
+| `src/pages/TimeSheet.tsx` | Pass `staffId` prop to WeekNavigator |
+| `src/components/timesheet/WeekNavigator.tsx` | Core implementation: controlled month, grid range, useWeekStatuses, modifiers, legend |
+| `src/locales/en.json` | 5 legend translation keys |
+| `src/locales/es.json` | 5 legend translation keys |
+
+#### Risk Assessment
+
+| Risk | Level | Mitigation |
+|------|-------|------------|
+| Tint overrides today styling | Eliminated | Today excluded from all modifier arrays (JS Layer 1) |
+| Tint overrides selected styling | Low | `aria-selected` scoped CSS with `!important` (Layer 2) |
+| Sun-start grid vs Mon-keyed statuses | Eliminated | Every day mapped via `getWeekMonday()` |
+| Excess refetching on month navigation | Low | TanStack Query caching (staleTime 5min) + queryKey dedup |
+| Dark mode tints washed out | Low | Separate `--week-rejected` dark value |
+| Other calendars affected | Eliminated | All CSS scoped to `.week-status-calendar` |
