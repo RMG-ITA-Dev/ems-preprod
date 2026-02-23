@@ -8,6 +8,9 @@ import {
   getCurrentFiscalPeriod,
   formatDateRange,
   formatDateForApi,
+  getFiscalYearForDate,
+  getFiscalWeekOneMonday,
+  getFiscalWeekNumber,
 } from "../fiscalCalculations";
 
 describe("getCalendarYearPeriod", () => {
@@ -265,5 +268,105 @@ describe("formatDateForApi", () => {
   it("pads single digit months and days", () => {
     const date = new Date(2024, 0, 5);
     expect(formatDateForApi(date)).toBe("2024-01-05");
+});
+
+describe("getFiscalYearForDate", () => {
+  it("returns next year for October dates", () => {
+    expect(getFiscalYearForDate(new Date(2025, 9, 1))).toBe(2026);
   });
+  it("returns next year for December dates", () => {
+    expect(getFiscalYearForDate(new Date(2025, 11, 31))).toBe(2026);
+  });
+  it("returns same year for January dates", () => {
+    expect(getFiscalYearForDate(new Date(2026, 0, 15))).toBe(2026);
+  });
+  it("returns same year for September dates", () => {
+    expect(getFiscalYearForDate(new Date(2026, 8, 30))).toBe(2026);
+  });
+});
+
+describe("getFiscalWeekOneMonday", () => {
+  it("FY2026: Oct 1, 2025 is Wednesday → Week 1 Monday = Sep 29, 2025", () => {
+    const monday = getFiscalWeekOneMonday(2026);
+    expect(monday.getFullYear()).toBe(2025);
+    expect(monday.getMonth()).toBe(8);
+    expect(monday.getDate()).toBe(29);
+    expect(monday.getDay()).toBe(1);
+  });
+
+  it("FY2029: Oct 1, 2028 is Sunday → shifts to Oct 2 → Monday = Oct 2, 2028", () => {
+    const monday = getFiscalWeekOneMonday(2029);
+    expect(monday.getFullYear()).toBe(2028);
+    expect(monday.getMonth()).toBe(9);
+    expect(monday.getDate()).toBe(2);
+    expect(monday.getDay()).toBe(1);
+  });
+
+  it("FY2034: Oct 1, 2033 is Saturday → shifts to Oct 3 → Monday = Oct 3, 2033", () => {
+    const monday = getFiscalWeekOneMonday(2034);
+    expect(monday.getFullYear()).toBe(2033);
+    expect(monday.getMonth()).toBe(9);
+    expect(monday.getDate()).toBe(3);
+    expect(monday.getDay()).toBe(1);
+  });
+});
+
+describe("getFiscalWeekNumber", () => {
+  it("Oct 1, 2025 (Wed) → FY2026 Week 1", () => {
+    expect(getFiscalWeekNumber(new Date(2025, 9, 1))).toBe(1);
+  });
+
+  it("Sep 29, 2025 (Mon) → FY2026 Week 1", () => {
+    expect(getFiscalWeekNumber(new Date(2025, 8, 29))).toBe(1);
+  });
+
+  it("Oct 6, 2025 (Mon) → FY2026 Week 2", () => {
+    expect(getFiscalWeekNumber(new Date(2025, 9, 6))).toBe(2);
+  });
+
+  it("Feb 9, 2026 (Mon) → FY2026 Week 20", () => {
+    expect(getFiscalWeekNumber(new Date(2026, 1, 9))).toBe(20);
+  });
+
+  it("Feb 16, 2026 (Mon) → FY2026 Week 21", () => {
+    expect(getFiscalWeekNumber(new Date(2026, 1, 16))).toBe(21);
+  });
+
+  it("Sep 28, 2026 (Mon) → FY2027 Week 1 (Oct 1, 2026 is Thu, so Week 1 Monday = Sep 28)", () => {
+    expect(getFiscalWeekNumber(new Date(2026, 8, 28))).toBe(1);
+  });
+
+  it("Oct 2, 2028 (Mon, after Sun shift) → FY2029 Week 1", () => {
+    expect(getFiscalWeekNumber(new Date(2028, 9, 2))).toBe(1);
+  });
+
+  it("Oct 3, 2033 (Mon, after Sat shift) → FY2034 Week 1", () => {
+    expect(getFiscalWeekNumber(new Date(2033, 9, 3))).toBe(1);
+  });
+
+  it("Sep 28, 2025 (Sun) pivots to FY2025 → week 52", () => {
+    const week = getFiscalWeekNumber(new Date(2025, 8, 28));
+    expect(week).toBeGreaterThanOrEqual(1);
+    expect(week).toBe(52);
+  });
+
+  it("always returns >= 1 for various dates", () => {
+    const testDates = [
+      new Date(2025, 9, 1),
+      new Date(2025, 8, 29),
+      new Date(2025, 9, 6),
+      new Date(2026, 1, 9),
+      new Date(2026, 1, 16),
+      new Date(2026, 8, 28),
+      new Date(2028, 9, 2),
+      new Date(2033, 9, 3),
+      new Date(2025, 8, 28),
+      new Date(2024, 9, 1),
+      new Date(2024, 0, 1),
+    ];
+    testDates.forEach((date) => {
+      expect(getFiscalWeekNumber(date)).toBeGreaterThanOrEqual(1);
+    });
+  });
+});
 });

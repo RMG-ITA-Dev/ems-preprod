@@ -1,4 +1,4 @@
-import { startOfYear, endOfYear, startOfQuarter, endOfQuarter, startOfMonth, endOfMonth, format, subYears, addMonths, getYear, getQuarter } from 'date-fns';
+import { startOfYear, endOfYear, startOfQuarter, endOfQuarter, startOfMonth, endOfMonth, startOfWeek, format, subYears, addMonths, getYear, getQuarter } from 'date-fns';
 import { es } from 'date-fns/locale';
 
 export type PeriodType = 'calendar' | 'tax_bolivia' | 'custom';
@@ -170,4 +170,67 @@ export function formatDateRange(startDate: Date, endDate: Date): string {
  */
 export function formatDateForApi(date: Date): string {
   return format(date, 'yyyy-MM-dd');
+}
+
+/**
+ * Get the fiscal year a date belongs to.
+ * Rule: If month >= October (index 9), fiscal year = year + 1; otherwise fiscal year = year.
+ * Example: Oct 15, 2025 → FY2026; Mar 1, 2026 → FY2026; Sep 30, 2026 → FY2026.
+ */
+export function getFiscalYearForDate(date: Date): number {
+  return date.getMonth() >= FISCAL_YEAR_START_MONTH
+    ? date.getFullYear() + 1
+    : date.getFullYear();
+}
+
+/**
+ * Get the Monday that starts fiscal Week 1 for a given fiscal year.
+ * Anchor: October 1 of (fiscalYear - 1).
+ * If Oct 1 falls on Saturday → shift to Oct 3 (Monday).
+ * If Oct 1 falls on Sunday → shift to Oct 2 (Monday).
+ * Then return the Monday of the week containing the anchor.
+ */
+export function getFiscalWeekOneMonday(fiscalYear: number): Date {
+  let anchor = new Date(fiscalYear - 1, FISCAL_YEAR_START_MONTH, 1); // Oct 1
+  const dow = anchor.getDay(); // 0=Sun, 6=Sat
+  if (dow === 6) {
+    // Saturday → shift to Monday Oct 3
+    anchor = new Date(anchor.getFullYear(), anchor.getMonth(), 3);
+  } else if (dow === 0) {
+    // Sunday → shift to Monday Oct 2
+    anchor = new Date(anchor.getFullYear(), anchor.getMonth(), 2);
+  }
+  // Get Monday of the week containing the anchor
+  return startOfWeek(anchor, { weekStartsOn: 1 });
+}
+
+const MS_PER_DAY = 86400000;
+
+/**
+ * Compute the fiscal week number for any date.
+ * INV-1: Always returns an integer >= 1.
+ * INV-2: If date precedes current FY anchor, pivots to previous FY.
+ * INV-3: Single source of truth for all week numbering.
+ */
+export function getFiscalWeekNumber(date: Date): number {
+  let fiscalYear = getFiscalYearForDate(date);
+  const inputMonday = startOfWeek(date, { weekStartsOn: 1 });
+
+  // Check if the date's week belongs to the NEXT fiscal year
+  // (happens when Oct 1 falls mid-week and Week 1 Monday is in late September)
+  const nextFYAnchor = getFiscalWeekOneMonday(fiscalYear + 1);
+  if (inputMonday.getTime() >= nextFYAnchor.getTime()) {
+    fiscalYear = fiscalYear + 1;
+  }
+
+  const anchorMonday = getFiscalWeekOneMonday(fiscalYear);
+  let daysDiff = Math.round((inputMonday.getTime() - anchorMonday.getTime()) / MS_PER_DAY);
+
+  // Pre-anchor pivot: date is before current FY Week 1 Monday
+  if (daysDiff < 0) {
+    const prevAnchorMonday = getFiscalWeekOneMonday(fiscalYear - 1);
+    daysDiff = Math.round((inputMonday.getTime() - prevAnchorMonday.getTime()) / MS_PER_DAY);
+  }
+
+  return Math.floor(daysDiff / 7) + 1;
 }
