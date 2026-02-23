@@ -696,7 +696,14 @@
     "approvedLineCannotEdit": "Cannot modify hours on an approved line. Only rejected lines can be edited.",
     "deleteRowTitle": "Delete timesheet row",
     "deleteRowDescription": "This will permanently delete all hours logged in this row for the current week. This action cannot be undone.",
-    "deleteRowError": "Failed to delete row. It has been restored."
+    "deleteRowError": "Failed to delete row. It has been restored.",
+    "legend": {
+      "approved": "Approved",
+      "pending": "Pending",
+      "rejected": "Rejected",
+      "notReported": "Not reported",
+      "currentWeek": "Current week"
+    }
   },
   "expenses": {
     "title": "Expenses",

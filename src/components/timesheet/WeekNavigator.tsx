@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronLeft, ChevronRight, Calendar } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,15 @@ import {
 } from "@/components/ui/popover";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import {
+  startOfWeek,
+  endOfWeek,
+  startOfMonth,
+  endOfMonth,
+  eachDayOfInterval,
+  format,
+  isSameDay,
+} from "date-fns";
+import {
   WeekInfo,
   DeadlineInfo,
   formatFullDate,
@@ -23,6 +32,7 @@ import {
   isDeadlinePassed,
   getWeekMonday,
 } from "@/lib/timesheetUtils";
+import { useWeekStatuses, WeekStatusCode } from "@/hooks/useWeekStatuses";
 
 interface WeekNavigatorProps {
   weekInfo: WeekInfo;
@@ -33,6 +43,7 @@ interface WeekNavigatorProps {
   onWeekSelect: (date: Date) => void;
   earliestWeekStart?: Date;
   latestWeekStart?: Date;
+  staffId?: string;
 }
 
 export const WeekNavigator = ({
@@ -44,21 +55,97 @@ export const WeekNavigator = ({
   onWeekSelect,
   earliestWeekStart,
   latestWeekStart,
+  staffId,
 }: WeekNavigatorProps) => {
   const { t, i18n } = useTranslation();
   const lang = i18n.language;
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [displayedMonth, setDisplayedMonth] = useState(currentWeekStart);
+
+  // Sync displayedMonth when currentWeekStart changes (prev/next week nav)
+  useEffect(() => {
+    setDisplayedMonth(currentWeekStart);
+  }, [currentWeekStart]);
 
   const deadlinePassed = isDeadlinePassed(deadlineInfo.deadline);
   const deadlineIsToday = isDeadlineToday(deadlineInfo.deadline);
 
-  // BUG #5: Disable backward navigation past hire date
+  // Disable backward navigation past hire date
   const canGoPrevious = !earliestWeekStart || 
     currentWeekStart.getTime() > earliestWeekStart.getTime();
 
   // Disable forward navigation past termination date
   const canGoNext = !latestWeekStart ||
     currentWeekStart.getTime() < latestWeekStart.getTime();
+
+  // Compute visible grid range for DayPicker (Sun-Sat grid)
+  const gridStart = useMemo(
+    () => startOfWeek(startOfMonth(displayedMonth), { weekStartsOn: 0 }),
+    [displayedMonth]
+  );
+  const gridEnd = useMemo(
+    () => endOfWeek(endOfMonth(displayedMonth), { weekStartsOn: 0 }),
+    [displayedMonth]
+  );
+  const gridStartISO = format(gridStart, "yyyy-MM-dd");
+  const gridEndISO = format(gridEnd, "yyyy-MM-dd");
+
+  // Fetch week statuses for the visible grid
+  const { data: weekStatuses } = useWeekStatuses(staffId, gridStartISO, gridEndISO);
+
+  // Build modifiers from week statuses
+  const { modifiers, modifiersClassNames } = useMemo(() => {
+    if (!weekStatuses?.length) return { modifiers: {}, modifiersClassNames: {} };
+
+    // Build week_start -> status map
+    const statusMap = new Map<string, WeekStatusCode>();
+    weekStatuses.forEach((ws) => statusMap.set(ws.week_start, ws.status));
+
+    const groups: Record<string, Date[]> = {
+      approved: [],
+      pending: [],
+      rejected: [],
+      notReported: [],
+      currentWeek: [],
+    };
+
+    const today = new Date();
+    const allDays = eachDayOfInterval({ start: gridStart, end: gridEnd });
+
+    allDays.forEach((day) => {
+      // Layer 1: exclude today from all modifiers so day_today styling wins
+      if (isSameDay(day, today)) return;
+
+      const monday = getWeekMonday(day);
+      const key = format(monday, "yyyy-MM-dd");
+      const status = statusMap.get(key);
+
+      if (!status || status === "FUTURE") return;
+
+      if (status === "APPROVED") groups.approved.push(day);
+      else if (status === "PENDING_APPROVAL") groups.pending.push(day);
+      else if (status === "REJECTED") groups.rejected.push(day);
+      else if (status === "CURRENT") groups.currentWeek.push(day);
+      else groups.notReported.push(day); // DRAFT, NOT_SUBMITTED, NOT_LOGGED
+    });
+
+    return {
+      modifiers: {
+        approved: groups.approved,
+        pending: groups.pending,
+        rejected: groups.rejected,
+        notReported: groups.notReported,
+        currentWeek: groups.currentWeek,
+      },
+      modifiersClassNames: {
+        approved: "bg-success/15",
+        pending: "bg-warning/20",
+        rejected: "bg-[hsl(var(--week-rejected))]/20",
+        notReported: "bg-destructive/15",
+        currentWeek: "bg-[hsl(var(--brand-purple))]/20",
+      },
+    };
+  }, [weekStatuses, gridStart, gridEnd]);
 
   const handleDateSelect = (date: Date | undefined) => {
     if (date) {
@@ -128,11 +215,37 @@ export const WeekNavigator = ({
             mode="single"
             selected={currentWeekStart}
             onSelect={handleDateSelect}
-            defaultMonth={currentWeekStart}
+            month={displayedMonth}
+            onMonthChange={setDisplayedMonth}
             fromDate={earliestWeekStart}
             toDate={latestWeekStart ? new Date(latestWeekStart.getTime() + 6 * 86400000) : undefined}
-            className="pointer-events-auto"
+            className="pointer-events-auto week-status-calendar"
+            modifiers={modifiers}
+            modifiersClassNames={modifiersClassNames}
           />
+          {/* Compact legend */}
+          <div className="flex flex-wrap gap-x-3 gap-y-1 px-3 pb-3 pt-1 text-[0.65rem] text-muted-foreground">
+            <span className="flex items-center gap-1">
+              <span className="inline-block h-2.5 w-2.5 rounded-sm bg-success/40" />
+              {t("timesheet.legend.approved")}
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="inline-block h-2.5 w-2.5 rounded-sm bg-warning/40" />
+              {t("timesheet.legend.pending")}
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="inline-block h-2.5 w-2.5 rounded-sm bg-[hsl(var(--week-rejected))]/40" />
+              {t("timesheet.legend.rejected")}
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="inline-block h-2.5 w-2.5 rounded-sm bg-destructive/40" />
+              {t("timesheet.legend.notReported")}
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="inline-block h-2.5 w-2.5 rounded-sm bg-[hsl(var(--brand-purple))]/40" />
+              {t("timesheet.legend.currentWeek")}
+            </span>
+          </div>
         </PopoverContent>
       </Popover>
 

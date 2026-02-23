@@ -394,6 +394,7 @@ const TimeSheet = () => {
           onWeekSelect={setCurrentWeekStart}
           earliestWeekStart={earliestWeekStart}
           latestWeekStart={latestWeekStart}
+          staffId={staffRecord.staff_id}
         />
 
         {/* BUG #22: Before hire date warning */}
