@@ -256,6 +256,7 @@ const TimesheetApprovalDetail = () => {
           approvalDecisions={approvalDecisions}
           onDecisionChange={handleDecisionChange}
           lang={currentLanguage}
+          engagementBudgets={timesheetData.engagementBudgets}
         />
 
         {/* Reject Dialog */}

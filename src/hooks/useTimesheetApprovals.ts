@@ -87,6 +87,8 @@ export interface StaffTimesheetForApproval {
   timeEntries: TimeEntryForApproval[];
   lineApprovals: LineApproval[];
   approvableEngagementIds: string[];
+  engagementBudgets: Record<string, { budgetedHours: number | null }>;
+  budgetQueryMs: number;
 }
 
 // Fetch pending approval summaries grouped by staff/week with total hours
@@ -306,10 +308,43 @@ export function useStaffTimesheetForApproval(periodId: string | null) {
 
         if (eligibilityError) throw eligibilityError;
 
-        approvableEngagementIds = (approvablePairs || []).map(
+      approvableEngagementIds = (approvablePairs || []).map(
           (p: { period_id: string; engagement_id: string }) => p.engagement_id
         );
       }
+
+      // Budget query: fetch budgeted hours per engagement
+      const budgetT0 = performance.now();
+      const engagementBudgets: Record<string, { budgetedHours: number | null }> = {};
+
+      if (engagementIds.length > 0) {
+        const { data: woData } = await supabase
+          .from("work_orders")
+          .select("wo_id, engagement_id")
+          .in("engagement_id", engagementIds);
+
+        if (woData && woData.length > 0) {
+          const woIds = woData.map((w) => w.wo_id);
+          const woEngMap = new Map(woData.map((w) => [w.wo_id, w.engagement_id]));
+
+          const { data: budgetLines } = await supabase
+            .from("wo_budget_lines")
+            .select("wo_id, budgeted_hours")
+            .in("wo_id", woIds);
+
+          // Aggregate by engagement
+          (budgetLines || []).forEach((bl) => {
+            const engId = woEngMap.get(bl.wo_id);
+            if (!engId) return;
+            if (!engagementBudgets[engId]) {
+              engagementBudgets[engId] = { budgetedHours: 0 };
+            }
+            engagementBudgets[engId].budgetedHours =
+              (engagementBudgets[engId].budgetedHours || 0) + (bl.budgeted_hours || 0);
+          });
+        }
+      }
+      const budgetQueryMs = Math.round(performance.now() - budgetT0);
 
       return {
         period: {
@@ -332,6 +367,8 @@ export function useStaffTimesheetForApproval(periodId: string | null) {
         })),
         lineApprovals: (lineApprovals || []) as LineApproval[],
         approvableEngagementIds,
+        engagementBudgets,
+        budgetQueryMs,
       };
     },
     staleTime: 0,

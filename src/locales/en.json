@@ -884,7 +884,10 @@
       "toApprove": "to approve",
       "toReject": "to reject",
       "stillPending": "pending"
-    }
+    },
+    "budgetLabel": "Budget",
+    "remainingLabel": "rem",
+    "budgetNA": "N/A"
   },
   "auth": {
     "signIn": "Sign In",
