@@ -125,6 +125,7 @@
     "noEntryToSave": "No time to save",
     "entryNotFound": "Entry not found",
     "errorStarting": "Error starting",
+    "engagementNotEligible": "Selected engagement is no longer eligible. Please choose a valid engagement.",
     "errorStopping": "Error stopping",
     "errorAdding": "Error adding",
     "errorDeleting": "Error deleting",

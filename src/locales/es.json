@@ -125,6 +125,7 @@
     "noEntryToSave": "No hay tiempo que guardar",
     "entryNotFound": "La entrada no existe",
     "errorStarting": "Error al iniciar",
+    "engagementNotEligible": "El encargo seleccionado ya no es elegible. Por favor seleccione un encargo válido.",
     "errorStopping": "Error al detener",
     "errorAdding": "Error al agregar",
     "errorDeleting": "Error al eliminar",
