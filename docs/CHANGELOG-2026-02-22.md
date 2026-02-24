@@ -4,64 +4,6 @@
 
 ---
 
-### Bug 0220-56: User Management Integration -- v13
-
-**Plan**: Plan_0220-56_v13
-**Priority**: Media
-
-**Problem**: Direct table UPDATE for roles, no server guards,
-UNIQUE(user_id, role) allows multiple roles, no category-role sync,
-orphan users non-actionable, no auth deletion, no audit tamper
-protection, prior versions had interim permissive audit policy window.
-
-**Root cause**: Missing default_app_role column, direct table mutation
-in useUpdateUserRole, no Edge Function, no permissions hardening.
-
-**v13 delta from v12**:
-- Eliminated interim permissive "Trusted insert lifecycle audit" policy
-  entirely. M2 creates audit table with NO INSERT policy for
-  anon/authenticated from the start.
-- New M2b migration atomically enforces REVOKE/GRANT with zero
-  permissive window.
-- M4 from v12 replaced by M2b (identical content, earlier execution).
-- New G3a gate: strict schema equivalence test (name, type, ordinal).
-- New G3b gate: restore hash parity test (MD5 ordered by id).
-- Rollback script includes mandatory schema + hash validation before
-  and after restore.
-
-**Changes**:
-- migration_run_log with UNIQUE migration_key
-- Dynamic backup table naming bound to exact migration_key
-- Deterministic row_number() dedup with 3-key ordering
-- UNIQUE(user_id) replacing UNIQUE(user_id, role)
-- categories.default_app_role with fail-fast backfill
-- user_lifecycle_audit_log: no permissive INSERT policy ever created
-- M2b: atomic REVOKE/GRANT (no interim permissive window)
-- admin_set_user_role RPC: advisory lock 67890 + FOR UPDATE + 6 codes
-- manage-auth-user Edge Function: verify_jwt=true, orphan-only, audit
-- Post-migration assertions using exact migration_key
-- RPC-backed role mutation replacing direct table UPDATE
-- UserRolesManager: orphan badge, Create Staff, Delete Account
-- StaffForm: sync-role dialog with confirm/skip/close semantics
-- CategoryForm: default_app_role dropdown
-- Category interface: can_approve_timesheets + default_app_role
-- useCategoryMutations: payload types updated
-- StaffNew: email prefill from query parameter
-- EN/ES i18n keys with exact parity
-- 12 automated release gates (G1, G2, G3, G3a, G3b, G4, G5A-D, G6, G7)
-
-**Safety**:
-- verify_jwt=true (G6)
-- Advisory lock 67890 + row lock (G2)
-- No permissive audit INSERT policy at any point (G7)
-- Strict schema equivalence + MD5 hash parity for rollback (G3a, G3b)
-- Exact-key rollback with schema validation (G3)
-- Dedup correctness (G1)
-- Post-migration assertions (G4)
-- Integration tests (G5A-G5D)
-
----
-
 ### Bug 0220-18: Prevent Duplicate Client Names
 
 **Plan**: Plan_0220-18_v5
@@ -1586,6 +1528,59 @@ export interface WeekStatus {
 
 ---
 
+### Comparison Report: Task 0220-50 (Plan v3 vs. Plan v5)
+
+What started as a low-priority bug fix (v3) evolved into a high-priority, architectural feature upgrade (v5). The primary driver for this change was a critical flaw in v3: relying on a `hire_date` that was often null, which rendered the entire component invisible to users.
+
+#### High-Level Comparison
+
+| Aspect | Plan v3 (Bug Fix) | Plan v5 (Feature Upgrade) |
+| :--- | :--- | :--- |
+| **Priority** | Low (Baja) | High (Alta) |
+| **Core Concept** | A simple alert for missing/unreported hours since the user's hire date. | A unified, workflow-compliant "Week Status" engine driven by a selected date period. |
+| **Scope** | Point-in-time fix limited to the dashboard. | Architectural shift introducing reusable hooks and refactoring edge functions for a single source of truth. |
+| **Failure Point Fixed** | Addressed the lack of a pending hours indicator. | Addressed v3's invisibility issue caused by null `hire_date` values in the database. |
+
+---
+
+#### Architectural & Logic Shifts
+
+##### 1. Database RPC Logic
+* **v3 (`get_my_pending_hours`)**: Iterated weeks starting strictly from the `hire_date` up to the current date. It skipped the current week entirely and only returned data if there was a gap (missing hours).
+* **v5 (`get_week_statuses`)**: Takes a specific date range (`p_start_date`, `p_end_date`) rather than relying solely on `hire_date`. It evaluates *every* week in that range, including current and future weeks. It applies a complex workflow state machine (NOT_LOGGED, DRAFT, PENDING_APPROVAL, etc.) rather than just doing basic subtraction.
+
+##### 2. Backend / Edge Function Integration
+* **v3**: Did not touch edge functions. The RPC was solely for the frontend component.
+* **v5**: Refactored `supabase/functions/dashboard-data/index.ts`. It replaced ~100 lines of duplicated, inline week-status logic in the edge function with a single call to the new `get_week_statuses` RPC, establishing the database as the single source of truth.
+
+##### 3. Frontend Architecture
+* **v3**: Logic was tightly coupled within `PendingHoursAlert.tsx`, making a direct React Query call to the database.
+* **v5**: Extracted the logic into a reusable custom hook (`useWeekStatuses.ts`). This was done strategically so the same logic could later be reused to color-code the Timesheet WeekNavigator calendar.
+
+---
+
+#### UI/UX Evolution
+
+##### The Dashboard Component (`PendingHoursAlert.tsx`)
+* **v3 Approach ("Zero Noise"):** The component was designed to be entirely invisible unless the user had missing hours. If triggered, it showed a simple warning card ("X weeks with Y unreported hours") and an expandable table of the 12 worst weeks. 
+* **v5 Approach ("Comprehensive Overview"):** The component was completely rewritten to be period-aware, linking to the user's Period Selector. It is now a permanent fixture that shows a holistic breakdown of the timesheet workflow using a four-color chip system:
+    * **Red:** Action required (Not Logged, Not Submitted, Draft)
+    * **Violet:** Action required (Rejected)
+    * **Yellow:** Waiting on others (Pending Approval)
+    * **Green:** All good (Approved)
+
+##### Internationalization (i18n)
+* **v3**: Added 8 basic translation keys mostly focused on "Expected," "Logged," and "Missing" hours.
+* **v5**: Replaced the v3 keys with a comprehensive suite of 13 keys to support the new workflow statuses (Approved, Pending, Draft, Rejected, Current Week, etc.).
+
+---
+
+#### Summary
+**Plan v3** was a localized, reactive patch to tell users they forgot to log their time. **Plan v5** is a proactive, systemic redesign that not only fixes the fundamental bug (null hire dates) but also aligns the dashboard UI with the actual business timesheet approval workflow, reducing technical debt along the way.
+
+---
+---
+
 ### Feature 0220-51: Timesheet Week Calendar Coloring (CALENDAR_WEEKS_COLORCHANGE v2)
 
 **Plan**: Plan_CALENDAR_WEEKS_COLORCHANGE_v1_REVISION_A
@@ -2544,5 +2539,65 @@ ATOMIC_GROUP_EXPORT: Include All Matching | Exclude Conflicting Groups | Cancel.
 - **Tests**:
   - 8 hook tests (`src/hooks/__tests__/useApprovedEngagements.test.tsx`): Group A/B filtering, internal exclusion, closed/inactive exclusion, visibility clause, dedup, admin vs non-admin, empty set.
   - 4 integration tests (`src/pages/__tests__/TrackerRecord.start-guard.test.tsx`): stale ID blocked, valid ID calls RPC, UI button disabled for ineligible, race path rejection.
+
+
+### Bug 0220-56: User Management Integration -- v13
+
+**Plan**: Plan_0220-56_v13
+**Priority**: Media
+
+**Problem**: Direct table UPDATE for roles, no server guards,
+UNIQUE(user_id, role) allows multiple roles, no category-role sync,
+orphan users non-actionable, no auth deletion, no audit tamper
+protection, prior versions had interim permissive audit policy window.
+
+**Root cause**: Missing default_app_role column, direct table mutation
+in useUpdateUserRole, no Edge Function, no permissions hardening.
+
+**v13 delta from v12**:
+- Eliminated interim permissive "Trusted insert lifecycle audit" policy
+  entirely. M2 creates audit table with NO INSERT policy for
+  anon/authenticated from the start.
+- New M2b migration atomically enforces REVOKE/GRANT with zero
+  permissive window.
+- M4 from v12 replaced by M2b (identical content, earlier execution).
+- New G3a gate: strict schema equivalence test (name, type, ordinal).
+- New G3b gate: restore hash parity test (MD5 ordered by id).
+- Rollback script includes mandatory schema + hash validation before
+  and after restore.
+
+**Changes**:
+- migration_run_log with UNIQUE migration_key
+- Dynamic backup table naming bound to exact migration_key
+- Deterministic row_number() dedup with 3-key ordering
+- UNIQUE(user_id) replacing UNIQUE(user_id, role)
+- categories.default_app_role with fail-fast backfill
+- user_lifecycle_audit_log: no permissive INSERT policy ever created
+- M2b: atomic REVOKE/GRANT (no interim permissive window)
+- admin_set_user_role RPC: advisory lock 67890 + FOR UPDATE + 6 codes
+- manage-auth-user Edge Function: verify_jwt=true, orphan-only, audit
+- Post-migration assertions using exact migration_key
+- RPC-backed role mutation replacing direct table UPDATE
+- UserRolesManager: orphan badge, Create Staff, Delete Account
+- StaffForm: sync-role dialog with confirm/skip/close semantics
+- CategoryForm: default_app_role dropdown
+- Category interface: can_approve_timesheets + default_app_role
+- useCategoryMutations: payload types updated
+- StaffNew: email prefill from query parameter
+- EN/ES i18n keys with exact parity
+- 12 automated release gates (G1, G2, G3, G3a, G3b, G4, G5A-D, G6, G7)
+
+**Safety**:
+- verify_jwt=true (G6)
+- Advisory lock 67890 + row lock (G2)
+- No permissive audit INSERT policy at any point (G7)
+- Strict schema equivalence + MD5 hash parity for rollback (G3a, G3b)
+- Exact-key rollback with schema validation (G3)
+- Dedup correctness (G1)
+- Post-migration assertions (G4)
+- Integration tests (G5A-G5D)
+
+---
+
 
 </initial_code>
