@@ -2465,3 +2465,23 @@ ATOMIC_GROUP_EXPORT: Include All Matching | Exclude Conflicting Groups | Cancel.
 | Hidden filtered entries not considered | Low | handleExport uses `entries`, never `filteredEntries` |
 | Regression in export merge semantics | Low | `exportEntries` body NOT modified |
 | Stale preflight due to concurrent changes | Low | Confirm-time revalidation via normalized `analysisEquals` |
+
+---
+
+### Bug 0220-52: Tracker Engagement Selector Excludes Internal Engagements
+
+**Plan**: Plan_0220-52_v5
+**Priority**: Baja
+**Route**: OPERACIONES - Registros de Tiempo
+
+- **Problem**: Internal/administrative engagements appeared in the Tracker stopwatch engagement dropdown.
+- **Root Cause**: `useApprovedEngagements.ts` had no `is_internal` filter on either query group. Group B visibility clause explicitly included `is_internal.eq.true`.
+- **Fix**:
+  - Added `.eq("is_internal", false)` to Group A and Group B queries in `useApprovedEngagements.ts`.
+  - Removed `is_internal.eq.true` branch from Group B visibility `.or()` clause.
+  - Added defensive runtime guard in `TrackerRecord.handleStart`: rejects stale/invalid engagement IDs with `tracker.engagementNotEligible` toast before calling start RPC.
+  - Added i18n keys `tracker.engagementNotEligible` (en/es).
+- **Unchanged**: Timesheet grid (`useTimesheetWeek.ts`) unmodified; internal engagements remain available there. No database/RPC changes. No data migration. `TrackerBar.tsx` unchanged.
+- **Tests**:
+  - 8 hook tests (`src/hooks/__tests__/useApprovedEngagements.test.tsx`): Group A/B filtering, internal exclusion, closed/inactive exclusion, visibility clause, dedup, admin vs non-admin, empty set.
+  - 4 integration tests (`src/pages/__tests__/TrackerRecord.start-guard.test.tsx`): stale ID blocked, valid ID calls RPC, UI button disabled for ineligible, race path rejection.

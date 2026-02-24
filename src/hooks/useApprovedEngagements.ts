@@ -29,6 +29,7 @@ export function useApprovedEngagements() {
           `)
           .in("engagement_id", approvedIds)
           .eq("status", "active")
+          .eq("is_internal", false)
           .order("created_at", { ascending: false });
         if (error) throw error;
         groupA = (data || []) as Engagement[];
@@ -51,11 +52,12 @@ export function useApprovedEngagements() {
         `)
         .eq("work_order_required", false)
         .eq("status", "active")
+        .eq("is_internal", false)
         .order("created_at", { ascending: false });
 
       if (!isAdmin && myStaffId) {
         groupBQuery = groupBQuery.or(
-          `is_internal.eq.true,partner_id.eq.${myStaffId},manager_id.eq.${myStaffId}`
+          `partner_id.eq.${myStaffId},manager_id.eq.${myStaffId}`
         );
       }
 

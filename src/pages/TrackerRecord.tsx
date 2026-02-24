@@ -21,6 +21,7 @@ import {
   useFinalizeMyStaleTimers,
 } from "@/hooks/useTimerEntries";
 import { useGlobalSettings } from "@/hooks/useEmsData";
+import { useApprovedEngagements } from "@/hooks/useApprovedEngagements";
 
 const MAX_SECONDS = 28800; // 8h
 
@@ -33,6 +34,7 @@ const TrackerRecord = () => {
   const { staffRecord, isLoading: staffLoading } = useCurrentStaff();
   const { data: entries } = useTimerEntries();
   const { data: globalSettings } = useGlobalSettings();
+  const { data: approvedEngagements = [] } = useApprovedEngagements();
 
   // DB-first hooks
   const { data: runningEntry, isLoading: runningLoading } = useRunningTimerEntry();
@@ -166,6 +168,15 @@ const TrackerRecord = () => {
 
   const handleStart = async () => {
     if (!tracker.engagementId || !tracker.activityId) return;
+
+    // Defensive: verify engagement is in the eligible list
+    const isEligible = approvedEngagements.some(
+      (e) => e.engagement_id === tracker.engagementId
+    );
+    if (!isEligible) {
+      toast.error(t("tracker.engagementNotEligible"));
+      return;
+    }
 
     if (isWeekendToday && !allowWeekendTracking) {
       toast.error(t("tracker.weekendNotAllowed"));
