@@ -2598,6 +2598,3 @@ in useUpdateUserRole, no Edge Function, no permissions hardening.
 - Integration tests (G5A-G5D)
 
 ---
-
-
-</initial_code>
