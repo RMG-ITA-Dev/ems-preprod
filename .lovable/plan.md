@@ -1,476 +1,627 @@
 
 
-# Plan: Focus Mode and Navigation Safety for Timesheet, Approvals Detail, and Settings Global Tab (v4)
+# Plan: User Management Integration (Bug 0220-56) -- v13
 
 ---
 
-## 1) Objective
+## VERDICT: APPROVED
 
-Apply the proven focus-mode pattern (hidden sidebar/mobile nav + navigation lock + explicit safe-exit) to three contexts, ensuring every protected render branch (loading, error, empty, main) provides at least one explicit safe exit. The Approvals list page and non-global Settings tabs remain normal contexts with sidebar visible.
-
-**v4 refinements over v3**: Back navigation uses `navigate(-1)` with fallback to a known route. Test assertions explicitly verify `allowNextNavigation()` call order before `navigate()`.
-
----
-
-## 2) Route-by-Route Behavior Contract
-
-| Route | Context Type | Sidebar | Mobile Nav | Nav Lock | isDirty Rule | Exit Controls | All Branches Protected? |
-|---|---|---|---|---|---|---|---|
-| `/timesheet` | Protected edit | Hidden | Hidden | Yes | `false` (auto-saves) | Back button in every branch + LeavePageDialog | Yes |
-| `/timesheet/approvals` | Normal list | Visible | Visible | No | N/A | Standard sidebar/nav | N/A |
-| `/timesheet/approvals/:periodId` | Protected decision | Hidden | Hidden | Yes | `hasDecisions` | Cancel button (loading/empty: Back button) + LeavePageDialog | Yes |
-| `/settings` (non-global tab) | Normal | Visible | Visible | No | N/A | Standard sidebar/nav | N/A |
-| `/settings` (global tab active) | Protected config | Hidden | Hidden | Yes | `isGlobalDirty` (computed) | Cancel button resets + switches tab + LeavePageDialog | Yes |
-
-### Protected-State Exit Invariant
-
-Every render path (`if (loading)`, `if (error)`, `if (!data)`, main return) that uses `focusMode` MUST include:
-1. An explicit in-screen exit control (Back or Cancel button).
-2. A `<LeavePageDialog>` component.
+**Plan Version**: v13 (iterates from v12 baseline)
+**Bug ID**: 0220-56
+**Area**: Administration > Settings
+**Confidence**: High
 
 ---
 
-## 3) File-by-File Add/Change/Delete Actions
+## v13 Delta from v12
 
-| # | File | Action | Description |
-|---|------|--------|-------------|
-| 1 | `src/pages/TimeSheet.tsx` | **Change** | Add `focusMode` to all 4 `AppLayout` calls. Add `usePageLeaveLock`, `useNavigate`, Back button + `LeavePageDialog` in all 4 branches. |
-| 2 | `src/pages/TimesheetApprovals.tsx` | **No change** | Normal list context. |
-| 3 | `src/pages/TimesheetApprovalDetail.tsx` | **Change** | Add `focusMode` to all 3 `AppLayout` calls. Add `usePageLeaveLock`. Wire `handleBack` and post-save navigate through `allowNextNavigation()`. Add Back button to loading/empty branches. Add `LeavePageDialog` to all 3 branches. |
-| 4 | `src/pages/Settings.tsx` | **Change** | Add controlled tab state. Conditional `focusMode={activeTab === "global"}`. Add `usePageLeaveLock` with `isGlobalDirty`. Add `handleCancelGlobal` with full reset. Add Cancel button next to Save. Add `LeavePageDialog`. Wire save success to exit global tab. |
-| 5 | `src/locales/en.json` | **Change** | Add `"back": "Back"` in `common` block. |
-| 6 | `src/locales/es.json` | **Change** | Add `"back": "Volver"` in `common` block. |
-| 7 | `src/pages/__tests__/TimeSheet.focus-lock.test.tsx` | **Add** | 4 tests. |
-| 8 | `src/pages/__tests__/TimesheetApprovalDetail.lock-navigation.test.tsx` | **Add** | 4 tests. |
-| 9 | `src/pages/__tests__/Settings.global-focus-cancel.test.tsx` | **Add** | 5 tests. |
-| 10 | `docs/CHANGELOG-2026-02-22.md` | **Change** | Append changelog entry at end of file. |
-
-No files deleted. No database/RPC changes. `TimesheetApprovals.tsx` unchanged.
+- M2 no longer creates a temporary permissive "Trusted insert lifecycle audit" INSERT policy. The audit table is created with RLS enabled but no INSERT policy for anon/authenticated from the start.
+- New migration M2b (`_bug_0220_56_02b_audit_policy_hardening_atomic.sql`) atomically enforces least-privilege INSERT controls: REVOKE from anon/authenticated, GRANT INSERT to service_role only -- all in one migration with no interim permissive window.
+- M4 from v12 is replaced by M2b (same content, but runs immediately after M2 to eliminate any window of permissive access).
+- New test file `supabase/tests/bug_0220_56_restore_hash_parity.sql` computes deterministic MD5 row hashes (ordered by `id`) for backup vs restored user_roles and fails on mismatch.
+- New test file `supabase/tests/bug_0220_56_schema_equivalence_strict.sql` asserts strict schema equivalence (column name, data_type, ordinal_position) between backup snapshot and target table.
+- Gate G3 now bound to three explicit commands: rollback script + schema equivalence test + hash parity test.
+- Rollback script includes mandatory strict schema equivalence validation AND hash parity check before restore proceeds.
+- Definition of Done requires explicit PASS for strict schema equivalence (G3a) and hash parity (G3b) as sub-gates.
 
 ---
 
-## 4) Navigation Safety Rules
+## 1) SCOPE
 
-### 4a. Back Navigation Pattern
+### Must Cover
+- P1: Replace direct role UPDATE with RPC
+- P2: Orphan user actionability (badge, create staff, delete account)
+- P3: Category interface/payload completeness
+- P4: Server-side auth user deletion
+- P5: Deterministic dedup + UNIQUE(user_id)
+- P6: Exact-key rollback + tamper-resistant audit + strict schema/hash validation
 
-All Back buttons use `navigate(-1)` with a fallback for cases where there is no browser history (e.g., direct URL entry):
-
-```typescript
-const handleBack = () => {
-  allowNextNavigation();
-  if (window.history.length > 1) {
-    navigate(-1);
-  } else {
-    navigate("/");  // fallback for Timesheet
-    // or navigate("/timesheet/approvals") for Approval Detail
-  }
-};
-```
-
-### 4b. General Pattern (mirrors `ClientEdit.tsx`)
-
-Every protected context must:
-1. Import and call `usePageLeaveLock({ locked, isDirty })`.
-2. Render `<LeavePageDialog blocker={blocker} isDirty={isDirty} />` in every render branch where `locked=true`.
-3. Call `allowNextNavigation()` immediately before every programmatic `navigate()`.
-4. Pass `focusMode` to `<AppLayout>` in all render branches.
-
-### 4c. Enumerated Programmatic Navigation Paths
-
-| # | File | Branch | Navigation Call | `allowNextNavigation()` Required? | Why |
-|---|---|---|---|---|---|
-| N1 | `TimeSheet.tsx` | Loading branch | Back button -> `navigate(-1)` / fallback `navigate("/")` | Yes | Protected context |
-| N2 | `TimeSheet.tsx` | No staff branch | Back button -> same | Yes | Protected context |
-| N3 | `TimeSheet.tsx` | Error branch | Back button -> same | Yes | Protected context |
-| N4 | `TimeSheet.tsx` | Main branch | Back button -> same | Yes | Protected context |
-| N5 | `TimesheetApprovalDetail.tsx` | Loading branch | Back button -> `navigate(-1)` / fallback `navigate("/timesheet/approvals")` | Yes | Protected context |
-| N6 | `TimesheetApprovalDetail.tsx` | Empty branch | Back button -> same | Yes | Protected context |
-| N7 | `TimesheetApprovalDetail.tsx` | Main: `handleBack` (Cancel) | Same as N5 | Yes | Protected context |
-| N8 | `TimesheetApprovalDetail.tsx` | Main: `processDecisions` success (line 158-159) | `navigate("/timesheet/approvals")` | Yes | Protected context |
-| N9 | `Settings.tsx` | Global tab: Cancel | `setActiveTab("account")` | No | No `navigate()` call; lock deactivates because `activeTab !== "global"` |
-| N10 | `Settings.tsx` | Global tab: Save success | `setActiveTab("account")` | No | Same as N9 |
+### Must NOT Do
+- Manual-only validation gates
+- Frontend-only integrity enforcement
+- Static snapshot naming
+- LIKE-based rollback selection
+- Permissive audit write policies (not even temporarily)
 
 ---
 
-## 5) Settings Cancel/Reset Algorithm
+## 2) ROOT CAUSE
 
-### 5a. Persisted Snapshot Source
-
-The `settings` array from `useGlobalSettings()` is the source of truth. The existing `useEffect` (lines 84-107) syncs local state from `settings` on load.
-
-### 5b. `isGlobalDirty` Computation
-
-```typescript
-const isGlobalDirty = useMemo(() => {
-  if (!settings) return false;
-  const persistedLang = getSetting("LANGUAGE") || "en";
-  const persistedWeekend = getSetting("ALLOW_WEEKEND_TRACKING") === "true";
-  const persistedCompact = getSetting("COMPACT_FONT") === "true";
-  const persistedDomain = getSetting("ALLOWED_EMAIL_DOMAIN") || "";
-  const persistedTax = (parseFloat(getSetting("TAX_RATE") || "0.13") * 100).toString();
-  const persistedRealization = getSetting("REALIZATION_LIMIT") || "75";
-  const persistedDaily = getSetting("DAILY_LIMIT") || "12";
-  const persistedWeekly = getSetting("WEEKLY_LIMIT") || "50";
-
-  return (
-    language !== persistedLang ||
-    allowWeekendTracking !== persistedWeekend ||
-    compactFont !== persistedCompact ||
-    allowedEmailDomain !== persistedDomain ||
-    (taxRate !== "" && taxRate !== persistedTax) ||
-    (realizationLimit !== "" && realizationLimit !== persistedRealization) ||
-    (dailyLimit !== "" && dailyLimit !== persistedDaily) ||
-    (weeklyLimit !== "" && weeklyLimit !== persistedWeekly)
-  );
-}, [settings, language, allowWeekendTracking, compactFont, allowedEmailDomain,
-    taxRate, realizationLimit, dailyLimit, weeklyLimit]);
-```
-
-### 5c. Cancel Button Handler
-
-```typescript
-const handleCancelGlobal = () => {
-  setLanguage(getSetting("LANGUAGE") || "en");
-  setAllowWeekendTracking(getSetting("ALLOW_WEEKEND_TRACKING") === "true");
-
-  const persistedCompact = getSetting("COMPACT_FONT") === "true";
-  setCompactFont(persistedCompact);
-  document.documentElement.dataset.compactFont = persistedCompact ? "true" : "false";
-
-  setAllowedEmailDomain(getSetting("ALLOWED_EMAIL_DOMAIN") || "");
-  setTaxRate("");
-  setRealizationLimit("");
-  setDailyLimit("");
-  setWeeklyLimit("");
-
-  setActiveTab("account");
-};
-```
-
-### 5d. Save Success Exit
-
-After successful save in `handleSaveSettings`, add `setActiveTab("account")` after `toast.success` (line 242) to exit protected context.
-
-### 5e. Cancel Button Placement
-
-Replace the standalone Save button (line 514) with a Cancel + Save group:
-
-```tsx
-<div className="flex gap-3">
-  <Button variant="cancel" onClick={handleCancelGlobal} className="btn-action">
-    {t("common.cancel")}
-  </Button>
-  <Button onClick={handleSaveSettings} disabled={updateSettingMutation.isPending}>
-    {updateSettingMutation.isPending ? t("common.saving") : t("common.saveChanges")}
-  </Button>
-</div>
-```
+| ID | Symptom | Mechanism | Evidence |
+|---|---|---|---|
+| P1 | Role changes unguarded | Direct `.from("user_roles").update(...)` | `src/hooks/useUserRoles.ts` lines 36-39 |
+| P2 | Orphan users non-actionable | Em-dash for null staff_name | `src/components/settings/UserRolesManager.tsx` lines 122-125 |
+| P3 | Category interface incomplete | `can_approve_timesheets`, `default_app_role` absent | `src/hooks/useEmsData.ts` lines 4-13 (8 fields); `useCategoryMutations.ts` lines 10-17, 42-51 |
+| P4 | No auth deletion | No Edge Function | `supabase/functions/manage-auth-user/` absent |
+| P5 | Multiple roles possible | `UNIQUE(user_id, role)` not `UNIQUE(user_id)` | DB constraint `user_roles_user_id_role_key` |
+| P6 | No audit/rollback infra | Tables absent; no permissions hardening | DB queries confirmed |
 
 ---
 
-## 6) Implementation Details per File
+## 3) BEHAVIORAL CONTRACT
 
-### 6a. `src/pages/TimeSheet.tsx`
+### Invariants
 
-**Add imports:**
-```typescript
-import { useNavigate } from "react-router-dom";
-import { ArrowLeft } from "lucide-react";
-import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";
-import { LeavePageDialog } from "@/components/ui/leave-page-dialog";
+| # | Invariant | Enforcement |
+|---|---|---|
+| I1 | One role row per user_id | UNIQUE(user_id) after dedup |
+| I2 | Admin count >= 1 | RPC: LAST_ADMIN with advisory lock 67890 |
+| I3 | No self-role-change | RPC: SELF_CHANGE |
+| I4 | No self-account-delete | Edge Function: SELF_DELETE |
+| I5 | Auth deletion orphan-only | Edge Function: LINKED_USER |
+| I6 | Sync never auto-downgrades admin | StaffForm: skip dialog, info toast |
+| I7 | Audit tamper-resistant | No permissive INSERT policy; REVOKE from anon/authenticated; service_role + SECURITY DEFINER only |
+
+### Dialog Semantics
+
+| Dialog | Choice | Calls |
+|---|---|---|
+| Sync Role | Confirm | Exactly 1 RPC |
+| Sync Role | Skip | 0 RPC |
+| Sync Role | Close/Escape | 0 RPC (= Skip) |
+| Delete Orphan | Confirm | Exactly 1 function call |
+| Delete Orphan | Cancel | 0 calls |
+
+---
+
+## 4) STATE TRANSITION MATRIX
+
+| From State | Action | Allowed | Code |
+|---|---|---|---|
+| Admin | Change to non-admin | Conditional (last admin blocked) | LAST_ADMIN |
+| Any user | Change own role | Never | SELF_CHANGE |
+| Auth-linked staff | Category change | Yes (optional sync; admin protected) | Dialog |
+| Orphan auth user | Delete account | Yes (admin-only, self-block, orphan-only) | DELETED |
+| Linked auth user | Delete account | Never | LINKED_USER |
+| Same role set | Role change | Idempotent (no audit) | ALREADY_SET |
+
+---
+
+## 5) IMPLEMENTATION DELTA
+
+### 5.1 ADD
+
+#### M1: `<ts>_bug_0220_56_01_role_dedup_deterministic.sql`
+
+```sql
+CREATE TABLE IF NOT EXISTS public.migration_run_log (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  migration_key text NOT NULL UNIQUE,
+  backup_table_name text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  executed_by text DEFAULT current_user
+);
+
+DO $$
+DECLARE
+  v_key text := '0220-56-role-dedup-<ts>';
+  v_backup text := 'user_roles_backup_0220_56_<ts>';
+BEGIN
+  IF EXISTS (SELECT 1 FROM public.migration_run_log
+             WHERE migration_key = v_key) THEN
+    RAISE EXCEPTION 'Migration key % already executed.', v_key;
+  END IF;
+  EXECUTE format('CREATE TABLE public.%I AS SELECT * FROM public.user_roles', v_backup);
+  INSERT INTO public.migration_run_log (migration_key, backup_table_name)
+  VALUES (v_key, v_backup);
+END $$;
+
+DELETE FROM user_roles WHERE id IN (
+  SELECT id FROM (
+    SELECT id, row_number() OVER (
+      PARTITION BY user_id ORDER BY
+        CASE role
+          WHEN 'admin' THEN 1 WHEN 'partner' THEN 2 WHEN 'director' THEN 3
+          WHEN 'manager' THEN 4 WHEN 'senior' THEN 5 WHEN 'semisenior' THEN 6
+          WHEN 'sqr' THEN 7 WHEN 'specialist_tax' THEN 8 WHEN 'specialist_it' THEN 9
+          WHEN 'staff' THEN 10 WHEN 'viewer' THEN 11
+        END ASC, created_at ASC NULLS LAST, id ASC
+    ) AS rn FROM user_roles
+  ) ranked WHERE rn > 1
+);
+
+ALTER TABLE user_roles DROP CONSTRAINT IF EXISTS user_roles_user_id_role_key;
+ALTER TABLE user_roles ADD CONSTRAINT user_roles_user_id_key UNIQUE (user_id);
 ```
 
-**Add hooks** (after line 36):
-```typescript
-const navigate = useNavigate();
-const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty: false });
+#### M2: `<ts>_bug_0220_56_02_schema_rpc_audit.sql`
+
+```sql
+ALTER TABLE categories ADD COLUMN IF NOT EXISTS default_app_role app_role;
+
+DO $$
+DECLARE
+  v_expected text[] := ARRAY['Socio','SQR','Director','Gerente','Supervisor',
+    'Senior','Semi-Senior','Asistente','Especialista IT','Especialista TAX'];
+  v_name text; v_found integer;
+BEGIN
+  FOREACH v_name IN ARRAY v_expected LOOP
+    SELECT count(*) INTO v_found FROM categories WHERE category_name = v_name;
+    IF v_found = 0 THEN RAISE EXCEPTION 'Expected category "%" not found', v_name; END IF;
+  END LOOP;
+END $$;
+
+UPDATE categories SET default_app_role = 'partner' WHERE category_name = 'Socio';
+UPDATE categories SET default_app_role = 'sqr' WHERE category_name = 'SQR';
+UPDATE categories SET default_app_role = 'director' WHERE category_name = 'Director';
+UPDATE categories SET default_app_role = 'manager' WHERE category_name = 'Gerente';
+UPDATE categories SET default_app_role = 'senior' WHERE category_name IN ('Supervisor','Senior');
+UPDATE categories SET default_app_role = 'semisenior' WHERE category_name = 'Semi-Senior';
+UPDATE categories SET default_app_role = 'staff' WHERE category_name = 'Asistente';
+UPDATE categories SET default_app_role = 'specialist_it' WHERE category_name = 'Especialista IT';
+UPDATE categories SET default_app_role = 'specialist_tax' WHERE category_name = 'Especialista TAX';
+
+-- Create audit log with RLS but NO permissive INSERT policy (v13: no interim exposure)
+CREATE TABLE IF NOT EXISTS public.user_lifecycle_audit_log (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  actor_user_id uuid NOT NULL,
+  target_user_id uuid NOT NULL,
+  action text NOT NULL,
+  old_role app_role,
+  new_role app_role,
+  reason text,
+  metadata jsonb DEFAULT '{}'::jsonb,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.user_lifecycle_audit_log ENABLE ROW LEVEL SECURITY;
+
+-- SELECT only for admins
+CREATE POLICY "Admins can view lifecycle audit"
+  ON public.user_lifecycle_audit_log FOR SELECT
+  USING (has_role(auth.uid(), 'admin'));
+
+-- NO INSERT/UPDATE/DELETE policies for anon or authenticated.
+-- Writes happen only via SECURITY DEFINER (admin_set_user_role) and
+-- service_role (manage-auth-user edge function). Grants handled in M2b.
+
+CREATE OR REPLACE FUNCTION public.admin_set_user_role(
+  p_target_user_id uuid, p_new_role app_role, p_reason text DEFAULT NULL
+) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public' AS $$
+DECLARE
+  v_caller_id uuid := auth.uid();
+  v_old_role app_role; v_admin_count integer;
+BEGIN
+  PERFORM pg_advisory_xact_lock(67890);
+  IF NOT has_role(v_caller_id, 'admin') THEN
+    RETURN jsonb_build_object('success',false,'code','NOT_ADMIN','message','Only admins can change roles');
+  END IF;
+  IF v_caller_id = p_target_user_id THEN
+    RETURN jsonb_build_object('success',false,'code','SELF_CHANGE','message','Cannot change own role');
+  END IF;
+  SELECT role INTO v_old_role FROM user_roles WHERE user_id = p_target_user_id FOR UPDATE;
+  IF v_old_role IS NULL THEN
+    RETURN jsonb_build_object('success',false,'code','USER_NOT_FOUND','message','User role not found');
+  END IF;
+  IF v_old_role = p_new_role THEN
+    RETURN jsonb_build_object('success',true,'code','ALREADY_SET','message','Role already set',
+      'old_role',v_old_role::text,'new_role',p_new_role::text);
+  END IF;
+  IF v_old_role = 'admin' AND p_new_role != 'admin' THEN
+    SELECT count(*) INTO v_admin_count FROM user_roles WHERE role = 'admin';
+    IF v_admin_count <= 1 THEN
+      RETURN jsonb_build_object('success',false,'code','LAST_ADMIN','message','Cannot remove the last admin');
+    END IF;
+  END IF;
+  UPDATE user_roles SET role = p_new_role WHERE user_id = p_target_user_id;
+  INSERT INTO user_lifecycle_audit_log (actor_user_id, target_user_id, action, old_role, new_role, reason)
+  VALUES (v_caller_id, p_target_user_id, 'role_change', v_old_role, p_new_role, p_reason);
+  RETURN jsonb_build_object('success',true,'code','UPDATED','message','Role updated',
+    'old_role',v_old_role::text,'new_role',p_new_role::text);
+END; $$;
 ```
 
-**Helper function:**
-```typescript
-const handleBack = () => {
-  allowNextNavigation();
-  if (window.history.length > 1) {
-    navigate(-1);
-  } else {
-    navigate("/");
-  }
-};
+#### M2b: `<ts>_bug_0220_56_02b_audit_policy_hardening_atomic.sql` (NEW in v13)
+
+Runs immediately after M2. No interim permissive window exists because M2 never created an INSERT policy.
+
+```sql
+-- Explicit REVOKE to ensure no inherited or default grants allow DML
+REVOKE INSERT, UPDATE, DELETE ON public.user_lifecycle_audit_log FROM anon;
+REVOKE INSERT, UPDATE, DELETE ON public.user_lifecycle_audit_log FROM authenticated;
+
+-- Only service_role (edge functions) can INSERT directly
+GRANT INSERT ON public.user_lifecycle_audit_log TO service_role;
+
+-- Authenticated users can SELECT (governed by RLS admin-only policy)
+GRANT SELECT ON public.user_lifecycle_audit_log TO authenticated;
+
+-- SECURITY DEFINER functions (admin_set_user_role) bypass RLS and role
+-- grants, so they can INSERT without explicit GRANT to authenticated.
 ```
 
-**Branch 1: Loading (lines 342-350):**
-```tsx
-<AppLayout title={t("timesheet.title")} focusMode>
-  <div className="flex items-center justify-between mb-4">
-    <Button variant="cancel" onClick={handleBack} className="btn-action">
-      <ArrowLeft className="h-4 w-4 mr-1" />
-      {t("common.back")}
-    </Button>
-  </div>
-  <div className="flex items-center justify-center h-64">
-    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-  </div>
-  <LeavePageDialog blocker={blocker} isDirty={false} />
-</AppLayout>
+#### M3: `<ts>_bug_0220_56_03_post_migration_assertions.sql`
+
+```sql
+DO $$
+DECLARE v_count integer;
+  v_exact_key text := '0220-56-role-dedup-<ts>';
+BEGIN
+  SELECT count(*) INTO v_count FROM (SELECT user_id FROM user_roles GROUP BY user_id HAVING count(*) > 1) d;
+  IF v_count > 0 THEN RAISE EXCEPTION 'ASSERTION: % users have duplicate roles', v_count; END IF;
+  SELECT count(*) INTO v_count FROM user_roles WHERE role = 'admin';
+  IF v_count < 1 THEN RAISE EXCEPTION 'ASSERTION: No admin users'; END IF;
+  SELECT count(*) INTO v_count FROM categories WHERE default_app_role IS NULL;
+  IF v_count > 0 THEN RAISE EXCEPTION 'ASSERTION: % categories NULL default_app_role', v_count; END IF;
+  SELECT count(*) INTO v_count FROM migration_run_log WHERE migration_key = v_exact_key;
+  IF v_count < 1 THEN RAISE EXCEPTION 'ASSERTION: No run_log entry for %', v_exact_key; END IF;
+END $$;
 ```
 
-**Branch 2: No staff record (lines 353-368):** Same pattern -- Back button + focusMode + LeavePageDialog wrapping existing Alert.
+#### E1: `supabase/functions/manage-auth-user/index.ts`
 
-**Branch 3: Error (lines 371-382):** Same pattern.
+- CORS + OPTIONS handler.
+- Extract Authorization header -> UNAUTHORIZED 401 if missing.
+- Service_role client from SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY.
+- Resolve caller via `supabaseAdmin.auth.getUser(token)` -> UNAUTHORIZED 401.
+- Admin check: SELECT role FROM user_roles -> NOT_ADMIN 403.
+- Parse body `{ action: "delete", userId }` -> INVALID_REQUEST 400.
+- Self-delete guard -> SELF_DELETE 400.
+- Orphan guard (staff with auth_user_id and deleted_at IS NULL) -> LINKED_USER 400.
+- Execute `auth.admin.deleteUser(userId)`. Not found -> audit `account_delete_idempotent`, return ALREADY_DELETED.
+- Audit via service_role INSERT into user_lifecycle_audit_log.
+- Return DELETED 200.
 
-**Branch 4: Main return (line 385):** Add `focusMode` to AppLayout. Add Back button as first element in the actions bar (line 508, inside `flex gap-3`):
-```tsx
-<Button variant="cancel" onClick={handleBack} className="btn-action">
-  <ArrowLeft className="h-4 w-4 mr-1" />
-  {t("common.back")}
-</Button>
+#### E2: `supabase/config.toml` change
+
+```text
+[functions.manage-auth-user]
+verify_jwt = true
 ```
 
-Add `<LeavePageDialog blocker={blocker} isDirty={false} />` before closing `</AppLayout>`.
+#### DB Test Files
 
-### 6b. `src/pages/TimesheetApprovalDetail.tsx`
+| File | Gate | Command |
+|---|---|---|
+| `supabase/tests/bug_0220_56_dedup_correctness.sql` | G1 | `psql -v ON_ERROR_STOP=1 -f supabase/tests/bug_0220_56_dedup_correctness.sql` |
+| `supabase/tests/bug_0220_56_last_admin_concurrency.sql` | G2 | via shell wrapper |
+| `supabase/tests/run_bug_0220_56_last_admin_concurrency.sh` | G2 | `bash supabase/tests/run_bug_0220_56_last_admin_concurrency.sh` (non-zero exit on fail) |
+| `supabase/tests/bug_0220_56_rollback_integrity.sql` | G3 | `psql -v ON_ERROR_STOP=1 -f supabase/tests/bug_0220_56_rollback_integrity.sql` |
+| `supabase/tests/bug_0220_56_schema_equivalence_strict.sql` | G3a | `psql -v ON_ERROR_STOP=1 -f supabase/tests/bug_0220_56_schema_equivalence_strict.sql` |
+| `supabase/tests/bug_0220_56_restore_hash_parity.sql` | G3b | `psql -v ON_ERROR_STOP=1 -f supabase/tests/bug_0220_56_restore_hash_parity.sql` |
+| `supabase/tests/bug_0220_56_audit_tamper_resistance.sql` | G7 | `psql -v ON_ERROR_STOP=1 -f supabase/tests/bug_0220_56_audit_tamper_resistance.sql` |
 
-**Add imports:**
-```typescript
-import { ArrowLeft } from "lucide-react";
-import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";
-import { LeavePageDialog } from "@/components/ui/leave-page-dialog";
-```
+**G3a test** (`bug_0220_56_schema_equivalence_strict.sql`):
+- Read `backup_table_name` from `migration_run_log WHERE migration_key = '<exact_key>'`.
+- Fail if not found.
+- Compare column_name, data_type, ordinal_position between backup and `user_roles` using EXCEPT in both directions.
+- Fail if any difference exists.
 
-**Add hook** after `hasDecisions` (after line 87):
-```typescript
-const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty: hasDecisions });
-```
+**G3b test** (`bug_0220_56_restore_hash_parity.sql`):
+- Read `backup_table_name` from `migration_run_log WHERE migration_key = '<exact_key>'`.
+- Fail if not found.
+- Compute `md5(string_agg(row::text, '|' ORDER BY id))` for both backup and restored user_roles.
+- After rollback execution, compare hashes.
+- Fail if mismatch.
 
-**Wire `handleBack`** (lines 47-49):
-```typescript
-const handleBack = () => {
-  allowNextNavigation();
-  if (window.history.length > 1) {
-    navigate(-1);
-  } else {
-    navigate("/timesheet/approvals");
-  }
-};
-```
+**G7 test** (`bug_0220_56_audit_tamper_resistance.sql`):
+- SET ROLE authenticated -> attempt INSERT/UPDATE/DELETE on audit log -> assert `insufficient_privilege` for all three.
+- SET ROLE anon -> same assertions.
+- SET ROLE service_role -> INSERT succeeds.
 
-**Wire post-save navigation** in `processDecisions` (lines 157-160):
-```typescript
-if (summary.stillPending === 0) {
-  allowNextNavigation();
-  navigate("/timesheet/approvals");
+#### Frontend Test Files
+
+| File | Gate | Command |
+|---|---|---|
+| `src/hooks/__tests__/useUserRoles.admin-set-role.test.tsx` | G5A | `vitest run src/hooks/__tests__/useUserRoles.admin-set-role.test.tsx` |
+| `src/components/settings/__tests__/UserRolesManager.test.tsx` | G5B | `vitest run src/components/settings/__tests__/UserRolesManager.test.tsx` |
+| `src/components/forms/__tests__/StaffForm.role-sync-dialog.test.tsx` | G5C | `vitest run src/components/forms/__tests__/StaffForm.role-sync-dialog.test.tsx` |
+| `src/pages/__tests__/Settings.user-management-flow.test.tsx` | G5D | `vitest run src/pages/__tests__/Settings.user-management-flow.test.tsx` |
+
+### 5.2 CHANGE
+
+#### `src/hooks/useUserRoles.ts`
+
+- **Delete** lines 35-42: direct `.from('user_roles').update(...)`.
+- **Replace** `useUpdateUserRole.mutationFn`: call `supabase.rpc('admin_set_user_role', { p_target_user_id, p_new_role, p_reason })`. Throw on `!result.success`.
+- **Replace** `onError` (lines 47-49): map LAST_ADMIN, SELF_CHANGE, NOT_ADMIN to typed i18n toasts.
+- **Add** `useDeleteAuthUser`: invoke `manage-auth-user`, map SELF_DELETE/LINKED_USER, invalidate `["all_user_roles"]`.
+
+#### `src/components/settings/UserRolesManager.tsx`
+
+- Replace em-dash (lines 122-125) with orphan badge: AlertTriangle + warning text.
+- Add Actions column: orphan non-self gets Create Staff link (`/staff/new?email=...`) + Delete Account AlertDialog. Self: disabled. Linked: empty. All disabled while isPending.
+
+#### `src/components/forms/StaffForm.tsx`
+
+- After `updateMutation.mutateAsync`, before `onSaveSuccess`: check category change on auth-linked staff. Look up `newCategory.default_app_role`. Admin: toast.info, skip. Different mapped role + not admin: open sync dialog. Confirm -> RPC -> onSaveSuccess. Skip/Close/Escape -> onSaveSuccess directly.
+
+#### `src/components/forms/CategoryForm.tsx`
+
+- Schema: add `default_app_role: z.string().optional()`.
+- Reset: `default_app_role: category?.default_app_role || ""`.
+- Payload: add `default_app_role: data.default_app_role || null`.
+- Add Select with 11 app_role values + None. Helper text.
+
+#### `src/hooks/useEmsData.ts` (lines 4-13)
+
+```text
+export interface Category {
+  category_id: string;
+  category_name: string;
+  rate_high_bob: number;
+  rate_low_bob: number;
+  rate_high_usd: number;
+  rate_low_usd: number;
+  display_order: number;
+  can_approve_wo: boolean;
+  can_approve_timesheets: boolean;
+  default_app_role: string | null;
 }
 ```
 
-**Branch 1: Loading (lines 182-190):**
-```tsx
-<AppLayout title={t("approval.title")} focusMode>
-  <div className="flex items-center justify-between mb-4">
-    <Button variant="cancel" onClick={handleBack} className="btn-action">
-      <ArrowLeft className="h-4 w-4 mr-1" />
-      {t("common.back")}
-    </Button>
-  </div>
-  <div className="flex items-center justify-center h-64">
-    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-  </div>
-  <LeavePageDialog blocker={blocker} isDirty={false} />
-</AppLayout>
-```
+#### `src/hooks/mutations/useCategoryMutations.ts`
 
-**Branch 2: No data (lines 192-200):** Same pattern with Back button + focusMode + LeavePageDialog.
+Add `can_approve_timesheets?: boolean; default_app_role?: string | null;` to create (lines 10-17) and update (lines 42-51) payload types.
 
-**Branch 3: Main return (line 208):** Add `focusMode` to AppLayout. Existing Cancel button already calls `handleBack` (now wired through `allowNextNavigation`). Add `<LeavePageDialog blocker={blocker} isDirty={hasDecisions} />` before closing `</AppLayout>`.
+#### `src/pages/StaffNew.tsx`
 
-### 6c. `src/pages/Settings.tsx`
+Add `useSearchParams`, read `?email`, pass as `prefillEmail` to StaffForm. Leave-lock unchanged.
 
-**Add imports:**
-```typescript
-import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";
-import { LeavePageDialog } from "@/components/ui/leave-page-dialog";
-```
+#### `src/locales/en.json`
 
-**Add controlled tab state** (after line 57):
-```typescript
-const [activeTab, setActiveTab] = useState("account");
-const isGlobalTabActive = activeTab === "global";
-```
+userRoles: orphanWarning, createStaff, deleteAccount, deleteAccountTitle, confirmDeleteAccount, accountDeleted, deleteError, cannotDeleteSelf, cannotDeleteLinked, lastAdminBlocked, alreadyDeleted, notAdmin.
+staff: syncRoleTitle, syncRoleMessage, syncRoleConfirm, syncRoleSkip, roleSynced, roleSyncError, adminRoleProtected.
+category: defaultAppRole, defaultAppRoleHelp.
 
-**Add `isGlobalDirty`** (as described in Section 5b).
+#### `src/locales/es.json`
 
-**Add `usePageLeaveLock`:**
-```typescript
-const { blocker } = usePageLeaveLock({
-  locked: isGlobalTabActive,
-  isDirty: isGlobalTabActive && isGlobalDirty,
-});
-```
+Exact key parity.
 
-**Add `handleCancelGlobal`** (as described in Section 5c).
+#### `docs/CHANGELOG-2026-02-22.md`
 
-**Change `<Tabs>`** (line 250) to controlled:
-```tsx
-<Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-```
+Append Plan_0220-56_v13 entry.
 
-**Change `<AppLayout>`** (line 249) to conditional focus mode:
-```tsx
-<AppLayout title={t("settings.title")} focusMode={isGlobalTabActive}>
-```
+### 5.3 DELETE
 
-**Replace Save button** (line 514) with Cancel + Save group (Section 5e).
-
-**Wire save success** -- add `setActiveTab("account")` after `toast.success` on line 242.
-
-**Add dialog** before closing `</AppLayout>`:
-```tsx
-<LeavePageDialog blocker={blocker} isDirty={isGlobalDirty} />
-```
-
-### 6d. Locale Files
-
-**`src/locales/en.json`** -- add in `"common"` block:
-```json
-"back": "Back"
-```
-
-**`src/locales/es.json`** -- add in `"common"` block:
-```json
-"back": "Volver"
-```
-
----
-
-## 7) Test Strategy
-
-### 7a. `src/pages/__tests__/TimeSheet.focus-lock.test.tsx` (4 tests)
-
-| # | Test Name | Assertion |
-|---|-----------|-----------|
-| TF1 | renders focusMode in main branch | `AppLayout` receives `focusMode={true}` |
-| TF2 | renders Back button in loading branch | Back button is present and clickable |
-| TF3 | Back button calls allowNextNavigation before navigate | Mock `allowNextNavigation` and `navigate`; click Back; assert `allowNextNavigation` called first, then `navigate` called second (verify call order via `vi.fn()` invocation indices) |
-| TF4 | LeavePageDialog renders when blocker is blocked | Dialog content visible |
-
-### 7b. `src/pages/__tests__/TimesheetApprovalDetail.lock-navigation.test.tsx` (4 tests)
-
-| # | Test Name | Assertion |
-|---|-----------|-----------|
-| TA1 | renders focusMode in all branches | All `AppLayout` calls have `focusMode` |
-| TA2 | Cancel calls allowNextNavigation before navigate | Mock both; click Cancel; assert call order: `allowNextNavigation` invocationCallOrder < `navigate` invocationCallOrder |
-| TA3 | post-save navigation calls allowNextNavigation before navigate | Mock `processDecisions` with `stillPending=0`; assert call order |
-| TA4 | LeavePageDialog shows dirty warning when hasDecisions is true | Set approval decisions, trigger blocker; dialog shows dirty title |
-
-### 7c. `src/pages/__tests__/Settings.global-focus-cancel.test.tsx` (5 tests)
-
-| # | Test Name | Assertion |
-|---|-----------|-----------|
-| TS1 | focusMode active only on global tab | Switch to global tab: `focusMode={true}`; switch to account: `focusMode={false}` |
-| TS2 | Cancel resets language to persisted value | Change language, click Cancel; `language` state reverts |
-| TS3 | Cancel resets compactFont and reverts dataset attribute | Toggle compact font, click Cancel; `compactFont` reverts; `document.documentElement.dataset.compactFont` matches persisted |
-| TS4 | Cancel resets all 8 fields and switches to account tab | Modify all fields, click Cancel; all 8 fields match persisted; `activeTab === "account"` |
-| TS5 | isGlobalDirty true when any field differs | Change one field; LeavePageDialog shows dirty warning on blocked navigation |
-
-### 7d. Test Matrix Summary
-
-| Dimension | Covered By |
+| What | Replaced By |
 |---|---|
-| Sidebar hidden in Timesheet | TF1 |
-| Sidebar hidden in Approval Detail | TA1 |
-| Sidebar hidden in Settings global tab only | TS1 |
-| Back button in all Timesheet branches | TF2, TF3 |
-| Back button in Approval Detail loading/empty branches | TA1 |
-| Cancel in Approval Detail main branch | TA2 |
-| `allowNextNavigation` called BEFORE `navigate()` (call order) | TF3, TA2, TA3 |
-| Settings Cancel resets all fields | TS2, TS3, TS4 |
-| Settings Cancel reverts compact font dataset | TS3 |
-| `isGlobalDirty` computation | TS5 |
-| LeavePageDialog renders in blocked state | TF4, TA4, TS5 |
-| No-trap exits in loading/error branches | TF2, TA1 |
-| `navigate(-1)` with fallback | TF3 (via mock verification) |
+| Direct `.from('user_roles').update(...)` (lines 36-39) | RPC admin_set_user_role |
+| Temporary permissive "Trusted insert lifecycle audit" policy | Never created in v13; M2b enforces least-privilege atomically |
+| M4 from v12 | Replaced by M2b (same REVOKE/GRANT, runs immediately after M2) |
 
 ---
 
-## 8) Risk Analysis and Rollback
+## 6) RELEASE GATES (All Automated)
+
+| # | Gate | Bound To | Command |
+|---|---|---|---|
+| G1 | Dedup correctness | `supabase/tests/bug_0220_56_dedup_correctness.sql` | `psql -v ON_ERROR_STOP=1 -f ...` |
+| G2 | Last-admin concurrency | `supabase/tests/run_bug_0220_56_last_admin_concurrency.sh` | `bash ...` (non-zero exit on fail) |
+| G3 | Rollback integrity | `supabase/tests/bug_0220_56_rollback_integrity.sql` | `psql -v ON_ERROR_STOP=1 -f ...` |
+| G3a | Schema equivalence | `supabase/tests/bug_0220_56_schema_equivalence_strict.sql` | `psql -v ON_ERROR_STOP=1 -f ...` |
+| G3b | Hash parity | `supabase/tests/bug_0220_56_restore_hash_parity.sql` | `psql -v ON_ERROR_STOP=1 -f ...` |
+| G4 | Post-migration assertions | Migration M3 | Migration execution |
+| G5A | Hook test | `src/hooks/__tests__/useUserRoles.admin-set-role.test.tsx` | `vitest run ...` |
+| G5B | UserRolesManager UI | `src/components/settings/__tests__/UserRolesManager.test.tsx` | `vitest run ...` |
+| G5C | StaffForm dialog | `src/components/forms/__tests__/StaffForm.role-sync-dialog.test.tsx` | `vitest run ...` |
+| G5D | Settings integration | `src/pages/__tests__/Settings.user-management-flow.test.tsx` | `vitest run ...` |
+| G6 | verify_jwt=true | `supabase/config.toml` | `rg -n "^\[functions\.manage-auth-user\]\|^verify_jwt\s*=\s*true" supabase/config.toml` |
+| G7 | Audit tamper resistance | `supabase/tests/bug_0220_56_audit_tamper_resistance.sql` | `psql -v ON_ERROR_STOP=1 -f ...` |
+
+---
+
+## 7) ROLLBACK
+
+### Contract
+- Exact run key: `WHERE migration_key = '0220-56-role-dedup-<ts>'` (no LIKE, no ORDER BY LIMIT)
+- Hard failure if metadata missing
+- Transaction + table lock
+- Strict schema equivalence validation before restore (column name, data_type, ordinal_position)
+- Row-level MD5 hash parity check after restore
+- Restore constraint to UNIQUE(user_id, role)
+
+### Script
+
+```sql
+DO $$
+DECLARE
+  v_exact_key text := '0220-56-role-dedup-<ts>';
+  v_backup text;
+  v_schema_match boolean;
+  v_backup_rows integer;
+  v_hash_backup text;
+  v_hash_restored text;
+BEGIN
+  SELECT backup_table_name INTO v_backup
+  FROM migration_run_log WHERE migration_key = v_exact_key;
+  IF v_backup IS NULL THEN
+    RAISE EXCEPTION 'ROLLBACK BLOCKED: No entry for key %', v_exact_key;
+  END IF;
+
+  -- Strict schema equivalence: name, type, ordinal position
+  SELECT NOT EXISTS (
+    (SELECT column_name, data_type, ordinal_position FROM information_schema.columns
+     WHERE table_schema='public' AND table_name=v_backup
+     EXCEPT
+     SELECT column_name, data_type, ordinal_position FROM information_schema.columns
+     WHERE table_schema='public' AND table_name='user_roles')
+    UNION ALL
+    (SELECT column_name, data_type, ordinal_position FROM information_schema.columns
+     WHERE table_schema='public' AND table_name='user_roles'
+     EXCEPT
+     SELECT column_name, data_type, ordinal_position FROM information_schema.columns
+     WHERE table_schema='public' AND table_name=v_backup)
+  ) INTO v_schema_match;
+  IF NOT v_schema_match THEN
+    RAISE EXCEPTION 'ROLLBACK BLOCKED: Schema structure mismatch between backup and user_roles';
+  END IF;
+
+  EXECUTE format('SELECT count(*) FROM public.%I', v_backup) INTO v_backup_rows;
+  IF v_backup_rows = 0 THEN
+    RAISE EXCEPTION 'ROLLBACK BLOCKED: Backup table % is empty', v_backup;
+  END IF;
+
+  -- Compute pre-restore hash of backup
+  EXECUTE format('SELECT md5(string_agg(row::text, ''|'' ORDER BY id)) FROM (SELECT * FROM public.%I ORDER BY id) row', v_backup) INTO v_hash_backup;
+
+  -- Drop v13 objects
+  DROP FUNCTION IF EXISTS public.admin_set_user_role(uuid, app_role, text);
+  DROP POLICY IF EXISTS "Admins can view lifecycle audit" ON public.user_lifecycle_audit_log;
+  REVOKE ALL ON public.user_lifecycle_audit_log FROM service_role;
+  DROP TABLE IF EXISTS public.user_lifecycle_audit_log;
+  ALTER TABLE categories DROP COLUMN IF EXISTS default_app_role;
+
+  -- Restore
+  ALTER TABLE user_roles DROP CONSTRAINT IF EXISTS user_roles_user_id_key;
+  LOCK TABLE user_roles IN ACCESS EXCLUSIVE MODE;
+  TRUNCATE user_roles;
+  EXECUTE format('INSERT INTO user_roles SELECT * FROM public.%I', v_backup);
+  ALTER TABLE user_roles ADD CONSTRAINT user_roles_user_id_role_key UNIQUE (user_id, role);
+
+  -- Post-restore hash parity
+  SELECT md5(string_agg(row::text, '|' ORDER BY id)) FROM (SELECT * FROM user_roles ORDER BY id) row INTO v_hash_restored;
+  IF v_hash_backup IS DISTINCT FROM v_hash_restored THEN
+    RAISE EXCEPTION 'ROLLBACK INTEGRITY FAILURE: Hash mismatch (backup=%, restored=%)', v_hash_backup, v_hash_restored;
+  END IF;
+
+  DELETE FROM migration_run_log WHERE migration_key = v_exact_key;
+END $$;
+```
+
+Edge function: delete `supabase/functions/manage-auth-user/`; remove config.toml entry.
+Frontend: revert changed files; delete added test files.
+
+---
+
+## 8) RISK REGISTER
 
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
-| `navigate(-1)` goes to external site | Very Low | Leaves app | `window.history.length > 1` check prevents fallback only when no history; within-app navigation always has history entries |
-| Timesheet users feel trapped without sidebar | Low | UX friction | Back button present in ALL branches including loading/error |
-| Settings tab switch triggers unexpected lock | Low | Confusion | Lock only activates on `"global"` tab |
-| Approval Detail post-save navigate blocked | Low | Button appears stuck | `allowNextNavigation()` called before `navigate()` in `processDecisions` |
-| Compact font dataset not reverted on cancel | Medium | Visual glitch | `handleCancelGlobal` explicitly reverts `document.documentElement.dataset.compactFont` |
-| `isGlobalDirty` false positive from empty vs persisted string | Low | Unnecessary dirty warning | Empty string states treated as "unchanged" |
-
-### Rollback
-
-1. Revert the single commit containing changes to 10 files.
-2. No database changes to roll back.
-3. Verify sidebar reappears on Timesheet, Approval Detail, and Settings Global tab.
+| Concurrent last-admin demotion | Very Low | Zero admins | Advisory lock 67890 + FOR UPDATE + G2 |
+| Stale backup reuse | None | Wrong restore | UNIQUE migration_key + fail-fast |
+| Orphan deletion misuse | Low | Permanent | AlertDialog + server guard + audit |
+| Category mapping drift | Medium | Sync skipped | CategoryForm field + M3 assertion |
+| Type/schema drift | Low | TS errors | Interface updated; temp cast until types regen |
+| Audit tampering | Very Low | Integrity | No permissive policy ever; REVOKE + G7 |
+| Rollback data corruption | Very Low | Wrong state | Schema equivalence (G3a) + hash parity (G3b) |
 
 ---
 
-## 9) Definition of Done
+## 9) DEFINITION OF DONE
 
-- [ ] `/timesheet`: `focusMode` on ALL 4 render branches (loading, no-staff, error, main)
-- [ ] `/timesheet`: Back button present and functional in ALL 4 render branches
-- [ ] `/timesheet`: `LeavePageDialog` rendered in ALL 4 render branches
-- [ ] `/timesheet`: Back button uses `navigate(-1)` with fallback to `"/"`
-- [ ] `/timesheet`: `allowNextNavigation()` called before `navigate()` in all Back handlers
-- [ ] `/timesheet/approvals`: No changes (sidebar visible, no lock)
-- [ ] `/timesheet/approvals/:periodId`: `focusMode` on ALL 3 render branches
-- [ ] `/timesheet/approvals/:periodId`: Back/Cancel button present in ALL 3 render branches
-- [ ] `/timesheet/approvals/:periodId`: `LeavePageDialog` rendered in ALL 3 render branches
-- [ ] `/timesheet/approvals/:periodId`: `handleBack` uses `navigate(-1)` with fallback to `"/timesheet/approvals"`
-- [ ] `/timesheet/approvals/:periodId`: `allowNextNavigation()` called before `navigate()` in `handleBack` AND `processDecisions` success path
-- [ ] `/timesheet/approvals/:periodId`: `isDirty` tracks `hasDecisions`
-- [ ] `/settings`: `focusMode` active only when `activeTab === "global"`
-- [ ] `/settings`: `isGlobalDirty` correctly compares all 8 fields against persisted values
-- [ ] `/settings`: Cancel button resets all 8 fields, reverts compact font dataset, switches to account tab
-- [ ] `/settings`: Save success switches to account tab
-- [ ] `/settings`: `LeavePageDialog` rendered with `isDirty={isGlobalDirty}`
-- [ ] Locale keys `common.back` added in `en.json` and `es.json`
-- [ ] `src/pages/__tests__/TimeSheet.focus-lock.test.tsx` created with 4 tests, all passing
-- [ ] `src/pages/__tests__/TimesheetApprovalDetail.lock-navigation.test.tsx` created with 4 tests, all passing
-- [ ] `src/pages/__tests__/Settings.global-focus-cancel.test.tsx` created with 5 tests, all passing
-- [ ] Tests TF3, TA2, TA3 explicitly assert `allowNextNavigation` call order before `navigate`
-- [ ] Changelog entry appended to `docs/CHANGELOG-2026-02-22.md`
+- [ ] migration_run_log with UNIQUE migration_key and exact run entry
+- [ ] Run-scoped snapshot with dynamic name
+- [ ] Dedup via row_number() with 3-key ordering
+- [ ] UNIQUE(user_id) replacing UNIQUE(user_id, role)
+- [ ] categories.default_app_role with fail-fast backfill
+- [ ] user_lifecycle_audit_log with action, metadata jsonb, RLS, NO permissive INSERT policy
+- [ ] M2b: REVOKE INSERT/UPDATE/DELETE from anon/authenticated; GRANT INSERT to service_role only (atomic, no interim exposure)
+- [ ] admin_set_user_role RPC with advisory lock 67890, FOR UPDATE, 6 typed codes
+- [ ] Post-migration assertions using exact migration_key (M3)
+- [ ] manage-auth-user Edge Function with verify_jwt=true, deletion audit via service_role
+- [ ] config.toml: [functions.manage-auth-user] verify_jwt = true
+- [ ] useUpdateUserRole uses RPC only (direct UPDATE deleted)
+- [ ] useDeleteAuthUser mutation with typed codes
+- [ ] UserRolesManager orphan warning + Create Staff + Delete Account
+- [ ] Self-delete and self-role-change blocked backend + frontend
+- [ ] Last-admin downgrade blocked
+- [ ] StaffForm sync-role dialog with confirm/skip/close semantics
+- [ ] Admin role never auto-downgraded
+- [ ] /staff/new?email=X pre-fills email
+- [ ] CategoryForm includes default_app_role dropdown
+- [ ] Category interface includes can_approve_timesheets + default_app_role (no any casts)
+- [ ] useCategoryMutations includes both fields
+- [ ] EN + ES i18n keys with exact parity
+- [ ] No direct role table update path remains
+- [ ] No static backup table references remain
+- [ ] No LIKE-based rollback selection remains
+- [ ] No permissive audit INSERT policy exists (not even temporarily)
+- [ ] **G1 PASS**: dedup correctness
+- [ ] **G2 PASS**: last-admin concurrency (non-zero exit on failure)
+- [ ] **G3 PASS**: rollback integrity
+- [ ] **G3a PASS**: strict schema equivalence (name, type, ordinal)
+- [ ] **G3b PASS**: restore hash parity (MD5 ordered by id)
+- [ ] **G4 PASS**: post-migration assertions
+- [ ] **G5A PASS**: hook test
+- [ ] **G5B PASS**: UserRolesManager UI test
+- [ ] **G5C PASS**: StaffForm dialog test
+- [ ] **G5D PASS**: Settings integration test
+- [ ] **G6 PASS**: verify_jwt=true confirmed
+- [ ] **G7 PASS**: audit tamper resistance
+- [ ] Changelog appended to docs/CHANGELOG-2026-02-22.md
 
 ---
 
-## 10) Changelog Entry
+## 10) CHANGELOG
 
-**Target file**: `docs/CHANGELOG-2026-02-22.md`
-**Insertion**: Append at end of file.
+Target: `docs/CHANGELOG-2026-02-22.md`
 
 ```text
-
 ---
 
-### Focus Mode and Navigation Safety: Timesheet, Approvals Detail, Settings Global
+### Bug 0220-56: User Management Integration -- v13
 
-**Routes affected**:
-- `/timesheet`: Added focus mode (hidden sidebar/mobile nav) with Back button (`navigate(-1)` + fallback) and `usePageLeaveLock` (`isDirty=false`, auto-save context) in ALL render branches (loading, no-staff-record, error, main).
-- `/timesheet/approvals`: No change (normal list context, sidebar visible).
-- `/timesheet/approvals/:periodId`: Added focus mode with `usePageLeaveLock` (`isDirty=hasDecisions`) in ALL render branches (loading, empty, main). Wired Cancel button and post-save navigation through `allowNextNavigation()`. Added Back button to loading/empty branches. Cancel uses `navigate(-1)` with fallback.
-- `/settings` (global tab): Added conditional focus mode (only when global tab active) with `usePageLeaveLock` and computed `isGlobalDirty`. Added Cancel button that resets all 8 global fields to persisted values (including `document.documentElement.dataset.compactFont` revert) and switches to account tab. Save success also exits to account tab.
-- `/settings` (other tabs): No change (normal context, sidebar visible).
+**Plan**: Plan_0220-56_v13
+**Priority**: Media
 
-**Why previous behavior was unsafe**:
-- Timesheet had no focus mode; users could accidentally navigate away via sidebar mid-edit.
-- Approval Detail had no navigation lock; unsaved approve/reject decisions were lost on accidental navigation.
-- Settings Global tab had no Cancel button and no navigation lock; changed settings could be abandoned without explicit cancel, and compact font toggle applied immediately without revert path.
+**Problem**: Direct table UPDATE for roles, no server guards,
+UNIQUE(user_id, role) allows multiple roles, no category-role sync,
+orphan users non-actionable, no auth deletion, no audit tamper
+protection, prior versions had interim permissive audit policy window.
 
-**Lock and exit semantics**:
-- All protected contexts use `usePageLeaveLock` + `LeavePageDialog` pattern from `ClientEdit.tsx`.
-- `allowNextNavigation()` called before every programmatic `navigate()` in protected contexts (8 enumerated paths).
-- Back buttons use `navigate(-1)` with fallback to known route when no browser history exists.
-- Settings Cancel resets all local state to persisted `global_settings` values, reverts compact font dataset attribute, and exits focus mode by switching to account tab.
-- Protected-state exit invariant enforced: every render branch with `focusMode` includes an explicit exit control AND `LeavePageDialog`.
+**Root cause**: Missing default_app_role column, direct table mutation
+in useUpdateUserRole, no Edge Function, no permissions hardening.
 
-**Tests**:
-- 4 tests (`TimeSheet.focus-lock.test.tsx`): focusMode in branches, Back button presence, call-order assertion for allowNextNavigation before navigate, dialog behavior.
-- 4 tests (`TimesheetApprovalDetail.lock-navigation.test.tsx`): focusMode in branches, Cancel/post-save call-order assertions, dirty dialog.
-- 5 tests (`Settings.global-focus-cancel.test.tsx`): conditional focusMode, cancel reset for language/compactFont/all-8-fields, isGlobalDirty computation.
+**v13 delta from v12**:
+- Eliminated interim permissive "Trusted insert lifecycle audit" policy
+  entirely. M2 creates audit table with NO INSERT policy for
+  anon/authenticated from the start.
+- New M2b migration atomically enforces REVOKE/GRANT with zero
+  permissive window.
+- M4 from v12 replaced by M2b (identical content, earlier execution).
+- New G3a gate: strict schema equivalence test (name, type, ordinal).
+- New G3b gate: restore hash parity test (MD5 ordered by id).
+- Rollback script includes mandatory schema + hash validation before
+  and after restore.
+
+**Changes**:
+- migration_run_log with UNIQUE migration_key
+- Dynamic backup table naming bound to exact migration_key
+- Deterministic row_number() dedup with 3-key ordering
+- UNIQUE(user_id) replacing UNIQUE(user_id, role)
+- categories.default_app_role with fail-fast backfill
+- user_lifecycle_audit_log: no permissive INSERT policy ever created
+- M2b: atomic REVOKE/GRANT (no interim permissive window)
+- admin_set_user_role RPC: advisory lock 67890 + FOR UPDATE + 6 codes
+- manage-auth-user Edge Function: verify_jwt=true, orphan-only, audit
+- Post-migration assertions using exact migration_key
+- RPC-backed role mutation replacing direct table UPDATE
+- UserRolesManager: orphan badge, Create Staff, Delete Account
+- StaffForm: sync-role dialog with confirm/skip/close semantics
+- CategoryForm: default_app_role dropdown
+- Category interface: can_approve_timesheets + default_app_role
+- useCategoryMutations: payload types updated
+- StaffNew: email prefill from query parameter
+- EN/ES i18n keys with exact parity
+- 12 automated release gates (G1, G2, G3, G3a, G3b, G4, G5A-D, G6, G7)
+
+**Safety**:
+- verify_jwt=true (G6)
+- Advisory lock 67890 + row lock (G2)
+- No permissive audit INSERT policy at any point (G7)
+- Strict schema equivalence + MD5 hash parity for rollback (G3a, G3b)
+- Exact-key rollback with schema validation (G3)
+- Dedup correctness (G1)
+- Post-migration assertions (G4)
+- Integration tests (G5A-G5D)
 ```
-
