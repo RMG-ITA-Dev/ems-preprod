@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { StaffForm } from "@/components/forms/StaffForm";
 import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";
@@ -7,6 +7,9 @@ import { LeavePageDialog } from "@/components/ui/leave-page-dialog";
 
 const StaffNew = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const prefillEmail = searchParams.get("email") || "";
+  
   const [isDirty, setIsDirty] = useState(false);
   const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty });
 
@@ -26,6 +29,7 @@ const StaffNew = () => {
         onDirtyChange={setIsDirty}
         onCancel={handleCancel}
         onSaveSuccess={handleSaveSuccess}
+        prefillEmail={prefillEmail}
       />
       <LeavePageDialog blocker={blocker} isDirty={isDirty} />
     </AppLayout>

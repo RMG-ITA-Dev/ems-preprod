@@ -14,6 +14,7 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
+  FormDescription,
 } from "@/components/ui/form";
 import {
   Sheet,
@@ -22,6 +23,13 @@ import {
   SheetTitle,
   SheetFooter,
 } from "@/components/ui/sheet";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -37,6 +45,9 @@ import { Category } from "@/hooks/useEmsData";
 import { useCreateCategory, useUpdateCategory, useDeleteCategory } from "@/hooks/mutations";
 import { Trash2 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Database } from "@/integrations/supabase/types";
+
+type AppRole = Database["public"]["Enums"]["app_role"];
 
 const formSchema = z.object({
   category_name: z.string().min(1, "Category name is required"),
@@ -47,6 +58,7 @@ const formSchema = z.object({
   rate_low_usd: z.coerce.number().positive("Rate must be greater than 0"),
   can_approve_wo: z.boolean().default(false),
   can_approve_timesheets: z.boolean().default(false),
+  default_app_role: z.string().optional(),
 });
 
 type FormData = z.infer<typeof formSchema>;
@@ -56,6 +68,20 @@ interface CategoryFormProps {
   onOpenChange: (open: boolean) => void;
   category?: Category | null;
 }
+
+const ROLES: AppRole[] = [
+  "admin",
+  "partner",
+  "director",
+  "manager",
+  "senior",
+  "semisenior",
+  "staff",
+  "viewer",
+  "sqr",
+  "specialist_it",
+  "specialist_tax",
+];
 
 export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps) {
   const { t } = useTranslation();
@@ -75,6 +101,7 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
       rate_low_usd: undefined as unknown as number,
       can_approve_wo: false,
       can_approve_timesheets: false,
+      default_app_role: "",
     },
   });
 
@@ -88,7 +115,8 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
         rate_high_usd: category?.rate_high_usd ?? (undefined as unknown as number),
         rate_low_usd: category?.rate_low_usd ?? (undefined as unknown as number),
         can_approve_wo: category?.can_approve_wo || false,
-        can_approve_timesheets: (category as any)?.can_approve_timesheets || false,
+        can_approve_timesheets: category?.can_approve_timesheets || false,
+        default_app_role: category?.default_app_role || "",
       });
     }
   }, [open, category, form]);
@@ -103,6 +131,7 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
       rate_low_usd: data.rate_low_usd,
       can_approve_wo: data.can_approve_wo,
       can_approve_timesheets: data.can_approve_timesheets,
+      default_app_role: (data.default_app_role as AppRole) || null,
     };
     if (isEdit && category) {
       await updateMutation.mutateAsync({ id: category.category_id, data: payload });
@@ -122,7 +151,7 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="sm:max-w-lg">
+      <SheetContent className="sm:max-w-lg overflow-y-auto">
         <SheetHeader>
           <SheetTitle>{isEdit ? t("category.editCategory") : t("category.newCategory")}</SheetTitle>
         </SheetHeader>
@@ -234,11 +263,41 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
             {/* Permissions Section */}
             <div className="space-y-4 pt-4 border-t border-border">
               <h4 className="font-medium text-sm text-muted-foreground">{t("category.permissions")}</h4>
+              
+              <FormField
+                control={form.control}
+                name="default_app_role"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t("category.defaultAppRole")}</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value || ""}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder={t("form.selectOption")} />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="">None</SelectItem>
+                        {ROLES.map((role) => (
+                          <SelectItem key={role} value={role}>
+                            {t(`userRoles.roles.${role}`)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormDescription>
+                      {t("category.defaultAppRoleHelp")}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
               <FormField
                 control={form.control}
                 name="can_approve_wo"
                 render={({ field }) => (
-                  <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                  <FormItem className="flex flex-row items-start space-x-3 space-y-0 mt-4">
                     <FormControl>
                       <Checkbox
                         checked={field.value}

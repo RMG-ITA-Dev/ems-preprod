@@ -304,6 +304,19 @@
     "cannotChangeSelf": "Cannot change own role",
     "roleUpdated": "User role updated successfully",
     "updateError": "Error updating user role",
+    "orphan": "Orphan",
+    "orphanWarning": "User is not linked to any staff record",
+    "createStaff": "Create Staff Profile",
+    "deleteAccount": "Delete Account",
+    "deleteAccountTitle": "Delete User Account",
+    "confirmDeleteAccount": "Are you sure you want to delete the account for {{email}}? This action cannot be undone.",
+    "accountDeleted": "User account deleted successfully",
+    "deleteError": "Error deleting user account",
+    "cannotDeleteSelf": "Cannot delete your own account",
+    "cannotDeleteLinked": "Cannot delete account linked to active staff record",
+    "lastAdminBlocked": "Cannot remove the last administrator",
+    "alreadyDeleted": "User account was already deleted",
+    "notAdmin": "Administrator privileges required",
     "roles": {
       "admin": "Administrator",
       "partner": "Partner (Socio)",
@@ -352,7 +365,9 @@
     "canApproveWO": "Can Approve WO",
     "canApproveWOHelp": "Staff in this category can approve or reject pending work orders",
     "canApproveTimesheets": "Can Approve Timesheets",
-    "canApproveTimesheetsHelp": "Staff in this category can approve timesheets from lower-ranked staff"
+    "canApproveTimesheetsHelp": "Staff in this category can approve timesheets from lower-ranked staff",
+    "defaultAppRole": "Default App Role",
+    "defaultAppRoleHelp": "Role assigned to new users when linked to this category"
   },
   "activity": {
     "code": "Code",
@@ -413,7 +428,14 @@
     "expected": "Expected",
     "actual": "Actual",
     "gap": "Missing",
-    "totalMissing": "Total missing hours"
+    "totalMissing": "Total missing hours",
+    "syncRoleTitle": "Update User Role?",
+    "syncRoleMessage": "The staff category change suggests updating the user role to '{{role}}'. Do you want to sync the role now?",
+    "syncRoleConfirm": "Sync Role",
+    "syncRoleSkip": "Skip",
+    "roleSynced": "User role synchronized successfully",
+    "roleSyncError": "Failed to sync user role",
+    "adminRoleProtected": "User is an Admin. Role was not demoted automatically."
   },
   "client": {
     "name": "Client Name",

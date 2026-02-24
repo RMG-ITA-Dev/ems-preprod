@@ -4,6 +4,64 @@
 
 ---
 
+### Bug 0220-56: User Management Integration -- v13
+
+**Plan**: Plan_0220-56_v13
+**Priority**: Media
+
+**Problem**: Direct table UPDATE for roles, no server guards,
+UNIQUE(user_id, role) allows multiple roles, no category-role sync,
+orphan users non-actionable, no auth deletion, no audit tamper
+protection, prior versions had interim permissive audit policy window.
+
+**Root cause**: Missing default_app_role column, direct table mutation
+in useUpdateUserRole, no Edge Function, no permissions hardening.
+
+**v13 delta from v12**:
+- Eliminated interim permissive "Trusted insert lifecycle audit" policy
+  entirely. M2 creates audit table with NO INSERT policy for
+  anon/authenticated from the start.
+- New M2b migration atomically enforces REVOKE/GRANT with zero
+  permissive window.
+- M4 from v12 replaced by M2b (identical content, earlier execution).
+- New G3a gate: strict schema equivalence test (name, type, ordinal).
+- New G3b gate: restore hash parity test (MD5 ordered by id).
+- Rollback script includes mandatory schema + hash validation before
+  and after restore.
+
+**Changes**:
+- migration_run_log with UNIQUE migration_key
+- Dynamic backup table naming bound to exact migration_key
+- Deterministic row_number() dedup with 3-key ordering
+- UNIQUE(user_id) replacing UNIQUE(user_id, role)
+- categories.default_app_role with fail-fast backfill
+- user_lifecycle_audit_log: no permissive INSERT policy ever created
+- M2b: atomic REVOKE/GRANT (no interim permissive window)
+- admin_set_user_role RPC: advisory lock 67890 + FOR UPDATE + 6 codes
+- manage-auth-user Edge Function: verify_jwt=true, orphan-only, audit
+- Post-migration assertions using exact migration_key
+- RPC-backed role mutation replacing direct table UPDATE
+- UserRolesManager: orphan badge, Create Staff, Delete Account
+- StaffForm: sync-role dialog with confirm/skip/close semantics
+- CategoryForm: default_app_role dropdown
+- Category interface: can_approve_timesheets + default_app_role
+- useCategoryMutations: payload types updated
+- StaffNew: email prefill from query parameter
+- EN/ES i18n keys with exact parity
+- 12 automated release gates (G1, G2, G3, G3a, G3b, G4, G5A-D, G6, G7)
+
+**Safety**:
+- verify_jwt=true (G6)
+- Advisory lock 67890 + row lock (G2)
+- No permissive audit INSERT policy at any point (G7)
+- Strict schema equivalence + MD5 hash parity for rollback (G3a, G3b)
+- Exact-key rollback with schema validation (G3)
+- Dedup correctness (G1)
+- Post-migration assertions (G4)
+- Integration tests (G5A-G5D)
+
+---
+
 ### Bug 0220-18: Prevent Duplicate Client Names
 
 **Plan**: Plan_0220-18_v5
@@ -460,7 +518,8 @@ END; $$;
 DROP TRIGGER IF EXISTS trg_prevent_staff_reactivation ON public.staff;
 CREATE TRIGGER trg_prevent_staff_reactivation
   BEFORE UPDATE ON public.staff
-  FOR EACH ROW EXECUTE FUNCTION public.prevent_staff_reactivation();
+  FOR EACH ROW
+  EXECUTE FUNCTION public.prevent_staff_reactivation();
 ```
 
 **Edit 4 — Database migration: Update unique indexes for soft-delete compatibility**
@@ -2485,3 +2544,5 @@ ATOMIC_GROUP_EXPORT: Include All Matching | Exclude Conflicting Groups | Cancel.
 - **Tests**:
   - 8 hook tests (`src/hooks/__tests__/useApprovedEngagements.test.tsx`): Group A/B filtering, internal exclusion, closed/inactive exclusion, visibility clause, dedup, admin vs non-admin, empty set.
   - 4 integration tests (`src/pages/__tests__/TrackerRecord.start-guard.test.tsx`): stale ID blocked, valid ID calls RPC, UI button disabled for ineligible, race path rejection.
+
+</initial_code>

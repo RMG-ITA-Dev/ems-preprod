@@ -3,6 +3,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { createMutationErrorHandler } from "@/lib/error-handler";
 import i18n from "@/i18n";
+import { Database } from "@/integrations/supabase/types";
+
+type AppRole = Database["public"]["Enums"]["app_role"];
 
 export function useCreateCategory() {
   const queryClient = useQueryClient();
@@ -15,6 +18,8 @@ export function useCreateCategory() {
       rate_high_usd: number;
       rate_low_usd: number;
       can_approve_wo?: boolean;
+      can_approve_timesheets?: boolean;
+      default_app_role?: AppRole | null;
     }) => {
       const { data: result, error } = await supabase
         .from("categories")
@@ -48,6 +53,8 @@ export function useUpdateCategory() {
         rate_high_usd: number;
         rate_low_usd: number;
         can_approve_wo: boolean;
+        can_approve_timesheets: boolean;
+        default_app_role: AppRole | null;
       }>;
     }) => {
       const { data: result, error } = await supabase

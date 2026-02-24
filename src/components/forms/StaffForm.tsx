@@ -1,3 +1,5 @@
+// ============= Lines 1-500 of 657 total lines =============
+
 import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -45,10 +47,14 @@ import {
 } from "@/components/ui/dialog";
 import { StaffFull, useCategories } from "@/hooks/useEmsData";
 import { useCreateStaff, useUpdateStaff, useDeleteStaff } from "@/hooks/mutations";
-import { Trash2, AlertTriangle } from "lucide-react";
+import { Trash2, AlertTriangle, RefreshCw } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { useUpdateUserRole } from "@/hooks/useUserRoles";
+import { Database } from "@/integrations/supabase/types";
+
+type AppRole = Database["public"]["Enums"]["app_role"];
 
 const createFormSchema = (t: TFunction) =>
   z.object({
@@ -95,6 +101,7 @@ interface StaffFormProps {
   onDirtyChange?: (dirty: boolean) => void;
   onCancel?: () => void;
   onSaveSuccess?: () => void;
+  prefillEmail?: string;
 }
 
 // Helper to generate short_name suggestion
@@ -135,7 +142,7 @@ const generateInitials = (firstName: string, lastName: string): string => {
   return initials.slice(0, 4);
 };
 
-export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess }: StaffFormProps) {
+export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefillEmail }: StaffFormProps) {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const isEdit = !!staff;
@@ -143,10 +150,15 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess }: Sta
   const createMutation = useCreateStaff();
   const updateMutation = useUpdateStaff();
   const deleteMutation = useDeleteStaff();
+  const updateRoleMutation = useUpdateUserRole();
 
   // Pending hours dialog state
   const [pendingWeeks, setPendingWeeks] = useState<PendingWeek[]>([]);
   const [showPendingDialog, setShowPendingDialog] = useState(false);
+  
+  // Role sync dialog state
+  const [showSyncDialog, setShowSyncDialog] = useState(false);
+  const [syncData, setSyncData] = useState<{ userId: string; newRole: AppRole } | null>(null);
 
   const formSchema = useMemo(() => createFormSchema(t), [t, i18n.language]);
 
@@ -157,7 +169,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess }: Sta
       last_name: "",
       short_name: "",
       initials: "",
-      email: "",
+      email: prefillEmail || "",
       category_id: "",
       city: "",
       id_number: "",
@@ -222,6 +234,36 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess }: Sta
       form.setValue("termination_date", new Date().toISOString().split("T")[0]);
     }
   }, [watchIsActive, isEdit, staff?.is_active, watchTerminationDate, form]);
+
+  const onConfirmSync = async () => {
+    if (syncData) {
+      try {
+        await updateRoleMutation.mutateAsync({ 
+          userId: syncData.userId, 
+          newRole: syncData.newRole,
+          reason: "Category change sync"
+        });
+        toast.success(t("staff.roleSynced"));
+      } catch (error) {
+        toast.error(t("staff.roleSyncError"));
+      }
+    }
+    setShowSyncDialog(false);
+    if (onSaveSuccess) {
+      onSaveSuccess();
+    } else {
+      navigate("/staff");
+    }
+  };
+
+  const onSkipSync = () => {
+    setShowSyncDialog(false);
+    if (onSaveSuccess) {
+      onSaveSuccess();
+    } else {
+      navigate("/staff");
+    }
+  };
 
   const onSubmit = async (data: FormData) => {
     // Pre-save duplicate email check
@@ -298,11 +340,36 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess }: Sta
       termination_date: data.termination_date || null,
       is_active: data.is_active,
     };
+    
     if (isEdit && staff) {
       await updateMutation.mutateAsync({ id: staff.staff_id, data: payload });
+      
+      // Check for category change sync if staff is auth-linked
+      if (staff.auth_user_id && staff.category_id !== data.category_id) {
+        const newCategory = categories?.find(c => c.category_id === data.category_id);
+        const targetRole = newCategory?.default_app_role as AppRole | null;
+        
+        if (targetRole) {
+          // Check current role
+          const { data: roleData } = await supabase
+            .from("user_roles")
+            .select("role")
+            .eq("user_id", staff.auth_user_id)
+            .single();
+            
+          if (roleData?.role === 'admin' && targetRole !== 'admin') {
+            toast.info(t("staff.adminRoleProtected"));
+          } else if (roleData?.role !== targetRole) {
+            setSyncData({ userId: staff.auth_user_id, newRole: targetRole });
+            setShowSyncDialog(true);
+            return; // Stop navigation until dialog resolved
+          }
+        }
+      }
     } else {
       await createMutation.mutateAsync(payload);
     }
+    
     if (onSaveSuccess) {
       onSaveSuccess();
     } else {
@@ -648,6 +715,29 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess }: Sta
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowPendingDialog(false)}>
               {t("common.close")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Role Sync Dialog */}
+      <Dialog open={showSyncDialog} onOpenChange={(open) => !open && onSkipSync()}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <RefreshCw className="h-5 w-5 text-primary" />
+              {t("staff.syncRoleTitle")}
+            </DialogTitle>
+            <DialogDescription>
+              {t("staff.syncRoleMessage", { role: syncData ? t(`userRoles.roles.${syncData.newRole}`) : '' })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button variant="outline" onClick={onSkipSync}>
+              {t("staff.syncRoleSkip")}
+            </Button>
+            <Button onClick={onConfirmSync}>
+              {t("staff.syncRoleConfirm")}
             </Button>
           </DialogFooter>
         </DialogContent>
