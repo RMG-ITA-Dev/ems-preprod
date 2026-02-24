@@ -304,6 +304,19 @@
     "cannotChangeSelf": "No puede cambiar su propio rol",
     "roleUpdated": "Rol de usuario actualizado exitosamente",
     "updateError": "Error al actualizar el rol de usuario",
+    "orphan": "Huérfano",
+    "orphanWarning": "Usuario no vinculado a ningún registro de personal",
+    "createStaff": "Crear Perfil de Personal",
+    "deleteAccount": "Eliminar Cuenta",
+    "deleteAccountTitle": "Eliminar Cuenta de Usuario",
+    "confirmDeleteAccount": "¿Está seguro que desea eliminar la cuenta de {{email}}? Esta acción no se puede deshacer.",
+    "accountDeleted": "Cuenta de usuario eliminada exitosamente",
+    "deleteError": "Error al eliminar la cuenta de usuario",
+    "cannotDeleteSelf": "No puede eliminar su propia cuenta",
+    "cannotDeleteLinked": "No se puede eliminar cuenta vinculada a personal activo",
+    "lastAdminBlocked": "No se puede eliminar al último administrador",
+    "alreadyDeleted": "La cuenta de usuario ya fue eliminada",
+    "notAdmin": "Se requieren privilegios de administrador",
     "roles": {
       "admin": "Administrador",
       "partner": "Socio",
@@ -352,7 +365,9 @@
     "canApproveWO": "Puede Aprobar OT",
     "canApproveWOHelp": "El personal en esta categoría puede aprobar o rechazar órdenes de trabajo pendientes",
     "canApproveTimesheets": "Puede Aprobar Hojas de Tiempo",
-    "canApproveTimesheetsHelp": "El personal en esta categoría puede aprobar hojas de tiempo de personal de menor rango"
+    "canApproveTimesheetsHelp": "El personal en esta categoría puede aprobar hojas de tiempo de personal de menor rango",
+    "defaultAppRole": "Rol de App Predeterminado",
+    "defaultAppRoleHelp": "Rol asignado a nuevos usuarios vinculados a esta categoría"
   },
   "activity": {
     "code": "Código",
@@ -413,7 +428,14 @@
     "expected": "Esperadas",
     "actual": "Reales",
     "gap": "Faltantes",
-    "totalMissing": "Total horas faltantes"
+    "totalMissing": "Total horas faltantes",
+    "syncRoleTitle": "¿Actualizar Rol de Usuario?",
+    "syncRoleMessage": "El cambio de categoría sugiere actualizar el rol a '{{role}}'. ¿Desea sincronizar el rol ahora?",
+    "syncRoleConfirm": "Sincronizar Rol",
+    "syncRoleSkip": "Omitir",
+    "roleSynced": "Rol de usuario sincronizado exitosamente",
+    "roleSyncError": "Error al sincronizar rol de usuario",
+    "adminRoleProtected": "El usuario es Admin. El rol no fue degradado automáticamente."
   },
   "client": {
     "name": "Nombre del Cliente",

@@ -279,6 +279,7 @@ export type Database = {
           category_id: string
           category_name: string
           created_at: string | null
+          default_app_role: Database["public"]["Enums"]["app_role"] | null
           display_order: number | null
           rate_high_bob: number
           rate_high_usd: number
@@ -292,6 +293,7 @@ export type Database = {
           category_id?: string
           category_name: string
           created_at?: string | null
+          default_app_role?: Database["public"]["Enums"]["app_role"] | null
           display_order?: number | null
           rate_high_bob?: number
           rate_high_usd?: number
@@ -305,6 +307,7 @@ export type Database = {
           category_id?: string
           category_name?: string
           created_at?: string | null
+          default_app_role?: Database["public"]["Enums"]["app_role"] | null
           display_order?: number | null
           rate_high_bob?: number
           rate_high_usd?: number
@@ -634,6 +637,30 @@ export type Database = {
           industry_id?: string
           industry_name?: string
           updated_at?: string | null
+        }
+        Relationships: []
+      }
+      migration_run_log: {
+        Row: {
+          backup_table_name: string
+          created_at: string
+          executed_by: string | null
+          id: string
+          migration_key: string
+        }
+        Insert: {
+          backup_table_name: string
+          created_at?: string
+          executed_by?: string | null
+          id?: string
+          migration_key: string
+        }
+        Update: {
+          backup_table_name?: string
+          created_at?: string
+          executed_by?: string | null
+          id?: string
+          migration_key?: string
         }
         Relationships: []
       }
@@ -989,6 +1016,42 @@ export type Database = {
           },
         ]
       }
+      user_lifecycle_audit_log: {
+        Row: {
+          action: string
+          actor_user_id: string
+          created_at: string
+          id: string
+          metadata: Json | null
+          new_role: Database["public"]["Enums"]["app_role"] | null
+          old_role: Database["public"]["Enums"]["app_role"] | null
+          reason: string | null
+          target_user_id: string
+        }
+        Insert: {
+          action: string
+          actor_user_id: string
+          created_at?: string
+          id?: string
+          metadata?: Json | null
+          new_role?: Database["public"]["Enums"]["app_role"] | null
+          old_role?: Database["public"]["Enums"]["app_role"] | null
+          reason?: string | null
+          target_user_id: string
+        }
+        Update: {
+          action?: string
+          actor_user_id?: string
+          created_at?: string
+          id?: string
+          metadata?: Json | null
+          new_role?: Database["public"]["Enums"]["app_role"] | null
+          old_role?: Database["public"]["Enums"]["app_role"] | null
+          reason?: string | null
+          target_user_id?: string
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           created_at: string | null
@@ -1007,6 +1070,27 @@ export type Database = {
           id?: string
           role?: Database["public"]["Enums"]["app_role"]
           user_id?: string
+        }
+        Relationships: []
+      }
+      user_roles_backup_0220_56_20260224: {
+        Row: {
+          created_at: string | null
+          id: string | null
+          role: Database["public"]["Enums"]["app_role"] | null
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string | null
+          role?: Database["public"]["Enums"]["app_role"] | null
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string | null
+          role?: Database["public"]["Enums"]["app_role"] | null
+          user_id?: string | null
         }
         Relationships: []
       }
@@ -1466,6 +1550,14 @@ export type Database = {
       }
     }
     Functions: {
+      admin_set_user_role: {
+        Args: {
+          p_new_role: Database["public"]["Enums"]["app_role"]
+          p_reason?: string
+          p_target_user_id: string
+        }
+        Returns: Json
+      }
       assign_user_role_atomic: { Args: { p_user_id: string }; Returns: Json }
       can_approve_timesheet: {
         Args: { p_approver_auth_id: string; p_period_id: string }

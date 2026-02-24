@@ -17,10 +17,23 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Shield, User, Eye, Lock, Crown, Briefcase, Users, Star, StarHalf, ShieldCheck, Monitor, Calculator } from "lucide-react";
-import { useAllUserRoles, useUpdateUserRole, UserRoleData } from "@/hooks/useUserRoles";
+import { Shield, User, Eye, Lock, Crown, Briefcase, Users, Star, StarHalf, ShieldCheck, Monitor, Calculator, AlertTriangle, UserPlus, Trash2 } from "lucide-react";
+import { useAllUserRoles, useUpdateUserRole, useDeleteAuthUser, UserRoleData } from "@/hooks/useUserRoles";
 import { useAuth } from "@/hooks/useAuth";
 import { Database } from "@/integrations/supabase/types";
+import { Button } from "@/components/ui/button";
+import { Link } from "react-router-dom";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 type AppRole = Database["public"]["Enums"]["app_role"];
 
@@ -57,9 +70,14 @@ export function UserRolesManager() {
   const { user } = useAuth();
   const { data: userRoles, isLoading } = useAllUserRoles();
   const updateRoleMutation = useUpdateUserRole();
+  const deleteAuthMutation = useDeleteAuthUser();
 
   const handleRoleChange = (userId: string, newRole: AppRole) => {
     updateRoleMutation.mutate({ userId, newRole });
+  };
+
+  const handleDeleteAccount = (userId: string) => {
+    deleteAuthMutation.mutate(userId);
   };
 
   const getRoleLabel = (role: AppRole) => {
@@ -108,11 +126,13 @@ export function UserRolesManager() {
                   <TableHead>{t("userRoles.staffName")}</TableHead>
                   <TableHead>{t("userRoles.currentRole")}</TableHead>
                   <TableHead className="w-[150px]">{t("userRoles.changeRole")}</TableHead>
+                  <TableHead className="w-[150px] text-right">{t("common.actions")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {userRoles.map((userRole: UserRoleData) => {
                   const isSelf = user?.id === userRole.user_id;
+                  const isOrphan = !userRole.staff_name;
                   
                   return (
                     <TableRow key={userRole.role_id}>
@@ -120,8 +140,13 @@ export function UserRolesManager() {
                         {userRole.email}
                       </TableCell>
                       <TableCell>
-                        {userRole.staff_name || (
-                          <span className="text-muted-foreground">—</span>
+                        {userRole.staff_name ? (
+                          userRole.staff_name
+                        ) : (
+                          <div className="flex items-center text-amber-600 dark:text-amber-400 gap-1.5" title={t("userRoles.orphanWarning")}>
+                            <AlertTriangle className="h-4 w-4" />
+                            <span className="text-xs font-medium">{t("userRoles.orphan")}</span>
+                          </div>
                         )}
                       </TableCell>
                       <TableCell>
@@ -158,6 +183,42 @@ export function UserRolesManager() {
                               <SelectItem value="specialist_tax">{getRoleLabel("specialist_tax")}</SelectItem>
                             </SelectContent>
                           </Select>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {isOrphan && !isSelf && (
+                          <div className="flex items-center justify-end gap-2">
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-primary" asChild title={t("userRoles.createStaff")}>
+                              <Link to={`/staff/new?email=${encodeURIComponent(userRole.email)}`}>
+                                <UserPlus className="h-4 w-4" />
+                              </Link>
+                            </Button>
+                            
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" title={t("userRoles.deleteAccount")}>
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>{t("userRoles.deleteAccountTitle")}</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    {t("userRoles.confirmDeleteAccount", { email: userRole.email })}
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+                                  <AlertDialogAction 
+                                    onClick={() => handleDeleteAccount(userRole.user_id)}
+                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                  >
+                                    {t("userRoles.deleteAccount")}
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          </div>
                         )}
                       </TableCell>
                     </TableRow>

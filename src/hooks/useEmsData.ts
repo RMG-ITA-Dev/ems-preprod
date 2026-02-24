@@ -10,6 +10,8 @@ export interface Category {
   rate_low_usd: number;
   display_order: number;
   can_approve_wo: boolean;
+  can_approve_timesheets: boolean;
+  default_app_role: string | null;
 }
 
 export interface Industry {
