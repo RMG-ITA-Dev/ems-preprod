@@ -537,9 +537,8 @@ const TimeSheet = () => {
 
           <div className="flex gap-3 flex-wrap">
             {/* Back button */}
-            <Button variant="cancel" onClick={handleBack} className="btn-action">
-              <ArrowLeft className="h-4 w-4 mr-1" />
-              {t("common.back")}
+            <Button variant="outline" onClick={handleBack}>
+              {t("common.cancel")}
             </Button>
 
             {/* BUG #12 / BUG #0206-3: Copy Previous Week Button */}
