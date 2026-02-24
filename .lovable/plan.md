@@ -1,350 +1,476 @@
 
 
-# Plan: Tracker Engagement Selector — Exclude Internal Engagements (Bug 0220-52) v5
-
-**Bug ID:** 0220-52 | **Priority:** Baja | **Route:** OPERACIONES - Registros de Tiempo
+# Plan: Focus Mode and Navigation Safety for Timesheet, Approvals Detail, and Settings Global Tab (v4)
 
 ---
 
-## 1) Problem
+## 1) Objective
 
-In the Stopwatch (Tracker) engagement dropdown, internal/administrative engagements (e.g., "Administracion", "Feriados") appear alongside client engagements. Users should only see active, non-internal (client) engagements when recording time with the stopwatch.
+Apply the proven focus-mode pattern (hidden sidebar/mobile nav + navigation lock + explicit safe-exit) to three contexts, ensuring every protected render branch (loading, error, empty, main) provides at least one explicit safe exit. The Approvals list page and non-global Settings tabs remain normal contexts with sidebar visible.
 
----
-
-## 2) Root Cause
-
-`src/hooks/useApprovedEngagements.ts` fetches two groups and merges them:
-
-- **Group A** (engagements with approved Work Orders): Filters `status = 'active'` but has NO `is_internal` filter.
-- **Group B** (engagements where `work_order_required = false`): Filters `status = 'active'` and the non-admin visibility `.or()` clause explicitly includes `is_internal.eq.true`.
-
-Both groups merge via a `Map` keyed on `engagement_id`, so internal engagements reach the tracker dropdown.
-
-Additionally, `TrackerRecord.handleStart` does not validate the selected `engagementId` against the filtered list before calling the `start_timer_entry` RPC.
+**v4 refinements over v3**: Back navigation uses `navigate(-1)` with fallback to a known route. Test assertions explicitly verify `allowNextNavigation()` call order before `navigate()`.
 
 ---
 
-## 3) Behavioral Contract
+## 2) Route-by-Route Behavior Contract
 
-### Tracker Eligibility Invariant (all roles: admin and non-admin)
+| Route | Context Type | Sidebar | Mobile Nav | Nav Lock | isDirty Rule | Exit Controls | All Branches Protected? |
+|---|---|---|---|---|---|---|---|
+| `/timesheet` | Protected edit | Hidden | Hidden | Yes | `false` (auto-saves) | Back button in every branch + LeavePageDialog | Yes |
+| `/timesheet/approvals` | Normal list | Visible | Visible | No | N/A | Standard sidebar/nav | N/A |
+| `/timesheet/approvals/:periodId` | Protected decision | Hidden | Hidden | Yes | `hasDecisions` | Cancel button (loading/empty: Back button) + LeavePageDialog | Yes |
+| `/settings` (non-global tab) | Normal | Visible | Visible | No | N/A | Standard sidebar/nav | N/A |
+| `/settings` (global tab active) | Protected config | Hidden | Hidden | Yes | `isGlobalDirty` (computed) | Cancel button resets + switches tab + LeavePageDialog | Yes |
 
-| `status` | `is_internal` | Eligible for Tracker? |
-|---|---|---|
-| `'active'` | `false` | YES (if WO approved OR `work_order_required = false`) |
-| `'active'` | `true` | NO |
-| Any other status | `false` | NO |
-| Any other status | `true` | NO |
+### Protected-State Exit Invariant
 
-### Stale/Injected Engagement ID Policy
-
-| Scenario | Outcome | UX |
-|---|---|---|
-| Engagement becomes ineligible between select and Start click | `handleStart` guard rejects; RPC NOT called | `tracker.engagementNotEligible` toast |
-| React state holds ID not in filtered list | `canStart` in TrackerBar is `false` (button disabled); `handleStart` guard as fallback | Button disabled; fallback toast |
-| ID injected via devtools | `handleStart` guard rejects | `tracker.engagementNotEligible` toast |
+Every render path (`if (loading)`, `if (error)`, `if (!data)`, main return) that uses `focusMode` MUST include:
+1. An explicit in-screen exit control (Back or Cancel button).
+2. A `<LeavePageDialog>` component.
 
 ---
 
-## 4) Architecture Decision -- Frontend-Only Enforcement
+## 3) File-by-File Add/Change/Delete Actions
 
-**Decision**: Frontend-only enforcement. No RPC/database modification.
+| # | File | Action | Description |
+|---|------|--------|-------------|
+| 1 | `src/pages/TimeSheet.tsx` | **Change** | Add `focusMode` to all 4 `AppLayout` calls. Add `usePageLeaveLock`, `useNavigate`, Back button + `LeavePageDialog` in all 4 branches. |
+| 2 | `src/pages/TimesheetApprovals.tsx` | **No change** | Normal list context. |
+| 3 | `src/pages/TimesheetApprovalDetail.tsx` | **Change** | Add `focusMode` to all 3 `AppLayout` calls. Add `usePageLeaveLock`. Wire `handleBack` and post-save navigate through `allowNextNavigation()`. Add Back button to loading/empty branches. Add `LeavePageDialog` to all 3 branches. |
+| 4 | `src/pages/Settings.tsx` | **Change** | Add controlled tab state. Conditional `focusMode={activeTab === "global"}`. Add `usePageLeaveLock` with `isGlobalDirty`. Add `handleCancelGlobal` with full reset. Add Cancel button next to Save. Add `LeavePageDialog`. Wire save success to exit global tab. |
+| 5 | `src/locales/en.json` | **Change** | Add `"back": "Back"` in `common` block. |
+| 6 | `src/locales/es.json` | **Change** | Add `"back": "Volver"` in `common` block. |
+| 7 | `src/pages/__tests__/TimeSheet.focus-lock.test.tsx` | **Add** | 4 tests. |
+| 8 | `src/pages/__tests__/TimesheetApprovalDetail.lock-navigation.test.tsx` | **Add** | 4 tests. |
+| 9 | `src/pages/__tests__/Settings.global-focus-cancel.test.tsx` | **Add** | 5 tests. |
+| 10 | `docs/CHANGELOG-2026-02-22.md` | **Change** | Append changelog entry at end of file. |
 
-**Single Start Call Path** (verified via `rg -n "useStartTimerRPC|start_timer_entry" src`):
-
-| File | Usage |
-|---|---|
-| `src/hooks/useTimerEntries.ts` | Defines `useStartTimerRPC` (wraps `supabase.rpc('start_timer_entry', ...)`) |
-| `src/pages/TrackerRecord.tsx` | Only consumer: `startRPC.mutateAsync(...)` inside `handleStart` |
-| `src/integrations/supabase/types.ts` | Type definition only |
-
-**Implementation must produce evidence artifact**: After implementation, execute `rg -n "useStartTimerRPC|start_timer_entry" src` and confirm exactly these three files appear with no additional call sites.
-
-**Guard chain on the single start path**:
-
-| # | Guard | Location | Type |
-|---|---|---|---|
-| G1 | `canStart` boolean (includes `isEngagementApproved` check at TrackerBar line 68) | `TrackerBar` component | UI disable -- button `disabled={!canStart}` |
-| G2 | `!tracker.engagementId \|\| !tracker.activityId` early return | `TrackerRecord.handleStart` function | Null guard |
-| G3 | **NEW**: `approvedEngagements.some(e => e.engagement_id === tracker.engagementId)` | `TrackerRecord.handleStart` function | Eligibility guard |
+No files deleted. No database/RPC changes. `TimesheetApprovals.tsx` unchanged.
 
 ---
 
-## 5) State Transitions and Race Handling
+## 4) Navigation Safety Rules
 
-### Selection-to-Start State Machine
+### 4a. Back Navigation Pattern
 
-```text
-State A: No engagement selected
-  -> User selects from dropdown -> State B
-
-State B: Engagement selected (in eligible list)
-  -> User clicks Start -> Guard chain: G2 -> G3 -> weekend -> daily-limit -> RPC
-  -> State C (running) on success
-
-State C: Timer running
-  -> Dropdown disabled; Save/Cancel/Delete available
-```
-
-### Race Condition Matrix
-
-| Race | Trigger | Outcome | UX |
-|---|---|---|---|
-| R1: Engagement deactivated between select and Start | Admin sets `status != 'active'` | TanStack Query refetches. Fast: `canStart=false`, button disabled. Slow: G3 rejects. | Button disabled OR toast |
-| R2: Engagement becomes internal between select and Start | Admin sets `is_internal=true` | Same as R1 | Same as R1 |
-| R3: WO approval revoked between select and Start | Admin changes WO to Draft | Engagement drops from Group A on refetch; same resolution | Same as R1 |
-| R4: Concurrent timer already running | Another tab started timer | RPC returns `RUNNING_TIMER_EXISTS` | `tracker.timerAlreadyRunning` toast (existing) |
-
-All outcomes are deterministic: disabled button or clear toast. No silent failures.
-
----
-
-## 6) File-by-File Changes
-
-| # | File | Action | Side Effects | Compatibility Risks |
-|---|------|--------|-------------|-------------------|
-| 1 | `src/hooks/useApprovedEngagements.ts` | Modify | Fewer engagements returned | None; consumed by TrackerBar and (new) TrackerRecord via same queryKey -- TanStack deduplicates |
-| 2 | `src/pages/TrackerRecord.tsx` | Modify | New import + hook call + guard in `handleStart` | None; additive only |
-| 3 | `src/locales/en.json` | Modify | Add 1 key in `tracker` block | None |
-| 4 | `src/locales/es.json` | Modify | Add 1 key in `tracker` block | None |
-| 5 | `src/hooks/__tests__/useApprovedEngagements.test.tsx` | Create | New test file (8 tests) | None |
-| 6 | `src/pages/__tests__/TrackerRecord.start-guard.test.tsx` | Create | New test file (4 tests) | None |
-| 7 | `docs/CHANGELOG-2026-02-22.md` | Modify | Append entry at end of file | None |
-
-No changes to: `src/hooks/useTimesheetWeek.ts`, `src/components/tracker/TrackerBar.tsx`, `src/hooks/useTimerEntries.ts`, or any RPC/database objects.
-
----
-
-## 7) Implementation Details
-
-### 7a. `src/hooks/useApprovedEngagements.ts`
-
-**Group A** -- add `is_internal` filter after `.eq("status", "active")` in the Group A engagement query:
+All Back buttons use `navigate(-1)` with a fallback for cases where there is no browser history (e.g., direct URL entry):
 
 ```typescript
-// BEFORE:
-.in("engagement_id", approvedIds)
-.eq("status", "active")
-.order("created_at", { ascending: false });
-
-// AFTER:
-.in("engagement_id", approvedIds)
-.eq("status", "active")
-.eq("is_internal", false)
-.order("created_at", { ascending: false });
+const handleBack = () => {
+  allowNextNavigation();
+  if (window.history.length > 1) {
+    navigate(-1);
+  } else {
+    navigate("/");  // fallback for Timesheet
+    // or navigate("/timesheet/approvals") for Approval Detail
+  }
+};
 ```
 
-**Group B base query** -- add `is_internal` filter after `.eq("status", "active")` in the `groupBQuery` builder:
+### 4b. General Pattern (mirrors `ClientEdit.tsx`)
+
+Every protected context must:
+1. Import and call `usePageLeaveLock({ locked, isDirty })`.
+2. Render `<LeavePageDialog blocker={blocker} isDirty={isDirty} />` in every render branch where `locked=true`.
+3. Call `allowNextNavigation()` immediately before every programmatic `navigate()`.
+4. Pass `focusMode` to `<AppLayout>` in all render branches.
+
+### 4c. Enumerated Programmatic Navigation Paths
+
+| # | File | Branch | Navigation Call | `allowNextNavigation()` Required? | Why |
+|---|---|---|---|---|---|
+| N1 | `TimeSheet.tsx` | Loading branch | Back button -> `navigate(-1)` / fallback `navigate("/")` | Yes | Protected context |
+| N2 | `TimeSheet.tsx` | No staff branch | Back button -> same | Yes | Protected context |
+| N3 | `TimeSheet.tsx` | Error branch | Back button -> same | Yes | Protected context |
+| N4 | `TimeSheet.tsx` | Main branch | Back button -> same | Yes | Protected context |
+| N5 | `TimesheetApprovalDetail.tsx` | Loading branch | Back button -> `navigate(-1)` / fallback `navigate("/timesheet/approvals")` | Yes | Protected context |
+| N6 | `TimesheetApprovalDetail.tsx` | Empty branch | Back button -> same | Yes | Protected context |
+| N7 | `TimesheetApprovalDetail.tsx` | Main: `handleBack` (Cancel) | Same as N5 | Yes | Protected context |
+| N8 | `TimesheetApprovalDetail.tsx` | Main: `processDecisions` success (line 158-159) | `navigate("/timesheet/approvals")` | Yes | Protected context |
+| N9 | `Settings.tsx` | Global tab: Cancel | `setActiveTab("account")` | No | No `navigate()` call; lock deactivates because `activeTab !== "global"` |
+| N10 | `Settings.tsx` | Global tab: Save success | `setActiveTab("account")` | No | Same as N9 |
+
+---
+
+## 5) Settings Cancel/Reset Algorithm
+
+### 5a. Persisted Snapshot Source
+
+The `settings` array from `useGlobalSettings()` is the source of truth. The existing `useEffect` (lines 84-107) syncs local state from `settings` on load.
+
+### 5b. `isGlobalDirty` Computation
 
 ```typescript
-// BEFORE:
-.eq("work_order_required", false)
-.eq("status", "active")
-.order("created_at", { ascending: false });
+const isGlobalDirty = useMemo(() => {
+  if (!settings) return false;
+  const persistedLang = getSetting("LANGUAGE") || "en";
+  const persistedWeekend = getSetting("ALLOW_WEEKEND_TRACKING") === "true";
+  const persistedCompact = getSetting("COMPACT_FONT") === "true";
+  const persistedDomain = getSetting("ALLOWED_EMAIL_DOMAIN") || "";
+  const persistedTax = (parseFloat(getSetting("TAX_RATE") || "0.13") * 100).toString();
+  const persistedRealization = getSetting("REALIZATION_LIMIT") || "75";
+  const persistedDaily = getSetting("DAILY_LIMIT") || "12";
+  const persistedWeekly = getSetting("WEEKLY_LIMIT") || "50";
 
-// AFTER:
-.eq("work_order_required", false)
-.eq("status", "active")
-.eq("is_internal", false)
-.order("created_at", { ascending: false });
+  return (
+    language !== persistedLang ||
+    allowWeekendTracking !== persistedWeekend ||
+    compactFont !== persistedCompact ||
+    allowedEmailDomain !== persistedDomain ||
+    (taxRate !== "" && taxRate !== persistedTax) ||
+    (realizationLimit !== "" && realizationLimit !== persistedRealization) ||
+    (dailyLimit !== "" && dailyLimit !== persistedDaily) ||
+    (weeklyLimit !== "" && weeklyLimit !== persistedWeekly)
+  );
+}, [settings, language, allowWeekendTracking, compactFont, allowedEmailDomain,
+    taxRate, realizationLimit, dailyLimit, weeklyLimit]);
 ```
 
-**Group B non-admin visibility `.or()` clause** -- remove `is_internal.eq.true` branch inside the `if (!isAdmin && myStaffId)` block:
+### 5c. Cancel Button Handler
 
 ```typescript
-// BEFORE:
-groupBQuery = groupBQuery.or(
-  `is_internal.eq.true,partner_id.eq.${myStaffId},manager_id.eq.${myStaffId}`
-);
+const handleCancelGlobal = () => {
+  setLanguage(getSetting("LANGUAGE") || "en");
+  setAllowWeekendTracking(getSetting("ALLOW_WEEKEND_TRACKING") === "true");
 
-// AFTER:
-groupBQuery = groupBQuery.or(
-  `partner_id.eq.${myStaffId},manager_id.eq.${myStaffId}`
-);
+  const persistedCompact = getSetting("COMPACT_FONT") === "true";
+  setCompactFont(persistedCompact);
+  document.documentElement.dataset.compactFont = persistedCompact ? "true" : "false";
+
+  setAllowedEmailDomain(getSetting("ALLOWED_EMAIL_DOMAIN") || "");
+  setTaxRate("");
+  setRealizationLimit("");
+  setDailyLimit("");
+  setWeeklyLimit("");
+
+  setActiveTab("account");
+};
 ```
 
-Merge/dedup `Map` logic remains unchanged.
+### 5d. Save Success Exit
 
-### 7b. `src/pages/TrackerRecord.tsx`
+After successful save in `handleSaveSettings`, add `setActiveTab("account")` after `toast.success` (line 242) to exit protected context.
 
-**Add import** at top of file:
+### 5e. Cancel Button Placement
 
-```typescript
-import { useApprovedEngagements } from "@/hooks/useApprovedEngagements";
+Replace the standalone Save button (line 514) with a Cancel + Save group:
+
+```tsx
+<div className="flex gap-3">
+  <Button variant="cancel" onClick={handleCancelGlobal} className="btn-action">
+    {t("common.cancel")}
+  </Button>
+  <Button onClick={handleSaveSettings} disabled={updateSettingMutation.isPending}>
+    {updateSettingMutation.isPending ? t("common.saving") : t("common.saveChanges")}
+  </Button>
+</div>
 ```
 
-**Add hook call** after `useGlobalSettings()`:
+---
 
+## 6) Implementation Details per File
+
+### 6a. `src/pages/TimeSheet.tsx`
+
+**Add imports:**
 ```typescript
-const { data: approvedEngagements = [] } = useApprovedEngagements();
+import { useNavigate } from "react-router-dom";
+import { ArrowLeft } from "lucide-react";
+import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";
+import { LeavePageDialog } from "@/components/ui/leave-page-dialog";
 ```
 
-**Add eligibility guard** in `handleStart`, immediately after the existing null-check `if (!tracker.engagementId || !tracker.activityId) return;`:
-
+**Add hooks** (after line 36):
 ```typescript
-// Defensive: verify engagement is in the eligible list
-const isEligible = approvedEngagements.some(
-  (e) => e.engagement_id === tracker.engagementId
-);
-if (!isEligible) {
-  toast.error(t("tracker.engagementNotEligible"));
-  return;
+const navigate = useNavigate();
+const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty: false });
+```
+
+**Helper function:**
+```typescript
+const handleBack = () => {
+  allowNextNavigation();
+  if (window.history.length > 1) {
+    navigate(-1);
+  } else {
+    navigate("/");
+  }
+};
+```
+
+**Branch 1: Loading (lines 342-350):**
+```tsx
+<AppLayout title={t("timesheet.title")} focusMode>
+  <div className="flex items-center justify-between mb-4">
+    <Button variant="cancel" onClick={handleBack} className="btn-action">
+      <ArrowLeft className="h-4 w-4 mr-1" />
+      {t("common.back")}
+    </Button>
+  </div>
+  <div className="flex items-center justify-center h-64">
+    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+  </div>
+  <LeavePageDialog blocker={blocker} isDirty={false} />
+</AppLayout>
+```
+
+**Branch 2: No staff record (lines 353-368):** Same pattern -- Back button + focusMode + LeavePageDialog wrapping existing Alert.
+
+**Branch 3: Error (lines 371-382):** Same pattern.
+
+**Branch 4: Main return (line 385):** Add `focusMode` to AppLayout. Add Back button as first element in the actions bar (line 508, inside `flex gap-3`):
+```tsx
+<Button variant="cancel" onClick={handleBack} className="btn-action">
+  <ArrowLeft className="h-4 w-4 mr-1" />
+  {t("common.back")}
+</Button>
+```
+
+Add `<LeavePageDialog blocker={blocker} isDirty={false} />` before closing `</AppLayout>`.
+
+### 6b. `src/pages/TimesheetApprovalDetail.tsx`
+
+**Add imports:**
+```typescript
+import { ArrowLeft } from "lucide-react";
+import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";
+import { LeavePageDialog } from "@/components/ui/leave-page-dialog";
+```
+
+**Add hook** after `hasDecisions` (after line 87):
+```typescript
+const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty: hasDecisions });
+```
+
+**Wire `handleBack`** (lines 47-49):
+```typescript
+const handleBack = () => {
+  allowNextNavigation();
+  if (window.history.length > 1) {
+    navigate(-1);
+  } else {
+    navigate("/timesheet/approvals");
+  }
+};
+```
+
+**Wire post-save navigation** in `processDecisions` (lines 157-160):
+```typescript
+if (summary.stillPending === 0) {
+  allowNextNavigation();
+  navigate("/timesheet/approvals");
 }
 ```
 
-All subsequent logic in `handleStart` (weekend check, daily limit check, RPC call) remains unchanged.
-
-### 7c. Locale Strings
-
-**`src/locales/en.json`** -- add inside `"tracker"` object:
-
-```json
-"engagementNotEligible": "Selected engagement is no longer eligible. Please choose a valid engagement."
+**Branch 1: Loading (lines 182-190):**
+```tsx
+<AppLayout title={t("approval.title")} focusMode>
+  <div className="flex items-center justify-between mb-4">
+    <Button variant="cancel" onClick={handleBack} className="btn-action">
+      <ArrowLeft className="h-4 w-4 mr-1" />
+      {t("common.back")}
+    </Button>
+  </div>
+  <div className="flex items-center justify-center h-64">
+    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+  </div>
+  <LeavePageDialog blocker={blocker} isDirty={false} />
+</AppLayout>
 ```
 
-**`src/locales/es.json`** -- add inside `"tracker"` object:
+**Branch 2: No data (lines 192-200):** Same pattern with Back button + focusMode + LeavePageDialog.
 
+**Branch 3: Main return (line 208):** Add `focusMode` to AppLayout. Existing Cancel button already calls `handleBack` (now wired through `allowNextNavigation`). Add `<LeavePageDialog blocker={blocker} isDirty={hasDecisions} />` before closing `</AppLayout>`.
+
+### 6c. `src/pages/Settings.tsx`
+
+**Add imports:**
+```typescript
+import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";
+import { LeavePageDialog } from "@/components/ui/leave-page-dialog";
+```
+
+**Add controlled tab state** (after line 57):
+```typescript
+const [activeTab, setActiveTab] = useState("account");
+const isGlobalTabActive = activeTab === "global";
+```
+
+**Add `isGlobalDirty`** (as described in Section 5b).
+
+**Add `usePageLeaveLock`:**
+```typescript
+const { blocker } = usePageLeaveLock({
+  locked: isGlobalTabActive,
+  isDirty: isGlobalTabActive && isGlobalDirty,
+});
+```
+
+**Add `handleCancelGlobal`** (as described in Section 5c).
+
+**Change `<Tabs>`** (line 250) to controlled:
+```tsx
+<Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+```
+
+**Change `<AppLayout>`** (line 249) to conditional focus mode:
+```tsx
+<AppLayout title={t("settings.title")} focusMode={isGlobalTabActive}>
+```
+
+**Replace Save button** (line 514) with Cancel + Save group (Section 5e).
+
+**Wire save success** -- add `setActiveTab("account")` after `toast.success` on line 242.
+
+**Add dialog** before closing `</AppLayout>`:
+```tsx
+<LeavePageDialog blocker={blocker} isDirty={isGlobalDirty} />
+```
+
+### 6d. Locale Files
+
+**`src/locales/en.json`** -- add in `"common"` block:
 ```json
-"engagementNotEligible": "El encargo seleccionado ya no es elegible. Por favor seleccione un encargo válido."
+"back": "Back"
+```
+
+**`src/locales/es.json`** -- add in `"common"` block:
+```json
+"back": "Volver"
 ```
 
 ---
 
-## 8) Test Strategy
+## 7) Test Strategy
 
-### Automated Tests
+### 7a. `src/pages/__tests__/TimeSheet.focus-lock.test.tsx` (4 tests)
 
-**New file: `src/hooks/__tests__/useApprovedEngagements.test.tsx`** (8 tests)
+| # | Test Name | Assertion |
+|---|-----------|-----------|
+| TF1 | renders focusMode in main branch | `AppLayout` receives `focusMode={true}` |
+| TF2 | renders Back button in loading branch | Back button is present and clickable |
+| TF3 | Back button calls allowNextNavigation before navigate | Mock `allowNextNavigation` and `navigate`; click Back; assert `allowNextNavigation` called first, then `navigate` called second (verify call order via `vi.fn()` invocation indices) |
+| TF4 | LeavePageDialog renders when blocker is blocked | Dialog content visible |
 
-| # | Test Name | Scenario | Assertion |
-|---|-----------|----------|-----------|
-| T1 | excludes internal engagements from Group A | WO approved for internal engagement (`is_internal=true`, `status='active'`) | NOT in returned list |
-| T2 | excludes internal engagements from Group B | Internal engagement with `work_order_required=false` | NOT in returned list |
-| T3 | includes active client engagement from Group A | WO approved for client engagement (`is_internal=false`, `status='active'`) | IS in returned list |
-| T4 | includes active client engagement from Group B | Client engagement with `work_order_required=false`, `is_internal=false` | IS in returned list |
-| T5 | deduplicates across groups | Same engagement in both Group A and B | Appears exactly once |
-| T6 | non-admin visibility restricted to partner/manager | `is_admin=false`, engagement not internal, user neither partner nor manager | NOT in returned list |
-| T7 | returns empty array when no eligible engagements | All engagements internal or closed | Returns `[]` |
-| T8 | excludes closed/inactive engagements | Engagement with `status='closed'`, `is_internal=false`, has approved WO | NOT in returned list |
+### 7b. `src/pages/__tests__/TimesheetApprovalDetail.lock-navigation.test.tsx` (4 tests)
 
-**New file: `src/pages/__tests__/TrackerRecord.start-guard.test.tsx`** (4 tests)
+| # | Test Name | Assertion |
+|---|-----------|-----------|
+| TA1 | renders focusMode in all branches | All `AppLayout` calls have `focusMode` |
+| TA2 | Cancel calls allowNextNavigation before navigate | Mock both; click Cancel; assert call order: `allowNextNavigation` invocationCallOrder < `navigate` invocationCallOrder |
+| TA3 | post-save navigation calls allowNextNavigation before navigate | Mock `processDecisions` with `stillPending=0`; assert call order |
+| TA4 | LeavePageDialog shows dirty warning when hasDecisions is true | Set approval decisions, trigger blocker; dialog shows dirty title |
 
-| # | Test Name | Scenario | Assertion |
-|---|-----------|----------|-----------|
-| TA | stale/injected engagementId blocks start | `tracker.engagementId` set to ID NOT in `useApprovedEngagements` result | `toast.error` called with `tracker.engagementNotEligible`; `startRPC.mutateAsync` NOT called |
-| TB | valid eligible engagementId starts timer | `tracker.engagementId` IS in `useApprovedEngagements` result | `startRPC.mutateAsync` called once |
-| TC | Start button disabled when engagement not in list | Render TrackerBar with `engagementId` not in approved list | Start button has `disabled` attribute |
-| TD | race: eligibility changes between select and start | Mock `useApprovedEngagements` to return list without the selected ID mid-flow | `toast.error` called with `tracker.engagementNotEligible`; `startRPC.mutateAsync` NOT called |
+### 7c. `src/pages/__tests__/Settings.global-focus-cancel.test.tsx` (5 tests)
 
-### Test Matrix Coverage
+| # | Test Name | Assertion |
+|---|-----------|-----------|
+| TS1 | focusMode active only on global tab | Switch to global tab: `focusMode={true}`; switch to account: `focusMode={false}` |
+| TS2 | Cancel resets language to persisted value | Change language, click Cancel; `language` state reverts |
+| TS3 | Cancel resets compactFont and reverts dataset attribute | Toggle compact font, click Cancel; `compactFont` reverts; `document.documentElement.dataset.compactFont` matches persisted |
+| TS4 | Cancel resets all 8 fields and switches to account tab | Modify all fields, click Cancel; all 8 fields match persisted; `activeTab === "account"` |
+| TS5 | isGlobalDirty true when any field differs | Change one field; LeavePageDialog shows dirty warning on blocked navigation |
+
+### 7d. Test Matrix Summary
 
 | Dimension | Covered By |
 |---|---|
-| Admin role | T3, T4, T5 |
-| Non-admin role | T6 |
-| Empty eligible set | T7 |
-| Dedup case | T5 |
-| Internal exclusion | T1, T2 |
-| Closed/inactive exclusion | T8 |
-| Valid client inclusion | T3, T4 |
-| Stale/invalid ID blocked, RPC not called | TA, TD |
-| Valid ID calls RPC | TB |
-| UI Start button disabled for ineligible engagement | TC |
-| Race path: eligibility changed between select and start | TD |
-
-### Evidence Requirements
-
-After implementation, execute and capture output of:
-```
-rg -n "useStartTimerRPC|start_timer_entry" src
-```
-Confirm exactly three files appear:
-1. `src/hooks/useTimerEntries.ts` -- definition
-2. `src/pages/TrackerRecord.tsx` -- only consumer
-3. `src/integrations/supabase/types.ts` -- type only
-
-### Manual Verification
-
-1. Open Tracker > New Entry. Confirm internal engagements (e.g., "ADM", "Feriados") do NOT appear in dropdown.
-2. Select a valid client engagement with approved WO. Start, run, save. Confirm normal flow.
-3. Open Timesheet grid. Confirm internal engagements still appear for time entry.
+| Sidebar hidden in Timesheet | TF1 |
+| Sidebar hidden in Approval Detail | TA1 |
+| Sidebar hidden in Settings global tab only | TS1 |
+| Back button in all Timesheet branches | TF2, TF3 |
+| Back button in Approval Detail loading/empty branches | TA1 |
+| Cancel in Approval Detail main branch | TA2 |
+| `allowNextNavigation` called BEFORE `navigate()` (call order) | TF3, TA2, TA3 |
+| Settings Cancel resets all fields | TS2, TS3, TS4 |
+| Settings Cancel reverts compact font dataset | TS3 |
+| `isGlobalDirty` computation | TS5 |
+| LeavePageDialog renders in blocked state | TF4, TA4, TS5 |
+| No-trap exits in loading/error branches | TF2, TA1 |
+| `navigate(-1)` with fallback | TF3 (via mock verification) |
 
 ---
 
-## 9) Risk Analysis and Mitigations
+## 8) Risk Analysis and Rollback
 
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
-| Running timer against internal engagement at deploy time | Low | None | Existing DB rows unaffected. Save/stop uses `timer_id`, not engagement eligibility. Only NEW sessions filtered. |
-| `is_internal` column has NULL values | None | N/A | Column is `NOT NULL DEFAULT false`. |
-| Group B returns empty for non-admin after removing `is_internal.eq.true` | Expected for users with no client engagements | Low | Existing `noApprovedEngagements` alert in TrackerBar handles empty state (TrackerBar line 81-86). |
-| `useApprovedEngagements` called twice (TrackerBar + TrackerRecord) | None | None | Same `queryKey` (`approved-engagements-for-tracker`); TanStack Query deduplicates. Single network request. |
-| Timesheet regression | None | N/A | `useTimesheetWeek.ts` not modified. Separate query path with its own engagement visibility logic. Bug 0220-51 test suite validates timesheet mutations independently. |
-| Frontend-only guard bypassed via devtools | Very Low | Low | RPC validates staff identity via `auth.uid()`; `timer_entries` RLS restricts to own staff. |
+| `navigate(-1)` goes to external site | Very Low | Leaves app | `window.history.length > 1` check prevents fallback only when no history; within-app navigation always has history entries |
+| Timesheet users feel trapped without sidebar | Low | UX friction | Back button present in ALL branches including loading/error |
+| Settings tab switch triggers unexpected lock | Low | Confusion | Lock only activates on `"global"` tab |
+| Approval Detail post-save navigate blocked | Low | Button appears stuck | `allowNextNavigation()` called before `navigate()` in `processDecisions` |
+| Compact font dataset not reverted on cancel | Medium | Visual glitch | `handleCancelGlobal` explicitly reverts `document.documentElement.dataset.compactFont` |
+| `isGlobalDirty` false positive from empty vs persisted string | Low | Unnecessary dirty warning | Empty string states treated as "unchanged" |
+
+### Rollback
+
+1. Revert the single commit containing changes to 10 files.
+2. No database changes to roll back.
+3. Verify sidebar reappears on Timesheet, Approval Detail, and Settings Global tab.
 
 ---
 
-## 10) Rollback Plan
+## 9) Definition of Done
 
-### Steps
-
-1. **Revert commit**: `git revert <commit-hash>` (single commit containing all 7 file changes).
-2. **Redeploy**: Push revert commit; Lovable auto-deploys.
-3. **No database rollback needed**: Zero database/RPC changes.
-
-### Post-Rollback Verification
-
-1. Confirm `useApprovedEngagements.ts` no longer contains `.eq("is_internal", false)`.
-2. Confirm `TrackerRecord.tsx` no longer imports `useApprovedEngagements`.
-3. Open Tracker stopwatch; verify internal engagements reappear in dropdown.
-4. Run Bug 0220-51 + 0220-64 test suites to confirm no regression.
-
----
-
-## 11) Definition of Done
-
-- [ ] `useApprovedEngagements` Group A query includes `.eq("is_internal", false)`
-- [ ] `useApprovedEngagements` Group B query includes `.eq("is_internal", false)`
-- [ ] Group B visibility `.or()` clause no longer contains `is_internal.eq.true`
-- [ ] Merge/dedup `Map` logic unchanged
-- [ ] `TrackerRecord.handleStart` validates `engagementId` against filtered `approvedEngagements` list before calling start RPC
-- [ ] Invalid/stale engagement ID shows `tracker.engagementNotEligible` toast and does NOT call RPC
-- [ ] i18n keys added: `tracker.engagementNotEligible` in `en.json` and `es.json` (Spanish uses `válido` with accent)
-- [ ] Tracker dropdown shows only active, non-internal engagements for all roles
-- [ ] Empty state alert shown when no eligible engagements exist
-- [ ] Timesheet grid unchanged -- still supports internal engagements
-- [ ] `src/hooks/__tests__/useApprovedEngagements.test.tsx` created with 8 tests (T1-T8), all passing
-- [ ] `src/pages/__tests__/TrackerRecord.start-guard.test.tsx` created with 4 tests (TA-TD), all passing
-- [ ] Evidence artifact produced: `rg -n "useStartTimerRPC|start_timer_entry" src` output confirms exactly one start call path
-- [ ] Changelog entry appended at end of `docs/CHANGELOG-2026-02-22.md`
+- [ ] `/timesheet`: `focusMode` on ALL 4 render branches (loading, no-staff, error, main)
+- [ ] `/timesheet`: Back button present and functional in ALL 4 render branches
+- [ ] `/timesheet`: `LeavePageDialog` rendered in ALL 4 render branches
+- [ ] `/timesheet`: Back button uses `navigate(-1)` with fallback to `"/"`
+- [ ] `/timesheet`: `allowNextNavigation()` called before `navigate()` in all Back handlers
+- [ ] `/timesheet/approvals`: No changes (sidebar visible, no lock)
+- [ ] `/timesheet/approvals/:periodId`: `focusMode` on ALL 3 render branches
+- [ ] `/timesheet/approvals/:periodId`: Back/Cancel button present in ALL 3 render branches
+- [ ] `/timesheet/approvals/:periodId`: `LeavePageDialog` rendered in ALL 3 render branches
+- [ ] `/timesheet/approvals/:periodId`: `handleBack` uses `navigate(-1)` with fallback to `"/timesheet/approvals"`
+- [ ] `/timesheet/approvals/:periodId`: `allowNextNavigation()` called before `navigate()` in `handleBack` AND `processDecisions` success path
+- [ ] `/timesheet/approvals/:periodId`: `isDirty` tracks `hasDecisions`
+- [ ] `/settings`: `focusMode` active only when `activeTab === "global"`
+- [ ] `/settings`: `isGlobalDirty` correctly compares all 8 fields against persisted values
+- [ ] `/settings`: Cancel button resets all 8 fields, reverts compact font dataset, switches to account tab
+- [ ] `/settings`: Save success switches to account tab
+- [ ] `/settings`: `LeavePageDialog` rendered with `isDirty={isGlobalDirty}`
+- [ ] Locale keys `common.back` added in `en.json` and `es.json`
+- [ ] `src/pages/__tests__/TimeSheet.focus-lock.test.tsx` created with 4 tests, all passing
+- [ ] `src/pages/__tests__/TimesheetApprovalDetail.lock-navigation.test.tsx` created with 4 tests, all passing
+- [ ] `src/pages/__tests__/Settings.global-focus-cancel.test.tsx` created with 5 tests, all passing
+- [ ] Tests TF3, TA2, TA3 explicitly assert `allowNextNavigation` call order before `navigate`
+- [ ] Changelog entry appended to `docs/CHANGELOG-2026-02-22.md`
 
 ---
 
-## 12) Changelog Entry
+## 10) Changelog Entry
 
 **Target file**: `docs/CHANGELOG-2026-02-22.md`
-**Insertion location**: Append at end of file, following existing heading style.
+**Insertion**: Append at end of file.
 
 ```text
 
 ---
 
-### Bug 0220-52: Tracker Engagement Selector Excludes Internal Engagements
+### Focus Mode and Navigation Safety: Timesheet, Approvals Detail, Settings Global
 
-**Plan**: Plan_0220-52_v5
-**Priority**: Baja
-**Route**: OPERACIONES - Registros de Tiempo
+**Routes affected**:
+- `/timesheet`: Added focus mode (hidden sidebar/mobile nav) with Back button (`navigate(-1)` + fallback) and `usePageLeaveLock` (`isDirty=false`, auto-save context) in ALL render branches (loading, no-staff-record, error, main).
+- `/timesheet/approvals`: No change (normal list context, sidebar visible).
+- `/timesheet/approvals/:periodId`: Added focus mode with `usePageLeaveLock` (`isDirty=hasDecisions`) in ALL render branches (loading, empty, main). Wired Cancel button and post-save navigation through `allowNextNavigation()`. Added Back button to loading/empty branches. Cancel uses `navigate(-1)` with fallback.
+- `/settings` (global tab): Added conditional focus mode (only when global tab active) with `usePageLeaveLock` and computed `isGlobalDirty`. Added Cancel button that resets all 8 global fields to persisted values (including `document.documentElement.dataset.compactFont` revert) and switches to account tab. Save success also exits to account tab.
+- `/settings` (other tabs): No change (normal context, sidebar visible).
 
-- **Problem**: Internal/administrative engagements appeared in the Tracker stopwatch engagement dropdown.
-- **Root Cause**: `useApprovedEngagements.ts` had no `is_internal` filter on either query group. Group B visibility clause explicitly included `is_internal.eq.true`.
-- **Fix**:
-  - Added `.eq("is_internal", false)` to Group A and Group B queries in `useApprovedEngagements.ts`.
-  - Removed `is_internal.eq.true` branch from Group B visibility `.or()` clause.
-  - Added defensive runtime guard in `TrackerRecord.handleStart`: rejects stale/invalid engagement IDs with `tracker.engagementNotEligible` toast before calling start RPC.
-  - Added i18n keys `tracker.engagementNotEligible` (en/es).
-- **Unchanged**: Timesheet grid (`useTimesheetWeek.ts`) unmodified; internal engagements remain available there. No database/RPC changes. No data migration. `TrackerBar.tsx` unchanged.
-- **Tests**:
-  - 8 hook tests (`src/hooks/__tests__/useApprovedEngagements.test.tsx`): Group A/B filtering, internal exclusion, closed/inactive exclusion, visibility clause, dedup, admin vs non-admin, empty set.
-  - 4 integration tests (`src/pages/__tests__/TrackerRecord.start-guard.test.tsx`): stale ID blocked, valid ID calls RPC, UI button disabled for ineligible, race path rejection.
+**Why previous behavior was unsafe**:
+- Timesheet had no focus mode; users could accidentally navigate away via sidebar mid-edit.
+- Approval Detail had no navigation lock; unsaved approve/reject decisions were lost on accidental navigation.
+- Settings Global tab had no Cancel button and no navigation lock; changed settings could be abandoned without explicit cancel, and compact font toggle applied immediately without revert path.
+
+**Lock and exit semantics**:
+- All protected contexts use `usePageLeaveLock` + `LeavePageDialog` pattern from `ClientEdit.tsx`.
+- `allowNextNavigation()` called before every programmatic `navigate()` in protected contexts (8 enumerated paths).
+- Back buttons use `navigate(-1)` with fallback to known route when no browser history exists.
+- Settings Cancel resets all local state to persisted `global_settings` values, reverts compact font dataset attribute, and exits focus mode by switching to account tab.
+- Protected-state exit invariant enforced: every render branch with `focusMode` includes an explicit exit control AND `LeavePageDialog`.
+
+**Tests**:
+- 4 tests (`TimeSheet.focus-lock.test.tsx`): focusMode in branches, Back button presence, call-order assertion for allowNextNavigation before navigate, dialog behavior.
+- 4 tests (`TimesheetApprovalDetail.lock-navigation.test.tsx`): focusMode in branches, Cancel/post-save call-order assertions, dirty dialog.
+- 5 tests (`Settings.global-focus-cancel.test.tsx`): conditional focusMode, cancel reset for language/compactFont/all-8-fields, isGlobalDirty computation.
 ```
 
