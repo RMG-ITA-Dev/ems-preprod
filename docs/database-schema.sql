@@ -1,6 +1,6 @@
 -- ============================================================================
 -- EMS 2.0 Complete Database Schema
--- Generated: 2026-01-27
+-- Generated: 2026-02-24
 -- ============================================================================
 
 -- ============================================================================
@@ -15,7 +15,10 @@ CREATE TYPE public.app_role AS ENUM (
   'director',
   'manager',
   'senior',
-  'semisenior'
+  'semisenior',
+  'sqr',
+  'specialist_it',
+  'specialist_tax'
 );
 
 -- ============================================================================
@@ -25,8 +28,8 @@ CREATE TYPE public.app_role AS ENUM (
 -- Activity Codes
 CREATE TABLE public.activity_codes (
   activity_id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
-  activity_code VARCHAR(10) NOT NULL,
-  description VARCHAR(100) NOT NULL,
+  activity_code VARCHAR NOT NULL,
+  description VARCHAR NOT NULL,
   is_active BOOLEAN DEFAULT true,
   created_at TIMESTAMPTZ DEFAULT now(),
   default_category_id UUID REFERENCES public.categories(category_id)
@@ -49,7 +52,7 @@ CREATE TABLE public.activity_worksheets (
   engagement_id UUID NOT NULL REFERENCES public.engagements(engagement_id),
   wo_id UUID REFERENCES public.work_orders(wo_id),
   version INTEGER NOT NULL DEFAULT 1,
-  status VARCHAR(20) NOT NULL DEFAULT 'draft',
+  status VARCHAR NOT NULL DEFAULT 'draft',
   notes TEXT,
   created_by_staff_id UUID REFERENCES public.staff(staff_id),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -59,7 +62,7 @@ CREATE TABLE public.activity_worksheets (
 -- Categories (Staff Categories with Rates)
 CREATE TABLE public.categories (
   category_id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
-  category_name VARCHAR(50) NOT NULL,
+  category_name VARCHAR NOT NULL,
   rate_high_bob NUMERIC NOT NULL DEFAULT 0,
   rate_low_bob NUMERIC NOT NULL DEFAULT 0,
   rate_high_usd NUMERIC NOT NULL DEFAULT 0,
@@ -68,18 +71,19 @@ CREATE TABLE public.categories (
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now(),
   can_approve_wo BOOLEAN DEFAULT false,
-  can_approve_timesheets BOOLEAN DEFAULT false
+  can_approve_timesheets BOOLEAN DEFAULT false,
+  default_app_role app_role
 );
 
 -- Clients
 CREATE TABLE public.clients (
   client_id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
-  client_legal_name VARCHAR(255) NOT NULL,
-  unique_tax_id VARCHAR(50) NOT NULL,
+  client_legal_name VARCHAR NOT NULL,
+  unique_tax_id VARCHAR NOT NULL,
   industry_id UUID REFERENCES public.industries(industry_id),
-  contact_name VARCHAR(200),
-  contact_email VARCHAR(255),
-  contact_phone VARCHAR(50),
+  contact_name VARCHAR,
+  contact_email VARCHAR,
+  contact_phone VARCHAR,
   address TEXT,
   is_active BOOLEAN DEFAULT true,
   created_at TIMESTAMPTZ DEFAULT now(),
@@ -90,15 +94,18 @@ CREATE TABLE public.clients (
 CREATE TABLE public.engagements (
   engagement_id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
   client_id UUID NOT NULL REFERENCES public.clients(client_id),
-  engagement_name VARCHAR(255) NOT NULL,
-  engagement_code VARCHAR(50),
+  engagement_name VARCHAR NOT NULL,
+  engagement_code VARCHAR,
   partner_id UUID REFERENCES public.staff(staff_id),
   manager_id UUID REFERENCES public.staff(staff_id),
   start_date DATE,
   end_date DATE,
-  status VARCHAR(20) DEFAULT 'active',
+  status VARCHAR DEFAULT 'active',
   created_at TIMESTAMPTZ DEFAULT now(),
-  updated_at TIMESTAMPTZ DEFAULT now()
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  work_order_required BOOLEAN NOT NULL DEFAULT true,
+  activity_required BOOLEAN NOT NULL DEFAULT true,
+  is_internal BOOLEAN NOT NULL DEFAULT false
 );
 
 -- Expense Logs
@@ -106,27 +113,38 @@ CREATE TABLE public.expense_logs (
   expense_log_id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
   date_incurred DATE NOT NULL,
   amount NUMERIC NOT NULL,
-  currency VARCHAR(3) DEFAULT 'BOB',
+  currency VARCHAR DEFAULT 'BOB',
   engagement_id UUID NOT NULL REFERENCES public.engagements(engagement_id),
   expense_type_id UUID NOT NULL REFERENCES public.expense_types(expense_type_id),
   description TEXT,
   receipt_url TEXT,
-  created_at TIMESTAMPTZ DEFAULT now()
+  created_at TIMESTAMPTZ DEFAULT now(),
+  created_by_staff_id UUID REFERENCES public.staff(staff_id)
 );
 
 -- Expense Types
 CREATE TABLE public.expense_types (
   expense_type_id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
-  expense_name VARCHAR(100) NOT NULL,
+  expense_name VARCHAR NOT NULL,
   default_unit_cost NUMERIC DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
 -- Global Settings
 CREATE TABLE public.global_settings (
-  setting_key VARCHAR(100) NOT NULL PRIMARY KEY,
-  setting_value VARCHAR(255) NOT NULL,
+  setting_key VARCHAR NOT NULL PRIMARY KEY,
+  setting_value VARCHAR NOT NULL,
   description TEXT,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Holidays
+CREATE TABLE public.holidays (
+  holiday_id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  holiday_date DATE NOT NULL,
+  holiday_name TEXT NOT NULL,
+  created_by UUID NOT NULL REFERENCES public.staff(staff_id),
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
@@ -134,29 +152,41 @@ CREATE TABLE public.global_settings (
 -- Industries
 CREATE TABLE public.industries (
   industry_id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
-  industry_name VARCHAR(100) NOT NULL,
-  fiscal_year_end VARCHAR(50) NOT NULL,
+  industry_name VARCHAR NOT NULL,
+  fiscal_year_end VARCHAR NOT NULL,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Migration Run Log
+CREATE TABLE public.migration_run_log (
+  id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  migration_key TEXT NOT NULL,
+  backup_table_name TEXT NOT NULL,
+  executed_by TEXT DEFAULT CURRENT_USER,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- Staff
 CREATE TABLE public.staff (
   staff_id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
   auth_user_id UUID,
-  first_name VARCHAR(100) NOT NULL,
-  last_name VARCHAR(100) NOT NULL,
-  email VARCHAR(255),
+  first_name VARCHAR NOT NULL,
+  last_name VARCHAR NOT NULL,
+  email VARCHAR,
   category_id UUID REFERENCES public.categories(category_id),
   is_active BOOLEAN DEFAULT true,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now(),
-  short_name VARCHAR(50),
-  initials VARCHAR(4),
-  city VARCHAR(100),
-  id_number VARCHAR(50),
-  aud_reg_number VARCHAR(50),
-  weekly_capacity_hours NUMERIC NOT NULL DEFAULT 40
+  short_name VARCHAR,
+  initials VARCHAR,
+  city VARCHAR,
+  id_number VARCHAR,
+  aud_reg_number VARCHAR,
+  weekly_capacity_hours NUMERIC NOT NULL DEFAULT 40,
+  hire_date DATE,
+  termination_date DATE,
+  deleted_at TIMESTAMPTZ
 );
 
 -- NOTE: staff_capacity table removed in 2026-02-13 migration.
@@ -188,8 +218,9 @@ CREATE TABLE public.timer_entries (
   ended_at TIMESTAMPTZ,
   duration_minutes INTEGER,
   is_imported BOOLEAN NOT NULL DEFAULT false,
-  imported_to_time_id UUID REFERENCES public.time_entries(time_id),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  imported_to_time_id UUID REFERENCES public.time_entries(time_id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  has_explicit_times BOOLEAN NOT NULL DEFAULT true
 );
 
 -- Timesheet Line Approvals
@@ -199,7 +230,7 @@ CREATE TABLE public.timesheet_line_approvals (
   engagement_id UUID NOT NULL REFERENCES public.engagements(engagement_id),
   approved_by UUID REFERENCES public.staff(staff_id),
   approved_at TIMESTAMPTZ,
-  status VARCHAR(20) NOT NULL DEFAULT 'pending',
+  status VARCHAR NOT NULL DEFAULT 'pending',
   review_notes TEXT,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
@@ -220,12 +251,26 @@ CREATE TABLE public.timesheet_periods (
   updated_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- User Lifecycle Audit Log
+CREATE TABLE public.user_lifecycle_audit_log (
+  id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  actor_user_id UUID NOT NULL,
+  target_user_id UUID NOT NULL,
+  action TEXT NOT NULL,
+  old_role app_role,
+  new_role app_role,
+  reason TEXT,
+  metadata JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- User Roles
 CREATE TABLE public.user_roles (
   id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id UUID NOT NULL,
   role app_role NOT NULL DEFAULT 'staff',
-  created_at TIMESTAMPTZ DEFAULT now()
+  created_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE (user_id)
 );
 
 -- WO Budget Lines
@@ -251,16 +296,20 @@ CREATE TABLE public.wo_expense_budget (
 CREATE TABLE public.work_orders (
   wo_id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
   engagement_id UUID NOT NULL UNIQUE REFERENCES public.engagements(engagement_id),
-  currency VARCHAR(3) NOT NULL,
-  season_mode VARCHAR(4) NOT NULL,
+  currency VARCHAR NOT NULL,
+  season_mode VARCHAR NOT NULL,
   tax_rate NUMERIC DEFAULT 0.13,
   adjustment_amount NUMERIC DEFAULT 0,
   notes TEXT,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now(),
-  approval_status VARCHAR(20) DEFAULT 'Draft',
+  approval_status VARCHAR DEFAULT 'Draft',
   approved_by UUID REFERENCES public.staff(staff_id),
-  approved_at TIMESTAMPTZ
+  approved_at TIMESTAMPTZ,
+  ceac_completed_at DATE,
+  san_completed_at DATE,
+  ceac_notes TEXT,
+  san_notes TEXT
 );
 
 -- ============================================================================
@@ -272,7 +321,6 @@ CREATE INDEX idx_activity_worksheet_cells_category ON public.activity_worksheet_
 CREATE INDEX idx_activity_worksheet_cells_worksheet ON public.activity_worksheet_cells (worksheet_id);
 CREATE INDEX idx_activity_worksheets_engagement ON public.activity_worksheets (engagement_id);
 CREATE INDEX idx_activity_worksheets_wo ON public.activity_worksheets (wo_id);
--- staff_capacity indexes removed (table dropped)
 CREATE INDEX idx_time_entries_period ON public.time_entries (period_id);
 CREATE INDEX idx_timer_entries_is_imported ON public.timer_entries (is_imported);
 CREATE INDEX idx_timer_entries_staff_id ON public.timer_entries (staff_id);
@@ -504,28 +552,23 @@ DECLARE
   v_staff_display_order INTEGER;
   v_engagement RECORD;
 BEGIN
-  -- Get staff's category display_order
   SELECT c.display_order INTO v_staff_display_order
   FROM staff s
   JOIN categories c ON s.category_id = c.category_id
   WHERE s.staff_id = p_staff_id;
 
-  -- If staff is Partner/Director (display_order <= 2), auto-approved (return NULL)
   IF v_staff_display_order IS NOT NULL AND v_staff_display_order <= 2 THEN
     RETURN NULL;
   END IF;
 
-  -- Get engagement team
   SELECT manager_id, partner_id INTO v_engagement
   FROM engagements
   WHERE engagement_id = p_engagement_id;
 
-  -- If staff is Manager (display_order 3-4), return partner_id
   IF v_staff_display_order IS NOT NULL AND v_staff_display_order <= 4 THEN
     RETURN v_engagement.partner_id;
   END IF;
 
-  -- Otherwise (Staff/Junior/Senior), return manager_id first, fallback to partner_id
   IF v_engagement.manager_id IS NOT NULL THEN
     RETURN v_engagement.manager_id;
   END IF;
@@ -544,23 +587,18 @@ AS $$
 DECLARE
   v_submitter_display_order INTEGER;
 BEGIN
-  -- Get the submitter's display_order
   SELECT c.display_order INTO v_submitter_display_order
   FROM staff s
   JOIN categories c ON s.category_id = c.category_id
   WHERE s.staff_id = p_staff_id;
 
-  -- If submitter has no category or display_order, return empty
   IF v_submitter_display_order IS NULL THEN
     RETURN;
   END IF;
 
-  -- Return approvers from engagements where staff logged time that week
-  -- Approvers must have LOWER display_order (higher rank) and not be self
   RETURN QUERY
   SELECT DISTINCT potential_approver.staff_id
   FROM (
-    -- Get manager_id from engagements where staff logged time
     SELECT e.manager_id AS staff_id
     FROM time_entries te
     JOIN engagements e ON te.engagement_id = e.engagement_id
@@ -571,7 +609,6 @@ BEGIN
     
     UNION
     
-    -- Get partner_id from engagements where staff logged time
     SELECT e.partner_id AS staff_id
     FROM time_entries te
     JOIN engagements e ON te.engagement_id = e.engagement_id
@@ -582,9 +619,9 @@ BEGIN
   ) potential_approver
   JOIN staff approver_s ON potential_approver.staff_id = approver_s.staff_id
   JOIN categories approver_c ON approver_s.category_id = approver_c.category_id
-  WHERE potential_approver.staff_id != p_staff_id  -- No self-approval
-    AND approver_c.display_order < v_submitter_display_order  -- Must be higher rank
-    AND approver_c.can_approve_timesheets = true;  -- Must have permission
+  WHERE potential_approver.staff_id != p_staff_id
+    AND approver_c.display_order < v_submitter_display_order
+    AND approver_c.can_approve_timesheets = true;
 END;
 $$;
 
@@ -599,7 +636,6 @@ DECLARE
   v_period RECORD;
   v_approver_staff_id UUID;
 BEGIN
-  -- Get the approver's staff_id
   SELECT staff_id INTO v_approver_staff_id
   FROM staff
   WHERE auth_user_id = p_approver_auth_id;
@@ -608,7 +644,6 @@ BEGIN
     RETURN false;
   END IF;
 
-  -- Get the period details
   SELECT tp.staff_id, tp.week_start_date
   INTO v_period
   FROM timesheet_periods tp
@@ -618,7 +653,6 @@ BEGIN
     RETURN false;
   END IF;
 
-  -- Check if the approver is in the list of valid approvers
   RETURN EXISTS (
     SELECT 1 
     FROM get_timesheet_approvers(v_period.staff_id, v_period.week_start_date) gta
@@ -644,7 +678,6 @@ DECLARE
   v_expected_approver UUID;
   v_approver_display_order INTEGER;
 BEGIN
-  -- Get approver's staff_id
   SELECT staff_id INTO v_approver_staff_id
   FROM staff
   WHERE auth_user_id = p_approver_auth_id;
@@ -653,7 +686,6 @@ BEGIN
     RETURN FALSE;
   END IF;
 
-  -- Get approver's category display_order and check can_approve_timesheets
   SELECT c.display_order INTO v_approver_display_order
   FROM staff s
   JOIN categories c ON s.category_id = c.category_id
@@ -664,7 +696,6 @@ BEGIN
     RETURN FALSE;
   END IF;
 
-  -- Get the period's staff_id
   SELECT staff_id INTO v_period_staff_id
   FROM timesheet_periods
   WHERE period_id = p_period_id;
@@ -673,21 +704,16 @@ BEGIN
     RETURN FALSE;
   END IF;
 
-  -- Prevent self-approval
   IF v_approver_staff_id = v_period_staff_id THEN
     RETURN FALSE;
   END IF;
 
-  -- Get expected approver for this line
   v_expected_approver := get_line_approver(v_period_staff_id, p_engagement_id);
 
-  -- If auto-approved (NULL), no one should approve
   IF v_expected_approver IS NULL THEN
     RETURN FALSE;
   END IF;
 
-  -- Check if this approver matches the expected approver
-  -- OR if approver is higher ranked (partner can approve manager's team)
   RETURN v_approver_staff_id = v_expected_approver
     OR v_approver_display_order < (
       SELECT c.display_order 
@@ -738,10 +764,8 @@ DECLARE
   v_assigned_role text;
   v_existing_role text;
 BEGIN
-  -- Acquire advisory lock to prevent race condition
   PERFORM pg_advisory_xact_lock(12345);
   
-  -- Check if user already has a role
   SELECT role::text INTO v_existing_role
   FROM user_roles
   WHERE user_id = p_user_id;
@@ -754,17 +778,14 @@ BEGIN
     );
   END IF;
   
-  -- Count existing roles
   SELECT count(*) INTO v_role_count FROM user_roles;
   
-  -- First user gets admin, others get staff
   IF v_role_count = 0 THEN
     v_assigned_role := 'admin';
   ELSE
     v_assigned_role := 'staff';
   END IF;
   
-  -- Insert the role
   INSERT INTO user_roles (user_id, role)
   VALUES (p_user_id, v_assigned_role::app_role);
   
@@ -772,6 +793,46 @@ BEGIN
     'role', v_assigned_role,
     'isFirstUser', v_role_count = 0
   );
+END;
+$$;
+
+-- Admin set user role (with audit logging)
+CREATE OR REPLACE FUNCTION public.admin_set_user_role(p_target_user_id uuid, p_new_role app_role, p_reason text DEFAULT NULL)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_caller_id uuid := auth.uid();
+  v_old_role app_role; v_admin_count integer;
+BEGIN
+  PERFORM pg_advisory_xact_lock(67890);
+  IF NOT has_role(v_caller_id, 'admin') THEN
+    RETURN jsonb_build_object('success',false,'code','NOT_ADMIN','message','Only admins can change roles');
+  END IF;
+  IF v_caller_id = p_target_user_id THEN
+    RETURN jsonb_build_object('success',false,'code','SELF_CHANGE','message','Cannot change own role');
+  END IF;
+  SELECT role INTO v_old_role FROM user_roles WHERE user_id = p_target_user_id FOR UPDATE;
+  IF v_old_role IS NULL THEN
+    RETURN jsonb_build_object('success',false,'code','USER_NOT_FOUND','message','User role not found');
+  END IF;
+  IF v_old_role = p_new_role THEN
+    RETURN jsonb_build_object('success',true,'code','ALREADY_SET','message','Role already set',
+      'old_role',v_old_role::text,'new_role',p_new_role::text);
+  END IF;
+  IF v_old_role = 'admin' AND p_new_role != 'admin' THEN
+    SELECT count(*) INTO v_admin_count FROM user_roles WHERE role = 'admin';
+    IF v_admin_count <= 1 THEN
+      RETURN jsonb_build_object('success',false,'code','LAST_ADMIN','message','Cannot remove the last admin');
+    END IF;
+  END IF;
+  UPDATE user_roles SET role = p_new_role WHERE user_id = p_target_user_id;
+  INSERT INTO user_lifecycle_audit_log (actor_user_id, target_user_id, action, old_role, new_role, reason)
+  VALUES (v_caller_id, p_target_user_id, 'role_change', v_old_role, p_new_role, p_reason);
+  RETURN jsonb_build_object('success',true,'code','UPDATED','message','Role updated',
+    'old_role',v_old_role::text,'new_role',p_new_role::text);
 END;
 $$;
 
@@ -785,7 +846,6 @@ AS $$
 DECLARE
     v_wo RECORD;
 BEGIN
-    -- Get work order details for rate calculation
     SELECT wo_id, currency, season_mode INTO v_wo
     FROM work_orders
     WHERE wo_id = p_wo_id;
@@ -794,21 +854,17 @@ BEGIN
         RAISE EXCEPTION 'Work order not found: %', p_wo_id;
     END IF;
 
-    -- Link worksheet to work order
     UPDATE activity_worksheets
     SET wo_id = p_wo_id, updated_at = now()
     WHERE id = p_worksheet_id;
 
-    -- Delete existing budget lines for this work order
     DELETE FROM wo_budget_lines WHERE wo_id = p_wo_id;
 
-    -- Insert aggregated budget lines from worksheet cells
     INSERT INTO wo_budget_lines (wo_id, category_id, budgeted_hours, standard_rate)
     SELECT 
         p_wo_id,
         awc.category_id,
         SUM(awc.budget_hours),
-        -- Calculate rate based on currency and season
         CASE 
             WHEN v_wo.currency = 'USD' AND v_wo.season_mode = 'High' THEN c.rate_high_usd
             WHEN v_wo.currency = 'USD' AND v_wo.season_mode = 'Low' THEN c.rate_low_usd
@@ -834,20 +890,16 @@ DECLARE
   allowed_domain TEXT;
   user_domain TEXT;
 BEGIN
-  -- Get allowed domain from global_settings
   SELECT setting_value INTO allowed_domain
   FROM public.global_settings
   WHERE setting_key = 'ALLOWED_EMAIL_DOMAIN';
   
-  -- If no setting found or empty, allow all domains
   IF allowed_domain IS NULL OR allowed_domain = '' THEN
     RETURN NEW;
   END IF;
   
-  -- Extract domain from email
   user_domain := split_part(NEW.email, '@', 2);
   
-  -- Check if domain matches (case-insensitive)
   IF lower(user_domain) != lower(allowed_domain) THEN
     RAISE EXCEPTION 'Registration restricted to @% emails only', allowed_domain;
   END IF;
@@ -856,7 +908,7 @@ BEGIN
 END;
 $$;
 
--- Link auth user to staff record by email
+-- Link auth user to staff record by email (trigger on auth.users)
 CREATE OR REPLACE FUNCTION public.link_auth_user_to_staff()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -864,13 +916,52 @@ SECURITY DEFINER
 SET search_path TO 'public'
 AS $$
 BEGIN
-  -- Update staff record if email matches
   UPDATE public.staff
   SET auth_user_id = NEW.id,
+      is_active = true,
       updated_at = now()
-  WHERE email = NEW.email
-    AND auth_user_id IS NULL;
-  
+  WHERE lower(trim(email)) = lower(trim(NEW.email))
+    AND auth_user_id IS NULL
+    AND deleted_at IS NULL;
+
+  RETURN NEW;
+END;
+$$;
+
+-- Link staff to auth user by email (trigger on staff table)
+CREATE OR REPLACE FUNCTION public.link_staff_to_auth_user()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_auth_user_id UUID;
+BEGIN
+  -- Guard: skip soft-deleted staff records
+  IF NEW.deleted_at IS NOT NULL THEN
+    RETURN NEW;
+  END IF;
+
+  IF NEW.email IS NOT NULL AND NEW.auth_user_id IS NULL THEN
+    SELECT id INTO v_auth_user_id
+    FROM auth.users
+    WHERE lower(trim(email)) = lower(trim(NEW.email))
+    LIMIT 1;
+
+    IF v_auth_user_id IS NOT NULL THEN
+      IF NOT EXISTS (
+        SELECT 1 FROM public.staff
+        WHERE auth_user_id = v_auth_user_id
+          AND staff_id != NEW.staff_id
+          AND deleted_at IS NULL
+      ) THEN
+        NEW.auth_user_id := v_auth_user_id;
+        NEW.is_active := true;
+      END IF;
+    END IF;
+  END IF;
+
   RETURN NEW;
 END;
 $$;
@@ -887,14 +978,23 @@ BEGIN
 END;
 $$;
 
--- Check if WO is approved before allowing time entry
+-- Check if WO is approved before allowing time entry (with work_order_required bypass)
 CREATE OR REPLACE FUNCTION public.check_wo_approved()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path TO 'public'
 AS $$
+DECLARE
+  v_wo_required boolean;
 BEGIN
+  SELECT work_order_required INTO v_wo_required
+  FROM engagements WHERE engagement_id = NEW.engagement_id;
+
+  IF v_wo_required IS DISTINCT FROM true THEN
+    RETURN NEW;
+  END IF;
+
   IF NOT EXISTS (
     SELECT 1 FROM work_orders wo
     WHERE wo.engagement_id = NEW.engagement_id
@@ -902,6 +1002,825 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'Cannot log time: Work Order is not approved';
   END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+-- Handle new user signup (assign role)
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  user_count INTEGER;
+BEGIN
+  SELECT COUNT(*) INTO user_count FROM public.user_roles;
+  
+  IF user_count = 0 THEN
+    INSERT INTO public.user_roles (user_id, role)
+    VALUES (NEW.id, 'admin');
+  ELSE
+    INSERT INTO public.user_roles (user_id, role)
+    VALUES (NEW.id, 'staff');
+  END IF;
+  
+  RETURN NEW;
+END;
+$$;
+
+-- Submit timesheet safely (with line approval management)
+CREATE OR REPLACE FUNCTION public.submit_timesheet_safe(
+  p_period_id uuid, 
+  p_staff_id uuid, 
+  p_engagement_ids uuid[], 
+  p_is_auto_approved boolean
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_period RECORD;
+  v_existing RECORD;
+  v_eng_id uuid;
+  v_max_te_updated timestamptz;
+  v_affected integer;
+  v_preserved_approved integer := 0;
+  v_reset_to_pending integer := 0;
+  v_kept_rejected integer := 0;
+  v_new_pending integer := 0;
+  v_new_auto_approved integer := 0;
+  v_guarded_update_skips integer := 0;
+BEGIN
+  p_engagement_ids := ARRAY(
+    SELECT DISTINCT unnest FROM unnest(p_engagement_ids) WHERE unnest IS NOT NULL
+  );
+
+  IF array_length(p_engagement_ids, 1) IS NULL OR array_length(p_engagement_ids, 1) = 0 THEN
+    RAISE EXCEPTION 'EMPTY_ENGAGEMENTS: No valid engagement IDs after sanitization';
+  END IF;
+
+  SELECT period_id, staff_id, submitted_at INTO v_period
+  FROM timesheet_periods
+  WHERE period_id = p_period_id AND staff_id = p_staff_id
+  FOR UPDATE;
+
+  IF v_period IS NULL THEN
+    RAISE EXCEPTION 'PERIOD_NOT_FOUND: Period % does not exist or does not belong to staff %', p_period_id, p_staff_id;
+  END IF;
+
+  UPDATE timesheet_periods SET submitted_at = now() WHERE period_id = p_period_id;
+
+  FOREACH v_eng_id IN ARRAY p_engagement_ids LOOP
+    SELECT approval_id, status, updated_at INTO v_existing
+    FROM timesheet_line_approvals
+    WHERE period_id = p_period_id AND engagement_id = v_eng_id;
+
+    IF FOUND THEN
+      IF v_existing.status = 'approved' THEN
+        v_preserved_approved := v_preserved_approved + 1;
+        CONTINUE;
+      END IF;
+      IF v_existing.status = 'pending' THEN
+        CONTINUE;
+      END IF;
+      IF v_existing.status = 'rejected' THEN
+        SELECT MAX(te.updated_at) INTO v_max_te_updated
+        FROM time_entries te
+        WHERE te.period_id = p_period_id AND te.engagement_id = v_eng_id AND te.is_forecast = false;
+
+        IF v_max_te_updated IS NOT NULL AND v_max_te_updated > v_existing.updated_at THEN
+          v_affected := 0;
+          UPDATE timesheet_line_approvals
+          SET status = 'pending', approved_by = NULL, approved_at = NULL, review_notes = NULL
+          WHERE period_id = p_period_id AND engagement_id = v_eng_id AND status = 'rejected';
+          GET DIAGNOSTICS v_affected = ROW_COUNT;
+          IF v_affected = 0 THEN
+            v_guarded_update_skips := v_guarded_update_skips + 1;
+            v_preserved_approved := v_preserved_approved + 1;
+          ELSE
+            v_reset_to_pending := v_reset_to_pending + 1;
+          END IF;
+        ELSE
+          v_kept_rejected := v_kept_rejected + 1;
+        END IF;
+        CONTINUE;
+      END IF;
+    ELSE
+      IF p_is_auto_approved THEN
+        INSERT INTO timesheet_line_approvals (period_id, engagement_id, status, approved_by, approved_at)
+        VALUES (p_period_id, v_eng_id, 'approved', p_staff_id, now());
+        v_new_auto_approved := v_new_auto_approved + 1;
+      ELSE
+        INSERT INTO timesheet_line_approvals (period_id, engagement_id, status)
+        VALUES (p_period_id, v_eng_id, 'pending');
+        v_new_pending := v_new_pending + 1;
+      END IF;
+    END IF;
+  END LOOP;
+
+  RETURN jsonb_build_object(
+    'period_id', p_period_id,
+    'preserved_approved', v_preserved_approved,
+    'reset_to_pending', v_reset_to_pending,
+    'kept_rejected', v_kept_rejected,
+    'new_pending', v_new_pending,
+    'new_auto_approved', v_new_auto_approved,
+    'guarded_update_skips', v_guarded_update_skips
+  );
+END;
+$$;
+
+-- Get week statuses for a staff member across a date range
+CREATE OR REPLACE FUNCTION public.get_week_statuses(p_staff_id uuid, p_start_date date, p_end_date date)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_hire_date date;
+  v_term_date date;
+  v_capacity numeric;
+  v_daily numeric;
+  v_cursor date;
+  v_week_end date;
+  v_eff_start date;
+  v_eff_end date;
+  v_working_days integer;
+  v_holiday_count integer;
+  v_expected numeric;
+  v_actual numeric;
+  v_missing numeric;
+  v_period_id uuid;
+  v_submitted_at timestamptz;
+  v_status text;
+  v_is_current boolean;
+  v_approval_total integer;
+  v_approval_approved integer;
+  v_approval_rejected integer;
+  v_result jsonb := '[]'::jsonb;
+  v_today date := CURRENT_DATE;
+BEGIN
+  SELECT s.hire_date, s.termination_date, s.weekly_capacity_hours
+  INTO v_hire_date, v_term_date, v_capacity
+  FROM public.staff s WHERE s.staff_id = p_staff_id;
+
+  v_daily := COALESCE(v_capacity, 40) / 5.0;
+  v_cursor := p_start_date - (EXTRACT(ISODOW FROM p_start_date)::int - 1);
+
+  WHILE v_cursor <= p_end_date LOOP
+    v_week_end := v_cursor + 4;
+    v_eff_start := v_cursor;
+    v_eff_end := v_week_end;
+
+    IF v_hire_date IS NOT NULL AND v_eff_start < v_hire_date THEN
+      v_eff_start := v_hire_date;
+    END IF;
+    IF v_term_date IS NOT NULL AND v_eff_end > v_term_date THEN
+      v_eff_end := v_term_date;
+    END IF;
+
+    IF v_hire_date IS NOT NULL AND v_week_end < v_hire_date THEN
+      v_cursor := v_cursor + 7; CONTINUE;
+    END IF;
+    IF v_term_date IS NOT NULL AND v_cursor > v_term_date THEN
+      v_cursor := v_cursor + 7; CONTINUE;
+    END IF;
+
+    v_is_current := (v_cursor <= v_today AND v_week_end >= v_today);
+
+    IF v_is_current THEN
+      SELECT COUNT(*) INTO v_working_days
+      FROM generate_series(v_eff_start, LEAST(v_eff_end, v_today), '1 day'::interval) d
+      WHERE EXTRACT(ISODOW FROM d) <= 5;
+
+      SELECT COUNT(*) INTO v_holiday_count
+      FROM public.holidays h
+      WHERE h.holiday_date BETWEEN v_eff_start AND LEAST(v_eff_end, v_today)
+        AND EXTRACT(ISODOW FROM h.holiday_date) <= 5;
+
+      v_working_days := v_working_days - v_holiday_count;
+      v_expected := GREATEST(v_working_days, 0) * v_daily;
+
+      SELECT COALESCE(SUM(te.hours_logged), 0) INTO v_actual
+      FROM public.time_entries te
+      WHERE te.staff_id = p_staff_id
+        AND te.date_worked BETWEEN v_eff_start AND v_eff_end
+        AND te.is_forecast = false;
+
+      v_result := v_result || jsonb_build_object(
+        'week_start', v_cursor, 'week_end', v_week_end,
+        'status', 'CURRENT', 'total_logged_hours', v_actual,
+        'expected_hours', v_expected, 'missing_hours', GREATEST(v_expected - v_actual, 0),
+        'is_submitted', false, 'is_current_week', true
+      );
+      v_cursor := v_cursor + 7; CONTINUE;
+    END IF;
+
+    IF v_cursor > v_today THEN
+      v_result := v_result || jsonb_build_object(
+        'week_start', v_cursor, 'week_end', v_week_end,
+        'status', 'FUTURE', 'total_logged_hours', 0,
+        'expected_hours', 0, 'missing_hours', 0,
+        'is_submitted', false, 'is_current_week', false
+      );
+      v_cursor := v_cursor + 7; CONTINUE;
+    END IF;
+
+    SELECT COUNT(*) INTO v_working_days
+    FROM generate_series(v_eff_start, v_eff_end, '1 day'::interval) d
+    WHERE EXTRACT(ISODOW FROM d) <= 5;
+
+    SELECT COUNT(*) INTO v_holiday_count
+    FROM public.holidays h
+    WHERE h.holiday_date BETWEEN v_eff_start AND v_eff_end
+      AND EXTRACT(ISODOW FROM h.holiday_date) <= 5;
+
+    v_working_days := v_working_days - v_holiday_count;
+    v_expected := GREATEST(v_working_days, 0) * v_daily;
+
+    SELECT COALESCE(SUM(te.hours_logged), 0) INTO v_actual
+    FROM public.time_entries te
+    WHERE te.staff_id = p_staff_id
+      AND te.date_worked BETWEEN v_eff_start AND v_eff_end
+      AND te.is_forecast = false;
+
+    v_missing := GREATEST(v_expected - v_actual, 0);
+
+    SELECT tp.period_id, tp.submitted_at INTO v_period_id, v_submitted_at
+    FROM public.timesheet_periods tp
+    WHERE tp.staff_id = p_staff_id AND tp.week_start_date = v_cursor;
+
+    IF v_period_id IS NULL THEN
+      IF v_actual > 0 THEN v_status := 'NOT_SUBMITTED';
+      ELSE v_status := 'NOT_LOGGED';
+      END IF;
+    ELSIF v_submitted_at IS NULL THEN
+      v_status := 'DRAFT';
+    ELSE
+      SELECT COUNT(*), COUNT(*) FILTER (WHERE tla.status = 'approved'),
+             COUNT(*) FILTER (WHERE tla.status = 'rejected')
+      INTO v_approval_total, v_approval_approved, v_approval_rejected
+      FROM public.timesheet_line_approvals tla WHERE tla.period_id = v_period_id;
+
+      IF v_approval_total = 0 THEN v_status := 'PENDING_APPROVAL';
+      ELSIF v_approval_approved = v_approval_total THEN v_status := 'APPROVED';
+      ELSIF v_approval_rejected > 0 THEN v_status := 'REJECTED';
+      ELSE v_status := 'PENDING_APPROVAL';
+      END IF;
+    END IF;
+
+    v_result := v_result || jsonb_build_object(
+      'week_start', v_cursor, 'week_end', v_week_end,
+      'status', v_status, 'total_logged_hours', v_actual,
+      'expected_hours', v_expected, 'missing_hours', v_missing,
+      'is_submitted', (v_submitted_at IS NOT NULL), 'is_current_week', false
+    );
+
+    v_cursor := v_cursor + 7;
+  END LOOP;
+
+  RETURN v_result;
+END;
+$$;
+
+-- Get pending hours for a staff member
+CREATE OR REPLACE FUNCTION public.get_my_pending_hours(p_staff_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_hire_date date;
+  v_end_date date;
+  v_capacity numeric;
+  v_daily numeric;
+  v_cursor date;
+  v_week_end date;
+  v_eff_start date;
+  v_eff_end date;
+  v_working_days integer;
+  v_holiday_count integer;
+  v_expected numeric;
+  v_actual numeric;
+  v_gap numeric;
+  v_result jsonb := '[]'::jsonb;
+BEGIN
+  SELECT s.hire_date, s.weekly_capacity_hours, s.termination_date
+  INTO v_hire_date, v_capacity, v_end_date
+  FROM public.staff s WHERE s.staff_id = p_staff_id;
+
+  IF v_hire_date IS NULL THEN RETURN '[]'::jsonb; END IF;
+
+  v_end_date := LEAST(COALESCE(v_end_date, CURRENT_DATE), CURRENT_DATE);
+  v_daily := COALESCE(v_capacity, 40) / 5.0;
+  v_cursor := v_hire_date - (EXTRACT(ISODOW FROM v_hire_date)::int - 1);
+
+  WHILE v_cursor <= v_end_date LOOP
+    v_week_end := v_cursor + 4;
+    IF v_week_end >= CURRENT_DATE THEN EXIT; END IF;
+
+    v_eff_start := GREATEST(v_cursor, v_hire_date);
+    v_eff_end := LEAST(v_week_end, v_end_date);
+
+    SELECT COUNT(*) INTO v_working_days
+    FROM generate_series(v_eff_start, v_eff_end, '1 day'::interval) d
+    WHERE EXTRACT(ISODOW FROM d) <= 5;
+
+    SELECT COUNT(*) INTO v_holiday_count
+    FROM public.holidays h
+    WHERE h.holiday_date BETWEEN v_eff_start AND v_eff_end
+      AND EXTRACT(ISODOW FROM h.holiday_date) <= 5;
+
+    v_working_days := v_working_days - v_holiday_count;
+
+    IF v_working_days > 0 THEN
+      v_expected := v_working_days * v_daily;
+
+      SELECT COALESCE(SUM(te.hours_logged), 0) INTO v_actual
+      FROM public.time_entries te
+      WHERE te.staff_id = p_staff_id
+        AND te.date_worked BETWEEN v_eff_start AND v_eff_end
+        AND te.is_forecast = false;
+
+      v_gap := v_expected - v_actual;
+
+      IF v_gap > 0 THEN
+        v_result := v_result || jsonb_build_object(
+          'week_start', v_cursor, 'expected_hours', v_expected,
+          'actual_hours', v_actual, 'gap', v_gap
+        );
+      END IF;
+    END IF;
+
+    v_cursor := v_cursor + 7;
+  END LOOP;
+
+  RETURN v_result;
+END;
+$$;
+
+-- Check pending hours before termination
+CREATE OR REPLACE FUNCTION public.check_pending_hours_before_termination(p_staff_id uuid, p_termination_date date)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_hire_date date;
+  v_capacity numeric;
+  v_daily numeric;
+  v_cursor date;
+  v_week_end date;
+  v_eff_start date;
+  v_eff_end date;
+  v_working_days integer;
+  v_holiday_count integer;
+  v_expected numeric;
+  v_actual numeric;
+  v_gap numeric;
+  v_result jsonb := '[]'::jsonb;
+BEGIN
+  SELECT hire_date, weekly_capacity_hours INTO v_hire_date, v_capacity
+  FROM staff WHERE staff_id = p_staff_id;
+
+  IF v_hire_date IS NULL THEN v_hire_date := p_termination_date; END IF;
+  v_daily := COALESCE(v_capacity, 40) / 5.0;
+  v_cursor := v_hire_date - (EXTRACT(ISODOW FROM v_hire_date)::int - 1);
+
+  WHILE v_cursor <= p_termination_date LOOP
+    v_week_end := v_cursor + 4;
+    v_eff_start := GREATEST(v_cursor, v_hire_date);
+    v_eff_end := LEAST(v_week_end, p_termination_date);
+
+    SELECT COUNT(*) INTO v_working_days
+    FROM generate_series(v_eff_start, v_eff_end, '1 day'::interval) d
+    WHERE EXTRACT(ISODOW FROM d) <= 5;
+
+    SELECT COUNT(*) INTO v_holiday_count
+    FROM holidays h
+    WHERE h.holiday_date BETWEEN v_eff_start AND v_eff_end
+      AND EXTRACT(ISODOW FROM h.holiday_date) <= 5;
+
+    v_working_days := v_working_days - v_holiday_count;
+
+    IF v_working_days > 0 THEN
+      v_expected := v_working_days * v_daily;
+
+      SELECT COALESCE(SUM(te.hours_logged), 0) INTO v_actual
+      FROM time_entries te
+      WHERE te.staff_id = p_staff_id
+        AND te.date_worked BETWEEN v_eff_start AND v_eff_end
+        AND te.is_forecast = false;
+
+      v_gap := v_expected - v_actual;
+
+      IF v_gap > 0 THEN
+        v_result := v_result || jsonb_build_object(
+          'week_start', v_cursor, 'effective_start', v_eff_start,
+          'effective_end', v_eff_end, 'expected_hours', v_expected,
+          'actual_hours', v_actual, 'gap', v_gap
+        );
+      END IF;
+    END IF;
+
+    v_cursor := v_cursor + 7;
+  END LOOP;
+
+  RETURN v_result;
+END;
+$$;
+
+-- Get approvable (period, engagement) pairs for current user
+CREATE OR REPLACE FUNCTION public.get_approvable_pairs(p_period_ids uuid[], p_engagement_ids uuid[])
+RETURNS TABLE(period_id uuid, engagement_id uuid)
+LANGUAGE plpgsql
+STABLE SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_approver_auth_id UUID := auth.uid();
+  v_approver_staff_id UUID;
+  v_approver_display_order INTEGER;
+  v_pair_count INTEGER;
+  i INTEGER;
+  v_period_staff_id UUID;
+  v_expected_approver UUID;
+  v_expected_display_order INTEGER;
+BEGIN
+  SELECT s.staff_id INTO v_approver_staff_id
+  FROM staff s WHERE s.auth_user_id = v_approver_auth_id;
+  IF v_approver_staff_id IS NULL THEN RETURN; END IF;
+
+  SELECT c.display_order INTO v_approver_display_order
+  FROM staff s JOIN categories c ON s.category_id = c.category_id
+  WHERE s.staff_id = v_approver_staff_id AND c.can_approve_timesheets = TRUE;
+  IF v_approver_display_order IS NULL THEN RETURN; END IF;
+
+  v_pair_count := array_length(p_period_ids, 1);
+  IF v_pair_count IS NULL OR v_pair_count != COALESCE(array_length(p_engagement_ids, 1), 0) THEN
+    RETURN;
+  END IF;
+
+  FOR i IN 1..v_pair_count LOOP
+    SELECT tp.staff_id INTO v_period_staff_id
+    FROM timesheet_periods tp WHERE tp.period_id = p_period_ids[i];
+    IF v_period_staff_id IS NULL THEN CONTINUE; END IF;
+    IF v_approver_staff_id = v_period_staff_id THEN CONTINUE; END IF;
+
+    v_expected_approver := get_line_approver(v_period_staff_id, p_engagement_ids[i]);
+    IF v_expected_approver IS NULL THEN CONTINUE; END IF;
+
+    IF v_approver_staff_id = v_expected_approver THEN
+      period_id := p_period_ids[i];
+      engagement_id := p_engagement_ids[i];
+      RETURN NEXT;
+    ELSE
+      SELECT c.display_order INTO v_expected_display_order
+      FROM staff s JOIN categories c ON s.category_id = c.category_id
+      WHERE s.staff_id = v_expected_approver;
+
+      IF v_expected_display_order IS NOT NULL AND v_approver_display_order < v_expected_display_order THEN
+        period_id := p_period_ids[i];
+        engagement_id := p_engagement_ids[i];
+        RETURN NEXT;
+      END IF;
+    END IF;
+  END LOOP;
+END;
+$$;
+
+-- Start a timer entry (ensures no concurrent running timer)
+CREATE OR REPLACE FUNCTION public.start_timer_entry(p_engagement_id uuid, p_activity_id uuid, p_description text DEFAULT NULL)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_staff_id uuid;
+  v_existing_id uuid;
+  v_new_id uuid;
+BEGIN
+  SELECT staff_id INTO v_staff_id FROM staff WHERE auth_user_id = auth.uid();
+  IF v_staff_id IS NULL THEN RAISE EXCEPTION 'No staff record linked to current user'; END IF;
+
+  SELECT timer_id INTO v_existing_id FROM timer_entries
+  WHERE staff_id = v_staff_id AND ended_at IS NULL;
+  IF v_existing_id IS NOT NULL THEN RAISE EXCEPTION 'RUNNING_TIMER_EXISTS:%', v_existing_id; END IF;
+
+  INSERT INTO timer_entries (staff_id, engagement_id, activity_id, description, started_at)
+  VALUES (v_staff_id, p_engagement_id, p_activity_id, p_description, now())
+  RETURNING timer_id INTO v_new_id;
+
+  RETURN v_new_id;
+END;
+$$;
+
+-- Stop a timer entry (clamps to 8h, rounds to 5min)
+CREATE OR REPLACE FUNCTION public.stop_timer_entry(p_timer_id uuid, p_ended_at timestamptz DEFAULT now())
+RETURNS TABLE(timer_id uuid, duration_minutes integer)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_staff_id uuid;
+  v_started_at timestamptz;
+  v_clamped_end timestamptz;
+  v_raw_minutes numeric;
+  v_duration integer;
+BEGIN
+  SELECT s.staff_id INTO v_staff_id FROM staff s WHERE s.auth_user_id = auth.uid();
+  IF v_staff_id IS NULL THEN RAISE EXCEPTION 'No staff record linked to current user'; END IF;
+
+  SELECT te.started_at INTO v_started_at FROM timer_entries te
+  WHERE te.timer_id = p_timer_id AND te.staff_id = v_staff_id AND te.ended_at IS NULL;
+  IF v_started_at IS NULL THEN RAISE EXCEPTION 'Timer not found, not yours, or already stopped'; END IF;
+
+  v_clamped_end := LEAST(p_ended_at, v_started_at + interval '8 hours');
+  v_raw_minutes := EXTRACT(EPOCH FROM (v_clamped_end - v_started_at)) / 60;
+  v_duration := LEAST(480, GREATEST(5, ROUND(v_raw_minutes / 5.0) * 5));
+
+  UPDATE timer_entries te SET ended_at = v_clamped_end, duration_minutes = v_duration
+  WHERE te.timer_id = p_timer_id;
+
+  RETURN QUERY SELECT p_timer_id, v_duration;
+END;
+$$;
+
+-- Finalize stale timers for current user (>8h old)
+CREATE OR REPLACE FUNCTION public.finalize_my_stale_timers()
+RETURNS integer
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_staff_id uuid;
+  v_count integer;
+BEGIN
+  SELECT staff_id INTO v_staff_id FROM staff WHERE auth_user_id = auth.uid();
+  IF v_staff_id IS NULL THEN RETURN 0; END IF;
+
+  UPDATE timer_entries
+  SET ended_at = started_at + interval '8 hours', duration_minutes = 480
+  WHERE ended_at IS NULL AND staff_id = v_staff_id AND started_at < now() - interval '8 hours';
+
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  RETURN v_count;
+END;
+$$;
+
+-- Finalize all stale timers (admin/system use)
+CREATE OR REPLACE FUNCTION public.finalize_all_stale_timers()
+RETURNS integer
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_count integer;
+BEGIN
+  UPDATE timer_entries
+  SET ended_at = started_at + interval '8 hours', duration_minutes = 480
+  WHERE ended_at IS NULL AND started_at < now() - interval '8 hours';
+
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  RETURN v_count;
+END;
+$$;
+
+-- Trigger: Reset timer import flag when unlinked from time entry
+CREATE OR REPLACE FUNCTION public.reset_timer_import_on_unlink()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+BEGIN
+  IF NEW.imported_to_time_id IS NULL AND OLD.imported_to_time_id IS NOT NULL THEN
+    NEW.is_imported := false;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+-- Trigger: Enforce termination date on time entries
+CREATE OR REPLACE FUNCTION public.enforce_termination_date()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE v_term date;
+BEGIN
+  SELECT termination_date INTO v_term FROM staff WHERE staff_id = NEW.staff_id;
+  IF v_term IS NOT NULL AND NEW.date_worked > v_term THEN
+    RAISE EXCEPTION 'TERMINATION_DATE_BLOCKED: Cannot log time after termination date %', v_term;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+-- Trigger: Prevent staff reactivation
+CREATE OR REPLACE FUNCTION public.prevent_staff_reactivation()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+BEGIN
+  IF OLD.is_active = false AND NEW.is_active = true THEN
+    RAISE EXCEPTION 'REACTIVATION_BLOCKED: Staff reactivation is not permitted. Delete the record and create a new one.';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+-- Trigger: Validate submission has entries
+CREATE OR REPLACE FUNCTION public.validate_submission_has_entries()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_entry_count integer;
+BEGIN
+  SELECT COUNT(*) INTO v_entry_count
+  FROM time_entries te
+  WHERE te.staff_id = NEW.staff_id
+    AND te.date_worked >= NEW.week_start_date
+    AND te.date_worked <= NEW.week_start_date + 4
+    AND te.is_forecast = false;
+
+  IF v_entry_count = 0 THEN
+    RAISE EXCEPTION 'SUBMIT_NO_ENTRIES: Cannot submit a timesheet with no time entries for week starting %', NEW.week_start_date;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+-- Trigger: Enforce activity default for non-activity-required engagements
+CREATE OR REPLACE FUNCTION public.enforce_activity_default()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_activity_required boolean;
+  v_raw text;
+  v_adm_id uuid;
+BEGIN
+  SELECT activity_required INTO v_activity_required
+  FROM engagements WHERE engagement_id = NEW.engagement_id;
+
+  IF v_activity_required IS DISTINCT FROM false THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT setting_value INTO v_raw
+  FROM global_settings WHERE setting_key = 'ADM_ACTIVITY_ID';
+
+  IF v_raw IS NULL OR TRIM(v_raw) = '' THEN
+    RAISE EXCEPTION 'ADM_ACTIVITY_NOT_CONFIGURED';
+  END IF;
+
+  v_adm_id := TRIM(v_raw)::uuid;
+  NEW.activity_id := v_adm_id;
+  RETURN NEW;
+END;
+$$;
+
+-- Trigger: Enforce holiday blocking on time entries
+CREATE OR REPLACE FUNCTION public.enforce_holiday_blocking()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_holiday_name text;
+  v_raw text;
+  v_setting text;
+  v_holiday_engagement_id uuid;
+BEGIN
+  SELECT holiday_name INTO v_holiday_name FROM holidays WHERE holiday_date = NEW.date_worked;
+  IF NOT FOUND THEN RETURN NEW; END IF;
+
+  SELECT setting_value INTO v_raw FROM global_settings WHERE setting_key = 'HOLIDAY_ENGAGEMENT_ID';
+  v_setting := NULLIF(TRIM(v_raw), '');
+
+  IF v_setting IS NULL THEN RAISE EXCEPTION 'HOLIDAY_NOT_CONFIGURED'; END IF;
+
+  v_holiday_engagement_id := v_setting::uuid;
+  IF NEW.engagement_id != v_holiday_engagement_id THEN
+    RAISE EXCEPTION 'HOLIDAY_BLOCKED:%', v_holiday_name;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+-- Trigger: Validate timer entry duration (max 8h / 480min)
+CREATE OR REPLACE FUNCTION public.validate_timer_entry_duration()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF NEW.ended_at IS NOT NULL THEN
+    IF NEW.ended_at > NEW.started_at + interval '8 hours' THEN
+      RAISE EXCEPTION 'Timer entry cannot exceed 8 hours';
+    END IF;
+  END IF;
+  IF NEW.duration_minutes IS NOT NULL AND NEW.duration_minutes > 480 THEN
+    RAISE EXCEPTION 'Duration cannot exceed 480 minutes (8 hours)';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+-- Trigger: Prevent deletion of imported timer entries
+CREATE OR REPLACE FUNCTION public.prevent_imported_timer_delete()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+BEGIN
+  IF OLD.is_imported = true THEN
+    RAISE EXCEPTION 'Cannot delete imported timer entry (timer_id: %)', OLD.timer_id;
+  END IF;
+  RETURN OLD;
+END;
+$$;
+
+-- Trigger: Protect approved time entries from modification
+CREATE OR REPLACE FUNCTION public.protect_approved_time_entries()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  old_period uuid;
+  old_engagement uuid;
+  new_period uuid;
+  new_engagement uuid;
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    old_period := OLD.period_id;
+    old_engagement := OLD.engagement_id;
+    IF old_period IS NOT NULL AND EXISTS (
+      SELECT 1 FROM public.timesheet_line_approvals tla
+      WHERE tla.period_id = old_period AND tla.engagement_id = old_engagement AND tla.status = 'approved'
+    ) THEN
+      RAISE EXCEPTION 'APPROVED_LINE_LOCKED: Cannot delete time entries on an approved line';
+    END IF;
+    RETURN OLD;
+  END IF;
+
+  IF TG_OP = 'INSERT' THEN
+    new_period := NEW.period_id;
+    new_engagement := NEW.engagement_id;
+    IF new_period IS NOT NULL AND EXISTS (
+      SELECT 1 FROM public.timesheet_line_approvals tla
+      WHERE tla.period_id = new_period AND tla.engagement_id = new_engagement AND tla.status = 'approved'
+    ) THEN
+      RAISE EXCEPTION 'APPROVED_LINE_LOCKED: Cannot insert time entries into an approved line';
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  old_period := OLD.period_id;
+  old_engagement := OLD.engagement_id;
+  new_period := COALESCE(NEW.period_id, OLD.period_id);
+  new_engagement := COALESCE(NEW.engagement_id, OLD.engagement_id);
+
+  IF old_period IS NOT NULL AND EXISTS (
+    SELECT 1 FROM public.timesheet_line_approvals tla
+    WHERE tla.period_id = old_period AND tla.engagement_id = old_engagement AND tla.status = 'approved'
+  ) THEN
+    RAISE EXCEPTION 'APPROVED_LINE_LOCKED: Cannot modify time entries on an approved line';
+  END IF;
+
+  IF new_period IS NOT NULL AND EXISTS (
+    SELECT 1 FROM public.timesheet_line_approvals tla
+    WHERE tla.period_id = new_period AND tla.engagement_id = new_engagement AND tla.status = 'approved'
+  ) THEN
+    RAISE EXCEPTION 'APPROVED_LINE_LOCKED: Cannot move time entries into an approved line';
+  END IF;
+
   RETURN NEW;
 END;
 $$;
@@ -919,13 +1838,14 @@ ALTER TABLE public.engagements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.expense_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.expense_types ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.global_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.holidays ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.industries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.staff ENABLE ROW LEVEL SECURITY;
--- staff_capacity RLS removed (table dropped)
 ALTER TABLE public.time_entries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.timer_entries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.timesheet_line_approvals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.timesheet_periods ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_lifecycle_audit_log ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.wo_budget_lines ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.wo_expense_budget ENABLE ROW LEVEL SECURITY;
@@ -1039,6 +1959,20 @@ CREATE POLICY "Authenticated users can read settings" ON public.global_settings
   FOR SELECT TO authenticated 
   USING (true);
 
+-- Holidays
+CREATE POLICY "Admins can insert holidays" ON public.holidays 
+  FOR INSERT TO authenticated 
+  WITH CHECK (is_admin());
+CREATE POLICY "Admins can update holidays" ON public.holidays 
+  FOR UPDATE TO authenticated 
+  USING (is_admin());
+CREATE POLICY "Admins can delete holidays" ON public.holidays 
+  FOR DELETE TO authenticated 
+  USING (is_admin());
+CREATE POLICY "Authenticated users can read holidays" ON public.holidays 
+  FOR SELECT TO authenticated 
+  USING (true);
+
 -- Industries
 CREATE POLICY "Admins can manage industries" ON public.industries 
   FOR ALL TO authenticated 
@@ -1058,8 +1992,6 @@ CREATE POLICY "Users can update their linked staff record" ON public.staff
   FOR UPDATE TO public 
   USING ((auth_user_id = auth.uid())) 
   WITH CHECK ((auth_user_id = auth.uid()));
-
--- Staff Capacity policies removed (table dropped; weekly_capacity_hours now on staff table)
 
 -- Time Entries
 CREATE POLICY "Admins can delete all time entries" ON public.time_entries 
@@ -1147,6 +2079,11 @@ CREATE POLICY "Staff can view own periods" ON public.timesheet_periods
   FOR SELECT TO public 
   USING ((staff_id IN (SELECT s.staff_id FROM staff s WHERE s.auth_user_id = auth.uid())));
 
+-- User Lifecycle Audit Log
+CREATE POLICY "Admins can view lifecycle audit" ON public.user_lifecycle_audit_log 
+  FOR SELECT TO authenticated 
+  USING (has_role(auth.uid(), 'admin'));
+
 -- User Roles
 CREATE POLICY "Admins can manage all roles" ON public.user_roles 
   FOR ALL TO public 
@@ -1206,6 +2143,14 @@ CREATE POLICY "Team can manage engagement work orders" ON public.work_orders
 CREATE POLICY "Team can view engagement work orders" ON public.work_orders 
   FOR SELECT TO authenticated 
   USING (is_engagement_team_member(engagement_id));
+
+-- ============================================================================
+-- GRANTS / REVOKES
+-- ============================================================================
+
+-- User Lifecycle Audit Log: restrict direct DML from regular users
+REVOKE INSERT, UPDATE, DELETE ON public.user_lifecycle_audit_log FROM anon, authenticated;
+GRANT INSERT ON public.user_lifecycle_audit_log TO service_role;
 
 -- ============================================================================
 -- END OF SCHEMA
