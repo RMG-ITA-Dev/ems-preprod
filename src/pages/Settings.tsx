@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -42,6 +42,8 @@ import { HolidaysManager } from "@/components/settings/HolidaysManager";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Lock, CheckCircle } from "lucide-react";
 import { toast } from "sonner";
+import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";
+import { LeavePageDialog } from "@/components/ui/leave-page-dialog";
 
 const Settings = () => {
   const { t } = useTranslation();
@@ -55,6 +57,10 @@ const Settings = () => {
   const { data: activityCodes, isLoading: activitiesLoading } = useActivityCodes();
   const { data: expenseTypes, isLoading: expenseTypesLoading } = useExpenseTypes();
   const updateSettingMutation = useUpdateGlobalSetting();
+
+  // Controlled tab state
+  const [activeTab, setActiveTab] = useState("account");
+  const isGlobalTabActive = activeTab === "global";
 
   // Form states
   const [industryFormOpen, setIndustryFormOpen] = useState(false);
@@ -105,6 +111,55 @@ const Settings = () => {
       }
     }
   }, [settings]);
+
+  // isGlobalDirty computation
+  const isGlobalDirty = useMemo(() => {
+    if (!settings) return false;
+    const persistedLang = getSetting("LANGUAGE") || "en";
+    const persistedWeekend = getSetting("ALLOW_WEEKEND_TRACKING") === "true";
+    const persistedCompact = getSetting("COMPACT_FONT") === "true";
+    const persistedDomain = getSetting("ALLOWED_EMAIL_DOMAIN") || "";
+    const persistedTax = (parseFloat(getSetting("TAX_RATE") || "0.13") * 100).toString();
+    const persistedRealization = getSetting("REALIZATION_LIMIT") || "75";
+    const persistedDaily = getSetting("DAILY_LIMIT") || "12";
+    const persistedWeekly = getSetting("WEEKLY_LIMIT") || "50";
+
+    return (
+      language !== persistedLang ||
+      allowWeekendTracking !== persistedWeekend ||
+      compactFont !== persistedCompact ||
+      allowedEmailDomain !== persistedDomain ||
+      (taxRate !== "" && taxRate !== persistedTax) ||
+      (realizationLimit !== "" && realizationLimit !== persistedRealization) ||
+      (dailyLimit !== "" && dailyLimit !== persistedDaily) ||
+      (weeklyLimit !== "" && weeklyLimit !== persistedWeekly)
+    );
+  }, [settings, language, allowWeekendTracking, compactFont, allowedEmailDomain,
+      taxRate, realizationLimit, dailyLimit, weeklyLimit]);
+
+  // Navigation lock - only when global tab is active
+  const { blocker } = usePageLeaveLock({
+    locked: isGlobalTabActive,
+    isDirty: isGlobalTabActive && isGlobalDirty,
+  });
+
+  // Cancel handler for global tab
+  const handleCancelGlobal = () => {
+    setLanguage(getSetting("LANGUAGE") || "en");
+    setAllowWeekendTracking(getSetting("ALLOW_WEEKEND_TRACKING") === "true");
+
+    const persistedCompact = getSetting("COMPACT_FONT") === "true";
+    setCompactFont(persistedCompact);
+    document.documentElement.dataset.compactFont = persistedCompact ? "true" : "false";
+
+    setAllowedEmailDomain(getSetting("ALLOWED_EMAIL_DOMAIN") || "");
+    setTaxRate("");
+    setRealizationLimit("");
+    setDailyLimit("");
+    setWeeklyLimit("");
+
+    setActiveTab("account");
+  };
 
   // Industry columns
   const industryColumns: Column<Industry>[] = [
@@ -240,14 +295,15 @@ const Settings = () => {
       }
       queryClient.invalidateQueries({ queryKey: ["global_settings"] });
       toast.success(t("messages.settingsSaved"));
+      setActiveTab("account");
     } catch (error) {
       // Error handled by mutation
     }
   };
 
   return (
-    <AppLayout title={t("settings.title")}>
-      <Tabs defaultValue="account" className="space-y-6">
+    <AppLayout title={t("settings.title")} focusMode={isGlobalTabActive}>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList className="bg-muted">
           <TabsTrigger value="account">{t("settings.account")}</TabsTrigger>
           <TabsTrigger value="industries">{t("settings.industries")}</TabsTrigger>
@@ -511,9 +567,14 @@ const Settings = () => {
                       </div>
                     </div>
 
-                    <Button onClick={handleSaveSettings} disabled={updateSettingMutation.isPending}>
-                      {updateSettingMutation.isPending ? t("common.saving") : t("common.saveChanges")}
-                    </Button>
+                    <div className="flex gap-3">
+                      <Button variant="cancel" onClick={handleCancelGlobal} className="btn-action">
+                        {t("common.cancel")}
+                      </Button>
+                      <Button onClick={handleSaveSettings} disabled={updateSettingMutation.isPending}>
+                        {updateSettingMutation.isPending ? t("common.saving") : t("common.saveChanges")}
+                      </Button>
+                    </div>
                   </>
                 )}
               </CardContent>
@@ -527,6 +588,7 @@ const Settings = () => {
           </TabsContent>
         )}
       </Tabs>
+      <LeavePageDialog blocker={blocker} isDirty={isGlobalDirty} />
     </AppLayout>
   );
 };

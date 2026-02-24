@@ -14,7 +14,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Loader2, Save } from "lucide-react";
+import { Loader2, Save, ArrowLeft } from "lucide-react";
 import {
   useStaffTimesheetForApproval,
   useBulkApproveTimesheetLines,
@@ -27,6 +27,8 @@ import type { ApprovalDecision } from "@/components/ui/approval-toggle";
 import { format, addDays } from "date-fns";
 import { useLanguage } from "@/hooks/useLanguage";
 import { parseDateLocal } from "@/lib/timesheetUtils";
+import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";
+import { LeavePageDialog } from "@/components/ui/leave-page-dialog";
 
 const TimesheetApprovalDetail = () => {
   const { periodId } = useParams<{ periodId: string }>();
@@ -43,10 +45,6 @@ const TimesheetApprovalDetail = () => {
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectNotes, setRejectNotes] = useState("");
   const [isSaving, setIsSaving] = useState(false);
-
-  const handleBack = () => {
-    navigate("/timesheet/approvals");
-  };
 
   const handleDecisionChange = (approvalId: string, decision: ApprovalDecision) => {
     setApprovalDecisions((prev) => {
@@ -85,6 +83,18 @@ const TimesheetApprovalDetail = () => {
   }, [approvalDecisions, timesheetData]);
 
   const hasDecisions = summary.toApprove.length > 0 || summary.toReject.length > 0;
+
+  // Navigation lock - must be after hasDecisions
+  const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty: hasDecisions });
+
+  const handleBack = () => {
+    allowNextNavigation();
+    if (window.history.length > 1) {
+      navigate(-1);
+    } else {
+      navigate("/timesheet/approvals");
+    }
+  };
 
   const handleSaveDecisions = () => {
     if (summary.toReject.length > 0) {
@@ -156,6 +166,7 @@ const TimesheetApprovalDetail = () => {
 
       // Step E: Navigate only when all lines resolved
       if (summary.stillPending === 0) {
+        allowNextNavigation();
         navigate("/timesheet/approvals");
       }
     } catch (error) {
@@ -179,22 +190,36 @@ const TimesheetApprovalDetail = () => {
     return `${format(startDate, "dd/MM/yyyy")} - ${format(endDate, "dd/MM/yyyy")}`;
   };
 
+  // Back button component for reuse across branches
+  const BackButton = () => (
+    <div className="flex items-center justify-between mb-4">
+      <Button variant="cancel" onClick={handleBack} className="btn-action">
+        <ArrowLeft className="h-4 w-4 mr-1" />
+        {t("common.back")}
+      </Button>
+    </div>
+  );
+
   if (isLoading) {
     return (
-      <AppLayout title={t("approval.title")}>
+      <AppLayout title={t("approval.title")} focusMode>
+        <BackButton />
         <div className="flex items-center justify-center h-64">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
+        <LeavePageDialog blocker={blocker} isDirty={false} />
       </AppLayout>
     );
   }
 
   if (!timesheetData) {
     return (
-      <AppLayout title={t("approval.title")}>
+      <AppLayout title={t("approval.title")} focusMode>
+        <BackButton />
         <div className="text-center py-12 text-muted-foreground">
           {t("common.noResults")}
         </div>
+        <LeavePageDialog blocker={blocker} isDirty={false} />
       </AppLayout>
     );
   }
@@ -205,7 +230,7 @@ const TimesheetApprovalDetail = () => {
   const isProcessing = bulkApprove.isPending || bulkReject.isPending;
 
   return (
-    <AppLayout title={t("approval.title")}>
+    <AppLayout title={t("approval.title")} focusMode>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -292,6 +317,7 @@ const TimesheetApprovalDetail = () => {
           </DialogContent>
         </Dialog>
       </div>
+      <LeavePageDialog blocker={blocker} isDirty={hasDecisions} />
     </AppLayout>
   );
 };

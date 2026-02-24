@@ -57,7 +57,8 @@
     "leaveAnyway": "Salir de todas formas",
     "stay": "Quedarme",
     "saveError": "Error al guardar los cambios. Intente nuevamente.",
-    "status": "Estado"
+    "status": "Estado",
+    "back": "Volver"
   },
   "nav": {
     "main": "Principal",
