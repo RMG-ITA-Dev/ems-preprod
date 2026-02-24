@@ -57,7 +57,8 @@
     "leaveAnyway": "Leave anyway",
     "stay": "Stay",
     "saveError": "Error saving changes. Please try again.",
-    "status": "Status"
+    "status": "Status",
+    "back": "Back"
   },
   "nav": {
     "main": "Main",

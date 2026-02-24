@@ -1,11 +1,12 @@
 import { useState, useMemo, useCallback } from "react";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Loader2, AlertCircle, Lock, Save, RotateCcw, Check, AlertTriangle, Copy } from "lucide-react";
+import { Loader2, AlertCircle, Lock, Save, RotateCcw, Check, AlertTriangle, Copy, ArrowLeft } from "lucide-react";
 import { WeekNavigator } from "@/components/timesheet/WeekNavigator";
 import { TimesheetGrid } from "@/components/timesheet/TimesheetGrid";
 import { useHolidaysForWeek, useHolidayEngagementId } from "@/hooks/useHolidays";
@@ -17,6 +18,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { usePeriodLineApprovals } from "@/hooks/useTimesheetApprovals";
 import { useSubmitTimesheet, useUnsubmitTimesheet, useCopyPreviousWeek } from "@/hooks/useTimesheetMutations";
 import { useGlobalSettings } from "@/hooks/useEmsData";
+import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";
+import { LeavePageDialog } from "@/components/ui/leave-page-dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { parseISO, isBefore, startOfDay } from "date-fns";
 import {
@@ -34,6 +37,17 @@ const TimeSheet = () => {
   const { t, i18n } = useTranslation();
   const lang = i18n.language;
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty: false });
+
+  const handleBack = () => {
+    allowNextNavigation();
+    if (window.history.length > 1) {
+      navigate(-1);
+    } else {
+      navigate("/");
+    }
+  };
 
   // Get current staff
   const { staffRecord, isLoading: staffLoading } = useCurrentStaff();
@@ -338,13 +352,25 @@ const TimeSheet = () => {
     });
   };
 
+  // Back button component for reuse across branches
+  const BackButton = () => (
+    <div className="flex items-center justify-between mb-4">
+      <Button variant="cancel" onClick={handleBack} className="btn-action">
+        <ArrowLeft className="h-4 w-4 mr-1" />
+        {t("common.back")}
+      </Button>
+    </div>
+  );
+
   // Loading state
   if (staffLoading || isLoading) {
     return (
-      <AppLayout title={t("timesheet.title")}>
+      <AppLayout title={t("timesheet.title")} focusMode>
+        <BackButton />
         <div className="flex items-center justify-center h-64">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
+        <LeavePageDialog blocker={blocker} isDirty={false} />
       </AppLayout>
     );
   }
@@ -352,7 +378,8 @@ const TimeSheet = () => {
   // No staff record linked
   if (!staffRecord) {
     return (
-      <AppLayout title={t("timesheet.title")}>
+      <AppLayout title={t("timesheet.title")} focusMode>
+        <BackButton />
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
@@ -363,6 +390,7 @@ const TimeSheet = () => {
             </span>
           </AlertDescription>
         </Alert>
+        <LeavePageDialog blocker={blocker} isDirty={false} />
       </AppLayout>
     );
   }
@@ -370,19 +398,21 @@ const TimeSheet = () => {
   // Error state
   if (isError) {
     return (
-      <AppLayout title={t("timesheet.title")}>
+      <AppLayout title={t("timesheet.title")} focusMode>
+        <BackButton />
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
             {error?.message || "Error loading timesheet data"}
           </AlertDescription>
         </Alert>
+        <LeavePageDialog blocker={blocker} isDirty={false} />
       </AppLayout>
     );
   }
 
   return (
-    <AppLayout title={t("timesheet.title")}>
+    <AppLayout title={t("timesheet.title")} focusMode>
       <div className="space-y-6">
         {/* Week Navigation */}
         <WeekNavigator
@@ -506,6 +536,11 @@ const TimeSheet = () => {
           </div>
 
           <div className="flex gap-3 flex-wrap">
+            {/* Back button */}
+            <Button variant="cancel" onClick={handleBack} className="btn-action">
+              <ArrowLeft className="h-4 w-4 mr-1" />
+              {t("common.back")}
+            </Button>
 
             {/* BUG #12 / BUG #0206-3: Copy Previous Week Button */}
             {canCopyPreviousWeek && (
@@ -567,8 +602,10 @@ const TimeSheet = () => {
         </div>
 
       </div>
+      <LeavePageDialog blocker={blocker} isDirty={false} />
     </AppLayout>
   );
 };
 
 export default TimeSheet;
+
