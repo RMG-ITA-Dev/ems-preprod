@@ -1,60 +1,21 @@
-# CHANGELOG 2026-02-24
 
-## Remove Navigation Lock from Timesheet Page
+## BUG 0213-36: Replace DAILY_LIMIT/WEEKLY_LIMIT with Min/Max Model
 
-**Plan version**: v2 (with CODEX amendment)  
-**Context**: The Timesheet page auto-saves all changes, making the `LeavePageDialog` confirmation ("¿Salir de esta pantalla?") unnecessary and disruptive to workflow.
+**Migration**: `<timestamp>_bug_0213_36_replace_limits_with_minmax.sql`
 
 ### Changes
 
-#### 1. `src/pages/TimeSheet.tsx`
-
-**Removed imports** (former lines 21-22):
-- `import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";`
-- `import { LeavePageDialog } from "@/components/ui/leave-page-dialog";`
-
-**Removed hook call** (former line 41):
-- `const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty: false });`
-
-**Simplified `handleBack`** (former lines 43-50):
-- Before: called `allowNextNavigation()` before `navigate(-1)`
-- After: calls `navigate(-1)` directly (fallback to `navigate("/")`)
-
-**Removed 4 `<LeavePageDialog>` instances**:
-- Loading branch (former line 373)
-- No-staff branch (former line 393)
-- Error branch (former line 409)
-- Main render branch (former line 604)
-
-**Preserved**:
-- `focusMode` prop on `<AppLayout>` (sidebar remains hidden for focused data entry)
-- `BackButton` component (ArrowLeft + "common.back") in loading/error/no-staff branches
-- Footer Cancel button ("common.cancel") in main data branch
-
-#### 2. `src/pages/__tests__/TimeSheet.focus-lock.test.tsx`
-
-**Updated** (not deleted) per CODEX amendment:
-
-- Removed `mockAllowNextNavigation`, `mockBlocker` variables
-- Removed `usePageLeaveLock` mock
-- Removed `LeavePageDialog` mock
-- Removed test TF3 ("Back button calls allowNextNavigation before navigate")
-- Removed test TF4 ("LeavePageDialog renders")
-- Added new test TF3 ("Back button navigates on click") — regression coverage for direct navigation
-- Renamed describe block from `"TimeSheet focus-lock"` to `"TimeSheet focus-mode"`
-- Changed render import from `@testing-library/react` to `@/test/utils` (provides `QueryClientProvider` wrapper needed after removing `usePageLeaveLock` mock)
-
-**Kept**:
-- TF1: focusMode assertion (layout still uses `focusMode`)
-- TF2: Back button renders in loading branch
-
-### UX Duplication Check
-
-Confirmed no duplication: `BackButton` ("common.back") renders only in loading/error/no-staff branches; footer Cancel ("common.cancel") renders only in the main data branch. They never coexist.
-
-### Out of Scope
-
-- `usePageLeaveLock` hook — unchanged, used by other pages
-- `LeavePageDialog` component — unchanged, used by other pages
-- No database changes
-- No styling changes
+- Added global settings DAILY_MIN (8), DAILY_MAX (8), WEEKLY_MIN (40), WEEKLY_MAX (40).
+- Compatibility backfill: existing DAILY_LIMIT=8 mapped to DAILY_MAX; WEEKLY_LIMIT=40 mapped to WEEKLY_MAX.
+- DAILY_LIMIT and WEEKLY_LIMIT remain in DB as inert historical data; removed from all runtime code.
+- Added update_timesheet_minmax_settings() RPC for backend-authoritative atomic settings write. Validates feasibility invariants server-side and writes all four settings in one transaction.
+- submit_timesheet_safe() now validates WEEKLY_MIN <= actual_hours <= WEEKLY_MAX using period-scoped query (period_id + staff_id + is_forecast=false). Raises WEEKLY_MIN_NOT_MET or WEEKLY_MAX_EXCEEDED.
+- Settings UI: 2x2 min/max field grid replaces old limit fields. Save calls atomic RPC.
+- TimeSheet: submit gating enforces dual-bound check.
+- TimesheetGrid: daily coloring uses DAILY_MIN/DAILY_MAX.
+- TrackerRecord: daily guard uses DAILY_MAX.
+- Dashboard edge function: uses WEEKLY_MAX for weekly_limit payload field.
+- Partner/Director auto-approval behavior unchanged.
+- Backend integration tests via test-minmax-settings edge function.
+- CI guard prevents reintroduction of old settings in runtime code.
+- EN/ES i18n parity for all new labels/errors. Old keys kept as dead code.

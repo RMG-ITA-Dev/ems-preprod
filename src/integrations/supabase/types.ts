@@ -1655,6 +1655,16 @@ export type Database = {
         Args: { p_wo_id: string; p_worksheet_id: string }
         Returns: undefined
       }
+      update_timesheet_minmax_settings: {
+        Args: {
+          p_daily_max: number
+          p_daily_min: number
+          p_weekly_max: number
+          p_weekly_min: number
+          p_work_days?: number
+        }
+        Returns: Json
+      }
     }
     Enums: {
       app_role:

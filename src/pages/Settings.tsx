@@ -29,6 +29,7 @@ import {
   ExpenseType,
 } from "@/hooks/useEmsData";
 import { useUpdateGlobalSetting } from "@/hooks/mutations";
+import { supabase } from "@/integrations/supabase/client";
 import { useUserRole } from "@/hooks/useUserRole";
 import { useLanguage } from "@/hooks/useLanguage";
 import { DataTable, Column } from "@/components/data-table/DataTable";
@@ -77,8 +78,10 @@ const Settings = () => {
 
   // Settings state
   const [taxRate, setTaxRate] = useState<string>("");
-  const [dailyLimit, setDailyLimit] = useState<string>("");
-  const [weeklyLimit, setWeeklyLimit] = useState<string>("");
+  const [dailyMin, setDailyMin] = useState<string>("");
+  const [dailyMax, setDailyMax] = useState<string>("");
+  const [weeklyMin, setWeeklyMin] = useState<string>("");
+  const [weeklyMax, setWeeklyMax] = useState<string>("");
   const [language, setLanguage] = useState<string>("en");
   const [allowWeekendTracking, setAllowWeekendTracking] = useState<boolean>(false);
   const [compactFont, setCompactFont] = useState<boolean>(false);
@@ -121,8 +124,10 @@ const Settings = () => {
     const persistedDomain = getSetting("ALLOWED_EMAIL_DOMAIN") || "";
     const persistedTax = (parseFloat(getSetting("TAX_RATE") || "0.13") * 100).toString();
     const persistedRealization = getSetting("REALIZATION_LIMIT") || "75";
-    const persistedDaily = getSetting("DAILY_LIMIT") || "12";
-    const persistedWeekly = getSetting("WEEKLY_LIMIT") || "50";
+    const persistedDailyMin = getSetting("DAILY_MIN") || "8";
+    const persistedDailyMax = getSetting("DAILY_MAX") || "8";
+    const persistedWeeklyMin = getSetting("WEEKLY_MIN") || "40";
+    const persistedWeeklyMax = getSetting("WEEKLY_MAX") || "40";
 
     return (
       language !== persistedLang ||
@@ -131,11 +136,13 @@ const Settings = () => {
       allowedEmailDomain !== persistedDomain ||
       (taxRate !== "" && taxRate !== persistedTax) ||
       (realizationLimit !== "" && realizationLimit !== persistedRealization) ||
-      (dailyLimit !== "" && dailyLimit !== persistedDaily) ||
-      (weeklyLimit !== "" && weeklyLimit !== persistedWeekly)
+      (dailyMin !== "" && dailyMin !== persistedDailyMin) ||
+      (dailyMax !== "" && dailyMax !== persistedDailyMax) ||
+      (weeklyMin !== "" && weeklyMin !== persistedWeeklyMin) ||
+      (weeklyMax !== "" && weeklyMax !== persistedWeeklyMax)
     );
   }, [settings, language, allowWeekendTracking, compactFont, allowedEmailDomain,
-      taxRate, realizationLimit, dailyLimit, weeklyLimit]);
+      taxRate, realizationLimit, dailyMin, dailyMax, weeklyMin, weeklyMax]);
 
   // Navigation lock - only when global tab is active
   const { blocker } = usePageLeaveLock({
@@ -155,8 +162,10 @@ const Settings = () => {
     setAllowedEmailDomain(getSetting("ALLOWED_EMAIL_DOMAIN") || "");
     setTaxRate("");
     setRealizationLimit("");
-    setDailyLimit("");
-    setWeeklyLimit("");
+    setDailyMin("");
+    setDailyMax("");
+    setWeeklyMin("");
+    setWeeklyMax("");
 
     setActiveTab("account");
   };
@@ -276,11 +285,35 @@ const Settings = () => {
       if (taxRate) {
         await updateSettingMutation.mutateAsync({ key: "TAX_RATE", value: (parseFloat(taxRate) / 100).toString() });
       }
-      if (dailyLimit) {
-        await updateSettingMutation.mutateAsync({ key: "DAILY_LIMIT", value: dailyLimit });
-      }
-      if (weeklyLimit) {
-        await updateSettingMutation.mutateAsync({ key: "WEEKLY_LIMIT", value: weeklyLimit });
+      // Check if any timesheet min/max fields are dirty
+      const timesheetMinMaxDirty = dailyMin || dailyMax || weeklyMin || weeklyMax;
+
+      if (timesheetMinMaxDirty) {
+        const dMin = parseFloat(dailyMin || getSetting("DAILY_MIN") || "8");
+        const dMax = parseFloat(dailyMax || getSetting("DAILY_MAX") || "8");
+        const wMin = parseFloat(weeklyMin || getSetting("WEEKLY_MIN") || "40");
+        const wMax = parseFloat(weeklyMax || getSetting("WEEKLY_MAX") || "40");
+        const wd = allowWeekendTracking ? 6 : 5;
+
+        const { data: result, error: rpcError } = await supabase.rpc(
+          "update_timesheet_minmax_settings",
+          { p_daily_min: dMin, p_daily_max: dMax, p_weekly_min: wMin, p_weekly_max: wMax, p_work_days: wd }
+        );
+
+        if (rpcError) throw rpcError;
+
+        const rpcResult = result as any;
+
+        if (rpcResult && !rpcResult.success) {
+          const errorKey = {
+            DAILY_MIN_EXCEEDS_MAX: "settings.dailyMinMaxError",
+            WEEKLY_MIN_EXCEEDS_MAX: "settings.weeklyMinMaxError",
+            WEEKLY_MIN_EXCEEDS_DAILY_MAX: "settings.weeklyMinExceedsDailyMax",
+            WEEKLY_MAX_BELOW_DAILY_MIN: "settings.weeklyMaxBelowDailyMin",
+          }[rpcResult.error_code as string] || "messages.error";
+          toast.error(t(errorKey));
+          return;
+        }
       }
       if (language && isAdmin) {
         await updateSettingMutation.mutateAsync({ key: "LANGUAGE", value: language });
@@ -541,29 +574,55 @@ const Settings = () => {
                       <p className="text-sm text-muted-foreground">{t("settings.realizationLimitHelp")}</p>
                     </div>
 
-                    {/* Time Limits */}
+                    {/* Time Limits (Min/Max) */}
                     <div className="grid grid-cols-2 gap-6 py-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="dailyLimit">{t("settings.dailyLimit")}</Label>
-                        <NumericInput
-                          id="dailyLimit"
-                          value={dailyLimit || getSetting("DAILY_LIMIT") || "12"}
-                          onValueChange={(value) => setDailyLimit(value)}
-                          placeholder="12"
-                          decimals={1}
-                        />
-                        <p className="text-sm text-muted-foreground">{t("settings.dailyLimitHelp")}</p>
+                      <div className="space-y-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="dailyMin">{t("settings.dailyMin")}</Label>
+                          <NumericInput
+                            id="dailyMin"
+                            value={dailyMin || getSetting("DAILY_MIN") || "8"}
+                            onValueChange={(value) => setDailyMin(value)}
+                            placeholder="8"
+                            decimals={1}
+                          />
+                          <p className="text-sm text-muted-foreground">{t("settings.dailyMinHelp")}</p>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="dailyMax">{t("settings.dailyMax")}</Label>
+                          <NumericInput
+                            id="dailyMax"
+                            value={dailyMax || getSetting("DAILY_MAX") || "8"}
+                            onValueChange={(value) => setDailyMax(value)}
+                            placeholder="8"
+                            decimals={1}
+                          />
+                          <p className="text-sm text-muted-foreground">{t("settings.dailyMaxHelp")}</p>
+                        </div>
                       </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="weeklyLimit">{t("settings.weeklyLimit")}</Label>
-                        <NumericInput
-                          id="weeklyLimit"
-                          value={weeklyLimit || getSetting("WEEKLY_LIMIT") || "50"}
-                          onValueChange={(value) => setWeeklyLimit(value)}
-                          placeholder="50"
-                          decimals={1}
-                        />
-                        <p className="text-sm text-muted-foreground">{t("settings.weeklyLimitHelp")}</p>
+                      <div className="space-y-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="weeklyMin">{t("settings.weeklyMin")}</Label>
+                          <NumericInput
+                            id="weeklyMin"
+                            value={weeklyMin || getSetting("WEEKLY_MIN") || "40"}
+                            onValueChange={(value) => setWeeklyMin(value)}
+                            placeholder="40"
+                            decimals={1}
+                          />
+                          <p className="text-sm text-muted-foreground">{t("settings.weeklyMinHelp")}</p>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="weeklyMax">{t("settings.weeklyMax")}</Label>
+                          <NumericInput
+                            id="weeklyMax"
+                            value={weeklyMax || getSetting("WEEKLY_MAX") || "40"}
+                            onValueChange={(value) => setWeeklyMax(value)}
+                            placeholder="40"
+                            decimals={1}
+                          />
+                          <p className="text-sm text-muted-foreground">{t("settings.weeklyMaxHelp")}</p>
+                        </div>
                       </div>
                     </div>
 

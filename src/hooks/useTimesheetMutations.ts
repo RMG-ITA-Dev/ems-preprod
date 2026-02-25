@@ -197,6 +197,14 @@ export function useSubmitTimesheet() {
     },
     onError: (error: Error) => {
       const msg = error.message || '';
+      if (msg.includes('WEEKLY_MIN_NOT_MET')) {
+        toast.error(i18n.t("timesheet.weeklyMinNotMet"));
+        return;
+      }
+      if (msg.includes('WEEKLY_MAX_EXCEEDED')) {
+        toast.error(i18n.t("timesheet.weeklyMaxExceeded"));
+        return;
+      }
       if (msg.includes('SUBMIT_NO_ENTRIES')) {
         toast.error(i18n.t("timesheet.submitNoEntries"));
         return;

@@ -58,8 +58,10 @@ interface TimesheetGridProps {
   onSaveStatusChange?: (status: "idle" | "saving" | "saved") => void;
   saveNowTrigger?: number;
   // BUG #13: Hour limit props
-  dailyLimit?: number;
-  weeklyLimit?: number;
+  dailyMin?: number;
+  dailyMax?: number;
+  weeklyMin?: number;
+  weeklyMax?: number;
   // BUG #5: Per-day hire date locking
   lockedDaysBeforeHire?: Set<number>;
   // Per-day termination date locking
@@ -87,8 +89,10 @@ export function TimesheetGrid({
   lineApprovals,
   onSaveStatusChange,
   saveNowTrigger,
-  dailyLimit = 10,
-  weeklyLimit = 50,
+  dailyMin = 8,
+  dailyMax = 8,
+  weeklyMin = 40,
+  weeklyMax = 40,
   lockedDaysBeforeHire,
   lockedDaysAfterTermination,
   holidayMap,
@@ -559,22 +563,32 @@ export function TimesheetGrid({
   };
 
   // BUG #13: Check if daily/weekly limits are exceeded
-  const isDailyOverLimit = (date: Date) => {
-    return calculateColumnTotal(date) > dailyLimit;
+  const isDailyOverMax = (date: Date) => {
+    return calculateColumnTotal(date) > dailyMax;
   };
 
-  const isDailyNearLimit = (date: Date) => {
+  const isDailyBelowMin = (date: Date) => {
     const total = calculateColumnTotal(date);
-    return total >= dailyLimit * 0.8 && total <= dailyLimit;
+    return total > 0 && total < dailyMin;
   };
 
-  const isWeeklyOverLimit = () => {
-    return calculateGrandTotal() > weeklyLimit;
+  const isDailyNearMax = (date: Date) => {
+    const total = calculateColumnTotal(date);
+    return total >= dailyMax * 0.8 && total <= dailyMax;
   };
 
-  const isWeeklyNearLimit = () => {
+  const isWeeklyOverMax = () => {
+    return calculateGrandTotal() > weeklyMax;
+  };
+
+  const isWeeklyBelowMin = () => {
     const total = calculateGrandTotal();
-    return total >= weeklyLimit * 0.8 && total <= weeklyLimit;
+    return total > 0 && total < weeklyMin;
+  };
+
+  const isWeeklyNearMax = () => {
+    const total = calculateGrandTotal();
+    return total >= weeklyMax * 0.8 && total <= weeklyMax;
   };
 
   // Track used activities per engagement for dropdown filtering
@@ -850,10 +864,10 @@ export function TimesheetGrid({
               </td>
               {weekDates.map((date) => {
                 const total = calculateColumnTotal(date);
-                const overLimit = isDailyOverLimit(date);
-                const nearLimit = isDailyNearLimit(date);
-                const DAILY_TARGET_HOURS = 8;
-                const atTarget = total > 0 && Math.round(total * 100) === Math.round(DAILY_TARGET_HOURS * 100);
+                const overLimit = isDailyOverMax(date);
+                const nearLimit = isDailyNearMax(date);
+                const belowMin = isDailyBelowMin(date);
+                const atTarget = total > 0 && Math.round(total * 100) === Math.round(dailyMin * 100);
                 return (
                   <td
                     key={toISODateString(date)}
@@ -861,7 +875,8 @@ export function TimesheetGrid({
                       "p-4 text-center font-mono",
                       overLimit && "text-destructive bg-destructive/10",
                       !overLimit && atTarget && "text-foreground bg-success/15",
-                      !overLimit && !atTarget && nearLimit && "text-warning-foreground bg-warning/10"
+                      !overLimit && !atTarget && nearLimit && "text-warning-foreground bg-warning/10",
+                      !overLimit && !atTarget && !nearLimit && belowMin && "text-blue-500 bg-blue-500/10"
                     )}
                   >
                     <div className="flex items-center justify-center gap-1">
@@ -869,23 +884,24 @@ export function TimesheetGrid({
                       {calculateColumnTotal(date)}h
                     </div>
                     {overLimit && (
-                      <div className="text-[10px] text-destructive">{t("timesheet.dailyLimitExceeded")}</div>
+                      <div className="text-[10px] text-destructive">{t("timesheet.dailyMaxExceeded")}</div>
                     )}
                   </td>
                 );
               })}
               <td className={cn(
                 "p-4 text-center font-mono",
-                isWeeklyOverLimit() && "text-destructive bg-destructive/10",
-                isWeeklyNearLimit() && !isWeeklyOverLimit() && "text-warning-foreground bg-warning/10",
-                !isWeeklyOverLimit() && !isWeeklyNearLimit() && "bg-primary/10 text-foreground"
+                isWeeklyOverMax() && "text-destructive bg-destructive/10",
+                !isWeeklyOverMax() && isWeeklyNearMax() && "text-warning-foreground bg-warning/10",
+                !isWeeklyOverMax() && !isWeeklyNearMax() && isWeeklyBelowMin() && "text-blue-500 bg-blue-500/10",
+                !isWeeklyOverMax() && !isWeeklyNearMax() && !isWeeklyBelowMin() && "bg-primary/10 text-foreground"
               )}>
                 <div className="flex items-center justify-center gap-1">
-                  {isWeeklyOverLimit() && <AlertTriangle className="h-3 w-3" />}
+                  {isWeeklyOverMax() && <AlertTriangle className="h-3 w-3" />}
                   {calculateGrandTotal()}h
                 </div>
-                {isWeeklyOverLimit() && (
-                  <div className="text-[10px] text-destructive">{t("timesheet.weeklyLimitExceeded")}</div>
+                {isWeeklyOverMax() && (
+                  <div className="text-[10px] text-destructive">{t("timesheet.weeklyMaxExceeded")}</div>
                 )}
               </td>
               <td></td>

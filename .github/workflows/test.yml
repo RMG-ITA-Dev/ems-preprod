@@ -24,3 +24,15 @@ jobs:
       
       - name: Run tests with coverage
         run: npx vitest run --coverage
+
+      - name: Guard against old limit settings in runtime code
+        run: |
+          if grep -rn --include='*.ts' --include='*.tsx' \
+            -E '"DAILY_LIMIT"|"WEEKLY_LIMIT"' \
+            src/ supabase/functions/ \
+            | grep -v '\.test\.' \
+            | grep -v '__tests__' \
+            | grep -v '// DEPRECATED'; then
+            echo "ERROR: Found runtime references to DAILY_LIMIT or WEEKLY_LIMIT"
+            exit 1
+          fi

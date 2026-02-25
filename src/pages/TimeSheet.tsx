@@ -55,14 +55,24 @@ const TimeSheet = () => {
   const autoSaveSeconds = policies?.autoSaveSeconds ?? 3;
 
   // BUG #13: Get hour limits from global settings
-  const dailyLimit = useMemo(() => {
-    const setting = globalSettings?.find((s) => s.setting_key === "DAILY_LIMIT");
-    return setting ? parseFloat(setting.setting_value) : 10;
+  const dailyMin = useMemo(() => {
+    const setting = globalSettings?.find((s) => s.setting_key === "DAILY_MIN");
+    return setting ? parseFloat(setting.setting_value) : 8;
   }, [globalSettings]);
 
-  const weeklyLimit = useMemo(() => {
-    const setting = globalSettings?.find((s) => s.setting_key === "WEEKLY_LIMIT");
-    return setting ? parseFloat(setting.setting_value) : 50;
+  const dailyMax = useMemo(() => {
+    const setting = globalSettings?.find((s) => s.setting_key === "DAILY_MAX");
+    return setting ? parseFloat(setting.setting_value) : 8;
+  }, [globalSettings]);
+
+  const weeklyMin = useMemo(() => {
+    const setting = globalSettings?.find((s) => s.setting_key === "WEEKLY_MIN");
+    return setting ? parseFloat(setting.setting_value) : 40;
+  }, [globalSettings]);
+
+  const weeklyMax = useMemo(() => {
+    const setting = globalSettings?.find((s) => s.setting_key === "WEEKLY_MAX");
+    return setting ? parseFloat(setting.setting_value) : 40;
   }, [globalSettings]);
 
 
@@ -106,7 +116,9 @@ const TimeSheet = () => {
     return entries.reduce((sum, e) => sum + Number(e.hours_logged ?? 0), 0);
   }, [entries]);
 
-  const isWeeklyLimitExceeded = weeklyGrandTotal > Number(weeklyLimit);
+  const isBelowWeeklyMin = weeklyGrandTotal < weeklyMin;
+  const isAboveWeeklyMax = weeklyGrandTotal > weeklyMax;
+  const isWeeklyOutOfBounds = isBelowWeeklyMin || isAboveWeeklyMax;
 
   // Holiday data for the current week
   const holidayMap = useHolidaysForWeek(weekInfo.weekDates);
@@ -276,12 +288,12 @@ const TimeSheet = () => {
   // BUG #21: Separate "can submit" from "can edit cells"
   // BUG #0213-33: Also gate on weekly limit
   const canSubmit = !isBeforeHireDate && !isAfterTerminationDate && isWithinEditableWindow && entries.length > 0 &&
-    !isSubmitted && !period?.is_period_locked && !isWeeklyLimitExceeded;
+    !isSubmitted && !period?.is_period_locked && !isWeeklyOutOfBounds;
 
   // Handle submit
   const handleSubmit = async () => {
     // DEFENSE-IN-DEPTH: weekly limit guard (do NOT rely only on canSubmit)
-    if (isWeeklyLimitExceeded) return;
+    if (isWeeklyOutOfBounds) return;
     if (!period?.period_id || !staffRecord) return;
 
     // Get unique engagement IDs from entries
@@ -464,8 +476,8 @@ const TimeSheet = () => {
           </Alert>
         )}
 
-        {/* BUG #0213-33: Weekly limit exceeded alert */}
-        {isWeeklyLimitExceeded &&
+        {/* BUG #0213-36: Weekly limit alerts */}
+        {isBelowWeeklyMin &&
           !isBeforeHireDate &&
           isWithinEditableWindow &&
           entries.length > 0 &&
@@ -474,9 +486,25 @@ const TimeSheet = () => {
             <Alert variant="destructive">
               <AlertTriangle className="h-4 w-4" />
               <AlertDescription>
-                {t("timesheet.cannotSubmitWeeklyLimit", {
+                {t("timesheet.weeklyMinNotMet", {
                   total: weeklyGrandTotal.toFixed(1),
-                  limit: weeklyLimit,
+                  min: weeklyMin,
+                })}
+              </AlertDescription>
+            </Alert>
+        )}
+        {isAboveWeeklyMax &&
+          !isBeforeHireDate &&
+          isWithinEditableWindow &&
+          entries.length > 0 &&
+          !isSubmitted &&
+          !period?.is_period_locked && (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>
+                {t("timesheet.weeklyMaxExceeded", {
+                  total: weeklyGrandTotal.toFixed(1),
+                  max: weeklyMax,
                 })}
               </AlertDescription>
             </Alert>
@@ -496,8 +524,10 @@ const TimeSheet = () => {
           lineApprovals={lineApprovals || []}
           onSaveStatusChange={handleSaveStatusChange}
           saveNowTrigger={saveNowTrigger}
-          dailyLimit={dailyLimit}
-          weeklyLimit={weeklyLimit}
+          dailyMin={dailyMin}
+          dailyMax={dailyMax}
+          weeklyMin={weeklyMin}
+          weeklyMax={weeklyMax}
           lockedDaysBeforeHire={lockedDaysBeforeHire}
           lockedDaysAfterTermination={lockedDaysAfterTermination}
           holidayMap={holidayMap}
