@@ -1,62 +1,67 @@
 
 
-# Plan v7: Prevent Manual Entry Dialog from Closing on Outside Click
+# Plan v8: Admin-Only CRUD on Settings Reference Tables
 
-**Plan ID**: UI-0225-manual-entry-modal-lock-v1
+**Plan ID**: UI-0225-settings-admin-gate-v1
 
 ---
 
 ## Problem
 
-Clicking outside the "Entrada Manual" (Manual Entry) dialog dismisses it, returning the user to the tracker list and losing any data they may have entered. The dialog should only close via the **Cancel** button or the **X** close button.
+All authenticated users can currently click the "New" button and click rows to open edit/delete forms on the Industries, Rates (Categories), Activities, and Expense Types tabs in Settings. Only admins should be able to add, edit, or delete these records. Non-admin users should see the list in read-only mode (no "New" button, no row-click to edit).
 
 ---
 
 ## Fix
 
-Two changes are needed on `DialogContent` in `ManualEntryDialog.tsx`:
+### File: `src/pages/Settings.tsx` (MODIFY)
 
-### File: `src/components/tracker/ManualEntryDialog.tsx` (MODIFY)
+For each of the four DataTable instances (Industries, Rates, Activities, Expense Types), conditionally pass `onNewClick`, `newButtonLabel`, and `onRowClick` only when `isAdmin` is true. When `isAdmin` is false, these props are omitted (undefined), which means the DataTable will not render the "New" button and rows will not be clickable.
 
-**Line 183**: Add `onInteractOutside` and `onEscapeKeyDown` handlers to prevent dismissal by clicking outside or pressing Escape.
-
+**Industries tab (lines 359-375)**:
 ```tsx
-// BEFORE:
-<DialogContent className="sm:max-w-[700px]">
-
-// AFTER:
-<DialogContent
-  className="sm:max-w-[700px]"
-  onInteractOutside={(e) => e.preventDefault()}
-  onEscapeKeyDown={(e) => e.preventDefault()}
->
+<DataTable
+  data={industries || []}
+  columns={industryColumns}
+  searchPlaceholder={t("common.search")}
+  searchKeys={["industry_name"]}
+  isLoading={industriesLoading}
+  newButtonLabel={isAdmin ? t("industry.newIndustry") : undefined}
+  onNewClick={isAdmin ? () => { setSelectedIndustry(null); setIndustryFormOpen(true); } : undefined}
+  onRowClick={isAdmin ? (row) => { setSelectedIndustry(row); setIndustryFormOpen(true); } : undefined}
+  getRowId={(row) => row.industry_id}
+/>
 ```
 
-- `onInteractOutside`: Prevents the dialog from closing when the user clicks the overlay/outside area.
-- `onEscapeKeyDown`: Prevents the dialog from closing when the user presses the Escape key.
-- The **X** button and **Cancel** button remain functional (they call `onOpenChange(false)` directly).
+**Rates tab (lines 384-400)**: Same pattern -- guard `onNewClick`, `newButtonLabel`, `onRowClick` with `isAdmin`.
+
+**Activities tab (lines 409-432)**: Same pattern.
+
+**Expense Types tab (lines 441-457)**: Same pattern.
+
+Total: 4 DataTable instances updated, 3 props each conditionally gated behind `isAdmin`.
 
 ---
 
 ## What Stays Unchanged
 
-- Dialog width (700px), all form fields, submit logic -- unchanged
-- `EngagementCombobox` -- unchanged
-- `TrackerBar.tsx`, stopwatch dialog -- unchanged
-- No DB, RPC, or i18n changes
+- The tabs themselves remain visible to all users (they can still view the data).
+- The DataTable component itself needs no changes (it already handles undefined `onNewClick`/`onRowClick` gracefully by not rendering the button and not making rows clickable).
+- The form Sheet components (IndustryForm, CategoryForm, etc.) stay in the DOM but will never open for non-admins since there is no trigger.
+- Global Settings and Holidays tabs remain admin-only (already gated).
+- No backend/RLS changes needed (RLS already restricts write operations to admins).
 
 ---
 
 ## Acceptance Criteria
 
-1. Clicking outside the Manual Entry dialog does NOT close it.
-2. Pressing Escape does NOT close it.
-3. The X button still closes the dialog.
-4. The Cancel button still closes the dialog.
+1. Non-admin users see the Industries, Rates, Activities, and Expense Types tabs as read-only lists (no "New" button, no clickable rows).
+2. Admin users retain full CRUD functionality (New button, row click to edit, delete).
+3. No visual regressions on the Account or Global Settings tabs.
 
 ---
 
 ## Changelog
 
-Append to `docs/CHANGELOG-2026-02-24.md`: Single-line fix preventing accidental dismissal of the Manual Entry dialog.
+Append to `docs/CHANGELOG-2026-02-24.md`: Admin-only CRUD gating on Settings reference table tabs.
 
