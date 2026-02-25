@@ -303,6 +303,7 @@
     "realizationLimit": "Realization Limit (%)",
     "realizationLimitHelp": "Threshold for color coding: green if R >= X%, red if R < X%",
     "holidays": "Holidays",
+    "userRoles": "User Roles",
     "holidayEngagement": "Holiday Engagement",
     "holidayEngagementHelp": "Select the engagement allowed for time entries on holiday dates",
     "holidayNotConfigured": "Holiday blocking is inactive until an engagement is selected"
