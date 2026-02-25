@@ -2598,3 +2598,13 @@ in useUpdateUserRole, no Edge Function, no permissions hardening.
 - Integration tests (G5A-G5D)
 
 ---
+
+### Bug 0220-52 Regression Fix: Restore Internal Engagements in Manual Entry
+
+**Related Bug**: 0220-52 (Tracker Engagement Selector Excludes Internal Engagements)
+
+- **Problem**: The 0220-52 fix for the stopwatch also affected the "+ Nuevo Registro de Tiempo" (manual entry) dialog, which shares the same `useApprovedEngagements` hook. Internal/ADMIN engagements disappeared from the manual entry dropdown, but manual entry is the only way to record time against admin jobs.
+- **Root Cause**: `ManualEntryDialog` consumed `useApprovedEngagements`, which now hard-filters `is_internal = false`.
+- **Fix**: Created dedicated `useManualEntryEngagements` hook with its own query key (`engagements-for-manual-entry`) that includes internal engagements. `ManualEntryDialog` now uses this hook. `useApprovedEngagements` remains unchanged (tracker-only, excludes internal).
+- **Unchanged**: Stopwatch filtering (Bug 0220-52 fix preserved). Timesheet grid unaffected. No DB/RPC changes.
+- **Build Fix**: Fixed `TimeSheet.submit-guards.test.tsx` compile error (replaced non-existent `TestWrapper` with project-standard `render` from `@/test/utils`).

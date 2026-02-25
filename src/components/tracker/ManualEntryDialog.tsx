@@ -28,7 +28,7 @@ import {
 } from "@/components/ui/popover";
 import { CalendarIcon } from "lucide-react";
 import { useActivityCodes } from "@/hooks/useEmsData";
-import { useApprovedEngagements } from "@/hooks/useApprovedEngagements";
+import { useManualEntryEngagements } from "@/hooks/useManualEntryEngagements";
 import { useAdminActivityId } from "@/hooks/useAdminActivity";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle } from "lucide-react";
@@ -71,7 +71,7 @@ export function ManualEntryDialog({
   onSubmit,
 }: ManualEntryDialogProps) {
   const { t } = useTranslation();
-  const { data: engagements = [] } = useApprovedEngagements();
+  const { data: engagements = [] } = useManualEntryEngagements();
   const { data: activityCodes = [] } = useActivityCodes();
   const adminActivityId = useAdminActivityId();
 
