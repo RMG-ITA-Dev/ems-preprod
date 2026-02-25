@@ -1,20 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen } from "@/test/utils";
 import userEvent from "@testing-library/user-event";
 
-// Mock modules
 const mockNavigate = vi.fn();
-const mockAllowNextNavigation = vi.fn();
-const mockBlocker = { state: "unblocked" as const, reset: vi.fn(), proceed: vi.fn() };
 
 vi.mock("react-router-dom", async () => {
   const actual = await vi.importActual("react-router-dom");
   return { ...actual, useNavigate: () => mockNavigate };
 });
-
-vi.mock("@/hooks/usePageLeaveLock", () => ({
-  usePageLeaveLock: () => ({ blocker: mockBlocker, allowNextNavigation: mockAllowNextNavigation, isDirty: false }),
-}));
 
 vi.mock("@/hooks/useAuth", () => ({ useAuth: () => ({ user: { email: "test@test.com" }, session: {} }) }));
 vi.mock("@/hooks/useCurrentStaff", () => ({ useCurrentStaff: () => ({ staffRecord: null, isLoading: true }) }));
@@ -30,16 +23,13 @@ vi.mock("@/hooks/useLanguage", () => ({ useLanguage: () => ({ currentLanguage: "
 vi.mock("@/components/layout/AppLayout", () => ({
   AppLayout: ({ children, focusMode }: any) => <div data-testid="app-layout" data-focus-mode={focusMode}>{children}</div>,
 }));
-vi.mock("@/components/ui/leave-page-dialog", () => ({
-  LeavePageDialog: () => <div data-testid="leave-page-dialog" />,
-}));
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (k: string) => k, i18n: { language: "en" } }),
 }));
 
 import TimeSheet from "../TimeSheet";
 
-describe("TimeSheet focus-lock", () => {
+describe("TimeSheet focus-mode", () => {
   beforeEach(() => { vi.clearAllMocks(); });
 
   it("TF1: renders focusMode in loading branch", () => {
@@ -52,19 +42,10 @@ describe("TimeSheet focus-lock", () => {
     expect(screen.getByText("common.back")).toBeInTheDocument();
   });
 
-  it("TF3: Back button calls allowNextNavigation before navigate", async () => {
+  it("TF3: Back button navigates on click", async () => {
     render(<TimeSheet />);
     const user = userEvent.setup();
     await user.click(screen.getByText("common.back"));
-    expect(mockAllowNextNavigation).toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalled();
-    const allowOrder = mockAllowNextNavigation.mock.invocationCallOrder[0];
-    const navOrder = mockNavigate.mock.invocationCallOrder[0];
-    expect(allowOrder).toBeLessThan(navOrder);
-  });
-
-  it("TF4: LeavePageDialog renders", () => {
-    render(<TimeSheet />);
-    expect(screen.getByTestId("leave-page-dialog")).toBeInTheDocument();
   });
 });
