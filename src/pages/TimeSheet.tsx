@@ -18,8 +18,6 @@ import { useAuth } from "@/hooks/useAuth";
 import { usePeriodLineApprovals } from "@/hooks/useTimesheetApprovals";
 import { useSubmitTimesheet, useUnsubmitTimesheet, useCopyPreviousWeek } from "@/hooks/useTimesheetMutations";
 import { useGlobalSettings } from "@/hooks/useEmsData";
-import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";
-import { LeavePageDialog } from "@/components/ui/leave-page-dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { parseISO, isBefore, startOfDay } from "date-fns";
 import {
@@ -38,10 +36,7 @@ const TimeSheet = () => {
   const lang = i18n.language;
   const { user } = useAuth();
   const navigate = useNavigate();
-  const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty: false });
-
   const handleBack = () => {
-    allowNextNavigation();
     if (window.history.length > 1) {
       navigate(-1);
     } else {
@@ -370,7 +365,6 @@ const TimeSheet = () => {
         <div className="flex items-center justify-center h-64">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
-        <LeavePageDialog blocker={blocker} isDirty={false} />
       </AppLayout>
     );
   }
@@ -390,7 +384,6 @@ const TimeSheet = () => {
             </span>
           </AlertDescription>
         </Alert>
-        <LeavePageDialog blocker={blocker} isDirty={false} />
       </AppLayout>
     );
   }
@@ -406,7 +399,7 @@ const TimeSheet = () => {
             {error?.message || "Error loading timesheet data"}
           </AlertDescription>
         </Alert>
-        <LeavePageDialog blocker={blocker} isDirty={false} />
+        
       </AppLayout>
     );
   }
@@ -601,7 +594,6 @@ const TimeSheet = () => {
         </div>
 
       </div>
-      <LeavePageDialog blocker={blocker} isDirty={false} />
     </AppLayout>
   );
 };
