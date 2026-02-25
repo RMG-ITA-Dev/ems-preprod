@@ -1,236 +1,136 @@
-# Plan v3: BUG-0220-52-followup-search-display -- Searchable Engagement Selector with Unified CODE - Name Display
 
-**Plan ID**: BUG-0220-52-followup-search-display-v3
 
----
+# Plan v4: Changelog Corrections for CHANGELOG-2026-02-24.md
 
 ## Problem
 
-1. **Manual Entry dialog** displays engagements as `engagement_code || engagement_name` (line 287), showing only one or the other -- not the combined `CODE - Name` format used in the stopwatch.
-2. **Neither** the stopwatch nor the manual entry dialog has a search bar to filter engagements by partial code or name match.
+1. **Missing changelog**: The BUG 0220-52 regression fix (Plan v2: restore internal/ADMIN engagements in manual entry + fix build error) was appended to `docs/CHANGELOG-2026-02-22.md` but was NOT added to `docs/CHANGELOG-2026-02-24.md` where it belongs chronologically. It needs to be inserted into `CHANGELOG-2026-02-24.md` **before** the "Enhancement: Searchable Engagement Selector" entry.
+
+2. **BUG 0213-36 lacks detail**: The first entry in `docs/CHANGELOG-2026-02-24.md` ("Replace DAILY_LIMIT/WEEKLY_LIMIT with Min/Max Model") is too sparse -- it's a bullet list without the detailed file-level, edit-level, and SQL-level breakdown that the project's documentation standard requires.
+
+## Scope
+
+- **Only** `docs/CHANGELOG-2026-02-24.md` is modified.
+- No code, no DB, no RPC changes.
 
 ---
 
-## Locked Decisions
+## Changes to `docs/CHANGELOG-2026-02-24.md`
 
+### Change 1: Expand BUG 0213-36 Entry (lines 1-21)
 
-| Decision                 | Value                                                           |
-| ------------------------ | --------------------------------------------------------------- |
-| Stopwatch eligibility    | Unchanged -- `useApprovedEngagements` (excludes internal)       |
-| Manual entry eligibility | Unchanged -- `useManualEntryEngagements` (includes internal)    |
-| Backend changes          | None (no DB, no RPC)                                            |
-| Architecture             | Single reusable `EngagementCombobox` component                  |
-| Search behavior          | Case-insensitive partial match on code and name (cmdk built-in) |
-| Display format           | `CODE - Name` (bold code, muted name); fallback to Name only    |
+Replace the existing sparse bullet list with a fully detailed changelog entry including:
 
+**Root Cause section**: Explains that the old model used single DAILY_LIMIT and WEEKLY_LIMIT settings, with no minimum enforcement -- timesheets could be submitted with any number of hours below the max, and the system had no way to enforce a minimum threshold.
 
----
+**Solution -- Detailed Edits** covering:
 
-## File-by-File Changes
+- **Edit 1 -- Database migration: Insert new global settings** (lines 1-29 of the migration SQL)
+  - DAILY_MIN defaulting to 8, DAILY_MAX backfilled from existing DAILY_LIMIT, WEEKLY_MIN defaulting to 40, WEEKLY_MAX backfilled from existing WEEKLY_LIMIT.
+  - Uses `ON CONFLICT (setting_key) DO NOTHING` for idempotent re-runs.
+  - DAILY_LIMIT and WEEKLY_LIMIT left in DB as inert historical data.
 
-### S1. `src/components/tracker/EngagementCombobox.tsx` (CREATE)
+- **Edit 2 -- Database migration: Create `update_timesheet_minmax_settings()` RPC** (lines 31-71 of the migration SQL)
+  - Accepts `p_daily_min`, `p_daily_max`, `p_weekly_min`, `p_weekly_max`, `p_work_days` (default 5).
+  - Server-side feasibility invariants: `DAILY_MIN_EXCEEDS_MAX`, `WEEKLY_MIN_EXCEEDS_MAX`, `WEEKLY_MIN_EXCEEDS_DAILY_MAX` (weekly_min > daily_max * work_days), `WEEKLY_MAX_BELOW_DAILY_MIN` (weekly_max < daily_min * work_days).
+  - Atomic: writes all four settings in one transaction.
+  - Returns `jsonb` with `success` boolean and optional `error_code`.
 
-Reusable combobox using existing `Popover` + `Command` primitives.
+- **Edit 3 -- Database migration: Update `submit_timesheet_safe()` RPC** (lines 73-238 of the migration SQL)
+  - Added weekly min/max validation block (lines 127-148): reads WEEKLY_MIN and WEEKLY_MAX from `global_settings`, sums `hours_logged` from `time_entries` scoped to `period_id + staff_id + is_forecast=false`.
+  - Raises `WEEKLY_MIN_NOT_MET:actual=X,min=Y` if actual hours below minimum.
+  - Raises `WEEKLY_MAX_EXCEEDED:actual=X,max=Y` if actual hours above maximum.
+  - Validation happens after period lock acquisition but before `submitted_at` write.
 
-**Props interface:**
+- **Edit 4 -- `src/pages/Settings.tsx`: Replace old limit fields with 2x2 min/max grid**
+  - Lines 127-130: Read DAILY_MIN, DAILY_MAX, WEEKLY_MIN, WEEKLY_MAX from `globalSettings` via `getSetting()`.
+  - Lines 290-313: Save handler calls `update_timesheet_minmax_settings` RPC; maps returned `error_code` to i18n keys (`settings.dailyMinMaxError`, `settings.weeklyMinMaxError`, `settings.weeklyMinExceedsDailyMax`, `settings.weeklyMaxBelowDailyMin`).
+  - Lines 582-621: Four `NumericInput` fields in a 2x2 grid layout for DAILY_MIN, DAILY_MAX, WEEKLY_MIN, WEEKLY_MAX with help text labels.
 
-```typescript
-interface EngagementComboboxProps {
-  engagements: Array<{
-    engagement_id: string;
-    engagement_code: string | null;
-    engagement_name: string;
-  }>;
-  value: string;                     // selected engagement_id
-  onValueChange: (id: string) => void;
-  disabled?: boolean;
-  placeholder?: string;
-}
-```
+- **Edit 5 -- `src/pages/TimeSheet.tsx`: Submit gating with dual-bound check**
+  - Lines 57-75: Four `useMemo` hooks read DAILY_MIN, DAILY_MAX, WEEKLY_MIN, WEEKLY_MAX from `globalSettings`.
+  - Submit handler passes these to the RPC; error handler in `useTimesheetMutations` catches `WEEKLY_MIN_NOT_MET` and `WEEKLY_MAX_EXCEEDED`.
 
-**Implementation:**
+- **Edit 6 -- `src/components/timesheet/TimesheetGrid.tsx`: Daily coloring with min/max**
+  - Props `dailyMin`, `dailyMax`, `weeklyMin`, `weeklyMax` (defaults: 8, 8, 40, 40).
+  - `isDailyOverMax(date)`: column total > dailyMax (red).
+  - `isDailyBelowMin(date)`: column total > 0 and < dailyMin (amber/warning).
+  - `isDailyNearMax(date)`: total >= dailyMax * 0.8 and <= dailyMax (yellow).
+  - Footer cell shows "Over max!" or "Below min" badges accordingly.
 
-- `Popover` wrapping a `Button` trigger (variant="outline", role="combobox")
-- Trigger shows selected engagement as `CODE - Name` or placeholder text; includes `ChevronsUpDown` icon
-- Inside popover: `Command` > `CommandInput` (placeholder from `t("tracker.searchEngagement")`) > `CommandList` > `CommandEmpty` (text from `t("tracker.noMatchingEngagements")`) > `CommandGroup` with `CommandItem` per engagement
-- Each `CommandItem` sets `value` to `"code name"` string for cmdk filtering
-- Display per item: `<span className="font-medium">{code}</span><span className="text-muted-foreground ml-2">- {name}</span>`
-- Selected item gets a `Check` icon
-- Local `open` state; popover closes on selection
-- When `disabled` is true, the trigger button is disabled
+- **Edit 7 -- `src/pages/TrackerRecord.tsx`: Daily guard uses DAILY_MAX**
+  - Line 126-130: `dailyMax` useMemo reads DAILY_MAX from globalSettings (default 8).
+  - Used as the upper bound for the daily hours guard when starting/continuing timer entries.
 
-### S2. `src/components/tracker/TrackerBar.tsx` (MODIFY)
+- **Edit 8 -- `supabase/functions/dashboard-data/index.ts`: Uses WEEKLY_MAX for weekly_limit**
+  - Lines 800-814: Reads WEEKLY_MAX from `global_settings`; maps to `weekly_limit` in the dashboard payload for the weekly capacity/utilization calculation.
 
-**Lines 5-11 (imports):**  
+- **Edit 9 -- `src/hooks/useTimesheetMutations.ts`: Error handler for min/max violations**
+  - Lines 198-206: Catches `WEEKLY_MIN_NOT_MET` and `WEEKLY_MAX_EXCEEDED` in the submit mutation's `onError`, displaying localized toast messages.
 
-- **Keep** existing `Select` imports needed by Activity dropdown.
-- **Add** `EngagementCombobox` import.
-- Only remove an import if it truly becomes unused after refactor.
+- **Edit 10 -- `supabase/functions/test-minmax-settings/index.ts`: Backend integration tests**
+  - Test 1: DAILY_MIN > DAILY_MAX returns `DAILY_MIN_EXCEEDS_MAX`.
+  - Test 2: WEEKLY_MIN > WEEKLY_MAX returns `WEEKLY_MIN_EXCEEDS_MAX`.
+  - Test 3: WEEKLY_MIN > DAILY_MAX * 5 returns `WEEKLY_MIN_EXCEEDS_DAILY_MAX`.
+  - Test 4: Valid update returns `success: true`.
 
-**Lines 91-123 (engagement selector):** Replace the entire engagement `Select` block with:
+- **Edit 11 -- i18n keys added (EN/ES)**
+  - `settings.dailyMin`, `settings.dailyMinHelp`, `settings.dailyMax`, `settings.dailyMaxHelp`
+  - `settings.weeklyMin`, `settings.weeklyMinHelp`, `settings.weeklyMax`, `settings.weeklyMaxHelp`
+  - `settings.dailyMinMaxError`, `settings.weeklyMinMaxError`, `settings.weeklyMinExceedsDailyMax`, `settings.weeklyMaxBelowDailyMin`
+  - `timesheet.weeklyMinNotMet`, `timesheet.weeklyMaxExceeded`, `timesheet.dailyMaxExceeded`, `timesheet.weeklyBelowMin`
 
-```tsx
-<div className="flex-1">
-  <Label className="text-xs text-muted-foreground mb-1.5 block">
-    {t("tracker.engagement")}
-  </Label>
-  <EngagementCombobox
-    engagements={engagements}
-    value={engagementId || ""}
-    onValueChange={(val) => {
-      onEngagementChange(val || null);
-      const eng = engagements.find(e => e.engagement_id === val);
-      if (eng && !eng.activity_required && adminActivityId) {
-        onActivityChange(adminActivityId);
-      } else if (eng && !eng.activity_required) {
-        onActivityChange(null);
-      }
-    }}
-    disabled={isRunning}
-    placeholder={t("tracker.selectEngagement")}
-  />
-</div>
-```
+**Files Modified table** listing all affected files with lines and change description.
 
-Activity selector (lines 125-148) remains a `Select` -- keep those imports.
+**Risk Assessment table** covering backward compatibility with existing DAILY_LIMIT/WEEKLY_LIMIT data, RPC atomicity, and migration idempotency.
 
-### S3. `src/components/tracker/ManualEntryDialog.tsx` (MODIFY)
+### Change 2: Insert BUG 0220-52 Regression Fix Entry (between BUG 0213-36 and the Searchable Engagement Enhancement)
 
-**Lines 16-22 (imports):** The `Select` imports are still needed for the Activity selector (lines 295-308), so keep them. Add `EngagementCombobox` import.
+Insert the complete regression fix entry at line 23 (after the `---` separator following BUG 0213-36), with the following content from the approved Plan v2:
 
-**Lines 270-292 (engagement selector):** Replace the `Select` block with:
+- **Plan reference**: BUG-0220-52-regression-hardening-v2
+- **Related Bug**: 0220-52
+- **Problem**: The 0220-52 stopwatch fix also affected ManualEntryDialog, which shared `useApprovedEngagements`. Internal/ADMIN engagements disappeared from manual entry.
+- **Root Cause**: `ManualEntryDialog` consumed `useApprovedEngagements`, which hard-filters `is_internal = false`.
+- **Fix details**:
+  - Created `src/hooks/useManualEntryEngagements.ts` with query key `["engagements-for-manual-entry"]`, omitting `is_internal` filter. Group B non-admin `.or()` includes `is_internal.eq.true`.
+  - Modified `src/components/tracker/ManualEntryDialog.tsx` to import and use `useManualEntryEngagements` instead of `useApprovedEngagements`.
+  - `useApprovedEngagements` remains unchanged (tracker-only, excludes internal).
+- **Build Fix**: Fixed `src/pages/__tests__/TimeSheet.submit-guards.test.tsx` compile error (replaced non-existent `TestWrapper` with project-standard `render` from `@/test/utils`).
+- **Unchanged**: Stopwatch filtering, timesheet grid, no DB/RPC changes.
+- **Files Modified table**: `useManualEntryEngagements.ts` (create), `ManualEntryDialog.tsx` (modify line 31, 74), `TimeSheet.submit-guards.test.tsx` (fix build).
 
-```tsx
-<div className="space-y-2">
-  <Label>{t("tracker.engagement")}</Label>
-  <EngagementCombobox
-    engagements={engagements}
-    value={engagementId}
-    onValueChange={(val) => {
-      setEngagementId(val);
-      const eng = engagements.find(e => e.engagement_id === val);
-      if (eng && !eng.activity_required && adminActivityId) {
-        setActivityId(adminActivityId);
-      } else {
-        setActivityId("");
-      }
-    }}
-    placeholder={t("tracker.selectEngagement")}
-  />
-</div>
-```
+### Change 3: Keep Existing Searchable Engagement Enhancement Entry (lines 25-43)
 
-This fixes the display from `code || name` to the unified `CODE - Name` format.
-
-### S4. `src/locales/en.json` and `src/locales/es.json` (MODIFY)
-
-Add inside the `"tracker"` object:
-
-**EN:**
-
-```json
-"searchEngagement": "Search engagement...",
-"noMatchingEngagements": "No matching engagements."
-```
-
-**ES:**
-
-```json
-"searchEngagement": "Buscar encargo...",
-"noMatchingEngagements": "No se encontraron encargos."
-```
-
-### S5. `docs/CHANGELOG-2026-02-24.md` (APPEND) like below but more detail please.
-
-```markdown
+The existing "Enhancement: Searchable Engagement Selector with Unified Display" entry (Plan v3) remains as-is at the end of the file, unchanged.
 
 ---
 
-## Enhancement: Searchable Engagement Selector with Unified Display
+## Final Document Structure
 
-### Changes
-
-- Created reusable `EngagementCombobox` component (`src/components/tracker/EngagementCombobox.tsx`) using existing `Popover` + `Command` (cmdk) UI primitives. The component accepts an array of engagements and renders a searchable dropdown with `CommandInput` for filtering and `CommandItem` for each engagement.
-- Integrated `EngagementCombobox` into Stopwatch (`TrackerBar.tsx` lines 91-123), replacing the basic `Select` engagement dropdown. Activity selector remains as `Select`.
-- Integrated `EngagementCombobox` into Manual Entry (`ManualEntryDialog.tsx` lines 270-292), replacing the basic `Select` engagement dropdown. This fixes the display format from `engagement_code || engagement_name` (showing only one) to the unified `CODE - Name` format (showing both). Activity selector remains as `Select`.
-- Both selectors now support case-insensitive partial matching by engagement code or engagement name via cmdk's built-in filtering.
-- Display format: `CODE - Name` with bold code and muted name text. Falls back to Name only when code is missing.
-- Stopwatch eligibility unchanged: continues using `useApprovedEngagements` (excludes internal engagements).
-- Manual Entry eligibility unchanged: continues using `useManualEntryEngagements` (includes internal/ADMIN engagements).
-- Activity auto-assignment logic preserved in both selectors (auto-assigns ADM activity for engagements where activity is not required).
-- Disabled state during running timer preserved in Stopwatch.
-- Added i18n keys `tracker.searchEngagement` (EN: "Search engagement...", ES: "Buscar encargo...") and `tracker.noMatchingEngagements` (EN: "No matching engagements.", ES: "No se encontraron encargos.").
-- No database or RPC changes.
+```text
+docs/CHANGELOG-2026-02-24.md
+  |-- BUG 0213-36: Replace DAILY_LIMIT/WEEKLY_LIMIT with Min/Max Model  (EXPANDED)
+  |-- ---
+  |-- BUG 0220-52 Regression Fix: Restore Internal Engagements in Manual Entry  (NEW)
+  |-- ---
+  |-- Enhancement: Searchable Engagement Selector with Unified Display  (EXISTING, unchanged)
 ```
-
----
-
-## What Stays Unchanged
-
-- `src/hooks/useApprovedEngagements.ts` -- no changes
-- `src/hooks/useManualEntryEngagements.ts` -- no changes
-- `src/pages/TrackerRecord.tsx` -- no changes
-- Activity selectors in both components -- remain as `Select` dropdowns
-- All existing eligibility and guard logic
 
 ---
 
 ## Execution Order
 
-1. Add i18n keys to `en.json` and `es.json` (S4)
-2. Create `EngagementCombobox.tsx` (S1)
-3. Update `TrackerBar.tsx` (S2)
-4. Update `ManualEntryDialog.tsx` (S3)
-5. Append `docs/CHANGELOG-2026-02-24.md` There needs to be sufficient detail to be able to verify if the changes to the codebase correspond to the CHANGELOG. (S5)
+1. Rewrite BUG 0213-36 entry with full detail (lines 1-21 replaced)
+2. Insert BUG 0220-52 regression fix entry between the `---` separator and the searchable engagement enhancement
+3. Verify final document structure
 
 ---
 
 ## Acceptance Criteria
 
-1. Both selectors display engagements as `CODE - Name`.
-2. Both selectors include a search input for partial matching by code or name.
-3. Search is case-insensitive.
-4. Stopwatch eligibility unchanged (internal engagements excluded).
-5. Manual Entry eligibility unchanged (internal engagements included).
-6. Activity auto-assignment logic preserved in both screens.
-7. Disabled state during running timer preserved in Stopwatch.
-8. No DB or RPC changes.
-9. EN/ES i18n parity for new keys.
+1. BUG 0213-36 entry contains detailed edit-level descriptions for all 11 edits (migration SQL, Settings UI, TimeSheet, TimesheetGrid, TrackerRecord, dashboard edge function, useTimesheetMutations, test edge function, i18n).
+2. BUG 0220-52 regression fix entry is present between BUG 0213-36 and the searchable engagement enhancement.
+3. Searchable engagement enhancement entry remains unchanged.
+4. No code, DB, or RPC changes.
 
----
-
-## Verification
-
-1. **Add automated tests to the plan**   
-Add at least:
-  - search by partial code and partial name in both selectors,
-  - label rendering `CODE - Name` in Manual Entry,
-  - stopwatch still excludes internal engagements while manual entry includes them.
-
-**Manual QA:**
-
-1. Open Tracker > "Usar cronometro" -- engagement dropdown shows search bar; type partial code or name to filter; selected shows `CODE - Name`; internal engagements NOT visible.
-2. Open Tracker > "+ Nuevo Registro de Tiempo" -- engagement dropdown shows search bar; internal/ADMIN engagements visible; selected shows `CODE - Name`.
-3. Select engagement in stopwatch, verify activity auto-assignment still works.
-4. Start timer, verify engagement selector is disabled.
-
----
-
-## Risk Register
-
-
-| Risk                                       | Severity | Mitigation                                                            |
-| ------------------------------------------ | -------- | --------------------------------------------------------------------- |
-| Regressing stopwatch filtering             | High     | Hooks unchanged; only UI selector replaced                            |
-| Inconsistent display across screens        | Low      | Single shared component ensures consistency                           |
-| cmdk filter not matching expected behavior | Low      | cmdk built-in filter does case-insensitive substring match by default |
-
-
----
-
-## Rollback Plan
-
-1. Delete `EngagementCombobox.tsx`.
-2. Restore `Select` blocks in `TrackerBar.tsx` and `ManualEntryDialog.tsx`.
-3. Remove i18n keys.
-4. No database rollback needed.
