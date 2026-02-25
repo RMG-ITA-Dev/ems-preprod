@@ -90,6 +90,8 @@
     "weekendNotAllowed": "Weekend tracking is not allowed",
     "whatAreYouWorkingOn": "What are you working on?",
     "selectEngagement": "Select engagement",
+    "searchEngagement": "Search engagement...",
+    "noMatchingEngagements": "No matching engagements.",
     "selectActivity": "Select activity",
     "start": "START",
     "stop": "STOP",

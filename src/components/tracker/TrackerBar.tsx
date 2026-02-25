@@ -9,6 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { EngagementCombobox } from "@/components/tracker/EngagementCombobox";
 import { useActivityCodes } from "@/hooks/useEmsData";
 import { useApprovedEngagements } from "@/hooks/useApprovedEngagements";
 import { useAdminActivityId } from "@/hooks/useAdminActivity";
@@ -90,11 +91,11 @@ export function TrackerBar({
         <div className="flex flex-col lg:flex-row gap-4">
           <div className="flex-1">
             <Label className="text-xs text-muted-foreground mb-1.5 block">{t("tracker.engagement")}</Label>
-            <Select
+            <EngagementCombobox
+              engagements={engagements}
               value={engagementId || ""}
               onValueChange={(val) => {
                 onEngagementChange(val || null);
-                // Auto-assign ADM activity for activity-not-required engagements
                 const eng = engagements.find(e => e.engagement_id === val);
                 if (eng && !eng.activity_required && adminActivityId) {
                   onActivityChange(adminActivityId);
@@ -103,23 +104,8 @@ export function TrackerBar({
                 }
               }}
               disabled={isRunning}
-            >
-              <SelectTrigger className="h-10">
-                <SelectValue placeholder={t("tracker.selectEngagement")}>
-                  {selectedEngagement 
-                    ? `${selectedEngagement.engagement_code} - ${selectedEngagement.engagement_name}` 
-                    : t("tracker.selectEngagement")}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {engagements.map((eng) => (
-                  <SelectItem key={eng.engagement_id} value={eng.engagement_id}>
-                    <span className="font-medium">{eng.engagement_code}</span>
-                    <span className="text-muted-foreground ml-2">- {eng.engagement_name}</span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              placeholder={t("tracker.selectEngagement")}
+            />
           </div>
 
           <div className="flex-1">
