@@ -125,7 +125,7 @@ describe("TimeSheet focus-mode", () => {
 1. Edit `src/pages/TimeSheet.tsx` (remove lock hook, LeavePageDialog imports/usage, simplify handleBack)
 2. Update `src/pages/__tests__/TimeSheet.focus-lock.test.tsx` (remove lock-specific tests, keep focus-mode + navigation tests)
 3. **Changelog Append**
-  **File:** docs/[CHANGELOG-2026-02-24.md](http://CHANGELOG-2026-02-22.md)
+  **File:** docs/CHANGELOG-2026-02-24.md
   You need to append to the end of CHANGELOG a detailed description of the changes made while implementing this Plan. There needs to be sufficient detail to be able to verify if the changes to the codebase correspond to the CHANGELOG.
 
 ---
