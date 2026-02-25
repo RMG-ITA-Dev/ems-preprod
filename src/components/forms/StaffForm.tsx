@@ -498,7 +498,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
                   <FormItem>
                     <FormLabel>{t("staff.email")} *</FormLabel>
                     <FormControl>
-                      <Input type="email" placeholder="john.doe@example.com" {...field} />
+                      <Input type="email" placeholder="john.doe@example.com" {...field} disabled={isEdit} className={isEdit ? "bg-muted" : ""} />
                     </FormControl>
                     <FormMessage />
                     {isEdit && staff?.auth_user_id && (
