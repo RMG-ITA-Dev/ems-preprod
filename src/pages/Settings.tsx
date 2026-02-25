@@ -362,15 +362,9 @@ const Settings = () => {
             searchPlaceholder={t("common.search")}
             searchKeys={["industry_name"]}
             isLoading={industriesLoading}
-            newButtonLabel={t("industry.newIndustry")}
-            onNewClick={() => {
-              setSelectedIndustry(null);
-              setIndustryFormOpen(true);
-            }}
-            onRowClick={(row) => {
-              setSelectedIndustry(row);
-              setIndustryFormOpen(true);
-            }}
+            newButtonLabel={isAdmin ? t("industry.newIndustry") : undefined}
+            onNewClick={isAdmin ? () => { setSelectedIndustry(null); setIndustryFormOpen(true); } : undefined}
+            onRowClick={isAdmin ? (row) => { setSelectedIndustry(row); setIndustryFormOpen(true); } : undefined}
             getRowId={(row) => row.industry_id}
           />
           <IndustryForm
@@ -387,15 +381,9 @@ const Settings = () => {
             searchPlaceholder={t("common.search")}
             searchKeys={["category_name"]}
             isLoading={categoriesLoading}
-            newButtonLabel={t("category.newCategory")}
-            onNewClick={() => {
-              setSelectedCategory(null);
-              setCategoryFormOpen(true);
-            }}
-            onRowClick={(row) => {
-              setSelectedCategory(row);
-              setCategoryFormOpen(true);
-            }}
+            newButtonLabel={isAdmin ? t("category.newCategory") : undefined}
+            onNewClick={isAdmin ? () => { setSelectedCategory(null); setCategoryFormOpen(true); } : undefined}
+            onRowClick={isAdmin ? (row) => { setSelectedCategory(row); setCategoryFormOpen(true); } : undefined}
             getRowId={(row) => row.category_id}
           />
           <CategoryForm
@@ -412,15 +400,9 @@ const Settings = () => {
             searchPlaceholder={t("common.search")}
             searchKeys={["activity_code", "description"]}
             isLoading={activitiesLoading}
-            newButtonLabel={t("activity.newActivity")}
-            onNewClick={() => {
-              setSelectedActivity(null);
-              setActivityFormOpen(true);
-            }}
-            onRowClick={(row) => {
-              setSelectedActivity(row);
-              setActivityFormOpen(true);
-            }}
+            newButtonLabel={isAdmin ? t("activity.newActivity") : undefined}
+            onNewClick={isAdmin ? () => { setSelectedActivity(null); setActivityFormOpen(true); } : undefined}
+            onRowClick={isAdmin ? (row) => { setSelectedActivity(row); setActivityFormOpen(true); } : undefined}
             getRowId={(row) => row.activity_id}
             statusFilter={{
               key: "is_active",
@@ -444,15 +426,9 @@ const Settings = () => {
             searchPlaceholder={t("common.search")}
             searchKeys={["expense_name"]}
             isLoading={expenseTypesLoading}
-            newButtonLabel={t("expense.newExpenseType")}
-            onNewClick={() => {
-              setSelectedExpenseType(null);
-              setExpenseTypeFormOpen(true);
-            }}
-            onRowClick={(row) => {
-              setSelectedExpenseType(row);
-              setExpenseTypeFormOpen(true);
-            }}
+            newButtonLabel={isAdmin ? t("expense.newExpenseType") : undefined}
+            onNewClick={isAdmin ? () => { setSelectedExpenseType(null); setExpenseTypeFormOpen(true); } : undefined}
+            onRowClick={isAdmin ? (row) => { setSelectedExpenseType(row); setExpenseTypeFormOpen(true); } : undefined}
             getRowId={(row) => row.expense_type_id}
           />
           <ExpenseTypeForm
