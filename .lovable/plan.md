@@ -1,62 +1,46 @@
 
 
-# Plan v10: Separate User Roles Tab + Reorder Global Settings Last
+# Plan v11: Increase Active Tab Contrast in Settings
 
-**Plan ID**: UI-0225-settings-tab-reorder-v1
+**Plan ID**: UI-0225-settings-tab-contrast-v1
 
 ---
 
 ## Problem
 
-Currently, the "Gestion de Roles de Usuario" (UserRolesManager) component lives inside the "Configuracion Global" tab. The user wants:
-
-1. UserRolesManager gets its own dedicated tab, placed after "Feriados"
-2. "Configuracion Global" becomes the last tab
+The currently selected tab on the Settings page has minimal visual distinction from inactive tabs -- just a subtle background and shadow change. The user wants more contrast to make it obvious which tab is active.
 
 ---
 
-## Changes
+## Fix
 
-### File: `src/pages/Settings.tsx` (MODIFY)
+### File: `src/components/ui/tabs.tsx` (MODIFY)
 
-**Tab triggers (lines 340-352)** -- Reorder the admin-only tabs so the sequence is:
+Update the `TabsTrigger` component's default `data-[state=active]` classes to use the primary color for the active state instead of just `bg-background` with a subtle shadow.
 
+**Current active styling:**
 ```
-Account | Industries | Rates | Activities | Expense Types | Holidays | User Roles | Global Settings
+data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm
 ```
 
-Specifically:
-- Move `holidays` tab trigger before `roles` (new)
-- Add a new `roles` tab trigger using `t("userRoles.title")`
-- Move `global` tab trigger to last position
+**New active styling:**
+```
+data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm
+```
 
-**Tab content (lines 441-624)** -- Three changes:
-
-1. **Remove** `<UserRolesManager />` from inside the `global` TabsContent (line 443).
-2. **Add** a new `TabsContent value="roles"` containing only `<UserRolesManager />`, placed after holidays.
-3. **Reorder** so holidays content comes before roles, and global content comes last.
-
-### File: `src/locales/en.json` and `src/locales/es.json` (MODIFY)
-
-Add a new key `settings.userRoles` for the tab label:
-- en: `"userRoles": "User Roles"`
-- es: `"userRoles": "Roles de Usuario"`
+This applies the teal brand primary color as the background and white text on the active tab, giving it strong contrast against the muted tab bar -- consistent with the brand identity used throughout the app (sidebar, buttons, etc.).
 
 ---
 
 ## What Stays Unchanged
 
-- UserRolesManager component itself -- no changes needed
-- Global Settings card content -- unchanged, just no longer shares a tab with UserRolesManager
-- Non-admin users still cannot see the Holidays, User Roles, or Global Settings tabs
-- The `isGlobalTabActive` / focus mode logic stays tied to `activeTab === "global"`
+- No changes to Settings.tsx or any page-level code
+- Inactive tab styling remains the same
+- This is a global change to the tabs component, which will apply consistently wherever `TabsTrigger` is used
 
 ---
 
-## Acceptance Criteria
+## Scope
 
-1. Admin sees tabs in order: Account, Industries, Rates, Activities, Expense Types, Holidays, User Roles, Global Settings
-2. User Roles tab shows only the UserRolesManager component
-3. Global Settings tab shows only the settings card (no UserRolesManager)
-4. Non-admin users do not see the Holidays, User Roles, or Global Settings tabs
+Single file change: `src/components/ui/tabs.tsx` (one line modification)
 
