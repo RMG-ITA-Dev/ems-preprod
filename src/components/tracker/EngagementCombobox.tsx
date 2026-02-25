@@ -87,7 +87,7 @@ export function EngagementCombobox({
                   {eng.engagement_code ? (
                     <>
                       <span className="font-medium">{eng.engagement_code}</span>
-                      <span className="text-muted-foreground ml-2 whitespace-normal">- {eng.engagement_name}</span>
+                      <span className="opacity-70 ml-2 whitespace-normal">- {eng.engagement_name}</span>
                     </>
                   ) : (
                     <span>{eng.engagement_name}</span>
