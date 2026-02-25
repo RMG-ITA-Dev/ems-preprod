@@ -303,6 +303,7 @@
     "realizationLimit": "Límite de Realización (%)",
     "realizationLimitHelp": "Umbral para codificación por color: verde si R >= X%, rojo si R < X%",
     "holidays": "Feriados",
+    "userRoles": "Roles de Usuario",
     "holidayEngagement": "Encargo de Feriados",
     "holidayEngagementHelp": "Seleccione el encargo permitido para registros en dias feriados",
     "holidayNotConfigured": "El bloqueo de feriados esta inactivo hasta seleccionar un encargo"

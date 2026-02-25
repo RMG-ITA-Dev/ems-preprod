@@ -344,10 +344,13 @@ const Settings = () => {
           <TabsTrigger value="activities">{t("settings.activityCodes")}</TabsTrigger>
           <TabsTrigger value="expense-types">{t("settings.expenseTypes")}</TabsTrigger>
           {isAdmin && (
-            <TabsTrigger value="global">{t("settings.globalSettings")}</TabsTrigger>
+            <TabsTrigger value="holidays">{t("settings.holidays")}</TabsTrigger>
           )}
           {isAdmin && (
-            <TabsTrigger value="holidays">{t("settings.holidays")}</TabsTrigger>
+            <TabsTrigger value="roles">{t("settings.userRoles")}</TabsTrigger>
+          )}
+          {isAdmin && (
+            <TabsTrigger value="global">{t("settings.globalSettings")}</TabsTrigger>
           )}
         </TabsList>
 
@@ -439,9 +442,13 @@ const Settings = () => {
         </TabsContent>
 
         {isAdmin && (
-          <TabsContent value="global" className="space-y-6">
+          <TabsContent value="roles" className="space-y-6">
             <UserRolesManager />
-            
+          </TabsContent>
+        )}
+
+        {isAdmin && (
+          <TabsContent value="global" className="space-y-6">
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
