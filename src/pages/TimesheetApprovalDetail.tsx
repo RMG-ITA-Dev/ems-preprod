@@ -253,9 +253,8 @@ const TimesheetApprovalDetail = () => {
               <span className="font-medium">{summary.stillPending}</span> {t("approval.summary.stillPending")}
             </div>
             <Button
-              variant="cancel"
+              variant="outline"
               onClick={handleBack}
-              className="btn-action"
             >
               {t("common.cancel")}
             </Button>
