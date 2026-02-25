@@ -226,3 +226,45 @@ The BUG 0220-52 stopwatch fix added `.eq("is_internal", false)` filters to `useA
 | `src/components/tracker/ManualEntryDialog.tsx` | 183 | `sm:max-w-[425px]` → `sm:max-w-[700px]` |
 | `src/components/tracker/EngagementCombobox.tsx` | 66 | Popover width: fixed → `min-w` + `w-auto` + `max-w-[600px]` |
 | `src/components/tracker/EngagementCombobox.tsx` | 90 | Added `whitespace-normal` to engagement name span |
+
+---
+
+## UI Fix: Engagement Name Unreadable on Hover in Combobox Dropdown
+
+**Plan**: UI-0225-combobox-hover-contrast-v1 (Plan v6)
+
+### Problem
+
+Engagement name text in the `EngagementCombobox` dropdown was unreadable on hover/selection. The `text-muted-foreground` class on the name `<span>` did not adapt to the `bg-accent` + `text-accent-foreground` applied by `CommandItem`'s `data-[selected='true']` state, resulting in low-contrast text against the accent background. The engagement **code** span (no explicit color class) inherited correctly; only the **name** span was broken.
+
+### Root Cause
+
+`CommandItem` applies `text-accent-foreground` on selection via `data-[selected='true']` (defined in `command.tsx` line 108). Child elements inherit this color unless they have an explicit color class. The name `<span>` had `text-muted-foreground`, which overrode the inherited selection color, keeping the text in a low-contrast muted color against the accent background.
+
+### Fix
+
+#### Modified `src/components/tracker/EngagementCombobox.tsx`
+
+- **Line 90**: Replaced `text-muted-foreground` with `opacity-70` on the engagement name `<span>`. The span now inherits the parent `CommandItem`'s text color (which correctly switches to `text-accent-foreground` on hover/selection) and uses opacity to maintain visual hierarchy between code and name.
+
+```tsx
+// BEFORE:
+<span className="text-muted-foreground ml-2 whitespace-normal">- {eng.engagement_name}</span>
+
+// AFTER:
+<span className="opacity-70 ml-2 whitespace-normal">- {eng.engagement_name}</span>
+```
+
+### Unchanged
+
+- `src/components/ui/command.tsx` — no changes to the base component
+- `src/components/tracker/ManualEntryDialog.tsx` — no changes
+- `src/components/tracker/TrackerBar.tsx` — no changes (inherits fix via shared component)
+- Dialog width, popover width, trigger truncation — all unchanged
+- Hooks, eligibility logic, i18n, database — all unchanged
+
+### Files Modified
+
+| File | Lines | Change |
+|---|---|---|
+| `src/components/tracker/EngagementCombobox.tsx` | 90 | `text-muted-foreground` → `opacity-70` on engagement name span |
