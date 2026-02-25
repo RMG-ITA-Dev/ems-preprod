@@ -90,6 +90,8 @@
     "weekendNotAllowed": "No se permite registrar tiempo en fines de semana",
     "whatAreYouWorkingOn": "¿En qué estás trabajando?",
     "selectEngagement": "Seleccionar encargo",
+    "searchEngagement": "Buscar encargo...",
+    "noMatchingEngagements": "No se encontraron encargos.",
     "selectActivity": "Seleccionar actividad",
     "start": "INICIAR",
     "stop": "DETENER",

@@ -34,6 +34,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { EngagementCombobox } from "@/components/tracker/EngagementCombobox";
 
 function addHoursToTime(time: string, hours: number): string {
   const [h, m] = time.split(":").map(Number);
@@ -269,26 +270,20 @@ export function ManualEntryDialog({
           {/* Engagement */}
           <div className="space-y-2">
             <Label>{t("tracker.engagement")}</Label>
-            <Select value={engagementId} onValueChange={(val) => {
-              setEngagementId(val);
-              const eng = engagements.find(e => e.engagement_id === val);
-              if (eng && !eng.activity_required && adminActivityId) {
-                setActivityId(adminActivityId);
-              } else {
-                setActivityId("");
-              }
-            }}>
-              <SelectTrigger>
-                <SelectValue placeholder={t("tracker.selectEngagement")} />
-              </SelectTrigger>
-              <SelectContent>
-                {engagements.map((eng) => (
-                  <SelectItem key={eng.engagement_id} value={eng.engagement_id}>
-                    {eng.engagement_code || eng.engagement_name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <EngagementCombobox
+              engagements={engagements}
+              value={engagementId}
+              onValueChange={(val) => {
+                setEngagementId(val);
+                const eng = engagements.find(e => e.engagement_id === val);
+                if (eng && !eng.activity_required && adminActivityId) {
+                  setActivityId(adminActivityId);
+                } else {
+                  setActivityId("");
+                }
+              }}
+              placeholder={t("tracker.selectEngagement")}
+            />
           </div>
 
           {/* Activity */}
