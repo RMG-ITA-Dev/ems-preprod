@@ -180,7 +180,11 @@ export function ManualEntryDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[700px]">
+      <DialogContent
+          className="sm:max-w-[700px]"
+          onInteractOutside={(e) => e.preventDefault()}
+          onEscapeKeyDown={(e) => e.preventDefault()}
+        >
         <DialogHeader>
           <DialogTitle>{t("tracker.manualEntry")}</DialogTitle>
         </DialogHeader>

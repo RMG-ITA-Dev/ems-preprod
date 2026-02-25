@@ -268,3 +268,25 @@ Engagement name text in the `EngagementCombobox` dropdown was unreadable on hove
 | File | Lines | Change |
 |---|---|---|
 | `src/components/tracker/EngagementCombobox.tsx` | 90 | `text-muted-foreground` → `opacity-70` on engagement name span |
+
+---
+
+## UI Fix: Prevent Manual Entry Dialog from Closing on Outside Click
+
+**Plan**: UI-0225-manual-entry-modal-lock-v1 (Plan v7)
+
+### Problem
+
+Clicking outside the Manual Entry dialog or pressing Escape dismissed it, returning the user to the tracker list and losing any entered data.
+
+### Fix
+
+#### Modified `src/components/tracker/ManualEntryDialog.tsx`
+
+- **Line 183**: Added `onInteractOutside` and `onEscapeKeyDown` handlers to `DialogContent`, both calling `e.preventDefault()`. The dialog now only closes via the **X** button or **Cancel** button.
+
+### Files Modified
+
+| File | Lines | Change |
+|---|---|---|
+| `src/components/tracker/ManualEntryDialog.tsx` | 183 | Added `onInteractOutside` + `onEscapeKeyDown` to prevent accidental dismissal |
