@@ -159,6 +159,50 @@ describe("useTimesheetMutations (BUG 0220-45)", () => {
       expect(toast.error).toHaveBeenCalledWith("timesheet.submitNoEntries");
     });
 
+    it("T-MIN: shows weekly min error toast", async () => {
+      vi.mocked(supabase.rpc).mockResolvedValue({
+        data: null,
+        error: { message: "WEEKLY_MIN_NOT_MET:actual=32,min=40" },
+      } as any);
+
+      const { useSubmitTimesheet } = await import("../useTimesheetMutations");
+      const { result } = renderHook(() => useSubmitTimesheet(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate({
+        periodId: "p1",
+        staffId: "s1",
+        engagementIds: ["e1"],
+        isAutoApproved: false,
+      });
+
+      await waitFor(() => expect(result.current.isError).toBe(true));
+      expect(toast.error).toHaveBeenCalledWith("timesheet.weeklyMinNotMet");
+    });
+
+    it("T-MAX: shows weekly max error toast", async () => {
+      vi.mocked(supabase.rpc).mockResolvedValue({
+        data: null,
+        error: { message: "WEEKLY_MAX_EXCEEDED:actual=48,max=40" },
+      } as any);
+
+      const { useSubmitTimesheet } = await import("../useTimesheetMutations");
+      const { result } = renderHook(() => useSubmitTimesheet(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate({
+        periodId: "p1",
+        staffId: "s1",
+        engagementIds: ["e1"],
+        isAutoApproved: false,
+      });
+
+      await waitFor(() => expect(result.current.isError).toBe(true));
+      expect(toast.error).toHaveBeenCalledWith("timesheet.weeklyMaxExceeded");
+    });
+
     it("T7: deduplicates engagement IDs before RPC call", async () => {
       vi.mocked(supabase.rpc).mockResolvedValue({
         data: { new_pending: 2 },

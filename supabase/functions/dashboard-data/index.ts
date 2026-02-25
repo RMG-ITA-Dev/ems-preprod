@@ -797,14 +797,14 @@ async function getMyWeek(
   const hoursLogged = typedEntries.reduce((sum, e) => sum + Number(e.hours_logged), 0);
   const uniqueEngagements = new Set(typedEntries.map((e) => e.engagement_id)).size;
 
-  // Get WEEKLY_LIMIT from global settings
+  // Get WEEKLY_MAX from global settings
   const { data: settings } = await supabase
     .from("global_settings")
     .select("setting_value")
-    .eq("setting_key", "WEEKLY_LIMIT")
+    .eq("setting_key", "WEEKLY_MAX")
     .maybeSingle();
 
-  const weeklyLimit = settings?.setting_value ? Number(settings.setting_value) : 50;
+  const weeklyLimit = settings?.setting_value ? Number(settings.setting_value) : 40;
 
   return {
     week_start: weekStart,

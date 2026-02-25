@@ -124,9 +124,9 @@ const TrackerRecord = () => {
   }, [elapsedSeconds, runningEntry, handleAutoStop]);
 
   // Daily limit
-  const dailyLimit = useMemo(() => {
-    const setting = globalSettings?.find((s) => s.setting_key === "DAILY_LIMIT");
-    return setting ? parseFloat(setting.setting_value) : 10;
+  const dailyMax = useMemo(() => {
+    const setting = globalSettings?.find((s) => s.setting_key === "DAILY_MAX");
+    return setting ? parseFloat(setting.setting_value) : 8;
   }, [globalSettings]);
 
   const allowWeekendTracking = useMemo(() => {
@@ -149,7 +149,7 @@ const TrackerRecord = () => {
     return totalMinutes / 60;
   }, [entries, runningEntry, elapsedSeconds]);
 
-  const remainingHours = Math.max(0, dailyLimit - todayTrackedHours);
+  const remainingHours = Math.max(0, dailyMax - todayTrackedHours);
   const isWeekendToday = isWeekend(new Date());
   const isRunning = !!runningEntry;
 
