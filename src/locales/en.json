@@ -433,7 +433,7 @@
     "hireDate": "Hire Date",
     "hireDateHelp": "Employee start date. Restricts timesheet entry to weeks on or after this date.",
     "emailAlreadyUsed": "This email is already assigned to {{name}}. Each staff member must have a unique email.",
-    "emailLinkedWarning": "This member has a linked login account. Changing the email does not update their login credentials.",
+    "emailLinkedWarning": "This member has a linked login account.",
     "terminationDate": "Termination Date",
     "terminationDateHelp": "Restricts time entry after this date",
     "pendingHoursTitle": "Pending Hours",
