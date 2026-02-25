@@ -1,245 +1,236 @@
-# Plan v2: BUG-0220-52-regression-hardening -- Restore Internal/ADMIN Engagements in Manual Entry + Fix Build Error
+# Plan v3: BUG-0220-52-followup-search-display -- Searchable Engagement Selector with Unified CODE - Name Display
 
-**Bug Origin**: BUG 0220-52 stopwatch fix filtered internal engagements via `useApprovedEngagements`, which is also consumed by `ManualEntryDialog`, causing manual entry to lose internal/ADMIN engagements.
+**Plan ID**: BUG-0220-52-followup-search-display-v3
 
 ---
 
-## Root Cause
+## Problem
 
-`ManualEntryDialog` (line 74) calls `useApprovedEngagements()`, which now hard-filters `.eq("is_internal", false)` on both Group A and Group B queries (lines 32, 55). Manual entry is the only way to record time against internal/admin jobs in the tracker, so this is a regression.
-
-Additionally, `TimeSheet.submit-guards.test.tsx` imports a non-existent `TestWrapper` from `@/test/utils` (the project exports `render` as a custom render with providers, not a `TestWrapper` component).
+1. **Manual Entry dialog** displays engagements as `engagement_code || engagement_name` (line 287), showing only one or the other -- not the combined `CODE - Name` format used in the stopwatch.
+2. **Neither** the stopwatch nor the manual entry dialog has a search bar to filter engagements by partial code or name match.
 
 ---
 
 ## Locked Decisions
 
 
-| Decision              | Value                                                             |
-| --------------------- | ----------------------------------------------------------------- |
-| Stopwatch behavior    | Unchanged -- continues excluding internal engagements             |
-| Manual entry behavior | Restored -- includes active internal/ADMIN engagements            |
-| Backend changes       | None (no DB migrations, no RPC changes)                           |
-| Architecture          | Dedicated hook with separate query key (no boolean flag coupling) |
+| Decision                 | Value                                                           |
+| ------------------------ | --------------------------------------------------------------- |
+| Stopwatch eligibility    | Unchanged -- `useApprovedEngagements` (excludes internal)       |
+| Manual entry eligibility | Unchanged -- `useManualEntryEngagements` (includes internal)    |
+| Backend changes          | None (no DB, no RPC)                                            |
+| Architecture             | Single reusable `EngagementCombobox` component                  |
+| Search behavior          | Case-insensitive partial match on code and name (cmdk built-in) |
+| Display format           | `CODE - Name` (bold code, muted name); fallback to Name only    |
 
 
 ---
 
 ## File-by-File Changes
 
-### 1. `src/hooks/useManualEntryEngagements.ts` (CREATE)
+### S1. `src/components/tracker/EngagementCombobox.tsx` (CREATE)
 
-Create a dedicated hook for the manual entry dialog. This mirrors the logic of `useApprovedEngagements` but **omits** the `.eq("is_internal", false)` filters and **re-includes** `is_internal.eq.true` in the Group B non-admin visibility `.or()` clause.
+Reusable combobox using existing `Popover` + `Command` primitives.
+
+**Props interface:**
 
 ```typescript
-import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
-import type { Engagement } from "@/hooks/useEmsData";
-
-/**
- * Engagement list for manual timer entry dialog.
- * Includes internal/ADMIN engagements (unlike useApprovedEngagements which is tracker-only).
- */
-export function useManualEntryEngagements() {
-  return useQuery({
-    queryKey: ["engagements-for-manual-entry"],
-    queryFn: async () => {
-      // Group A: Engagements with approved WOs (including internal)
-      const { data: workOrders, error: woError } = await supabase
-        .from("work_orders")
-        .select("engagement_id")
-        .eq("approval_status", "Approved");
-      if (woError) throw woError;
-
-      const approvedIds = [...new Set(
-        (workOrders || []).map(wo => wo.engagement_id)
-      )];
-
-      let groupA: Engagement[] = [];
-      if (approvedIds.length > 0) {
-        const { data, error } = await supabase
-          .from("engagements")
-          .select(`*, client:clients(*), partner:staff!engagements_partner_id_fkey(*), manager:staff!engagements_manager_id_fkey(*)`)
-          .in("engagement_id", approvedIds)
-          .eq("status", "active")
-          // NO is_internal filter -- manual entry includes internal
-          .order("created_at", { ascending: false });
-        if (error) throw error;
-        groupA = (data || []) as Engagement[];
-      }
-
-      // Group B: work_order_required=false
-      const { data: isAdminResult } = await supabase.rpc("is_admin");
-      const isAdmin = !!isAdminResult;
-      const { data: myStaffId } = await supabase.rpc("get_my_staff_id");
-
-      let groupBQuery = supabase
-        .from("engagements")
-        .select(`*, client:clients(*), partner:staff!engagements_partner_id_fkey(*), manager:staff!engagements_manager_id_fkey(*)`)
-        .eq("work_order_required", false)
-        .eq("status", "active")
-        // NO is_internal filter
-        .order("created_at", { ascending: false });
-
-      if (!isAdmin && myStaffId) {
-        groupBQuery = groupBQuery.or(
-          `is_internal.eq.true,partner_id.eq.${myStaffId},manager_id.eq.${myStaffId}`
-        );
-      }
-
-      const { data: groupBData, error: groupBError } = await groupBQuery;
-      if (groupBError) throw groupBError;
-      const groupB = (groupBData || []) as Engagement[];
-
-      const merged = new Map<string, Engagement>();
-      for (const e of groupA) merged.set(e.engagement_id, e);
-      for (const e of groupB) merged.set(e.engagement_id, e);
-      return Array.from(merged.values());
-    },
-  });
+interface EngagementComboboxProps {
+  engagements: Array<{
+    engagement_id: string;
+    engagement_code: string | null;
+    engagement_name: string;
+  }>;
+  value: string;                     // selected engagement_id
+  onValueChange: (id: string) => void;
+  disabled?: boolean;
+  placeholder?: string;
 }
 ```
 
-Key differences from `useApprovedEngagements`:
+**Implementation:**
 
-- Query key: `"engagements-for-manual-entry"` (no cache coupling)
-- No `.eq("is_internal", false)` on Group A (line 32 of original) or Group B (line 55)
-- Group B non-admin `.or()` includes `is_internal.eq.true` (restoring pre-0220-52 behavior for manual entry)
+- `Popover` wrapping a `Button` trigger (variant="outline", role="combobox")
+- Trigger shows selected engagement as `CODE - Name` or placeholder text; includes `ChevronsUpDown` icon
+- Inside popover: `Command` > `CommandInput` (placeholder from `t("tracker.searchEngagement")`) > `CommandList` > `CommandEmpty` (text from `t("tracker.noMatchingEngagements")`) > `CommandGroup` with `CommandItem` per engagement
+- Each `CommandItem` sets `value` to `"code name"` string for cmdk filtering
+- Display per item: `<span className="font-medium">{code}</span><span className="text-muted-foreground ml-2">- {name}</span>`
+- Selected item gets a `Check` icon
+- Local `open` state; popover closes on selection
+- When `disabled` is true, the trigger button is disabled
 
-### 2. `src/components/tracker/ManualEntryDialog.tsx` (MODIFY)
+### S2. `src/components/tracker/TrackerBar.tsx` (MODIFY)
 
-**Line 31**: Replace import:
+**Lines 5-11 (imports):**  
 
-```typescript
-// BEFORE:
-import { useApprovedEngagements } from "@/hooks/useApprovedEngagements";
-// AFTER:
-import { useManualEntryEngagements } from "@/hooks/useManualEntryEngagements";
+- **Keep** existing `Select` imports needed by Activity dropdown.
+- **Add** `EngagementCombobox` import.
+- Only remove an import if it truly becomes unused after refactor.
+
+**Lines 91-123 (engagement selector):** Replace the entire engagement `Select` block with:
+
+```tsx
+<div className="flex-1">
+  <Label className="text-xs text-muted-foreground mb-1.5 block">
+    {t("tracker.engagement")}
+  </Label>
+  <EngagementCombobox
+    engagements={engagements}
+    value={engagementId || ""}
+    onValueChange={(val) => {
+      onEngagementChange(val || null);
+      const eng = engagements.find(e => e.engagement_id === val);
+      if (eng && !eng.activity_required && adminActivityId) {
+        onActivityChange(adminActivityId);
+      } else if (eng && !eng.activity_required) {
+        onActivityChange(null);
+      }
+    }}
+    disabled={isRunning}
+    placeholder={t("tracker.selectEngagement")}
+  />
+</div>
 ```
 
-**Line 74**: Replace hook call:
+Activity selector (lines 125-148) remains a `Select` -- keep those imports.
 
-```typescript
-// BEFORE:
-const { data: engagements = [] } = useApprovedEngagements();
-// AFTER:
-const { data: engagements = [] } = useManualEntryEngagements();
+### S3. `src/components/tracker/ManualEntryDialog.tsx` (MODIFY)
+
+**Lines 16-22 (imports):** The `Select` imports are still needed for the Activity selector (lines 295-308), so keep them. Add `EngagementCombobox` import.
+
+**Lines 270-292 (engagement selector):** Replace the `Select` block with:
+
+```tsx
+<div className="space-y-2">
+  <Label>{t("tracker.engagement")}</Label>
+  <EngagementCombobox
+    engagements={engagements}
+    value={engagementId}
+    onValueChange={(val) => {
+      setEngagementId(val);
+      const eng = engagements.find(e => e.engagement_id === val);
+      if (eng && !eng.activity_required && adminActivityId) {
+        setActivityId(adminActivityId);
+      } else {
+        setActivityId("");
+      }
+    }}
+    placeholder={t("tracker.selectEngagement")}
+  />
+</div>
 ```
 
-No other changes. The existing stale-engagement guard on line 148 (`if (!engagements.some(...))`) continues to work against the new list.
+This fixes the display from `code || name` to the unified `CODE - Name` format.
 
-### 3. `src/hooks/useApprovedEngagements.ts` (NO CHANGES)
+### S4. `src/locales/en.json` and `src/locales/es.json` (MODIFY)
 
-Verify unchanged. This hook remains tracker-specific with `is_internal = false` filters intact. Optionally add a clarifying comment at the top.
+Add inside the `"tracker"` object:
 
-### 4. `src/pages/__tests__/TimeSheet.submit-guards.test.tsx` (FIX BUILD ERROR)
+**EN:**
 
-**Line 4**: Replace non-existent `TestWrapper` import with the project's standard pattern:
-
-```typescript
-// BEFORE:
-import { TestWrapper } from "@/test/utils";
-// AFTER:
-import { render as customRender } from "@/test/utils";
+```json
+"searchEngagement": "Search engagement...",
+"noMatchingEngagements": "No matching engagements."
 ```
 
-**Lines 44-48**: Replace `TestWrapper` usage:
+**ES:**
 
-```typescript
-// BEFORE:
-render(
-  <TestWrapper>
-    <TimeSheet />
-  </TestWrapper>
-);
-// AFTER:
-customRender(<TimeSheet />);
+```json
+"searchEngagement": "Buscar encargo...",
+"noMatchingEngagements": "No se encontraron encargos."
 ```
 
-Note: `@/test/utils` exports a custom `render` that wraps with `QueryClientProvider` automatically.
-
-### 5. `docs/CHANGELOG-2026-02-22.md` (APPEND)
-
-Append at end of file:
+### S5. `docs/CHANGELOG-2026-02-24.md` (APPEND) like below but more detail please.
 
 ```markdown
+
 ---
 
-### Bug 0220-52 Regression Fix: Restore Internal Engagements in Manual Entry
+## Enhancement: Searchable Engagement Selector with Unified Display
 
-**Related Bug**: 0220-52 (Tracker Engagement Selector Excludes Internal Engagements)
+### Changes
 
-- **Problem**: The 0220-52 fix for the stopwatch also affected the "+ Nuevo Registro de Tiempo" (manual entry) dialog, which shares the same `useApprovedEngagements` hook. Internal/ADMIN engagements disappeared from the manual entry dropdown, but manual entry is the only way to record time against admin jobs.
-- **Root Cause**: `ManualEntryDialog` consumed `useApprovedEngagements`, which now hard-filters `is_internal = false`.
-- **Fix**: Created dedicated `useManualEntryEngagements` hook with its own query key (`engagements-for-manual-entry`) that includes internal engagements. `ManualEntryDialog` now uses this hook. `useApprovedEngagements` remains unchanged (tracker-only, excludes internal).
-- **Unchanged**: Stopwatch filtering (Bug 0220-52 fix preserved). Timesheet grid unaffected. No DB/RPC changes.
-- **Build Fix**: Fixed `TimeSheet.submit-guards.test.tsx` compile error (replaced non-existent `TestWrapper` with project-standard `render` from `@/test/utils`).
+- Created reusable `EngagementCombobox` component (`src/components/tracker/EngagementCombobox.tsx`) using existing `Popover` + `Command` (cmdk) UI primitives. The component accepts an array of engagements and renders a searchable dropdown with `CommandInput` for filtering and `CommandItem` for each engagement.
+- Integrated `EngagementCombobox` into Stopwatch (`TrackerBar.tsx` lines 91-123), replacing the basic `Select` engagement dropdown. Activity selector remains as `Select`.
+- Integrated `EngagementCombobox` into Manual Entry (`ManualEntryDialog.tsx` lines 270-292), replacing the basic `Select` engagement dropdown. This fixes the display format from `engagement_code || engagement_name` (showing only one) to the unified `CODE - Name` format (showing both). Activity selector remains as `Select`.
+- Both selectors now support case-insensitive partial matching by engagement code or engagement name via cmdk's built-in filtering.
+- Display format: `CODE - Name` with bold code and muted name text. Falls back to Name only when code is missing.
+- Stopwatch eligibility unchanged: continues using `useApprovedEngagements` (excludes internal engagements).
+- Manual Entry eligibility unchanged: continues using `useManualEntryEngagements` (includes internal/ADMIN engagements).
+- Activity auto-assignment logic preserved in both selectors (auto-assigns ADM activity for engagements where activity is not required).
+- Disabled state during running timer preserved in Stopwatch.
+- Added i18n keys `tracker.searchEngagement` (EN: "Search engagement...", ES: "Buscar encargo...") and `tracker.noMatchingEngagements` (EN: "No matching engagements.", ES: "No se encontraron encargos.").
+- No database or RPC changes.
 ```
 
 ---
 
 ## What Stays Unchanged
 
-- `src/hooks/useApprovedEngagements.ts` -- tracker-safe, no modifications
-- `src/components/tracker/TrackerBar.tsx` -- still uses `useApprovedEngagements`
-- `src/pages/TrackerRecord.tsx` -- start guard unchanged
-- Timesheet grid -- separate data path (`useTimesheetWeek`)
-- All existing 0220-52 tests
+- `src/hooks/useApprovedEngagements.ts` -- no changes
+- `src/hooks/useManualEntryEngagements.ts` -- no changes
+- `src/pages/TrackerRecord.tsx` -- no changes
+- Activity selectors in both components -- remain as `Select` dropdowns
+- All existing eligibility and guard logic
 
 ---
 
 ## Execution Order
 
-1. Create `src/hooks/useManualEntryEngagements.ts`
-2. Modify `src/components/tracker/ManualEntryDialog.tsx` (swap hook)
-3. Fix `src/pages/__tests__/TimeSheet.submit-guards.test.tsx` (build error)
-4. Append `docs/CHANGELOG-2026-02-22.md`
+1. Add i18n keys to `en.json` and `es.json` (S4)
+2. Create `EngagementCombobox.tsx` (S1)
+3. Update `TrackerBar.tsx` (S2)
+4. Update `ManualEntryDialog.tsx` (S3)
+5. Append `docs/CHANGELOG-2026-02-24.md` There needs to be sufficient detail to be able to verify if the changes to the codebase correspond to the CHANGELOG. (S5)
 
 ---
 
 ## Acceptance Criteria
 
-1. Manual entry dialog ("+ Nuevo Registro de Tiempo") shows active internal/ADMIN engagements in dropdown.
-2. Stopwatch ("Usar cronometro") still excludes internal engagements.
-3. ManualEntryDialog stale-engagement guard still blocks invalid IDs.
-4. No DB migrations or RPC changes.
-5. Build error in `TimeSheet.submit-guards.test.tsx` resolved.
-6. `pnpm test` and `pnpm lint` pass.
+1. Both selectors display engagements as `CODE - Name`.
+2. Both selectors include a search input for partial matching by code or name.
+3. Search is case-insensitive.
+4. Stopwatch eligibility unchanged (internal engagements excluded).
+5. Manual Entry eligibility unchanged (internal engagements included).
+6. Activity auto-assignment logic preserved in both screens.
+7. Disabled state during running timer preserved in Stopwatch.
+8. No DB or RPC changes.
+9. EN/ES i18n parity for new keys.
 
 ---
 
 ## Verification
 
-```text
-pnpm test
-pnpm lint
-```
+1. **Add automated tests to the plan**   
+Add at least:
+  - search by partial code and partial name in both selectors,
+  - label rendering `CODE - Name` in Manual Entry,
+  - stopwatch still excludes internal engagements while manual entry includes them.
 
-Add **at least 1 automated test** for `ManualEntryDialog` proving internal engagements are visible there while still excluded in `TrackerBar`.  
-Right now the plan relies mostly on manual QA for the core regression behavior. That’s workable, but less foolproof.
+**Manual QA:**
 
-Manual QA:
-
-1. Open Tracker > "+ Nuevo Registro de Tiempo" -- internal engagements (ADM, Feriados) visible in dropdown.
-2. Open Tracker > "Usar cronometro" -- internal engagements NOT visible.
-3. Create and save a manual entry against an internal engagement successfully.
+1. Open Tracker > "Usar cronometro" -- engagement dropdown shows search bar; type partial code or name to filter; selected shows `CODE - Name`; internal engagements NOT visible.
+2. Open Tracker > "+ Nuevo Registro de Tiempo" -- engagement dropdown shows search bar; internal/ADMIN engagements visible; selected shows `CODE - Name`.
+3. Select engagement in stopwatch, verify activity auto-assignment still works.
+4. Start timer, verify engagement selector is disabled.
 
 ---
 
 ## Risk Register
 
 
-| Risk                                              | Severity | Mitigation                                                   |
-| ------------------------------------------------- | -------- | ------------------------------------------------------------ |
-| Reintroducing internal engagements into stopwatch | High     | `useApprovedEngagements` is not touched; dedicated hook used |
-| Cache contamination between hooks                 | Medium   | Separate query keys                                          |
-| Test suite red from unrelated compile error       | Medium   | Explicit build fix included in this plan                     |
+| Risk                                       | Severity | Mitigation                                                            |
+| ------------------------------------------ | -------- | --------------------------------------------------------------------- |
+| Regressing stopwatch filtering             | High     | Hooks unchanged; only UI selector replaced                            |
+| Inconsistent display across screens        | Low      | Single shared component ensures consistency                           |
+| cmdk filter not matching expected behavior | Low      | cmdk built-in filter does case-insensitive substring match by default |
 
 
 ---
 
 ## Rollback Plan
 
-1. Revert: delete `useManualEntryEngagements.ts`, restore `useApprovedEngagements` import in `ManualEntryDialog.tsx`.
-2. No database rollback needed.
-3. Re-run tests to confirm prior behavior restored.
+1. Delete `EngagementCombobox.tsx`.
+2. Restore `Select` blocks in `TrackerBar.tsx` and `ManualEntryDialog.tsx`.
+3. Remove i18n keys.
+4. No database rollback needed.
