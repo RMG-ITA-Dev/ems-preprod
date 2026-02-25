@@ -189,3 +189,40 @@ The BUG 0220-52 stopwatch fix added `.eq("is_internal", false)` filters to `useA
 - Disabled state during running timer preserved in Stopwatch via `disabled={isRunning}`.
 - Added i18n keys `tracker.searchEngagement` (EN: "Search engagement...", ES: "Buscar encargo...") and `tracker.noMatchingEngagements` (EN: "No matching engagements.", ES: "No se encontraron encargos.").
 - No database or RPC changes.
+
+---
+
+## UI Fix: Widen Manual Entry Dialog + Fix Engagement Name Truncation
+
+**Plan**: UI-0225-engagement-combobox-width-v1 (Plan v5)
+
+### Problem
+
+1. The Manual Entry dialog (`+ Nuevo Registro de Tiempo`) was too narrow at `sm:max-w-[425px]`, insufficient to display full engagement codes and names.
+2. The `EngagementCombobox` dropdown in both the Manual Entry dialog and the Stopwatch clipped long engagement names because the popover width was locked to the trigger button width (`w-[--radix-popover-trigger-width]`), and item text had no wrapping.
+
+### Fix Details
+
+#### Modified `src/components/tracker/ManualEntryDialog.tsx`
+
+- **Line 183**: Changed `DialogContent` max-width from `sm:max-w-[425px]` to `sm:max-w-[700px]` (~2.5× wider), providing sufficient space for full engagement code + name display and the time/hours input grid.
+
+#### Modified `src/components/tracker/EngagementCombobox.tsx`
+
+- **Line 66 (PopoverContent)**: Changed width class from `w-[--radix-popover-trigger-width]` to `min-w-[--radix-popover-trigger-width] w-auto max-w-[600px]`. The dropdown now uses the trigger width as a minimum but can expand up to 600px to accommodate long engagement names.
+- **Line 90 (CommandItem name span)**: Added `whitespace-normal` class to the engagement name `<span>`, allowing long names to wrap within the dropdown item instead of being clipped.
+- **Line 58 (trigger button)**: Unchanged — `truncate` class retained on the trigger button label, which is correct behavior for limited-width button text.
+
+### Unchanged
+
+- `src/components/tracker/TrackerBar.tsx` — no changes needed; inherits the `EngagementCombobox` fixes automatically since both Stopwatch and Manual Entry use the shared component.
+- Hooks, eligibility logic, i18n, database — all unchanged.
+- No database migrations or RPC changes.
+
+### Files Modified
+
+| File | Lines | Change |
+|---|---|---|
+| `src/components/tracker/ManualEntryDialog.tsx` | 183 | `sm:max-w-[425px]` → `sm:max-w-[700px]` |
+| `src/components/tracker/EngagementCombobox.tsx` | 66 | Popover width: fixed → `min-w` + `w-auto` + `max-w-[600px]` |
+| `src/components/tracker/EngagementCombobox.tsx` | 90 | Added `whitespace-normal` to engagement name span |
