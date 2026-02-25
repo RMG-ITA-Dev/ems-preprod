@@ -603,7 +603,7 @@ const Settings = () => {
                     </div>
 
                     <div className="flex gap-3">
-                      <Button variant="cancel" onClick={handleCancelGlobal} className="btn-action">
+                      <Button variant="outline" onClick={handleCancelGlobal}>
                         {t("common.cancel")}
                       </Button>
                       <Button onClick={handleSaveSettings} disabled={updateSettingMutation.isPending}>
