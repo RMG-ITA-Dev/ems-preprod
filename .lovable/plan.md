@@ -1,46 +1,27 @@
 
 
-# Plan v11: Increase Active Tab Contrast in Settings
-
-**Plan ID**: UI-0225-settings-tab-contrast-v1
-
----
+# Plan: Make Email Read-Only on Staff Edit
 
 ## Problem
+When editing a staff member, the email field is currently editable. Since email is linked to authentication credentials, changing it could break the auth link. The field should be read-only in edit mode.
 
-The currently selected tab on the Settings page has minimal visual distinction from inactive tabs -- just a subtle background and shadow change. The user wants more contrast to make it obvious which tab is active.
+## Change
 
----
+### File: `src/components/forms/StaffForm.tsx` (line 501)
 
-## Fix
+Add `disabled` and a visual style to the email Input when in edit mode:
 
-### File: `src/components/ui/tabs.tsx` (MODIFY)
-
-Update the `TabsTrigger` component's default `data-[state=active]` classes to use the primary color for the active state instead of just `bg-background` with a subtle shadow.
-
-**Current active styling:**
-```
-data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm
-```
-
-**New active styling:**
-```
-data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm
+```tsx
+<Input
+  type="email"
+  placeholder="john.doe@example.com"
+  {...field}
+  disabled={isEdit}
+  className={isEdit ? "bg-muted" : ""}
+/>
 ```
 
-This applies the teal brand primary color as the background and white text on the active tab, giving it strong contrast against the muted tab bar -- consistent with the brand identity used throughout the app (sidebar, buttons, etc.).
+This makes the email field visually greyed out and non-editable when editing an existing staff member, while remaining fully editable when creating a new staff member.
 
----
-
-## What Stays Unchanged
-
-- No changes to Settings.tsx or any page-level code
-- Inactive tab styling remains the same
-- This is a global change to the tabs component, which will apply consistently wherever `TabsTrigger` is used
-
----
-
-## Scope
-
-Single file change: `src/components/ui/tabs.tsx` (one line modification)
+The existing warning message about linked auth accounts (lines 504-509) will remain as additional context.
 
