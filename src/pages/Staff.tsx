@@ -6,6 +6,7 @@ import { useStaffFull, useEngagements, useCategories, StaffFull } from "@/hooks/
 import { DataTable, Column } from "@/components/data-table/DataTable";
 import { useNavigate } from "react-router-dom";
 import { Check } from "lucide-react";
+import { useUserRole } from "@/hooks/useUserRole";
 
 const categoryColors: Record<string, string> = {
   Partner: "bg-accent/10 text-accent border-accent/20",
@@ -19,6 +20,7 @@ const Staff = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   // Use full staff data (admin-only) for admin view with PII fields
+  const { isAdmin } = useUserRole();
   const { data: staff, isLoading } = useStaffFull();
   const { data: engagements } = useEngagements();
   const { data: categories } = useCategories();
@@ -137,9 +139,9 @@ const Staff = () => {
         searchPlaceholder={t("staff.searchPlaceholder")}
         searchKeys={["first_name", "last_name", "email", "short_name"]}
         isLoading={isLoading}
-        newButtonLabel={t("staff.newStaff")}
-        onNewClick={() => navigate("/staff/new")}
-        onRowClick={(row) => navigate(`/staff/${row.staff_id}`)}
+        newButtonLabel={isAdmin ? t("staff.newStaff") : undefined}
+        onNewClick={isAdmin ? () => navigate("/staff/new") : undefined}
+        onRowClick={isAdmin ? (row) => navigate(`/staff/${row.staff_id}`) : undefined}
         getRowId={(row) => row.staff_id}
         filters={[
           {
