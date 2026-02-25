@@ -63,7 +63,7 @@ export function EngagementCombobox({
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+      <PopoverContent className="min-w-[--radix-popover-trigger-width] w-auto max-w-[600px] p-0" align="start">
         <Command>
           <CommandInput placeholder={t("tracker.searchEngagement")} />
           <CommandList>
@@ -87,7 +87,7 @@ export function EngagementCombobox({
                   {eng.engagement_code ? (
                     <>
                       <span className="font-medium">{eng.engagement_code}</span>
-                      <span className="text-muted-foreground ml-2">- {eng.engagement_name}</span>
+                      <span className="text-muted-foreground ml-2 whitespace-normal">- {eng.engagement_name}</span>
                     </>
                   ) : (
                     <span>{eng.engagement_name}</span>
