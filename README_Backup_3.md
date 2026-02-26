@@ -2,7 +2,7 @@
 
 A comprehensive bilingual (English/Spanish) engagement management system designed for professional services firms, particularly accounting and consulting practices. Built on the Ruizmier brand identity.
 
-![EMS 2.0](https://img.shields.io/badge/Version-2.0.5-blue) ![React](https://img.shields.io/badge/React-18.3-61DAFB) ![TypeScript](https://img.shields.io/badge/TypeScript-5.0-3178C6) ![Tailwind](https://img.shields.io/badge/Tailwind-3.4-06B6D4)
+![EMS 2.0](https://img.shields.io/badge/Version-2.0-blue) ![React](https://img.shields.io/badge/React-18.3-61DAFB) ![TypeScript](https://img.shields.io/badge/TypeScript-5.0-3178C6) ![Tailwind](https://img.shields.io/badge/Tailwind-3.4-06B6D4)
 
 ---
 
@@ -45,9 +45,6 @@ EMS 2.0 manages the complete lifecycle of professional engagements from client o
 - **Non-Chargeable Engagement Policies**: Three flags (`work_order_required`, `activity_required`, `is_internal`) control engagement behavior in timesheets
 - **Weekly/Daily Limit Enforcement**: Configurable hour limits with visual warnings at 80% and hard warnings at limit
 - **Hire Date Validation**: Prevents time entry before staff hire date (full-week block or per-day lock)
-- **Per-Engagement Approval Policy**: `approval_required` flag on engagements; when false, timesheet lines auto-approve on submission regardless of staff category
-- **Engagement Date Range Validation**: Four-layer defense (dropdown filtering, per-cell lock, DB trigger, submit gate) prevents time entry outside engagement `start_date`/`end_date`
-- **Min/Max Timesheet Limits**: Dual-bound model (`DAILY_MIN`/`DAILY_MAX`/`WEEKLY_MIN`/`WEEKLY_MAX`) replaces legacy single-limit (`DAILY_LIMIT`/`WEEKLY_LIMIT`); atomic RPC with cross-field feasibility validation
 - **Inactivity Timeout**: Auto-logout after configurable idle period with cross-tab synchronization
 - **No Staff Record = No Access**: 5-layer defense requiring linked staff record for app access; admin bootstrap flow for first user
 - **Role-Based Access**: Admin, Partner, Director, Manager, Senior, Semi-Senior, Staff, Viewer, SQR, Specialist IT, Specialist Tax
@@ -148,7 +145,7 @@ supabase/
 | `user_roles` | User role assignments (app_role enum) |
 | `staff` | Employee records linked to auth.users; includes `weekly_capacity_hours`, `hire_date`, `deleted_at` |
 | `clients` | Client company records |
-| `engagements` | Projects/jobs with partner/manager assignments and policy flags (`work_order_required`, `activity_required`, `is_internal`, `approval_required`) |
+| `engagements` | Projects/jobs with partner/manager assignments and policy flags (`work_order_required`, `activity_required`, `is_internal`) |
 | `work_orders` | Budget engine (strict 1:1 per engagement) with risk assessment fields (CEAC/SAN) |
 | `wo_budget_lines` | Hours budget by category (aggregated from worksheet) |
 | `wo_expense_budget` | Expense budget allocations |
@@ -191,9 +188,6 @@ supabase/
 | `start_timer_entry(uuid, uuid, text?)` | Starts stopwatch with single-timer enforcement |
 | `stop_timer_entry(uuid, timestamptz?)` | Stops timer and calculates duration |
 | `finalize_my_stale_timers()` | Cleans up orphaned running timers |
-| `submit_timesheet_safe(uuid, uuid, uuid[], boolean)` | Submit timesheet with line approval management, min/max validation, and engagement date range gate |
-| `update_timesheet_minmax_settings(numeric, numeric, numeric, numeric, integer)` | Atomic update of DAILY/WEEKLY MIN/MAX settings with feasibility validation |
-| `check_time_entry_engagement_dates()` | Trigger function: validates time entry dates against engagement date range |
 
 ### Key Database Triggers
 
@@ -208,11 +202,6 @@ supabase/
 | `link_auth_user_to_staff` | Auto-links auth user to staff by email on signup |
 | `link_staff_to_auth_user` | Auto-links staff to auth user when staff email matches |
 | `validate_email_domain` | Enforces allowed email domain on signup |
-| `check_time_entry_engagement_dates` | Validates time entry dates fall within engagement `start_date`/`end_date` range |
-| `enforce_termination_date` | Prevents time entry after staff termination date |
-| `reset_timer_import_on_unlink` | Resets import tracking when timer entry is unlinked |
-| `prevent_staff_reactivation` | Prevents reactivation of soft-deleted staff records |
-| `validate_submission_has_entries` | Ensures timesheet has entries before submission |
 
 ---
 
@@ -227,10 +216,8 @@ supabase/
 | `HOLIDAY_ENGAGEMENT_ID` | *(uuid)* | Engagement used for holiday time entries |
 | `ADM_ACTIVITY_ID` | *(uuid)* | System activity code for non-chargeable engagements |
 | `SESSION_TIMEOUT_MINUTES` | `30` | Auto-logout after inactivity (minutes) |
-| `DAILY_MIN` | `8` | Minimum hours per day |
-| `DAILY_MAX` | `8` | Maximum hours per day |
-| `WEEKLY_MIN` | `40` | Minimum hours per week |
-| `WEEKLY_MAX` | `40` | Maximum hours per week |
+| `DAILY_LIMIT` | `10` | Maximum hours per day |
+| `WEEKLY_LIMIT` | `50` | Maximum hours per week |
 | `TS_MAX_BACKLOG_WEEKS` | `1` | Timesheet backlog window |
 | `TS_EMPLOYEE_RETRO_DAYS` | `30` | Days staff can edit past timesheets |
 | `TS_WORK_DAYS` | `5` | Work days per week |
@@ -322,9 +309,6 @@ Heavy dependencies are pre-bundled to prevent 504 timeout errors:
 |----------|---------|
 | `assign-user-role` | Atomic first-user-admin role assignment during bootstrap |
 | `dashboard-data` | Aggregates dashboard analytics (utilization, hours, budget vs actual) |
-| `manage-auth-user` | Auth user management (create, update, delete) |
-| `test-minmax-settings` | Backend integration tests for min/max settings RPC |
-| `test-resubmission-state` | Backend integration tests for timesheet resubmission state |
 
 ---
 
@@ -380,8 +364,6 @@ The application is deployed via Lovable Cloud:
 | Changelog (Feb 11) | `docs/CHANGELOG-2026-02-11.md` |
 | Changelog (Feb 13) | `docs/CHANGELOG-2026-02-13.md` |
 | Changelog (Feb 17) | `docs/CHANGELOG-2026-02-17.md` |
-| Changelog (Feb 22) | `docs/CHANGELOG-2026-02-22.md` |
-| Changelog (Feb 24) | `docs/CHANGELOG-2026-02-24.md` |
 | Responsive QA | `RESPONSIVE_QA.md` |
 
 ---
@@ -392,4 +374,4 @@ Proprietary — Ruizmier & Asociados
 
 ---
 
-*Last Updated: February 26, 2026*
+*Last Updated: February 18, 2026*
