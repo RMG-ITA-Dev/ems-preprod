@@ -320,3 +320,80 @@ Replaced `new Date()` with `parseDateLocal()` in three read/display paths:
 | `src/components/forms/__tests__/EngagementForm.date-hydration.test.ts` | Form prefill + round-trip + drift (5 tests) |
 | `src/pages/__tests__/Engagements.date-render.test.ts` | List view date rendering (5 tests) |
 | `src/components/clients/__tests__/ClientEngagementsTable.date-render.test.ts` | Client sub-table rendering (4 tests) |
+
+---
+
+## BUG 0220-61: Per-Engagement Approval Policy (`approval_required`)
+
+**Plan**: BUG-0220-61-approval-required-per-engagement-v4
+
+### Root Cause
+
+`submit_timesheet_safe` decided pending vs auto-approved based solely on the submitting staff's category (`p_is_auto_approved`). Internal/holiday engagements always created `pending` approval rows for non-Partner/Director staff, with no designated approver to clear them, blocking full timesheet approval.
+
+### Solution — Detailed Edits
+
+#### Edit 1 — Database migration: Add `approval_required` column + backfill
+
+- Added `approval_required boolean NOT NULL DEFAULT true` to `public.engagements`.
+- Backfilled `approval_required = false` for all existing `is_internal = true` engagements.
+- Column naming follows `*_required` convention (`work_order_required`, `activity_required`).
+
+#### Edit 2 — Database migration: Update `submit_timesheet_safe` RPC
+
+Signature unchanged. New per-engagement logic inside the engagement loop:
+
+- Fetches `approval_required` per engagement (fail-safe default `true`).
+- Computes `v_effective_auto := p_is_auto_approved OR NOT approval_required`.
+- **INSERT branch**: Uses `v_effective_auto` instead of `p_is_auto_approved`.
+- **PENDING branch (new)**: If `v_effective_auto`, upgrades pending → approved (guarded UPDATE). Repairs previously stuck internal lines on resubmit.
+- **REJECTED branch**: If `v_effective_auto`, upgrades rejected → approved directly. Otherwise preserves existing modified-since-rejection logic.
+- **APPROVED branch**: Never downgrades (unchanged).
+- Return payload adds `upgraded_to_approved` counter (additive, non-breaking).
+
+#### Edit 3 — `src/integrations/supabase/types.ts` (auto-regenerated)
+
+Verified `approval_required` present in `engagements.Row`, `engagements.Insert`, and `engagements.Update`.
+
+#### Edit 4 — `src/hooks/useEmsData.ts`: Engagement interface
+
+- Line 81: Added `approval_required: boolean;` after `is_internal: boolean;`.
+
+#### Edit 5 — `src/hooks/mutations/useEngagementMutations.ts`: Mutation payloads
+
+- `useCreateEngagement`: Added `approval_required?: boolean;` to data type.
+- `useUpdateEngagement`: Added `approval_required: boolean;` to data type.
+
+#### Edit 6 — `src/components/forms/EngagementForm.tsx`: Toggle UI
+
+- Line 136: Added `approvalRequired` state initialized from `engagement?.approval_required ?? true`.
+- Line 170: Hydrates `approvalRequired` on edit form reset.
+- Line 215: Includes `approval_required: approvalRequired` in create/update payload.
+- Lines 532-538: Added "Approval Required" toggle in admin Timesheet Policy section with i18n label/help.
+
+#### Edit 7 — i18n keys (EN/ES)
+
+| Key | EN | ES |
+|---|---|---|
+| `engagement.approvalRequired` | Approval Required | Requiere Aprobación |
+| `engagement.approvalRequiredHelp` | When off, timesheet lines are auto-approved on submission | Cuando está desactivado, las líneas de planilla se aprueban automáticamente al enviar |
+
+### Files Modified
+
+| File | Lines | Change |
+|---|---|---|
+| Migration SQL | Full | Add column, backfill, update `submit_timesheet_safe` RPC |
+| `src/hooks/useEmsData.ts` | 81 | Added `approval_required: boolean` to `Engagement` interface |
+| `src/hooks/mutations/useEngagementMutations.ts` | 21, 58 | Added `approval_required` to create/update payload types |
+| `src/components/forms/EngagementForm.tsx` | 136, 170, 215, 532-538 | State, hydration, payload, toggle UI |
+| `src/locales/en.json` | 508-509 | 2 new i18n keys |
+| `src/locales/es.json` | 508-509 | 2 new i18n keys (Spanish) |
+
+### Tests Added
+
+| File | Coverage |
+|---|---|
+| `src/hooks/__tests__/submitApprovalRequired.test.ts` | RPC decision matrix: 8 tests |
+| `src/hooks/mutations/__tests__/useEngagementMutations.approvalRequired.test.tsx` | Integration-style mutation tests: 3 tests |
+| `src/components/forms/__tests__/EngagementForm.approvalRequired.test.ts` | Form hydration/payload: 5 tests |
+| `src/locales/__tests__/i18n.approvalRequired.test.ts` | i18n key resolution EN/ES: 4 tests |

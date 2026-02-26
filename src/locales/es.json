@@ -505,6 +505,8 @@
     "activityRequiredHelp": "Cuando esta desactivado, se asigna el código ADM automáticamente",
     "isInternal": "Interno (Todo el Personal)",
     "isInternalHelp": "Todo el personal activo puede registrar tiempo en este encargo",
+    "approvalRequired": "Requiere Aprobación",
+    "approvalRequiredHelp": "Cuando está desactivado, las líneas de planilla se aprueban automáticamente al enviar",
     "internal": "Interno",
     "timesheetPolicy": "Política de Planilla"
   },

@@ -18,6 +18,7 @@ export function useCreateEngagement() {
       status?: string;
       work_order_required?: boolean;
       activity_required?: boolean;
+      approval_required?: boolean;
       is_internal?: boolean;
     }) => {
       const { data: result, error } = await supabase
@@ -56,6 +57,7 @@ export function useUpdateEngagement() {
         work_order_required: boolean;
         activity_required: boolean;
         is_internal: boolean;
+        approval_required: boolean;
       }>;
     }) => {
       const { data: result, error } = await supabase

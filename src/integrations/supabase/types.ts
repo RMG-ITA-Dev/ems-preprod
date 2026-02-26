@@ -370,6 +370,7 @@ export type Database = {
       engagements: {
         Row: {
           activity_required: boolean
+          approval_required: boolean
           client_id: string
           created_at: string | null
           end_date: string | null
@@ -386,6 +387,7 @@ export type Database = {
         }
         Insert: {
           activity_required?: boolean
+          approval_required?: boolean
           client_id: string
           created_at?: string | null
           end_date?: string | null
@@ -402,6 +404,7 @@ export type Database = {
         }
         Update: {
           activity_required?: boolean
+          approval_required?: boolean
           client_id?: string
           created_at?: string | null
           end_date?: string | null
