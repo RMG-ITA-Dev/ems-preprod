@@ -362,7 +362,7 @@ const WorksheetEdit = () => {
               <Button
                 variant="outline"
                 size="sm"
-                className="shrink-0 border-warning text-warning-foreground hover:bg-warning/20"
+                className="shrink-0 border-warning text-warning hover:bg-warning hover:text-warning-foreground"
                 onClick={() => { allowNextNavigation(); navigate(`/work-orders/${worksheet.wo_id}`); }}
               >
                 {t("workMatrix.goToWorkOrder")}
