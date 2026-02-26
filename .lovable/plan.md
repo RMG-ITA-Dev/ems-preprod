@@ -1,203 +1,102 @@
 
-# Plan v3 -- BUG: Dashboard Selected Tab Not Readable
+
+# Plan v1 -- Backup README and Create Updated README
 
 ## Context
 
-The selected Dashboard tab is visually indistinguishable from unselected tabs because the active state uses `bg-card` which blends into the `bg-muted/50` container.
-
-## Root Cause
-
-In `src/pages/Index.tsx` line 48, the `TabsTrigger` className uses `data-[state=active]:bg-card` which overrides the base component's high-contrast `data-[state=active]:bg-primary data-[state=active]:text-primary-foreground`.
+The current `README.md` is dated February 18, 2026 and is missing all changes from the Feb 24 debug session and subsequent audit reconciliation (Feb 26). Multiple new features, settings, database functions, triggers, and edge functions are undocumented.
 
 ## Scope
 
-**In scope**: Dashboard tab active-state styling fix, render-based regression test, changelog.
+**In scope**: Backup current README, create updated README reflecting current codebase state.
 
-**Out of scope**: Other tab groups, backend/DB changes.
+**Out of scope**: Content changes to other documentation files.
 
 ## File-by-File Changes
 
-### W1: `src/pages/Index.tsx` -- Fix active tab styling
+### W1: Backup -- `README_Backup_3.md`
 
-Line 48: Replace low-contrast active override with high-contrast primary tokens.
+Copy current `README.md` contents verbatim to `README_Backup_3.md` (following existing convention of `README_Backup.md`, `README_Backup_2.md`).
 
-Before:
+### W2: Updated `README.md`
+
+All changes below applied to the existing README structure:
+
+#### 1. Header Badge
+- Update version badge from `Version-2.0` to `Version-2.0.5`
+
+#### 2. Business Logic Section -- Add missing items
+Add after "Hire Date Validation" bullet:
+- **Per-Engagement Approval Policy**: `approval_required` flag on engagements; when false, timesheet lines auto-approve on submission regardless of staff category
+- **Engagement Date Range Validation**: Four-layer defense (dropdown filtering, per-cell lock, DB trigger, submit gate) prevents time entry outside engagement `start_date`/`end_date`
+- **Min/Max Timesheet Limits**: Dual-bound model (`DAILY_MIN`/`DAILY_MAX`/`WEEKLY_MIN`/`WEEKLY_MAX`) replaces legacy single-limit (`DAILY_LIMIT`/`WEEKLY_LIMIT`); atomic RPC with cross-field feasibility validation
+
+#### 3. Engagements Table Description
+Update from:
 ```
-"flex items-center gap-2 data-[state=active]:bg-card data-[state=active]:shadow-sm",
+engagements | Projects/jobs with partner/manager assignments and policy flags (`work_order_required`, `activity_required`, `is_internal`)
 ```
-
-After:
+To:
 ```
-"flex items-center gap-2 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm",
-```
-
-No other changes.
-
-### W2: `src/pages/__tests__/Index.dashboard-tabs.test.tsx` -- Render-based regression test
-
-This test renders the actual `DashboardContent` component (mocking its dependencies) and asserts on the **rendered DOM element's class attribute**, not a hardcoded string.
-
-```ts
-import React from "react";
-import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router-dom";
-
-// Mock dependencies (following EngagementSelector.test.tsx pattern)
-vi.mock("react-i18next", () => ({
-  useTranslation: () => ({
-    t: (key: string) => key,
-    i18n: { language: "en" },
-  }),
-}));
-
-vi.mock("@/contexts/DashboardContext", () => ({
-  DashboardProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  useDashboard: () => ({
-    activeTab: "practica",
-    setActiveTab: vi.fn(),
-    period: { startDate: new Date(), endDate: new Date() },
-    periodType: "tax_bolivia",
-    selectedYear: 2026,
-    selectedQuarter: "ytd",
-    setYear: vi.fn(),
-    setQuarter: vi.fn(),
-    setCustomRange: vi.fn(),
-    startDateStr: "2025-10-01",
-    endDateStr: "2026-09-30",
-    selectedEngagementId: null,
-    setSelectedEngagementId: vi.fn(),
-  }),
-}));
-
-vi.mock("@/hooks/useDashboardAccess", () => ({
-  useDashboardAccess: () => ({
-    allowedTabs: ["practica", "cartera", "encargo", "personal"],
-    defaultTab: "practica",
-    isPartner: true,
-    isManager: false,
-    isLoading: false,
-  }),
-}));
-
-// Mock child components to avoid deep dependency chains
-vi.mock("@/components/dashboard/PeriodSelector", () => ({
-  PeriodSelector: () => <div data-testid="period-selector" />,
-}));
-vi.mock("@/components/dashboard/tabs", () => ({
-  PracticaTab: () => <div data-testid="practica-tab" />,
-  CarteraTab: () => <div data-testid="cartera-tab" />,
-  EncargoTab: () => <div data-testid="encargo-tab" />,
-  PersonalTab: () => <div data-testid="personal-tab" />,
-}));
-vi.mock("@/components/layout/AppLayout", () => ({
-  AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-}));
-
-import Index from "../Index";
-
-function createWrapper() {
-  const qc = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  });
-  return ({ children }: { children: React.ReactNode }) => (
-    <QueryClientProvider client={qc}>
-      <MemoryRouter>{children}</MemoryRouter>
-    </QueryClientProvider>
-  );
-}
-
-describe("Dashboard tab active-state readability", () => {
-  it("active tab element contains bg-primary class token", () => {
-    render(<Index />, { wrapper: createWrapper() });
-    // Radix sets data-state="active" on the selected trigger
-    const activeTrigger = document.querySelector('[data-state="active"]');
-    expect(activeTrigger).toBeTruthy();
-    expect(activeTrigger!.className).toContain("data-[state=active]:bg-primary");
-  });
-
-  it("active tab element contains text-primary-foreground class token", () => {
-    render(<Index />, { wrapper: createWrapper() });
-    const activeTrigger = document.querySelector('[data-state="active"]');
-    expect(activeTrigger).toBeTruthy();
-    expect(activeTrigger!.className).toContain("data-[state=active]:text-primary-foreground");
-  });
-
-  it("active tab does NOT contain low-contrast bg-card override", () => {
-    render(<Index />, { wrapper: createWrapper() });
-    const activeTrigger = document.querySelector('[data-state="active"]');
-    expect(activeTrigger).toBeTruthy();
-    expect(activeTrigger!.className).not.toContain("data-[state=active]:bg-card");
-  });
-
-  it("renders all four tab triggers", () => {
-    render(<Index />, { wrapper: createWrapper() });
-    const triggers = document.querySelectorAll('[role="tab"]');
-    expect(triggers.length).toBe(4);
-  });
-
-  it("inactive tabs do not have data-state=active", () => {
-    render(<Index />, { wrapper: createWrapper() });
-    const triggers = document.querySelectorAll('[role="tab"]');
-    const inactiveTriggers = Array.from(triggers).filter(
-      (el) => el.getAttribute("data-state") !== "active"
-    );
-    expect(inactiveTriggers.length).toBe(3);
-  });
-});
+engagements | Projects/jobs with partner/manager assignments and policy flags (`work_order_required`, `activity_required`, `is_internal`, `approval_required`)
 ```
 
-Key difference from v2: This test **renders the actual `Index` component** and queries the **real DOM element's className**, so any regression in the source will fail the test.
+#### 4. Key Database Functions -- Add missing
+Add to the functions table:
+| `submit_timesheet_safe(uuid, uuid, uuid[], boolean)` | Submit timesheet with line approval management, min/max validation, and engagement date range gate |
+| `update_timesheet_minmax_settings(numeric, numeric, numeric, numeric, integer)` | Atomic update of DAILY/WEEKLY MIN/MAX settings with feasibility validation |
+| `check_time_entry_engagement_dates()` | Trigger function: validates time entry dates against engagement date range |
 
-### W3: `docs/CHANGELOG-2026-02-24.md` -- Append entry
+#### 5. Key Database Triggers -- Add missing
+Add to the triggers table:
+| `check_time_entry_engagement_dates` | Validates time entry dates fall within engagement `start_date`/`end_date` range |
+| `enforce_termination_date` | Prevents time entry after staff termination date |
+| `reset_timer_import_on_unlink` | Resets import tracking when timer entry is unlinked |
+| `prevent_staff_reactivation` | Prevents reactivation of soft-deleted staff records |
+| `validate_submission_has_entries` | Ensures timesheet has entries before submission |
 
-```markdown
-## BUG: Dashboard Selected Tab Not Readable
+#### 6. Global Settings -- Update table
+Replace `DAILY_LIMIT` and `WEEKLY_LIMIT` rows with:
+| `DAILY_MIN` | `8` | Minimum hours per day |
+| `DAILY_MAX` | `8` | Maximum hours per day |
+| `WEEKLY_MIN` | `40` | Minimum hours per week |
+| `WEEKLY_MAX` | `40` | Maximum hours per week |
 
-**Root cause**: Page-level `TabsTrigger` className in `src/pages/Index.tsx` overrode the base active-state with `data-[state=active]:bg-card`, which blends into the `bg-muted/50` TabsList container.
+Note: Legacy `DAILY_LIMIT`/`WEEKLY_LIMIT` remain in DB but are inert.
 
-**Fix**: Replaced with `data-[state=active]:bg-primary data-[state=active]:text-primary-foreground` for high-contrast active state.
+#### 7. Edge Functions -- Add missing
+Update the table to include all 5 functions:
+| `assign-user-role` | Atomic first-user-admin role assignment during bootstrap |
+| `dashboard-data` | Aggregates dashboard analytics (utilization, hours, budget vs actual) |
+| `manage-auth-user` | Auth user management (create, update, delete) |
+| `test-minmax-settings` | Backend integration tests for min/max settings RPC |
+| `test-resubmission-state` | Backend integration tests for timesheet resubmission state |
 
-**Test**: Render-based regression test (`src/pages/__tests__/Index.dashboard-tabs.test.tsx`) asserts on the actual rendered DOM element's class attribute.
+#### 8. Documentation Table -- Add missing changelogs
+Add rows:
+| Changelog (Feb 22) | `docs/CHANGELOG-2026-02-22.md` |
+| Changelog (Feb 24) | `docs/CHANGELOG-2026-02-24.md` |
 
-**Files changed**: `src/pages/Index.tsx` (1 line).
-```
+#### 9. Last Updated Date
+Change from `*Last Updated: February 18, 2026*` to `*Last Updated: February 26, 2026*`
 
 ## Acceptance Criteria
 
-1. Selected Dashboard tab displays teal background with white text.
-2. Unselected tabs remain visually muted.
-3. Icons inherit active foreground color via `currentColor`.
-4. Readable in both light and dark modes.
-5. On mobile (labels hidden), active tab still distinct via background color.
-6. Render-based regression test passes (5 assertions against actual DOM).
-
-## Test Plan
-
-### Automated
-- `src/pages/__tests__/Index.dashboard-tabs.test.tsx`: Renders `Index`, queries real DOM elements, asserts active tab has `bg-primary` + `text-primary-foreground`, does NOT have `bg-card`, and all 4 triggers render.
-
-### Manual
-1. Open Dashboard, switch across all tabs -- confirm selected tab has strong teal contrast.
-2. Toggle dark mode -- confirm active tab remains readable.
-3. Resize to mobile -- confirm active tab still obvious.
+1. `README_Backup_3.md` contains exact copy of pre-change README.
+2. Updated README includes all 9 categories of changes listed above.
+3. No structural changes to existing README sections (preserve headings, table format, order).
+4. All new content matches actual codebase state verified via changelog and source files.
 
 ## Risks / Mitigations
 
 | Risk | Mitigation |
 |---|---|
-| Icon color not updating | `text-primary-foreground` propagates via `currentColor` |
-| Test mocking too fragile | Follows established project pattern (see `EngagementSelector.test.tsx`) |
-
-## Rollback
-
-1. Revert line 48 in `src/pages/Index.tsx` to `data-[state=active]:bg-card`.
-2. Remove test file and changelog entry.
+| Missing a recent change | Cross-referenced with CHANGELOG-2026-02-24.md (all 12 sections) and audit report |
+| Backup naming collision | Verified `README_Backup_3.md` does not exist |
 
 ## Definition of Done
 
-- `Index.tsx` active tab uses `bg-primary` + `text-primary-foreground`.
-- Render-based regression test (5 cases) created and passing.
-- Changelog appended.
-- No code changes executed in this response -- plan only.
+- `README_Backup_3.md` created with verbatim copy.
+- `README.md` updated with all 9 change categories.
+- No code or backend changes.
+
