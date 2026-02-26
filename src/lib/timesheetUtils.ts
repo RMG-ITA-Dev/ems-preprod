@@ -115,10 +115,14 @@ export const fromISODateString = (dateString: string): Date => {
   return parseISO(dateString);
 };
 
-// Parse "YYYY-MM-DD" as local date, avoiding timezone shift
-// new Date("2025-12-01") interprets as midnight UTC, which becomes
-// previous day in timezones behind UTC (e.g., Bolivia UTC-4).
-// This function parses as local midnight instead.
+/**
+ * Parse "YYYY-MM-DD" as local date, avoiding timezone shift.
+ *
+ * MANDATORY: All date-only DB columns (Supabase DATE type / "YYYY-MM-DD" strings)
+ * MUST use this function. NEVER use new Date(string) for date-only values.
+ * Ref: BUG 0220-59 -- new Date("YYYY-MM-DD") interprets as UTC midnight,
+ * which becomes the previous day in timezones behind UTC (e.g., Bolivia UTC-4).
+ */
 export const parseDateLocal = (dateString: string): Date => {
   const [year, month, day] = dateString.split("-").map(Number);
   return new Date(year, month - 1, day); // month is 0-indexed

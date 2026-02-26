@@ -290,3 +290,33 @@ Clicking outside the Manual Entry dialog or pressing Escape dismissed it, return
 | File | Lines | Change |
 |---|---|---|
 | `src/components/tracker/ManualEntryDialog.tsx` | 183 | Added `onInteractOutside` + `onEscapeKeyDown` to prevent accidental dismissal |
+
+---
+
+## BUG 0220-59: Engagement Dates Shift -1 Day on Save/Display
+
+**Plan**: BUG-0220-59-date-shift-v4
+
+### Root Cause
+
+Date-only strings ("YYYY-MM-DD") from the database were parsed with `new Date(string)`, which interprets as UTC midnight. In UTC-4 (Bolivia), this renders as the previous day.
+
+### Fix
+
+Replaced `new Date()` with `parseDateLocal()` in three read/display paths:
+
+| File | Line(s) | Change |
+|---|---|---|
+| `src/components/forms/EngagementForm.tsx` | 163-164 | Edit form hydration: `new Date()` → `parseDateLocal()` |
+| `src/pages/Engagements.tsx` | 72, 82 | List view rendering: `new Date()` → `parseDateLocal()` |
+| `src/components/clients/ClientEngagementsTable.tsx` | 169 | Client sub-table `formatDate`: `new Date()` → `parseDateLocal()` |
+| `src/lib/timesheetUtils.ts` | 118-124 | Added mandatory-use JSDoc to `parseDateLocal` |
+| `.github/workflows/test.yml` | new step | CI grep guard blocks `new Date(*.start_date\|end_date)` patterns |
+
+### Tests Added
+
+| File | Coverage |
+|---|---|
+| `src/components/forms/__tests__/EngagementForm.date-hydration.test.ts` | Form prefill + round-trip + drift (5 tests) |
+| `src/pages/__tests__/Engagements.date-render.test.ts` | List view date rendering (5 tests) |
+| `src/components/clients/__tests__/ClientEngagementsTable.date-render.test.ts` | Client sub-table rendering (4 tests) |

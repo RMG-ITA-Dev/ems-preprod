@@ -1,4 +1,5 @@
 import { format } from "date-fns";
+import { parseDateLocal } from "@/lib/timesheetUtils";
 import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Badge } from "@/components/ui/badge";
@@ -69,7 +70,7 @@ const Engagements = () => {
       mobilePriority: 'secondary',
       render: (row) => {
         const engagement = row as any;
-        return engagement.start_date ? format(new Date(engagement.start_date), "dd/MM/yyyy") : "-";
+        return engagement.start_date ? format(parseDateLocal(engagement.start_date), "dd/MM/yyyy") : "-";
       },
     },
     {
@@ -79,7 +80,7 @@ const Engagements = () => {
       mobilePriority: 'secondary',
       render: (row) => {
         const engagement = row as any;
-        return engagement.end_date ? format(new Date(engagement.end_date), "dd/MM/yyyy") : "-";
+        return engagement.end_date ? format(parseDateLocal(engagement.end_date), "dd/MM/yyyy") : "-";
       },
     },
     {

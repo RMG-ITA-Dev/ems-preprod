@@ -36,3 +36,15 @@ jobs:
             echo "ERROR: Found runtime references to DAILY_LIMIT or WEEKLY_LIMIT"
             exit 1
           fi
+
+      - name: Guard against UTC date parsing on date-only fields (BUG 0220-59)
+        run: |
+          if grep -rn --include='*.ts' --include='*.tsx' \
+            -E 'new Date\(.*(start_date|end_date)' \
+            src/ \
+            | grep -v '\.test\.' \
+            | grep -v '__tests__' \
+            | grep -v 'parseDateLocal'; then
+            echo "ERROR: Use parseDateLocal() for date-only fields (BUG 0220-59)"
+            exit 1
+          fi
