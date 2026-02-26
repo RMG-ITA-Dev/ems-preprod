@@ -397,3 +397,49 @@ Verified `approval_required` present in `engagements.Row`, `engagements.Insert`,
 | `src/hooks/mutations/__tests__/useEngagementMutations.approvalRequired.test.tsx` | Integration-style mutation tests: 3 tests |
 | `src/components/forms/__tests__/EngagementForm.approvalRequired.test.ts` | Form hydration/payload: 5 tests |
 | `src/locales/__tests__/i18n.approvalRequired.test.ts` | i18n key resolution EN/ES: 4 tests |
+
+---
+
+## BUG 0220-63: Validate Timesheet Dates Against Engagement Date Range
+
+**Plan**: BUG-0220-63-timesheet-date-window-validation-v3
+
+### Root Cause
+
+The system allowed logging and approving timesheet hours outside an engagement's `start_date`/`end_date` range. No UI filtering, cell locking, DB trigger, or submission gate enforced engagement date boundaries.
+
+### Solution — Four Defense-in-Depth Layers
+
+1. **Layer 1 — Dropdown filtering** (grid-owned): `TimesheetGrid` filters the engagement dropdown to only show engagements whose date range overlaps the current week. Already-used out-of-range engagements remain visible for correction/deletion.
+
+2. **Layer 2 — Per-cell lock**: Cells for dates outside the engagement's range are disabled with `bg-muted/40` visual indicator and tooltip (`cellOutsideEngagementDates`). Guards in `handleHoursChange` (with toast) and batch save (silent skip) prevent out-of-range writes.
+
+3. **Layer 3 — DB trigger** (`trg_check_engagement_dates`): BEFORE INSERT OR UPDATE on `time_entries`. Raises `ENGAGEMENT_DATE_RANGE` with `check_violation` errcode. Null boundaries = unbounded. Inclusive boundaries.
+
+4. **Layer 4 — Submit hard gate**: `submit_timesheet_safe` validates all period entries against engagement date windows BEFORE setting `submitted_at`. Raises `ENGAGEMENT_DATE_RANGE_VIOLATION` for legacy invalid rows.
+
+### Boundary Rules
+
+- `start_date` and `end_date` are **inclusive** (`start_date <= date_worked <= end_date`).
+- Null `start_date` = unbounded lower side. Null `end_date` = unbounded upper side.
+
+### Files Modified
+
+| File | Change |
+|---|---|
+| `src/hooks/useTimesheetWeek.ts` | Added `start_date`/`end_date` to `ApprovedEngagement` interface and SELECT clauses |
+| `src/components/timesheet/TimesheetGrid.tsx` | Added `engagementDateMap`, `availableEngagements`, per-cell lock, `handleHoursChange` guard, batch save guard |
+| `src/hooks/useTimesheetMutations.ts` | Error mapping for `ENGAGEMENT_DATE_RANGE` and `ENGAGEMENT_DATE_RANGE_VIOLATION` |
+| `src/locales/en.json` | 3 new i18n keys |
+| `src/locales/es.json` | 3 new i18n keys |
+| DB migration | `check_time_entry_engagement_dates()` trigger function + `trg_check_engagement_dates` trigger |
+| DB migration | Updated `submit_timesheet_safe` with date range validation block |
+
+### Test Evidence
+
+| File | Tests |
+|---|---|
+| `src/components/timesheet/__tests__/timesheetEngagementWeekOverlap.test.ts` | 10 tests (overlap filtering + boundary + null) |
+| `src/components/timesheet/__tests__/timesheetCellDateLock.test.ts` | 8 tests (per-cell lock + boundary + null) |
+| `src/hooks/__tests__/useTimesheetMutations.dateRange.test.ts` | 5 tests (error token mapping) |
+| `src/locales/__tests__/i18n.engagementDateRange.test.ts` | 6 tests (EN/ES key resolution) |

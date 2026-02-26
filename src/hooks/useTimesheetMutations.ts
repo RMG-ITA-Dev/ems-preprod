@@ -84,6 +84,11 @@ export function useUpsertTimeEntry() {
         toast.error(i18n.t("timesheet.approvedLineCannotEdit"));
         return;
       }
+      // BUG 0220-63: Engagement date range guard
+      if (errorMsg.includes("ENGAGEMENT_DATE_RANGE")) {
+        toast.error(i18n.t("timesheet.dateOutsideEngagementRange"));
+        return;
+      }
       createMutationErrorHandler("saving time entry")(error);
     },
   });
@@ -207,6 +212,11 @@ export function useSubmitTimesheet() {
       }
       if (msg.includes('SUBMIT_NO_ENTRIES')) {
         toast.error(i18n.t("timesheet.submitNoEntries"));
+        return;
+      }
+      // BUG 0220-63: Submit-time engagement date range violation (check _VIOLATION first to avoid false match)
+      if (msg.includes('ENGAGEMENT_DATE_RANGE_VIOLATION')) {
+        toast.error(i18n.t("timesheet.submitDateRangeViolation"));
         return;
       }
       createMutationErrorHandler("submitting timesheet")(error);

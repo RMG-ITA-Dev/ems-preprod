@@ -169,6 +169,29 @@ export function TimesheetGrid({
     };
   }, []);
 
+  // BUG 0220-63: Engagement date boundary lookup (must be before saveNowTrigger and handleHoursChange)
+  const engagementDateMap = useMemo(() => {
+    const map = new Map<string, { start: string | null; end: string | null }>();
+    engagements.forEach(eng => {
+      map.set(eng.engagement_id, { start: eng.start_date, end: eng.end_date });
+    });
+    return map;
+  }, [engagements]);
+
+  // BUG 0220-63: Week-overlap dropdown filtering (grid-owned)
+  const weekStartStr = toISODateString(weekDates[0]);
+  const weekEndStr = toISODateString(weekDates[weekDates.length - 1]);
+
+  const availableEngagements = useMemo(() => {
+    const usedIds = new Set(rows.map(r => r.engagementId).filter(Boolean));
+    return engagements.filter(eng => {
+      if (usedIds.has(eng.engagement_id)) return true;
+      const startOk = !eng.start_date || eng.start_date <= weekEndStr;
+      const endOk = !eng.end_date || eng.end_date >= weekStartStr;
+      return startOk && endOk;
+    });
+  }, [engagements, rows, weekStartStr, weekEndStr]);
+
   // BUG #29: Notify parent of save status changes
   useEffect(() => {
     if (savingCells.size > 0) {
@@ -217,6 +240,14 @@ export function TimesheetGrid({
           const hasHours = hours !== undefined && hours > 0;
           // Only treat explicit zero as deletion (not undefined)
           const needsDeletion = hours === 0 && !!existingEntryId;
+
+          // BUG 0220-63: Engagement date range guard for batch save
+          const batchEngDates = engagementDateMap.get(row.engagementId);
+          if (batchEngDates && hasHours) {
+            if ((batchEngDates.start && dateStr < batchEngDates.start) || (batchEngDates.end && dateStr > batchEngDates.end)) {
+              return; // skip out-of-range cells silently in batch (inside forEach, not for-of)
+            }
+          }
 
           if (hasHours || needsDeletion) {
             cellsToSave.push({
@@ -311,7 +342,7 @@ export function TimesheetGrid({
 
       executeBatch();
     }
-  }, [saveNowTrigger, weekDates, staffId, periodId, upsertEntry, t]);
+  }, [saveNowTrigger, weekDates, staffId, periodId, upsertEntry, t, engagementDateMap]);
 
   const addNewRow = () => {
     setRows([
@@ -464,6 +495,18 @@ export function TimesheetGrid({
         }
       }
 
+      // BUG 0220-63: Engagement date range guard
+      const currentRowForDateCheck = rowsRef.current.find((r) => r.id === rowId);
+      if (currentRowForDateCheck && hours > 0) {
+        const engDates = engagementDateMap.get(currentRowForDateCheck.engagementId);
+        if (engDates) {
+          if ((engDates.start && dateStr < engDates.start) || (engDates.end && dateStr > engDates.end)) {
+            toast.error(t("timesheet.dateOutsideEngagementRange"));
+            return;
+          }
+        }
+      }
+
       // Approved line guard
       const currentRowForApproval = rowsRef.current.find((r) => r.id === rowId);
       if (currentRowForApproval) {
@@ -543,7 +586,7 @@ export function TimesheetGrid({
         );
       }, autoSaveSeconds * 1000);
     },
-    [staffId, periodId, autoSaveSeconds, upsertEntry, holidayMap, holidayEngagementId, t, lineApprovals]
+    [staffId, periodId, autoSaveSeconds, upsertEntry, holidayMap, holidayEngagementId, t, lineApprovals, engagementDateMap]
   );
 
   const calculateRowTotal = (row: GridRow) => {
@@ -602,6 +645,7 @@ export function TimesheetGrid({
     });
     return map;
   }, [rows]);
+
 
   // Get approval status for an engagement
   const getApprovalStatus = (engagementId: string) => {
@@ -710,7 +754,7 @@ export function TimesheetGrid({
                         <SelectValue placeholder={t("timesheet.selectEngagement")} />
                       </SelectTrigger>
                       <SelectContent>
-                        {engagements.map((eng) => (
+                        {availableEngagements.map((eng) => (
                           <SelectItem key={eng.engagement_id} value={eng.engagement_id}>
                             <div className="flex flex-col">
                               <div className="flex items-center">
@@ -773,11 +817,41 @@ export function TimesheetGrid({
                   const isHolidayBlocked = !!holidayName && row.engagementId !== holidayEngagementId;
                   const isActivityNotRequired = activityNotRequiredIds?.has(row.engagementId);
                   const isAdmMissing = isActivityNotRequired && !adminActivityId;
+                  // BUG 0220-63: Per-cell engagement date range lock
+                  const engDates = engagementDateMap.get(row.engagementId);
+                  const isBeforeEngStart = !!(engDates?.start && dateStr < engDates.start);
+                  const isAfterEngEnd = !!(engDates?.end && dateStr > engDates.end);
+                  const isOutOfEngagementRange = isBeforeEngStart || isAfterEngEnd;
                   const isDisabled =
-                    isRowLocked || isDayLockedByHire || isDayLockedByTermination || isHolidayBlocked || isAdmMissing || !row.engagementId || (!row.activityId && !isActivityNotRequired);
+                    isRowLocked || isDayLockedByHire || isDayLockedByTermination || isHolidayBlocked || isAdmMissing || isOutOfEngagementRange || !row.engagementId || (!row.activityId && !isActivityNotRequired);
 
                   return (
-                    <td key={dateStr} className={cn("p-2 relative text-center border-r border-border", isDayLockedByHire && "bg-muted/40", isHolidayBlocked && "bg-warning/5")}>
+                    <td key={dateStr} className={cn("p-2 relative text-center border-r border-border", isDayLockedByHire && "bg-muted/40", isOutOfEngagementRange && "bg-muted/40", isHolidayBlocked && "bg-warning/5")}>
+                      {isOutOfEngagementRange ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div className="relative">
+                              <NumericInput
+                                decimals={1}
+                                locale="en"
+                                min={0}
+                                max={24}
+                                value={row.hours[dateStr] || ""}
+                                onChange={(val) =>
+                                  handleHoursChange(row.id, date, String(val))
+                                }
+                                disabled={true}
+                                className={cn(
+                                  "w-16 text-center mx-auto border-0 bg-transparent focus:bg-background focus:border font-mono opacity-50"
+                                )}
+                              />
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>{t("timesheet.cellOutsideEngagementDates")}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      ) : (
                       <div className="relative">
                         <NumericInput
                           decimals={1}
@@ -801,6 +875,7 @@ export function TimesheetGrid({
                           <Check className="absolute right-0 top-1/2 -translate-y-1/2 h-3 w-3 text-success" />
                         )}
                       </div>
+                      )}
                     </td>
                   );
                 })}
