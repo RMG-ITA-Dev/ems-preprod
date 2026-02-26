@@ -505,6 +505,8 @@
     "activityRequiredHelp": "When off, the ADM activity code is auto-assigned",
     "isInternal": "Internal (All Staff)",
     "isInternalHelp": "All active staff can log time against this engagement",
+    "approvalRequired": "Approval Required",
+    "approvalRequiredHelp": "When off, timesheet lines are auto-approved on submission",
     "internal": "Internal",
     "timesheetPolicy": "Timesheet Policy"
   },

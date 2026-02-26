@@ -78,6 +78,7 @@ export interface Engagement {
   work_order_required: boolean;
   activity_required: boolean;
   is_internal: boolean;
+  approval_required: boolean;
   client?: Client;
   partner?: Staff;
   manager?: Staff;

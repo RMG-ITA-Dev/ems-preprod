@@ -1,5 +1,5 @@
 
-# Plan v4 -- BUG 0220-61: Per-Engagement Approval Policy (`approval_required`)
+# Plan v4 -- BUG 0220-61: Per-Engagement Approval Policy (`approval_required`) ✅ IMPLEMENTED
 
 ## Context
 

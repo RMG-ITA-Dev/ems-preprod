@@ -133,6 +133,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   const [workOrderRequired, setWorkOrderRequired] = useState(engagement?.work_order_required ?? true);
   const [activityRequired, setActivityRequired] = useState(engagement?.activity_required ?? true);
   const [isInternal, setIsInternal] = useState(engagement?.is_internal ?? false);
+  const [approvalRequired, setApprovalRequired] = useState(engagement?.approval_required ?? true);
 
   // BUG #0206-19 + #0220-48: Minimum allowed start date (bypassed for internal)
   const minStartDate = useMemo(() => {
@@ -167,6 +168,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       setWorkOrderRequired(engagement.work_order_required ?? true);
       setActivityRequired(engagement.activity_required ?? true);
       setIsInternal(engagement.is_internal ?? false);
+      setApprovalRequired(engagement.approval_required ?? true);
     }
   }, [engagement, clients, form, isDirty]);
 
@@ -212,6 +214,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       work_order_required: workOrderRequired,
       activity_required: activityRequired,
       is_internal: isInternal,
+      approval_required: approvalRequired,
     };
     if (isEdit && engagement) {
       await updateMutation.mutateAsync({ id: engagement.engagement_id, data: payload });
@@ -528,6 +531,13 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                     <p className="text-xs text-muted-foreground">{t("engagement.isInternalHelp")}</p>
                   </div>
                   <Switch checked={isInternal} onCheckedChange={setIsInternal} />
+                </div>
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-medium">{t("engagement.approvalRequired")}</p>
+                    <p className="text-xs text-muted-foreground">{t("engagement.approvalRequiredHelp")}</p>
+                  </div>
+                  <Switch checked={approvalRequired} onCheckedChange={setApprovalRequired} />
                 </div>
               </div>
             )}
