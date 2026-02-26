@@ -3,6 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { format, startOfDay, isBefore } from "date-fns";
+import { parseDateLocal } from "@/lib/timesheetUtils";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { LoadingButton } from "@/components/ui/loading-button";
@@ -160,8 +161,8 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
         partner_id: engagement.partner_id || "",
         manager_id: engagement.manager_id || "",
         status: engagement.status,
-        start_date: engagement.start_date ? new Date(engagement.start_date) : undefined,
-        end_date: engagement.end_date ? new Date(engagement.end_date) : undefined,
+        start_date: engagement.start_date ? parseDateLocal(engagement.start_date) : undefined,
+        end_date: engagement.end_date ? parseDateLocal(engagement.end_date) : undefined,
       });
       setWorkOrderRequired(engagement.work_order_required ?? true);
       setActivityRequired(engagement.activity_required ?? true);

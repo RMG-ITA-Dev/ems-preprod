@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { parseDateLocal } from "@/lib/timesheetUtils";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { useEngagements, useStaff } from "@/hooks/useEmsData";
@@ -166,7 +167,7 @@ export function ClientEngagementsTable({ clientId }: ClientEngagementsTableProps
 
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return "-";
-    return format(new Date(dateStr), "dd/MM/yyyy");
+    return format(parseDateLocal(dateStr), "dd/MM/yyyy");
   };
 
   return (
