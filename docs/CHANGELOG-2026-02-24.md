@@ -443,3 +443,15 @@ The system allowed logging and approving timesheet hours outside an engagement's
 | `src/components/timesheet/__tests__/timesheetCellDateLock.test.ts` | 8 tests (per-cell lock + boundary + null) |
 | `src/hooks/__tests__/useTimesheetMutations.dateRange.test.ts` | 5 tests (error token mapping) |
 | `src/locales/__tests__/i18n.engagementDateRange.test.ts` | 6 tests (EN/ES key resolution) |
+
+---
+
+## BUG: Dashboard Selected Tab Not Readable
+
+**Root cause**: Page-level `TabsTrigger` className in `src/pages/Index.tsx` overrode the base active-state with `data-[state=active]:bg-card`, which blends into the `bg-muted/50` TabsList container.
+
+**Fix**: Replaced with `data-[state=active]:bg-primary data-[state=active]:text-primary-foreground` for high-contrast active state.
+
+**Test**: Render-based regression test (`src/pages/__tests__/Index.dashboard-tabs.test.tsx`) asserts on the actual rendered DOM element's class attribute.
+
+**Files changed**: `src/pages/Index.tsx` (1 line).

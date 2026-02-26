@@ -45,7 +45,7 @@ function DashboardContent() {
                 key={tab.id}
                 value={tab.id}
                 className={cn(
-                  "flex items-center gap-2 data-[state=active]:bg-card data-[state=active]:shadow-sm",
+                  "flex items-center gap-2 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm",
                   "transition-all duration-200"
                 )}
               >
