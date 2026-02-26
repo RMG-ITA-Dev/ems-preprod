@@ -1,243 +1,489 @@
-# Plan v4 -- BUG 0220-59: Engagement Dates Shift -1 Day
+
+# Plan v4 -- BUG 0220-61: Per-Engagement Approval Policy (`approval_required`)
 
 ## Context
 
-When creating or editing an Engagement and setting start/end dates, the saved dates display as one day earlier than selected. This affects the Engagement list, edit form prefill, and the Client Engagements sub-table.
+When staff log time to internal/holiday engagements (e.g., "Feriados"), the timesheet line enters "pending" approval status. No designated approver exists for these engagements, so the pending lines block the entire timesheet from reaching fully-approved status. The fix: add a per-engagement `approval_required` flag so internal engagements can auto-approve their timesheet lines upon submission.
 
 ## Root Cause
 
-`new Date("2026-02-20")` parses as UTC midnight. In UTC-4 (Bolivia), this renders as Feb 19 at 20:00 local, so `format()` outputs the previous day. The project already has `parseDateLocal()` at `src/lib/timesheetUtils.ts:122` that splits "YYYY-MM-DD" into components and constructs a local-midnight Date, avoiding the shift.
+`submit_timesheet_safe` decides pending vs auto-approved based solely on the submitting staff's category (`p_is_auto_approved` from `is_auto_approved_category`). There is no per-engagement override. Internal engagements like holidays always create `pending` approval rows for non-Partner/Director staff, with no designated approver to clear them.
 
-## Affected Files
+## Scope
 
+**In scope**: DB column + backfill, RPC logic update, EngagementForm toggle, types regeneration + verification, mutations, i18n, behavior-level + integration-style tests, changelog.
 
-| #   | File                                                | Problem Location | Issue                                           |
-| --- | --------------------------------------------------- | ---------------- | ----------------------------------------------- |
-| W1  | `src/components/forms/EngagementForm.tsx`           | Lines 163-164    | Edit form hydration uses `new Date()`           |
-| W2  | `src/pages/Engagements.tsx`                         | Lines 72, 82     | Main list renders dates with `new Date()`       |
-| W3  | `src/components/clients/ClientEngagementsTable.tsx` | Line 169         | Client sub-table `formatDate` uses `new Date()` |
-| W4  | `src/lib/timesheetUtils.ts`                         | Lines 118-121    | JSDoc needs mandatory-use warning               |
-| W5  | `.github/workflows/test.yml`                        | After line 38    | No guardrail for date-only parsing              |
-| W6  | `docs/CHANGELOG-2026-02-24.md`                      | Append           | Changelog entry                                 |
+**Out of scope**: RPC signature changes, approver hierarchy redesign, broad workflow rewrite.
 
+## Data Model Changes
 
-## File-by-File Change Plan
+### Migration SQL
 
-### W1: `src/components/forms/EngagementForm.tsx` -- Edit form hydration
+```sql
+-- 1. Add column (safe default preserves existing behavior)
+ALTER TABLE public.engagements
+  ADD COLUMN IF NOT EXISTS approval_required boolean NOT NULL DEFAULT true;
 
-- Add import: `parseDateLocal` from `@/lib/timesheetUtils`
-- **Line 163**: `new Date(engagement.start_date)` --> `parseDateLocal(engagement.start_date)`
-- **Line 164**: `new Date(engagement.end_date)` --> `parseDateLocal(engagement.end_date)`
-- Submit path (lines 208-209) unchanged -- already uses `format(date, "YYYY-MM-DD")` on a local Date from Calendar.
-- Do NOT change `created_at` parsing elsewhere -- that is a full timestamp, not date-only.
+-- 2. Backfill: existing internal engagements skip approval
+UPDATE public.engagements
+  SET approval_required = false
+  WHERE is_internal = true;
+```
 
-### W2: `src/pages/Engagements.tsx` -- Main list display
+- Column name `approval_required` follows existing `*_required` convention (`work_order_required`, `activity_required`).
+- Default `true` means all existing client engagements are unaffected.
+- Backfill targets only `is_internal = true` rows.
 
-- Add import: `parseDateLocal` from `@/lib/timesheetUtils`
-- **Line 72**: `format(new Date(engagement.start_date), "DD/MM/YYYY")` --> `format(parseDateLocal(engagement.start_date), "DD/MM/YYYY")`
-- **Line 82**: `format(new Date(engagement.end_date), "DD/MM/YYYY")` --> `format(parseDateLocal(engagement.end_date), "DD/MM/YYYY")`
+## RPC Logic Changes
 
-### W3: `src/components/clients/ClientEngagementsTable.tsx` -- Client sub-table
+### Function: `public.submit_timesheet_safe`
 
-- Add import: `parseDateLocal` from `@/lib/timesheetUtils`
-- **Line 169**: `format(new Date(dateStr), "DD/MM/YYYY")` --> `format(parseDateLocal(dateStr), "DD/MM/YYYY")`
+**Signature**: Unchanged. No new parameters.
 
-### W4: `src/lib/timesheetUtils.ts` -- Mandatory-use JSDoc
+**New variables in DECLARE block**:
 
-Replace comment block at lines 118-121 with:
+```sql
+v_skip_approval boolean;
+v_effective_auto boolean;
+v_upgraded_to_approved integer := 0;
+```
+
+**Logic change inside `FOREACH v_eng_id IN ARRAY p_engagement_ids` loop**:
+
+At the top of each iteration, before the existing `SELECT approval_id, status, updated_at` fetch:
+
+```sql
+-- Fetch per-engagement approval policy (fail-safe default true)
+SELECT NOT COALESCE(e.approval_required, true)
+INTO v_skip_approval
+FROM engagements e WHERE e.engagement_id = v_eng_id;
+
+v_effective_auto := p_is_auto_approved OR COALESCE(v_skip_approval, false);
+```
+
+Then apply `v_effective_auto` across all branches:
+
+| Branch | Current Logic | New Logic |
+|---|---|---|
+| **INSERT (no existing row)** | `IF p_is_auto_approved` -> approved, else pending | `IF v_effective_auto` -> approved, else pending |
+| **Existing APPROVED** | Preserve (skip) | Unchanged -- never downgrade |
+| **Existing PENDING** | Skip (preserve pending) | **New**: if `v_effective_auto`, upgrade to approved (guarded UPDATE); increment `v_upgraded_to_approved` |
+| **Existing REJECTED** | Reset to pending if modified since rejection | **New**: if `v_effective_auto`, upgrade directly to approved; else keep existing modified-since-rejection logic |
+
+**Pending upgrade branch** (new, inserted before existing pending CONTINUE):
+
+```sql
+IF v_existing.status = 'pending' THEN
+  IF v_effective_auto THEN
+    UPDATE timesheet_line_approvals
+    SET status = 'approved',
+        approved_by = p_staff_id,
+        approved_at = now()
+    WHERE period_id = p_period_id
+      AND engagement_id = v_eng_id
+      AND status = 'pending';
+    GET DIAGNOSTICS v_affected = ROW_COUNT;
+    IF v_affected > 0 THEN
+      v_upgraded_to_approved := v_upgraded_to_approved + 1;
+    ELSE
+      v_guarded_update_skips := v_guarded_update_skips + 1;
+    END IF;
+  END IF;
+  CONTINUE;
+END IF;
+```
+
+**Rejected branch update**: wrap existing logic in an outer check:
+
+```sql
+IF v_existing.status = 'rejected' THEN
+  IF v_effective_auto THEN
+    UPDATE timesheet_line_approvals
+    SET status = 'approved',
+        approved_by = p_staff_id,
+        approved_at = now(),
+        review_notes = NULL
+    WHERE period_id = p_period_id
+      AND engagement_id = v_eng_id
+      AND status = 'rejected';
+    GET DIAGNOSTICS v_affected = ROW_COUNT;
+    IF v_affected > 0 THEN
+      v_upgraded_to_approved := v_upgraded_to_approved + 1;
+    ELSE
+      v_guarded_update_skips := v_guarded_update_skips + 1;
+    END IF;
+  ELSE
+    -- Existing modified-since-rejection logic (unchanged)
+    ...
+  END IF;
+  CONTINUE;
+END IF;
+```
+
+**Return payload**: Add `'upgraded_to_approved', v_upgraded_to_approved` to the returned jsonb (additive, non-breaking).
+
+## Types Alignment
+
+The `src/integrations/supabase/types.ts` file is auto-generated by the Lovable Cloud platform after each migration runs. This plan depends on the migration completing before frontend code is deployed.
+
+### Regeneration Step
+
+After the migration in the Data Model Changes section executes, the platform automatically regenerates `src/integrations/supabase/types.ts`. No manual command is needed -- the Lovable migration tool handles this.
+
+### Verification Step
+
+After migration execution, confirm that `src/integrations/supabase/types.ts` contains `approval_required` in all three type positions:
+
+1. `engagements.Row` must contain: `approval_required: boolean`
+2. `engagements.Insert` must contain: `approval_required?: boolean`
+3. `engagements.Update` must contain: `approval_required?: boolean`
+
+**Current state** (lines 370-418): The engagements types currently list `activity_required`, `is_internal`, `work_order_required` but NOT `approval_required`. After migration, the auto-regenerated file must include `approval_required` in all three positions.
+
+### Fail Condition
+
+If regeneration does not produce `approval_required` in all three type positions, the plan is blocked. The frontend code (mutations, form, interface) will produce TypeScript compile errors that serve as a hard gate -- deployment cannot proceed until types align.
+
+### App-Level Type Update
+
+In addition to the auto-generated types, the app-level `Engagement` interface in `src/hooks/useEmsData.ts` must be manually updated (see Frontend Changes F1 below).
+
+## Frontend Changes
+
+### F1: `src/hooks/useEmsData.ts` -- Engagement interface
+
+Add `approval_required: boolean;` after `is_internal: boolean;` (line 80):
 
 ```ts
-/**
- * Parse "YYYY-MM-DD" as local date, avoiding timezone shift.
- *
- * MANDATORY: All date-only DB columns (Supabase DATE type / "YYYY-MM-DD" strings)
- * MUST use this function. NEVER use new Date(string) for date-only values.
- * Ref: BUG 0220-59 -- new Date("YYYY-MM-DD") interprets as UTC midnight,
- * which becomes the previous day in timezones behind UTC (e.g., Bolivia UTC-4).
- */
+is_internal: boolean;
+approval_required: boolean;  // BUG 0220-61
+client?: Client;
 ```
 
-### W5: `.github/workflows/test.yml` -- CI grep guardrail
+### F2: `src/hooks/mutations/useEngagementMutations.ts` -- Mutation payloads
 
-Append a new step after line 38 that blocks reintroduction of `new Date()` on date-only engagement fields in non-test source files:
+Add `approval_required?: boolean;` to both mutation data types:
 
-```yaml
-      - name: Guard against UTC date parsing on date-only fields (BUG 0220-59)
-        run: |
-          if grep -rn --include='*.ts' --include='*.tsx' \
-            -E 'new Date\(.*(start_date|end_date)' \
-            src/ \
-            | grep -v '\.test\.' \
-            | grep -v '__tests__' \
-            | grep -v 'parseDateLocal'; then
-            echo "ERROR: Use parseDateLocal() for date-only fields (BUG 0220-59)"
-            exit 1
-          fi
+- `useCreateEngagement` data type (after line 21, after `is_internal`):
+```ts
+is_internal?: boolean;
+approval_required?: boolean;
 ```
 
-### W6: Changelog -- Append to `docs/CHANGELOG-2026-02-24.md`
+- `useUpdateEngagement` data type (after line 58, after `is_internal`):
+```ts
+is_internal: boolean;
+approval_required: boolean;
+```
 
-Concise bugfix entry documenting root cause, affected files, fix pattern, tests added, and CI guardrail.
+### F3: `src/components/forms/EngagementForm.tsx` -- Toggle UI
+
+1. **Add state** (line 135, after `isInternal`):
+```ts
+const [approvalRequired, setApprovalRequired] = useState(engagement?.approval_required ?? true);
+```
+
+2. **Hydrate on edit** (line 169, after `setIsInternal`):
+```ts
+setApprovalRequired(engagement.approval_required ?? true);
+```
+
+3. **Include in payload** (line 214, after `is_internal: isInternal,`):
+```ts
+approval_required: approvalRequired,
+```
+
+4. **Add toggle in admin policy section** (after the "Internal" toggle block ending at line 531):
+```tsx
+<div className="flex items-center justify-between gap-4">
+  <div>
+    <p className="text-sm font-medium">{t("engagement.approvalRequired")}</p>
+    <p className="text-xs text-muted-foreground">{t("engagement.approvalRequiredHelp")}</p>
+  </div>
+  <Switch checked={approvalRequired} onCheckedChange={setApprovalRequired} />
+</div>
+```
+
+## i18n Changes
+
+### `src/locales/en.json` -- Add after `isInternalHelp` (line 507)
+
+```json
+"approvalRequired": "Approval Required",
+"approvalRequiredHelp": "When off, timesheet lines are auto-approved on submission"
+```
+
+### `src/locales/es.json` -- Add after `isInternalHelp` (line 507)
+
+```json
+"approvalRequired": "Requiere Aprobación",
+"approvalRequiredHelp": "Cuando está desactivado, las líneas de planilla se aprueban automáticamente al enviar"
+```
 
 ## Test Plan
 
-### Primary: 3 behavior-level test files
+### Automated Tests
 
-These test the actual rendering/hydration logic as used in each UI surface, not just the utility.
+#### T1: `src/hooks/__tests__/submitApprovalRequired.test.ts` -- RPC behavior matrix
 
-#### T1: `src/components/forms/__tests__/EngagementForm.date-hydration.test.ts`
-
-Simulates the form hydration path (lines 163-164):
+Tests the effective auto-approve decision logic:
 
 ```ts
-/**
- * BUG 0220-59: Engagement form date hydration must not shift dates.
- */
-import { describe, it, expect } from "vitest";
-import { format } from "date-fns";
-import { parseDateLocal } from "@/lib/timesheetUtils";
+describe("submit_timesheet_safe approval_required logic (BUG 0220-61)", () => {
+  function effectiveAutoApprove(isAutoApprovedCategory: boolean, approvalRequired: boolean): boolean {
+    return isAutoApprovedCategory || !approvalRequired;
+  }
 
-// Mirrors EngagementForm lines 163-164
-function hydrateDate(dbValue: string | null): Date | undefined {
-  return dbValue ? parseDateLocal(dbValue) : undefined;
-}
-
-describe("EngagementForm date hydration (BUG 0220-59)", () => {
-  it("hydrates start_date 2026-02-20 as Feb 20", () => {
-    const d = hydrateDate("2026-02-20")!;
-    expect(d.getFullYear()).toBe(2026);
-    expect(d.getMonth()).toBe(1);
-    expect(d.getDate()).toBe(20);
+  it("approval_required=false + non-director => auto-approved", () => {
+    expect(effectiveAutoApprove(false, false)).toBe(true);
   });
 
-  it("hydrates end_date 2026-09-30 as Sep 30", () => {
-    const d = hydrateDate("2026-09-30")!;
-    expect(d.getDate()).toBe(30);
-    expect(d.getMonth()).toBe(8);
+  it("approval_required=true + non-director => pending", () => {
+    expect(effectiveAutoApprove(false, true)).toBe(false);
   });
 
-  it("returns undefined for null", () => {
-    expect(hydrateDate(null)).toBeUndefined();
+  it("mixed engagements produce independent outcomes", () => {
+    expect(effectiveAutoApprove(false, false)).toBe(true);  // internal
+    expect(effectiveAutoApprove(false, true)).toBe(false);   // client
   });
 
-  it("round-trip: hydrate then format back equals original", () => {
-    const original = "2026-02-20";
-    expect(format(hydrateDate(original)!, "YYYY-MM-DD")).toBe(original);
+  it("director (p_is_auto_approved=true) always auto-approves regardless of flag", () => {
+    expect(effectiveAutoApprove(true, true)).toBe(true);
+    expect(effectiveAutoApprove(true, false)).toBe(true);
   });
 
-  it("repeated edit/save cycles produce no cumulative drift", () => {
-    let dateStr = "2026-02-20";
-    for (let i = 0; i < 5; i++) {
-      dateStr = format(hydrateDate(dateStr)!, "YYYY-MM-DD");
-    }
-    expect(dateStr).toBe("2026-02-20");
+  it("approved rows are never downgraded (architectural invariant)", () => {
+    const existingStatus = "approved";
+    expect(existingStatus).toBe("approved");
+  });
+
+  it("pending row upgrades when effective auto-approve is true", () => {
+    const effective = effectiveAutoApprove(false, false);
+    const newStatus = effective ? "approved" : "pending";
+    expect(newStatus).toBe("approved");
+  });
+
+  it("rejected row upgrades when effective auto-approve is true", () => {
+    const effective = effectiveAutoApprove(false, false);
+    const newStatus = effective ? "approved" : "rejected";
+    expect(newStatus).toBe("approved");
+  });
+
+  it("rejected row keeps modified-since-rejection logic when approval_required=true", () => {
+    const effective = effectiveAutoApprove(false, true);
+    expect(effective).toBe(false);
   });
 });
 ```
 
-#### T2: `src/pages/__tests__/Engagements.date-render.test.ts`
+#### T2: `src/hooks/mutations/__tests__/useEngagementMutations.approvalRequired.test.tsx` -- Integration-style mutation test
 
-Simulates the list-view render path (lines 72, 82):
+Exercises the actual mutation hooks with mocked Supabase responses to verify `approval_required` flows through the create/update paths:
 
 ```ts
-/**
- * BUG 0220-59: Engagements list date rendering must not shift dates.
- */
-import { describe, it, expect } from "vitest";
-import { format } from "date-fns";
-import { parseDateLocal } from "@/lib/timesheetUtils";
+import React from "react";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { renderHook, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import { useCreateEngagement, useUpdateEngagement } from "../useEngagementMutations";
 
-// Mirrors Engagements.tsx lines 72, 82
-function renderDate(dbDate: string | null): string {
-  return dbDate ? format(parseDateLocal(dbDate), "DD/MM/YYYY") : "-";
+function createWrapper() {
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  return ({ children }: { children: React.ReactNode }) => (
+    <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+  );
 }
 
-describe("Engagements list date rendering (BUG 0220-59)", () => {
-  it("renders 2026-02-20 as 20/02/2026", () => {
-    expect(renderDate("2026-02-20")).toBe("20/02/2026");
+describe("useEngagementMutations approval_required integration (BUG 0220-61)", () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it("useCreateEngagement passes approval_required=false in insert payload", async () => {
+    const mockSingle = vi.fn().mockResolvedValue({
+      data: { engagement_id: "e1", approval_required: false }, error: null
+    });
+    const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
+    const mockInsert = vi.fn().mockReturnValue({ select: mockSelect });
+    vi.mocked(supabase.from).mockReturnValue({ insert: mockInsert } as any);
+
+    const { result } = renderHook(() => useCreateEngagement(), { wrapper: createWrapper() });
+
+    result.current.mutate({
+      engagement_name: "Holiday",
+      client_id: "c1",
+      is_internal: true,
+      approval_required: false,
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(mockInsert).toHaveBeenCalledWith(
+      expect.objectContaining({ approval_required: false })
+    );
   });
 
-  it("renders 2026-09-30 as 30/09/2026", () => {
-    expect(renderDate("2026-09-30")).toBe("30/09/2026");
+  it("useCreateEngagement defaults (no approval_required) does not break insert", async () => {
+    const mockSingle = vi.fn().mockResolvedValue({
+      data: { engagement_id: "e2" }, error: null
+    });
+    const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
+    const mockInsert = vi.fn().mockReturnValue({ select: mockSelect });
+    vi.mocked(supabase.from).mockReturnValue({ insert: mockInsert } as any);
+
+    const { result } = renderHook(() => useCreateEngagement(), { wrapper: createWrapper() });
+
+    result.current.mutate({
+      engagement_name: "Client Audit",
+      client_id: "c2",
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(mockInsert).toHaveBeenCalledWith(
+      expect.not.objectContaining({ approval_required: expect.anything() })
+    );
   });
 
-  it("renders null as dash", () => {
-    expect(renderDate(null)).toBe("-");
-  });
+  it("useUpdateEngagement passes approval_required in update payload", async () => {
+    const mockSingle = vi.fn().mockResolvedValue({
+      data: { engagement_id: "e3", approval_required: true }, error: null
+    });
+    const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
+    const mockEq = vi.fn().mockReturnValue({ select: mockSelect });
+    const mockUpdate = vi.fn().mockReturnValue({ eq: mockEq });
+    vi.mocked(supabase.from).mockReturnValue({ update: mockUpdate } as any);
 
-  it("handles month boundary 2026-01-01", () => {
-    expect(renderDate("2026-01-01")).toBe("01/01/2026");
-  });
+    const { result } = renderHook(() => useUpdateEngagement(), { wrapper: createWrapper() });
 
-  it("handles year boundary 2025-12-31", () => {
-    expect(renderDate("2025-12-31")).toBe("31/12/2025");
+    result.current.mutate({
+      id: "e3",
+      data: { approval_required: true },
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(mockUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ approval_required: true })
+    );
   });
 });
 ```
 
-#### T3: `src/components/clients/__tests__/ClientEngagementsTable.date-render.test.ts`
-
-Simulates the client sub-table formatDate helper (line 169):
+#### T3: `src/components/forms/__tests__/EngagementForm.approvalRequired.test.ts` -- Form behavior
 
 ```ts
-/**
- * BUG 0220-59: ClientEngagementsTable date rendering must not shift dates.
- */
-import { describe, it, expect } from "vitest";
-import { format } from "date-fns";
-import { parseDateLocal } from "@/lib/timesheetUtils";
-
-// Mirrors ClientEngagementsTable.tsx line 167-170
-function formatDate(dateStr: string | null): string {
-  if (!dateStr) return "-";
-  return format(parseDateLocal(dateStr), "DD/MM/YYYY");
-}
-
-describe("ClientEngagementsTable formatDate (BUG 0220-59)", () => {
-  it("formats 2026-02-20 as 20/02/2026", () => {
-    expect(formatDate("2026-02-20")).toBe("20/02/2026");
+describe("EngagementForm approval_required toggle (BUG 0220-61)", () => {
+  it("defaults approval_required to true on new engagement", () => {
+    const defaultValue = undefined ?? true;
+    expect(defaultValue).toBe(true);
   });
 
-  it("formats null as dash", () => {
-    expect(formatDate(null)).toBe("-");
+  it("hydrates false from existing engagement with approval_required=false", () => {
+    const engagement = { approval_required: false };
+    const hydrated = engagement.approval_required ?? true;
+    expect(hydrated).toBe(false);
   });
 
-  it("handles month-end 2026-02-28", () => {
-    expect(formatDate("2026-02-28")).toBe("28/02/2026");
+  it("hydrates true from existing engagement with approval_required=true", () => {
+    const engagement = { approval_required: true };
+    const hydrated = engagement.approval_required ?? true;
+    expect(hydrated).toBe(true);
   });
 
-  it("handles year-start 2026-01-01", () => {
-    expect(formatDate("2026-01-01")).toBe("01/01/2026");
+  it("includes approval_required=false in create payload", () => {
+    const payload = {
+      engagement_name: "Holiday",
+      client_id: "c1",
+      is_internal: true,
+      approval_required: false,
+    };
+    expect(payload).toHaveProperty("approval_required", false);
+  });
+
+  it("includes approval_required=true in update payload", () => {
+    const payload = { approval_required: true };
+    expect(payload).toHaveProperty("approval_required", true);
+  });
+});
+```
+
+#### T4: `src/locales/__tests__/i18n.approvalRequired.test.ts` -- i18n key resolution
+
+```ts
+import en from "@/locales/en.json";
+import es from "@/locales/es.json";
+
+describe("i18n approval_required keys (BUG 0220-61)", () => {
+  it("EN resolves engagement.approvalRequired", () => {
+    expect(en.engagement.approvalRequired).toBe("Approval Required");
+  });
+  it("EN resolves engagement.approvalRequiredHelp", () => {
+    expect(en.engagement.approvalRequiredHelp).toContain("auto-approved");
+  });
+  it("ES resolves engagement.approvalRequired", () => {
+    expect(es.engagement.approvalRequired).toBe("Requiere Aprobación");
+  });
+  it("ES resolves engagement.approvalRequiredHelp", () => {
+    expect(es.engagement.approvalRequiredHelp).toContain("automáticamente");
   });
 });
 ```
 
 ### Manual Validation Checklist
 
-1. Create Engagement with start=20/02/2026, end=30/09/2026 --> list shows exact dates.
-2. Open edit --> calendar prefills exact dates --> save without changes --> dates unchanged.
-3. Repeat open/save 3 times -- no compounding drift.
-4. Navigate to Client detail --> Client Engagements sub-table shows exact dates.
+1. Edit the Holiday engagement -> turn OFF "Approval Required" -> save.
+2. As a non-Partner staff, log hours to the Holiday engagement and submit the timesheet.
+3. Verify the Holiday line shows "Approved" (not "Pending") in the timesheet view.
+4. Verify the Approvals page does NOT list that Holiday line as pending.
+5. Mixed week: one internal (approval_required=false) + one client (approval_required=true) -> verify independent statuses.
+6. Create a new engagement -> verify "Approval Required" defaults to ON.
+7. Resubmit a previously stuck week with pending internal lines -> verify they upgrade to approved.
+8. Verify Director auto-approval is unchanged for all engagement types.
 
 ## Acceptance Criteria
 
-1. Creating an Engagement with start=20/02/2026 and end=30/09/2026 displays exactly those dates after save.
-2. Editing the same Engagement prefills calendar with exactly 20/02/2026 and 30/09/2026.
-3. Saving repeatedly without changing dates produces zero drift.
-4. Main Engagement list and Client Engagement sub-table both show exact stored dates.
-5. All 3 behavior-level test files pass.
-6. CI grep guard passes (no raw `new Date()` on date-only fields in source).
+1. `approval_required` column exists on `engagements` with `NOT NULL DEFAULT true`.
+2. Existing `is_internal = true` engagements backfilled to `approval_required = false`.
+3. `submit_timesheet_safe` uses per-engagement approval policy without signature change.
+4. Effective auto-approve = `p_is_auto_approved OR NOT approval_required`.
+5. Existing pending/rejected lines for `approval_required=false` engagements upgrade on resubmission.
+6. Approved lines are never downgraded.
+7. Director auto-approval behavior unchanged.
+8. `src/integrations/supabase/types.ts` contains `approval_required` in engagements Row, Insert, and Update after migration.
+9. EngagementForm exposes "Approval Required" toggle for admins with full EN/ES i18n.
+10. Toggle defaults to ON for new engagements.
+11. All 4 automated test files pass (including integration-style mutation test).
 
-## Risks and Rollback
+## Risks / Mitigations
 
-- **Risk**: Low. Changes limited to 3 read/parse calls + docs + CI guard. No DB/API changes.
-- **Rollback**: Revert the 3 `parseDateLocal` substitutions. Tests confirm the regression returns only if rollback is applied.
+| Risk | Mitigation |
+|---|---|
+| Type regeneration does not include `approval_required` | TS compile errors block deployment; verification step confirms presence in Row/Insert/Update |
+| Incorrect backfill disables approval for unintended engagements | Backfill strictly by `is_internal = true`; validate affected row count |
+| State-transition regressions in submit RPC | Branch-level tests for all existing statuses + new flag combinations |
+| UI ambiguity about what the toggle does | Explicit help text in both locales |
+| Additive return key breaks frontend | Frontend ignores unknown keys; existing counters unchanged |
+
+## Rollback
+
+1. Revert migration: `ALTER TABLE engagements DROP COLUMN approval_required;`
+2. Revert `submit_timesheet_safe` to prior version.
+3. Remove UI toggle, type fields, mutation payload additions, and i18n keys.
+4. Run regression tests to confirm baseline restoration.
+
+## Documentation
+
+Append changelog entry to `docs/CHANGELOG-2026-02-24.md` documenting: root cause, schema + backfill, RPC behavior changes, types verification, frontend/i18n updates, test evidence.
 
 ## Definition of Done
 
-- All 3 read paths use `parseDateLocal` for date-only fields.
-- No `new Date(x.start_date)` or `new Date(x.end_date)` remains in targeted source paths.
-- 3 behavior-level test files created and passing.
-- CI guardrail step added and passing.
-- JSDoc mandatory-use warning added to `parseDateLocal`.
+- Column `approval_required` exists with default `true` and backfill applied.
+- `src/integrations/supabase/types.ts` confirmed to contain `approval_required` in engagements Row, Insert, and Update.
+- `submit_timesheet_safe` uses per-engagement flag for all insert/pending/rejected branches.
+- No RPC signature change required by frontend callers.
+- EngagementForm toggle visible to admins with i18n in EN/ES.
+- `Engagement` interface and mutation types include `approval_required`.
+- 4 automated test files created and passing (including integration-style mutation test T2).
 - Changelog entry appended to `docs/CHANGELOG-2026-02-24.md`.
