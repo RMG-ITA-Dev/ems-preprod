@@ -37,6 +37,8 @@ export interface ApprovedEngagement {
   activity_required: boolean;
   work_order_required: boolean;
   is_internal: boolean;
+  start_date: string | null;   // BUG 0220-63
+  end_date: string | null;     // BUG 0220-63
   client: {
     client_id: string;
     client_legal_name: string;
@@ -151,6 +153,7 @@ export function useTimesheetWeek(weekStartDate: Date, workDays: number = 5): Tim
           .select(`
             engagement_id, engagement_code, engagement_name,
             activity_required, work_order_required, is_internal,
+            start_date, end_date,
             client:clients!client_id(client_id, client_legal_name)
           `)
           .in("engagement_id", approvedEngagementIds)
@@ -169,6 +172,7 @@ export function useTimesheetWeek(weekStartDate: Date, workDays: number = 5): Tim
         .select(`
           engagement_id, engagement_code, engagement_name,
           activity_required, work_order_required, is_internal,
+          start_date, end_date,
           client:clients!client_id(client_id, client_legal_name)
         `)
         .eq("work_order_required", false)
