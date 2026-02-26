@@ -150,7 +150,7 @@ const WorksheetNew = () => {
 
                 <div className="flex justify-end gap-2 pt-4">
                   <Button
-                    variant="cancel"
+                    variant="outline"
                     onClick={() => { allowNextNavigation(); navigate("/worksheets"); }}
                     className="btn-action"
                   >

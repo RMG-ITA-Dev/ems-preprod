@@ -507,7 +507,7 @@ const TrackerEdit = () => {
           {!isImported && (
             <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 sm:gap-4 pt-4">
               <Button
-                variant="cancel"
+                variant="outline"
                 className="w-full sm:w-auto min-h-[44px] sm:min-h-0"
                 onClick={() => { allowNextNavigation(); navigate("/tracker"); }}
               >

@@ -1,6 +1,6 @@
 -- ============================================================================
 -- EMS 2.0 Complete Database Schema
--- Generated: 2026-02-24
+-- Generated: 2026-02-26
 -- ============================================================================
 
 -- ============================================================================
@@ -105,7 +105,8 @@ CREATE TABLE public.engagements (
   updated_at TIMESTAMPTZ DEFAULT now(),
   work_order_required BOOLEAN NOT NULL DEFAULT true,
   activity_required BOOLEAN NOT NULL DEFAULT true,
-  is_internal BOOLEAN NOT NULL DEFAULT false
+  is_internal BOOLEAN NOT NULL DEFAULT false,
+  approval_required BOOLEAN NOT NULL DEFAULT true
 );
 
 -- Expense Logs
@@ -1031,7 +1032,39 @@ BEGIN
 END;
 $$;
 
--- Submit timesheet safely (with line approval management)
+-- Atomically update timesheet min/max settings with feasibility validation
+CREATE OR REPLACE FUNCTION public.update_timesheet_minmax_settings(
+  p_daily_min numeric, p_daily_max numeric, p_weekly_min numeric, p_weekly_max numeric, p_work_days integer DEFAULT 5
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+BEGIN
+  IF p_daily_min > p_daily_max THEN
+    RETURN jsonb_build_object('success', false, 'error_code', 'DAILY_MIN_EXCEEDS_MAX');
+  END IF;
+  IF p_weekly_min > p_weekly_max THEN
+    RETURN jsonb_build_object('success', false, 'error_code', 'WEEKLY_MIN_EXCEEDS_MAX');
+  END IF;
+  IF p_weekly_min > p_daily_max * p_work_days THEN
+    RETURN jsonb_build_object('success', false, 'error_code', 'WEEKLY_MIN_EXCEEDS_DAILY_MAX');
+  END IF;
+  IF p_weekly_max < p_daily_min * p_work_days THEN
+    RETURN jsonb_build_object('success', false, 'error_code', 'WEEKLY_MAX_BELOW_DAILY_MIN');
+  END IF;
+
+  UPDATE global_settings SET setting_value = p_daily_min::text, updated_at = now() WHERE setting_key = 'DAILY_MIN';
+  UPDATE global_settings SET setting_value = p_daily_max::text, updated_at = now() WHERE setting_key = 'DAILY_MAX';
+  UPDATE global_settings SET setting_value = p_weekly_min::text, updated_at = now() WHERE setting_key = 'WEEKLY_MIN';
+  UPDATE global_settings SET setting_value = p_weekly_max::text, updated_at = now() WHERE setting_key = 'WEEKLY_MAX';
+
+  RETURN jsonb_build_object('success', true);
+END;
+$$;
+
+-- Submit timesheet safely (with line approval management, min/max validation, engagement date range gate)
 CREATE OR REPLACE FUNCTION public.submit_timesheet_safe(
   p_period_id uuid, 
   p_staff_id uuid, 
@@ -1049,13 +1082,25 @@ DECLARE
   v_eng_id uuid;
   v_max_te_updated timestamptz;
   v_affected integer;
+
+  -- Per-engagement approval policy (BUG 0220-61)
+  v_skip_approval boolean;
+  v_effective_auto boolean;
+  v_upgraded_to_approved integer := 0;
+
   v_preserved_approved integer := 0;
   v_reset_to_pending integer := 0;
   v_kept_rejected integer := 0;
   v_new_pending integer := 0;
   v_new_auto_approved integer := 0;
   v_guarded_update_skips integer := 0;
+
+  -- Min/max validation
+  v_weekly_min numeric;
+  v_weekly_max numeric;
+  v_actual_hours numeric;
 BEGIN
+  -- 1. SANITIZE
   p_engagement_ids := ARRAY(
     SELECT DISTINCT unnest FROM unnest(p_engagement_ids) WHERE unnest IS NOT NULL
   );
@@ -1064,6 +1109,7 @@ BEGIN
     RAISE EXCEPTION 'EMPTY_ENGAGEMENTS: No valid engagement IDs after sanitization';
   END IF;
 
+  -- 2. LOCK
   SELECT period_id, staff_id, submitted_at INTO v_period
   FROM timesheet_periods
   WHERE period_id = p_period_id AND staff_id = p_staff_id
@@ -1073,9 +1119,50 @@ BEGIN
     RAISE EXCEPTION 'PERIOD_NOT_FOUND: Period % does not exist or does not belong to staff %', p_period_id, p_staff_id;
   END IF;
 
+  -- BUG 0213-36: Enforce weekly min/max
+  SELECT COALESCE(
+    (SELECT setting_value::numeric FROM global_settings WHERE setting_key = 'WEEKLY_MIN'), 40
+  ) INTO v_weekly_min;
+
+  SELECT COALESCE(
+    (SELECT setting_value::numeric FROM global_settings WHERE setting_key = 'WEEKLY_MAX'), 40
+  ) INTO v_weekly_max;
+
+  SELECT COALESCE(SUM(te.hours_logged), 0) INTO v_actual_hours
+  FROM time_entries te
+  WHERE te.period_id = p_period_id AND te.staff_id = p_staff_id AND te.is_forecast = false;
+
+  IF v_actual_hours < v_weekly_min THEN
+    RAISE EXCEPTION 'WEEKLY_MIN_NOT_MET:actual=%,min=%', v_actual_hours, v_weekly_min;
+  END IF;
+
+  IF v_actual_hours > v_weekly_max THEN
+    RAISE EXCEPTION 'WEEKLY_MAX_EXCEEDED:actual=%,max=%', v_actual_hours, v_weekly_max;
+  END IF;
+
+  -- BUG 0220-63: Reject if entries outside engagement date window
+  IF EXISTS (
+    SELECT 1 FROM time_entries te
+    JOIN engagements e ON te.engagement_id = e.engagement_id
+    WHERE te.period_id = p_period_id AND te.staff_id = p_staff_id AND te.is_forecast = false
+      AND ((e.start_date IS NOT NULL AND te.date_worked < e.start_date)
+        OR (e.end_date IS NOT NULL AND te.date_worked > e.end_date))
+  ) THEN
+    RAISE EXCEPTION 'ENGAGEMENT_DATE_RANGE_VIOLATION: Period contains entries outside engagement date range';
+  END IF;
+
+  -- 3. UPDATE PERIOD
   UPDATE timesheet_periods SET submitted_at = now() WHERE period_id = p_period_id;
 
+  -- 4-7. Process each engagement
   FOREACH v_eng_id IN ARRAY p_engagement_ids LOOP
+    -- BUG 0220-61: Per-engagement approval policy
+    SELECT NOT COALESCE(e.approval_required, true)
+    INTO v_skip_approval
+    FROM engagements e WHERE e.engagement_id = v_eng_id;
+
+    v_effective_auto := p_is_auto_approved OR COALESCE(v_skip_approval, false);
+
     SELECT approval_id, status, updated_at INTO v_existing
     FROM timesheet_line_approvals
     WHERE period_id = p_period_id AND engagement_id = v_eng_id;
@@ -1085,33 +1172,58 @@ BEGIN
         v_preserved_approved := v_preserved_approved + 1;
         CONTINUE;
       END IF;
+
       IF v_existing.status = 'pending' THEN
+        IF v_effective_auto THEN
+          UPDATE timesheet_line_approvals
+          SET status = 'approved', approved_by = p_staff_id, approved_at = now()
+          WHERE period_id = p_period_id AND engagement_id = v_eng_id AND status = 'pending';
+          GET DIAGNOSTICS v_affected = ROW_COUNT;
+          IF v_affected > 0 THEN
+            v_upgraded_to_approved := v_upgraded_to_approved + 1;
+          ELSE
+            v_guarded_update_skips := v_guarded_update_skips + 1;
+          END IF;
+        END IF;
         CONTINUE;
       END IF;
-      IF v_existing.status = 'rejected' THEN
-        SELECT MAX(te.updated_at) INTO v_max_te_updated
-        FROM time_entries te
-        WHERE te.period_id = p_period_id AND te.engagement_id = v_eng_id AND te.is_forecast = false;
 
-        IF v_max_te_updated IS NOT NULL AND v_max_te_updated > v_existing.updated_at THEN
-          v_affected := 0;
+      IF v_existing.status = 'rejected' THEN
+        IF v_effective_auto THEN
           UPDATE timesheet_line_approvals
-          SET status = 'pending', approved_by = NULL, approved_at = NULL, review_notes = NULL
+          SET status = 'approved', approved_by = p_staff_id, approved_at = now(), review_notes = NULL
           WHERE period_id = p_period_id AND engagement_id = v_eng_id AND status = 'rejected';
           GET DIAGNOSTICS v_affected = ROW_COUNT;
-          IF v_affected = 0 THEN
-            v_guarded_update_skips := v_guarded_update_skips + 1;
-            v_preserved_approved := v_preserved_approved + 1;
+          IF v_affected > 0 THEN
+            v_upgraded_to_approved := v_upgraded_to_approved + 1;
           ELSE
-            v_reset_to_pending := v_reset_to_pending + 1;
+            v_guarded_update_skips := v_guarded_update_skips + 1;
           END IF;
         ELSE
-          v_kept_rejected := v_kept_rejected + 1;
+          SELECT MAX(te.updated_at) INTO v_max_te_updated
+          FROM time_entries te
+          WHERE te.period_id = p_period_id AND te.engagement_id = v_eng_id AND te.is_forecast = false;
+
+          IF v_max_te_updated IS NOT NULL AND v_max_te_updated > v_existing.updated_at THEN
+            v_affected := 0;
+            UPDATE timesheet_line_approvals
+            SET status = 'pending', approved_by = NULL, approved_at = NULL, review_notes = NULL
+            WHERE period_id = p_period_id AND engagement_id = v_eng_id AND status = 'rejected';
+            GET DIAGNOSTICS v_affected = ROW_COUNT;
+            IF v_affected = 0 THEN
+              v_guarded_update_skips := v_guarded_update_skips + 1;
+              v_preserved_approved := v_preserved_approved + 1;
+            ELSE
+              v_reset_to_pending := v_reset_to_pending + 1;
+            END IF;
+          ELSE
+            v_kept_rejected := v_kept_rejected + 1;
+          END IF;
         END IF;
         CONTINUE;
       END IF;
     ELSE
-      IF p_is_auto_approved THEN
+      IF v_effective_auto THEN
         INSERT INTO timesheet_line_approvals (period_id, engagement_id, status, approved_by, approved_at)
         VALUES (p_period_id, v_eng_id, 'approved', p_staff_id, now());
         v_new_auto_approved := v_new_auto_approved + 1;
@@ -1130,7 +1242,8 @@ BEGIN
     'kept_rejected', v_kept_rejected,
     'new_pending', v_new_pending,
     'new_auto_approved', v_new_auto_approved,
-    'guarded_update_skips', v_guarded_update_skips
+    'guarded_update_skips', v_guarded_update_skips,
+    'upgraded_to_approved', v_upgraded_to_approved
   );
 END;
 $$;
@@ -1732,6 +1845,34 @@ BEGIN
 END;
 $$;
 
+-- Trigger: Validate time entry dates against engagement date range (BUG 0220-63)
+CREATE OR REPLACE FUNCTION public.check_time_entry_engagement_dates()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_start date;
+  v_end   date;
+BEGIN
+  SELECT e.start_date, e.end_date INTO v_start, v_end
+  FROM engagements e WHERE e.engagement_id = NEW.engagement_id;
+
+  IF v_start IS NOT NULL AND NEW.date_worked < v_start THEN
+    RAISE EXCEPTION 'ENGAGEMENT_DATE_RANGE: date_worked % is before engagement start_date %',
+      NEW.date_worked, v_start USING ERRCODE = 'check_violation';
+  END IF;
+
+  IF v_end IS NOT NULL AND NEW.date_worked > v_end THEN
+    RAISE EXCEPTION 'ENGAGEMENT_DATE_RANGE: date_worked % is after engagement end_date %',
+      NEW.date_worked, v_end USING ERRCODE = 'check_violation';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
 -- Trigger: Validate timer entry duration (max 8h / 480min)
 CREATE OR REPLACE FUNCTION public.validate_timer_entry_duration()
 RETURNS trigger
@@ -2151,6 +2292,51 @@ CREATE POLICY "Team can view engagement work orders" ON public.work_orders
 -- User Lifecycle Audit Log: restrict direct DML from regular users
 REVOKE INSERT, UPDATE, DELETE ON public.user_lifecycle_audit_log FROM anon, authenticated;
 GRANT INSERT ON public.user_lifecycle_audit_log TO service_role;
+
+-- ============================================================================
+-- TRIGGERS
+-- ============================================================================
+
+-- Time Entries triggers
+CREATE TRIGGER trg_check_wo_approved BEFORE INSERT OR UPDATE ON public.time_entries
+  FOR EACH ROW EXECUTE FUNCTION public.check_wo_approved();
+
+CREATE TRIGGER trg_enforce_activity_default BEFORE INSERT OR UPDATE ON public.time_entries
+  FOR EACH ROW EXECUTE FUNCTION public.enforce_activity_default();
+
+CREATE TRIGGER trg_enforce_holiday_blocking BEFORE INSERT OR UPDATE ON public.time_entries
+  FOR EACH ROW EXECUTE FUNCTION public.enforce_holiday_blocking();
+
+CREATE TRIGGER trg_enforce_termination_date BEFORE INSERT OR UPDATE ON public.time_entries
+  FOR EACH ROW EXECUTE FUNCTION public.enforce_termination_date();
+
+CREATE TRIGGER trg_check_engagement_dates BEFORE INSERT OR UPDATE ON public.time_entries
+  FOR EACH ROW EXECUTE FUNCTION public.check_time_entry_engagement_dates();
+
+CREATE TRIGGER trg_protect_approved_time_entries BEFORE INSERT OR UPDATE OR DELETE ON public.time_entries
+  FOR EACH ROW EXECUTE FUNCTION public.protect_approved_time_entries();
+
+-- Timer Entries triggers
+CREATE TRIGGER trg_validate_timer_duration BEFORE INSERT OR UPDATE ON public.timer_entries
+  FOR EACH ROW EXECUTE FUNCTION public.validate_timer_entry_duration();
+
+CREATE TRIGGER trg_prevent_imported_timer_delete BEFORE DELETE ON public.timer_entries
+  FOR EACH ROW EXECUTE FUNCTION public.prevent_imported_timer_delete();
+
+CREATE TRIGGER trg_reset_timer_import_on_unlink BEFORE UPDATE ON public.timer_entries
+  FOR EACH ROW EXECUTE FUNCTION public.reset_timer_import_on_unlink();
+
+-- Staff triggers
+CREATE TRIGGER trg_link_staff_to_auth_user BEFORE INSERT OR UPDATE ON public.staff
+  FOR EACH ROW EXECUTE FUNCTION public.link_staff_to_auth_user();
+
+CREATE TRIGGER trg_prevent_staff_reactivation BEFORE UPDATE ON public.staff
+  FOR EACH ROW EXECUTE FUNCTION public.prevent_staff_reactivation();
+
+-- Timesheet Periods triggers
+CREATE TRIGGER trg_validate_submission_has_entries BEFORE UPDATE ON public.timesheet_periods
+  FOR EACH ROW WHEN (OLD.submitted_at IS NULL AND NEW.submitted_at IS NOT NULL)
+  EXECUTE FUNCTION public.validate_submission_has_entries();
 
 -- ============================================================================
 -- END OF SCHEMA
