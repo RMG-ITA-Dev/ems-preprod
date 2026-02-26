@@ -230,7 +230,7 @@ const WorkOrders = () => {
                 <TabsTrigger value="USD">USD</TabsTrigger>
               </TabsList>
             </Tabs>
-            <div className="relative w-full sm:min-w-[200px] sm:max-w-md">
+            <div className="relative w-full sm:min-w-[300px] sm:max-w-xl">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder={t("workOrders.searchPlaceholder")}
