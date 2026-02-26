@@ -193,7 +193,7 @@ const TimesheetApprovalDetail = () => {
   // Back button component for reuse across branches
   const BackButton = () => (
     <div className="flex items-center justify-between mb-4">
-      <Button variant="cancel" onClick={handleBack} className="btn-action">
+      <Button variant="outline" onClick={handleBack} className="btn-action">
         <ArrowLeft className="h-4 w-4 mr-1" />
         {t("common.back")}
       </Button>

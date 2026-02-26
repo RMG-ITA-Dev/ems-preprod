@@ -455,3 +455,77 @@ The system allowed logging and approving timesheet hours outside an engagement's
 **Test**: Render-based regression test (`src/pages/__tests__/Index.dashboard-tabs.test.tsx`) asserts on the actual rendered DOM element's class attribute.
 
 **Files changed**: `src/pages/Index.tsx` (1 line).
+
+---
+
+## Remove Navigation Lock from Timesheet Page
+
+**Plan**: Remove-Navigation-Lock-from-Timesheet-v2
+
+### Rationale
+
+The Timesheet page auto-saves data, so a "Leave Page?" confirmation dialog is unnecessary and creates friction. The `usePageLeaveLock` hook and `LeavePageDialog` component were removed from the Timesheet page while retaining the sidebar-hidden focus mode.
+
+### Changes
+
+| File | Change |
+|---|---|
+| `src/pages/TimeSheet.tsx` | Removed `usePageLeaveLock` and `LeavePageDialog` imports + hook call + 4 `<LeavePageDialog>` instances. `handleBack` simplified to direct `navigate(-1)` without `allowNextNavigation()`. |
+| `src/pages/__tests__/TimeSheet.focus-lock.test.tsx` | Removed `usePageLeaveLock` mocks; test simplified to use `@/test/utils` render. |
+
+### Unchanged
+
+- Focus mode (`focusMode` prop on `AppLayout`) retained.
+- `usePageLeaveLock` and `LeavePageDialog` remain available for other pages (e.g., Approval Detail, Client/Staff Edit).
+
+---
+
+## Undocumented Polish Changes (Audit Reconciliation 2026-02-26)
+
+### variant="cancel" → variant="outline" Migration (Completed)
+
+All remaining 8 instances of `variant="cancel"` migrated to `variant="outline"` for visual consistency. The `cancel` variant remains defined in `button.tsx` but is no longer used in any component.
+
+| File | Change |
+|---|---|
+| `src/pages/TimeSheet.tsx` | BackButton: `variant="cancel"` → `variant="outline"` |
+| `src/pages/TimesheetApprovalDetail.tsx` | BackButton: `variant="cancel"` → `variant="outline"` |
+| `src/pages/WorksheetEdit.tsx` | Cancel button: `variant="cancel"` → `variant="outline"` |
+| `src/pages/WorksheetNew.tsx` | Cancel button: `variant="cancel"` → `variant="outline"` |
+| `src/pages/TrackerEdit.tsx` | Cancel button: `variant="cancel"` → `variant="outline"` |
+| `src/components/forms/EngagementForm.tsx` | Cancel button: `variant="cancel"` → `variant="outline"` |
+| `src/components/forms/ClientForm.tsx` | Cancel buttons (×2): `variant="cancel"` → `variant="outline"` |
+
+### Staff.tsx Admin Guard
+
+Added `useUserRole()` hook and `isAdmin` guard to `src/pages/Staff.tsx`: "New Staff" button, row click navigation, and `onNewClick` handler are only rendered for admin users. Non-admin users can view the staff list but cannot navigate to edit forms.
+
+### tabs.tsx Base Active State
+
+Changed base `TabsTrigger` active state in `src/components/ui/tabs.tsx` from `data-[state=active]:bg-background` to `data-[state=active]:bg-primary data-[state=active]:text-primary-foreground` for higher contrast.
+
+### Other Polish
+
+| File | Change |
+|---|---|
+| `src/components/forms/StaffForm.tsx` | Cancel button: `variant="cancel"` → `variant="outline"`. Email field: `disabled={isEdit}` + `bg-muted` on edit mode. |
+| `src/components/ui/leave-page-dialog.tsx` | Non-dirty action button: uses `border-input bg-background` styling; label changed to `common.cancel`. |
+| `src/pages/WorkOrders.tsx` | Search bar widened: `sm:min-w-[200px]` → `sm:min-w-[300px]`, `sm:max-w-md` → `sm:max-w-xl`. |
+| `src/pages/WorksheetEdit.tsx` | Warning button: `text-warning-foreground` → `text-warning`, `hover:bg-warning/20` → `hover:bg-warning hover:text-warning-foreground`. |
+| `supabase/functions/manage-auth-user/index.ts` | Error handler: `error instanceof Error ? error.message : String(error)` for safety. |
+
+---
+
+## Schema Documentation Update (Audit Reconciliation 2026-02-26)
+
+Updated `docs/database-schema.sql` to reflect all current-session schema changes:
+
+| Item | Source |
+|---|---|
+| `approval_required BOOLEAN NOT NULL DEFAULT true` on `engagements` table | BUG 0220-61 |
+| `update_timesheet_minmax_settings()` RPC function | BUG 0213-36 |
+| `check_time_entry_engagement_dates()` trigger function | BUG 0220-63 |
+| `trg_check_engagement_dates` trigger on `time_entries` | BUG 0220-63 |
+| Updated `submit_timesheet_safe()` with WEEKLY_MIN/MAX validation, `approval_required` per-engagement logic, and engagement date range gate | BUG 0213-36, 0220-61, 0220-63 |
+| All trigger declarations added to TRIGGERS section | Comprehensive |
+| Generation date updated to 2026-02-26 | — |
