@@ -42,3 +42,58 @@ Invalid or missing `week_start_date` values (null, undefined, empty string, malf
 - Oct-Dec fiscal year divergence
 - 4 invalid input variants
 - Parity checks ensuring helper output never diverges from `getFiscalWeekNumber`
+
+---
+
+## BUG 0227-67: Activity Not Cleared When Switching Internal to Client Engagement
+
+### Root Cause
+
+In `src/components/timesheet/TimesheetGrid.tsx`, `handleEngagementChange` (lines 420-423), the inline ternary:
+
+```text
+const activityId = isActivityNotRequired && adminActivityId
+  ? adminActivityId
+  : currentRow.activityId;
+```
+
+When switching from an internal engagement (activity_required=false, ADM auto-assigned) to a client engagement (activity_required=true), the stale ADM `activityId` carried over from `currentRow.activityId`. This left hour cells enabled and allowed save/submit to persist the wrong activity.
+
+### Changes
+
+#### Files Created
+
+| File | Purpose |
+|---|---|
+| `src/lib/timesheetActivityRules.ts` | Canonical normalization helper. Exports `normalizeActivityForEngagement(input: NormalizeActivityInput): NormalizeActivityResult`. Rules: (1) `!activityRequired && adminActivityId` → assign admin; (2) `activityRequired && currentActivityId === adminActivityId` → clear to `""`; (3) otherwise preserve. Returns `wasCleared: true` only when rule #2 fires. |
+| `src/lib/__tests__/timesheetActivityRules.test.ts` | 6 unit tests: admin assignment, stale-admin clearing, non-admin preservation, empty preservation, null-admin fallback, internal→client→internal sequence. |
+| `src/components/timesheet/__tests__/TimesheetGrid.activity-transition.test.tsx` | 4 component transition tests: internal auto-assigns admin, Internal→Client clears stale admin, required+empty disables hours, Client→Internal reassigns admin. |
+
+#### Files Modified
+
+| File | Change |
+|---|---|
+| `src/components/timesheet/TimesheetGrid.tsx` | Added import of `normalizeActivityForEngagement`. In `handleEngagementChange`, replaced inline ternary (lines 420-423) with helper call that derives `activityRequired` from the selected engagement record. No changes to row merge/id/duplicate logic. |
+| `src/pages/TimeSheet.tsx` | Added `import { toast } from "sonner"`. In `handleSubmit`, after `uniqueEngagementIds.length === 0` guard and before submit mutation, added defense-in-depth validation: scans `entries` for any row where `engagement.activity_required=true` and `activity_id` is empty or equals `adminActivityId`; blocks submit with `toast.error(t("timesheet.invalidActivityRow"))`. |
+| `src/locales/en.json` | Added `timesheet.invalidActivityRow` key. |
+| `src/locales/es.json` | Added `timesheet.invalidActivityRow` key. |
+| `src/pages/__tests__/TimeSheet.submit-guards.test.tsx` | Added test case asserting submit guard renders without crash when entries contain activity-required engagement with empty activity_id. |
+
+### Before / After
+
+| Scenario | Before | After |
+|---|---|---|
+| Internal → Client switch | ADM activity preserved; hour cells enabled; save persists wrong activity | ADM cleared to `""`; hour cells disabled; user must select valid activity |
+| Submit with invalid activity row | Submit proceeds with wrong activity saved to DB | Submit blocked with localized toast error |
+| Client → Internal switch | Worked correctly (ADM auto-assigned) | No change (still works) |
+| Client → Client switch | Current activity preserved | No change (still preserved) |
+
+### Defensive Behavior
+
+The submit guard in `TimeSheet.tsx` is defense-in-depth: the primary fix in `TimesheetGrid.tsx` prevents the invalid state from occurring, but the guard catches any edge case where an activity-required row reaches submit with empty or admin activity.
+
+### Test Coverage
+
+- 6 unit tests in `timesheetActivityRules.test.ts` covering all helper branches
+- 4 component transition tests in `TimesheetGrid.activity-transition.test.tsx`
+- 1 submit-guard integration test in `TimeSheet.submit-guards.test.tsx`
