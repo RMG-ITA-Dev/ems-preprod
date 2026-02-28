@@ -672,19 +672,26 @@ export function TimesheetGrid({
     const Icon = config.icon;
 
     return (
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Badge variant="outline" className={cn("ml-2 text-xs py-0", config.className)}>
-            <Icon className="h-3 w-3 mr-1" />
-            {config.label}
-          </Badge>
-        </TooltipTrigger>
-        {approval.review_notes && (
-          <TooltipContent>
-            <p className="max-w-xs">{approval.review_notes}</p>
-          </TooltipContent>
+      <>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Badge variant="outline" className={cn("ml-2 text-xs py-0", config.className)}>
+              <Icon className="h-3 w-3 mr-1" />
+              {config.label}
+            </Badge>
+          </TooltipTrigger>
+          {approval.review_notes && (
+            <TooltipContent>
+              <p className="max-w-xs">{approval.review_notes}</p>
+            </TooltipContent>
+          )}
+        </Tooltip>
+        {approval.status === "rejected" && approval.review_notes?.trim() && (
+          <p className="mt-1 text-xs text-destructive/90 italic leading-tight w-full">
+            {t("approval.rejectionNote")} {approval.review_notes}
+          </p>
         )}
-      </Tooltip>
+      </>
     );
   };
 
@@ -750,7 +757,7 @@ export function TimesheetGrid({
                 )}
               >
               <td className="p-2 text-left border-r border-border">
-                  <div className="flex items-center">
+                  <div className="flex flex-wrap items-center">
                     <Select
                       value={row.engagementId}
                       onValueChange={(val) => handleEngagementChange(row.id, val)}

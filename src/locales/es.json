@@ -964,7 +964,8 @@
     },
     "budgetLabel": "Presupuesto",
     "remainingLabel": "rest",
-    "budgetNA": "N/D"
+    "budgetNA": "N/D",
+    "rejectionNote": "Nota de rechazo:"
   },
   "auth": {
     "signIn": "Iniciar Sesión",
