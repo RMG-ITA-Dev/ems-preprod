@@ -97,3 +97,33 @@ The submit guard in `TimeSheet.tsx` is defense-in-depth: the primary fix in `Tim
 - 6 unit tests in `timesheetActivityRules.test.ts` covering all helper branches
 - 4 component transition tests in `TimesheetGrid.activity-transition.test.tsx`
 - 1 submit-guard integration test in `TimeSheet.submit-guards.test.tsx`
+
+---
+
+## BUG 0227-66: Rejection Notes Not Visible to Staff
+
+### Root Cause
+
+In `src/components/timesheet/TimesheetGrid.tsx`, the `renderApprovalBadge` function placed `review_notes` exclusively inside a `TooltipContent`. Users had to hover the small "Rejected" badge to see the note, which was undiscoverable. Most staff contacted the approver instead of finding the tooltip.
+
+### Changes
+
+#### Files Modified
+
+| File | Change |
+|---|---|
+| `src/components/timesheet/TimesheetGrid.tsx` | In `renderApprovalBadge`, wrapped existing `Tooltip` return in a fragment and added a conditional inline `<p>` block after the tooltip that renders when `approval.status === "rejected"` and `approval.review_notes?.trim()` is non-empty. Styled with `text-xs text-destructive/90 italic leading-tight w-full`. Also changed the parent engagement cell container (line 753) from `flex items-center` to `flex flex-wrap items-center` so the note wraps below the badge row. |
+| `src/locales/en.json` | Added `approval.rejectionNote`: `"Rejection note:"` |
+| `src/locales/es.json` | Added `approval.rejectionNote`: `"Nota de rechazo:"` |
+
+### Before / After
+
+| Scenario | Before | After |
+|---|---|---|
+| Rejected row with note | Note only visible via hover tooltip on small badge | Note displayed inline below badge in destructive italic text |
+| Rejected row without note | Badge only, no tooltip content | Badge only, no inline note (unchanged) |
+| Approved/pending rows | Badge displayed normally | Completely unchanged |
+
+### Scope
+
+Frontend display-only fix. No backend, database schema, or approval workflow changes.

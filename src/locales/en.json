@@ -964,7 +964,8 @@
     },
     "budgetLabel": "Budget",
     "remainingLabel": "rem",
-    "budgetNA": "N/A"
+    "budgetNA": "N/A",
+    "rejectionNote": "Rejection note:"
   },
   "auth": {
     "signIn": "Sign In",
