@@ -27,6 +27,7 @@ import type { ApprovalDecision } from "@/components/ui/approval-toggle";
 import { format, addDays } from "date-fns";
 import { useLanguage } from "@/hooks/useLanguage";
 import { parseDateLocal } from "@/lib/timesheetUtils";
+import { getWeekDisplayInfo } from "@/lib/timesheetWeekDisplay";
 import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";
 import { LeavePageDialog } from "@/components/ui/leave-page-dialog";
 
@@ -227,6 +228,9 @@ const TimesheetApprovalDetail = () => {
   const staffName = timesheetData.staff.short_name ||
     `${timesheetData.staff.first_name} ${timesheetData.staff.last_name}`;
 
+  // Canonical week display — DB week_number/year are non-authoritative for UI
+  const weekDisplay = getWeekDisplayInfo(timesheetData.period.week_start_date);
+
   const isProcessing = bulkApprove.isPending || bulkReject.isPending;
 
   return (
@@ -237,7 +241,7 @@ const TimesheetApprovalDetail = () => {
           <div>
             <h2 className="text-lg font-semibold text-foreground">{staffName}</h2>
             <p className="text-sm text-muted-foreground">
-              {t("timesheet.week")} {timesheetData.period.week_number}, {timesheetData.period.year}
+              {t("timesheet.week")} {weekDisplay.isValid ? weekDisplay.weekNumber : "\u2014"}, {weekDisplay.isValid ? weekDisplay.fiscalYear : "\u2014"}
               {" • "}
               {formatWeekRange(timesheetData.period.week_start_date)}
             </p>

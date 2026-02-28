@@ -16,6 +16,7 @@ import { Loader2, Search, ChevronRight } from "lucide-react";
 import { usePendingApprovalSummaries } from "@/hooks/useTimesheetApprovals";
 import { format, addDays } from "date-fns";
 import { parseDateLocal } from "@/lib/timesheetUtils";
+import { getWeekDisplayInfo } from "@/lib/timesheetWeekDisplay";
 
 const TimesheetApprovals = () => {
   const { t } = useTranslation();
@@ -90,7 +91,10 @@ const TimesheetApprovals = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredSummaries?.map((summary) => (
+                {filteredSummaries?.map((summary) => {
+                  // Canonical week display — DB week_number/year are non-authoritative for UI
+                  const weekDisplay = getWeekDisplayInfo(summary.week_start_date);
+                  return (
                   <TableRow
                     key={summary.period_id}
                     className="cursor-pointer hover:bg-muted/50"
@@ -102,7 +106,7 @@ const TimesheetApprovals = () => {
                     </TableCell>
                     <TableCell className="text-left border-r border-border">
                       <span className="text-muted-foreground mr-2">
-                        {t("timesheet.week")} {summary.week_number}, {summary.year}
+                        {t("timesheet.week")} {weekDisplay.isValid ? weekDisplay.weekNumber : "\u2014"}, {weekDisplay.isValid ? weekDisplay.fiscalYear : "\u2014"}
                       </span>
                       <span className="text-sm">
                         ({formatWeekRange(summary.week_start_date)})
@@ -115,7 +119,8 @@ const TimesheetApprovals = () => {
                       <ChevronRight className="h-4 w-4 text-muted-foreground" />
                     </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
           </div>
