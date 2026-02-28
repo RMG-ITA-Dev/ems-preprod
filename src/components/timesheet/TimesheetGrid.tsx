@@ -25,6 +25,7 @@ import {
   AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
+import { normalizeActivityForEngagement } from "@/lib/timesheetActivityRules";
 import { toast } from "sonner";
 import { logger } from "@/lib/logger";
 
@@ -418,9 +419,14 @@ export function TimesheetGrid({
 
     // Auto-assign ADM activity for activity-not-required engagements
     const isActivityNotRequired = activityNotRequiredIds?.has(engagementId);
-    const activityId = isActivityNotRequired && adminActivityId
-      ? adminActivityId
-      : currentRow.activityId;
+    const engagementObj = engagements.find(e => e.engagement_id === engagementId);
+    const activityRequired = engagementObj?.activity_required ?? true;
+    const { nextActivityId: activityId } = normalizeActivityForEngagement({
+      engagementId,
+      currentActivityId: currentRow.activityId,
+      adminActivityId: adminActivityId ?? null,
+      activityRequired,
+    });
 
     // Check for duplicate — another row with same engagement+activity
     const existingRow = rows.find(r => r.id !== rowId && r.engagementId === engagementId && r.activityId === activityId && activityId !== '');

@@ -19,6 +19,7 @@ import { usePeriodLineApprovals } from "@/hooks/useTimesheetApprovals";
 import { useSubmitTimesheet, useUnsubmitTimesheet, useCopyPreviousWeek } from "@/hooks/useTimesheetMutations";
 import { useGlobalSettings } from "@/hooks/useEmsData";
 import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 import { parseISO, isBefore, startOfDay } from "date-fns";
 import {
   getWeekInfo,
@@ -300,6 +301,17 @@ const TimeSheet = () => {
     const uniqueEngagementIds = [...new Set(entries.map((e) => e.engagement_id))];
     
     if (uniqueEngagementIds.length === 0) return;
+
+    // BUG 0227-67: Block submit if any activity-required engagement has empty/invalid activity
+    const invalidActivityRow = entries.some(entry => {
+      const eng = engagements.find(e => e.engagement_id === entry.engagement_id);
+      const isActRequired = eng?.activity_required ?? true;
+      return isActRequired && (!entry.activity_id || entry.activity_id === adminActivityId);
+    });
+    if (invalidActivityRow) {
+      toast.error(t("timesheet.invalidActivityRow"));
+      return;
+    }
 
     // Check if staff is auto-approved (Partner/Director)
     const { data: isAutoApproved } = await supabase

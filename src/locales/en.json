@@ -715,6 +715,7 @@
     "resubmitWeek": "Resubmit Week",
     "cannotSubmitWeeklyLimit": "Cannot submit: total hours ({{total}}h) exceed the weekly limit ({{limit}}h). Please reduce hours before submitting.",
     "weeklyMinNotMet": "Cannot submit: total hours ({{total}}h) are below the weekly minimum ({{min}}h).",
+    "invalidActivityRow": "One or more rows have an invalid activity. Please select a valid activity for each client engagement before submitting.",
     "weeklyMaxExceeded": "Cannot submit: total hours ({{total}}h) exceed the weekly maximum ({{max}}h).",
     "selectEngagement": "Select engagement",
     "selectActivity": "Select activity",
