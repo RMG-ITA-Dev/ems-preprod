@@ -1,168 +1,212 @@
 
 
-# Plan v4 -- BUG 0227-64: Unify Week-Number Logic Between Hoja de Tiempo and Aprobaciones
+# Plan v10 -- BUG 0227-67: Activity Not Cleared When Switching Internal to Client Engagement
 
 ## Objective
 
-Guarantee that Hoja de Tiempo and Aprobaciones always show the same week label for the same timesheet period by using one canonical fiscal-week computation path, with safe handling for malformed data.
+Ensure Timesheet activity always remains valid for the selected engagement and prevent invalid engagement-activity rows from being saved or submitted.
+
+## Root Cause
+
+In `src/components/timesheet/TimesheetGrid.tsx`, `handleEngagementChange` (lines 420-423):
+
+```text
+const isActivityNotRequired = activityNotRequiredIds?.has(engagementId);
+const activityId = isActivityNotRequired && adminActivityId
+  ? adminActivityId
+  : currentRow.activityId;
+```
+
+When switching from an internal engagement (ADM auto-assigned) to a client engagement (activity_required=true), the stale ADM activityId carries over. Hour cells stay enabled and save/submit persists the wrong activity.
 
 ## Scope
 
-**In scope:**
-- Approvals list and approval detail week-label rendering
-- Shared reusable helper for week display metadata
-- Defensive behavior for null/invalid `week_start_date`
-- Regression test coverage for bug case and boundary dates
-- Changelog append with implementation-level detail
+**In scope:** Fix handleEngagementChange, canonical helper, pre-submit validation, i18n keys, unit + component + submit-guard tests, changelog.
 
-**Out of scope:**
-- Database schema changes
-- Backfill/migration of historical `week_number` data
-- Unrelated UI redesign
+**Out of scope:** Database schema changes, unrelated UI redesign.
 
 ## Canonical Rules
 
-| Rule | Detail |
+| Condition | Result |
 |---|---|
-| Week number source | Compute from `week_start_date` using `getFiscalWeekNumber()` |
-| Year label source | Compute fiscal year using `getFiscalYearForDate()` (not DB `period.year` for display) |
-| Date parsing | Use `parseDateLocal()` to avoid UTC/local drift |
-| Fallback on invalid date | Render em dash (\u2014) for week and year, without crashing |
+| `activity_required=false` and `adminActivityId` exists | Assign `adminActivityId` |
+| `activity_required=true` and `currentActivityId == adminActivityId` | Clear to `""` |
+| Otherwise | Preserve `currentActivityId` |
+| `activity_required=true` and `activityId` empty at submit | Block submit with toast |
 
 ## Implementation Steps
 
-### Step 1: Repository-wide verification of week_number display usages
+### Step 1: Create canonical normalization helper
 
-**Actions:**
-- Search all `.tsx`/`.ts` files (excluding `node_modules`, `types.ts`, and test files) for UI rendering of `week_number` or `year` from DB period/summary objects.
-- **Verified findings:**
-  - `src/pages/TimesheetApprovals.tsx` line 105: renders `summary.week_number`, `summary.year` -- STALE, must fix
-  - `src/pages/TimesheetApprovalDetail.tsx` line 240: renders `timesheetData.period.week_number`, `timesheetData.period.year` -- STALE, must fix
-  - `src/components/timesheet/WeekNavigator.tsx` line 178: renders `weekInfo.weekNumber` -- ALREADY CANONICAL (computed via `getWeekInfo()` which calls `getFiscalWeekNumber()`)
-  - `src/hooks/useTimesheetWeek.ts`, `src/hooks/useTimesheetImport.ts`, `src/hooks/useTimesheetApprovals.ts`: use `week_number` for DB writes/reads only, not for display -- NO ACTION NEEDED
-- **Deliverable:** Verified list of display points; only the two Approvals pages need refactoring.
+**New file: `src/lib/timesheetActivityRules.ts`**
 
-### Step 2: Create shared canonical display helper
-
-**New file: `src/lib/timesheetWeekDisplay.ts`**
+Create with exact content:
 
 ```text
-Interface: WeekDisplayInfo {
-  weekNumber: number;
-  fiscalYear: number;
-  isValid: boolean;
+export interface NormalizeActivityInput {
+  engagementId: string;
+  currentActivityId: string;
+  adminActivityId: string | null;
+  activityRequired: boolean;
 }
 
-Function: getWeekDisplayInfo(weekStartDate: string | null | undefined): WeekDisplayInfo
+export interface NormalizeActivityResult {
+  nextActivityId: string;
+  wasCleared: boolean;
+}
+
+export function normalizeActivityForEngagement(input: NormalizeActivityInput): NormalizeActivityResult {
+  const { currentActivityId, adminActivityId, activityRequired } = input;
+
+  if (!activityRequired && adminActivityId) {
+    return { nextActivityId: adminActivityId, wasCleared: false };
+  }
+
+  if (activityRequired && adminActivityId && currentActivityId === adminActivityId) {
+    return { nextActivityId: "", wasCleared: true };
+  }
+
+  return { nextActivityId: currentActivityId, wasCleared: false };
+}
 ```
 
-- If input is null, undefined, or empty string: return `{ weekNumber: 0, fiscalYear: 0, isValid: false }`
-- Parse date using `parseDateLocal()` (mandatory per BUG 0220-59 standard)
-- Validate parsed Date via `isNaN(date.getTime())`; if invalid: return `{ weekNumber: 0, fiscalYear: 0, isValid: false }`
-- Call `getFiscalWeekNumber(date)` and `getFiscalYearForDate(date)` from `fiscalCalculations.ts`
-- Return `{ weekNumber, fiscalYear, isValid: true }`
-- Add JSDoc stating: this helper is canonical for week display; DB `week_number`/`year` columns are non-authoritative for UI labels (ref INV-3)
+### Step 2: Replace inline logic in TimesheetGrid.tsx
 
-**Deliverable:** Single source of truth for week display metadata.
+**File: `src/components/timesheet/TimesheetGrid.tsx`**
 
-### Step 3: Refactor approvals list screen
+- Add import at top: `import { normalizeActivityForEngagement } from "@/lib/timesheetActivityRules";`
+- Replace lines 420-423 with:
 
-**File: `src/pages/TimesheetApprovals.tsx`**
+```text
+const isActivityNotRequired = activityNotRequiredIds?.has(engagementId);
+const engagementObj = engagements.find(e => e.engagement_id === engagementId);
+const activityRequired = engagementObj?.activity_required ?? true;
+const { nextActivityId: activityId } = normalizeActivityForEngagement({
+  engagementId,
+  currentActivityId: currentRow.activityId,
+  adminActivityId: adminActivityId ?? null,
+  activityRequired,
+});
+```
 
-- Add import: `getWeekDisplayInfo` from `@/lib/timesheetWeekDisplay`
-- Inside the `.map()` callback (around line 93), compute: `const weekDisplay = getWeekDisplayInfo(summary.week_start_date);`
-- Line 105: replace `{summary.week_number}, {summary.year}` with:
-  `{weekDisplay.isValid ? weekDisplay.weekNumber : "\u2014"}, {weekDisplay.isValid ? weekDisplay.fiscalYear : "\u2014"}`
+No other changes to merge/id/duplicate logic. Existing downstream behavior remains intact:
+- Empty activityId disables hour cells (line 826)
+- Empty activityId causes batch save to skip row (line 235)
+- Row ID becomes `{engagementId}-new` when activityId is empty (line 444)
 
-**Deliverable:** Approvals list no longer depends on stale DB `week_number`/`year` for UI display.
+### Step 3: Add submit hard-stop validation
 
-### Step 4: Refactor approvals detail screen
+**File: `src/pages/TimeSheet.tsx`**
 
-**File: `src/pages/TimesheetApprovalDetail.tsx`**
+- Add import: `import { toast } from "sonner";` (currently missing from this file)
+- `adminActivityId` is already in scope (line 126). `engagements` is available from `useTimesheetWeek` (line 107).
+- Inside `handleSubmit`, after line 302 (`if (uniqueEngagementIds.length === 0) return;`) and before line 305, insert:
 
-- Add import: `getWeekDisplayInfo` from `@/lib/timesheetWeekDisplay`
-- After the `timesheetData` null guard (after line 227), compute: `const weekDisplay = getWeekDisplayInfo(timesheetData.period.week_start_date);`
-- Line 240: replace `{timesheetData.period.week_number}, {timesheetData.period.year}` with:
-  `{weekDisplay.isValid ? weekDisplay.weekNumber : "\u2014"}, {weekDisplay.isValid ? weekDisplay.fiscalYear : "\u2014"}`
+```text
+// BUG 0227-67: Block submit if any activity-required engagement has empty/invalid activity
+const invalidActivityRow = entries.some(entry => {
+  const eng = engagements.find(e => e.engagement_id === entry.engagement_id);
+  const isActRequired = eng?.activity_required ?? true;
+  return isActRequired && (!entry.activity_id || entry.activity_id === adminActivityId);
+});
+if (invalidActivityRow) {
+  toast.error(t("timesheet.invalidActivityRow"));
+  return;
+}
+```
 
-**Deliverable:** Approvals detail uses same canonical logic as list and timesheet.
+### Step 4: Add i18n keys
 
-### Step 5: Add regression and resilience tests
+**File: `src/locales/en.json`** -- under `timesheet` section add:
+```text
+"invalidActivityRow": "One or more rows have an invalid activity. Please select a valid activity for each client engagement before submitting."
+```
 
-**New file: `src/lib/__tests__/timesheetWeekDisplay.test.ts`**
+**File: `src/locales/es.json`** -- under `timesheet` section add:
+```text
+"invalidActivityRow": "Una o mas filas tienen una actividad invalida. Seleccione una actividad valida para cada encargo de cliente antes de enviar."
+```
 
-Test cases:
+### Step 5: Unit tests for normalization helper
 
-1. **Bug reproduction**: `"2026-03-02"` returns `weekNumber: 23`, `fiscalYear: 2026`, `isValid: true`
-2. **Fiscal boundary (Oct start)**: `"2025-09-29"` (FY2026 Week 1 Monday) returns `weekNumber: 1`, `fiscalYear: 2026`
-3. **Oct-Dec fiscal year divergence**: `"2025-10-06"` returns `fiscalYear: 2026` (not calendar 2025)
-4. **Cross-year Sep boundary**: `"2026-09-28"` returns correct FY2027 week
-5. **Null input**: returns `{ weekNumber: 0, fiscalYear: 0, isValid: false }`
-6. **Undefined input**: returns `{ weekNumber: 0, fiscalYear: 0, isValid: false }`
-7. **Empty string**: returns `{ weekNumber: 0, fiscalYear: 0, isValid: false }`
-8. **Malformed date** (`"not-a-date"`): returns `{ weekNumber: 0, fiscalYear: 0, isValid: false }`
-9. **Parity checks**: for dates `["2026-03-02", "2025-09-29", "2026-01-05", "2025-12-01"]`, assert `getWeekDisplayInfo(d).weekNumber === getFiscalWeekNumber(parseDateLocal(d))` -- guaranteeing the helper never diverges from the canonical algorithm
+**New file: `src/lib/__tests__/timesheetActivityRules.test.ts`**
 
-**Deliverable:** Automated safeguards against recurrence and edge-case breakage.
+6 test cases:
+1. `activity_required=false` + `adminActivityId` present: returns adminActivityId, wasCleared=false
+2. `activity_required=true` + `currentActivityId === adminActivityId`: returns "", wasCleared=true
+3. `activity_required=true` + valid non-ADM activity: preserves, wasCleared=false
+4. `activity_required=true` + empty currentActivityId: returns "", wasCleared=false
+5. `activity_required=false` + adminActivityId null: returns "" (safe fallback, no throw)
+6. Toggle internal->client->internal: each transition returns correct state
 
-### Step 6: QA validation checklist
+### Step 6: Component test for rendered TimesheetGrid transitions
 
-1. Reproduce original case (02/03/2026 -- 06/03/2026) and confirm both modules show Semana 23, 2026
-2. Validate at least 3 additional weeks including fiscal boundaries
-3. Validate invalid/missing `week_start_date` does not crash and shows em dash (\u2014) fallback
-4. Confirm no additional screen displays stale DB `week_number`/`year` (per Step 1 verification)
-5. Run all existing tests to confirm no regressions
-6. Run new `timesheetWeekDisplay.test.ts` tests
+**New file: `src/components/timesheet/__tests__/TimesheetGrid.activity-transition.test.tsx`**
 
-### Step 7: Documentation and release traceability
+Render real TimesheetGrid with mocked hooks/data. Assert:
+1. Internal engagement selection auto-assigns admin activity
+2. Switching same row Internal->Client clears activity in rendered UI
+3. Required engagement + empty activity disables hour cells
+4. Client->Internal reassigns admin activity
 
-- Add code comment in `timesheetWeekDisplay.ts` noting canonical status and that DB columns are retained for sorting/indexing only
-- Update inline comments in both Approvals pages where `week_number` was previously used
+### Step 7: Submit guard integration test
+
+**Modify file: `src/pages/__tests__/TimeSheet.submit-guards.test.tsx`**
+
+Add test case to existing describe block:
+- "blocks submit when activity-required row has empty activity" -- mock entries with activity_required=true engagement and empty activity_id, verify the guard prevents submit (the i18n key `timesheet.invalidActivityRow` appears)
+
+### Step 8: Changelog append
+
+**File: `docs/CHANGELOG-2026-02-27.md`**
+
+Append after existing BUG 0227-64 entry:
+
+- Bug ID: 0227-67
+- Root cause: inline ternary in handleEngagementChange kept stale ADM activityId when switching to client engagement
+- Files created: `src/lib/timesheetActivityRules.ts`, `src/lib/__tests__/timesheetActivityRules.test.ts`, `src/components/timesheet/__tests__/TimesheetGrid.activity-transition.test.tsx`
+- Files modified: `src/components/timesheet/TimesheetGrid.tsx`, `src/pages/TimeSheet.tsx`, `src/locales/en.json`, `src/locales/es.json`, `src/pages/__tests__/TimeSheet.submit-guards.test.tsx`
+- Function: `normalizeActivityForEngagement(input: NormalizeActivityInput): NormalizeActivityResult`
+- Before: switching internal to client kept "Administrative"; hours saved with wrong activity
+- After: switching to client clears ADM; hour cells disabled until valid activity selected; submit blocked if invalid
+- Tests: 6 unit, 4 component transition, 1 submit-guard
+
+## Target Files
+
+| File | Action |
+|---|---|
+| `src/lib/timesheetActivityRules.ts` | Create |
+| `src/components/timesheet/TimesheetGrid.tsx` | Modify (lines 420-423) |
+| `src/pages/TimeSheet.tsx` | Modify (add toast import + submit guard after line 302) |
+| `src/locales/en.json` | Modify (add key) |
+| `src/locales/es.json` | Modify (add key) |
+| `src/lib/__tests__/timesheetActivityRules.test.ts` | Create |
+| `src/components/timesheet/__tests__/TimesheetGrid.activity-transition.test.tsx` | Create |
+| `src/pages/__tests__/TimeSheet.submit-guards.test.tsx` | Modify (add test) |
+| `docs/CHANGELOG-2026-02-27.md` | Append |
+
+## QA Checklist
+
+1. Internal engagement selected (ADM auto-assigned), switch to client -- activity clears, hour cells disable
+2. Direct client selection -- must select activity before hours
+3. Client to internal -- ADM auto-assigned
+4. Client to client -- current activity preserved
+5. Submit with invalid row -- blocked with toast
+6. Save draft skips empty-activity rows
+7. No regression in row merge/duplicate detection
+
+## Acceptance Criteria
+
+1. Internal->Client clears stale ADM activity immediately
+2. Required-engagement rows with empty/admin activity cannot be submitted
+3. Hour cells blocked when required activity missing
+4. Internal auto-assignment remains intact
+5. Unit + component + submit-guard tests pass
+6. Changelog is detailed and diff-verifiable
 
 ## Changelog Append
 
 **File:** `docs/CHANGELOG-2026-02-27.md`
 
 You need to append to the CHANGELOG a detailed description of the changes made while implementing this Plan. There needs to be sufficient detail to be able to verify if the changes to the codebase correspond to the CHANGELOG.
-
-If the file does not exist, create it and append the new entry in the same run so future updates remain append-only.
-
-Required content in the changelog entry:
-- Bug ID: 0227-64
-- Root cause: Approvals pages rendered `week_number` and `year` from `timesheet_periods` DB column (stale calendar-week values), while Timesheet dynamically computed via `getFiscalWeekNumber()`
-- Files created: `src/lib/timesheetWeekDisplay.ts`, `src/lib/__tests__/timesheetWeekDisplay.test.ts`
-- Files modified: `src/pages/TimesheetApprovals.tsx`, `src/pages/TimesheetApprovalDetail.tsx`
-- Function signature: `getWeekDisplayInfo(weekStartDate: string | null | undefined): WeekDisplayInfo`
-- Before behavior: Approvals showed DB `week_number` (e.g., "Semana 10, 2026")
-- After behavior: Both modules compute via `getFiscalWeekNumber` and show identical values (e.g., "Semana 23, 2026")
-- Defensive behavior: Invalid/null `week_start_date` renders em dash (\u2014) fallback, no crash
-- Test coverage: 9 test cases covering bug reproduction, fiscal boundaries, invalid inputs, and parity checks
-
-## Target Files
-
-| File | Action | Description |
-|---|---|---|
-| `src/lib/timesheetWeekDisplay.ts` | Create | Shared canonical week display helper |
-| `src/pages/TimesheetApprovals.tsx` | Modify | Use helper instead of DB `week_number`/`year` |
-| `src/pages/TimesheetApprovalDetail.tsx` | Modify | Use helper instead of DB `week_number`/`year` |
-| `src/lib/__tests__/timesheetWeekDisplay.test.ts` | Create | Regression tests |
-| `docs/CHANGELOG-2026-02-27.md` | Append (create if missing) | Changelog entry for BUG 0227-64 |
-
-## Acceptance Criteria
-
-1. For 02/03/2026 -- 06/03/2026, both Hoja de Tiempo and Aprobaciones display the same week number and year context (Semana 23, 2026)
-2. Approvals UI no longer uses DB `week_number`/`year` as authoritative display values
-3. Invalid or missing `week_start_date` never crashes the UI; fallback em dash (\u2014) is shown
-4. Regression tests cover bug case, fiscal boundaries, invalid inputs, and parity checks against `getFiscalWeekNumber`
-5. All discovered `week_number` display paths from repository-wide verification use canonical helper logic
-6. Changelog entry is detailed enough to map changes directly to code
-
-## Risks and Mitigations
-
-| Risk | Mitigation |
-|---|---|
-| `parseDateLocal` already used in both files | No new dependency; established pattern |
-| Stored `week_number` becomes vestigial for display | Field retained for DB sorting/indexing; JSDoc documents non-authoritative status |
-| Fiscal year display differs from stored calendar year in Oct-Dec | Intentional and correct: fiscal week numbering requires fiscal year context. Verified that WeekNavigator (Timesheet) does not display year alongside week number, so no cross-screen mismatch |
-| Hidden stale display paths missed | Step 1 verification searched entire codebase; only two Approvals pages render DB `week_number` for display |
 
