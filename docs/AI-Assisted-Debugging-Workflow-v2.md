@@ -1,614 +1,419 @@
-# AI-Assisted Debugging Workflow v2.0
+# AI-Assisted Bug Fix Workflow
 
-**Version:** 2.0
-**Date:** February 2026
+## A Systematic Approach to Debugging Web Applications Using Lovable.dev, Claude Code, and OpenAI Codex
+
+**Version:** 2.0  
+**Last Updated:** March 2026  
 **Author:** SERGIO RUIZ-MIER
-**Project:** EMS 2.0 -- Engagement Management System
 
 ---
 
 ## Executive Summary
 
-This document describes the **three-AI debugging workflow** refined through five development sessions in February 2026, processing 27+ bugs across the EMS 2.0 codebase. The workflow uses three complementary AI systems -- Claude Opus 4.6 Extended for analysis, OpenAI GPT-5.2 Extended (CODEX) for independent arbitration, and Lovable for iterative plan refinement and implementation -- connected by a **version loop** that drives plan quality until CODEX approves.
-
-The key innovation over v1.0 is the CODEX arbitration loop: rather than a single AI generating a plan and implementing it, two AIs independently produce plans, a third compares and merges them, and the system iterates through versioned refinements (v2, v3, v4...) until the arbiter is satisfied. Evidence from production use shows plans reaching v5 before implementation.
+This document describes a systematic workflow for triaging, planning, and resolving bugs in a web application using a three-model AI-assisted development pipeline. The workflow leverages **Lovable.dev** as the sole implementation engine, **Claude Code** for an independent analysis plan, and **OpenAI Codex** as the central arbiter that synthesizes and iterates plans to convergence. All three AI agents operate against the same GitHub repository, but only Lovable.dev is authorized to modify code on Main.
 
 ---
 
 ## Workflow Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                     THREE-AI DEBUGGING WORKFLOW                     │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│  DEVELOPER submits bug JSON                                         │
-│       │                                                             │
-│       ▼                                                             │
-│  ┌──────────────────┐                                               │
-│  │  CLAUDE OPUS 4.6 │──── Analyzes codebase, triages bugs           │
-│  │    (Analyst)     │──── Generates OPUS_PLAN                       │
-│  └────────┬─────────┘                                               │
-│           │                                                         │
-│           ▼                                                         │
-│  ┌──────────────────┐                                               │
-│  │     LOVABLE      │──── Reviews in Plan Mode                      │
-│  │  (Plan Engine)   │──── Generates LOVABLE_PLAN                    │
-│  └────────┬─────────┘                                               │
-│           │                                                         │
-│           ▼                                                         │
-│  ┌──────────────────┐                                               │
-│  │   CODEX (GPT-5.2)│──── Compares OPUS_PLAN vs LOVABLE_PLAN        │
-│  │    (Arbiter)     │──── Merges best ideas, gives feedback         │
-│  └────────┬─────────┘                                               │
-│           │                                                         │
-│           ▼                                                         │
-│  ┌──────────────────────────────────────────────┐                   │
-│  │            VERSION LOOP                      │                   │
-│  │                                              │                   │
-│  │  ┌────────────┐    verify    ┌────────────┐  │                   │
-│  │  │ CLAUDE OPUS │◄───────────│  DEVELOPER  │  │                   │
-│  │  │ (Verifier)  │            │  (Router)   │  │                   │
-│  │  └──────┬─────┘             └──────┬──────┘  │                   │
-│  │         │ comments                 │         │                   │
-│  │         ▼                          │         │                   │
-│  │  ┌────────────┐   next     ┌──────┴──────┐   │                   │
-│  │  │  LOVABLE   │──version──►│   CODEX     │   │                   │
-│  │  │ (Iterator) │  (v2,v3)   │ (Approver)  │   │                   │
-│  │  └────────────┘            └─────────────┘   │                   │
-│  │                                              │                   │
-│  │  REPEAT until CODEX approves                 │                   │
-│  └──────────────────────────────┬───────────────┘                   │
-│                                 │                                   │
-│                                 ▼                                   │
-│  ┌──────────────────┐                                               │
-│  │     LOVABLE      │──── Implements final approved plan            │
-│  │ (Implementor)    │──── (e.g., v4)                                │
-│  └──────────────────┘                                               │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                     AI-ASSISTED BUG FIX WORKFLOW v2.0                           │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│  ┌──────────────┐     ┌──────────────┐     ┌──────────────┐                     │
+│  │   QA Team    │────▶│  Bug JSON +  │────▶│   LOVABLE    │                     │
+│  │   Testing    │     │  Screenshot  │     │  Plan v1     │                     │
+│  └──────────────┘     └──────────────┘     └──────┬───────┘                     │
+│                              │                    │                             │
+│                     ┌────────┴────────┐           │                             │
+│                     ▼                 ▼           │                             │
+│              ┌──────────────┐  ┌──────────────┐   │                             │
+│              │ CLAUDE CODE  │  │    CODEX     │   │                             │
+│              │ Plan (1x)    │  │   Own Plan   │   │                             │
+│              └──────┬───────┘  └──────┬───────┘   │                             │
+│                     │                 │           │                             │
+│                     └────────┬────────┘           │                             │
+│                              ▼                    │                             │
+│                     ┌──────────────────┐          │                             │
+│                     │  CODEX Compares  │◀─────────┘                             │
+│                     │  All 3 Plans     │                                        │
+│                     └────────┬─────────┘                                        │
+│                              ▼                                                  │
+│                     ┌──────────────────┐                                        │
+│                     │ CODEX Outputs:   │                                        │
+│                     │  • Best Plan JSON│                                        │
+│                     │  • Lovable Prompt│                                        │
+│                     └────────┬─────────┘                                        │
+│                              ▼                                                  │
+│              ┌──────────────────────────────────┐                               │
+│              │     PLAN ITERATION LOOP          │                               │
+│              │                                  │                               │
+│              │  LOVABLE ◀──────▶ CODEX          │                               │
+│              │  (Plan vN)       (Verify/Revise) │                               │
+│              │                                  │                               │
+│              │  Repeat until CODEX approves     │                               │
+│              └──────────────┬───────────────────┘                               │
+│                             ▼                                                   │
+│              ┌──────────────────────────────────┐                               │
+│              │  Backup Plan to .docx            │                               │
+│              │  LOVABLE executes final Plan     │                               │
+│              │  CHANGELOG appended to codebase  │                               │
+│              └──────────────────────────────────┘                               │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## Roles and Constraints
+
+| Agent | Role | Repo Access | Can Modify Code? |
+|-------|------|-------------|------------------|
+| **Lovable.dev** | Implementation engine; creates and executes plans | Yes (Main) | **Yes** — sole authority |
+| **Claude Code** | Independent plan generation (one shot) | Yes (Main, PLAN_MODE only) | No |
+| **OpenAI Codex** | Central arbiter; compares, iterates, approves plans | Yes (Main, PLAN_MODE only) | No |
+
+Key constraint: **All code changes to the Main branch are made exclusively through Lovable.dev.** Claude Code and Codex are used only in plan/analysis mode.
+
+Note on cost: Claude Code produces only one plan per bug due to cost considerations. The iteration loop runs between Lovable and Codex.
 
 ---
 
 ## Phase 1: Bug Submission
 
-The developer submits bugs as structured JSON. This format is unchanged from v1.0 and has proven reliable across 27+ bugs.
+### 1.1 QA Team Prepares Bug List
 
-### Bug JSON Structure
+The testing team documents all discovered bugs in a structured JSON format. Each bug is a JSON object in a list stored in a text or `.docx` file. Related screenshots are stored in a shared folder, with filenames matching the bug ID.
+
+### 1.2 Bug JSON Structure
 
 ```json
-{
-  "bugs": [
-    {
-      "id": "MMDD-NN",
-      "title": "Short descriptive title",
-      "severity": "critical | high | medium | low",
-      "steps_to_reproduce": [
-        "Step 1",
-        "Step 2",
-        "Step 3"
-      ],
-      "expected_behavior": "What should happen",
-      "actual_behavior": "What actually happens",
-      "affected_area": "Module or component name",
-      "notes": "Any additional context, screenshots, or observations"
-    }
-  ]
-}
+[
+  {
+    "ID": "0213-36",
+    "FECHA": "2026-02-13",
+    "TIPO DE ERROR": "Funcional",
+    "TITULO": "Horas de socio",
+    "VERSION": "v2.0.4",
+    "DESCRIPCION": "Detailed description of the bug...",
+    "SUGERENCIA": null,
+    "CAPTURA": "0213-36.png",
+    "RUTA": "OPERACIONES-Hoja de Tiempo",
+    "USUARIO SIS": "jyujra",
+    "PRIORIDAD": "Media",
+    "ESTADO": "Abierto",
+    "TESTER": "juanyujra"
+  }
+]
 ```
 
-### Bug ID Format
+### 1.3 Field Definitions
 
-v2.0 uses **session-scoped IDs** in the format `MMDD-NN`:
+| Field | Type | Description |
+|-------|------|-------------|
+| `ID` | String | Unique bug identifier (format: MMDD-NN) |
+| `FECHA` | Date (YYYY-MM-DD) | Date bug was discovered |
+| `TIPO DE ERROR` | Enum | Category: Funcional, UI, Seguridad, Datos, Consulta |
+| `TITULO` | String | Short descriptive title of the bug |
+| `VERSION` | String/Null | Application version where bug exists |
+| `DESCRIPCION` | String | Detailed description with context, module, affected functionality, and root problem |
+| `SUGERENCIA` | String/Null | Optional suggestion from the tester on how to fix |
+| `CAPTURA` | Filename/Null | Screenshot filename (stored in shared folder, matches bug ID) |
+| `RUTA` | String | Navigation path in the app where the bug is found |
+| `USUARIO SIS` | String/Null | System username that encountered the bug |
+| `PRIORIDAD` | Enum | Priority: Alta (High), Media (Medium), Baja (Low) |
+| `ESTADO` | Enum | Status: Abierto (Open), En Progreso, Cerrado |
+| `TESTER` | String | Name of QA team member who reported |
 
-- `MMDD` = month and day of the debugging session
-- `NN` = sequential number within that session
+### 1.4 Screenshots
 
-Examples: `0213-27` (Feb 13, bug 27), `0213-43` (Feb 13, bug 43), `0217-01` (Feb 17, bug 1).
-
-This format provides natural chronological ordering and session grouping without requiring a global counter.
+Screenshots are kept in a shared folder. The filename corresponds to the `CAPTURA` field in the bug JSON (e.g., bug `"ID": "0213-36"` maps to `0213-36.png`). The screenshot is manually loaded into Lovable alongside the bug JSON at the start of each debugging session.
 
 ---
 
-## Phase 2: Claude Project Setup
+## Phase 2: Parallel Plan Generation
 
-### Model
+Each debugging session targets a single bug. The bug's JSON and screenshot are fed to three AI agents in parallel.
 
-**Claude Opus 4.6 Extended** -- selected for deep codebase analysis, long context window, and structured plan generation.
+### 2.1 Lovable Plan v1
 
-### Knowledge Base
+Open Lovable.dev in planning mode. Use the following prompt template, replacing `XXXXXXXXXXX` with the bug's JSON and attaching the corresponding screenshot:
 
-Upload the following artifacts to the Claude project:
+```
+Prepare Plan v1 considering BUG=[XXXXXXXXXXX]. Never output partial plans.
+Always a complete immediately implementable plan.
 
-| Artifact | Purpose |
-|----------|---------|
-| `src/integrations/supabase/types.ts` | Database schema (tables, views, functions, enums) |
-| `docs/database-schema.sql` | Full DDL with RLS policies and triggers |
-| `supabase/ems-er-diagram.md` | Entity-relationship diagram |
-| `docs/access_rules.md` | Role-based access control matrix |
-| Lovable Custom Knowledge block | Business rules and coding conventions |
-| Relevant changelogs | Prior fix history for context |
+First make a plan do not make the changes until I have a chance to review
+the plan and tell you to proceed. Please provide a Complete Plan.
+```
 
-### Initial Prompt
+This produces `LOVABLE_PLAN_v1`.
 
-Provide Claude with:
+### 2.2 Claude Code Plan
 
-1. The bug JSON batch
-2. A request to analyze the codebase against the bugs
-3. Instructions to generate a structured fix plan
+In a separate window, with Claude Code connected to the GitHub repo (Main) in **PLAN_MODE**, provide the same bug JSON and screenshot. Let Claude Code produce its own independent plan. This produces `CLAUDE_PLAN`.
+
+Claude Code is used only once per bug (due to cost). It does not participate in the iteration loop.
+
+### 2.3 Codex Own Plan
+
+In a separate Codex window (also connected to the GitHub repo in plan mode), Codex independently develops its own plan from the same bug input. This gives Codex its own perspective before comparing all three.
 
 ---
 
-## Phase 3: Codebase Analysis
+## Phase 3: Plan Synthesis in Codex
 
-Claude Opus analyzes the codebase using the Knowledge Base artifacts. Key analysis areas:
+### 3.1 Three-Way Comparison
 
-| Area | What Claude Examines |
-|------|---------------------|
-| Schema | Table relationships, RLS policies, view definitions |
-| Hooks | Data fetching patterns, mutation hooks, query invalidation |
-| Components | Form logic, state management, conditional rendering |
-| Business rules | Rate locking, fiscal year calculations, realization formulas |
-| Access control | Role checks, policy enforcement, auth flow |
+Centralize all plans in the Codex window. Use this prompt:
 
-### Lovable Custom Knowledge
+```
+Use your plan and compare it to these two other plans
 
-The Lovable instance has a **Custom Knowledge** block containing EMS 2.0 business rules, coding conventions, and architectural constraints. This ensures Lovable's plan generation respects project-specific rules such as:
+LOVABLE_PLAN=[LLLLLLLL];
 
-- Rate locking at Work Order creation
-- Fiscal year rule (Oct 1 -- Sep 30)
-- Realization calculated from fees, not hours
-- 1 Engagement = 1 Work Order (addendum model)
-- Semantic Tailwind tokens only (no hardcoded colors)
-- `sonner` for toasts, `NumericInput` for numeric fields
+CLAUDE_CODE_PLAN=[CCCCCCC]
+
+The purpose of this comparison is to determine which aspect of which plan
+would yield the best plan to fix the issues. Best plan being the one that
+results in the most resilient software. We want consistency, compactness,
+no AI SLOP, foolproof code that never breaks, even if the user is an idiot
+and tries hard to break it.
+```
+
+### 3.2 Review and Refine
+
+Review Codex's findings. Ask follow-up questions or provide suggestions until satisfied with the synthesized approach.
+
+### 3.3 Export Final Plan and Lovable Prompt
+
+Once satisfied, prompt Codex:
+
+```
+Give me a Complete Plan in a JSON format. In a separate JSON write a Prompt
+for LOVABLE instructing it to change its PLAN to your new plan.
+```
+
+Codex outputs two artifacts: `CODEX_JSON_PLAN` and `CODEX_JSON_PROMPT`.
 
 ---
 
-## Phase 4: Bug Analysis and Triage
+## Phase 4: Plan Iteration Loop (Lovable ↔ Codex)
 
-Claude Opus processes the bug batch and produces:
+### 4.1 Feed Codex Output to Lovable
 
-1. **Root cause analysis** for each bug
-2. **Severity confirmation** or adjustment
-3. **Dependency mapping** between bugs (which fixes must precede others)
-4. **Cluster grouping** -- bugs sharing root causes are grouped for efficient fixing
-
-### Triage Output Format
+Insert the two Codex JSON artifacts into Lovable using this prompt:
 
 ```
-Bug MMDD-NN: [Title]
-  Severity: [confirmed or adjusted]
-  Root Cause: [technical explanation]
-  Affected Files: [list]
-  Dependencies: [other bug IDs, if any]
-  Cluster: [cluster name, if applicable]
+Prepare the next version of the plan (Next version always means if current
+version is v(X) next= v(X+1) where X is an integer, so if v1 then next is v2,
+etc.) considering CODEX=[CODEX_JSON_PROMPT; CODEX_JSON_PLAN]. Never output
+partial plans. Always a complete immediately implementable plan.
+
+First make a plan do not make the changes until I have a chance to review
+the plan and tell you to proceed. Please provide a Complete Plan.
 ```
 
-### Batch Processing
+Lovable returns the next plan version (e.g., `LOVABLE_PLAN_v2`).
 
-Bugs are processed in batches per session. A typical session handles 10-17 bugs. Claude analyzes the full batch before generating any plans, ensuring cross-bug dependencies are identified.
+### 4.2 Codex Verifies Lovable's Updated Plan
 
----
-
-## Phase 5: Fix Plan Generation (OPUS_PLAN)
-
-Claude Opus generates the **OPUS_PLAN** -- a structured fix plan for each bug or bug cluster.
-
-### Plan Format
-
-Plans follow the naming convention: `Plan_MMDD-NN_vX`
-
-- `MMDD-NN` = bug ID (or cluster ID like `MMDD-NN_C01`)
-- `vX` = version number (starts at v1)
-
-### Plan Structure
-
-Each plan contains:
-
-| Section | Content |
-|---------|---------|
-| Bug Reference | ID, title, severity |
-| Root Cause | Technical explanation with code references |
-| Solution | Step-by-step fix description |
-| Files Summary | Table of files with action (MODIFY/CREATE/DELETE) and description |
-| Risk Assessment | Impact analysis and rollback considerations |
-| Dependencies | Prerequisites from other bugs |
-
-### Files Summary Table
-
-```
-| # | File | Action | Description |
-|---|------|--------|-------------|
-| 1 | src/hooks/useExample.ts | MODIFY | Add null check for edge case |
-| 2 | src/components/ExampleForm.tsx | MODIFY | Update validation logic |
-| 3 | src/lib/calculations.ts | MODIFY | Fix formula for realization |
-```
-
----
-
-## Phase 6: Lovable Plan Review (LOVABLE_PLAN)
-
-The developer pastes the OPUS_PLAN into Lovable using **Plan Mode** (read-only review mode).
-
-### Process
-
-1. Developer enters Plan Mode in Lovable
-2. Pastes the OPUS_PLAN for review
-3. Lovable generates its own interpretation: the **LOVABLE_PLAN**
-4. LOVABLE_PLAN may differ from OPUS_PLAN in:
-   - Implementation approach
-   - File selection
-   - Risk assessment
-   - Additional edge cases identified
-   - Alternative architectural choices
-
-### Why Two Plans?
-
-Each AI has different strengths:
-
-| Strength | Claude Opus | Lovable |
-|----------|-------------|---------|
-| Deep schema analysis | Strong | Moderate |
-| Live codebase access | Via artifacts | Direct (current code) |
-| Business rule awareness | Via Knowledge Base | Via Custom Knowledge |
-| Implementation feasibility | Theoretical | Practical (will execute) |
-| Cross-file impact analysis | Strong | Strong |
-
-Having both plans exposes blind spots that a single AI would miss.
-
----
-
-## Phase 7: CODEX Arbitration and Version Loop
-
-This is the **critical quality gate** that distinguishes v2.0 from v1.0.
-
-### The Three-AI Version Loop
-
-```
-Step 1: Claude Opus generates OPUS_PLAN
-Step 2: Lovable generates LOVABLE_PLAN (its own interpretation)
-Step 3: Developer feeds BOTH plans to CODEX (GPT-5.2 Extended)
-Step 4: CODEX compares, merges best ideas, gives feedback
-        --> CODEX may produce a merged JSON or annotated corrections
-Step 5: Developer prompts Claude Opus:
-        "Please verify against requirements and comment or approve
-         LOVABLE=[CODEX output / merged plan]"
-Step 6: LOVABLE produces next version (v2, v3, etc.) with CODEX input
-Step 7: Developer feeds new version back to CODEX
-Step 8: REPEAT steps 5-7 until CODEX is satisfied
-Step 9: Final approved version (e.g., v4) is implemented by Lovable
-```
-
-### Role Clarification
-
-| Role in Loop | AI | Action |
-|--------------|-----|--------|
-| Iterating engine | Lovable | Produces each subsequent plan version (v2, v3, v4...) incorporating CODEX feedback |
-| Verification checkpoint | Claude Opus | Reviews CODEX output against requirements, comments or approves |
-| Arbiter / Approver | CODEX (GPT-5.2) | Compares plans, merges ideas, drives loop until satisfied |
-| Router | Developer | Feeds outputs between the three AIs |
-
-### CODEX Prompt Format
-
-When feeding plans to CODEX:
-
-```
-Here are two plans for bug MMDD-NN:
-
-OPUS_PLAN:
-[paste Claude's plan]
-
-LOVABLE_PLAN:
-[paste Lovable's plan]
-
-Please compare these plans, identify the strongest elements of each,
-and produce a merged recommendation or corrections.
-```
-
-### Claude Verification Prompt Format
-
-When feeding CODEX output back to Claude:
+Feed the new Lovable plan back to Codex for verification:
 
 ```
 Please verify against requirements and comment or approve
-LOVABLE=[CODEX merged output or corrections]
+LOVABLE_PLAN=[XXXX]. Do not make "suggestions". If something is important
+prepare and include it in the Complete Plan you will output in this chat,
+if not important, then do not.
 ```
 
-### Version Loop Evidence
+### 4.3 Iterate Until Approval
 
-Real examples from EMS 2.0 development:
+Repeat steps 4.1 and 4.2. Each cycle increments the plan version (v2 → v3 → v4 ...). The loop ends when Codex approves the plan with no remaining issues.
 
-| Plan ID | Iterations | Final Version |
-|---------|------------|---------------|
-| `Plan_0213-27_C01` | 5 rounds | v5 |
-| `Plan_0213-43` | 4 rounds | v4 |
-| `Plan_0213-27_C03` | 2 rounds | v2 |
-
-The number of iterations varies by complexity. Simple bugs may converge at v2; complex architectural changes may require v4 or v5.
+Typical convergence: **3–5 iterations**. Occasionally 9+ iterations, which may indicate prompting or bug-complexity issues.
 
 ---
 
-## Phase 8: Implementation
+## Phase 5: Plan Backup and Execution
 
-Once CODEX approves the final plan version, Lovable implements it.
+### 5.1 Backup the Approved Plan
 
-### Process
+Once Codex approves, copy the final plan into a `.docx` file. This serves as the Plans Backup archive.
 
-1. Developer confirms the approved plan in Lovable
-2. Lovable exits Plan Mode and enters Implementation Mode
-3. Code changes are applied file by file
-4. Lovable reports changes made and any deviations from the plan
+### 5.2 Execute in Lovable
 
-### Implementation Notes
+Instruct Lovable to execute the approved plan. The plan always includes a final step that appends a changelog entry to the codebase:
 
-- Lovable implements the **final approved version** (e.g., v4), not earlier drafts
-- If implementation reveals issues not covered by the plan, a delta plan is created (see Phase 10)
-- All changes respect the Custom Knowledge constraints (semantic tokens, component conventions, etc.)
+```
+Changelog Append
+File: docs/CHANGELOG-YYYY-MM-DD.md
 
----
-
-## Phase 9: Changelog Documentation
-
-Every implementation session produces a changelog entry following the standardized format.
-
-### Changelog File Naming
-
-`docs/CHANGELOG-YYYY-MM-DD.md` -- one file per session date.
-
-### Entry Format
-
-Each bug fix is documented with:
-
-```markdown
-### Bug MMDD-NN: [Title]
-
-**Problem:** [Observable symptom]
-
-**Root Cause:** [Technical explanation of why the bug occurred]
-
-**Solution:** [What was changed and why]
-
-**Files Changed:**
-
-| File | Change |
-|------|--------|
-| `src/path/to/file.ts` | Description of change |
-
-**Risk Assessment:** [Impact analysis, edge cases considered, rollback plan]
-
-**Plan Version:** Plan_MMDD-NN_vX (X iterations)
+You need to append to the CHANGELOG a detailed description of the changes
+made while implementing this Plan. There needs to be sufficient detail to
+be able to verify if the changes to the codebase correspond to the CHANGELOG.
 ```
 
-### Documentation Rule
+### 5.3 Verify Execution
 
-The changelog entry is a **mandatory final step** of every implementation. It provides:
-
-- Audit trail for the firm
-- Institutional memory for future debugging sessions
-- Evidence of the plan version that was implemented
-- Risk assessment for change management
+After Lovable completes execution, review the CHANGELOG and the implemented changes to confirm the bug fix matches the approved plan.
 
 ---
 
-## Phase 10: Verification and Iteration
+## Manual Steps Summary
 
-After implementation, the developer verifies the fix.
+The following steps in this workflow are currently performed manually and represent automation opportunities for future versions:
 
-### Verification Steps
-
-1. Test the specific reproduction steps from the bug JSON
-2. Test related functionality for regressions
-3. Review console for errors or warnings
-4. Verify mobile responsiveness if UI changes were made
-
-### Delta Handling
-
-If verification reveals remaining issues:
-
-1. Document the delta (what still needs fixing)
-2. Create a new bug entry or update the existing one
-3. Re-enter the workflow at Phase 5 (plan generation)
-4. The delta plan follows the same versioning: `Plan_MMDD-NN_vX+1`
-
-### Post-Implementation Iteration
-
-In practice, some bugs require a second pass. The version loop ensures that even delta plans go through CODEX arbitration before implementation.
+1. Extracting individual bug JSON from the bug list file
+2. Locating and loading the corresponding screenshot from the shared folder
+3. Pasting the bug JSON into Lovable's prompt
+4. Copy-pasting plans between Lovable, Claude Code, and Codex windows
+5. Copy-pasting Codex's JSON outputs back into Lovable
+6. Copying the approved plan into a .docx backup file
+7. Monitoring the iteration loop and deciding when to stop
 
 ---
 
 ## Best Practices
 
-Lessons learned from 27+ bugs across 5 sessions in February 2026.
+### For QA Teams
 
-### Bug Submission
+1. **Be Specific:** Include exact steps to reproduce in `DESCRIPCION`
+2. **Add Screenshots:** Name them to match the bug `ID` and place in the shared folder
+3. **Note Context:** Include module, user profile, affected functionality, and navigation path in `RUTA`
+4. **Prioritize Honestly:** Not everything is "Alta"
+5. **Use SUGERENCIA:** If the tester has an idea for a fix, include it
 
-1. **Be specific in reproduction steps.** Vague steps waste analysis cycles.
-2. **Include the affected area.** This helps Claude focus its codebase analysis.
-3. **Note severity honestly.** Over-inflating severity dilutes triage effectiveness.
-4. **Batch related bugs.** Submit bugs from the same area together for cluster analysis.
+### For Plan Generation
 
-### Plan Generation
+1. **One Bug at a Time:** Each debugging session targets a single bug
+2. **Let All Three Agents Work Independently First:** Don't bias Claude Code or Codex with Lovable's plan before they produce their own
+3. **Be Explicit About Resilience:** The goal is foolproof, compact code — emphasize this in prompts
+4. **Don't Accept Partial Plans:** Always require complete, immediately implementable plans
 
-5. **Trust the version loop.** Early versions are drafts, not failures. The loop is designed to refine.
-6. **Let CODEX drive convergence.** Do not short-circuit the loop by implementing v1.
-7. **Include risk assessment.** Every plan must state what could go wrong.
-8. **Use structured tables.** File summaries as tables prevent ambiguity.
+### For the Iteration Loop
 
-### Implementation
+1. **Trust the Process:** Let Codex be the arbiter — don't skip verification steps
+2. **Track Version Numbers:** Plan versions increment sequentially (v1, v2, v3...)
+3. **If Iterations Exceed 5:** Re-examine the bug description for ambiguity or consider splitting the bug
+4. **Keep Claude Code to One Shot:** It provides a valuable independent perspective without the cost of iteration
 
-9. **Implement the approved version only.** Never mix elements from different versions.
-10. **Respect Custom Knowledge.** Lovable's business rules exist to prevent regressions.
-11. **Document deviations.** If implementation diverges from the plan, record why.
+### For Execution
 
-### Documentation
-
-12. **Write the changelog immediately.** Do not defer documentation to a later session.
-13. **Include the plan version number.** This creates traceability from bug to plan to implementation.
-14. **Record the iteration count.** Future sessions benefit from knowing which bugs required extensive refinement.
+1. **Always Backup the Plan:** Save to `.docx` before letting Lovable execute
+2. **Require the Changelog Step:** Every plan must end with the changelog append
+3. **Verify Against the Plan:** Compare the CHANGELOG output to the approved plan to confirm completeness
 
 ---
 
-## Appendix A: Bug JSON Template
+## Tools & Resources
+
+| Tool | Purpose | Repo Access | Link |
+|------|---------|-------------|------|
+| Lovable.dev | Implementation (sole code authority) | Main (read/write) | lovable.dev |
+| Claude Code | Independent plan generation (1x per bug) | Main (PLAN_MODE, read-only) | — |
+| OpenAI Codex | Plan synthesis, iteration, and approval | Main (PLAN_MODE, read-only) | — |
+| GitHub | Version control | Main branch | github.com |
+
+---
+
+## Appendix: Prompt Templates
+
+### A. Lovable — Initial Plan (v1)
+
+```
+Prepare Plan v1 considering BUG=[{BUG_JSON}]. Never output partial plans.
+Always a complete immediately implementable plan.
+
+First make a plan do not make the changes until I have a chance to review
+the plan and tell you to proceed. Please provide a Complete Plan.
+```
+
+### B. Codex — Three-Way Comparison
+
+```
+Use your plan and compare it to these two other plans
+
+LOVABLE_PLAN=[{LOVABLE_PLAN}];
+
+CLAUDE_CODE_PLAN=[{CLAUDE_PLAN}]
+
+The purpose of this comparison is to determine which aspect of which plan
+would yield the best plan to fix the issues. Best plan being the one that
+results in the most resilient software. We want consistency, compactness,
+no AI SLOP, foolproof code that never breaks, even if the user is an idiot
+and tries hard to break it.
+```
+
+### C. Codex — Export Plan + Lovable Prompt
+
+```
+Give me a Complete Plan in a JSON format. In a separate JSON write a Prompt
+for LOVABLE instructing it to change its PLAN to your new plan.
+```
+
+### D. Lovable — Iterate Plan
+
+```
+Prepare the next version of the plan (Next version always means if current
+version is v(X) next= v(X+1) where X is an integer, so if v1 then next
+is v2, etc.) considering CODEX=[{CODEX_JSON_PROMPT}; {CODEX_JSON_PLAN}].
+Never output partial plans. Always a complete immediately implementable plan.
+
+First make a plan do not make the changes until I have a chance to review
+the plan and tell you to proceed. Please provide a Complete Plan.
+```
+
+### E. Codex — Verify Lovable Plan
+
+```
+Please verify against requirements and comment or approve
+LOVABLE_PLAN=[{LOVABLE_PLAN_vN}]. Do not make "suggestions". If something
+is important prepare and include it in the Complete Plan you will output
+in this chat, if not important, then do not.
+```
+
+### F. Changelog Append (Included in Every Plan)
+
+```
+Changelog Append
+File: docs/CHANGELOG-YYYY-MM-DD.md
+
+You need to append to the CHANGELOG a detailed description of the changes
+made while implementing this Plan. There needs to be sufficient detail to
+be able to verify if the changes to the codebase correspond to the CHANGELOG.
+```
+
+### G. Bug Report Template (for QA)
 
 ```json
 {
-  "session": "YYYY-MM-DD",
-  "submitted_by": "Developer Name",
-  "bugs": [
-    {
-      "id": "MMDD-NN",
-      "title": "",
-      "severity": "critical | high | medium | low",
-      "steps_to_reproduce": [],
-      "expected_behavior": "",
-      "actual_behavior": "",
-      "affected_area": "",
-      "notes": ""
-    }
-  ]
+  "ID": "",
+  "FECHA": "YYYY-MM-DD",
+  "TIPO DE ERROR": "",
+  "TITULO": "",
+  "VERSION": "",
+  "DESCRIPCION": "",
+  "SUGERENCIA": null,
+  "CAPTURA": "",
+  "RUTA": "",
+  "USUARIO SIS": "",
+  "PRIORIDAD": "",
+  "ESTADO": "Abierto",
+  "TESTER": ""
 }
 ```
 
 ---
 
-## Appendix B: Plan Template
+## Version History
 
-```markdown
-# Plan_MMDD-NN_vX
-
-## Bug Reference
-- **ID:** MMDD-NN
-- **Title:** [title]
-- **Severity:** [severity]
-
-## Root Cause
-[Technical explanation with specific code references]
-
-## Solution
-[Step-by-step description of the fix]
-
-## Files Summary
-
-| # | File | Action | Description |
-|---|------|--------|-------------|
-| 1 | path/to/file | MODIFY/CREATE/DELETE | What changes |
-
-## Risk Assessment
-- **Impact:** [What areas are affected]
-- **Edge Cases:** [What could go wrong]
-- **Rollback:** [How to revert if needed]
-
-## Dependencies
-- [Other bug IDs that must be fixed first, if any]
-```
+| Version | Date | Changes |
+|---------|------|---------|
+| 1.0 | January 2026 | Initial workflow documentation (single-model Claude approach) |
+| 2.0 | March 2026 | Rewritten for three-model pipeline (Lovable + Claude Code + Codex); added plan iteration loop, prompt templates, manual steps summary |
 
 ---
 
-## Appendix C: Changelog Entry Template
-
-```markdown
-### Bug MMDD-NN: [Title]
-
-**Problem:** [Observable symptom as reported]
-
-**Root Cause:** [Why the bug occurred -- technical explanation]
-
-**Solution:** [What was changed and the rationale]
-
-**Files Changed:**
-
-| File | Change |
-|------|--------|
-| `src/path/file.ts` | Description |
-
-**Risk Assessment:** [Impact, edge cases, rollback considerations]
-
-**Plan Version:** Plan_MMDD-NN_vX (X iterations)
-```
-
----
-
-## Appendix D: CODEX Arbitration Syntax
-
-### Initial Comparison Prompt (to CODEX)
-
-```
-Here are two plans for bug MMDD-NN:
-
-OPUS_PLAN:
-[full plan text]
-
-LOVABLE_PLAN:
-[full plan text]
-
-Please compare these plans. For each section, identify which plan
-has the stronger approach and why. Produce a merged recommendation
-that combines the best elements of both.
-```
-
-### Verification Prompt (to Claude Opus)
-
-```
-Please verify against requirements and comment or approve
-LOVABLE=[CODEX merged output]
-```
-
-### Iteration Prompt (to Lovable)
-
-```
-CODEX feedback on your plan v[N]:
-[paste CODEX feedback]
-
-Claude Opus comments:
-[paste Claude verification output]
-
-Please produce plan v[N+1] incorporating this feedback.
-```
-
-### Approval Signal (from CODEX)
-
-CODEX signals approval when it determines no further improvements are needed. The developer recognizes this when CODEX's response contains no correction requests and affirms the plan is ready for implementation.
-
----
-
-## Appendix E: Lovable Knowledge Base Template
-
-The Lovable Custom Knowledge block should contain project-specific rules that govern plan generation and implementation. Template:
-
-```
-# [Project Name] -- Lovable Knowledge (Always-On)
-
-## Product
-[One-line description]
-
-## Stack and Architecture
-- Frontend: [framework, libraries]
-- Data fetching: [state management approach]
-- Backend: [database, auth, edge functions]
-- i18n: [internationalization setup]
-- Styling: [design system approach]
-
-## Non-Negotiable Business Rules
-- [Rule 1: with specific technical constraint]
-- [Rule 2: with specific technical constraint]
-- [Rule N: with specific technical constraint]
-
-## Key Component Conventions
-- [Convention 1: e.g., toast library]
-- [Convention 2: e.g., numeric input component]
-- [Convention N: e.g., table styling class]
-
-## Formatting and UI Rules
-- [Date format]
-- [Number locale]
-- [Color system rule]
-
-## Definitions
-- [Term 1: definition]
-- [Term N: definition]
-```
-
----
-
-*End of document.*
+*This workflow was developed through practical application on production web applications and refined through multiple iteration cycles.*
