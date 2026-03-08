@@ -1,0 +1,33 @@
+name: CODEX Sync Event
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  notify-codex:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build payload
+        id: payload
+        run: |
+          cat > payload.json << 'EOF'
+          {
+            "repository": "${{ github.repository }}",
+            "branch": "${{ github.ref_name }}",
+            "commit_sha": "${{ github.sha }}",
+            "commit_url": "https://github.com/${{ github.repository }}/commit/${{ github.sha }}",
+            "pusher": "${{ github.actor }}",
+            "timestamp": "${{ github.event.head_commit.timestamp }}",
+            "message": "${{ github.event.head_commit.message }}"
+          }
+          EOF
+          cat payload.json
+
+      - name: Send webhook to CODEX sync endpoint
+        run: |
+          curl -sS -X POST "${{ secrets.CODEX_SYNC_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -H "X-Codex-Token: ${{ secrets.CODEX_SYNC_WEBHOOK_TOKEN }}" \
+            --data @payload.json
