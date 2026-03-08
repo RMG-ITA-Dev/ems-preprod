@@ -10,7 +10,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Build payload
-        id: payload
         run: |
           cat > payload.json << 'EOF'
           {
@@ -23,13 +22,10 @@ jobs:
             "message": "${{ github.event.head_commit.message }}"
           }
           EOF
-          cat payload.json
 
       - name: Send webhook to CODEX sync endpoint
         run: |
-          curl -sS -X POST "${{ secrets.CODEX_SYNC_WEBHOOK_URL }}" \
+          curl --fail-with-body -sS -X POST "${{ secrets.CODEX_SYNC_WEBHOOK_URL }}" \
             -H "Content-Type: application/json" \
             -H "X-Codex-Token: ${{ secrets.CODEX_SYNC_WEBHOOK_TOKEN }}" \
             --data @payload.json
-# token-rotation-test
-# pipedream-live-test-2
