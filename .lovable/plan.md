@@ -1,107 +1,164 @@
 
 
-# Plan v3 -- BUG 0227-66: Rejection Notes Not Visible to Staff
+# Plan v3 -- BUG 0306-71: Add Client Name to Approvals View Engagement Rows
 
 ## Objective
 
-Display approver rejection notes inline on rejected timesheet rows so staff can read them without hovering. Frontend display-only fix -- no backend, DB, or workflow changes.
+Show client name below each engagement row in the Timesheet Approval Detail grid so approvers can distinguish similarly named engagements.
 
 ## Root Cause
 
-In `src/components/timesheet/TimesheetGrid.tsx`, `renderApprovalBadge` (lines 661-689) places `review_notes` exclusively inside a `TooltipContent`. Users must hover the small "Rejected" badge to see the note, which is undiscoverable. Most staff contact the approver instead.
+The query in `useTimesheetApprovals.ts` (lines 259-263) joins `engagements` but does not join `clients`. `ApprovalTimesheetGrid.tsx` has no client data to render.
 
-## Scope
+## Changes
 
-**In scope:** Add inline rejection note text below the rejected badge, add one i18n key per locale, append changelog.
+### File 1: `src/hooks/useTimesheetApprovals.ts`
 
-**Out of scope:** Backend/DB changes, approval workflow changes, banner modifications, approver name display, tests for this display-only change.
+**Edit 1** — Extend `TimeEntryForApproval.engagement` interface (lines 61-65):
 
-## Implementation Steps
+```typescript
+// Before:
+  engagement?: {
+    engagement_id: string;
+    engagement_code: string | null;
+    engagement_name: string;
+  };
 
-### Step 1: Add inline rejection note in renderApprovalBadge
-
-**File: `src/components/timesheet/TimesheetGrid.tsx`** (lines 661-689)
-
-Inside `renderApprovalBadge`, wrap the existing return in a fragment. After the existing `Tooltip` block, conditionally render an inline note paragraph when `approval.status === "rejected"` and `approval.review_notes?.trim()` is non-empty:
-
-```text
-return (
-  <>
-    <Tooltip>
-      ...existing tooltip/badge unchanged...
-    </Tooltip>
-    {approval.status === "rejected" && approval.review_notes?.trim() && (
-      <p className="mt-1 text-xs text-destructive/90 italic leading-tight">
-        {t("approval.rejectionNote")} {approval.review_notes}
-      </p>
-    )}
-  </>
-);
+// After:
+  engagement?: {
+    engagement_id: string;
+    engagement_code: string | null;
+    engagement_name: string;
+    client: {
+      client_id: string;
+      client_legal_name: string;
+    } | null;
+  };
 ```
 
-The parent container at line 753 is `<div className="flex items-center">`. This needs to change to `flex flex-wrap items-center` so the note wraps below the badge+select row instead of overflowing horizontally.
+Uses `client: { ... } | null` (not optional `?`). Supabase returns `null` on a failed join, not `undefined`.
 
-Approved and pending badge rendering is completely unchanged -- the conditional only fires for rejected status with a non-empty trimmed note.
+**Edit 2** — Expand engagement join in query (lines 259-263):
 
-### Step 2: Add i18n keys
+```typescript
+// Before:
+          engagement:engagements(
+            engagement_id,
+            engagement_code,
+            engagement_name
+          ),
 
-**File: `src/locales/en.json`** -- under `approval` section add:
-```text
-"rejectionNote": "Rejection note:"
+// After:
+          engagement:engagements(
+            engagement_id,
+            engagement_code,
+            engagement_name,
+            client:clients!client_id(client_id, client_legal_name)
+          ),
 ```
 
-**File: `src/locales/es.json`** -- under `approval` section add:
-```text
-"rejectionNote": "Nota de rechazo:"
+### File 2: `src/components/timesheet/ApprovalTimesheetGrid.tsx`
+
+**Edit 1** — Add `clientName` to `EngagementGroup` interface (line 38):
+
+```typescript
+// Before:
+  remainingHours: number | null;
+}
+
+// After:
+  remainingHours: number | null;
+  clientName: string | null;
+}
 ```
 
-### Step 3: Changelog append
+**Edit 2** — Populate `clientName` in `groupMap.set()` (line 83):
 
-**File: `docs/CHANGELOG-2026-02-27.md`**
+```typescript
+// Before:
+          engagementCode: entry.engagement?.engagement_code || null,
+          engagementName: entry.engagement?.engagement_name || "",
 
-Append BUG 0227-66 entry with:
-- Root cause: rejection notes existed in DB and tooltip but were only visible via hover on the small rejected badge
-- Files modified: `src/components/timesheet/TimesheetGrid.tsx`, `src/locales/en.json`, `src/locales/es.json`
-- Before: staff had to hover the "Rejected" badge to see rejection reason; most never discovered this
-- After: rejection note is displayed inline below the badge in `text-destructive` italic text; rows without a note show no extra text
-- Scope: frontend display-only fix; no backend, DB schema, or approval workflow changes
+// After:
+          engagementCode: entry.engagement?.engagement_code || null,
+          engagementName: entry.engagement?.engagement_name || "",
+          clientName: entry.engagement?.client?.client_legal_name || null,
+```
 
-## Target Files
+**Edit 3** — Two-line rendering in engagement header (lines 218-228):
+
+```tsx
+// Before:
+                      <div className="flex items-center">
+                        <div className="font-medium">
+                          <span className="text-xs mr-2">
+                            {group.engagementCode}
+                          </span>
+                          <span className={cn(!isApprovable && "text-muted-foreground")}>
+                            {group.engagementName}
+                          </span>
+                        </div>
+                        {renderStatusBadge(group)}
+                      </div>
+
+// After:
+                      <div className="flex items-center gap-2">
+                        <div className="font-medium">
+                          <div>
+                            <span className="text-xs mr-2">
+                              {group.engagementCode}
+                            </span>
+                            <span className={cn(!isApprovable && "text-muted-foreground")}>
+                              {group.engagementName}
+                            </span>
+                          </div>
+                          {group.clientName && (
+                            <div className="text-xs text-muted-foreground font-normal">
+                              {group.clientName}
+                            </div>
+                          )}
+                        </div>
+                        {renderStatusBadge(group)}
+                      </div>
+```
+
+Uses `text-muted-foreground` (not `opacity-70`) to avoid double-dimming on non-approvable rows.
+
+### File 3: `docs/changelogs/CHANGELOG-2026-03-08.md`
+
+Append:
+
+```markdown
+## BUG 0306-71 — Add client name to Approvals view engagement rows
+
+**Priority:** Medium | **Route:** OPERACIONES-Aprobaciones | **Status:** Fixed
+
+**Root cause:** The Supabase query in `useTimesheetApprovals.ts` did not join `clients`, so `client_legal_name` was unavailable. `ApprovalTimesheetGrid.tsx` only rendered engagement code and name, omitting the client.
+
+**Fix:** Extended the engagement select to join `clients!client_id(client_id, client_legal_name)`. Added `clientName` field to `EngagementGroup` interface, populated it in `groupMap.set()`, and rendered it below the engagement name as a second line following the same two-line pattern as `TimesheetGrid.tsx` (line 779-784).
+
+**Files modified:**
+- `src/hooks/useTimesheetApprovals.ts` — extend interface + add client join to query
+- `src/components/timesheet/ApprovalTimesheetGrid.tsx` — interface, populate, render
+
+**No backend, DB, or schema changes.**
+```
+
+## Summary
 
 | File | Action |
 |---|---|
-| `src/components/timesheet/TimesheetGrid.tsx` | Modify (renderApprovalBadge + parent div class) |
-| `src/locales/en.json` | Modify (add 1 key under approval) |
-| `src/locales/es.json` | Modify (add 1 key under approval) |
-| `docs/CHANGELOG-2026-02-27.md` | Append |
+| `src/hooks/useTimesheetApprovals.ts` | Extend interface + add client join |
+| `src/components/timesheet/ApprovalTimesheetGrid.tsx` | Add clientName field, populate, two-line render |
+| `docs/changelogs/CHANGELOG-2026-03-08.md` | Append entry |
 
-## Validation Checks
+No backend, DB, or schema changes. The `engagements.client_id → clients` FK already exists.
 
-1. Rejected rows with note: inline note visible without hover
-2. Rejected rows without note (or empty/whitespace-only): no inline note block rendered
-3. Approved/pending rows: completely unchanged
-4. Locale keys `approval.rejectionNote` resolve correctly in EN and ES
+## Verification
 
-## QA Checklist
-
-1. Reject a timesheet line with a note as approver -- staff sees note inline below badge
-2. Reject a line without a note -- no extra text appears
-3. Long rejection notes wrap correctly within the cell (no horizontal overflow)
-4. Approved and pending badges render identically to before
-5. Mobile layout -- note text wraps within engagement column
-6. Tooltip still works on hover for backward compatibility
-
-## Acceptance Criteria
-
-1. Staff can read rejection reason directly on rejected rows without hover
-2. Rows without rejection notes show no extra UI elements
-3. No regressions on approved/pending badge display
-4. No backend or database changes
-5. Changelog is detailed and diff-verifiable
-
-## Changelog Append
-
-**File:** `docs/CHANGELOG-2026-02-27.md`
-
-You need to append to the CHANGELOG a detailed description of the changes made while implementing this Plan. There needs to be sufficient detail to be able to verify if the changes to the codebase correspond to the CHANGELOG.
+1. Open OPERACIONES > Aprobaciones > click into a pending timesheet
+2. Each engagement header row shows client name on a second line below the engagement name in smaller muted text
+3. Long engagement names do not overflow — client name sits on its own line
+4. Non-approvable (muted) rows also display client name correctly
+5. No regression on hours, budget display, or decision controls
 
