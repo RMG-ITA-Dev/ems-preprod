@@ -36,7 +36,7 @@ const makeEntry = (overrides: Partial<TimeEntryForApproval> = {}): TimeEntryForA
   description: null,
   engagement_id: "eng-a",
   activity_id: "act-1",
-  engagement: { engagement_id: "eng-a", engagement_code: "E001", engagement_name: "Eng A" },
+  engagement: { engagement_id: "eng-a", engagement_code: "E001", engagement_name: "Eng A", client: null },
   activity: { activity_id: "act-1", activity_code: "A01", description: "Activity 1" },
   ...overrides,
 });
