@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/tooltip";
 import { getDayName, formatDayMonth, toISODateString } from "@/lib/timesheetUtils";
 import type { TimeEntry, ApprovedEngagement, ActivityCode } from "@/hooks/useTimesheetWeek";
-import { useUpsertTimeEntry, useDeleteRowEntries } from "@/hooks/useTimesheetMutations";
+import { useUpsertTimeEntry, useDeleteRowEntries, useUpdateEntryActivity } from "@/hooks/useTimesheetMutations";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel,
   AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
