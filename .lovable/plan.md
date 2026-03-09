@@ -1,79 +1,107 @@
 
 
-# Plan v3 -- BUG 0227-65: Manager/Supervisor Selector Shows Partners
+# Plan v3 -- BUG 0227-66: Rejection Notes Not Visible to Staff
 
 ## Objective
 
-Filter the "Gerente/Supervisor" dropdown to show only management-tier staff (display_order 3-4), excluding leadership-tier staff (display_order 1-2).
+Display approver rejection notes inline on rejected timesheet rows so staff can read them without hovering. Frontend display-only fix -- no backend, DB, or workflow changes.
 
 ## Root Cause
 
-In `src/hooks/useCategoryStaff.ts` lines 48-61, `managementOptions` uses `displayOrder <= 4` which includes Partners (1) and Directors (2) alongside Managers (3) and Seniors (4).
+In `src/components/timesheet/TimesheetGrid.tsx`, `renderApprovalBadge` (lines 661-689) places `review_notes` exclusively inside a `TooltipContent`. Users must hover the small "Rejected" badge to see the note, which is undiscoverable. Most staff contact the approver instead.
+
+## Scope
+
+**In scope:** Add inline rejection note text below the rejected badge, add one i18n key per locale, append changelog.
+
+**Out of scope:** Backend/DB changes, approval workflow changes, banner modifications, approver name display, tests for this display-only change.
+
+## Implementation Steps
+
+### Step 1: Add inline rejection note in renderApprovalBadge
+
+**File: `src/components/timesheet/TimesheetGrid.tsx`** (lines 661-689)
+
+Inside `renderApprovalBadge`, wrap the existing return in a fragment. After the existing `Tooltip` block, conditionally render an inline note paragraph when `approval.status === "rejected"` and `approval.review_notes?.trim()` is non-empty:
+
+```text
+return (
+  <>
+    <Tooltip>
+      ...existing tooltip/badge unchanged...
+    </Tooltip>
+    {approval.status === "rejected" && approval.review_notes?.trim() && (
+      <p className="mt-1 text-xs text-destructive/90 italic leading-tight">
+        {t("approval.rejectionNote")} {approval.review_notes}
+      </p>
+    )}
+  </>
+);
+```
+
+The parent container at line 753 is `<div className="flex items-center">`. This needs to change to `flex flex-wrap items-center` so the note wraps below the badge+select row instead of overflowing horizontally.
+
+Approved and pending badge rendering is completely unchanged -- the conditional only fires for rejected status with a non-empty trimmed note.
+
+### Step 2: Add i18n keys
+
+**File: `src/locales/en.json`** -- under `approval` section add:
+```text
+"rejectionNote": "Rejection note:"
+```
+
+**File: `src/locales/es.json`** -- under `approval` section add:
+```text
+"rejectionNote": "Nota de rechazo:"
+```
+
+### Step 3: Changelog append
+
+**File: `docs/CHANGELOG-2026-02-27.md`**
+
+Append BUG 0227-66 entry with:
+- Root cause: rejection notes existed in DB and tooltip but were only visible via hover on the small rejected badge
+- Files modified: `src/components/timesheet/TimesheetGrid.tsx`, `src/locales/en.json`, `src/locales/es.json`
+- Before: staff had to hover the "Rejected" badge to see rejection reason; most never discovered this
+- After: rejection note is displayed inline below the badge in `text-destructive` italic text; rows without a note show no extra text
+- Scope: frontend display-only fix; no backend, DB schema, or approval workflow changes
 
 ## Target Files
 
 | File | Action |
 |---|---|
-| `src/hooks/useCategoryStaff.ts` | Edit 3 lines (48, 54, 55) |
-| `docs/changelogs/CHANGELOG-2026-03-08.md` | Append entry |
+| `src/components/timesheet/TimesheetGrid.tsx` | Modify (renderApprovalBadge + parent div class) |
+| `src/locales/en.json` | Modify (add 1 key under approval) |
+| `src/locales/es.json` | Modify (add 1 key under approval) |
+| `docs/CHANGELOG-2026-02-27.md` | Append |
 
-**No changes to:** `src/components/forms/EngagementForm.tsx` — it consumes `managerOptions` (legacy alias of `managementOptions` at line 67); fixing the hook is sufficient.
+## Validation Checks
 
-## Step 1: Edit `src/hooks/useCategoryStaff.ts`
+1. Rejected rows with note: inline note visible without hover
+2. Rejected rows without note (or empty/whitespace-only): no inline note block rendered
+3. Approved/pending rows: completely unchanged
+4. Locale keys `approval.rejectionNote` resolve correctly in EN and ES
 
-Three edits inside the `managementOptions` block (lines 48-61):
+## QA Checklist
 
-**Line 48** — comment:
-```
-// Before:
-// Management options for dropdowns (Manager/Supervisor) - includes both management tier AND leadership tier
-// After:
-// Management options for dropdowns (Manager/Supervisor) - management tier only
-```
+1. Reject a timesheet line with a note as approver -- staff sees note inline below badge
+2. Reject a line without a note -- no extra text appears
+3. Long rejection notes wrap correctly within the cell (no horizontal overflow)
+4. Approved and pending badges render identically to before
+5. Mobile layout -- note text wraps within engagement column
+6. Tooltip still works on hover for backward compatibility
 
-**Line 54** — comment:
-```
-// Before:
-// Include management tier (3-4) and leadership tier (1-2)
-// After:
-// Include management tier only (3-4): Gerente, Senior
-```
+## Acceptance Criteria
 
-**Line 55** — filter:
-```
-// Before:
-return displayOrder != null && displayOrder <= 4;
-// After:
-return displayOrder != null && displayOrder >= 3 && displayOrder <= 4;
-```
+1. Staff can read rejection reason directly on rejected rows without hover
+2. Rows without rejection notes show no extra UI elements
+3. No regressions on approved/pending badge display
+4. No backend or database changes
+5. Changelog is detailed and diff-verifiable
 
-## Step 2: Changelog Append
+## Changelog Append
 
-**File:** `docs/changelogs/CHANGELOG-2026-03-08.md`
+**File:** `docs/CHANGELOG-2026-02-27.md`
 
-Append:
-
-```markdown
-## BUG 0227-65 — Fix Manager/Supervisor selector to exclude Partners and Directors
-
-**Priority:** Medium | **Route:** PRINCIPAL-Encargos | **Status:** Fixed
-
-**Root cause:** `managementOptions` filter in `src/hooks/useCategoryStaff.ts` used `displayOrder <= 4` instead of `>= 3 && <= 4`, which included the leadership tier (Partner display_order=1, Director display_order=2) in the management dropdown.
-
-**Fix:** Single-line filter change in `useCategoryStaff.ts` line 55: `displayOrder <= 4` → `displayOrder >= 3 && displayOrder <= 4`. Two comment updates on lines 48 and 54 to reflect the corrected scope.
-
-**Files modified:**
-- `src/hooks/useCategoryStaff.ts` — 3 line edits (lines 48, 54, 55)
-
-**No backend, DB, or schema changes.**
-
-**Not modified:** `src/components/forms/EngagementForm.tsx` — consumes `managerOptions` (legacy alias of `managementOptions`); fixing the hook automatically fixes the dropdown everywhere it's used.
-```
-
-## Verification
-
-1. Create Encargo — "Gerente/Supervisor" dropdown shows only Manager and Senior staff
-2. Partners and Directors do NOT appear in the dropdown
-3. Edit existing Encargo — same correct filtered list
-4. Partner/Director dropdown (`leadershipOptions`) remains unchanged
+You need to append to the CHANGELOG a detailed description of the changes made while implementing this Plan. There needs to be sufficient detail to be able to verify if the changes to the codebase correspond to the CHANGELOG.
 
