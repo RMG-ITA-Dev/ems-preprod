@@ -62,6 +62,10 @@ export interface TimeEntryForApproval {
     engagement_id: string;
     engagement_code: string | null;
     engagement_name: string;
+    client: {
+      client_id: string;
+      client_legal_name: string;
+    } | null;
   };
   activity?: {
     activity_id: string;
