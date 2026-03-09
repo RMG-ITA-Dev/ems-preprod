@@ -45,14 +45,14 @@ export function useCategoryStaff() {
     }));
   }, [leadershipStaff]);
 
-  // Management options for dropdowns (Manager/Supervisor) - includes both management tier AND leadership tier
+  // Management options for dropdowns (Manager/Supervisor) - management tier only
   const managementOptions = useMemo(() => {
     if (!staff) return [];
     return staff
       .filter((s) => {
         const displayOrder = s.category?.display_order;
-        // Include management tier (3-4) and leadership tier (1-2)
-        return displayOrder != null && displayOrder <= 4;
+        // Include management tier only (3-4): Gerente, Senior
+        return displayOrder != null && displayOrder >= 3 && displayOrder <= 4;
       })
       .map((s) => ({
         value: s.staff_id,
