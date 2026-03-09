@@ -480,6 +480,29 @@ export function TimesheetGrid({
         row.id === rowId ? { ...row, activityId, id: engagementId ? `${engagementId}-${activityId}` : `new-${activityId}` } : row
       )
     );
+
+    // BUG 0227-68: Persist activity change to DB for existing entries
+    const existingEntryIds = Object.values(currentRow.entryIds).filter(
+      (id): id is string => !!id
+    );
+    if (existingEntryIds.length > 0) {
+      updateEntryActivity.mutate(
+        { entryIds: existingEntryIds, newActivityId: activityId },
+        {
+          onError: () => {
+            // Rollback local state on failure
+            setRows((prev) =>
+              prev.map((row) =>
+                row.id === `${engagementId}-${activityId}`
+                  ? { ...row, activityId: currentRow.activityId, id: currentRow.id }
+                  : row
+              )
+            );
+            toast.error(t("timesheet.activityChangeError"));
+          },
+        }
+      );
+    }
   };
 
   const handleHoursChange = useCallback(
