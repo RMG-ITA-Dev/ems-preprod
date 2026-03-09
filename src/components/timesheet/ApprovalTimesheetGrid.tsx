@@ -36,6 +36,7 @@ interface EngagementGroup {
   activities: ActivityRow[];
   budgetedHours: number | null;
   remainingHours: number | null;
+  clientName: string | null;
 }
 
 interface ActivityRow {
