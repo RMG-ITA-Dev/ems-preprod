@@ -1,107 +1,153 @@
 
 
-# Plan v3 -- BUG 0227-66: Rejection Notes Not Visible to Staff
+# Plan v2 -- BUG 0227-68: Rejected Line Activity Change Reverts Silently
 
 ## Objective
 
-Display approver rejection notes inline on rejected timesheet rows so staff can read them without hovering. Frontend display-only fix -- no backend, DB, or workflow changes.
+When a user changes the Activity on a rejected timesheet line, persist the change to the database so it survives query re-fetches. Show an error toast and rollback if the save fails.
 
 ## Root Cause
 
-In `src/components/timesheet/TimesheetGrid.tsx`, `renderApprovalBadge` (lines 661-689) places `review_notes` exclusively inside a `TooltipContent`. Users must hover the small "Rejected" badge to see the note, which is undiscoverable. Most staff contact the approver instead.
+`handleActivityChange` (TimesheetGrid.tsx line 455) only updates local React state via `setRows`. When any cell save triggers `queryClient.invalidateQueries(['time-entries'])`, the DB refetch overwrites local state via the `useEffect` at line 155-157, silently reverting the activity. `useUpsertTimeEntry` only updates `hours_logged`, never `activity_id`.
 
-## Scope
+## Changes
 
-**In scope:** Add inline rejection note text below the rejected badge, add one i18n key per locale, append changelog.
+### File 1: `src/hooks/useTimesheetMutations.ts`
 
-**Out of scope:** Backend/DB changes, approval workflow changes, banner modifications, approver name display, tests for this display-only change.
+Add new export `useUpdateEntryActivity` after `useDeleteRowEntries` (after line 133):
 
-## Implementation Steps
+```typescript
+// BUG 0227-68: Bulk update activity_id for existing time entries
+export function useUpdateEntryActivity() {
+  const queryClient = useQueryClient();
 
-### Step 1: Add inline rejection note in renderApprovalBadge
+  return useMutation({
+    mutationFn: async ({
+      entryIds,
+      newActivityId,
+    }: {
+      entryIds: string[];
+      newActivityId: string;
+    }) => {
+      const { error } = await supabase
+        .from("time_entries")
+        .update({ activity_id: newActivityId })
+        .in("time_id", entryIds);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["time-entries"] });
+    },
+    onError: (error: Error) => {
+      const msg = error.message || '';
+      if (msg.includes("APPROVED_LINE_LOCKED")) {
+        toast.error(i18n.t("timesheet.approvedLineCannotEdit"));
+        return;
+      }
+      createMutationErrorHandler("updating activity")(error);
+    },
+  });
+}
+```
 
-**File: `src/components/timesheet/TimesheetGrid.tsx`** (lines 661-689)
+### File 2: `src/components/timesheet/TimesheetGrid.tsx`
 
-Inside `renderApprovalBadge`, wrap the existing return in a fragment. After the existing `Tooltip` block, conditionally render an inline note paragraph when `approval.status === "rejected"` and `approval.review_notes?.trim()` is non-empty:
+**Edit 1** — Line 21 import:
+```typescript
+// Before:
+import { useUpsertTimeEntry, useDeleteRowEntries } from "@/hooks/useTimesheetMutations";
+// After:
+import { useUpsertTimeEntry, useDeleteRowEntries, useUpdateEntryActivity } from "@/hooks/useTimesheetMutations";
+```
 
-```text
-return (
-  <>
-    <Tooltip>
-      ...existing tooltip/badge unchanged...
-    </Tooltip>
-    {approval.status === "rejected" && approval.review_notes?.trim() && (
-      <p className="mt-1 text-xs text-destructive/90 italic leading-tight">
-        {t("approval.rejectionNote")} {approval.review_notes}
-      </p>
-    )}
-  </>
+**Edit 2** — Instantiate after line 107:
+```typescript
+const updateEntryActivity = useUpdateEntryActivity();
+```
+
+**Edit 3** — In `handleActivityChange`, after the `setRows(...)` call (line 477-481), before the closing `}` at line 482, add:
+
+```typescript
+// BUG 0227-68: Persist activity change to DB for existing entries
+const existingEntryIds = Object.values(currentRow.entryIds).filter(
+  (id): id is string => !!id
 );
+if (existingEntryIds.length > 0) {
+  updateEntryActivity.mutate(
+    { entryIds: existingEntryIds, newActivityId: activityId },
+    {
+      onError: () => {
+        // Rollback local state on failure
+        setRows((prev) =>
+          prev.map((row) =>
+            row.id === `${engagementId}-${activityId}`
+              ? { ...row, activityId: currentRow.activityId, id: currentRow.id }
+              : row
+          )
+        );
+        toast.error(t("timesheet.activityChangeError"));
+      },
+    }
+  );
+}
 ```
 
-The parent container at line 753 is `<div className="flex items-center">`. This needs to change to `flex flex-wrap items-center` so the note wraps below the badge+select row instead of overflowing horizontally.
+### File 3: `src/locales/en.json`
 
-Approved and pending badge rendering is completely unchanged -- the conditional only fires for rejected status with a non-empty trimmed note.
-
-### Step 2: Add i18n keys
-
-**File: `src/locales/en.json`** -- under `approval` section add:
-```text
-"rejectionNote": "Rejection note:"
+Add after `deleteRowError` key (line 778):
+```json
+"activityChangeError": "Failed to update activity. Change has been reverted.",
 ```
 
-**File: `src/locales/es.json`** -- under `approval` section add:
-```text
-"rejectionNote": "Nota de rechazo:"
+### File 4: `src/locales/es.json`
+
+Same position:
+```json
+"activityChangeError": "Error al actualizar la actividad. El cambio fue revertido.",
 ```
 
-### Step 3: Changelog append
+### File 5: `docs/changelogs/CHANGELOG-2026-03-08.md`
 
-**File: `docs/CHANGELOG-2026-02-27.md`**
+Append:
 
-Append BUG 0227-66 entry with:
-- Root cause: rejection notes existed in DB and tooltip but were only visible via hover on the small rejected badge
-- Files modified: `src/components/timesheet/TimesheetGrid.tsx`, `src/locales/en.json`, `src/locales/es.json`
-- Before: staff had to hover the "Rejected" badge to see rejection reason; most never discovered this
-- After: rejection note is displayed inline below the badge in `text-destructive` italic text; rows without a note show no extra text
-- Scope: frontend display-only fix; no backend, DB schema, or approval workflow changes
+```markdown
+## BUG 0227-68 — Fix rejected line activity change reverts silently
 
-## Target Files
+**Priority:** High | **Route:** OPERACIONES-Hoja de Tiempo | **Status:** Fixed
+
+**Root cause:** `handleActivityChange` in `TimesheetGrid.tsx` only updated local React state. When any cell save triggered query invalidation, the DB refetch overwrote the local state, silently reverting the activity. `useUpsertTimeEntry` only ever updated `hours_logged`, never `activity_id`.
+
+**Fix:** New `useUpdateEntryActivity` mutation bulk-updates `activity_id` on existing `time_entries`. Called from `handleActivityChange` with local rollback and error toast on failure.
+
+**Files modified:**
+- `src/hooks/useTimesheetMutations.ts` — new `useUpdateEntryActivity` export
+- `src/components/timesheet/TimesheetGrid.tsx` — import, instantiate, and call new mutation in `handleActivityChange`
+- `src/locales/en.json` — add `activityChangeError` key
+- `src/locales/es.json` — add `activityChangeError` key
+
+**No backend, DB, or schema changes.**
+```
+
+## Summary
 
 | File | Action |
 |---|---|
-| `src/components/timesheet/TimesheetGrid.tsx` | Modify (renderApprovalBadge + parent div class) |
-| `src/locales/en.json` | Modify (add 1 key under approval) |
-| `src/locales/es.json` | Modify (add 1 key under approval) |
-| `docs/CHANGELOG-2026-02-27.md` | Append |
+| `src/hooks/useTimesheetMutations.ts` | Add `useUpdateEntryActivity` mutation |
+| `src/components/timesheet/TimesheetGrid.tsx` | Import + instantiate + call mutation with rollback |
+| `src/locales/en.json` | Add `activityChangeError` key |
+| `src/locales/es.json` | Add `activityChangeError` key |
+| `docs/changelogs/CHANGELOG-2026-03-08.md` | Append BUG 0227-68 entry |
 
-## Validation Checks
+**Not modified:** No backend, DB, or schema changes. The `time_entries.activity_id` column already exists and is updatable.
 
-1. Rejected rows with note: inline note visible without hover
-2. Rejected rows without note (or empty/whitespace-only): no inline note block rendered
-3. Approved/pending rows: completely unchanged
-4. Locale keys `approval.rejectionNote` resolve correctly in EN and ES
+## Verification
 
-## QA Checklist
-
-1. Reject a timesheet line with a note as approver -- staff sees note inline below badge
-2. Reject a line without a note -- no extra text appears
-3. Long rejection notes wrap correctly within the cell (no horizontal overflow)
-4. Approved and pending badges render identically to before
-5. Mobile layout -- note text wraps within engagement column
-6. Tooltip still works on hover for backward compatibility
-
-## Acceptance Criteria
-
-1. Staff can read rejection reason directly on rejected rows without hover
-2. Rows without rejection notes show no extra UI elements
-3. No regressions on approved/pending badge display
-4. No backend or database changes
-5. Changelog is detailed and diff-verifiable
-
-## Changelog Append
-
-**File:** `docs/CHANGELOG-2026-02-27.md`
-
-You need to append to the CHANGELOG a detailed description of the changes made while implementing this Plan. There needs to be sufficient detail to be able to verify if the changes to the codebase correspond to the CHANGELOG.
+1. Open a timesheet week with a rejected line that has hours logged
+2. Change the Activity dropdown on the rejected line to a different activity
+3. Trigger a save on any other cell to force query invalidation
+4. Confirm the activity on the rejected line does NOT revert
+5. Navigate away and back — activity shows the new value
+6. Save Draft — entries persist with new activity
+7. Simulate a DB failure — activity reverts and error toast appears
+8. Approved lines remain locked and unaffected
 
