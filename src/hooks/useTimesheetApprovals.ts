@@ -62,6 +62,10 @@ export interface TimeEntryForApproval {
     engagement_id: string;
     engagement_code: string | null;
     engagement_name: string;
+    client: {
+      client_id: string;
+      client_legal_name: string;
+    } | null;
   };
   activity?: {
     activity_id: string;
@@ -259,7 +263,8 @@ export function useStaffTimesheetForApproval(periodId: string | null) {
           engagement:engagements(
             engagement_id,
             engagement_code,
-            engagement_name
+            engagement_name,
+            client:clients!client_id(client_id, client_legal_name)
           ),
           activity:activity_codes(
             activity_id,

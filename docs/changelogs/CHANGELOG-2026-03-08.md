@@ -38,3 +38,19 @@
 
 **No backend, DB, or schema changes.** `time_entries.activity_id` already exists and is updatable by staff RLS policy.
 
+---
+
+## BUG 0306-71 — Add client name to Approvals view engagement rows
+
+**Priority:** Medium | **Route:** OPERACIONES-Aprobaciones | **Status:** Fixed
+
+**Root cause:** The Supabase query in `useTimesheetApprovals.ts` did not join `clients`, so `client_legal_name` was unavailable. `ApprovalTimesheetGrid.tsx` only rendered engagement code and name, omitting the client.
+
+**Fix:** Extended the engagement select to join `clients!client_id(client_id, client_legal_name)`. Added `clientName` field to `EngagementGroup` interface, populated it in `groupMap.set()`, and rendered it below the engagement name as a second line following the same two-line pattern as `TimesheetGrid.tsx` (line 779-784).
+
+**Files modified:**
+- `src/hooks/useTimesheetApprovals.ts` — extend interface + add client join to query
+- `src/components/timesheet/ApprovalTimesheetGrid.tsx` — interface, populate, render
+
+**No backend, DB, or schema changes.**
+
