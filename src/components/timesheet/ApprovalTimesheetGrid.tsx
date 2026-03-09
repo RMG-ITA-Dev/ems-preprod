@@ -217,14 +217,21 @@ export function ApprovalTimesheetGrid({
                     )}
                   >
                     <td className="p-3 text-left border-r border-border">
-                      <div className="flex items-center">
+                      <div className="flex items-center gap-2">
                         <div className="font-medium">
-                          <span className="text-xs mr-2">
-                            {group.engagementCode}
-                          </span>
-                          <span className={cn(!isApprovable && "text-muted-foreground")}>
-                            {group.engagementName}
-                          </span>
+                          <div>
+                            <span className="text-xs mr-2">
+                              {group.engagementCode}
+                            </span>
+                            <span className={cn(!isApprovable && "text-muted-foreground")}>
+                              {group.engagementName}
+                            </span>
+                          </div>
+                          {group.clientName && (
+                            <div className="text-xs text-muted-foreground font-normal">
+                              {group.clientName}
+                            </div>
+                          )}
                         </div>
                         {renderStatusBadge(group)}
                       </div>
