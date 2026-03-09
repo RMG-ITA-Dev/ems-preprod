@@ -776,6 +776,7 @@
     "deleteRowTitle": "Eliminar fila de la hoja de tiempo",
     "deleteRowDescription": "Esto eliminará permanentemente todas las horas registradas en esta fila para la semana actual. Esta acción no se puede deshacer.",
     "deleteRowError": "Error al eliminar la fila. Se ha restaurado.",
+    "activityChangeError": "Error al actualizar la actividad. El cambio fue revertido.",
     "legend": {
       "approved": "Aprobado",
       "pending": "Pendiente",

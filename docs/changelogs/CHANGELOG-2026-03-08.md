@@ -20,3 +20,21 @@
 
 **Not modified:** `src/components/forms/EngagementForm.tsx` — consumes `managerOptions` (legacy alias of `managementOptions`); fixing the hook automatically fixes the dropdown everywhere it's used.
 
+---
+
+## BUG 0227-68 — Fix rejected line activity change reverts silently
+
+**Priority:** High | **Route:** OPERACIONES-Hoja de Tiempo | **Status:** Fixed
+
+**Root cause:** `handleActivityChange` in `src/components/timesheet/TimesheetGrid.tsx` (lines 455-482) only called `setRows()` with no DB write. When any cell save triggered `queryClient.invalidateQueries(['time-entries'])`, the DB refetch overwrote local React state via the `useEffect` at line 155-157, silently reverting the activity change. `useUpsertTimeEntry` only ever updated `hours_logged`, never `activity_id`.
+
+**Fix:** New `useUpdateEntryActivity` mutation added to `src/hooks/useTimesheetMutations.ts` that bulk-updates `activity_id` on existing `time_entries` via `UPDATE ... WHERE time_id IN (entryIds)`. Called from `handleActivityChange` immediately after `setRows()`. On DB failure: local state rolls back (activity reverts to original) and an error toast is shown. On success: `time-entries` query is invalidated to refetch with the persisted value.
+
+**Files modified:**
+- `src/hooks/useTimesheetMutations.ts` — new `useUpdateEntryActivity` export after `useDeleteRowEntries`
+- `src/components/timesheet/TimesheetGrid.tsx` — import + instantiate `updateEntryActivity`; add persistence + rollback block inside `handleActivityChange`
+- `src/locales/en.json` — add `timesheet.activityChangeError` key after `deleteRowError`
+- `src/locales/es.json` — add `timesheet.activityChangeError` key after `deleteRowError`
+
+**No backend, DB, or schema changes.** `time_entries.activity_id` already exists and is updatable by staff RLS policy.
+

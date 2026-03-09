@@ -776,6 +776,7 @@
     "deleteRowTitle": "Delete timesheet row",
     "deleteRowDescription": "This will permanently delete all hours logged in this row for the current week. This action cannot be undone.",
     "deleteRowError": "Failed to delete row. It has been restored.",
+    "activityChangeError": "Failed to update activity. Change has been reverted.",
     "legend": {
       "approved": "Approved",
       "pending": "Pending",

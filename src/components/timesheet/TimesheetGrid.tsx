@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/tooltip";
 import { getDayName, formatDayMonth, toISODateString } from "@/lib/timesheetUtils";
 import type { TimeEntry, ApprovedEngagement, ActivityCode } from "@/hooks/useTimesheetWeek";
-import { useUpsertTimeEntry, useDeleteRowEntries } from "@/hooks/useTimesheetMutations";
+import { useUpsertTimeEntry, useDeleteRowEntries, useUpdateEntryActivity } from "@/hooks/useTimesheetMutations";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel,
   AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
@@ -105,6 +105,7 @@ export function TimesheetGrid({
   const { t } = useTranslation();
   const upsertEntry = useUpsertTimeEntry();
   const deleteRowEntries = useDeleteRowEntries();
+  const updateEntryActivity = useUpdateEntryActivity();
   const [deleteRowId, setDeleteRowId] = useState<string | null>(null);
   const [savingCells, setSavingCells] = useState<Set<string>>(new Set());
   const [savedCells, setSavedCells] = useState<Set<string>>(new Set());
@@ -479,6 +480,29 @@ export function TimesheetGrid({
         row.id === rowId ? { ...row, activityId, id: engagementId ? `${engagementId}-${activityId}` : `new-${activityId}` } : row
       )
     );
+
+    // BUG 0227-68: Persist activity change to DB for existing entries
+    const existingEntryIds = Object.values(currentRow.entryIds).filter(
+      (id): id is string => !!id
+    );
+    if (existingEntryIds.length > 0) {
+      updateEntryActivity.mutate(
+        { entryIds: existingEntryIds, newActivityId: activityId },
+        {
+          onError: () => {
+            // Rollback local state on failure
+            setRows((prev) =>
+              prev.map((row) =>
+                row.id === `${engagementId}-${activityId}`
+                  ? { ...row, activityId: currentRow.activityId, id: currentRow.id }
+                  : row
+              )
+            );
+            toast.error(t("timesheet.activityChangeError"));
+          },
+        }
+      );
+    }
   };
 
   const handleHoursChange = useCallback(

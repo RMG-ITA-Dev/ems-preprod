@@ -132,6 +132,38 @@ export function useDeleteRowEntries() {
   });
 }
 
+// BUG 0227-68: Bulk update activity_id for existing time entries
+export function useUpdateEntryActivity() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      entryIds,
+      newActivityId,
+    }: {
+      entryIds: string[];
+      newActivityId: string;
+    }) => {
+      const { error } = await supabase
+        .from("time_entries")
+        .update({ activity_id: newActivityId })
+        .in("time_id", entryIds);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["time-entries"] });
+    },
+    onError: (error: Error) => {
+      const msg = error.message || '';
+      if (msg.includes("APPROVED_LINE_LOCKED")) {
+        toast.error(i18n.t("timesheet.approvedLineCannotEdit"));
+        return;
+      }
+      createMutationErrorHandler("updating activity")(error);
+    },
+  });
+}
+
 // Update period total hours
 export function useUpdatePeriodTotalHours() {
   const queryClient = useQueryClient();
