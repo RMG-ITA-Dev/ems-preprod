@@ -105,6 +105,7 @@ export function TimesheetGrid({
   const { t } = useTranslation();
   const upsertEntry = useUpsertTimeEntry();
   const deleteRowEntries = useDeleteRowEntries();
+  const updateEntryActivity = useUpdateEntryActivity();
   const [deleteRowId, setDeleteRowId] = useState<string | null>(null);
   const [savingCells, setSavingCells] = useState<Set<string>>(new Set());
   const [savedCells, setSavedCells] = useState<Set<string>>(new Set());
