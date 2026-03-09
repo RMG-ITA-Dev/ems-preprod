@@ -82,6 +82,7 @@ export function ApprovalTimesheetGrid({
           engagementId: engId,
           engagementCode: entry.engagement?.engagement_code || null,
           engagementName: entry.engagement?.engagement_name || "",
+          clientName: entry.engagement?.client?.client_legal_name || null,
           approvalId: approval?.approval_id || null,
           approvalStatus: approval?.status || null,
           reviewNotes: approval?.review_notes || null,
