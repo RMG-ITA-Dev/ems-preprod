@@ -635,33 +635,9 @@ export function TimesheetGrid({
     return rows.reduce((sum, row) => sum + calculateRowTotal(row), 0);
   };
 
-  // BUG #13: Check if daily/weekly limits are exceeded
-  const isDailyOverMax = (date: Date) => {
-    return calculateColumnTotal(date) > dailyMax;
-  };
-
-  const isDailyBelowMin = (date: Date) => {
-    const total = calculateColumnTotal(date);
-    return total > 0 && total < dailyMin;
-  };
-
-  const isDailyNearMax = (date: Date) => {
-    const total = calculateColumnTotal(date);
-    return total >= dailyMax * 0.8 && total <= dailyMax;
-  };
-
-  const isWeeklyOverMax = () => {
-    return calculateGrandTotal() > weeklyMax;
-  };
-
-  const isWeeklyBelowMin = () => {
+  const isWeeklyAtTarget = () => {
     const total = calculateGrandTotal();
-    return total > 0 && total < weeklyMin;
-  };
-
-  const isWeeklyNearMax = () => {
-    const total = calculateGrandTotal();
-    return total >= weeklyMax * 0.8 && total <= weeklyMax;
+    return total > 0 && Math.round(total * 100) === Math.round(weeklyMin * 100);
   };
 
   // Track used activities per engagement for dropdown filtering
@@ -976,45 +952,33 @@ export function TimesheetGrid({
               </td>
               {weekDates.map((date) => {
                 const total = calculateColumnTotal(date);
-                const overLimit = isDailyOverMax(date);
-                const nearLimit = isDailyNearMax(date);
-                const belowMin = isDailyBelowMin(date);
-                const atTarget = total > 0 && Math.round(total * 100) === Math.round(dailyMin * 100);
+                const hasHours = total > 0;
+                const atTarget = hasHours && Math.round(total * 100) === Math.round(dailyMin * 100);
                 return (
                   <td
                     key={toISODateString(date)}
                     className={cn(
                       "p-4 text-center font-mono",
-                      overLimit && "text-destructive bg-destructive/10",
-                      !overLimit && atTarget && "text-foreground bg-success/15",
-                      !overLimit && !atTarget && nearLimit && "text-warning-foreground bg-warning/10",
-                      !overLimit && !atTarget && !nearLimit && belowMin && "text-blue-500 bg-blue-500/10"
+                      hasHours && atTarget && "text-foreground bg-success/15",
+                      hasHours && !atTarget && "text-destructive bg-destructive/10"
                     )}
                   >
                     <div className="flex items-center justify-center gap-1">
-                      {overLimit && <AlertTriangle className="h-3 w-3" />}
-                      {calculateColumnTotal(date)}h
+                      {hasHours && !atTarget && <AlertTriangle className="h-3 w-3" />}
+                      {total}h
                     </div>
-                    {overLimit && (
-                      <div className="text-[10px] text-destructive">{t("timesheet.dailyMaxExceeded")}</div>
-                    )}
                   </td>
                 );
               })}
               <td className={cn(
                 "p-4 text-center font-mono",
-                isWeeklyOverMax() && "text-destructive bg-destructive/10",
-                !isWeeklyOverMax() && isWeeklyNearMax() && "text-warning-foreground bg-warning/10",
-                !isWeeklyOverMax() && !isWeeklyNearMax() && isWeeklyBelowMin() && "text-blue-500 bg-blue-500/10",
-                !isWeeklyOverMax() && !isWeeklyNearMax() && !isWeeklyBelowMin() && "bg-primary/10 text-foreground"
+                calculateGrandTotal() > 0 && isWeeklyAtTarget() && "text-foreground bg-success/15",
+                calculateGrandTotal() > 0 && !isWeeklyAtTarget() && "text-destructive bg-destructive/10"
               )}>
                 <div className="flex items-center justify-center gap-1">
-                  {isWeeklyOverMax() && <AlertTriangle className="h-3 w-3" />}
+                  {calculateGrandTotal() > 0 && !isWeeklyAtTarget() && <AlertTriangle className="h-3 w-3" />}
                   {calculateGrandTotal()}h
                 </div>
-                {isWeeklyOverMax() && (
-                  <div className="text-[10px] text-destructive">{t("timesheet.weeklyMaxExceeded")}</div>
-                )}
               </td>
               <td></td>
             </tr>
