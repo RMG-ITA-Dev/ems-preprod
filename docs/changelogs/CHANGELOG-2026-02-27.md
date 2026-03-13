@@ -127,3 +127,44 @@ In `src/components/timesheet/TimesheetGrid.tsx`, the `renderApprovalBadge` funct
 ### Scope
 
 Frontend display-only fix. No backend, database schema, or approval workflow changes.
+
+---
+
+## UI 0313-01: Simplify Timesheet Totals to Two-State Styling (OK / Not OK)
+
+### Problem
+
+Daily and weekly totals in the timesheet grid had 4 visual states (over-max red, near-max orange, at-target green, below-min blue) with complex precedence rules. When `dailyMin === dailyMax` (e.g. both 8), values like 7.1h satisfied both "near max" (≥80% of 8 = 6.4) and "below min" (<8), causing the near-max style (white text on light orange) to win — rendering totals illegible. Blue "below min" styling also did not convey urgency.
+
+### Changes
+
+#### File: `src/components/timesheet/TimesheetGrid.tsx`
+
+| Change | Detail |
+|---|---|
+| Removed `isDailyOverMax` helper | Was only used in totals styling; no longer needed with simplified 2-state logic |
+| Removed `isDailyBelowMin` helper | Same — only used in totals styling |
+| Removed `isDailyNearMax` helper | Same — only used in totals styling |
+| Removed `isWeeklyOverMax` helper | Same — only used in totals styling |
+| Removed `isWeeklyBelowMin` helper | Same — only used in totals styling |
+| Removed `isWeeklyNearMax` helper | Same — only used in totals styling |
+| Added `isWeeklyAtTarget` helper | Returns `true` when `calculateGrandTotal()` equals `weeklyMin` (precision-safe via `Math.round(val * 100)`) |
+| Simplified daily totals styling | Two states: `atTarget` → `bg-success/15 text-foreground`; `!atTarget && hasHours` → `bg-destructive/10 text-destructive` with `AlertTriangle` icon |
+| Simplified weekly total styling | Same two states using `isWeeklyAtTarget()` |
+| Removed `dailyMaxExceeded` label | Red styling with warning icon is self-explanatory; no separate text label needed |
+| Removed `weeklyMaxExceeded` label | Same rationale |
+
+### Before / After
+
+| Hours | Before | After |
+|---|---|---|
+| 4h (below min) | Blue text on light blue | Red text on pale red + ⚠ icon |
+| 7.1h (near max + below min) | White text on light orange (illegible) | Red text on pale red + ⚠ icon |
+| 8h (exactly at target) | Green background | Green background (unchanged) |
+| 9h (over max) | Red text on pale red + ⚠ icon + label | Red text on pale red + ⚠ icon |
+| 35.1h weekly (not at target) | White text on light orange (illegible) | Red text on pale red + ⚠ icon |
+| 40h weekly (at target) | Blue-tinted background | Green background |
+
+### Scope
+
+Frontend display-only change. Single file modified. No backend, database, locale, or schema changes. Submit validation guards in `TimeSheet.tsx` are unaffected (they use their own inline checks).
