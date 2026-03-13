@@ -981,18 +981,13 @@ export function TimesheetGrid({
               })}
               <td className={cn(
                 "p-4 text-center font-mono",
-                isWeeklyOverMax() && "text-destructive bg-destructive/10",
-                !isWeeklyOverMax() && isWeeklyNearMax() && "text-warning-foreground bg-warning/10",
-                !isWeeklyOverMax() && !isWeeklyNearMax() && isWeeklyBelowMin() && "text-blue-500 bg-blue-500/10",
-                !isWeeklyOverMax() && !isWeeklyNearMax() && !isWeeklyBelowMin() && "bg-primary/10 text-foreground"
+                calculateGrandTotal() > 0 && isWeeklyAtTarget() && "text-foreground bg-success/15",
+                calculateGrandTotal() > 0 && !isWeeklyAtTarget() && "text-destructive bg-destructive/10"
               )}>
                 <div className="flex items-center justify-center gap-1">
-                  {isWeeklyOverMax() && <AlertTriangle className="h-3 w-3" />}
+                  {calculateGrandTotal() > 0 && !isWeeklyAtTarget() && <AlertTriangle className="h-3 w-3" />}
                   {calculateGrandTotal()}h
                 </div>
-                {isWeeklyOverMax() && (
-                  <div className="text-[10px] text-destructive">{t("timesheet.weeklyMaxExceeded")}</div>
-                )}
               </td>
               <td></td>
             </tr>
