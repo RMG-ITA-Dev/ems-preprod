@@ -640,28 +640,13 @@ export function TimesheetGrid({
     return calculateColumnTotal(date) > dailyMax;
   };
 
-  const isDailyBelowMin = (date: Date) => {
-    const total = calculateColumnTotal(date);
-    return total > 0 && total < dailyMin;
-  };
-
-  const isDailyNearMax = (date: Date) => {
-    const total = calculateColumnTotal(date);
-    return total >= dailyMax * 0.8 && total <= dailyMax;
-  };
-
   const isWeeklyOverMax = () => {
     return calculateGrandTotal() > weeklyMax;
   };
 
-  const isWeeklyBelowMin = () => {
+  const isWeeklyAtTarget = () => {
     const total = calculateGrandTotal();
-    return total > 0 && total < weeklyMin;
-  };
-
-  const isWeeklyNearMax = () => {
-    const total = calculateGrandTotal();
-    return total >= weeklyMax * 0.8 && total <= weeklyMax;
+    return total > 0 && Math.round(total * 100) === Math.round(weeklyMin * 100);
   };
 
   // Track used activities per engagement for dropdown filtering
