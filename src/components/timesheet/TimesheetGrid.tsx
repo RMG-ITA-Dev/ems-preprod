@@ -109,7 +109,7 @@ export function TimesheetGrid({
   const [deleteRowId, setDeleteRowId] = useState<string | null>(null);
   const [savingCells, setSavingCells] = useState<Set<string>>(new Set());
   const [savedCells, setSavedCells] = useState<Set<string>>(new Set());
-  const debounceTimers = useRef<{ [key: string]: NodeJS.Timeout }>({});
+  const debounceTimers = useRef<{ [key: string]: ReturnType<typeof setTimeout> }>({});
   
   // Ref to access current rows inside debounced callbacks (fixes stale closure)
   const rowsRef = useRef<GridRow[]>([]);
