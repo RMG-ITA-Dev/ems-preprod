@@ -635,15 +635,6 @@ export function TimesheetGrid({
     return rows.reduce((sum, row) => sum + calculateRowTotal(row), 0);
   };
 
-  // BUG #13: Check if daily/weekly limits are exceeded
-  const isDailyOverMax = (date: Date) => {
-    return calculateColumnTotal(date) > dailyMax;
-  };
-
-  const isWeeklyOverMax = () => {
-    return calculateGrandTotal() > weeklyMax;
-  };
-
   const isWeeklyAtTarget = () => {
     const total = calculateGrandTotal();
     return total > 0 && Math.round(total * 100) === Math.round(weeklyMin * 100);
