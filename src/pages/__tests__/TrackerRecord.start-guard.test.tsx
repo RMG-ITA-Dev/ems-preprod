@@ -135,11 +135,17 @@ import TrackerRecord from "../TrackerRecord";
 
 describe("TrackerRecord start guard", () => {
   beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2024, 0, 10)); // Wednesday — avoid weekend guard
     vi.clearAllMocks();
     mockMutateAsync.mockResolvedValue("timer-1");
     trackerEngId = null;
     trackerActId = null;
     capturedOnStart = null;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   // TA: stale/injected engagementId blocks start via G3 guard

@@ -53,7 +53,19 @@ vi.mock("@/components/settings/HolidaysManager", () => ({ HolidaysManager: () =>
 import Settings from "../Settings";
 
 describe("Settings global-focus-cancel", () => {
-  beforeEach(() => { vi.clearAllMocks(); capturedLockArgs = {}; });
+  let queryClient: QueryClient;
+  beforeEach(() => {
+    vi.clearAllMocks();
+    capturedLockArgs = {};
+    queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  });
+
+  const renderSettings = () =>
+    render(
+      <QueryClientProvider client={queryClient}>
+        <Settings />
+      </QueryClientProvider>
+    );
 
   it("TS1: focusMode active only on global tab", async () => {
     render(<Settings />);
