@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { toast } from "sonner";
@@ -65,7 +65,10 @@ vi.mock("@/hooks/useTimerEntries", () => ({
 }));
 
 vi.mock("@/hooks/useEmsData", () => ({
-  useGlobalSettings: () => ({ data: [] }),
+  useGlobalSettings: () => ({ data: [
+    { setting_key: "DAILY_MAX", setting_value: "8" },
+    { setting_key: "ALLOW_WEEKEND_TRACKING", setting_value: "false" },
+  ] }),
   useActivityCodes: () => ({
     data: [
       { activity_id: "act-1", activity_code: "AUD", description: "Audit", is_active: true },
@@ -132,11 +135,17 @@ import TrackerRecord from "../TrackerRecord";
 
 describe("TrackerRecord start guard", () => {
   beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2024, 0, 10)); // Wednesday — avoid weekend guard
     vi.clearAllMocks();
     mockMutateAsync.mockResolvedValue("timer-1");
     trackerEngId = null;
     trackerActId = null;
     capturedOnStart = null;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   // TA: stale/injected engagementId blocks start via G3 guard

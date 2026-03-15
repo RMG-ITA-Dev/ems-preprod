@@ -98,7 +98,7 @@ describe("getWeekInfo", () => {
     
     expect(info.weekStartDate.getDate()).toBe(8); // Monday
     expect(info.weekEndDate.getDate()).toBe(12); // Friday (5 work days)
-    expect(info.weekNumber).toBe(2);
+    expect(info.weekNumber).toBe(15); // Fiscal week (Oct 1 start), not calendar week
     expect(info.year).toBe(2024);
     expect(info.weekDates).toHaveLength(5);
   });

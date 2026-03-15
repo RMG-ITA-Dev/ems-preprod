@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import React from "react";
 
 const mockBlocker = { state: "unblocked" as const, reset: vi.fn(), proceed: vi.fn() };
 let capturedLockArgs: any = {};
@@ -51,10 +53,22 @@ vi.mock("@/components/settings/HolidaysManager", () => ({ HolidaysManager: () =>
 import Settings from "../Settings";
 
 describe("Settings global-focus-cancel", () => {
-  beforeEach(() => { vi.clearAllMocks(); capturedLockArgs = {}; });
+  let queryClient: QueryClient;
+  beforeEach(() => {
+    vi.clearAllMocks();
+    capturedLockArgs = {};
+    queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  });
+
+  const renderSettings = () =>
+    render(
+      <QueryClientProvider client={queryClient}>
+        <Settings />
+      </QueryClientProvider>
+    );
 
   it("TS1: focusMode active only on global tab", async () => {
-    render(<Settings />);
+    renderSettings();
     // Account tab - no focus mode
     expect(screen.getByTestId("app-layout").dataset.focusMode).toBe("false");
 
@@ -64,26 +78,26 @@ describe("Settings global-focus-cancel", () => {
   });
 
   it("TS2: lock is not active on account tab", () => {
-    render(<Settings />);
+    renderSettings();
     expect(capturedLockArgs.locked).toBe(false);
   });
 
   it("TS3: lock activates on global tab", async () => {
-    render(<Settings />);
+    renderSettings();
     const user = userEvent.setup();
     await user.click(screen.getByText("settings.globalSettings"));
     expect(capturedLockArgs.locked).toBe(true);
   });
 
   it("TS4: Cancel button present on global tab", async () => {
-    render(<Settings />);
+    renderSettings();
     const user = userEvent.setup();
     await user.click(screen.getByText("settings.globalSettings"));
     expect(screen.getByText("common.cancel")).toBeInTheDocument();
   });
 
   it("TS5: LeavePageDialog renders", () => {
-    render(<Settings />);
+    renderSettings();
     expect(screen.getByTestId("leave-page-dialog")).toBeInTheDocument();
   });
 });
