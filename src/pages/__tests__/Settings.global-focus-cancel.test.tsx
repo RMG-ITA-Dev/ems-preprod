@@ -68,7 +68,7 @@ describe("Settings global-focus-cancel", () => {
     );
 
   it("TS1: focusMode active only on global tab", async () => {
-    render(<Settings />);
+    renderSettings();
     // Account tab - no focus mode
     expect(screen.getByTestId("app-layout").dataset.focusMode).toBe("false");
 
