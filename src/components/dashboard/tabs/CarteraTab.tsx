@@ -11,6 +11,7 @@ import { Progress } from '@/components/ui/progress';
 import { Briefcase, TrendingUp, AlertTriangle, Clock, DollarSign, Users } from 'lucide-react';
 import { Sparkline, SparklineDataPoint } from '@/components/dashboard/Sparkline';
 import { startOfWeek, subWeeks, format } from 'date-fns';
+import { parseDateLocal } from '@/lib/timesheetUtils';
 
 interface EngagementWithMetrics {
   engagement_id: string;
@@ -497,7 +498,7 @@ export function CarteraTab() {
                           {approval.staff_name}
                         </div>
                         <div className="text-[10px] text-muted-foreground truncate">
-                          {approval.engagement_code} · Sem {new Date(approval.week_start_date).toLocaleDateString('es-BO', { day: '2-digit', month: 'short' })}
+                          {approval.engagement_code} · Sem {parseDateLocal(approval.week_start_date).toLocaleDateString('es-BO', { day: '2-digit', month: 'short' })}
                         </div>
                       </div>
                       <div className="text-xs font-mono shrink-0 ml-2">
