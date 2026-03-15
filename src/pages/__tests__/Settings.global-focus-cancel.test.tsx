@@ -83,7 +83,7 @@ describe("Settings global-focus-cancel", () => {
   });
 
   it("TS3: lock activates on global tab", async () => {
-    render(<Settings />);
+    renderSettings();
     const user = userEvent.setup();
     await user.click(screen.getByText("settings.globalSettings"));
     expect(capturedLockArgs.locked).toBe(true);
