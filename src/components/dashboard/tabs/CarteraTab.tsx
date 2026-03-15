@@ -11,6 +11,7 @@ import { Progress } from '@/components/ui/progress';
 import { Briefcase, TrendingUp, AlertTriangle, Clock, DollarSign, Users } from 'lucide-react';
 import { Sparkline, SparklineDataPoint } from '@/components/dashboard/Sparkline';
 import { startOfWeek, subWeeks, format } from 'date-fns';
+import { parseDateLocal } from '@/lib/timesheetUtils';
 
 interface EngagementWithMetrics {
   engagement_id: string;
