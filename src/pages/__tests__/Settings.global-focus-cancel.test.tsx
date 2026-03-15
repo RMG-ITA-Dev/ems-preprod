@@ -90,7 +90,7 @@ describe("Settings global-focus-cancel", () => {
   });
 
   it("TS4: Cancel button present on global tab", async () => {
-    render(<Settings />);
+    renderSettings();
     const user = userEvent.setup();
     await user.click(screen.getByText("settings.globalSettings"));
     expect(screen.getByText("common.cancel")).toBeInTheDocument();
