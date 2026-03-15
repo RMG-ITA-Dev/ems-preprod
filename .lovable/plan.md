@@ -1,107 +1,112 @@
 
 
-# Plan v3 -- BUG 0227-66: Rejection Notes Not Visible to Staff
+# Plan — Fix 3 Failing Test Suites in CI
 
-## Objective
+## What is `test.yml`?
 
-Display approver rejection notes inline on rejected timesheet rows so staff can read them without hovering. Frontend display-only fix -- no backend, DB, or workflow changes.
+The GitHub Actions workflow (`.github/workflows/test.yml`) runs automatically on every push/PR. It does three things:
 
-## Root Cause
+1. **Runs all Vitest tests** with coverage
+2. **Guards against deprecated `DAILY_LIMIT`/`WEEKLY_LIMIT`** string literals in runtime code (enforcing the min/max migration)
+3. **Guards against UTC date parsing bugs** — ensures `parseDateLocal()` is used for date-only DB fields
 
-In `src/components/timesheet/TimesheetGrid.tsx`, `renderApprovalBadge` (lines 661-689) places `review_notes` exclusively inside a `TooltipContent`. Users must hover the small "Rejected" badge to see the note, which is undiscoverable. Most staff contact the approver instead.
+This is standard CI (Continuous Integration) — it catches regressions before they reach production. You need it because without it, bugs like the timezone date-shift issue (BUG 0220-59) or accidental use of old setting keys could silently reappear.
 
-## Scope
+## Why Tests Are Failing
 
-**In scope:** Add inline rejection note text below the rejected badge, add one i18n key per locale, append changelog.
+Three test files have issues. Here's each problem and fix:
 
-**Out of scope:** Backend/DB changes, approval workflow changes, banner modifications, approver name display, tests for this display-only change.
+---
 
-## Implementation Steps
+### Fix 1: `src/lib/__tests__/timesheetUtils.test.ts` — Wrong `weekNumber` expectation
 
-### Step 1: Add inline rejection note in renderApprovalBadge
+**Problem:** Test expects `weekNumber` to be `2` (calendar week), but `getWeekInfo` calls `getFiscalWeekNumber` which uses fiscal year (Oct 1 start). Jan 8 2024 is fiscal week ~15, not 2.
 
-**File: `src/components/timesheet/TimesheetGrid.tsx`** (lines 661-689)
+**Fix:** Change the assertion on line 101 to match fiscal week numbering. Calculate: FY2024 anchor is Oct 2, 2023 (Monday). Jan 8 is 14 weeks later → fiscal week 15.
 
-Inside `renderApprovalBadge`, wrap the existing return in a fragment. After the existing `Tooltip` block, conditionally render an inline note paragraph when `approval.status === "rejected"` and `approval.review_notes?.trim()` is non-empty:
+```typescript
+// Line 101 — change:
+expect(info.weekNumber).toBe(2);
+// to:
+expect(info.weekNumber).toBe(15);
+```
 
-```text
-return (
-  <>
-    <Tooltip>
-      ...existing tooltip/badge unchanged...
-    </Tooltip>
-    {approval.status === "rejected" && approval.review_notes?.trim() && (
-      <p className="mt-1 text-xs text-destructive/90 italic leading-tight">
-        {t("approval.rejectionNote")} {approval.review_notes}
-      </p>
-    )}
-  </>
+---
+
+### Fix 2: `src/pages/__tests__/Settings.global-focus-cancel.test.tsx` — Missing QueryClientProvider
+
+**Problem:** `Settings` component calls `useQueryClient()` at line 51, but the test renders it without a `QueryClientProvider` wrapper.
+
+**Fix:** Wrap renders with `QueryClientProvider`. Use the existing test utility from `src/test/utils.tsx` or add inline:
+
+```typescript
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+
+// In the describe block:
+let queryClient: QueryClient;
+beforeEach(() => {
+  queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+});
+
+// Replace all render(<Settings />) with:
+render(
+  <QueryClientProvider client={queryClient}>
+    <Settings />
+  </QueryClientProvider>
 );
 ```
 
-The parent container at line 753 is `<div className="flex items-center">`. This needs to change to `flex flex-wrap items-center` so the note wraps below the badge+select row instead of overflowing horizontally.
+All 5 tests in this suite need this wrapper.
 
-Approved and pending badge rendering is completely unchanged -- the conditional only fires for rejected status with a non-empty trimmed note.
+---
 
-### Step 2: Add i18n keys
+### Fix 3: `src/pages/__tests__/TrackerRecord.start-guard.test.tsx` — `mockMutateAsync` not called
 
-**File: `src/locales/en.json`** -- under `approval` section add:
-```text
-"rejectionNote": "Rejection note:"
+**Problem:** Test TB expects `mockMutateAsync` to be called once, but the `handleStart` function checks `remainingHours <= 0` before calling `startRPC.mutateAsync`. The mock for `useTimerEntries` returns `data: []` (no entries), and `useRunningTimerEntry` returns `data: null` — so `todayTrackedHours = 0` and `remainingHours = 8`. That part is fine.
+
+The real issue: `handleStart` is an `async` function that calls `await startRPC.mutateAsync(...)`. The mock `useStartTimerRPC` returns `{ mutateAsync: mockMutateAsync }`, but `TrackerRecord` destructures it as `const startRPC = useStartTimerRPC()` then calls `startRPC.mutateAsync(...)`. The mock returns the right shape.
+
+Actually, looking more carefully: the `isWeekend` check — the test runs with real `Date`, and if CI runs on a weekend, `isWeekendToday` would be `true` and `allowWeekendTracking` is `false` (no `ALLOW_WEEKEND_TRACKING` in mock `globalSettings.data: []`), so it would hit `toast.error("tracker.weekendNotAllowed")` and return before calling `mutateAsync`.
+
+**Fix:** Mock the current date to a known weekday using `vi.useFakeTimers()`:
+
+```typescript
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date(2024, 0, 10)); // Wednesday
+  // ... existing setup
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 ```
 
-**File: `src/locales/es.json`** -- under `approval` section add:
-```text
-"rejectionNote": "Nota de rechazo:"
+Also add `ALLOW_WEEKEND_TRACKING` to the globalSettings mock to be safe:
+
+```typescript
+vi.mock("@/hooks/useEmsData", () => ({
+  useGlobalSettings: () => ({ data: [
+    { setting_key: "DAILY_MAX", setting_value: "8" },
+    { setting_key: "ALLOW_WEEKEND_TRACKING", setting_value: "false" },
+  ] }),
+  useActivityCodes: () => ({
+    data: [
+      { activity_id: "act-1", activity_code: "AUD", description: "Audit", is_active: true },
+    ],
+  }),
+}));
 ```
 
-### Step 3: Changelog append
+---
 
-**File: `docs/CHANGELOG-2026-02-27.md`**
+## Summary
 
-Append BUG 0227-66 entry with:
-- Root cause: rejection notes existed in DB and tooltip but were only visible via hover on the small rejected badge
-- Files modified: `src/components/timesheet/TimesheetGrid.tsx`, `src/locales/en.json`, `src/locales/es.json`
-- Before: staff had to hover the "Rejected" badge to see rejection reason; most never discovered this
-- After: rejection note is displayed inline below the badge in `text-destructive` italic text; rows without a note show no extra text
-- Scope: frontend display-only fix; no backend, DB schema, or approval workflow changes
+| File | Problem | Fix |
+|---|---|---|
+| `timesheetUtils.test.ts` | `weekNumber` assertion uses calendar week, not fiscal | Change `toBe(2)` → `toBe(15)` |
+| `Settings.global-focus-cancel.test.tsx` | Missing `QueryClientProvider` | Wrap renders with provider |
+| `TrackerRecord.start-guard.test.tsx` | Weekend/date-dependent test fails on weekends in CI | Pin date with `vi.useFakeTimers()` to a weekday |
 
-## Target Files
-
-| File | Action |
-|---|---|
-| `src/components/timesheet/TimesheetGrid.tsx` | Modify (renderApprovalBadge + parent div class) |
-| `src/locales/en.json` | Modify (add 1 key under approval) |
-| `src/locales/es.json` | Modify (add 1 key under approval) |
-| `docs/CHANGELOG-2026-02-27.md` | Append |
-
-## Validation Checks
-
-1. Rejected rows with note: inline note visible without hover
-2. Rejected rows without note (or empty/whitespace-only): no inline note block rendered
-3. Approved/pending rows: completely unchanged
-4. Locale keys `approval.rejectionNote` resolve correctly in EN and ES
-
-## QA Checklist
-
-1. Reject a timesheet line with a note as approver -- staff sees note inline below badge
-2. Reject a line without a note -- no extra text appears
-3. Long rejection notes wrap correctly within the cell (no horizontal overflow)
-4. Approved and pending badges render identically to before
-5. Mobile layout -- note text wraps within engagement column
-6. Tooltip still works on hover for backward compatibility
-
-## Acceptance Criteria
-
-1. Staff can read rejection reason directly on rejected rows without hover
-2. Rows without rejection notes show no extra UI elements
-3. No regressions on approved/pending badge display
-4. No backend or database changes
-5. Changelog is detailed and diff-verifiable
-
-## Changelog Append
-
-**File:** `docs/CHANGELOG-2026-02-27.md`
-
-You need to append to the CHANGELOG a detailed description of the changes made while implementing this Plan. There needs to be sufficient detail to be able to verify if the changes to the codebase correspond to the CHANGELOG.
+Three files, minimal changes. No runtime code or backend changes.
 
