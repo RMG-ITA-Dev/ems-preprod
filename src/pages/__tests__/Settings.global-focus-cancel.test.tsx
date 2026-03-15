@@ -97,7 +97,7 @@ describe("Settings global-focus-cancel", () => {
   });
 
   it("TS5: LeavePageDialog renders", () => {
-    render(<Settings />);
+    renderSettings();
     expect(screen.getByTestId("leave-page-dialog")).toBeInTheDocument();
   });
 });
