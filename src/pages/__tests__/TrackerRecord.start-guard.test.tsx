@@ -65,7 +65,10 @@ vi.mock("@/hooks/useTimerEntries", () => ({
 }));
 
 vi.mock("@/hooks/useEmsData", () => ({
-  useGlobalSettings: () => ({ data: [] }),
+  useGlobalSettings: () => ({ data: [
+    { setting_key: "DAILY_MAX", setting_value: "8" },
+    { setting_key: "ALLOW_WEEKEND_TRACKING", setting_value: "false" },
+  ] }),
   useActivityCodes: () => ({
     data: [
       { activity_id: "act-1", activity_code: "AUD", description: "Audit", is_active: true },
