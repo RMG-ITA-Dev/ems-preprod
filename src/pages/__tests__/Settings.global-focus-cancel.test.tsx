@@ -78,7 +78,7 @@ describe("Settings global-focus-cancel", () => {
   });
 
   it("TS2: lock is not active on account tab", () => {
-    render(<Settings />);
+    renderSettings();
     expect(capturedLockArgs.locked).toBe(false);
   });
 
