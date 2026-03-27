@@ -11,6 +11,7 @@ import {
   isAfter,
   isSameDay,
   parseISO,
+  startOfDay,
 } from "date-fns";
 import { getFiscalWeekNumber } from "@/lib/fiscalCalculations";
 import { es, enUS } from "date-fns/locale";
@@ -182,6 +183,44 @@ export const isDeadlinePassed = (deadline: Date): boolean => {
 // Check if today is the deadline
 export const isDeadlineToday = (deadline: Date): boolean => {
   return isSameDay(new Date(), deadline);
+};
+
+// ============== PRORATION HELPERS (BUG 0306-74) ==============
+
+/**
+ * Calculate effective weekly min/max limits based on workable days.
+ * Accounts for hire date, termination date, and holidays.
+ */
+export const getEffectiveWeeklyLimits = (
+  weekDates: Date[],
+  weeklyMin: number,
+  weeklyMax: number,
+  hireDate: string | null,
+  terminationDate: string | null,
+  holidayDates: Set<string>,
+): { effectiveMin: number; effectiveMax: number; workableDays: number; totalDays: number } => {
+  if (weekDates.length === 0) {
+    return { effectiveMin: weeklyMin, effectiveMax: weeklyMax, workableDays: 0, totalDays: 0 };
+  }
+
+  const totalDays = weekDates.length;
+  const hireParsed = hireDate ? parseDateLocal(hireDate) : null;
+  const termParsed = terminationDate ? parseDateLocal(terminationDate) : null;
+
+  let workableDays = 0;
+  for (const date of weekDates) {
+    const dayStart = startOfDay(date);
+    if (hireParsed && isBefore(dayStart, startOfDay(hireParsed))) continue;
+    if (termParsed && isBefore(startOfDay(termParsed), dayStart)) continue;
+    if (holidayDates.has(toISODateString(date))) continue;
+    workableDays++;
+  }
+
+  const ratio = totalDays > 0 ? workableDays / totalDays : 1;
+  const effectiveMin = Math.round(weeklyMin * ratio * 10) / 10;
+  const effectiveMax = Math.round(weeklyMax * ratio * 10) / 10;
+
+  return { effectiveMin, effectiveMax, workableDays, totalDays };
 };
 
 // ============== STATUS HELPERS ==============

@@ -39,6 +39,7 @@ import {
   getNextWeek,
   calculateDeadline,
   toISODateString,
+  getEffectiveWeeklyLimits,
 } from "@/lib/timesheetUtils";
 
 type SaveStatus = "idle" | "saving" | "saved";
@@ -154,14 +155,30 @@ const TimeSheet = () => {
     return entries.reduce((sum, e) => sum + Number(e.hours_logged ?? 0), 0);
   }, [entries]);
 
-  const isBelowWeeklyMin = weeklyGrandTotal < weeklyMin;
-  const isAboveWeeklyMax = weeklyGrandTotal > weeklyMax;
-  const isWeeklyOutOfBounds = isBelowWeeklyMin || isAboveWeeklyMax;
-
   // Holiday data for the current week
   const holidayMap = useHolidaysForWeek(weekInfo.weekDates);
   const holidayEngagementId = useHolidayEngagementId();
   const adminActivityId = useAdminActivityId();
+
+  // BUG 0306-74: Prorate weekly limits for partial weeks
+  const holidayDateSet = useMemo(() => {
+    const set = new Set<string>();
+    holidayMap.forEach((_, dateStr) => set.add(dateStr));
+    return set;
+  }, [holidayMap]);
+
+  const { effectiveMin: effectiveWeeklyMin, effectiveMax: effectiveWeeklyMax, workableDays } = useMemo(
+    () => getEffectiveWeeklyLimits(
+      weekInfo.weekDates, weeklyMin, weeklyMax,
+      staffRecord?.hire_date ?? null, staffRecord?.termination_date ?? null,
+      holidayDateSet
+    ),
+    [weekInfo.weekDates, weeklyMin, weeklyMax, staffRecord?.hire_date, staffRecord?.termination_date, holidayDateSet]
+  );
+
+  const isBelowWeeklyMin = weeklyGrandTotal < effectiveWeeklyMin;
+  const isAboveWeeklyMax = weeklyGrandTotal > effectiveWeeklyMax;
+  const isWeeklyOutOfBounds = isBelowWeeklyMin || isAboveWeeklyMax;
 
   // Compute activityNotRequiredIds from engagement data
   const activityNotRequiredIds = useMemo(() => {
@@ -565,10 +582,16 @@ const TimeSheet = () => {
               <AlertTriangle className="h-4 w-4" />
               <AlertDescription>
                 <span className="font-bold">
-                  {t("timesheet.weeklyMinNotMet", {
-                    total: weeklyGrandTotal.toFixed(1),
-                    min: weeklyMin,
-                  })}
+                  {workableDays < workDays
+                    ? t("timesheet.weeklyMinNotMetPartial", {
+                        total: weeklyGrandTotal.toFixed(1),
+                        min: effectiveWeeklyMin,
+                        days: workableDays,
+                      })
+                    : t("timesheet.weeklyMinNotMet", {
+                        total: weeklyGrandTotal.toFixed(1),
+                        min: effectiveWeeklyMin,
+                      })}
                 </span>
               </AlertDescription>
             </Alert>
@@ -585,7 +608,7 @@ const TimeSheet = () => {
                 <span className="font-bold">
                   {t("timesheet.weeklyMaxExceeded", {
                     total: weeklyGrandTotal.toFixed(1),
-                    max: weeklyMax,
+                    max: effectiveWeeklyMax,
                   })}
                 </span>
               </AlertDescription>
@@ -608,8 +631,8 @@ const TimeSheet = () => {
           saveNowTrigger={saveNowTrigger}
           dailyMin={dailyMin}
           dailyMax={dailyMax}
-          weeklyMin={weeklyMin}
-          weeklyMax={weeklyMax}
+          weeklyMin={effectiveWeeklyMin}
+          weeklyMax={effectiveWeeklyMax}
           lockedDaysBeforeHire={lockedDaysBeforeHire}
           lockedDaysAfterTermination={lockedDaysAfterTermination}
           holidayMap={holidayMap}
