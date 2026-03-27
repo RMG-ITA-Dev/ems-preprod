@@ -564,10 +564,12 @@ const TimeSheet = () => {
             <Alert variant="destructive">
               <AlertTriangle className="h-4 w-4" />
               <AlertDescription>
-                {t("timesheet.weeklyMinNotMet", {
-                  total: weeklyGrandTotal.toFixed(1),
-                  min: weeklyMin,
-                })}
+                <span className="font-bold">
+                  {t("timesheet.weeklyMinNotMet", {
+                    total: weeklyGrandTotal.toFixed(1),
+                    min: weeklyMin,
+                  })}
+                </span>
               </AlertDescription>
             </Alert>
         )}
@@ -580,10 +582,12 @@ const TimeSheet = () => {
             <Alert variant="destructive">
               <AlertTriangle className="h-4 w-4" />
               <AlertDescription>
-                {t("timesheet.weeklyMaxExceeded", {
-                  total: weeklyGrandTotal.toFixed(1),
-                  max: weeklyMax,
-                })}
+                <span className="font-bold">
+                  {t("timesheet.weeklyMaxExceeded", {
+                    total: weeklyGrandTotal.toFixed(1),
+                    max: weeklyMax,
+                  })}
+                </span>
               </AlertDescription>
             </Alert>
         )}
