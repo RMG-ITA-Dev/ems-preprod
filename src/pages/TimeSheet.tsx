@@ -39,6 +39,7 @@ import {
   getNextWeek,
   calculateDeadline,
   toISODateString,
+  getEffectiveWeeklyLimits,
 } from "@/lib/timesheetUtils";
 
 type SaveStatus = "idle" | "saving" | "saved";
