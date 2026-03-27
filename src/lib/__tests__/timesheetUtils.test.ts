@@ -357,3 +357,58 @@ describe("isCurrentWeek / isFutureWeek / isPastWeek", () => {
     expect(isPastWeek(new Date(2024, 0, 15))).toBe(false);
   });
 });
+
+describe("getEffectiveWeeklyLimits", () => {
+  const mon = new Date(2026, 2, 2);
+  const tue = new Date(2026, 2, 3);
+  const wed = new Date(2026, 2, 4);
+  const thu = new Date(2026, 2, 5);
+  const fri = new Date(2026, 2, 6);
+  const fullWeek = [mon, tue, wed, thu, fri];
+  const noHolidays = new Set<string>();
+
+  it("returns full limits for full week with no boundaries", () => {
+    const result = getEffectiveWeeklyLimits(fullWeek, 40, 40, null, null, noHolidays);
+    expect(result.effectiveMin).toBe(40);
+    expect(result.effectiveMax).toBe(40);
+    expect(result.workableDays).toBe(5);
+    expect(result.totalDays).toBe(5);
+  });
+
+  it("adjusts for mid-week hire date (BUG 0306-74)", () => {
+    const result = getEffectiveWeeklyLimits(fullWeek, 40, 40, "2026-03-06", null, noHolidays);
+    expect(result.effectiveMin).toBe(8);
+    expect(result.effectiveMax).toBe(8);
+    expect(result.workableDays).toBe(1);
+  });
+
+  it("adjusts for mid-week termination date", () => {
+    const result = getEffectiveWeeklyLimits(fullWeek, 40, 40, null, "2026-03-04", noHolidays);
+    expect(result.effectiveMin).toBe(24);
+    expect(result.effectiveMax).toBe(24);
+    expect(result.workableDays).toBe(3);
+  });
+
+  it("subtracts holidays from workable days", () => {
+    const holidays = new Set(["2026-03-04"]);
+    const result = getEffectiveWeeklyLimits(fullWeek, 40, 40, null, null, holidays);
+    expect(result.effectiveMin).toBe(32);
+    expect(result.effectiveMax).toBe(32);
+    expect(result.workableDays).toBe(4);
+  });
+
+  it("combines hire date and holidays", () => {
+    const holidays = new Set(["2026-03-06"]);
+    const result = getEffectiveWeeklyLimits(fullWeek, 40, 40, "2026-03-05", null, holidays);
+    expect(result.effectiveMin).toBe(8);
+    expect(result.effectiveMax).toBe(8);
+    expect(result.workableDays).toBe(1);
+  });
+
+  it("returns 0 effective min when no workable days", () => {
+    const result = getEffectiveWeeklyLimits(fullWeek, 40, 40, "2026-03-09", null, noHolidays);
+    expect(result.effectiveMin).toBe(0);
+    expect(result.effectiveMax).toBe(0);
+    expect(result.workableDays).toBe(0);
+  });
+});
