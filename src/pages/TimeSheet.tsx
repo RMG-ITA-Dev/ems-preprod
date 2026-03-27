@@ -641,6 +641,11 @@ const TimeSheet = () => {
           </div>
 
           <div className="flex gap-3 flex-wrap">
+            {/* Cancel button — always leftmost */}
+            <Button variant="cancel" onClick={handleBack}>
+              {t("common.cancel")}
+            </Button>
+
             {/* Copy to Current Week */}
             {canCopyToCurrentWeek && (
               <Button
@@ -656,11 +661,6 @@ const TimeSheet = () => {
                 {t("timesheet.copyToCurrentWeek")}
               </Button>
             )}
-
-            {/* Cancel button — always leftmost */}
-            <Button variant="cancel" onClick={handleBack}>
-              {t("common.cancel")}
-            </Button>
 
             {/* Delete all entries */}
             {canDeleteAll && (
