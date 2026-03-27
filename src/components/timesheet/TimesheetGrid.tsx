@@ -896,7 +896,7 @@ export function TimesheetGrid({
                   {calculateRowTotal(row)}h
                 </td>
                 <td className="p-2 text-center">
-                  {isRowApproved && rows.length > 1 ? (
+                  {isRowApproved ? (
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Lock className="h-4 w-4 text-muted-foreground mx-auto" />
@@ -905,7 +905,7 @@ export function TimesheetGrid({
                         <p>{t("timesheet.lineApproved")}</p>
                       </TooltipContent>
                     </Tooltip>
-                  ) : rows.length > 1 && !isLocked ? (
+                  ) : !isLocked ? (
                     <Button
                       variant="ghost"
                       size="icon"

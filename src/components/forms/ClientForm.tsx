@@ -344,7 +344,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
             </div>
 
             <div className="flex justify-end gap-2 pt-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => onCancel ? onCancel() : navigate("/clients")}>
+              <Button type="button" variant="cancel" size="sm" onClick={() => onCancel ? onCancel() : navigate("/clients")}>
                 {t("common.cancel")}
               </Button>
               <LoadingButton
@@ -403,7 +403,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-                <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground">
+                <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
                   {t("common.delete")}
                 </AlertDialogAction>
               </AlertDialogFooter>
@@ -555,7 +555,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
             </div>
 
             <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 sm:gap-4 pt-4">
-              <Button type="button" variant="outline" onClick={() => onCancel ? onCancel() : navigate("/clients")} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
+              <Button type="button" variant="cancel" onClick={() => onCancel ? onCancel() : navigate("/clients")} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
                 {t("common.cancel")}
               </Button>
               <LoadingButton

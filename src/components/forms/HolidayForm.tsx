@@ -9,6 +9,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { LoadingButton } from "@/components/ui/loading-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Calendar } from "@/components/ui/calendar";
@@ -112,15 +113,12 @@ export function HolidayForm({ open, onOpenChange, holiday }: HolidayFormProps) {
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="cancel" onClick={() => onOpenChange(false)} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
             {t("common.cancel")}
           </Button>
-          <Button
-            onClick={handleSubmit}
-            disabled={!date || !name.trim() || isPending}
-          >
-            {isPending ? t("common.saving") : t("common.save")}
-          </Button>
+          <LoadingButton onClick={handleSubmit} disabled={!date || !name.trim()} loading={isPending} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
+            {t("common.save")}
+          </LoadingButton>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -417,7 +417,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-                <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground">
+                <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
                   {t("common.delete")}
                 </AlertDialogAction>
               </AlertDialogFooter>
@@ -656,7 +656,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
             </div>
 
             <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 sm:gap-4 pt-4">
-              <Button type="button" variant="outline" onClick={() => onCancel ? onCancel() : navigate("/staff")} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
+              <Button type="button" variant="cancel" onClick={() => onCancel ? onCancel() : navigate("/staff")} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
                 {t("common.cancel")}
               </Button>
               <LoadingButton
@@ -713,7 +713,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
             </table>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowPendingDialog(false)}>
+            <Button variant="cancel" onClick={() => setShowPendingDialog(false)}>
               {t("common.close")}
             </Button>
           </DialogFooter>
@@ -733,7 +733,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="flex-col sm:flex-row gap-2">
-            <Button variant="outline" onClick={onSkipSync}>
+            <Button variant="cancel" onClick={onSkipSync}>
               {t("staff.syncRoleSkip")}
             </Button>
             <Button onClick={onConfirmSync}>

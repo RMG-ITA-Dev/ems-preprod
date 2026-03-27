@@ -590,7 +590,7 @@ export function WorkOrderForm({
       {/* Actions */}
       <div className="flex justify-end gap-3">
         {onCancel && (
-          <Button variant="outline" onClick={onCancel} disabled={isSubmitting} className="btn-action">
+          <Button variant="cancel" onClick={onCancel} disabled={isSubmitting} className="btn-action">
             {t("common.cancel")}
           </Button>
         )}

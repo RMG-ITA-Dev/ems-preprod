@@ -353,19 +353,19 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                       <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-                      <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground">
+                      <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
                         {t("common.delete")}
                       </AlertDialogAction>
                     </AlertDialogFooter>
                   </AlertDialogContent>
                 </AlertDialog>
               )}
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
+              <Button type="button" variant="cancel" onClick={() => onOpenChange(false)} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
                 {t("common.cancel")}
               </Button>
               <LoadingButton
                 type="submit"
-                className="bg-accent hover:bg-accent/90 text-accent-foreground w-full sm:w-auto min-h-[44px] sm:min-h-0"
+                className="w-full sm:w-auto min-h-[44px] sm:min-h-0"
                 loading={createMutation.isPending || updateMutation.isPending}
               >
                 {isEdit ? t("common.saveChanges") : t("category.createCategory")}

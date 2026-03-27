@@ -179,7 +179,7 @@ export function HolidaysManager() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete}>
+            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
               {t("common.delete")}
             </AlertDialogAction>
           </AlertDialogFooter>

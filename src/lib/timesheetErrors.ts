@@ -4,7 +4,7 @@
 
 const TIMESHEET_ERROR_BRAND = "__timesheetError__" as const;
 
-export type TimesheetErrorCode = "WEEK_LOCKED" | "NO_ENTRIES" | "HOLIDAY_BLOCKED" | "HOLIDAY_NOT_CONFIGURED" | "ADM_ACTIVITY_NOT_CONFIGURED" | "SUBMIT_NO_ENTRIES";
+export type TimesheetErrorCode = "WEEK_LOCKED" | "NO_ENTRIES" | "HOLIDAY_BLOCKED" | "HOLIDAY_NOT_CONFIGURED" | "ADM_ACTIVITY_NOT_CONFIGURED" | "SUBMIT_NO_ENTRIES" | "CURRENT_WEEK_HAS_ENTRIES";
 
 const messages: Record<TimesheetErrorCode, string> = {
   WEEK_LOCKED: "This week is locked and cannot be modified",
@@ -13,6 +13,7 @@ const messages: Record<TimesheetErrorCode, string> = {
   HOLIDAY_NOT_CONFIGURED: "Holiday blocking is active but no holiday engagement has been configured",
   ADM_ACTIVITY_NOT_CONFIGURED: "System ADM activity is not configured. Contact an administrator.",
   SUBMIT_NO_ENTRIES: "Cannot submit a timesheet with no time entries",
+  CURRENT_WEEK_HAS_ENTRIES: "Cannot copy: the current week already has time entries",
 };
 
 export class TimesheetAppError extends Error {

@@ -118,7 +118,7 @@ export function ChangePasswordCard() {
             />
           </div>
 
-          <Button type="submit" disabled={loading}>
+          <Button type="submit" disabled={loading} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
             {loading ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin mr-2" />

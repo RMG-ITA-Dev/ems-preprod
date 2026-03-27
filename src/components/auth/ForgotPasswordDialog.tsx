@@ -94,7 +94,7 @@ export function ForgotPasswordDialog({ children }: ForgotPasswordDialogProps) {
             <p className="text-center text-muted-foreground text-sm">
               {t("auth.checkYourEmail")}
             </p>
-            <Button onClick={() => handleOpenChange(false)} variant="outline">
+            <Button onClick={() => handleOpenChange(false)} variant="cancel">
               {t("common.close")}
             </Button>
           </div>
@@ -126,7 +126,7 @@ export function ForgotPasswordDialog({ children }: ForgotPasswordDialogProps) {
             <div className="flex gap-2">
               <Button
                 type="button"
-                variant="outline"
+                variant="cancel"
                 onClick={() => handleOpenChange(false)}
                 className="flex-1"
               >

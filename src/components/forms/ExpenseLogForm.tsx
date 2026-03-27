@@ -423,7 +423,7 @@ export function ExpenseLogForm({
 
       {/* Actions - stack on mobile */}
       <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 pt-4">
-        <Button type="button" variant="outline" onClick={onCancel} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
+        <Button type="button" variant="cancel" onClick={onCancel} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
           {t("common.cancel")}
         </Button>
         <LoadingButton

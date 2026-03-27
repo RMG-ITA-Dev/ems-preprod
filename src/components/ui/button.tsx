@@ -15,7 +15,7 @@ const buttonVariants = cva(
         secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80",
         ghost: "hover:bg-accent hover:text-accent-foreground",
         link: "text-primary underline-offset-4 hover:underline",
-        cancel: "bg-muted text-muted-foreground hover:bg-muted/80",
+        cancel: "bg-background border border-input text-muted-foreground hover:bg-muted hover:text-foreground hover:border-muted-foreground/40 active:bg-muted/80 active:shadow-[inset_0_1px_2px_rgba(0,0,0,0.08)] disabled:bg-muted/50 disabled:text-muted-foreground/50 disabled:border-input/50 disabled:opacity-100 transition-[background-color,color,border-color,box-shadow] duration-150 ease-in-out",
         submit: "bg-info text-info-foreground hover:bg-info/90",
       },
       size: {

@@ -610,10 +610,10 @@ const Settings = () => {
                     </div>
 
                     <div className="flex gap-3">
-                      <Button variant="outline" onClick={handleCancelGlobal}>
+                      <Button variant="cancel" onClick={handleCancelGlobal} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
                         {t("common.cancel")}
                       </Button>
-                      <Button onClick={handleSaveSettings} disabled={updateSettingMutation.isPending}>
+                      <Button onClick={handleSaveSettings} disabled={updateSettingMutation.isPending} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
                         {updateSettingMutation.isPending ? t("common.saving") : t("common.saveChanges")}
                       </Button>
                     </div>

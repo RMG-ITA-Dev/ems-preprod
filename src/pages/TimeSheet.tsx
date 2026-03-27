@@ -1,12 +1,12 @@
 import { useState, useMemo, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Loader2, AlertCircle, Lock, Save, RotateCcw, Check, AlertTriangle, Copy, ArrowLeft } from "lucide-react";
+import { Loader2, AlertCircle, Lock, Save, RotateCcw, Check, AlertTriangle, Copy, ArrowLeft, Trash2 } from "lucide-react";
 import { WeekNavigator } from "@/components/timesheet/WeekNavigator";
 import { TimesheetGrid } from "@/components/timesheet/TimesheetGrid";
 import { useHolidaysForWeek, useHolidayEngagementId } from "@/hooks/useHolidays";
@@ -16,7 +16,18 @@ import { useTimesheetWeek } from "@/hooks/useTimesheetWeek";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { useAuth } from "@/hooks/useAuth";
 import { usePeriodLineApprovals } from "@/hooks/useTimesheetApprovals";
-import { useSubmitTimesheet, useUnsubmitTimesheet, useCopyPreviousWeek } from "@/hooks/useTimesheetMutations";
+import { useSubmitTimesheet, useUnsubmitTimesheet, useCopyPreviousWeek, useCopyToCurrentWeek } from "@/hooks/useTimesheetMutations";
+import { isTimesheetError } from "@/lib/timesheetErrors";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogAction,
+  AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
 import { useGlobalSettings } from "@/hooks/useEmsData";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -41,7 +52,35 @@ const TimeSheet = () => {
     navigate("/");
   };
 
-  // Get current staff
+  const handleDeleteAll = async () => {
+    if (!staffRecord?.staff_id) return;
+    setIsDeletingAll(true);
+    try {
+      const dateStrings = weekInfo.weekDates.map(d => toISODateString(d));
+      const { error } = await supabase
+        .from('time_entries')
+        .delete()
+        .eq('staff_id', staffRecord.staff_id)
+        .in('date_worked', dateStrings)
+        .eq('is_forecast', false);
+      if (error) throw error;
+      toast.success(t('timesheet.allEntriesDeleted'));
+      queryClient.invalidateQueries({ queryKey: ['time-entries'] });
+      queryClient.invalidateQueries({ queryKey: ['timesheet-period'] });
+    } catch (err) {
+      const msg = (err as Error).message || '';
+      if (msg.includes('APPROVED_LINE_LOCKED')) {
+        toast.error(t('timesheet.approvedLineCannotEdit'));
+      } else {
+        toast.error(t('timesheet.deleteAllFailed'));
+      }
+    } finally {
+      setIsDeletingAll(false);
+      setShowDeleteAllDialog(false);
+    }
+  };
+
+
   const { staffRecord, isLoading: staffLoading } = useCurrentStaff();
 
   // Get policies
@@ -80,9 +119,11 @@ const TimeSheet = () => {
 
   // Save status state (BUG #29)
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
+  const [showCopyBlockedDialog, setShowCopyBlockedDialog] = useState(false);
+  const [showDeleteAllDialog, setShowDeleteAllDialog] = useState(false);
+  const [isDeletingAll, setIsDeletingAll] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   
-
   // Manual save trigger
   const [saveNowTrigger, setSaveNowTrigger] = useState(0);
 
@@ -159,6 +200,8 @@ const TimeSheet = () => {
   const submitTimesheet = useSubmitTimesheet();
   const unsubmitTimesheet = useUnsubmitTimesheet();
   const copyPreviousWeek = useCopyPreviousWeek();
+  const copyToCurrentWeek = useCopyToCurrentWeek();
+  const queryClient = useQueryClient();
 
   // Week navigation handlers
   const handlePreviousWeek = () => {
@@ -282,6 +325,14 @@ const TimeSheet = () => {
     && !period?.is_period_locked
     && hasNonZeroEntry;
 
+  const canCopyToCurrentWeek = !isCurrentWeek && entries.length > 0 && !copyToCurrentWeek.isPending;
+
+  const hasAnyApprovedLine = lineApprovals?.some(la => la.status === 'approved') ?? false;
+
+  const canDeleteAll = !isSubmitted && !period?.is_period_locked && entries.length > 0
+    && !isBeforeHireDate && !isAfterTerminationDate && isWithinEditableWindow
+    && !hasAnyApprovedLine;
+
   // BUG #21: Separate "can submit" from "can edit cells"
   // BUG #0213-33: Also gate on weekly limit
   const canSubmit = !isBeforeHireDate && !isAfterTerminationDate && isWithinEditableWindow && entries.length > 0 &&
@@ -339,6 +390,25 @@ const TimeSheet = () => {
       workDays,
       holidayDates: holidayDates.size > 0 ? holidayDates : undefined,
       holidayEngagementId,
+    });
+  };
+
+  // Handle copy to current week
+  const handleCopyToCurrentWeek = () => {
+    if (!canCopyToCurrentWeek || !staffRecord?.staff_id) return;
+    copyToCurrentWeek.mutate({
+      staffId: staffRecord.staff_id,
+      sourceWeekStart: currentWeekStart,
+      workDays,
+      hireDate: staffRecord.hire_date,
+      terminationDate: staffRecord.termination_date,
+      employeeRetroDays: policies?.employeeRetroDays,
+    }, {
+      onError: (error) => {
+        if (isTimesheetError(error, "CURRENT_WEEK_HAS_ENTRIES")) {
+          setShowCopyBlockedDialog(true);
+        }
+      }
     });
   };
 
@@ -567,8 +637,37 @@ const TimeSheet = () => {
           </div>
 
           <div className="flex gap-3 flex-wrap">
+            {/* Copy to Current Week */}
+            {canCopyToCurrentWeek && (
+              <Button
+                variant="outline"
+                className="bg-brand-gold text-black hover:bg-brand-gold/90"
+                onClick={handleCopyToCurrentWeek}
+                disabled={copyToCurrentWeek.isPending}
+              >
+                {copyToCurrentWeek.isPending && (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                )}
+                <Copy className="h-4 w-4 mr-2" />
+                {t("timesheet.copyToCurrentWeek")}
+              </Button>
+            )}
+
+            {/* Delete all entries */}
+            {canDeleteAll && (
+              <Button
+                variant="destructive"
+                onClick={() => setShowDeleteAllDialog(true)}
+                disabled={isDeletingAll}
+              >
+                {isDeletingAll && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                <Trash2 className="h-4 w-4 mr-2" />
+                {t('timesheet.deleteAllEntries')}
+              </Button>
+            )}
+
             {/* Back button */}
-            <Button variant="outline" onClick={handleBack}>
+            <Button variant="cancel" onClick={handleBack}>
               {t("common.cancel")}
             </Button>
 
@@ -605,7 +704,7 @@ const TimeSheet = () => {
             {/* Save Draft Button (BUG #29 / BUG #0206-3) */}
             {canSaveDraft && (
               <Button
-                variant="outline"
+                className="bg-primary text-primary-foreground hover:bg-primary/90"
                 onClick={handleSaveDraft}
                 disabled={saveStatus === "saving"}
               >
@@ -616,7 +715,7 @@ const TimeSheet = () => {
 
             {canSubmit && (
               <Button
-                className="bg-brand-purple hover:bg-brand-purple/90 text-primary-foreground btn-action"
+                className="btn-action"
                 onClick={handleSubmit}
                 disabled={submitTimesheet.isPending}
               >
@@ -632,6 +731,36 @@ const TimeSheet = () => {
         </div>
 
       </div>
+
+      <AlertDialog open={showCopyBlockedDialog} onOpenChange={setShowCopyBlockedDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("timesheet.copyToCurrentWeekBlockedTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>{t("timesheet.copyToCurrentWeekBlocked")}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={() => setShowCopyBlockedDialog(false)}>OK</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={showDeleteAllDialog} onOpenChange={setShowDeleteAllDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('timesheet.deleteAllWarningTitle')}</AlertDialogTitle>
+            <AlertDialogDescription>{t('timesheet.deleteAllWarning')}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={handleDeleteAll}
+            >
+              {t('timesheet.deleteConfirm')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppLayout>
   );
 };

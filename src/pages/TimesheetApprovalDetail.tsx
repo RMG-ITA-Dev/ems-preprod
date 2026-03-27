@@ -257,7 +257,7 @@ const TimesheetApprovalDetail = () => {
               <span className="font-medium">{summary.stillPending}</span> {t("approval.summary.stillPending")}
             </div>
             <Button
-              variant="outline"
+              variant="cancel"
               onClick={handleBack}
             >
               {t("common.cancel")}
@@ -305,7 +305,7 @@ const TimesheetApprovalDetail = () => {
               />
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setRejectDialogOpen(false)}>
+              <Button variant="cancel" onClick={() => setRejectDialogOpen(false)}>
                 {t("common.cancel")}
               </Button>
               <Button

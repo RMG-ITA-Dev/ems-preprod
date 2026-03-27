@@ -256,7 +256,7 @@ const WorksheetEdit = () => {
               <span className="text-sm text-muted-foreground">{t("common.unsavedChanges")}</span>
             )}
             <Button
-              variant="outline"
+              variant="cancel"
               onClick={() => { allowNextNavigation(); navigate("/worksheets"); }}
               className="btn-action"
             >

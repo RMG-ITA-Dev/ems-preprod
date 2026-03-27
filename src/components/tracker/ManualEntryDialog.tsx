@@ -320,13 +320,13 @@ export function ManualEntryDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="cancel" onClick={() => onOpenChange(false)} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
             {t("common.cancel")}
           </Button>
           <Button
             onClick={handleSubmit}
             disabled={!canSubmit}
-            className="bg-brand-purple hover:bg-brand-purple/90 text-primary-foreground"
+            className="w-full sm:w-auto min-h-[44px] sm:min-h-0"
           >
             {t("tracker.addEntry")}
           </Button>
