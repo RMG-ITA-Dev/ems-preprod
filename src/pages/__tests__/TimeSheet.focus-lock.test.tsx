@@ -16,7 +16,17 @@ vi.mock("@/hooks/useTimesheetWeek", () => ({ useTimesheetWeek: () => ({ period: 
 vi.mock("@/hooks/useHolidays", () => ({ useHolidaysForWeek: () => new Map(), useHolidayEngagementId: () => null }));
 vi.mock("@/hooks/useAdminActivity", () => ({ useAdminActivityId: () => null }));
 vi.mock("@/hooks/useTimesheetApprovals", () => ({ usePeriodLineApprovals: () => ({ data: [] }) }));
-vi.mock("@/hooks/useTimesheetMutations", () => ({ useSubmitTimesheet: () => ({ mutate: vi.fn(), isPending: false }), useUnsubmitTimesheet: () => ({ mutate: vi.fn(), isPending: false }), useCopyPreviousWeek: () => ({ mutate: vi.fn(), isPending: false }) }));
+vi.mock("@/hooks/useTimesheetMutations", () => ({
+  useSubmitTimesheet: () => ({ mutate: vi.fn(), isPending: false }),
+  useUnsubmitTimesheet: () => ({ mutate: vi.fn(), isPending: false }),
+  useCopyPreviousWeek: () => ({ mutate: vi.fn(), isPending: false }),
+  useCopyToCurrentWeek: () => ({ mutate: vi.fn(), isPending: false }), // <--- ensures the hook exists
+  useUpsertTimeEntry: () => ({ mutate: vi.fn(), isPending: false }),
+  useDeleteTimeEntry: () => ({ mutate: vi.fn(), isPending: false }),
+  useDeleteRowEntries: () => ({ mutate: vi.fn(), isPending: false }),
+  useUpdateEntryActivity: () => ({ mutate: vi.fn(), isPending: false }),
+  useUpdatePeriodTotalHours: () => ({ mutate: vi.fn(), isPending: false }),
+}));
 vi.mock("@/hooks/useEmsData", () => ({ useGlobalSettings: () => ({ data: [] }) }));
 vi.mock("@/hooks/useUserRole", () => ({ useUserRole: () => ({ isAdmin: false }) }));
 vi.mock("@/hooks/useLanguage", () => ({ useLanguage: () => ({ currentLanguage: "en" }) }));
