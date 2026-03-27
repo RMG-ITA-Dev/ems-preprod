@@ -714,7 +714,7 @@
     "submitWeek": "Enviar Semana",
     "resubmitWeek": "Reenviar Semana",
     "cannotSubmitWeeklyLimit": "No se puede enviar: el total de horas ({{total}}h) excede el límite semanal ({{limit}}h). Reduzca las horas antes de enviar.",
-    "weeklyMinNotMet": "No se puede enviar: el total de horas ({{total}}h) está por debajo del mínimo semanal ({{min}}h).",
+    "weeklyMinNotMet": "NO SE PUEDE ENVIAR: el total de horas ({{total}}h) está por debajo del mínimo semanal ({{min}}h).",
     "invalidActivityRow": "Una o mas filas tienen una actividad invalida. Seleccione una actividad valida para cada encargo de cliente antes de enviar.",
     "weeklyMaxExceeded": "No se puede enviar: el total de horas ({{total}}h) exceden el máximo semanal ({{max}}h).",
     "selectEngagement": "Seleccionar Encargo",
