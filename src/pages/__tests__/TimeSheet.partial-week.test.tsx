@@ -27,13 +27,10 @@ vi.mock("react-router-dom", async (importOriginal) => {
   return { ...actual, useNavigate: () => vi.fn(), useLocation: () => ({ pathname: "/timesheet" }) };
 });
 
-// BUG 0306-74: hire_date is today (the last workable day of the current week) — only 1 workable day
-// We use a dynamic date so the test works regardless of when it runs
-const today = new Date();
-const todayISO = today.toISOString().slice(0, 10);
-
+// BUG 0306-74: hire_date is Friday of the current week (2026-03-27) — only 1 workable day
+// This means effectiveWeeklyMin = 40 * (1/5) = 8, so 8h logged should NOT trigger alert
 vi.mock("@/hooks/useCurrentStaff", () => ({
-  useCurrentStaff: () => ({ staffRecord: { staff_id: "staff-1", hire_date: todayISO }, isLoading: false })
+  useCurrentStaff: () => ({ staffRecord: { staff_id: "staff-1", hire_date: "2026-03-27" }, isLoading: false })
 }));
 
 // 8h logged on that single workable day — meets the prorated minimum (8h)
