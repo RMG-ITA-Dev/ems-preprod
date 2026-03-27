@@ -632,8 +632,8 @@ const TimeSheet = () => {
           saveNowTrigger={saveNowTrigger}
           dailyMin={dailyMin}
           dailyMax={dailyMax}
-          weeklyMin={weeklyMin}
-          weeklyMax={weeklyMax}
+          weeklyMin={effectiveWeeklyMin}
+          weeklyMax={effectiveWeeklyMax}
           lockedDaysBeforeHire={lockedDaysBeforeHire}
           lockedDaysAfterTermination={lockedDaysAfterTermination}
           holidayMap={holidayMap}
