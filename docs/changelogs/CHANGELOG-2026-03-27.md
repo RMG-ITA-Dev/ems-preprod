@@ -190,3 +190,51 @@ Added `w-full sm:w-auto min-h-[44px] sm:min-h-0` for mobile touch targets (44px 
 - FROM: `bg-yellow-500 text-black hover:bg-yellow-600`
 - TO: `bg-brand-gold text-black hover:bg-brand-gold/90`
 - Rationale: Uses project design token `brand-gold` (HSL 41 76% 61%) instead of raw Tailwind yellow utilities.
+
+---
+
+## Fix: Standardize Weekly Min/Max Alert Text + Bold
+
+### Summary
+
+Updated the weekly hour-limit alert messages to use a consistent uppercase prefix style ("CANNOT SUBMIT:" / "NO SE PUEDE ENVIAR:") and made the alert text bold. Fixed a critical bug where duplicate i18n keys silently overrode the full alert messages with short labels.
+
+---
+
+### File Changes
+
+#### 1. `src/locales/en.json`
+
+**Updated key** (line ~719, inside `timesheet` namespace):
+- `weeklyMaxExceeded`: Changed from `"Weekly total ({{total}}h) exceeds the maximum allowed ({{max}}h). Please reduce hours before submitting."` to `"CANNOT SUBMIT: the total hours ({{total}}h) exceed the weekly maximum ({{max}}h)."` — matches the uppercase prefix style of `weeklyMinNotMet`.
+
+**Removed 5 duplicate keys** (formerly lines 774-778, inside `timesheet` namespace):
+- `dailyLimitExceeded`: `"Over limit!"` — duplicate of line 178 definition; short label not referenced by any component.
+- `dailyMaxExceeded`: `"Over max!"` — dead key, no component reference.
+- `weeklyLimitExceeded`: `"Over limit!"` — dead key, no component reference.
+- `weeklyMaxExceeded`: `"Over max!"` — **this duplicate silently overwrote the full alert message at line 719** because JSON keeps only the last occurrence of a key.
+- `weeklyBelowMin`: `"Below min"` — dead key, no component reference.
+
+#### 2. `src/locales/es.json`
+
+**Updated key** (line ~719, inside `timesheet` namespace):
+- `weeklyMaxExceeded`: Changed from `"El total semanal ({{total}}h) excede el máximo permitido ({{max}}h). Por favor reduzca las horas antes de enviar."` to `"NO SE PUEDE ENVIAR: el total de horas ({{total}}h) excede el máximo semanal ({{max}}h)."`.
+
+**Removed 5 duplicate keys** (formerly lines 774-778, inside `timesheet` namespace):
+- `dailyLimitExceeded`: `"¡Excede límite!"` — duplicate of line 178 definition.
+- `dailyMaxExceeded`: `"¡Excede máximo!"` — dead key.
+- `weeklyLimitExceeded`: `"¡Excede límite!"` — dead key.
+- `weeklyMaxExceeded`: `"¡Excede máximo!"` — **duplicate that overwrote the full alert message**.
+- `weeklyBelowMin`: `"Bajo mínimo"` — dead key.
+
+#### 3. `src/pages/TimeSheet.tsx`
+
+**Bold wrapper added** (lines ~567-568 and ~585-586):
+- Wrapped `AlertDescription` content for `weeklyMinNotMet` in `<span className="font-bold">`.
+- Wrapped `AlertDescription` content for `weeklyMaxExceeded` in `<span className="font-bold">`.
+
+---
+
+### Root Cause of Bug
+
+JSON does not support duplicate keys — when the same key appears twice within an object, the parser silently keeps the **last** occurrence. The short labels at lines 774-778 (added in an earlier change) overwrote the full alert messages defined at lines 717-719, causing the alerts to display truncated text like "Over max!" instead of the intended full warning message.
