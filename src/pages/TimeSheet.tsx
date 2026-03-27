@@ -582,10 +582,17 @@ const TimeSheet = () => {
               <AlertTriangle className="h-4 w-4" />
               <AlertDescription>
                 <span className="font-bold">
-                  {t("timesheet.weeklyMinNotMet", {
-                    total: weeklyGrandTotal.toFixed(1),
-                    min: weeklyMin,
-                  })}
+                  {workableDays < workDays
+                    ? t("timesheet.weeklyMinNotMetPartial", {
+                        total: weeklyGrandTotal.toFixed(1),
+                        min: effectiveWeeklyMin,
+                        days: workableDays,
+                      })
+                    : t("timesheet.weeklyMinNotMet", {
+                        total: weeklyGrandTotal.toFixed(1),
+                        min: effectiveWeeklyMin,
+                      })}
+                </span>
                 </span>
               </AlertDescription>
             </Alert>
@@ -602,7 +609,7 @@ const TimeSheet = () => {
                 <span className="font-bold">
                   {t("timesheet.weeklyMaxExceeded", {
                     total: weeklyGrandTotal.toFixed(1),
-                    max: weeklyMax,
+                    max: effectiveWeeklyMax,
                   })}
                 </span>
               </AlertDescription>
