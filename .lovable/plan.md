@@ -1,44 +1,24 @@
 
 
-# Plan — Append Changelog Entry for "Allow Deleting the Last Timesheet Row"
+# Plan — Move Cancel Button to Leftmost Position
 
-## What
+## Problem
+The Cancel button currently sits between "Delete All" and "Copy Previous Week". It should always be the first (leftmost) button in the footer bar.
 
-Prepend a new section to `docs/changelogs/CHANGELOG-2026-03-27.md` (after the title line, before the existing "Delete All Week Entries" section) documenting the Plan v5 fix.
+## Fix
 
-## Content to Insert
+### File: `src/pages/TimeSheet.tsx` (lines 660–676)
 
-After line 1 (`# Changelog — 2026-03-27`), insert:
+Reorder the buttons so Cancel comes first, before Delete All:
 
-```markdown
-
-## Fix: Allow Deleting the Last Timesheet Row (Plan v5)
-
-### Summary
-
-Removed the `rows.length > 1` guard that prevented users from deleting the last remaining row in the timesheet grid. This was needed after "Copy to Current Week" when copied rows need to be removed.
-
----
-
-### File Changes
-
-#### 1. `src/components/timesheet/TimesheetGrid.tsx`
-
-**Line 899** — Lock icon condition:
-- FROM: `{isRowApproved && rows.length > 1 ?`
-- TO: `{isRowApproved ?`
-- Rationale: Show the lock icon on approved rows even when it is the last remaining row.
-
-**Line 908** — Trash button condition:
-- FROM: `) : rows.length > 1 && !isLocked ? (`
-- TO: `) : !isLocked ? (`
-- Rationale: Allow deleting any row (including the last one) as long as the timesheet is not locked.
-
-No other files were changed.
-
----
+```
+1. Cancel (always visible)
+2. Delete All (conditional)
+3. Copy Previous Week (conditional)
+4. Unsubmit (conditional)
+5. Save Draft (conditional)
+6. Submit / Resubmit (conditional)
 ```
 
-## Files Modified
-1. `docs/changelogs/CHANGELOG-2026-03-27.md` — insert new section at top (after heading)
+Move lines 673–676 (the Cancel button) to before lines 660–671 (Delete All). No other changes needed.
 
