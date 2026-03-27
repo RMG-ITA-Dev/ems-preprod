@@ -752,7 +752,7 @@ const TimeSheet = () => {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle className="text-destructive">{t('timesheet.deleteAllWarningTitle')}</AlertDialogTitle>
-            <AlertDialogDescription>{t('timesheet.deleteAllWarning')}</AlertDialogDescription>
+            <AlertDialogDescription className="text-destructive">{t('timesheet.deleteAllWarning')}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
