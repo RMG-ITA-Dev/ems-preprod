@@ -155,14 +155,30 @@ const TimeSheet = () => {
     return entries.reduce((sum, e) => sum + Number(e.hours_logged ?? 0), 0);
   }, [entries]);
 
-  const isBelowWeeklyMin = weeklyGrandTotal < weeklyMin;
-  const isAboveWeeklyMax = weeklyGrandTotal > weeklyMax;
-  const isWeeklyOutOfBounds = isBelowWeeklyMin || isAboveWeeklyMax;
-
   // Holiday data for the current week
   const holidayMap = useHolidaysForWeek(weekInfo.weekDates);
   const holidayEngagementId = useHolidayEngagementId();
   const adminActivityId = useAdminActivityId();
+
+  // BUG 0306-74: Prorate weekly limits for partial weeks
+  const holidayDateSet = useMemo(() => {
+    const set = new Set<string>();
+    holidayMap.forEach((_, dateStr) => set.add(dateStr));
+    return set;
+  }, [holidayMap]);
+
+  const { effectiveMin: effectiveWeeklyMin, effectiveMax: effectiveWeeklyMax, workableDays } = useMemo(
+    () => getEffectiveWeeklyLimits(
+      weekInfo.weekDates, weeklyMin, weeklyMax,
+      staffRecord?.hire_date ?? null, staffRecord?.termination_date ?? null,
+      holidayDateSet
+    ),
+    [weekInfo.weekDates, weeklyMin, weeklyMax, staffRecord?.hire_date, staffRecord?.termination_date, holidayDateSet]
+  );
+
+  const isBelowWeeklyMin = weeklyGrandTotal < effectiveWeeklyMin;
+  const isAboveWeeklyMax = weeklyGrandTotal > effectiveWeeklyMax;
+  const isWeeklyOutOfBounds = isBelowWeeklyMin || isAboveWeeklyMax;
 
   // Compute activityNotRequiredIds from engagement data
   const activityNotRequiredIds = useMemo(() => {
