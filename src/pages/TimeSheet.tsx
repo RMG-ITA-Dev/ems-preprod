@@ -593,7 +593,6 @@ const TimeSheet = () => {
                         min: effectiveWeeklyMin,
                       })}
                 </span>
-                </span>
               </AlertDescription>
             </Alert>
         )}
