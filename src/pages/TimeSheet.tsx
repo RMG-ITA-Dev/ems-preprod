@@ -657,6 +657,11 @@ const TimeSheet = () => {
               </Button>
             )}
 
+            {/* Cancel button — always leftmost */}
+            <Button variant="cancel" onClick={handleBack}>
+              {t("common.cancel")}
+            </Button>
+
             {/* Delete all entries */}
             {canDeleteAll && (
               <Button
@@ -669,11 +674,6 @@ const TimeSheet = () => {
                 {t('timesheet.deleteAllEntries')}
               </Button>
             )}
-
-            {/* Back button */}
-            <Button variant="cancel" onClick={handleBack}>
-              {t("common.cancel")}
-            </Button>
 
             {/* BUG #12 / BUG #0206-3: Copy Previous Week Button */}
             {canCopyPreviousWeek && (
