@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import { RunningTimerChip } from "@/components/tracker/RunningTimerChip";
+import { ThemeToggle } from "@/components/theme/ThemeToggle";
 
 interface AppHeaderProps {
   title?: string;
@@ -81,6 +82,9 @@ export function AppHeader({ title = "Dashboard", focusMode }: AppHeaderProps) {
           <Bell className="h-5 w-5 text-muted-foreground" />
           <span className="absolute top-1.5 right-1.5 h-2 w-2 bg-accent rounded-full" />
         </Button>
+        <div className="hidden sm:block">
+          <ThemeToggle />
+        </div>
         <span
           className="text-base font-bold text-brand-purple truncate hidden sm:inline"
     title={displayName || t("common.user")}

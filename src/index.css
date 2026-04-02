@@ -23,6 +23,8 @@
 
 @layer base {
   :root {
+    color-scheme: light;
+
     /* BACKGROUND: Very light cool gray/blue tint for freshness */
     --background: 215 50% 98%;
     /* TEXT: Keeping the Deep Blue for high-contrast legibility */
@@ -104,65 +106,75 @@
   }
 
   .dark {
-    /* BACKGROUND: Brand Darkest Blue (#003055) */
-    --background: 206 100% 17%;
-    --foreground: 215 50% 98%;
+    color-scheme: dark;
 
-    --card: 217 58% 20%;
-    --card-foreground: 215 50% 98%;
+    /* SURFACES — desaturated deep blue family */
+    --background: 210 60% 12%;
+    --foreground: 210 20% 95%;
+    --card: 212 50% 18%;
+    --card-foreground: 210 20% 95%;
+    --popover: 212 50% 16%;
+    --popover-foreground: 210 20% 95%;
 
-    --popover: 206 100% 17%;
-    --popover-foreground: 215 50% 98%;
-
-    /* PRIMARY: Teal (#008795) - Pops well against the dark blue bg */
-    --primary: 186 100% 29%;
+    /* INTERACTIVE */
+    --primary: 186 100% 35%;
     --primary-foreground: 0 0% 100%;
+    --secondary: 215 40% 65%;
+    --secondary-foreground: 210 60% 12%;
+    --muted: 212 40% 20%;
+    --muted-foreground: 210 25% 70%;
+    --accent: 210 15% 35%;
+    --accent-foreground: 210 20% 95%;
 
-    /* SECONDARY: Lighter Blue (#8aa2cf) for variety in dark mode */
-    --secondary: 219 42% 68%;
-    --secondary-foreground: 206 100% 17%;
-
-    --muted: 217 58% 25%;
-    --muted-foreground: 215 50% 81%;
-
-    --accent: 252 2% 46%;
-    --accent-foreground: 0 0% 100%;
-
-    --destructive: 348 83% 40%;
+    /* DESTRUCTIVE */
+    --destructive: 348 80% 50%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 217 58% 39%;
-    --input: 217 58% 39%;
-    --ring: 186 100% 29%;
+    /* BORDER & INPUT */
+    --border: 212 35% 28%;
+    --input: 212 35% 28%;
+    --ring: 186 100% 35%;
 
-    /* --- Semantic Status Colors (Dark Mode) --- */
-    --success: 142 70% 45%;
+    /* SEMANTIC STATUS */
+    --success: 142 65% 50%;
     --success-foreground: 0 0% 100%;
-    --warning: 38 92% 50%;
+    --warning: 38 90% 55%;
     --warning-foreground: 0 0% 100%;
-    --info: 217 91% 65%;
+    --info: 215 85% 60%;
     --info-foreground: 0 0% 100%;
 
-    /* --- Overlay --- */
+    /* OVERLAY */
     --overlay: 0 0% 0%;
 
-    /* --- Brand Colors (same in dark mode) --- */
+    /* BRAND COLORS (dark mode overrides) */
+    --brand-teal: 186 100% 35%;
+    --brand-navy: 213 60% 70%;
+    --brand-purple: 255 80% 72%;
+    --brand-gold: 41 80% 65%;
+    --brand-gray: 210 15% 55%;
     --brand-blue: 217 58% 39%;
     --brand-blue-light: 226 33% 57%;
 
-    /* Week calendar rejected status (violet, dark mode) */
+    /* WEEK CALENDAR */
     --week-rejected: 290 45% 60%;
 
-    /* Sidebar (Dark Mode) - Darker Teal with Reference Blue */
-    --sidebar-background: 186 100% 20%;
-    --sidebar-foreground: 215 50% 98%;
-    --sidebar-primary: 226 32% 51%;
+    /* TRACKER */
+    --tracker-start: 186 100% 35%;
+    --tracker-pause: 221 34% 55%;
+    --tracker-save: 41 80% 65%;
+    --tracker-cancel: 252 2% 46%;
+    --tracker-delete: 348 80% 50%;
+
+    /* SIDEBAR */
+    --sidebar-background: 186 80% 15%;
+    --sidebar-foreground: 210 20% 95%;
+    --sidebar-primary: 226 40% 55%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 226 33% 57%;
-    --sidebar-accent-foreground: 215 50% 98%;
-    --sidebar-border: 186 100% 15%;
-    --sidebar-ring: 226 32% 51%;
-    --sidebar-muted: 215 50% 98% / 0.6;
+    --sidebar-accent: 226 35% 55%;
+    --sidebar-accent-foreground: 210 20% 95%;
+    --sidebar-border: 186 60% 12%;
+    --sidebar-ring: 226 40% 55%;
+    --sidebar-muted: 210 20% 95% / 0.6;
   }
 }
 

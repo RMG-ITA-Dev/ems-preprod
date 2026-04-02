@@ -1086,5 +1086,11 @@
     "initialsMax4": "Max 4 characters",
     "terminationDateBeforeHire": "Termination date cannot be before hire date",
     "terminationDateRequired": "Termination date is required when deactivating"
+  },
+  "theme": {
+    "label": "Theme",
+    "light": "Light",
+    "dark": "Dark",
+    "system": "System"
   }
 }

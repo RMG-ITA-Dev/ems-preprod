@@ -53,16 +53,16 @@ const roleIcons: Record<AppRole, React.ReactNode> = {
 
 const roleColors: Record<AppRole, string> = {
   admin: "bg-destructive/10 text-destructive border-destructive/20",
-  partner: "bg-amber-500/10 text-amber-600 border-amber-500/20",
-  director: "bg-purple-500/10 text-purple-600 border-purple-500/20",
-  manager: "bg-blue-500/10 text-blue-600 border-blue-500/20",
-  senior: "bg-green-500/10 text-green-600 border-green-500/20",
-  semisenior: "bg-teal-500/10 text-teal-600 border-teal-500/20",
+  partner: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20",
+  director: "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20",
+  manager: "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20",
+  senior: "bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20",
+  semisenior: "bg-teal-500/10 text-teal-600 dark:text-teal-400 border-teal-500/20",
   staff: "bg-primary/10 text-primary border-primary/20",
   viewer: "bg-muted text-muted-foreground border-muted",
-  sqr: "bg-orange-500/10 text-orange-600 border-orange-500/20",
-  specialist_it: "bg-cyan-500/10 text-cyan-600 border-cyan-500/20",
-  specialist_tax: "bg-indigo-500/10 text-indigo-600 border-indigo-500/20",
+  sqr: "bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20",
+  specialist_it: "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/20",
+  specialist_tax: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20",
 };
 
 export function UserRolesManager() {

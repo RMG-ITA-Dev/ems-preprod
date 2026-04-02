@@ -26,6 +26,16 @@
     <!-- Load IBM Plex Sans non-blocking with media swap pattern -->
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Sans+Condensed:wght@300;400;500;600;700&display=swap" media="print" onload="this.media='all'">
     <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Sans+Condensed:wght@300;400;500;600;700&display=swap"></noscript>
+    <script>
+      (function() {
+        var t = localStorage.getItem('theme');
+        var d = t === 'dark' || (t !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        if (d) document.documentElement.classList.add('dark');
+        document.documentElement.style.colorScheme = d ? 'dark' : 'light';
+      })();
+    </script>
+    <meta name="theme-color" content="#008795" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#0c1a2b" media="(prefers-color-scheme: dark)">
   </head>
 
   <body>

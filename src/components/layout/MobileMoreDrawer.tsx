@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/useAuth";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { useUserRole } from "@/hooks/useUserRole";
+import { ThemeToggle } from "@/components/theme/ThemeToggle";
 
 interface MobileMoreDrawerProps {
   open: boolean;
@@ -110,6 +111,10 @@ export function MobileMoreDrawer({ open, onOpenChange }: MobileMoreDrawerProps) 
                 <span>{t("header.notLinkedToStaff")}</span>
               </div>
             )}
+            <div className="flex items-center justify-between mt-2 px-1">
+              <span className="text-xs text-muted-foreground">{t("theme.label")}</span>
+              <ThemeToggle />
+            </div>
           </div>
         </div>
 

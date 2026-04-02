@@ -463,7 +463,7 @@ export function PracticaTab() {
                         "w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold",
                         index === 0 && "bg-warning/20 text-warning",
                         index === 1 && "bg-muted text-muted-foreground",
-                        index === 2 && "bg-orange-500/20 text-orange-500",
+                        index === 2 && "bg-orange-500/20 text-orange-500 dark:text-orange-400",
                         index > 2 && "bg-muted/50 text-muted-foreground"
                       )}>
                         {index + 1}

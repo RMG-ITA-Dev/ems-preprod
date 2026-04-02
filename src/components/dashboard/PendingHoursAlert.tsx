@@ -27,11 +27,11 @@ const RED_STATUSES: WeekStatusCode[] = ['NOT_LOGGED', 'NOT_SUBMITTED', 'DRAFT'];
 function getStatusBadgeClasses(status: WeekStatusCode): string {
   switch (status) {
     case 'APPROVED':
-      return 'bg-green-100 text-green-700 border-green-300';
+      return 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 border-green-300 dark:border-green-700';
     case 'PENDING_APPROVAL':
       return 'bg-warning/10 text-warning border-warning/30';
     case 'REJECTED':
-      return 'bg-violet-100 text-violet-700 border-violet-300';
+      return 'bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-400 border-violet-300 dark:border-violet-700';
     case 'CURRENT':
       return 'bg-primary/10 text-primary border-primary/30';
     case 'NOT_LOGGED':
@@ -126,8 +126,8 @@ export function PendingHoursAlert() {
                     </span>
                   )}
                   {rejectedCount > 0 && (
-                    <span className="inline-flex items-center gap-1 text-xs text-violet-700 font-medium">
-                      <span className="inline-block w-2 h-2 rounded-full bg-violet-500" />
+                    <span className="inline-flex items-center gap-1 text-xs text-violet-700 dark:text-violet-400 font-medium">
+                      <span className="inline-block w-2 h-2 rounded-full bg-violet-500 dark:bg-violet-400" />
                       {t("dashboard.personal.pendingHours.summaryRejected", {
                         count: rejectedCount,
                       })}
@@ -142,8 +142,8 @@ export function PendingHoursAlert() {
                     </span>
                   )}
                   {approvedCount > 0 && (
-                    <span className="inline-flex items-center gap-1 text-xs text-green-700 font-medium">
-                      <span className="inline-block w-2 h-2 rounded-full bg-green-500" />
+                    <span className="inline-flex items-center gap-1 text-xs text-success font-medium">
+                      <span className="inline-block w-2 h-2 rounded-full bg-success" />
                       {t("dashboard.personal.pendingHours.summaryApproved", {
                         count: approvedCount,
                       })}
