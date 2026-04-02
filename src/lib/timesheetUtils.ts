@@ -212,7 +212,8 @@ export const getEffectiveWeeklyLimits = (
     const dayStart = startOfDay(date);
     if (hireParsed && isBefore(dayStart, startOfDay(hireParsed))) continue;
     if (termParsed && isBefore(startOfDay(termParsed), dayStart)) continue;
-    if (holidayDates.has(toISODateString(date))) continue;
+    // Holiday dates are NOT subtracted — staff must log 8h on holidays
+    // against the holiday engagement. Only hire/termination reduce capacity.
     workableDays++;
   }
 
