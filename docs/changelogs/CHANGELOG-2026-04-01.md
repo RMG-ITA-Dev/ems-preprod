@@ -44,3 +44,29 @@
 - **Added** `matchMedia` guard in ThemeProvider for jsdom test compatibility
 - **Build**: `npm run build` passes with no TypeScript errors
 - **Tests**: All 514 tests pass (56 test files, 1 skipped)
+
+---
+
+### BUG FIX: Holiday Proration Incorrectly Reduces Weekly Max (BUG 0402-01)
+
+**Holidays no longer reduce weekly min/max capacity limits. Staff must log 8h on holidays against the holiday engagement, so holidays are full work days for capacity purposes.**
+
+#### Root Cause
+The `getEffectiveWeeklyLimits()` function in `timesheetUtils.ts` and the `submit_timesheet_safe()` RPC both subtracted holidays from the workable day count when calculating prorated weekly limits. This caused weeks with holidays (e.g., Viernes Santo) to have reduced maximums (32h instead of 40h), blocking valid 40h submissions.
+
+#### Frontend Fix
+- **Edited** `src/lib/timesheetUtils.ts` (line 215) — Removed `if (holidayDates.has(toISODateString(date))) continue;` from `getEffectiveWeeklyLimits()`. The `holidayDates` parameter is retained for backward compatibility but no longer affects the workable day count. Only hire date and termination date boundaries still reduce capacity.
+
+#### Backend Fix
+- **Migration** — Updated `submit_timesheet_safe()` RPC to remove the `v_holiday_count` variable and the holiday subtraction line (`v_workable_days := GREATEST(v_workable_days - v_holiday_count, 0)`). The proration block now only considers hire/termination date boundaries.
+
+#### Tests
+- **Edited** `src/lib/__tests__/timesheetUtils.test.ts` — Updated two test cases:
+  - `"subtracts holidays from workable days"` → renamed to `"does NOT subtract holidays from workable days"`, now expects 5 workable days and 40h limits when a holiday is present
+  - `"combines hire date and holidays"` → renamed to `"hire date still prorates but holidays do not"`, now expects 2 workable days (Thu+Fri) and 16h limits when hired on Thursday with a Friday holiday
+
+#### What is NOT changed
+- Holiday-blocking trigger (`enforce_holiday_blocking`) — still restricts entries to the holiday engagement on holiday dates
+- Hire/termination proration — still works correctly
+- Daily min/max validation — unchanged
+- Approval workflow — unchanged
