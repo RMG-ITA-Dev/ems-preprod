@@ -42,7 +42,7 @@ export function LeavePageDialog({ blocker, isDirty }: LeavePageDialogProps) {
           </AlertDialogCancel>
           <AlertDialogAction
             onClick={() => blocker.proceed?.()}
-            className={isDirty ? "bg-destructive/80 text-destructive-foreground hover:bg-destructive" : "border border-input bg-background text-foreground hover:bg-accent hover:text-accent-foreground"}
+            className={isDirty ? "bg-destructive/70 text-destructive-foreground hover:bg-destructive" : "border border-input bg-background text-foreground hover:bg-accent hover:text-accent-foreground"}
           >
             {isDirty ? t("common.leaveAnyway") : t("common.cancel")}
           </AlertDialogAction>

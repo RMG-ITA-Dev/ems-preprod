@@ -16,7 +16,7 @@ Apply these rules whenever you create or modify visual elements in a Ruizmier ER
 ### Button Colors (CRITICAL — enforce strictly)
 - **Add / Save / Create**: `variant="default"` → Purple (`bg-brand-purple`)
 - **Cancel / Close**: `variant="cancel"` → Gray border, visible in both themes
-- **Delete / Reject**: `variant="destructive"` → Crimson, softened (`bg-destructive/80`)
+- **Delete / Reject**: `variant="destructive"` → Crimson, softened (`bg-destructive/70`)
 - **Submit / Confirm**: `variant="submit"` → Light blue (`bg-info`)
 - **Icon-only / Subtle**: `variant="ghost"` → Transparent
 

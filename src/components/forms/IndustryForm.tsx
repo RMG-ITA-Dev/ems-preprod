@@ -179,7 +179,7 @@ export function IndustryForm({ open, onOpenChange, industry }: IndustryFormProps
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                       <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-                      <AlertDialogAction onClick={handleDelete} className="bg-destructive/80 text-destructive-foreground hover:bg-destructive">
+                      <AlertDialogAction onClick={handleDelete} className="bg-destructive/70 text-destructive-foreground hover:bg-destructive">
                         {t("common.delete")}
                       </AlertDialogAction>
                     </AlertDialogFooter>

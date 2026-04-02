@@ -241,7 +241,7 @@ Used when the form shares the page with a related data table:
     <AlertDialogFooter>
       <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
       <AlertDialogAction onClick={handleDelete}
-        className="bg-destructive/80 text-destructive-foreground hover:bg-destructive">
+        className="bg-destructive/70 text-destructive-foreground hover:bg-destructive">
         {t("common.delete")}
       </AlertDialogAction>
     </AlertDialogFooter>

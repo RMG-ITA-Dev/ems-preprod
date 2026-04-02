@@ -10,12 +10,12 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default: "bg-brand-purple text-primary-foreground hover:bg-brand-purple/90",
-        destructive: "bg-destructive/80 text-destructive-foreground hover:bg-destructive",
+        destructive: "bg-destructive/70 text-destructive-foreground hover:bg-destructive",
         outline: "border border-input bg-background hover:bg-accent hover:text-accent-foreground",
         secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80",
         ghost: "hover:bg-accent hover:text-accent-foreground",
         link: "text-primary underline-offset-4 hover:underline",
-        cancel: "bg-background border border-foreground/30 text-foreground/70 hover:bg-foreground/10 hover:text-foreground hover:border-foreground/50 active:bg-foreground/15 active:shadow-[inset_0_1px_2px_rgba(0,0,0,0.08)] disabled:bg-muted/50 disabled:text-muted-foreground/50 disabled:border-input/50 disabled:opacity-100 transition-[background-color,color,border-color,box-shadow] duration-150 ease-in-out",
+        cancel: "bg-background border border-foreground/40 text-foreground/80 hover:bg-foreground/15 hover:text-foreground hover:border-foreground/60 active:bg-foreground/20 active:shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)] disabled:bg-muted/50 disabled:text-muted-foreground/50 disabled:border-input/50 disabled:opacity-100 transition-[background-color,color,border-color,box-shadow] duration-150 ease-in-out",
         submit: "bg-info text-info-foreground hover:bg-info/90",
       },
       size: {

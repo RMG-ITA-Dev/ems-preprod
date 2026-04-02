@@ -673,7 +673,7 @@ const TimeSheet = () => {
             {canCopyToCurrentWeek && (
               <Button
                 variant="outline"
-                className="bg-brand-gold/80 text-white hover:bg-brand-gold"
+                className="bg-brand-gold/70 text-white hover:bg-brand-gold hover:text-white"
                 onClick={handleCopyToCurrentWeek}
                 disabled={copyToCurrentWeek.isPending}
               >
@@ -780,7 +780,7 @@ const TimeSheet = () => {
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction
-              className="bg-destructive/80 text-destructive-foreground hover:bg-destructive"
+              className="bg-destructive/70 text-destructive-foreground hover:bg-destructive"
               onClick={handleDeleteAll}
             >
               {t('timesheet.deleteConfirm')}

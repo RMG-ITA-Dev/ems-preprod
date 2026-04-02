@@ -170,7 +170,7 @@ Use AlertDialog from shadcn/ui:
 - Description: t("common.confirm[Action]", { name: entity.name })
 - Cancel button: AlertDialogCancel with t("common.cancel")
 - Action button: AlertDialogAction with appropriate color:
-  - Destructive: className="bg-destructive/80 text-destructive-foreground hover:bg-destructive"
+  - Destructive: className="bg-destructive/70 text-destructive-foreground hover:bg-destructive"
   - Confirm: default styling
 ```
 

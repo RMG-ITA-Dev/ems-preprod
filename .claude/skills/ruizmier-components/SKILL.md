@@ -61,7 +61,7 @@ interface Column<T> {
 
 ## Dialogs
 - Use `AlertDialog` from shadcn/ui for confirmations
-- Delete: `AlertDialogAction` with `bg-destructive text-destructive-foreground`
+- Delete: `AlertDialogAction` with `bg-destructive/70 text-destructive-foreground hover:bg-destructive`
 - Leave page: `<LeavePageDialog blocker={blocker} isDirty={isDirty} />`
 
 ## Display Conventions
