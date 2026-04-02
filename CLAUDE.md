@@ -99,3 +99,35 @@ npx vitest run [file] # Run single test file
 | `src/components/dashboard/tabs/` | Dashboard tab components |
 | `supabase/functions/dashboard-data/index.ts` | 8 analytics actions (938 lines) |
 | `docs/database-schema.sql` | Full database schema reference |
+
+---
+
+## Ruizmier Skill Set (RSS)
+
+Reusable UI/UX skills that ensure a unified look and feel across all Ruizmier ERM apps. Documented in two locations:
+
+### Shared Docs (readable by all tools — Claude Code, Lovable, Codex)
+
+| Document | Scope |
+|----------|-------|
+| `docs/skills/README.md` | Skill index and cross-platform usage |
+| `docs/skills/design-system.md` | Colors, typography, spacing, button rules, theming |
+| `docs/skills/page-patterns.md` | Layout, List View, Add/Edit View, navigation, responsive |
+| `docs/skills/component-patterns.md` | DataTable, buttons, forms, dialogs, badges |
+| `docs/skills/lovable-prompts.md` | Prompt templates for Lovable.dev |
+
+### Claude Code Skills (auto-trigger on context)
+
+| Skill | Trigger |
+|-------|---------|
+| `ruizmier-design-system` | Creating/modifying UI, styling, colors |
+| `ruizmier-page-patterns` | Creating pages, routes, navigation |
+| `ruizmier-components` | Creating components, tables, forms, dialogs |
+| `ruizmier-lovable-bridge` | Preparing Lovable prompts |
+
+### Cross-Tool Bridge Files
+
+| File | Tool |
+|------|------|
+| `AGENTS.md` | Codex, GitHub Copilot |
+| `.lovable/instructions.md` | Lovable.dev |
