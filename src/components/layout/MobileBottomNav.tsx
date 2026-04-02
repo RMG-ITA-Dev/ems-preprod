@@ -9,7 +9,7 @@ interface MobileBottomNavProps {
 
 const navItems = [
   { path: "/", icon: LayoutDashboard, labelKey: "nav.dashboard" },
-  { path: "/timesheet", icon: Grid3X3, labelKey: "nav.timesheet" },
+  { path: "/timesheet", icon: Grid3X3, labelKey: "nav.timeSheet" },
   { path: "/tracker", icon: Timer, labelKey: "nav.tracker" },
   { path: "/expenses", icon: Receipt, labelKey: "nav.expenses" },
 ];
