@@ -96,8 +96,8 @@ Defined in `src/components/ui/button.tsx` via `class-variance-authority`:
 | Action | Variant | Color | Tailwind Classes |
 |--------|---------|-------|-----------------|
 | **Add / Save / Create** | `default` | Brand Purple | `bg-brand-purple text-primary-foreground hover:bg-brand-purple/90` |
-| **Cancel** | `cancel` | Gray/White border | `bg-background border border-input text-muted-foreground hover:bg-muted` |
-| **Delete / Reject** | `destructive` | Crimson | `bg-destructive text-destructive-foreground hover:bg-destructive/90` |
+| **Cancel** | `cancel` | Foreground outline, visible in both themes | `bg-background border border-foreground/30 text-foreground/70 hover:bg-foreground/10` |
+| **Delete / Reject** | `destructive` | Crimson, softened at rest | `bg-destructive/80 text-destructive-foreground hover:bg-destructive` |
 | **Submit / Confirm** | `submit` | Light Blue | `bg-info text-info-foreground hover:bg-info/90` |
 | **Secondary** | `secondary` | Navy | `bg-secondary text-secondary-foreground hover:bg-secondary/80` |
 | **Subtle / Icon** | `ghost` | Transparent | `hover:bg-accent hover:text-accent-foreground` |

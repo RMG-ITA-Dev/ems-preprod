@@ -75,8 +75,8 @@ Seven variants defined in `src/components/ui/button.tsx`:
 | Variant | When to Use | Visual |
 |---------|------------|--------|
 | `default` | Add, Save, Create — primary positive actions | Purple background |
-| `destructive` | Delete, Remove — dangerous irreversible actions | Crimson background |
-| `cancel` | Cancel, Close — navigation reversal | Gray border, white background |
+| `destructive` | Delete, Remove — dangerous irreversible actions | Crimson, softened at rest |
+| `cancel` | Cancel, Close — navigation reversal | Gray border, visible in both themes |
 | `submit` | Submit for approval — important but non-destructive | Light blue background |
 | `outline` | Secondary actions, toggles | Border only, transparent |
 | `ghost` | Icon buttons, subtle actions | No background, hover accent |
@@ -241,7 +241,7 @@ Used when the form shares the page with a related data table:
     <AlertDialogFooter>
       <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
       <AlertDialogAction onClick={handleDelete}
-        className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+        className="bg-destructive/80 text-destructive-foreground hover:bg-destructive">
         {t("common.delete")}
       </AlertDialogAction>
     </AlertDialogFooter>

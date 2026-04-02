@@ -211,7 +211,7 @@ export function UserRolesManager() {
                                   <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
                                   <AlertDialogAction 
                                     onClick={() => handleDeleteAccount(userRole.user_id)}
-                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                    className="bg-destructive/80 text-destructive-foreground hover:bg-destructive"
                                   >
                                     {t("userRoles.deleteAccount")}
                                   </AlertDialogAction>

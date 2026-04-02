@@ -1004,7 +1004,7 @@ export function TimesheetGrid({
             <AlertDialogAction
               onClick={confirmDeleteRow}
               disabled={deleteRowEntries.isPending}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="bg-destructive/80 text-destructive-foreground hover:bg-destructive"
             >
               {t("common.delete")}
             </AlertDialogAction>

@@ -403,7 +403,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-                <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                <AlertDialogAction onClick={handleDelete} className="bg-destructive/80 text-destructive-foreground hover:bg-destructive">
                   {t("common.delete")}
                 </AlertDialogAction>
               </AlertDialogFooter>

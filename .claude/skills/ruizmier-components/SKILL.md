@@ -38,8 +38,8 @@ interface Column<T> {
 | Action | Variant | Color |
 |--------|---------|-------|
 | Add/Save/Create | `default` | Purple |
-| Delete/Reject | `destructive` | Crimson |
-| Cancel/Close | `cancel` | Gray |
+| Delete/Reject | `destructive` | Crimson (soft) |
+| Cancel/Close | `cancel` | Gray border |
 | Submit/Confirm | `submit` | Light blue |
 | Secondary | `outline` | Border only |
 | Subtle | `ghost` | Transparent |
