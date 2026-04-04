@@ -673,7 +673,7 @@ const TimeSheet = () => {
             {canCopyToCurrentWeek && (
               <Button
                 variant="outline"
-                className="bg-brand-gold/70 text-white shadow-raised hover:bg-brand-gold hover:text-white hover:shadow-raised-hover hover:-translate-y-px active:shadow-raised-active active:translate-y-px"
+                className="bg-brand-gold/70 text-white ring-1 ring-black/20 shadow-md hover:bg-brand-gold hover:text-white hover:shadow-lg hover:-translate-y-px active:shadow-sm active:translate-y-px"
                 onClick={handleCopyToCurrentWeek}
                 disabled={copyToCurrentWeek.isPending}
               >
