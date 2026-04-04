@@ -92,6 +92,14 @@ export default {
           delete: "hsl(var(--tracker-delete))",
         },
       },
+      boxShadow: {
+        'raised': '0 3px 6px -1px rgba(0,0,0,0.4), inset 0 1px 0 0 rgba(255,255,255,0.25), 0 1px 0 0 rgba(0,0,0,0.25)',
+        'raised-hover': '0 6px 12px -2px rgba(0,0,0,0.5), inset 0 1px 0 0 rgba(255,255,255,0.3), 0 1px 0 0 rgba(0,0,0,0.25)',
+        'raised-active': '0 1px 2px -1px rgba(0,0,0,0.4), inset 0 2px 3px 0 rgba(0,0,0,0.2)',
+        'raised-cancel': '0 2px 4px -1px rgba(0,0,0,0.25), 0 1px 0 0 rgba(0,0,0,0.15)',
+        'raised-cancel-hover': '0 4px 8px -2px rgba(0,0,0,0.3), 0 1px 0 0 rgba(0,0,0,0.15)',
+        'raised-cancel-active': 'inset 0 2px 3px rgba(0,0,0,0.2)',
+      },
       borderRadius: {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
