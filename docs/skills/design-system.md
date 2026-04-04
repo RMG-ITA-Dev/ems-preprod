@@ -103,6 +103,8 @@ Defined in `src/components/ui/button.tsx` via `class-variance-authority`:
 | **Subtle / Icon** | `ghost` | Transparent | `hover:bg-accent hover:text-accent-foreground` |
 | **Outline** | `outline` | Border only | `border border-input bg-background hover:bg-accent` |
 
+> **Raised Effect**: Solid-fill variants (default, destructive, submit, cancel) have a 3-layer shadow (outer drop, inner highlight, bottom lip), `hover:-translate-y-px` lift, and `active:translate-y-px` press. Ghost, link, outline, and secondary remain flat. The gold button in TimeSheet uses the same effect inline.
+
 ### Button Sizes
 
 | Size | Class | Height |

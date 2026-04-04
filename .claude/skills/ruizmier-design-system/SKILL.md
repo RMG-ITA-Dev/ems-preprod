@@ -19,6 +19,7 @@ Apply these rules whenever you create or modify visual elements in a Ruizmier ER
 - **Delete / Reject**: `variant="destructive"` → Crimson, softened (`bg-destructive/70`)
 - **Submit / Confirm**: `variant="submit"` → Light blue (`bg-info`)
 - **Icon-only / Subtle**: `variant="ghost"` → Transparent
+- **Raised Effect**: Solid-fill buttons have depth shadow + hover lift + active press. Ghost/link/outline stay flat.
 
 ### Brand Colors
 - Primary Teal: `hsl(186 100% 29%)` = `#008795` — sidebar, focus rings

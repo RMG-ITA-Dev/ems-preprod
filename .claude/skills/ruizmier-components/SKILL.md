@@ -44,6 +44,8 @@ interface Column<T> {
 | Secondary | `outline` | Border only |
 | Subtle | `ghost` | Transparent |
 
+**Raised Effect**: default, destructive, submit, cancel have 3D shadow with hover lift and active press. Ghost, link, outline, secondary remain flat.
+
 ### Button Bar Layout
 ```tsx
 <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 sm:gap-4 pt-4">
