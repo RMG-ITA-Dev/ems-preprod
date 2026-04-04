@@ -53,7 +53,7 @@
     "leavePageDirtyTitle": "You have unsaved changes",
     "leavePageDirtyBody": "If you leave, your changes will be lost.",
     "leavePageTitle": "Leave this screen?",
-    "leavePageLockedBody": "Use Save or Cancel to leave this screen.",
+    "leavePageLockedBody": "Cancel to leave this screen.",
     "leaveAnyway": "Leave anyway",
     "stay": "Stay",
     "saveError": "Error saving changes. Please try again.",

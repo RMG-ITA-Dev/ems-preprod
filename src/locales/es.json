@@ -53,7 +53,7 @@
     "leavePageDirtyTitle": "Tiene cambios sin guardar",
     "leavePageDirtyBody": "Si sale, sus cambios se perderán.",
     "leavePageTitle": "¿Salir de esta pantalla?",
-    "leavePageLockedBody": "Use Guardar o Cancelar para salir de esta pantalla.",
+    "leavePageLockedBody": "Cancelar para salir de esta pantalla.",
     "leaveAnyway": "Salir de todas formas",
     "stay": "Quedarme",
     "saveError": "Error al guardar los cambios. Intente nuevamente.",
