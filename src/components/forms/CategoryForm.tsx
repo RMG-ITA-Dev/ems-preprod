@@ -270,14 +270,14 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>{t("category.defaultAppRole")}</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value || ""}>
+                    <Select onValueChange={(v) => field.onChange(v === "__none__" ? "" : v)} value={field.value || "__none__"}>
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder={t("form.selectOption")} />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="">None</SelectItem>
+                        <SelectItem value="__none__">None</SelectItem>
                         {ROLES.map((role) => (
                           <SelectItem key={role} value={role}>
                             {t(`userRoles.roles.${role}`)}
