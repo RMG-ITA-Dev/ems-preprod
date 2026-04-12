@@ -23,10 +23,12 @@ import {
   useGlobalSettings,
   useActivityCodes,
   useExpenseTypes,
+  useSkills,
   Category,
   Industry,
   ActivityCode,
   ExpenseType,
+  Skill,
 } from "@/hooks/useEmsData";
 import { useUpdateGlobalSetting } from "@/hooks/mutations";
 import { supabase } from "@/integrations/supabase/client";
@@ -37,6 +39,7 @@ import { IndustryForm } from "@/components/forms/IndustryForm";
 import { CategoryForm } from "@/components/forms/CategoryForm";
 import { ActivityCodeForm } from "@/components/forms/ActivityCodeForm";
 import { ExpenseTypeForm } from "@/components/forms/ExpenseTypeForm";
+import { SkillForm } from "@/components/forms/SkillForm";
 import { UserRolesManager } from "@/components/settings/UserRolesManager";
 import { ChangePasswordCard } from "@/components/settings/ChangePasswordCard";
 import { HolidaysManager } from "@/components/settings/HolidaysManager";
@@ -57,6 +60,7 @@ const Settings = () => {
   const { data: settings, isLoading: settingsLoading } = useGlobalSettings();
   const { data: activityCodes, isLoading: activitiesLoading } = useActivityCodes();
   const { data: expenseTypes, isLoading: expenseTypesLoading } = useExpenseTypes();
+  const { data: skills, isLoading: skillsLoading } = useSkills();
   const updateSettingMutation = useUpdateGlobalSetting();
 
   // Controlled tab state
@@ -75,6 +79,9 @@ const Settings = () => {
 
   const [expenseTypeFormOpen, setExpenseTypeFormOpen] = useState(false);
   const [selectedExpenseType, setSelectedExpenseType] = useState<ExpenseType | null>(null);
+
+  const [skillFormOpen, setSkillFormOpen] = useState(false);
+  const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null);
 
   // Settings state
   const [taxRate, setTaxRate] = useState<string>("");
@@ -186,6 +193,36 @@ const Settings = () => {
           </span>
         );
       },
+    },
+  ];
+
+  // Skill columns
+  const skillColumns: Column<Skill>[] = [
+    { key: "name", label: t("skill.name"), sortable: true, mobilePriority: 'primary' },
+    {
+      key: "category",
+      label: t("skill.category"),
+      sortable: true,
+      mobilePriority: 'primary',
+      render: (row) => t(`skill.categories.${row.category}`),
+    },
+    {
+      key: "is_active",
+      label: t("activity.status"),
+      sortable: true,
+      mobilePriority: 'secondary',
+      render: (row) => (
+        <Badge
+          variant="outline"
+          className={
+            row.is_active
+              ? "bg-success/10 text-success border-success/20"
+              : "bg-muted text-muted-foreground"
+          }
+        >
+          {row.is_active ? t("status.active") : t("status.inactive")}
+        </Badge>
+      ),
     },
   ];
 
@@ -340,6 +377,9 @@ const Settings = () => {
         <TabsList className="bg-muted">
           <TabsTrigger value="account">{t("settings.account")}</TabsTrigger>
           <TabsTrigger value="industries">{t("settings.industries")}</TabsTrigger>
+          {isAdmin && (
+            <TabsTrigger value="skills">{t("settings.skills")}</TabsTrigger>
+          )}
           <TabsTrigger value="rates">{t("settings.categoryRates")}</TabsTrigger>
           <TabsTrigger value="activities">{t("settings.activityCodes")}</TabsTrigger>
           <TabsTrigger value="expense-types">{t("settings.expenseTypes")}</TabsTrigger>
@@ -376,6 +416,34 @@ const Settings = () => {
             industry={selectedIndustry}
           />
         </TabsContent>
+
+        {isAdmin && (
+          <TabsContent value="skills" className="space-y-6">
+            <DataTable
+              data={skills || []}
+              columns={skillColumns}
+              searchPlaceholder={t("common.search")}
+              searchKeys={["name", "category"]}
+              isLoading={skillsLoading}
+              newButtonLabel={t("skill.newSkill")}
+              onNewClick={() => { setSelectedSkill(null); setSkillFormOpen(true); }}
+              onRowClick={(row) => { setSelectedSkill(row); setSkillFormOpen(true); }}
+              getRowId={(row) => row.skill_id}
+              statusFilter={{
+                key: "is_active",
+                options: [
+                  { value: "active", label: t("status.active") },
+                  { value: "inactive", label: t("status.inactive") },
+                ],
+              }}
+            />
+            <SkillForm
+              open={skillFormOpen}
+              onOpenChange={setSkillFormOpen}
+              skill={selectedSkill}
+            />
+          </TabsContent>
+        )}
 
         <TabsContent value="rates" className="space-y-6">
           <DataTable

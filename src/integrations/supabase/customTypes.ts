@@ -71,3 +71,15 @@ export type StaffSkillUpdate = {
 
 export const PROFICIENCY_LEVELS = ['Beginner', 'Intermediate', 'Advanced'] as const
 export type ProficiencyLevel = typeof PROFICIENCY_LEVELS[number]
+
+// ── Skill category constants ──────────────────────────────────
+
+export const SKILL_CATEGORIES = [
+  'framework',
+  'industry',
+  'tool',
+  'language',
+  'certification',
+  'other',
+] as const
+export type SkillCategory = typeof SKILL_CATEGORIES[number]

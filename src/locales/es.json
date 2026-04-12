@@ -254,7 +254,9 @@
     "expenseTypes": "Tipos de Gasto",
     "workOrder": "Orden de Trabajo",
     "workOrders": "Órdenes de Trabajo",
-    "expenseLog": "Registro de Gasto"
+    "expenseLog": "Registro de Gasto",
+    "skill": "Competencia",
+    "skills": "Competencias"
   },
   "status": {
     "active": "Activo",
@@ -302,6 +304,7 @@
     "allowedEmailDomainHelp": "Solo los usuarios con este dominio de correo pueden registrarse. Dejar vacío para permitir cualquier dominio.",
     "realizationLimit": "Límite de Realización (%)",
     "realizationLimitHelp": "Umbral para codificación por color: verde si R >= X%, rojo si R < X%",
+    "skills": "Competencias",
     "holidays": "Feriados",
     "userRoles": "Roles de Usuario",
     "holidayEngagement": "Encargo de Feriados",
@@ -393,6 +396,24 @@
     "createActivity": "Crear Código de Actividad",
     "deleteActivity": "Eliminar Código de Actividad",
     "activeDescription": "Los códigos activos pueden usarse en entradas de tiempo"
+  },
+  "skill": {
+    "name": "Nombre",
+    "category": "Categoría",
+    "selectCategory": "Seleccionar categoría",
+    "newSkill": "Nueva Competencia",
+    "editSkill": "Editar Competencia",
+    "createSkill": "Crear Competencia",
+    "deleteSkill": "Eliminar Competencia",
+    "activeDescription": "Las competencias activas pueden asignarse al personal",
+    "categories": {
+      "framework": "Normas y Marcos",
+      "industry": "Industria",
+      "tool": "Herramientas y Sistemas",
+      "language": "Idioma",
+      "certification": "Certificación",
+      "other": "Otro"
+    }
   },
   "expense": {
     "name": "Nombre del Gasto",

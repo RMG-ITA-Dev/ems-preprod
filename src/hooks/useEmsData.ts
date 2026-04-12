@@ -123,6 +123,15 @@ export interface ActivityCode {
   is_active: boolean;
 }
 
+export interface Skill {
+  skill_id: string;
+  name: string;
+  category: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface TimeEntry {
   time_id: string;
   date_worked: string;
@@ -408,6 +417,20 @@ export function useActivityCodes() {
         .order('activity_code');
       if (error) throw error;
       return data as ActivityCode[];
+    },
+  });
+}
+
+export function useSkills() {
+  return useQuery({
+    queryKey: ['skills'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('skills')
+        .select('*')
+        .order('name');
+      if (error) throw error;
+      return data as Skill[];
     },
   });
 }

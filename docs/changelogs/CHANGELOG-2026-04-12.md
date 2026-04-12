@@ -26,3 +26,28 @@
 - CHECK constraint (not ENUM) for proficiency — matches codebase convention for single-table values
 - No proficiency default — forces explicit frontend assignment
 - Admin-only management — no staff self-update (not in spec)
+
+---
+
+## Skills Management Tab in Settings (Scheduler Phase 1b)
+
+### New Migration
+- `chk_skills_category_code` CHECK constraint on `skills.category`
+- Enforces closed code set: `framework`, `industry`, `tool`, `language`, `certification`, `other`
+
+### New Files
+- `src/hooks/mutations/useSkillMutations.ts` — Create/Update/Delete mutations
+- `src/components/forms/SkillForm.tsx` — Sheet-based add/edit form with category Select dropdown
+
+### Modified Files
+- `src/integrations/supabase/customTypes.ts` — Added `SKILL_CATEGORIES` const + `SkillCategory` type
+- `src/hooks/useEmsData.ts` — Added `Skill` interface + `useSkills()` query hook
+- `src/hooks/mutations/index.ts` — Re-exported skill mutations
+- `src/pages/Settings.tsx` — Added admin-only "Skills" tab after Industries with DataTable + SkillForm
+- `src/locales/en.json` — Added `settings.skills`, `entities.skill`, `skill.*` keys
+- `src/locales/es.json` — Added Spanish translations ("Competencias")
+
+### Design Decisions
+- Category stored as stable code, rendered via i18n labels — prevents free-text drift
+- Tab is admin-only, placed after Industries
+- Follows Activity Codes tab pattern exactly (DataTable + Sheet form + mutations)
