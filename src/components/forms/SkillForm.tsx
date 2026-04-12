@@ -137,7 +137,7 @@ export function SkillForm({ open, onOpenChange, skill }: SkillFormProps) {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>{t("skill.category")} *</FormLabel>
-                  <Select value={field.value} onValueChange={field.onChange}>
+                  <Select value={field.value || undefined} onValueChange={field.onChange}>
                     <FormControl>
                       <SelectTrigger>
                         <SelectValue placeholder={t("skill.selectCategory")} />
