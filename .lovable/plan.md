@@ -1,72 +1,104 @@
-# Plan v1: Skills Tracking Tables for EMS Scheduler
+
+
+# Plan v1: Fix Delete & Cancel Buttons Across All Sheet Forms
 
 ## Summary
 
-Create two new database tables (`skills` and `staff_skills`) to support skill-based scheduling. Phase 1 of the GANTT scheduler foundation.
+Update all 5 Sheet-based forms to: (1) show Delete button with text label instead of icon-only, (2) use standard button sizing instead of `size="icon"`, and (3) reorder so Cancel is always the leftmost button.
 
-## Deliverables (4 files)
+## Affected Files (5)
 
+| # | File | Current Issue |
+|---|------|---------------|
+| 1 | `src/components/forms/ActivityCodeForm.tsx` | Delete is icon-only; Cancel is not leftmost |
+| 2 | `src/components/forms/SkillForm.tsx` | Delete is icon-only; Cancel is not leftmost |
+| 3 | `src/components/forms/CategoryForm.tsx` | Delete is icon-only; Cancel is not leftmost |
+| 4 | `src/components/forms/IndustryForm.tsx` | Delete is icon-only; Cancel is not leftmost |
+| 5 | `src/components/forms/ExpenseTypeForm.tsx` | Delete is icon-only; Cancel is not leftmost |
 
-| #   | File                                            | Action                              |
-| --- | ----------------------------------------------- | ----------------------------------- |
-| 1   | `supabase/migrations/20260412120000_<uuid>.sql` | CREATE — SQL migration              |
-| 2   | `src/integrations/supabase/customTypes.ts`      | CREATE — Companion TypeScript types |
-| 3   | `docs/database-schema.sql`                      | EDIT — Append new tables + RLS      |
-| 4   | `docs/changelogs/CHANGELOG-2026-04-12.md`       | CREATE — Changelog entry            |
+## Changes Per File
 
+Each file's `SheetFooter` currently renders buttons in this order:
 
-## File 1: SQL Migration
+```text
+BEFORE:  [Delete (icon)] [Cancel] [Save/Create]
+```
 
-Two tables with RLS, triggers, and constraints:
+Change to:
 
-`**public.skills**` — Admin-managed taxonomy
+```text
+AFTER:   [Cancel] [Delete "Delete"/"Borrar"] [Save/Create]
+```
 
-- `skill_id` UUID PK, `name` VARCHAR (case-insensitive unique via `LOWER(TRIM(name))` index), `category` VARCHAR, `is_active` BOOLEAN
-- CHECK constraints: `TRIM(name) <> ''`, `TRIM(category) <> ''`
-- RLS: Admin ALL, authenticated SELECT
+### Specific edits per button:
 
-`**public.staff_skills**` — Junction table
+**Cancel button** — Move to first position in the SheetFooter (before the Delete AlertDialog block). No other changes.
 
-- `staff_skill_id` UUID PK, `staff_id` FK → staff (CASCADE), `skill_id` FK → skills (RESTRICT)
-- `proficiency_level` VARCHAR with CHECK (`'Beginner'`, `'Intermediate'`, `'Advanced'`) — no default
-- `last_evaluated_date` DATE nullable
-- UNIQUE(`staff_id`, `skill_id`), FK indexes
-- RLS: Admin ALL, authenticated SELECT
+**Delete button** — Three changes:
+1. Remove `size="icon"` 
+2. Add text label: `<Trash2 className="h-4 w-4" /> {t("common.delete")}`
+3. Ensure mobile classes `w-full sm:w-auto min-h-[44px] sm:min-h-0` are present (add to IndustryForm and ExpenseTypeForm which currently lack them)
 
-Both tables reuse `update_updated_at_column()` trigger. Nullable timestamps match existing convention.
+**Save/Create button** — No changes (stays rightmost).
 
-## File 2: Companion TypeScript Types
+### Before/After code example (ActivityCodeForm pattern):
 
-`src/integrations/supabase/customTypes.ts` — sibling to `types.ts` (which cannot be edited manually). Exports `SkillRow/Insert/Update`, `StaffSkillRow/Insert/Update`, `PROFICIENCY_LEVELS` const array, and `ProficiencyLevel` type. Will be superseded when Lovable regenerates `types.ts`.
+**Before:**
+```tsx
+<SheetFooter className="flex flex-col-reverse sm:flex-row gap-2 pt-4">
+  {isEdit && (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>
+        <Button type="button" variant="destructive" size="icon" className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </AlertDialogTrigger>
+      ...
+    </AlertDialog>
+  )}
+  <Button type="button" variant="cancel" onClick={...} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
+    {t("common.cancel")}
+  </Button>
+  <LoadingButton ...>
+    {isEdit ? t("common.saveChanges") : t("activity.createActivity")}
+  </LoadingButton>
+</SheetFooter>
+```
 
-## File 3: Schema Doc Update
+**After:**
+```tsx
+<SheetFooter className="flex flex-col-reverse sm:flex-row gap-2 pt-4">
+  <Button type="button" variant="cancel" onClick={...} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
+    {t("common.cancel")}
+  </Button>
+  {isEdit && (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>
+        <Button type="button" variant="destructive" className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
+          <Trash2 className="h-4 w-4" />
+          {t("common.delete")}
+        </Button>
+      </AlertDialogTrigger>
+      ...
+    </AlertDialog>
+  )}
+  <LoadingButton ...>
+    {isEdit ? t("common.saveChanges") : t("activity.createActivity")}
+  </LoadingButton>
+</SheetFooter>
+```
 
-Append both table definitions and RLS policies to `docs/database-schema.sql` after the staff table block.
+## Additional Fixes for IndustryForm & ExpenseTypeForm
 
-## File 4: Changelog
+These two forms also need:
+- `SheetFooter` class updated from `"flex gap-2 pt-4"` to `"flex flex-col-reverse sm:flex-row gap-2 pt-4"` (responsive stacking)
+- Mobile touch-target classes `w-full sm:w-auto min-h-[44px] sm:min-h-0` added to all three buttons
 
-`docs/changelogs/CHANGELOG-2026-04-12.md` documenting the new tables, constraints, and purpose.
+## No i18n Changes
 
-## Key Design Decisions
+`t("common.delete")` already exists in both `en.json` ("Delete") and `es.json` ("Borrar").
 
+## No Database Changes
 
-| Decision                     | Choice                        | Rationale                                                               |
-| ---------------------------- | ----------------------------- | ----------------------------------------------------------------------- |
-| Proficiency type             | CHECK (not ENUM)              | Only `app_role` uses ENUM (cross-table). Single-table values use CHECK. |
-| No proficiency DEFAULT       | Explicit required             | Silent 'Beginner' default masks frontend bugs.                          |
-| Case-insensitive unique name | `LOWER(TRIM(name))` index     | Taxonomy: "IFRS" and "ifrs" must not coexist.                           |
-| Staff FK: CASCADE            | Staff deleted → skills gone   | Skill assignments meaningless without staff.                            |
-| Skill FK: RESTRICT           | Must unassign before deleting | Prevents accidental wipe of active assignments.                         |
-| Admin-only management        | No staff self-update          | Not in spec — don't add unspecified features.                           |
+Frontend-only.
 
-
-## Post-Deployment Verification
-
-After `"Apply pending Supabase migrations"`:
-
-- Duplicate `(staff_id, skill_id)` → unique violation ✓
-- `proficiency_level = 'Expert'` → CHECK violation ✓
-- `name = '  '` → CHECK violation ✓
-- Case-insensitive duplicate → unique index violation ✓
-- Delete skill with assignments → RESTRICT violation ✓
-- Delete staff with assignments → CASCADE removes rows ✓
