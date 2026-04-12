@@ -236,10 +236,24 @@ export type Database = {
             referencedColumns: ["staff_id"]
           },
           {
+            foreignKeyName: "activity_worksheets_created_by_staff_id_fkey"
+            columns: ["created_by_staff_id"]
+            isOneToOne: false
+            referencedRelation: "vw_staff_weekly_capacity"
+            referencedColumns: ["staff_id"]
+          },
+          {
             foreignKeyName: "activity_worksheets_engagement_id_fkey"
             columns: ["engagement_id"]
             isOneToOne: false
             referencedRelation: "engagements"
+            referencedColumns: ["engagement_id"]
+          },
+          {
+            foreignKeyName: "activity_worksheets_engagement_id_fkey"
+            columns: ["engagement_id"]
+            isOneToOne: false
+            referencedRelation: "vw_engagement_staffing_summary"
             referencedColumns: ["engagement_id"]
           },
           {
@@ -367,6 +381,185 @@ export type Database = {
           },
         ]
       }
+      engagement_assignments: {
+        Row: {
+          allocation_percent: number
+          assignment_id: string
+          created_at: string
+          created_by: string | null
+          deleted_at: string | null
+          end_date: string
+          engagement_id: string
+          hours_per_week: number
+          notes: string | null
+          requirement_id: string | null
+          staff_id: string
+          start_date: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          allocation_percent?: number
+          assignment_id?: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          end_date: string
+          engagement_id: string
+          hours_per_week?: number
+          notes?: string | null
+          requirement_id?: string | null
+          staff_id: string
+          start_date: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          allocation_percent?: number
+          assignment_id?: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          end_date?: string
+          engagement_id?: string
+          hours_per_week?: number
+          notes?: string | null
+          requirement_id?: string | null
+          staff_id?: string
+          start_date?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "engagement_assignments_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "engagement_assignments_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "staff_directory"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "engagement_assignments_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "vw_staff_weekly_capacity"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "engagement_assignments_engagement_id_fkey"
+            columns: ["engagement_id"]
+            isOneToOne: false
+            referencedRelation: "engagements"
+            referencedColumns: ["engagement_id"]
+          },
+          {
+            foreignKeyName: "engagement_assignments_engagement_id_fkey"
+            columns: ["engagement_id"]
+            isOneToOne: false
+            referencedRelation: "vw_engagement_staffing_summary"
+            referencedColumns: ["engagement_id"]
+          },
+          {
+            foreignKeyName: "engagement_assignments_requirement_id_fkey"
+            columns: ["requirement_id"]
+            isOneToOne: false
+            referencedRelation: "engagement_staffing_requirements"
+            referencedColumns: ["requirement_id"]
+          },
+          {
+            foreignKeyName: "engagement_assignments_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "engagement_assignments_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff_directory"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "engagement_assignments_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "vw_staff_weekly_capacity"
+            referencedColumns: ["staff_id"]
+          },
+        ]
+      }
+      engagement_staffing_requirements: {
+        Row: {
+          category_id: string
+          created_at: string
+          end_date: string
+          engagement_id: string
+          hours_per_week: number
+          notes: string | null
+          required_count: number
+          requirement_id: string
+          start_date: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          category_id: string
+          created_at?: string
+          end_date: string
+          engagement_id: string
+          hours_per_week?: number
+          notes?: string | null
+          required_count?: number
+          requirement_id?: string
+          start_date: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          category_id?: string
+          created_at?: string
+          end_date?: string
+          engagement_id?: string
+          hours_per_week?: number
+          notes?: string | null
+          required_count?: number
+          requirement_id?: string
+          start_date?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "engagement_staffing_requirements_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["category_id"]
+          },
+          {
+            foreignKeyName: "engagement_staffing_requirements_engagement_id_fkey"
+            columns: ["engagement_id"]
+            isOneToOne: false
+            referencedRelation: "engagements"
+            referencedColumns: ["engagement_id"]
+          },
+          {
+            foreignKeyName: "engagement_staffing_requirements_engagement_id_fkey"
+            columns: ["engagement_id"]
+            isOneToOne: false
+            referencedRelation: "vw_engagement_staffing_summary"
+            referencedColumns: ["engagement_id"]
+          },
+        ]
+      }
       engagements: {
         Row: {
           activity_required: boolean
@@ -378,10 +571,15 @@ export type Database = {
           engagement_id: string
           engagement_name: string
           is_internal: boolean
+          is_recurring: boolean
           manager_id: string | null
           partner_id: string | null
+          prior_year_engagement_id: string | null
+          priority_level: string
+          staffing_notes: string | null
           start_date: string | null
           status: string | null
+          total_budgeted_hours: number
           updated_at: string | null
           work_order_required: boolean
         }
@@ -395,10 +593,15 @@ export type Database = {
           engagement_id?: string
           engagement_name: string
           is_internal?: boolean
+          is_recurring?: boolean
           manager_id?: string | null
           partner_id?: string | null
+          prior_year_engagement_id?: string | null
+          priority_level?: string
+          staffing_notes?: string | null
           start_date?: string | null
           status?: string | null
+          total_budgeted_hours?: number
           updated_at?: string | null
           work_order_required?: boolean
         }
@@ -412,10 +615,15 @@ export type Database = {
           engagement_id?: string
           engagement_name?: string
           is_internal?: boolean
+          is_recurring?: boolean
           manager_id?: string | null
           partner_id?: string | null
+          prior_year_engagement_id?: string | null
+          priority_level?: string
+          staffing_notes?: string | null
           start_date?: string | null
           status?: string | null
+          total_budgeted_hours?: number
           updated_at?: string | null
           work_order_required?: boolean
         }
@@ -449,6 +657,13 @@ export type Database = {
             referencedColumns: ["staff_id"]
           },
           {
+            foreignKeyName: "engagements_manager_id_fkey"
+            columns: ["manager_id"]
+            isOneToOne: false
+            referencedRelation: "vw_staff_weekly_capacity"
+            referencedColumns: ["staff_id"]
+          },
+          {
             foreignKeyName: "engagements_partner_id_fkey"
             columns: ["partner_id"]
             isOneToOne: false
@@ -461,6 +676,27 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "staff_directory"
             referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "engagements_partner_id_fkey"
+            columns: ["partner_id"]
+            isOneToOne: false
+            referencedRelation: "vw_staff_weekly_capacity"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "fk_prior_year_engagement"
+            columns: ["prior_year_engagement_id"]
+            isOneToOne: false
+            referencedRelation: "engagements"
+            referencedColumns: ["engagement_id"]
+          },
+          {
+            foreignKeyName: "fk_prior_year_engagement"
+            columns: ["prior_year_engagement_id"]
+            isOneToOne: false
+            referencedRelation: "vw_engagement_staffing_summary"
+            referencedColumns: ["engagement_id"]
           },
         ]
       }
@@ -517,10 +753,24 @@ export type Database = {
             referencedColumns: ["staff_id"]
           },
           {
+            foreignKeyName: "expense_logs_created_by_staff_id_fkey"
+            columns: ["created_by_staff_id"]
+            isOneToOne: false
+            referencedRelation: "vw_staff_weekly_capacity"
+            referencedColumns: ["staff_id"]
+          },
+          {
             foreignKeyName: "expense_logs_engagement_id_fkey"
             columns: ["engagement_id"]
             isOneToOne: false
             referencedRelation: "engagements"
+            referencedColumns: ["engagement_id"]
+          },
+          {
+            foreignKeyName: "expense_logs_engagement_id_fkey"
+            columns: ["engagement_id"]
+            isOneToOne: false
+            referencedRelation: "vw_engagement_staffing_summary"
             referencedColumns: ["engagement_id"]
           },
           {
@@ -617,6 +867,13 @@ export type Database = {
             referencedRelation: "staff_directory"
             referencedColumns: ["staff_id"]
           },
+          {
+            foreignKeyName: "holidays_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "vw_staff_weekly_capacity"
+            referencedColumns: ["staff_id"]
+          },
         ]
       }
       industries: {
@@ -667,6 +924,42 @@ export type Database = {
         }
         Relationships: []
       }
+      resource_planning_audit_log: {
+        Row: {
+          action: string
+          actor_user_id: string
+          created_at: string
+          entity_id: string
+          entity_type: string
+          id: string
+          new_values: Json | null
+          note: string | null
+          old_values: Json | null
+        }
+        Insert: {
+          action: string
+          actor_user_id: string
+          created_at?: string
+          entity_id: string
+          entity_type: string
+          id?: string
+          new_values?: Json | null
+          note?: string | null
+          old_values?: Json | null
+        }
+        Update: {
+          action?: string
+          actor_user_id?: string
+          created_at?: string
+          entity_id?: string
+          entity_type?: string
+          id?: string
+          new_values?: Json | null
+          note?: string | null
+          old_values?: Json | null
+        }
+        Relationships: []
+      }
       staff: {
         Row: {
           aud_reg_number: string | null
@@ -681,9 +974,12 @@ export type Database = {
           id_number: string | null
           initials: string | null
           is_active: boolean | null
+          is_schedulable: boolean
           last_name: string
           short_name: string | null
+          skills: string | null
           staff_id: string
+          target_utilization_percent: number
           termination_date: string | null
           updated_at: string | null
           weekly_capacity_hours: number
@@ -701,9 +997,12 @@ export type Database = {
           id_number?: string | null
           initials?: string | null
           is_active?: boolean | null
+          is_schedulable?: boolean
           last_name: string
           short_name?: string | null
+          skills?: string | null
           staff_id?: string
+          target_utilization_percent?: number
           termination_date?: string | null
           updated_at?: string | null
           weekly_capacity_hours?: number
@@ -721,9 +1020,12 @@ export type Database = {
           id_number?: string | null
           initials?: string | null
           is_active?: boolean | null
+          is_schedulable?: boolean
           last_name?: string
           short_name?: string | null
+          skills?: string | null
           staff_id?: string
+          target_utilization_percent?: number
           termination_date?: string | null
           updated_at?: string | null
           weekly_capacity_hours?: number
@@ -735,6 +1037,61 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "categories"
             referencedColumns: ["category_id"]
+          },
+        ]
+      }
+      staff_unavailability: {
+        Row: {
+          created_at: string
+          end_date: string
+          notes: string | null
+          staff_id: string
+          start_date: string
+          unavailability_id: string
+          unavailability_type: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          end_date: string
+          notes?: string | null
+          staff_id: string
+          start_date: string
+          unavailability_id?: string
+          unavailability_type?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          end_date?: string
+          notes?: string | null
+          staff_id?: string
+          start_date?: string
+          unavailability_id?: string
+          unavailability_type?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "staff_unavailability_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "staff_unavailability_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff_directory"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "staff_unavailability_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "vw_staff_weekly_capacity"
+            referencedColumns: ["staff_id"]
           },
         ]
       }
@@ -794,6 +1151,13 @@ export type Database = {
             referencedColumns: ["engagement_id"]
           },
           {
+            foreignKeyName: "time_entries_engagement_id_fkey"
+            columns: ["engagement_id"]
+            isOneToOne: false
+            referencedRelation: "vw_engagement_staffing_summary"
+            referencedColumns: ["engagement_id"]
+          },
+          {
             foreignKeyName: "time_entries_period_id_fkey"
             columns: ["period_id"]
             isOneToOne: false
@@ -812,6 +1176,13 @@ export type Database = {
             columns: ["staff_id"]
             isOneToOne: false
             referencedRelation: "staff_directory"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "time_entries_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "vw_staff_weekly_capacity"
             referencedColumns: ["staff_id"]
           },
         ]
@@ -875,6 +1246,13 @@ export type Database = {
             referencedColumns: ["engagement_id"]
           },
           {
+            foreignKeyName: "timer_entries_engagement_id_fkey"
+            columns: ["engagement_id"]
+            isOneToOne: false
+            referencedRelation: "vw_engagement_staffing_summary"
+            referencedColumns: ["engagement_id"]
+          },
+          {
             foreignKeyName: "timer_entries_imported_to_time_id_fkey"
             columns: ["imported_to_time_id"]
             isOneToOne: false
@@ -893,6 +1271,13 @@ export type Database = {
             columns: ["staff_id"]
             isOneToOne: false
             referencedRelation: "staff_directory"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "timer_entries_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "vw_staff_weekly_capacity"
             referencedColumns: ["staff_id"]
           },
         ]
@@ -947,10 +1332,24 @@ export type Database = {
             referencedColumns: ["staff_id"]
           },
           {
+            foreignKeyName: "timesheet_line_approvals_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "vw_staff_weekly_capacity"
+            referencedColumns: ["staff_id"]
+          },
+          {
             foreignKeyName: "timesheet_line_approvals_engagement_id_fkey"
             columns: ["engagement_id"]
             isOneToOne: false
             referencedRelation: "engagements"
+            referencedColumns: ["engagement_id"]
+          },
+          {
+            foreignKeyName: "timesheet_line_approvals_engagement_id_fkey"
+            columns: ["engagement_id"]
+            isOneToOne: false
+            referencedRelation: "vw_engagement_staffing_summary"
             referencedColumns: ["engagement_id"]
           },
           {
@@ -1015,6 +1414,13 @@ export type Database = {
             columns: ["staff_id"]
             isOneToOne: false
             referencedRelation: "staff_directory"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "timesheet_periods_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "vw_staff_weekly_capacity"
             referencedColumns: ["staff_id"]
           },
         ]
@@ -1291,10 +1697,24 @@ export type Database = {
             referencedColumns: ["staff_id"]
           },
           {
+            foreignKeyName: "work_orders_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "vw_staff_weekly_capacity"
+            referencedColumns: ["staff_id"]
+          },
+          {
             foreignKeyName: "work_orders_engagement_id_fkey"
             columns: ["engagement_id"]
             isOneToOne: true
             referencedRelation: "engagements"
+            referencedColumns: ["engagement_id"]
+          },
+          {
+            foreignKeyName: "work_orders_engagement_id_fkey"
+            columns: ["engagement_id"]
+            isOneToOne: true
+            referencedRelation: "vw_engagement_staffing_summary"
             referencedColumns: ["engagement_id"]
           },
         ]
@@ -1428,6 +1848,13 @@ export type Database = {
             referencedRelation: "engagements"
             referencedColumns: ["engagement_id"]
           },
+          {
+            foreignKeyName: "time_entries_engagement_id_fkey"
+            columns: ["engagement_id"]
+            isOneToOne: false
+            referencedRelation: "vw_engagement_staffing_summary"
+            referencedColumns: ["engagement_id"]
+          },
         ]
       }
       vw_budget_vs_actual_hours_by_category_activity: {
@@ -1443,6 +1870,73 @@ export type Database = {
           engagement_id: string | null
           variance_hours: number | null
           wo_id: string | null
+        }
+        Relationships: []
+      }
+      vw_engagement_staffing_summary: {
+        Row: {
+          active_assignments: number | null
+          client_legal_name: string | null
+          confirmed_assignments: number | null
+          engagement_code: string | null
+          engagement_end: string | null
+          engagement_id: string | null
+          engagement_name: string | null
+          engagement_start: string | null
+          engagement_status: string | null
+          fill_percent: number | null
+          filled_requirements: number | null
+          open_requirements: number | null
+          priority_level: string | null
+          proposed_assignments: number | null
+          provisional_assignments: number | null
+          staffing_notes: string | null
+          total_budgeted_hours: number | null
+          total_required_count: number | null
+          total_requirements: number | null
+        }
+        Relationships: []
+      }
+      vw_staff_weekly_capacity: {
+        Row: {
+          category_id: string | null
+          category_name: string | null
+          city: string | null
+          display_order: number | null
+          first_name: string | null
+          is_schedulable: boolean | null
+          last_name: string | null
+          short_name: string | null
+          staff_id: string | null
+          target_utilization_percent: number | null
+          weekly_capacity_hours: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "staff_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["category_id"]
+          },
+        ]
+      }
+      vw_staffing_alerts: {
+        Row: {
+          alert_type: string | null
+          category_name: string | null
+          description: string | null
+          detected_at: string | null
+          end_date: string | null
+          engagement_code: string | null
+          engagement_id: string | null
+          engagement_name: string | null
+          entity_id: string | null
+          priority_level: string | null
+          required_count: number | null
+          staff_id: string | null
+          staff_name: string | null
+          start_date: string | null
         }
         Relationships: []
       }
@@ -1468,6 +1962,13 @@ export type Database = {
             columns: ["engagement_id"]
             isOneToOne: true
             referencedRelation: "engagements"
+            referencedColumns: ["engagement_id"]
+          },
+          {
+            foreignKeyName: "work_orders_engagement_id_fkey"
+            columns: ["engagement_id"]
+            isOneToOne: true
+            referencedRelation: "vw_engagement_staffing_summary"
             referencedColumns: ["engagement_id"]
           },
         ]
@@ -1507,6 +2008,13 @@ export type Database = {
             referencedRelation: "engagements"
             referencedColumns: ["engagement_id"]
           },
+          {
+            foreignKeyName: "work_orders_engagement_id_fkey"
+            columns: ["engagement_id"]
+            isOneToOne: true
+            referencedRelation: "vw_engagement_staffing_summary"
+            referencedColumns: ["engagement_id"]
+          },
         ]
       }
       work_order_summary: {
@@ -1543,10 +2051,24 @@ export type Database = {
             referencedColumns: ["staff_id"]
           },
           {
+            foreignKeyName: "work_orders_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "vw_staff_weekly_capacity"
+            referencedColumns: ["staff_id"]
+          },
+          {
             foreignKeyName: "work_orders_engagement_id_fkey"
             columns: ["engagement_id"]
             isOneToOne: true
             referencedRelation: "engagements"
+            referencedColumns: ["engagement_id"]
+          },
+          {
+            foreignKeyName: "work_orders_engagement_id_fkey"
+            columns: ["engagement_id"]
+            isOneToOne: true
+            referencedRelation: "vw_engagement_staffing_summary"
             referencedColumns: ["engagement_id"]
           },
         ]
@@ -1580,6 +2102,14 @@ export type Database = {
       }
       finalize_all_stale_timers: { Args: never; Returns: number }
       finalize_my_stale_timers: { Args: never; Returns: number }
+      fn_effective_weekly_capacity: {
+        Args: { p_staff_id: string; p_week_start: string }
+        Returns: number
+      }
+      fn_staff_weekly_assigned_hours: {
+        Args: { p_staff_id: string; p_week_start: string }
+        Returns: number
+      }
       get_all_user_roles: {
         Args: never
         Returns: {
@@ -1629,6 +2159,10 @@ export type Database = {
       is_engagement_team_member: {
         Args: { p_engagement_id: string }
         Returns: boolean
+      }
+      seed_staffing_requirements_from_budget: {
+        Args: { p_engagement_id: string }
+        Returns: Json
       }
       start_timer_entry: {
         Args: {
