@@ -960,6 +960,33 @@ export type Database = {
         }
         Relationships: []
       }
+      skills: {
+        Row: {
+          category: string
+          created_at: string | null
+          is_active: boolean | null
+          name: string
+          skill_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          category: string
+          created_at?: string | null
+          is_active?: boolean | null
+          name: string
+          skill_id?: string
+          updated_at?: string | null
+        }
+        Update: {
+          category?: string
+          created_at?: string | null
+          is_active?: boolean | null
+          name?: string
+          skill_id?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       staff: {
         Row: {
           aud_reg_number: string | null
@@ -1037,6 +1064,65 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "categories"
             referencedColumns: ["category_id"]
+          },
+        ]
+      }
+      staff_skills: {
+        Row: {
+          created_at: string | null
+          last_evaluated_date: string | null
+          proficiency_level: string
+          skill_id: string
+          staff_id: string
+          staff_skill_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          last_evaluated_date?: string | null
+          proficiency_level: string
+          skill_id: string
+          staff_id: string
+          staff_skill_id?: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          last_evaluated_date?: string | null
+          proficiency_level?: string
+          skill_id?: string
+          staff_id?: string
+          staff_skill_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "staff_skills_skill_id_fkey"
+            columns: ["skill_id"]
+            isOneToOne: false
+            referencedRelation: "skills"
+            referencedColumns: ["skill_id"]
+          },
+          {
+            foreignKeyName: "staff_skills_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "staff_skills_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff_directory"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "staff_skills_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "vw_staff_weekly_capacity"
+            referencedColumns: ["staff_id"]
           },
         ]
       }
