@@ -5,16 +5,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import {
   Select,
   SelectContent,
   SelectItem,
@@ -25,7 +15,6 @@ import { Button } from "@/components/ui/button";
 import { DataTable, Column } from "@/components/data-table/DataTable";
 import { Lock, AlertTriangle } from "lucide-react";
 import { useHolidays, useHolidayEngagementId, type Holiday } from "@/hooks/useHolidays";
-import { useDeleteHoliday } from "@/hooks/mutations/useHolidayMutations";
 import { useUpdateGlobalSetting } from "@/hooks/mutations";
 import { useEngagements, useStaff } from "@/hooks/useEmsData";
 import { HolidayForm } from "@/components/forms/HolidayForm";
@@ -37,24 +26,15 @@ export function HolidaysManager() {
   const { data: staffList } = useStaff();
   const holidayEngagementId = useHolidayEngagementId();
   const updateSetting = useUpdateGlobalSetting();
-  const deleteHoliday = useDeleteHoliday();
 
   const [formOpen, setFormOpen] = useState(false);
   const [selectedHoliday, setSelectedHoliday] = useState<Holiday | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<Holiday | null>(null);
   const [selectedEngagementId, setSelectedEngagementId] = useState<string>(
     holidayEngagementId ?? ""
   );
 
   const handleSaveEngagement = () => {
     updateSetting.mutate({ key: "HOLIDAY_ENGAGEMENT_ID", value: selectedEngagementId });
-  };
-
-  const handleDelete = () => {
-    if (!deleteTarget) return;
-    deleteHoliday.mutate(deleteTarget.holiday_id, {
-      onSuccess: () => setDeleteTarget(null),
-    });
   };
 
   const getStaffName = (staffId: string) => {
@@ -169,22 +149,6 @@ export function HolidaysManager() {
         onOpenChange={setFormOpen}
         holiday={selectedHoliday}
       />
-
-      {/* Delete Confirmation */}
-      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t("holiday.deleteHoliday")}</AlertDialogTitle>
-            <AlertDialogDescription>{t("holiday.deleteConfirm")}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-destructive/70 text-destructive-foreground hover:bg-destructive">
-              {t("common.delete")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }
