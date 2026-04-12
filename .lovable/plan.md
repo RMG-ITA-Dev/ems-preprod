@@ -1,104 +1,37 @@
 
 
-# Plan v1: Fix Delete & Cancel Buttons Across All Sheet Forms
+# Plan v1: Fix HolidayForm — Convert to Sheet Pattern with Delete Button
 
-## Summary
+## Problem
 
-Update all 5 Sheet-based forms to: (1) show Delete button with text label instead of icon-only, (2) use standard button sizing instead of `size="icon"`, and (3) reorder so Cancel is always the leftmost button.
+The HolidayForm uses a `Dialog` while every other Settings form (ActivityCode, Industry, Category, Skill, ExpenseType) uses a `Sheet`. It also lacks a Delete button — the delete AlertDialog exists in `HolidaysManager` but is never triggered (dead code with no UI path to `setDeleteTarget`).
 
-## Affected Files (5)
+## Changes
 
-| # | File | Current Issue |
-|---|------|---------------|
-| 1 | `src/components/forms/ActivityCodeForm.tsx` | Delete is icon-only; Cancel is not leftmost |
-| 2 | `src/components/forms/SkillForm.tsx` | Delete is icon-only; Cancel is not leftmost |
-| 3 | `src/components/forms/CategoryForm.tsx` | Delete is icon-only; Cancel is not leftmost |
-| 4 | `src/components/forms/IndustryForm.tsx` | Delete is icon-only; Cancel is not leftmost |
-| 5 | `src/components/forms/ExpenseTypeForm.tsx` | Delete is icon-only; Cancel is not leftmost |
+### 1. `src/components/forms/HolidayForm.tsx` — Rewrite to Sheet pattern
 
-## Changes Per File
+Convert from Dialog to Sheet, matching the ActivityCodeForm pattern exactly:
 
-Each file's `SheetFooter` currently renders buttons in this order:
+- Replace `Dialog`/`DialogContent`/`DialogHeader`/`DialogTitle`/`DialogFooter` with `Sheet`/`SheetContent`/`SheetHeader`/`SheetTitle`/`SheetFooter`
+- Add `useDeleteHoliday` mutation import
+- Add delete `AlertDialog` inside the SheetFooter (same pattern as ActivityCodeForm)
+- Button order: `[Cancel] [Delete "Delete"/"Borrar"] [Save]`
+- All buttons get `w-full sm:w-auto min-h-[44px] sm:min-h-0`
+- SheetFooter class: `flex flex-col-reverse sm:flex-row gap-2 pt-4`
+- Delete button: `variant="destructive"` with `<Trash2>` icon + `t("common.delete")` text
+- Delete confirmation dialog uses `bg-destructive/70 text-destructive-foreground hover:bg-destructive/90`
+- Delete only shown when editing (`holiday !== null`)
 
-```text
-BEFORE:  [Delete (icon)] [Cancel] [Save/Create]
-```
+### 2. `src/components/settings/HolidaysManager.tsx` — Remove dead delete code
 
-Change to:
+- Remove the `deleteTarget` state, `handleDelete` function, `useDeleteHoliday` import, and the orphaned `AlertDialog` block (lines 44, 53-58, 173-187)
+- Delete is now handled inside HolidayForm itself
 
-```text
-AFTER:   [Cancel] [Delete "Delete"/"Borrar"] [Save/Create]
-```
+### 3. i18n — Verify keys exist
 
-### Specific edits per button:
+- `common.delete`, `common.cancel`, `common.save`, `holiday.editHoliday`, `holiday.addHoliday`, `holiday.deleteHoliday`, `holiday.deleteConfirm` — all already exist in en.json/es.json (no changes needed)
 
-**Cancel button** — Move to first position in the SheetFooter (before the Delete AlertDialog block). No other changes.
+## No database changes
 
-**Delete button** — Three changes:
-1. Remove `size="icon"` 
-2. Add text label: `<Trash2 className="h-4 w-4" /> {t("common.delete")}`
-3. Ensure mobile classes `w-full sm:w-auto min-h-[44px] sm:min-h-0` are present (add to IndustryForm and ExpenseTypeForm which currently lack them)
-
-**Save/Create button** — No changes (stays rightmost).
-
-### Before/After code example (ActivityCodeForm pattern):
-
-**Before:**
-```tsx
-<SheetFooter className="flex flex-col-reverse sm:flex-row gap-2 pt-4">
-  {isEdit && (
-    <AlertDialog>
-      <AlertDialogTrigger asChild>
-        <Button type="button" variant="destructive" size="icon" className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
-          <Trash2 className="h-4 w-4" />
-        </Button>
-      </AlertDialogTrigger>
-      ...
-    </AlertDialog>
-  )}
-  <Button type="button" variant="cancel" onClick={...} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
-    {t("common.cancel")}
-  </Button>
-  <LoadingButton ...>
-    {isEdit ? t("common.saveChanges") : t("activity.createActivity")}
-  </LoadingButton>
-</SheetFooter>
-```
-
-**After:**
-```tsx
-<SheetFooter className="flex flex-col-reverse sm:flex-row gap-2 pt-4">
-  <Button type="button" variant="cancel" onClick={...} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
-    {t("common.cancel")}
-  </Button>
-  {isEdit && (
-    <AlertDialog>
-      <AlertDialogTrigger asChild>
-        <Button type="button" variant="destructive" className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
-          <Trash2 className="h-4 w-4" />
-          {t("common.delete")}
-        </Button>
-      </AlertDialogTrigger>
-      ...
-    </AlertDialog>
-  )}
-  <LoadingButton ...>
-    {isEdit ? t("common.saveChanges") : t("activity.createActivity")}
-  </LoadingButton>
-</SheetFooter>
-```
-
-## Additional Fixes for IndustryForm & ExpenseTypeForm
-
-These two forms also need:
-- `SheetFooter` class updated from `"flex gap-2 pt-4"` to `"flex flex-col-reverse sm:flex-row gap-2 pt-4"` (responsive stacking)
-- Mobile touch-target classes `w-full sm:w-auto min-h-[44px] sm:min-h-0` added to all three buttons
-
-## No i18n Changes
-
-`t("common.delete")` already exists in both `en.json` ("Delete") and `es.json` ("Borrar").
-
-## No Database Changes
-
-Frontend-only.
+Frontend-only refactor.
 
