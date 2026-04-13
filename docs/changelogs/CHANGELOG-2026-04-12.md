@@ -51,3 +51,62 @@
 - Category stored as stable code, rendered via i18n labels — prevents free-text drift
 - Tab is admin-only, placed after Industries
 - Follows Activity Codes tab pattern exactly (DataTable + Sheet form + mutations)
+
+---
+
+## Dual Lock File Fix + Partial-Week Test Unskip (Code Review Quick Wins)
+
+### Package Manager Lock File Cleanup
+
+**Problem**: Both `package-lock.json` and `bun.lock` were committed. CI uses `npm ci` (see `.github/workflows/test.yml` line 23), so any developer running `bun install` locally would get a different dependency tree than CI — silent drift risk.
+
+**Changes**:
+
+- **Deleted**: `bun.lock` (1291 lines removed)
+- **Modified**: `.gitignore` — Added `bun.lock` entry after `lerna-debug.log*` (line 9) to prevent re-commit
+- **Modified**: `package.json` — Added `"packageManager": "npm@10.9.7"` field after `"type": "module"` (line 6). This matches the npm version shipped with Node 20 (used by CI) and, when Corepack is enabled locally, enforces the exact package manager version.
+
+### Partial-Week Test Deterministic Fix (BUG 0306-74)
+
+**Problem**: `src/pages/__tests__/TimeSheet.partial-week.test.tsx` was `describe.skip`'d because it depended on real system time. The test mocks `hire_date: "2026-03-27"` (a Friday) and asserts that 8 hours logged meets the prorated weekly minimum (40h × 1/5 workable days = 8h). When the real date advanced past that week, `TimeSheet` computed a different current week and the prorated minimum calculation no longer applied, causing intermittent failures.
+
+**Changes** to `src/pages/__tests__/TimeSheet.partial-week.test.tsx`:
+
+1. **Added time-freezing hooks** (inserted after the `matchMedia` polyfill, before hook mocks):
+   ```typescript
+   beforeAll(() => {
+     vi.useFakeTimers();
+     vi.setSystemTime(new Date("2026-03-27T12:00:00"));
+   });
+
+   afterAll(() => {
+     vi.useRealTimers();
+   });
+   ```
+   Freezing to Friday 2026-03-27 guarantees `hire_date` always falls within the current week. `afterAll` restores real timers so no cross-file contamination.
+
+2. **Unskipped the test**: Changed `describe.skip("TimeSheet partial week hire date (BUG 0306-74)", ...)` → `describe("TimeSheet partial week hire date (BUG 0306-74)", ...)`.
+
+3. **Removed the 10-line skip TODO comment block** that referenced the BUG 0306-74 deferred fix — the deterministic fix is now in place.
+
+4. **Expanded Vitest imports** (follow-up style fix, commit `86e9e46`): Changed `import { describe, it, expect, vi } from "vitest"` → `import { describe, it, expect, vi, beforeAll, afterAll } from "vitest"`. Although `vitest.config.ts` sets `globals: true` (making this unnecessary at runtime), the file's existing convention is explicit imports.
+
+### Verification
+- `npm run build` — passes
+- `npx vitest run` — **57 files passed, 515 tests passed, 0 skipped** (previously 514 passed + 1 skipped)
+- Targeted re-run of `TimeSheet.partial-week.test.tsx` — 1/1 passing
+
+### Files Changed Summary
+
+| File | Change | Lines |
+|------|--------|-------|
+| `bun.lock` | DELETED | −1291 |
+| `.gitignore` | Added `bun.lock` entry | +1 |
+| `package.json` | Added `packageManager` field | +1 |
+| `src/pages/__tests__/TimeSheet.partial-week.test.tsx` | Added fake timers, unskipped, removed TODO, expanded imports | +11 −11 |
+
+### Commits
+- `7219349` — Fix dual lock file and unskip partial-week test
+- `86e9e46` — Explicitly import beforeAll/afterAll in partial-week test
+
+(Also on `sruizmier-scheduler-v2` as `8503e38` and `d05f76c` via cherry-pick.)
