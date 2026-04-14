@@ -47,6 +47,7 @@ import { getFiscalYearOptions, formatFiscalYearEnd } from "@/lib/fiscalYearDispl
 // Get standardized fiscal year options (stored in English, displayed localized)
 const fiscalYearOptions = getFiscalYearOptions();
 
+// TODO(is_active): add an `is_active` toggle once the `industries` table gains an `is_active` column (DB migration + useEmsData/Industry type update).
 const formSchema = z.object({
   industry_name: z.string().min(1, "Industry name is required"),
   fiscal_year_end: z.string().min(1, "Fiscal year-end is required"),

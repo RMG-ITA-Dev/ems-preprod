@@ -37,6 +37,7 @@ import { ExpenseType } from "@/hooks/useEmsData";
 import { useCreateExpenseType, useUpdateExpenseType, useDeleteExpenseType } from "@/hooks/mutations";
 import { Trash2 } from "lucide-react";
 
+// TODO(is_active): add an `is_active` toggle once the `expense_types` table gains an `is_active` column (DB migration + useEmsData/ExpenseType type update).
 const formSchema = z.object({
   expense_name: z.string().min(1, "Expense name is required"),
   default_unit_cost: z.coerce.number().min(0, "Cost must be positive"),
@@ -51,7 +52,8 @@ interface ExpenseTypeFormProps {
 }
 
 export function ExpenseTypeForm({ open, onOpenChange, expenseType }: ExpenseTypeFormProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const numericLocale = i18n.language === "es" ? "es" : "en";
   const isEdit = !!expenseType;
   const createMutation = useCreateExpenseType();
   const updateMutation = useUpdateExpenseType();
@@ -125,7 +127,7 @@ export function ExpenseTypeForm({ open, onOpenChange, expenseType }: ExpenseType
                 <FormItem>
                   <FormLabel>{t("expense.defaultUnitCost")}</FormLabel>
                   <FormControl>
-                    <NumericInput decimals={2} locale="en" min={0} placeholder="0.00" value={field.value} onChange={field.onChange} />
+                    <NumericInput decimals={2} locale={numericLocale} min={0} placeholder="0.00" value={field.value} onChange={field.onChange} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

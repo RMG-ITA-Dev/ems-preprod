@@ -24,6 +24,7 @@ import {
   useActivityCodes,
   useExpenseTypes,
   useSkills,
+  useEngagements,
   Category,
   Industry,
   ActivityCode,
@@ -44,13 +45,16 @@ import { UserRolesManager } from "@/components/settings/UserRolesManager";
 import { ChangePasswordCard } from "@/components/settings/ChangePasswordCard";
 import { HolidaysManager } from "@/components/settings/HolidaysManager";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Lock, CheckCircle } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Lock, CheckCircle, AlertTriangle } from "lucide-react";
+import { formatFiscalYearEnd } from "@/lib/fiscalYearDisplay";
+import { useHolidayEngagementId } from "@/hooks/useHolidays";
 import { toast } from "sonner";
 import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";
 import { LeavePageDialog } from "@/components/ui/leave-page-dialog";
 
 const Settings = () => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
   const { isAdmin } = useUserRole();
   const { currentLanguage } = useLanguage();
@@ -61,6 +65,8 @@ const Settings = () => {
   const { data: activityCodes, isLoading: activitiesLoading } = useActivityCodes();
   const { data: expenseTypes, isLoading: expenseTypesLoading } = useExpenseTypes();
   const { data: skills, isLoading: skillsLoading } = useSkills();
+  const { data: engagements } = useEngagements();
+  const persistedHolidayEngagementId = useHolidayEngagementId();
   const updateSettingMutation = useUpdateGlobalSetting();
 
   // Controlled tab state
@@ -94,6 +100,7 @@ const Settings = () => {
   const [compactFont, setCompactFont] = useState<boolean>(false);
   const [allowedEmailDomain, setAllowedEmailDomain] = useState<string>("");
   const [realizationLimit, setRealizationLimit] = useState<string>("");
+  const [holidayEngagementId, setHolidayEngagementId] = useState<string>("");
 
   const getSetting = (key: string) => settings?.find((s) => s.setting_key === key)?.setting_value || "";
 
@@ -119,6 +126,8 @@ const Settings = () => {
       if (realizationSetting) {
         setRealizationLimit(realizationSetting.setting_value);
       }
+      const holidayEngagementSetting = settings.find((s) => s.setting_key === "HOLIDAY_ENGAGEMENT_ID");
+      setHolidayEngagementId(holidayEngagementSetting?.setting_value ?? "");
     }
   }, [settings]);
 
@@ -135,12 +144,14 @@ const Settings = () => {
     const persistedDailyMax = getSetting("DAILY_MAX") || "8";
     const persistedWeeklyMin = getSetting("WEEKLY_MIN") || "40";
     const persistedWeeklyMax = getSetting("WEEKLY_MAX") || "40";
+    const persistedHolidayEngagement = getSetting("HOLIDAY_ENGAGEMENT_ID") || "";
 
     return (
       language !== persistedLang ||
       allowWeekendTracking !== persistedWeekend ||
       compactFont !== persistedCompact ||
       allowedEmailDomain !== persistedDomain ||
+      holidayEngagementId !== persistedHolidayEngagement ||
       (taxRate !== "" && taxRate !== persistedTax) ||
       (realizationLimit !== "" && realizationLimit !== persistedRealization) ||
       (dailyMin !== "" && dailyMin !== persistedDailyMin) ||
@@ -149,7 +160,7 @@ const Settings = () => {
       (weeklyMax !== "" && weeklyMax !== persistedWeeklyMax)
     );
   }, [settings, language, allowWeekendTracking, compactFont, allowedEmailDomain,
-      taxRate, realizationLimit, dailyMin, dailyMax, weeklyMin, weeklyMax]);
+      holidayEngagementId, taxRate, realizationLimit, dailyMin, dailyMax, weeklyMin, weeklyMax]);
 
   // Navigation lock - only when global tab is active
   const { blocker } = usePageLeaveLock({
@@ -167,6 +178,7 @@ const Settings = () => {
     document.documentElement.dataset.compactFont = persistedCompact ? "true" : "false";
 
     setAllowedEmailDomain(getSetting("ALLOWED_EMAIL_DOMAIN") || "");
+    setHolidayEngagementId(getSetting("HOLIDAY_ENGAGEMENT_ID") || "");
     setTaxRate("");
     setRealizationLimit("");
     setDailyMin("");
@@ -180,7 +192,13 @@ const Settings = () => {
   // Industry columns
   const industryColumns: Column<Industry>[] = [
     { key: "industry_name", label: t("industry.name"), sortable: true, mobilePriority: 'primary' },
-    { key: "fiscal_year_end", label: t("industry.fiscalYearEnd"), sortable: true, mobilePriority: 'primary' },
+    {
+      key: "fiscal_year_end",
+      label: t("industry.fiscalYearEnd"),
+      sortable: true,
+      mobilePriority: 'primary',
+      render: (row) => formatFiscalYearEnd(row.fiscal_year_end, i18n.language),
+    },
     {
       key: "default_season",
       label: t("industry.defaultSeason"),
@@ -362,6 +380,10 @@ const Settings = () => {
       }
       if (realizationLimit) {
         await updateSettingMutation.mutateAsync({ key: "REALIZATION_LIMIT", value: realizationLimit });
+      }
+      const persistedHolidayEngagement = getSetting("HOLIDAY_ENGAGEMENT_ID") || "";
+      if (holidayEngagementId !== persistedHolidayEngagement) {
+        await updateSettingMutation.mutateAsync({ key: "HOLIDAY_ENGAGEMENT_ID", value: holidayEngagementId });
       }
       queryClient.invalidateQueries({ queryKey: ["global_settings"] });
       toast.success(t("messages.settingsSaved"));
@@ -591,6 +613,33 @@ const Settings = () => {
                         className="max-w-[300px]"
                       />
                       <p className="text-sm text-muted-foreground">{t("settings.allowedEmailDomainHelp")}</p>
+                    </div>
+
+                    {/* Holiday Engagement Setting */}
+                    <div className="space-y-2 py-4 border-b border-border">
+                      <Label htmlFor="holidayEngagement">{t("settings.holidayEngagement")}</Label>
+                      <Select value={holidayEngagementId} onValueChange={setHolidayEngagementId}>
+                        <SelectTrigger id="holidayEngagement" className="max-w-md">
+                          <SelectValue placeholder={t("timesheet.selectEngagement")} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {engagements?.map((eng) => (
+                            <SelectItem key={eng.engagement_id} value={eng.engagement_id}>
+                              <span className="font-mono text-xs opacity-60 mr-2">
+                                {eng.engagement_code}
+                              </span>
+                              {eng.engagement_name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-sm text-muted-foreground">{t("settings.holidayEngagementHelp")}</p>
+                      {!persistedHolidayEngagementId && (
+                        <Alert className="mt-2">
+                          <AlertTriangle className="h-4 w-4" />
+                          <AlertDescription>{t("settings.holidayNotConfigured")}</AlertDescription>
+                        </Alert>
+                      )}
                     </div>
 
                     {/* Tax Rate Setting */}
