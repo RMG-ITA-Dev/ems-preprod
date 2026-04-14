@@ -389,20 +389,20 @@ describe("getEffectiveWeeklyLimits", () => {
     expect(result.workableDays).toBe(3);
   });
 
-  it("subtracts holidays from workable days", () => {
+  it("does NOT subtract holidays from workable days (holidays require 8h on holiday engagement)", () => {
     const holidays = new Set(["2026-03-04"]);
     const result = getEffectiveWeeklyLimits(fullWeek, 40, 40, null, null, holidays);
-    expect(result.effectiveMin).toBe(32);
-    expect(result.effectiveMax).toBe(32);
-    expect(result.workableDays).toBe(4);
+    expect(result.effectiveMin).toBe(40);
+    expect(result.effectiveMax).toBe(40);
+    expect(result.workableDays).toBe(5);
   });
 
-  it("combines hire date and holidays", () => {
+  it("hire date still prorates but holidays do not", () => {
     const holidays = new Set(["2026-03-06"]);
     const result = getEffectiveWeeklyLimits(fullWeek, 40, 40, "2026-03-05", null, holidays);
-    expect(result.effectiveMin).toBe(8);
-    expect(result.effectiveMax).toBe(8);
-    expect(result.workableDays).toBe(1);
+    expect(result.effectiveMin).toBe(16);
+    expect(result.effectiveMax).toBe(16);
+    expect(result.workableDays).toBe(2);
   });
 
   it("returns 0 effective min when no workable days", () => {
