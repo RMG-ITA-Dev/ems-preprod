@@ -84,7 +84,8 @@ const ROLES: AppRole[] = [
 ];
 
 export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const numericLocale = i18n.language === "es" ? "es" : "en";
   const isEdit = !!category;
   const createMutation = useCreateCategory();
   const updateMutation = useUpdateCategory();
@@ -204,7 +205,7 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
                     <FormItem>
                       <FormLabel>{t("industry.highSeason")} *</FormLabel>
                       <FormControl>
-                        <NumericInput decimals={2} locale="es" min={0} value={field.value} onChange={field.onChange} />
+                        <NumericInput decimals={2} locale={numericLocale} min={0} value={field.value} onChange={field.onChange} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -218,7 +219,7 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
                     <FormItem>
                       <FormLabel>{t("industry.lowSeason")} *</FormLabel>
                       <FormControl>
-                        <NumericInput decimals={2} locale="es" min={0} value={field.value} onChange={field.onChange} />
+                        <NumericInput decimals={2} locale={numericLocale} min={0} value={field.value} onChange={field.onChange} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -237,7 +238,7 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
                     <FormItem>
                       <FormLabel>{t("industry.highSeason")} *</FormLabel>
                       <FormControl>
-                        <NumericInput decimals={2} locale="en" min={0} value={field.value} onChange={field.onChange} />
+                        <NumericInput decimals={2} locale={numericLocale} min={0} value={field.value} onChange={field.onChange} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -251,7 +252,7 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
                     <FormItem>
                       <FormLabel>{t("industry.lowSeason")} *</FormLabel>
                       <FormControl>
-                        <NumericInput decimals={2} locale="en" min={0} value={field.value} onChange={field.onChange} />
+                        <NumericInput decimals={2} locale={numericLocale} min={0} value={field.value} onChange={field.onChange} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>

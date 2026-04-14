@@ -41,6 +41,7 @@
     "role": "Rol",
     "team": "Equipo",
     "dates": "Fechas",
+    "createdAt": "Creado el",
     "or": "O",
     "clear": "Limpiar",
     "unsavedChanges": "Sin guardar",
@@ -593,8 +594,7 @@
     "deleteHoliday": "Eliminar Feriado",
     "date": "Fecha",
     "name": "Nombre",
-    "createdBy": "Creado Por",
-    "deleteConfirm": "¿Está seguro que desea eliminar este feriado?"
+    "createdBy": "Creado Por"
   },
  "dashboard": {
     "noData": "Sin datos disponibles para el período seleccionado",

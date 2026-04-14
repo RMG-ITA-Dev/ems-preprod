@@ -41,6 +41,7 @@
     "role": "Role",
     "team": "Team",
     "dates": "Dates",
+    "createdAt": "Created At",
     "or": "Or",
     "clear": "Clear",
     "unsavedChanges": "Unsaved",
@@ -593,8 +594,7 @@
     "deleteHoliday": "Delete Holiday",
     "date": "Date",
     "name": "Name",
-    "createdBy": "Created By",
-    "deleteConfirm": "Are you sure you want to delete this holiday?"
+    "createdBy": "Created By"
   },
  "dashboard": {
     "noData": "No data available for the selected period",
