@@ -256,8 +256,8 @@
     "workOrder": "Work Order",
     "workOrders": "Work Orders",
     "expenseLog": "Expense Log",
-    "skill": "Skill",
-    "skills": "Skills"
+    "skill": "Competency",
+    "skills": "Competencies"
   },
   "status": {
     "active": "Active",
@@ -305,7 +305,7 @@
     "allowedEmailDomainHelp": "Only users with this email domain can register. Leave empty to allow any domain.",
     "realizationLimit": "Realization Limit (%)",
     "realizationLimitHelp": "Threshold for color coding: green if R >= X%, red if R < X%",
-    "skills": "Skills",
+    "skills": "Competencies",
     "holidays": "Holidays",
     "userRoles": "User Roles",
     "holidayEngagement": "Holiday Engagement",
@@ -402,11 +402,11 @@
     "name": "Name",
     "category": "Category",
     "selectCategory": "Select category",
-    "newSkill": "New Skill",
-    "editSkill": "Edit Skill",
-    "createSkill": "Create Skill",
-    "deleteSkill": "Delete Skill",
-    "activeDescription": "Active skills can be assigned to staff",
+    "newSkill": "New Competency",
+    "editSkill": "Edit Competency",
+    "createSkill": "Create Competency",
+    "deleteSkill": "Delete Competency",
+    "activeDescription": "Active competencies can be assigned to staff",
     "categories": {
       "framework": "Framework & Standards",
       "industry": "Industry",
