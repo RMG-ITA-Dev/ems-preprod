@@ -35,14 +35,14 @@ interface Column<T> {
 ### Desktop: Full table. Mobile: Card layout with expandable sections.
 
 ## Button Variants
-| Action | Variant | Color |
-|--------|---------|-------|
-| Add/Save/Create | `default` | Purple |
-| Delete/Reject | `destructive` | Crimson (soft) |
-| Cancel/Close | `cancel` | Gray border |
-| Submit/Confirm | `submit` | Light blue |
-| Secondary | `outline` | Border only |
-| Subtle | `ghost` | Transparent |
+| Action | Variant | Color | Hex | Token |
+|--------|---------|-------|-----|-------|
+| Add/Save/Create | `default` | Purple | `#7c3aed` | `--brand-purple` (`255 82% 65%`) |
+| Delete/Reject | `destructive` | Crimson (soft, `/70`) | `#dc1f4a` | `--destructive` (`348 83% 47%`) |
+| Cancel/Close | `cancel` | Navy outline @ 40% | `#0f3c73` | `--foreground` (`213 77% 25%`) |
+| Submit/Confirm | `submit` | Light blue | `#3b82f6` | `--info` (`217 91% 60%`) |
+| Secondary | `outline` | Border only | `#c9d2de` | `--border` (`219 42% 85%`) |
+| Subtle | `ghost` | Transparent | — | — |
 
 **Raised Effect**: default, destructive, submit, cancel have 3D shadow with hover lift and active press. Ghost, link, outline, secondary remain flat.
 
