@@ -421,8 +421,10 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
             last_evaluated_date: row.last_evaluated_date || null,
           });
         }
-      } catch {
-        toast.error(t("staff.competencies.errors.partialSave"));
+      } catch (err) {
+        console.error("[StaffForm] Competency save failed:", err);
+        const message = err instanceof Error ? err.message : String(err);
+        toast.error(`${t("staff.competencies.errors.partialSave")} (${message})`);
         return; // Stay on form; do NOT open role-sync dialog
       }
 
