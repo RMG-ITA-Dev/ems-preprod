@@ -472,7 +472,31 @@
     "syncRoleSkip": "Omitir",
     "roleSynced": "Rol de usuario sincronizado exitosamente",
     "roleSyncError": "Error al sincronizar rol de usuario",
-    "adminRoleProtected": "El usuario es Admin. El rol no fue degradado automáticamente."
+    "adminRoleProtected": "El usuario es Admin. El rol no fue degradado automáticamente.",
+    "competencies": {
+      "title": "Competencias",
+      "addButton": "+ Agregar Competencia",
+      "name": "Competencia",
+      "category": "Categoría",
+      "level": "Nivel",
+      "verifiedDate": "Fecha de Evaluación (TH)",
+      "verifiedDateHint": "Fecha en que Talento Humano verificó esta competencia",
+      "empty": "Sin competencias asignadas",
+      "remove": "Quitar",
+      "levels": {
+        "beginner": "Principiante",
+        "intermediate": "Intermedio",
+        "advanced": "Avanzado"
+      },
+      "errors": {
+        "required": "Selecciona una competencia",
+        "dateRequired": "La fecha de verificación es obligatoria",
+        "futureDate": "La fecha de verificación no puede ser futura",
+        "duplicate": "Una competencia no puede asignarse dos veces",
+        "alreadyAssigned": "Esta competencia ya está asignada",
+        "partialSave": "El miembro fue guardado pero las competencias no se guardaron. Por favor edita e intenta de nuevo."
+      }
+    }
   },
   "client": {
     "name": "Nombre del Cliente",

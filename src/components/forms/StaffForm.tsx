@@ -1,7 +1,7 @@
 // ============= Lines 1-500 of 657 total lines =============
 
-import { useEffect, useMemo, useState } from "react";
-import { useForm } from "react-hook-form";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useTranslation } from "react-i18next";
@@ -45,14 +45,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { StaffFull, useCategories } from "@/hooks/useEmsData";
-import { useCreateStaff, useUpdateStaff, useDeleteStaff } from "@/hooks/mutations";
-import { Trash2, AlertTriangle, RefreshCw } from "lucide-react";
+import { StaffFull, useCategories, useActiveSkills } from "@/hooks/useEmsData";
+import { useCreateStaff, useUpdateStaff, useDeleteStaff, useCreateStaffCompetency, useUpdateStaffCompetency, useDeleteStaffCompetency } from "@/hooks/mutations";
+import { Trash2, AlertTriangle, RefreshCw, Plus } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useUpdateUserRole } from "@/hooks/useUserRoles";
 import { Database } from "@/integrations/supabase/types";
+import { PROFICIENCY_LEVELS, type ProficiencyLevel } from "@/integrations/supabase/customTypes";
+
+const todayISO = () => new Date().toISOString().split("T")[0];
 
 type AppRole = Database["public"]["Enums"]["app_role"];
 
@@ -70,6 +73,25 @@ const createFormSchema = (t: TFunction) =>
     hire_date: z.string().min(1, t("validation.hireDateRequired")),
     termination_date: z.string().optional(),
     is_active: z.boolean(),
+    competencies: z.array(
+      z.object({
+        _key: z.string(),
+        staff_skill_id: z.string().uuid().optional(),
+        skill_id: z.string().min(1, t("staff.competencies.errors.required")),
+        proficiency_level: z.enum(["Beginner", "Intermediate", "Advanced"]),
+        last_evaluated_date: z.string()
+          .min(1, t("staff.competencies.errors.dateRequired"))
+          .refine((d) => d <= todayISO(), t("staff.competencies.errors.futureDate")),
+      })
+    ).superRefine((rows, ctx) => {
+      const seen = new Set<string>();
+      rows.forEach((row, i) => {
+        if (row.skill_id && seen.has(row.skill_id)) {
+          ctx.addIssue({ code: "custom", path: [i, "skill_id"], message: t("staff.competencies.errors.duplicate") });
+        }
+        if (row.skill_id) seen.add(row.skill_id);
+      });
+    }).default([]),
   }).refine(
     (data) => {
       if (data.termination_date && data.hire_date) {
@@ -147,15 +169,22 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
   const navigate = useNavigate();
   const isEdit = !!staff;
   const { data: categories } = useCategories();
+  const { data: activeSkills } = useActiveSkills();
   const createMutation = useCreateStaff();
   const updateMutation = useUpdateStaff();
   const deleteMutation = useDeleteStaff();
   const updateRoleMutation = useUpdateUserRole();
+  const createCompetency = useCreateStaffCompetency();
+  const updateCompetency = useUpdateStaffCompetency();
+  const deleteCompetency = useDeleteStaffCompetency();
+
+  // Tracks skill_ids of competencies that existed when the edit form was loaded
+  const originalSkillIds = useRef<Set<string>>(new Set());
 
   // Pending hours dialog state
   const [pendingWeeks, setPendingWeeks] = useState<PendingWeek[]>([]);
   const [showPendingDialog, setShowPendingDialog] = useState(false);
-  
+
   // Role sync dialog state
   const [showSyncDialog, setShowSyncDialog] = useState(false);
   const [syncData, setSyncData] = useState<{ userId: string; newRole: AppRole } | null>(null);
@@ -177,11 +206,25 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
       hire_date: "",
       termination_date: "",
       is_active: false,
+      competencies: [],
     },
+  });
+
+  const { fields: competencyFields, append: appendCompetency, remove: removeCompetency } = useFieldArray({
+    control: form.control,
+    name: "competencies",
   });
 
   useEffect(() => {
     if (staff) {
+      const seededCompetencies = (staff.staff_skills ?? []).map((ss) => ({
+        _key: ss.staff_skill_id,
+        staff_skill_id: ss.staff_skill_id,
+        skill_id: ss.skill_id,
+        proficiency_level: ss.proficiency_level as ProficiencyLevel,
+        last_evaluated_date: ss.last_evaluated_date ?? "",
+      }));
+      originalSkillIds.current = new Set(seededCompetencies.map((c) => c.skill_id));
       form.reset({
         first_name: staff.first_name,
         last_name: staff.last_name,
@@ -195,6 +238,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
         hire_date: staff.hire_date || "",
         termination_date: staff.termination_date || "",
         is_active: staff.is_active,
+        competencies: seededCompetencies,
       });
     }
   }, [staff, form]);
@@ -343,12 +387,50 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
     
     if (isEdit && staff) {
       await updateMutation.mutateAsync({ id: staff.staff_id, data: payload });
-      
+
+      // Sync competencies: diff by skill_id (final-state approach)
+      const submitted = data.competencies ?? [];
+      const originals = staff.staff_skills ?? [];
+
+      const toDelete = originals.filter((o) => !submitted.some((s) => s.skill_id === o.skill_id));
+      const toUpdate = submitted.filter((s) =>
+        originals.some(
+          (o) =>
+            o.skill_id === s.skill_id &&
+            (o.proficiency_level !== s.proficiency_level || o.last_evaluated_date !== s.last_evaluated_date)
+        )
+      );
+      const toInsert = submitted.filter((s) => !originals.some((o) => o.skill_id === s.skill_id));
+
+      try {
+        for (const row of toDelete) {
+          await deleteCompetency.mutateAsync(row.staff_skill_id);
+        }
+        for (const row of toUpdate) {
+          const orig = originals.find((o) => o.skill_id === row.skill_id)!;
+          await updateCompetency.mutateAsync({
+            id: orig.staff_skill_id,
+            data: { proficiency_level: row.proficiency_level, last_evaluated_date: row.last_evaluated_date },
+          });
+        }
+        for (const row of toInsert) {
+          await createCompetency.mutateAsync({
+            staff_id: staff.staff_id,
+            skill_id: row.skill_id,
+            proficiency_level: row.proficiency_level,
+            last_evaluated_date: row.last_evaluated_date || null,
+          });
+        }
+      } catch {
+        toast.error(t("staff.competencies.errors.partialSave"));
+        return; // Stay on form; do NOT open role-sync dialog
+      }
+
       // Check for category change sync if staff is auth-linked
       if (staff.auth_user_id && staff.category_id !== data.category_id) {
         const newCategory = categories?.find(c => c.category_id === data.category_id);
         const targetRole = newCategory?.default_app_role as AppRole | null;
-        
+
         if (targetRole) {
           // Check current role
           const { data: roleData } = await supabase
@@ -356,7 +438,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
             .select("role")
             .eq("user_id", staff.auth_user_id)
             .single();
-            
+
           if (roleData?.role === 'admin' && targetRole !== 'admin') {
             toast.info(t("staff.adminRoleProtected"));
           } else if (roleData?.role !== targetRole) {
@@ -367,9 +449,33 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
         }
       }
     } else {
-      await createMutation.mutateAsync(payload);
+      // Create staff first, then insert competencies with rollback on failure
+      const newStaff = await createMutation.mutateAsync(payload);
+      const newStaffId = (newStaff as { staff_id: string }).staff_id;
+
+      if (data.competencies && data.competencies.length > 0) {
+        try {
+          for (const row of data.competencies) {
+            await createCompetency.mutateAsync({
+              staff_id: newStaffId,
+              skill_id: row.skill_id,
+              proficiency_level: row.proficiency_level,
+              last_evaluated_date: row.last_evaluated_date || null,
+            });
+          }
+        } catch {
+          // Attempt rollback: delete the just-created staff record
+          try {
+            await supabase.from("staff").delete().eq("staff_id", newStaffId);
+            toast.error(t("staff.competencies.errors.partialSave"));
+          } catch {
+            toast.error(t("staff.competencies.errors.partialSave"));
+          }
+          return;
+        }
+      }
     }
-    
+
     if (onSaveSuccess) {
       onSaveSuccess();
     } else {
@@ -655,6 +761,161 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
               />
             </div>
 
+            {/* Competencies section */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="font-medium text-lg">{t("staff.competencies.title")}</h3>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    appendCompetency({
+                      _key: crypto.randomUUID(),
+                      staff_skill_id: undefined,
+                      skill_id: "",
+                      proficiency_level: "Beginner",
+                      last_evaluated_date: todayISO(),
+                    })
+                  }
+                >
+                  <Plus className="h-4 w-4 mr-1" />
+                  {t("staff.competencies.addButton")}
+                </Button>
+              </div>
+
+              {competencyFields.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-2">{t("staff.competencies.empty")}</p>
+              ) : (
+                <div className="space-y-2">
+                  {/* Table header — hidden on mobile */}
+                  <div className="hidden sm:grid sm:grid-cols-[1fr_160px_160px_36px] gap-2 px-1">
+                    <span className="text-xs text-muted-foreground">{t("staff.competencies.name")} *</span>
+                    <span className="text-xs text-muted-foreground">{t("staff.competencies.level")} *</span>
+                    <span className="text-xs text-muted-foreground">{t("staff.competencies.verifiedDate")} *</span>
+                    <span />
+                  </div>
+
+                  {competencyFields.map((field, index) => {
+                    // Skills already chosen in other rows (excluding this row)
+                    const usedSkillIds = new Set(
+                      form.getValues("competencies")
+                        .filter((_, i) => i !== index)
+                        .map((c) => c.skill_id)
+                        .filter(Boolean)
+                    );
+
+                    // For existing rows with an inactive skill, show that skill even though
+                    // it won't appear in the active list for new rows
+                    const currentSkillId = field.skill_id;
+                    const currentSkillIsInactive =
+                      currentSkillId &&
+                      activeSkills &&
+                      !activeSkills.some((s) => s.skill_id === currentSkillId);
+                    const inactiveSkillName =
+                      currentSkillIsInactive && staff?.staff_skills
+                        ? staff.staff_skills.find((ss) => ss.skill_id === currentSkillId)?.skill?.name
+                        : undefined;
+
+                    return (
+                      <div
+                        key={field.id}
+                        className="grid grid-cols-1 sm:grid-cols-[1fr_160px_160px_36px] gap-2 items-start border rounded-md p-2 sm:border-0 sm:p-0"
+                      >
+                        {/* Competency select */}
+                        <FormField
+                          control={form.control}
+                          name={`competencies.${index}.skill_id`}
+                          render={({ field: f }) => (
+                            <FormItem>
+                              <FormLabel className="sm:hidden text-xs">{t("staff.competencies.name")} *</FormLabel>
+                              <Select
+                                onValueChange={f.onChange}
+                                value={f.value}
+                              >
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder={t("staff.competencies.errors.required")} />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  {/* Show inactive assigned skill in its own item */}
+                                  {currentSkillIsInactive && inactiveSkillName && (
+                                    <SelectItem value={currentSkillId!}>{inactiveSkillName}</SelectItem>
+                                  )}
+                                  {(activeSkills ?? [])
+                                    .filter((s) => !usedSkillIds.has(s.skill_id))
+                                    .map((s) => (
+                                      <SelectItem key={s.skill_id} value={s.skill_id}>
+                                        {s.name}
+                                      </SelectItem>
+                                    ))}
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        {/* Level select */}
+                        <FormField
+                          control={form.control}
+                          name={`competencies.${index}.proficiency_level`}
+                          render={({ field: f }) => (
+                            <FormItem>
+                              <FormLabel className="sm:hidden text-xs">{t("staff.competencies.level")} *</FormLabel>
+                              <Select onValueChange={f.onChange} value={f.value}>
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  {PROFICIENCY_LEVELS.map((level) => (
+                                    <SelectItem key={level} value={level}>
+                                      {t(`staff.competencies.levels.${level.toLowerCase()}`)}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        {/* Verification date */}
+                        <FormField
+                          control={form.control}
+                          name={`competencies.${index}.last_evaluated_date`}
+                          render={({ field: f }) => (
+                            <FormItem>
+                              <FormLabel className="sm:hidden text-xs">{t("staff.competencies.verifiedDate")} *</FormLabel>
+                              <FormControl>
+                                <Input type="date" max={todayISO()} {...f} />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        {/* Remove button */}
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="mt-auto"
+                          onClick={() => removeCompetency(index)}
+                          aria-label={t("staff.competencies.remove")}
+                        >
+                          <Trash2 className="h-4 w-4 text-muted-foreground" />
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
             <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 sm:gap-4 pt-4">
               <Button type="button" variant="cancel" onClick={() => onCancel ? onCancel() : navigate("/staff")} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
                 {t("common.cancel")}
@@ -663,7 +924,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
                 type="submit"
                 variant="default"
                 className="w-full sm:w-auto min-h-[44px] sm:min-h-0"
-                loading={createMutation.isPending || updateMutation.isPending}
+                loading={createMutation.isPending || updateMutation.isPending || createCompetency.isPending || updateCompetency.isPending || deleteCompetency.isPending}
               >
                 {isEdit ? t("common.saveChanges") : t("staff.createStaff")}
               </LoadingButton>

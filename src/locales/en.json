@@ -472,7 +472,31 @@
     "syncRoleSkip": "Skip",
     "roleSynced": "User role synchronized successfully",
     "roleSyncError": "Failed to sync user role",
-    "adminRoleProtected": "User is an Admin. Role was not demoted automatically."
+    "adminRoleProtected": "User is an Admin. Role was not demoted automatically.",
+    "competencies": {
+      "title": "Competencies",
+      "addButton": "+ Add Competency",
+      "name": "Competency",
+      "category": "Category",
+      "level": "Level",
+      "verifiedDate": "Verified by HR",
+      "verifiedDateHint": "Date when HR verified this competency",
+      "empty": "No competencies assigned",
+      "remove": "Remove",
+      "levels": {
+        "beginner": "Beginner",
+        "intermediate": "Intermediate",
+        "advanced": "Advanced"
+      },
+      "errors": {
+        "required": "Select a competency",
+        "dateRequired": "Verification date is required",
+        "futureDate": "Verification date cannot be in the future",
+        "duplicate": "A competency cannot be assigned twice",
+        "alreadyAssigned": "This competency is already assigned",
+        "partialSave": "Staff saved but competencies could not be saved. Please edit and try again."
+      }
+    }
   },
   "client": {
     "name": "Client Name",
