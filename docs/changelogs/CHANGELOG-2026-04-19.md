@@ -52,3 +52,18 @@ Refines the competencies section in `src/components/forms/StaffForm.tsx` to bett
 - No new i18n keys required — `skill.categories.*` already exist in both `en.json` and `es.json`.
 - No mutation, query hook, schema, or table-column changes.
 - Empty-state message is preserved; the Add button is now a single instance always rendered below.
+
+## Fixes — Competencies Section Regressions (StaffForm)
+
+Three regressions introduced during the polish pass have been corrected.
+
+### Changes
+
+| File | Change |
+|---|---|
+| `src/components/forms/StaffForm.tsx` | (1) Removed `[&_p.text-destructive]:hidden` from the competency row wrapper so per-field `<FormMessage>` errors render again under the offending input (e.g. empty skill, future date, duplicate). (2) Stopped concatenating raw `err.message` into the partialSave toast — the i18n string stands alone; the raw error stays in `console.error` for debugging. (3) Replaced the flat `Object.values(errors)[0]` probe in the `onInvalid` handler with a recursive `findFirstErrorMessage` helper that walks nested `useFieldArray` errors to find the first leaf `.message`; fallback now uses the new `validation.formInvalid` key (previous fallback incorrectly reused `staff.competencies.errors.partialSave`, which tells the user their staff "was saved" when in fact validation blocked submit). |
+| `src/locales/en.json`, `src/locales/es.json` | Added `validation.formInvalid` — EN "Please fix the errors and try again." / ES "Por favor corrige los errores e intenta de nuevo." |
+
+### Why
+
+Per-field errors are the primary affordance telling a user which row to fix; hiding them while also showing a wrong-content toast made invalid submits feel broken. The new behavior: each invalid row shows its own inline error AND a summary toast with the first actual leaf message.

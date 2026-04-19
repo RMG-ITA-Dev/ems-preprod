@@ -57,6 +57,20 @@ import { PROFICIENCY_LEVELS, type ProficiencyLevel } from "@/integrations/supaba
 
 const todayISO = () => new Date().toISOString().split("T")[0];
 
+// Walks a react-hook-form errors tree and returns the first leaf .message found.
+// Handles nested arrays (useFieldArray) where Object.values()[0] returns a non-message container.
+const findFirstErrorMessage = (errors: unknown): string | undefined => {
+  if (!errors || typeof errors !== "object") return undefined;
+  if ("message" in errors && typeof (errors as { message?: unknown }).message === "string") {
+    return (errors as { message: string }).message;
+  }
+  for (const val of Object.values(errors)) {
+    const found = findFirstErrorMessage(val);
+    if (found) return found;
+  }
+  return undefined;
+};
+
 type AppRole = Database["public"]["Enums"]["app_role"];
 
 const createFormSchema = (t: TFunction) =>
@@ -423,8 +437,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
         }
       } catch (err) {
         console.error("[StaffForm] Competency save failed:", err);
-        const message = err instanceof Error ? err.message : String(err);
-        toast.error(`${t("staff.competencies.errors.partialSave")} (${message})`);
+        toast.error(t("staff.competencies.errors.partialSave"));
         return; // Stay on form; do NOT open role-sync dialog
       }
 
@@ -538,11 +551,8 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit, (errors) => {
             console.error("[StaffForm] Validation failed:", errors);
-            const firstError = Object.values(errors)[0];
-            const message = (firstError && typeof firstError === "object" && "message" in firstError)
-              ? String((firstError as { message?: string }).message)
-              : t("staff.competencies.errors.partialSave");
-            toast.error(message || t("validation.formInvalid", { defaultValue: "Please fix the errors and try again." }));
+            const firstMessage = findFirstErrorMessage(errors);
+            toast.error(firstMessage ?? t("validation.formInvalid"));
           })} className="space-y-6">
             <div className="space-y-4">
               <h3 className="font-medium text-lg">{t("common.personalInfo")}</h3>
@@ -810,7 +820,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
                     return (
                       <div
                         key={field.id}
-                        className="grid grid-cols-1 sm:grid-cols-[1fr_160px_160px_36px] gap-2 sm:items-center items-start border rounded-md p-2 sm:border-0 sm:p-0 [&_p.text-destructive]:hidden"
+                        className="grid grid-cols-1 sm:grid-cols-[1fr_160px_160px_36px] gap-2 sm:items-center items-start border rounded-md p-2 sm:border-0 sm:p-0"
                       >
                         {/* Competency select */}
                         <FormField

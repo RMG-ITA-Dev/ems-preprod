@@ -1130,7 +1130,8 @@
     "hireDateRequired": "La fecha de ingreso es requerida",
     "initialsMax4": "Máximo 4 caracteres",
     "terminationDateBeforeHire": "La fecha de salida no puede ser anterior a la fecha de ingreso",
-    "terminationDateRequired": "La fecha de salida es obligatoria al desactivar"
+    "terminationDateRequired": "La fecha de salida es obligatoria al desactivar",
+    "formInvalid": "Por favor corrige los errores e intenta de nuevo."
   },
   "theme": {
     "label": "Tema",
