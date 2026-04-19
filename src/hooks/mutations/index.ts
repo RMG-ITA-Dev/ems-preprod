@@ -46,3 +46,6 @@ export { useCreateHoliday, useUpdateHoliday, useDeleteHoliday } from "./useHolid
 
 // Skills
 export { useCreateSkill, useUpdateSkill, useDeleteSkill } from "./useSkillMutations";
+
+// Staff Competencies
+export { useCreateStaffCompetency, useUpdateStaffCompetency, useDeleteStaffCompetency } from "./useStaffCompetencyMutations";
