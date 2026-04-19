@@ -826,11 +826,15 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
                                   )}
                                   {(activeSkills ?? [])
                                     .filter((s) => !usedSkillIds.has(s.skill_id))
-                                    .map((s) => (
-                                      <SelectItem key={s.skill_id} value={s.skill_id}>
-                                        {s.name}
-                                      </SelectItem>
-                                    ))}
+                                    .map((s) => {
+                                      const catKey = `skill.categories.${s.category}`;
+                                      const catLabel = t(catKey, { defaultValue: s.category });
+                                      return (
+                                        <SelectItem key={s.skill_id} value={s.skill_id}>
+                                          {s.name} — {catLabel}
+                                        </SelectItem>
+                                      );
+                                    })}
                                 </SelectContent>
                               </Select>
                               <FormMessage />
