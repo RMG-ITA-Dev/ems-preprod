@@ -476,7 +476,7 @@
     "competencies": {
       "title": "Competencias",
       "addButton": "Agregar Competencia",
-      "name": "Competencia",
+      "name": "Nombre y Categoría de la Competencia",
       "category": "Categoría",
       "level": "Nivel",
       "verifiedDate": "Fecha de Evaluación (TH)",
