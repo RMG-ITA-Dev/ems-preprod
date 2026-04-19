@@ -888,11 +888,11 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
                           type="button"
                           variant="ghost"
                           size="icon"
-                          className="mt-auto"
+                          className="mt-auto h-7 w-7 text-destructive"
                           onClick={() => removeCompetency(index)}
                           aria-label={t("staff.competencies.remove")}
                         >
-                          <Trash2 className="h-4 w-4 text-muted-foreground" />
+                          <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
                     );
