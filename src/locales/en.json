@@ -475,7 +475,7 @@
     "adminRoleProtected": "User is an Admin. Role was not demoted automatically.",
     "competencies": {
       "title": "Competencies",
-      "addButton": "+ Add Competency",
+      "addButton": "Add Competency",
       "name": "Competency",
       "category": "Category",
       "level": "Level",
