@@ -1,37 +1,60 @@
 
+# Plan v1: Polish Competencies Section in StaffForm
 
-# Plan v1: Fix HolidayForm — Convert to Sheet Pattern with Delete Button
+## Issues to Fix
 
-## Problem
+1. **Competency display**: Currently the Combobox only shows the skill name. User wants `Name — Category` format both in the dropdown options AND in the selected/closed state of the combobox.
+2. **"Add Competency" button**: The current button is oversized/awkward. Replace with the same pattern used by **Gastos** in `WorkOrderForm` — an inline `+ Agregar Gasto` link-style button (ghost/teal text, small icon, sits flush-left below the rows).
 
-The HolidayForm uses a `Dialog` while every other Settings form (ActivityCode, Industry, Category, Skill, ExpenseType) uses a `Sheet`. It also lacks a Delete button — the delete AlertDialog exists in `HolidaysManager` but is never triggered (dead code with no UI path to `setDeleteTarget`).
+## Reference Pattern (from WorkOrderForm — Gastos section)
+
+Looking at the Gastos screenshots:
+- Each expense row is a flat horizontal layout: `[Type Combobox] [Amount Input] [Trash icon]`
+- Below the rows: a small `[+ Agregar Gasto]` button — `variant="ghost"`, teal text, `size="sm"`, with `Plus` icon
+- Total line below with separator
+- No oversized "+" button at the top-right
 
 ## Changes
 
-### 1. `src/components/forms/HolidayForm.tsx` — Rewrite to Sheet pattern
+### 1. `src/components/forms/StaffForm.tsx` — Competencies section
 
-Convert from Dialog to Sheet, matching the ActivityCodeForm pattern exactly:
+**A. Move "Add Competency" button**
+- Remove the current top-right `[+ Agregar Competencia]` button from the section header.
+- Add a small ghost-style button **below the rows**, matching Gastos:
+  ```tsx
+  <Button type="button" variant="ghost" size="sm" onClick={() => setAddOpen(true)}
+    className="text-info hover:text-info hover:bg-info/10">
+    <Plus className="h-4 w-4 mr-2" />
+    {t("staff.addCompetency")}
+  </Button>
+  ```
+- Section header keeps just the title `Competencias` (no button on the right).
 
-- Replace `Dialog`/`DialogContent`/`DialogHeader`/`DialogTitle`/`DialogFooter` with `Sheet`/`SheetContent`/`SheetHeader`/`SheetTitle`/`SheetFooter`
-- Add `useDeleteHoliday` mutation import
-- Add delete `AlertDialog` inside the SheetFooter (same pattern as ActivityCodeForm)
-- Button order: `[Cancel] [Delete "Delete"/"Borrar"] [Save]`
-- All buttons get `w-full sm:w-auto min-h-[44px] sm:min-h-0`
-- SheetFooter class: `flex flex-col-reverse sm:flex-row gap-2 pt-4`
-- Delete button: `variant="destructive"` with `<Trash2>` icon + `t("common.delete")` text
-- Delete confirmation dialog uses `bg-destructive/70 text-destructive-foreground hover:bg-destructive/90`
-- Delete only shown when editing (`holiday !== null`)
+**B. Show "Name — Category" in Combobox**
+- In the Add Competency dialog's Combobox:
+  - Each option's display label: `${skill.name} — ${categoryLabel}` where `categoryLabel` is the i18n-resolved category (e.g., `t('skills.categories.framework')` → "Normas y Marcos").
+  - The trigger (selected value) also shows `Name — Category`.
+- Use the existing `skills.category` field + the i18n category map already used in the Skills settings tab.
 
-### 2. `src/components/settings/HolidaysManager.tsx` — Remove dead delete code
+**C. Empty state polish**
+- When no competencies exist, show only the empty-state message + the small `[+ Agregar Competencia]` ghost button below it (same button, single instance).
 
-- Remove the `deleteTarget` state, `handleDelete` function, `useDeleteHoliday` import, and the orphaned `AlertDialog` block (lines 44, 53-58, 173-187)
-- Delete is now handled inside HolidayForm itself
+### 2. No changes to
+- Mutations, query hook, Zod schema, table columns (Competencia / Categoría / Nivel / Fecha / 🗑) — these stay.
+- The Add Competency Sheet/Dialog itself (only the Combobox label format changes inside it).
+- i18n keys (no new keys needed — category labels already exist).
 
-### 3. i18n — Verify keys exist
+### 3. Changelog
+Append the polish entry to `docs/changelogs/CHANGELOG-2026-04-19.md`:
+- Combobox label format updated to `Name — Category`
+- "Add Competency" button restyled to match Gastos pattern (ghost teal, small, below rows)
+- Section header simplified (button removed from top-right)
 
-- `common.delete`, `common.cancel`, `common.save`, `holiday.editHoliday`, `holiday.addHoliday`, `holiday.deleteHoliday`, `holiday.deleteConfirm` — all already exist in en.json/es.json (no changes needed)
+## Files Touched
 
-## No database changes
+| File | Change |
+|---|---|
+| `src/components/forms/StaffForm.tsx` | Restyle Add button + Combobox label format |
+| `docs/changelogs/CHANGELOG-2026-04-19.md` | Append polish entry |
 
-Frontend-only refactor.
-
+## No DB / no i18n / no new dependencies.
