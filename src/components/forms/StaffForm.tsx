@@ -801,7 +801,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
                     return (
                       <div
                         key={field.id}
-                        className="grid grid-cols-1 sm:grid-cols-[1fr_160px_160px_36px] gap-2 sm:items-center items-start border rounded-md p-2 sm:border-0 sm:p-0"
+                        className="grid grid-cols-1 sm:grid-cols-[1fr_160px_160px_36px] gap-2 sm:items-start items-start border rounded-md p-2 sm:border-0 sm:p-0"
                       >
                         {/* Competency select */}
                         <FormField
