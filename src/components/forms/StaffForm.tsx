@@ -883,17 +883,19 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
                           )}
                         />
 
-                        {/* Remove button */}
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-10 w-10 text-destructive"
-                          onClick={() => removeCompetency(index)}
-                          aria-label={t("staff.competencies.remove")}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        {/* Remove button - wrapped to match FormItem height of siblings */}
+                        <div className="flex items-center justify-center h-10">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-9 w-9 text-destructive hover:text-destructive hover:bg-destructive/10"
+                            onClick={() => removeCompetency(index)}
+                            aria-label={t("staff.competencies.remove")}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
                     );
                   })}
