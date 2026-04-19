@@ -1130,7 +1130,8 @@
     "hireDateRequired": "Hire date is required",
     "initialsMax4": "Max 4 characters",
     "terminationDateBeforeHire": "Termination date cannot be before hire date",
-    "terminationDateRequired": "Termination date is required when deactivating"
+    "terminationDateRequired": "Termination date is required when deactivating",
+    "formInvalid": "Please fix the errors and try again."
   },
   "theme": {
     "label": "Theme",
