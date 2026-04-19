@@ -888,7 +888,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
                           type="button"
                           variant="ghost"
                           size="icon"
-                          className="h-7 w-7 text-destructive"
+                          className="h-10 w-10 text-destructive"
                           onClick={() => removeCompetency(index)}
                           aria-label={t("staff.competencies.remove")}
                         >
