@@ -36,3 +36,19 @@ Adds the ability to assign zero or more competencies to each staff member direct
 - Staff list page (`src/pages/Staff.tsx`) — unchanged.
 - Competency catalog CRUD (`src/components/forms/SkillForm.tsx`) — unchanged.
 - Database migrations — not needed (reuses existing tables and RLS policies).
+
+## Polish — Competencies Section (StaffForm)
+
+Refines the competencies section in `src/components/forms/StaffForm.tsx` to better match Ruizmier design patterns.
+
+### Changes
+
+| File | Change |
+|---|---|
+| `src/components/forms/StaffForm.tsx` | (1) Removed the outline `[+ Agregar Competencia]` button from the section header (top-right). (2) Added a single ghost-style button below the rows (and below the empty-state message) using `variant="ghost" size="sm"` with `text-info hover:text-info hover:bg-info/10`, matching the "+ Agregar Gasto" pattern in `WorkOrderForm`. (3) Skill `<SelectItem>` options now render as `Name — Category`, where the category is resolved via `t('skill.categories.{key}')` with a fallback to the raw key. The closed/selected state inherits the same label automatically via Radix Select. |
+
+### Notes
+
+- No new i18n keys required — `skill.categories.*` already exist in both `en.json` and `es.json`.
+- No mutation, query hook, schema, or table-column changes.
+- Empty-state message is preserved; the Add button is now a single instance always rendered below.
