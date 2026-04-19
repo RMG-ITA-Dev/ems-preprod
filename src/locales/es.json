@@ -475,7 +475,7 @@
     "adminRoleProtected": "El usuario es Admin. El rol no fue degradado automáticamente.",
     "competencies": {
       "title": "Competencias",
-      "addButton": "+ Agregar Competencia",
+      "addButton": "Agregar Competencia",
       "name": "Competencia",
       "category": "Categoría",
       "level": "Nivel",
