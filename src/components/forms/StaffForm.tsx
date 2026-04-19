@@ -900,7 +900,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
                             onClick={() => removeCompetency(index)}
                             aria-label={t("staff.competencies.remove")}
                           >
-                            <Trash2 className="h-4 w-4" />
+                            <Trash2 style={{ width: 18, height: 18 }} />
                           </Button>
                         </div>
                       </div>
