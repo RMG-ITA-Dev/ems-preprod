@@ -763,26 +763,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
 
             {/* Competencies section */}
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="font-medium text-lg">{t("staff.competencies.title")}</h3>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    appendCompetency({
-                      _key: crypto.randomUUID(),
-                      staff_skill_id: undefined,
-                      skill_id: "",
-                      proficiency_level: "Beginner",
-                      last_evaluated_date: todayISO(),
-                    })
-                  }
-                >
-                  <Plus className="h-4 w-4 mr-1" />
-                  {t("staff.competencies.addButton")}
-                </Button>
-              </div>
+              <h3 className="font-medium text-lg">{t("staff.competencies.title")}</h3>
 
               {competencyFields.length === 0 ? (
                 <p className="text-sm text-muted-foreground py-2">{t("staff.competencies.empty")}</p>
@@ -845,11 +826,15 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
                                   )}
                                   {(activeSkills ?? [])
                                     .filter((s) => !usedSkillIds.has(s.skill_id))
-                                    .map((s) => (
-                                      <SelectItem key={s.skill_id} value={s.skill_id}>
-                                        {s.name}
-                                      </SelectItem>
-                                    ))}
+                                    .map((s) => {
+                                      const catKey = `skill.categories.${s.category}`;
+                                      const catLabel = t(catKey, { defaultValue: s.category });
+                                      return (
+                                        <SelectItem key={s.skill_id} value={s.skill_id}>
+                                          {s.name} — {catLabel}
+                                        </SelectItem>
+                                      );
+                                    })}
                                 </SelectContent>
                               </Select>
                               <FormMessage />
@@ -914,6 +899,25 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
                   })}
                 </div>
               )}
+
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="text-info hover:text-info hover:bg-info/10 -ml-2"
+                onClick={() =>
+                  appendCompetency({
+                    _key: crypto.randomUUID(),
+                    staff_skill_id: undefined,
+                    skill_id: "",
+                    proficiency_level: "Beginner",
+                    last_evaluated_date: todayISO(),
+                  })
+                }
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                {t("staff.competencies.addButton")}
+              </Button>
             </div>
 
             <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 sm:gap-4 pt-4">
