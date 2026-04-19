@@ -902,9 +902,9 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
 
               <Button
                 type="button"
-                variant="ghost"
+                variant="outline"
                 size="sm"
-                className="text-info hover:text-info hover:bg-info/10 -ml-2"
+                className="bg-primary/10 hover:bg-primary/20 text-primary border-primary/30"
                 onClick={() =>
                   appendCompetency({
                     _key: crypto.randomUUID(),
