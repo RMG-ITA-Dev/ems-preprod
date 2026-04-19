@@ -534,7 +534,14 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
 
       <div className="bg-card rounded-xl border border-border p-6">
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+          <form onSubmit={form.handleSubmit(onSubmit, (errors) => {
+            console.error("[StaffForm] Validation failed:", errors);
+            const firstError = Object.values(errors)[0];
+            const message = (firstError && typeof firstError === "object" && "message" in firstError)
+              ? String((firstError as { message?: string }).message)
+              : t("staff.competencies.errors.partialSave");
+            toast.error(message || t("validation.formInvalid", { defaultValue: "Please fix the errors and try again." }));
+          })} className="space-y-6">
             <div className="space-y-4">
               <h3 className="font-medium text-lg">{t("common.personalInfo")}</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
