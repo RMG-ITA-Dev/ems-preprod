@@ -893,7 +893,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
                         />
 
                         {/* Remove button - wrapped to match FormItem height of siblings */}
-                        <div className="flex items-center justify-center h-10">
+                        <div className="flex items-center justify-center h-10 sm:mt-[26px]">
                           <Button
                             type="button"
                             variant="ghost"
@@ -902,7 +902,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
                             onClick={() => removeCompetency(index)}
                             aria-label={t("staff.competencies.remove")}
                           >
-                            <Trash2 style={{ width: 18, height: 18 }} />
+                            <Trash2 style={{ width: 22, height: 22 }} />
                           </Button>
                         </div>
                       </div>
