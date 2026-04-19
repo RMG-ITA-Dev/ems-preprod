@@ -55,7 +55,10 @@ import { useUpdateUserRole } from "@/hooks/useUserRoles";
 import { Database } from "@/integrations/supabase/types";
 import { PROFICIENCY_LEVELS, type ProficiencyLevel } from "@/integrations/supabase/customTypes";
 
-const todayISO = () => new Date().toISOString().split("T")[0];
+const todayISO = (): string => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
 
 // Walks a react-hook-form errors tree and returns the first leaf .message found.
 // Handles nested arrays (useFieldArray) where Object.values()[0] returns a non-message container.
@@ -784,161 +787,175 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
             <div className="space-y-3">
               <h3 className="font-medium text-lg">{t("staff.competencies.title")}</h3>
 
-              {competencyFields.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-2">{t("staff.competencies.empty")}</p>
-              ) : (
-                <div className="space-y-1">
-                  {/* Table header — hidden on mobile */}
-                  <div className="hidden sm:grid sm:grid-cols-[1fr_160px_160px_36px] gap-2 px-1">
-                    <span className="text-xs text-muted-foreground">{t("staff.competencies.name")} *</span>
-                    <span className="text-xs text-muted-foreground">{t("staff.competencies.level")} *</span>
-                    <span className="text-xs text-muted-foreground">{t("staff.competencies.verifiedDate")} *</span>
-                    <span />
-                  </div>
+              <div className="border border-border rounded-lg overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="bg-muted/50 border-b border-border">
+                        <th className="text-left p-2 font-semibold text-xs text-muted-foreground border-r border-border min-w-[240px]">
+                          {t("staff.competencies.name")} *
+                        </th>
+                        <th className="text-left p-2 font-semibold text-xs text-muted-foreground border-r border-border w-36">
+                          {t("staff.competencies.level")} *
+                        </th>
+                        <th className="text-left p-2 font-semibold text-xs text-muted-foreground border-r border-border w-44">
+                          {t("staff.competencies.verifiedDate")} *
+                        </th>
+                        <th className="w-12 p-2" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {competencyFields.length === 0 && (
+                        <tr>
+                          <td colSpan={4} className="p-4 text-center text-sm text-muted-foreground border-b border-border">
+                            {t("staff.competencies.empty")}
+                          </td>
+                        </tr>
+                      )}
 
-                  {competencyFields.map((field, index) => {
-                    // Skills already chosen in other rows (excluding this row)
-                    const usedSkillIds = new Set(
-                      form.getValues("competencies")
-                        .filter((_, i) => i !== index)
-                        .map((c) => c.skill_id)
-                        .filter(Boolean)
-                    );
+                      {competencyFields.map((field, index) => {
+                        const usedSkillIds = new Set(
+                          form.getValues("competencies")
+                            .filter((_, i) => i !== index)
+                            .map((c) => c.skill_id)
+                            .filter(Boolean)
+                        );
 
-                    // For existing rows with an inactive skill, show that skill even though
-                    // it won't appear in the active list for new rows
-                    const currentSkillId = field.skill_id;
-                    const currentSkillIsInactive =
-                      currentSkillId &&
-                      activeSkills &&
-                      !activeSkills.some((s) => s.skill_id === currentSkillId);
-                    const inactiveSkillName =
-                      currentSkillIsInactive && staff?.staff_skills
-                        ? staff.staff_skills.find((ss) => ss.skill_id === currentSkillId)?.skill?.name
-                        : undefined;
+                        const currentSkillId = field.skill_id;
+                        const currentSkillIsInactive =
+                          currentSkillId &&
+                          activeSkills &&
+                          !activeSkills.some((s) => s.skill_id === currentSkillId);
+                        const inactiveSkillName =
+                          currentSkillIsInactive && staff?.staff_skills
+                            ? staff.staff_skills.find((ss) => ss.skill_id === currentSkillId)?.skill?.name
+                            : undefined;
 
-                    return (
-                      <div
-                        key={field.id}
-                        className="grid grid-cols-1 sm:grid-cols-[1fr_160px_160px_36px] gap-2 sm:items-center items-start border rounded-md p-2 sm:border-0 sm:p-0"
-                      >
-                        {/* Competency select */}
-                        <FormField
-                          control={form.control}
-                          name={`competencies.${index}.skill_id`}
-                          render={({ field: f }) => (
-                            <FormItem>
-                              <FormLabel className="sm:hidden text-xs">{t("staff.competencies.name")} *</FormLabel>
-                              <Select
-                                onValueChange={f.onChange}
-                                value={f.value}
+                        return (
+                          <tr key={field.id} className="border-b border-border hover:bg-muted/30">
+                            <td className="p-2 border-r border-border align-top">
+                              <FormField
+                                control={form.control}
+                                name={`competencies.${index}.skill_id`}
+                                render={({ field: f }) => (
+                                  <FormItem>
+                                    <Select onValueChange={f.onChange} value={f.value}>
+                                      <FormControl>
+                                        <SelectTrigger className="border-0 bg-transparent focus:ring-1 h-9 shadow-none">
+                                          <SelectValue placeholder={t("staff.competencies.errors.required")} />
+                                        </SelectTrigger>
+                                      </FormControl>
+                                      <SelectContent>
+                                        {currentSkillIsInactive && inactiveSkillName && (
+                                          <SelectItem value={currentSkillId!}>{inactiveSkillName}</SelectItem>
+                                        )}
+                                        {(activeSkills ?? [])
+                                          .filter((s) => !usedSkillIds.has(s.skill_id))
+                                          .map((s) => {
+                                            const catKey = `skill.categories.${s.category}`;
+                                            const catLabel = t(catKey, { defaultValue: s.category });
+                                            return (
+                                              <SelectItem key={s.skill_id} value={s.skill_id}>
+                                                {s.name} — {catLabel}
+                                              </SelectItem>
+                                            );
+                                          })}
+                                      </SelectContent>
+                                    </Select>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                            </td>
+
+                            <td className="p-2 border-r border-border align-top">
+                              <FormField
+                                control={form.control}
+                                name={`competencies.${index}.proficiency_level`}
+                                render={({ field: f }) => (
+                                  <FormItem>
+                                    <Select onValueChange={f.onChange} value={f.value}>
+                                      <FormControl>
+                                        <SelectTrigger className="border-0 bg-transparent focus:ring-1 h-9 shadow-none">
+                                          <SelectValue />
+                                        </SelectTrigger>
+                                      </FormControl>
+                                      <SelectContent>
+                                        {PROFICIENCY_LEVELS.map((level) => (
+                                          <SelectItem key={level} value={level}>
+                                            {t(`staff.competencies.levels.${level.toLowerCase()}`)}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                            </td>
+
+                            <td className="p-2 border-r border-border align-top">
+                              <FormField
+                                control={form.control}
+                                name={`competencies.${index}.last_evaluated_date`}
+                                render={({ field: f }) => (
+                                  <FormItem>
+                                    <FormControl>
+                                      <Input
+                                        type="date"
+                                        max={todayISO()}
+                                        className="border-0 bg-transparent focus:bg-background focus:ring-1 h-9 shadow-none"
+                                        {...f}
+                                      />
+                                    </FormControl>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                            </td>
+
+                            <td className="p-2 text-center align-middle">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                                onClick={() => removeCompetency(index)}
+                                aria-label={t("staff.competencies.remove")}
                               >
-                                <FormControl>
-                                  <SelectTrigger>
-                                    <SelectValue placeholder={t("staff.competencies.errors.required")} />
-                                  </SelectTrigger>
-                                </FormControl>
-                                <SelectContent>
-                                  {/* Show inactive assigned skill in its own item */}
-                                  {currentSkillIsInactive && inactiveSkillName && (
-                                    <SelectItem value={currentSkillId!}>{inactiveSkillName}</SelectItem>
-                                  )}
-                                  {(activeSkills ?? [])
-                                    .filter((s) => !usedSkillIds.has(s.skill_id))
-                                    .map((s) => {
-                                      const catKey = `skill.categories.${s.category}`;
-                                      const catLabel = t(catKey, { defaultValue: s.category });
-                                      return (
-                                        <SelectItem key={s.skill_id} value={s.skill_id}>
-                                          {s.name} — {catLabel}
-                                        </SelectItem>
-                                      );
-                                    })}
-                                </SelectContent>
-                              </Select>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </td>
+                          </tr>
+                        );
+                      })}
 
-                        {/* Level select */}
-                        <FormField
-                          control={form.control}
-                          name={`competencies.${index}.proficiency_level`}
-                          render={({ field: f }) => (
-                            <FormItem>
-                              <FormLabel className="sm:hidden text-xs">{t("staff.competencies.level")} *</FormLabel>
-                              <Select onValueChange={f.onChange} value={f.value}>
-                                <FormControl>
-                                  <SelectTrigger>
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                </FormControl>
-                                <SelectContent>
-                                  {PROFICIENCY_LEVELS.map((level) => (
-                                    <SelectItem key={level} value={level}>
-                                      {t(`staff.competencies.levels.${level.toLowerCase()}`)}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-
-                        {/* Verification date */}
-                        <FormField
-                          control={form.control}
-                          name={`competencies.${index}.last_evaluated_date`}
-                          render={({ field: f }) => (
-                            <FormItem>
-                              <FormLabel className="sm:hidden text-xs">{t("staff.competencies.verifiedDate")} *</FormLabel>
-                              <FormControl>
-                                <Input type="date" max={todayISO()} {...f} />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-
-                        {/* Remove button - wrapped to match FormItem height of siblings */}
-                        <div className="flex items-center justify-center h-10">
+                      <tr>
+                        <td colSpan={4} className="p-0">
                           <Button
                             type="button"
                             variant="ghost"
-                            size="icon"
-                            className="h-9 w-9 text-destructive hover:text-destructive hover:bg-destructive/10"
-                            onClick={() => removeCompetency(index)}
-                            aria-label={t("staff.competencies.remove")}
+                            size="sm"
+                            className="w-full text-muted-foreground hover:text-foreground rounded-none h-10"
+                            onClick={() =>
+                              appendCompetency({
+                                _key: crypto.randomUUID(),
+                                staff_skill_id: undefined,
+                                skill_id: "",
+                                proficiency_level: "Beginner",
+                                last_evaluated_date: todayISO(),
+                              })
+                            }
                           >
-                            <Trash2 style={{ width: 22, height: 22 }} />
+                            <Plus className="h-4 w-4 mr-2" />
+                            {t("staff.competencies.addButton")}
                           </Button>
-                        </div>
-                      </div>
-                    );
-                  })}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
                 </div>
-              )}
-
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="bg-primary/10 hover:bg-primary/20 text-primary border-primary/30"
-                onClick={() =>
-                  appendCompetency({
-                    _key: crypto.randomUUID(),
-                    staff_skill_id: undefined,
-                    skill_id: "",
-                    proficiency_level: "Beginner",
-                    last_evaluated_date: todayISO(),
-                  })
-                }
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                {t("staff.competencies.addButton")}
-              </Button>
+              </div>
             </div>
 
             <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 sm:gap-4 pt-4">
