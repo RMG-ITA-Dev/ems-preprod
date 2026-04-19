@@ -899,6 +899,25 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
                   })}
                 </div>
               )}
+
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="text-info hover:text-info hover:bg-info/10 -ml-2"
+                onClick={() =>
+                  appendCompetency({
+                    _key: crypto.randomUUID(),
+                    staff_skill_id: undefined,
+                    skill_id: "",
+                    proficiency_level: "Beginner",
+                    last_evaluated_date: todayISO(),
+                  })
+                }
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                {t("staff.competencies.addButton")}
+              </Button>
             </div>
 
             <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 sm:gap-4 pt-4">
