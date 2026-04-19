@@ -763,26 +763,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
 
             {/* Competencies section */}
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="font-medium text-lg">{t("staff.competencies.title")}</h3>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    appendCompetency({
-                      _key: crypto.randomUUID(),
-                      staff_skill_id: undefined,
-                      skill_id: "",
-                      proficiency_level: "Beginner",
-                      last_evaluated_date: todayISO(),
-                    })
-                  }
-                >
-                  <Plus className="h-4 w-4 mr-1" />
-                  {t("staff.competencies.addButton")}
-                </Button>
-              </div>
+              <h3 className="font-medium text-lg">{t("staff.competencies.title")}</h3>
 
               {competencyFields.length === 0 ? (
                 <p className="text-sm text-muted-foreground py-2">{t("staff.competencies.empty")}</p>
