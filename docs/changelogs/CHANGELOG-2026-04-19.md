@@ -67,3 +67,7 @@ Three regressions introduced during the polish pass have been corrected.
 ### Why
 
 Per-field errors are the primary affordance telling a user which row to fix; hiding them while also showing a wrong-content toast made invalid submits feel broken. The new behavior: each invalid row shows its own inline error AND a summary toast with the first actual leaf message.
+
+## Polish — Competencies Excel-like Grid (StaffForm)
+
+Converted the competencies section in `src/components/forms/StaffForm.tsx` from a CSS-Grid-of-bordered-inputs to a real `<table>` with a `bg-muted/50` header band, `border-b`/`border-r` shared grid lines, borderless `SelectTrigger` and `Input` fields that only show a focus ring (`border-0 bg-transparent focus:ring-1 shadow-none`), trash icon buttons at `h-8 w-8`, and the "+ Agregar Competencia" action rendered as an in-table row with `colSpan={4}` and `rounded-none`. Mobile handled via `overflow-x-auto` horizontal scroll (no stacked-card breakpoint). Matches `TimesheetGrid.tsx` styling (`src/components/timesheet/TimesheetGrid.tsx:699–947`) so both grids read as siblings. Also fixed `todayISO()` to use the local clock instead of `toISOString()` (UTC), preventing the date-picker `max` from drifting to tomorrow after 8 pm in UTC−4.
