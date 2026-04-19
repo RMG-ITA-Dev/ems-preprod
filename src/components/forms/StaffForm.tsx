@@ -777,7 +777,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
               {competencyFields.length === 0 ? (
                 <p className="text-sm text-muted-foreground py-2">{t("staff.competencies.empty")}</p>
               ) : (
-                <div className="space-y-2">
+                <div className="space-y-1">
                   {/* Table header — hidden on mobile */}
                   <div className="hidden sm:grid sm:grid-cols-[1fr_160px_160px_36px] gap-2 px-1">
                     <span className="text-xs text-muted-foreground">{t("staff.competencies.name")} *</span>
@@ -810,7 +810,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
                     return (
                       <div
                         key={field.id}
-                        className="grid grid-cols-1 sm:grid-cols-[1fr_160px_160px_36px] gap-2 sm:items-start items-start border rounded-md p-2 sm:border-0 sm:p-0"
+                        className="grid grid-cols-1 sm:grid-cols-[1fr_160px_160px_36px] gap-2 sm:items-center items-start border rounded-md p-2 sm:border-0 sm:p-0 [&_p.text-destructive]:hidden"
                       >
                         {/* Competency select */}
                         <FormField
@@ -893,7 +893,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
                         />
 
                         {/* Remove button - wrapped to match FormItem height of siblings */}
-                        <div className="flex items-center justify-center h-10 sm:mt-[6px]">
+                        <div className="flex items-center justify-center h-10">
                           <Button
                             type="button"
                             variant="ghost"
