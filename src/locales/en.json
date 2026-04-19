@@ -476,7 +476,7 @@
     "competencies": {
       "title": "Competencies",
       "addButton": "Add Competency",
-      "name": "Competency",
+      "name": "Competency Name and Category",
       "category": "Category",
       "level": "Level",
       "verifiedDate": "Verified by HR",
