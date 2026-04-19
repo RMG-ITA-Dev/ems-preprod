@@ -801,7 +801,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
                     return (
                       <div
                         key={field.id}
-                        className="grid grid-cols-1 sm:grid-cols-[1fr_160px_160px_36px] gap-2 items-start border rounded-md p-2 sm:border-0 sm:p-0"
+                        className="grid grid-cols-1 sm:grid-cols-[1fr_160px_160px_36px] gap-2 sm:items-center items-start border rounded-md p-2 sm:border-0 sm:p-0"
                       >
                         {/* Competency select */}
                         <FormField
@@ -888,7 +888,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
                           type="button"
                           variant="ghost"
                           size="icon"
-                          className="mt-auto h-7 w-7 text-destructive"
+                          className="h-7 w-7 text-destructive"
                           onClick={() => removeCompetency(index)}
                           aria-label={t("staff.competencies.remove")}
                         >
