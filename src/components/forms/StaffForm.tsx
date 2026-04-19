@@ -893,7 +893,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
                         />
 
                         {/* Remove button - wrapped to match FormItem height of siblings */}
-                        <div className="flex items-center justify-center h-10 sm:-mt-[4px]">
+                        <div className="flex items-center justify-center h-10 sm:mt-[6px]">
                           <Button
                             type="button"
                             variant="ghost"
