@@ -534,7 +534,14 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
 
       <div className="bg-card rounded-xl border border-border p-6">
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+          <form onSubmit={form.handleSubmit(onSubmit, (errors) => {
+            console.error("[StaffForm] Validation failed:", errors);
+            const firstError = Object.values(errors)[0];
+            const message = (firstError && typeof firstError === "object" && "message" in firstError)
+              ? String((firstError as { message?: string }).message)
+              : t("staff.competencies.errors.partialSave");
+            toast.error(message || t("validation.formInvalid", { defaultValue: "Please fix the errors and try again." }));
+          })} className="space-y-6">
             <div className="space-y-4">
               <h3 className="font-medium text-lg">{t("common.personalInfo")}</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -801,7 +808,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
                     return (
                       <div
                         key={field.id}
-                        className="grid grid-cols-1 sm:grid-cols-[1fr_160px_160px_36px] gap-2 sm:items-center items-start border rounded-md p-2 sm:border-0 sm:p-0"
+                        className="grid grid-cols-1 sm:grid-cols-[1fr_160px_160px_36px] gap-2 sm:items-start items-start border rounded-md p-2 sm:border-0 sm:p-0"
                       >
                         {/* Competency select */}
                         <FormField
@@ -883,17 +890,19 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
                           )}
                         />
 
-                        {/* Remove button */}
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-10 w-10 text-destructive"
-                          onClick={() => removeCompetency(index)}
-                          aria-label={t("staff.competencies.remove")}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        {/* Remove button - wrapped to match FormItem height of siblings */}
+                        <div className="flex items-center justify-center h-10">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-9 w-9 text-destructive hover:text-destructive hover:bg-destructive/10"
+                            onClick={() => removeCompetency(index)}
+                            aria-label={t("staff.competencies.remove")}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
                     );
                   })}
