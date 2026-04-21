@@ -1,0 +1,15 @@
+{
+  "ID": "0319-90",
+  "FECHA": "2026-03-19",
+  "TIPO DE ERROR": "Funcional",
+  "TITULO": "No hay un mecanismo directo para elegir el encargo y fechas.",
+  "VERSION": "2.0.7.",
+  "DESCRIPCION": "En la sección de gastos no hay un mecanismo directo para filtrar gastos por Encargo.",
+  "SUGERENCIA": "Implementar un filtro por Encargo en la vista de gastos.",
+  "CAPTURA": "0319-90.png",
+  "RUTA": "OPERACIONES-Gastos",
+  "USUARIO SIS": "marceloovando (socio)",
+  "PRIORIDAD": "Baja",
+  "ESTADO": "Abierto",
+  "TESTER": "marceloovando"
+}

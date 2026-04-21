@@ -1,0 +1,15 @@
+{
+  "ID": "0319-93",
+  "FECHA": "2026-03-19",
+  "TIPO DE ERROR": "Funcional",
+  "TITULO": "Falta mostrar los encargos de cada persona desde Personal.",
+  "VERSION": "2.0.7",
+  "DESCRIPCION": "Actualmente es necesario ir al módulo de Encargos para ver qué tiene asignado cada personal.",
+  "SUGERENCIA": "En el módulo Personal, permitir que al hacer clic en el número de la columna 'Encargos' se abra un modal con la lista de encargos asignados.",
+  "CAPTURA": "0319-93.png",
+  "RUTA": "ADMINISTRACIÓN-Personal",
+  "USUARIO SIS": "marceloovando (socio)",
+  "PRIORIDAD": "Media",
+  "ESTADO": "Abierto",
+  "TESTER": "marceloovando"
+}

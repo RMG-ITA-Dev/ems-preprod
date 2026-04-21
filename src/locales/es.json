@@ -719,6 +719,8 @@
     "invalidActivityRow": "Una o mas filas tienen una actividad invalida. Seleccione una actividad valida para cada encargo de cliente antes de enviar.",
     "weeklyMaxExceeded": "NO SE PUEDE ENVIAR: el total de horas ({{total}}h) excede el máximo semanal ({{max}}h).",
     "selectEngagement": "Seleccionar Encargo",
+    "searchEngagement": "Buscar encargo...",
+    "noMatchingEngagements": "No se encontraron encargos.",
     "selectActivity": "Seleccionar actividad",
     "weekDays": {
       "mon": "Lun",

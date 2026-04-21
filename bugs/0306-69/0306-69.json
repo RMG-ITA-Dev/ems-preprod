@@ -1,0 +1,15 @@
+{
+  "ID": "0306-69",
+  "FECHA": "2026-02-27",
+  "TIPO DE ERROR": "Funcional",
+  "TITULO": "error cargar parcial en fin de mes ",
+  "VERSION": "v2.0.6",
+  "DESCRIPCION": "En la Hoja de Tiempo, durante la última semana de marzo (Semana 27: 30/03/2026–03/04/2026), el último día laboral del mes es el martes 31/03.\nSin embargo, al intentar enviar la boleta para el cierre de mes, el sistema bloquea el envío porque el total de horas registradas (p. ej., 16.0 h) está por debajo del mínimo semanal de 40 h, mostrando el mensaje correspondiente.\nSe requiere una excepción de validación para cierres mensuales cuando el fin de mes cae a mitad de semana: en estos casos, el sistema debería permitir el envío del cierre aunque no se completen las 40 horas semanales, siempre que se registren las horas correspondientes al mes vigente (p. ej., las últimas 8 horas del mes). Esta excepción debe aplicar únicamente al proceso de cierre mensual.",
+  "SUGERENCIA": "Implementar una excepción en la validación de horas semanales para el proceso de cierre mensual.\nCuando el fin de mes ocurra a mitad de semana, el sistema debe permitir el envío de la hoja de tiempo aunque no se cumpla el total de 40 horas semanales, siempre que las horas registradas correspondan correctamente a los días del mes vigente (por ejemplo, las últimas 8 horas del mes).\nEsta excepción debe aplicarse únicamente durante el proceso de cierre mensual y no afectar la validación normal de semanas completas.",
+  "CAPTURA": "0227-69.png",
+  "RUTA": "OPERACIONES-Hoja de Tiempo",
+  "USUARIO SIS": "pamelaespejo",
+  "PRIORIDAD": "Baja",
+  "ESTADO": "Abierto",
+  "TESTER": "lcandia"
+}

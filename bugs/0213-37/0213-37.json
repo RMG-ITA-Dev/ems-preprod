@@ -1,0 +1,15 @@
+{
+  "ID": "0213-37",
+  "FECHA": "2026-02-13",
+  "TIPO DE ERROR": "Funcional",
+  "TITULO": "El botón mencionado en el mensaje para desbloquear no está visible en el módulo de Órdenes de Trabajo",
+  "VERSION": null,
+  "DESCRIPCION": "Al intentar editar una Matriz de Trabajo, el sistema indica que está bloqueada por una Orden de Trabajo pendiente o aprobada, pero la OT está en 'Borrador'. Además, el botón de desbloqueo no es visible.",
+  "SUGERENCIA": "Corregir la lógica de bloqueo de Matriz de Trabajo y hacer visible el botón mencionado.",
+  "CAPTURA": "0213-37.png",
+  "RUTA": "PRINCIPAL-Ordendes de Trabajo",
+  "USUARIO SIS": "jyujra",
+  "PRIORIDAD": "Baja",
+  "ESTADO": "Abierto",
+  "TESTER": "juanyujra"
+}

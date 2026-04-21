@@ -25,6 +25,12 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+interface EngagementDataWithWorkOrder {
+  work_order?: {
+    currency: "BOB" | "USD" | null;
+  } | null;
+}
+
 export function EncargoTab() {
   const { t, i18n } = useTranslation();
   const { selectedEngagementId, startDateStr, endDateStr } = useDashboard();
@@ -218,7 +224,7 @@ export function EncargoTab() {
   const budgetConsumedPercent = totalBudgetHours > 0 ? Math.round((totalActualHours / totalBudgetHours) * 100) : 0;
   const varianceHours = totalBudgetHours - totalActualHours;
 
-  const currency = (engagementData?.work_order as any)?.currency || 'BOB';
+  const currency = (engagementData as EngagementDataWithWorkOrder | null)?.work_order?.currency || 'BOB';
   const agreedFee = woSummary?.fee_with_tax_gross_up || 0;
   const standardFee = woSummary?.total_standard_fee || 0;
   const realizationPercent = woSummary?.realization_percent || 100;

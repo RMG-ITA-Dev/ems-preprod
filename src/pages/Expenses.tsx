@@ -53,6 +53,12 @@ function isValidHttpUrl(urlString: string | null | undefined): boolean {
 
 type SortDirection = "asc" | "desc" | null;
 
+type ExpenseLogWithStaff = ExpenseLogListItem & {
+  created_by_staff?: {
+    initials: string | null;
+  } | null;
+};
+
 const Expenses = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -269,7 +275,7 @@ const Expenses = () => {
               </div>
             ) : (
               <>
-                {filteredData.map((log: ExpenseLogListItem) => (
+                {filteredData.map((log: ExpenseLogWithStaff) => (
                   <Card
                     key={log.expense_log_id}
                     className="cursor-pointer hover:bg-muted/30 transition-colors"
@@ -282,9 +288,9 @@ const Expenses = () => {
                           <div className="font-medium truncate">
                             {log.engagement?.engagement_name || "-"}
                           </div>
-                          {(log as any).created_by_staff?.initials && (
+                          {log.created_by_staff?.initials && (
                             <span className="inline-flex items-center justify-center h-5 min-w-[28px] px-1 rounded bg-muted text-[10px] font-medium text-muted-foreground shrink-0">
-                              {(log as any).created_by_staff.initials}
+                              {log.created_by_staff.initials}
                             </span>
                           )}
                         </div>

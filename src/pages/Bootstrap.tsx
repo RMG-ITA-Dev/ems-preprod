@@ -15,10 +15,7 @@ const Bootstrap = () => {
     navigate("/");
   };
 
-  // Pre-fill a minimal staff-like object with admin's email
-  const prefill = {
-    email: user?.email || "",
-  } as any;
+  const prefillEmail = user?.email || "";
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
@@ -36,6 +33,7 @@ const Bootstrap = () => {
         </div>
 
         <StaffForm
+          prefillEmail={prefillEmail}
           onSaveSuccess={handleSaveSuccess}
           onCancel={() => {/* No cancel on bootstrap — must complete */}}
         />

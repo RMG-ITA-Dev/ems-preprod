@@ -1,0 +1,15 @@
+{
+  "ID": "0306-72",
+  "FECHA": "2026-03-06",
+  "TIPO DE ERROR": "Funcional",
+  "TITULO": "l calendario de estado ubicado en la parte superior del módulo de Hojas de Tiempo no refleja correctamente el estado real",
+  "VERSION": "v2.0.7",
+  "DESCRIPCION": "El calendario de estado ubicado en la parte superior del módulo de Hojas de Tiempo no refleja correctamente el estado real de la semana. Específicamente, la semana actual aparece sin el estado correcto a pesar de haber sido aprobada de manera anticipada.\n​Contexto:\nMódulo: Hoja de Tiempo (Timesheet)\nComponente afectado: Calendario de estado (parte superior de la pantalla)\nTipo: Error de visualización / Inconsistencia de estados\nSituación actual: El indicador visual del calendario no sincroniza correctamente el estado de la semana, no mostrando el estado de la semana.\nDescripción del problema:\nEl módulo de Hojas de Tiempo cuenta con un calendario en la parte superior que muestra visualmente el estado de cada semana (por ejemplo: Aprobada, Pendiente, Rechazado y Sin registrar). El estado de la semana actual no indica ningún estado o sin estado definido, cuando en realidad la semana ya fue aprobada con anticipación.",
+  "SUGERENCIA": "El calendario de estado debe reflejar en todo momento el estado real y actualizado de cada semana, independientemente de cómo fue aprobada (normal o anticipadamente).\n¿Cómo debería funcionar?\n- Al cargar el módulo de Hojas de Tiempo, el calendario debe consultar y mostrar el estado actual de cada semana visible\n- Al navegar entre semanas, el calendario debe actualizarse para reflejar el estado correcto de la semana seleccionada\n- Las semanas aprobadas de forma anticipada deben mostrarse con el indicador \"Aprobado\"\n- Los estados del calendario deben ser consistentes con los estados reales registrados en el sistema en todo momento",
+  "CAPTURA": "0306-72.png",
+  "RUTA": "OPERACIONES-Hoja de Tiempo",
+  "USUARIO SIS": "jpagano",
+  "PRIORIDAD": "Baja",
+  "ESTADO": "Abierto",
+  "TESTER": "jyamaca"
+}

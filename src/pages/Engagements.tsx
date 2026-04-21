@@ -9,6 +9,12 @@ import { useCategoryStaff } from "@/hooks/useCategoryStaff";
 import { DataTable, Column } from "@/components/data-table/DataTable";
 import { useNavigate } from "react-router-dom";
 
+interface EngagementRow extends Engagement {
+  start_date: string | null;
+  end_date: string | null;
+  is_internal: boolean;
+}
+
 const statusColors: Record<string, string> = {
   active: "bg-accent/10 text-accent border-accent/20",
   completed: "bg-success/10 text-success border-success/20",
@@ -69,7 +75,7 @@ const Engagements = () => {
       sortable: true,
       mobilePriority: 'secondary',
       render: (row) => {
-        const engagement = row as any;
+        const engagement = row as EngagementRow;
         return engagement.start_date ? format(parseDateLocal(engagement.start_date), "dd/MM/yyyy") : "-";
       },
     },
@@ -79,7 +85,7 @@ const Engagements = () => {
       sortable: true,
       mobilePriority: 'secondary',
       render: (row) => {
-        const engagement = row as any;
+        const engagement = row as EngagementRow;
         return engagement.end_date ? format(parseDateLocal(engagement.end_date), "dd/MM/yyyy") : "-";
       },
     },
@@ -94,7 +100,7 @@ const Engagements = () => {
           <Badge variant="outline" className={statusColors[row.status] || statusColors.pending}>
             {t(`status.${row.status}`)}
           </Badge>
-          {(row as any).is_internal && (
+          {(row as EngagementRow).is_internal && (
             <Badge variant="outline" className="bg-accent/10 text-accent border-accent/20 text-xs">
               {t("engagement.internal")}
             </Badge>

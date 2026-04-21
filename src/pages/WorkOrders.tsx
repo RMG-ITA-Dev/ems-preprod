@@ -179,16 +179,18 @@ const WorkOrders = () => {
           case "client":
             comparison = (a.engagement?.client?.client_legal_name || "").localeCompare(b.engagement?.client?.client_legal_name || "");
             break;
-          case "partner":
+          case "partner": {
             const pA = a.engagement?.partner?.short_name || `${a.engagement?.partner?.first_name || ""} ${a.engagement?.partner?.last_name || ""}`;
             const pB = b.engagement?.partner?.short_name || `${b.engagement?.partner?.first_name || ""} ${b.engagement?.partner?.last_name || ""}`;
             comparison = pA.localeCompare(pB);
             break;
-          case "manager":
+          }
+          case "manager": {
             const mA = a.engagement?.manager?.short_name || `${a.engagement?.manager?.first_name || ""} ${a.engagement?.manager?.last_name || ""}`;
             const mB = b.engagement?.manager?.short_name || `${b.engagement?.manager?.first_name || ""} ${b.engagement?.manager?.last_name || ""}`;
             comparison = mA.localeCompare(mB);
             break;
+          }
           case "hours":
             comparison = totalsA.totalHours - totalsB.totalHours;
             break;

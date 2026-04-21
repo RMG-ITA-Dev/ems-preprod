@@ -95,6 +95,30 @@ export interface StaffTimesheetForApproval {
   budgetQueryMs: number;
 }
 
+interface ApprovalWithPeriod {
+  period_id: string;
+  engagement_id: string;
+  period?: {
+    period_id: string;
+    week_start_date: string;
+    week_number: number;
+    year: number;
+    staff_id: string;
+    staff?: PendingApprovalSummary["staff"] | null;
+  } | null;
+}
+
+interface TimeEntryWithRelations {
+  time_id: string;
+  date_worked: string;
+  hours_logged: number;
+  description: string | null;
+  engagement_id: string;
+  activity_id: string;
+  engagement?: TimeEntryForApproval["engagement"];
+  activity?: TimeEntryForApproval["activity"];
+}
+
 // Fetch pending approval summaries grouped by staff/week with total hours
 export function usePendingApprovalSummaries() {
   const { staffRecord } = useCurrentStaff();
@@ -172,12 +196,12 @@ export function usePendingApprovalSummaries() {
       // Rebuild summaries with only approvable lines
       const filteredMap = new Map<string, PendingApprovalSummary>();
 
-      (approvals || []).forEach((approval) => {
+      ((approvals || []) as ApprovalWithPeriod[]).forEach((approval) => {
         const key = `${approval.period_id}:${approval.engagement_id}`;
         if (!approvableKeys.has(key)) return;
 
         const periodId = approval.period_id;
-        const period = approval.period as any;
+        const period = approval.period;
         if (!period || !period.staff) return;
 
         if (!filteredMap.has(periodId)) {
@@ -359,16 +383,16 @@ export function useStaffTimesheetForApproval(periodId: string | null) {
           year: period.year,
           staff_id: period.staff_id,
         },
-        staff: period.staff as any,
-        timeEntries: (timeEntries || []).map((te) => ({
+        staff: period.staff,
+        timeEntries: ((timeEntries || []) as TimeEntryWithRelations[]).map((te) => ({
           time_id: te.time_id,
           date_worked: te.date_worked,
           hours_logged: te.hours_logged,
           description: te.description,
           engagement_id: te.engagement_id,
           activity_id: te.activity_id,
-          engagement: te.engagement as any,
-          activity: te.activity as any,
+          engagement: te.engagement,
+          activity: te.activity,
         })),
         lineApprovals: (lineApprovals || []) as LineApproval[],
         approvableEngagementIds,

@@ -1,0 +1,15 @@
+{
+  "ID": "0319-88",
+  "FECHA": "2026-03-19",
+  "TIPO DE ERROR": "UI",
+  "TITULO": "Formulario de gastos incongruente con los anteriores formularios.",
+  "VERSION": "2.0.7",
+  "DESCRIPCION": "El formulario de gastos está alineado a la izquierda, rompiendo la estética de formularios previos (centrados o full-screen).",
+  "SUGERENCIA": "Cambiar la alineación a centrado para mantener consistencia visual.",
+  "CAPTURA": "0319-88.png",
+  "RUTA": "OPERACIONES-Gastos",
+  "USUARIO SIS": "marceloovando (Socio)",
+  "PRIORIDAD": "Baja",
+  "ESTADO": "Abierto",
+  "TESTER": "marceloovando"
+}

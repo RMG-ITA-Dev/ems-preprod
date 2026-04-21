@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -70,7 +70,7 @@ const WorksheetEdit = () => {
   const taxRate = parseFloat(globalTaxRate || "0.13");
 
   // Initialize notes when worksheet loads
-  useMemo(() => {
+  useEffect(() => {
     if (worksheet?.notes !== undefined && notes === "") {
       setNotes(worksheet.notes || "");
     }
@@ -80,7 +80,7 @@ const WorksheetEdit = () => {
       const isHighSeason = fiscalYearEnd?.includes("December") || fiscalYearEnd?.includes("31 de diciembre");
       setWOSeasonMode(isHighSeason ? "High" : "Low");
     }
-  }, [worksheet?.notes, worksheet?.engagement?.client?.industry]);
+  }, [worksheet?.notes, worksheet?.engagement?.client?.industry, notes]);
 
   // Filter active activity codes only
   const activeActivities = useMemo(

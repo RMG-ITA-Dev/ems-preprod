@@ -7,8 +7,10 @@ describe("cn (class name merger)", () => {
   });
 
   it("handles conditional classes", () => {
-    expect(cn("base", true && "conditional")).toBe("base conditional");
-    expect(cn("base", false && "conditional")).toBe("base");
+    const show = true as boolean;
+    const hide = false as boolean;
+    expect(cn("base", show && "conditional")).toBe("base conditional");
+    expect(cn("base", hide && "conditional")).toBe("base");
   });
 
   it("deduplicates Tailwind classes", () => {

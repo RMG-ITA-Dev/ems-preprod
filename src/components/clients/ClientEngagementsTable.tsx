@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { parseDateLocal } from "@/lib/timesheetUtils";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
@@ -54,11 +54,11 @@ export function ClientEngagementsTable({ clientId }: ClientEngagementsTableProps
   }, [engagements, clientId]);
 
   // Get staff short_name by ID (with fallback to full name)
-  const getStaffName = (staffId: string | null) => {
+  const getStaffName = useCallback((staffId: string | null) => {
     if (!staffId || !staff) return "-";
     const member = staff.find((s) => s.staff_id === staffId);
     return member ? member.short_name || `${member.first_name} ${member.last_name}` : "-";
-  };
+  }, [staff]);
 
   // Apply filters and sorting
   const filteredAndSorted = useMemo(() => {
@@ -132,7 +132,7 @@ export function ClientEngagementsTable({ clientId }: ClientEngagementsTableProps
     }
 
     return result;
-  }, [clientEngagements, search, statusFilter, partnerFilter, managerFilter, sortField, sortDirection, staff]);
+  }, [clientEngagements, search, statusFilter, partnerFilter, managerFilter, sortField, sortDirection, getStaffName]);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {

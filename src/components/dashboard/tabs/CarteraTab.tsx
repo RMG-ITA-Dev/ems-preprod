@@ -38,6 +38,20 @@ interface PendingApproval {
   hours: number;
 }
 
+interface ApprovalWithPeriod {
+  approval_id: string;
+  period_id: string;
+  engagement_id: string;
+  period?: {
+    week_start_date: string;
+    staff?: {
+      first_name: string;
+      last_name: string;
+      short_name: string | null;
+    } | null;
+  } | null;
+}
+
 export function CarteraTab() {
   const { t } = useTranslation();
   const { startDateStr, endDateStr, setActiveTab, setSelectedEngagementId } = useDashboard();
@@ -169,9 +183,9 @@ export function CarteraTab() {
 
       // Get hours for each approval
       const result: PendingApproval[] = [];
-      for (const approval of approvals) {
+      for (const approval of (approvals || []) as ApprovalWithPeriod[]) {
         const eng = engMap.get(approval.engagement_id);
-        const period = approval.period as any;
+        const period = approval.period;
         
         // Get hours for this period/engagement
         const { data: entries } = await supabase

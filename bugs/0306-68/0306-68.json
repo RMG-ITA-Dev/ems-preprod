@@ -1,0 +1,15 @@
+{
+  "ID": "0306-68",
+  "FECHA": "2026-02-27",
+  "TIPO DE ERROR": "Funcional",
+  "TITULO": "Linea rechazada, el sistema revierte automáticamente al valor anterior de la actividad",
+  "VERSION": "v2.0.6",
+  "DESCRIPCION": "Al editar una línea rechazada de una Hoja de Tiempo y modificar el campo \"Actividad\", el cambio realizado no se guarda. El sistema revierte silenciosamente al valor original sin mostrar ningún mensaje de error ni confirmación, dando al usuario la falsa impresión de que el cambio fue guardado exitosamente.\n​Contexto:\nMódulo: Hoja de Tiempo (Timesheet)\nFuncionalidad afectada: Edición de líneas rechazadas — campo \"Actividad\"\nTipo: Error de guardado / Comportamiento silencioso incorrecto\nSituación: Ocurre específicamente al intentar modificar el campo \"Actividad\" en registros que fueron previamente rechazados por el aprobador\nDescripción del problema:\nCuando un aprobador rechaza una línea específica de una Hoja de Tiempo y el usuario intenta corregirla modificando el campo \"Actividad\", el sistema no persiste el cambio. Al guardar la edición, el campo \"Actividad\" vuelve automáticamente al valor que tenía antes del rechazo, sin informar al usuario sobre el problema.\nLo más crítico de este comportamiento es que el sistema no muestra ningún mensaje de error ni advertencia, por lo que el usuario asume que su corrección fue guardada correctamente, cuando en realidad el campo sigue con el valor rechazado original.",
+  "SUGERENCIA": "El sistema debe garantizar que cualquier modificación realizada sobre una línea rechazada, incluyendo el campo \"Actividad\", se guarde correctamente y se refleje de inmediato en la Hoja de Tiempo.\n¿Cómo debería funcionar?\n1. Al editar una línea rechazada y modificar el campo \"Actividad\", el nuevo valor seleccionado debe guardarse y mantenerse tras confirmar la edición\n2. Una vez guardado, la línea debe reflejar visualmente el nuevo valor en el campo \"Actividad\"\n3. Si por alguna razón el cambio no puede guardarse, el sistema debe:\n- Mostrar un mensaje claro indicando que el cambio no pudo ser guardado\n- Mantener el campo en modo edición para que el usuario pueda intentarlo nuevamente\n- Nunca revertir silenciosamente sin notificar al usuario\n4. El campo \"Actividad\" modificado debe quedar disponible para que el aprobador lo revise en el siguiente ciclo de aprobación",
+  "CAPTURA": "0227-68.png",
+  "RUTA": "OPERACIONES-Hoja de Tiempo",
+  "USUARIO SIS": "yquispe",
+  "PRIORIDAD": "Alta",
+  "ESTADO": "Abierto",
+  "TESTER": "jyamaca"
+}
