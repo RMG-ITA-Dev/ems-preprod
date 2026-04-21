@@ -1,0 +1,15 @@
+{
+  "ID": "0306-77",
+  "FECHA": "2026-03-06",
+  "TIPO DE ERROR": "Funcional",
+  "TITULO": "Registros de tiempo a boleta",
+  "VERSION": "v2.0.7",
+  "DESCRIPCION": "En Registros de tiempo, se registró un encargo por 8 horas para el día viernes 06/03. Al seleccionar el botón “Exportar a la Hoja de Tiempo”, el sistema muestra la advertencia: “1 registros bloqueados (semanas ya enviadas)”. Sin embargo, al ingresar a la interfaz de Hoja de Tiempo para la semana correspondiente, no se visualizan los registros que supuestamente ya fueron enviados; las horas no aparecen reflejadas y se constata que el registro permanece estancado en la vista de Registros de tiempo, sin sincronizarse con la Hoja de Tiempo.",
+  "SUGERENCIA": "Revisar la lógica de exportación desde Registros de tiempo hacia Hoja de Tiempo para el caso de semanas marcadas como “ya enviadas”. El sistema debería:\n\nPermitir visualizar claramente en la Hoja de Tiempo los registros asociados o, en su defecto, no marcar el registro como bloqueado si no existe realmente una hoja de tiempo enviada.\n\nAsegurarse de que, al mostrar el mensaje “registros bloqueados (semanas ya enviadas)”, el estado sea consistente: la semana debe existir como enviada y los registros deben estar vinculados a esa hoja de tiempo, evitando que queden atrapados únicamente en la interfaz de Registros de tiempo.",
+  "CAPTURA": "[0306-77-1.png,0306-77-2.png]",
+  "RUTA": "OPERACIONES-Registros de Tiempo",
+  "USUARIO SIS": "pamelaespejo",
+  "PRIORIDAD": "Baja",
+  "ESTADO": "Abierto",
+  "TESTER": "lcandia"
+}

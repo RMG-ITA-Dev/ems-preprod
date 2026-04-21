@@ -1,0 +1,15 @@
+{
+  "ID": "0319-91",
+  "FECHA": "2026-03-19",
+  "TIPO DE ERROR": "UI",
+  "TITULO": "No se puede sacar un reporte de Gastos.",
+  "VERSION": "2.0.7",
+  "DESCRIPCION": "No existe funcionalidad para exportar o generar reportes de los gastos registrados.",
+  "SUGERENCIA": "Implementar botón de descarga de reporte de gastos respetando los filtros activos.",
+  "CAPTURA": "0319-91.png",
+  "RUTA": "OPERACIONES-Gastos",
+  "USUARIO SIS": "marceloovando (socio)",
+  "PRIORIDAD": "Media",
+  "ESTADO": "Abierto",
+  "TESTER": "marceloovando"
+}

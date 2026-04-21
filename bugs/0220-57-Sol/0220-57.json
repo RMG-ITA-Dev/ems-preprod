@@ -1,0 +1,15 @@
+{
+  "ID": "0220-57",
+  "FECHA": "2026-02-20",
+  "TIPO DE ERROR": "Funcional",
+  "TITULO": "Funcionalidad Buscar Encargo",
+  "VERSION": "v2.0.5",
+  "DESCRIPCION": "Dificultad para encontrar encargos en el dropdown 'Seleccionar Encargo' debido a la extensión de la lista.",
+  "SUGERENCIA": "1. Ordenar lista por Cliente y Encargo. 2. Añadir un search-select box, donde se despliegue las opciones pero con el search box podamos buscar la opción deseada",
+  "CAPTURA": "0220-57.png",
+  "RUTA": "OPERACIONES-Hoja de Tiempo",
+  "USUARIO SIS": "lcandia",
+  "PRIORIDAD": "Baja",
+  "ESTADO": "Abierto",
+  "TESTER": "lcandia"
+}

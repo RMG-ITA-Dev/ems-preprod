@@ -160,7 +160,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
   const [showSyncDialog, setShowSyncDialog] = useState(false);
   const [syncData, setSyncData] = useState<{ userId: string; newRole: AppRole } | null>(null);
 
-  const formSchema = useMemo(() => createFormSchema(t), [t, i18n.language]);
+  const formSchema = useMemo(() => createFormSchema(t), [t]);
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
