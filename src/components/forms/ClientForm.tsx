@@ -49,9 +49,13 @@ import { Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
-const formSchema = z.object({
+export const formSchema = z.object({
   client_legal_name: z.string().min(1, "Client name is required"),
-  unique_tax_id: z.string().min(1, "NIT is required"),
+  unique_tax_id: z
+    .string()
+    .min(1, "NIT is required")
+    .max(15, "NIT cannot exceed 15 digits")
+    .regex(/^\d+$/, "NIT must contain only digits (0–9)"),
   industry_id: z.string().optional(),
   contact_name: z.string().optional(),
   contact_email: z.string().email("Invalid email").optional().or(z.literal("")),
@@ -244,7 +248,24 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
                   <FormItem>
                     <FormLabel className="text-xs">{t("client.nitLabel")} *</FormLabel>
                     <FormControl>
-                      <Input className="h-8 text-sm" placeholder="123456789" {...field} />
+                      <Input
+                          className="h-8 text-sm"
+                          placeholder="123456789"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          maxLength={15}
+                          {...field}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            const stripped = raw.replace(/\D/g, "");
+                            if (raw !== stripped) {
+                              form.setError("unique_tax_id", { type: "manual", message: t("client.nitOnlyNumbers") });
+                            } else {
+                              form.clearErrors("unique_tax_id");
+                            }
+                            field.onChange(stripped);
+                          }}
+                        />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -439,7 +460,23 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
                     <FormItem>
                       <FormLabel>{t("client.nitLabel")} *</FormLabel>
                       <FormControl>
-                        <Input placeholder="123456789" {...field} />
+                        <Input
+                          placeholder="123456789"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          maxLength={15}
+                          {...field}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            const stripped = raw.replace(/\D/g, "");
+                            if (raw !== stripped) {
+                              form.setError("unique_tax_id", { type: "manual", message: t("client.nitOnlyNumbers") });
+                            } else {
+                              form.clearErrors("unique_tax_id");
+                            }
+                            field.onChange(stripped);
+                          }}
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>

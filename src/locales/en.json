@@ -457,6 +457,7 @@
     "legalName": "Client Legal Name",
     "nit": "NIT",
     "nitLabel": "NIT (Tax ID)",
+    "nitOnlyNumbers": "NIT must contain only numbers.",
     "industry": "Industry",
     "contact": "Contact",
     "contactName": "Contact Name",

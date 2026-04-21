@@ -457,6 +457,7 @@
     "legalName": "Razón Social",
     "nit": "NIT",
     "nitLabel": "NIT (ID Fiscal)",
+    "nitOnlyNumbers": "El NIT solo debe contener números.",
     "industry": "Industria",
     "contact": "Contacto",
     "contactName": "Nombre de Contacto",
