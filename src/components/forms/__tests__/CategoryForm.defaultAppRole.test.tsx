@@ -100,10 +100,10 @@ describe("CategoryForm default_app_role (BUG 0306-73)", () => {
       category: { ...baseCategory, default_app_role: "senior" },
     });
 
-    // The trigger displays the currently selected role label; click it to open
-    await user.click(screen.getByText("userRoles.roles.senior"));
-    // Pick the sentinel "None" item
-    await user.click(screen.getByText("common.none"));
+    // The trigger renders as role=combobox; the inner span has pointer-events:none so we target the button.
+    await user.click(screen.getByRole("combobox"));
+    // Pick the sentinel "None" item — use role=option to avoid matching the hidden native <option>
+    await user.click(screen.getByRole("option", { name: "common.none" }));
     // Submit — all required fields are pre-filled from baseCategory
     await user.click(screen.getByText("common.saveChanges"));
 
