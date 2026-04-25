@@ -76,7 +76,7 @@ export function EncargoTab() {
 
       const { data, error } = await supabase
         .from('vw_budget_vs_actual_hours_by_category_activity')
-        .select('*')
+        .select('activity_id, activity_code, activity_description, actual_hours, budget_hours, category_display_order')
         .eq('engagement_id', selectedEngagementId)
         .order('category_display_order')
         .order('activity_code');
@@ -95,7 +95,7 @@ export function EncargoTab() {
 
       const { data, error } = await supabase
         .from('work_order_summary')
-        .select('*')
+        .select('fee_with_tax_gross_up, total_standard_fee, realization_percent')
         .eq('engagement_id', selectedEngagementId)
         .single();
 
@@ -113,7 +113,7 @@ export function EncargoTab() {
 
       const { data, error } = await supabase
         .from('vw_wo_budget_hours_by_category')
-        .select('*')
+        .select('category_id, category_name, total_budget_hours, category_display_order')
         .eq('engagement_id', selectedEngagementId)
         .order('category_display_order');
 

@@ -872,4 +872,151 @@ git push origin sruizmier-performance-v1
 - **Commit:** `dea1d98` — `perf(s-05): fix Encargo period-key/query mismatch (correctness bug)`
 - **PR:** #19 — `perf(s-05): fix Encargo period-key/query mismatch (correctness bug)`
 
-<!-- Subsequent steps (S-06 → S-12) will be appended below as their PRs are produced. -->
+---
+
+### S-06 — Replace `select('*')` with explicit columns in dashboard hot paths
+
+**Pure column-narrowing sweep across the three dashboard tabs that consume Supabase views and tables. Five wildcard selects on data-returning queries replaced with explicit column lists matching the audited consumer set; two idiomatic `count: 'exact', head: true` wildcards left untouched (they don't return rows). Reduces network payload + JSON parse overhead per dashboard tab load and gives TypeScript schema-evolution coverage — a future column rename in the database now surfaces as a build-time error at the consumer line, instead of a silent `undefined` at runtime.**
+
+#### Scope
+- Frontend only
+- Three files touched (one diff each, except EncargoTab which has three)
+- No new files, no new tests, no new dependencies
+- No schema, RPC, edge function, i18n, or react-query default change
+- Zero KPI drift — same columns sourced, same math, same display
+
+#### Files Changed
+
+##### `src/components/dashboard/tabs/EncargoTab.tsx` (3 edits)
+
+###### `budgetData` queryFn (line 79) — `vw_budget_vs_actual_hours_by_category_activity`
+- **Before:** `.select('*')`
+- **After:** `.select('activity_id, activity_code, activity_description, actual_hours, budget_hours, category_display_order')`
+- **Audited consumers:**
+  - `activity_id` — React `key` at `EncargoTab.tsx:509`
+  - `activity_code` — table cell at line 511; also used in `.order('activity_code')` server-side (line 82)
+  - `activity_description` — table cell at line 514
+  - `actual_hours` — filter (line 256), sort (line 257), display (line 517)
+  - `budget_hours` — filter (line 256)
+  - `category_display_order` — used in `.order('category_display_order')` server-side (line 81); included in select defensively to avoid Supabase typing concerns about narrowed row types
+- View has 12 columns; new select retrieves 6. **50% column reduction.**
+
+###### `woSummary` queryFn (line 98) — `work_order_summary`
+- **Before:** `.select('*')`
+- **After:** `.select('fee_with_tax_gross_up, total_standard_fee, realization_percent')`
+- **Audited consumers:**
+  - `fee_with_tax_gross_up` — `agreedFee` at line 223
+  - `total_standard_fee` — `standardFee` at line 224
+  - `realization_percent` — `realizationPercent` at line 225
+- View has many columns (financial summary); new select retrieves 3.
+
+###### `categoryBudget` queryFn (line 116) — `vw_wo_budget_hours_by_category`
+- **Before:** `.select('*')`
+- **After:** `.select('category_id, category_name, total_budget_hours, category_display_order')`
+- **Audited consumers:**
+  - `category_id` — find/key at lines 238, 245
+  - `category_name` — display at line 246
+  - `total_budget_hours` — sum at line 217, value at line 239
+  - `category_display_order` — `.order()` server-side (line 118); included defensively
+- View has 6 columns; new select retrieves 4.
+
+##### `src/components/dashboard/tabs/PracticaTab.tsx` (1 edit)
+
+###### `woSummaries` query inside `practiceMetrics` queryFn (line 74) — `work_order_summary`
+- **Before:** `.select('*')`
+- **After:** `.select('total_standard_fee, adjustment_amount')`
+- **Audited consumers:**
+  - `total_standard_fee` — sum at line 131, term in `adjustedFee` at line 132
+  - `adjustment_amount` — term in `adjustedFee` at line 132
+- This is a separate `work_order_summary` query from EncargoTab's; PracticaTab consumes only 2 columns whereas EncargoTab consumes 3. Each call site now narrowed to its own minimum column set.
+
+##### `src/components/dashboard/tabs/PersonalTab.tsx` (1 edit)
+
+###### `timesheetPeriod` queryFn (line 167) — `timesheet_periods`
+- **Before:** `.select('*')`
+- **After:** `.select('deadline, submitted_at')`
+- **Audited consumers:**
+  - `deadline` — `parseISO` at lines 194–195
+  - `submitted_at` — conditional render at line 330
+- `timesheet_periods` is one of the larger tables in the schema; this narrowing has the highest absolute payload reduction of the five edits.
+
+#### Wildcards Intentionally Left Untouched
+
+| File:line | Source | Why kept |
+|---|---|---|
+| `PracticaTab.tsx:94` | `timesheet_line_approvals` | `count: 'exact', head: true` — count-only query, returns no rows; `*` is idiomatic and replacing it adds noise without benefit |
+| `PersonalTab.tsx:105` | (count-only query) | Same reason |
+
+After this PR: `git grep "select('\*')" src/components/dashboard/tabs/` returns exactly these two count-only matches.
+
+#### Behavior Preservation Guarantees
+
+| Behavior | Drift |
+|---|---|
+| Every consumed value (totals, displays, flags, sorts) | None — same columns sourced, same math |
+| Server-side ordering (`.order(...)` calls) | None — `.order()` works regardless of select; defensive inclusion of `category_display_order` ensures Supabase TypeScript narrowing never affects sort behavior |
+| Network payload size per response | **Reduced** — only consumed columns transit |
+| Parse overhead (JSON deserialization) | **Reduced** — fewer keys per row |
+| Schema-evolution safety | **Improved** — column rename in DB now surfaces as TS error at consumer line, not as silent `undefined` at runtime |
+
+#### Tests
+
+| Test command | Result |
+|---|---|
+| `npm run build` (primary correctness gate — TS catches missed columns) | **Clean** — 15.15 s |
+| `npx vitest run` (full suite) | **548 passed, 1 skipped, 0 failed** across 61 files (unchanged from S-05; this PR adds no new tests) |
+
+No new tests added per plan: TypeScript is the right gate for column-narrowing changes. Adding unit tests for "this column is selected" would test the framework, not the code.
+
+#### Acceptance Gates (all pass)
+
+- ✅ All 5 wildcards on data-returning queries replaced with explicit column lists
+- ✅ The 2 idiomatic `count: 'exact', head: true` wildcards left untouched (verified via `git grep`)
+- ✅ All existing tests still pass (548 → 548)
+- ✅ `npm run build` clean (TS would have caught any forgotten consumed column)
+- ✅ Zero KPI drift (consumer behavior identical)
+- ✅ No new files, no new dependencies
+
+#### What is NOT Changed
+
+- The two count-only wildcards intentionally preserved
+- All explicit selects already in use elsewhere in the dashboard (e.g. `PracticaTab.tsx:80` already explicit) — untouched
+- React Query defaults from S-01 — unchanged
+- Pure helpers from S-02, S-03, S-04, S-05 — unchanged
+- Database schema, RPCs, edge functions, migrations
+- Translations, theme, design tokens
+- Test infra, dependencies (no `package.json` change)
+
+#### Verification Checklist (for reviewer)
+
+To confirm this changelog matches the codebase:
+1. Run `git grep "select('\*')" src/components/dashboard/tabs/` → exactly 2 matches, both `count: 'exact', head: true`.
+2. Open `EncargoTab.tsx`, lines around 79 / 98 / 116 — confirm explicit column lists matching the table above.
+3. Open `PracticaTab.tsx` line 74 — confirm `'total_standard_fee, adjustment_amount'`.
+4. Open `PersonalTab.tsx` line 167 — confirm `'deadline, submitted_at'`.
+5. Run `npm run build` → clean compile.
+6. Run `npx vitest run` → 548 passed / 1 skipped / 0 failed.
+7. **Visual smoke test:** open each tab in the running app — Encargo, Practica, Personal — and verify that all displayed values (KPI cards, leaderboard, category breakdown, activity breakdown, timesheet status / deadline) render identically to before.
+
+#### Risk / Rollback
+
+- **Risk:** Very low. Pure narrowing — no logic changes. The only failure mode (forgetting a consumed column) is caught by TypeScript at build time, not runtime.
+- **Rollback:** Revert this PR. Five small line-level diffs revert cleanly; no dependent state.
+
+#### Lovable Preview Reindex
+
+This PR introduces **no new files** — all five edits modify existing tab files that Lovable's index already knows about. Reindex risk is therefore minimal. If preview shows 404 on `/_sandbox/dev-server`, the same runbook command applies (per `AGENTS.md`):
+```bash
+git commit --allow-empty -m "chore: trigger Lovable preview rebuild"
+git push origin sruizmier-performance-v1
+```
+
+#### Traceability
+
+- **Plan reference:** CODEX_PLAN_v5 step **S-06** + decisions: defensive inclusion of `.order()` columns; count-only wildcards left as-is per recommendation
+- **Branch:** `claude/performance-improvements-DeNVL`
+- **Base:** `sruizmier-performance-v1`
+- **Commit:** `2849541` — `perf(s-06): replace select('*') with explicit columns in dashboard hot paths`
+- **PR:** #20 — `perf(s-06): replace select('*') with explicit columns in dashboard hot paths`
+
+<!-- Subsequent steps (S-07 → S-12) will be appended below as their PRs are produced. -->

@@ -164,7 +164,7 @@ export function PersonalTab() {
       if (!staffRecord?.staff_id) return null;
       const { data, error } = await supabase
         .from('timesheet_periods')
-        .select('*')
+        .select('deadline, submitted_at')
         .eq('staff_id', staffRecord.staff_id)
         .eq('week_start_date', format(weekStart, 'yyyy-MM-dd'))
         .maybeSingle();
