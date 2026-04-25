@@ -552,6 +552,6 @@ git push origin sruizmier-performance-v1
 - **Branch:** `claude/performance-improvements-DeNVL`
 - **Base:** `sruizmier-performance-v1`
 - **Commit:** `ca76ef9` — `perf(s-03): collapse 8-week sparkline loops to single-range fetch`
-- **PR:** _(filled in after open)_
+- **PR:** #17 — `perf(s-03): collapse 8-week sparkline loops to single-range fetch`
 
 <!-- Subsequent steps (S-04 → S-12) will be appended below as their PRs are produced. -->
