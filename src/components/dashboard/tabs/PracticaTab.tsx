@@ -31,6 +31,7 @@ import {
   type LeaderboardWorkOrderRow,
   type LeaderboardBudgetRow,
 } from "./practicaLeaderboard";
+import { safeNumber, hasItems } from "@/lib/queryHelpers";
 
 interface PracticeMetrics {
   totalActiveEngagements: number;
@@ -97,15 +98,15 @@ export function PracticaTab() {
       // Aggregate budget hours by engagement
       const budgetByEngagement = new Map<string, number>();
       budgetData?.forEach(b => {
-        const current = budgetByEngagement.get(b.engagement_id!) || 0;
-        budgetByEngagement.set(b.engagement_id!, current + Number(b.total_budget_hours || 0));
+        const current = budgetByEngagement.get(b.engagement_id!) ?? 0;
+        budgetByEngagement.set(b.engagement_id!, current + safeNumber(b.total_budget_hours));
       });
 
       // Aggregate actual hours by engagement
       const actualByEngagement = new Map<string, number>();
       timeEntries?.forEach(te => {
-        const current = actualByEngagement.get(te.engagement_id) || 0;
-        actualByEngagement.set(te.engagement_id, current + Number(te.hours_logged || 0));
+        const current = actualByEngagement.get(te.engagement_id) ?? 0;
+        actualByEngagement.set(te.engagement_id, current + safeNumber(te.hours_logged));
       });
 
       // Calculate totals and risk counts
@@ -128,8 +129,8 @@ export function PracticaTab() {
       });
 
       woSummaries?.forEach(wo => {
-        totalStandardFees += Number(wo.total_standard_fee || 0);
-        const adjustedFee = Number(wo.total_standard_fee || 0) + Number(wo.adjustment_amount || 0);
+        totalStandardFees += safeNumber(wo.total_standard_fee);
+        const adjustedFee = safeNumber(wo.total_standard_fee) + safeNumber(wo.adjustment_amount);
         totalAdjustedFees += adjustedFee;
       });
 
@@ -168,7 +169,7 @@ export function PracticaTab() {
         .lte('categories.display_order', 2)
         .eq('is_active', true);
 
-      if (!partners?.length) return [];
+      if (!hasItems(partners)) return [];
 
       const partnerIds = partners.map((p) => p.staff_id);
 
@@ -185,7 +186,7 @@ export function PracticaTab() {
       const engagementIds = engagements.map((e) => e.engagement_id);
 
       // Empty-array guard: no active engagements means every partner row is zeroed.
-      if (engagementIds.length === 0) {
+      if (!hasItems(engagementIds)) {
         return aggregatePartnerLeaderboard({
           partners,
           engagements: [],

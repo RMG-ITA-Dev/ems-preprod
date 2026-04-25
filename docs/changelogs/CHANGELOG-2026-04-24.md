@@ -1019,4 +1019,164 @@ git push origin sruizmier-performance-v1
 - **Commit:** `2849541` — `perf(s-06): replace select('*') with explicit columns in dashboard hot paths`
 - **PR:** #20 — `perf(s-06): replace select('*') with explicit columns in dashboard hot paths`
 
-<!-- Subsequent steps (S-07 → S-12) will be appended below as their PRs are produced. -->
+---
+
+### S-07a — Query hardening utilities (Part 1: helpers + adoption)
+
+**Adds two pure-utility helpers (`safeNumber`, `hasItems`) at `src/lib/queryHelpers.ts` and adopts them across four dashboard tabs and four prior aggregation helpers as a single source of truth for numeric coercion and non-empty-array checks. Behavior is identical for all real-world inputs the dashboard sees, but `safeNumber` is strictly safer against `±Infinity` (the prior `Number(value) || 0` pattern would have leaked `Infinity` through a falsy-check), and `hasItems` provides TypeScript type narrowing for downstream usage. S-07b will follow with abort-signal threading across all dashboard queryFns.**
+
+#### Scope
+- Frontend only — Part 1 of the split S-07
+- Two new files (helper + tests); seven existing files lightly edited (4 tabs + 3 of the 4 prior aggregation helpers + 1 helper renamed and re-imported)
+- No schema, RPC, edge function, dependency, or i18n change
+- No KPI drift in observed behavior — all values produced by `safeNumber(x)` for the actual `number | null` DB columns are identical to the prior `Number(x || 0)` and `Number.isFinite(value) ? value : 0` patterns
+
+#### Files Changed
+
+##### NEW `src/lib/queryHelpers.ts` (15 lines)
+
+- **Created** a dependency-free utilities module exporting:
+  - `safeNumber(value: unknown): number` — coerces any input to a finite number; returns 0 for `null`, `undefined`, `NaN`, `±Infinity`, non-numeric strings, objects, arrays, and any other non-finite value
+  - `hasItems<T>(arr: readonly T[] | null | undefined): arr is readonly T[]` — type guard that returns `true` iff `arr` is a non-empty array; narrows the type to `readonly T[]` after a positive check
+- **Imports:** none. **Zero imports** — runtime-free utilities.
+
+##### NEW `src/lib/__tests__/queryHelpers.test.ts` (14 unit tests)
+
+- **Created** unit tests covering:
+  - `safeNumber` (8 cases): valid number, numeric string, `null`, `undefined`, `NaN`, `±Infinity`, non-numeric strings, objects/arrays/booleans
+  - `hasItems` (5 cases): empty array, `null`, `undefined`, single-element, multi-element
+  - `hasItems` type narrowing (1 case): TS-only assertion that after a positive `hasItems` check, the value is narrowed enough to access `.length` and indexing without further null guards
+- **Result:** 14/14 passing in 5 ms
+
+##### `src/components/dashboard/tabs/practicaLeaderboard.ts`
+- **Removed** the local `toNumber(value)` helper (formerly lines 49–50): `value == null ? 0 : Number(value) || 0`
+- **Added** `import { safeNumber } from '@/lib/queryHelpers'` at the top
+- **Replaced** all 3 internal `toNumber(...)` call sites (per-engagement hours sum, fee sum, budget sum) with `safeNumber(...)`
+- **Behavior note:** the prior `toNumber` used `Number(value) || 0` which leaked `Infinity` through (Infinity is truthy). The new `safeNumber` returns 0 for `±Infinity`. In practice DB numeric columns don't return Infinity, so this is a defensive improvement, not an observed bug fix.
+
+##### `src/components/dashboard/weeklyHoursBucket.ts`
+- **Added** `import { safeNumber } from '@/lib/queryHelpers'`
+- **Replaced** the inline `const value = Number(row.hours_logged); ... + (Number.isFinite(value) ? value : 0)` pattern with a direct `+ safeNumber(row.hours_logged)`. Behavior identical.
+
+##### `src/components/dashboard/pendingApprovalsAggregation.ts`
+- **Added** `import { safeNumber } from '@/lib/queryHelpers'`
+- **Replaced** the inline `const value = Number(row.hours_logged); const safe = Number.isFinite(value) ? value : 0; result.set(key, ... + safe);` pattern with `result.set(key, ... + safeNumber(row.hours_logged));`. Behavior identical.
+
+##### `src/components/dashboard/encargoActualByCategory.ts`
+- **Added** `import { safeNumber } from '@/lib/queryHelpers'`
+- **Replaced** the inline `const value = Number(row.hours_logged); const safe = Number.isFinite(value) ? value : 0;` pattern with `const safe = safeNumber(row.hours_logged);`. Behavior identical.
+
+##### `src/components/dashboard/tabs/EncargoTab.tsx`
+- **Added** `import { safeNumber, hasItems } from "@/lib/queryHelpers"`
+- **Replaced** 9 `Number(x || 0)` and `Number(x)` patterns with `safeNumber(x)`:
+  - `totalBudgetHours` reduce at line 217
+  - `totalActualHours` reduce at line 218
+  - `budgetHours` and `actualHours` constants at lines 239–240
+  - `activityBreakdown` filter (`a.actual_hours`, `a.budget_hours`) at line 256
+  - `activityBreakdown` sort (`a.actual_hours`, `b.actual_hours`) at line 257
+  - `act.actual_hours` display at line 517
+  - `entry.hours_logged` accumulation in `hoursByStatus` queryFn at lines 204, 206
+  - `entries.reduce` total at line 181
+- **Replaced** 2 inline empty-array guards with `hasItems`:
+  - `if (!entries || entries.length === 0)` → `if (!hasItems(entries))` (line 174)
+  - `if (periodIds.length === 0)` → `if (!hasItems(periodIds))` (line 179)
+- Also changed `actualByEngagement.get(...) || 0` and `budgetByEngagement.get(...) || 0` to `... ?? 0` for clarity (these were not in the formal `safeNumber` mandate but are co-located edits in the same blocks)
+
+##### `src/components/dashboard/tabs/PracticaTab.tsx`
+- **Added** `import { safeNumber, hasItems } from "@/lib/queryHelpers"`
+- **Replaced** 4 `Number(x || 0)` patterns with `safeNumber(x)`:
+  - `budgetByEngagement` set at line 102
+  - `actualByEngagement` set at line 109
+  - `totalStandardFees` accumulation at line 131
+  - `adjustedFee` term at line 132
+- **Replaced** 2 inline empty-array guards with `hasItems`:
+  - `if (!partners?.length)` → `if (!hasItems(partners))` (line 172)
+  - `if (engagementIds.length === 0)` → `if (!hasItems(engagementIds))` (line 189)
+- Also changed `Map.get(...) || 0` to `... ?? 0` in the budget/actual aggregation blocks for consistency
+
+##### `src/components/dashboard/tabs/CarteraTab.tsx`
+- **Added** `import { hasItems } from '@/lib/queryHelpers'`
+- **Replaced** 4 inline empty-array guards with `hasItems`:
+  - `if (!engagements?.length)` → `if (!hasItems(engagements))` (line 76)
+  - `if (!myEngagements?.length)` → `if (!hasItems(myEngagements))` (line 158)
+  - `if (!approvals?.length)` → `if (!hasItems(approvals))` (line 178)
+  - `if (engagementIds.length === 0)` → `if (!hasItems(engagementIds))` (line 236)
+- No `safeNumber` adoptions in this tab — CarteraTab's queryFns delegate all numeric aggregation to the four pure helpers, which were already updated above.
+
+##### `src/components/dashboard/tabs/PersonalTab.tsx`
+- No edits in S-07a — PersonalTab's queryFns don't have inline `Number(x || 0)` patterns or empty-array guards (its `!staffRecord?.staff_id` checks are object-presence, not array-presence). Will be touched in S-07b for abort-signal threading.
+
+#### What is NOT Changed (Out of Scope for S-07a)
+
+- **Abort-signal threading** — deferred to S-07b. No `useQuery` queryFn signatures or `.abortSignal(...)` chains touched.
+- **JSX render guards** (e.g., `portfolio?.length === 0 ? <empty/> : <full/>` in `CarteraTab.tsx:359, 446, 495` and `PracticaTab.tsx:485`) — left as inline patterns. `hasItems` adoption in these sites would invert the predicate and reduce JSX readability without correctness benefit.
+- **`Number(x).toFixed(...)` and `Math.round(Number(x))` patterns** that were already type-safe — preserved.
+- **The four prior helpers' tests** (S-02/S-03/S-04/S-05) — unchanged. Their assertions hold against the new `safeNumber` adoption because behavior is identical for all the test fixtures.
+
+#### Behavior Preservation Guarantees
+
+| Behavior | Drift |
+|---|---|
+| All KPI values, sums, filters, sorts on dashboard | None — `safeNumber(x)` and `Number(x || 0)` produce identical results for `null`, `undefined`, `0`, and finite numbers (the actual values DB returns) |
+| Dashboard empty-state rendering | None — `!hasItems(x)` and `!x?.length` produce identical truthiness for arrays/null/undefined |
+| Defensive coverage of `±Infinity` in numeric helpers | **Improved** — `safeNumber(±Infinity) === 0`, whereas `Number(±Infinity) || 0 === ±Infinity`. No observed bug fixed; defensive hardening only. |
+| Type narrowing after empty-array check | **Improved** — `hasItems(arr)` narrows to non-null array; the prior `!arr?.length` did not |
+| The four pure aggregation helpers' outputs | None — `safeNumber` is mathematically identical to the inline `Number.isFinite`-guarded coercion they used before |
+
+#### Performance Impact
+
+**None measurable.** This step is consistency + defensive correctness, not performance. The function-call overhead of `safeNumber(x)` vs. inline `Number(x || 0)` is negligible (V8 inlines tiny pure functions). Bundle size impact: ~150 bytes added (gzipped) for the helper module.
+
+#### Tests
+
+| Test command | Result |
+|---|---|
+| `npx vitest run src/lib/__tests__/queryHelpers.test.ts` | **14/14 passed** (5 ms) |
+| `npx vitest run` (the four prior helpers' test files, post-adoption) | **34/34 passed** — `practicaLeaderboard` (9), `weeklyHoursBucket` (9), `pendingApprovalsAggregation` (9), `encargoActualByCategory` (7) |
+| `npx vitest run` (full suite) | **562 passed, 1 skipped, 0 failed** across 62 files (was 548; +14 new = 562) |
+| `npm run build` | TypeScript compile clean, Vite build succeeds in 13.22 s |
+
+#### Acceptance Gates (all pass)
+
+- ✅ All existing tests still pass (548 → 562 with 14 new helper tests)
+- ✅ New helper file has zero runtime imports
+- ✅ All 11 inline `Number(x || 0)` patterns in dashboard tabs replaced with `safeNumber(x)` (plus 4 additional `Number(x)`-without-fallback sites also tightened)
+- ✅ All 4 prior aggregation helpers' inline coercion replaced with `safeNumber` for one source of truth
+- ✅ All 8 inline empty-array guards in dashboard queryFn early returns replaced with `hasItems`
+- ✅ JSX render guards intentionally preserved (different idiom, no correctness benefit)
+- ✅ `npm run build` clean
+- ✅ Zero observable KPI drift
+
+#### Verification Checklist (for reviewer)
+
+To confirm this changelog matches the codebase:
+1. Confirm `src/lib/queryHelpers.ts` exists, exports `safeNumber` and `hasItems`, and contains **zero** import statements.
+2. Confirm `src/lib/__tests__/queryHelpers.test.ts` exists with 14 tests; run targeted test → 14/14 pass.
+3. Run `git grep -n "Number([a-zA-Z_.?\[\]]\+ || 0)" src/components/dashboard/tabs/` → should return **no matches** (all such patterns replaced).
+4. Run `git grep -n "from '@/lib/queryHelpers'" src/` → should return at least 8 matches (1 test + 4 prior helpers + 3 dashboard tabs that adopted; PersonalTab will appear in S-07b).
+5. Run `npx vitest run` → 562 passed / 1 skipped / 0 failed.
+6. Run `npm run build` → clean compile.
+7. **Visual smoke test:** open each dashboard tab — Practica, Cartera, Encargo, Personal — and verify all KPI cards, leaderboard, sparklines, category breakdown, activity breakdown, and pending approvals render identically to before.
+
+#### Risk / Rollback
+
+- **Risk:** Very low. Adoption of helpers with mathematically identical behavior; TypeScript guardrails on every site. No new dependencies, no new files in `src/components/dashboard/tabs/` (the new helper lives in `src/lib/`).
+- **Rollback:** Revert PR. The two new files deletable; tabs and prior helpers revert to their inline patterns.
+
+#### Lovable Preview Reindex
+
+This PR introduces **two new files** under `src/lib/` (a new pattern for this remediation — earlier steps added under `src/components/dashboard/`). Per `AGENTS.md`: if after merge the preview shows 404 on `/_sandbox/dev-server`, run:
+```bash
+git commit --allow-empty -m "chore: trigger Lovable preview rebuild"
+git push origin sruizmier-performance-v1
+```
+
+#### Traceability
+
+- **Plan reference:** CODEX_PLAN_v5 step **S-07** (split into S-07a + S-07b per agreement) + decisions: adopt inside the four prior aggregation helpers (one source of truth); skip rapid-navigation integration test (deferred to S-12)
+- **Branch:** `claude/performance-improvements-DeNVL`
+- **Base:** `sruizmier-performance-v1`
+- **Commit:** `57d8452` — `perf(s-07a): add safeNumber + hasItems query helpers and adopt`
+- **PR:** #21 — `perf(s-07a): add safeNumber + hasItems query helpers and adopt`
+
+<!-- S-07b (abort-signal threading) and S-08 → S-12 will be appended below as their PRs are produced. -->
