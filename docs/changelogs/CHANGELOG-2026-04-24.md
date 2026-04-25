@@ -1362,6 +1362,6 @@ This PR introduces **no new files** — all 4 edits modify existing tab files th
 - **Branch:** `claude/performance-improvements-DeNVL`
 - **Base:** `sruizmier-performance-v1`
 - **Commit:** `3c0fbe4` — `perf(s-07b): thread abort signals through dashboard queryFns`
-- **PR:** _(filled in after open)_
+- **PR:** #22 — `perf(s-07b): thread abort signals through dashboard queryFns`
 
 <!-- S-08 → S-12 will be appended below as their PRs are produced. -->
