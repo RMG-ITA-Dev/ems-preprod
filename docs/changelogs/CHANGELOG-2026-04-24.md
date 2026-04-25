@@ -1403,7 +1403,13 @@ This PR introduces **no new files** — all 4 edits modify existing tab files th
 - `idx_engagements_code_unique` UNIQUE ON `engagements(engagement_code) WHERE engagement_code IS NOT NULL` — irrelevant for our predicates
 - `idx_timesheet_periods_*` (3 indexes on `timesheet_periods`) — separate table
 
-#### Migration Contents (exact SQL applied by Lovable)
+#### Migration File (actual filename created by Lovable)
+
+`supabase/migrations/20260425232210_2a4c3593-fab6-4799-a92f-9a28be7839d7.sql`
+
+Lovable used its standard `<TIMESTAMP>_<UUID>.sql` naming convention rather than the descriptive name `dashboard_perf_indexes` proposed in the plan. The timestamp `20260425232210` (2026-04-25 23:22:10 UTC) sorts after all existing migrations. Functionally equivalent.
+
+#### Migration Contents (exact SQL Lovable applied — verified byte-for-byte against approved plan)
 
 ```sql
 -- time_entries — three composite indexes for the three distinct dashboard predicate shapes
@@ -1454,16 +1460,25 @@ CREATE INDEX IF NOT EXISTS idx_tla_engagement_period
 
 - All 7 statements use `CREATE INDEX IF NOT EXISTS` → idempotent, safe to re-run, won't fail if any already exist
 - No `CONCURRENTLY` — Supabase migrations run inside a transaction, which forbids `CREATE INDEX CONCURRENTLY`. Index builds briefly hold a SHARE lock on each table (concurrent SELECTs proceed; concurrent INSERT/UPDATE/DELETE briefly block until the index build completes). Acceptable for tables of EMS v2.0's typical size.
-- `types.ts` is **not** modified by this migration — indexes do not show up in PostgREST's generated TypeScript types. No frontend follow-up needed.
 - Migration runs via the standard Lovable Cloud flow: Lovable creates the file in `supabase/migrations/`, then "Apply pending Supabase migrations" prompt applies it.
 
-#### Cross-Branch Coordination
+#### Unexpected `types.ts` Regeneration (resolved)
 
-Lovable typically pushes its migration commit to `main`, not to feature branches. The migration file (`supabase/migrations/20260425000000_dashboard_perf_indexes.sql` per Lovable's plan) will land on `main` first. To incorporate it into `sruizmier-performance-v1`, either:
-- Merge `main` into `sruizmier-performance-v1` after Lovable's commit lands, OR
-- The eventual `sruizmier-performance-v1` → `main` merge will conflict-resolve cleanly since the migration file path doesn't conflict with any frontend file in this remediation
+The plan asserted "`types.ts` is unchanged because indexes are not reflected in generated types." That was correct in principle — **the indexes themselves do not appear in `types.ts`** — but Lovable's migration apply flow also **regenerated** `src/integrations/supabase/types.ts` from the live DB schema, picking up tables and views that already existed in production but had not yet been reflected in this branch's `types.ts`. Net diff: **+620 lines, 0 lines from the indexes**. The new entries are unrelated scheduler-v2 features:
 
-Either path is acceptable. This CHANGELOG entry intentionally lives on `claude/performance-improvements-DeNVL` so the documentation is co-located with the rest of the perf work, regardless of the migration file's eventual landing branch.
+- Tables: `engagement_assignments`, `engagement_staffing_requirements`, `resource_planning_audit_log`, `skills`, `staff_skills`, `staff_unavailability`
+- Views: `vw_engagement_staffing_summary`, `vw_staff_weekly_capacity`, `vw_staffing_alerts`
+- Plus minor `engagement_id` FK relationship additions to existing `engagements`-referencing tables that now point at the new views
+
+These types were already present on the live DB (added by the parallel `sruizmier-scheduler-v2` work). Lovable's regeneration brought `sruizmier-performance-v1` in sync with the live schema. **Verified safe:** `npm run build` clean and `npx vitest run` 562 passed / 1 skipped / 0 failed against the regenerated file — no test depends on the old shape, no consumer references a renamed/removed column.
+
+#### Cross-Branch Coordination (corrected from plan — Lovable behaved differently than expected)
+
+The plan anticipated Lovable would push to `main` first. **Actual:** Lovable pushed two commits directly to `sruizmier-performance-v1`:
+- `a2c15d3` "Changes" — added the migration file + regenerated `types.ts` + updated `.lovable/plan.md`
+- `eaf60f5` "Added dashboard performance indexes" — merge commit consolidating the above with the prior PR #22 merge
+
+Both commits were authored by `gpt-engineer-app[bot]` (the Lovable bot). The migration file and the `types.ts` regeneration are now both on `sruizmier-performance-v1` directly — no `main` → `sruizmier-performance-v1` merge required for this step.
 
 #### Verification (run in Supabase SQL Editor after Lovable applies)
 
@@ -1511,15 +1526,15 @@ SELECT COUNT(*) FROM public.timesheet_line_approvals WHERE status = 'pending';
 
 #### Acceptance Gates
 
-- ✅ All 7 indexes documented in this CHANGELOG match the SQL applied by Lovable
+- ✅ All 7 indexes documented in this CHANGELOG match the SQL applied by Lovable (verified byte-for-byte on `supabase/migrations/20260425232210_2a4c3593-fab6-4799-a92f-9a28be7839d7.sql`)
 - ✅ All 7 referenced columns verified to exist on the live tables (per `docs/database-schema.sql`):
   - `time_entries`: `engagement_id`, `date_worked`, `staff_id`, `period_id`
   - `engagements`: `partner_id`, `manager_id`, `status`
   - `timesheet_line_approvals`: `engagement_id`, `period_id`, `status` (default `'pending'`)
 - ✅ All statements use `IF NOT EXISTS` (idempotent, safe to re-run)
 - ✅ No conflict with the 4 existing indexes on these tables (verified by name and column-set comparison)
-- ✅ No frontend code change in this PR
-- ✅ `npm run build` and full `npx vitest run` (562 passed) baseline unchanged from S-07b
+- ✅ No source code change required for the indexes themselves; `types.ts` was independently regenerated by Lovable's apply flow and brought in unrelated scheduler-v2 entities (build + tests verified clean against the regenerated file)
+- ✅ `npm run build` clean (18.54 s) and full `npx vitest run` 562 passed / 1 skipped / 0 failed against the post-Lovable state on `sruizmier-performance-v1`
 
 #### Rollback (if Lovable's apply fails or the migration causes issues)
 
@@ -1548,11 +1563,14 @@ The Lovable-prepared plan was reviewed and approved before any application. Appr
 
 - **Plan reference:** CODEX_PLAN_v5 step **S-08** — backend-only DB-index migration
 - **Branch (this docs entry):** `claude/performance-improvements-DeNVL`
-- **Branch (Lovable migration):** `main` (will need to be merged into `sruizmier-performance-v1` separately)
-- **Migration filename:** `supabase/migrations/20260425000000_dashboard_perf_indexes.sql` (per Lovable's approved plan)
+- **Branch (Lovable migration):** `sruizmier-performance-v1` directly (Lovable did NOT push to `main` first as the plan anticipated — convention varies per Lovable workflow setup)
+- **Migration filename (actual):** `supabase/migrations/20260425232210_2a4c3593-fab6-4799-a92f-9a28be7839d7.sql` (Lovable's `<TIMESTAMP>_<UUID>.sql` convention)
+- **Side effect:** `src/integrations/supabase/types.ts` regenerated (+620 lines) — picks up unrelated scheduler-v2 tables/views that already existed in the live DB. Build + tests verified clean.
 - **Implemented by:** Lovable Cloud via "Apply pending Supabase migrations" flow
 - **Reviewed and approved by:** Claude Code (this session)
-- **Commit (this docs entry):** `d2dabb1` — `docs(s-08): record Lovable-implemented DB index migration plan`
+- **Commit (this docs entry, initial):** `d2dabb1` — `docs(s-08): record Lovable-implemented DB index migration plan`
+- **Commit (this docs entry, corrections):** _(filled in after correction commit)_
 - **PR (this docs entry):** #23 — `docs(s-08): record Lovable-implemented DB index migration plan`
+- **Lovable commits on `sruizmier-performance-v1`:** `a2c15d3` (Changes — migration + types regen) and `eaf60f5` (merge — "Added dashboard performance indexes")
 
 <!-- S-09 → S-12 will be appended below as their PRs are produced. -->
