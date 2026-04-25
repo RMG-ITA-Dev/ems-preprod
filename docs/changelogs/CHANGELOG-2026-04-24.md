@@ -1552,7 +1552,7 @@ The Lovable-prepared plan was reviewed and approved before any application. Appr
 - **Migration filename:** `supabase/migrations/20260425000000_dashboard_perf_indexes.sql` (per Lovable's approved plan)
 - **Implemented by:** Lovable Cloud via "Apply pending Supabase migrations" flow
 - **Reviewed and approved by:** Claude Code (this session)
-- **Commit (this docs entry):** _(filled in below after push)_
-- **PR (this docs entry):** _(filled in below after open)_
+- **Commit (this docs entry):** `d2dabb1` — `docs(s-08): record Lovable-implemented DB index migration plan`
+- **PR (this docs entry):** #23 — `docs(s-08): record Lovable-implemented DB index migration plan`
 
 <!-- S-09 → S-12 will be appended below as their PRs are produced. -->
