@@ -381,7 +381,7 @@ If the preview fails after any of these merges, the operator runs the documented
 - **Plan reference:** "S-01 and S-02 Complement" (post-incident, 2026-04-25)
 - **Branch:** `claude/performance-improvements-DeNVL`
 - **Base:** `sruizmier-performance-v1`
-- **Commit:** _(filled in below after push)_
-- **PR:** _(filled in below after open)_
+- **Commits:** `8f4cc5f` (AGENTS.md runbook) · `b55149e` (this CHANGELOG entry)
+- **PR:** #16 — `docs(s-01+s-02): Lovable preview reindex runbook (Complement)`
 
 <!-- Subsequent steps (S-03 → S-12) will be appended below as their PRs are produced. -->
