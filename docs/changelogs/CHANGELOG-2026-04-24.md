@@ -1569,7 +1569,7 @@ The Lovable-prepared plan was reviewed and approved before any application. Appr
 - **Implemented by:** Lovable Cloud via "Apply pending Supabase migrations" flow
 - **Reviewed and approved by:** Claude Code (this session)
 - **Commit (this docs entry, initial):** `d2dabb1` — `docs(s-08): record Lovable-implemented DB index migration plan`
-- **Commit (this docs entry, corrections):** _(filled in after correction commit)_
+- **Commit (this docs entry, corrections):** `033d27b` — `docs(s-08): correct CHANGELOG to reflect Lovable's actual application`
 - **PR (this docs entry):** #23 — `docs(s-08): record Lovable-implemented DB index migration plan`
 - **Lovable commits on `sruizmier-performance-v1`:** `a2c15d3` (Changes — migration + types regen) and `eaf60f5` (merge — "Added dashboard performance indexes")
 
