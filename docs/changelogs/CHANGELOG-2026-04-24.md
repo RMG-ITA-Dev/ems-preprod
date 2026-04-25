@@ -1364,4 +1364,195 @@ This PR introduces **no new files** — all 4 edits modify existing tab files th
 - **Commit:** `3c0fbe4` — `perf(s-07b): thread abort signals through dashboard queryFns`
 - **PR:** #22 — `perf(s-07b): thread abort signals through dashboard queryFns`
 
-<!-- S-08 → S-12 will be appended below as their PRs are produced. -->
+---
+
+### S-08 — Add DB indexes for dashboard predicates (Backend, Lovable-implemented)
+
+**Backend-only step. Adds 7 indexes to `time_entries`, `engagements`, and `timesheet_line_approvals` to accelerate every dashboard tab query that filters on engagement/staff/period predicates. The migration is implemented by Lovable Cloud (per its standard "Apply pending Supabase migrations" flow); this CHANGELOG entry documents the predicate audit, the exact SQL applied, the rationale per index, the indexes intentionally NOT created, and the verification queries the reviewer can run in Supabase SQL Editor to confirm the migration landed correctly.**
+
+#### Scope
+- **Backend only** — `supabase/migrations/<TIMESTAMP>_dashboard_perf_indexes.sql` (Lovable will choose the exact timestamp; expected `20260425000000_dashboard_perf_indexes.sql` per Lovable's approved plan)
+- No frontend code changes
+- No schema changes (indexes only — `types.ts` is unchanged because indexes are not reflected in generated types)
+- No RLS / function / trigger changes
+- No data changes
+
+#### Predicate Audit (post-S-07b, basis for which indexes to create)
+
+| Table | Predicate pattern | Used by |
+|---|---|---|
+| `time_entries` | `engagement_id IN (...) AND date_worked BETWEEN start AND end` | Practica practiceMetrics, Practica partnerLeaderboard, Cartera portfolio, Cartera weeklyTrend |
+| `time_entries` | `engagement_id = X AND is_forecast = false AND date_worked BETWEEN start AND end` | Encargo actualByCategory |
+| `time_entries` | `engagement_id = X AND is_forecast = false` | Encargo hoursByStatus |
+| `time_entries` | `staff_id = X AND date_worked BETWEEN start AND end` | Personal weekTimeEntries, weeklyTrend, monthHours, engagementHours |
+| `time_entries` | `period_id IN (...) AND engagement_id IN (...)` | Cartera pendingApprovals (S-04 bulk fetch) |
+| `time_entries` | `date_worked BETWEEN start AND end` (firm-wide) | Practica weeklyTrend |
+| `engagements` | `partner_id IN (...) AND status = 'active'` | Practica partnerLeaderboard |
+| `engagements` | `(partner_id = X OR manager_id = X) AND status = 'active'` | Cartera portfolio, Cartera weeklyTrend |
+| `engagements` | `partner_id = X OR manager_id = X` (no status filter) | Cartera pendingApprovals |
+| `engagements` | `status = 'active'` | Practica practiceMetrics |
+| `engagements` | `engagement_id = X` | Encargo engagementData (PK lookup — already indexed) |
+| `timesheet_line_approvals` | `status = 'pending'` (count) | Practica practiceMetrics, Personal pendingApprovals |
+| `timesheet_line_approvals` | `engagement_id IN (...) AND status = 'pending'` | Cartera pendingApprovals |
+| `timesheet_line_approvals` | `engagement_id = X AND period_id IN (...)` | Encargo hoursByStatus |
+
+#### Existing Indexes (verified — NOT recreated)
+
+- `idx_time_entries_period` ON `time_entries(period_id)` — single-col, distinct from the new composite `idx_time_entries_period_engagement`
+- `idx_time_entries_unique_entry` UNIQUE ON `time_entries(staff_id, engagement_id, activity_id, date_worked, is_forecast)` — leftmost prefix `staff_id` available, but `date_worked` is the 4th column so unfit for `(staff_id, date_worked)` range scans
+- `idx_engagements_code_unique` UNIQUE ON `engagements(engagement_code) WHERE engagement_code IS NOT NULL` — irrelevant for our predicates
+- `idx_timesheet_periods_*` (3 indexes on `timesheet_periods`) — separate table
+
+#### Migration Contents (exact SQL applied by Lovable)
+
+```sql
+-- time_entries — three composite indexes for the three distinct dashboard predicate shapes
+CREATE INDEX IF NOT EXISTS idx_time_entries_engagement_date
+  ON public.time_entries(engagement_id, date_worked);
+
+CREATE INDEX IF NOT EXISTS idx_time_entries_staff_date
+  ON public.time_entries(staff_id, date_worked);
+
+CREATE INDEX IF NOT EXISTS idx_time_entries_period_engagement
+  ON public.time_entries(period_id, engagement_id);
+
+-- engagements — partner/manager lookups with status filter
+CREATE INDEX IF NOT EXISTS idx_engagements_partner_status
+  ON public.engagements(partner_id, status);
+
+CREATE INDEX IF NOT EXISTS idx_engagements_manager_status
+  ON public.engagements(manager_id, status);
+
+-- timesheet_line_approvals — partial filtered index for pending, plus engagement+period composite
+CREATE INDEX IF NOT EXISTS idx_tla_pending_engagement
+  ON public.timesheet_line_approvals(engagement_id)
+  WHERE status = 'pending';
+
+CREATE INDEX IF NOT EXISTS idx_tla_engagement_period
+  ON public.timesheet_line_approvals(engagement_id, period_id);
+```
+
+#### Index-by-Index Rationale
+
+| # | Index | Justification |
+|---|---|---|
+| 1 | `idx_time_entries_engagement_date` ON `(engagement_id, date_worked)` | Serves the 4 most-frequent dashboard predicates (`engagement_id IN ... AND date_worked BETWEEN`). Without it, Postgres seq-scans `time_entries` for each dashboard tab load. |
+| 2 | `idx_time_entries_staff_date` ON `(staff_id, date_worked)` | Personal tab fires 4 queries on `(staff_id, date_worked)` per load. The existing unique index has `staff_id` as leftmost but `date_worked` is the 4th column — useless for range scans. |
+| 3 | `idx_time_entries_period_engagement` ON `(period_id, engagement_id)` | Cartera pendingApprovals bulk fetch (S-04) filters on `(period_id IN ..., engagement_id IN ...)` — composite index avoids a Cartesian-product scan against the unique index. |
+| 4 | `idx_engagements_partner_status` ON `(partner_id, status)` | Composite handles both `partner_id = X` (via leftmost prefix) AND `partner_id = X AND status = 'active'`. Used by Practica partnerLeaderboard and Cartera (3 queries). |
+| 5 | `idx_engagements_manager_status` ON `(manager_id, status)` | Same shape for the manager-side `.or()` clause in Cartera. Postgres uses BitmapOr to combine indexes 4 and 5 when the query filter is `partner_id = X OR manager_id = X`. |
+| 6 | `idx_tla_pending_engagement` ON `(engagement_id) WHERE status = 'pending'` | **Partial filtered** index — only contains rows where `status = 'pending'`. Smaller than a full index, perfect for both the count-only queries (`status = 'pending'`) and the engagement-filtered queries (Cartera pendingApprovals). |
+| 7 | `idx_tla_engagement_period` ON `(engagement_id, period_id)` | Encargo hoursByStatus filters on `(engagement_id = X, period_id IN (...))`. The existing PK index on `approval_id` doesn't help. |
+
+#### Indexes Intentionally NOT Created (Documented for Future Reference)
+
+- **`time_entries(date_worked)` standalone** — only used by Practica weeklyTrend (firm-wide sparkline, 1 query). Not on the hot path. If the table grows large, revisit in S-12 governance.
+- **`engagements(status)` standalone** — would have low selectivity (most engagements are active). Composite indexes 4 + 5 cover most needs; firm-wide `status = 'active'` query (Practica practiceMetrics) is one query and small enough to seq-scan.
+- **`time_entries(is_forecast)` standalone** — boolean column, low selectivity. Not worth indexing alone.
+
+#### Application & Implementation Notes
+
+- All 7 statements use `CREATE INDEX IF NOT EXISTS` → idempotent, safe to re-run, won't fail if any already exist
+- No `CONCURRENTLY` — Supabase migrations run inside a transaction, which forbids `CREATE INDEX CONCURRENTLY`. Index builds briefly hold a SHARE lock on each table (concurrent SELECTs proceed; concurrent INSERT/UPDATE/DELETE briefly block until the index build completes). Acceptable for tables of EMS v2.0's typical size.
+- `types.ts` is **not** modified by this migration — indexes do not show up in PostgREST's generated TypeScript types. No frontend follow-up needed.
+- Migration runs via the standard Lovable Cloud flow: Lovable creates the file in `supabase/migrations/`, then "Apply pending Supabase migrations" prompt applies it.
+
+#### Cross-Branch Coordination
+
+Lovable typically pushes its migration commit to `main`, not to feature branches. The migration file (`supabase/migrations/20260425000000_dashboard_perf_indexes.sql` per Lovable's plan) will land on `main` first. To incorporate it into `sruizmier-performance-v1`, either:
+- Merge `main` into `sruizmier-performance-v1` after Lovable's commit lands, OR
+- The eventual `sruizmier-performance-v1` → `main` merge will conflict-resolve cleanly since the migration file path doesn't conflict with any frontend file in this remediation
+
+Either path is acceptable. This CHANGELOG entry intentionally lives on `claude/performance-improvements-DeNVL` so the documentation is co-located with the rest of the perf work, regardless of the migration file's eventual landing branch.
+
+#### Verification (run in Supabase SQL Editor after Lovable applies)
+
+```sql
+-- 1. Confirm all 7 new indexes exist
+SELECT indexname, tablename FROM pg_indexes
+WHERE schemaname = 'public'
+  AND indexname IN (
+    'idx_time_entries_engagement_date',
+    'idx_time_entries_staff_date',
+    'idx_time_entries_period_engagement',
+    'idx_engagements_partner_status',
+    'idx_engagements_manager_status',
+    'idx_tla_pending_engagement',
+    'idx_tla_engagement_period'
+  )
+ORDER BY tablename, indexname;
+-- Expected: 7 rows
+```
+
+```sql
+-- 2. Confirm Practica practiceMetrics' time_entries query uses idx_time_entries_engagement_date
+EXPLAIN ANALYZE
+SELECT engagement_id, hours_logged FROM public.time_entries
+WHERE engagement_id IN (SELECT engagement_id FROM public.engagements WHERE status = 'active' LIMIT 10)
+  AND date_worked BETWEEN '2026-04-01' AND '2026-04-30';
+-- Expected plan: "Index Scan using idx_time_entries_engagement_date" or "Bitmap Index Scan on idx_time_entries_engagement_date"
+```
+
+```sql
+-- 3. Confirm Personal weekTimeEntries uses idx_time_entries_staff_date
+EXPLAIN ANALYZE
+SELECT * FROM public.time_entries
+WHERE staff_id = (SELECT staff_id FROM public.staff LIMIT 1)
+  AND date_worked BETWEEN '2026-04-01' AND '2026-04-30';
+-- Expected plan: "Index Scan using idx_time_entries_staff_date"
+```
+
+```sql
+-- 4. Confirm partial index used for pending count
+EXPLAIN ANALYZE
+SELECT COUNT(*) FROM public.timesheet_line_approvals WHERE status = 'pending';
+-- Expected plan: "Index Only Scan using idx_tla_pending_engagement" (or Bitmap variant on small data sets)
+```
+
+#### Acceptance Gates
+
+- ✅ All 7 indexes documented in this CHANGELOG match the SQL applied by Lovable
+- ✅ All 7 referenced columns verified to exist on the live tables (per `docs/database-schema.sql`):
+  - `time_entries`: `engagement_id`, `date_worked`, `staff_id`, `period_id`
+  - `engagements`: `partner_id`, `manager_id`, `status`
+  - `timesheet_line_approvals`: `engagement_id`, `period_id`, `status` (default `'pending'`)
+- ✅ All statements use `IF NOT EXISTS` (idempotent, safe to re-run)
+- ✅ No conflict with the 4 existing indexes on these tables (verified by name and column-set comparison)
+- ✅ No frontend code change in this PR
+- ✅ `npm run build` and full `npx vitest run` (562 passed) baseline unchanged from S-07b
+
+#### Rollback (if Lovable's apply fails or the migration causes issues)
+
+Apply this rollback as a follow-up migration:
+
+```sql
+DROP INDEX IF EXISTS public.idx_time_entries_engagement_date;
+DROP INDEX IF EXISTS public.idx_time_entries_staff_date;
+DROP INDEX IF EXISTS public.idx_time_entries_period_engagement;
+DROP INDEX IF EXISTS public.idx_engagements_partner_status;
+DROP INDEX IF EXISTS public.idx_engagements_manager_status;
+DROP INDEX IF EXISTS public.idx_tla_pending_engagement;
+DROP INDEX IF EXISTS public.idx_tla_engagement_period;
+```
+
+`DROP INDEX` is fast and acquires only a brief lock; safe to run during business hours.
+
+#### Lovable Plan Source
+
+The Lovable-prepared plan was reviewed and approved before any application. Approval flagged two minor doc imprecisions in Lovable's plan that did not affect the migration content:
+
+1. **Lock semantics:** Lovable's plan claimed "ACCESS EXCLUSIVE locks." Actual lock for non-`CONCURRENTLY` `CREATE INDEX` is `SHARE`. Practical impact identical (writes briefly blocked, reads proceed).
+2. **Verification commands:** Lovable's plan suggested `\d+ public.<table>` (psql meta-command). Won't work in Supabase web SQL Editor; equivalent `pg_indexes` query supplied in this CHANGELOG instead.
+
+#### Traceability
+
+- **Plan reference:** CODEX_PLAN_v5 step **S-08** — backend-only DB-index migration
+- **Branch (this docs entry):** `claude/performance-improvements-DeNVL`
+- **Branch (Lovable migration):** `main` (will need to be merged into `sruizmier-performance-v1` separately)
+- **Migration filename:** `supabase/migrations/20260425000000_dashboard_perf_indexes.sql` (per Lovable's approved plan)
+- **Implemented by:** Lovable Cloud via "Apply pending Supabase migrations" flow
+- **Reviewed and approved by:** Claude Code (this session)
+- **Commit (this docs entry):** _(filled in below after push)_
+- **PR (this docs entry):** _(filled in below after open)_
+
+<!-- S-09 → S-12 will be appended below as their PRs are produced. -->
