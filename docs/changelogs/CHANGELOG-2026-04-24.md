@@ -274,6 +274,6 @@ To confirm this changelog matches the codebase:
 - **Branch:** `claude/performance-improvements-DeNVL`
 - **Base:** `sruizmier-performance-v1`
 - **Commit:** `2514e2a` — `perf(s-02): bulk-fetch Practica partner leaderboard, split risk column`
-- **PR:** _(filled in after open)_
+- **PR:** #15 — `perf(s-02): bulk-fetch Practica partner leaderboard, split risk column`
 
 <!-- Subsequent steps (S-03 → S-12) will be appended below as their PRs are produced. -->
