@@ -1179,4 +1179,189 @@ git push origin sruizmier-performance-v1
 - **Commit:** `57d8452` — `perf(s-07a): add safeNumber + hasItems query helpers and adopt`
 - **PR:** #21 — `perf(s-07a): add safeNumber + hasItems query helpers and adopt`
 
-<!-- S-07b (abort-signal threading) and S-08 → S-12 will be appended below as their PRs are produced. -->
+---
+
+### S-07b — Thread abort signals through dashboard queryFns (Part 2)
+
+**Threads React Query's per-query `AbortSignal` through every Supabase call inside the four dashboard tabs' 18 useQuery queryFns. When a user changes the period selector, switches engagement, or navigates between tabs while requests are still in flight, the still-pending HTTP requests now actually get cancelled (server stops processing, network connection released) instead of completing and being silently discarded by React Query. Pure HTTP-cancellation wiring; no logic changes, no new files.**
+
+#### Scope
+- Frontend only — Part 2 of the split S-07
+- Four files edited (the four dashboard tab files); no new files, no new tests
+- No schema, RPC, edge function, dependency, or i18n change
+- Zero KPI drift on completed queries — `.abortSignal(signal)` only takes effect when React Query cancels mid-flight
+
+#### Why this matters
+
+React Query v5 already creates an `AbortController` per query and aborts when the query is cancelled (period change, tab switch, component unmount). **Without** `.abortSignal(signal)` chained on the Supabase query:
+
+- The cancellation is observed in JS state — React Query marks the query as cancelled
+- BUT the underlying `fetch()` is **not** cancelled — the HTTP request completes server-side and the response is silently dropped on the client
+
+**With** `.abortSignal(signal)`:
+
+- The `fetch()` itself is cancelled (Supabase passes the signal through to `fetch`)
+- Server-side processing stops as soon as the cancellation propagates
+- Network connection released
+- No wasted bandwidth, no wasted server CPU on results that will never be used
+
+The Supabase v2 `.abortSignal(signal): this` method is on `PostgrestTransformBuilder` — chainable freely with all other builder methods including `.single()`/`.maybeSingle()`. Verified in `node_modules/@supabase/postgrest-js/dist/cjs/PostgrestTransformBuilder.d.ts`.
+
+#### Files Changed
+
+##### `src/components/dashboard/tabs/PracticaTab.tsx` (3 queryFns, 11 Supabase calls)
+
+| queryFn | Supabase calls receiving `.abortSignal(signal)` |
+|---|---|
+| `practiceMetrics` | 5 — `engagements`, `work_order_summary`, `vw_wo_budget_hours_by_category`, `time_entries`, `timesheet_line_approvals` (count) |
+| `partnerLeaderboard` | 5 — `staff` (partners), `engagements` (rows), and 3 inside `Promise.all([...])` (`time_entries`, `work_order_summary`, `vw_wo_budget_hours_by_category`) |
+| `weeklyTrend` | 1 — `time_entries` |
+
+When the main signal aborts, all three parallel `Promise.all` requests are cancelled together.
+
+##### `src/components/dashboard/tabs/CarteraTab.tsx` (3 queryFns, 9 Supabase calls)
+
+| queryFn | Supabase calls receiving `.abortSignal(signal)` |
+|---|---|
+| `portfolio` | 4 — `engagements`, `work_order_summary`, `vw_wo_budget_hours_by_category`, `time_entries` |
+| `pendingApprovals` | 3 — `engagements` (myEngagements), `timesheet_line_approvals`, `time_entries` (bulk) |
+| `weeklyTrend` | 2 — `engagements`, `time_entries` |
+
+##### `src/components/dashboard/tabs/EncargoTab.tsx` (6 queryFns, 7 Supabase calls)
+
+| queryFn | Supabase calls receiving `.abortSignal(signal)` |
+|---|---|
+| `engagementData` | 1 — `engagements` (with nested joins, `.single()`) — placement: `.abortSignal(signal).single()` |
+| `budgetData` | 1 — `vw_budget_vs_actual_hours_by_category_activity` |
+| `woSummary` | 1 — `work_order_summary` (`.single()`) — placement: `.abortSignal(signal).single()` |
+| `categoryBudget` | 1 — `vw_wo_budget_hours_by_category` |
+| `actualByCategory` | 1 — `time_entries` (with nested staff/category joins) |
+| `hoursByStatus` | 2 — `time_entries`, `timesheet_line_approvals` |
+
+##### `src/components/dashboard/tabs/PersonalTab.tsx` (6 queryFns, 6 Supabase calls)
+
+| queryFn | Supabase calls receiving `.abortSignal(signal)` |
+|---|---|
+| `weekTimeEntries` | 1 — `time_entries` |
+| `weeklyTrend` | 1 — `time_entries` |
+| `monthHours` | 1 — `time_entries` |
+| `pendingApprovals` | 1 — `timesheet_line_approvals` (count, head: true) |
+| `engagementHours` | 1 — `time_entries` (with engagement nested join) |
+| `timesheetPeriod` | 1 — `timesheet_periods` (`.maybeSingle()`) — placement: `.abortSignal(signal).maybeSingle()` |
+
+#### Total
+
+- **18 queryFns** received the `{ signal }` parameter (verified by `grep -cE "queryFn: async \(\{ signal" src/components/dashboard/tabs/*.tsx`: 3+3+6+6=18)
+- **33 Supabase calls** received `.abortSignal(signal)` (verified by `grep -cE "\.abortSignal\(signal\)" src/components/dashboard/tabs/*.tsx`: 11+9+7+6=33)
+
+#### Implementation pattern
+
+**Standard chain (returns array):**
+```ts
+queryFn: async ({ signal }) => {
+  const { data } = await supabase
+    .from('...')
+    .select(...)
+    .eq(...)
+    .abortSignal(signal);
+  ...
+}
+```
+
+**With `.single()` / `.maybeSingle()`:**
+```ts
+const { data } = await supabase
+  .from('...')
+  .select(...)
+  .eq(...)
+  .abortSignal(signal)
+  .single();
+```
+
+**Inside `Promise.all([...])`** (e.g. `PracticaTab.tsx` `partnerLeaderboard`):
+```ts
+const [a, b, c] = await Promise.all([
+  supabase.from('...').select(...).abortSignal(signal),
+  supabase.from('...').select(...).abortSignal(signal),
+  supabase.from('...').select(...).abortSignal(signal),
+]);
+```
+
+#### Behavior Preservation Guarantees
+
+| Behavior | Drift |
+|---|---|
+| Successful query results | None — `.abortSignal(signal)` only takes effect when React Query cancels mid-flight; for completed queries, the HTTP request is unaffected |
+| Cancelled query handling | **Improved** — cancelled HTTP requests now actually cancel server-side; previously the response was silently dropped on the client after server-side completion |
+| Error handling | None — `.abortSignal(signal)` returns the same builder; cancellation surfaces as `AbortError`, which React Query already handles via the cancellation lifecycle |
+| KPI values, totals, sorts, displays | None |
+| Query keys, query enabled state, default options from S-01 | None |
+| Network request count for completed loads | None |
+| Network request count under rapid navigation | **Reduced** — the cancelled request is killed instead of going through to completion |
+
+#### Validation Strategy (used during implementation)
+
+Per the agreed cadence, each tab was edited individually with `npm run build` between each. Order: PracticaTab → CarteraTab → EncargoTab → PersonalTab. All four built clean after their respective edits. Catches any signature mismatch at the file level before propagating across files.
+
+#### Tests
+
+| Test command | Result |
+|---|---|
+| `npm run build` (TS — primary correctness gate for the threading mechanical change) | **Clean** after each tab; final clean in 13.95 s |
+| `npx vitest run` (full suite) | **562 passed, 1 skipped, 0 failed** across 62 files (unchanged from S-07a baseline; this PR adds no new tests) |
+
+No new tests added per agreement (rapid-navigation integration test deferred to S-12). The mechanism is provided by:
+- React Query v5 (well-tested upstream — passes `signal` to queryFn)
+- Supabase v2 `.abortSignal(signal)` (well-tested upstream — passes signal to underlying `fetch`)
+
+Our responsibility is wiring them together correctly. TypeScript catches any signature mismatch at build time.
+
+#### Acceptance Gates (all pass)
+
+- ✅ All 18 dashboard queryFns receive the `{ signal }` parameter
+- ✅ All 33 Supabase calls inside dashboard queryFns chain `.abortSignal(signal)`
+- ✅ All existing tests still pass (562 → 562)
+- ✅ `npm run build` clean
+- ✅ Zero KPI drift (this is purely HTTP-cancellation wiring; results returned by completed queries are unchanged)
+
+#### What is NOT Changed
+
+- Any pure helper file (`practicaLeaderboard.ts`, `weeklyHoursBucket.ts`, `pendingApprovalsAggregation.ts`, `encargoActualByCategory.ts`, `queryHelpers.ts`) — these don't make HTTP calls
+- React Query defaults from S-01 — unchanged
+- Query keys — unchanged
+- `enabled` gates — unchanged
+- Any other React component, hook, page, or route — unchanged
+- Database schema, RPCs, edge functions, migrations
+- Translations, theme, design tokens
+- Test infra, dependencies (no `package.json` change)
+
+#### Verification Checklist (for reviewer)
+
+To confirm this changelog matches the codebase:
+1. Run `git grep -cE "queryFn: async \(\{ signal" src/components/dashboard/tabs/` → should return 3 (Practica), 3 (Cartera), 6 (Encargo), 6 (Personal) = 18 total.
+2. Run `git grep -cE "\.abortSignal\(signal\)" src/components/dashboard/tabs/` → should return 11 (Practica), 9 (Cartera), 7 (Encargo), 6 (Personal) = 33 total.
+3. Run `npx vitest run` → 562 passed / 1 skipped / 0 failed.
+4. Run `npm run build` → clean compile.
+5. **Manual smoke test in DevTools:**
+   - Open the dashboard, switch the period selector several times rapidly while watching the Network tab
+   - Cancelled requests now show as "(canceled)" in the Status column instead of completing with a 200 response
+   - Same behavior expected when switching engagements rapidly in the Encargo tab
+
+#### Risk / Rollback
+
+- **Risk:** Low. Mechanical migration with TypeScript guardrails on every signature change. The riskiest piece (`.abortSignal(signal)` placement in chains with `.single()`/`.maybeSingle()`) was caught at build time during incremental implementation.
+- **Rollback:** Revert PR. Each tab reverts independently; signal threading is purely additive, no semantic changes.
+
+#### Lovable Preview Reindex
+
+This PR introduces **no new files** — all 4 edits modify existing tab files that Lovable's index already knows about. Reindex risk minimal. Standard runbook applies if needed (per `AGENTS.md`).
+
+#### Traceability
+
+- **Plan reference:** CODEX_PLAN_v5 step **S-07** (Part 2 of split S-07)
+- **Branch:** `claude/performance-improvements-DeNVL`
+- **Base:** `sruizmier-performance-v1`
+- **Commit:** `3c0fbe4` — `perf(s-07b): thread abort signals through dashboard queryFns`
+- **PR:** _(filled in after open)_
+
+<!-- S-08 → S-12 will be appended below as their PRs are produced. -->
