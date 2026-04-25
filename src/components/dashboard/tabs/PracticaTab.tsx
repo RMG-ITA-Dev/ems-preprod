@@ -18,16 +18,14 @@ import {
 import { cn } from "@/lib/utils";
 import { Sparkline, SparklineDataPoint } from "@/components/dashboard/Sparkline";
 import { startOfWeek, subWeeks, format } from 'date-fns';
-
-interface PartnerMetrics {
-  staffId: string;
-  name: string;
-  initials: string;
-  totalHours: number;
-  totalFees: number;
-  engagementCount: number;
-  atRiskCount: number;
-}
+import {
+  aggregatePartnerLeaderboard,
+  type PartnerMetrics,
+  type LeaderboardEngagementRow,
+  type LeaderboardTimeEntryRow,
+  type LeaderboardWorkOrderRow,
+  type LeaderboardBudgetRow,
+} from "./practicaLeaderboard";
 
 interface PracticeMetrics {
   totalActiveEngagements: number;
@@ -152,7 +150,6 @@ export function PracticaTab() {
   const { data: partnerLeaderboard, isLoading: leaderboardLoading } = useQuery({
     queryKey: ['partner-leaderboard', startDateStr, endDateStr],
     queryFn: async (): Promise<PartnerMetrics[]> => {
-      // Get partners (display_order <= 2)
       const { data: partners } = await supabase
         .from('staff')
         .select(`
@@ -168,89 +165,73 @@ export function PracticaTab() {
 
       if (!partners?.length) return [];
 
-      const partnerMetrics: PartnerMetrics[] = [];
+      const partnerIds = partners.map((p) => p.staff_id);
 
-      for (const partner of partners) {
-        // Get engagements where this partner is assigned
-        const { data: engagements } = await supabase
-          .from('engagements')
-          .select('engagement_id')
-          .eq('partner_id', partner.staff_id)
-          .eq('status', 'active');
+      const { data: engagementRows } = await supabase
+        .from('engagements')
+        .select('engagement_id, partner_id')
+        .in('partner_id', partnerIds)
+        .eq('status', 'active');
 
-        const engagementIds = engagements?.map(e => e.engagement_id) || [];
+      const engagements: LeaderboardEngagementRow[] = (engagementRows ?? [])
+        .filter((e): e is { engagement_id: string; partner_id: string } => !!e.partner_id)
+        .map((e) => ({ engagement_id: e.engagement_id, partner_id: e.partner_id }));
 
-        if (engagementIds.length === 0) {
-          partnerMetrics.push({
-            staffId: partner.staff_id,
-            name: partner.short_name || `${partner.first_name} ${partner.last_name}`,
-            initials: partner.initials || partner.first_name.charAt(0) + partner.last_name.charAt(0),
-            totalHours: 0,
-            totalFees: 0,
-            engagementCount: 0,
-            atRiskCount: 0,
-          });
-          continue;
-        }
+      const engagementIds = engagements.map((e) => e.engagement_id);
 
-        // Get hours for these engagements
-        const { data: timeData } = await supabase
+      // Empty-array guard: no active engagements means every partner row is zeroed.
+      if (engagementIds.length === 0) {
+        return aggregatePartnerLeaderboard({
+          partners,
+          engagements: [],
+          timeEntries: [],
+          workOrders: [],
+          budgets: [],
+        });
+      }
+
+      const [timeRes, woRes, budgetRes] = await Promise.all([
+        supabase
           .from('time_entries')
           .select('engagement_id, hours_logged')
           .in('engagement_id', engagementIds)
           .gte('date_worked', startDateStr)
-          .lte('date_worked', endDateStr);
-
-        // Get work order summaries for fees
-        const { data: woData } = await supabase
+          .lte('date_worked', endDateStr),
+        supabase
           .from('work_order_summary')
           .select('engagement_id, total_standard_fee, adjustment_amount')
-          .in('engagement_id', engagementIds);
-
-        // Get budget data for risk calculation
-        const { data: budgetData } = await supabase
+          .in('engagement_id', engagementIds),
+        supabase
           .from('vw_wo_budget_hours_by_category')
           .select('engagement_id, total_budget_hours')
-          .in('engagement_id', engagementIds);
+          .in('engagement_id', engagementIds),
+      ]);
 
-        const totalHours = timeData?.reduce((sum, te) => sum + Number(te.hours_logged || 0), 0) || 0;
-        const totalFees = woData?.reduce((sum, wo) => 
-          sum + Number(wo.total_standard_fee || 0) + Number(wo.adjustment_amount || 0), 0) || 0;
+      const timeEntries: LeaderboardTimeEntryRow[] = (timeRes.data ?? []).map((t) => ({
+        engagement_id: t.engagement_id,
+        hours_logged: t.hours_logged,
+      }));
+      const workOrders: LeaderboardWorkOrderRow[] = (woRes.data ?? [])
+        .filter((w): w is { engagement_id: string; total_standard_fee: number | null; adjustment_amount: number | null } => !!w.engagement_id)
+        .map((w) => ({
+          engagement_id: w.engagement_id,
+          total_standard_fee: w.total_standard_fee,
+          adjustment_amount: w.adjustment_amount,
+        }));
+      const budgets: LeaderboardBudgetRow[] = (budgetRes.data ?? [])
+        .filter((b): b is { engagement_id: string; total_budget_hours: number | null } => !!b.engagement_id)
+        .map((b) => ({
+          engagement_id: b.engagement_id,
+          total_budget_hours: b.total_budget_hours,
+        }));
 
-        // Calculate at-risk count
-        const budgetByEngagement = new Map<string, number>();
-        budgetData?.forEach(b => {
-          const current = budgetByEngagement.get(b.engagement_id!) || 0;
-          budgetByEngagement.set(b.engagement_id!, current + Number(b.total_budget_hours || 0));
-        });
-
-        const actualByEngagement = new Map<string, number>();
-        timeData?.forEach(te => {
-          const current = actualByEngagement.get(te.engagement_id) || 0;
-          actualByEngagement.set(te.engagement_id, current + Number(te.hours_logged || 0));
-        });
-
-        let atRiskCount = 0;
-        engagementIds.forEach(engId => {
-          const budget = budgetByEngagement.get(engId) || 0;
-          const actual = actualByEngagement.get(engId) || 0;
-          const consumption = budget > 0 ? (actual / budget) * 100 : 0;
-          if (consumption > 80) atRiskCount++;
-        });
-
-        partnerMetrics.push({
-          staffId: partner.staff_id,
-          name: partner.short_name || `${partner.first_name} ${partner.last_name}`,
-          initials: partner.initials || partner.first_name.charAt(0) + partner.last_name.charAt(0),
-          totalHours,
-          totalFees,
-          engagementCount: engagementIds.length,
-          atRiskCount,
-        });
-      }
-
-      // Sort by total fees descending
-      return partnerMetrics.sort((a, b) => b.totalFees - a.totalFees);
+      return aggregatePartnerLeaderboard({
+        partners,
+        engagements,
+        timeEntries,
+        workOrders,
+        budgets,
+      });
     },
   });
 
@@ -449,7 +430,8 @@ export function PracticaTab() {
                   <th className="text-right p-3 font-medium">{t('dashboard.practica.engagements')}</th>
                   <th className="text-right p-3 font-medium">{t('dashboard.encargo.actualHours')}</th>
                   <th className="text-right p-3 font-medium">{t('dashboard.cartera.totalFees')}</th>
-                  <th className="text-center p-3 font-medium">{t('dashboard.practica.risks')}</th>
+                  <th className="text-center p-3 font-medium">{t('dashboard.practica.atRisk')}</th>
+                  <th className="text-center p-3 font-medium">{t('dashboard.practica.overBudget')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -491,11 +473,22 @@ export function PracticaTab() {
                         </Badge>
                       )}
                     </td>
+                    <td className="p-3 text-center">
+                      {partner.overBudgetCount > 0 ? (
+                        <Badge variant="outline" className="bg-destructive/10 text-destructive border-destructive/30">
+                          {partner.overBudgetCount}
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="bg-success/10 text-success border-success/30">
+                          0
+                        </Badge>
+                      )}
+                    </td>
                   </tr>
                 ))}
                 {(!partnerLeaderboard || partnerLeaderboard.length === 0) && (
                   <tr>
-                    <td colSpan={6} className="p-6 text-center text-muted-foreground">
+                    <td colSpan={7} className="p-6 text-center text-muted-foreground">
                       {t('common.noData')}
                     </td>
                   </tr>
