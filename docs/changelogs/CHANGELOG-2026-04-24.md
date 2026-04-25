@@ -1177,6 +1177,6 @@ git push origin sruizmier-performance-v1
 - **Branch:** `claude/performance-improvements-DeNVL`
 - **Base:** `sruizmier-performance-v1`
 - **Commit:** `57d8452` — `perf(s-07a): add safeNumber + hasItems query helpers and adopt`
-- **PR:** _(filled in after open)_
+- **PR:** #21 — `perf(s-07a): add safeNumber + hasItems query helpers and adopt`
 
 <!-- S-07b (abort-signal threading) and S-08 → S-12 will be appended below as their PRs are produced. -->
