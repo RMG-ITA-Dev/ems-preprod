@@ -17,7 +17,12 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Sparkline, SparklineDataPoint } from "@/components/dashboard/Sparkline";
-import { startOfWeek, subWeeks, format } from 'date-fns';
+import { format } from 'date-fns';
+import {
+  bucketHoursByWeek,
+  getWeekRange,
+  getWeekStamp,
+} from "@/components/dashboard/weeklyHoursBucket";
 import {
   aggregatePartnerLeaderboard,
   type PartnerMetrics,
@@ -235,29 +240,20 @@ export function PracticaTab() {
     },
   });
 
-  // Fetch weekly hours trend for sparkline (last 8 weeks)
+  // Fetch weekly hours trend for sparkline (last 8 weeks, single range fetch)
   const { data: weeklyTrend } = useQuery({
-    queryKey: ['practica-weekly-trend'],
+    queryKey: ['practica-weekly-trend', getWeekStamp()],
     queryFn: async (): Promise<SparklineDataPoint[]> => {
-      const weeks: SparklineDataPoint[] = [];
       const today = new Date();
-      
-      for (let i = 7; i >= 0; i--) {
-        const weekStart = startOfWeek(subWeeks(today, i), { weekStartsOn: 1 });
-        const weekEnd = new Date(weekStart);
-        weekEnd.setDate(weekEnd.getDate() + 6);
-        
-        const { data } = await supabase
-          .from('time_entries')
-          .select('hours_logged')
-          .gte('date_worked', format(weekStart, 'yyyy-MM-dd'))
-          .lte('date_worked', format(weekEnd, 'yyyy-MM-dd'));
-        
-        const totalHours = data?.reduce((sum, e) => sum + Number(e.hours_logged), 0) || 0;
-        weeks.push({ value: totalHours });
-      }
-      
-      return weeks;
+      const { rangeStart, rangeEnd } = getWeekRange(today);
+
+      const { data } = await supabase
+        .from('time_entries')
+        .select('date_worked, hours_logged')
+        .gte('date_worked', format(rangeStart, 'yyyy-MM-dd'))
+        .lte('date_worked', format(rangeEnd, 'yyyy-MM-dd'));
+
+      return bucketHoursByWeek(data ?? [], today);
     },
   });
 

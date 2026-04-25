@@ -10,7 +10,12 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Progress } from '@/components/ui/progress';
 import { Briefcase, TrendingUp, AlertTriangle, Clock, DollarSign, Users } from 'lucide-react';
 import { Sparkline, SparklineDataPoint } from '@/components/dashboard/Sparkline';
-import { startOfWeek, subWeeks, format } from 'date-fns';
+import { format } from 'date-fns';
+import {
+  bucketHoursByWeek,
+  getWeekRange,
+  getWeekStamp,
+} from '@/components/dashboard/weeklyHoursBucket';
 import { parseDateLocal } from '@/lib/timesheetUtils';
 
 interface EngagementWithMetrics {
@@ -200,42 +205,38 @@ export function CarteraTab() {
     enabled: !!staffRecord?.staff_id,
   });
 
-  // Fetch weekly hours trend for sparkline (last 8 weeks)
+  // Fetch weekly hours trend for sparkline (last 8 weeks, single range fetch)
   const { data: weeklyTrend } = useQuery({
-    queryKey: ['cartera-weekly-trend', staffRecord?.staff_id],
+    queryKey: ['cartera-weekly-trend', staffRecord?.staff_id, getWeekStamp()],
     queryFn: async (): Promise<SparklineDataPoint[]> => {
       if (!staffRecord?.staff_id) return [];
-      
-      const weeks: SparklineDataPoint[] = [];
+
       const today = new Date();
-      
+
       // Get engagements where user is partner or manager
       const { data: engagements } = await supabase
         .from('engagements')
         .select('engagement_id')
         .or(`partner_id.eq.${staffRecord.staff_id},manager_id.eq.${staffRecord.staff_id}`)
         .eq('status', 'active');
-      
-      if (!engagements?.length) return [];
-      const engagementIds = engagements.map(e => e.engagement_id);
-      
-      for (let i = 7; i >= 0; i--) {
-        const weekStart = startOfWeek(subWeeks(today, i), { weekStartsOn: 1 });
-        const weekEnd = new Date(weekStart);
-        weekEnd.setDate(weekEnd.getDate() + 6);
-        
-        const { data } = await supabase
-          .from('time_entries')
-          .select('hours_logged')
-          .in('engagement_id', engagementIds)
-          .gte('date_worked', format(weekStart, 'yyyy-MM-dd'))
-          .lte('date_worked', format(weekEnd, 'yyyy-MM-dd'));
-        
-        const totalHours = data?.reduce((sum, e) => sum + Number(e.hours_logged), 0) || 0;
-        weeks.push({ value: totalHours });
+
+      const engagementIds = engagements?.map((e) => e.engagement_id) ?? [];
+
+      // Empty-array guard: skip the .in() round-trip; render flat 8-bucket sparkline.
+      if (engagementIds.length === 0) {
+        return bucketHoursByWeek([], today);
       }
-      
-      return weeks;
+
+      const { rangeStart, rangeEnd } = getWeekRange(today);
+
+      const { data } = await supabase
+        .from('time_entries')
+        .select('date_worked, hours_logged')
+        .in('engagement_id', engagementIds)
+        .gte('date_worked', format(rangeStart, 'yyyy-MM-dd'))
+        .lte('date_worked', format(rangeEnd, 'yyyy-MM-dd'));
+
+      return bucketHoursByWeek(data ?? [], today);
     },
     enabled: !!staffRecord?.staff_id,
   });
