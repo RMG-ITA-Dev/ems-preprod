@@ -44,7 +44,17 @@ const WorksheetNew = lazy(() => import("./pages/WorksheetNew"));
 const WorksheetEdit = lazy(() => import("./pages/WorksheetEdit"));
 const Bootstrap = lazy(() => import("./pages/Bootstrap"));
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 60_000,
+      gcTime: 300_000,
+      retry: 1,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
+    },
+  },
+});
 
 // Minimal loading fallback - matches app background
 const PageLoader = () => (
