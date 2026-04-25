@@ -9,7 +9,12 @@ import { Progress } from "@/components/ui/progress";
 import { Clock, Target, Calendar, CheckCircle2, AlertCircle, BarChart3 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { format, startOfWeek, endOfWeek, parseISO, differenceInDays, subWeeks, startOfMonth, endOfMonth } from "date-fns";
+import { format, startOfWeek, endOfWeek, parseISO, differenceInDays, startOfMonth, endOfMonth } from "date-fns";
+import {
+  bucketHoursByWeek,
+  getWeekRange,
+  getWeekStamp,
+} from "@/components/dashboard/weeklyHoursBucket";
 import { es, enUS } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Cell } from 'recharts';
@@ -52,29 +57,22 @@ export function PersonalTab() {
     enabled: !!staffRecord?.staff_id,
   });
 
-  // Fetch last 8 weeks trend for sparkline
+  // Fetch last 8 weeks trend for sparkline (single range fetch)
   const { data: weeklyTrend } = useQuery({
-    queryKey: ['personal-weekly-trend', staffRecord?.staff_id],
-    queryFn: async () => {
+    queryKey: ['personal-weekly-trend', staffRecord?.staff_id, getWeekStamp()],
+    queryFn: async (): Promise<SparklineDataPoint[]> => {
       if (!staffRecord?.staff_id) return [];
-      const weeks: SparklineDataPoint[] = [];
-      
-      for (let i = 7; i >= 0; i--) {
-        const ws = startOfWeek(subWeeks(today, i), { weekStartsOn: 1 });
-        const we = endOfWeek(subWeeks(today, i), { weekStartsOn: 1 });
-        
-        const { data } = await supabase
-          .from('time_entries')
-          .select('hours_logged')
-          .eq('staff_id', staffRecord.staff_id)
-          .gte('date_worked', format(ws, 'yyyy-MM-dd'))
-          .lte('date_worked', format(we, 'yyyy-MM-dd'));
-        
-        const total = data?.reduce((sum, e) => sum + Number(e.hours_logged), 0) || 0;
-        weeks.push({ value: total });
-      }
-      
-      return weeks;
+
+      const { rangeStart, rangeEnd } = getWeekRange(today);
+
+      const { data } = await supabase
+        .from('time_entries')
+        .select('date_worked, hours_logged')
+        .eq('staff_id', staffRecord.staff_id)
+        .gte('date_worked', format(rangeStart, 'yyyy-MM-dd'))
+        .lte('date_worked', format(rangeEnd, 'yyyy-MM-dd'));
+
+      return bucketHoursByWeek(data ?? [], today);
     },
     enabled: !!staffRecord?.staff_id,
   });
