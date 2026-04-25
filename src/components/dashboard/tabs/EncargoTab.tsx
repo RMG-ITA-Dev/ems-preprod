@@ -38,7 +38,7 @@ export function EncargoTab() {
   // Fetch engagement details with work order
   const { data: engagementData, isLoading: engagementLoading } = useQuery({
     queryKey: ['encargo-detail', selectedEngagementId],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!selectedEngagementId) return null;
 
       const { data, error } = await supabase
@@ -61,6 +61,7 @@ export function EncargoTab() {
           )
         `)
         .eq('engagement_id', selectedEngagementId)
+        .abortSignal(signal)
         .single();
 
       if (error) throw error;
@@ -72,7 +73,7 @@ export function EncargoTab() {
   // Fetch budget vs actual from the view
   const { data: budgetData, isLoading: budgetLoading } = useQuery({
     queryKey: ['encargo-budget', selectedEngagementId],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!selectedEngagementId) return null;
 
       const { data, error } = await supabase
@@ -80,7 +81,8 @@ export function EncargoTab() {
         .select('activity_id, activity_code, activity_description, actual_hours, budget_hours, category_display_order')
         .eq('engagement_id', selectedEngagementId)
         .order('category_display_order')
-        .order('activity_code');
+        .order('activity_code')
+        .abortSignal(signal);
 
       if (error) throw error;
       return data || [];
@@ -91,13 +93,14 @@ export function EncargoTab() {
   // Fetch work order summary for financial data
   const { data: woSummary, isLoading: woLoading } = useQuery({
     queryKey: ['encargo-wo-summary', selectedEngagementId],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!selectedEngagementId) return null;
 
       const { data, error } = await supabase
         .from('work_order_summary')
         .select('fee_with_tax_gross_up, total_standard_fee, realization_percent')
         .eq('engagement_id', selectedEngagementId)
+        .abortSignal(signal)
         .single();
 
       if (error && error.code !== 'PGRST116') throw error;
@@ -109,14 +112,15 @@ export function EncargoTab() {
   // Fetch budget lines for category totals
   const { data: categoryBudget, isLoading: categoryLoading } = useQuery({
     queryKey: ['encargo-category-budget', selectedEngagementId],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!selectedEngagementId) return [];
 
       const { data, error } = await supabase
         .from('vw_wo_budget_hours_by_category')
         .select('category_id, category_name, total_budget_hours, category_display_order')
         .eq('engagement_id', selectedEngagementId)
-        .order('category_display_order');
+        .order('category_display_order')
+        .abortSignal(signal);
 
       if (error) throw error;
       return data || [];
@@ -129,7 +133,7 @@ export function EncargoTab() {
   // Fetch actual hours by category (period-filtered, aggregated in JS).
   const { data: actualByCategory, isLoading: actualLoading } = useQuery({
     queryKey: ['encargo-actual-category', selectedEngagementId, startDateStr, endDateStr],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!selectedEngagementId) return [];
 
       const { data, error } = await supabase
@@ -143,7 +147,8 @@ export function EncargoTab() {
         .eq('engagement_id', selectedEngagementId)
         .eq('is_forecast', false)
         .gte('date_worked', startDateStr)
-        .lte('date_worked', endDateStr);
+        .lte('date_worked', endDateStr)
+        .abortSignal(signal);
 
       if (error) throw error;
 
@@ -157,7 +162,7 @@ export function EncargoTab() {
   // BUG #35: Fetch hours by approval status using direct query
   const { data: hoursByStatus, isLoading: statusLoading } = useQuery({
     queryKey: ['encargo-hours-by-status', selectedEngagementId],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!selectedEngagementId) return { approved: 0, pending: 0 };
 
       // Get time entries with their approval status
@@ -168,14 +173,15 @@ export function EncargoTab() {
           period_id
         `)
         .eq('engagement_id', selectedEngagementId)
-        .eq('is_forecast', false);
+        .eq('is_forecast', false)
+        .abortSignal(signal);
 
       if (entriesError) throw entriesError;
       if (!hasItems(entries)) return { approved: 0, pending: 0 };
 
       // Get unique period IDs
       const periodIds = [...new Set(entries.filter(e => e.period_id).map(e => e.period_id!))] as string[];
-      
+
       if (!hasItems(periodIds)) {
         // No periods = all pending
         const totalHours = entries.reduce((sum, e) => sum + safeNumber(e.hours_logged), 0);
@@ -187,7 +193,8 @@ export function EncargoTab() {
         .from('timesheet_line_approvals')
         .select('period_id, status')
         .eq('engagement_id', selectedEngagementId)
-        .in('period_id', periodIds);
+        .in('period_id', periodIds)
+        .abortSignal(signal);
 
       if (approvalsError) throw approvalsError;
 

@@ -57,7 +57,7 @@ export function PracticaTab() {
   // Fetch practice-wide metrics
   const { data: practiceMetrics, isLoading: metricsLoading } = useQuery({
     queryKey: ['practice-metrics', startDateStr, endDateStr],
-    queryFn: async (): Promise<PracticeMetrics> => {
+    queryFn: async ({ signal }): Promise<PracticeMetrics> => {
       // Get all active engagements with work orders
       const { data: engagements } = await supabase
         .from('engagements')
@@ -65,7 +65,8 @@ export function PracticaTab() {
           engagement_id,
           status
         `)
-        .eq('status', 'active');
+        .eq('status', 'active')
+        .abortSignal(signal);
 
       const engagementIds = engagements?.map(e => e.engagement_id) || [];
 
@@ -73,13 +74,15 @@ export function PracticaTab() {
       const { data: woSummaries } = await supabase
         .from('work_order_summary')
         .select('total_standard_fee, adjustment_amount')
-        .in('engagement_id', engagementIds);
+        .in('engagement_id', engagementIds)
+        .abortSignal(signal);
 
       // Get budget hours by engagement
       const { data: budgetData } = await supabase
         .from('vw_wo_budget_hours_by_category')
         .select('engagement_id, total_budget_hours')
-        .in('engagement_id', engagementIds);
+        .in('engagement_id', engagementIds)
+        .abortSignal(signal);
 
       // Get actual hours in period
       const { data: timeEntries } = await supabase
@@ -87,13 +90,15 @@ export function PracticaTab() {
         .select('engagement_id, hours_logged')
         .in('engagement_id', engagementIds)
         .gte('date_worked', startDateStr)
-        .lte('date_worked', endDateStr);
+        .lte('date_worked', endDateStr)
+        .abortSignal(signal);
 
       // Get pending approvals count
       const { count: pendingCount } = await supabase
         .from('timesheet_line_approvals')
         .select('*', { count: 'exact', head: true })
-        .eq('status', 'pending');
+        .eq('status', 'pending')
+        .abortSignal(signal);
 
       // Aggregate budget hours by engagement
       const budgetByEngagement = new Map<string, number>();
@@ -155,7 +160,7 @@ export function PracticaTab() {
   // Fetch partner leaderboard
   const { data: partnerLeaderboard, isLoading: leaderboardLoading } = useQuery({
     queryKey: ['partner-leaderboard', startDateStr, endDateStr],
-    queryFn: async (): Promise<PartnerMetrics[]> => {
+    queryFn: async ({ signal }): Promise<PartnerMetrics[]> => {
       const { data: partners } = await supabase
         .from('staff')
         .select(`
@@ -167,7 +172,8 @@ export function PracticaTab() {
           category:categories!inner(display_order)
         `)
         .lte('categories.display_order', 2)
-        .eq('is_active', true);
+        .eq('is_active', true)
+        .abortSignal(signal);
 
       if (!hasItems(partners)) return [];
 
@@ -177,7 +183,8 @@ export function PracticaTab() {
         .from('engagements')
         .select('engagement_id, partner_id')
         .in('partner_id', partnerIds)
-        .eq('status', 'active');
+        .eq('status', 'active')
+        .abortSignal(signal);
 
       const engagements: LeaderboardEngagementRow[] = (engagementRows ?? [])
         .filter((e): e is { engagement_id: string; partner_id: string } => !!e.partner_id)
@@ -202,15 +209,18 @@ export function PracticaTab() {
           .select('engagement_id, hours_logged')
           .in('engagement_id', engagementIds)
           .gte('date_worked', startDateStr)
-          .lte('date_worked', endDateStr),
+          .lte('date_worked', endDateStr)
+          .abortSignal(signal),
         supabase
           .from('work_order_summary')
           .select('engagement_id, total_standard_fee, adjustment_amount')
-          .in('engagement_id', engagementIds),
+          .in('engagement_id', engagementIds)
+          .abortSignal(signal),
         supabase
           .from('vw_wo_budget_hours_by_category')
           .select('engagement_id, total_budget_hours')
-          .in('engagement_id', engagementIds),
+          .in('engagement_id', engagementIds)
+          .abortSignal(signal),
       ]);
 
       const timeEntries: LeaderboardTimeEntryRow[] = (timeRes.data ?? []).map((t) => ({
@@ -244,7 +254,7 @@ export function PracticaTab() {
   // Fetch weekly hours trend for sparkline (last 8 weeks, single range fetch)
   const { data: weeklyTrend } = useQuery({
     queryKey: ['practica-weekly-trend', getWeekStamp()],
-    queryFn: async (): Promise<SparklineDataPoint[]> => {
+    queryFn: async ({ signal }): Promise<SparklineDataPoint[]> => {
       const today = new Date();
       const { rangeStart, rangeEnd } = getWeekRange(today);
 
@@ -252,7 +262,8 @@ export function PracticaTab() {
         .from('time_entries')
         .select('date_worked, hours_logged')
         .gte('date_worked', format(rangeStart, 'yyyy-MM-dd'))
-        .lte('date_worked', format(rangeEnd, 'yyyy-MM-dd'));
+        .lte('date_worked', format(rangeEnd, 'yyyy-MM-dd'))
+        .abortSignal(signal);
 
       return bucketHoursByWeek(data ?? [], today);
     },

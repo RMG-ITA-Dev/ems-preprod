@@ -56,7 +56,7 @@ export function CarteraTab() {
   // Fetch portfolio engagements where user is partner or manager
   const { data: portfolio, isLoading: loadingPortfolio } = useQuery({
     queryKey: ['portfolio-engagements', staffRecord?.staff_id, startDateStr, endDateStr],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!staffRecord?.staff_id) return [];
 
       // Get engagements where user is partner or manager
@@ -70,7 +70,8 @@ export function CarteraTab() {
           client:clients(client_legal_name)
         `)
         .or(`partner_id.eq.${staffRecord.staff_id},manager_id.eq.${staffRecord.staff_id}`)
-        .eq('status', 'active');
+        .eq('status', 'active')
+        .abortSignal(signal);
 
       if (engError) throw engError;
       if (!hasItems(engagements)) return [];
@@ -81,13 +82,15 @@ export function CarteraTab() {
       const { data: workOrders } = await supabase
         .from('work_order_summary')
         .select('engagement_id, total_standard_fee, realization_percent')
-        .in('engagement_id', engagementIds);
+        .in('engagement_id', engagementIds)
+        .abortSignal(signal);
 
       // Get budget hours by category
       const { data: budgetData } = await supabase
         .from('vw_wo_budget_hours_by_category')
         .select('engagement_id, total_budget_hours')
-        .in('engagement_id', engagementIds);
+        .in('engagement_id', engagementIds)
+        .abortSignal(signal);
 
       // Get actual hours from time_entries in period
       const { data: actualData } = await supabase
@@ -95,7 +98,8 @@ export function CarteraTab() {
         .select('engagement_id, hours_logged')
         .in('engagement_id', engagementIds)
         .gte('date_worked', startDateStr)
-        .lte('date_worked', endDateStr);
+        .lte('date_worked', endDateStr)
+        .abortSignal(signal);
 
       // Aggregate data
       const budgetByEngagement = new Map<string, number>();
@@ -146,14 +150,15 @@ export function CarteraTab() {
   // Fetch pending approvals for this manager
   const { data: pendingApprovals, isLoading: loadingApprovals } = useQuery({
     queryKey: ['pending-approvals', staffRecord?.staff_id],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!staffRecord?.staff_id) return [];
 
       // Get engagements where user is manager/partner
       const { data: myEngagements } = await supabase
         .from('engagements')
         .select('engagement_id, engagement_code, engagement_name')
-        .or(`partner_id.eq.${staffRecord.staff_id},manager_id.eq.${staffRecord.staff_id}`);
+        .or(`partner_id.eq.${staffRecord.staff_id},manager_id.eq.${staffRecord.staff_id}`)
+        .abortSignal(signal);
 
       if (!hasItems(myEngagements)) return [];
 
@@ -173,7 +178,8 @@ export function CarteraTab() {
           )
         `)
         .in('engagement_id', engagementIds)
-        .eq('status', 'pending');
+        .eq('status', 'pending')
+        .abortSignal(signal);
 
       if (!hasItems(approvals)) return [];
 
@@ -187,7 +193,8 @@ export function CarteraTab() {
         .from('time_entries')
         .select('period_id, engagement_id, hours_logged')
         .in('period_id', periodIds)
-        .in('engagement_id', approvalEngagementIds);
+        .in('engagement_id', approvalEngagementIds)
+        .abortSignal(signal);
 
       const hoursByPair = aggregateHoursByPeriodAndEngagement(entries ?? []);
 
@@ -218,7 +225,7 @@ export function CarteraTab() {
   // Fetch weekly hours trend for sparkline (last 8 weeks, single range fetch)
   const { data: weeklyTrend } = useQuery({
     queryKey: ['cartera-weekly-trend', staffRecord?.staff_id, getWeekStamp()],
-    queryFn: async (): Promise<SparklineDataPoint[]> => {
+    queryFn: async ({ signal }): Promise<SparklineDataPoint[]> => {
       if (!staffRecord?.staff_id) return [];
 
       const today = new Date();
@@ -228,7 +235,8 @@ export function CarteraTab() {
         .from('engagements')
         .select('engagement_id')
         .or(`partner_id.eq.${staffRecord.staff_id},manager_id.eq.${staffRecord.staff_id}`)
-        .eq('status', 'active');
+        .eq('status', 'active')
+        .abortSignal(signal);
 
       const engagementIds = engagements?.map((e) => e.engagement_id) ?? [];
 
@@ -244,7 +252,8 @@ export function CarteraTab() {
         .select('date_worked, hours_logged')
         .in('engagement_id', engagementIds)
         .gte('date_worked', format(rangeStart, 'yyyy-MM-dd'))
-        .lte('date_worked', format(rangeEnd, 'yyyy-MM-dd'));
+        .lte('date_worked', format(rangeEnd, 'yyyy-MM-dd'))
+        .abortSignal(signal);
 
       return bucketHoursByWeek(data ?? [], today);
     },
