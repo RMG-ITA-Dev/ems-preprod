@@ -709,4 +709,167 @@ git push origin sruizmier-performance-v1
 - **Commit:** `c463f4a` — `perf(s-04): bulk-fetch Cartera pending-approvals hours, remove N+1`
 - **PR:** #18 — `perf(s-04): bulk-fetch Cartera pending-approvals hours, remove N+1`
 
-<!-- Subsequent steps (S-05 → S-12) will be appended below as their PRs are produced. -->
+---
+
+### S-05 — Fix `Encargo` period-key/query mismatch (correctness bug)
+
+**Fixes a silent correctness bug in `EncargoTab`'s "Actual Hours by Category" panel: the query key included `startDateStr` and `endDateStr` (so React Query refetched on period change), but the query body filtered only by `engagement_id` (no date filter), so each refetch returned identical all-time totals. Users saw all-time totals while believing they had selected a specific period. Replaces the date-blind view query with a direct `time_entries` query that actually filters by date, aggregates in JS through a new pure helper, and adds a code-level invariant comment to prevent recurrence.**
+
+#### Scope
+- Frontend only (no backend migration in this PR; `vw_actual_hours_by_category_activity` view kept untouched and may be revisited in S-09)
+- Three files touched: one refactored, two new
+- No schema, RPC, edge function, dependency, i18n key, or react-query default change
+- **One intentional, documented behavior change:** the displayed totals now reflect the selected period (this is the bug fix)
+
+#### Files Changed
+
+##### NEW `src/components/dashboard/encargoActualByCategory.ts` (52 lines)
+
+- **Created** a pure aggregation module exporting:
+  - `interface ActualHoursTimeEntryRow` — DTO matching the Supabase nested-select shape (`hours_logged`, `staff.category.{category_id, category_name, display_order}`)
+  - `interface ActualHoursByCategoryRow` — output DTO (`category_id, category_name, actual_hours, display_order`)
+  - `aggregateActualHoursByCategory(rows): ActualHoursByCategoryRow[]`
+- **Behavior:**
+  - Drops rows whose `staff` or `staff.category` is null (defensive — `!inner` join in the query already filters these server-side)
+  - Coerces `Number(hours_logged)` and guards with `Number.isFinite` to handle `null`, `NaN`, `Infinity`
+  - Defaults missing `category_name` to `''` (matches prior line 142 behavior)
+  - Defaults missing `display_order` to `99` (matches prior line 144 behavior)
+  - Sorts ascending by `display_order` (matches prior line 150 behavior)
+- **Imports:** none. **Zero imports from React, `@tanstack/react-query`, `@/integrations/supabase/client`, or `date-fns`.** Fully framework-free.
+
+##### NEW `src/components/dashboard/__tests__/encargoActualByCategory.test.ts` (7 unit tests)
+
+- **Created** unit tests using hand-crafted fixtures (no Supabase, no mocks):
+  1. Empty rows → `[]`
+  2. Single row → one category with the value
+  3. Multiple rows same category → summed (3 + 4.5 + 0.5 = 8)
+  4. Multiple categories → sorted ascending by `display_order` (verified via 3-category fixture with shuffled input order)
+  5. `null`/`NaN` `hours_logged` → coerce to 0
+  6. Rows with `staff = null` OR `staff.category = null` → dropped
+  7. Missing `display_order` defaults to 99 and missing `category_name` defaults to `''`
+- **Result:** 7/7 passing in 6 ms
+
+##### `src/components/dashboard/tabs/EncargoTab.tsx`
+
+###### Imports (top of file)
+- **Added** `import { aggregateActualHoursByCategory, type ActualHoursTimeEntryRow } from "@/components/dashboard/encargoActualByCategory"`
+
+###### `actualByCategory` queryFn (formerly lines 122–153)
+- **Added** an `INVARIANT` comment immediately above the queryFn:
+  ```ts
+  // INVARIANT: every queryKey parameter must affect the query body. Do not add date params
+  // to the key without filtering on them — see CHANGELOG S-05 for the bug this prevents.
+  ```
+- **Removed** the date-blind view query:
+  ```ts
+  supabase
+    .from('vw_actual_hours_by_category_activity')
+    .select('*')
+    .eq('engagement_id', selectedEngagementId)
+  ```
+- **Removed** the inline `categoryMap` aggregation (lines 136–148 in the prior file)
+- **Added** a direct `time_entries` query that actually respects the period:
+  ```ts
+  supabase
+    .from('time_entries')
+    .select(`
+      hours_logged,
+      staff:staff!inner(
+        category:categories!inner(category_id, category_name, display_order)
+      )
+    `)
+    .eq('engagement_id', selectedEngagementId)
+    .eq('is_forecast', false)
+    .gte('date_worked', startDateStr)
+    .lte('date_worked', endDateStr)
+  ```
+- **Added** `return aggregateActualHoursByCategory((data ?? []) as unknown as ActualHoursTimeEntryRow[])`
+
+###### Notes on the new query
+- `is_forecast = false` filter explicitly preserved — the prior view (`docs/database-schema.sql:381`) had this in its WHERE clause; the new direct query replicates it to prevent forecast hours from being counted as actuals
+- `staff:staff!inner(...)` and `category:categories!inner(...)` use Supabase's `!inner` join syntax (matches the `!inner` pattern already used at `PracticaTab.tsx:166`) so the result type is non-nullable and rows with missing staff/category are dropped server-side
+- Wildcard `select('*')` was removed; the new select is explicit-column
+
+#### Behavior Preservation Guarantees
+
+| Output | Drift |
+|---|---|
+| Output array shape (`category_id, category_name, actual_hours, display_order`) | None — exactly matches prior shape |
+| Sort order (ascending `display_order`) | None |
+| Default `display_order = 99` for missing | None |
+| Default `category_name = ''` for missing | None |
+| `is_forecast = false` filter | None — preserved (was implicit in the view's WHERE clause) |
+| **`actual_hours` totals** | **Now period-filtered.** Previously: all-time sum across the engagement's entire history. Now: sum for `[startDateStr, endDateStr]`. **This is the bug fix.** Reviewer must visually confirm new totals are sensible: they should be ≤ the prior all-time totals, equal only when the selected period covers all the engagement's history. |
+| Other Encargo queries (`engagementData`, `budgetData`, `woSummary`, `categoryBudget`, `hoursByStatus`) | None — untouched |
+
+#### Performance / Trade-off Note
+
+The new query fetches one row per `(staff_id, activity_id, date_worked)` for the engagement in the selected period — vs. the prior view's pre-aggregated rows per `(category, activity)` pair. For typical period sizes (e.g., 28 days × 10 staff × 5 activities ≈ ~1400 rows worst case, often far less), this is acceptable: aggregation is JS-side O(N) on a tiny set and network transfer is bounded by the period. If scale becomes an issue on long periods or high-volume engagements, S-09 (backend contract) is the natural place to introduce a date-aware pre-aggregated view or RPC.
+
+#### Tests
+
+| Test command | Result |
+|---|---|
+| `npx vitest run src/components/dashboard/__tests__/encargoActualByCategory.test.ts` | **7/7 passed** (6 ms) |
+| `npx vitest run` (full suite) | **548 passed, 1 skipped, 0 failed** across 61 files (was 541; +7 new = 548) |
+| `npm run build` | TypeScript compile clean, Vite build succeeds in 15.79 s |
+
+#### Acceptance Gates (all pass)
+
+- ✅ All existing tests still pass (541 → 548 with the 7 new aggregation tests)
+- ✅ Query body now respects `startDateStr` and `endDateStr`
+- ✅ Output shape (`category_id, category_name, actual_hours, display_order`) unchanged
+- ✅ `is_forecast = false` filter preserved
+- ✅ Pure helper has zero React/Supabase imports
+- ✅ Invariant comment added above the queryFn
+- ✅ No new wildcard `select('*')` introduced; the new query is explicit-column
+- ✅ Build / TS compile clean
+
+#### What is NOT Changed
+
+- The `vw_actual_hours_by_category_activity` view itself — left untouched (consumer simply switched away from it; the view may still be used by other consumers)
+- Other Encargo queries (`engagementData`, `budgetData`, `woSummary`, `categoryBudget`, `hoursByStatus`) — untouched
+- Practica, Cartera, Personal tabs — untouched
+- React Query defaults from S-01 — unchanged
+- Pure helpers from S-02, S-03, S-04 — unchanged
+- Database schema, RPCs, edge functions, migrations
+- Translations, theme, design tokens
+- Test infra, dependencies (no `package.json` change)
+
+#### Verification Checklist (for reviewer)
+
+To confirm this changelog matches the codebase:
+1. Confirm `src/components/dashboard/encargoActualByCategory.ts` exists, exports `aggregateActualHoursByCategory` and the two interfaces, and contains **zero** import statements (the file is dependency-free at runtime).
+2. Confirm `src/components/dashboard/__tests__/encargoActualByCategory.test.ts` exists with 7 tests; run `npx vitest run src/components/dashboard/__tests__/encargoActualByCategory.test.ts` → 7/7 pass.
+3. Open `src/components/dashboard/tabs/EncargoTab.tsx`, locate the `actualByCategory` `useQuery` block, and confirm:
+   - The `INVARIANT` comment is present immediately above the `useQuery` call
+   - The query body uses `time_entries` (not `vw_actual_hours_by_category_activity`)
+   - The query has `.eq('is_forecast', false)`, `.gte('date_worked', startDateStr)`, and `.lte('date_worked', endDateStr)`
+   - The function ends with `return aggregateActualHoursByCategory(...)`
+4. Run `git grep -n "vw_actual_hours_by_category_activity" src/` → should return **no matches** (the view is no longer referenced from the frontend).
+5. Run `npx vitest run` → 548 passed / 1 skipped / 0 failed.
+6. Run `npm run build` → clean compile.
+7. **Visual smoke test:** open the Encargo tab in the running app, select an engagement, and change the period selector. The "Actual Hours by Category" panel totals should now change with the period (they would have been static before this PR).
+
+#### Risk / Rollback
+
+- **Risk:** Low-medium. This is a correctness fix, not a refactor. The displayed values **will change** for any user with a non-empty period filter (which is virtually all users). Reviewer should visually confirm the new totals are sensible (smaller than or equal to the prior all-time totals).
+- **Rollback:** Revert this PR. The two new files deletable; queryFn returns to the view-based all-time form. **Note: rolling back restores the bug** — users will once again see all-time totals while believing they've selected a period.
+
+#### Lovable Preview Reindex
+
+This PR introduces **two new files** under `src/components/dashboard/`. Per the runbook in `AGENTS.md` (added by PR #16): if after merge the Lovable preview shows 404 on `/_sandbox/dev-server`, run:
+```bash
+git commit --allow-empty -m "chore: trigger Lovable preview rebuild"
+git push origin sruizmier-performance-v1
+```
+
+#### Traceability
+
+- **Plan reference:** CODEX_PLAN_v5 step **S-05** + decisions: period-sensitive over all-time (matches plan recommendation and tab convention); helper at `src/components/dashboard/encargoActualByCategory.ts` (matches S-03/S-04 location convention); per-row-shape trade-off accepted (S-09 may re-introduce a pre-aggregated date-aware view if scale demands it)
+- **Branch:** `claude/performance-improvements-DeNVL`
+- **Base:** `sruizmier-performance-v1`
+- **Commit:** `dea1d98` — `perf(s-05): fix Encargo period-key/query mismatch (correctness bug)`
+- **PR:** #19 — `perf(s-05): fix Encargo period-key/query mismatch (correctness bug)`
+
+<!-- Subsequent steps (S-06 → S-12) will be appended below as their PRs are produced. -->

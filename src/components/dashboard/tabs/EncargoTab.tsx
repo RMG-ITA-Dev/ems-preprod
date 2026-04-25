@@ -24,6 +24,10 @@ import {
   FolderKanban
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  aggregateActualHoursByCategory,
+  type ActualHoursTimeEntryRow,
+} from "@/components/dashboard/encargoActualByCategory";
 
 export function EncargoTab() {
   const { t, i18n } = useTranslation();
@@ -119,35 +123,32 @@ export function EncargoTab() {
     enabled: !!selectedEngagementId,
   });
 
-  // Fetch actual hours by category (aggregate from time_entries)
+  // INVARIANT: every queryKey parameter must affect the query body. Do not add date params
+  // to the key without filtering on them — see CHANGELOG S-05 for the bug this prevents.
+  // Fetch actual hours by category (period-filtered, aggregated in JS).
   const { data: actualByCategory, isLoading: actualLoading } = useQuery({
     queryKey: ['encargo-actual-category', selectedEngagementId, startDateStr, endDateStr],
     queryFn: async () => {
       if (!selectedEngagementId) return [];
 
       const { data, error } = await supabase
-        .from('vw_actual_hours_by_category_activity')
-        .select('*')
-        .eq('engagement_id', selectedEngagementId);
+        .from('time_entries')
+        .select(`
+          hours_logged,
+          staff:staff!inner(
+            category:categories!inner(category_id, category_name, display_order)
+          )
+        `)
+        .eq('engagement_id', selectedEngagementId)
+        .eq('is_forecast', false)
+        .gte('date_worked', startDateStr)
+        .lte('date_worked', endDateStr);
 
       if (error) throw error;
 
-      // Aggregate by category
-      const categoryMap = new Map<string, { category_id: string; category_name: string; actual_hours: number; display_order: number }>();
-      data?.forEach(row => {
-        const key = row.category_id!;
-        if (!categoryMap.has(key)) {
-          categoryMap.set(key, {
-            category_id: key,
-            category_name: row.category_name || '',
-            actual_hours: 0,
-            display_order: row.category_display_order || 99
-          });
-        }
-        categoryMap.get(key)!.actual_hours += Number(row.actual_hours || 0);
-      });
-
-      return Array.from(categoryMap.values()).sort((a, b) => a.display_order - b.display_order);
+      return aggregateActualHoursByCategory(
+        (data ?? []) as unknown as ActualHoursTimeEntryRow[],
+      );
     },
     enabled: !!selectedEngagementId,
   });
