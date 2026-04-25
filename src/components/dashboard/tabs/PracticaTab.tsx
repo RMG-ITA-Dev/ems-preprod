@@ -71,7 +71,7 @@ export function PracticaTab() {
       // Get work order summaries
       const { data: woSummaries } = await supabase
         .from('work_order_summary')
-        .select('*')
+        .select('total_standard_fee, adjustment_amount')
         .in('engagement_id', engagementIds);
 
       // Get budget hours by engagement
