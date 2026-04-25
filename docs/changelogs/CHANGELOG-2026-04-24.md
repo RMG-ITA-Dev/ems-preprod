@@ -384,4 +384,174 @@ If the preview fails after any of these merges, the operator runs the documented
 - **Commits:** `8f4cc5f` (AGENTS.md runbook) · `b55149e` (this CHANGELOG entry)
 - **PR:** #16 — `docs(s-01+s-02): Lovable preview reindex runbook (Complement)`
 
-<!-- Subsequent steps (S-03 → S-12) will be appended below as their PRs are produced. -->
+---
+
+### S-03 — Collapse 8-week sparkline query loops into single-range fetch
+
+**Replaces three identical per-week query loops (one per dashboard tab) with a single date-range fetch + in-memory bucketing. Drops total dashboard sparkline round-trips from 24 sequential requests to 4. Aggregation lives in a new pure helper file (`weeklyHoursBucket.ts`) with zero React/Supabase imports and a 9-case unit test suite. One small intentional UI change in Cartera: when a user has no portfolio engagements, the sparkline now renders as a flat-line-at-0 (8 zero buckets) instead of being hidden; this aligns Cartera with the always-8-buckets behavior already present in Practica and Personal.**
+
+#### Scope
+- Frontend only
+- Five files touched: three refactored, two new
+- No schema, RPC, edge function, dependency, i18n key, or react-query default change
+- One intentional, documented UI change (Cartera empty-portfolio sparkline — approved as Option C-equivalent before implementation)
+
+#### Files Changed
+
+##### NEW `src/components/dashboard/weeklyHoursBucket.ts` (49 lines)
+
+- **Created** a pure helper module exporting:
+  - `interface HoursRow { date_worked: string; hours_logged: number | null; }`
+  - `getWeekRange(referenceDate?: Date): { rangeStart: Date; rangeEnd: Date }` — returns Monday-aligned start of the 8-week window and Sunday-aligned end of the current week
+  - `getWeekStamp(referenceDate?: Date): string` — returns the current Monday formatted as `yyyy-MM-dd`, used as a query-key cache invalidator
+  - `bucketHoursByWeek(rows: HoursRow[], referenceDate?: Date): SparklineDataPoint[]` — returns exactly 8 ordered buckets (oldest → newest)
+- **Behavior of `bucketHoursByWeek`:**
+  - Builds 8 Monday-aligned week-start keys from the reference date
+  - Initializes a `Map<weekKey, 0>` so missing weeks remain at 0
+  - For each row: skips empty `date_worked`, parses with `parseISO` (avoids timezone drift), guards against invalid dates with `Number.isNaN(date.getTime())`, computes the week-start key, and only sums into known buckets (out-of-range rows are dropped defensively)
+  - Coerces `Number(hours_logged)` and guards with `Number.isFinite` to handle `null`, `NaN`, or non-finite values
+- **Imports:** only `date-fns` (`format`, `parseISO`, `startOfWeek`, `endOfWeek`, `subWeeks`) and a **type-only** import of `SparklineDataPoint` from `./Sparkline` (erased at compile time)
+- **Zero imports from React, `@tanstack/react-query`, or `@/integrations/supabase/client`** — fully framework-free
+
+##### NEW `src/components/dashboard/__tests__/weeklyHoursBucket.test.ts` (9 unit tests)
+
+- **Created** unit tests using a fixed reference date `new Date(2026, 3, 25, 12, 0, 0)` (April 25, 2026, 12:00 local time) for deterministic bucket-key computation:
+  1. Empty rows → 8 buckets all at 0
+  2. Single entry placed in its matching week bucket (and only that bucket)
+  3. Sparse weeks (entries at offsets 7, 4, 0) → expected `[5, 0, 0, 10, 0, 0, 0, 15]`
+  4. Multiple entries in the same week sum correctly (3 + 4.5 + 1 = 8.5)
+  5. Out-of-range entries (10 weeks ago, 1 week ahead) are ignored; in-window total preserved
+  6. `null`, `NaN` `hours_logged` coerce to 0
+  7. Monday-of-week boundary: an entry on the Monday belongs to that week (not the prior one)
+  8. `getWeekRange` returns Monday-aligned start and Sunday-aligned end with the correct 7-week offset
+  9. `getWeekStamp` returns a `yyyy-MM-dd` string equal to the current week's Monday
+- **Result:** 9/9 passing in 14 ms
+
+##### `src/components/dashboard/tabs/PracticaTab.tsx`
+
+- **Removed** the per-week loop (formerly lines 238–262), `subWeeks`/`startOfWeek` imports
+- **Added** imports for `bucketHoursByWeek`, `getWeekRange`, `getWeekStamp` from the new helper
+- **Refactored** the `weeklyTrend` query:
+  - Query key: `['practica-weekly-trend']` → `['practica-weekly-trend', getWeekStamp()]` (now invalidates on Monday boundaries — fixes a stale-cache issue where the previous unkeyed query could have shown the prior week's data after the boundary changed)
+  - Query body: single `time_entries.select('date_worked, hours_logged').gte(rangeStart).lte(rangeEnd)` (firm-wide, no engagement filter)
+  - Returns `bucketHoursByWeek(data ?? [], today)` — always 8 points
+- **Round-trip count:** 8 sequential → 1
+
+##### `src/components/dashboard/tabs/CarteraTab.tsx`
+
+- **Removed** the per-week loop (formerly lines 222–236), `subWeeks`/`startOfWeek` imports
+- **Added** imports for `bucketHoursByWeek`, `getWeekRange`, `getWeekStamp` from the new helper
+- **Refactored** the `weeklyTrend` query:
+  - Query key: `['cartera-weekly-trend', staffRecord?.staff_id]` → `['cartera-weekly-trend', staffRecord?.staff_id, getWeekStamp()]`
+  - Engagement-IDs lookup preserved (returns `[]` if `staffRecord` absent — this is the existing `enabled` gate behavior)
+  - **Empty-portfolio behavior changed (intentional):** previously, when the user owned zero active engagements as partner/manager, the function returned `[]` and the sparkline was hidden by the `weeklyTrend.length >= 2` render guard. Now, the function returns `bucketHoursByWeek([], today)` (8 zero buckets) and the sparkline renders as a flat line at 0. This aligns Cartera with the always-8-buckets behavior already present in Practica and Personal, communicating "no portfolio activity" as a visible flat line rather than a hidden component.
+  - Query body when engagements exist: single `time_entries.select('date_worked, hours_logged').in('engagement_id', engagementIds).gte(rangeStart).lte(rangeEnd)` — empty-array guard remains in place (the guard returns the 8-zero-bucket sparkline before any `.in()` is issued)
+- **Round-trip count:** previously 1 (engagements lookup) + 8 (per-week) = 9. Now: 1 + 1 = 2 (when user has engagements), or 1 + 0 = 1 (when user has none, due to the empty-array guard short-circuit).
+
+##### `src/components/dashboard/tabs/PersonalTab.tsx`
+
+- **Removed** the per-week loop (formerly lines 62–75), `subWeeks` from `date-fns` imports (other date-fns helpers — `startOfWeek`, `endOfWeek` — retained because they're used elsewhere in the file at lines 24–25 for current-week display)
+- **Added** imports for `bucketHoursByWeek`, `getWeekRange`, `getWeekStamp` from the new helper
+- **Refactored** the `weeklyTrend` query:
+  - Query key: `['personal-weekly-trend', staffRecord?.staff_id]` → `['personal-weekly-trend', staffRecord?.staff_id, getWeekStamp()]`
+  - Query body: single `time_entries.select('date_worked, hours_logged').eq('staff_id', X).gte(rangeStart).lte(rangeEnd)`
+  - Returns `bucketHoursByWeek(data ?? [], today)`
+- **Round-trip count:** 8 sequential → 1
+
+#### Cache-Key Improvement (beyond plan)
+
+All three sparkline query keys now include `getWeekStamp()` (the current Monday formatted `yyyy-MM-dd`). Previously:
+- Practica's key had **zero date-dependent components** — the cached result could show stale data indefinitely (modulo the `staleTime: 60_000` from S-01) even after the bucket boundaries shifted on Monday
+- Cartera and Personal had `staff_id` only — same issue
+
+Now the cache invalidates exactly when the bucket boundaries shift (Monday at the user's local-week boundary), eliminating a class of stale-display bugs that S-01's `staleTime` could not catch.
+
+#### Performance Impact
+
+| Tab | Round-trips before | Round-trips after | Sequential? |
+|---|---|---|---|
+| Practica sparkline | 8 | 1 | was sequential |
+| Cartera sparkline (with engagements) | 1 + 8 = 9 | 1 + 1 = 2 | was sequential |
+| Cartera sparkline (no engagements) | 1 + 0 = 1 | 1 + 0 = 1 | n/a |
+| Personal sparkline | 8 | 1 | was sequential |
+| **Total typical dashboard load** | **24** | **4** | — |
+
+Latency impact is even larger than the round-trip count suggests: the per-week loop was sequential (each iteration awaited the prior), so the prior implementation's wall-clock latency was 8× the per-query latency. The new implementation is one round-trip's wall-clock latency.
+
+#### Tests
+
+| Test command | Result |
+|---|---|
+| `npx vitest run src/components/dashboard/__tests__/weeklyHoursBucket.test.ts` | **9/9 passed** (14 ms) |
+| `npx vitest run` (full suite) | **532 passed, 1 skipped, 0 failed** across 59 files (was 523 before; the +9 new tests bring the new total to 532) |
+| `npm run build` | TypeScript compile clean, Vite build succeeds in 20.55 s |
+
+#### Acceptance Gates (all pass)
+
+- ✅ All existing tests still pass (523 → 532 with the 9 new bucketing tests)
+- ✅ New helper has zero React/Supabase imports
+- ✅ Per-sparkline query count: Practica 8→1, Cartera 9→2, Personal 8→1
+- ✅ Total dashboard sparkline round-trips: 24 → 4
+- ✅ No new wildcard `select('*')` introduced
+- ✅ Empty-array guard preserved (Cartera short-circuits before any `.in('engagement_id', [])`)
+- ✅ Build / TS compile clean
+- ✅ Cache-key freshness now correct (Monday-boundary invalidation)
+
+#### Behavior Preservation Guarantees
+
+| Behavior | Drift |
+|---|---|
+| Sparkline shape for any non-empty data | None — same totals per week |
+| Practica: always 8 buckets | None |
+| Personal: always 8 buckets when `staffRecord` present | None |
+| `weekStartsOn: 1` (Monday) | None |
+| Cartera: hides sparkline when `staffRecord` is null/loading | None — `enabled: !!staffRecord?.staff_id` preserved |
+| **Cartera: empty-portfolio behavior** | **Intentional change.** Was: `return []` → sparkline hidden. Now: 8 zero buckets → flat-line-at-0 renders. Aligns with Practica/Personal idiom. |
+| Cache invalidation across Monday boundary | **Improved** — was effectively never; now happens automatically on the week-boundary rollover. |
+
+#### What is NOT Changed
+
+- Practice-wide metrics (`practiceMetrics` queryFn in PracticaTab) — untouched
+- Partner leaderboard (`partnerLeaderboard` queryFn in PracticaTab) — untouched (S-02's territory)
+- Cartera portfolio table, pending approvals query, KPI cards — untouched (S-04 will address pending approvals)
+- Personal monthly hours, recent entries, capacity meter — untouched
+- Other dashboard tabs (Encargo) — untouched
+- React Query defaults from S-01 — unchanged
+- Database schema, RPCs, edge functions, migrations
+- Translations, theme, design tokens
+- Test infra, dependencies (no `package.json` change)
+
+#### Verification Checklist (for reviewer)
+
+To confirm this changelog matches the codebase:
+1. Confirm `src/components/dashboard/weeklyHoursBucket.ts` exists, exports `bucketHoursByWeek`, `getWeekRange`, `getWeekStamp`, `HoursRow`, and contains zero imports from React, `@tanstack/*`, or `@/integrations/*`. The only non-`date-fns` import is a **type-only** `import type { SparklineDataPoint } from './Sparkline'`.
+2. Confirm `src/components/dashboard/__tests__/weeklyHoursBucket.test.ts` exists with 9 tests; run `npx vitest run src/components/dashboard/__tests__/weeklyHoursBucket.test.ts` → 9/9 pass.
+3. Run `git grep -n "for (let i" src/components/dashboard/tabs/` → should return **no matches** (the per-week loops are gone from all three tabs).
+4. Run `git grep -n "subWeeks" src/components/dashboard/tabs/` → should return **no matches** in any tab queryFn (only PersonalTab keeps `startOfWeek`/`endOfWeek` for unrelated current-week display at lines 24–25).
+5. In each tab, confirm the sparkline query uses `bucketHoursByWeek(data ?? [], today)` and the query key includes `getWeekStamp()`.
+6. Confirm CarteraTab's empty-array branch returns `bucketHoursByWeek([], today)` (not `[]`).
+7. Run `npx vitest run` → 532 passed / 1 skipped / 0 failed.
+8. Run `npm run build` → clean compile.
+
+#### Risk / Rollback
+
+- **Risk:** Low. Three identical refactors backed by a small pure helper with focused unit tests. Sparkline UI is read-only — no mutation paths affected.
+- **Rollback:** Revert this PR. The two new files (`weeklyHoursBucket.ts` + its test) are deletable; the three tabs return to the per-week loop form. No data, schema, or API contract is affected.
+
+#### Lovable Preview Reindex
+
+Per the Complement runbook in `AGENTS.md`: this PR introduces **two new files** under `src/components/dashboard/`. If the Lovable preview shows 404 on `/_sandbox/dev-server` after merge, run:
+```bash
+git commit --allow-empty -m "chore: trigger Lovable preview rebuild"
+git push origin sruizmier-performance-v1
+```
+
+#### Traceability
+
+- **Plan reference:** CODEX_PLAN_v5 step **S-03** + decisions: helper at `src/components/dashboard/weeklyHoursBucket.ts` (one level above `tabs/`); Cartera empty-portfolio aligned with always-8-buckets; cache-key freshness improvement (`getWeekStamp()`)
+- **Branch:** `claude/performance-improvements-DeNVL`
+- **Base:** `sruizmier-performance-v1`
+- **Commit:** `ca76ef9` — `perf(s-03): collapse 8-week sparkline loops to single-range fetch`
+- **PR:** _(filled in after open)_
+
+<!-- Subsequent steps (S-04 → S-12) will be appended below as their PRs are produced. -->
