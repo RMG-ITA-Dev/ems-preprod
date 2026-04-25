@@ -1,3 +1,5 @@
+import { safeNumber } from '@/lib/queryHelpers';
+
 export interface PendingApprovalsTimeEntryRow {
   period_id: string;
   engagement_id: string;
@@ -15,9 +17,7 @@ export function aggregateHoursByPeriodAndEngagement(
   for (const row of rows) {
     if (!row.period_id || !row.engagement_id) continue;
     const key = compositeKey(row.period_id, row.engagement_id);
-    const value = Number(row.hours_logged);
-    const safe = Number.isFinite(value) ? value : 0;
-    result.set(key, (result.get(key) ?? 0) + safe);
+    result.set(key, (result.get(key) ?? 0) + safeNumber(row.hours_logged));
   }
   return result;
 }

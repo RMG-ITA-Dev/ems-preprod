@@ -1,3 +1,5 @@
+import { safeNumber } from '@/lib/queryHelpers';
+
 export interface ActualHoursTimeEntryRow {
   hours_logged: number | null;
   staff: {
@@ -32,8 +34,7 @@ export function aggregateActualHoursByCategory(
     const category = row.staff?.category;
     if (!category || !category.category_id) continue;
 
-    const value = Number(row.hours_logged);
-    const safe = Number.isFinite(value) ? value : 0;
+    const safe = safeNumber(row.hours_logged);
 
     const existing = byCategory.get(category.category_id);
     if (existing) {

@@ -1,3 +1,5 @@
+import { safeNumber } from '@/lib/queryHelpers';
+
 export interface PartnerRow {
   staff_id: string;
   first_name: string;
@@ -46,9 +48,6 @@ interface AggregateInput {
   budgets: LeaderboardBudgetRow[];
 }
 
-const toNumber = (value: number | null | undefined): number =>
-  value == null ? 0 : Number(value) || 0;
-
 const resolveName = (partner: PartnerRow): string =>
   partner.short_name && partner.short_name.length > 0
     ? partner.short_name
@@ -73,18 +72,18 @@ export function aggregatePartnerLeaderboard(input: AggregateInput): PartnerMetri
 
   const hoursByEng = new Map<string, number>();
   for (const te of timeEntries) {
-    hoursByEng.set(te.engagement_id, (hoursByEng.get(te.engagement_id) ?? 0) + toNumber(te.hours_logged));
+    hoursByEng.set(te.engagement_id, (hoursByEng.get(te.engagement_id) ?? 0) + safeNumber(te.hours_logged));
   }
 
   const feesByEng = new Map<string, number>();
   for (const wo of workOrders) {
-    const fee = toNumber(wo.total_standard_fee) + toNumber(wo.adjustment_amount);
+    const fee = safeNumber(wo.total_standard_fee) + safeNumber(wo.adjustment_amount);
     feesByEng.set(wo.engagement_id, (feesByEng.get(wo.engagement_id) ?? 0) + fee);
   }
 
   const budgetByEng = new Map<string, number>();
   for (const b of budgets) {
-    budgetByEng.set(b.engagement_id, (budgetByEng.get(b.engagement_id) ?? 0) + toNumber(b.total_budget_hours));
+    budgetByEng.set(b.engagement_id, (budgetByEng.get(b.engagement_id) ?? 0) + safeNumber(b.total_budget_hours));
   }
 
   const metrics: PartnerMetrics[] = partners.map((partner) => {

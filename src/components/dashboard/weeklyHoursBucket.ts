@@ -1,4 +1,5 @@
 import { format, parseISO, startOfWeek, endOfWeek, subWeeks } from 'date-fns';
+import { safeNumber } from '@/lib/queryHelpers';
 import type { SparklineDataPoint } from './Sparkline';
 
 export interface HoursRow {
@@ -37,10 +38,9 @@ export function bucketHoursByWeek(
     if (Number.isNaN(date.getTime())) continue;
     const wkStartKey = format(startOfWeek(date, { weekStartsOn: 1 }), 'yyyy-MM-dd');
     if (!buckets.has(wkStartKey)) continue;
-    const value = Number(row.hours_logged);
     buckets.set(
       wkStartKey,
-      (buckets.get(wkStartKey) ?? 0) + (Number.isFinite(value) ? value : 0),
+      (buckets.get(wkStartKey) ?? 0) + safeNumber(row.hours_logged),
     );
   }
 

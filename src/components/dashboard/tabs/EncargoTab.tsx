@@ -24,6 +24,7 @@ import {
   FolderKanban
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { safeNumber, hasItems } from "@/lib/queryHelpers";
 import {
   aggregateActualHoursByCategory,
   type ActualHoursTimeEntryRow,
@@ -170,14 +171,14 @@ export function EncargoTab() {
         .eq('is_forecast', false);
 
       if (entriesError) throw entriesError;
-      if (!entries || entries.length === 0) return { approved: 0, pending: 0 };
+      if (!hasItems(entries)) return { approved: 0, pending: 0 };
 
       // Get unique period IDs
       const periodIds = [...new Set(entries.filter(e => e.period_id).map(e => e.period_id!))] as string[];
       
-      if (periodIds.length === 0) {
+      if (!hasItems(periodIds)) {
         // No periods = all pending
-        const totalHours = entries.reduce((sum, e) => sum + Number(e.hours_logged), 0);
+        const totalHours = entries.reduce((sum, e) => sum + safeNumber(e.hours_logged), 0);
         return { approved: 0, pending: totalHours };
       }
 
@@ -200,9 +201,9 @@ export function EncargoTab() {
       entries.forEach(entry => {
         const status = entry.period_id ? approvalMap.get(entry.period_id) : null;
         if (status === 'approved') {
-          approved += Number(entry.hours_logged);
+          approved += safeNumber(entry.hours_logged);
         } else {
-          pending += Number(entry.hours_logged);
+          pending += safeNumber(entry.hours_logged);
         }
       });
 
@@ -214,8 +215,8 @@ export function EncargoTab() {
   const isLoading = engagementLoading || budgetLoading || woLoading || categoryLoading || actualLoading || statusLoading;
 
   // Calculate totals
-  const totalBudgetHours = categoryBudget?.reduce((sum, c) => sum + Number(c.total_budget_hours || 0), 0) || 0;
-  const totalActualHours = actualByCategory?.reduce((sum, c) => sum + Number(c.actual_hours || 0), 0) || 0;
+  const totalBudgetHours = categoryBudget?.reduce((sum, c) => sum + safeNumber(c.total_budget_hours), 0) ?? 0;
+  const totalActualHours = actualByCategory?.reduce((sum, c) => sum + safeNumber(c.actual_hours), 0) ?? 0;
   const budgetConsumedPercent = totalBudgetHours > 0 ? Math.round((totalActualHours / totalBudgetHours) * 100) : 0;
   const varianceHours = totalBudgetHours - totalActualHours;
 
@@ -236,8 +237,8 @@ export function EncargoTab() {
   // Merge category budget and actual
   const categoryBreakdown = categoryBudget?.map(budget => {
     const actual = actualByCategory?.find(a => a.category_id === budget.category_id);
-    const budgetHours = Number(budget.total_budget_hours || 0);
-    const actualHours = Number(actual?.actual_hours || 0);
+    const budgetHours = safeNumber(budget.total_budget_hours);
+    const actualHours = safeNumber(actual?.actual_hours);
     const variance = budgetHours - actualHours;
     const consumedPercent = budgetHours > 0 ? (actualHours / budgetHours) * 100 : 0;
 
@@ -253,8 +254,8 @@ export function EncargoTab() {
 
   // Activity breakdown (top 10 by hours)
   const activityBreakdown = budgetData
-    ?.filter(a => Number(a.actual_hours || 0) > 0 || Number(a.budget_hours || 0) > 0)
-    .sort((a, b) => Number(b.actual_hours || 0) - Number(a.actual_hours || 0))
+    ?.filter(a => safeNumber(a.actual_hours) > 0 || safeNumber(a.budget_hours) > 0)
+    .sort((a, b) => safeNumber(b.actual_hours) - safeNumber(a.actual_hours))
     .slice(0, 10) || [];
 
   // Risk status
@@ -514,7 +515,7 @@ export function EncargoTab() {
                         {act.activity_description}
                       </TableCell>
                       <TableCell className="py-2 text-right font-mono">
-                        {Number(act.actual_hours || 0).toFixed(1)}
+                        {safeNumber(act.actual_hours).toFixed(1)}
                       </TableCell>
                     </TableRow>
                   ))

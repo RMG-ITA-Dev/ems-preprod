@@ -20,6 +20,7 @@ import {
   aggregateHoursByPeriodAndEngagement,
   compositeKey,
 } from '@/components/dashboard/pendingApprovalsAggregation';
+import { hasItems } from '@/lib/queryHelpers';
 import { parseDateLocal } from '@/lib/timesheetUtils';
 
 interface EngagementWithMetrics {
@@ -72,7 +73,7 @@ export function CarteraTab() {
         .eq('status', 'active');
 
       if (engError) throw engError;
-      if (!engagements?.length) return [];
+      if (!hasItems(engagements)) return [];
 
       const engagementIds = engagements.map(e => e.engagement_id);
 
@@ -154,7 +155,7 @@ export function CarteraTab() {
         .select('engagement_id, engagement_code, engagement_name')
         .or(`partner_id.eq.${staffRecord.staff_id},manager_id.eq.${staffRecord.staff_id}`);
 
-      if (!myEngagements?.length) return [];
+      if (!hasItems(myEngagements)) return [];
 
       const engagementIds = myEngagements.map(e => e.engagement_id);
       const engMap = new Map(myEngagements.map(e => [e.engagement_id, e]));
@@ -174,7 +175,7 @@ export function CarteraTab() {
         .in('engagement_id', engagementIds)
         .eq('status', 'pending');
 
-      if (!approvals?.length) return [];
+      if (!hasItems(approvals)) return [];
 
       // Bulk-fetch all time entries for the unique (period, engagement) pairs in one round-trip.
       const periodIds = Array.from(new Set(approvals.map((a) => a.period_id)));
@@ -232,7 +233,7 @@ export function CarteraTab() {
       const engagementIds = engagements?.map((e) => e.engagement_id) ?? [];
 
       // Empty-array guard: skip the .in() round-trip; render flat 8-bucket sparkline.
-      if (engagementIds.length === 0) {
+      if (!hasItems(engagementIds)) {
         return bucketHoursByWeek([], today);
       }
 
