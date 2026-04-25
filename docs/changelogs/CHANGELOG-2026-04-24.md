@@ -870,6 +870,6 @@ git push origin sruizmier-performance-v1
 - **Branch:** `claude/performance-improvements-DeNVL`
 - **Base:** `sruizmier-performance-v1`
 - **Commit:** `dea1d98` — `perf(s-05): fix Encargo period-key/query mismatch (correctness bug)`
-- **PR:** _(filled in after open)_
+- **PR:** #19 — `perf(s-05): fix Encargo period-key/query mismatch (correctness bug)`
 
 <!-- Subsequent steps (S-06 → S-12) will be appended below as their PRs are produced. -->
