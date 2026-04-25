@@ -1017,6 +1017,6 @@ git push origin sruizmier-performance-v1
 - **Branch:** `claude/performance-improvements-DeNVL`
 - **Base:** `sruizmier-performance-v1`
 - **Commit:** `2849541` — `perf(s-06): replace select('*') with explicit columns in dashboard hot paths`
-- **PR:** _(filled in after open)_
+- **PR:** #20 — `perf(s-06): replace select('*') with explicit columns in dashboard hot paths`
 
 <!-- Subsequent steps (S-07 → S-12) will be appended below as their PRs are produced. -->
