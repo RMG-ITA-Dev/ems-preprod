@@ -16,6 +16,10 @@ import {
   getWeekRange,
   getWeekStamp,
 } from '@/components/dashboard/weeklyHoursBucket';
+import {
+  aggregateHoursByPeriodAndEngagement,
+  compositeKey,
+} from '@/components/dashboard/pendingApprovalsAggregation';
 import { parseDateLocal } from '@/lib/timesheetUtils';
 
 interface EngagementWithMetrics {
@@ -172,23 +176,28 @@ export function CarteraTab() {
 
       if (!approvals?.length) return [];
 
-      // Get hours for each approval
-      const result: PendingApproval[] = [];
-      for (const approval of approvals) {
+      // Bulk-fetch all time entries for the unique (period, engagement) pairs in one round-trip.
+      const periodIds = Array.from(new Set(approvals.map((a) => a.period_id)));
+      const approvalEngagementIds = Array.from(
+        new Set(approvals.map((a) => a.engagement_id)),
+      );
+
+      const { data: entries } = await supabase
+        .from('time_entries')
+        .select('period_id, engagement_id, hours_logged')
+        .in('period_id', periodIds)
+        .in('engagement_id', approvalEngagementIds);
+
+      const hoursByPair = aggregateHoursByPeriodAndEngagement(entries ?? []);
+
+      const result: PendingApproval[] = approvals.map((approval) => {
         const eng = engMap.get(approval.engagement_id);
         const period = approval.period as any;
-        
-        // Get hours for this period/engagement
-        const { data: entries } = await supabase
-          .from('time_entries')
-          .select('hours_logged')
-          .eq('period_id', approval.period_id)
-          .eq('engagement_id', approval.engagement_id);
-
-        const totalHours = entries?.reduce((sum, e) => sum + e.hours_logged, 0) || 0;
         const staff = period?.staff;
+        const totalHours =
+          hoursByPair.get(compositeKey(approval.period_id, approval.engagement_id)) ?? 0;
 
-        result.push({
+        return {
           approval_id: approval.approval_id,
           period_id: approval.period_id,
           engagement_id: approval.engagement_id,
@@ -197,8 +206,8 @@ export function CarteraTab() {
           staff_name: staff?.short_name || `${staff?.first_name} ${staff?.last_name}` || '',
           week_start_date: period?.week_start_date || '',
           hours: totalHours,
-        });
-      }
+        };
+      });
 
       return result;
     },

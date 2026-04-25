@@ -554,4 +554,159 @@ git push origin sruizmier-performance-v1
 - **Commit:** `ca76ef9` — `perf(s-03): collapse 8-week sparkline loops to single-range fetch`
 - **PR:** #17 — `perf(s-03): collapse 8-week sparkline loops to single-range fetch`
 
-<!-- Subsequent steps (S-04 → S-12) will be appended below as their PRs are produced. -->
+---
+
+### S-04 — Fix `Cartera` pending-approvals N+1 hours lookup
+
+**Replaces the per-approval inner `time_entries` query (an N+1 anti-pattern that fired one round-trip per pending approval) with a single bulk fetch keyed by composite `(period_id, engagement_id)`. Aggregation is extracted into a pure helper with zero React/Supabase imports and unit-tested across 9 cases. Pending-approvals path drops from `2 + N` round-trips to `3` constant — for a manager with 20 pending approvals: **22 → 3**.**
+
+#### Scope
+- Frontend only
+- Three files touched: one refactored, two new
+- No schema, RPC, edge function, dependency, i18n key, or react-query default change
+- Zero KPI drift — all displayed values (hours, engagement metadata, staff name, week start) preserved exactly
+
+#### Files Changed
+
+##### NEW `src/components/dashboard/pendingApprovalsAggregation.ts` (24 lines)
+
+- **Created** a pure helper module exporting:
+  - `interface PendingApprovalsTimeEntryRow { period_id: string; engagement_id: string; hours_logged: number | null; }`
+  - `compositeKey(periodId: string, engagementId: string): string` — joins with a `:` separator
+  - `aggregateHoursByPeriodAndEngagement(rows): Map<string, number>` — sums `hours_logged` per composite key
+- **Behavior of `aggregateHoursByPeriodAndEngagement`:**
+  - Skips rows whose `period_id` or `engagement_id` is empty/falsy (defensive)
+  - Coerces `Number(hours_logged)` and guards with `Number.isFinite` to handle `null`, `NaN`, `Infinity`
+  - Sums into the map keyed by `compositeKey(period_id, engagement_id)`
+- **Imports:** none. **Zero imports from React, `@tanstack/react-query`, `@/integrations/supabase/client`, or even `date-fns`.** Fully framework-free; can run anywhere TypeScript runs.
+
+##### NEW `src/components/dashboard/__tests__/pendingApprovalsAggregation.test.ts` (9 unit tests)
+
+- **Created** unit tests using hand-crafted fixtures (no Supabase, no mocks):
+  1. Empty input → empty map
+  2. Single row → one entry with the value
+  3. Multiple rows for the same `(period, engagement)` pair sum correctly (3 + 4.5 + 0.5 = 8)
+  4. Distinct pairs in distinct buckets — 5-row fixture across 4 distinct `(period, engagement)` pairs, one duplicated
+  5. `null` `hours_logged` coerces to 0 (no NaN propagation)
+  6. `NaN` and `Infinity` coerce to 0
+  7. Rows with empty `period_id` or `engagement_id` are skipped entirely
+  8. `compositeKey` joins with colon separator
+  9. `compositeKey` does not collide for distinct logical pairs of normal-shaped IDs
+- **Result:** 9/9 passing in 8 ms
+
+##### `src/components/dashboard/tabs/CarteraTab.tsx`
+
+###### Imports (top of file)
+- **Added** import `aggregateHoursByPeriodAndEngagement, compositeKey from '@/components/dashboard/pendingApprovalsAggregation'`
+- All other imports unchanged
+
+###### `pendingApprovals` queryFn (formerly lines 142–204; bulk path now ~lines 175–205)
+- **Removed** the per-approval `for (const approval of approvals)` loop that issued one `time_entries.eq(period_id).eq(engagement_id)` Supabase query per iteration
+- **Removed** the per-iteration inline `entries?.reduce((sum, e) => sum + e.hours_logged, 0)` aggregation
+- **Added** computation of unique `periodIds` and `approvalEngagementIds` arrays from the existing `approvals` list (using `Set` for de-duplication)
+- **Added** a single bulk `time_entries` fetch:
+  ```ts
+  supabase
+    .from('time_entries')
+    .select('period_id, engagement_id, hours_logged')
+    .in('period_id', periodIds)
+    .in('engagement_id', approvalEngagementIds)
+  ```
+  Note on over-fetching: this filter returns the Cartesian-product superset of `(period, engagement)` pairs. Extra rows for combinations not present in the actual approvals list are summed into the map but never looked up — they're harmlessly discarded. For typical manager queues (5–20 approvals) the over-fetch is bounded and trivially smaller than the prior N sequential queries.
+- **Added** `const hoursByPair = aggregateHoursByPeriodAndEngagement(entries ?? [])`
+- **Added** lookup-based per-approval mapping: `hoursByPair.get(compositeKey(approval.period_id, approval.engagement_id)) ?? 0`
+- **Preserved** all other per-approval mapping logic exactly:
+  - `engMap.get(approval.engagement_id)` for `engagement_code` / `engagement_name`
+  - `period?.staff` for `staff_name` fallback (`short_name || \`${first} ${last}\` || ''` — pre-existing edge case for missing staff fields preserved per scope decision)
+  - `period?.week_start_date` for `week_start_date`
+  - Insertion order of `approvals` preserved (no sort change)
+
+#### Performance Impact
+
+| Scenario | Round-trips before | Round-trips after |
+|---|---|---|
+| Manager queue with 20 pending approvals | 1 (engagements) + 1 (approvals) + 20 (per-approval hours) = **22** | 1 + 1 + 1 = **3** |
+| Manager queue with 5 pending approvals | 1 + 1 + 5 = **7** | 1 + 1 + 1 = **3** |
+| Manager queue with 0 pending approvals | 1 + 1 + 0 = **2** | 1 + 1 + 0 = **2** (unchanged — early-return short-circuit preserved) |
+
+Latency impact is even larger than the count suggests because the prior loop was sequential (`await` per iteration); wall-clock latency grew linearly with approval count.
+
+#### Tests
+
+| Test command | Result |
+|---|---|
+| `npx vitest run src/components/dashboard/__tests__/pendingApprovalsAggregation.test.ts` | **9/9 passed** (8 ms) |
+| `npx vitest run` (full suite) | **541 passed, 1 skipped, 0 failed** across 60 files (was 532 before; the +9 new tests bring the new total to 541) |
+| `npm run build` | TypeScript compile clean, Vite build succeeds in 21.40 s |
+
+#### Acceptance Gates (all pass)
+
+- ✅ All existing tests still pass (532 → 541 with the 9 new aggregation tests)
+- ✅ New helper has zero React/Supabase imports
+- ✅ Pending-approvals path: `2 + N` → `3` constant (or 2 when no approvals — early-return short-circuit)
+- ✅ KPI math preserved for `hours` per approval (identical totals)
+- ✅ All other per-approval fields (`engagement_code`, `engagement_name`, `staff_name`, `week_start_date`) unchanged
+- ✅ No new wildcard `select('*')` introduced
+- ✅ No `.in('col', [])` calls — short-circuit at `if (!approvals?.length) return []` preserved
+- ✅ Build / TS compile clean
+
+#### Behavior Preservation Guarantees
+
+| Output | Drift |
+|---|---|
+| `approval_id`, `period_id`, `engagement_id`, `engagement_code`, `engagement_name`, `week_start_date` | None — same fields from same source rows |
+| `hours` (per-approval total) | None — same sum, same source filter `(period_id = X, engagement_id = Y)` |
+| `staff_name` | None — fallback logic untouched (`short_name || \`${first} ${last}\` || ''`) |
+| Sort order | None — insertion order from `approvals` query preserved |
+| Empty-result paths (`!staffRecord`, no engagements, no approvals) | None — early returns preserved |
+| `enabled: !!staffRecord?.staff_id` query gate | None |
+
+#### Deferred / Out of Scope
+
+- **Pre-existing staff-name edge case** (`staff_name` renders as `"undefined undefined"` when `staff?.first_name` and `staff?.last_name` are both undefined and `short_name` is also empty) is **preserved as-is**. This was approved as deferred before implementation — fixing it belongs in a separate, scoped UX/i18n PR rather than mixed into a perf refactor.
+
+#### What is NOT Changed
+
+- Practica/Personal tabs — untouched
+- Cartera's other queries: portfolio (`portfolio` queryFn), weekly trend sparkline (`weeklyTrend` from S-03), KPI totals, drill-down handler — all untouched
+- React Query defaults from S-01 — unchanged
+- Pure helpers from S-02 (`practicaLeaderboard`) and S-03 (`weeklyHoursBucket`) — unchanged
+- Database schema, RPCs, edge functions, migrations
+- Translations, theme, design tokens
+- Test infra, dependencies (no `package.json` change)
+
+#### Verification Checklist (for reviewer)
+
+To confirm this changelog matches the codebase:
+1. Confirm `src/components/dashboard/pendingApprovalsAggregation.ts` exists, exports `aggregateHoursByPeriodAndEngagement` and `compositeKey`, and contains **zero** import statements (the file is dependency-free at runtime).
+2. Confirm `src/components/dashboard/__tests__/pendingApprovalsAggregation.test.ts` exists with 9 tests; run `npx vitest run src/components/dashboard/__tests__/pendingApprovalsAggregation.test.ts` → 9/9 pass.
+3. Open `src/components/dashboard/tabs/CarteraTab.tsx`, locate the `pendingApprovals` `useQuery` block, and confirm:
+   - There is **no** `for (const approval of approvals)` loop
+   - There is exactly one `await supabase.from('time_entries')` call inside the bulk-fetch block
+   - The function ends with `result.map((approval) => …)` returning the joined row, where `totalHours = hoursByPair.get(compositeKey(...)) ?? 0`
+4. Run `git grep -n "for (const approval of approvals)" src/` → should return **no matches**.
+5. Run `npx vitest run` → 541 passed / 1 skipped / 0 failed.
+6. Run `npm run build` → clean compile.
+
+#### Risk / Rollback
+
+- **Risk:** Low. Single `useQuery` block, single inner-loop replacement. Pure-function extraction makes correctness verifiable from unit tests; the React component just wires data in and out.
+- **Rollback:** Revert this PR. The two new files (`pendingApprovalsAggregation.ts` + its test) are deletable; `CarteraTab.tsx` returns to the per-approval loop form. No data, schema, or API contract is affected.
+
+#### Lovable Preview Reindex
+
+This PR introduces **two new files** under `src/components/dashboard/`. Per the runbook in `AGENTS.md` (added by PR #16): if after merge the Lovable preview shows 404 on `/_sandbox/dev-server`, run:
+```bash
+git commit --allow-empty -m "chore: trigger Lovable preview rebuild"
+git push origin sruizmier-performance-v1
+```
+
+#### Traceability
+
+- **Plan reference:** CODEX_PLAN_v5 step **S-04** + decisions: helper at `src/components/dashboard/pendingApprovalsAggregation.ts` (matches S-03 location convention); pre-existing staff-name fallback edge case explicitly deferred
+- **Branch:** `claude/performance-improvements-DeNVL`
+- **Base:** `sruizmier-performance-v1`
+- **Commit:** `c463f4a` — `perf(s-04): bulk-fetch Cartera pending-approvals hours, remove N+1`
+- **PR:** #18 — `perf(s-04): bulk-fetch Cartera pending-approvals hours, remove N+1`
+
+<!-- Subsequent steps (S-05 → S-12) will be appended below as their PRs are produced. -->
