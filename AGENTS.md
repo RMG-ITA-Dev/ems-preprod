@@ -38,3 +38,30 @@ All UI/UX conventions are documented in `docs/skills/`:
 - **Component library**: shadcn/ui with custom extensions in `src/components/ui/`
 - **Icons**: `lucide-react` at `h-4 w-4` standard size
 - **Font**: IBM Plex Sans (auto-switches to condensed on mobile via CSS variable)
+
+## Lovable Preview Reindex on New-File PRs
+
+When a PR merged into a feature branch (e.g. `sruizmier-performance-v1`)
+introduces a **net-new file** that is imported by an existing modified
+file in the same PR, Lovable's preview may operate from a stale file
+index and fail to resolve the new module. Symptoms:
+
+- Lovable UI shows "Preview has not been built yet"
+- Browser console shows `GET /_sandbox/dev-server → 404`
+- Lovable chat reports "Dev server is running and locale files are valid"
+- `npm run build` and the test suite pass locally
+
+This is an infrastructure index lag, not a code defect. Recovery:
+
+```bash
+git commit --allow-empty -m "chore: trigger Lovable preview rebuild"
+git push origin <feature-branch>
+```
+
+Wait ~30 seconds, then refresh the Lovable preview. If symptoms persist
+after two trigger commits, treat as a Lovable platform issue and contact
+support — do NOT add defensive Vite/tsconfig changes, as they will not
+address the root cause.
+
+Reference incident: `docs/changelogs/CHANGELOG-2026-04-24.md` →
+"S-01 and S-02 Complement — Lovable Preview Resilience".

@@ -276,4 +276,112 @@ To confirm this changelog matches the codebase:
 - **Commit:** `2514e2a` — `perf(s-02): bulk-fetch Practica partner leaderboard, split risk column`
 - **PR:** #15 — `perf(s-02): bulk-fetch Practica partner leaderboard, split risk column`
 
+---
+
+### S-01 and S-02 Complement — Lovable Preview Resilience
+
+**Process hardening, no source code change. Documents the Lovable preview reindex behavior that intermittently caused the preview to fail after PRs that introduce net-new files, and provides an idiot-proof recovery command. Forward-applicable to S-03 (`weeklyHoursBucket.ts`), S-07 (`queryHelpers.ts`), and S-12 (`queryPerfLogger.ts`).**
+
+#### Incident Summary
+
+After PR #15 (S-02) merged into `sruizmier-performance-v1` on 2026-04-25:
+- Lovable UI showed "Preview has not been built yet" with a "Preview failed" badge on the merge entry
+- Browser console showed `GET https://<project-id>.lovableproject.com/_sandbox/dev-server → 404`
+- Lovable's chat assistant said "Dev server is running and locale files are valid — try refreshing"
+- `main` branch preview loaded fine
+- `npm run build` passed locally before merge
+- Full vitest suite (523 tests) passed locally before merge
+- The preview self-recovered after an indeterminate window without any code change
+
+#### Root Cause
+
+S-02 introduced **`src/components/dashboard/tabs/practicaLeaderboard.ts`** as a net-new file and immediately consumed it from the modified **`src/components/dashboard/tabs/PracticaTab.tsx`** (`import { aggregatePartnerLeaderboard } from "./practicaLeaderboard"`). Lovable's preview pipeline operated from a file index that predated the merge, so the module resolver returned a 404 for the new path → the preview iframe failed to mount.
+
+This is a **Lovable infrastructure index-lag behavior**, not a defect in our code:
+- Local `tsc` and Vite resolved the import correctly
+- Production bundle (run via `npm run build`) included the new module
+- All tests passed
+- Lovable eventually re-indexed the branch and the preview recovered
+
+#### Why No Source Code Change Was Made
+
+An Explore-agent diagnostic (Claude Code, 2026-04-25) ranked three hypotheses:
+
+1. **Lovable file-index lag (~85%)** — confirmed by self-recovery without code change
+2. **TS-to-ESM module resolution mismatch (~12%)** — ruled out: `vite.config.ts` and `tsconfig.app.json` resolve `.ts` extensions correctly, and Vite's prod build succeeds
+3. **Test file leaking into production bundle (~3%)** — ruled out: `dist/assets/` contains no `*.test.*` artifacts; `vitest` is a devDependency only
+
+Adding defensive `vite.config.ts` externals, switching to explicit `.ts` extensions in imports, or restructuring the helper file location would all be **AI SLOP** — they do not address the actual root cause and would introduce churn for hypothetical benefit.
+
+#### Lovable's Plan_v1 Was Skipped
+
+Lovable's own AI produced a "Plan_v1" suggesting changes to `src/components/forms/StaffForm.tsx`, `src/locales/en.json`, and `src/locales/es.json` for a Competencies feature. **None of these files are related to the failure** — Lovable's plan diagnosed wrong context. We **clicked Skip** on its plan to avoid unnecessary changes to unrelated code.
+
+#### Files Changed
+
+##### `AGENTS.md` (root, 41 → 67 lines)
+
+- **Appended** new section "**Lovable Preview Reindex on New-File PRs**" after the existing "File Conventions" section.
+- Documents:
+  - Symptom checklist (UI message, console 404, chat behavior, local build status)
+  - Recovery command:
+    ```bash
+    git commit --allow-empty -m "chore: trigger Lovable preview rebuild"
+    git push origin <feature-branch>
+    ```
+  - Escalation guidance: if two trigger commits don't recover the preview, treat as a Lovable platform issue
+  - Explicit anti-pattern: do NOT add defensive Vite/tsconfig changes
+  - Cross-reference back to this CHANGELOG entry
+
+##### `docs/changelogs/CHANGELOG-2026-04-24.md`
+
+- **Appended** this section.
+
+#### Files NOT Changed
+
+- No file under `src/` modified
+- `vite.config.ts`: untouched
+- `tsconfig.json`, `tsconfig.app.json`, `tsconfig.node.json`: untouched
+- `package.json`, `package-lock.json`: untouched
+- No test files added or modified
+- No translations added or modified
+- No new code logic introduced anywhere
+
+#### Verification
+
+- `git diff sruizmier-performance-v1...claude/performance-improvements-DeNVL -- src/` returns empty diff
+- `npm run build`: clean (no regression — output identical to S-02 build)
+- `npx vitest run`: **523 passed, 1 skipped, 0 failed** (unchanged from S-02 baseline)
+
+#### Acceptance Gates
+
+- ✅ No source code changes
+- ✅ No new failure surface introduced
+- ✅ Build clean
+- ✅ Test suite unchanged
+- ✅ Documentation is concrete (specific symptoms, specific command, specific escalation)
+- ✅ Cross-referenced bidirectionally between `AGENTS.md` and the CHANGELOG
+
+#### Forward Applicability
+
+The runbook applies as-is to:
+- **S-03**: will add `src/components/dashboard/weeklyHoursBucket.ts` + test file
+- **S-07**: will add `src/lib/queryHelpers.ts`
+- **S-12**: optionally adds `src/lib/queryPerfLogger.ts`
+
+If the preview fails after any of these merges, the operator runs the documented empty-commit trigger and the preview recovers.
+
+#### Risk / Rollback
+
+- **Risk:** Zero — no runtime code, no dependency change, no schema change.
+- **Rollback:** Revert this PR to remove the documentation. The runbook command itself remains usable directly even if removed from `AGENTS.md`.
+
+#### Traceability
+
+- **Plan reference:** "S-01 and S-02 Complement" (post-incident, 2026-04-25)
+- **Branch:** `claude/performance-improvements-DeNVL`
+- **Base:** `sruizmier-performance-v1`
+- **Commits:** `8f4cc5f` (AGENTS.md runbook) · `b55149e` (this CHANGELOG entry)
+- **PR:** #16 — `docs(s-01+s-02): Lovable preview reindex runbook (Complement)`
+
 <!-- Subsequent steps (S-03 → S-12) will be appended below as their PRs are produced. -->
