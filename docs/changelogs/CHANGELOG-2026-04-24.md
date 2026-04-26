@@ -1573,4 +1573,87 @@ The Lovable-prepared plan was reviewed and approved before any application. Appr
 - **PR (this docs entry):** #23 — `docs(s-08): record Lovable-implemented DB index migration plan`
 - **Lovable commits on `sruizmier-performance-v1`:** `a2c15d3` (Changes — migration + types regen) and `eaf60f5` (merge — "Added dashboard performance indexes")
 
-<!-- S-09 → S-12 will be appended below as their PRs are produced. -->
+---
+
+### S-09 and S-11 — DEFERRED (multi-collaborator backend caveat)
+
+**Both steps deferred without execution. Decision recorded; full execution plan saved at `docs/plans/LATE_STAGE_S-09_AND_S-11_PLAN.md` for future resumption.**
+
+#### Why deferred
+
+S-09 (move dashboard aggregation to backend edge function) and S-11 (decide fate of the existing `supabase/functions/dashboard-data/` edge function) were revealed to be the same architectural decision, rephrased. During pre-implementation reconnaissance:
+
+1. **The `dashboard-data` edge function is 938 lines** exposing 8 actions: `time-value`, `engagement-kpis`, `staff-utilization`, `portfolio-risk`, `partner-leaderboard`, `my-week`, `timesheet-status`, `practice-pulse`.
+2. **Zero callers from this repository's frontend.** Verified:
+   ```bash
+   grep -rn "dashboard-data\|invoke('dashboard-data'" src --include="*.ts" --include="*.tsx"
+   # (no matches)
+   ```
+3. **External callers are possible** — other git branches (e.g. `sruizmier-scheduler-v2`), debug scripts, BI tools, cron jobs, or QA environments may exercise the function in ways not observable from this repository's source. EMS v2.0 uses a single shared Supabase backend across all branches; backend changes are not branch-isolated.
+
+The repository owner (sruizmier) deferred the deprecate/adopt decision rather than risk breaking external collaborators' workflows by deleting the function blind.
+
+#### What this CHANGELOG entry does
+
+- Documents the deferral and its rationale
+- Points to the comprehensive late-stage plan at `docs/plans/LATE_STAGE_S-09_AND_S-11_PLAN.md`
+- Confirms that **no source code or backend changes were made** in the S-09/S-11 slot of this remediation
+- Allows the dashboard performance remediation to advance to S-10 (lazy-loading) and S-12 (governance) without blocking on a multi-collaborator audit
+
+#### What the late-stage plan contains
+
+`docs/plans/LATE_STAGE_S-09_AND_S-11_PLAN.md` is a self-contained execution plan (≈300 lines) for whoever picks this up later. It covers:
+
+1. Context at deferral time (post-S-08 codebase state, list of completed steps)
+2. **Mandatory pre-execution audit** — caller audit across git branches, external systems, function-side observability, and per-action correctness audit
+3. Decision tree — flowchart for choosing between Path A (Deprecate) and Path B (Adopt)
+4. **Path A — Deprecate**: full Lovable prompt, repository follow-ups, verification, risk, rollback (~1 hour effort if audit clean)
+5. **Path B — Adopt**: 6-step migration plan with feature flag, per-tab pilot, contract tests, byte-level KPI parity (2–4 days minimum)
+6. Cross-cutting concerns: multi-collaborator backend, RLS, observability, KPI parity testing
+7. Acceptance criteria per path
+8. Effort summary table
+9. Final reminders for the future operator
+10. Appendix with file paths and references
+
+#### Files Changed
+
+- **NEW** `docs/plans/LATE_STAGE_S-09_AND_S-11_PLAN.md` — execution plan, ~300 lines
+- `docs/changelogs/CHANGELOG-2026-04-24.md` — this entry
+
+**Zero source code changes.** Zero backend changes. Zero `supabase/functions/` changes. Zero `types.ts` changes.
+
+#### Acceptance Gates (for the deferral itself)
+
+- ✅ Late-stage plan authored and saved at `docs/plans/LATE_STAGE_S-09_AND_S-11_PLAN.md`
+- ✅ Plan includes mandatory pre-execution audit checklist
+- ✅ Plan includes both Path A (deprecate) and Path B (adopt) in full
+- ✅ Plan is self-contained (executable cold by future operator without reconstructing context)
+- ✅ This CHANGELOG entry documents the deferral and points to the plan
+- ✅ Dashboard performance remediation can advance to S-10 / S-12 without blocking
+
+#### Resumption Trigger
+
+The late-stage plan should be revisited when **any** of the following occur:
+
+1. The multi-collaborator caller audit (plan §2) can be completed (e.g. team is available to confirm absence of external `dashboard-data` callers)
+2. Lovable Branches (per-branch DB isolation) is enabled on the project, removing the multi-collaborator constraint
+3. A new requirement emerges that needs server-side aggregation (e.g. multi-tenant rollups, scheduled exports)
+4. The `dashboard-data` edge function is observed in production logs to have callers (or definitively zero callers for 30+ days)
+5. The team decides to enforce single-source-of-truth KPI semantics platform-wide
+
+#### Risk / Rollback
+
+- **Risk:** Zero. No source or backend changes were made.
+- **Rollback:** Revert this docs PR to remove the late-stage plan and CHANGELOG entry. The `dashboard-data` edge function remains untouched in either case.
+
+#### Traceability
+
+- **Plan reference:** CODEX_PLAN_v5 steps **S-09** and **S-11**
+- **Branch (this docs entry):** `claude/performance-improvements-DeNVL`
+- **Late-stage plan file:** `docs/plans/LATE_STAGE_S-09_AND_S-11_PLAN.md`
+- **Decision owner:** sruizmier (repository owner)
+- **Deferred at:** Post-S-08, pre-S-10
+- **Commit (this docs entry):** _(filled in below after push)_
+- **PR (this docs entry):** _(filled in below after open)_
+
+<!-- S-10 and S-12 will be appended below as their PRs are produced. -->
