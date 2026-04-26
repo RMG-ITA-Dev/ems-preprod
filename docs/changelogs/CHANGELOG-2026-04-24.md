@@ -1856,6 +1856,6 @@ git push origin sruizmier-performance-v1
 - **Branch:** `claude/performance-improvements-DeNVL`
 - **Base:** `sruizmier-performance-v1`
 - **Commit:** `af96228` — `perf(s-10): per-tab lazy-loading + per-tab failure isolation`
-- **PR:** _(filled in after open)_
+- **PR:** #25 — `perf(s-10): per-tab lazy-loading + per-tab failure isolation`
 
 <!-- S-12 will be appended below as its PR is produced. -->
