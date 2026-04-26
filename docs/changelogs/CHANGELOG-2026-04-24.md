@@ -1956,8 +1956,8 @@ git push origin sruizmier-performance-v1
 - **Plan reference:** CODEX_PLAN_v5 step **S-12** — final step
 - **Branch:** `claude/performance-improvements-DeNVL`
 - **Base:** `sruizmier-performance-v1`
-- **Commit:** _(filled in below after push)_
-- **PR:** _(filled in below after open)_
+- **Commit:** `3c5714c` — `perf(s-12): performance governance — final step of remediation`
+- **PR:** #26 — `perf(s-12): performance governance — final step of remediation`
 
 ---
 
