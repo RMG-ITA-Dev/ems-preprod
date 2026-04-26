@@ -1,12 +1,28 @@
+import { lazy, Suspense } from "react";
 import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { DashboardProvider, useDashboard, DashboardTab } from "@/contexts/DashboardContext";
 import { useDashboardAccess } from "@/hooks/useDashboardAccess";
 import { PeriodSelector } from "@/components/dashboard/PeriodSelector";
-import { PersonalTab, EncargoTab, CarteraTab, PracticaTab } from '@/components/dashboard/tabs';
+import { TabErrorBoundary } from "@/components/dashboard/TabErrorBoundary";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Building2, Briefcase, FolderKanban, User } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+// Lazy-loaded tabs — each becomes its own JS chunk so only the active tab fetches on first render.
+const PracticaTab = lazy(() =>
+  import("@/components/dashboard/tabs/PracticaTab").then((m) => ({ default: m.PracticaTab }))
+);
+const CarteraTab = lazy(() =>
+  import("@/components/dashboard/tabs/CarteraTab").then((m) => ({ default: m.CarteraTab }))
+);
+const EncargoTab = lazy(() =>
+  import("@/components/dashboard/tabs/EncargoTab").then((m) => ({ default: m.EncargoTab }))
+);
+const PersonalTab = lazy(() =>
+  import("@/components/dashboard/tabs/PersonalTab").then((m) => ({ default: m.PersonalTab }))
+);
 
 const TAB_CONFIG: { id: DashboardTab; icon: React.ReactNode; labelKey: string }[] = [
   { id: 'practica', icon: <Building2 className="h-4 w-4" />, labelKey: 'dashboard.tabs.practica' },
@@ -14,6 +30,19 @@ const TAB_CONFIG: { id: DashboardTab; icon: React.ReactNode; labelKey: string }[
   { id: 'encargo', icon: <FolderKanban className="h-4 w-4" />, labelKey: 'dashboard.tabs.encargo' },
   { id: 'personal', icon: <User className="h-4 w-4" />, labelKey: 'dashboard.tabs.personal' },
 ];
+
+function TabSkeleton() {
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+        {[...Array(4)].map((_, i) => (
+          <Skeleton key={i} className="h-24 w-full" />
+        ))}
+      </div>
+      <Skeleton className="h-64 w-full" />
+    </div>
+  );
+}
 
 function DashboardContent() {
   const { t } = useTranslation();
@@ -56,33 +85,40 @@ function DashboardContent() {
           })}
         </TabsList>
 
-        {/* Tab Content */}
+        {/* Tab Content — each tab is lazy-loaded into its own chunk and isolated by an error boundary
+            so a failure in one tab does not crash the whole dashboard. */}
         <TabsContent value="practica" className="mt-4">
-          <PracticaTab />
+          <TabErrorBoundary tabLabel={t('dashboard.tabs.practica')}>
+            <Suspense fallback={<TabSkeleton />}>
+              <PracticaTab />
+            </Suspense>
+          </TabErrorBoundary>
         </TabsContent>
 
         <TabsContent value="cartera" className="mt-4">
-          <CarteraTab />
+          <TabErrorBoundary tabLabel={t('dashboard.tabs.cartera')}>
+            <Suspense fallback={<TabSkeleton />}>
+              <CarteraTab />
+            </Suspense>
+          </TabErrorBoundary>
         </TabsContent>
 
         <TabsContent value="encargo" className="mt-4">
-          <EncargoTab />
+          <TabErrorBoundary tabLabel={t('dashboard.tabs.encargo')}>
+            <Suspense fallback={<TabSkeleton />}>
+              <EncargoTab />
+            </Suspense>
+          </TabErrorBoundary>
         </TabsContent>
 
         <TabsContent value="personal" className="mt-4">
-          <PersonalTab />
+          <TabErrorBoundary tabLabel={t('dashboard.tabs.personal')}>
+            <Suspense fallback={<TabSkeleton />}>
+              <PersonalTab />
+            </Suspense>
+          </TabErrorBoundary>
         </TabsContent>
       </Tabs>
-    </div>
-  );
-}
-
-function PlaceholderTab({ title, description }: { title: string; description: string }) {
-  return (
-    <div className="rounded-xl border border-border bg-card/50 backdrop-blur-sm p-8 text-center">
-      <h3 className="text-lg font-semibold text-foreground">{title}</h3>
-      <p className="text-muted-foreground mt-2">{description}</p>
-      <p className="text-xs text-muted-foreground mt-4">Próximamente...</p>
     </div>
   );
 }
