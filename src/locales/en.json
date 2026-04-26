@@ -598,6 +598,11 @@
       "encargo": "Engagement",
       "personal": "Personal"
     },
+    "tabError": {
+      "title": "Error in {{tab}} tab",
+      "description": "This tab failed to load. Other tabs are unaffected.",
+      "retry": "Try again"
+    },
     "personal": {
       "thisWeek": "This Week",
       "thisMonth": "This Month",

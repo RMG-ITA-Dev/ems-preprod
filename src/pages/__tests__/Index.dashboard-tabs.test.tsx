@@ -43,10 +43,16 @@ vi.mock("@/hooks/useDashboardAccess", () => ({
 vi.mock("@/components/dashboard/PeriodSelector", () => ({
   PeriodSelector: () => <div data-testid="period-selector" />,
 }));
-vi.mock("@/components/dashboard/tabs", () => ({
+vi.mock("@/components/dashboard/tabs/PracticaTab", () => ({
   PracticaTab: () => <div data-testid="practica-tab" />,
+}));
+vi.mock("@/components/dashboard/tabs/CarteraTab", () => ({
   CarteraTab: () => <div data-testid="cartera-tab" />,
+}));
+vi.mock("@/components/dashboard/tabs/EncargoTab", () => ({
   EncargoTab: () => <div data-testid="encargo-tab" />,
+}));
+vi.mock("@/components/dashboard/tabs/PersonalTab", () => ({
   PersonalTab: () => <div data-testid="personal-tab" />,
 }));
 vi.mock("@/components/layout/AppLayout", () => ({
