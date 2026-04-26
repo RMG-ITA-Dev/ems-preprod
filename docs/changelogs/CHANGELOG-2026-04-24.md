@@ -1656,4 +1656,206 @@ The late-stage plan should be revisited when **any** of the following occur:
 - **Commit (this docs entry):** `0cf63db` — `docs(s-09+s-11): defer with full late-stage execution plan`
 - **PR (this docs entry):** #24 — `docs(s-09+s-11): defer with full late-stage execution plan`
 
-<!-- S-10 and S-12 will be appended below as their PRs are produced. -->
+---
+
+### S-10 — Per-tab lazy-loading + per-tab failure isolation
+
+**Refactors `src/pages/Index.tsx` so each of the four dashboard tab modules (Practica, Cartera, Encargo, Personal) becomes its own lazy-loaded code-split chunk, and each tab is wrapped by a new `TabErrorBoundary` so a thrown error inside one tab is contained inside that tab's panel — the rest of the dashboard route (period selector, tab list, sibling tabs) remains interactive. Build now produces 4 separate `<TabName>-<hash>.js` chunks; the dashboard route shell (`Index-<hash>.js`) drops from ~440 KB to **10.7 KB**.**
+
+#### Scope
+- Frontend only
+- 6 files touched: 1 refactored, 1 new component + its tests, 1 deleted (barrel), 1 test updated, 2 locale files
+- No schema, RPC, edge function, dependency, or react-query default change
+- Zero KPI drift — the refactor only changes WHEN tab modules load and HOW errors are caught; never WHAT the tabs render
+
+#### Files Changed
+
+##### NEW `src/components/dashboard/TabErrorBoundary.tsx` (78 lines)
+
+- **Created** a per-tab error boundary using a two-component pattern:
+  - `TabErrorBoundaryClass` — minimal class component that handles React's `getDerivedStateFromError` / `componentDidCatch` lifecycle, logs to `logger.error` from `@/lib/logger`, and exposes a `reset()` callback. Receives a `fallback: (resetError, error) => ReactNode` render prop.
+  - `TabErrorFallback` — function component that uses `useTranslation()` to render the localized error UI. Shows an `AlertTriangle` icon, a translated title interpolated with the tab label (`{{tab}}`), a translated description, the underlying `error.message` in a `<pre>` block (for debugging), and a "Try again" button that calls the reset callback.
+  - `TabErrorBoundary` — public wrapper component that takes `tabLabel: string` + `children: ReactNode`, composes the class boundary with the i18n-aware fallback. This is what `Index.tsx` consumes.
+- **Why two components:** Class components can't use hooks, so `useTranslation()` (needed for i18n compliance per CLAUDE.md) lives in the function component. The class boundary is reduced to pure lifecycle handling; the i18n-aware fallback is a render prop. Clean separation of concerns.
+- **Imports:** `react`, `react-i18next`, `lucide-react`, `@/components/ui/button`, `@/lib/logger`. No new runtime deps.
+
+##### NEW `src/components/dashboard/__tests__/TabErrorBoundary.test.tsx` (5 unit tests)
+
+- **Created** unit tests covering:
+  1. Renders children when no error is thrown
+  2. Catches a thrown error and renders the fallback UI (with localized strings)
+  3. Interpolates the tab label into the localized title via `{{tab}}`
+  4. Logs the error to `logger.error` with a `'TabErrorBoundary'` marker in the message
+  5. Clicking the "Try again" button resets the boundary and re-renders children if the underlying child no longer throws
+- **Mocks:** `react-i18next` `useTranslation()` (returns minimal fixture for `dashboard.tabError.*` keys); `@/lib/logger` (spy on `error`); `console.error` suppressed (React's noisy expected-error log)
+- **Result:** 5/5 passing in 101 ms
+
+##### `src/pages/Index.tsx` (refactor; 103 → 137 lines)
+
+###### Top-level imports (rewritten)
+- **Removed** `import { PersonalTab, EncargoTab, CarteraTab, PracticaTab } from '@/components/dashboard/tabs';` (eager barrel import)
+- **Added** `lazy`, `Suspense` from `react`
+- **Added** `import { Skeleton } from "@/components/ui/skeleton";` for the suspense fallback
+- **Added** `import { TabErrorBoundary } from "@/components/dashboard/TabErrorBoundary";`
+- **Added** four `lazy()` declarations, one per tab, **importing from per-file paths** (NOT the barrel) so each becomes its own JS chunk:
+  ```ts
+  const PracticaTab = lazy(() =>
+    import("@/components/dashboard/tabs/PracticaTab").then((m) => ({ default: m.PracticaTab }))
+  );
+  // ...same for CarteraTab, EncargoTab, PersonalTab
+  ```
+  The `.then((m) => ({ default: m.PracticaTab }))` adapter is required because `lazy()` expects a default export, but the tab files use named exports.
+
+###### `TabSkeleton` component (new, internal)
+- Added a small skeleton component that renders 4 KPI-card-sized blocks + a body block. Used as the suspense fallback for every tab. Visually matches the loading state the tabs themselves show during their internal data fetches, so the perceived experience is consistent whether the chunk is fetching or the data is fetching.
+
+###### `<TabsContent>` blocks (rewritten)
+- **Replaced** each direct `<TabName />` invocation with the wrap pattern:
+  ```tsx
+  <TabsContent value="practica" className="mt-4">
+    <TabErrorBoundary tabLabel={t('dashboard.tabs.practica')}>
+      <Suspense fallback={<TabSkeleton />}>
+        <PracticaTab />
+      </Suspense>
+    </TabErrorBoundary>
+  </TabsContent>
+  ```
+  Repeated for `cartera`, `encargo`, `personal`. The order is `TabErrorBoundary` outermost (so it can catch errors from Suspense boundary itself if the chunk fetch fails), then `Suspense`, then the lazy tab.
+
+###### `PlaceholderTab` (deleted)
+- Removed the unused `PlaceholderTab` function component (lines 80–88 in the previous file). Verified zero references via `git grep "PlaceholderTab"` — pure dead code from an earlier iteration.
+
+##### DELETED `src/components/dashboard/tabs/index.ts` (4 lines)
+
+- Removed the barrel that re-exported all four tabs. Verified only `Index.tsx` imported from it (`grep -rn "from ['\"]@/components/dashboard/tabs['\"]" src`); after the per-file lazy imports in Index.tsx, the barrel had zero consumers.
+
+##### `src/pages/__tests__/Index.dashboard-tabs.test.tsx`
+
+- **Updated** the test mocks to match the new per-file import paths in `Index.tsx`:
+  ```ts
+  // Before (single barrel mock)
+  vi.mock("@/components/dashboard/tabs", () => ({ PracticaTab, CarteraTab, EncargoTab, PersonalTab: ... }));
+
+  // After (one mock per file path)
+  vi.mock("@/components/dashboard/tabs/PracticaTab", () => ({ PracticaTab: () => <div data-testid="practica-tab" /> }));
+  vi.mock("@/components/dashboard/tabs/CarteraTab", () => ({ CarteraTab: () => <div data-testid="cartera-tab" /> }));
+  vi.mock("@/components/dashboard/tabs/EncargoTab", () => ({ EncargoTab: () => <div data-testid="encargo-tab" /> }));
+  vi.mock("@/components/dashboard/tabs/PersonalTab", () => ({ PersonalTab: () => <div data-testid="personal-tab" /> }));
+  ```
+- The barrel mock would never trigger in the new world since `lazy(() => import('@/components/dashboard/tabs/PracticaTab'))` resolves directly to the file, never through the barrel. Updating the mocks keeps the test's coverage of `Index.tsx` intact.
+- **Result:** existing 5 test cases continue to pass after the mock-path update (no semantic test change).
+
+##### `src/locales/en.json` (3 new keys)
+
+```json
+"dashboard.tabError": {
+  "title": "Error in {{tab}} tab",
+  "description": "This tab failed to load. Other tabs are unaffected.",
+  "retry": "Try again"
+}
+```
+
+##### `src/locales/es.json` (3 new keys)
+
+```json
+"dashboard.tabError": {
+  "title": "Error en pestaña {{tab}}",
+  "description": "Esta pestaña no se pudo cargar. Otras pestañas no se ven afectadas.",
+  "retry": "Intentar de nuevo"
+}
+```
+
+#### Build Output (verified)
+
+After `npm run build`:
+
+| Chunk | Size | Notes |
+|---|---|---|
+| `Index-<hash>.js` | **10.7 KB** | Dashboard route shell — period selector, tab list, error boundaries, suspense fallbacks |
+| `PracticaTab-<hash>.js` | 13.7 KB | Lazy chunk for Practica tab + its `practicaLeaderboard.ts` aggregation helper |
+| `CarteraTab-<hash>.js` | 12.8 KB | Lazy chunk for Cartera tab |
+| `EncargoTab-<hash>.js` | 16.2 KB | Lazy chunk for Encargo tab + its `encargoActualByCategory.ts` aggregation helper |
+| `PersonalTab-<hash>.js` | 17.9 KB | Lazy chunk for Personal tab |
+
+For comparison: in the pre-S-10 build, `Index-<hash>.js` was ~440 KB (containing all four tab modules and their dependencies). The dashboard route shell is now ~40× smaller. Tab modules and their shared sparkline/recharts dependency live in separate chunks that fetch on-demand.
+
+#### Behavior Preservation Guarantees
+
+| Behavior | Drift |
+|---|---|
+| KPI values, totals, displays, sorts | None — tab components are unchanged |
+| Tab navigation UX | None — `<Tabs>` (Radix) still controls active state |
+| Initial render of the user's default tab | **Slightly delayed** by the chunk fetch (~50–100 ms first time; cached afterwards). The skeleton bridges the gap. |
+| Subsequent tab clicks (first visit) | Brief skeleton (~50–100 ms chunk fetch); after first visit instant |
+| Subsequent tab clicks (revisit) | Identical to before — cached chunk |
+| Global `<ErrorBoundary>` in `App.tsx` | Unchanged — still catches errors that escape outside the dashboard |
+| Per-tab error containment | **New** — a thrown error inside one tab is contained inside that tab's panel; sibling tabs and the rest of the dashboard route remain interactive |
+
+#### Tests
+
+| Test command | Result |
+|---|---|
+| `npx vitest run src/components/dashboard/__tests__/TabErrorBoundary.test.tsx` | **5/5 passed** (101 ms) |
+| `npx vitest run src/pages/__tests__/Index.dashboard-tabs.test.tsx` | **5/5 passed** (335 ms — unchanged from S-07b after mock-path update) |
+| `npx vitest run` (full suite) | **567 passed, 1 skipped, 0 failed** across 63 files (was 562 → +5 new = 567) |
+| `npm run build` | TypeScript compile clean, Vite build succeeds in 17.58 s; **4 separate tab chunks produced** (verified via `ls dist/assets/`) |
+
+#### Acceptance Gates (all pass)
+
+- ✅ All 4 tabs lazy-loaded via per-file `lazy()` imports
+- ✅ Each `<TabsContent>` wrapped with `<TabErrorBoundary>` + `<Suspense fallback>`
+- ✅ New `TabErrorBoundary` has 5 passing unit tests
+- ✅ Existing `Index.dashboard-tabs.test.tsx` 5 tests still pass after mock-path update
+- ✅ `npm run build` produces 4 separate tab chunks (`PracticaTab-*.js`, `CarteraTab-*.js`, `EncargoTab-*.js`, `PersonalTab-*.js`)
+- ✅ Initial bundle (`Index-*.js`) shrinks from ~440 KB to 10.7 KB (~40× reduction)
+- ✅ Build clean, full vitest 567 passing
+- ✅ All new strings via i18n; no hardcoded English/Spanish strings (per CLAUDE.md)
+- ✅ Barrel `src/components/dashboard/tabs/index.ts` deleted (zero remaining consumers)
+
+#### What is NOT Changed
+
+- The four dashboard tab files (`PracticaTab.tsx`, `CarteraTab.tsx`, `EncargoTab.tsx`, `PersonalTab.tsx`) — internal logic unchanged
+- The four pure aggregation helpers (`practicaLeaderboard.ts`, `weeklyHoursBucket.ts`, `pendingApprovalsAggregation.ts`, `encargoActualByCategory.ts`) — unchanged
+- `src/lib/queryHelpers.ts` (S-07a) — unchanged
+- The global `<ErrorBoundary>` in `App.tsx` — unchanged (still catches errors above the dashboard)
+- Database schema, RPCs, edge functions, migrations
+- React Query defaults from S-01
+- Test infra, dependencies (no `package.json` change)
+
+#### Verification Checklist (for reviewer)
+
+To confirm this changelog matches the codebase:
+1. Confirm `src/components/dashboard/TabErrorBoundary.tsx` exists; exports `TabErrorBoundary` (default-named export of the wrapper component).
+2. Confirm `src/components/dashboard/__tests__/TabErrorBoundary.test.tsx` exists with 5 tests; run targeted test → 5/5 pass.
+3. Confirm `src/components/dashboard/tabs/index.ts` does **NOT** exist (`ls src/components/dashboard/tabs/index.ts` returns "No such file or directory").
+4. Open `src/pages/Index.tsx` and confirm:
+   - Top-of-file uses `lazy(() => import('@/components/dashboard/tabs/<Name>Tab').then(...))` for each of the four tabs
+   - Each `<TabsContent>` wraps its tab in `<TabErrorBoundary tabLabel={t(...)}>` → `<Suspense fallback={<TabSkeleton />}>` → `<TabName />`
+5. Run `git grep "from ['\"]@/components/dashboard/tabs['\"]" src/` → should return **no matches** (the barrel is gone and no consumer references it).
+6. Run `npx vitest run` → 567 passed / 1 skipped / 0 failed.
+7. Run `npm run build` → clean compile; check `dist/assets/` for 4 separate `<TabName>Tab-<hash>.js` files.
+8. **Visual smoke test:** open the dashboard, switch tabs — confirm the brief skeleton flash on first visit and instant rendering on revisit. Open DevTools Network tab and confirm chunk fetches happen on first tab visit only.
+9. **Visual error-boundary smoke test (optional):** temporarily throw inside one tab's component (`throw new Error('test');`), navigate to that tab, confirm the error UI renders inside the tab panel only and other tabs remain functional.
+
+#### Risk / Rollback
+
+- **Risk:** Low. Pattern is well-known (React.lazy + Suspense + ErrorBoundary). Biggest risk would be mock-path mismatch in the existing test, which was addressed explicitly.
+- **Rollback:** Revert PR. The two new files deletable; restore the barrel `src/components/dashboard/tabs/index.ts`; restore eager imports in `Index.tsx`; revert the test mock paths.
+
+#### Lovable Preview Reindex
+
+This PR introduces **two new files** under `src/components/dashboard/` (the boundary + its tests). Per `AGENTS.md`: if after merge the preview shows 404 on `/_sandbox/dev-server`, run:
+```bash
+git commit --allow-empty -m "chore: trigger Lovable preview rebuild"
+git push origin sruizmier-performance-v1
+```
+
+#### Traceability
+
+- **Plan reference:** CODEX_PLAN_v5 step **S-10** — per-tab failure isolation and lazy-loading
+- **Branch:** `claude/performance-improvements-DeNVL`
+- **Base:** `sruizmier-performance-v1`
+- **Commit:** `af96228` — `perf(s-10): per-tab lazy-loading + per-tab failure isolation`
+- **PR:** _(filled in after open)_
+
+<!-- S-12 will be appended below as its PR is produced. -->
