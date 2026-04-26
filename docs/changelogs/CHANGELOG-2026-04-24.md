@@ -1858,4 +1858,192 @@ git push origin sruizmier-performance-v1
 - **Commit:** `af96228` — `perf(s-10): per-tab lazy-loading + per-tab failure isolation`
 - **PR:** #25 — `perf(s-10): per-tab lazy-loading + per-tab failure isolation`
 
-<!-- S-12 will be appended below as its PR is produced. -->
+---
+
+### S-12 — Lightweight performance governance (final step)
+
+**Wraps the EMS dashboard performance remediation. Codifies the perf gains from S-01 through S-10 as named budgets future PRs must respect, adds a dev-only opt-in slow-query logger, and updates `AGENTS.md` with a per-PR perf checklist. Pure additions — zero changes to existing dashboard code.**
+
+#### Scope
+- Frontend + process docs (no backend)
+- 5 files touched: 3 new, 2 appended
+- No schema, RPC, edge function, dependency, or react-query default change
+- Zero KPI drift — no existing source code modified
+
+#### Files Changed
+
+##### NEW `docs/performance/dashboard-performance-budget.md` (~140 lines)
+
+- **Created** the dashboard performance budget doc. Codifies:
+  - **Round-trip budgets** per dashboard query path with the step responsible for each (e.g. "Practica `partnerLeaderboard` ≤ 5 round-trips, established by S-02")
+  - **Bundle size budgets** for the dashboard route shell, per-tab chunks, and the shared sparkline/recharts chunk
+  - **Query semantics invariants** — structural rules (queryKey/body coupling, time-range server-side filter, empty-array guards, abort signals, `safeNumber`/`hasItems`, no wildcard selects, per-tab error boundary)
+  - **Soft budgets** — slow-query warning threshold (500 ms), Monday cache invalidation, KPI parity protocol
+  - **When to break a budget** — acceptable vs. unacceptable reasons, with examples
+  - **Reference table** mapping each budget category to the step that established it
+  - **Cross-references** to CHANGELOG, deferred plan, AGENTS.md, etc.
+  - **Resumption triggers** — when to revisit and revise the doc
+
+##### NEW `src/lib/queryPerfLogger.ts` (52 lines)
+
+- **Created** the dev-only opt-in slow-query logger. Exports:
+  - `SLOW_QUERY_THRESHOLD_MS = 500` (named constant; tunable per call via `options.thresholdMs`)
+  - `withPerfLogging<T>(queryKey, fn, options?)` — async wrapper that times `fn()` and emits `console.warn` if duration exceeds the threshold
+- **Production behavior:** strictly dev-only — `if (!import.meta.env.DEV) return fn();` short-circuits before any timing or wrapping. Zero overhead in production builds.
+- **Dev behavior:** `performance.now()` before/after, with `console.warn(\`[perf] Slow query (${ms}ms${rowCountSuffix}):\`, queryKey)` when above threshold. Optional `rowCountSelector?: (result) => number | undefined` for diagnostic context.
+- **Failure handling:** if `fn()` throws and the duration exceeded the threshold, emits a separate `[perf] Slow query failed (${ms}ms):` warning, then re-throws the original error.
+- **Imports:** none (uses globals: `performance`, `console`, `import.meta.env`).
+- **Adoption stance:** opt-in. The remediation does NOT retroactively wire `withPerfLogging` into the existing 18 dashboard queryFns (would be churn for dev-only telemetry). Future heavy queryFns wrap themselves at addition time.
+
+##### NEW `src/lib/__tests__/queryPerfLogger.test.ts` (4 unit tests)
+
+- **Created** unit tests covering the four behavioral contracts:
+  1. **Below threshold** → no warning emitted (verified with mocked `performance.now()`)
+  2. **Above threshold** → warning emitted with duration, queryKey, and row count from selector
+  3. **Production mode** (`vi.stubEnv('DEV', false)`) → no measurement, no warning, no `performance.now()` invocation, and the underlying fn is still called
+  4. **Failed query above threshold** → warning emitted, original error re-thrown
+- **Mocks:** `console.warn` (spy + suppression), `performance.now` (deterministic durations), `import.meta.env.DEV` via `vi.stubEnv`
+- **Result:** 4/4 passing in 10 ms
+
+##### `AGENTS.md` (appended ~40 lines)
+
+- **Appended** new section "**Dashboard PR Perf Checklist**" after the existing "Lovable Preview Reindex on New-File PRs" section. Codifies the 6-item review checklist:
+  1. Round-trip evidence (DevTools network panel screenshot/note)
+  2. Bundle size (verify via `ls dist/assets/` after build)
+  3. New pure-aggregation helpers must include unit tests
+  4. Hard budgets verified against `docs/performance/dashboard-performance-budget.md`
+  5. Query semantics invariants enforced (queryKey/body, server-side dates, hasItems, abortSignal, safeNumber, no wildcard selects)
+  6. Lovable reindex runbook on new-file PRs
+
+##### `docs/changelogs/CHANGELOG-2026-04-24.md` (appended)
+
+This entry plus the final remediation summary below.
+
+#### What S-12 Will NOT Do (Bounded Scope)
+
+- ❌ Retroactively wire `withPerfLogging` into the 18 existing dashboard queryFns — plan calls for "lightweight"; touching 18 places for dev-only logs would be heavy churn for marginal value. Adoption is opportunistic.
+- ❌ Hard regression tests asserting "no N+1 in PracticaTab" — would require deep supabase mocking. The perf budget + CI checklist + the existing pure-helper unit tests cover this socially.
+- ❌ External monitoring integration (Sentry, LogRocket, Lighthouse CI) — out of remediation scope.
+- ❌ SQL `EXPLAIN ANALYZE` automation — the S-08 CHANGELOG already lists the verification queries; running them is on the operator.
+
+#### Tests
+
+| Test command | Result |
+|---|---|
+| `npx vitest run src/lib/__tests__/queryPerfLogger.test.ts` | **4/4 passed** (10 ms) |
+| `npx vitest run` (full suite) | **571 passed, 1 skipped, 0 failed** across 64 files (was 567 → +4 new) |
+| `npm run build` | TypeScript compile clean, Vite build succeeds in 22.46 s; 4 tab chunks preserved from S-10 |
+
+#### Acceptance Gates (all pass)
+
+- ✅ Performance budget doc exists at `docs/performance/dashboard-performance-budget.md`
+- ✅ `queryPerfLogger.ts` exists with `withPerfLogging` helper, dev-only-gated
+- ✅ 4 passing unit tests for the logger
+- ✅ `AGENTS.md` includes the Dashboard PR Perf Checklist section
+- ✅ Zero changes to dashboard tabs, `Index.tsx`, `queryHelpers.ts`, or any other source code
+- ✅ Build clean, full vitest 571 passing
+
+#### Lovable Preview Reindex
+
+This PR introduces **two new source files** under `src/lib/` and one new doc + one new doc directory. Per `AGENTS.md`: if after merge the preview shows 404 on `/_sandbox/dev-server`, run:
+```bash
+git commit --allow-empty -m "chore: trigger Lovable preview rebuild"
+git push origin sruizmier-performance-v1
+```
+
+#### Traceability
+
+- **Plan reference:** CODEX_PLAN_v5 step **S-12** — final step
+- **Branch:** `claude/performance-improvements-DeNVL`
+- **Base:** `sruizmier-performance-v1`
+- **Commit:** _(filled in below after push)_
+- **PR:** _(filled in below after open)_
+
+---
+
+## Final Summary — EMS Dashboard Performance Remediation Closed
+
+**Period:** 2026-04-25 to 2026-04-26
+**Branch:** `sruizmier-performance-v1`
+**Total PRs:** 13 (#14 through #26)
+**Total commits across the branch (vs. `main` at fork point):** ~50 commits (see `git log main..sruizmier-performance-v1`)
+
+### Step-by-step ledger
+
+| Step | Type | What it did | PR |
+|---|---|---|---|
+| S-01 | Frontend | Set global React Query defaults (staleTime 60s, gcTime 5min, retry 1, refetchOnWindowFocus/Reconnect false) | #14 |
+| S-02 | Frontend | Refactored Practica `partnerLeaderboard`: `1 + 4·N` → 5 round-trips constant; split risk column into At Risk + Over Budget for KPI consistency | #15 |
+| Complement | Docs | Lovable preview reindex runbook in `AGENTS.md` (resilience for new-file PRs) | #16 |
+| S-03 | Frontend | Collapsed three 8-week sparkline loops to single-range fetches: 24 sequential round-trips → 4; added Monday-boundary cache invalidation | #17 |
+| S-04 | Frontend | Bulk-fetched Cartera `pendingApprovals`: `2 + N` → 3 round-trips constant via composite-key aggregation helper | #18 |
+| S-05 | Frontend | Fixed Encargo period-key/query mismatch (correctness bug — totals were all-time despite period-keyed cache); added INVARIANT comment | #19 |
+| S-06 | Frontend | Replaced 5 wildcard `select('*')` calls with explicit columns; left 2 idiomatic count-only wildcards | #20 |
+| S-07a | Frontend | New `safeNumber` + `hasItems` helpers in `src/lib/queryHelpers.ts`; adopted across 4 prior helpers + 4 dashboard tabs | #21 |
+| S-07b | Frontend | Threaded React Query AbortSignal through 18 dashboard queryFns (33 `.abortSignal(signal)` insertions); enables real HTTP cancellation on rapid navigation | #22 |
+| S-08 | Backend (Lovable) + docs | 7 DB indexes added on `time_entries`, `engagements`, `timesheet_line_approvals`. Lovable applied; docs PR landed separately | #23 |
+| S-09 + S-11 | Deferred | Backend dashboard contract decision deferred (multi-collaborator backend constraint); full execution plan saved at `docs/plans/LATE_STAGE_S-09_AND_S-11_PLAN.md` | #24 |
+| S-10 | Frontend | Per-tab lazy-loading via `React.lazy` (4 separate JS chunks) + new `TabErrorBoundary` for per-tab fault isolation. Dashboard route shell shrunk from ~440 KB to 10.7 KB | #25 |
+| S-12 | Frontend + process | Performance budget doc + dev-only opt-in slow-query logger + Dashboard PR Perf Checklist in `AGENTS.md` | #26 |
+
+### Quantified outcomes
+
+| Metric | Before | After | Source |
+|---|---|---|---|
+| Practica `partnerLeaderboard` round-trips (8 partners) | 33 sequential | 5 (3 in parallel) | S-02 |
+| Practica `weeklyTrend` round-trips | 8 sequential | 1 | S-03 |
+| Cartera `weeklyTrend` round-trips (with engagements) | 1 + 8 = 9 sequential | 2 | S-03 |
+| Personal `weeklyTrend` round-trips | 8 sequential | 1 | S-03 |
+| Cartera `pendingApprovals` round-trips (20 approvals) | 2 + 20 = 22 sequential | 3 | S-04 |
+| Encargo `actualByCategory` correctness | All-time totals shown despite period selection | Period-filtered totals (matches user expectation) | S-05 |
+| Wildcard `select('*')` calls in dashboard tabs | 7 (5 data + 2 count-only) | 2 (count-only only) | S-06 |
+| `safeNumber`/`hasItems` consistency across dashboard | inline 11+ sites; 4 helpers each with own coercion pattern | One source of truth in `src/lib/queryHelpers.ts` | S-07a |
+| Abort signal coverage on dashboard queryFns | 0 of 18 | 18 of 18 (33 chained calls) | S-07b |
+| DB indexes for dashboard predicates | 4 existing (none composite/partial for the hot paths) | +7 new (composite + partial filtered) | S-08 |
+| Dashboard route shell `Index-<hash>.js` | ~440 KB (all tabs eager) | 10.7 KB (~40× reduction) | S-10 |
+| Per-tab error containment | Global page crash on any tab error | Per-tab inline error UI; siblings unaffected | S-10 |
+| Test count | 514 passing | 571 passing (+57 added across remediation) | per-step |
+
+### Architectural artifacts created
+
+- 5 pure-aggregation helpers (zero React/Supabase imports each):
+  - `src/components/dashboard/tabs/practicaLeaderboard.ts` (S-02)
+  - `src/components/dashboard/weeklyHoursBucket.ts` (S-03)
+  - `src/components/dashboard/pendingApprovalsAggregation.ts` (S-04)
+  - `src/components/dashboard/encargoActualByCategory.ts` (S-05)
+  - `src/lib/queryHelpers.ts` (S-07a)
+- 1 dev-only telemetry helper: `src/lib/queryPerfLogger.ts` (S-12)
+- 1 per-tab error boundary: `src/components/dashboard/TabErrorBoundary.tsx` (S-10)
+- 1 backend migration: `supabase/migrations/20260425232210_…sql` (S-08)
+- 1 governance doc: `docs/performance/dashboard-performance-budget.md` (S-12)
+- 1 deferred-decision plan: `docs/plans/LATE_STAGE_S-09_AND_S-11_PLAN.md` (S-09 + S-11)
+- 2 process docs in `AGENTS.md`: Lovable Preview Reindex runbook (Complement), Dashboard PR Perf Checklist (S-12)
+
+### What was deferred and why
+
+- **S-09 + S-11** (backend dashboard contract decision) — deferred because the project shares its Supabase backend across all branches and external collaborators may exercise the unused `dashboard-data` edge function in ways not observable from this repository. Full execution plan for both Path A (deprecate) and Path B (adopt) is at `docs/plans/LATE_STAGE_S-09_AND_S-11_PLAN.md`.
+- **`types.ts` cross-branch leakage** — accepted as a known trade-off (Option B from the post-S-08 incident discussion). Documented in S-08 CHANGELOG. Long-term fix is enabling Lovable Branches per-DB isolation.
+- **Hard regression tests for "no N+1"** — out of scope for S-12; the perf budget doc + CI checklist + existing pure-helper unit tests cover this socially.
+
+### Lessons learned (captured for the team)
+
+1. **Shared Supabase across branches is a constraint that affects more than just code.** `types.ts` regenerates from the live DB on every Lovable apply, so other branches' schema changes can leak into your branch's `types.ts` even if you never imported them. Lovable Branches solves this if/when enabled.
+2. **Per-file lazy imports beat barrel-file lazy imports** for code-splitting. A `lazy(() => import('./tabs').then(m => m.X))` pattern bundles all barrel exports into one chunk; per-file lazy splits cleanly.
+3. **The plan's recommended split (S-07a vs S-07b)** worked well — adoption helpers are mechanically different from threading work, and reviewing them separately reduces cognitive load.
+4. **Pure-aggregation helpers with zero React/Supabase imports** are cheap to test and easy to read. Every dashboard refactor in this remediation extracted one. They're also the natural seam if backend aggregation (S-09 Path B) is ever pursued.
+5. **The Lovable preview reindex incident** (post-S-02) was an early warning that infrastructure-level events can manifest as confusing user-facing errors. The runbook in `AGENTS.md` is short, actionable, and saved time on at least three subsequent steps.
+
+### Closing
+
+The dashboard's hot paths now have:
+- Constant-time round-trip costs (no N+1 patterns remaining)
+- Real HTTP cancellation on rapid user navigation
+- DB-side index support for every dashboard predicate
+- Per-tab fault isolation (no cascading failures)
+- Code-split chunks (40× smaller initial bundle)
+- Consistent KPI semantics via shared pure helpers
+- Codified budgets and governance to prevent regressions
+
+The deferred S-09/S-11 work is documented and ready to resume on demand.
+
+This closes the EMS dashboard performance remediation per CODEX_PLAN_v5.
