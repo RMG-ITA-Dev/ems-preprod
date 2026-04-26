@@ -1653,7 +1653,7 @@ The late-stage plan should be revisited when **any** of the following occur:
 - **Late-stage plan file:** `docs/plans/LATE_STAGE_S-09_AND_S-11_PLAN.md`
 - **Decision owner:** sruizmier (repository owner)
 - **Deferred at:** Post-S-08, pre-S-10
-- **Commit (this docs entry):** _(filled in below after push)_
-- **PR (this docs entry):** _(filled in below after open)_
+- **Commit (this docs entry):** `0cf63db` — `docs(s-09+s-11): defer with full late-stage execution plan`
+- **PR (this docs entry):** #24 — `docs(s-09+s-11): defer with full late-stage execution plan`
 
 <!-- S-10 and S-12 will be appended below as their PRs are produced. -->
