@@ -8,15 +8,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Skeleton } from "@/components/ui/skeleton";
+import { DataTable, Column, FilterConfig } from "@/components/data-table/DataTable";
 import { Shield, User, Eye, Lock, Crown, Briefcase, Users, Star, StarHalf, ShieldCheck, Monitor, Calculator, AlertTriangle, UserPlus, Trash2 } from "lucide-react";
 import { useAllUserRoles, useUpdateUserRole, useDeleteAuthUser, UserRoleData } from "@/hooks/useUserRoles";
 import { useAuth } from "@/hooks/useAuth";
@@ -84,23 +76,139 @@ export function UserRolesManager() {
     return t(`userRoles.roles.${role}`);
   };
 
-  if (isLoading) {
-    return (
-      <Card>
-        <CardHeader>
-          <Skeleton className="h-6 w-48" />
-          <Skeleton className="h-4 w-64" />
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            <Skeleton className="h-10 w-full" />
-            <Skeleton className="h-10 w-full" />
-            <Skeleton className="h-10 w-full" />
+  const ALL_ROLES: AppRole[] = [
+    "admin", "partner", "director", "manager", "senior",
+    "semisenior", "staff", "viewer", "sqr", "specialist_it", "specialist_tax",
+  ];
+
+  const roleFilter: FilterConfig = {
+    key: "role",
+    label: t("userRoles.currentRole"),
+    options: ALL_ROLES.map((r) => ({ value: r, label: getRoleLabel(r) })),
+  };
+
+  const columns: Column<UserRoleData>[] = [
+    {
+      key: "email",
+      label: t("userRoles.email"),
+      sortable: true,
+      mobilePriority: "primary",
+    },
+    {
+      key: "staff_name",
+      label: t("userRoles.staffName"),
+      sortable: true,
+      mobilePriority: "primary",
+      render: (row) =>
+        row.staff_name ? (
+          row.staff_name
+        ) : (
+          <div
+            className="flex items-center text-amber-600 dark:text-amber-400 gap-1.5"
+            title={t("userRoles.orphanWarning")}
+          >
+            <AlertTriangle className="h-4 w-4" />
+            <span className="text-xs font-medium">{t("userRoles.orphan")}</span>
           </div>
-        </CardContent>
-      </Card>
-    );
-  }
+        ),
+    },
+    {
+      key: "role",
+      label: t("userRoles.currentRole"),
+      sortable: true,
+      filterKey: "role",
+      mobilePriority: "primary",
+      render: (row) => (
+        <Badge variant="outline" className={roleColors[row.role]}>
+          {roleIcons[row.role]}
+          <span className="ml-1">{getRoleLabel(row.role)}</span>
+        </Badge>
+      ),
+    },
+    {
+      key: "change_role",
+      label: t("userRoles.changeRole"),
+      mobilePriority: "secondary",
+      render: (row) => {
+        const isSelf = user?.id === row.user_id;
+        return isSelf ? (
+          <span className="text-xs text-muted-foreground italic">
+            {t("userRoles.cannotChangeSelf")}
+          </span>
+        ) : (
+          <Select
+            value={row.role}
+            onValueChange={(value: AppRole) => handleRoleChange(row.user_id, value)}
+            disabled={updateRoleMutation.isPending}
+          >
+            <SelectTrigger className="h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {ALL_ROLES.map((r) => (
+                <SelectItem key={r} value={r}>{getRoleLabel(r)}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        );
+      },
+    },
+    {
+      key: "actions",
+      label: t("common.actions"),
+      className: "text-right",
+      mobilePriority: "secondary",
+      render: (row) => {
+        const isSelf = user?.id === row.user_id;
+        const isOrphan = !row.staff_name;
+        if (!isOrphan || isSelf) return null;
+        return (
+          <div className="flex items-center justify-end gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-primary"
+              asChild
+              title={t("userRoles.createStaff")}
+            >
+              <Link to={`/staff/new?email=${encodeURIComponent(row.email)}`}>
+                <UserPlus className="h-4 w-4" />
+              </Link>
+            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-destructive"
+                  title={t("userRoles.deleteAccount")}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>{t("userRoles.deleteAccountTitle")}</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {t("userRoles.confirmDeleteAccount", { email: row.email })}
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={() => handleDeleteAccount(row.user_id)}
+                    className="bg-destructive/70 text-destructive-foreground hover:bg-destructive"
+                  >
+                    {t("userRoles.deleteAccount")}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
+        );
+      },
+    },
+  ];
 
   return (
     <Card>
@@ -115,119 +223,14 @@ export function UserRolesManager() {
         <CardDescription>{t("userRoles.description")}</CardDescription>
       </CardHeader>
       <CardContent>
-        {!userRoles || userRoles.length === 0 ? (
-          <p className="text-muted-foreground text-sm">{t("userRoles.noUsers")}</p>
-        ) : (
-          <div className="rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t("userRoles.email")}</TableHead>
-                  <TableHead>{t("userRoles.staffName")}</TableHead>
-                  <TableHead>{t("userRoles.currentRole")}</TableHead>
-                  <TableHead className="w-[150px]">{t("userRoles.changeRole")}</TableHead>
-                  <TableHead className="w-[150px] text-right">{t("common.actions")}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {userRoles.map((userRole: UserRoleData) => {
-                  const isSelf = user?.id === userRole.user_id;
-                  const isOrphan = !userRole.staff_name;
-                  
-                  return (
-                    <TableRow key={userRole.role_id}>
-                      <TableCell className="font-mono text-sm">
-                        {userRole.email}
-                      </TableCell>
-                      <TableCell>
-                        {userRole.staff_name ? (
-                          userRole.staff_name
-                        ) : (
-                          <div className="flex items-center text-amber-600 dark:text-amber-400 gap-1.5" title={t("userRoles.orphanWarning")}>
-                            <AlertTriangle className="h-4 w-4" />
-                            <span className="text-xs font-medium">{t("userRoles.orphan")}</span>
-                          </div>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className={roleColors[userRole.role]}>
-                          {roleIcons[userRole.role]}
-                          <span className="ml-1">{getRoleLabel(userRole.role)}</span>
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        {isSelf ? (
-                          <span className="text-xs text-muted-foreground italic">
-                            {t("userRoles.cannotChangeSelf")}
-                          </span>
-                        ) : (
-                          <Select
-                            value={userRole.role}
-                            onValueChange={(value: AppRole) => handleRoleChange(userRole.user_id, value)}
-                            disabled={updateRoleMutation.isPending}
-                          >
-                            <SelectTrigger className="h-8 text-xs">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="admin">{getRoleLabel("admin")}</SelectItem>
-                              <SelectItem value="partner">{getRoleLabel("partner")}</SelectItem>
-                              <SelectItem value="director">{getRoleLabel("director")}</SelectItem>
-                              <SelectItem value="manager">{getRoleLabel("manager")}</SelectItem>
-                              <SelectItem value="senior">{getRoleLabel("senior")}</SelectItem>
-                              <SelectItem value="semisenior">{getRoleLabel("semisenior")}</SelectItem>
-                              <SelectItem value="staff">{getRoleLabel("staff")}</SelectItem>
-                              <SelectItem value="viewer">{getRoleLabel("viewer")}</SelectItem>
-                              <SelectItem value="sqr">{getRoleLabel("sqr")}</SelectItem>
-                              <SelectItem value="specialist_it">{getRoleLabel("specialist_it")}</SelectItem>
-                              <SelectItem value="specialist_tax">{getRoleLabel("specialist_tax")}</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {isOrphan && !isSelf && (
-                          <div className="flex items-center justify-end gap-2">
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-primary" asChild title={t("userRoles.createStaff")}>
-                              <Link to={`/staff/new?email=${encodeURIComponent(userRole.email)}`}>
-                                <UserPlus className="h-4 w-4" />
-                              </Link>
-                            </Button>
-                            
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" title={t("userRoles.deleteAccount")}>
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle>{t("userRoles.deleteAccountTitle")}</AlertDialogTitle>
-                                  <AlertDialogDescription>
-                                    {t("userRoles.confirmDeleteAccount", { email: userRole.email })}
-                                  </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-                                  <AlertDialogAction 
-                                    onClick={() => handleDeleteAccount(userRole.user_id)}
-                                    className="bg-destructive/70 text-destructive-foreground hover:bg-destructive"
-                                  >
-                                    {t("userRoles.deleteAccount")}
-                                  </AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
-                          </div>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </div>
-        )}
+        <DataTable
+          data={userRoles || []}
+          columns={columns}
+          searchKeys={["email", "staff_name"]}
+          filters={[roleFilter]}
+          isLoading={isLoading}
+          getRowId={(row) => row.role_id}
+        />
       </CardContent>
     </Card>
   );

@@ -1,8 +1,9 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { parseDateLocal } from "@/lib/timesheetUtils";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { useEngagements, useStaff } from "@/hooks/useEmsData";
+import { useUserRole } from "@/hooks/useUserRole";
 import { useCategoryStaff } from "@/hooks/useCategoryStaff";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
@@ -39,6 +40,8 @@ export function ClientEngagementsTable({ clientId }: ClientEngagementsTableProps
   const { data: engagements, isLoading } = useEngagements();
   const { data: staff } = useStaff();
   const { partners, managers } = useCategoryStaff();
+  const { isAdmin, isPartner, isDirector } = useUserRole();
+  const canCreateEngagement = isAdmin || isPartner || isDirector;
 
   const [search, setSearch] = useState("");
   const [sortField, setSortField] = useState<SortField | null>(null);
@@ -54,11 +57,11 @@ export function ClientEngagementsTable({ clientId }: ClientEngagementsTableProps
   }, [engagements, clientId]);
 
   // Get staff short_name by ID (with fallback to full name)
-  const getStaffName = (staffId: string | null) => {
+  const getStaffName = useCallback((staffId: string | null) => {
     if (!staffId || !staff) return "-";
     const member = staff.find((s) => s.staff_id === staffId);
     return member ? member.short_name || `${member.first_name} ${member.last_name}` : "-";
-  };
+  }, [staff]);
 
   // Apply filters and sorting
   const filteredAndSorted = useMemo(() => {
@@ -132,7 +135,7 @@ export function ClientEngagementsTable({ clientId }: ClientEngagementsTableProps
     }
 
     return result;
-  }, [clientEngagements, search, statusFilter, partnerFilter, managerFilter, sortField, sortDirection, staff]);
+  }, [clientEngagements, search, statusFilter, partnerFilter, managerFilter, sortField, sortDirection, getStaffName]);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -222,14 +225,16 @@ export function ClientEngagementsTable({ clientId }: ClientEngagementsTableProps
             ))}
           </SelectContent>
         </Select>
-        <Button
-          size="sm"
-          className="h-8"
-          onClick={() => navigate(`/engagements/new?client_id=${clientId}`)}
-        >
-          <Plus className="h-4 w-4 mr-1" />
-          {t("engagement.newEngagement")}
-        </Button>
+        {canCreateEngagement && (
+          <Button
+            size="sm"
+            className="h-8"
+            onClick={() => navigate(`/engagements/new?client_id=${clientId}`)}
+          >
+            <Plus className="h-4 w-4 mr-1" />
+            {t("engagement.newEngagement")}
+          </Button>
+        )}
       </div>
 
       {/* Scrollable table */}

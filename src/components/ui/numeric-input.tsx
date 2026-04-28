@@ -164,7 +164,7 @@ const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps>(
     };
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-      let newValue = e.target.value;
+    const newValue = e.target.value;
 
       // Allow empty string
       if (newValue === "") {

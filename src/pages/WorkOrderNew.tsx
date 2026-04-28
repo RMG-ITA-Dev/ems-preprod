@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { WorkOrderForm, BudgetLineInput, ExpenseBudgetInput } from "@/components/forms/WorkOrderForm";
 import { useEngagements, useSetting, useCategories, useWorkOrders } from "@/hooks/useEmsData";
+import { useUserRole } from "@/hooks/useUserRole";
 import { useWorksheetByEngagementId } from "@/hooks/useWorksheetData";
 import { useCreateWorkOrder, useCreateBudgetLine, useCreateExpenseBudget } from "@/hooks/mutations";
 import { toast } from "sonner";
@@ -37,6 +38,8 @@ const WorkOrderNew = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const engagementIdParam = searchParams.get("engagement");
+  const { isAdmin, isPartner, isDirector, isManager, isLoading: roleLoading } = useUserRole();
+  const canCreate = isAdmin || isPartner || isDirector || isManager;
 
   const { data: engagements } = useEngagements();
   const { data: categories } = useCategories();
@@ -58,6 +61,13 @@ const WorkOrderNew = () => {
   const woIsDirty = !!(selectedEngagementId || budgetLines.length > 0 || expenseBudget.length > 0);
   const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty: woIsDirty });
   const taxRate = parseFloat(globalTaxRate || "0.13");
+
+  useEffect(() => {
+    if (!roleLoading && !canCreate) {
+      allowNextNavigation();
+      navigate("/work-orders", { replace: true });
+    }
+  }, [roleLoading, canCreate, allowNextNavigation, navigate]);
 
   // Get list of engagement IDs that already have work orders
   const engagementsWithWorkOrders = workOrders?.map((wo) => wo.engagement_id) || [];
@@ -94,6 +104,8 @@ const WorkOrderNew = () => {
       })
     );
   }, [currency, seasonMode, categories]);
+
+  if (roleLoading || !canCreate) return null;
 
   const handleSubmitClick = () => {
     if (!selectedEngagementId) {
@@ -185,6 +197,15 @@ const WorkOrderNew = () => {
                   </Select>
                 </div>
               )}
+              <div className="flex justify-end mt-4">
+                <Button
+                  variant="cancel"
+                  onClick={() => { allowNextNavigation(); navigate("/work-orders"); }}
+                  className="btn-action"
+                >
+                  {t("common.cancel")}
+                </Button>
+              </div>
             </CardContent>
           </Card>
         )}

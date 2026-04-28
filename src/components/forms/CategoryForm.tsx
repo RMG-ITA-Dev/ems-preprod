@@ -49,6 +49,8 @@ import { Database } from "@/integrations/supabase/types";
 
 type AppRole = Database["public"]["Enums"]["app_role"];
 
+const NO_DEFAULT_ROLE = "__none__";
+
 const formSchema = z.object({
   category_name: z.string().min(1, "Category name is required"),
   display_order: z.coerce.number().int().min(0),
@@ -102,7 +104,7 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
       rate_low_usd: undefined as unknown as number,
       can_approve_wo: false,
       can_approve_timesheets: false,
-      default_app_role: "",
+      default_app_role: "__none__",
     },
   });
 
@@ -117,7 +119,7 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
         rate_low_usd: category?.rate_low_usd ?? (undefined as unknown as number),
         can_approve_wo: category?.can_approve_wo || false,
         can_approve_timesheets: category?.can_approve_timesheets || false,
-        default_app_role: category?.default_app_role || "",
+        default_app_role: category?.default_app_role || "__none__",
       });
     }
   }, [open, category, form]);
@@ -132,7 +134,7 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
       rate_low_usd: data.rate_low_usd,
       can_approve_wo: data.can_approve_wo,
       can_approve_timesheets: data.can_approve_timesheets,
-      default_app_role: (data.default_app_role as AppRole) || null,
+      default_app_role: (data.default_app_role === "__none__" ? null : data.default_app_role as AppRole) ?? null,
     };
     if (isEdit && category) {
       await updateMutation.mutateAsync({ id: category.category_id, data: payload });
@@ -271,14 +273,16 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>{t("category.defaultAppRole")}</FormLabel>
-                    <Select onValueChange={(v) => field.onChange(v === "__none__" ? "" : v)} value={field.value || "__none__"}>
+                    <Select onValueChange={field.onChange} value={field.value || NO_DEFAULT_ROLE}>
+
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder={t("form.selectOption")} />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="__none__">None</SelectItem>
+                        <SelectItem value={NO_DEFAULT_ROLE}>{t("common.none")}</SelectItem>
+
                         {ROLES.map((role) => (
                           <SelectItem key={role} value={role}>
                             {t(`userRoles.roles.${role}`)}
@@ -344,9 +348,8 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
               {isEdit && (
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
-                    <Button type="button" variant="destructive" className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
-                      <Trash2 className="h-4 w-4" />
-                      {t("common.delete")}
+                    <Button type="button" variant="destructive" className="w-full sm:w-auto min-h-[44px] sm:min-h-0 px-4">
+                      <Trash2 className="h-4 w-4" /> {t("common.delete")}
                     </Button>
                   </AlertDialogTrigger>
                   <AlertDialogContent>

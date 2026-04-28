@@ -25,6 +25,7 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Plus, Search, Sun, Snowflake, ArrowUpDown, ArrowUp, ArrowDown, Filter, ChevronDown } from "lucide-react";
 import { useWorkOrders, WorkOrder } from "@/hooks/useEmsData";
+import { useUserRole } from "@/hooks/useUserRole";
 import { useCategoryStaff } from "@/hooks/useCategoryStaff";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -62,6 +63,8 @@ const WorkOrders = () => {
   const navigate = useNavigate();
   const { data: workOrders, isLoading } = useWorkOrders();
   const { partnerOptions, managerOptions } = useCategoryStaff();
+  const { isAdmin, isPartner, isDirector, isManager } = useUserRole();
+  const canCreate = isAdmin || isPartner || isDirector || isManager;
   
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -179,16 +182,18 @@ const WorkOrders = () => {
           case "client":
             comparison = (a.engagement?.client?.client_legal_name || "").localeCompare(b.engagement?.client?.client_legal_name || "");
             break;
-          case "partner":
+          case "partner": {
             const pA = a.engagement?.partner?.short_name || `${a.engagement?.partner?.first_name || ""} ${a.engagement?.partner?.last_name || ""}`;
             const pB = b.engagement?.partner?.short_name || `${b.engagement?.partner?.first_name || ""} ${b.engagement?.partner?.last_name || ""}`;
             comparison = pA.localeCompare(pB);
             break;
-          case "manager":
+          }
+          case "manager": {
             const mA = a.engagement?.manager?.short_name || `${a.engagement?.manager?.first_name || ""} ${a.engagement?.manager?.last_name || ""}`;
             const mB = b.engagement?.manager?.short_name || `${b.engagement?.manager?.first_name || ""} ${b.engagement?.manager?.last_name || ""}`;
             comparison = mA.localeCompare(mB);
             break;
+          }
           case "hours":
             comparison = totalsA.totalHours - totalsB.totalHours;
             break;
@@ -240,14 +245,16 @@ const WorkOrders = () => {
               />
             </div>
           </div>
-          <Button
-            variant="default"
-            onClick={() => navigate("/work-orders/new")}
-            className="w-full sm:w-auto min-h-[44px] sm:min-h-0"
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            {t("workOrders.newWorkOrder")}
-          </Button>
+          {canCreate && (
+            <Button
+              variant="default"
+              onClick={() => navigate("/work-orders/new")}
+              className="w-full sm:w-auto min-h-[44px] sm:min-h-0"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              {t("workOrders.newWorkOrder")}
+            </Button>
+          )}
         </div>
 
         {/* Status & Season Legend — desktop only */}

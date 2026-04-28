@@ -17,7 +17,9 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { getDayName, formatDayMonth, toISODateString } from "@/lib/timesheetUtils";
+import { sortEngagements } from "@/lib/timesheetEngagementOptions";
 import type { TimeEntry, ApprovedEngagement, ActivityCode } from "@/hooks/useTimesheetWeek";
+import { TimesheetEngagementCombobox } from "./TimesheetEngagementCombobox";
 import { useUpsertTimeEntry, useDeleteRowEntries, useUpdateEntryActivity } from "@/hooks/useTimesheetMutations";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel,
@@ -186,12 +188,13 @@ export function TimesheetGrid({
 
   const availableEngagements = useMemo(() => {
     const usedIds = new Set(rows.map(r => r.engagementId).filter(Boolean));
-    return engagements.filter(eng => {
+    const filtered = engagements.filter(eng => {
       if (usedIds.has(eng.engagement_id)) return true;
       const startOk = !eng.start_date || eng.start_date <= weekEndStr;
       const endOk = !eng.end_date || eng.end_date >= weekStartStr;
       return startOk && endOk;
     });
+    return sortEngagements(filtered);
   }, [engagements, rows, weekStartStr, weekEndStr]);
 
   // BUG #29: Notify parent of save status changes
@@ -758,35 +761,13 @@ export function TimesheetGrid({
               >
               <td className="p-2 text-left border-r border-border">
                   <div className="flex flex-wrap items-center">
-                    <Select
+                    <TimesheetEngagementCombobox
+                      engagements={availableEngagements}
                       value={row.engagementId}
                       onValueChange={(val) => handleEngagementChange(row.id, val)}
                       disabled={isRowLocked}
-                    >
-                      <SelectTrigger className="border-0 bg-transparent focus:ring-1">
-                        <SelectValue placeholder={t("timesheet.selectEngagement")} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {availableEngagements.map((eng) => (
-                          <SelectItem key={eng.engagement_id} value={eng.engagement_id}>
-                            <div className="flex flex-col">
-                              <div className="flex items-center">
-                                <span className="font-mono text-xs opacity-60 mr-2">
-                                  {eng.engagement_code}
-                                </span>
-                                {eng.engagement_name}
-                              </div>
-                              {/* BUG #31: Show client name */}
-                              {eng.client?.client_legal_name && (
-                              <span className="text-xs opacity-70">
-                                {eng.client.client_legal_name}
-                              </span>
-                              )}
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                      placeholder={t("timesheet.selectEngagement")}
+                    />
                     {row.engagementId && renderApprovalBadge(row.engagementId)}
                   </div>
                 </td>

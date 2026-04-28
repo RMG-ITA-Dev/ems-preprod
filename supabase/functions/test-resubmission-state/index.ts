@@ -272,9 +272,10 @@ Deno.serve(async (req) => {
     {
       const ids = await setupTestData(`s9-${trace_id.slice(0, 8)}`);
       try {
+        const engagementIds: Array<string | null> = [ids.engAId, null, null];
         const { data, error } = await supabase.rpc("submit_timesheet_safe", {
           p_period_id: ids.periodId, p_staff_id: ids.staffId,
-          p_engagement_ids: [ids.engAId, null as any, null as any], p_is_auto_approved: false,
+          p_engagement_ids: engagementIds, p_is_auto_approved: false,
         });
         const pass = !error && data.new_pending === 1;
         results.push({ scenario: "S9: NULL engagement IDs sanitization", pass, details: JSON.stringify(data) });
@@ -331,7 +332,10 @@ Deno.serve(async (req) => {
 
         const approvalIdPreserved = engAApprovalBefore?.approval_id === engAApprovalAfter?.approval_id;
         const engBReset = engBAfter?.status === "pending";
-        const engBTimestampUpdated = engBAfter?.updated_at! > engBUpdatedBefore!;
+        const engBTimestampUpdated =
+          engBAfter?.updated_at != null &&
+          engBUpdatedBefore != null &&
+          engBAfter.updated_at > engBUpdatedBefore;
         const payloadOk = !error && data.preserved_approved === 1 && data.reset_to_pending === 1;
 
         results.push({

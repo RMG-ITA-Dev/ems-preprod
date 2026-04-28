@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -53,6 +53,13 @@ import { toast } from "sonner";
 import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";
 import { LeavePageDialog } from "@/components/ui/leave-page-dialog";
 
+interface RpcUpdateResult {
+  success?: boolean;
+  updated?: number;
+  error_code?: string;
+  [key: string]: unknown;
+}
+
 const Settings = () => {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
@@ -102,7 +109,10 @@ const Settings = () => {
   const [realizationLimit, setRealizationLimit] = useState<string>("");
   const [holidayEngagementId, setHolidayEngagementId] = useState<string>("");
 
-  const getSetting = (key: string) => settings?.find((s) => s.setting_key === key)?.setting_value || "";
+  const getSetting = useCallback(
+    (key: string) => settings?.find((s) => s.setting_key === key)?.setting_value || "",
+    [settings]
+  );
 
   useEffect(() => {
     if (settings) {
@@ -159,7 +169,7 @@ const Settings = () => {
       (weeklyMin !== "" && weeklyMin !== persistedWeeklyMin) ||
       (weeklyMax !== "" && weeklyMax !== persistedWeeklyMax)
     );
-  }, [settings, language, allowWeekendTracking, compactFont, allowedEmailDomain,
+  }, [settings, getSetting, language, allowWeekendTracking, compactFont, allowedEmailDomain,
       holidayEngagementId, taxRate, realizationLimit, dailyMin, dailyMax, weeklyMin, weeklyMax]);
 
   // Navigation lock - only when global tab is active
@@ -357,7 +367,7 @@ const Settings = () => {
 
         if (rpcError) throw rpcError;
 
-        const rpcResult = result as any;
+        const rpcResult = result as RpcUpdateResult;
 
         if (rpcResult && !rpcResult.success) {
           const errorKey = {

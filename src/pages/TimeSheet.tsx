@@ -256,7 +256,7 @@ const TimeSheet = () => {
       (today.getTime() - weekEnd.getTime()) / (1000 * 60 * 60 * 24)
     );
     return daysSinceWeekEnd <= retroDays;
-  }, [isCurrentWeek, isFutureWeek, currentWeekStart, policies?.employeeRetroDays, weekInfo.weekDates]);
+  }, [isCurrentWeek, isFutureWeek, policies?.employeeRetroDays, weekInfo.weekDates]);
 
   // BUG #22: Check if week is before staff's hire date
   const isBeforeHireDate = useMemo(() => {

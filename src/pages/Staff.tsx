@@ -8,6 +8,10 @@ import { useNavigate } from "react-router-dom";
 import { Check } from "lucide-react";
 import { useUserRole } from "@/hooks/useUserRole";
 
+interface StaffRow extends StaffFull {
+  auth_user_id: string | null;
+}
+
 const categoryColors: Record<string, string> = {
   Partner: "bg-accent/10 text-accent border-accent/20",
   Manager: "bg-success/10 text-success border-success/20",
@@ -116,7 +120,7 @@ const Staff = () => {
       className: "text-center w-20",
       mobilePriority: 'secondary',
       render: (row) =>
-        (row as any).auth_user_id ? (
+        (row as StaffRow).auth_user_id ? (
           <Check className="h-4 w-4 text-success mx-auto" />
         ) : (
           <span className="text-muted-foreground">-</span>
