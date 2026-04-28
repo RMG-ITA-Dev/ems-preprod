@@ -687,7 +687,24 @@
       "actual": "Actual",
       "noData": "No data available",
       "approved": "approved",
-      "pending": "pending"
+      "pending": "pending",
+      "viewHoursDetail": "View Hours Detail",
+      "hoursDetail": {
+        "title": "Staff Hours Detail",
+        "description": "Detailed staff hours breakdown for this engagement",
+        "staffName": "Name",
+        "category": "Category",
+        "year": "Year",
+        "week": "Week",
+        "loadedHours": "Hours",
+        "filterByCategory": "Filter by category",
+        "filterByYear": "Filter by year",
+        "filterByWeek": "Filter by week",
+        "filterByStaff": "Search by name",
+        "exportCsv": "Export CSV",
+        "noData": "No time entries for this engagement",
+        "all": "All"
+      }
     },
     "practica": {
       "activeEngagements": "Active Engagements",

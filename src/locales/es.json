@@ -687,7 +687,24 @@
       "actual": "Real",
       "noData": "Sin datos disponibles",
       "approved": "aprobadas",
-      "pending": "pendientes"
+      "pending": "pendientes",
+      "viewHoursDetail": "Ver detalle de horas",
+      "hoursDetail": {
+        "title": "Detalle de Horas por Personal",
+        "description": "Desglose detallado de horas por personal para este encargo",
+        "staffName": "Nombre",
+        "category": "Categoría",
+        "year": "Año",
+        "week": "Semana",
+        "loadedHours": "Horas cargadas",
+        "filterByCategory": "Filtrar por categoría",
+        "filterByYear": "Filtrar por año",
+        "filterByWeek": "Filtrar por semana",
+        "filterByStaff": "Buscar por nombre",
+        "exportCsv": "Exportar CSV",
+        "noData": "Sin registros de horas para este encargo",
+        "all": "Todos"
+      }
     },
     "practica": {
       "activeEngagements": "Encargos Activos",

@@ -126,7 +126,7 @@ export function EngagementSelector() {
             engagements.map((eng) => (
               <SelectItem key={eng.engagement_id} value={eng.engagement_id}>
                 <span className="font-medium text-primary">{eng.engagement_code || 'â€”'}</span>
-                <span className="mx-2">Â·</span>
+                <span className="mx-2">·</span>
                 <span>{eng.engagement_name}</span>
                 <span className="text-muted-foreground ml-2">
                   ({eng.client?.client_legal_name || 'â€”'})
