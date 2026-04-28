@@ -68,6 +68,10 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (k: string) => k, i18n: { language: "en" } }),
 }));
 
+vi.mock("@/hooks/useUserRole", () => ({
+  useUserRole: () => ({ isAdmin: false, isPartner: false, isDirector: false, isManager: true, isLoading: false }),
+}));
+
 import WorkOrderNew from "../WorkOrderNew";
 
 describe("WorkOrderNew focus-cancel (BUG 0319-86)", () => {

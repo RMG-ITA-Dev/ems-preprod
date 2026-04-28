@@ -61,6 +61,10 @@ vi.mock("@/hooks/useEmsData", () => ({
   useSetting: () => "0.13",
 }));
 
+vi.mock("@/hooks/useUserRole", () => ({
+  useUserRole: () => ({ isAdmin: false, isPartner: false, isDirector: false, isManager: false }),
+}));
+
 vi.mock("@/components/worksheet/WorksheetGrid", () => ({
   WorksheetGrid: ({
     readOnly,

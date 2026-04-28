@@ -4,17 +4,14 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 
-<<<<<<< HEAD
 // Stable spy referenced by the vi.mock factory below — must be hoisted so it
 // exists before module-level mock factories are evaluated.
 const updateMutateAsync = vi.hoisted(() => vi.fn().mockResolvedValue({}));
 
-// Replace the Radix Select family with native <select>/<option> elements.
-// This lets JSDOM reliably interact with the role dropdown without pointer-
-// event polyfills, while still exercising CategoryForm's onValueChange
-// sentinel mapping and the submit handler's "" → null conversion.
-// The real Radix SelectItem rendering (the value="" crash fix) is covered by
-// the Settings integration tests (Tests 5–6 in Settings.category-rates-form).
+// Replace the Radix Select family with native <select>/<option> elements so
+// JSDOM can interact with the dropdown without PointerEvent polyfills.
+// The real Radix SelectItem path is exercised by Settings integration tests
+// (Tests 5–6 in Settings.category-rates-form).
 vi.mock("@/components/ui/select", () => ({
   Select: ({
     value,
@@ -48,10 +45,6 @@ vi.mock("@/components/ui/select", () => ({
   SelectSeparator: () => null,
 }));
 
-=======
-const updateMutateAsync = vi.hoisted(() => vi.fn().mockResolvedValue({}));
-
->>>>>>> origin/desarrollo_temp
 beforeAll(() => {
   class MockResizeObserver {
     observe = vi.fn();
@@ -60,7 +53,6 @@ beforeAll(() => {
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (globalThis as any).ResizeObserver = MockResizeObserver;
-<<<<<<< HEAD
 });
 
 const TRANSLATIONS: Record<string, string> = {
@@ -70,19 +62,6 @@ const TRANSLATIONS: Record<string, string> = {
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (k: string) => TRANSLATIONS[k] ?? k }),
-=======
-
-  // Radix Select requires these in JSDOM
-  window.PointerEvent = MouseEvent as unknown as typeof PointerEvent;
-  window.HTMLElement.prototype.scrollIntoView = vi.fn();
-  window.HTMLElement.prototype.hasPointerCapture = vi.fn(() => false);
-  window.HTMLElement.prototype.setPointerCapture = vi.fn();
-  window.HTMLElement.prototype.releasePointerCapture = vi.fn();
-});
-
-vi.mock("react-i18next", () => ({
-  useTranslation: () => ({ t: (k: string) => k }),
->>>>>>> origin/desarrollo_temp
 }));
 
 vi.mock("@/hooks/mutations", () => ({
@@ -127,7 +106,6 @@ describe("CategoryForm default_app_role (BUG 0306-73)", () => {
     expect(screen.getByText("category.newCategory")).toBeInTheDocument();
   });
 
-<<<<<<< HEAD
   it("Test 2: Edit mode with default_app_role null shows 'None' in the select", () => {
     renderForm({
       open: true,
@@ -155,31 +133,6 @@ describe("CategoryForm default_app_role (BUG 0306-73)", () => {
   });
 
   it("Test 4: Selecting 'None' maps the sentinel to null in the submitted payload", async () => {
-=======
-  it("Test 2: Edit mode with default_app_role null renders without crashing", () => {
-    expect(() =>
-      renderForm({
-        open: true,
-        onOpenChange: vi.fn(),
-        category: { ...baseCategory, default_app_role: null },
-      })
-    ).not.toThrow();
-    expect(screen.getByText("category.editCategory")).toBeInTheDocument();
-  });
-
-  it("Test 3: Edit mode with default_app_role 'senior' renders without crashing", () => {
-    expect(() =>
-      renderForm({
-        open: true,
-        onOpenChange: vi.fn(),
-        category: { ...baseCategory, default_app_role: "senior" },
-      })
-    ).not.toThrow();
-    expect(screen.getByText("category.editCategory")).toBeInTheDocument();
-  });
-
-  it("Test 4: Selecting 'None' in the Select maps the sentinel to null on submit", async () => {
->>>>>>> origin/desarrollo_temp
     const user = userEvent.setup();
     renderForm({
       open: true,
@@ -188,28 +141,15 @@ describe("CategoryForm default_app_role (BUG 0306-73)", () => {
       category: { ...baseCategory, default_app_role: "senior" },
     });
 
-<<<<<<< HEAD
-    // Change role to the "__none__" sentinel via the native select.
-    // CategoryForm's onValueChange maps "__none__" → "" in form state.
+    // Select the "__none__" sentinel via the native select
     await user.selectOptions(screen.getByTestId("role-select"), "__none__");
 
     // Submit — all required rate fields are pre-filled from baseCategory
-=======
-    // The trigger renders as role=combobox; the inner span has pointer-events:none so we target the button.
-    await user.click(screen.getByRole("combobox"));
-    // Pick the sentinel "None" item — use role=option to avoid matching the hidden native <option>
-    await user.click(screen.getByRole("option", { name: "common.none" }));
-    // Submit — all required fields are pre-filled from baseCategory
->>>>>>> origin/desarrollo_temp
     await user.click(screen.getByText("common.saveChanges"));
 
     await waitFor(() => expect(updateMutateAsync).toHaveBeenCalled());
 
-<<<<<<< HEAD
-    // Submit handler converts "" → null; sentinel must not leak into the DB
-=======
-    // The sentinel must NOT leak: mutation must receive null, not "__none__"
->>>>>>> origin/desarrollo_temp
+    // onSubmit converts "__none__" → null; sentinel must not leak into the DB
     const [callArg] = updateMutateAsync.mock.calls[0];
     expect(callArg.data.default_app_role).toBeNull();
   });

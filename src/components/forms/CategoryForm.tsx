@@ -272,25 +272,14 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>{t("category.defaultAppRole")}</FormLabel>
-<<<<<<< HEAD
-                    <Select
-                      onValueChange={(val) => field.onChange(val === NO_DEFAULT_ROLE ? "" : val)}
-                      value={field.value || NO_DEFAULT_ROLE}
-                    >
-=======
-                    <Select onValueChange={field.onChange} value={field.value || "__none__"}>
->>>>>>> origin/desarrollo_temp
+                    <Select onValueChange={field.onChange} value={field.value || NO_DEFAULT_ROLE}>
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder={t("form.selectOption")} />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-<<<<<<< HEAD
                         <SelectItem value={NO_DEFAULT_ROLE}>{t("common.none")}</SelectItem>
-=======
-                        <SelectItem value="__none__">{t("common.none")}</SelectItem>
->>>>>>> origin/desarrollo_temp
                         {ROLES.map((role) => (
                           <SelectItem key={role} value={role}>
                             {t(`userRoles.roles.${role}`)}
