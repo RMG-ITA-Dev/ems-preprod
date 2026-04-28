@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
@@ -48,7 +48,17 @@ export interface DataTableProps<T> {
 
 type SortDirection = "asc" | "desc" | null;
 
-export function DataTable<T extends Record<string, any>>({
+function getValueByPath<T extends Record<string, unknown>>(row: T, key: string): unknown {
+  return key.split(".").reduce<unknown>((obj, segment) => {
+    if (obj && typeof obj === "object") {
+      return (obj as Record<string, unknown>)[segment];
+    }
+
+    return undefined;
+  }, row);
+}
+
+export function DataTable<T extends Record<string, unknown>>({
   data,
   columns,
   searchPlaceholder,
@@ -148,7 +158,7 @@ export function DataTable<T extends Record<string, any>>({
       const lowerSearch = searchTerm.toLowerCase();
       result = result.filter((row) =>
         searchKeys.some((key) => {
-          const value = key.split(".").reduce((obj, k) => obj?.[k], row as any);
+          const value = getValueByPath(row, key);
           return String(value || "")
             .toLowerCase()
             .includes(lowerSearch);
@@ -172,7 +182,7 @@ export function DataTable<T extends Record<string, any>>({
       const filterValue = filterValues[filter.key];
       if (filterValue && filterValue !== "all") {
         result = result.filter((row) => {
-          const value = filter.key.split(".").reduce((obj, k) => obj?.[k], row as any);
+          const value = getValueByPath(row, filter.key);
           if (typeof value === "boolean") {
             return filterValue === "true" ? value : !value;
           }
@@ -184,8 +194,8 @@ export function DataTable<T extends Record<string, any>>({
     // Sorting
     if (sortColumn && sortDirection) {
       result.sort((a, b) => {
-        const aVal = sortColumn.split(".").reduce((obj, k) => obj?.[k], a as any);
-        const bVal = sortColumn.split(".").reduce((obj, k) => obj?.[k], b as any);
+        const aVal = getValueByPath(a, sortColumn);
+        const bVal = getValueByPath(b, sortColumn);
 
         if (aVal == null) return sortDirection === "asc" ? 1 : -1;
         if (bVal == null) return sortDirection === "asc" ? -1 : 1;
@@ -211,7 +221,7 @@ export function DataTable<T extends Record<string, any>>({
   const paginatedData = filteredAndSortedData.slice(startIndex, endIndex);
 
   // Reset to page 1 when filters change
-  useMemo(() => {
+  useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm, statusValue, rowsPerPage, filterValues]);
 
@@ -268,7 +278,7 @@ export function DataTable<T extends Record<string, any>>({
                       <div key={col.key} className="flex items-center justify-between gap-2">
                         <span className="text-xs text-muted-foreground">{col.label}</span>
                         <div className="text-sm font-medium text-right flex-1 min-w-0">
-                          {col.render ? col.render(row) : row[col.key]}
+                          {col.render ? col.render(row) : (getValueByPath(row, col.key) as React.ReactNode)}
                         </div>
                       </div>
                     ))
@@ -278,7 +288,7 @@ export function DataTable<T extends Record<string, any>>({
                       <div key={col.key} className="flex items-center justify-between gap-2">
                         <span className="text-xs text-muted-foreground">{col.label}</span>
                         <div className="text-sm font-medium text-right flex-1 min-w-0">
-                          {col.render ? col.render(row) : row[col.key]}
+                          {col.render ? col.render(row) : (getValueByPath(row, col.key) as React.ReactNode)}
                         </div>
                       </div>
                     ))
@@ -304,7 +314,7 @@ export function DataTable<T extends Record<string, any>>({
                         <div key={col.key} className="flex items-center justify-between gap-2">
                           <span className="text-xs text-muted-foreground">{col.label}</span>
                           <div className="text-sm text-right flex-1 min-w-0">
-                            {col.render ? col.render(row) : row[col.key]}
+                            {col.render ? col.render(row) : (getValueByPath(row, col.key) as React.ReactNode)}
                           </div>
                         </div>
                       ))}
@@ -422,7 +432,7 @@ export function DataTable<T extends Record<string, any>>({
                   const isLast = idx === columns.length - 1;
                   return (
                     <TableCell key={col.key} className={`py-2 text-sm ${!isLast ? "border-r border-border" : ""} ${col.className || ""}`}>
-                      {col.render ? col.render(row) : row[col.key]}
+                      {col.render ? col.render(row) : (getValueByPath(row, col.key) as React.ReactNode)}
                     </TableCell>
                   );
                 })}

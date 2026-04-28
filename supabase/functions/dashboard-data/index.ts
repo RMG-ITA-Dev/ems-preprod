@@ -17,8 +17,7 @@ function getCorsHeaders(origin: string | null) {
   };
 }
 
-// deno-lint-ignore no-explicit-any
-type SupabaseClient = any;
+type SupabaseClient = ReturnType<typeof createClient>;
 
 serve(async (req) => {
   const origin = req.headers.get("origin");
@@ -332,6 +331,16 @@ interface TimesheetPeriod {
 interface LineApproval {
   period_id: string;
   status: string;
+}
+
+interface WeekRow {
+  week_start: string;
+  week_end: string;
+  status: string;
+  is_submitted?: boolean;
+  is_current_week?: boolean;
+  is_overdue: boolean;
+  [key: string]: unknown;
 }
 
 // ACTION: time-value - Calculate standard value of time entries using WO locked rates
@@ -840,8 +849,7 @@ async function getTimesheetStatus(
 
   if (error) throw error;
 
-  // deno-lint-ignore no-explicit-any
-  const weeks = ((data as any[]) || []).map((w: any) => {
+  const weeks = ((data as WeekRow[]) || []).map((w) => {
     // Map RPC statuses to legacy format for backward compatibility
     const statusMap: Record<string, string> = {
       'APPROVED': 'approved',
@@ -866,12 +874,12 @@ async function getTimesheetStatus(
 
   // Summary counts
   const summary = {
-    approved: weeks.filter((w: any) => w.status === "approved").length,
-    pending: weeks.filter((w: any) => w.status === "pending").length,
-    draft: weeks.filter((w: any) => w.status === "draft").length,
-    rejected: weeks.filter((w: any) => w.status === "rejected").length,
-    missing: weeks.filter((w: any) => w.status === "missing").length,
-    overdue: weeks.filter((w: any) => w.is_overdue).length,
+    approved: weeks.filter((w) => w.status === "approved").length,
+    pending: weeks.filter((w) => w.status === "pending").length,
+    draft: weeks.filter((w) => w.status === "draft").length,
+    rejected: weeks.filter((w) => w.status === "rejected").length,
+    missing: weeks.filter((w) => w.status === "missing").length,
+    overdue: weeks.filter((w) => w.is_overdue).length,
   };
 
   return { weeks, summary };

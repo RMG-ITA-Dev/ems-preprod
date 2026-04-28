@@ -195,16 +195,18 @@ const TrackerList = () => {
           case "duracion":
             comparison = (a.duration_minutes || 0) - (b.duration_minutes || 0);
             break;
-          case "encargo":
+          case "encargo": {
             const engA = a.engagement?.engagement_name || "";
             const engB = b.engagement?.engagement_name || "";
             comparison = engA.localeCompare(engB);
             break;
-          case "actividad":
+          }
+          case "actividad": {
             const actA = a.activity?.description || "";
             const actB = b.activity?.description || "";
             comparison = actA.localeCompare(actB);
             break;
+          }
         }
         return sortDirection === "asc" ? comparison : -comparison;
       });

@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components -- test utility file, not subject to Fast Refresh */
 import React, { ReactElement } from "react";
 import { render, RenderOptions } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";

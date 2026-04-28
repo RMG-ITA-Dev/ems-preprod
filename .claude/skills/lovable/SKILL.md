@@ -4,7 +4,6 @@ description: Work with Lovable.dev projects. Knows what auto-syncs via GitHub vs
 ---
 
 # Lovable Integration Skill
-
 ## Core Concept
 
 Lovable uses **two-way GitHub sync on the `main` branch only**.

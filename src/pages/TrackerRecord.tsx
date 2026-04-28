@@ -195,8 +195,9 @@ const TrackerRecord = () => {
         description: tracker.description || undefined,
       });
       hasAutoStoppedRef.current = false;
-    } catch (error: any) {
-      if (error?.message === 'RUNNING_TIMER_EXISTS') {
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message === 'RUNNING_TIMER_EXISTS') {
         toast.info(t("tracker.timerAlreadyRunning"));
         // Query will auto-refetch and reattach
       } else {

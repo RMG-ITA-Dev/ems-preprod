@@ -9,10 +9,35 @@ import { Progress } from "@/components/ui/progress";
 import { Clock, Target, Calendar, CheckCircle2, AlertCircle, BarChart3 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { format, startOfWeek, endOfWeek, parseISO, differenceInDays, subWeeks, startOfMonth, endOfMonth } from "date-fns";
+import { format, startOfWeek, endOfWeek, parseISO, differenceInDays, startOfMonth, endOfMonth } from "date-fns";
+import {
+  bucketHoursByWeek,
+  getWeekRange,
+  getWeekStamp,
+} from "@/components/dashboard/weeklyHoursBucket";
 import { es, enUS } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Cell } from 'recharts';
+
+interface EngagementSummary {
+  engagement_code: string | null;
+  engagement_name: string;
+}
+
+interface StaffCategory {
+  can_approve_timesheets: boolean;
+}
+
+interface TimesheetEntryWithRelations {
+  time_id: string;
+  date_worked: string;
+  hours_logged: number;
+  description: string | null;
+  engagement?: EngagementSummary | null;
+  activity?: {
+    description: string;
+  } | null;
+}
 
 export function PersonalTab() {
   const { t, i18n } = useTranslation();
@@ -29,7 +54,7 @@ export function PersonalTab() {
   // Fetch this week's time entries
   const { data: weekTimeEntries, isLoading: entriesLoading } = useQuery({
     queryKey: ['personal-week-entries', staffRecord?.staff_id, format(weekStart, 'yyyy-MM-dd')],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!staffRecord?.staff_id) return [];
       const { data, error } = await supabase
         .from('time_entries')
@@ -44,37 +69,32 @@ export function PersonalTab() {
         .eq('staff_id', staffRecord.staff_id)
         .gte('date_worked', format(weekStart, 'yyyy-MM-dd'))
         .lte('date_worked', format(weekEnd, 'yyyy-MM-dd'))
-        .order('date_worked', { ascending: false });
-      
+        .order('date_worked', { ascending: false })
+        .abortSignal(signal);
+
       if (error) throw error;
       return data || [];
     },
     enabled: !!staffRecord?.staff_id,
   });
 
-  // Fetch last 8 weeks trend for sparkline
+  // Fetch last 8 weeks trend for sparkline (single range fetch)
   const { data: weeklyTrend } = useQuery({
-    queryKey: ['personal-weekly-trend', staffRecord?.staff_id],
-    queryFn: async () => {
+    queryKey: ['personal-weekly-trend', staffRecord?.staff_id, getWeekStamp()],
+    queryFn: async ({ signal }): Promise<SparklineDataPoint[]> => {
       if (!staffRecord?.staff_id) return [];
-      const weeks: SparklineDataPoint[] = [];
-      
-      for (let i = 7; i >= 0; i--) {
-        const ws = startOfWeek(subWeeks(today, i), { weekStartsOn: 1 });
-        const we = endOfWeek(subWeeks(today, i), { weekStartsOn: 1 });
-        
-        const { data } = await supabase
-          .from('time_entries')
-          .select('hours_logged')
-          .eq('staff_id', staffRecord.staff_id)
-          .gte('date_worked', format(ws, 'yyyy-MM-dd'))
-          .lte('date_worked', format(we, 'yyyy-MM-dd'));
-        
-        const total = data?.reduce((sum, e) => sum + Number(e.hours_logged), 0) || 0;
-        weeks.push({ value: total });
-      }
-      
-      return weeks;
+
+      const { rangeStart, rangeEnd } = getWeekRange(today);
+
+      const { data } = await supabase
+        .from('time_entries')
+        .select('date_worked, hours_logged')
+        .eq('staff_id', staffRecord.staff_id)
+        .gte('date_worked', format(rangeStart, 'yyyy-MM-dd'))
+        .lte('date_worked', format(rangeEnd, 'yyyy-MM-dd'))
+        .abortSignal(signal);
+
+      return bucketHoursByWeek(data ?? [], today);
     },
     enabled: !!staffRecord?.staff_id,
   });
@@ -82,15 +102,16 @@ export function PersonalTab() {
   // Fetch this month's hours
   const { data: monthHours } = useQuery({
     queryKey: ['personal-month-hours', staffRecord?.staff_id, format(monthStart, 'yyyy-MM')],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!staffRecord?.staff_id) return 0;
       const { data, error } = await supabase
         .from('time_entries')
         .select('hours_logged')
         .eq('staff_id', staffRecord.staff_id)
         .gte('date_worked', format(monthStart, 'yyyy-MM-dd'))
-        .lte('date_worked', format(monthEnd, 'yyyy-MM-dd'));
-      
+        .lte('date_worked', format(monthEnd, 'yyyy-MM-dd'))
+        .abortSignal(signal);
+
       if (error) throw error;
       return data?.reduce((sum, e) => sum + Number(e.hours_logged), 0) || 0;
     },
@@ -100,13 +121,14 @@ export function PersonalTab() {
   // Fetch pending approvals count (if user can approve)
   const { data: pendingApprovals } = useQuery({
     queryKey: ['personal-pending-approvals', staffRecord?.staff_id],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!staffRecord?.staff_id) return 0;
       const { count, error } = await supabase
         .from('timesheet_line_approvals')
         .select('*', { count: 'exact', head: true })
-        .eq('status', 'pending');
-      
+        .eq('status', 'pending')
+        .abortSignal(signal);
+
       if (error) throw error;
       return count || 0;
     },
@@ -116,9 +138,9 @@ export function PersonalTab() {
   // Fetch hours by engagement for the selected period
   const { data: engagementHours } = useQuery({
     queryKey: ['personal-engagement-hours', staffRecord?.staff_id, startDateStr, endDateStr],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!staffRecord?.staff_id) return [];
-      
+
       const { data, error } = await supabase
         .from('time_entries')
         .select(`
@@ -132,23 +154,27 @@ export function PersonalTab() {
         `)
         .eq('staff_id', staffRecord.staff_id)
         .gte('date_worked', startDateStr)
-        .lte('date_worked', endDateStr);
-      
+        .lte('date_worked', endDateStr)
+        .abortSignal(signal);
+
+
       if (error) throw error;
 
       // Aggregate by engagement
       const engagementMap = new Map<string, { code: string; name: string; hours: number }>();
-      data?.forEach(entry => {
-        const eng = entry.engagement as any;
+      data?.forEach((entry) => {
+        const eng = entry.engagement as EngagementSummary | null;
         if (!eng) return;
+
         const engId = entry.engagement_id;
         if (!engagementMap.has(engId)) {
           engagementMap.set(engId, {
-            code: eng.engagement_code || '—',
-            name: eng.engagement_name || '—',
-            hours: 0
+            code: eng.engagement_code || 'â€”',
+            name: eng.engagement_name || 'â€”',
+            hours: 0,
           });
         }
+
         engagementMap.get(engId)!.hours += Number(entry.hours_logged);
       });
 
@@ -162,15 +188,16 @@ export function PersonalTab() {
   // Fetch timesheet status for current week
   const { data: timesheetPeriod } = useQuery({
     queryKey: ['personal-timesheet-period', staffRecord?.staff_id, format(weekStart, 'yyyy-MM-dd')],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!staffRecord?.staff_id) return null;
       const { data, error } = await supabase
         .from('timesheet_periods')
-        .select('*')
+        .select('deadline, submitted_at')
         .eq('staff_id', staffRecord.staff_id)
         .eq('week_start_date', format(weekStart, 'yyyy-MM-dd'))
+        .abortSignal(signal)
         .maybeSingle();
-      
+
       if (error) throw error;
       return data;
     },
@@ -193,21 +220,21 @@ export function PersonalTab() {
   const utilizationPercent = Math.round((weekHoursLogged / weeklyCapacity) * 100);
 
   // Days until deadline
-  const deadline = timesheetPeriod?.deadline 
-    ? parseISO(timesheetPeriod.deadline) 
+  const deadline = timesheetPeriod?.deadline
+    ? parseISO(timesheetPeriod.deadline)
     : new Date(weekEnd.getTime() + 24 * 60 * 60 * 1000);
   const daysUntilDeadline = differenceInDays(deadline, today);
 
   // Check if user can approve timesheets
-  const canApprove = (staffRecord?.category as any)?.can_approve_timesheets === true;
+  const canApprove = (staffRecord?.category as StaffCategory | undefined)?.can_approve_timesheets === true;
 
   // Transform entries for RecentTimeEntries component
-  const recentEntriesFormatted = (weekTimeEntries || []).slice(0, 6).map(entry => ({
+  const recentEntriesFormatted = ((weekTimeEntries || []) as TimesheetEntryWithRelations[]).slice(0, 6).map((entry) => ({
     id: entry.time_id,
     date: entry.date_worked,
     hours: Number(entry.hours_logged),
-    engagement: (entry.engagement as any)?.engagement_code || '—',
-    activity: (entry.activity as any)?.description || entry.description || '—',
+    engagement: entry.engagement?.engagement_code || 'â€”',
+    activity: entry.activity?.description || entry.description || 'â€”',
   }));
 
   // Bar chart colors
@@ -241,7 +268,7 @@ export function PersonalTab() {
               </div>
               <span className={cn(
                 "text-sm font-semibold font-mono",
-                utilizationPercent >= 80 ? "text-success" : 
+                utilizationPercent >= 80 ? "text-success" :
                 utilizationPercent >= 50 ? "text-warning" : "text-muted-foreground"
               )}>
                 {utilizationPercent}%
@@ -288,7 +315,7 @@ export function PersonalTab() {
                 daysUntilDeadline <= 1 ? "text-destructive" :
                 daysUntilDeadline <= 3 ? "text-warning" : "text-foreground"
               )}>
-                {daysUntilDeadline === 0 ? t('dashboard.personal.today') : 
+                {daysUntilDeadline === 0 ? t('dashboard.personal.today') :
                  daysUntilDeadline < 0 ? t('dashboard.personal.overdue') :
                  daysUntilDeadline}
               </span>
@@ -335,8 +362,8 @@ export function PersonalTab() {
                 <span className="text-lg font-semibold text-muted-foreground">{t('dashboard.personal.draft')}</span>
               )}
               <p className="text-xs text-muted-foreground mt-2">
-                {t('dashboard.personal.weekOf', { 
-                  date: format(weekStart, 'd MMM', { locale: dateLocale }) 
+                {t('dashboard.personal.weekOf', {
+                  date: format(weekStart, 'd MMM', { locale: dateLocale })
                 })}
               </p>
             </CardContent>
@@ -361,24 +388,24 @@ export function PersonalTab() {
             {engagementHours && engagementHours.length > 0 ? (
               <div className="h-[240px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart 
-                    layout="vertical" 
+                  <BarChart
+                    layout="vertical"
                     data={engagementHours}
                     margin={{ top: 0, right: 20, left: 0, bottom: 0 }}
                   >
                     <XAxis type="number" hide />
-                    <YAxis 
-                      type="category" 
-                      dataKey="code" 
+                    <YAxis
+                      type="category"
+                      dataKey="code"
                       width={80}
                       tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
                       axisLine={false}
                       tickLine={false}
                     />
-                    <Tooltip 
+                    <Tooltip
                       formatter={(value: number) => [`${value.toFixed(1)}h`, 'Horas']}
                       labelFormatter={(label) => {
-                        const eng = engagementHours?.find(e => e.code === label);
+                        const eng = engagementHours?.find((e) => e.code === label);
                         return eng?.name || label;
                       }}
                       contentStyle={{
@@ -388,8 +415,8 @@ export function PersonalTab() {
                         fontSize: '12px'
                       }}
                     />
-                    <Bar 
-                      dataKey="hours" 
+                    <Bar
+                      dataKey="hours"
                       radius={[0, 4, 4, 0]}
                       barSize={20}
                     >

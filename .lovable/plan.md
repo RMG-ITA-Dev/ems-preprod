@@ -1,60 +1,93 @@
-# BUG: Holiday Proration Incorrectly Reduces Weekly Max
+## **Step 8 — S-08: Add DB indexes for dashboard predicates (BACKEND — Lovable to implement)**
 
-## Root Cause
+&nbsp;
 
-The `getEffectiveWeeklyLimits()` function (line 215 of `timesheetUtils.ts`) treats holidays as non-workable days, subtracting them from the workable count. This reduces weekly min/max proportionally (e.g., 1 holiday in a 5-day week → 4/5 × 40 = 32h max).
+## Goal
 
-**But this is wrong.** Staff are required to log 8h on holidays against the Holiday engagement (ADM_01 Feriado). Holidays are still full work days from a timesheet capacity perspective — they just restrict which engagement can be used. The proration was designed for mid-week hires and terminations, not holidays.
+Add a new Supabase migration file that creates 7 indexes on `time_entries`, `engagements`, and `timesheet_line_approvals` to accelerate dashboard tab queries.
 
-In your case: week 30/03-03/04 has Viernes Santo on 03/04. The system calculates 4 workable days × 8h = 32h max, but you correctly logged 40h (including 8h on the holiday engagement).
+## File to Create
 
-The same bug exists in the backend `submit_timesheet_safe()` RPC, which mirrors this proration logic.
+`supabase/migrations/20260425000000_dashboard_perf_indexes.sql`
 
-## Fix
+(Timestamp `20260425000000` chosen to match today's date 2026-04-25 and sort after all existing migrations.)
 
-**Remove holidays from the proration calculation.** Holidays should only be subtracted from workable days for the purpose of proration when the staff member literally cannot log time (hire/termination). Holidays already have their own enforcement mechanism (the holiday-blocking trigger restricts entries to the holiday engagement).
+## Migration Contents
 
-### Frontend: `src/lib/timesheetUtils.ts`
+```sql
+-- time_entries — three composite indexes for the three distinct dashboard predicate shapes
+CREATE INDEX IF NOT EXISTS idx_time_entries_engagement_date
+  ON public.time_entries(engagement_id, date_worked);
 
-Remove line 215 (`if (holidayDates.has(...)) continue;`) from `getEffectiveWeeklyLimits()`. The function signature keeps the `holidayDates` parameter for backward compatibility but stops using it for the workable-day count.
+CREATE INDEX IF NOT EXISTS idx_time_entries_staff_date
+  ON public.time_entries(staff_id, date_worked);
 
-### Frontend: `src/pages/TimeSheet.tsx`
+CREATE INDEX IF NOT EXISTS idx_time_entries_period_engagement
+  ON public.time_entries(period_id, engagement_id);
 
-No changes needed — it already passes `holidayDateSet` to the function; the function just stops subtracting holidays.
+-- engagements — partner/manager lookups with status filter
+CREATE INDEX IF NOT EXISTS idx_engagements_partner_status
+  ON public.engagements(partner_id, status);
 
-### Backend: `submit_timesheet_safe()` migration
+CREATE INDEX IF NOT EXISTS idx_engagements_manager_status
+  ON public.engagements(manager_id, status);
 
-Update the proration block in `submit_timesheet_safe()` to stop subtracting holidays from the workable day count. The holiday count subtraction line in the RPC must be removed or set to zero.
+-- timesheet_line_approvals — partial filtered index for pending, plus engagement+period composite
+CREATE INDEX IF NOT EXISTS idx_tla_pending_engagement
+  ON public.timesheet_line_approvals(engagement_id)
+  WHERE status = 'pending';
 
-### Tests: `src/lib/__tests__/timesheetUtils.test.ts`
+CREATE INDEX IF NOT EXISTS idx_tla_engagement_period
+  ON public.timesheet_line_approvals(engagement_id, period_id);
+```
 
-Update the "holiday subtraction" and "hire+holiday combination" test cases to reflect that holidays no longer reduce workable days.
-
-### Changelog
-
-Append entry to `docs/changelogs/CHANGELOG-2026-04-01.md`.
-
-## Files Summary
-
-
-| Action    | File                                                                          |
-| --------- | ----------------------------------------------------------------------------- |
-| Edit      | `src/lib/timesheetUtils.ts` — remove holiday subtraction from proration       |
-| Migration | `submit_timesheet_safe()` — remove holiday subtraction from backend proration |
-| Edit      | `src/lib/__tests__/timesheetUtils.test.ts` — update affected test cases       |
-| Append    | `docs/changelogs/CHANGELOG-2026-04-01.md`                                     |
+## Index Summary
 
 
-## What is NOT changed
+| #   | Index                                | Table                    | Columns                              | Type      | Purpose                                                 |
+| --- | ------------------------------------ | ------------------------ | ------------------------------------ | --------- | ------------------------------------------------------- |
+| 1   | `idx_time_entries_engagement_date`   | time_entries             | (engagement_id, date_worked)         | composite | Engagement-scoped period queries (Encargo/Cartera tabs) |
+| 2   | `idx_time_entries_staff_date`        | time_entries             | (staff_id, date_worked)              | composite | Personal tab + my-week aggregations                     |
+| 3   | `idx_time_entries_period_engagement` | time_entries             | (period_id, engagement_id)           | composite | Approval grid line aggregation                          |
+| 4   | `idx_engagements_partner_status`     | engagements              | (partner_id, status)                 | composite | Partner leaderboard / portfolio                         |
+| 5   | `idx_engagements_manager_status`     | engagements              | (manager_id, status)                 | composite | Manager portfolio queries                               |
+| 6   | `idx_tla_pending_engagement`         | timesheet_line_approvals | engagement_id WHERE status='pending' | partial   | Pending approval counts (dominant filter)               |
+| 7   | `idx_tla_engagement_period`          | timesheet_line_approvals | (engagement_id, period_id)           | composite | Approval status joins                                   |
 
-- Holiday-blocking trigger (still enforces holiday engagement restriction)
-- Hire/termination proration (still works correctly)
-- Daily min/max validation
-- Approval workflow
-- Any UI layout or styling
+
+## Validation Notes
+
+- Verified all 7 referenced columns exist on the live tables (per schema in context):
+  - `time_entries`: `engagement_id`, `date_worked`, `staff_id`, `period_id` ✓
+  - `engagements`: `partner_id`, `manager_id`, `status` ✓
+  - `timesheet_line_approvals`: `engagement_id`, `period_id`, `status` (default `'pending'`) ✓
+- All statements use `IF NOT EXISTS` → idempotent, safe to re-run.
+- No `CONCURRENTLY` used (cannot run inside a migration transaction); migrations are applied in a transaction by Lovable. Index builds will briefly hold ACCESS EXCLUSIVE locks on each table — acceptable for tables of this size.
+- No data changes, no schema drift to `types.ts` (indexes are not reflected in the generated types).
+
+## After Approval — Deployment
+
+After the file is created and pushed to `main`, the following Lovable prompt is required to apply it:
+
+📋 **LOVABLE PROMPT:**
+
+> "Apply pending Supabase migrations"
+
+## Out of Scope
+
+- No application code changes (`src/**` untouched).
+- No RLS / function / trigger changes.
+- No removal of existing indexes.
+- No `ANALYZE` statement (Postgres autovacuum will refresh stats; can be added later if measurement shows planner needs a nudge).
+
+## Acceptance Criteria
+
+- New file `supabase/migrations/20260425000000_dashboard_perf_indexes.sql` exists with the exact SQL above.
+- Migration applies cleanly via Lovable prompt.
+- `\d+ public.time_entries`, `\d+ public.engagements`, `\d+ public.timesheet_line_approvals` show the 7 new indexes.
 
 **Changelog Append**
 
-**File:** docs/changelogs/[CHANGELOG-2026-04-01.md](http://CHANGELOG-2026-04-01.md)
+**File:** docs/changelogs/[CHANGELOG-2026-04-24.md](http://CHANGELOG-2026-04-24.md)
 
 You need to append to the CHANGELOG a detailed description of the changes made while implementing this Plan. There needs to be sufficient detail to be able to verify if the changes to the codebase correspond to the CHANGELOG.

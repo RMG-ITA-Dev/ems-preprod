@@ -41,6 +41,7 @@
     "role": "Role",
     "team": "Team",
     "dates": "Dates",
+    "createdAt": "Created At",
     "or": "Or",
     "clear": "Clear",
     "unsavedChanges": "Unsaved",
@@ -58,7 +59,8 @@
     "stay": "Stay",
     "saveError": "Error saving changes. Please try again.",
     "status": "Status",
-    "back": "Back"
+    "back": "Back",
+    "none": "None"
   },
   "nav": {
     "main": "Main",
@@ -254,7 +256,9 @@
     "expenseTypes": "Expense Types",
     "workOrder": "Work Order",
     "workOrders": "Work Orders",
-    "expenseLog": "Expense Log"
+    "expenseLog": "Expense Log",
+    "skill": "Competency",
+    "skills": "Competencies"
   },
   "status": {
     "active": "Active",
@@ -302,6 +306,7 @@
     "allowedEmailDomainHelp": "Only users with this email domain can register. Leave empty to allow any domain.",
     "realizationLimit": "Realization Limit (%)",
     "realizationLimitHelp": "Threshold for color coding: green if R >= X%, red if R < X%",
+    "skills": "Competencies",
     "holidays": "Holidays",
     "userRoles": "User Roles",
     "holidayEngagement": "Holiday Engagement",
@@ -394,6 +399,24 @@
     "deleteActivity": "Delete Activity Code",
     "activeDescription": "Active codes can be used in time entries"
   },
+  "skill": {
+    "name": "Name",
+    "category": "Category",
+    "selectCategory": "Select category",
+    "newSkill": "New Competency",
+    "editSkill": "Edit Competency",
+    "createSkill": "Create Competency",
+    "deleteSkill": "Delete Competency",
+    "activeDescription": "Active competencies can be assigned to staff",
+    "categories": {
+      "framework": "Framework & Standards",
+      "industry": "Industry",
+      "tool": "Tools & Systems",
+      "language": "Language",
+      "certification": "Certification",
+      "other": "Other"
+    }
+  },
   "expense": {
     "name": "Expense Name",
     "defaultUnitCost": "Default Unit Cost",
@@ -450,13 +473,38 @@
     "syncRoleSkip": "Skip",
     "roleSynced": "User role synchronized successfully",
     "roleSyncError": "Failed to sync user role",
-    "adminRoleProtected": "User is an Admin. Role was not demoted automatically."
+    "adminRoleProtected": "User is an Admin. Role was not demoted automatically.",
+    "competencies": {
+      "title": "Competencies",
+      "addButton": "Add Competency",
+      "name": "Competency Name and Category",
+      "category": "Category",
+      "level": "Level",
+      "verifiedDate": "Verified by HR",
+      "verifiedDateHint": "Date when HR verified this competency",
+      "empty": "No competencies assigned",
+      "remove": "Remove",
+      "levels": {
+        "beginner": "Beginner",
+        "intermediate": "Intermediate",
+        "advanced": "Advanced"
+      },
+      "errors": {
+        "required": "Select a competency",
+        "dateRequired": "Verification date is required",
+        "futureDate": "Verification date cannot be in the future",
+        "duplicate": "A competency cannot be assigned twice",
+        "alreadyAssigned": "This competency is already assigned",
+        "partialSave": "Staff saved but competencies could not be saved. Please edit and try again."
+      }
+    }
   },
   "client": {
     "name": "Client Name",
     "legalName": "Client Legal Name",
     "nit": "NIT",
     "nitLabel": "NIT (Tax ID)",
+    "nitOnlyNumbers": "NIT must contain only numbers.",
     "industry": "Industry",
     "contact": "Contact",
     "contactName": "Contact Name",
@@ -572,8 +620,7 @@
     "deleteHoliday": "Delete Holiday",
     "date": "Date",
     "name": "Name",
-    "createdBy": "Created By",
-    "deleteConfirm": "Are you sure you want to delete this holiday?"
+    "createdBy": "Created By"
   },
  "dashboard": {
     "noData": "No data available for the selected period",
@@ -597,6 +644,11 @@
       "cartera": "Portfolio",
       "encargo": "Engagement",
       "personal": "Personal"
+    },
+    "tabError": {
+      "title": "Error in {{tab}} tab",
+      "description": "This tab failed to load. Other tabs are unaffected.",
+      "retry": "Try again"
     },
     "personal": {
       "thisWeek": "This Week",
@@ -685,7 +737,24 @@
       "actual": "Actual",
       "noData": "No data available",
       "approved": "approved",
-      "pending": "pending"
+      "pending": "pending",
+      "viewHoursDetail": "View Hours Detail",
+      "hoursDetail": {
+        "title": "Staff Hours Detail",
+        "description": "Detailed staff hours breakdown for this engagement",
+        "staffName": "Name",
+        "category": "Category",
+        "year": "Year",
+        "week": "Week",
+        "loadedHours": "Hours",
+        "filterByCategory": "Filter by category",
+        "filterByYear": "Filter by year",
+        "filterByWeek": "Filter by week",
+        "filterByStaff": "Search by name",
+        "exportCsv": "Export CSV",
+        "noData": "No time entries for this engagement",
+        "all": "All"
+      }
     },
     "practica": {
       "activeEngagements": "Active Engagements",
@@ -719,6 +788,8 @@
     "invalidActivityRow": "One or more rows have an invalid activity. Please select a valid activity for each client engagement before submitting.",
     "weeklyMaxExceeded": "CANNOT SUBMIT: the total hours ({{total}}h) exceed the weekly maximum ({{max}}h).",
     "selectEngagement": "Select engagement",
+    "searchEngagement": "Search engagement...",
+    "noMatchingEngagements": "No matching engagements.",
     "selectActivity": "Select activity",
     "weekDays": {
       "mon": "Mon",
@@ -1065,8 +1136,8 @@
       "archived": "Archived"
     },
     "lockedByWorkOrderTitle": "Worksheet Locked",
-    "lockedByWorkOrderPending": "This worksheet is locked because the linked Work Order is pending approval. To unlock it, use the \"Withdraw from Approval\" button on the Work Order.",
-    "lockedByWorkOrderApproved": "This worksheet is locked because the linked Work Order has been approved. To unlock it, the Work Order status must be changed.",
+    "lockedByWorkOrderPending": "This worksheet is locked because the linked Work Order is pending approval. To unlock it, click \"Go to Work Order\" below, then press \"Withdraw from Approval\" on the Work Order.",
+    "lockedByWorkOrderApproved": "This worksheet is locked because the linked Work Order has been approved. To unlock it, a user with approval rights must Reject the Work Order. Use \"Go to Work Order\" below.",
     "goToWorkOrder": "Go to Work Order"
   },
   "bootstrap": {
@@ -1085,7 +1156,8 @@
     "hireDateRequired": "Hire date is required",
     "initialsMax4": "Max 4 characters",
     "terminationDateBeforeHire": "Termination date cannot be before hire date",
-    "terminationDateRequired": "Termination date is required when deactivating"
+    "terminationDateRequired": "Termination date is required when deactivating",
+    "formInvalid": "Please fix the errors and try again."
   },
   "theme": {
     "label": "Theme",

@@ -47,6 +47,7 @@ import { getFiscalYearOptions, formatFiscalYearEnd } from "@/lib/fiscalYearDispl
 // Get standardized fiscal year options (stored in English, displayed localized)
 const fiscalYearOptions = getFiscalYearOptions();
 
+// TODO(is_active): add an `is_active` toggle once the `industries` table gains an `is_active` column (DB migration + useEmsData/Industry type update).
 const formSchema = z.object({
   industry_name: z.string().min(1, "Industry name is required"),
   fiscal_year_end: z.string().min(1, "Fiscal year-end is required"),
@@ -162,12 +163,16 @@ export function IndustryForm({ open, onOpenChange, industry }: IndustryFormProps
               </div>
             )}
 
-            <SheetFooter className="flex gap-2 pt-4">
+            <SheetFooter className="flex flex-col-reverse sm:flex-row gap-2 pt-4">
+              <Button type="button" variant="cancel" onClick={() => onOpenChange(false)} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
+                {t("common.cancel")}
+              </Button>
               {isEdit && (
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
-                    <Button type="button" variant="destructive" size="icon">
+                    <Button type="button" variant="destructive" className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
                       <Trash2 className="h-4 w-4" />
+                      {t("common.delete")}
                     </Button>
                   </AlertDialogTrigger>
                   <AlertDialogContent>
@@ -186,9 +191,6 @@ export function IndustryForm({ open, onOpenChange, industry }: IndustryFormProps
                   </AlertDialogContent>
                 </AlertDialog>
               )}
-              <Button type="button" variant="cancel" onClick={() => onOpenChange(false)} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
-                {t("common.cancel")}
-              </Button>
               <LoadingButton
                 type="submit"
                 className="w-full sm:w-auto min-h-[44px] sm:min-h-0"

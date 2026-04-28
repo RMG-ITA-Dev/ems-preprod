@@ -2339,5 +2339,59 @@ CREATE TRIGGER trg_validate_submission_has_entries BEFORE UPDATE ON public.times
   EXECUTE FUNCTION public.validate_submission_has_entries();
 
 -- ============================================================================
+-- SKILLS TRACKING (Scheduler Phase 1) — Added 2026-04-12
+-- ============================================================================
+
+-- Master skill taxonomy (admin-managed)
+CREATE TABLE public.skills (
+  skill_id   UUID        NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  name       VARCHAR     NOT NULL,
+  category   VARCHAR     NOT NULL,
+  is_active  BOOLEAN     DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  CONSTRAINT chk_skills_name_not_empty     CHECK (TRIM(name) <> ''),
+  CONSTRAINT chk_skills_category_not_empty CHECK (TRIM(category) <> '')
+);
+
+-- Case-insensitive uniqueness
+CREATE UNIQUE INDEX idx_skills_name_unique ON public.skills (LOWER(TRIM(name)));
+
+-- Staff-to-skill junction table
+CREATE TABLE public.staff_skills (
+  staff_skill_id    UUID        NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  staff_id          UUID        NOT NULL REFERENCES public.staff(staff_id)  ON DELETE CASCADE,
+  skill_id          UUID        NOT NULL REFERENCES public.skills(skill_id) ON DELETE RESTRICT,
+  proficiency_level VARCHAR     NOT NULL CHECK (proficiency_level IN ('Beginner', 'Intermediate', 'Advanced')),
+  last_evaluated_date DATE,
+  created_at        TIMESTAMPTZ DEFAULT now(),
+  updated_at        TIMESTAMPTZ DEFAULT now(),
+  UNIQUE (staff_id, skill_id)
+);
+
+CREATE INDEX idx_staff_skills_staff ON public.staff_skills (staff_id);
+CREATE INDEX idx_staff_skills_skill ON public.staff_skills (skill_id);
+
+-- RLS: skills
+ALTER TABLE public.skills ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Admins can manage skills" ON public.skills FOR ALL TO authenticated
+  USING (is_admin()) WITH CHECK (is_admin());
+CREATE POLICY "Authenticated users can read skills" ON public.skills FOR SELECT TO authenticated
+  USING (true);
+
+-- RLS: staff_skills
+ALTER TABLE public.staff_skills ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Admins can manage staff skills" ON public.staff_skills FOR ALL TO authenticated
+  USING (is_admin()) WITH CHECK (is_admin());
+CREATE POLICY "Authenticated users can read staff skills" ON public.staff_skills FOR SELECT TO authenticated
+  USING (true);
+
+-- Triggers
+CREATE TRIGGER update_skills_updated_at BEFORE UPDATE ON public.skills
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+CREATE TRIGGER update_staff_skills_updated_at BEFORE UPDATE ON public.staff_skills
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+-- ============================================================================
 -- END OF SCHEMA
 -- ============================================================================

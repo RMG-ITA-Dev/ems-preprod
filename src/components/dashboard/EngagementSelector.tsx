@@ -13,6 +13,15 @@ import {
 } from "@/components/ui/select";
 import { FolderKanban } from "lucide-react";
 
+interface EngagementWithClient {
+  engagement_id: string;
+  engagement_code: string | null;
+  engagement_name: string;
+  client?: {
+    client_legal_name: string;
+  } | null;
+}
+
 export function EngagementSelector() {
   const { t } = useTranslation();
   const { staffRecord } = useCurrentStaff();
@@ -38,9 +47,9 @@ export function EngagementSelector() {
           `)
           .eq('status', 'active')
           .order('engagement_code');
-        
+
         if (error) throw error;
-        return data || [];
+        return (data || []) as EngagementWithClient[];
       }
 
       // Managers see engagements where they are partner or manager
@@ -57,9 +66,9 @@ export function EngagementSelector() {
           .eq('status', 'active')
           .or(`partner_id.eq.${staffRecord.staff_id},manager_id.eq.${staffRecord.staff_id}`)
           .order('engagement_code');
-        
+
         if (error) throw error;
-        return data || [];
+        return (data || []) as EngagementWithClient[];
       }
 
       // Staff see engagements where they've logged time in the period
@@ -82,9 +91,9 @@ export function EngagementSelector() {
       if (timeError) throw timeError;
 
       // Deduplicate engagements
-      const uniqueEngagements = new Map();
-      timeData?.forEach(entry => {
-        const eng = entry.engagement;
+      const uniqueEngagements = new Map<string, EngagementWithClient>();
+      timeData?.forEach((entry) => {
+        const eng = entry.engagement as EngagementWithClient | null;
         if (eng && !uniqueEngagements.has(eng.engagement_id)) {
           uniqueEngagements.set(eng.engagement_id, eng);
         }
@@ -116,11 +125,11 @@ export function EngagementSelector() {
           {engagements && engagements.length > 0 ? (
             engagements.map((eng) => (
               <SelectItem key={eng.engagement_id} value={eng.engagement_id}>
-                <span className="font-medium text-primary">{eng.engagement_code || '—'}</span>
+                <span className="font-medium text-primary">{eng.engagement_code || 'â€”'}</span>
                 <span className="mx-2">·</span>
                 <span>{eng.engagement_name}</span>
                 <span className="text-muted-foreground ml-2">
-                  ({(eng.client as any)?.client_legal_name || '—'})
+                  ({eng.client?.client_legal_name || 'â€”'})
                 </span>
               </SelectItem>
             ))

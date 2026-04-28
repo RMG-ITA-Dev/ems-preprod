@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -5,35 +6,50 @@ import { useDashboard } from "@/contexts/DashboardContext";
 import { EngagementSelector } from "@/components/dashboard/EngagementSelector";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { 
-  Table, 
-  TableBody, 
-  TableCell, 
-  TableHead, 
-  TableHeader, 
-  TableRow 
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
 } from "@/components/ui/table";
-import { 
-  DollarSign, 
-  Clock, 
-  TrendingUp, 
+import {
+  DollarSign,
+  Clock,
+  TrendingUp,
   AlertTriangle,
   CheckCircle2,
   BarChart3,
   Layers,
-  FolderKanban
+  FolderKanban,
+  Users
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { safeNumber, hasItems } from "@/lib/queryHelpers";
+import {
+  aggregateActualHoursByCategory,
+  type ActualHoursTimeEntryRow,
+} from "@/components/dashboard/encargoActualByCategory";
+import { Button } from "@/components/ui/button";
+import { StaffHoursDetailDialog } from "@/components/dashboard/StaffHoursDetailDialog";
+
+interface EngagementDataWithWorkOrder {
+  work_order?: {
+    currency: "BOB" | "USD" | null;
+  } | null;
+}
 
 export function EncargoTab() {
   const { t, i18n } = useTranslation();
   const { selectedEngagementId, startDateStr, endDateStr } = useDashboard();
+  const [detailOpen, setDetailOpen] = useState(false);
   const locale = i18n.language === 'es' ? 'es-BO' : 'en-US';
 
   // Fetch engagement details with work order
   const { data: engagementData, isLoading: engagementLoading } = useQuery({
     queryKey: ['encargo-detail', selectedEngagementId],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!selectedEngagementId) return null;
 
       const { data, error } = await supabase
@@ -56,6 +72,7 @@ export function EncargoTab() {
           )
         `)
         .eq('engagement_id', selectedEngagementId)
+        .abortSignal(signal)
         .single();
 
       if (error) throw error;
@@ -67,15 +84,16 @@ export function EncargoTab() {
   // Fetch budget vs actual from the view
   const { data: budgetData, isLoading: budgetLoading } = useQuery({
     queryKey: ['encargo-budget', selectedEngagementId],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!selectedEngagementId) return null;
 
       const { data, error } = await supabase
         .from('vw_budget_vs_actual_hours_by_category_activity')
-        .select('*')
+        .select('activity_id, activity_code, activity_description, actual_hours, budget_hours, category_display_order')
         .eq('engagement_id', selectedEngagementId)
         .order('category_display_order')
-        .order('activity_code');
+        .order('activity_code')
+        .abortSignal(signal);
 
       if (error) throw error;
       return data || [];
@@ -86,13 +104,14 @@ export function EncargoTab() {
   // Fetch work order summary for financial data
   const { data: woSummary, isLoading: woLoading } = useQuery({
     queryKey: ['encargo-wo-summary', selectedEngagementId],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!selectedEngagementId) return null;
 
       const { data, error } = await supabase
         .from('work_order_summary')
-        .select('*')
+        .select('fee_with_tax_gross_up, total_standard_fee, realization_percent')
         .eq('engagement_id', selectedEngagementId)
+        .abortSignal(signal)
         .single();
 
       if (error && error.code !== 'PGRST116') throw error;
@@ -104,14 +123,15 @@ export function EncargoTab() {
   // Fetch budget lines for category totals
   const { data: categoryBudget, isLoading: categoryLoading } = useQuery({
     queryKey: ['encargo-category-budget', selectedEngagementId],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!selectedEngagementId) return [];
 
       const { data, error } = await supabase
         .from('vw_wo_budget_hours_by_category')
-        .select('*')
+        .select('category_id, category_name, total_budget_hours, category_display_order')
         .eq('engagement_id', selectedEngagementId)
-        .order('category_display_order');
+        .order('category_display_order')
+        .abortSignal(signal);
 
       if (error) throw error;
       return data || [];
@@ -119,35 +139,33 @@ export function EncargoTab() {
     enabled: !!selectedEngagementId,
   });
 
-  // Fetch actual hours by category (aggregate from time_entries)
+  // INVARIANT: every queryKey parameter must affect the query body. Do not add date params
+  // to the key without filtering on them — see CHANGELOG S-05 for the bug this prevents.
+  // Fetch actual hours by category (period-filtered, aggregated in JS).
   const { data: actualByCategory, isLoading: actualLoading } = useQuery({
     queryKey: ['encargo-actual-category', selectedEngagementId, startDateStr, endDateStr],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!selectedEngagementId) return [];
 
       const { data, error } = await supabase
-        .from('vw_actual_hours_by_category_activity')
-        .select('*')
-        .eq('engagement_id', selectedEngagementId);
+        .from('time_entries')
+        .select(`
+          hours_logged,
+          staff:staff!inner(
+            category:categories!inner(category_id, category_name, display_order)
+          )
+        `)
+        .eq('engagement_id', selectedEngagementId)
+        .eq('is_forecast', false)
+        .gte('date_worked', startDateStr)
+        .lte('date_worked', endDateStr)
+        .abortSignal(signal);
 
       if (error) throw error;
 
-      // Aggregate by category
-      const categoryMap = new Map<string, { category_id: string; category_name: string; actual_hours: number; display_order: number }>();
-      data?.forEach(row => {
-        const key = row.category_id!;
-        if (!categoryMap.has(key)) {
-          categoryMap.set(key, {
-            category_id: key,
-            category_name: row.category_name || '',
-            actual_hours: 0,
-            display_order: row.category_display_order || 99
-          });
-        }
-        categoryMap.get(key)!.actual_hours += Number(row.actual_hours || 0);
-      });
-
-      return Array.from(categoryMap.values()).sort((a, b) => a.display_order - b.display_order);
+      return aggregateActualHoursByCategory(
+        (data ?? []) as unknown as ActualHoursTimeEntryRow[],
+      );
     },
     enabled: !!selectedEngagementId,
   });
@@ -155,7 +173,7 @@ export function EncargoTab() {
   // BUG #35: Fetch hours by approval status using direct query
   const { data: hoursByStatus, isLoading: statusLoading } = useQuery({
     queryKey: ['encargo-hours-by-status', selectedEngagementId],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!selectedEngagementId) return { approved: 0, pending: 0 };
 
       // Get time entries with their approval status
@@ -166,17 +184,18 @@ export function EncargoTab() {
           period_id
         `)
         .eq('engagement_id', selectedEngagementId)
-        .eq('is_forecast', false);
+        .eq('is_forecast', false)
+        .abortSignal(signal);
 
       if (entriesError) throw entriesError;
-      if (!entries || entries.length === 0) return { approved: 0, pending: 0 };
+      if (!hasItems(entries)) return { approved: 0, pending: 0 };
 
       // Get unique period IDs
       const periodIds = [...new Set(entries.filter(e => e.period_id).map(e => e.period_id!))] as string[];
-      
-      if (periodIds.length === 0) {
+
+      if (!hasItems(periodIds)) {
         // No periods = all pending
-        const totalHours = entries.reduce((sum, e) => sum + Number(e.hours_logged), 0);
+        const totalHours = entries.reduce((sum, e) => sum + safeNumber(e.hours_logged), 0);
         return { approved: 0, pending: totalHours };
       }
 
@@ -185,7 +204,8 @@ export function EncargoTab() {
         .from('timesheet_line_approvals')
         .select('period_id, status')
         .eq('engagement_id', selectedEngagementId)
-        .in('period_id', periodIds);
+        .in('period_id', periodIds)
+        .abortSignal(signal);
 
       if (approvalsError) throw approvalsError;
 
@@ -199,9 +219,9 @@ export function EncargoTab() {
       entries.forEach(entry => {
         const status = entry.period_id ? approvalMap.get(entry.period_id) : null;
         if (status === 'approved') {
-          approved += Number(entry.hours_logged);
+          approved += safeNumber(entry.hours_logged);
         } else {
-          pending += Number(entry.hours_logged);
+          pending += safeNumber(entry.hours_logged);
         }
       });
 
@@ -213,12 +233,12 @@ export function EncargoTab() {
   const isLoading = engagementLoading || budgetLoading || woLoading || categoryLoading || actualLoading || statusLoading;
 
   // Calculate totals
-  const totalBudgetHours = categoryBudget?.reduce((sum, c) => sum + Number(c.total_budget_hours || 0), 0) || 0;
-  const totalActualHours = actualByCategory?.reduce((sum, c) => sum + Number(c.actual_hours || 0), 0) || 0;
+  const totalBudgetHours = categoryBudget?.reduce((sum, c) => sum + safeNumber(c.total_budget_hours), 0) ?? 0;
+  const totalActualHours = actualByCategory?.reduce((sum, c) => sum + safeNumber(c.actual_hours), 0) ?? 0;
   const budgetConsumedPercent = totalBudgetHours > 0 ? Math.round((totalActualHours / totalBudgetHours) * 100) : 0;
   const varianceHours = totalBudgetHours - totalActualHours;
 
-  const currency = (engagementData?.work_order as any)?.currency || 'BOB';
+  const currency = (engagementData as EngagementDataWithWorkOrder | null)?.work_order?.currency || 'BOB';
   const agreedFee = woSummary?.fee_with_tax_gross_up || 0;
   const standardFee = woSummary?.total_standard_fee || 0;
   const realizationPercent = woSummary?.realization_percent || 100;
@@ -235,8 +255,8 @@ export function EncargoTab() {
   // Merge category budget and actual
   const categoryBreakdown = categoryBudget?.map(budget => {
     const actual = actualByCategory?.find(a => a.category_id === budget.category_id);
-    const budgetHours = Number(budget.total_budget_hours || 0);
-    const actualHours = Number(actual?.actual_hours || 0);
+    const budgetHours = safeNumber(budget.total_budget_hours);
+    const actualHours = safeNumber(actual?.actual_hours);
     const variance = budgetHours - actualHours;
     const consumedPercent = budgetHours > 0 ? (actualHours / budgetHours) * 100 : 0;
 
@@ -252,8 +272,8 @@ export function EncargoTab() {
 
   // Activity breakdown (top 10 by hours)
   const activityBreakdown = budgetData
-    ?.filter(a => Number(a.actual_hours || 0) > 0 || Number(a.budget_hours || 0) > 0)
-    .sort((a, b) => Number(b.actual_hours || 0) - Number(a.actual_hours || 0))
+    ?.filter(a => safeNumber(a.actual_hours) > 0 || safeNumber(a.budget_hours) > 0)
+    .sort((a, b) => safeNumber(b.actual_hours) - safeNumber(a.actual_hours))
     .slice(0, 10) || [];
 
   // Risk status
@@ -444,10 +464,19 @@ export function EncargoTab() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Category Breakdown */}
         <Card className="bg-card/80 backdrop-blur-sm border-border">
-          <CardHeader className="pb-3">
+          <CardHeader className="pb-3 flex flex-row items-center justify-between">
             <CardTitle className="text-sm font-medium">
               {t('dashboard.encargo.categoryBreakdown')}
             </CardTitle>
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs h-7 gap-1 shrink-0"
+              onClick={() => setDetailOpen(true)}
+            >
+              <Users className="h-3 w-3" />
+              {t('dashboard.encargo.viewHoursDetail')}
+            </Button>
           </CardHeader>
           <CardContent className="p-0">
             <Table>
@@ -513,7 +542,7 @@ export function EncargoTab() {
                         {act.activity_description}
                       </TableCell>
                       <TableCell className="py-2 text-right font-mono">
-                        {Number(act.actual_hours || 0).toFixed(1)}
+                        {safeNumber(act.actual_hours).toFixed(1)}
                       </TableCell>
                     </TableRow>
                   ))
@@ -529,6 +558,13 @@ export function EncargoTab() {
           </CardContent>
         </Card>
       </div>
+
+      <StaffHoursDetailDialog
+        open={detailOpen}
+        onOpenChange={setDetailOpen}
+        engagementId={selectedEngagementId}
+        engagementCode={engagementData?.engagement_code ?? ''}
+      />
     </div>
   );
 }

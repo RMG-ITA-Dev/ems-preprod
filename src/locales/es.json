@@ -41,6 +41,7 @@
     "role": "Rol",
     "team": "Equipo",
     "dates": "Fechas",
+    "createdAt": "Creado el",
     "or": "O",
     "clear": "Limpiar",
     "unsavedChanges": "Sin guardar",
@@ -58,7 +59,8 @@
     "stay": "Quedarme",
     "saveError": "Error al guardar los cambios. Intente nuevamente.",
     "status": "Estado",
-    "back": "Volver"
+    "back": "Volver",
+    "none": "Ninguno"
   },
   "nav": {
     "main": "Principal",
@@ -254,7 +256,9 @@
     "expenseTypes": "Tipos de Gasto",
     "workOrder": "Orden de Trabajo",
     "workOrders": "Órdenes de Trabajo",
-    "expenseLog": "Registro de Gasto"
+    "expenseLog": "Registro de Gasto",
+    "skill": "Competencia",
+    "skills": "Competencias"
   },
   "status": {
     "active": "Activo",
@@ -302,6 +306,7 @@
     "allowedEmailDomainHelp": "Solo los usuarios con este dominio de correo pueden registrarse. Dejar vacío para permitir cualquier dominio.",
     "realizationLimit": "Límite de Realización (%)",
     "realizationLimitHelp": "Umbral para codificación por color: verde si R >= X%, rojo si R < X%",
+    "skills": "Competencias",
     "holidays": "Feriados",
     "userRoles": "Roles de Usuario",
     "holidayEngagement": "Encargo de Feriados",
@@ -394,6 +399,24 @@
     "deleteActivity": "Eliminar Código de Actividad",
     "activeDescription": "Los códigos activos pueden usarse en entradas de tiempo"
   },
+  "skill": {
+    "name": "Nombre",
+    "category": "Categoría",
+    "selectCategory": "Seleccionar categoría",
+    "newSkill": "Nueva Competencia",
+    "editSkill": "Editar Competencia",
+    "createSkill": "Crear Competencia",
+    "deleteSkill": "Eliminar Competencia",
+    "activeDescription": "Las competencias activas pueden asignarse al personal",
+    "categories": {
+      "framework": "Normas y Marcos",
+      "industry": "Industria",
+      "tool": "Herramientas y Sistemas",
+      "language": "Idioma",
+      "certification": "Certificación",
+      "other": "Otro"
+    }
+  },
   "expense": {
     "name": "Nombre del Gasto",
     "defaultUnitCost": "Costo Unitario Predeterminado",
@@ -450,13 +473,38 @@
     "syncRoleSkip": "Omitir",
     "roleSynced": "Rol de usuario sincronizado exitosamente",
     "roleSyncError": "Error al sincronizar rol de usuario",
-    "adminRoleProtected": "El usuario es Admin. El rol no fue degradado automáticamente."
+    "adminRoleProtected": "El usuario es Admin. El rol no fue degradado automáticamente.",
+    "competencies": {
+      "title": "Competencias",
+      "addButton": "Agregar Competencia",
+      "name": "Nombre y Categoría de la Competencia",
+      "category": "Categoría",
+      "level": "Nivel",
+      "verifiedDate": "Fecha de Evaluación (TH)",
+      "verifiedDateHint": "Fecha en que Talento Humano verificó esta competencia",
+      "empty": "Sin competencias asignadas",
+      "remove": "Quitar",
+      "levels": {
+        "beginner": "Principiante",
+        "intermediate": "Intermedio",
+        "advanced": "Avanzado"
+      },
+      "errors": {
+        "required": "Selecciona una competencia",
+        "dateRequired": "La fecha de verificación es obligatoria",
+        "futureDate": "La fecha de verificación no puede ser futura",
+        "duplicate": "Una competencia no puede asignarse dos veces",
+        "alreadyAssigned": "Esta competencia ya está asignada",
+        "partialSave": "El miembro fue guardado pero las competencias no se guardaron. Por favor edita e intenta de nuevo."
+      }
+    }
   },
   "client": {
     "name": "Nombre del Cliente",
     "legalName": "Razón Social",
     "nit": "NIT",
     "nitLabel": "NIT (ID Fiscal)",
+    "nitOnlyNumbers": "El NIT solo debe contener números.",
     "industry": "Industria",
     "contact": "Contacto",
     "contactName": "Nombre de Contacto",
@@ -572,8 +620,7 @@
     "deleteHoliday": "Eliminar Feriado",
     "date": "Fecha",
     "name": "Nombre",
-    "createdBy": "Creado Por",
-    "deleteConfirm": "¿Está seguro que desea eliminar este feriado?"
+    "createdBy": "Creado Por"
   },
  "dashboard": {
     "noData": "Sin datos disponibles para el período seleccionado",
@@ -597,6 +644,11 @@
       "cartera": "Cartera",
       "encargo": "Encargo",
       "personal": "Personal"
+    },
+    "tabError": {
+      "title": "Error en pestaña {{tab}}",
+      "description": "Esta pestaña no se pudo cargar. Otras pestañas no se ven afectadas.",
+      "retry": "Intentar de nuevo"
     },
     "personal": {
       "thisWeek": "Esta Semana",
@@ -685,7 +737,24 @@
       "actual": "Real",
       "noData": "Sin datos disponibles",
       "approved": "aprobadas",
-      "pending": "pendientes"
+      "pending": "pendientes",
+      "viewHoursDetail": "Ver detalle de horas",
+      "hoursDetail": {
+        "title": "Detalle de Horas por Personal",
+        "description": "Desglose detallado de horas por personal para este encargo",
+        "staffName": "Nombre",
+        "category": "Categoría",
+        "year": "Año",
+        "week": "Semana",
+        "loadedHours": "Horas cargadas",
+        "filterByCategory": "Filtrar por categoría",
+        "filterByYear": "Filtrar por año",
+        "filterByWeek": "Filtrar por semana",
+        "filterByStaff": "Buscar por nombre",
+        "exportCsv": "Exportar CSV",
+        "noData": "Sin registros de horas para este encargo",
+        "all": "Todos"
+      }
     },
     "practica": {
       "activeEngagements": "Encargos Activos",
@@ -719,6 +788,8 @@
     "invalidActivityRow": "Una o mas filas tienen una actividad invalida. Seleccione una actividad valida para cada encargo de cliente antes de enviar.",
     "weeklyMaxExceeded": "NO SE PUEDE ENVIAR: el total de horas ({{total}}h) excede el máximo semanal ({{max}}h).",
     "selectEngagement": "Seleccionar Encargo",
+    "searchEngagement": "Buscar encargo...",
+    "noMatchingEngagements": "No se encontraron encargos.",
     "selectActivity": "Seleccionar actividad",
     "weekDays": {
       "mon": "Lun",
@@ -1065,8 +1136,8 @@
       "archived": "Archivada"
     },
     "lockedByWorkOrderTitle": "Matriz Bloqueada",
-    "lockedByWorkOrderPending": "Esta matriz está bloqueada porque la Orden de Trabajo vinculada está pendiente de aprobación. Para desbloquearla, use el botón \"Retirar de Aprobación\" en la Orden de Trabajo.",
-    "lockedByWorkOrderApproved": "Esta matriz está bloqueada porque la Orden de Trabajo vinculada fue aprobada. Para desbloquearla, la OT debe cambiar de estado.",
+    "lockedByWorkOrderPending": "Esta matriz está bloqueada porque la Orden de Trabajo vinculada está pendiente de aprobación. Para desbloquearla, use el botón «Ir a Orden de Trabajo» a continuación y luego presione «Retirar de Aprobación» en la Orden de Trabajo.",
+    "lockedByWorkOrderApproved": "Esta matriz está bloqueada porque la Orden de Trabajo vinculada fue aprobada. Para desbloquearla, un usuario con permisos de aprobación debe Rechazar la Orden de Trabajo. Use el botón «Ir a Orden de Trabajo» a continuación.",
     "goToWorkOrder": "Ir a Orden de Trabajo"
   },
   "bootstrap": {
@@ -1085,7 +1156,8 @@
     "hireDateRequired": "La fecha de ingreso es requerida",
     "initialsMax4": "Máximo 4 caracteres",
     "terminationDateBeforeHire": "La fecha de salida no puede ser anterior a la fecha de ingreso",
-    "terminationDateRequired": "La fecha de salida es obligatoria al desactivar"
+    "terminationDateRequired": "La fecha de salida es obligatoria al desactivar",
+    "formInvalid": "Por favor corrige los errores e intenta de nuevo."
   },
   "theme": {
     "label": "Tema",
