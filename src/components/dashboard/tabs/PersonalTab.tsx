@@ -9,7 +9,12 @@ import { Progress } from "@/components/ui/progress";
 import { Clock, Target, Calendar, CheckCircle2, AlertCircle, BarChart3 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { format, startOfWeek, endOfWeek, parseISO, differenceInDays, subWeeks, startOfMonth, endOfMonth } from "date-fns";
+import { format, startOfWeek, endOfWeek, parseISO, differenceInDays, startOfMonth, endOfMonth } from "date-fns";
+import {
+  bucketHoursByWeek,
+  getWeekRange,
+  getWeekStamp,
+} from "@/components/dashboard/weeklyHoursBucket";
 import { es, enUS } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Cell } from 'recharts';
@@ -29,7 +34,7 @@ export function PersonalTab() {
   // Fetch this week's time entries
   const { data: weekTimeEntries, isLoading: entriesLoading } = useQuery({
     queryKey: ['personal-week-entries', staffRecord?.staff_id, format(weekStart, 'yyyy-MM-dd')],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!staffRecord?.staff_id) return [];
       const { data, error } = await supabase
         .from('time_entries')
@@ -44,37 +49,32 @@ export function PersonalTab() {
         .eq('staff_id', staffRecord.staff_id)
         .gte('date_worked', format(weekStart, 'yyyy-MM-dd'))
         .lte('date_worked', format(weekEnd, 'yyyy-MM-dd'))
-        .order('date_worked', { ascending: false });
-      
+        .order('date_worked', { ascending: false })
+        .abortSignal(signal);
+
       if (error) throw error;
       return data || [];
     },
     enabled: !!staffRecord?.staff_id,
   });
 
-  // Fetch last 8 weeks trend for sparkline
+  // Fetch last 8 weeks trend for sparkline (single range fetch)
   const { data: weeklyTrend } = useQuery({
-    queryKey: ['personal-weekly-trend', staffRecord?.staff_id],
-    queryFn: async () => {
+    queryKey: ['personal-weekly-trend', staffRecord?.staff_id, getWeekStamp()],
+    queryFn: async ({ signal }): Promise<SparklineDataPoint[]> => {
       if (!staffRecord?.staff_id) return [];
-      const weeks: SparklineDataPoint[] = [];
-      
-      for (let i = 7; i >= 0; i--) {
-        const ws = startOfWeek(subWeeks(today, i), { weekStartsOn: 1 });
-        const we = endOfWeek(subWeeks(today, i), { weekStartsOn: 1 });
-        
-        const { data } = await supabase
-          .from('time_entries')
-          .select('hours_logged')
-          .eq('staff_id', staffRecord.staff_id)
-          .gte('date_worked', format(ws, 'yyyy-MM-dd'))
-          .lte('date_worked', format(we, 'yyyy-MM-dd'));
-        
-        const total = data?.reduce((sum, e) => sum + Number(e.hours_logged), 0) || 0;
-        weeks.push({ value: total });
-      }
-      
-      return weeks;
+
+      const { rangeStart, rangeEnd } = getWeekRange(today);
+
+      const { data } = await supabase
+        .from('time_entries')
+        .select('date_worked, hours_logged')
+        .eq('staff_id', staffRecord.staff_id)
+        .gte('date_worked', format(rangeStart, 'yyyy-MM-dd'))
+        .lte('date_worked', format(rangeEnd, 'yyyy-MM-dd'))
+        .abortSignal(signal);
+
+      return bucketHoursByWeek(data ?? [], today);
     },
     enabled: !!staffRecord?.staff_id,
   });
@@ -82,15 +82,16 @@ export function PersonalTab() {
   // Fetch this month's hours
   const { data: monthHours } = useQuery({
     queryKey: ['personal-month-hours', staffRecord?.staff_id, format(monthStart, 'yyyy-MM')],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!staffRecord?.staff_id) return 0;
       const { data, error } = await supabase
         .from('time_entries')
         .select('hours_logged')
         .eq('staff_id', staffRecord.staff_id)
         .gte('date_worked', format(monthStart, 'yyyy-MM-dd'))
-        .lte('date_worked', format(monthEnd, 'yyyy-MM-dd'));
-      
+        .lte('date_worked', format(monthEnd, 'yyyy-MM-dd'))
+        .abortSignal(signal);
+
       if (error) throw error;
       return data?.reduce((sum, e) => sum + Number(e.hours_logged), 0) || 0;
     },
@@ -100,13 +101,14 @@ export function PersonalTab() {
   // Fetch pending approvals count (if user can approve)
   const { data: pendingApprovals } = useQuery({
     queryKey: ['personal-pending-approvals', staffRecord?.staff_id],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!staffRecord?.staff_id) return 0;
       const { count, error } = await supabase
         .from('timesheet_line_approvals')
         .select('*', { count: 'exact', head: true })
-        .eq('status', 'pending');
-      
+        .eq('status', 'pending')
+        .abortSignal(signal);
+
       if (error) throw error;
       return count || 0;
     },
@@ -116,9 +118,9 @@ export function PersonalTab() {
   // Fetch hours by engagement for the selected period
   const { data: engagementHours } = useQuery({
     queryKey: ['personal-engagement-hours', staffRecord?.staff_id, startDateStr, endDateStr],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!staffRecord?.staff_id) return [];
-      
+
       const { data, error } = await supabase
         .from('time_entries')
         .select(`
@@ -132,7 +134,8 @@ export function PersonalTab() {
         `)
         .eq('staff_id', staffRecord.staff_id)
         .gte('date_worked', startDateStr)
-        .lte('date_worked', endDateStr);
+        .lte('date_worked', endDateStr)
+        .abortSignal(signal);
       
       if (error) throw error;
 
@@ -162,13 +165,14 @@ export function PersonalTab() {
   // Fetch timesheet status for current week
   const { data: timesheetPeriod } = useQuery({
     queryKey: ['personal-timesheet-period', staffRecord?.staff_id, format(weekStart, 'yyyy-MM-dd')],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!staffRecord?.staff_id) return null;
       const { data, error } = await supabase
         .from('timesheet_periods')
-        .select('*')
+        .select('deadline, submitted_at')
         .eq('staff_id', staffRecord.staff_id)
         .eq('week_start_date', format(weekStart, 'yyyy-MM-dd'))
+        .abortSignal(signal)
         .maybeSingle();
       
       if (error) throw error;

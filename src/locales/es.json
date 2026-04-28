@@ -643,6 +643,11 @@
       "encargo": "Encargo",
       "personal": "Personal"
     },
+    "tabError": {
+      "title": "Error en pestaña {{tab}}",
+      "description": "Esta pestaña no se pudo cargar. Otras pestañas no se ven afectadas.",
+      "retry": "Intentar de nuevo"
+    },
     "personal": {
       "thisWeek": "Esta Semana",
       "thisMonth": "Este Mes",

@@ -1,60 +1,93 @@
+## **Step 8 — S-08: Add DB indexes for dashboard predicates (BACKEND — Lovable to implement)**
 
-# Plan v1: Polish Competencies Section in StaffForm
+&nbsp;
 
-## Issues to Fix
+## Goal
 
-1. **Competency display**: Currently the Combobox only shows the skill name. User wants `Name — Category` format both in the dropdown options AND in the selected/closed state of the combobox.
-2. **"Add Competency" button**: The current button is oversized/awkward. Replace with the same pattern used by **Gastos** in `WorkOrderForm` — an inline `+ Agregar Gasto` link-style button (ghost/teal text, small icon, sits flush-left below the rows).
+Add a new Supabase migration file that creates 7 indexes on `time_entries`, `engagements`, and `timesheet_line_approvals` to accelerate dashboard tab queries.
 
-## Reference Pattern (from WorkOrderForm — Gastos section)
+## File to Create
 
-Looking at the Gastos screenshots:
-- Each expense row is a flat horizontal layout: `[Type Combobox] [Amount Input] [Trash icon]`
-- Below the rows: a small `[+ Agregar Gasto]` button — `variant="ghost"`, teal text, `size="sm"`, with `Plus` icon
-- Total line below with separator
-- No oversized "+" button at the top-right
+`supabase/migrations/20260425000000_dashboard_perf_indexes.sql`
 
-## Changes
+(Timestamp `20260425000000` chosen to match today's date 2026-04-25 and sort after all existing migrations.)
 
-### 1. `src/components/forms/StaffForm.tsx` — Competencies section
+## Migration Contents
 
-**A. Move "Add Competency" button**
-- Remove the current top-right `[+ Agregar Competencia]` button from the section header.
-- Add a small ghost-style button **below the rows**, matching Gastos:
-  ```tsx
-  <Button type="button" variant="ghost" size="sm" onClick={() => setAddOpen(true)}
-    className="text-info hover:text-info hover:bg-info/10">
-    <Plus className="h-4 w-4 mr-2" />
-    {t("staff.addCompetency")}
-  </Button>
-  ```
-- Section header keeps just the title `Competencias` (no button on the right).
+```sql
+-- time_entries — three composite indexes for the three distinct dashboard predicate shapes
+CREATE INDEX IF NOT EXISTS idx_time_entries_engagement_date
+  ON public.time_entries(engagement_id, date_worked);
 
-**B. Show "Name — Category" in Combobox**
-- In the Add Competency dialog's Combobox:
-  - Each option's display label: `${skill.name} — ${categoryLabel}` where `categoryLabel` is the i18n-resolved category (e.g., `t('skills.categories.framework')` → "Normas y Marcos").
-  - The trigger (selected value) also shows `Name — Category`.
-- Use the existing `skills.category` field + the i18n category map already used in the Skills settings tab.
+CREATE INDEX IF NOT EXISTS idx_time_entries_staff_date
+  ON public.time_entries(staff_id, date_worked);
 
-**C. Empty state polish**
-- When no competencies exist, show only the empty-state message + the small `[+ Agregar Competencia]` ghost button below it (same button, single instance).
+CREATE INDEX IF NOT EXISTS idx_time_entries_period_engagement
+  ON public.time_entries(period_id, engagement_id);
 
-### 2. No changes to
-- Mutations, query hook, Zod schema, table columns (Competencia / Categoría / Nivel / Fecha / 🗑) — these stay.
-- The Add Competency Sheet/Dialog itself (only the Combobox label format changes inside it).
-- i18n keys (no new keys needed — category labels already exist).
+-- engagements — partner/manager lookups with status filter
+CREATE INDEX IF NOT EXISTS idx_engagements_partner_status
+  ON public.engagements(partner_id, status);
 
-### 3. Changelog
-Append the polish entry to `docs/changelogs/CHANGELOG-2026-04-19.md`:
-- Combobox label format updated to `Name — Category`
-- "Add Competency" button restyled to match Gastos pattern (ghost teal, small, below rows)
-- Section header simplified (button removed from top-right)
+CREATE INDEX IF NOT EXISTS idx_engagements_manager_status
+  ON public.engagements(manager_id, status);
 
-## Files Touched
+-- timesheet_line_approvals — partial filtered index for pending, plus engagement+period composite
+CREATE INDEX IF NOT EXISTS idx_tla_pending_engagement
+  ON public.timesheet_line_approvals(engagement_id)
+  WHERE status = 'pending';
 
-| File | Change |
-|---|---|
-| `src/components/forms/StaffForm.tsx` | Restyle Add button + Combobox label format |
-| `docs/changelogs/CHANGELOG-2026-04-19.md` | Append polish entry |
+CREATE INDEX IF NOT EXISTS idx_tla_engagement_period
+  ON public.timesheet_line_approvals(engagement_id, period_id);
+```
 
-## No DB / no i18n / no new dependencies.
+## Index Summary
+
+
+| #   | Index                                | Table                    | Columns                              | Type      | Purpose                                                 |
+| --- | ------------------------------------ | ------------------------ | ------------------------------------ | --------- | ------------------------------------------------------- |
+| 1   | `idx_time_entries_engagement_date`   | time_entries             | (engagement_id, date_worked)         | composite | Engagement-scoped period queries (Encargo/Cartera tabs) |
+| 2   | `idx_time_entries_staff_date`        | time_entries             | (staff_id, date_worked)              | composite | Personal tab + my-week aggregations                     |
+| 3   | `idx_time_entries_period_engagement` | time_entries             | (period_id, engagement_id)           | composite | Approval grid line aggregation                          |
+| 4   | `idx_engagements_partner_status`     | engagements              | (partner_id, status)                 | composite | Partner leaderboard / portfolio                         |
+| 5   | `idx_engagements_manager_status`     | engagements              | (manager_id, status)                 | composite | Manager portfolio queries                               |
+| 6   | `idx_tla_pending_engagement`         | timesheet_line_approvals | engagement_id WHERE status='pending' | partial   | Pending approval counts (dominant filter)               |
+| 7   | `idx_tla_engagement_period`          | timesheet_line_approvals | (engagement_id, period_id)           | composite | Approval status joins                                   |
+
+
+## Validation Notes
+
+- Verified all 7 referenced columns exist on the live tables (per schema in context):
+  - `time_entries`: `engagement_id`, `date_worked`, `staff_id`, `period_id` ✓
+  - `engagements`: `partner_id`, `manager_id`, `status` ✓
+  - `timesheet_line_approvals`: `engagement_id`, `period_id`, `status` (default `'pending'`) ✓
+- All statements use `IF NOT EXISTS` → idempotent, safe to re-run.
+- No `CONCURRENTLY` used (cannot run inside a migration transaction); migrations are applied in a transaction by Lovable. Index builds will briefly hold ACCESS EXCLUSIVE locks on each table — acceptable for tables of this size.
+- No data changes, no schema drift to `types.ts` (indexes are not reflected in the generated types).
+
+## After Approval — Deployment
+
+After the file is created and pushed to `main`, the following Lovable prompt is required to apply it:
+
+📋 **LOVABLE PROMPT:**
+
+> "Apply pending Supabase migrations"
+
+## Out of Scope
+
+- No application code changes (`src/**` untouched).
+- No RLS / function / trigger changes.
+- No removal of existing indexes.
+- No `ANALYZE` statement (Postgres autovacuum will refresh stats; can be added later if measurement shows planner needs a nudge).
+
+## Acceptance Criteria
+
+- New file `supabase/migrations/20260425000000_dashboard_perf_indexes.sql` exists with the exact SQL above.
+- Migration applies cleanly via Lovable prompt.
+- `\d+ public.time_entries`, `\d+ public.engagements`, `\d+ public.timesheet_line_approvals` show the 7 new indexes.
+
+**Changelog Append**
+
+**File:** docs/changelogs/[CHANGELOG-2026-04-24.md](http://CHANGELOG-2026-04-24.md)
+
+You need to append to the CHANGELOG a detailed description of the changes made while implementing this Plan. There needs to be sufficient detail to be able to verify if the changes to the codebase correspond to the CHANGELOG.

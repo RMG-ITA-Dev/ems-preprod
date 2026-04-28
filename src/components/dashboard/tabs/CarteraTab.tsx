@@ -10,7 +10,17 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Progress } from '@/components/ui/progress';
 import { Briefcase, TrendingUp, AlertTriangle, Clock, DollarSign, Users } from 'lucide-react';
 import { Sparkline, SparklineDataPoint } from '@/components/dashboard/Sparkline';
-import { startOfWeek, subWeeks, format } from 'date-fns';
+import { format } from 'date-fns';
+import {
+  bucketHoursByWeek,
+  getWeekRange,
+  getWeekStamp,
+} from '@/components/dashboard/weeklyHoursBucket';
+import {
+  aggregateHoursByPeriodAndEngagement,
+  compositeKey,
+} from '@/components/dashboard/pendingApprovalsAggregation';
+import { hasItems } from '@/lib/queryHelpers';
 import { parseDateLocal } from '@/lib/timesheetUtils';
 
 interface EngagementWithMetrics {
@@ -46,7 +56,7 @@ export function CarteraTab() {
   // Fetch portfolio engagements where user is partner or manager
   const { data: portfolio, isLoading: loadingPortfolio } = useQuery({
     queryKey: ['portfolio-engagements', staffRecord?.staff_id, startDateStr, endDateStr],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!staffRecord?.staff_id) return [];
 
       // Get engagements where user is partner or manager
@@ -60,10 +70,11 @@ export function CarteraTab() {
           client:clients(client_legal_name)
         `)
         .or(`partner_id.eq.${staffRecord.staff_id},manager_id.eq.${staffRecord.staff_id}`)
-        .eq('status', 'active');
+        .eq('status', 'active')
+        .abortSignal(signal);
 
       if (engError) throw engError;
-      if (!engagements?.length) return [];
+      if (!hasItems(engagements)) return [];
 
       const engagementIds = engagements.map(e => e.engagement_id);
 
@@ -71,13 +82,15 @@ export function CarteraTab() {
       const { data: workOrders } = await supabase
         .from('work_order_summary')
         .select('engagement_id, total_standard_fee, realization_percent')
-        .in('engagement_id', engagementIds);
+        .in('engagement_id', engagementIds)
+        .abortSignal(signal);
 
       // Get budget hours by category
       const { data: budgetData } = await supabase
         .from('vw_wo_budget_hours_by_category')
         .select('engagement_id, total_budget_hours')
-        .in('engagement_id', engagementIds);
+        .in('engagement_id', engagementIds)
+        .abortSignal(signal);
 
       // Get actual hours from time_entries in period
       const { data: actualData } = await supabase
@@ -85,7 +98,8 @@ export function CarteraTab() {
         .select('engagement_id, hours_logged')
         .in('engagement_id', engagementIds)
         .gte('date_worked', startDateStr)
-        .lte('date_worked', endDateStr);
+        .lte('date_worked', endDateStr)
+        .abortSignal(signal);
 
       // Aggregate data
       const budgetByEngagement = new Map<string, number>();
@@ -136,16 +150,17 @@ export function CarteraTab() {
   // Fetch pending approvals for this manager
   const { data: pendingApprovals, isLoading: loadingApprovals } = useQuery({
     queryKey: ['pending-approvals', staffRecord?.staff_id],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!staffRecord?.staff_id) return [];
 
       // Get engagements where user is manager/partner
       const { data: myEngagements } = await supabase
         .from('engagements')
         .select('engagement_id, engagement_code, engagement_name')
-        .or(`partner_id.eq.${staffRecord.staff_id},manager_id.eq.${staffRecord.staff_id}`);
+        .or(`partner_id.eq.${staffRecord.staff_id},manager_id.eq.${staffRecord.staff_id}`)
+        .abortSignal(signal);
 
-      if (!myEngagements?.length) return [];
+      if (!hasItems(myEngagements)) return [];
 
       const engagementIds = myEngagements.map(e => e.engagement_id);
       const engMap = new Map(myEngagements.map(e => [e.engagement_id, e]));
@@ -163,27 +178,34 @@ export function CarteraTab() {
           )
         `)
         .in('engagement_id', engagementIds)
-        .eq('status', 'pending');
+        .eq('status', 'pending')
+        .abortSignal(signal);
 
-      if (!approvals?.length) return [];
+      if (!hasItems(approvals)) return [];
 
-      // Get hours for each approval
-      const result: PendingApproval[] = [];
-      for (const approval of approvals) {
+      // Bulk-fetch all time entries for the unique (period, engagement) pairs in one round-trip.
+      const periodIds = Array.from(new Set(approvals.map((a) => a.period_id)));
+      const approvalEngagementIds = Array.from(
+        new Set(approvals.map((a) => a.engagement_id)),
+      );
+
+      const { data: entries } = await supabase
+        .from('time_entries')
+        .select('period_id, engagement_id, hours_logged')
+        .in('period_id', periodIds)
+        .in('engagement_id', approvalEngagementIds)
+        .abortSignal(signal);
+
+      const hoursByPair = aggregateHoursByPeriodAndEngagement(entries ?? []);
+
+      const result: PendingApproval[] = approvals.map((approval) => {
         const eng = engMap.get(approval.engagement_id);
         const period = approval.period as any;
-        
-        // Get hours for this period/engagement
-        const { data: entries } = await supabase
-          .from('time_entries')
-          .select('hours_logged')
-          .eq('period_id', approval.period_id)
-          .eq('engagement_id', approval.engagement_id);
-
-        const totalHours = entries?.reduce((sum, e) => sum + e.hours_logged, 0) || 0;
         const staff = period?.staff;
+        const totalHours =
+          hoursByPair.get(compositeKey(approval.period_id, approval.engagement_id)) ?? 0;
 
-        result.push({
+        return {
           approval_id: approval.approval_id,
           period_id: approval.period_id,
           engagement_id: approval.engagement_id,
@@ -192,50 +214,48 @@ export function CarteraTab() {
           staff_name: staff?.short_name || `${staff?.first_name} ${staff?.last_name}` || '',
           week_start_date: period?.week_start_date || '',
           hours: totalHours,
-        });
-      }
+        };
+      });
 
       return result;
     },
     enabled: !!staffRecord?.staff_id,
   });
 
-  // Fetch weekly hours trend for sparkline (last 8 weeks)
+  // Fetch weekly hours trend for sparkline (last 8 weeks, single range fetch)
   const { data: weeklyTrend } = useQuery({
-    queryKey: ['cartera-weekly-trend', staffRecord?.staff_id],
-    queryFn: async (): Promise<SparklineDataPoint[]> => {
+    queryKey: ['cartera-weekly-trend', staffRecord?.staff_id, getWeekStamp()],
+    queryFn: async ({ signal }): Promise<SparklineDataPoint[]> => {
       if (!staffRecord?.staff_id) return [];
-      
-      const weeks: SparklineDataPoint[] = [];
+
       const today = new Date();
-      
+
       // Get engagements where user is partner or manager
       const { data: engagements } = await supabase
         .from('engagements')
         .select('engagement_id')
         .or(`partner_id.eq.${staffRecord.staff_id},manager_id.eq.${staffRecord.staff_id}`)
-        .eq('status', 'active');
-      
-      if (!engagements?.length) return [];
-      const engagementIds = engagements.map(e => e.engagement_id);
-      
-      for (let i = 7; i >= 0; i--) {
-        const weekStart = startOfWeek(subWeeks(today, i), { weekStartsOn: 1 });
-        const weekEnd = new Date(weekStart);
-        weekEnd.setDate(weekEnd.getDate() + 6);
-        
-        const { data } = await supabase
-          .from('time_entries')
-          .select('hours_logged')
-          .in('engagement_id', engagementIds)
-          .gte('date_worked', format(weekStart, 'yyyy-MM-dd'))
-          .lte('date_worked', format(weekEnd, 'yyyy-MM-dd'));
-        
-        const totalHours = data?.reduce((sum, e) => sum + Number(e.hours_logged), 0) || 0;
-        weeks.push({ value: totalHours });
+        .eq('status', 'active')
+        .abortSignal(signal);
+
+      const engagementIds = engagements?.map((e) => e.engagement_id) ?? [];
+
+      // Empty-array guard: skip the .in() round-trip; render flat 8-bucket sparkline.
+      if (!hasItems(engagementIds)) {
+        return bucketHoursByWeek([], today);
       }
-      
-      return weeks;
+
+      const { rangeStart, rangeEnd } = getWeekRange(today);
+
+      const { data } = await supabase
+        .from('time_entries')
+        .select('date_worked, hours_logged')
+        .in('engagement_id', engagementIds)
+        .gte('date_worked', format(rangeStart, 'yyyy-MM-dd'))
+        .lte('date_worked', format(rangeEnd, 'yyyy-MM-dd'))
+        .abortSignal(signal);
+
+      return bucketHoursByWeek(data ?? [], today);
     },
     enabled: !!staffRecord?.staff_id,
   });

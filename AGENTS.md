@@ -38,3 +38,72 @@ All UI/UX conventions are documented in `docs/skills/`:
 - **Component library**: shadcn/ui with custom extensions in `src/components/ui/`
 - **Icons**: `lucide-react` at `h-4 w-4` standard size
 - **Font**: IBM Plex Sans (auto-switches to condensed on mobile via CSS variable)
+
+## Lovable Preview Reindex on New-File PRs
+
+When a PR merged into a feature branch (e.g. `sruizmier-performance-v1`)
+introduces a **net-new file** that is imported by an existing modified
+file in the same PR, Lovable's preview may operate from a stale file
+index and fail to resolve the new module. Symptoms:
+
+- Lovable UI shows "Preview has not been built yet"
+- Browser console shows `GET /_sandbox/dev-server → 404`
+- Lovable chat reports "Dev server is running and locale files are valid"
+- `npm run build` and the test suite pass locally
+
+This is an infrastructure index lag, not a code defect. Recovery:
+
+```bash
+git commit --allow-empty -m "chore: trigger Lovable preview rebuild"
+git push origin <feature-branch>
+```
+
+Wait ~30 seconds, then refresh the Lovable preview. If symptoms persist
+after two trigger commits, treat as a Lovable platform issue and contact
+support — do NOT add defensive Vite/tsconfig changes, as they will not
+address the root cause.
+
+Reference incident: `docs/changelogs/CHANGELOG-2026-04-24.md` →
+"S-01 and S-02 Complement — Lovable Preview Resilience".
+
+## Dashboard PR Perf Checklist
+
+Any PR that modifies files under `src/components/dashboard/`,
+`src/pages/Index.tsx`, or any helper consumed by these
+(`src/lib/queryHelpers.ts`, `src/lib/queryPerfLogger.ts`,
+`src/components/dashboard/{practicaLeaderboard,weeklyHoursBucket,
+pendingApprovalsAggregation,encargoActualByCategory}.ts`) must
+satisfy this checklist:
+
+1. **Round-trip evidence:** include before/after request count from
+   the DevTools Network panel for the affected tab. If the PR adds
+   a new query, document the new round-trip count and update the
+   relevant row in `docs/performance/dashboard-performance-budget.md`
+   in the same PR.
+2. **Bundle size:** if the PR modifies `src/pages/Index.tsx` or adds
+   a new lazy import, run `npm run build` and verify the chunks via
+   `ls dist/assets/`. Confirm `Index-<hash>.js` stays under 50 KB
+   and each per-tab chunk stays under 30 KB.
+3. **New pure-aggregation helpers:** must include unit tests in the
+   adjacent `__tests__/` directory. Helpers must keep zero React /
+   Supabase / network imports (depend only on `date-fns`, `@/lib/*`
+   utilities, or pure types).
+4. **Hard budgets:** verify against
+   `docs/performance/dashboard-performance-budget.md`. Any
+   intentional budget bump must be documented in the same PR (both
+   the PR description and the budget doc).
+5. **Query semantics invariants:** confirm the PR does not violate
+   any of the structural rules in the budget doc. In particular:
+   - Every `queryKey` parameter affects the query body
+   - Time-range queries use `.gte/.lte` server-side, not JS post-filter
+   - Empty-array short-circuit before `.in('col', [])` via `hasItems()`
+   - `.abortSignal(signal)` chained on every Supabase call inside a
+     dashboard `useQuery` queryFn
+   - `safeNumber()` for numeric coercion (no inline `Number(x \|\| 0)`)
+   - No `select('*')` on data-returning queries
+6. **Lovable reindex:** if adding new files under `src/`, follow the
+   "Lovable Preview Reindex on New-File PRs" runbook above after merge.
+
+If a perf-impacting change cannot be measured locally (e.g. requires
+production data), explicitly note this in the PR description and
+request observation from a reviewer with prod access.
