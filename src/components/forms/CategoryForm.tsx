@@ -49,6 +49,8 @@ import { Database } from "@/integrations/supabase/types";
 
 type AppRole = Database["public"]["Enums"]["app_role"];
 
+const NO_DEFAULT_ROLE = "__none__";
+
 const formSchema = z.object({
   category_name: z.string().min(1, "Category name is required"),
   display_order: z.coerce.number().int().min(0),
@@ -270,14 +272,25 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>{t("category.defaultAppRole")}</FormLabel>
+<<<<<<< HEAD
+                    <Select
+                      onValueChange={(val) => field.onChange(val === NO_DEFAULT_ROLE ? "" : val)}
+                      value={field.value || NO_DEFAULT_ROLE}
+                    >
+=======
                     <Select onValueChange={field.onChange} value={field.value || "__none__"}>
+>>>>>>> origin/desarrollo_temp
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder={t("form.selectOption")} />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
+<<<<<<< HEAD
+                        <SelectItem value={NO_DEFAULT_ROLE}>{t("common.none")}</SelectItem>
+=======
                         <SelectItem value="__none__">{t("common.none")}</SelectItem>
+>>>>>>> origin/desarrollo_temp
                         {ROLES.map((role) => (
                           <SelectItem key={role} value={role}>
                             {t(`userRoles.roles.${role}`)}
@@ -340,8 +353,8 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
               {isEdit && (
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
-                    <Button type="button" variant="destructive" size="icon" className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
-                      <Trash2 className="h-4 w-4" />
+                    <Button type="button" variant="destructive" className="w-full sm:w-auto min-h-[44px] sm:min-h-0 px-4">
+                      <Trash2 className="h-4 w-4" /> {t("common.delete")}
                     </Button>
                   </AlertDialogTrigger>
                   <AlertDialogContent>

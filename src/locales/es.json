@@ -58,7 +58,8 @@
     "stay": "Quedarme",
     "saveError": "Error al guardar los cambios. Intente nuevamente.",
     "status": "Estado",
-    "back": "Volver"
+    "back": "Volver",
+    "none": "Ninguno"
   },
   "nav": {
     "main": "Principal",

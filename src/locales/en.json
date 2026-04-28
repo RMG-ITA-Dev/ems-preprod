@@ -58,7 +58,8 @@
     "stay": "Stay",
     "saveError": "Error saving changes. Please try again.",
     "status": "Status",
-    "back": "Back"
+    "back": "Back",
+    "none": "None"
   },
   "nav": {
     "main": "Main",
