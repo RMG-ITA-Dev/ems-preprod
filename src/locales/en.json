@@ -41,6 +41,7 @@
     "role": "Role",
     "team": "Team",
     "dates": "Dates",
+    "createdAt": "Created At",
     "or": "Or",
     "clear": "Clear",
     "unsavedChanges": "Unsaved",
@@ -254,7 +255,9 @@
     "expenseTypes": "Expense Types",
     "workOrder": "Work Order",
     "workOrders": "Work Orders",
-    "expenseLog": "Expense Log"
+    "expenseLog": "Expense Log",
+    "skill": "Competency",
+    "skills": "Competencies"
   },
   "status": {
     "active": "Active",
@@ -302,6 +305,7 @@
     "allowedEmailDomainHelp": "Only users with this email domain can register. Leave empty to allow any domain.",
     "realizationLimit": "Realization Limit (%)",
     "realizationLimitHelp": "Threshold for color coding: green if R >= X%, red if R < X%",
+    "skills": "Competencies",
     "holidays": "Holidays",
     "userRoles": "User Roles",
     "holidayEngagement": "Holiday Engagement",
@@ -394,6 +398,24 @@
     "deleteActivity": "Delete Activity Code",
     "activeDescription": "Active codes can be used in time entries"
   },
+  "skill": {
+    "name": "Name",
+    "category": "Category",
+    "selectCategory": "Select category",
+    "newSkill": "New Competency",
+    "editSkill": "Edit Competency",
+    "createSkill": "Create Competency",
+    "deleteSkill": "Delete Competency",
+    "activeDescription": "Active competencies can be assigned to staff",
+    "categories": {
+      "framework": "Framework & Standards",
+      "industry": "Industry",
+      "tool": "Tools & Systems",
+      "language": "Language",
+      "certification": "Certification",
+      "other": "Other"
+    }
+  },
   "expense": {
     "name": "Expense Name",
     "defaultUnitCost": "Default Unit Cost",
@@ -450,7 +472,31 @@
     "syncRoleSkip": "Skip",
     "roleSynced": "User role synchronized successfully",
     "roleSyncError": "Failed to sync user role",
-    "adminRoleProtected": "User is an Admin. Role was not demoted automatically."
+    "adminRoleProtected": "User is an Admin. Role was not demoted automatically.",
+    "competencies": {
+      "title": "Competencies",
+      "addButton": "Add Competency",
+      "name": "Competency Name and Category",
+      "category": "Category",
+      "level": "Level",
+      "verifiedDate": "Verified by HR",
+      "verifiedDateHint": "Date when HR verified this competency",
+      "empty": "No competencies assigned",
+      "remove": "Remove",
+      "levels": {
+        "beginner": "Beginner",
+        "intermediate": "Intermediate",
+        "advanced": "Advanced"
+      },
+      "errors": {
+        "required": "Select a competency",
+        "dateRequired": "Verification date is required",
+        "futureDate": "Verification date cannot be in the future",
+        "duplicate": "A competency cannot be assigned twice",
+        "alreadyAssigned": "This competency is already assigned",
+        "partialSave": "Staff saved but competencies could not be saved. Please edit and try again."
+      }
+    }
   },
   "client": {
     "name": "Client Name",
@@ -572,8 +618,7 @@
     "deleteHoliday": "Delete Holiday",
     "date": "Date",
     "name": "Name",
-    "createdBy": "Created By",
-    "deleteConfirm": "Are you sure you want to delete this holiday?"
+    "createdBy": "Created By"
   },
  "dashboard": {
     "noData": "No data available for the selected period",
@@ -1085,7 +1130,8 @@
     "hireDateRequired": "Hire date is required",
     "initialsMax4": "Max 4 characters",
     "terminationDateBeforeHire": "Termination date cannot be before hire date",
-    "terminationDateRequired": "Termination date is required when deactivating"
+    "terminationDateRequired": "Termination date is required when deactivating",
+    "formInvalid": "Please fix the errors and try again."
   },
   "theme": {
     "label": "Theme",
