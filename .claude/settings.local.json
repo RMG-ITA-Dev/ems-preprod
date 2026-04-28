@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(npx eslint *)",
-      "Bash(npx vitest *)"
+      "Bash(npx vitest *)",
+      "Bash(grep -E \"\\\\.\\(tsx|ts|jsx|js\\)$\")",
+      "Bash(xargs grep *)"
     ]
   }
 }

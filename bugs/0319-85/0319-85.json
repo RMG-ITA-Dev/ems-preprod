@@ -1,0 +1,15 @@
+{
+  "ID": "0319-85",
+  "FECHA": "2026-03-19",
+  "TIPO DE ERROR": "UI",
+  "TITULO": "Desaparición del menú lateral (sidebar).",
+  "VERSION": "2.0.7",
+  "DESCRIPCION": "Al ingresar a Formularios de Creación/Edición y en la 'Hoja de tiempo', el Sidebar desaparece.",
+  "SUGERENCIA": "Mantener un botón persistente en la parte superior izquierda para abrir/cerrar el Sidebar a requerimiento.",
+  "CAPTURA": "[0319-85-1.png; 0319-85-2.png; 0319-85-3.png; 0319-85-4.png]",
+  "RUTA": "OPERACIONES-Hoja de Tiempo",
+  "USUARIO SIS": "marceloovando (Socio)",
+  "PRIORIDAD": "Baja",
+  "ESTADO": "Abierto",
+  "TESTER": "marceloovando"
+}

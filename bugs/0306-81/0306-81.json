@@ -1,0 +1,15 @@
+{
+  "ID": "0306-81",
+  "FECHA": "2026-03-06",
+  "TIPO DE ERROR": "Datos",
+  "TITULO": "Detalle Horas Personal por encargo",
+  "VERSION": "v.2.7.0",
+  "DESCRIPCION": "En el perfil de Gerente, actualmente solo se muestra un resumen agregado de horas. No existe una vista de detalle del personal específico que ha cargado horas al encargo.",
+  "SUGERENCIA": "Agregar un botón “Ver detalle de horas” que despliegue un reporte con Nombre, Categoría, Año, Semana y Horas cargadas, permitiendo filtrado y exportación a Excel.",
+  "CAPTURA": "0306-81.png",
+  "RUTA": "PRINCIPAL-Panel de Control",
+  "USUARIO SIS": "rchoque",
+  "PRIORIDAD": "Baja",
+  "ESTADO": "Abierto",
+  "TESTER": "lcandia"
+}

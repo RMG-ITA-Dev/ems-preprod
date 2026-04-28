@@ -1,0 +1,15 @@
+{
+  "ID": "0213-36",
+  "FECHA": "2026-02-13",
+  "TIPO DE ERROR": "Funcional",
+  "TITULO": "Horas de socio",
+  "VERSION": "v2.0.4",
+  "DESCRIPCION": "En el módulo Hoja de Tiempo (Timesheet), para el perfil “Socio” las hojas de tiempo se aprueban automáticamente en cuanto se registran horas, sin pasar por el flujo estándar de revisión y aprobación. Esto provoca dos problemas: 1. No es posible revertir ni editar la hoja una vez guardada. 2. Permite enviar semanas con menos de 40 horas sin validación.",
+  "SUGERENCIA": "Ajustar la lógica para que sigan el flujo estándar (Borrador -> Enviado -> Aprobado) y aplicar la validación de 40 horas mínimas.",
+  "CAPTURA": "0213-36.png",
+  "RUTA": "OPERACIONES-Hoja de Tiempo",
+  "USUARIO SIS": "jyujra",
+  "PRIORIDAD": "Media",
+  "ESTADO": "Abierto",
+  "TESTER": "juanyujra"
+}

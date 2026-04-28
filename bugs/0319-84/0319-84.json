@@ -1,0 +1,15 @@
+{
+  "ID": "0319-84",
+  "FECHA": "2026-03-19",
+  "TIPO DE ERROR": "UI",
+  "TITULO": "Ambiguedad del botón 'Cancelar'",
+  "VERSION": "2.0.7",
+  "DESCRIPCION": "Existe una ambiguedad en la etiqueta del botón 'Cancelar' al salir de los Formularios. Confunde entre cancelar el modal, los cambios o la acción de salir.",
+  "SUGERENCIA": "Cambiar la etiqueta a 'Salir' o 'Salir sin guardar' para mayor claridad.",
+  "CAPTURA": "0319-84.png",
+  "RUTA": "PRINCIPAL-Ordendes de Trabajo",
+  "USUARIO SIS": "marceloovando",
+  "PRIORIDAD": "Baja",
+  "ESTADO": "Abierto",
+  "TESTER": "marceloovando"
+}

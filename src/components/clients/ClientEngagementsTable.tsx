@@ -3,6 +3,7 @@ import { parseDateLocal } from "@/lib/timesheetUtils";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { useEngagements, useStaff } from "@/hooks/useEmsData";
+import { useUserRole } from "@/hooks/useUserRole";
 import { useCategoryStaff } from "@/hooks/useCategoryStaff";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
@@ -39,6 +40,8 @@ export function ClientEngagementsTable({ clientId }: ClientEngagementsTableProps
   const { data: engagements, isLoading } = useEngagements();
   const { data: staff } = useStaff();
   const { partners, managers } = useCategoryStaff();
+  const { isAdmin, isPartner, isDirector } = useUserRole();
+  const canCreateEngagement = isAdmin || isPartner || isDirector;
 
   const [search, setSearch] = useState("");
   const [sortField, setSortField] = useState<SortField | null>(null);
@@ -222,14 +225,16 @@ export function ClientEngagementsTable({ clientId }: ClientEngagementsTableProps
             ))}
           </SelectContent>
         </Select>
-        <Button
-          size="sm"
-          className="h-8"
-          onClick={() => navigate(`/engagements/new?client_id=${clientId}`)}
-        >
-          <Plus className="h-4 w-4 mr-1" />
-          {t("engagement.newEngagement")}
-        </Button>
+        {canCreateEngagement && (
+          <Button
+            size="sm"
+            className="h-8"
+            onClick={() => navigate(`/engagements/new?client_id=${clientId}`)}
+          >
+            <Plus className="h-4 w-4 mr-1" />
+            {t("engagement.newEngagement")}
+          </Button>
+        )}
       </div>
 
       {/* Scrollable table */}
