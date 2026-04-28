@@ -6,14 +6,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { LoadingButton } from "@/components/ui/loading-button";
 import { Input } from "@/components/ui/input";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -21,6 +14,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+  FormDescription,
+} from "@/components/ui/form";
 import {
   Sheet,
   SheetContent,
@@ -39,88 +41,90 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Industry } from "@/hooks/useEmsData";
-import { useCreateIndustry, useUpdateIndustry, useDeleteIndustry } from "@/hooks/mutations";
+import { Skill } from "@/hooks/useEmsData";
+import { useCreateSkill, useUpdateSkill, useDeleteSkill } from "@/hooks/mutations";
+import { SKILL_CATEGORIES } from "@/integrations/supabase/customTypes";
 import { Trash2 } from "lucide-react";
-import { getFiscalYearOptions, formatFiscalYearEnd } from "@/lib/fiscalYearDisplay";
 
-// Get standardized fiscal year options (stored in English, displayed localized)
-const fiscalYearOptions = getFiscalYearOptions();
-
-// TODO(is_active): add an `is_active` toggle once the `industries` table gains an `is_active` column (DB migration + useEmsData/Industry type update).
 const formSchema = z.object({
-  industry_name: z.string().min(1, "Industry name is required"),
-  fiscal_year_end: z.string().min(1, "Fiscal year-end is required"),
+  name: z.string().min(1, "Name is required"),
+  category: z.string().min(1, "Category is required"),
+  is_active: z.boolean(),
 });
 
 type FormData = z.infer<typeof formSchema>;
 
-interface IndustryFormProps {
+interface SkillFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  industry?: Industry | null;
+  skill?: Skill | null;
 }
 
-export function IndustryForm({ open, onOpenChange, industry }: IndustryFormProps) {
-  const { t, i18n } = useTranslation();
-  const isEdit = !!industry;
-  const createMutation = useCreateIndustry();
-  const updateMutation = useUpdateIndustry();
-  const deleteMutation = useDeleteIndustry();
+export function SkillForm({ open, onOpenChange, skill }: SkillFormProps) {
+  const { t } = useTranslation();
+  const isEdit = !!skill;
+  const createMutation = useCreateSkill();
+  const updateMutation = useUpdateSkill();
+  const deleteMutation = useDeleteSkill();
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      industry_name: "",
-      fiscal_year_end: "",
+      name: "",
+      category: "",
+      is_active: true,
     },
   });
 
   useEffect(() => {
     if (open) {
       form.reset({
-        industry_name: industry?.industry_name || "",
-        fiscal_year_end: industry?.fiscal_year_end || "",
+        name: skill?.name || "",
+        category: skill?.category || "",
+        is_active: skill?.is_active ?? true,
       });
     }
-  }, [open, industry, form]);
+  }, [open, skill, form]);
 
   const onSubmit = async (data: FormData) => {
-    if (isEdit && industry) {
-      await updateMutation.mutateAsync({ id: industry.industry_id, data: { industry_name: data.industry_name, fiscal_year_end: data.fiscal_year_end } });
+    const payload = {
+      name: data.name,
+      category: data.category,
+      is_active: data.is_active,
+    };
+    if (isEdit && skill) {
+      await updateMutation.mutateAsync({ id: skill.skill_id, data: payload });
     } else {
-      await createMutation.mutateAsync({ industry_name: data.industry_name, fiscal_year_end: data.fiscal_year_end });
+      await createMutation.mutateAsync(payload);
     }
     onOpenChange(false);
     form.reset();
   };
 
   const handleDelete = async () => {
-    if (industry) {
-      await deleteMutation.mutateAsync(industry.industry_id);
+    if (skill) {
+      await deleteMutation.mutateAsync(skill.skill_id);
       onOpenChange(false);
     }
   };
-
-  const isHighSeason = form.watch("fiscal_year_end")?.includes("December");
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="sm:max-w-lg">
         <SheetHeader>
-          <SheetTitle>{isEdit ? t("industry.editIndustry") : t("industry.newIndustry")}</SheetTitle>
+          <SheetTitle>{isEdit ? t("skill.editSkill") : t("skill.newSkill")}</SheetTitle>
         </SheetHeader>
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6 mt-6">
             <FormField
               control={form.control}
-              name="industry_name"
+              name="name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t("industry.name")} *</FormLabel>
+                  <FormLabel>{t("skill.name")} *</FormLabel>
                   <FormControl>
-                    <Input placeholder={t("industry.placeholder")} {...field} />
+                    <Input placeholder="e.g., IFRS" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -129,20 +133,20 @@ export function IndustryForm({ open, onOpenChange, industry }: IndustryFormProps
 
             <FormField
               control={form.control}
-              name="fiscal_year_end"
+              name="category"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t("industry.fiscalYearEnd")} *</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
+                  <FormLabel>{t("skill.category")} *</FormLabel>
+                  <Select value={field.value || undefined} onValueChange={field.onChange}>
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder={t("industry.selectFiscalYear")} />
+                        <SelectValue placeholder={t("skill.selectCategory")} />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {fiscalYearOptions.map((opt) => (
-                        <SelectItem key={opt} value={opt}>
-                          {formatFiscalYearEnd(opt, i18n.language)}
+                      {SKILL_CATEGORIES.map((cat) => (
+                        <SelectItem key={cat} value={cat}>
+                          {t(`skill.categories.${cat}`)}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -152,16 +156,23 @@ export function IndustryForm({ open, onOpenChange, industry }: IndustryFormProps
               )}
             />
 
-            {form.watch("fiscal_year_end") && (
-              <div className="p-3 bg-muted rounded-lg">
-                <p className="text-sm text-muted-foreground">
-                  {t("industry.defaultSeason")}:{" "}
-                  <span className={isHighSeason ? "text-accent font-medium" : "text-foreground"}>
-                    {isHighSeason ? t("industry.highSeason") : t("industry.lowSeason")}
-                  </span>
-                </p>
-              </div>
-            )}
+            <FormField
+              control={form.control}
+              name="is_active"
+              render={({ field }) => (
+                <FormItem className="flex items-center justify-between rounded-lg border p-4">
+                  <div className="space-y-0.5">
+                    <FormLabel className="text-base">{t("common.active")}</FormLabel>
+                    <FormDescription>
+                      {t("skill.activeDescription")}
+                    </FormDescription>
+                  </div>
+                  <FormControl>
+                    <Switch checked={field.value} onCheckedChange={field.onChange} />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
 
             <SheetFooter className="flex flex-col-reverse sm:flex-row gap-2 pt-4">
               <Button type="button" variant="cancel" onClick={() => onOpenChange(false)} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
@@ -177,9 +188,9 @@ export function IndustryForm({ open, onOpenChange, industry }: IndustryFormProps
                   </AlertDialogTrigger>
                   <AlertDialogContent>
                     <AlertDialogHeader>
-                      <AlertDialogTitle>{t("industry.deleteIndustry")}</AlertDialogTitle>
+                      <AlertDialogTitle>{t("skill.deleteSkill")}</AlertDialogTitle>
                       <AlertDialogDescription>
-                        {t("common.confirmDelete", { name: industry?.industry_name })} {t("common.deleteWarning")}
+                        {t("common.confirmDelete", { name: skill?.name })} {t("common.deleteWarning")}
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
@@ -196,7 +207,7 @@ export function IndustryForm({ open, onOpenChange, industry }: IndustryFormProps
                 className="w-full sm:w-auto min-h-[44px] sm:min-h-0"
                 loading={createMutation.isPending || updateMutation.isPending}
               >
-                {isEdit ? t("common.saveChanges") : t("industry.createIndustry")}
+                {isEdit ? t("common.saveChanges") : t("skill.createSkill")}
               </LoadingButton>
             </SheetFooter>
           </form>

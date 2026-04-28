@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
 import { render as customRender } from "@/test/utils";
 import { screen } from "@testing-library/react";
 
@@ -15,6 +15,16 @@ Object.defineProperty(window, "matchMedia", {
     removeEventListener: vi.fn(),
     dispatchEvent: vi.fn(),
   })),
+});
+
+// Freeze system time so hire_date "2026-03-27" (Friday) falls within the current week
+beforeAll(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-03-27T12:00:00"));
+});
+
+afterAll(() => {
+  vi.useRealTimers();
 });
 
 // Auto-mock all hooks
@@ -111,17 +121,7 @@ vi.mock("@/hooks/usePageLeaveLock", () => ({
 // Lazy import after mocks
 import TimeSheet from "../TimeSheet";
 
-/*
-  Temporarily skipped for this session/CI run due to a flaky, time-dependent failure
-  (BUG 0306-74). The test assumes a specific system date so its expectations can fail
-  when the real date advances. Skip will be reverted when a deterministic fix is applied
-  (e.g. setSystemTime in the test, or inject a controllable "now" into TimeSheet).
-
-  TODO: Replace skip with a deterministic test:
-    - use vi.useFakeTimers() + vi.setSystemTime(...) OR
-    - make TimeSheet accept a "now" prop or hook that can be mocked.
-*/
-describe.skip("TimeSheet partial week hire date (BUG 0306-74)", () => {
+describe("TimeSheet partial week hire date (BUG 0306-74)", () => {
   it("does NOT show min alert when partial week hours meet effective minimum", () => {
     customRender(<TimeSheet />);
     expect(screen.queryByText(/weeklyMinNotMet/)).not.toBeInTheDocument();

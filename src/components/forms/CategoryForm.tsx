@@ -84,7 +84,8 @@ const ROLES: AppRole[] = [
 ];
 
 export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const numericLocale = i18n.language === "es" ? "es" : "en";
   const isEdit = !!category;
   const createMutation = useCreateCategory();
   const updateMutation = useUpdateCategory();
@@ -204,7 +205,7 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
                     <FormItem>
                       <FormLabel>{t("industry.highSeason")} *</FormLabel>
                       <FormControl>
-                        <NumericInput decimals={2} locale="es" min={0} value={field.value} onChange={field.onChange} />
+                        <NumericInput decimals={2} locale={numericLocale} min={0} value={field.value} onChange={field.onChange} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -218,7 +219,7 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
                     <FormItem>
                       <FormLabel>{t("industry.lowSeason")} *</FormLabel>
                       <FormControl>
-                        <NumericInput decimals={2} locale="es" min={0} value={field.value} onChange={field.onChange} />
+                        <NumericInput decimals={2} locale={numericLocale} min={0} value={field.value} onChange={field.onChange} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -237,7 +238,7 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
                     <FormItem>
                       <FormLabel>{t("industry.highSeason")} *</FormLabel>
                       <FormControl>
-                        <NumericInput decimals={2} locale="en" min={0} value={field.value} onChange={field.onChange} />
+                        <NumericInput decimals={2} locale={numericLocale} min={0} value={field.value} onChange={field.onChange} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -251,7 +252,7 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
                     <FormItem>
                       <FormLabel>{t("industry.lowSeason")} *</FormLabel>
                       <FormControl>
-                        <NumericInput decimals={2} locale="en" min={0} value={field.value} onChange={field.onChange} />
+                        <NumericInput decimals={2} locale={numericLocale} min={0} value={field.value} onChange={field.onChange} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -270,14 +271,14 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>{t("category.defaultAppRole")}</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value || ""}>
+                    <Select onValueChange={(v) => field.onChange(v === "__none__" ? "" : v)} value={field.value || "__none__"}>
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder={t("form.selectOption")} />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="">None</SelectItem>
+                        <SelectItem value="__none__">None</SelectItem>
                         {ROLES.map((role) => (
                           <SelectItem key={role} value={role}>
                             {t(`userRoles.roles.${role}`)}
@@ -337,11 +338,15 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
             </div>
 
             <SheetFooter className="flex flex-col-reverse sm:flex-row gap-2 pt-4">
+              <Button type="button" variant="cancel" onClick={() => onOpenChange(false)} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
+                {t("common.cancel")}
+              </Button>
               {isEdit && (
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
-                    <Button type="button" variant="destructive" size="icon" className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
+                    <Button type="button" variant="destructive" className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
                       <Trash2 className="h-4 w-4" />
+                      {t("common.delete")}
                     </Button>
                   </AlertDialogTrigger>
                   <AlertDialogContent>
@@ -360,9 +365,6 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
                   </AlertDialogContent>
                 </AlertDialog>
               )}
-              <Button type="button" variant="cancel" onClick={() => onOpenChange(false)} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
-                {t("common.cancel")}
-              </Button>
               <LoadingButton
                 type="submit"
                 className="w-full sm:w-auto min-h-[44px] sm:min-h-0"

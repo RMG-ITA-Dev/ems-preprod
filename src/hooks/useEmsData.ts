@@ -35,6 +35,20 @@ export interface Staff {
   category?: Category;
 }
 
+// Competency assignment row joined with its skill master row
+export interface StaffSkillWithSkill {
+  staff_skill_id: string;
+  skill_id: string;
+  proficiency_level: string;
+  last_evaluated_date: string | null;
+  skill: {
+    skill_id: string;
+    name: string;
+    category: string;
+    is_active: boolean | null;
+  };
+}
+
 // Full staff interface for admin use only
 export interface StaffFull extends Staff {
   email: string | null;
@@ -43,6 +57,7 @@ export interface StaffFull extends Staff {
   hire_date: string | null;
   auth_user_id: string | null;
   termination_date: string | null;
+  staff_skills?: StaffSkillWithSkill[];
 }
 
 // Client interface - includes unique_tax_id (NIT is public tax ID, not sensitive)
@@ -121,6 +136,15 @@ export interface ActivityCode {
   activity_code: string;
   description: string;
   is_active: boolean;
+}
+
+export interface Skill {
+  skill_id: string;
+  name: string;
+  category: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface TimeEntry {
@@ -260,11 +284,34 @@ export function useStaffFull() {
         .from('staff')
         .select(`
           *,
-          category:categories(*)
+          category:categories(*),
+          staff_skills (
+            staff_skill_id,
+            skill_id,
+            proficiency_level,
+            last_evaluated_date,
+            skill:skills ( skill_id, name, category, is_active )
+          )
         `)
         .order('last_name');
       if (error) throw error;
       return data as StaffFull[];
+    },
+  });
+}
+
+// useActiveSkills returns all active competencies from the catalog for dropdown population
+export function useActiveSkills() {
+  return useQuery({
+    queryKey: ['skills', 'active'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('skills')
+        .select('skill_id, name, category')
+        .eq('is_active', true)
+        .order('name');
+      if (error) throw error;
+      return data as { skill_id: string; name: string; category: string }[];
     },
   });
 }
@@ -408,6 +455,20 @@ export function useActivityCodes() {
         .order('activity_code');
       if (error) throw error;
       return data as ActivityCode[];
+    },
+  });
+}
+
+export function useSkills() {
+  return useQuery({
+    queryKey: ['skills'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('skills')
+        .select('*')
+        .order('name');
+      if (error) throw error;
+      return data as Skill[];
     },
   });
 }
