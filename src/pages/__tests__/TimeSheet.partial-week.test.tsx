@@ -1,6 +1,13 @@
 import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
-import { render as customRender } from "@/test/utils";
+import React from "react";
+import { render as baseRender } from "@/test/utils";
 import { screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+
+// TimeSheet renders AppLayout → AppSidebar which uses NavLink, so a Router context is required.
+function renderWithRouter(ui: React.ReactElement) {
+  return baseRender(<MemoryRouter>{ui}</MemoryRouter>);
+}
 
 // Polyfill matchMedia for jsdom
 Object.defineProperty(window, "matchMedia", {
@@ -123,7 +130,7 @@ import TimeSheet from "../TimeSheet";
 
 describe("TimeSheet partial week hire date (BUG 0306-74)", () => {
   it("does NOT show min alert when partial week hours meet effective minimum", () => {
-    customRender(<TimeSheet />);
+    renderWithRouter(<TimeSheet />);
     expect(screen.queryByText(/weeklyMinNotMet/)).not.toBeInTheDocument();
   });
 });

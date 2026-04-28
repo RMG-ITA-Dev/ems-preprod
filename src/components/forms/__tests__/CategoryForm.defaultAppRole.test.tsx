@@ -61,7 +61,10 @@ const TRANSLATIONS: Record<string, string> = {
 };
 
 vi.mock("react-i18next", () => ({
-  useTranslation: () => ({ t: (k: string) => TRANSLATIONS[k] ?? k }),
+  useTranslation: () => ({
+    t: (k: string) => TRANSLATIONS[k] ?? k,
+    i18n: { language: "en" },
+  }),
 }));
 
 vi.mock("@/hooks/mutations", () => ({
