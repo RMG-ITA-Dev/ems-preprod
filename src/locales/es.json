@@ -59,7 +59,8 @@
     "stay": "Quedarme",
     "saveError": "Error al guardar los cambios. Intente nuevamente.",
     "status": "Estado",
-    "back": "Volver"
+    "back": "Volver",
+    "none": "Ninguno"
   },
   "nav": {
     "main": "Principal",
@@ -503,6 +504,7 @@
     "legalName": "Razón Social",
     "nit": "NIT",
     "nitLabel": "NIT (ID Fiscal)",
+    "nitOnlyNumbers": "El NIT solo debe contener números.",
     "industry": "Industria",
     "contact": "Contacto",
     "contactName": "Nombre de Contacto",
@@ -735,7 +737,24 @@
       "actual": "Real",
       "noData": "Sin datos disponibles",
       "approved": "aprobadas",
-      "pending": "pendientes"
+      "pending": "pendientes",
+      "viewHoursDetail": "Ver detalle de horas",
+      "hoursDetail": {
+        "title": "Detalle de Horas por Personal",
+        "description": "Desglose detallado de horas por personal para este encargo",
+        "staffName": "Nombre",
+        "category": "Categoría",
+        "year": "Año",
+        "week": "Semana",
+        "loadedHours": "Horas cargadas",
+        "filterByCategory": "Filtrar por categoría",
+        "filterByYear": "Filtrar por año",
+        "filterByWeek": "Filtrar por semana",
+        "filterByStaff": "Buscar por nombre",
+        "exportCsv": "Exportar CSV",
+        "noData": "Sin registros de horas para este encargo",
+        "all": "Todos"
+      }
     },
     "practica": {
       "activeEngagements": "Encargos Activos",
@@ -769,6 +788,8 @@
     "invalidActivityRow": "Una o mas filas tienen una actividad invalida. Seleccione una actividad valida para cada encargo de cliente antes de enviar.",
     "weeklyMaxExceeded": "NO SE PUEDE ENVIAR: el total de horas ({{total}}h) excede el máximo semanal ({{max}}h).",
     "selectEngagement": "Seleccionar Encargo",
+    "searchEngagement": "Buscar encargo...",
+    "noMatchingEngagements": "No se encontraron encargos.",
     "selectActivity": "Seleccionar actividad",
     "weekDays": {
       "mon": "Lun",
@@ -1115,8 +1136,8 @@
       "archived": "Archivada"
     },
     "lockedByWorkOrderTitle": "Matriz Bloqueada",
-    "lockedByWorkOrderPending": "Esta matriz está bloqueada porque la Orden de Trabajo vinculada está pendiente de aprobación. Para desbloquearla, use el botón \"Retirar de Aprobación\" en la Orden de Trabajo.",
-    "lockedByWorkOrderApproved": "Esta matriz está bloqueada porque la Orden de Trabajo vinculada fue aprobada. Para desbloquearla, la OT debe cambiar de estado.",
+    "lockedByWorkOrderPending": "Esta matriz está bloqueada porque la Orden de Trabajo vinculada está pendiente de aprobación. Para desbloquearla, use el botón «Ir a Orden de Trabajo» a continuación y luego presione «Retirar de Aprobación» en la Orden de Trabajo.",
+    "lockedByWorkOrderApproved": "Esta matriz está bloqueada porque la Orden de Trabajo vinculada fue aprobada. Para desbloquearla, un usuario con permisos de aprobación debe Rechazar la Orden de Trabajo. Use el botón «Ir a Orden de Trabajo» a continuación.",
     "goToWorkOrder": "Ir a Orden de Trabajo"
   },
   "bootstrap": {

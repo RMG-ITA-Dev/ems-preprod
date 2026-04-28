@@ -200,7 +200,7 @@ export function ExpenseLogForm({
       setUploadProgress(100);
       setUploadedFileUrl(signedUrlData.signedUrl);
       toast.success(t("expenses.fileUploaded", "File uploaded successfully"));
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Upload error:", error);
       toast.error(t("expenses.uploadFailed", "Failed to upload file"));
       setSelectedFileName(null);

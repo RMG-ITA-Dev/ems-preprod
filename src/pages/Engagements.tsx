@@ -8,6 +8,13 @@ import { useEngagements, Engagement } from "@/hooks/useEmsData";
 import { useCategoryStaff } from "@/hooks/useCategoryStaff";
 import { DataTable, Column } from "@/components/data-table/DataTable";
 import { useNavigate } from "react-router-dom";
+import { useUserRole } from "@/hooks/useUserRole";
+
+interface EngagementRow extends Engagement {
+  start_date: string | null;
+  end_date: string | null;
+  is_internal: boolean;
+}
 
 const statusColors: Record<string, string> = {
   active: "bg-accent/10 text-accent border-accent/20",
@@ -21,6 +28,8 @@ const Engagements = () => {
   const navigate = useNavigate();
   const { data: engagements, isLoading } = useEngagements();
   const { partnerOptions, managerOptions } = useCategoryStaff();
+  const { isAdmin, isPartner, isDirector } = useUserRole();
+  const canCreate = isAdmin || isPartner || isDirector;
 
   const columns: Column<Engagement>[] = [
     {
@@ -69,7 +78,7 @@ const Engagements = () => {
       sortable: true,
       mobilePriority: 'secondary',
       render: (row) => {
-        const engagement = row as any;
+        const engagement = row as EngagementRow;
         return engagement.start_date ? format(parseDateLocal(engagement.start_date), "dd/MM/yyyy") : "-";
       },
     },
@@ -79,7 +88,7 @@ const Engagements = () => {
       sortable: true,
       mobilePriority: 'secondary',
       render: (row) => {
-        const engagement = row as any;
+        const engagement = row as EngagementRow;
         return engagement.end_date ? format(parseDateLocal(engagement.end_date), "dd/MM/yyyy") : "-";
       },
     },
@@ -94,7 +103,7 @@ const Engagements = () => {
           <Badge variant="outline" className={statusColors[row.status] || statusColors.pending}>
             {t(`status.${row.status}`)}
           </Badge>
-          {(row as any).is_internal && (
+          {(row as EngagementRow).is_internal && (
             <Badge variant="outline" className="bg-accent/10 text-accent border-accent/20 text-xs">
               {t("engagement.internal")}
             </Badge>
@@ -112,8 +121,8 @@ const Engagements = () => {
         searchPlaceholder={t("engagement.searchPlaceholder")}
         searchKeys={["engagement_code", "engagement_name", "client.client_legal_name"]}
         isLoading={isLoading}
-        newButtonLabel={t("engagement.newEngagement")}
-        onNewClick={() => navigate("/engagements/new")}
+        newButtonLabel={canCreate ? t("engagement.newEngagement") : undefined}
+        onNewClick={canCreate ? () => navigate("/engagements/new") : undefined}
         onRowClick={(row) => navigate(`/engagements/${row.engagement_id}`)}
         getRowId={(row) => row.engagement_id}
         filters={[

@@ -80,7 +80,7 @@ export function useUpsertTimeEntry() {
     },
     onError: (error: Error) => {
       const errorMsg = error.message || '';
-      const errorDetails = (error as any).details || '';
+      const errorDetails = (error as { details?: string } | null)?.details ?? '';
       if (errorMsg.includes("APPROVED_LINE_LOCKED") || errorDetails.includes("APPROVED_LINE_LOCKED")) {
         toast.error(i18n.t("timesheet.approvedLineCannotEdit"));
         return;

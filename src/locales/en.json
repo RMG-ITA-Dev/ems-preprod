@@ -59,7 +59,8 @@
     "stay": "Stay",
     "saveError": "Error saving changes. Please try again.",
     "status": "Status",
-    "back": "Back"
+    "back": "Back",
+    "none": "None"
   },
   "nav": {
     "main": "Main",
@@ -503,6 +504,7 @@
     "legalName": "Client Legal Name",
     "nit": "NIT",
     "nitLabel": "NIT (Tax ID)",
+    "nitOnlyNumbers": "NIT must contain only numbers.",
     "industry": "Industry",
     "contact": "Contact",
     "contactName": "Contact Name",
@@ -735,7 +737,24 @@
       "actual": "Actual",
       "noData": "No data available",
       "approved": "approved",
-      "pending": "pending"
+      "pending": "pending",
+      "viewHoursDetail": "View Hours Detail",
+      "hoursDetail": {
+        "title": "Staff Hours Detail",
+        "description": "Detailed staff hours breakdown for this engagement",
+        "staffName": "Name",
+        "category": "Category",
+        "year": "Year",
+        "week": "Week",
+        "loadedHours": "Hours",
+        "filterByCategory": "Filter by category",
+        "filterByYear": "Filter by year",
+        "filterByWeek": "Filter by week",
+        "filterByStaff": "Search by name",
+        "exportCsv": "Export CSV",
+        "noData": "No time entries for this engagement",
+        "all": "All"
+      }
     },
     "practica": {
       "activeEngagements": "Active Engagements",
@@ -769,6 +788,8 @@
     "invalidActivityRow": "One or more rows have an invalid activity. Please select a valid activity for each client engagement before submitting.",
     "weeklyMaxExceeded": "CANNOT SUBMIT: the total hours ({{total}}h) exceed the weekly maximum ({{max}}h).",
     "selectEngagement": "Select engagement",
+    "searchEngagement": "Search engagement...",
+    "noMatchingEngagements": "No matching engagements.",
     "selectActivity": "Select activity",
     "weekDays": {
       "mon": "Mon",
@@ -1115,8 +1136,8 @@
       "archived": "Archived"
     },
     "lockedByWorkOrderTitle": "Worksheet Locked",
-    "lockedByWorkOrderPending": "This worksheet is locked because the linked Work Order is pending approval. To unlock it, use the \"Withdraw from Approval\" button on the Work Order.",
-    "lockedByWorkOrderApproved": "This worksheet is locked because the linked Work Order has been approved. To unlock it, the Work Order status must be changed.",
+    "lockedByWorkOrderPending": "This worksheet is locked because the linked Work Order is pending approval. To unlock it, click \"Go to Work Order\" below, then press \"Withdraw from Approval\" on the Work Order.",
+    "lockedByWorkOrderApproved": "This worksheet is locked because the linked Work Order has been approved. To unlock it, a user with approval rights must Reject the Work Order. Use \"Go to Work Order\" below.",
     "goToWorkOrder": "Go to Work Order"
   },
   "bootstrap": {

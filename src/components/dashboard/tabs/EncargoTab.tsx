@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -5,23 +6,24 @@ import { useDashboard } from "@/contexts/DashboardContext";
 import { EngagementSelector } from "@/components/dashboard/EngagementSelector";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { 
-  Table, 
-  TableBody, 
-  TableCell, 
-  TableHead, 
-  TableHeader, 
-  TableRow 
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
 } from "@/components/ui/table";
-import { 
-  DollarSign, 
-  Clock, 
-  TrendingUp, 
+import {
+  DollarSign,
+  Clock,
+  TrendingUp,
   AlertTriangle,
   CheckCircle2,
   BarChart3,
   Layers,
-  FolderKanban
+  FolderKanban,
+  Users
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { safeNumber, hasItems } from "@/lib/queryHelpers";
@@ -29,10 +31,19 @@ import {
   aggregateActualHoursByCategory,
   type ActualHoursTimeEntryRow,
 } from "@/components/dashboard/encargoActualByCategory";
+import { Button } from "@/components/ui/button";
+import { StaffHoursDetailDialog } from "@/components/dashboard/StaffHoursDetailDialog";
+
+interface EngagementDataWithWorkOrder {
+  work_order?: {
+    currency: "BOB" | "USD" | null;
+  } | null;
+}
 
 export function EncargoTab() {
   const { t, i18n } = useTranslation();
   const { selectedEngagementId, startDateStr, endDateStr } = useDashboard();
+  const [detailOpen, setDetailOpen] = useState(false);
   const locale = i18n.language === 'es' ? 'es-BO' : 'en-US';
 
   // Fetch engagement details with work order
@@ -227,7 +238,7 @@ export function EncargoTab() {
   const budgetConsumedPercent = totalBudgetHours > 0 ? Math.round((totalActualHours / totalBudgetHours) * 100) : 0;
   const varianceHours = totalBudgetHours - totalActualHours;
 
-  const currency = (engagementData?.work_order as any)?.currency || 'BOB';
+  const currency = (engagementData as EngagementDataWithWorkOrder | null)?.work_order?.currency || 'BOB';
   const agreedFee = woSummary?.fee_with_tax_gross_up || 0;
   const standardFee = woSummary?.total_standard_fee || 0;
   const realizationPercent = woSummary?.realization_percent || 100;
@@ -453,10 +464,19 @@ export function EncargoTab() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Category Breakdown */}
         <Card className="bg-card/80 backdrop-blur-sm border-border">
-          <CardHeader className="pb-3">
+          <CardHeader className="pb-3 flex flex-row items-center justify-between">
             <CardTitle className="text-sm font-medium">
               {t('dashboard.encargo.categoryBreakdown')}
             </CardTitle>
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs h-7 gap-1 shrink-0"
+              onClick={() => setDetailOpen(true)}
+            >
+              <Users className="h-3 w-3" />
+              {t('dashboard.encargo.viewHoursDetail')}
+            </Button>
           </CardHeader>
           <CardContent className="p-0">
             <Table>
@@ -538,6 +558,13 @@ export function EncargoTab() {
           </CardContent>
         </Card>
       </div>
+
+      <StaffHoursDetailDialog
+        open={detailOpen}
+        onOpenChange={setDetailOpen}
+        engagementId={selectedEngagementId}
+        engagementCode={engagementData?.engagement_code ?? ''}
+      />
     </div>
   );
 }
