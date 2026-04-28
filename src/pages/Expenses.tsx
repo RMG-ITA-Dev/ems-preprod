@@ -76,9 +76,8 @@ const Expenses = () => {
   const isMobile = useIsMobile();
   const { staffRecord } = useCurrentStaff();
   
-  // Filter popover states
+  // Filter popover state
   const [expenseTypeFilterOpen, setExpenseTypeFilterOpen] = useState(false);
-  const [engagementFilterOpen, setEngagementFilterOpen] = useState(false);
 
   const toggleRowExpanded = (id: string) => {
     const newExpanded = new Set(expandedRows);
@@ -238,6 +237,17 @@ const Expenses = () => {
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
+            <Select value={engagementFilter} onValueChange={setEngagementFilter}>
+              <SelectTrigger className="w-full sm:w-[240px]">
+                <SelectValue placeholder={t("adminExpenseLogs.filterByEngagement")} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t("adminTimeEntries.allEngagements")}</SelectItem>
+                {engagementOptions.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <div className="flex items-center gap-2">
               <Switch
                 id="my-expenses"
@@ -365,48 +375,13 @@ const Expenses = () => {
                     </span>
                   </TableHead>
                   <TableHead className="font-semibold text-sm text-center border-r border-border">
-                    <div className="flex items-center gap-1 justify-center">
-                      <span
-                        className="cursor-pointer select-none hover:text-foreground flex items-center gap-1"
-                        onClick={() => handleSort("engagement")}
-                      >
-                        {t("engagement.name")}
-                        {getSortIcon("engagement")}
-                      </span>
-                      <Popover open={engagementFilterOpen} onOpenChange={setEngagementFilterOpen}>
-                        <PopoverTrigger asChild>
-                          <button className="p-0.5 hover:bg-muted rounded">
-                            <Filter className={`h-3 w-3 ${engagementFilter !== "all" ? "text-accent" : "opacity-50"}`} />
-                          </button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-64 p-2" align="start">
-                          <Select value={engagementFilter} onValueChange={(val) => {
-                            setEngagementFilter(val);
-                            setEngagementFilterOpen(false);
-                          }}>
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="all">{t("adminTimeEntries.allEngagements")}</SelectItem>
-                              {engagementOptions.map((opt) => (
-                                <SelectItem key={opt.value} value={opt.value}>
-                                  {opt.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          {engagementFilter !== "all" && (
-                            <Button variant="ghost" size="sm" onClick={() => {
-                              setEngagementFilter("all");
-                              setEngagementFilterOpen(false);
-                            }} className="w-full mt-2">
-                              {t("common.clear")}
-                            </Button>
-                          )}
-                        </PopoverContent>
-                      </Popover>
-                    </div>
+                    <span
+                      className="cursor-pointer select-none hover:text-foreground flex items-center gap-1 justify-center"
+                      onClick={() => handleSort("engagement")}
+                    >
+                      {t("engagement.name")}
+                      {getSortIcon("engagement")}
+                    </span>
                   </TableHead>
                   <TableHead className="font-semibold text-sm text-center border-r border-border">
                     <div className="flex items-center gap-1 justify-center">

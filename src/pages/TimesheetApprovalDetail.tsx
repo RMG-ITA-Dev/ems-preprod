@@ -86,7 +86,7 @@ const TimesheetApprovalDetail = () => {
   const hasDecisions = summary.toApprove.length > 0 || summary.toReject.length > 0;
 
   // Navigation lock - must be after hasDecisions
-  const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty: hasDecisions });
+  const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: hasDecisions, isDirty: hasDecisions });
 
   const handleBack = () => {
     allowNextNavigation();

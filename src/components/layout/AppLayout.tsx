@@ -15,14 +15,12 @@ export function AppLayout({ children, title, focusMode }: AppLayoutProps) {
   const [moreDrawerOpen, setMoreDrawerOpen] = useState(false);
 
   return (
-    <SidebarProvider>
+    <SidebarProvider defaultOpen={!focusMode}>
       <div className="min-h-screen flex w-full bg-background">
-        {/* Sidebar - hidden on mobile and in focus mode */}
-        {!focusMode && (
-          <div className="hidden md:block">
-            <AppSidebar />
-          </div>
-        )}
+        {/* Sidebar - hidden on mobile; collapsed by default in focus mode */}
+        <div className="hidden md:block">
+          <AppSidebar />
+        </div>
         <div className="flex-1 flex flex-col min-w-0">
           <AppHeader title={title} focusMode={focusMode} />
           <main className="flex-1 p-3 sm:p-4 md:p-6 overflow-auto pb-20 md:pb-6">

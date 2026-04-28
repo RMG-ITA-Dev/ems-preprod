@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Save, Loader2, FileText, Sun, Snowflake, Lock } from "lucide-react";
 import { useWorksheetById } from "@/hooks/useWorksheetData";
+import { useUserRole } from "@/hooks/useUserRole";
 import { useBatchUpsertCells, useUpdateWorksheet, useCreateWorkOrderFromWorksheet } from "@/hooks/useWorksheetMutations";
 import { useCategories, useActivityCodes, useSetting } from "@/hooks/useEmsData";
 import { WorksheetGrid } from "@/components/worksheet/WorksheetGrid";
@@ -186,14 +187,28 @@ const WorksheetEdit = () => {
 
   const isLoading = wsLoading || catLoading || actLoading;
   const isSaving = batchUpsertCells.isPending || updateWorksheet.isPending;
-  
+
+  const { isAdmin, isPartner, isDirector, isManager } = useUserRole();
+
   // Determine if the worksheet is locked
   const linkedWOStatus = worksheet?.work_order?.approval_status;
   const isWOLocked = linkedWOStatus === "Pending_Approval" || linkedWOStatus === "Approved";
   const isReadOnly = worksheet?.status === "approved" || worksheet?.status === "archived" || isWOLocked;
-  
+
   const hasWorkOrder = !!worksheet?.wo_id;
-  const canCreateWorkOrder = !hasWorkOrder && worksheet?.status === "draft" && !hasUnsavedChanges;
+
+  const woStatusI18nKey: Record<string, string> = {
+    Draft: "workOrders.status.draft",
+    Pending_Approval: "workOrders.status.pending",
+    Approved: "workOrders.status.approved",
+    Rejected: "workOrders.status.rejected",
+  };
+
+  const canCreateWorkOrder =
+    (isAdmin || isPartner || isDirector || isManager) &&
+    !hasWorkOrder &&
+    worksheet?.status === "draft" &&
+    !hasUnsavedChanges;
 
   const handleCreateWorkOrder = async () => {
     if (!worksheet || !id) return;
@@ -337,6 +352,11 @@ const WorksheetEdit = () => {
                       onClick={() => { allowNextNavigation(); navigate(`/work-orders/${worksheet.wo_id}`); }}
                     >
                       {t("common.yes")}
+                      {linkedWOStatus && (
+                        <span className="ml-1 text-xs text-muted-foreground font-normal">
+                          · {t(woStatusI18nKey[linkedWOStatus] ?? "workOrders.status.draft")}
+                        </span>
+                      )}
                     </Button>
                   ) : (
                     t("common.no")
@@ -348,11 +368,17 @@ const WorksheetEdit = () => {
         </Card>
 
         {/* Locked by Work Order Banner */}
-        {isWOLocked && worksheet.wo_id &&
-         (linkedWOStatus === "Pending_Approval" || linkedWOStatus === "Approved") && (
+        {isWOLocked && !!worksheet.wo_id && (
           <Alert variant="default" className="border-warning bg-warning/10">
             <Lock className="h-4 w-4" />
-            <AlertTitle>{t("workMatrix.lockedByWorkOrderTitle")}</AlertTitle>
+            <AlertTitle className="flex items-center gap-2">
+              {t("workMatrix.lockedByWorkOrderTitle")}
+              <Badge variant="outline" className="text-xs font-normal">
+                {linkedWOStatus === "Pending_Approval"
+                  ? t("workOrders.status.pending")
+                  : t("workOrders.status.approved")}
+              </Badge>
+            </AlertTitle>
             <AlertDescription className="flex items-center justify-between gap-4">
               <span>
                 {linkedWOStatus === "Pending_Approval"

@@ -58,7 +58,8 @@
     "stay": "Stay",
     "saveError": "Error saving changes. Please try again.",
     "status": "Status",
-    "back": "Back"
+    "back": "Back",
+    "none": "None"
   },
   "nav": {
     "main": "Main",
@@ -686,7 +687,24 @@
       "actual": "Actual",
       "noData": "No data available",
       "approved": "approved",
-      "pending": "pending"
+      "pending": "pending",
+      "viewHoursDetail": "View Hours Detail",
+      "hoursDetail": {
+        "title": "Staff Hours Detail",
+        "description": "Detailed staff hours breakdown for this engagement",
+        "staffName": "Name",
+        "category": "Category",
+        "year": "Year",
+        "week": "Week",
+        "loadedHours": "Hours",
+        "filterByCategory": "Filter by category",
+        "filterByYear": "Filter by year",
+        "filterByWeek": "Filter by week",
+        "filterByStaff": "Search by name",
+        "exportCsv": "Export CSV",
+        "noData": "No time entries for this engagement",
+        "all": "All"
+      }
     },
     "practica": {
       "activeEngagements": "Active Engagements",
@@ -1068,8 +1086,8 @@
       "archived": "Archived"
     },
     "lockedByWorkOrderTitle": "Worksheet Locked",
-    "lockedByWorkOrderPending": "This worksheet is locked because the linked Work Order is pending approval. To unlock it, use the \"Withdraw from Approval\" button on the Work Order.",
-    "lockedByWorkOrderApproved": "This worksheet is locked because the linked Work Order has been approved. To unlock it, the Work Order status must be changed.",
+    "lockedByWorkOrderPending": "This worksheet is locked because the linked Work Order is pending approval. To unlock it, click \"Go to Work Order\" below, then press \"Withdraw from Approval\" on the Work Order.",
+    "lockedByWorkOrderApproved": "This worksheet is locked because the linked Work Order has been approved. To unlock it, a user with approval rights must Reject the Work Order. Use \"Go to Work Order\" below.",
     "goToWorkOrder": "Go to Work Order"
   },
   "bootstrap": {
