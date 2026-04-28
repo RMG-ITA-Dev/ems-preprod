@@ -1,0 +1,15 @@
+{
+  "ID": "0306-80",
+  "FECHA": "2026-03-06",
+  "TIPO DE ERROR": "UI",
+  "TITULO": "Roles de Usuario no cuenta con herramientas de búsqueda, ordenamiento ni filtrado",
+  "VERSION": "v2.0.7",
+  "DESCRIPCION": "El módulo de Configuración / Roles de Usuario no cuenta con herramientas de búsqueda, ordenamiento ni filtrado, dificultando la gestión de listas crecientes.",
+  "SUGERENCIA": "Incorporar herramientas estándar: barra de búsqueda en tiempo real, filtros por rol, ordenamiento por columnas y paginación de resultados.",
+  "CAPTURA": "0306-80.png",
+  "RUTA": "ADMINISTRACIÓN-Configuración (/settings TAB:Roles de Usuario)",
+  "USUARIO SIS": "jyamaca",
+  "PRIORIDAD": "Baja",
+  "ESTADO": "Resuelto",
+  "TESTER": "jyamaca"
+}
