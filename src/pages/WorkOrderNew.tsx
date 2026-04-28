@@ -197,6 +197,15 @@ const WorkOrderNew = () => {
                   </Select>
                 </div>
               )}
+              <div className="flex justify-end mt-4">
+                <Button
+                  variant="cancel"
+                  onClick={() => { allowNextNavigation(); navigate("/work-orders"); }}
+                  className="btn-action"
+                >
+                  {t("common.cancel")}
+                </Button>
+              </div>
             </CardContent>
           </Card>
         )}
