@@ -818,6 +818,7 @@
     "submitNoEntries": "Cannot submit: no time entries logged for this week. Please log your hours first.",
     "dateOutsideEngagementRange": "Cannot log hours: date is outside the engagement's valid date range",
     "cellOutsideEngagementDates": "This date is outside the engagement's start/end date range",
+    "dayNotEnabledForEntry": "Day not enabled for time entry",
     "submitDateRangeViolation": "Cannot submit: some entries are outside their engagement's valid date range. Please correct or remove them first.",
     "unsubmit": "Unsubmit",
     "unsubmitted": "Timesheet recalled for editing",

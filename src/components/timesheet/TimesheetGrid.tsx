@@ -845,6 +845,28 @@ export function TimesheetGrid({
                             <p>{t("timesheet.cellOutsideEngagementDates")}</p>
                           </TooltipContent>
                         </Tooltip>
+                      ) : (isDayLockedByHire || isDayLockedByTermination) ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div className="relative">
+                              <NumericInput
+                                decimals={1}
+                                locale="en"
+                                min={0}
+                                max={24}
+                                value={row.hours[dateStr] || ""}
+                                onChange={(val) =>
+                                  handleHoursChange(row.id, date, String(val))
+                                }
+                                disabled={true}
+                                className="w-16 text-center mx-auto border-0 bg-transparent font-mono opacity-50"
+                              />
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>{t("timesheet.dayNotEnabledForEntry")}</p>
+                          </TooltipContent>
+                        </Tooltip>
                       ) : (
                       <div className="relative">
                         <NumericInput
