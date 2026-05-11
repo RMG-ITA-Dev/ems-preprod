@@ -1193,5 +1193,20 @@
     "light": "Claro",
     "dark": "Oscuro",
     "system": "Sistema"
+  },
+  "notifications": {
+    "title": "Notificaciones",
+    "emptyTitle": "Sin alertas activas",
+    "emptyDescription": "No tienes alertas de staffing en este momento.",
+    "loading": "Cargando notificaciones…",
+    "error": "No se pudieron cargar las notificaciones.",
+    "count": "{{count}} alerta",
+    "count_other": "{{count}} alertas",
+    "priority": {
+      "high": "Alta",
+      "medium": "Media",
+      "low": "Baja",
+      "unknown": "—"
+    }
   }
 }
