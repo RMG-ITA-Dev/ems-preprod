@@ -24,9 +24,25 @@ function applyTheme(resolved: ResolvedTheme) {
   root.style.colorScheme = resolved;
 }
 
+function safeLocalStorageGet(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function safeLocalStorageSet(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // localStorage unavailable (test environment, private browsing, storage full)
+  }
+}
+
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(() => {
-    const stored = localStorage.getItem("theme");
+    const stored = safeLocalStorageGet("theme");
     return stored === "light" || stored === "dark" || stored === "system"
       ? stored
       : "system";
@@ -53,7 +69,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   }, [theme]);
 
   const setTheme = (newTheme: Theme) => {
-    localStorage.setItem("theme", newTheme);
+    safeLocalStorageSet("theme", newTheme);
     setThemeState(newTheme);
   };
 
