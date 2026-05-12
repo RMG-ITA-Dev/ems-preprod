@@ -271,8 +271,6 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
   const lastName = form.watch("last_name");
   const currentShortName = form.watch("short_name");
   const currentInitials = form.watch("initials");
-  const watchIsActive = form.watch("is_active");
-  const watchTerminationDate = form.watch("termination_date");
 
   // No-Reingreso: block reactivation for deactivated staff with termination_date
   const isReactivationBlocked = isEdit && staff && !staff.is_active && !!staff.termination_date;
@@ -289,12 +287,6 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
     }
   }, [firstName, lastName, isEdit, currentShortName, currentInitials, form]);
 
-  // Auto-set termination_date when toggling is_active from true to false
-  useEffect(() => {
-    if (isEdit && staff?.is_active && !watchIsActive && !watchTerminationDate) {
-      form.setValue("termination_date", new Date().toISOString().split("T")[0]);
-    }
-  }, [watchIsActive, isEdit, staff?.is_active, watchTerminationDate, form]);
 
   const onConfirmSync = async () => {
     if (syncData) {
