@@ -37,6 +37,7 @@ export function ForgotPasswordDialog({ children }: ForgotPasswordDialogProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     setLoading(true);
     setEmailError(null);
 
