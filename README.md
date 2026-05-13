@@ -85,7 +85,7 @@ EMS 2.0 manages the complete lifecycle of professional engagements from client o
 - **Lovable Cloud** (Supabase-powered) — PostgreSQL with Row Level Security, edge functions, and timestamped migrations under `supabase/migrations/`
 - Database functions and triggers handle cross-cutting validation (approval locks, holiday blocking, engagement date range, etc.)
 
-For the Supabase project ID, current edge-function inventory, and the list of auto-generated files that must not be hand-edited, see **[`CLAUDE.md`](./CLAUDE.md#backend)**.
+The canonical inventory (Supabase project ID, full edge-function list, auto-generated files that must not be hand-edited) lives in **[`docs/operations.md`](./docs/operations.md)** — the single source of truth shared by every agent (Claude Code, Codex, Lovable, Greptile) and human contributors.
 
 ### Design System
 
@@ -126,13 +126,8 @@ src/
 └── test/               # Test setup and utilities
 
 supabase/
-├── functions/
-│   ├── assign-user-role/        # Atomic first-user-admin role assignment
-│   ├── dashboard-data/          # Dashboard analytics aggregation (8 actions)
-│   ├── manage-auth-user/        # Auth user lifecycle (create/update/delete)
-│   ├── test-minmax-settings/    # Backend integration tests for min/max RPC
-│   └── test-resubmission-state/ # Backend integration tests for resubmission state
-└── migrations/                  # 67+ timestamped SQL migration files
+├── functions/   # Edge functions (see docs/operations.md for inventory)
+└── migrations/  # Timestamped SQL migrations
 ```
 
 ---
@@ -322,13 +317,7 @@ Heavy dependencies are pre-bundled to prevent 504 timeout errors:
 
 ## Edge Functions
 
-| Function | Purpose |
-|----------|---------|
-| `assign-user-role` | Atomic first-user-admin role assignment during bootstrap |
-| `dashboard-data` | Aggregates dashboard analytics (utilization, hours, budget vs actual) |
-| `manage-auth-user` | Auth user management (create, update, delete) |
-| `test-minmax-settings` | Backend integration tests for min/max settings RPC |
-| `test-resubmission-state` | Backend integration tests for timesheet resubmission state |
+The canonical inventory of edge functions and their purposes lives in **[`docs/operations.md`](./docs/operations.md#edge-function-inventory)**.
 
 ---
 
@@ -379,7 +368,7 @@ The application is deployed via Lovable Cloud:
 
 Frontend code in `src/**` syncs automatically through the GitHub integration, but **backend changes** (edge functions, migrations, schema, secrets) require an explicit Lovable prompt after the commit lands on `main`.
 
-See **[`CLAUDE.md`](./CLAUDE.md#lovable-deployment)** for the prompt-by-change-type table and `.claude/skills/lovable/SKILL.md` for the deep reference.
+See **[`docs/operations.md`](./docs/operations.md#lovable-deployment-workflow)** for the canonical prompt-by-change-type table.
 
 ---
 
@@ -387,8 +376,7 @@ See **[`CLAUDE.md`](./CLAUDE.md#lovable-deployment)** for the prompt-by-change-t
 
 Reusable UI/UX skills that ensure a unified look and feel across all Ruizmier ERM apps — design system, page patterns, components, and Lovable prompt templates.
 
-- **Shared docs** (readable by Claude Code, Lovable, Codex): `docs/skills/`
-- **Claude Code auto-trigger skills** and **cross-tool bridge files**: see the RSS section in **[`CLAUDE.md`](./CLAUDE.md#ruizmier-skill-set-rss)**
+The canonical index lives in **[`docs/skills/README.md`](./docs/skills/README.md)**, which lists every shared doc, the matching Claude Code auto-trigger skill, and the cross-tool bridge files (`AGENTS.md`, `.lovable/instructions.md`, `CLAUDE.md`).
 
 ---
 
@@ -443,6 +431,8 @@ Reusable UI/UX skills that ensure a unified look and feel across all Ruizmier ER
 
 | Document | Location |
 |----------|----------|
+| Operations Reference (single source of truth) | `docs/operations.md` |
+| Ruizmier Skill Set (UI/UX) index | `docs/skills/README.md` |
 | ER Diagram | `supabase/ems-er-diagram.md` |
 | Database Schema | `docs/database-schema.sql` |
 | Access Rules | `docs/access_rules.md` |

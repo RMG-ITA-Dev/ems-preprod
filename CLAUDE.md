@@ -8,28 +8,11 @@ Built with Lovable.dev and deployed on Lovable Cloud.
 
 ---
 
-## Tech Stack
+## Operations Reference (single source of truth)
 
-| Layer | Technology |
-|-------|-----------|
-| Frontend | React 18 + Vite + TypeScript |
-| UI | Tailwind CSS + shadcn/ui (Radix primitives) |
-| Backend | Supabase (Lovable Cloud) — project: `ugqxfnrxvksiltwxzist` |
-| State | TanStack Query v5 + React Context |
-| Forms | react-hook-form + Zod |
-| i18n | react-i18next (EN/ES) |
-| Testing | Vitest |
+Tech stack, project conventions, edge function inventory, Lovable deployment workflow, and run commands live in **[`docs/operations.md`](./docs/operations.md)**. Read that file first; do not duplicate its content here.
 
----
-
-## Key Conventions
-
-- **Date format**: DD/MM/YYYY (Spanish locale default throughout UI)
-- **Numeric input**: locale-aware — Spanish uses commas as decimal separator
-- **Currency**: Multi-currency support (USD and BOB)
-- **Roles**: `admin | staff | viewer | partner | director | manager | senior | semisenior | sqr | specialist_it | specialist_tax`
-- **Do not edit manually**: `src/integrations/supabase/types.ts` (auto-generated from schema)
-- **Do not edit manually**: `supabase/config.toml` (managed by Lovable Cloud)
+The same file is linked from `AGENTS.md` (Codex / GitHub Copilot), `.lovable/instructions.md` (Lovable.dev), and `README.md` (human contributors), so every tool reads the same source.
 
 ---
 
@@ -51,43 +34,6 @@ src/
 
 ---
 
-## Backend
-
-- **Backend type**: Lovable Cloud (no direct Supabase dashboard access)
-- **Edge Functions** (5): `manage-auth-user`, `assign-user-role`, `dashboard-data`, `test-minmax-settings`, `test-resubmission-state`
-- **Migrations**: 67+ timestamped SQL files in `supabase/migrations/`
-- **Key RPC functions**: `submit_timesheet_safe()`, `assign_user_role_atomic()`, `update_timesheet_minmax_settings()`
-
-See `.claude/skills/lovable/SKILL.md` for the full deployment workflow — what syncs automatically vs what requires Lovable prompts.
-
----
-
-## Lovable Deployment
-
-This project uses Lovable Cloud. After pushing backend changes to `main`:
-
-| Change | Lovable Prompt |
-|--------|---------------|
-| Edge Function edited | `"Deploy the [name] edge function"` |
-| New migration file | `"Apply pending Supabase migrations"` |
-| Need new table | `"Create a [name] table with columns: ..."` |
-
-Full reference: `.claude/skills/lovable/SKILL.md`
-
----
-
-## Running Locally
-
-```bash
-npm install
-npm run dev          # Start dev server
-npm run build        # Production build
-npx vitest run       # Run all tests
-npx vitest run [file] # Run single test file
-```
-
----
-
 ## Important Files
 
 | File | Purpose |
@@ -104,30 +50,8 @@ npx vitest run [file] # Run single test file
 
 ## Ruizmier Skill Set (RSS)
 
-Reusable UI/UX skills that ensure a unified look and feel across all Ruizmier ERM apps. Documented in two locations:
+Reusable UI/UX skills shared across all Ruizmier ERM apps — design system, page patterns, components, Lovable prompt templates.
 
-### Shared Docs (readable by all tools — Claude Code, Lovable, Codex)
-
-| Document | Scope |
-|----------|-------|
-| `docs/skills/README.md` | Skill index and cross-platform usage |
-| `docs/skills/design-system.md` | Colors, typography, spacing, button rules, theming |
-| `docs/skills/page-patterns.md` | Layout, List View, Add/Edit View, navigation, responsive |
-| `docs/skills/component-patterns.md` | DataTable, buttons, forms, dialogs, badges |
-| `docs/skills/lovable-prompts.md` | Prompt templates for Lovable.dev |
-
-### Claude Code Skills (auto-trigger on context)
-
-| Skill | Trigger |
-|-------|---------|
-| `ruizmier-design-system` | Creating/modifying UI, styling, colors |
-| `ruizmier-page-patterns` | Creating pages, routes, navigation |
-| `ruizmier-components` | Creating components, tables, forms, dialogs |
-| `ruizmier-lovable-bridge` | Preparing Lovable prompts |
-
-### Cross-Tool Bridge Files
-
-| File | Tool |
-|------|------|
-| `AGENTS.md` | Codex, GitHub Copilot |
-| `.lovable/instructions.md` | Lovable.dev |
+- **Canonical docs** (readable by every tool): `docs/skills/` — see `docs/skills/README.md` for the index
+- **Claude Code auto-trigger skills**: `ruizmier-design-system`, `ruizmier-page-patterns`, `ruizmier-components`, `ruizmier-lovable-bridge`
+- **Cross-tool bridge files**: `AGENTS.md` (Codex/Copilot), `.lovable/instructions.md` (Lovable), `CLAUDE.md` (this file)
