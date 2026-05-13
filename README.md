@@ -82,13 +82,10 @@ EMS 2.0 manages the complete lifecycle of professional engagements from client o
 
 ### Backend Stack
 
-- **Lovable Cloud** (Supabase-powered) — project ID `ugqxfnrxvksiltwxzist`
-- PostgreSQL database with Row Level Security (RLS)
-- 5 Edge Functions for custom server logic
-- 67+ timestamped migrations under `supabase/migrations/`
-- Database functions and triggers for validation
+- **Lovable Cloud** (Supabase-powered) — PostgreSQL with Row Level Security, edge functions, and timestamped migrations under `supabase/migrations/`
+- Database functions and triggers handle cross-cutting validation (approval locks, holiday blocking, engagement date range, etc.)
 
-> **Do not edit manually**: `src/integrations/supabase/types.ts` (auto-generated from schema) and `supabase/config.toml` (managed by Lovable Cloud).
+For the Supabase project ID, current edge-function inventory, and the list of auto-generated files that must not be hand-edited, see **[`CLAUDE.md`](./CLAUDE.md#backend)**.
 
 ### Design System
 
@@ -380,51 +377,18 @@ The application is deployed via Lovable Cloud:
 
 ## Lovable Workflow
 
-This project is built with Lovable.dev and deployed on Lovable Cloud. Frontend code syncs automatically through the GitHub integration, but **backend changes require an explicit Lovable prompt** after the commit lands on `main`.
+Frontend code in `src/**` syncs automatically through the GitHub integration, but **backend changes** (edge functions, migrations, schema, secrets) require an explicit Lovable prompt after the commit lands on `main`.
 
-| Change | Auto-syncs? | Required Lovable Prompt |
-|--------|-------------|--------------------------|
-| Frontend (`src/**`) | Yes | — |
-| Translations (`src/locales/*.json`) | Yes | — |
-| Edge Function edited (`supabase/functions/<name>/`) | No | `"Deploy the <name> edge function"` |
-| New migration (`supabase/migrations/*.sql`) | No | `"Apply pending Supabase migrations"` |
-| New table / schema change | No | `"Create a <name> table with columns: ..."` |
-| New secret / env var | No | `"Add a Supabase secret named <NAME>"` |
-
-Full reference: `.claude/skills/lovable/SKILL.md`.
+See **[`CLAUDE.md`](./CLAUDE.md#lovable-deployment)** for the prompt-by-change-type table and `.claude/skills/lovable/SKILL.md` for the deep reference.
 
 ---
 
 ## Ruizmier Skill Set (RSS)
 
-Reusable UI/UX skills that ensure a unified look and feel across all Ruizmier ERM apps. Two surfaces:
+Reusable UI/UX skills that ensure a unified look and feel across all Ruizmier ERM apps — design system, page patterns, components, and Lovable prompt templates.
 
-### Shared Docs (readable by Claude Code, Lovable, Codex)
-
-| Document | Scope |
-|----------|-------|
-| `docs/skills/README.md` | Skill index and cross-platform usage |
-| `docs/skills/design-system.md` | Colors, typography, spacing, button rules, theming |
-| `docs/skills/page-patterns.md` | Layout, List View, Add/Edit View, navigation, responsive |
-| `docs/skills/component-patterns.md` | DataTable, buttons, forms, dialogs, badges |
-| `docs/skills/lovable-prompts.md` | Prompt templates for Lovable.dev |
-
-### Claude Code Skills (auto-trigger on context)
-
-| Skill | Trigger |
-|-------|---------|
-| `ruizmier-design-system` | Creating/modifying UI, styling, colors |
-| `ruizmier-page-patterns` | Creating pages, routes, navigation |
-| `ruizmier-components` | Creating components, tables, forms, dialogs |
-| `ruizmier-lovable-bridge` | Preparing Lovable prompts |
-
-### Cross-Tool Bridge Files
-
-| File | Tool |
-|------|------|
-| `AGENTS.md` | Codex, GitHub Copilot |
-| `.lovable/instructions.md` | Lovable.dev |
-| `CLAUDE.md` | Claude Code |
+- **Shared docs** (readable by Claude Code, Lovable, Codex): `docs/skills/`
+- **Claude Code auto-trigger skills** and **cross-tool bridge files**: see the RSS section in **[`CLAUDE.md`](./CLAUDE.md#ruizmier-skill-set-rss)**
 
 ---
 
@@ -433,8 +397,8 @@ Reusable UI/UX skills that ensure a unified look and feel across all Ruizmier ER
 ### Branching
 
 - `main` is the deployment branch — Lovable pulls from it.
-- Feature work happens on short-lived branches off `main`, named `<author>/<topic>` (e.g., `claude/update-readme-i3XeM`).
-- Open a PR against `main`; do not push directly.
+- Feature work happens on short-lived branches named `<author>/<topic>` (e.g., `claude/update-readme-i3XeM`).
+- Open a PR rather than pushing to a long-lived branch directly. Most PRs target `main`; some batches of related work may instead target a staging branch (e.g., `sruimier-update-readme`) that is later merged into `main`.
 
 ### Commits
 
