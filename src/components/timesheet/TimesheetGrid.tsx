@@ -167,9 +167,10 @@ export function TimesheetGrid({
   // Cleanup debounce timers on unmount to prevent memory leaks
   useEffect(() => {
     isMountedRef.current = true;
+    const timers = debounceTimers.current;
     return () => {
       isMountedRef.current = false;
-      Object.values(debounceTimers.current).forEach(clearTimeout);
+      Object.values(timers).forEach(clearTimeout);
     };
   }, []);
 
@@ -347,6 +348,10 @@ export function TimesheetGrid({
 
       executeBatch();
     }
+    // lineApprovals/activityNotRequiredIds/adminActivityId are read from the current closure
+    // at trigger time via rowsRef; adding them would re-arm the effect on every prop change
+    // (unintentionally triggering a batch save). rowsRef keeps their values fresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [saveNowTrigger, weekDates, staffId, periodId, upsertEntry, t, engagementDateMap]);
 
   const addNewRow = () => {
@@ -446,6 +451,15 @@ export function TimesheetGrid({
           .filter(r => r.id !== rowId)
       );
       toast.warning(t('timesheet.rowMerged'));
+      return;
+    }
+
+    // BUG 0508-106: Prevent selecting an engagement whose line approval is already "approved".
+    // Selecting it would make isRowApproved true on the next render, immediately locking
+    // this row (combobox, activity, hours) with no visible explanation and no undo path.
+    const targetApproval = lineApprovals.find(la => la.engagement_id === engagementId);
+    if (targetApproval?.status === "approved") {
+      toast.error(t("timesheet.cannotSelectApprovedEngagement"));
       return;
     }
 
@@ -619,7 +633,7 @@ export function TimesheetGrid({
         );
       }, autoSaveSeconds * 1000);
     },
-    [staffId, periodId, autoSaveSeconds, upsertEntry, holidayMap, holidayEngagementId, t, lineApprovals, engagementDateMap]
+    [staffId, periodId, autoSaveSeconds, upsertEntry, holidayMap, holidayEngagementId, t, lineApprovals, engagementDateMap, activityNotRequiredIds, adminActivityId]
   );
 
   const calculateRowTotal = (row: GridRow) => {
