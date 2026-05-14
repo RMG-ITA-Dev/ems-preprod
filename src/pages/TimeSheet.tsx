@@ -330,9 +330,9 @@ const TimeSheet = () => {
     && prevWeekSubmittedOrApproved;
 
   const canUnsubmit = isSubmitted
-    && !isFullyApproved
     && isWithinEditableWindow
-    && !period?.is_period_locked;
+    && !period?.is_period_locked
+    && (!isFullyApproved || isCurrentWeek);
 
   const canSaveDraft = !isBeforeHireDate
     && !isAfterTerminationDate

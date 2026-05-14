@@ -821,6 +821,7 @@
     "submitDateRangeViolation": "No se puede enviar: algunas entradas están fuera del rango de vigencia del encargo. Corrija o elimínelas primero.",
     "unsubmit": "Retirar Envío",
     "unsubmitted": "Hoja de tiempo retirada para edición",
+    "approvedRecallWindowClosed": "Las boletas aprobadas solo se pueden retirar dentro de la misma semana.",
     "autoSaveHint": "Los cambios se guardan automáticamente",
     "admActivityNotConfigured": "La actividad ADM del sistema no esta configurada. Contacte al administrador.",
     "entry": "Entrada de tiempo",

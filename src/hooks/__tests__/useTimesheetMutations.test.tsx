@@ -228,11 +228,9 @@ describe("useTimesheetMutations (BUG 0220-45)", () => {
     });
   });
 
-  describe("useUnsubmitTimesheet (BUG 0220-51)", () => {
-    it("T2: does not DELETE line approvals, only clears submitted_at", async () => {
-      const mockEq = vi.fn().mockResolvedValue({ error: null });
-      const mockUpdate = vi.fn().mockReturnValue({ eq: mockEq });
-      vi.mocked(supabase.from).mockReturnValue({ update: mockUpdate } as any);
+  describe("useUnsubmitTimesheet (BUG 0220-51 / BUG 0508-105)", () => {
+    it("T2: calls unsubmit_timesheet_safe RPC and does not directly touch timesheet_periods or line_approvals", async () => {
+      vi.mocked(supabase.rpc).mockResolvedValue({ data: null, error: null } as any);
 
       const { useUnsubmitTimesheet } = await import("../useTimesheetMutations");
       const { result } = renderHook(() => useUnsubmitTimesheet(), {
@@ -242,9 +240,28 @@ describe("useTimesheetMutations (BUG 0220-45)", () => {
       result.current.mutate({ periodId: "period-1" });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      expect(supabase.from).toHaveBeenCalledWith("timesheet_periods");
-      // Verify no delete call was made
+      expect(supabase.rpc).toHaveBeenCalledWith("unsubmit_timesheet_safe", {
+        p_period_id: "period-1",
+      });
+      expect(supabase.from).not.toHaveBeenCalledWith("timesheet_periods");
       expect(supabase.from).not.toHaveBeenCalledWith("timesheet_line_approvals");
+    });
+
+    it("T2-err: shows approvedRecallWindowClosed toast when RPC rejects out-of-window recall", async () => {
+      vi.mocked(supabase.rpc).mockResolvedValue({
+        data: null,
+        error: { message: "APPROVED_WEEK_RECALL_WINDOW_CLOSED" },
+      } as any);
+
+      const { useUnsubmitTimesheet } = await import("../useTimesheetMutations");
+      const { result } = renderHook(() => useUnsubmitTimesheet(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate({ periodId: "period-1" });
+
+      await waitFor(() => expect(result.current.isError).toBe(true));
+      expect(toast.error).toHaveBeenCalledWith("timesheet.approvedRecallWindowClosed");
     });
   });
 });
