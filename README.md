@@ -82,10 +82,10 @@ EMS 2.0 manages the complete lifecycle of professional engagements from client o
 
 ### Backend Stack
 
-- **Lovable Cloud** (Supabase-powered)
-- PostgreSQL database with Row Level Security (RLS)
-- Edge Functions for custom server logic
-- Database functions and triggers for validation
+- **Lovable Cloud** (Supabase-powered) — PostgreSQL with Row Level Security, edge functions, and timestamped migrations under `supabase/migrations/`
+- Database functions and triggers handle cross-cutting validation (approval locks, holiday blocking, engagement date range, etc.)
+
+The canonical inventory (Supabase project ID, full edge-function list, auto-generated files that must not be hand-edited) lives in **[`docs/operations.md`](./docs/operations.md)** — the single source of truth shared by every agent (Claude Code, Codex, Lovable, Greptile) and human contributors.
 
 ### Design System
 
@@ -126,9 +126,8 @@ src/
 └── test/               # Test setup and utilities
 
 supabase/
-└── functions/
-    ├── assign-user-role/   # Atomic first-user-admin role assignment
-    └── dashboard-data/     # Dashboard analytics aggregation
+├── functions/   # Edge functions (see docs/operations.md for inventory)
+└── migrations/  # Timestamped SQL migrations
 ```
 
 ---
@@ -318,13 +317,7 @@ Heavy dependencies are pre-bundled to prevent 504 timeout errors:
 
 ## Edge Functions
 
-| Function | Purpose |
-|----------|---------|
-| `assign-user-role` | Atomic first-user-admin role assignment during bootstrap |
-| `dashboard-data` | Aggregates dashboard analytics (utilization, hours, budget vs actual) |
-| `manage-auth-user` | Auth user management (create, update, delete) |
-| `test-minmax-settings` | Backend integration tests for min/max settings RPC |
-| `test-resubmission-state` | Backend integration tests for timesheet resubmission state |
+The canonical inventory of edge functions and their purposes lives in **[`docs/operations.md`](./docs/operations.md#edge-function-inventory)**.
 
 ---
 
@@ -333,28 +326,31 @@ Heavy dependencies are pre-bundled to prevent 504 timeout errors:
 ### Prerequisites
 
 - Node.js 18+
-- Bun or npm
+- npm
 
 ### Getting Started
 
 ```bash
 # Install dependencies
-bun install
+npm install
 
 # Start development server
-bun run dev
-
-# Run tests
-bun run test
+npm run dev
 
 # Build for production
-bun run build
+npm run build
+
+# Run all tests
+npx vitest run
+
+# Run a single test file
+npx vitest run path/to/file.test.ts
 ```
 
 ### Testing
 
 - **Framework**: Vitest with React Testing Library
-- **Coverage**: `bun run test:coverage`
+- **Coverage**: `npx vitest run --coverage`
 - **Test files**: `*.test.ts` / `*.test.tsx` in `__tests__` directories
 
 ---
@@ -368,10 +364,75 @@ The application is deployed via Lovable Cloud:
 
 ---
 
+## Lovable Workflow
+
+Frontend code in `src/**` syncs automatically through the GitHub integration, but **backend changes** (edge functions, migrations, schema, secrets) require an explicit Lovable prompt after the commit lands on `main`.
+
+See **[`docs/operations.md`](./docs/operations.md#lovable-deployment-workflow)** for the canonical prompt-by-change-type table.
+
+---
+
+## Ruizmier Skill Set (RSS)
+
+Reusable UI/UX skills that ensure a unified look and feel across all Ruizmier ERM apps — design system, page patterns, components, and Lovable prompt templates.
+
+The canonical index lives in **[`docs/skills/README.md`](./docs/skills/README.md)**, which lists every shared doc, the matching Claude Code auto-trigger skill, and the cross-tool bridge files (`AGENTS.md`, `.lovable/instructions.md`, `CLAUDE.md`).
+
+---
+
+## Contributing
+
+### Branching
+
+- `main` is the deployment branch — Lovable pulls from it.
+- Feature work happens on short-lived branches named `<author>/<topic>` (e.g., `claude/update-readme-i3XeM`).
+- Open a PR rather than pushing to a long-lived branch directly. Most PRs target `main`; some batches of related work may instead target a staging branch (e.g., `sruimier-update-readme`) that is later merged into `main`.
+
+### Commits
+
+- Write present-tense, imperative subjects ("Add holiday blocking trigger", not "Added…").
+- Keep the subject under ~70 characters; use the body to explain *why*, not *what*.
+- One logical change per commit when practical.
+
+### Before opening a PR
+
+1. `npm run build` — ensure the production build compiles.
+2. `npx vitest run` — all tests pass.
+3. Confirm no edits to auto-generated files (`src/integrations/supabase/types.ts`, `supabase/config.toml`).
+4. If the change touches backend (edge functions, migrations, schema), note the required Lovable prompt in the PR description.
+
+### Code conventions
+
+- Follow the patterns documented in `docs/skills/` and the Ruizmier Skill Set.
+- Use design tokens from `index.css` / `tailwind.config.ts` — no raw hex colors in components.
+- Localize all user-facing strings via `react-i18next` (both `en.json` and `es.json`).
+- Use `<NumericInput />` for any locale-aware numeric input.
+
+---
+
+## Troubleshooting
+
+| Symptom | Likely cause & fix |
+|---------|--------------------|
+| **504 timeout loading a route in dev** | Vite is bundling a heavy dep on demand. Add the package to `optimizeDeps.include` in `vite.config.ts` and restart `npm run dev`. |
+| **"No staff record found" after sign-in** | The signed-in auth user is not linked to a `staff` row. Either match the user's email to a staff record, or run the admin bootstrap flow as the first user. |
+| **Edge function changes not visible in production** | Edge functions don't auto-deploy. Push to `main`, then prompt Lovable: `"Deploy the <name> edge function"`. |
+| **New migration not applied** | Migrations don't auto-run. Push to `main`, then prompt Lovable: `"Apply pending Supabase migrations"`. |
+| **`types.ts` shows stale types after a schema change** | The file is regenerated by Lovable after migrations apply. Re-pull `main` once the migration prompt completes. |
+| **Timesheet submit fails with "outside engagement date range"** | A time entry falls outside the engagement's `start_date`/`end_date`. Adjust the entry or the engagement dates. |
+| **Cannot edit an existing time entry** | The line is approved — the `protect_approved_time_entries` trigger blocks writes. Have an approver revert the line to pending. |
+| **Validation messages render in the wrong language** | The Zod schema was instantiated outside `useMemo` with `t`. Wrap it: `const schema = useMemo(() => createFormSchema(t), [t])`. |
+| **Spanish numeric input rejects decimals** | Use `<NumericInput />` — native `<input type="number">` is not locale-aware. |
+| **Min/Max settings update fails** | `update_timesheet_minmax_settings` validates cross-field feasibility (DAILY_MIN ≤ DAILY_MAX, etc.). Adjust the bounds together. |
+
+---
+
 ## Documentation
 
 | Document | Location |
 |----------|----------|
+| Operations Reference (single source of truth) | `docs/operations.md` |
+| Ruizmier Skill Set (UI/UX) index | `docs/skills/README.md` |
 | ER Diagram | `supabase/ems-er-diagram.md` |
 | Database Schema | `docs/database-schema.sql` |
 | Access Rules | `docs/access_rules.md` |
@@ -392,4 +453,4 @@ Proprietary — Ruizmier & Asociados
 
 ---
 
-*Last Updated: February 26, 2026*
+*Last Updated: May 13, 2026*
