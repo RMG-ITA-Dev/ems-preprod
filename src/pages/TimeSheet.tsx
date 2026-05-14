@@ -6,7 +6,7 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Loader2, AlertCircle, Lock, Save, RotateCcw, Check, AlertTriangle, Copy, ArrowLeft, Trash2 } from "lucide-react";
+import { Loader2, AlertCircle, Lock, Save, RotateCcw, Check, AlertTriangle, Copy, ArrowLeft, Trash2, Info } from "lucide-react";
 import { WeekNavigator } from "@/components/timesheet/WeekNavigator";
 import { TimesheetGrid } from "@/components/timesheet/TimesheetGrid";
 import { useHolidaysForWeek, useHolidayEngagementId } from "@/hooks/useHolidays";
@@ -180,6 +180,8 @@ const TimeSheet = () => {
   const isAboveWeeklyMax = weeklyGrandTotal > effectiveWeeklyMax;
   const isWeeklyOutOfBounds = isBelowWeeklyMin || isAboveWeeklyMax;
 
+  const hasWeekHolidays = holidayMap.size > 0;
+
   // Compute activityNotRequiredIds from engagement data
   const activityNotRequiredIds = useMemo(() => {
     const ids = new Set<string>();
@@ -330,9 +332,9 @@ const TimeSheet = () => {
     && prevWeekSubmittedOrApproved;
 
   const canUnsubmit = isSubmitted
-    && !isFullyApproved
     && isWithinEditableWindow
-    && !period?.is_period_locked;
+    && !period?.is_period_locked
+    && (!isFullyApproved || isCurrentWeek);
 
   const canSaveDraft = !isBeforeHireDate
     && !isAfterTerminationDate
@@ -569,6 +571,25 @@ const TimeSheet = () => {
             <AlertCircle className="h-4 w-4" />
             <AlertDescription>{t("timesheet.noEngagements")}</AlertDescription>
           </Alert>
+        )}
+
+        {/* Holiday week hint — visible before the user hits the submit guard */}
+        {hasWeekHolidays &&
+          !!holidayEngagementId &&
+          !isBeforeHireDate &&
+          !isAfterTerminationDate &&
+          isWithinEditableWindow &&
+          !isSubmitted &&
+          !period?.is_period_locked && (
+            <Alert>
+              <Info className="h-4 w-4" />
+              <AlertDescription>
+                {t("timesheet.holidayWeekHint", {
+                  count: holidayMap.size,
+                  hours: holidayMap.size * dailyMin,
+                })}
+              </AlertDescription>
+            </Alert>
         )}
 
         {/* BUG #0213-36: Weekly limit alerts */}
