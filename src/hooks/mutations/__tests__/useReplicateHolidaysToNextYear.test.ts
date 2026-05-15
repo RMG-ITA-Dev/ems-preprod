@@ -141,7 +141,7 @@ describe("useReplicateHolidaysToNextYear", () => {
 
     await waitFor(() => expect(result.current.isError).toBe(true));
 
-    expect((result.current.error as Error).message).toContain("holiday.allDatesAlreadyExist");
+    expect((result.current.error as Error).message).toContain("holiday.allDatesLeapDay");
     expect(insertMock).not.toHaveBeenCalled();
   });
 
