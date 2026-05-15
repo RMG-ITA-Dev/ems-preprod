@@ -267,8 +267,6 @@ describe("StaffForm termination_date (BUG 0508-104)", () => {
     await waitFor(() => {
       expect(input.value).toBe("");
     });
-    const todayISO = new Date().toISOString().split("T")[0];
-    expect(input.value).not.toBe(todayISO);
   });
 
   it("TD-2: field shows stored date and is NOT replaced by today's date", async () => {
@@ -281,8 +279,6 @@ describe("StaffForm termination_date (BUG 0508-104)", () => {
     await waitFor(() => {
       expect(input.value).toBe("2026-04-30");
     });
-    const todayISO = new Date().toISOString().split("T")[0];
-    expect(input.value).not.toBe(todayISO);
   });
 
   it("TD-3: submitting with an entered date calls mutation with that date (regression 0508-104)", async () => {
@@ -345,5 +341,37 @@ describe("StaffForm termination_date (BUG 0508-104)", () => {
       data: { termination_date: string | null };
     };
     expect(callArg.data.termination_date).toBeNull();
+  });
+
+  it("TD-5: termination_date submission is correct when deactivating (regression 0508-104)", async () => {
+    // This test covers the deactivation path where termination_date is required
+    const { container } = renderForm({
+      is_active: true,
+      termination_date: null,
+    });
+
+    // Wait for form initialization
+    await waitFor(() => {
+      expect(screen.getByLabelText("staff.terminationDate")).toBeInTheDocument();
+    });
+
+    // Enter a termination date (typical deactivation flow)
+    const termInput = screen.getByLabelText(
+      "staff.terminationDate"
+    ) as HTMLInputElement;
+    fireEvent.change(termInput, { target: { value: "2026-05-31" } });
+    expect(termInput.value).toBe("2026-05-31");
+
+    // Submit the form
+    const form = container.querySelector("form")!;
+    fireEvent.submit(form);
+
+    // Assert mutation was called with the termination_date
+    await waitFor(() => expect(updateMutateAsync).toHaveBeenCalled());
+    const callArg = updateMutateAsync.mock.calls[0][0] as {
+      id: string;
+      data: { termination_date: string | null };
+    };
+    expect(callArg.data.termination_date).toBe("2026-05-31");
   });
 });
