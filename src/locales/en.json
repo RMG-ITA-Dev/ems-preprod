@@ -629,7 +629,8 @@
     "replicateConfirmDesc": "{{count}} holiday(s) from {{fromYear}} will be created for {{toYear}}. Dates already present in {{toYear}} will be skipped. Continue?",
     "noSourceHolidays": "No holidays are loaded for year {{year}}.",
     "allDatesAlreadyExist": "All holidays for {{year}} already exist.",
-    "allDatesLeapDay": "All source holidays fall on Feb 29 and {{year}} is not a leap year — nothing to replicate."
+    "allDatesLeapDay": "All source holidays fall on Feb 29 and {{year}} is not a leap year — nothing to replicate.",
+    "allDatesLeapDayAndAlreadyExist": "No holidays to replicate to {{year}}: some fall on Feb 29 (non-leap year) and the rest already exist."
   },
  "dashboard": {
     "noData": "No data available for the selected period",

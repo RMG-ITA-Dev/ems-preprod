@@ -126,9 +126,12 @@ export function useReplicateHolidaysToNextYear() {
       }
 
       if (toInsert.length === 0) {
-        const key = invalidDates.length > 0
-          ? "holiday.allDatesLeapDay"
-          : "holiday.allDatesAlreadyExist";
+        const key =
+          invalidDates.length > 0 && skipped === 0
+            ? "holiday.allDatesLeapDay"
+            : skipped > 0 && invalidDates.length === 0
+              ? "holiday.allDatesAlreadyExist"
+              : "holiday.allDatesLeapDayAndAlreadyExist";
         throw new Error(i18n.t(key, { year: targetYear }));
       }
 
