@@ -426,6 +426,17 @@ export function TimesheetGrid({
     const currentRow = rows.find(r => r.id === rowId);
     if (!currentRow) return;
 
+    // BUG 0508-106: Prevent selecting an engagement whose line approval is already "approved".
+    // Must run before the duplicate-merge check: without this guard, selecting an approved
+    // engagement that shares the same engagement+activity as an existing row would trigger the
+    // merge branch first — silently merging hours into the locked approved row and deleting the
+    // current row — with no toast and no undo path.
+    const targetApproval = lineApprovals.find(la => la.engagement_id === engagementId);
+    if (targetApproval?.status === "approved") {
+      toast.error(t("timesheet.cannotSelectApprovedEngagement"));
+      return;
+    }
+
     // Auto-assign ADM activity for activity-not-required engagements
     const isActivityNotRequired = activityNotRequiredIds?.has(engagementId);
     const engagementObj = engagements.find(e => e.engagement_id === engagementId);
@@ -451,15 +462,6 @@ export function TimesheetGrid({
           .filter(r => r.id !== rowId)
       );
       toast.warning(t('timesheet.rowMerged'));
-      return;
-    }
-
-    // BUG 0508-106: Prevent selecting an engagement whose line approval is already "approved".
-    // Selecting it would make isRowApproved true on the next render, immediately locking
-    // this row (combobox, activity, hours) with no visible explanation and no undo path.
-    const targetApproval = lineApprovals.find(la => la.engagement_id === engagementId);
-    if (targetApproval?.status === "approved") {
-      toast.error(t("timesheet.cannotSelectApprovedEngagement"));
       return;
     }
 
