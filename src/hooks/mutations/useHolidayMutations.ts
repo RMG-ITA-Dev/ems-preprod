@@ -125,8 +125,12 @@ export function useReplicateHolidaysToNextYear() {
         toInsert.push({ holiday_date: targetDate, holiday_name: h.holiday_name, created_by });
       }
 
-      if (toInsert.length === 0)
-        throw new Error(i18n.t("holiday.allDatesAlreadyExist", { year: targetYear }));
+      if (toInsert.length === 0) {
+        const key = invalidDates.length > 0
+          ? "holiday.allDatesLeapDay"
+          : "holiday.allDatesAlreadyExist";
+        throw new Error(i18n.t(key, { year: targetYear }));
+      }
 
       const { error: e3 } = await supabase.from("holidays").insert(toInsert);
       if (e3) throw e3;

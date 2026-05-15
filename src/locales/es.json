@@ -628,7 +628,8 @@
     "replicateConfirmTitle": "Replicar feriados {{fromYear}} → {{toYear}}",
     "replicateConfirmDesc": "Se crearán {{count}} feriado(s) del año {{fromYear}} para el año {{toYear}}. Las fechas que ya existen en {{toYear}} serán omitidas. ¿Desea continuar?",
     "noSourceHolidays": "No hay feriados cargados para el año {{year}}.",
-    "allDatesAlreadyExist": "Todos los feriados del año {{year}} ya existen."
+    "allDatesAlreadyExist": "Todos los feriados del año {{year}} ya existen.",
+    "allDatesLeapDay": "Todos los feriados de origen caen el 29 de febrero y {{year}} no es año bisiesto — nada para replicar."
   },
  "dashboard": {
     "noData": "Sin datos disponibles para el período seleccionado",

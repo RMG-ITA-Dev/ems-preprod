@@ -8,8 +8,6 @@
       "Bash(node -e \"console.log\\(require\\('./node_modules/lucide-react/package.json'\\).version\\)\")",
       "Bash(node -e \"const v8 = require\\('v8'\\); console.log\\('heap limit:', Math.round\\(v8.getHeapStatistics\\(\\).heap_size_limit / 1024 / 1024\\), 'MB'\\)\")",
       "Bash(echo \"EXIT: $?\")",
-      "Bash(git -C \"c:\\\\Users\\\\MarceloOvando\\\\Desktop\\\\Marcelo\\\\Desarrollo\\\\EMS_2.0\\\\aurora-engage-pro-908f8234\" diff main -- src/pages/TimeSheet.tsx src/locales/en.json src/locales/es.json)",
-      "Bash(Get-Content \"bugs\\\\0513-113\\\\plan_v2.md\" -Raw)",
       "Bash(npx tsc *)",
       "Bash(git stash *)",
       "Bash(npm run *)"
