@@ -45,6 +45,7 @@ vi.mock("@/hooks/useWorksheetData", () => ({
     data: [
       {
         id: "ws-2",
+        created_by_staff_id: "staff-123",
         engagement: {
           engagement_code: "ENG-002",
           engagement_name: "Source Engagement",
@@ -81,6 +82,14 @@ vi.mock("@/hooks/useEmsData", () => ({
 
 vi.mock("@/hooks/useUserRole", () => ({
   useUserRole: () => ({ isAdmin: false, isPartner: false, isDirector: false, isManager: false }),
+}));
+
+vi.mock("@/hooks/useCurrentStaff", () => ({
+  useCurrentStaff: () => ({
+    data: { staff_id: "staff-123" },
+    staffRecord: { staff_id: "staff-123" },
+    isLoading: false,
+  }),
 }));
 
 vi.mock("@/components/worksheet/WorksheetGrid", () => ({

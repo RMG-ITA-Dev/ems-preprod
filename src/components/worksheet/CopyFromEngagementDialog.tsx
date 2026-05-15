@@ -20,6 +20,7 @@ import {
   useWorksheetById,
   WorksheetCell,
 } from "@/hooks/useWorksheetData";
+import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { cn } from "@/lib/utils";
 
 interface CopyFromEngagementDialogProps {
@@ -43,12 +44,14 @@ export function CopyFromEngagementDialog({
   const { data: selectedWorksheet, isLoading: loadingCells } = useWorksheetById(
     selectedId ?? undefined,
   );
+  const { staffRecord } = useCurrentStaff();
 
   const filteredWorksheets = useMemo(() => {
     if (!worksheets) return [];
     const q = search.toLowerCase();
     return worksheets
       .filter((w) => w.id !== currentWorksheetId)
+      .filter((w) => w.created_by_staff_id === staffRecord?.staff_id)
       .filter((w) => {
         if (!q) return true;
         const name = w.engagement?.engagement_name?.toLowerCase() ?? "";
@@ -62,7 +65,7 @@ export function CopyFromEngagementDialog({
           : "";
         return name.includes(q) || client.includes(q) || code.includes(q) || industry.includes(q) || date.includes(q);
       });
-  }, [worksheets, currentWorksheetId, search]);
+  }, [worksheets, currentWorksheetId, search, staffRecord?.staff_id]);
 
   const totalHours = useMemo(
     () =>

@@ -17,12 +17,22 @@ const mockUseWorksheetById = vi.fn(() => ({
   isLoading: false,
 }));
 
+const mockUseCurrentStaff = vi.fn(() => ({
+  data: { staff_id: "staff-123" },
+  staffRecord: { staff_id: "staff-123" },
+  isLoading: false,
+}));
+
 vi.mock("@/hooks/useWorksheetData", async () => {
   return {
     useWorksheets: () => mockUseWorksheets(),
     useWorksheetById: () => mockUseWorksheetById(),
   };
 });
+
+vi.mock("@/hooks/useCurrentStaff", () => ({
+  useCurrentStaff: () => mockUseCurrentStaff(),
+}));
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -36,6 +46,12 @@ describe("CopyFromEngagementDialog", () => {
     mockOnOpenChange.mockClear();
     mockUseWorksheets.mockClear();
     mockUseWorksheetById.mockClear();
+    mockUseCurrentStaff.mockClear();
+    mockUseCurrentStaff.mockReturnValue({
+      data: { staff_id: "staff-123" },
+      staffRecord: { staff_id: "staff-123" },
+      isLoading: false,
+    });
   });
 
   it("renders when open=true and hides when open=false", () => {
@@ -43,6 +59,7 @@ describe("CopyFromEngagementDialog", () => {
       data: [
         {
           id: "ws-2",
+          created_by_staff_id: "staff-123",
           engagement: {
             engagement_code: "ENG-001",
             engagement_name: "Test Engagement",
@@ -82,6 +99,7 @@ describe("CopyFromEngagementDialog", () => {
       data: [
         {
           id: "ws-2",
+          created_by_staff_id: "staff-123",
           engagement: {
             engagement_code: "ENG-001",
             engagement_name: "Client ABC Project",
@@ -112,6 +130,7 @@ describe("CopyFromEngagementDialog", () => {
       data: [
         {
           id: "ws-2",
+          created_by_staff_id: "staff-123",
           engagement: {
             engagement_code: "ENG-001",
             engagement_name: "ABC Project",
@@ -121,6 +140,7 @@ describe("CopyFromEngagementDialog", () => {
         },
         {
           id: "ws-3",
+          created_by_staff_id: "staff-123",
           engagement: {
             engagement_code: "ENG-002",
             engagement_name: "XYZ Project",
@@ -155,6 +175,7 @@ describe("CopyFromEngagementDialog", () => {
       data: [
         {
           id: "ws-1",
+          created_by_staff_id: "staff-123",
           engagement: {
             engagement_code: "ENG-CURRENT",
             engagement_name: "Current",
@@ -164,6 +185,7 @@ describe("CopyFromEngagementDialog", () => {
         },
         {
           id: "ws-2",
+          created_by_staff_id: "staff-123",
           engagement: {
             engagement_code: "ENG-OTHER",
             engagement_name: "Other",
@@ -193,6 +215,7 @@ describe("CopyFromEngagementDialog", () => {
       data: [
         {
           id: "ws-2",
+          created_by_staff_id: "staff-123",
           engagement: {
             engagement_code: "ENG-001",
             engagement_name: "Test",
@@ -222,6 +245,7 @@ describe("CopyFromEngagementDialog", () => {
       data: [
         {
           id: "ws-2",
+          created_by_staff_id: "staff-123",
           engagement: {
             engagement_code: "ENG-EMPTY",
             engagement_name: "Empty Matrix",
@@ -261,6 +285,7 @@ describe("CopyFromEngagementDialog", () => {
       data: [
         {
           id: "ws-2",
+          created_by_staff_id: "staff-123",
           engagement: {
             engagement_code: "ENG-001",
             engagement_name: "Test",
@@ -329,5 +354,45 @@ describe("CopyFromEngagementDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: /common.cancel/ }));
 
     expect(mockOnOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("only displays worksheets created by current user", () => {
+    mockUseWorksheets.mockReturnValue({
+      data: [
+        {
+          id: "ws-2",
+          created_by_staff_id: "staff-123",
+          engagement: {
+            engagement_code: "ENG-001",
+            engagement_name: "My Worksheet",
+            client: { client_legal_name: "Client A" },
+            status: "draft",
+          },
+        },
+        {
+          id: "ws-3",
+          created_by_staff_id: "staff-999",
+          engagement: {
+            engagement_code: "ENG-002",
+            engagement_name: "Other User Worksheet",
+            client: { client_legal_name: "Client B" },
+            status: "draft",
+          },
+        },
+      ],
+      isLoading: false,
+    });
+
+    customRender(
+      <CopyFromEngagementDialog
+        open={true}
+        onOpenChange={mockOnOpenChange}
+        currentWorksheetId="ws-1"
+        onApply={mockOnApply}
+      />
+    );
+
+    expect(screen.getByText(/My Worksheet/)).toBeInTheDocument();
+    expect(screen.queryByText(/Other User Worksheet/)).not.toBeInTheDocument();
   });
 });
