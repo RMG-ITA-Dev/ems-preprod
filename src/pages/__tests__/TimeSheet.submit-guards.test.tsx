@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import React from "react";
 import { render as baseRender } from "@/test/utils";
 import { screen } from "@testing-library/react";
@@ -216,10 +216,5 @@ describe("canUnsubmit guard — Bug 0424-101", () => {
 
     // Past week but has rejected lines → button must remain visible
     expect(screen.getByText("timesheet.unsubmit")).toBeInTheDocument();
-  });
-
-  afterEach(() => {
-    mockUseTimesheetWeek.mockReturnValue(DEFAULT_WEEK);
-    mockUsePeriodLineApprovals.mockReturnValue({ data: [] });
   });
 });
