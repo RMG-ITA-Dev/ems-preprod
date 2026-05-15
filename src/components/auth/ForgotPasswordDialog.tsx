@@ -22,7 +22,7 @@ interface ForgotPasswordDialogProps {
 
 export function ForgotPasswordDialog({ children }: ForgotPasswordDialogProps) {
   const { t } = useTranslation();
-  const { resetPasswordForEmail } = useAuth();
+  const { resetPasswordForEmail, checkUserExists } = useAuth();
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
@@ -42,21 +42,39 @@ export function ForgotPasswordDialog({ children }: ForgotPasswordDialogProps) {
     setEmailError(null);
 
     try {
-      // Validate email
+      // Validate email format
       emailSchema.parse(email);
+
+      // Only @ruizmier.com emails allowed
+      const isRuizmierEmail = email.toLowerCase().endsWith('@ruizmier.com');
+      if (!isRuizmierEmail) {
+        setEmailError(t("errors.onlyRuizmierEmail") || "Solo se permiten correos @ruizmier.com");
+        return;
+      }
+
+      // Verify user exists in the system
+      const { exists, error: checkError } = await checkUserExists(email);
+
+      if (checkError) {
+        setEmailError(t("errors.checkUserError") || "Error verificando usuario");
+        return;
+      }
+
+      if (!exists) {
+        setEmailError(t("errors.userNotFound") || "Usuario no encontrado en el sistema");
+        return;
+      }
 
       const { error } = await resetPasswordForEmail(email);
 
       if (error) {
-        // Don't reveal if email exists or not for security
         console.error("Reset password error:", error);
       }
 
-      // Always show success message for security (don't reveal if email exists)
+      // Show success message
       setSent(true);
     } catch (err) {
       if (err instanceof z.ZodError) {
-        // BUG #6: Show inline error instead of toast only
         setEmailError(err.errors[0].message);
       }
     } finally {

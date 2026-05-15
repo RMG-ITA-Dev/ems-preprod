@@ -589,7 +589,10 @@
     "invalidEmail": "Invalid email address",
     "emailTooLong": "Email must be less than 255 characters",
     "afterTerminationDate": "Cannot log time after termination date",
-    "noReingreso": "Reactivation is not allowed. To rehire this person, delete the previous record and create a new one."
+    "noReingreso": "Reactivation is not allowed. To rehire this person, delete the previous record and create a new one.",
+    "onlyRuizmierEmail": "Only @ruizmier.com emails are allowed",
+    "userNotFound": "User not found in the system",
+    "checkUserError": "Error checking user. Please try again."
   },
   "form": {
     "required": "Required",

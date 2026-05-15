@@ -6,10 +6,12 @@ import { toast } from "sonner";
 import { ForgotPasswordDialog } from "../ForgotPasswordDialog";
 
 const mockResetPasswordForEmail = vi.fn();
+const mockCheckUserExists = vi.fn();
 
 vi.mock("@/hooks/useAuth", () => ({
   useAuth: () => ({
     resetPasswordForEmail: mockResetPasswordForEmail,
+    checkUserExists: mockCheckUserExists,
   }),
 }));
 
@@ -45,9 +47,10 @@ describe("ForgotPasswordDialog (bug 0511-107)", () => {
 
   it("FP-2: valid email submission shows the success state and hides the form", async () => {
     const user = userEvent.setup();
+    mockCheckUserExists.mockResolvedValue({ exists: true, error: null });
     renderWithOuterForm();
     await user.click(screen.getByText("Open"));
-    await user.type(screen.getByLabelText("auth.email"), "valid@example.com");
+    await user.type(screen.getByLabelText("auth.email"), "john@ruizmier.com");
     await user.click(screen.getByText("auth.sendResetLink"));
     await waitFor(() =>
       expect(screen.getByText("auth.checkYourEmail")).toBeInTheDocument()
@@ -57,9 +60,10 @@ describe("ForgotPasswordDialog (bug 0511-107)", () => {
 
   it("FP-3: (Regression 0511-107) dialog submission does NOT invoke the outer form's onSubmit", async () => {
     const user = userEvent.setup();
+    mockCheckUserExists.mockResolvedValue({ exists: true, error: null });
     renderWithOuterForm();
     await user.click(screen.getByText("Open"));
-    await user.type(screen.getByLabelText("auth.email"), "valid@example.com");
+    await user.type(screen.getByLabelText("auth.email"), "john@ruizmier.com");
     await user.click(screen.getByText("auth.sendResetLink"));
     await waitFor(() =>
       expect(screen.getByText("auth.checkYourEmail")).toBeInTheDocument()
@@ -69,9 +73,10 @@ describe("ForgotPasswordDialog (bug 0511-107)", () => {
 
   it("FP-4: valid email submission does NOT call toast.error", async () => {
     const user = userEvent.setup();
+    mockCheckUserExists.mockResolvedValue({ exists: true, error: null });
     renderWithOuterForm();
     await user.click(screen.getByText("Open"));
-    await user.type(screen.getByLabelText("auth.email"), "valid@example.com");
+    await user.type(screen.getByLabelText("auth.email"), "john@ruizmier.com");
     await user.click(screen.getByText("auth.sendResetLink"));
     await waitFor(() =>
       expect(screen.getByText("auth.checkYourEmail")).toBeInTheDocument()
@@ -97,9 +102,10 @@ describe("ForgotPasswordDialog (bug 0511-107)", () => {
 
   it("FP-6: closing the dialog resets its state", async () => {
     const user = userEvent.setup();
+    mockCheckUserExists.mockResolvedValue({ exists: true, error: null });
     renderWithOuterForm();
     await user.click(screen.getByText("Open"));
-    await user.type(screen.getByLabelText("auth.email"), "valid@example.com");
+    await user.type(screen.getByLabelText("auth.email"), "john@ruizmier.com");
     await user.click(screen.getByText("auth.sendResetLink"));
     await waitFor(() =>
       expect(screen.getByText("auth.checkYourEmail")).toBeInTheDocument()
@@ -110,5 +116,59 @@ describe("ForgotPasswordDialog (bug 0511-107)", () => {
     expect(emailInput).toBeInTheDocument();
     expect(emailInput).toHaveValue("");
     expect(screen.queryByText("auth.checkYourEmail")).not.toBeInTheDocument();
+  });
+
+  it("FP-7: @ruizmier.com email with existing user shows success state", async () => {
+    const user = userEvent.setup();
+    mockCheckUserExists.mockResolvedValue({ exists: true, error: null });
+    renderWithOuterForm();
+    await user.click(screen.getByText("Open"));
+    await user.type(screen.getByLabelText("auth.email"), "john@ruizmier.com");
+    await user.click(screen.getByText("auth.sendResetLink"));
+    await waitFor(() =>
+      expect(screen.getByText("auth.checkYourEmail")).toBeInTheDocument()
+    );
+    expect(mockCheckUserExists).toHaveBeenCalledWith("john@ruizmier.com");
+  });
+
+  it("FP-8: @ruizmier.com email with non-existing user shows error", async () => {
+    const user = userEvent.setup();
+    mockCheckUserExists.mockResolvedValue({ exists: false, error: null });
+    renderWithOuterForm();
+    await user.click(screen.getByText("Open"));
+    await user.type(screen.getByLabelText("auth.email"), "nonexistent@ruizmier.com");
+    await user.click(screen.getByText("auth.sendResetLink"));
+    await waitFor(() =>
+      expect(screen.getByText("errors.userNotFound")).toBeInTheDocument()
+    );
+    expect(screen.queryByText("auth.checkYourEmail")).not.toBeInTheDocument();
+    expect(mockResetPasswordForEmail).not.toHaveBeenCalled();
+  });
+
+  it("FP-9: @ruizmier.com email with check error shows error message", async () => {
+    const user = userEvent.setup();
+    mockCheckUserExists.mockResolvedValue({ exists: false, error: new Error("DB error") });
+    renderWithOuterForm();
+    await user.click(screen.getByText("Open"));
+    await user.type(screen.getByLabelText("auth.email"), "test@ruizmier.com");
+    await user.click(screen.getByText("auth.sendResetLink"));
+    await waitFor(() =>
+      expect(screen.getByText("errors.checkUserError")).toBeInTheDocument()
+    );
+    expect(mockResetPasswordForEmail).not.toHaveBeenCalled();
+  });
+
+  it("FP-10: external email (non-@ruizmier.com) is rejected", async () => {
+    const user = userEvent.setup();
+    renderWithOuterForm();
+    await user.click(screen.getByText("Open"));
+    await user.type(screen.getByLabelText("auth.email"), "user@gmail.com");
+    await user.click(screen.getByText("auth.sendResetLink"));
+    await waitFor(() =>
+      expect(screen.getByText("errors.onlyRuizmierEmail")).toBeInTheDocument()
+    );
+    expect(screen.queryByText("auth.checkYourEmail")).not.toBeInTheDocument();
+    expect(mockCheckUserExists).not.toHaveBeenCalled();
+    expect(mockResetPasswordForEmail).not.toHaveBeenCalled();
   });
 });
