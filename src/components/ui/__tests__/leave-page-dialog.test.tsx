@@ -62,4 +62,20 @@ describe("LeavePageDialog (bug 0513-111)", () => {
     render(<LeavePageDialog blocker={makeBlocker("blocked")} isDirty={true} />);
     expect(screen.getByText("common.leaveAnyway")).toHaveClass("bg-destructive/70");
   });
+
+  it("LP-08: clicking leaveAnyway button (dirty) calls blocker.proceed", async () => {
+    const blocker = makeBlocker("blocked");
+    const user = userEvent.setup();
+    render(<LeavePageDialog blocker={blocker} isDirty={true} />);
+    await user.click(screen.getByText("common.leaveAnyway"));
+    expect(blocker.proceed).toHaveBeenCalled();
+  });
+
+  it("LP-09: clicking stay button (dirty) calls blocker.reset", async () => {
+    const blocker = makeBlocker("blocked");
+    const user = userEvent.setup();
+    render(<LeavePageDialog blocker={blocker} isDirty={true} />);
+    await user.click(screen.getByText("common.stay"));
+    expect(blocker.reset).toHaveBeenCalled();
+  });
 });
