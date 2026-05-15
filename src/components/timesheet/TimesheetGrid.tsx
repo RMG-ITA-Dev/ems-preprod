@@ -167,9 +167,10 @@ export function TimesheetGrid({
   // Cleanup debounce timers on unmount to prevent memory leaks
   useEffect(() => {
     isMountedRef.current = true;
+    const timers = debounceTimers.current;
     return () => {
       isMountedRef.current = false;
-      Object.values(debounceTimers.current).forEach(clearTimeout);
+      Object.values(timers).forEach(clearTimeout);
     };
   }, []);
 
@@ -347,7 +348,7 @@ export function TimesheetGrid({
 
       executeBatch();
     }
-  }, [saveNowTrigger, weekDates, staffId, periodId, upsertEntry, t, engagementDateMap]);
+  }, [saveNowTrigger, weekDates, staffId, periodId, upsertEntry, t, engagementDateMap, activityNotRequiredIds, adminActivityId, lineApprovals]);
 
   const addNewRow = () => {
     setRows([
@@ -619,7 +620,7 @@ export function TimesheetGrid({
         );
       }, autoSaveSeconds * 1000);
     },
-    [staffId, periodId, autoSaveSeconds, upsertEntry, holidayMap, holidayEngagementId, t, lineApprovals, engagementDateMap]
+    [staffId, periodId, autoSaveSeconds, upsertEntry, holidayMap, holidayEngagementId, t, lineApprovals, engagementDateMap, activityNotRequiredIds, adminActivityId]
   );
 
   const calculateRowTotal = (row: GridRow) => {

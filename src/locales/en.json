@@ -60,7 +60,8 @@
     "saveError": "Error saving changes. Please try again.",
     "status": "Status",
     "back": "Back",
-    "none": "None"
+    "none": "None",
+    "confirm": "Confirm"
   },
   "nav": {
     "main": "Main",
@@ -577,6 +578,8 @@
     "holidayCreated": "Holiday created",
     "holidayUpdated": "Holiday updated",
     "holidayDeleted": "Holiday deleted",
+    "holidaysReplicated": "Holidays created successfully. Please review and verify the dates.",
+    "holidaysReplicatedPartial": "{{count}} holiday(s) created for {{year}}. {{skipped}} date(s) skipped (already existed or invalid).",
     "noStaffRecord": "No staff profile is linked to your account. Please contact an administrator."
   },
   "errors": {
@@ -620,7 +623,12 @@
     "deleteHoliday": "Delete Holiday",
     "date": "Date",
     "name": "Name",
-    "createdBy": "Created By"
+    "createdBy": "Created By",
+    "replicateButton": "Replicate to next year",
+    "replicateConfirmTitle": "Replicate holidays {{fromYear}} → {{toYear}}",
+    "replicateConfirmDesc": "{{count}} holiday(s) from {{fromYear}} will be created for {{toYear}}. Dates already present in {{toYear}} will be skipped. Continue?",
+    "noSourceHolidays": "No holidays are loaded for year {{year}}.",
+    "allDatesAlreadyExist": "All holidays for {{year}} already exist."
   },
  "dashboard": {
     "noData": "No data available for the selected period",

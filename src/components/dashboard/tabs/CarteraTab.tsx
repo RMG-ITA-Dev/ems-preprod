@@ -198,9 +198,10 @@ export function CarteraTab() {
 
       const hoursByPair = aggregateHoursByPeriodAndEngagement(entries ?? []);
 
+      type PeriodJoin = { week_start_date: string; staff: { first_name: string | null; last_name: string | null; short_name: string | null } | null } | null;
       const result: PendingApproval[] = approvals.map((approval) => {
         const eng = engMap.get(approval.engagement_id);
-        const period = approval.period as any;
+        const period = approval.period as PeriodJoin;
         const staff = period?.staff;
         const totalHours =
           hoursByPair.get(compositeKey(approval.period_id, approval.engagement_id)) ?? 0;

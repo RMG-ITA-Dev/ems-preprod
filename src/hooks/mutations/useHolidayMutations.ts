@@ -81,3 +81,74 @@ export function useDeleteHoliday() {
     onError: createMutationErrorHandler("deleting holiday"),
   });
 }
+
+export function useReplicateHolidaysToNextYear() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ created_by }: { created_by: string }) => {
+      const now = new Date();
+      const sourceYear = now.getFullYear();
+      const targetYear = sourceYear + 1;
+
+      const isLeapYear = (y: number) =>
+        (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+
+      const { data: source, error: e1 } = await supabase
+        .from("holidays")
+        .select("holiday_date, holiday_name")
+        .gte("holiday_date", `${sourceYear}-01-01`)
+        .lte("holiday_date", `${sourceYear}-12-31`);
+      if (e1) throw e1;
+      if (!source || source.length === 0)
+        throw new Error(i18n.t("holiday.noSourceHolidays", { year: sourceYear }));
+
+      const { data: existing, error: e2 } = await supabase
+        .from("holidays")
+        .select("holiday_date")
+        .gte("holiday_date", `${targetYear}-01-01`)
+        .lte("holiday_date", `${targetYear}-12-31`);
+      if (e2) throw e2;
+      const existingDates = new Set((existing ?? []).map((h) => h.holiday_date));
+
+      const toInsert: { holiday_date: string; holiday_name: string; created_by: string }[] = [];
+      let skipped = 0;
+      const invalidDates: string[] = [];
+
+      for (const h of source) {
+        const [, mm, dd] = h.holiday_date.split("-");
+        if (mm === "02" && dd === "29" && !isLeapYear(targetYear)) {
+          invalidDates.push(h.holiday_date);
+          continue;
+        }
+        const targetDate = `${targetYear}-${mm}-${dd}`;
+        if (existingDates.has(targetDate)) { skipped++; continue; }
+        toInsert.push({ holiday_date: targetDate, holiday_name: h.holiday_name, created_by });
+      }
+
+      if (toInsert.length === 0)
+        throw new Error(i18n.t("holiday.allDatesAlreadyExist", { year: targetYear }));
+
+      const { error: e3 } = await supabase.from("holidays").insert(toInsert);
+      if (e3) throw e3;
+
+      return { created: toInsert.length, skipped, invalidDates, targetYear };
+    },
+    onSuccess: ({ created, skipped, invalidDates, targetYear }) => {
+      queryClient.invalidateQueries({ queryKey: ["holidays"] });
+      queryClient.invalidateQueries({ queryKey: ["holidays-week"] });
+      const hasPartial = skipped > 0 || invalidDates.length > 0;
+      if (hasPartial) {
+        toast.success(
+          i18n.t("messages.holidaysReplicatedPartial", {
+            count: created,
+            year: targetYear,
+            skipped: skipped + invalidDates.length,
+          })
+        );
+      } else {
+        toast.success(i18n.t("messages.holidaysReplicated"));
+      }
+    },
+    onError: createMutationErrorHandler("replicating holidays"),
+  });
+}

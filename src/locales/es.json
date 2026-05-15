@@ -60,7 +60,8 @@
     "saveError": "Error al guardar los cambios. Intente nuevamente.",
     "status": "Estado",
     "back": "Volver",
-    "none": "Ninguno"
+    "none": "Ninguno",
+    "confirm": "Confirmar"
   },
   "nav": {
     "main": "Principal",
@@ -577,6 +578,8 @@
     "holidayCreated": "Feriado creado",
     "holidayUpdated": "Feriado actualizado",
     "holidayDeleted": "Feriado eliminado",
+    "holidaysReplicated": "Los feriados se crearon exitosamente, se sugiere revisar y cotejar las fechas",
+    "holidaysReplicatedPartial": "{{count}} feriado(s) creado(s) para {{year}}. {{skipped}} fecha(s) omitida(s) (ya existían o no válidas).",
     "noStaffRecord": "No hay un perfil de personal vinculado a su cuenta. Contacte al administrador."
   },
   "errors": {
@@ -620,7 +623,12 @@
     "deleteHoliday": "Eliminar Feriado",
     "date": "Fecha",
     "name": "Nombre",
-    "createdBy": "Creado Por"
+    "createdBy": "Creado Por",
+    "replicateButton": "Replicar al año siguiente",
+    "replicateConfirmTitle": "Replicar feriados {{fromYear}} → {{toYear}}",
+    "replicateConfirmDesc": "Se crearán {{count}} feriado(s) del año {{fromYear}} para el año {{toYear}}. Las fechas que ya existen en {{toYear}} serán omitidas. ¿Desea continuar?",
+    "noSourceHolidays": "No hay feriados cargados para el año {{year}}.",
+    "allDatesAlreadyExist": "Todos los feriados del año {{year}} ya existen."
   },
  "dashboard": {
     "noData": "Sin datos disponibles para el período seleccionado",
