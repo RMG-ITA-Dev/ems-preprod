@@ -111,6 +111,18 @@ const createFormSchema = (t: TFunction) =>
     }).default([]),
   }).refine(
     (data) => {
+      // When deactivating staff, termination_date is required
+      if (!data.is_active && !data.termination_date) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message: t("validation.terminationDateRequired"),
+      path: ["termination_date"],
+    }
+  ).refine(
+    (data) => {
       if (data.termination_date && data.hire_date) {
         return data.termination_date >= data.hire_date;
       }
