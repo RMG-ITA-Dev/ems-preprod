@@ -9,12 +9,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Save, Loader2, FileText, Sun, Snowflake, Lock } from "lucide-react";
+import { Save, Loader2, FileText, Sun, Snowflake, Lock, Copy } from "lucide-react";
 import { useWorksheetById } from "@/hooks/useWorksheetData";
 import { useUserRole } from "@/hooks/useUserRole";
 import { useBatchUpsertCells, useUpdateWorksheet, useCreateWorkOrderFromWorksheet } from "@/hooks/useWorksheetMutations";
 import { useCategories, useActivityCodes, useSetting } from "@/hooks/useEmsData";
 import { WorksheetGrid } from "@/components/worksheet/WorksheetGrid";
+import { CopyFromEngagementDialog } from "@/components/worksheet/CopyFromEngagementDialog";
+import { WorksheetCell } from "@/hooks/useWorksheetData";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { logger } from "@/lib/logger";
@@ -62,6 +64,10 @@ const WorksheetEdit = () => {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty: hasUnsavedChanges });
   
+  // Copy from engagement dialog state
+  const [showCopyDialog, setShowCopyDialog] = useState(false);
+  const [gridKey, setGridKey] = useState(0);
+
   // Create WO dialog state
   const [showCreateWODialog, setShowCreateWODialog] = useState(false);
   const [woCurrency, setWOCurrency] = useState<"USD" | "BOB">("BOB");
@@ -210,6 +216,25 @@ const WorksheetEdit = () => {
     worksheet?.status === "draft" &&
     !hasUnsavedChanges;
 
+  const handleApplyCopy = (sourceCells: WorksheetCell[]) => {
+    const newLocalCells = new Map<string, number>();
+
+    // Load copied cells
+    sourceCells.forEach((cell) => {
+      newLocalCells.set(`${cell.category_id}|${cell.activity_id}`, cell.budget_hours);
+    });
+
+    // Zero out existing DB cells not present in the copy so they get cleared on save
+    worksheet?.cells.forEach((cell) => {
+      const key = `${cell.category_id}|${cell.activity_id}`;
+      if (!newLocalCells.has(key)) newLocalCells.set(key, 0);
+    });
+
+    setLocalCells(newLocalCells);
+    setHasUnsavedChanges(true);
+    setGridKey((k) => k + 1);
+  };
+
   const handleCreateWorkOrder = async () => {
     if (!worksheet || !id) return;
 
@@ -269,6 +294,16 @@ const WorksheetEdit = () => {
             )}
             {hasUnsavedChanges && !isSaving && (
               <span className="text-sm text-muted-foreground">{t("common.unsavedChanges")}</span>
+            )}
+            {!isReadOnly && (
+              <Button
+                variant="outline"
+                onClick={() => setShowCopyDialog(true)}
+                className="btn-action"
+              >
+                <Copy className="h-4 w-4 mr-2" />
+                {t("workMatrix.copyFromEngagement")}
+              </Button>
             )}
             <Button
               variant="cancel"
@@ -402,6 +437,7 @@ const WorksheetEdit = () => {
           <h2 className="text-lg font-semibold">{t("workMatrix.budgetGrid")}</h2>
           {categories && activeActivities.length > 0 ? (
             <WorksheetGrid
+              key={gridKey}
               categories={categories}
               activities={activeActivities}
               cells={mergedCells}
@@ -518,6 +554,14 @@ const WorksheetEdit = () => {
           </DialogContent>
         </Dialog>
       </div>
+      {showCopyDialog && id && (
+        <CopyFromEngagementDialog
+          open={showCopyDialog}
+          onOpenChange={setShowCopyDialog}
+          currentWorksheetId={id}
+          onApply={handleApplyCopy}
+        />
+      )}
       <LeavePageDialog blocker={blocker} isDirty={hasUnsavedChanges} />
     </AppLayout>
   );

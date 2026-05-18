@@ -335,6 +335,9 @@ const TimeSheet = () => {
     && isWithinEditableWindow
     && !period?.is_period_locked
     && (!isFullyApproved || isCurrentWeek);
+    && !isFullyApproved
+    && !period?.is_period_locked
+    && ((isCurrentWeek && isWithinEditableWindow) || hasRejectedLines);
 
   const canSaveDraft = !isBeforeHireDate
     && !isAfterTerminationDate

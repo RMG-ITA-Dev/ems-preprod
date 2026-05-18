@@ -83,6 +83,12 @@ vi.mock("@/components/worksheet/WorksheetGrid", () => ({
   ),
 }));
 
+vi.mock("@/components/worksheet/CopyFromEngagementDialog", () => ({
+  CopyFromEngagementDialog: ({ open }: { open: boolean }) => (
+    open ? <div data-testid="copy-dialog">Copy Dialog</div> : null
+  ),
+}));
+
 function makeWorksheet(overrides: object = {}) {
   return {
     id: "ws-1",
@@ -315,6 +321,44 @@ describe("WorksheetEdit — Work Order Lock Behavior", () => {
       customRender(<WorksheetEdit />);
       const woLink = screen.getByRole("button", { name: /common\.yes/ });
       expect(woLink).toHaveTextContent("workOrders.status.draft");
+    });
+  });
+
+  describe("Copy Button Visibility", () => {
+    it("Copy button is hidden when worksheet locked by pending work order", () => {
+      mockUseWorksheetById.mockReturnValue({
+        data: makeWorksheet({
+          wo_id: "wo-1",
+          work_order: { wo_id: "wo-1", approval_status: "Pending_Approval" },
+        }),
+        isLoading: false,
+      });
+      customRender(<WorksheetEdit />);
+      const copyButton = screen.queryByRole("button", { name: /workMatrix.copyFromEngagement/ });
+      expect(copyButton).not.toBeInTheDocument();
+    });
+
+    it("Copy button is hidden when worksheet locked by approved work order", () => {
+      mockUseWorksheetById.mockReturnValue({
+        data: makeWorksheet({
+          wo_id: "wo-1",
+          work_order: { wo_id: "wo-1", approval_status: "Approved" },
+        }),
+        isLoading: false,
+      });
+      customRender(<WorksheetEdit />);
+      const copyButton = screen.queryByRole("button", { name: /workMatrix.copyFromEngagement/ });
+      expect(copyButton).not.toBeInTheDocument();
+    });
+
+    it("Copy button is visible for draft worksheet with no work order", () => {
+      mockUseWorksheetById.mockReturnValue({
+        data: makeWorksheet({ wo_id: null, work_order: null }),
+        isLoading: false,
+      });
+      customRender(<WorksheetEdit />);
+      const copyButton = screen.getByRole("button", { name: /workMatrix.copyFromEngagement/ });
+      expect(copyButton).toBeInTheDocument();
     });
   });
 });
