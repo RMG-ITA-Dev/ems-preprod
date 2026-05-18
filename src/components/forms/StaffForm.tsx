@@ -76,7 +76,7 @@ const findFirstErrorMessage = (errors: unknown): string | undefined => {
 
 type AppRole = Database["public"]["Enums"]["app_role"];
 
-const createFormSchema = (t: TFunction) =>
+const createFormSchema = (t: TFunction, isEdit: boolean = false) =>
   z.object({
     first_name: z.string().min(1, t("validation.firstNameRequired")),
     last_name: z.string().min(1, t("validation.lastNameRequired")),
@@ -111,8 +111,9 @@ const createFormSchema = (t: TFunction) =>
     }).default([]),
   }).refine(
     (data) => {
-      // When deactivating staff, termination_date is required
-      if (!data.is_active && !data.termination_date) {
+      // When deactivating staff in edit mode, termination_date is required
+      // Skip this validation in create mode (new staff defaults to inactive)
+      if (isEdit && !data.is_active && !data.termination_date) {
         return false;
       }
       return true;
@@ -218,7 +219,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
   const [showSyncDialog, setShowSyncDialog] = useState(false);
   const [syncData, setSyncData] = useState<{ userId: string; newRole: AppRole } | null>(null);
 
-  const formSchema = useMemo(() => createFormSchema(t), [t]);
+  const formSchema = useMemo(() => createFormSchema(t, isEdit), [t, isEdit]);
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
