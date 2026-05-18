@@ -8,7 +8,6 @@
       "Bash(node -e \"console.log\\(require\\('./node_modules/lucide-react/package.json'\\).version\\)\")",
       "Bash(node -e \"const v8 = require\\('v8'\\); console.log\\('heap limit:', Math.round\\(v8.getHeapStatistics\\(\\).heap_size_limit / 1024 / 1024\\), 'MB'\\)\")",
       "Bash(echo \"EXIT: $?\")",
-      "Bash(npm run *)"
       "Bash(npm run *)",
       "Bash(cat .eslintrc.cjs)",
       "Bash(cat .eslintrc.js)",
