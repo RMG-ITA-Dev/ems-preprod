@@ -205,7 +205,7 @@ export function CarteraTab() {
 
       const result: PendingApproval[] = approvals.map((approval) => {
         const eng = engMap.get(approval.engagement_id);
-        const period = approval.period as PeriodRow | null;
+        const period = approval.period as { week_start_date?: string; staff?: { first_name?: string; last_name?: string; short_name?: string } | null } | null;
         const staff = period?.staff;
         const totalHours =
           hoursByPair.get(compositeKey(approval.period_id, approval.engagement_id)) ?? 0;
