@@ -167,9 +167,10 @@ export function TimesheetGrid({
   // Cleanup debounce timers on unmount to prevent memory leaks
   useEffect(() => {
     isMountedRef.current = true;
+    const timers = debounceTimers.current;
     return () => {
       isMountedRef.current = false;
-      Object.values(debounceTimers.current).forEach(clearTimeout);
+      Object.values(timers).forEach(clearTimeout);
     };
   }, []);
 
@@ -347,6 +348,10 @@ export function TimesheetGrid({
 
       executeBatch();
     }
+    // lineApprovals/activityNotRequiredIds/adminActivityId are read from the current closure
+    // at trigger time via rowsRef; adding them would re-arm the effect on every prop change
+    // (unintentionally triggering a batch save). rowsRef keeps their values fresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [saveNowTrigger, weekDates, staffId, periodId, upsertEntry, t, engagementDateMap]);
 
   const addNewRow = () => {
@@ -420,6 +425,17 @@ export function TimesheetGrid({
   const handleEngagementChange = (rowId: string, engagementId: string) => {
     const currentRow = rows.find(r => r.id === rowId);
     if (!currentRow) return;
+
+    // BUG 0508-106: Prevent selecting an engagement whose line approval is already "approved".
+    // Must run before the duplicate-merge check: without this guard, selecting an approved
+    // engagement that shares the same engagement+activity as an existing row would trigger the
+    // merge branch first — silently merging hours into the locked approved row and deleting the
+    // current row — with no toast and no undo path.
+    const targetApproval = lineApprovals.find(la => la.engagement_id === engagementId);
+    if (targetApproval?.status === "approved") {
+      toast.error(t("timesheet.cannotSelectApprovedEngagement"));
+      return;
+    }
 
     // Auto-assign ADM activity for activity-not-required engagements
     const isActivityNotRequired = activityNotRequiredIds?.has(engagementId);
@@ -619,7 +635,7 @@ export function TimesheetGrid({
         );
       }, autoSaveSeconds * 1000);
     },
-    [staffId, periodId, autoSaveSeconds, upsertEntry, holidayMap, holidayEngagementId, t, lineApprovals, engagementDateMap]
+    [staffId, periodId, autoSaveSeconds, upsertEntry, holidayMap, holidayEngagementId, t, lineApprovals, engagementDateMap, activityNotRequiredIds, adminActivityId]
   );
 
   const calculateRowTotal = (row: GridRow) => {
@@ -843,6 +859,28 @@ export function TimesheetGrid({
                           </TooltipTrigger>
                           <TooltipContent>
                             <p>{t("timesheet.cellOutsideEngagementDates")}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      ) : (isDayLockedByHire || isDayLockedByTermination) ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div className="relative">
+                              <NumericInput
+                                decimals={1}
+                                locale="en"
+                                min={0}
+                                max={24}
+                                value={row.hours[dateStr] || ""}
+                                onChange={(val) =>
+                                  handleHoursChange(row.id, date, String(val))
+                                }
+                                disabled={true}
+                                className="w-16 text-center mx-auto border-0 bg-transparent font-mono opacity-50"
+                              />
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>{t("timesheet.dayNotEnabledForEntry")}</p>
                           </TooltipContent>
                         </Tooltip>
                       ) : (

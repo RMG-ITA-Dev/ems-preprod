@@ -2,6 +2,10 @@
 
 This project is part of the Ruizmier ERM suite. All UI/UX must follow the **Ruizmier Skill Set (RSS)** documented in `docs/skills/`.
 
+## Operations Reference (single source of truth)
+
+Tech stack, project conventions, edge function inventory, the Lovable deployment workflow (what auto-syncs vs which prompt to use), files that must never be hand-edited, and run commands live in **[`docs/operations.md`](../docs/operations.md)**. The same file is linked from `CLAUDE.md`, `AGENTS.md`, and `README.md`, so every tool reads from one source. Do not duplicate its content here.
+
 ## Design System Reference
 
 Read `docs/skills/design-system.md` before making any visual changes. Key rules:
