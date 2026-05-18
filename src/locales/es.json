@@ -590,7 +590,10 @@
     "invalidEmail": "Dirección de correo inválida",
     "emailTooLong": "El correo debe tener menos de 255 caracteres",
     "afterTerminationDate": "No se puede registrar tiempo después de la fecha de salida",
-    "noReingreso": "No se permite reingreso. Para reincorporar a esta persona, elimine el registro anterior y cree uno nuevo."
+    "noReingreso": "No se permite reingreso. Para reincorporar a esta persona, elimine el registro anterior y cree uno nuevo.",
+    "onlyRuizmierEmail": "Solo se permiten correos válidos.",
+    "userNotFound": "Usuario no encontrado en el sistema",
+    "checkUserError": "Error verificando usuario. Intente nuevamente."
   },
   "form": {
     "required": "Requerido",
