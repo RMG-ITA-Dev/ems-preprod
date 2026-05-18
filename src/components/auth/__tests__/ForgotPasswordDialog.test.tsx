@@ -24,10 +24,10 @@ vi.mock("react-i18next", () => ({
 describe("ForgotPasswordDialog (bug 0511-107)", () => {
   const mockOuterSubmit = vi.fn((e: React.FormEvent) => e.preventDefault());
 
-  const renderWithOuterForm = () =>
+  const renderWithOuterForm = (allowedDomain = "ruizmier.com") =>
     render(
       <form onSubmit={mockOuterSubmit}>
-        <ForgotPasswordDialog>
+        <ForgotPasswordDialog allowedDomain={allowedDomain}>
           <button type="button">Open</button>
         </ForgotPasswordDialog>
       </form>
@@ -36,6 +36,7 @@ describe("ForgotPasswordDialog (bug 0511-107)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockResetPasswordForEmail.mockResolvedValue({ error: null });
+    mockCheckUserExists.mockResolvedValue({ exists: true, error: null });
   });
 
   it("FP-1: opens dialog when trigger is clicked", async () => {

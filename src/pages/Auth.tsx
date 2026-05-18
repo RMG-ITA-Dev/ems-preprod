@@ -271,7 +271,7 @@ const Auth = () => {
                 <div className="flex items-center justify-between">
                   <Label htmlFor="password">{t("auth.password")}</Label>
                   {mode === "signin" && (
-                    <ForgotPasswordDialog>
+                    <ForgotPasswordDialog allowedDomain={allowedDomain}>
                       <button
                         type="button"
                         className="text-xs text-primary hover:underline"

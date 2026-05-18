@@ -18,9 +18,10 @@ import { z } from "zod";
 
 interface ForgotPasswordDialogProps {
   children: React.ReactNode;
+  allowedDomain?: string;
 }
 
-export function ForgotPasswordDialog({ children }: ForgotPasswordDialogProps) {
+export function ForgotPasswordDialog({ children, allowedDomain }: ForgotPasswordDialogProps) {
   const { t } = useTranslation();
   const { resetPasswordForEmail, checkUserExists } = useAuth();
   const [open, setOpen] = useState(false);
@@ -45,11 +46,13 @@ export function ForgotPasswordDialog({ children }: ForgotPasswordDialogProps) {
       // Validate email format
       emailSchema.parse(email);
 
-      // Only @ruizmier.com emails allowed
-      const isRuizmierEmail = email.toLowerCase().endsWith('@ruizmier.com');
-      if (!isRuizmierEmail) {
-        setEmailError(t("errors.onlyRuizmierEmail") || "Solo se permiten correos @ruizmier.com");
-        return;
+      // Only allowed domain emails permitted
+      if (allowedDomain) {
+        const isAllowedDomain = email.toLowerCase().endsWith(`@${allowedDomain.toLowerCase()}`);
+        if (!isAllowedDomain) {
+          setEmailError(t("errors.onlyRuizmierEmail") || `Solo se permiten correos @${allowedDomain}`);
+          return;
+        }
       }
 
       // Verify user exists in the system
