@@ -579,6 +579,7 @@ const TimeSheet = () => {
           !isBeforeHireDate &&
           !isAfterTerminationDate &&
           isWithinEditableWindow &&
+          entries.length > 0 &&
           !isSubmitted &&
           !isFullyApproved &&
           !period?.is_period_locked && (
