@@ -580,6 +580,7 @@ const TimeSheet = () => {
           !isAfterTerminationDate &&
           isWithinEditableWindow &&
           !isSubmitted &&
+          !isFullyApproved &&
           !period?.is_period_locked && (
             <Alert>
               <Info className="h-4 w-4" />
