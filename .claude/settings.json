@@ -6,7 +6,8 @@
       "Bash(git branch *)",
       "Bash(git pull *)",
       "Bash(git commit -m ' *)",
-      "Bash(git check-ignore *)"
+      "Bash(git check-ignore *)",
+      "Bash(npx vitest *)"
     ]
   }
 }

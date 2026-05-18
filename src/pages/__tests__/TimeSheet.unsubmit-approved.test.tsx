@@ -68,7 +68,8 @@ vi.mock("@/hooks/useCurrentStaff", () => ({
   }),
 }));
 
-// Period is submitted, not locked. Both line approvals are fully approved.
+// Period is submitted, not locked. Line approvals are pending (not fully approved),
+// so canUnsubmit is true and the "Retirar Envío" button is visible.
 vi.mock("@/hooks/useTimesheetWeek", () => ({
   useTimesheetWeek: () => ({
     period: {
@@ -92,8 +93,8 @@ vi.mock("@/hooks/useTimesheetApprovals", async (importOriginal) => {
     ...actual,
     usePeriodLineApprovals: () => ({
       data: [
-        { approval_id: "a1", status: "approved", engagement_id: "eng-1", period_id: "p1" },
-        { approval_id: "a2", status: "approved", engagement_id: "eng-2", period_id: "p1" },
+        { approval_id: "a1", status: "pending", engagement_id: "eng-1", period_id: "p1" },
+        { approval_id: "a2", status: "pending", engagement_id: "eng-2", period_id: "p1" },
       ],
     }),
   };
@@ -180,8 +181,8 @@ describe("TimeSheet unsubmit-approved (BUG 0508-105)", () => {
     );
   });
 
-  // UA1: Partner submitted this week -> banner AND "Retirar Envio" button both visible
-  it("UA1: shows Retirar Envio when fully approved and current week", () => {
+  // UA1: Submitted this week with pending approvals -> "Retirar Envio" button visible
+  it("UA1: shows Retirar Envio when submitted with pending approvals and current week", () => {
     renderWithRouter(<TimeSheet />);
     expect(screen.getByText("timesheet.unsubmit")).toBeInTheDocument();
   });
