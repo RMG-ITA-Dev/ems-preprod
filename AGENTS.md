@@ -2,21 +2,15 @@
 
 This repository is part of the **Ruizmier ERM suite** — a family of bilingual (EN/ES) professional services management applications sharing a unified design system and component patterns.
 
-## Tech Stack
+## Operations Reference (single source of truth)
 
-React 18 + Vite + TypeScript, Tailwind CSS + shadcn/ui, Supabase (Lovable Cloud), TanStack Query v5, react-hook-form + Zod, react-i18next.
+Tech stack, project conventions, edge function inventory, Lovable deployment workflow, files that must never be hand-edited, and run commands all live in **[`docs/operations.md`](./docs/operations.md)**. Read that file first.
+
+The same file is linked from `CLAUDE.md` (Claude Code), `.lovable/instructions.md` (Lovable.dev), and `README.md` (human contributors), so every tool reads from one source.
 
 ## Design System & UI/UX Skills
 
-All UI/UX conventions are documented in `docs/skills/`:
-
-| Document | Scope |
-|----------|-------|
-| `docs/skills/README.md` | Skill index and cross-platform usage |
-| `docs/skills/design-system.md` | Colors, typography, spacing, button rules, theming |
-| `docs/skills/page-patterns.md` | Layout, List View, Add/Edit View, navigation, responsive |
-| `docs/skills/component-patterns.md` | DataTable, buttons, forms, dialogs, badges |
-| `docs/skills/lovable-prompts.md` | Prompt templates for Lovable.dev |
+All UI/UX conventions are documented in `docs/skills/` — see `docs/skills/README.md` for the index covering design system, page patterns, component patterns, and Lovable prompt templates.
 
 ## Critical Rules (Always Follow)
 
@@ -33,8 +27,8 @@ All UI/UX conventions are documented in `docs/skills/`:
 
 ## File Conventions
 
-- **Do not edit**: `src/integrations/supabase/types.ts` (auto-generated)
-- **Do not edit**: `supabase/config.toml` (managed by Lovable Cloud)
+Auto-generated / managed files that must never be hand-edited are listed in [`docs/operations.md`](./docs/operations.md#files-that-must-never-be-hand-edited). Other conventions:
+
 - **Component library**: shadcn/ui with custom extensions in `src/components/ui/`
 - **Icons**: `lucide-react` at `h-4 w-4` standard size
 - **Font**: IBM Plex Sans (auto-switches to condensed on mobile via CSS variable)
