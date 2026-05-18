@@ -10,7 +10,6 @@
       "Bash(echo \"EXIT: $?\")",
       "Bash(echo \"EXIT:$?\")",
       "Bash(git stash *)",
-      "Bash(npm run *)"
       "Bash(npm run *)",
       "Bash(cat .eslintrc.cjs)",
       "Bash(cat .eslintrc.js)",

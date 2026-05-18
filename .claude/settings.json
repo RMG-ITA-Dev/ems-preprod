@@ -2,11 +2,11 @@
   "permissions": {
     "allow": [
       "Bash(git add *)",
-      "Bash(git rebase *)",
-      "Bash(git push *)",
-      "Bash(git checkout *)",
       "Bash(git merge *)",
-      "Bash(git branch *)"
+      "Bash(git branch *)",
+      "Bash(git pull *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git check-ignore *)"
     ]
   }
 }
