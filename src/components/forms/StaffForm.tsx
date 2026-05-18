@@ -76,7 +76,7 @@ const findFirstErrorMessage = (errors: unknown): string | undefined => {
 
 type AppRole = Database["public"]["Enums"]["app_role"];
 
-const createFormSchema = (t: TFunction) =>
+const createFormSchema = (t: TFunction, isEdit: boolean = false, previousIsActive?: boolean) =>
   z.object({
     first_name: z.string().min(1, t("validation.firstNameRequired")),
     last_name: z.string().min(1, t("validation.lastNameRequired")),
@@ -110,6 +110,19 @@ const createFormSchema = (t: TFunction) =>
       });
     }).default([]),
   }).refine(
+    (data) => {
+      // Require termination_date only for actual active→inactive transitions
+      // Don't require if already inactive or transitioning to active
+      if (previousIsActive === true && !data.is_active && !data.termination_date) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message: t("validation.terminationDateRequired"),
+      path: ["termination_date"],
+    }
+  ).refine(
     (data) => {
       if (data.termination_date && data.hire_date) {
         return data.termination_date >= data.hire_date;
@@ -206,7 +219,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
   const [showSyncDialog, setShowSyncDialog] = useState(false);
   const [syncData, setSyncData] = useState<{ userId: string; newRole: AppRole } | null>(null);
 
-  const formSchema = useMemo(() => createFormSchema(t), [t]);
+  const formSchema = useMemo(() => createFormSchema(t, isEdit, staff?.is_active), [t, isEdit, staff?.is_active]);
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -271,8 +284,6 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
   const lastName = form.watch("last_name");
   const currentShortName = form.watch("short_name");
   const currentInitials = form.watch("initials");
-  const watchIsActive = form.watch("is_active");
-  const watchTerminationDate = form.watch("termination_date");
 
   // No-Reingreso: block reactivation for deactivated staff with termination_date
   const isReactivationBlocked = isEdit && staff && !staff.is_active && !!staff.termination_date;
@@ -289,12 +300,6 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
     }
   }, [firstName, lastName, isEdit, currentShortName, currentInitials, form]);
 
-  // Auto-set termination_date when toggling is_active from true to false
-  useEffect(() => {
-    if (isEdit && staff?.is_active && !watchIsActive && !watchTerminationDate) {
-      form.setValue("termination_date", new Date().toISOString().split("T")[0]);
-    }
-  }, [watchIsActive, isEdit, staff?.is_active, watchTerminationDate, form]);
 
   const onConfirmSync = async () => {
     if (syncData) {
