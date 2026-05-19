@@ -48,6 +48,11 @@ interface PendingApproval {
   hours: number;
 }
 
+type PeriodRow = {
+  week_start_date: string | null;
+  staff: { first_name: string | null; last_name: string | null; short_name: string | null } | null;
+};
+
 export function CarteraTab() {
   const { t } = useTranslation();
   const { startDateStr, endDateStr, setActiveTab, setSelectedEngagementId } = useDashboard();
