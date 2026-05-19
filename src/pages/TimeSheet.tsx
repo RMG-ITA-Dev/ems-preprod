@@ -160,6 +160,20 @@ const TimeSheet = () => {
   const holidayEngagementId = useHolidayEngagementId();
   const adminActivityId = useAdminActivityId();
 
+  const holidayHoursLogged = useMemo(
+    () =>
+      holidayEngagementId
+        ? entries
+            .filter((e) => e.engagement_id === holidayEngagementId)
+            .reduce((s, e) => s + Number(e.hours_logged ?? 0), 0)
+        : 0,
+    [entries, holidayEngagementId],
+  );
+  const holidayHoursRemaining = Math.max(
+    0,
+    holidayMap.size * dailyMin - holidayHoursLogged,
+  );
+
   // BUG 0306-74: Prorate weekly limits for partial weeks
   const holidayDateSet = useMemo(() => {
     const set = new Set<string>();
@@ -575,6 +589,7 @@ const TimeSheet = () => {
 
         {/* Holiday week hint — visible before the user hits the submit guard */}
         {hasWeekHolidays &&
+          holidayHoursRemaining > 0 &&
           !!holidayEngagementId &&
           !isBeforeHireDate &&
           !isAfterTerminationDate &&
@@ -588,7 +603,7 @@ const TimeSheet = () => {
               <AlertDescription>
                 {t("timesheet.holidayWeekHint", {
                   count: holidayMap.size,
-                  hours: holidayMap.size * dailyMin,
+                  hours: holidayHoursRemaining,
                 })}
               </AlertDescription>
             </Alert>
