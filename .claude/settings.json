@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add *)",
+      "Bash(git merge *)",
+      "Bash(git branch *)",
+      "Bash(git pull *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git check-ignore *)",
+      "Bash(npx vitest *)"
+    ]
+  }
+}

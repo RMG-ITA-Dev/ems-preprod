@@ -858,6 +858,7 @@
     "holidayNotConfiguredAttempt": "Cannot log time on holidays. The holiday engagement has not been configured by an administrator.",
     "holidayTooltip": "Holiday: {{name}}",
     "holidayEntriesSkipped": "{{count}} entries skipped due to holidays",
+    "holidayWeekHint": "This week has {{count}} holiday day(s). Log {{hours}}h against the Holiday Engagement to meet the weekly minimum.",
     "lineApproved": "This line is approved and cannot be modified.",
     "approvedLineCannotEdit": "Cannot modify hours on an approved line. Only rejected lines can be edited.",
     "deleteRowTitle": "Delete timesheet row",

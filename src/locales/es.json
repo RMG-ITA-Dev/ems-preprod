@@ -858,6 +858,7 @@
     "holidayNotConfiguredAttempt": "No se puede registrar tiempo en feriados. El encargo de feriados no ha sido configurado por un administrador.",
     "holidayTooltip": "Feriado: {{name}}",
     "holidayEntriesSkipped": "{{count}} registros omitidos por feriados",
+    "holidayWeekHint": "Esta semana contiene {{count}} día(s) feriado(s). Registre {{hours}}h contra el Encargo de Feriados para completar el mínimo semanal.",
     "lineApproved": "Esta línea fue aprobada y no puede modificarse.",
     "approvedLineCannotEdit": "No se pueden modificar horas de una línea aprobada. Solo las líneas rechazadas pueden editarse.",
     "deleteRowTitle": "Eliminar fila de la hoja de tiempo",
