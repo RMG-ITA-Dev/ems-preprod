@@ -194,13 +194,13 @@ describe('mergeCategoryBreakdown', () => {
     expect(result.filter(r => r.category_id === 'c1')).toHaveLength(1);
   });
 
-  it('coerces null numeric fields to 0 via safeNumber', () => {
+  it('coerces null numeric fields — budget/variance to 0, display_order defaults to 99', () => {
     const result = mergeCategoryBreakdown(
       [budgetRow('c1', 'Senior', null, null)],
       [],
     );
     expect(result[0].budget_hours).toBe(0);
-    expect(result[0].display_order).toBe(0);
+    expect(result[0].display_order).toBe(99);
     expect(result[0].variance).toBe(0);
   });
 });

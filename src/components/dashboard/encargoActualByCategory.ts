@@ -44,7 +44,7 @@ export function aggregateActualHoursByCategory(
         category_id: category.category_id,
         category_name: category.category_name ?? '',
         actual_hours: safe,
-        display_order: safeNumber(category.display_order) || 99,
+        display_order: category.display_order != null ? safeNumber(category.display_order) : 99,
       });
     }
   }
@@ -90,7 +90,7 @@ export function mergeCategoryBreakdown(
       actual_hours: actualHours,
       variance: budgetHours - actualHours,
       consumed_percent: budgetHours > 0 ? (actualHours / budgetHours) * 100 : 0,
-      display_order: safeNumber(budget.category_display_order) || 99,
+      display_order: budget.category_display_order != null ? safeNumber(budget.category_display_order) : 99,
     };
   });
 
