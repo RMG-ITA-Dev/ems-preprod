@@ -43,12 +43,15 @@ export function ForgotPasswordDialog({ children, allowedDomain }: ForgotPassword
     setEmailError(null);
 
     try {
-      // Validate email format
-      emailSchema.parse(email);
+      // Validate email format. Use the trimmed/normalized value from the
+      // schema for every downstream check and the Supabase call — otherwise
+      // an accidental whitespace would defeat the domain check and pass a
+      // non-normalized address to GoTrue.
+      const validatedEmail = emailSchema.parse(email);
 
       // Only allowed domain emails permitted
       if (allowedDomain) {
-        const isAllowedDomain = email.toLowerCase().endsWith(`@${allowedDomain.toLowerCase()}`);
+        const isAllowedDomain = validatedEmail.toLowerCase().endsWith(`@${allowedDomain.toLowerCase()}`);
         if (!isAllowedDomain) {
           setEmailError(t("errors.onlyRuizmierEmail", { domain: allowedDomain }));
           return;
@@ -63,7 +66,7 @@ export function ForgotPasswordDialog({ children, allowedDomain }: ForgotPassword
       // no-ops the reset for unknown emails, which is the OWASP-recommended
       // behavior. Errors are logged for monitoring but never surfaced to the
       // user; success state is shown unconditionally.
-      const { error } = await resetPasswordForEmail(email);
+      const { error } = await resetPasswordForEmail(validatedEmail);
 
       if (error) {
         console.error("Reset password error:", error);
