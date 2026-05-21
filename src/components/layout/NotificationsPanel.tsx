@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Bell } from "lucide-react";
 import { format } from "date-fns";
 import { useTranslation } from "react-i18next";
@@ -11,6 +12,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { useStaffingAlerts } from "@/hooks/useStaffingAlerts";
+import { useMarkAlertsSeen } from "@/hooks/useMarkAlertsSeen";
 import { cn } from "@/lib/utils";
 
 function priorityBadge(level: string | null, t: (key: string) => string) {
@@ -34,16 +36,33 @@ function priorityBadge(level: string | null, t: (key: string) => string) {
 export function NotificationsPanel() {
   const { t } = useTranslation();
   const { data: alerts, isPending, isError } = useStaffingAlerts();
+  const markSeen = useMarkAlertsSeen();
+  const [open, setOpen] = useState(false);
 
   const count = alerts?.length ?? 0;
   const hasAlerts = count > 0;
+  const hasUnseenAlerts = alerts?.some((a) => !a.seen_at) ?? false;
+
+  const handleOpenChange = (next: boolean) => {
+    setOpen(next);
+    if (next && alerts?.length) {
+      const unseen = alerts
+        .filter((a) => !a.seen_at)
+        .map((a) => ({
+          staff_id: a.staff_id as string,
+          entity_id: a.entity_id as string,
+          alert_type: a.alert_type as string,
+        }));
+      if (unseen.length) markSeen.mutate(unseen);
+    }
+  };
 
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
         <Button variant="ghost" size="icon" className="relative flex-shrink-0">
           <Bell className="h-5 w-5 text-muted-foreground" />
-          {hasAlerts && (
+          {hasUnseenAlerts && (
             <span className="absolute top-1.5 right-1.5 h-2 w-2 bg-red-500 rounded-full" />
           )}
         </Button>
