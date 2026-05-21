@@ -5,6 +5,9 @@
 -- No new tables — view is fully derived from existing data.
 -- ============================================================================
 
+-- Migration: recreate vw_staffing_alerts
+DROP VIEW IF EXISTS public.vw_staffing_alerts;
+
 CREATE OR REPLACE VIEW public.vw_staffing_alerts AS
 
 -- Alert Type 1: Pending timesheet line approvals (shown to the approver)
