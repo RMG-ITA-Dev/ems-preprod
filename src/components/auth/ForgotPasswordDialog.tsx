@@ -23,7 +23,7 @@ interface ForgotPasswordDialogProps {
 
 export function ForgotPasswordDialog({ children, allowedDomain }: ForgotPasswordDialogProps) {
   const { t } = useTranslation();
-  const { resetPasswordForEmail, checkUserExists } = useAuth();
+  const { resetPasswordForEmail } = useAuth();
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
@@ -50,31 +50,25 @@ export function ForgotPasswordDialog({ children, allowedDomain }: ForgotPassword
       if (allowedDomain) {
         const isAllowedDomain = email.toLowerCase().endsWith(`@${allowedDomain.toLowerCase()}`);
         if (!isAllowedDomain) {
-          setEmailError(t("errors.onlyRuizmierEmail") || `Solo se permiten correos @${allowedDomain}`);
+          setEmailError(t("errors.onlyRuizmierEmail", { domain: allowedDomain }));
           return;
         }
       }
 
-      // Verify user exists in the system
-      const { exists, error: checkError } = await checkUserExists(email);
-
-      if (checkError) {
-        setEmailError(t("errors.checkUserError") || "Error verificando usuario");
-        return;
-      }
-
-      if (!exists) {
-        setEmailError(t("errors.userNotFound") || "Usuario no encontrado en el sistema");
-        return;
-      }
-
+      // Always call Supabase and show the uniform success state. Pre-checking
+      // whether the email belongs to a known user would (a) require letting
+      // `anon` read public.staff — currently blocked by RLS, which is what
+      // broke this dialog after commit 47c169a — and (b) reveal whether an
+      // email is registered (CWE-204 account enumeration). Supabase silently
+      // no-ops the reset for unknown emails, which is the OWASP-recommended
+      // behavior. Errors are logged for monitoring but never surfaced to the
+      // user; success state is shown unconditionally.
       const { error } = await resetPasswordForEmail(email);
 
       if (error) {
         console.error("Reset password error:", error);
       }
 
-      // Show success message
       setSent(true);
     } catch (err) {
       if (err instanceof z.ZodError) {

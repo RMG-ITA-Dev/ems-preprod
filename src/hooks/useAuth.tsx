@@ -16,7 +16,6 @@ interface AuthContextType {
   signOut: () => Promise<void>;
   updatePassword: (newPassword: string) => Promise<{ error: Error | null }>;
   resetPasswordForEmail: (email: string) => Promise<{ error: Error | null }>;
-  checkUserExists: (email: string) => Promise<{ exists: boolean; error: Error | null }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -209,26 +208,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: error as Error | null };
   };
 
-  const checkUserExists = async (email: string) => {
-    try {
-      const { data, error } = await supabase
-        .from('staff')
-        .select('staff_id')
-        .eq('email', email.toLowerCase())
-        .maybeSingle();
-
-      if (error) {
-        return { exists: false, error: error as Error };
-      }
-
-      return { exists: !!data, error: null };
-    } catch (err) {
-      return { exists: false, error: err as Error };
-    }
-  };
-
   return (
-    <AuthContext.Provider value={{ user, session, loading, signIn, signUp, signOut, updatePassword, resetPasswordForEmail, checkUserExists }}>
+    <AuthContext.Provider value={{ user, session, loading, signIn, signUp, signOut, updatePassword, resetPasswordForEmail }}>
       {children}
     </AuthContext.Provider>
   );
