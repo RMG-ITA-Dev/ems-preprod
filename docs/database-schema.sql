@@ -1751,7 +1751,9 @@ SECURITY DEFINER
 SET search_path TO 'public'
 AS $$
 BEGIN
-  IF OLD.is_active = false AND NEW.is_active = true THEN
+  IF OLD.is_active = false
+     AND NEW.is_active = true
+     AND (OLD.termination_date IS NOT NULL OR OLD.deleted_at IS NOT NULL) THEN
     RAISE EXCEPTION 'REACTIVATION_BLOCKED: Staff reactivation is not permitted. Delete the record and create a new one.';
   END IF;
   RETURN NEW;
