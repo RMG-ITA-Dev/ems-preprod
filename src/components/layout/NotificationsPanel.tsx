@@ -13,20 +13,21 @@ import {
 import { useStaffingAlerts } from "@/hooks/useStaffingAlerts";
 import { cn } from "@/lib/utils";
 
-function priorityBadge(level: string | null) {
+function priorityBadge(level: string | null, t: (key: string) => string) {
+  const label = t(`notifications.priority.${level?.toLowerCase() ?? "unknown"}`);
   switch (level?.toLowerCase()) {
     case "high":
-      return <Badge variant="destructive">{level}</Badge>;
+      return <Badge variant="destructive">{label}</Badge>;
     case "medium":
       return (
         <Badge className="bg-warning/10 text-warning border-warning/30 hover:bg-warning/20">
-          {level}
+          {label}
         </Badge>
       );
     case "low":
-      return <Badge variant="secondary">{level}</Badge>;
+      return <Badge variant="secondary">{label}</Badge>;
     default:
-      return <Badge variant="outline">{level ?? "—"}</Badge>;
+      return <Badge variant="outline">{label}</Badge>;
   }
 }
 
@@ -94,19 +95,23 @@ export function NotificationsPanel() {
                 )}
               >
                 <div className="flex items-center justify-between gap-2">
-                  {priorityBadge(alert.priority_level)}
+                  {priorityBadge(alert.priority_level, t)}
                   {alert.detected_at && (
                     <span className="text-xs text-muted-foreground">
                       {format(new Date(alert.detected_at), "dd/MM/yyyy")}
                     </span>
                   )}
                 </div>
-                {alert.description && (
-                  <p className="text-sm leading-snug">{alert.description}</p>
-                )}
-                {alert.alert_type && (
-                  <p className="text-xs text-muted-foreground">{alert.alert_type}</p>
-                )}
+                <p className="text-sm leading-snug">
+                  {alert.alert_type
+                    ? t(`notifications.types.${alert.alert_type}`, {
+                        staff: alert.staff_name ?? "",
+                        engagement: alert.engagement_name ?? "",
+                        client: alert.description ?? "",
+                        subject: alert.description ?? "",
+                      })
+                    : (alert.description ?? "")}
+                </p>
               </div>
             ))
           }

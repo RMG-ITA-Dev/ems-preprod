@@ -1207,6 +1207,12 @@
       "medium": "Medium",
       "low": "Low",
       "unknown": "—"
+    },
+    "types": {
+      "timesheet_pending_approval": "{{staff}}'s timesheet — {{engagement}}",
+      "work_order_pending_approval": "Work order pending approval — {{engagement}}",
+      "engagement_created": "New engagement: {{engagement}} ({{client}})",
+      "new_user_registered": "New user registered: {{subject}}"
     }
   }
 }

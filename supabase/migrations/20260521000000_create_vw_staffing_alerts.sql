@@ -60,6 +60,87 @@ FROM public.work_orders wo
 JOIN public.engagements e         ON e.engagement_id  = wo.engagement_id
 JOIN public.staff s_partner       ON s_partner.staff_id = e.partner_id
 WHERE wo.approval_status NOT IN ('Approved', 'Rejected')
-  AND e.partner_id IS NOT NULL;
+  AND e.partner_id IS NOT NULL
+
+UNION ALL
+
+-- Alert Type 3: Engagement created → partner (7-day window)
+SELECT
+  'engagement_created'::text                                               AS alert_type,
+  NULL::varchar                                                            AS category_name,
+  cl.client_legal_name                                                     AS description,
+  e.created_at                                                             AS detected_at,
+  e.engagement_id,
+  e.engagement_name,
+  e.engagement_code,
+  e.engagement_id::text                                                    AS entity_id,
+  'medium'::text                                                           AS priority_level,
+  e.partner_id                                                             AS staff_id,
+  s.first_name || ' ' || s.last_name                                      AS staff_name,
+  1::numeric                                                               AS required_count,
+  e.start_date,
+  e.end_date
+FROM public.engagements e
+JOIN public.clients cl  ON cl.client_id  = e.client_id
+JOIN public.staff s     ON s.staff_id    = e.partner_id
+WHERE e.partner_id IS NOT NULL
+  AND e.created_at >= now() - INTERVAL '7 days'
+
+UNION ALL
+
+-- Alert Type 4: Engagement created → manager, only if different from partner (7-day window)
+SELECT
+  'engagement_created'::text                                               AS alert_type,
+  NULL::varchar                                                            AS category_name,
+  cl.client_legal_name                                                     AS description,
+  e.created_at                                                             AS detected_at,
+  e.engagement_id,
+  e.engagement_name,
+  e.engagement_code,
+  e.engagement_id::text                                                    AS entity_id,
+  'medium'::text                                                           AS priority_level,
+  e.manager_id                                                             AS staff_id,
+  s.first_name || ' ' || s.last_name                                      AS staff_name,
+  1::numeric                                                               AS required_count,
+  e.start_date,
+  e.end_date
+FROM public.engagements e
+JOIN public.clients cl  ON cl.client_id  = e.client_id
+JOIN public.staff s     ON s.staff_id    = e.manager_id
+WHERE e.manager_id IS NOT NULL
+  AND e.manager_id IS DISTINCT FROM e.partner_id
+  AND e.created_at >= now() - INTERVAL '7 days'
+
+UNION ALL
+
+-- Alert Type 5: New staff registered → all active admins (30-day window)
+SELECT
+  'new_user_registered'::text                                              AS alert_type,
+  c.category_name,
+  s_new.first_name || ' ' || s_new.last_name                             AS description,
+  s_new.created_at                                                         AS detected_at,
+  NULL::uuid                                                               AS engagement_id,
+  NULL::varchar                                                            AS engagement_name,
+  NULL::varchar                                                            AS engagement_code,
+  s_new.staff_id::text                                                     AS entity_id,
+  'medium'::text                                                           AS priority_level,
+  s_admin.staff_id                                                         AS staff_id,
+  s_admin.first_name || ' ' || s_admin.last_name                         AS staff_name,
+  1::numeric                                                               AS required_count,
+  NULL::date                                                               AS start_date,
+  NULL::date                                                               AS end_date
+FROM public.staff s_new
+JOIN public.categories c ON c.category_id = s_new.category_id
+CROSS JOIN (
+  SELECT s.staff_id, s.first_name, s.last_name
+  FROM public.staff s
+  JOIN public.user_roles ur ON ur.user_id = s.auth_user_id
+  WHERE ur.role = 'admin'
+    AND s.is_active = true
+    AND s.auth_user_id IS NOT NULL
+) s_admin
+WHERE s_new.is_active = true
+  AND s_new.created_at >= now() - INTERVAL '30 days'
+  AND s_new.staff_id != s_admin.staff_id;
 
 GRANT SELECT ON public.vw_staffing_alerts TO authenticated;
