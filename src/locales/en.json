@@ -570,6 +570,7 @@
     "welcomeBack": "Welcome back!",
     "accountCreated": "Account created successfully!",
     "invalidCredentials": "Invalid email or password. Please try again.",
+    "accountLocked": "Account temporarily locked due to too many failed attempts. Try again in {{minutes}} minutes.",
     "emailAlreadyRegistered": "This email is already registered. Please sign in instead.",
     "welcomeAdmin": "Welcome, Admin!",
     "missingCategories": "Missing required categories: {{categories}}. Please add them in Settings before creating engagements.",

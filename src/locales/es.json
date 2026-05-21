@@ -570,6 +570,7 @@
     "welcomeBack": "¡Bienvenido/a!",
     "accountCreated": "¡Cuenta creada exitosamente!",
     "invalidCredentials": "Correo o contraseña inválidos. Por favor intente de nuevo.",
+    "accountLocked": "Cuenta bloqueada temporalmente por demasiados intentos fallidos. Intente nuevamente en {{minutes}} minutos.",
     "emailAlreadyRegistered": "Este correo ya está registrado. Por favor inicie sesión.",
     "welcomeAdmin": "¡Bienvenido, Admin!",
     "missingCategories": "Faltan categorías requeridas: {{categories}}. Por favor agréguelas en Configuración antes de crear encargos.",

@@ -19,6 +19,7 @@ vi.mock("@/integrations/supabase/client", () => ({
     functions: {
       invoke: vi.fn(),
     },
+    rpc: vi.fn(),
     from: vi.fn((table: string) => {
       if (table === 'staff') {
         return {
@@ -75,6 +76,14 @@ describe("useAuth", () => {
           unsubscribe: vi.fn(),
         },
       },
+    });
+
+    // Default account-lockout RPCs to "allowed" / no-op (BUG 0514-115).
+    vi.mocked(supabase.rpc).mockImplementation((fn: string) => {
+      if (fn === "check_login_allowed") {
+        return Promise.resolve({ data: { allowed: true, remaining_seconds: 0 }, error: null }) as any;
+      }
+      return Promise.resolve({ data: null, error: null }) as any;
     });
   });
 
@@ -162,21 +171,31 @@ describe("useAuth", () => {
       wrapper: createWrapper(),
     });
 
+    // Pass a non-normalized email (with surrounding whitespace + mixed case) to
+    // verify that signIn normalizes it before handing it to the lockout RPCs.
     await act(async () => {
-      const response = await result.current.signIn("test@example.com", "password123");
+      const response = await result.current.signIn(" Test@Example.COM ", "password123");
       expect(response.error).toBe(null);
     });
 
+    // signInWithPassword still receives the raw email (GoTrue handles its own
+    // case-folding); useAuth does not pre-trim the input for that call.
     expect(supabase.auth.signInWithPassword).toHaveBeenCalledWith({
-      email: "test@example.com",
+      email: " Test@Example.COM ",
       password: "password123",
     });
-    
+
     // Should call assign-user-role after successful sign in
     expect(supabase.functions.invoke).toHaveBeenCalledWith(
       "assign-user-role",
       expect.any(Object)
     );
+
+    // AL-4 (BUG 0514-115): successful login resets the failure counter
+    // using the lower-cased, trimmed email — proves the normalization in signIn.
+    expect(supabase.rpc).toHaveBeenCalledWith("reset_login_attempts", {
+      p_email: "test@example.com",
+    });
   });
 
   it("signIn returns error on failure", async () => {
@@ -297,6 +316,52 @@ describe("useAuth", () => {
     });
   });
 
+  it("updatePassword clears the lockout state on success (BUG 0514-115)", async () => {
+    // Pass a non-normalized email on the mocked user to also prove
+    // the email is lower-cased + trimmed before reaching the RPC.
+    vi.mocked(supabase.auth.updateUser).mockResolvedValue({
+      data: { user: { id: "user-123", email: " User@Example.COM " } as any },
+      error: null,
+    });
+
+    const { result } = renderHook(() => useAuth(), {
+      wrapper: createWrapper(),
+    });
+
+    await act(async () => {
+      const response = await result.current.updatePassword("newPassword123");
+      expect(response.error).toBe(null);
+    });
+
+    // After a successful password reset, the residual lockout row must be
+    // cleared so the user can sign in immediately with the new password.
+    expect(supabase.rpc).toHaveBeenCalledWith("reset_login_attempts", {
+      p_email: "user@example.com",
+    });
+  });
+
+  it("updatePassword does NOT clear lockout when the update itself failed (BUG 0514-115)", async () => {
+    const mockError = new Error("Password too weak");
+    vi.mocked(supabase.auth.updateUser).mockResolvedValue({
+      data: { user: null },
+      error: mockError as any,
+    });
+
+    const { result } = renderHook(() => useAuth(), {
+      wrapper: createWrapper(),
+    });
+
+    await act(async () => {
+      const response = await result.current.updatePassword("weak");
+      expect(response.error).toBeTruthy();
+    });
+
+    expect(supabase.rpc).not.toHaveBeenCalledWith(
+      "reset_login_attempts",
+      expect.anything()
+    );
+  });
+
   it("resetPasswordForEmail calls supabase resetPasswordForEmail", async () => {
     vi.mocked(supabase.auth.resetPasswordForEmail).mockResolvedValue({
       data: {},
@@ -334,6 +399,110 @@ describe("useAuth", () => {
     await act(async () => {
       const response = await result.current.resetPasswordForEmail("test@example.com");
       expect(response.error).toBeTruthy();
+    });
+  });
+});
+
+describe("signIn account lockout (BUG 0514-115)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+
+    vi.mocked(supabase.auth.getSession).mockResolvedValue({
+      data: { session: null },
+      error: null,
+    });
+
+    vi.mocked(supabase.auth.onAuthStateChange).mockReturnValue({
+      data: {
+        subscription: {
+          id: "test",
+          callback: vi.fn(),
+          unsubscribe: vi.fn(),
+        },
+      },
+    });
+
+    // Default: allowed + no-op for the other RPCs.
+    vi.mocked(supabase.rpc).mockImplementation((fn: string) => {
+      if (fn === "check_login_allowed") {
+        return Promise.resolve({ data: { allowed: true, remaining_seconds: 0 }, error: null }) as any;
+      }
+      return Promise.resolve({ data: null, error: null }) as any;
+    });
+  });
+
+  it("AL-1: pre-check blocks before GoTrue when account is already locked", async () => {
+    vi.mocked(supabase.rpc).mockImplementation((fn: string) => {
+      if (fn === "check_login_allowed") {
+        return Promise.resolve({
+          data: { allowed: false, remaining_seconds: 600 },
+          error: null,
+        }) as any;
+      }
+      return Promise.resolve({ data: null, error: null }) as any;
+    });
+
+    const { result } = renderHook(() => useAuth(), { wrapper: createWrapper() });
+
+    await act(async () => {
+      const response = await result.current.signIn("locked@example.com", "pw");
+      expect(response.error?.message).toBe("ACCOUNT_LOCKED:600");
+    });
+
+    expect(supabase.auth.signInWithPassword).not.toHaveBeenCalled();
+  });
+
+  it("AL-2: credential failure surfaces lockout when counter trips", async () => {
+    vi.mocked(supabase.auth.signInWithPassword).mockResolvedValue({
+      data: { user: null, session: null },
+      error: { message: "Invalid login credentials" } as any,
+    });
+
+    vi.mocked(supabase.rpc).mockImplementation((fn: string) => {
+      if (fn === "check_login_allowed") {
+        return Promise.resolve({ data: { allowed: true, remaining_seconds: 0 }, error: null }) as any;
+      }
+      if (fn === "record_failed_login") {
+        return Promise.resolve({
+          data: { locked: true, remaining_seconds: 900 },
+          error: null,
+        }) as any;
+      }
+      return Promise.resolve({ data: null, error: null }) as any;
+    });
+
+    const { result } = renderHook(() => useAuth(), { wrapper: createWrapper() });
+
+    await act(async () => {
+      const response = await result.current.signIn("user@example.com", "wrong");
+      expect(response.error?.message).toBe("ACCOUNT_LOCKED:900");
+    });
+  });
+
+  it("AL-3: credential failure below threshold returns the original error unchanged", async () => {
+    vi.mocked(supabase.auth.signInWithPassword).mockResolvedValue({
+      data: { user: null, session: null },
+      error: { message: "Invalid login credentials" } as any,
+    });
+
+    vi.mocked(supabase.rpc).mockImplementation((fn: string) => {
+      if (fn === "check_login_allowed") {
+        return Promise.resolve({ data: { allowed: true, remaining_seconds: 0 }, error: null }) as any;
+      }
+      if (fn === "record_failed_login") {
+        return Promise.resolve({
+          data: { locked: false, remaining_seconds: 0 },
+          error: null,
+        }) as any;
+      }
+      return Promise.resolve({ data: null, error: null }) as any;
+    });
+
+    const { result } = renderHook(() => useAuth(), { wrapper: createWrapper() });
+
+    await act(async () => {
+      const response = await result.current.signIn("user@example.com", "wrong");
+      expect(response.error?.message).toBe("Invalid login credentials");
     });
   });
 });

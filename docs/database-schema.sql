@@ -2393,5 +2393,132 @@ CREATE TRIGGER update_staff_skills_updated_at BEFORE UPDATE ON public.staff_skil
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
 -- ============================================================================
+-- Account Lockout Policy (BUG 0514-115)
+-- ============================================================================
+
+CREATE TABLE public.auth_login_attempts (
+  email_normalized text PRIMARY KEY,
+  attempts_count   integer     NOT NULL DEFAULT 0,
+  last_attempt_at  timestamptz NOT NULL DEFAULT now(),
+  locked_until     timestamptz
+);
+
+ALTER TABLE public.auth_login_attempts ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.auth_login_attempts FROM anon, authenticated, public;
+
+CREATE OR REPLACE FUNCTION public.check_login_allowed(p_email text)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_email     text := lower(trim(p_email));
+  v_locked    timestamptz;
+  v_remaining integer;
+BEGIN
+  SELECT locked_until INTO v_locked
+  FROM public.auth_login_attempts
+  WHERE email_normalized = v_email;
+
+  IF v_locked IS NOT NULL AND v_locked > now() THEN
+    v_remaining := GREATEST(0, EXTRACT(EPOCH FROM (v_locked - now()))::integer);
+    RETURN jsonb_build_object('allowed', false, 'remaining_seconds', v_remaining);
+  END IF;
+
+  RETURN jsonb_build_object('allowed', true, 'remaining_seconds', 0);
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.record_failed_login(p_email text)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_email        text         := lower(trim(p_email));
+  v_max          integer      := 5;
+  v_lockout      interval     := interval '15 minutes';
+  v_reset        interval     := interval '15 minutes';
+  v_now          timestamptz  := now();
+  v_existing     public.auth_login_attempts%ROWTYPE;
+  v_new_count    integer;
+  v_locked_until timestamptz;
+  v_remaining    integer;
+BEGIN
+  -- Atomic upsert ensures the row exists before we lock it (avoids a race
+  -- where two parallel first-failures both reach INSERT and one fails on PK).
+  INSERT INTO public.auth_login_attempts (email_normalized, attempts_count, last_attempt_at)
+  VALUES (v_email, 0, v_now)
+  ON CONFLICT (email_normalized) DO NOTHING;
+
+  SELECT * INTO v_existing
+  FROM public.auth_login_attempts
+  WHERE email_normalized = v_email
+  FOR UPDATE;
+
+  IF v_existing.locked_until IS NOT NULL AND v_existing.locked_until > v_now THEN
+    v_remaining := GREATEST(0, EXTRACT(EPOCH FROM (v_existing.locked_until - v_now))::integer);
+    RETURN jsonb_build_object('locked', true, 'remaining_seconds', v_remaining);
+  END IF;
+
+  IF v_existing.last_attempt_at < (v_now - v_reset) THEN
+    v_new_count := 1;
+  ELSE
+    v_new_count := v_existing.attempts_count + 1;
+  END IF;
+
+  IF v_new_count >= v_max THEN
+    v_locked_until := v_now + v_lockout;
+  ELSE
+    v_locked_until := NULL;
+  END IF;
+
+  UPDATE public.auth_login_attempts
+  SET attempts_count = v_new_count,
+      last_attempt_at = v_now,
+      locked_until = v_locked_until
+  WHERE email_normalized = v_email;
+
+  IF v_locked_until IS NOT NULL THEN
+    v_remaining := GREATEST(0, EXTRACT(EPOCH FROM (v_locked_until - v_now))::integer);
+    RETURN jsonb_build_object('locked', true, 'remaining_seconds', v_remaining);
+  END IF;
+
+  RETURN jsonb_build_object('locked', false, 'remaining_seconds', 0);
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.reset_login_attempts(p_email text)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_email     text := lower(trim(p_email));
+  v_jwt_email text := lower(trim(coalesce((auth.jwt() ->> 'email'), '')));
+BEGIN
+  -- Authenticated callers may only reset their own counter.
+  -- postgres/service_role (no JWT) is allowed for admin/Studio unblock.
+  IF auth.jwt() IS NOT NULL AND v_jwt_email IS DISTINCT FROM v_email THEN
+    RAISE EXCEPTION 'RESET_FORBIDDEN: caller email mismatch';
+  END IF;
+
+  DELETE FROM public.auth_login_attempts
+  WHERE email_normalized = v_email;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.check_login_allowed(text)  FROM public;
+REVOKE ALL ON FUNCTION public.record_failed_login(text)  FROM public;
+REVOKE ALL ON FUNCTION public.reset_login_attempts(text) FROM public, anon;
+
+GRANT EXECUTE ON FUNCTION public.check_login_allowed(text)  TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.record_failed_login(text)  TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.reset_login_attempts(text) TO authenticated;
+
+-- ============================================================================
 -- END OF SCHEMA
 -- ============================================================================

@@ -69,12 +69,50 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signIn = async (email: string, password: string) => {
+    // BUG 0514-115: account lockout policy. Normalize email so the gate keys
+    // align with the GoTrue lookup (which case-folds emails).
+    const emailNormalized = email.trim().toLowerCase();
+
+    // Pre-check: if the account is locked, do not call GoTrue.
+    // Fail-open on RPC error so a transient DB problem doesn't lock every user
+    // out of the app; surface the error for monitoring instead.
+    const { data: precheck, error: precheckErr } = await supabase.rpc('check_login_allowed', {
+      p_email: emailNormalized,
+    });
+    if (precheckErr) {
+      console.error('[lockout] check_login_allowed failed:', precheckErr);
+    }
+    if (precheck && (precheck as { allowed?: boolean }).allowed === false) {
+      const remaining = (precheck as { remaining_seconds?: number }).remaining_seconds ?? 0;
+      return { error: new Error(`ACCOUNT_LOCKED:${remaining}`) };
+    }
+
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
-    
+
+    if (error?.message === 'Invalid login credentials') {
+      // Only count true credential failures; ignore network errors and other GoTrue errors.
+      // Fail-open on RPC error so the credentials error is still surfaced to the user;
+      // surface the gate failure for monitoring instead.
+      const { data: record, error: recordErr } = await supabase.rpc('record_failed_login', {
+        p_email: emailNormalized,
+      });
+      if (recordErr) {
+        console.error('[lockout] record_failed_login failed:', recordErr);
+      }
+      if (record && (record as { locked?: boolean }).locked === true) {
+        const remaining = (record as { remaining_seconds?: number }).remaining_seconds ?? 0;
+        return { error: new Error(`ACCOUNT_LOCKED:${remaining}`) };
+      }
+      return { error: error as Error | null };
+    }
+
     if (!error && data.session) {
+      // Successful login: clear the failure counter.
+      await supabase.rpc('reset_login_attempts', { p_email: emailNormalized });
+
       // Check if linked staff record is inactive
       const { data: staffCheck } = await supabase
         .from('staff')
@@ -106,7 +144,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Ensure user has a role (handles users who signed up before this fix)
       await assignUserRole(data.session);
     }
-    
+
     return { error: error as Error | null };
   };
 
@@ -146,9 +184,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const updatePassword = async (newPassword: string) => {
-    const { error } = await supabase.auth.updateUser({
+    const { data, error } = await supabase.auth.updateUser({
       password: newPassword,
     });
+    // BUG 0514-115: clear any lockout state so a recovery flow lets the user
+    // sign in with the new password immediately instead of waiting out the
+    // residual 15-minute window from the failed attempts that preceded reset.
+    if (!error && data.user?.email) {
+      const { error: resetErr } = await supabase.rpc('reset_login_attempts', {
+        p_email: data.user.email.trim().toLowerCase(),
+      });
+      if (resetErr) {
+        console.error('[lockout] reset_login_attempts after password update failed:', resetErr);
+      }
+    }
     return { error: error as Error | null };
   };
 
