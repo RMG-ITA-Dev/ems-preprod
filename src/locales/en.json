@@ -556,7 +556,18 @@
     "approvalRequired": "Approval Required",
     "approvalRequiredHelp": "When off, timesheet lines are auto-approved on submission",
     "internal": "Internal",
-    "timesheetPolicy": "Timesheet Policy"
+    "timesheetPolicy": "Timesheet Policy",
+    "oficina":                "Office",
+    "selectOficina":          "Select office",
+    "practica":               "Practice",
+    "selectPractica":         "Select practice",
+    "anioFiscal":             "Fiscal Year",
+    "selectAnioFiscal":       "Select fiscal year",
+    "oficina.laPaz":          "La Paz",
+    "oficina.santaCruz":      "Santa Cruz",
+    "practica.auditoria":     "Audit",
+    "practica.consultoria":   "Consulting",
+    "practica.tax":           "TAX"
   },
   "messages": {
     "createSuccess": "{{entity}} created successfully",

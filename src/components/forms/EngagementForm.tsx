@@ -47,19 +47,23 @@ import { useCreateEngagement, useUpdateEngagement, useDeleteEngagement } from "@
 import { Trash2, CalendarIcon, AlertCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
-import { supabase } from "@/integrations/supabase/client";
-import { toast } from "sonner";
 import { Switch } from "@/components/ui/switch";
 import { useUserRole } from "@/hooks/useUserRole";
+
+const suggestFiscalYear = (): number => {
+  const now = new Date()
+  return now.getMonth() >= 6 ? now.getFullYear() + 1 : now.getFullYear()
+}
+const FISCAL_YEAR_START = 2025
+const FISCAL_YEAR_LOOKAHEAD = 3
 
 const formSchema = z.object({
   engagement_name: z.string()
     .min(5, "Engagement name must be at least 5 characters")
     .max(200, "Engagement name cannot exceed 200 characters"),
-  engagement_code: z.string()
-    .min(1, "Engagement code is required")
-    .max(20, "Code cannot exceed 20 characters")
-    .regex(/^[A-Za-z0-9._-]+$/, "Code can only contain letters, numbers, dots, and hyphens"),
+  anio_fiscal: z.number().int().min(2020).max(2100, "Invalid fiscal year"),
+  oficina:     z.number().int().min(1).max(2,   "Invalid office"),
+  practica:    z.number().int().min(1).max(3,   "Invalid practice"),
   client_id: z.string().min(1, "Client is required"),
   partner_id: z.string().min(1, "Partner/Director is required"),
   manager_id: z.string().min(1, "Manager is required"),
@@ -121,7 +125,9 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     resolver: zodResolver(formSchema),
     defaultValues: {
       engagement_name: "",
-      engagement_code: "",
+      anio_fiscal: suggestFiscalYear(),
+      oficina: undefined,
+      practica: undefined,
       client_id: "",
       partner_id: "",
       manager_id: "",
@@ -157,7 +163,9 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       initializedEngagementIdRef.current = engagement.engagement_id;
       form.reset({
         engagement_name: engagement.engagement_name,
-        engagement_code: engagement.engagement_code || "",
+        anio_fiscal: engagement.anio_fiscal ?? undefined,
+        oficina:     engagement.oficina     ?? undefined,
+        practica:    engagement.practica    ?? undefined,
         client_id: engagement.client_id,
         partner_id: engagement.partner_id || "",
         manager_id: engagement.manager_id || "",
@@ -186,40 +194,41 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       return;
     }
 
-    // Duplicate engagement code check
-    const { data: existingByCode } = await supabase
-      .from("engagements")
-      .select("engagement_id, engagement_name")
-      .eq("engagement_code", data.engagement_code)
-      .neq("engagement_id", engagement?.engagement_id || "")
-      .maybeSingle();
-
-    if (existingByCode) {
-      toast.error(t("engagement.duplicateCode", {
-        code: data.engagement_code,
-        name: existingByCode.engagement_name,
-      }));
-      return;
-    }
-
-    const payload = {
-      engagement_name: data.engagement_name,
-      engagement_code: data.engagement_code,
-      client_id: data.client_id,
-      partner_id: data.partner_id || undefined,
-      manager_id: data.manager_id || undefined,
-      start_date: data.start_date ? format(data.start_date, "yyyy-MM-dd") : undefined,
-      end_date: data.end_date ? format(data.end_date, "yyyy-MM-dd") : undefined,
-      status: data.status,
-      work_order_required: workOrderRequired,
-      activity_required: activityRequired,
-      is_internal: isInternal,
-      approval_required: approvalRequired,
-    };
     if (isEdit && engagement) {
-      await updateMutation.mutateAsync({ id: engagement.engagement_id, data: payload });
+      await updateMutation.mutateAsync({
+        id: engagement.engagement_id,
+        data: {
+          engagement_name:     data.engagement_name,
+          client_id:           data.client_id,
+          partner_id:          data.partner_id || undefined,
+          manager_id:          data.manager_id || undefined,
+          start_date:          data.start_date ? format(data.start_date, "yyyy-MM-dd") : undefined,
+          end_date:            data.end_date   ? format(data.end_date,   "yyyy-MM-dd") : undefined,
+          status:              data.status,
+          work_order_required: workOrderRequired,
+          activity_required:   activityRequired,
+          is_internal:         isInternal,
+          approval_required:   approvalRequired,
+          // oficina, practica, anio_fiscal intentionally omitted — immutable after create
+        },
+      });
     } else {
-      await createMutation.mutateAsync(payload);
+      await createMutation.mutateAsync({
+        engagement_name:     data.engagement_name,
+        client_id:           data.client_id,
+        partner_id:          data.partner_id || undefined,
+        manager_id:          data.manager_id || undefined,
+        start_date:          data.start_date ? format(data.start_date, "yyyy-MM-dd") : undefined,
+        end_date:            data.end_date   ? format(data.end_date,   "yyyy-MM-dd") : undefined,
+        status:              data.status,
+        oficina:             data.oficina,
+        practica:            data.practica,
+        anio_fiscal:         data.anio_fiscal,
+        work_order_required: workOrderRequired,
+        activity_required:   activityRequired,
+        is_internal:         isInternal,
+        approval_required:   approvalRequired,
+      });
     }
     if (onSaveSuccess) {
       onSaveSuccess();
@@ -238,6 +247,11 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       }
     }
   };
+
+  const fiscalYearOptions = Array.from(
+    { length: new Date().getFullYear() + FISCAL_YEAR_LOOKAHEAD - FISCAL_YEAR_START + 1 },
+    (_, i) => FISCAL_YEAR_START + i
+  )
 
   return (
     <div className="space-y-6">
@@ -300,19 +314,71 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                   )}
                 />
 
-                <FormField
-                  control={form.control}
-                  name="engagement_code"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t("engagement.engagementCode")} *</FormLabel>
-                      <FormControl>
-                        <Input placeholder="ENG-001" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+              </div>
+
+              {isEdit && (
+                <FormItem>
+                  <FormLabel>{t("engagement.engagementCode")}</FormLabel>
+                  <Input value={engagement?.engagement_code ?? ""} readOnly disabled />
+                </FormItem>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <FormField control={form.control} name="anio_fiscal" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t("engagement.anioFiscal")} *</FormLabel>
+                    <Select
+                      disabled={isEdit}
+                      onValueChange={(v) => field.onChange(Number(v))}
+                      value={field.value ? String(field.value) : ""}
+                    >
+                      <FormControl><SelectTrigger><SelectValue placeholder={t("engagement.selectAnioFiscal")} /></SelectTrigger></FormControl>
+                      <SelectContent>
+                        {fiscalYearOptions.map((fy) => (
+                          <SelectItem key={fy} value={String(fy)}>{fy}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+
+                <FormField control={form.control} name="oficina" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t("engagement.oficina")} *</FormLabel>
+                    <Select
+                      disabled={isEdit}
+                      onValueChange={(v) => field.onChange(Number(v))}
+                      value={field.value ? String(field.value) : ""}
+                    >
+                      <FormControl><SelectTrigger><SelectValue placeholder={t("engagement.selectOficina")} /></SelectTrigger></FormControl>
+                      <SelectContent>
+                        <SelectItem value="1">{t("engagement.oficina.laPaz")}</SelectItem>
+                        <SelectItem value="2">{t("engagement.oficina.santaCruz")}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+
+                <FormField control={form.control} name="practica" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t("engagement.practica")} *</FormLabel>
+                    <Select
+                      disabled={isEdit}
+                      onValueChange={(v) => field.onChange(Number(v))}
+                      value={field.value ? String(field.value) : ""}
+                    >
+                      <FormControl><SelectTrigger><SelectValue placeholder={t("engagement.selectPractica")} /></SelectTrigger></FormControl>
+                      <SelectContent>
+                        <SelectItem value="1">{t("engagement.practica.auditoria")}</SelectItem>
+                        <SelectItem value="2">{t("engagement.practica.consultoria")}</SelectItem>
+                        <SelectItem value="3">{t("engagement.practica.tax")}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )} />
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
