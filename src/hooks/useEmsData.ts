@@ -94,6 +94,9 @@ export interface Engagement {
   activity_required: boolean;
   is_internal: boolean;
   approval_required: boolean;
+  oficina:     number | null;
+  practica:    number | null;
+  anio_fiscal: number | null;
   client?: Client;
   partner?: Staff;
   manager?: Staff;

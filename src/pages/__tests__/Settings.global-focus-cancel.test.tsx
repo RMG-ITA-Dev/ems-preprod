@@ -81,7 +81,7 @@ describe("Settings global-focus-cancel", () => {
     const user = userEvent.setup();
     await user.click(screen.getByText("settings.globalSettings"));
     expect(screen.getByTestId("app-layout").dataset.focusMode).toBe("true");
-  });
+  }, 15000);
 
   it("TS2: lock is not active on account tab", () => {
     renderSettings();

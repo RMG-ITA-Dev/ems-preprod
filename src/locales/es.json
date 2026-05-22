@@ -561,7 +561,18 @@
     "approvalRequired": "Requiere Aprobación",
     "approvalRequiredHelp": "Cuando está desactivado, las líneas de planilla se aprueban automáticamente al enviar",
     "internal": "Interno",
-    "timesheetPolicy": "Política de Planilla"
+    "timesheetPolicy": "Política de Planilla",
+    "oficina":                "Oficina",
+    "selectOficina":          "Seleccionar oficina",
+    "practica":               "Práctica",
+    "selectPractica":         "Seleccionar práctica",
+    "anioFiscal":             "Año Fiscal",
+    "selectAnioFiscal":       "Seleccionar año fiscal",
+    "oficina.laPaz":          "La Paz",
+    "oficina.santaCruz":      "Santa Cruz",
+    "practica.auditoria":     "Auditoría",
+    "practica.consultoria":   "Consultoría",
+    "practica.tax":           "TAX"
   },
   "messages": {
     "createSuccess": "{{entity}} creado/a exitosamente",

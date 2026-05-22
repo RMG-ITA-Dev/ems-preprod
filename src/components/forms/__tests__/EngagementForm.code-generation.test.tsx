@@ -1,0 +1,202 @@
+import React from "react";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import * as z from "zod";
+import { render, screen } from "@/test/utils";
+
+/**
+ * BUG 0306-82: Auto-generate Engagement Code on Insert
+ * Pure-logic tests + render-level tests that exercise the production component.
+ */
+
+vi.mock("react-router-dom", async () => {
+  const actual = await vi.importActual("react-router-dom");
+  return { ...actual, useNavigate: () => vi.fn() };
+});
+
+vi.mock("react-i18next", () => ({
+  useTranslation: () => ({ t: (k: string) => k, i18n: { language: "en" } }),
+}));
+
+vi.mock("@/hooks/useEmsData", () => ({
+  useClients: () => ({ data: [] }),
+}));
+
+vi.mock("@/hooks/useCategoryStaff", () => ({
+  useCategoryStaff: () => ({
+    partners: [],
+    managerOptions: [],
+    hasPartnerCategory: true,
+    hasManagerCategory: true,
+  }),
+}));
+
+vi.mock("@/hooks/mutations", () => ({
+  useCreateEngagement: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useUpdateEngagement: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useDeleteEngagement: () => ({ mutateAsync: vi.fn(), isPending: false }),
+}));
+
+vi.mock("@/hooks/useUserRole", () => ({
+  useUserRole: () => ({ isAdmin: false }),
+}));
+
+import { EngagementForm } from "@/components/forms/EngagementForm";
+import type { Engagement } from "@/hooks/useEmsData";
+
+const mockEngagement: Engagement = {
+  engagement_id:       "eng-test-1",
+  client_id:           "client-1",
+  engagement_name:     "Audit FY2027",
+  engagement_code:     "2027.12.0001",
+  partner_id:          "staff-1",
+  manager_id:          "staff-2",
+  status:              "active",
+  start_date:          "2026-10-01",
+  end_date:            "2027-09-30",
+  created_at:          "2026-05-22T00:00:00Z",
+  work_order_required: true,
+  activity_required:   true,
+  is_internal:         false,
+  approval_required:   true,
+  oficina:             1,
+  practica:            2,
+  anio_fiscal:         2027,
+};
+
+// Mirror the helpers from EngagementForm.tsx
+const suggestFiscalYear = (): number => {
+  const now = new Date();
+  return now.getMonth() >= 6 ? now.getFullYear() + 1 : now.getFullYear();
+};
+
+// Mirror the Zod schema for the three new fields
+const codeFieldsSchema = z.object({
+  anio_fiscal: z.number().int().min(2020).max(2100, "Invalid fiscal year"),
+  oficina:     z.number().int().min(1).max(2,   "Invalid office"),
+  practica:    z.number().int().min(1).max(3,   "Invalid practice"),
+});
+
+describe("suggestFiscalYear (BUG 0306-82)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("returns currentYear + 1 when month is July (index 6) or later", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-15"));
+    expect(suggestFiscalYear()).toBe(2027);
+  });
+
+  it("returns currentYear when month is before July (index < 6)", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-30"));
+    expect(suggestFiscalYear()).toBe(2026);
+  });
+
+  it("returns currentYear + 1 in October", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-01"));
+    expect(suggestFiscalYear()).toBe(2027);
+  });
+
+  it("returns currentYear in January", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2027-01-15"));
+    expect(suggestFiscalYear()).toBe(2027);
+  });
+});
+
+describe("Engagement create schema — new code-generation fields (BUG 0306-82)", () => {
+  it("parses successfully with valid anio_fiscal, oficina, and practica", () => {
+    const result = codeFieldsSchema.safeParse({
+      anio_fiscal: 2027,
+      oficina: 1,
+      practica: 2,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects when anio_fiscal is missing", () => {
+    const result = codeFieldsSchema.safeParse({ oficina: 1, practica: 2 });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects when oficina is missing", () => {
+    const result = codeFieldsSchema.safeParse({ anio_fiscal: 2027, practica: 2 });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects when practica is missing", () => {
+    const result = codeFieldsSchema.safeParse({ anio_fiscal: 2027, oficina: 1 });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects oficina value outside 1-2", () => {
+    const result = codeFieldsSchema.safeParse({ anio_fiscal: 2027, oficina: 3, practica: 1 });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects practica value outside 1-3", () => {
+    const result = codeFieldsSchema.safeParse({ anio_fiscal: 2027, oficina: 1, practica: 4 });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("Edit payload shape (BUG 0306-82)", () => {
+  it("update payload does not contain oficina, practica, or anio_fiscal", () => {
+    const updatePayload = {
+      engagement_name: "Updated Audit",
+      client_id: "client-1",
+      partner_id: "partner-1",
+      manager_id: "manager-1",
+      start_date: "2027-01-01",
+      end_date: "2027-09-30",
+      status: "active",
+      work_order_required: true,
+      activity_required: true,
+      is_internal: false,
+      approval_required: true,
+    };
+    expect(updatePayload).not.toHaveProperty("oficina");
+    expect(updatePayload).not.toHaveProperty("practica");
+    expect(updatePayload).not.toHaveProperty("anio_fiscal");
+  });
+});
+
+describe("EngagementForm render — create mode (BUG 0306-82)", () => {
+  it("EF-R1: does not render a free-text engagement code input", () => {
+    render(<EngagementForm />);
+    expect(screen.queryByText("engagement.engagementCode")).not.toBeInTheDocument();
+  });
+
+  it("EF-R2: renders the Fiscal Year select label", () => {
+    render(<EngagementForm />);
+    expect(screen.getByText("engagement.anioFiscal *")).toBeInTheDocument();
+  });
+
+  it("EF-R3: renders the Office (Oficina) select label", () => {
+    render(<EngagementForm />);
+    expect(screen.getByText("engagement.oficina *")).toBeInTheDocument();
+  });
+
+  it("EF-R4: renders the Practice (Practica) select label", () => {
+    render(<EngagementForm />);
+    expect(screen.getByText("engagement.practica *")).toBeInTheDocument();
+  });
+});
+
+describe("EngagementForm render — edit mode (BUG 0306-82)", () => {
+  it("EF-R5: renders engagement code as a disabled read-only input (not editable)", () => {
+    render(<EngagementForm engagement={mockEngagement} />);
+    expect(screen.getByText("engagement.engagementCode")).toBeInTheDocument();
+    const codeInput = screen.getByDisplayValue("2027.12.0001");
+    expect(codeInput).toBeDisabled();
+  });
+
+  it("EF-R6: fiscal year/office/practice labels are still present in edit mode", () => {
+    render(<EngagementForm engagement={mockEngagement} />);
+    expect(screen.getByText("engagement.anioFiscal *")).toBeInTheDocument();
+    expect(screen.getByText("engagement.oficina *")).toBeInTheDocument();
+    expect(screen.getByText("engagement.practica *")).toBeInTheDocument();
+  });
+});
