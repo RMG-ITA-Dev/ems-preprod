@@ -62,7 +62,7 @@ SELECT
 FROM public.work_orders wo
 JOIN public.engagements e         ON e.engagement_id  = wo.engagement_id
 JOIN public.staff s_partner       ON s_partner.staff_id = e.partner_id
-WHERE wo.approval_status NOT IN ('Approved', 'Rejected')
+WHERE wo.approval_status = 'Pending_Approval'
   AND e.partner_id IS NOT NULL
 
 UNION ALL

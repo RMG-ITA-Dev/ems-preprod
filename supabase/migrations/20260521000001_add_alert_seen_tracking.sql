@@ -34,7 +34,7 @@ GRANT SELECT, INSERT ON public.staff_alert_seen TO authenticated;
 -- 2. Replace vw_staffing_alerts to add seen_at column and 7-day post-seen expiry
 DROP VIEW IF EXISTS public.vw_staffing_alerts;
 
-CREATE VIEW public.vw_staffing_alerts AS
+CREATE VIEW public.vw_staffing_alerts WITH (security_invoker = on) AS
 
 -- Alert Type 1: Pending timesheet line approvals (shown to the approver)
 SELECT
@@ -99,7 +99,7 @@ LEFT JOIN public.staff_alert_seen sas
   ON  sas.staff_id   = e.partner_id
   AND sas.entity_id  = wo.wo_id::text
   AND sas.alert_type = 'work_order_pending_approval'
-WHERE wo.approval_status NOT IN ('Approved', 'Rejected')
+WHERE wo.approval_status = 'Pending_Approval'
   AND e.partner_id IS NOT NULL
   AND (sas.seen_at IS NULL OR sas.seen_at > now() - INTERVAL '7 days')
 

@@ -63,7 +63,7 @@ export function NotificationsPanel() {
         <Button variant="ghost" size="icon" className="relative flex-shrink-0">
           <Bell className="h-5 w-5 text-muted-foreground" />
           {hasUnseenAlerts && (
-            <span className="absolute top-1.5 right-1.5 h-2 w-2 bg-red-500 rounded-full" />
+            <span className="absolute top-1.5 right-1.5 h-2 w-2 bg-destructive rounded-full" />
           )}
         </Button>
       </PopoverTrigger>
