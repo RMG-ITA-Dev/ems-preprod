@@ -32,7 +32,7 @@ export interface WorksheetWithCells extends Worksheet {
 }
 
 // Fetch all worksheets with engagement info
-export function useWorksheets() {
+export function useWorksheets(enabled: boolean = true) {
   return useQuery({
     queryKey: ["worksheets"],
     queryFn: async () => {
@@ -47,7 +47,12 @@ export function useWorksheets() {
             status,
             client:clients (
               client_id,
-              client_legal_name
+              client_legal_name,
+              industry:industries (
+                industry_id,
+                industry_name,
+                fiscal_year_end
+              )
             ),
             partner:staff!engagements_partner_id_fkey (
               staff_id,
@@ -68,6 +73,7 @@ export function useWorksheets() {
       if (error) throw error;
       return data as Worksheet[];
     },
+    enabled,
   });
 }
 

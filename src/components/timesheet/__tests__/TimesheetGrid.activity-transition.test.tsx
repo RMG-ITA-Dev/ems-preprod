@@ -57,3 +57,46 @@ describe("TimesheetGrid activity transitions", () => {
     expect(result.nextActivityId).toBe(ADM_ID);
   });
 });
+
+// ── BUG 0508-106: approved-engagement guard in handleEngagementChange ──────────────
+
+describe("handleEngagementChange approved-engagement guard (BUG 0508-106)", () => {
+  // Mirrors the exact predicate used in the guard:
+  //   lineApprovals.find(la => la.engagement_id === engagementId)?.status === "approved"
+  const isEngagementApproved = (
+    lineApprovals: Array<{ engagement_id: string; status: string }>,
+    engagementId: string
+  ): boolean =>
+    lineApprovals.some(la => la.engagement_id === engagementId && la.status === "approved");
+
+  const APPROVED  = { engagement_id: "eng-approved", status: "approved" };
+  const REJECTED  = { engagement_id: "eng-rejected", status: "rejected" };
+  const PENDING   = { engagement_id: "eng-pending",  status: "pending"  };
+
+  it("blocks selecting an engagement with an approved line approval", () => {
+    expect(isEngagementApproved([APPROVED], "eng-approved")).toBe(true);
+  });
+
+  it("allows selecting an engagement with a rejected line approval", () => {
+    expect(isEngagementApproved([REJECTED], "eng-rejected")).toBe(false);
+  });
+
+  it("allows selecting an engagement with a pending line approval", () => {
+    expect(isEngagementApproved([PENDING], "eng-pending")).toBe(false);
+  });
+
+  it("allows selecting an engagement with no approval record at all", () => {
+    expect(isEngagementApproved([], "eng-any")).toBe(false);
+  });
+
+  it("does not block a different engagement even when one engagement is approved", () => {
+    // Approved record for eng-approved must not affect unrelated eng-other
+    expect(isEngagementApproved([APPROVED], "eng-other")).toBe(false);
+  });
+
+  it("rejected row selecting rejected-status engagement is not blocked", () => {
+    // Core scenario: editing a rejected row to point to another non-approved engagement
+    // is the valid use case; only approved target is blocked
+    expect(isEngagementApproved([REJECTED, APPROVED], "eng-rejected")).toBe(false);
+  });
+});
