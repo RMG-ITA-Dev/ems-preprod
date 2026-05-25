@@ -159,7 +159,7 @@ vi.mock("@/hooks/useTimesheetMutations", async (importOriginal) => {
 import TimeSheet from "../TimeSheet";
 
 // Freeze time at 2026-05-14 (Wednesday) so getWeekMonday(new Date()) = 2026-05-11 (Monday).
-// Only fake Date — leave localStorage and other Web APIs intact.
+// Only fake Date to leave localStorage and other Web APIs intact.
 beforeAll(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date("2026-05-14T12:00:00"));
@@ -192,10 +192,10 @@ describe("TimeSheet unsubmit-approved (BUG 0508-105)", () => {
   // useMemo comparison (all subsequent calls).
   // Calls inside timesheetUtils itself (e.g. getWeekInfo) are unaffected because
   // they use the module's internal binding, not the exported mock.
-  it("UA2: hides Retirar Envío when fully approved but past week", () => {
+  it("UA2: hides Retirar Envio when fully approved but past week", () => {
     vi.mocked(getWeekMonday)
-      .mockReturnValueOnce(new Date("2026-05-04T00:00:00")) // useState init → past week
-      .mockReturnValue(new Date("2026-05-11T00:00:00")); // subsequent calls → current week
+      .mockReturnValueOnce(new Date("2026-05-04T00:00:00")) // useState init -> past week
+      .mockReturnValue(new Date("2026-05-11T00:00:00")); // subsequent calls -> current week
 
     renderWithRouter(<TimeSheet />);
     expect(screen.queryByText("timesheet.unsubmit")).not.toBeInTheDocument();

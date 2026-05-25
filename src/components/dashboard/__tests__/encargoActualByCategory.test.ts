@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   aggregateActualHoursByCategory,
+  mergeCategoryBreakdown,
   type ActualHoursTimeEntryRow,
+  type CategoryBudgetRow,
 } from '../encargoActualByCategory';
 
 const row = (
@@ -79,5 +81,126 @@ describe('aggregateActualHoursByCategory', () => {
     ]);
     expect(result[0].display_order).toBe(99);
     expect(result[0].category_name).toBe('');
+  });
+});
+
+// Helper to build CategoryBudgetRow fixtures
+const budgetRow = (
+  category_id: string,
+  category_name: string,
+  total_budget_hours: number | null,
+  category_display_order: number | null,
+): CategoryBudgetRow => ({
+  category_id,
+  category_name,
+  total_budget_hours,
+  category_display_order,
+});
+
+const actualRow = (
+  category_id: string,
+  category_name: string,
+  actual_hours: number,
+  display_order: number,
+) => ({ category_id, category_name, actual_hours, display_order });
+
+describe('mergeCategoryBreakdown', () => {
+  it('returns [] when both inputs are empty', () => {
+    expect(mergeCategoryBreakdown([], [])).toEqual([]);
+  });
+
+  it('returns budget-only rows with actual_hours=0 when actuals are empty', () => {
+    const result = mergeCategoryBreakdown(
+      [budgetRow('c1', 'Senior', 70, 4)],
+      [],
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      category_id: 'c1',
+      budget_hours: 70,
+      actual_hours: 0,
+      variance: 70,
+      consumed_percent: 0,
+    });
+  });
+
+  it('returns actual-only rows with budget_hours=0 when budget is empty — core bug scenario', () => {
+    const result = mergeCategoryBreakdown(
+      [],
+      [actualRow('semi', 'Semi-Senior', 9.5, 3)],
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      category_id: 'semi',
+      category_name: 'Semi-Senior',
+      budget_hours: 0,
+      actual_hours: 9.5,
+      variance: -9.5,
+      consumed_percent: 0,
+    });
+  });
+
+  it('merges matching category — variance and consumed_percent are correct', () => {
+    const result = mergeCategoryBreakdown(
+      [budgetRow('c1', 'Gerente', 37, 2)],
+      [actualRow('c1', 'Gerente', 40, 2)],
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      budget_hours: 37,
+      actual_hours: 40,
+      variance: -3,
+      consumed_percent: expect.closeTo((40 / 37) * 100, 5),
+    });
+  });
+
+  it('includes both budgeted and unbudgeted categories — exact Semi-Senior scenario', () => {
+    const result = mergeCategoryBreakdown(
+      [
+        budgetRow('socio', 'Socio', 7, 1),
+        budgetRow('gerente', 'Gerente', 37, 2),
+      ],
+      [
+        actualRow('socio', 'Socio', 30, 1),
+        actualRow('semi', 'Semi-Senior', 9.5, 3),
+      ],
+    );
+    const ids = result.map(r => r.category_id);
+    expect(ids).toContain('semi');
+    expect(ids).toContain('socio');
+    expect(ids).toContain('gerente');
+    const semi = result.find(r => r.category_id === 'semi')!;
+    expect(semi.budget_hours).toBe(0);
+    expect(semi.actual_hours).toBe(9.5);
+    expect(semi.variance).toBe(-9.5);
+  });
+
+  it('sorts all rows ascending by display_order regardless of which side they come from', () => {
+    const result = mergeCategoryBreakdown(
+      [budgetRow('c5', 'Asistente', 75, 5)],
+      [
+        actualRow('c1', 'Socio', 30, 1),
+        actualRow('c3', 'Semi-Senior', 9.5, 3),
+      ],
+    );
+    expect(result.map(r => r.display_order)).toEqual([1, 3, 5]);
+  });
+
+  it('does not produce duplicate rows when the same category_id appears in both inputs', () => {
+    const result = mergeCategoryBreakdown(
+      [budgetRow('c1', 'Senior', 70, 4)],
+      [actualRow('c1', 'Senior', 20, 4)],
+    );
+    expect(result.filter(r => r.category_id === 'c1')).toHaveLength(1);
+  });
+
+  it('coerces null numeric fields — budget/variance to 0, display_order defaults to 99', () => {
+    const result = mergeCategoryBreakdown(
+      [budgetRow('c1', 'Senior', null, null)],
+      [],
+    );
+    expect(result[0].budget_hours).toBe(0);
+    expect(result[0].display_order).toBe(99);
+    expect(result[0].variance).toBe(0);
   });
 });

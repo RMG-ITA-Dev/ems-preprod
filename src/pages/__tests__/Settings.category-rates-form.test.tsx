@@ -10,7 +10,6 @@ beforeAll(() => {
     unobserve = vi.fn();
     disconnect = vi.fn();
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (globalThis as any).ResizeObserver = MockResizeObserver;
 
   Object.defineProperty(window, "matchMedia", {

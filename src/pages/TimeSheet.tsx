@@ -6,7 +6,7 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Loader2, AlertCircle, Lock, Save, RotateCcw, Check, AlertTriangle, Copy, ArrowLeft, Trash2 } from "lucide-react";
+import { Loader2, AlertCircle, Lock, Save, RotateCcw, Check, AlertTriangle, Copy, ArrowLeft, Trash2, Info } from "lucide-react";
 import { WeekNavigator } from "@/components/timesheet/WeekNavigator";
 import { TimesheetGrid } from "@/components/timesheet/TimesheetGrid";
 import { useHolidaysForWeek, useHolidayEngagementId } from "@/hooks/useHolidays";
@@ -160,6 +160,20 @@ const TimeSheet = () => {
   const holidayEngagementId = useHolidayEngagementId();
   const adminActivityId = useAdminActivityId();
 
+  const holidayHoursLogged = useMemo(
+    () =>
+      holidayEngagementId
+        ? entries
+            .filter((e) => e.engagement_id === holidayEngagementId)
+            .reduce((s, e) => s + Number(e.hours_logged ?? 0), 0)
+        : 0,
+    [entries, holidayEngagementId],
+  );
+  const holidayHoursRemaining = Math.max(
+    0,
+    holidayMap.size * dailyMin - holidayHoursLogged,
+  );
+
   // BUG 0306-74: Prorate weekly limits for partial weeks
   const holidayDateSet = useMemo(() => {
     const set = new Set<string>();
@@ -179,6 +193,8 @@ const TimeSheet = () => {
   const isBelowWeeklyMin = weeklyGrandTotal < effectiveWeeklyMin;
   const isAboveWeeklyMax = weeklyGrandTotal > effectiveWeeklyMax;
   const isWeeklyOutOfBounds = isBelowWeeklyMin || isAboveWeeklyMax;
+
+  const hasWeekHolidays = holidayMap.size > 0;
 
   // Compute activityNotRequiredIds from engagement data
   const activityNotRequiredIds = useMemo(() => {
@@ -572,6 +588,28 @@ const TimeSheet = () => {
             <AlertCircle className="h-4 w-4" />
             <AlertDescription>{t("timesheet.noEngagements")}</AlertDescription>
           </Alert>
+        )}
+
+        {/* Holiday week hint — visible before the user hits the submit guard */}
+        {hasWeekHolidays &&
+          holidayHoursRemaining > 0 &&
+          !!holidayEngagementId &&
+          !isBeforeHireDate &&
+          !isAfterTerminationDate &&
+          isWithinEditableWindow &&
+          entries.length > 0 &&
+          !isSubmitted &&
+          !isFullyApproved &&
+          !period?.is_period_locked && (
+            <Alert>
+              <Info className="h-4 w-4" />
+              <AlertDescription>
+                {t("timesheet.holidayWeekHint", {
+                  count: holidayMap.size,
+                  hours: holidayHoursRemaining,
+                })}
+              </AlertDescription>
+            </Alert>
         )}
 
         {/* BUG #0213-36: Weekly limit alerts */}

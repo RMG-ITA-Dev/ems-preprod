@@ -29,6 +29,7 @@ import { cn } from "@/lib/utils";
 import { safeNumber, hasItems } from "@/lib/queryHelpers";
 import {
   aggregateActualHoursByCategory,
+  mergeCategoryBreakdown,
   type ActualHoursTimeEntryRow,
 } from "@/components/dashboard/encargoActualByCategory";
 import { Button } from "@/components/ui/button";
@@ -253,22 +254,10 @@ export function EncargoTab() {
   };
 
   // Merge category budget and actual
-  const categoryBreakdown = categoryBudget?.map(budget => {
-    const actual = actualByCategory?.find(a => a.category_id === budget.category_id);
-    const budgetHours = safeNumber(budget.total_budget_hours);
-    const actualHours = safeNumber(actual?.actual_hours);
-    const variance = budgetHours - actualHours;
-    const consumedPercent = budgetHours > 0 ? (actualHours / budgetHours) * 100 : 0;
-
-    return {
-      category_id: budget.category_id,
-      category_name: budget.category_name,
-      budget_hours: budgetHours,
-      actual_hours: actualHours,
-      variance,
-      consumed_percent: consumedPercent
-    };
-  }) || [];
+  const categoryBreakdown = mergeCategoryBreakdown(
+    categoryBudget ?? [],
+    actualByCategory ?? [],
+  );
 
   // Activity breakdown (top 10 by hours)
   const activityBreakdown = budgetData
