@@ -23,15 +23,6 @@ BEGIN
     RAISE EXCEPTION 'UNSUBMIT_NOT_OWNER';
   END IF;
 
-  -- 1b. Caller must hold the 'partner' role
-  IF NOT EXISTS (
-    SELECT 1 FROM user_roles
-     WHERE user_id = auth.uid()
-       AND role    = 'partner'
-  ) THEN
-    RAISE EXCEPTION 'UNSUBMIT_NOT_PARTNER';
-  END IF;
-
   -- 2. Load and row-lock the period
   SELECT tp.*
     INTO v_period
@@ -63,6 +54,17 @@ BEGIN
     INTO v_all_approved
     FROM timesheet_line_approvals tla
    WHERE tla.period_id = p_period_id;
+
+  -- 6b. Only partners can recall a fully-approved period
+  IF v_all_approved THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM user_roles
+       WHERE user_id = auth.uid()
+         AND role    = 'partner'
+    ) THEN
+      RAISE EXCEPTION 'UNSUBMIT_NOT_PARTNER';
+    END IF;
+  END IF;
 
   -- 7. Week-window guard (only for fully-approved periods)
   --    current_date is UTC; frontend provides the first enforcement layer.
