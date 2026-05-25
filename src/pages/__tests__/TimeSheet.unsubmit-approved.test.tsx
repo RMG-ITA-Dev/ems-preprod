@@ -132,10 +132,11 @@ vi.mock("@/hooks/usePageLeaveLock", () => ({
   usePageLeaveLock: () => {},
 }));
 
-// ThemeProvider calls localStorage.getItem which is unavailable in this jsdom environment.
-// Replace it with a passthrough so renders don't throw.
+// ThemeProvider calls localStorage.getItem and exports useTheme — both unavailable/broken
+// in jsdom. Replace the whole module so neither ThemeProvider nor ThemeToggle throws.
 vi.mock("@/components/theme/ThemeProvider", () => ({
   ThemeProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  useTheme: () => ({ theme: "light", setTheme: vi.fn() }),
 }));
 
 // refs.unsubmitMutate is updated in beforeEach so each test gets a fresh spy.
