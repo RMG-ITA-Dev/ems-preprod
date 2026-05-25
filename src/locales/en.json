@@ -61,7 +61,8 @@
     "saveError": "Error saving changes. Please try again.",
     "status": "Status",
     "back": "Back",
-    "none": "None"
+    "none": "None",
+    "confirm": "Confirm"
   },
   "nav": {
     "main": "Main",
@@ -155,6 +156,9 @@
     "exportError": "Error exporting records",
     "exportBlockedSubmitted": "The week of {{weekStart}} is already submitted. You must unsubmit before exporting.",
     "exportBlocked": "{{blockedCount}} records blocked (weeks already submitted: {{weeks}})",
+    "exportBlockedDbError": "{{count}} record(s) not exported (week: {{weeks}}): {{reason}}",
+    "dbErrorReasonApprovedLine": "approval line is already locked",
+    "dbErrorReasonGeneric": "internal error — please retry or contact the administrator",
     "exportBlockedWO": "{{count}} record(s) not exported: Work Order not approved ({{engagements}})",
     "woNotApproved": "Work Order is not approved for this engagement.",
     "woNotApprovedSave": "Cannot save: the Work Order for this engagement is not approved. Select an approved engagement.",
@@ -578,6 +582,8 @@
     "holidayCreated": "Holiday created",
     "holidayUpdated": "Holiday updated",
     "holidayDeleted": "Holiday deleted",
+    "holidaysReplicated": "Holidays created successfully. Please review and verify the dates.",
+    "holidaysReplicatedPartial": "{{count}} holiday(s) created for {{year}}. {{skipped}} date(s) skipped (already existed or invalid).",
     "noStaffRecord": "No staff profile is linked to your account. Please contact an administrator."
   },
   "errors": {
@@ -624,7 +630,14 @@
     "deleteHoliday": "Delete Holiday",
     "date": "Date",
     "name": "Name",
-    "createdBy": "Created By"
+    "createdBy": "Created By",
+    "replicateButton": "Replicate to next year",
+    "replicateConfirmTitle": "Replicate holidays {{fromYear}} → {{toYear}}",
+    "replicateConfirmDesc": "{{count}} holiday(s) from {{fromYear}} will be created for {{toYear}}. Dates already present in {{toYear}} will be skipped. Continue?",
+    "noSourceHolidays": "No holidays are loaded for year {{year}}.",
+    "allDatesAlreadyExist": "All holidays for {{year}} already exist.",
+    "allDatesLeapDay": "All source holidays fall on Feb 29 and {{year}} is not a leap year — nothing to replicate.",
+    "allDatesLeapDayAndAlreadyExist": "No holidays to replicate to {{year}}: some fall on Feb 29 (non-leap year) and the rest already exist."
   },
  "dashboard": {
     "noData": "No data available for the selected period",
