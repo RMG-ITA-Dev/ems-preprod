@@ -827,6 +827,7 @@
     "unsubmit": "Unsubmit",
     "unsubmitted": "Timesheet recalled for editing",
     "approvedRecallWindowClosed": "Approved timesheets can only be recalled within the same week.",
+    "unsubmitNotPartner": "Only partners can recall an approved timesheet.",
     "autoSaveHint": "Changes are saved automatically",
     "admActivityNotConfigured": "System ADM activity is not configured. Contact an administrator.",
     "entry": "Time entry",

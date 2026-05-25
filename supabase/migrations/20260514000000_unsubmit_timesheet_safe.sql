@@ -23,6 +23,15 @@ BEGIN
     RAISE EXCEPTION 'UNSUBMIT_NOT_OWNER';
   END IF;
 
+  -- 1b. Caller must hold the 'partner' role
+  IF NOT EXISTS (
+    SELECT 1 FROM user_roles
+     WHERE user_id = auth.uid()
+       AND role    = 'partner'
+  ) THEN
+    RAISE EXCEPTION 'UNSUBMIT_NOT_PARTNER';
+  END IF;
+
   -- 2. Load and row-lock the period
   SELECT tp.*
     INTO v_period
@@ -35,7 +44,7 @@ BEGIN
   END IF;
 
   -- 3. Caller must own the period
-  IF v_period.staff_id <> v_staff_id THEN
+  IF v_period.staff_id IS DISTINCT FROM v_staff_id THEN
     RAISE EXCEPTION 'UNSUBMIT_NOT_OWNER';
   END IF;
 

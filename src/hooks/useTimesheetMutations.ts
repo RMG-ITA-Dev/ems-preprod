@@ -279,6 +279,10 @@ export function useUnsubmitTimesheet() {
     },
     onError: (error: Error) => {
       const msg = error.message || "";
+      if (msg.includes("UNSUBMIT_NOT_PARTNER")) {
+        toast.error(i18n.t("timesheet.unsubmitNotPartner"));
+        return;
+      }
       if (msg.includes("APPROVED_WEEK_RECALL_WINDOW_CLOSED")) {
         toast.error(i18n.t("timesheet.approvedRecallWindowClosed"));
         return;
