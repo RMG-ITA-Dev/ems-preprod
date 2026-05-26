@@ -8,6 +8,7 @@ export interface LineApproval {
   approval_id: string;
   period_id: string;
   engagement_id: string;
+  activity_id: string;
   status: "pending" | "approved" | "rejected";
   approved_by: string | null;
   approved_at: string | null;
@@ -308,6 +309,7 @@ export function useStaffTimesheetForApproval(periodId: string | null) {
           approval_id,
           period_id,
           engagement_id,
+          activity_id,
           status,
           approved_by,
           approved_at,

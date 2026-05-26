@@ -102,15 +102,19 @@ describe("useTimesheetMutations (BUG 0220-45)", () => {
       result.current.mutate({
         periodId: "period-1",
         staffId: "staff-1",
-        engagementIds: ["eng-1", "eng-2"],
+        engagementActivityPairs: [
+          { engagementId: "eng-1", activityId: "act-1" },
+          { engagementId: "eng-2", activityId: "act-2" },
+        ],
         isAutoApproved: false,
       });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
       expect(supabase.rpc).toHaveBeenCalledWith("submit_timesheet_safe", {
-        p_period_id: "period-1",
-        p_staff_id: "staff-1",
-        p_engagement_ids: ["eng-1", "eng-2"],
+        p_period_id:        "period-1",
+        p_staff_id:         "staff-1",
+        p_engagement_ids:   ["eng-1", "eng-2"],
+        p_activity_ids:     ["act-1", "act-2"],
         p_is_auto_approved: false,
       });
     });
@@ -129,7 +133,7 @@ describe("useTimesheetMutations (BUG 0220-45)", () => {
       result.current.mutate({
         periodId: "p1",
         staffId: "s1",
-        engagementIds: ["e1"],
+        engagementActivityPairs: [{ engagementId: "e1", activityId: "act-1" }],
         isAutoApproved: true,
       });
 
@@ -151,7 +155,7 @@ describe("useTimesheetMutations (BUG 0220-45)", () => {
       result.current.mutate({
         periodId: "p1",
         staffId: "s1",
-        engagementIds: ["e1"],
+        engagementActivityPairs: [{ engagementId: "e1", activityId: "act-1" }],
         isAutoApproved: false,
       });
 
@@ -173,7 +177,7 @@ describe("useTimesheetMutations (BUG 0220-45)", () => {
       result.current.mutate({
         periodId: "p1",
         staffId: "s1",
-        engagementIds: ["e1"],
+        engagementActivityPairs: [{ engagementId: "e1", activityId: "act-1" }],
         isAutoApproved: false,
       });
 
@@ -195,7 +199,7 @@ describe("useTimesheetMutations (BUG 0220-45)", () => {
       result.current.mutate({
         periodId: "p1",
         staffId: "s1",
-        engagementIds: ["e1"],
+        engagementActivityPairs: [{ engagementId: "e1", activityId: "act-1" }],
         isAutoApproved: false,
       });
 
@@ -217,13 +221,18 @@ describe("useTimesheetMutations (BUG 0220-45)", () => {
       result.current.mutate({
         periodId: "p1",
         staffId: "s1",
-        engagementIds: ["eng-1", "eng-1", "eng-2"],
+        engagementActivityPairs: [
+          { engagementId: "eng-1", activityId: "act-1" },
+          { engagementId: "eng-1", activityId: "act-1" },
+          { engagementId: "eng-2", activityId: "act-2" },
+        ],
         isAutoApproved: false,
       });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
       expect(supabase.rpc).toHaveBeenCalledWith("submit_timesheet_safe", expect.objectContaining({
         p_engagement_ids: ["eng-1", "eng-2"],
+        p_activity_ids:   ["act-1", "act-2"],
       }));
     });
   });
