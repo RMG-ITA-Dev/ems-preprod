@@ -43,21 +43,17 @@ vi.mock("@/lib/timesheetUtils", async (importOriginal) => {
   };
 });
 
+// ThemeProvider calls localStorage.getItem and exports useTheme — both unavailable/broken
+// in jsdom. Replace the whole module so neither ThemeProvider nor ThemeToggle throws.
+vi.mock("@/components/theme/ThemeProvider", () => ({
+  ThemeProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  useTheme: () => ({ theme: "light", setTheme: vi.fn() }),
+}));
+
 // --- Hook mocks ---
 
 vi.mock("@/hooks/useAuth", () => ({
   useAuth: () => ({ session: { user: { id: "user-1" } }, user: { id: "user-1" } }),
-}));
-
-vi.mock("@/hooks/useUserRole", () => ({
-  useUserRole: () => ({
-    role: "partner",
-    isPartner: true,
-    isAdmin: false, isDirector: false, isManager: false, isSenior: false,
-    isSemisenior: false, isStaff: false, isViewer: false, isSQR: false,
-    isSpecialistIT: false, isSpecialistTAX: false,
-    isLoading: false, hasError: false, error: null, isRoleMissing: false,
-  }),
 }));
 
 vi.mock("react-router-dom", async (importOriginal) => {
@@ -72,7 +68,8 @@ vi.mock("@/hooks/useCurrentStaff", () => ({
   }),
 }));
 
-// Period is submitted, not locked. Both line approvals are fully approved.
+// Period is submitted, not locked. Line approvals are pending (not fully approved),
+// so canUnsubmit is true and the "Retirar Envío" button is visible.
 vi.mock("@/hooks/useTimesheetWeek", () => ({
   useTimesheetWeek: () => ({
     period: {
@@ -96,8 +93,8 @@ vi.mock("@/hooks/useTimesheetApprovals", async (importOriginal) => {
     ...actual,
     usePeriodLineApprovals: () => ({
       data: [
-        { approval_id: "a1", status: "approved", engagement_id: "eng-1", period_id: "p1" },
-        { approval_id: "a2", status: "approved", engagement_id: "eng-2", period_id: "p1" },
+        { approval_id: "a1", status: "pending", engagement_id: "eng-1", period_id: "p1" },
+        { approval_id: "a2", status: "pending", engagement_id: "eng-2", period_id: "p1" },
       ],
     }),
   };
@@ -143,13 +140,6 @@ vi.mock("@/hooks/usePageLeaveLock", () => ({
   usePageLeaveLock: () => {},
 }));
 
-// ThemeProvider calls localStorage.getItem and exports useTheme — both unavailable/broken
-// in jsdom. Replace the whole module so neither ThemeProvider nor ThemeToggle throws.
-vi.mock("@/components/theme/ThemeProvider", () => ({
-  ThemeProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  useTheme: () => ({ theme: "light", setTheme: vi.fn() }),
-}));
-
 // refs.unsubmitMutate is updated in beforeEach so each test gets a fresh spy.
 vi.mock("@/hooks/useTimesheetMutations", async (importOriginal) => {
   const actual = await importOriginal() as Record<string, unknown>;
@@ -191,13 +181,13 @@ describe("TimeSheet unsubmit-approved (BUG 0508-105)", () => {
     );
   });
 
-  // UA1: Partner submitted this week → banner AND "Retirar Envío" button both visible
-  it("UA1: shows Retirar Envío when fully approved and current week", () => {
+  // UA1: Submitted this week with pending approvals -> "Retirar Envio" button visible
+  it("UA1: shows Retirar Envio when submitted with pending approvals and current week", () => {
     renderWithRouter(<TimeSheet />);
     expect(screen.getByText("timesheet.unsubmit")).toBeInTheDocument();
   });
 
-  // UA2: Period belongs to a PAST week → canUnsubmit is false → button hidden.
+  // UA2: Period belongs to a PAST week -> canUnsubmit is false -> button hidden.
   // Technique: make getWeekMonday return the past Monday (May 4) for the useState
   // initializer (first call), and the current Monday (May 11) for the isCurrentWeek
   // useMemo comparison (all subsequent calls).
@@ -213,9 +203,9 @@ describe("TimeSheet unsubmit-approved (BUG 0508-105)", () => {
   });
 
   // UA3: Clicking the button calls unsubmitTimesheet.mutate with the correct periodId
-  it("UA3: clicking Retirar Envío calls mutate with { periodId: 'p1' }", async () => {
+  it("UA3: clicking Retirar Envio calls mutate with { periodId: 'p1' }", async () => {
     renderWithRouter(<TimeSheet />);
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+    const user = userEvent.setup();
     await user.click(screen.getByText("timesheet.unsubmit"));
     expect(refs.unsubmitMutate).toHaveBeenCalledWith({ periodId: "p1" });
   });
