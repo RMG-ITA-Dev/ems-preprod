@@ -155,7 +155,7 @@ export function usePendingApprovalSummaries() {
           )
         `)
         .eq("status", "pending")
-        .not("timesheet_periods.submitted_at", "is", null);
+        .not("period.submitted_at", "is", null);
 
       if (approvalsError) throw approvalsError;
 
@@ -446,7 +446,7 @@ export function usePendingApprovals() {
           )
         `)
         .eq("status", "pending")
-        .not("timesheet_periods.submitted_at", "is", null)
+        .not("period.submitted_at", "is", null)
         .order("created_at", { ascending: false });
 
       if (error) throw error;
