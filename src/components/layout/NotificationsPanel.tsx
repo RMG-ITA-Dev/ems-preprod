@@ -35,17 +35,20 @@ function priorityBadge(level: string | null, t: (key: string) => string) {
 
 export function NotificationsPanel() {
   const { t } = useTranslation();
-  const { data: alerts, isPending, isError } = useStaffingAlerts();
+  const { data: rawAlerts, isPending, isError } = useStaffingAlerts();
+  const alerts = (rawAlerts ?? []).filter(
+    (a) => a.alert_type !== 'timesheet_pending_approval'
+  );
   const markSeen = useMarkAlertsSeen();
   const [open, setOpen] = useState(false);
 
-  const count = alerts?.length ?? 0;
+  const count = alerts.length;
   const hasAlerts = count > 0;
-  const hasUnseenAlerts = alerts?.some((a) => !a.seen_at) ?? false;
+  const hasUnseenAlerts = alerts.some((a) => !a.seen_at);
 
   const handleOpenChange = (next: boolean) => {
     setOpen(next);
-    if (next && alerts?.length) {
+    if (next && alerts.length) {
       const unseen = alerts
         .filter((a) => !a.seen_at)
         .map((a) => ({
