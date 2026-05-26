@@ -21,6 +21,7 @@ export interface LineApproval {
     week_number: number;
     year: number;
     staff_id: string;
+    submitted_at?: string | null;
     staff?: {
       staff_id: string;
       first_name: string;
@@ -104,6 +105,7 @@ interface ApprovalWithPeriod {
     week_number: number;
     year: number;
     staff_id: string;
+    submitted_at: string | null;
     staff?: PendingApprovalSummary["staff"] | null;
   } | null;
 }
@@ -129,7 +131,7 @@ export function usePendingApprovalSummaries() {
       if (!staffRecord) return [];
 
       // First get all pending line approvals
-      const { data: approvals, error: approvalsError } = await supabase
+      const { data: rawApprovals, error: approvalsError } = await supabase
         .from("timesheet_line_approvals")
         .select(`
           approval_id,
@@ -142,6 +144,7 @@ export function usePendingApprovalSummaries() {
             week_number,
             year,
             staff_id,
+            submitted_at,
             staff:staff!timesheet_periods_staff_id_fkey(
               staff_id,
               first_name,
@@ -153,6 +156,9 @@ export function usePendingApprovalSummaries() {
         .eq("status", "pending");
 
       if (approvalsError) throw approvalsError;
+      // Exclude recalled periods: after unsubmit, submitted_at is NULL but lines are
+      // still 'pending'. Showing them in the queue before re-submission causes lock races.
+      const approvals = rawApprovals?.filter((a) => a.period?.submitted_at != null) ?? [];
 
       // Get unique period IDs
       const periodIds = [...new Set((approvals || []).map((a) => a.period_id))];
@@ -426,6 +432,7 @@ export function usePendingApprovals() {
             week_number,
             year,
             staff_id,
+            submitted_at,
             staff:staff!timesheet_periods_staff_id_fkey(
               staff_id,
               first_name,
@@ -443,7 +450,7 @@ export function usePendingApprovals() {
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-      return (data || []) as LineApproval[];
+      return (data || []).filter((a) => a.period?.submitted_at != null) as LineApproval[];
     },
     enabled: !!staffRecord,
   });
