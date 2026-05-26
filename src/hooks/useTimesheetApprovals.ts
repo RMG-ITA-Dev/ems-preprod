@@ -21,7 +21,6 @@ export interface LineApproval {
     week_number: number;
     year: number;
     staff_id: string;
-    submitted_at?: string | null;
     staff?: {
       staff_id: string;
       first_name: string;
@@ -105,7 +104,6 @@ interface ApprovalWithPeriod {
     week_number: number;
     year: number;
     staff_id: string;
-    submitted_at: string | null;
     staff?: PendingApprovalSummary["staff"] | null;
   } | null;
 }
@@ -130,8 +128,7 @@ export function usePendingApprovalSummaries() {
     queryFn: async () => {
       if (!staffRecord) return [];
 
-      // First get all pending line approvals — server-side filter on submitted_at IS NOT NULL
-      // prevents recalled periods from consuming the PostgREST row cap before client filtering.
+      // First get all pending line approvals
       const { data: approvals, error: approvalsError } = await supabase
         .from("timesheet_line_approvals")
         .select(`
@@ -139,13 +136,12 @@ export function usePendingApprovalSummaries() {
           period_id,
           engagement_id,
           status,
-          period:timesheet_periods!inner(
+          period:timesheet_periods(
             period_id,
             week_start_date,
             week_number,
             year,
             staff_id,
-            submitted_at,
             staff:staff!timesheet_periods_staff_id_fkey(
               staff_id,
               first_name,
@@ -154,8 +150,7 @@ export function usePendingApprovalSummaries() {
             )
           )
         `)
-        .eq("status", "pending")
-        .not("period.submitted_at", "is", null);
+        .eq("status", "pending");
 
       if (approvalsError) throw approvalsError;
 
@@ -425,13 +420,12 @@ export function usePendingApprovals() {
         .from("timesheet_line_approvals")
         .select(`
           *,
-          period:timesheet_periods!inner(
+          period:timesheet_periods(
             period_id,
             week_start_date,
             week_number,
             year,
             staff_id,
-            submitted_at,
             staff:staff!timesheet_periods_staff_id_fkey(
               staff_id,
               first_name,
@@ -446,7 +440,6 @@ export function usePendingApprovals() {
           )
         `)
         .eq("status", "pending")
-        .not("period.submitted_at", "is", null)
         .order("created_at", { ascending: false });
 
       if (error) throw error;

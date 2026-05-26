@@ -14,7 +14,6 @@ import { useAdminActivityId } from "@/hooks/useAdminActivity";
 import { useTimesheetPolicies } from "@/hooks/useTimesheetPolicies";
 import { useTimesheetWeek } from "@/hooks/useTimesheetWeek";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
-import { useUserRole } from "@/hooks/useUserRole";
 import { useAuth } from "@/hooks/useAuth";
 import { usePeriodLineApprovals } from "@/hooks/useTimesheetApprovals";
 import { useSubmitTimesheet, useUnsubmitTimesheet, useCopyPreviousWeek, useCopyToCurrentWeek } from "@/hooks/useTimesheetMutations";
@@ -84,7 +83,6 @@ const TimeSheet = () => {
 
 
   const { staffRecord, isLoading: staffLoading } = useCurrentStaff();
-  const { isPartner } = useUserRole();
 
   // Get policies
   const { data: policies } = useTimesheetPolicies();
@@ -348,11 +346,9 @@ const TimeSheet = () => {
     && prevWeekSubmittedOrApproved;
 
   const canUnsubmit = isSubmitted
+    && !isFullyApproved
     && !period?.is_period_locked
-    && (
-      (isFullyApproved && isCurrentWeek && isWithinEditableWindow && isPartner)
-      || (!isFullyApproved && ((isCurrentWeek && isWithinEditableWindow) || hasRejectedLines))
-    );
+    && ((isCurrentWeek && isWithinEditableWindow) || hasRejectedLines);
 
   const canSaveDraft = !isBeforeHireDate
     && !isAfterTerminationDate
