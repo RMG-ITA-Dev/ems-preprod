@@ -49,6 +49,17 @@ vi.mock("@/hooks/useAuth", () => ({
   useAuth: () => ({ session: { user: { id: "user-1" } }, user: { id: "user-1" } }),
 }));
 
+vi.mock("@/hooks/useUserRole", () => ({
+  useUserRole: () => ({
+    role: "partner",
+    isPartner: true,
+    isAdmin: false, isDirector: false, isManager: false, isSenior: false,
+    isSemisenior: false, isStaff: false, isViewer: false, isSQR: false,
+    isSpecialistIT: false, isSpecialistTAX: false,
+    isLoading: false, hasError: false, error: null, isRoleMissing: false,
+  }),
+}));
+
 vi.mock("react-router-dom", async (importOriginal) => {
   const actual = await importOriginal() as Record<string, unknown>;
   return { ...actual, useNavigate: () => vi.fn(), useLocation: () => ({ pathname: "/timesheet" }) };
