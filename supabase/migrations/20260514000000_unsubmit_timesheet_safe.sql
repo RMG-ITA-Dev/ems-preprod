@@ -49,8 +49,8 @@ BEGIN
     RAISE EXCEPTION 'UNSUBMIT_NOT_SUBMITTED';
   END IF;
 
-  -- 6. Detect fully-approved status
-  SELECT bool_and(tla.status = 'approved')
+  -- 6. Detect fully-approved status (COALESCE: bool_and on empty set returns NULL, not false)
+  SELECT COALESCE(bool_and(tla.status = 'approved'), false)
     INTO v_all_approved
     FROM timesheet_line_approvals tla
    WHERE tla.period_id = p_period_id;
@@ -82,14 +82,12 @@ BEGIN
      SET submitted_at = NULL
    WHERE period_id = p_period_id;
 
-  -- 9. Reset approved line approvals so the APPROVED_LINE_LOCKED trigger
-  --    no longer blocks edits to the underlying time entries.
+  -- 9. Delete approved line approval rows so the APPROVED_LINE_LOCKED trigger
+  --    no longer blocks edits, and so re-submit's INSERT path re-fires auto-approval.
+  --    UPDATE to pending is insufficient: submit_timesheet_safe skips pending rows
+  --    (CONTINUE branch), preventing auto-approval on re-submit.
   IF v_all_approved THEN
-    UPDATE timesheet_line_approvals
-       SET status       = 'pending',
-           approved_by  = NULL,
-           approved_at  = NULL,
-           review_notes = NULL
+    DELETE FROM timesheet_line_approvals
      WHERE period_id = p_period_id
        AND status    = 'approved';
   END IF;
