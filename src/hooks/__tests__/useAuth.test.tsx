@@ -15,6 +15,7 @@ vi.mock("@/integrations/supabase/client", () => ({
       signOut: vi.fn(),
       updateUser: vi.fn(),
       resetPasswordForEmail: vi.fn(),
+      setSession: vi.fn(),
     },
     functions: {
       invoke: vi.fn(),
@@ -58,6 +59,37 @@ function createWrapper() {
   );
 }
 
+// BUG 0514-115 (Codex P1 follow-up): signIn no longer calls the lockout RPCs
+// from the client; it invokes the `secure-signin` edge function instead. The
+// helper below routes mocked invoke calls per function name so each test can
+// shape the secure-signin response without disturbing assign-user-role.
+function mockInvoke(handlers: {
+  "secure-signin"?: () => Promise<{ data: any; error: any }>;
+  "assign-user-role"?: () => Promise<{ data: any; error: any }>;
+}) {
+  vi.mocked(supabase.functions.invoke).mockImplementation((name: string) => {
+    const handler = handlers[name as keyof typeof handlers];
+    if (handler) return handler() as any;
+    return Promise.resolve({ data: null, error: null }) as any;
+  });
+}
+
+function defaultSecureSigninSuccess() {
+  return {
+    data: {
+      ok: true,
+      session: {
+        access_token: "token",
+        refresh_token: "refresh",
+        expires_in: 3600,
+        token_type: "bearer",
+        user: { id: "user-123" },
+      },
+    },
+    error: null,
+  };
+}
+
 describe("useAuth", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -78,23 +110,30 @@ describe("useAuth", () => {
       },
     });
 
-    // Default account-lockout RPCs to "allowed" / no-op (BUG 0514-115).
-    vi.mocked(supabase.rpc).mockImplementation((fn: string) => {
-      if (fn === "check_login_allowed") {
-        return Promise.resolve({ data: { allowed: true, remaining_seconds: 0 }, error: null }) as any;
-      }
-      return Promise.resolve({ data: null, error: null }) as any;
+    // Default setSession: returns a valid session/user so signIn proceeds to
+    // the staff/role checks unless a test overrides it.
+    vi.mocked(supabase.auth.setSession).mockResolvedValue({
+      data: {
+        session: { access_token: "token", refresh_token: "refresh" } as any,
+        user: { id: "user-123" } as any,
+      },
+      error: null,
     });
+
+    // updatePassword still calls reset_login_attempts directly (post-recovery,
+    // the user is authenticated and clears their own counter via the RPC's
+    // jwt-email guard). Default to a no-op.
+    vi.mocked(supabase.rpc).mockResolvedValue({ data: null, error: null } as any);
   });
 
   it("throws error when used outside AuthProvider", () => {
     // Suppress console.error for this test
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
-    
+
     expect(() => {
       renderHook(() => useAuth());
     }).toThrow("useAuth must be used within an AuthProvider");
-    
+
     spy.mockRestore();
   });
 
@@ -151,58 +190,60 @@ describe("useAuth", () => {
     expect(result.current.user?.id).toBe("user-123");
   });
 
-  it("signIn calls supabase signInWithPassword and assigns role", async () => {
-    const mockSession = {
-      user: { id: "user-123" },
-      access_token: "token",
-    };
-    
-    vi.mocked(supabase.auth.signInWithPassword).mockResolvedValue({
-      data: { user: mockSession.user as any, session: mockSession as any },
-      error: null,
-    });
-    
-    vi.mocked(supabase.functions.invoke).mockResolvedValue({
-      data: { role: "staff", isFirstUser: false },
-      error: null,
+  it("signIn invokes secure-signin, installs the session, and assigns role", async () => {
+    mockInvoke({
+      "secure-signin": async () => defaultSecureSigninSuccess(),
+      "assign-user-role": async () => ({
+        data: { role: "staff", isFirstUser: false },
+        error: null,
+      }),
     });
 
     const { result } = renderHook(() => useAuth(), {
       wrapper: createWrapper(),
     });
 
-    // Pass a non-normalized email (with surrounding whitespace + mixed case) to
-    // verify that signIn normalizes it before handing it to the lockout RPCs.
+    // Pass a non-normalized email — the client forwards it verbatim to the
+    // edge function, which is responsible for normalization server-side.
     await act(async () => {
       const response = await result.current.signIn(" Test@Example.COM ", "password123");
       expect(response.error).toBe(null);
     });
 
-    // signInWithPassword still receives the raw email (GoTrue handles its own
-    // case-folding); useAuth does not pre-trim the input for that call.
-    expect(supabase.auth.signInWithPassword).toHaveBeenCalledWith({
-      email: " Test@Example.COM ",
-      password: "password123",
+    expect(supabase.functions.invoke).toHaveBeenCalledWith("secure-signin", {
+      body: { email: " Test@Example.COM ", password: "password123" },
     });
 
-    // Should call assign-user-role after successful sign in
+    // The session returned by the edge function is installed locally so
+    // onAuthStateChange picks it up.
+    expect(supabase.auth.setSession).toHaveBeenCalledWith({
+      access_token: "token",
+      refresh_token: "refresh",
+    });
+
+    // Role assignment still runs after a successful sign in.
     expect(supabase.functions.invoke).toHaveBeenCalledWith(
       "assign-user-role",
-      expect.any(Object)
+      expect.any(Object),
     );
 
-    // AL-4 (BUG 0514-115): successful login resets the failure counter
-    // using the lower-cased, trimmed email — proves the normalization in signIn.
-    expect(supabase.rpc).toHaveBeenCalledWith("reset_login_attempts", {
-      p_email: "test@example.com",
-    });
+    // The client must NOT call signInWithPassword directly anymore — the
+    // edge function owns that call so the lockout counter can only be
+    // incremented in response to a real GoTrue failure.
+    expect(supabase.auth.signInWithPassword).not.toHaveBeenCalled();
+    // Same for the lockout RPCs: anon-execute was revoked, so the client
+    // must never call them on the sign-in path.
+    expect(supabase.rpc).not.toHaveBeenCalledWith("check_login_allowed", expect.anything());
+    expect(supabase.rpc).not.toHaveBeenCalledWith("record_failed_login", expect.anything());
+    expect(supabase.rpc).not.toHaveBeenCalledWith("reset_login_attempts", expect.anything());
   });
 
-  it("signIn returns error on failure", async () => {
-    const mockError = new Error("Invalid credentials");
-    vi.mocked(supabase.auth.signInWithPassword).mockResolvedValue({
-      data: { user: null, session: null },
-      error: mockError as any,
+  it("signIn returns error on invalid credentials", async () => {
+    mockInvoke({
+      "secure-signin": async () => ({
+        data: { ok: false, code: "INVALID_CREDENTIALS", message: "Invalid login credentials" },
+        error: null,
+      }),
     });
 
     const { result } = renderHook(() => useAuth(), {
@@ -211,8 +252,11 @@ describe("useAuth", () => {
 
     await act(async () => {
       const response = await result.current.signIn("wrong@example.com", "wrong");
-      expect(response.error).toBeTruthy();
+      expect(response.error?.message).toBe("Invalid login credentials");
     });
+
+    // Session must not be installed on a failed sign in.
+    expect(supabase.auth.setSession).not.toHaveBeenCalled();
   });
 
   it("signUp calls supabase signUp with metadata and assigns role", async () => {
@@ -220,12 +264,12 @@ describe("useAuth", () => {
       user: { id: "user-123" },
       access_token: "token",
     };
-    
+
     vi.mocked(supabase.auth.signUp).mockResolvedValue({
       data: { user: mockSession.user as any, session: mockSession as any },
       error: null,
     });
-    
+
     vi.mocked(supabase.functions.invoke).mockResolvedValue({
       data: { role: "admin", isFirstUser: true },
       error: null,
@@ -257,7 +301,7 @@ describe("useAuth", () => {
         },
       }),
     });
-    
+
     // Should call assign-user-role after successful sign up
     expect(supabase.functions.invoke).toHaveBeenCalledWith(
       "assign-user-role",
@@ -335,6 +379,8 @@ describe("useAuth", () => {
 
     // After a successful password reset, the residual lockout row must be
     // cleared so the user can sign in immediately with the new password.
+    // reset_login_attempts is still client-callable for authenticated users
+    // (its jwt-email guard prevents abuse).
     expect(supabase.rpc).toHaveBeenCalledWith("reset_login_attempts", {
       p_email: "user@example.com",
     });
@@ -422,24 +468,23 @@ describe("signIn account lockout (BUG 0514-115)", () => {
       },
     });
 
-    // Default: allowed + no-op for the other RPCs.
-    vi.mocked(supabase.rpc).mockImplementation((fn: string) => {
-      if (fn === "check_login_allowed") {
-        return Promise.resolve({ data: { allowed: true, remaining_seconds: 0 }, error: null }) as any;
-      }
-      return Promise.resolve({ data: null, error: null }) as any;
+    vi.mocked(supabase.auth.setSession).mockResolvedValue({
+      data: {
+        session: { access_token: "token", refresh_token: "refresh" } as any,
+        user: { id: "user-123" } as any,
+      },
+      error: null,
     });
+
+    vi.mocked(supabase.rpc).mockResolvedValue({ data: null, error: null } as any);
   });
 
-  it("AL-1: pre-check blocks before GoTrue when account is already locked", async () => {
-    vi.mocked(supabase.rpc).mockImplementation((fn: string) => {
-      if (fn === "check_login_allowed") {
-        return Promise.resolve({
-          data: { allowed: false, remaining_seconds: 600 },
-          error: null,
-        }) as any;
-      }
-      return Promise.resolve({ data: null, error: null }) as any;
+  it("AL-1: edge function pre-check surfaces ACCOUNT_LOCKED before any session is installed", async () => {
+    mockInvoke({
+      "secure-signin": async () => ({
+        data: { ok: false, code: "ACCOUNT_LOCKED", remaining_seconds: 600 },
+        error: null,
+      }),
     });
 
     const { result } = renderHook(() => useAuth(), { wrapper: createWrapper() });
@@ -449,26 +494,18 @@ describe("signIn account lockout (BUG 0514-115)", () => {
       expect(response.error?.message).toBe("ACCOUNT_LOCKED:600");
     });
 
-    expect(supabase.auth.signInWithPassword).not.toHaveBeenCalled();
+    expect(supabase.auth.setSession).not.toHaveBeenCalled();
   });
 
-  it("AL-2: credential failure surfaces lockout when counter trips", async () => {
-    vi.mocked(supabase.auth.signInWithPassword).mockResolvedValue({
-      data: { user: null, session: null },
-      error: { message: "Invalid login credentials" } as any,
-    });
-
-    vi.mocked(supabase.rpc).mockImplementation((fn: string) => {
-      if (fn === "check_login_allowed") {
-        return Promise.resolve({ data: { allowed: true, remaining_seconds: 0 }, error: null }) as any;
-      }
-      if (fn === "record_failed_login") {
-        return Promise.resolve({
-          data: { locked: true, remaining_seconds: 900 },
-          error: null,
-        }) as any;
-      }
-      return Promise.resolve({ data: null, error: null }) as any;
+  it("AL-2: credential failure that trips the counter is reported as ACCOUNT_LOCKED", async () => {
+    // The edge function decides whether the failure tripped the counter and
+    // collapses both signals (pre-check locked, fail-trip locked) into the
+    // same ACCOUNT_LOCKED response. The client just relays the duration.
+    mockInvoke({
+      "secure-signin": async () => ({
+        data: { ok: false, code: "ACCOUNT_LOCKED", remaining_seconds: 900 },
+        error: null,
+      }),
     });
 
     const { result } = renderHook(() => useAuth(), { wrapper: createWrapper() });
@@ -477,25 +514,16 @@ describe("signIn account lockout (BUG 0514-115)", () => {
       const response = await result.current.signIn("user@example.com", "wrong");
       expect(response.error?.message).toBe("ACCOUNT_LOCKED:900");
     });
+
+    expect(supabase.auth.setSession).not.toHaveBeenCalled();
   });
 
-  it("AL-3: credential failure below threshold returns the original error unchanged", async () => {
-    vi.mocked(supabase.auth.signInWithPassword).mockResolvedValue({
-      data: { user: null, session: null },
-      error: { message: "Invalid login credentials" } as any,
-    });
-
-    vi.mocked(supabase.rpc).mockImplementation((fn: string) => {
-      if (fn === "check_login_allowed") {
-        return Promise.resolve({ data: { allowed: true, remaining_seconds: 0 }, error: null }) as any;
-      }
-      if (fn === "record_failed_login") {
-        return Promise.resolve({
-          data: { locked: false, remaining_seconds: 0 },
-          error: null,
-        }) as any;
-      }
-      return Promise.resolve({ data: null, error: null }) as any;
+  it("AL-3: credential failure below the threshold returns INVALID_CREDENTIALS", async () => {
+    mockInvoke({
+      "secure-signin": async () => ({
+        data: { ok: false, code: "INVALID_CREDENTIALS", message: "Invalid login credentials" },
+        error: null,
+      }),
     });
 
     const { result } = renderHook(() => useAuth(), { wrapper: createWrapper() });

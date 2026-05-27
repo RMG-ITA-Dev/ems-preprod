@@ -98,3 +98,44 @@ describe("account lockout policy migration (BUG 0514-115)", () => {
     );
   });
 });
+
+// Static regression brake for the BUG 0514-115 follow-up migration that moved
+// the lockout enforcement behind the `secure-signin` edge function (Codex P1).
+describe("account lockout edge-function migration (BUG 0514-115 follow-up)", () => {
+  const migrationPath = resolve(
+    process.cwd(),
+    "supabase/migrations/20260527000000_lockout_move_behind_edge_function.sql"
+  );
+  const sql = readFileSync(migrationPath, "utf8");
+
+  it("revokes EXECUTE on check_login_allowed from anon and authenticated", () => {
+    // The edge function (service role) is the only caller now; a direct
+    // `curl /rest/v1/rpc/check_login_allowed` from anon must fail with
+    // `permission denied`.
+    expect(sql).toMatch(
+      /REVOKE EXECUTE ON FUNCTION public\.check_login_allowed\(text\)\s+FROM anon, authenticated/
+    );
+  });
+
+  it("revokes EXECUTE on record_failed_login from anon and authenticated", () => {
+    // Same as above; this is the RPC Codex flagged as the DoS vector.
+    expect(sql).toMatch(
+      /REVOKE EXECUTE ON FUNCTION public\.record_failed_login\(text\)\s+FROM anon, authenticated/
+    );
+  });
+
+  it("re-asserts the reset_login_attempts revoke for anon (defense in depth)", () => {
+    expect(sql).toMatch(
+      /REVOKE EXECUTE ON FUNCTION public\.reset_login_attempts\(text\)\s+FROM public, anon/
+    );
+  });
+
+  it("does NOT grant EXECUTE back to anon for any of the three RPCs", () => {
+    // If a future change re-adds these grants, this test trips loudly so the
+    // DoS vector cannot silently come back. Service role is implicit and
+    // never appears in GRANT statements, so no GRANT line should mention anon.
+    expect(sql).not.toMatch(
+      /GRANT EXECUTE ON FUNCTION public\.(check_login_allowed|record_failed_login|reset_login_attempts)\([^)]*\)\s+TO[^;]*\banon\b/
+    );
+  });
+});
