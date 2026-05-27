@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Bell } from "lucide-react";
 import { format } from "date-fns";
 import { useTranslation } from "react-i18next";
@@ -46,18 +46,21 @@ export function NotificationsPanel() {
   const hasAlerts = count > 0;
   const hasUnseenAlerts = alerts.some((a) => !a.seen_at);
 
+  useEffect(() => {
+    if (!open) return;
+    const unseen = alerts
+      .filter((a) => !a.seen_at)
+      .map((a) => ({
+        staff_id: a.staff_id as string,
+        entity_id: a.entity_id as string,
+        alert_type: a.alert_type as string,
+      }));
+    if (unseen.length) markSeen.mutate(unseen);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, alerts]);
+
   const handleOpenChange = (next: boolean) => {
     setOpen(next);
-    if (next && alerts.length) {
-      const unseen = alerts
-        .filter((a) => !a.seen_at)
-        .map((a) => ({
-          staff_id: a.staff_id as string,
-          entity_id: a.entity_id as string,
-          alert_type: a.alert_type as string,
-        }));
-      if (unseen.length) markSeen.mutate(unseen);
-    }
   };
 
   return (
