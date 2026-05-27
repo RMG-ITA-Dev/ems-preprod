@@ -262,21 +262,11 @@ export function useUnsubmitTimesheet() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({
-      periodId,
-    }: {
-      periodId: string;
-    }) => {
-      // Only clear submitted_at. Line approval records persist for audit trail.
-      const { error: periodError } = await supabase
-        .from("timesheet_periods")
-        .update({
-          submitted_at: null,
-        })
-        .eq("period_id", periodId);
-
-      if (periodError) throw periodError;
-
+    mutationFn: async ({ periodId }: { periodId: string }) => {
+      const { error } = await supabase.rpc("unsubmit_timesheet_safe", {
+        p_period_id: periodId,
+      });
+      if (error) throw error;
       return { periodId };
     },
     onSuccess: () => {
@@ -287,7 +277,18 @@ export function useUnsubmitTimesheet() {
       queryClient.invalidateQueries({ queryKey: ["staff-timesheet-for-approval"] });
       toast.success(i18n.t("timesheet.unsubmitted"));
     },
-    onError: createMutationErrorHandler("unsubmitting timesheet"),
+    onError: (error: Error) => {
+      const msg = error.message || "";
+      if (msg.includes("UNSUBMIT_NOT_PARTNER")) {
+        toast.error(i18n.t("timesheet.unsubmitNotPartner"));
+        return;
+      }
+      if (msg.includes("APPROVED_WEEK_RECALL_WINDOW_CLOSED")) {
+        toast.error(i18n.t("timesheet.approvedRecallWindowClosed"));
+        return;
+      }
+      createMutationErrorHandler("unsubmitting timesheet")(error);
+    },
   });
 }
 
