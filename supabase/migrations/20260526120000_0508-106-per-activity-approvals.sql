@@ -88,7 +88,7 @@ BEGIN
   IF v_pair_count IS NULL OR v_pair_count = 0 THEN
     RAISE EXCEPTION 'EMPTY_ENGAGEMENTS: No valid engagement/activity pairs after sanitization';
   END IF;
-  IF array_length(p_activity_ids, 1) <> v_pair_count THEN
+  IF COALESCE(array_length(p_activity_ids, 1), 0) <> v_pair_count THEN
     RAISE EXCEPTION 'ARRAY_LENGTH_MISMATCH: p_engagement_ids and p_activity_ids must be the same length';
   END IF;
 
