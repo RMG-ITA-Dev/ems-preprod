@@ -28,7 +28,9 @@ WITH per_activity AS (
     tla.status,
     tla.approved_by,
     tla.approved_at,
-    tla.review_notes
+    tla.review_notes,
+    tla.created_at,
+    tla.updated_at
   FROM public.timesheet_line_approvals tla
   JOIN public.time_entries te
     ON te.period_id    = tla.period_id
@@ -37,8 +39,8 @@ WITH per_activity AS (
   WHERE tla.activity_id IS NULL
 )
 INSERT INTO public.timesheet_line_approvals
-  (period_id, engagement_id, activity_id, status, approved_by, approved_at, review_notes)
-SELECT period_id, engagement_id, activity_id, status, approved_by, approved_at, review_notes
+  (period_id, engagement_id, activity_id, status, approved_by, approved_at, review_notes, created_at, updated_at)
+SELECT period_id, engagement_id, activity_id, status, approved_by, approved_at, review_notes, created_at, updated_at
 FROM per_activity;
 
 -- ─── STEP 3: Remove old engagement-level records (those with activity_id = NULL) ─
