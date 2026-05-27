@@ -234,8 +234,8 @@ export function TimesheetGrid({
 
       rowsRef.current.forEach((row) => {
         if (!row.engagementId) return;
-        // Approved line guard: skip approved rows in batch save
-        const rowApproval = lineApprovals.find(la => la.engagement_id === row.engagementId);
+        // Approved line guard: skip approved (engagement, activity) pairs in batch save
+        const rowApproval = lineApprovals.find(la => la.engagement_id === row.engagementId && la.activity_id === row.activityId);
         if (rowApproval?.status === "approved") return;
         const isActNotReq = activityNotRequiredIds?.has(row.engagementId);
         const effectiveActivityId = isActNotReq && adminActivityId ? adminActivityId : row.activityId;
