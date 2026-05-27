@@ -193,6 +193,22 @@ BEGIN
   SET submitted_at = now()
   WHERE period_id = p_period_id;
 
+  -- 3b. DELETE orphaned pending/rejected rows for pairs that no longer have entries.
+  -- This prevents stale rejected rows (from a changed activity) from keeping
+  -- hasRejectedLines=true or blocking isFullyApproved in the frontend.
+  -- Approved rows are intentionally excluded: the protect_approved_time_entries trigger
+  -- prevents deleting entries on approved lines, so approved rows always have entries.
+  DELETE FROM timesheet_line_approvals tla
+  WHERE tla.period_id = p_period_id
+    AND tla.status IN ('pending', 'rejected')
+    AND NOT EXISTS (
+      SELECT 1 FROM time_entries te
+      WHERE te.period_id     = p_period_id
+        AND te.engagement_id = tla.engagement_id
+        AND te.activity_id   = tla.activity_id
+        AND te.is_forecast   = false
+    );
+
   -- 4-7. Process each (engagement, activity) pair
   FOR i IN 1 .. v_pair_count LOOP
     v_eng_id := p_engagement_ids[i];
