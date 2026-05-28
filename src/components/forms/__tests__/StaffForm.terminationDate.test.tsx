@@ -375,3 +375,69 @@ describe("StaffForm termination_date (BUG 0508-104)", () => {
     expect(callArg.data.termination_date).toBe("2026-05-31");
   });
 });
+
+describe("StaffForm reactivation guard (BUG 0511-109/110)", () => {
+  it("RG-1: never-terminated inactive staff can be activated", async () => {
+    const { container } = renderForm({
+      is_active: false,
+      termination_date: null,
+    });
+
+    // Wait for the form to hydrate from the staff prop.
+    await waitFor(() => {
+      expect(
+        screen.getByLabelText("staff.terminationDate")
+      ).toBeInTheDocument();
+    });
+
+    // The mocked Switch renders as the only checkbox in the form.
+    const activeSwitch = container.querySelector(
+      'input[type="checkbox"]'
+    ) as HTMLInputElement;
+    expect(activeSwitch).toBeInTheDocument();
+    expect(activeSwitch.disabled).toBe(false);
+
+    // The "no reingreso" copy must NOT appear for a never-terminated row.
+    expect(screen.queryByText("errors.noReingreso")).not.toBeInTheDocument();
+
+    // Toggle activation on.
+    fireEvent.click(activeSwitch);
+    expect(activeSwitch.checked).toBe(true);
+
+    // Submit the form.
+    const form = container.querySelector("form")!;
+    fireEvent.submit(form);
+
+    // Assert the update mutation receives is_active=true and termination_date=null.
+    await waitFor(() => expect(updateMutateAsync).toHaveBeenCalled());
+    const callArg = updateMutateAsync.mock.calls[0][0] as {
+      id: string;
+      data: { is_active: boolean; termination_date: string | null };
+    };
+    expect(callArg.data.is_active).toBe(true);
+    expect(callArg.data.termination_date).toBeNull();
+  });
+
+  it("RG-2: terminated inactive staff stays blocked", async () => {
+    const { container } = renderForm({
+      is_active: false,
+      termination_date: "2026-04-30",
+    });
+
+    // Wait for the form to hydrate; termination_date should show the stored value.
+    await waitFor(() => {
+      const termInput = screen.getByLabelText(
+        "staff.terminationDate"
+      ) as HTMLInputElement;
+      expect(termInput.value).toBe("2026-04-30");
+    });
+
+    const activeSwitch = container.querySelector(
+      'input[type="checkbox"]'
+    ) as HTMLInputElement;
+    expect(activeSwitch).toBeInTheDocument();
+    expect(activeSwitch.disabled).toBe(true);
+
+    expect(screen.getByText("errors.noReingreso")).toBeInTheDocument();
+  });
+});

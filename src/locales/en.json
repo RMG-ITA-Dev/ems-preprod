@@ -597,6 +597,8 @@
     "emailTooLong": "Email must be less than 255 characters",
     "afterTerminationDate": "Cannot log time after termination date",
     "noReingreso": "Reactivation is not allowed. To rehire this person, delete the previous record and create a new one.",
+    "terminationDateImmutable": "Cannot clear the termination date on an inactive staff record. To correct it, enter a different date instead.",
+    "deletedAtImmutable": "This record is marked as deleted and cannot be restored. To rehire this person, create a new record.",
     "onlyRuizmierEmail": "Only valid emails are allowed",
     "userNotFound": "User not found in the system",
     "checkUserError": "Error checking user. Please try again."

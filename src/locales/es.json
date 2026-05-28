@@ -597,6 +597,8 @@
     "emailTooLong": "El correo debe tener menos de 255 caracteres",
     "afterTerminationDate": "No se puede registrar tiempo después de la fecha de salida",
     "noReingreso": "No se permite reingreso. Para reincorporar a esta persona, elimine el registro anterior y cree uno nuevo.",
+    "terminationDateImmutable": "No se puede borrar la fecha de salida en un registro inactivo. Para corregirla, ingrese una fecha diferente.",
+    "deletedAtImmutable": "Este registro está marcado como eliminado y no puede restaurarse. Para reincorporar a esta persona, cree un nuevo registro.",
     "onlyRuizmierEmail": "Solo se permiten correos válidos.",
     "userNotFound": "Usuario no encontrado en el sistema",
     "checkUserError": "Error verificando usuario. Intente nuevamente."

@@ -30,6 +30,14 @@ function handleStaffError(error: Error, operation: string) {
     toast.error(i18n.t("errors.afterTerminationDate"));
     return;
   }
+  if (msg.includes("TERMINATION_DATE_IMMUTABLE")) {
+    toast.error(i18n.t("errors.terminationDateImmutable"));
+    return;
+  }
+  if (msg.includes("DELETED_AT_IMMUTABLE")) {
+    toast.error(i18n.t("errors.deletedAtImmutable"));
+    return;
+  }
 
   // Fall back to default error handling
   createMutationErrorHandler(operation)(error);
