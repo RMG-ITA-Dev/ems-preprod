@@ -30,6 +30,11 @@ const TimeSheet = lazy(() => import("./pages/TimeSheet"));
 const Expenses = lazy(() => import("./pages/Expenses"));
 const ExpenseNew = lazy(() => import("./pages/ExpenseNew"));
 const ExpenseEdit = lazy(() => import("./pages/ExpenseEdit"));
+const FundRequests = lazy(() => import("./pages/FundRequests"));
+const FundRequestNew = lazy(() => import("./pages/FundRequestNew"));
+const FundRequestEdit = lazy(() => import("./pages/FundRequestEdit"));
+const FundRequestApprovals = lazy(() => import("./pages/FundRequestApprovals"));
+const FundRequestDisbursements = lazy(() => import("./pages/FundRequestDisbursements"));
 const Staff = lazy(() => import("./pages/Staff"));
 const StaffNew = lazy(() => import("./pages/StaffNew"));
 const StaffEdit = lazy(() => import("./pages/StaffEdit"));
@@ -104,6 +109,11 @@ const router = createBrowserRouter([
       { path: "/expenses", element: <ProtectedRoute><Expenses /></ProtectedRoute> },
       { path: "/expenses/new", element: <ProtectedRoute><ExpenseNew /></ProtectedRoute> },
       { path: "/expenses/:id", element: <ProtectedRoute><ExpenseEdit /></ProtectedRoute> },
+      { path: "/fund-requests", element: <ProtectedRoute><FundRequests /></ProtectedRoute> },
+      { path: "/fund-requests/new", element: <ProtectedRoute><FundRequestNew /></ProtectedRoute> },
+      { path: "/fund-requests/approvals", element: <ProtectedRoute><FundRequestApprovals /></ProtectedRoute> },
+      { path: "/fund-requests/disbursements", element: <ProtectedRoute><FundRequestDisbursements /></ProtectedRoute> },
+      { path: "/fund-requests/:id", element: <ProtectedRoute><FundRequestEdit /></ProtectedRoute> },
       { path: "/staff", element: <ProtectedRoute><Staff /></ProtectedRoute> },
       { path: "/staff/new", element: <ProtectedRoute><StaffNew /></ProtectedRoute> },
       { path: "/staff/:id", element: <ProtectedRoute><StaffEdit /></ProtectedRoute> },
