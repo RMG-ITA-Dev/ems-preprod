@@ -219,6 +219,11 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
   const [showSyncDialog, setShowSyncDialog] = useState(false);
   const [syncData, setSyncData] = useState<{ userId: string; newRole: AppRole } | null>(null);
 
+  // Reactivation confirmation dialog state (BUG 0526-123).
+  // Opens when an admin toggles is_active OFF->ON on a row that still has a
+  // termination_date. The DB-side hour-loading restriction stays in effect.
+  const [showReactivateDialog, setShowReactivateDialog] = useState(false);
+
   const formSchema = useMemo(() => createFormSchema(t, isEdit, staff?.is_active), [t, isEdit, staff?.is_active]);
 
   const form = useForm<FormData>({
@@ -284,9 +289,6 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
   const lastName = form.watch("last_name");
   const currentShortName = form.watch("short_name");
   const currentInitials = form.watch("initials");
-
-  // No-Reingreso: block reactivation for deactivated staff with termination_date
-  const isReactivationBlocked = isEdit && staff && !staff.is_active && !!staff.termination_date;
 
   useEffect(() => {
     // Only auto-suggest if fields are empty (don't override user edits)
@@ -771,16 +773,23 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
                     <div className="space-y-0.5">
                       <FormLabel className="text-base">{t("common.active")}</FormLabel>
                       <FormDescription>
-                        {isReactivationBlocked
-                          ? t("errors.noReingreso")
-                          : isEdit ? t("staff.activeDescription") : t("staff.activeDescriptionNew")}
+                        {isEdit ? t("staff.activeDescription") : t("staff.activeDescriptionNew")}
                       </FormDescription>
                     </div>
                     <FormControl>
                       <Switch
                         checked={field.value}
-                        onCheckedChange={field.onChange}
-                        disabled={isReactivationBlocked}
+                        onCheckedChange={(checked) => {
+                          // BUG 0526-123: OFF->ON on a row with a termination_date
+                          // opens a confirmation dialog. Hold the toggle until
+                          // the admin confirms.
+                          const currentTermination = form.getValues("termination_date");
+                          if (checked && field.value === false && !!currentTermination) {
+                            setShowReactivateDialog(true);
+                            return;
+                          }
+                          field.onChange(checked);
+                        }}
                       />
                     </FormControl>
                   </FormItem>
@@ -1023,6 +1032,41 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
           <DialogFooter>
             <Button variant="cancel" onClick={() => setShowPendingDialog(false)}>
               {t("common.close")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reactivation Confirmation Dialog (BUG 0526-123) */}
+      <Dialog open={showReactivateDialog} onOpenChange={setShowReactivateDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader className="space-y-3">
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-amber-500" />
+              {t("staff.reactivateTitle")}
+            </DialogTitle>
+            <DialogDescription asChild>
+              <div className="space-y-2 leading-relaxed">
+                <p>
+                  {t("staff.reactivateDescriptionDate", {
+                    date: form.getValues("termination_date") || "",
+                  })}
+                </p>
+                <p>{t("staff.reactivateDescriptionDetails")}</p>
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col sm:flex-row gap-2 pt-2">
+            <Button variant="cancel" onClick={() => setShowReactivateDialog(false)}>
+              {t("common.cancel")}
+            </Button>
+            <Button
+              onClick={() => {
+                form.setValue("is_active", true, { shouldDirty: true });
+                setShowReactivateDialog(false);
+              }}
+            >
+              {t("staff.reactivateConfirm")}
             </Button>
           </DialogFooter>
         </DialogContent>
