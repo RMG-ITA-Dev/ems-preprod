@@ -1196,5 +1196,26 @@
     "light": "Light",
     "dark": "Dark",
     "system": "System"
+  },
+  "notifications": {
+    "title": "Notifications",
+    "emptyTitle": "No active alerts",
+    "emptyDescription": "You have no staffing alerts at this time.",
+    "loading": "Loading notifications…",
+    "error": "Could not load notifications.",
+    "count": "{{count}} alert",
+    "count_other": "{{count}} alerts",
+    "priority": {
+      "high": "High",
+      "medium": "Medium",
+      "low": "Low",
+      "unknown": "—"
+    },
+    "types": {
+      "timesheet_pending_approval": "{{staff}}'s timesheet — {{engagement}}",
+      "work_order_pending_approval": "Work order pending approval — {{engagement}}",
+      "engagement_created": "New engagement: {{engagement}} ({{client}})",
+      "new_user_registered": "New user registered: {{subject}}"
+    }
   }
 }
