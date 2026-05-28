@@ -132,10 +132,44 @@ describe("account lockout edge-function migration (BUG 0514-115 follow-up)", () 
 
   it("does NOT grant EXECUTE back to anon for any of the three RPCs", () => {
     // If a future change re-adds these grants, this test trips loudly so the
-    // DoS vector cannot silently come back. Service role is implicit and
-    // never appears in GRANT statements, so no GRANT line should mention anon.
+    // DoS vector cannot silently come back.
     expect(sql).not.toMatch(
       /GRANT EXECUTE ON FUNCTION public\.(check_login_allowed|record_failed_login|reset_login_attempts)\([^)]*\)\s+TO[^;]*\banon\b/
     );
+  });
+});
+
+describe("account lockout service-role grant migration (BUG 0514-115 follow-up)", () => {
+  const migrationPath = resolve(
+    process.cwd(),
+    "supabase/migrations/20260527002000_lockout_service_role_edge_grants.sql"
+  );
+  const sql = readFileSync(migrationPath, "utf8");
+
+  it("explicitly grants service_role EXECUTE for the edge-function RPCs", () => {
+    // PostgreSQL checks EXECUTE before entering SECURITY DEFINER functions.
+    // secure-signin uses service_role for these two RPCs, so the grants must be
+    // explicit after stripping anon/authenticated.
+    expect(sql).toMatch(
+      /GRANT EXECUTE ON FUNCTION public\.check_login_allowed\(text\)\s+TO service_role/
+    );
+    expect(sql).toMatch(
+      /GRANT EXECUTE ON FUNCTION public\.record_failed_login\(text\)\s+TO service_role/
+    );
+  });
+});
+
+describe("secure-signin edge function (BUG 0514-115 follow-up)", () => {
+  const functionPath = resolve(
+    process.cwd(),
+    "supabase/functions/secure-signin/index.ts"
+  );
+  const source = readFileSync(functionPath, "utf8");
+
+  it("resets lockout state with the authenticated user's JWT", () => {
+    expect(source).toMatch(/Authorization:\s*`Bearer \$\{access_token\}`/);
+    expect(source).toMatch(/const supabaseUser = createClient/);
+    expect(source).toMatch(/await supabaseUser\.rpc\("reset_login_attempts"/);
+    expect(source).not.toMatch(/await supabaseAdmin\.rpc\("reset_login_attempts"/);
   });
 });

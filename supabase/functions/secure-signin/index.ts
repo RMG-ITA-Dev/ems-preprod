@@ -151,9 +151,23 @@ Deno.serve(async (req) => {
     });
   }
 
-  // 4. Successful login: clear the counter and relay the session to the client.
+  const { access_token, refresh_token, expires_in, expires_at, token_type, user } =
+    signInData.session;
+
+  // 4. Successful login: clear the counter using the authenticated user's JWT
+  // so reset_login_attempts can enforce its jwt-email guard. Service role is
+  // deliberately not used here; otherwise 1-4 typos followed by a successful
+  // login could fail to clear the counter.
+  const supabaseUser = createClient(SUPABASE_URL, ANON_KEY, {
+    global: {
+      headers: {
+        Authorization: `Bearer ${access_token}`,
+      },
+    },
+  });
+
   try {
-    const { error: resetErr } = await supabaseAdmin.rpc("reset_login_attempts", {
+    const { error: resetErr } = await supabaseUser.rpc("reset_login_attempts", {
       p_email: emailNormalized,
     });
     if (resetErr) {
@@ -162,9 +176,6 @@ Deno.serve(async (req) => {
   } catch (err) {
     console.error("[secure-signin] reset_login_attempts threw:", err);
   }
-
-  const { access_token, refresh_token, expires_in, expires_at, token_type, user } =
-    signInData.session;
 
   return jsonResponse({
     ok: true,
