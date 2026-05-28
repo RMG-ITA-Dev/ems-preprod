@@ -6,12 +6,10 @@ import { toast } from "sonner";
 import { ForgotPasswordDialog } from "../ForgotPasswordDialog";
 
 const mockResetPasswordForEmail = vi.fn();
-const mockCheckUserExists = vi.fn();
 
 vi.mock("@/hooks/useAuth", () => ({
   useAuth: () => ({
     resetPasswordForEmail: mockResetPasswordForEmail,
-    checkUserExists: mockCheckUserExists,
   }),
 }));
 
@@ -36,7 +34,6 @@ describe("ForgotPasswordDialog (bug 0511-107)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockResetPasswordForEmail.mockResolvedValue({ error: null });
-    mockCheckUserExists.mockResolvedValue({ exists: true, error: null });
   });
 
   it("FP-1: opens dialog when trigger is clicked", async () => {
@@ -48,7 +45,6 @@ describe("ForgotPasswordDialog (bug 0511-107)", () => {
 
   it("FP-2: valid email submission shows the success state and hides the form", async () => {
     const user = userEvent.setup();
-    mockCheckUserExists.mockResolvedValue({ exists: true, error: null });
     renderWithOuterForm();
     await user.click(screen.getByText("Open"));
     await user.type(screen.getByLabelText("auth.email"), "john@ruizmier.com");
@@ -61,7 +57,6 @@ describe("ForgotPasswordDialog (bug 0511-107)", () => {
 
   it("FP-3: (Regression 0511-107) dialog submission does NOT invoke the outer form's onSubmit", async () => {
     const user = userEvent.setup();
-    mockCheckUserExists.mockResolvedValue({ exists: true, error: null });
     renderWithOuterForm();
     await user.click(screen.getByText("Open"));
     await user.type(screen.getByLabelText("auth.email"), "john@ruizmier.com");
@@ -74,7 +69,6 @@ describe("ForgotPasswordDialog (bug 0511-107)", () => {
 
   it("FP-4: valid email submission does NOT call toast.error", async () => {
     const user = userEvent.setup();
-    mockCheckUserExists.mockResolvedValue({ exists: true, error: null });
     renderWithOuterForm();
     await user.click(screen.getByText("Open"));
     await user.type(screen.getByLabelText("auth.email"), "john@ruizmier.com");
@@ -103,7 +97,6 @@ describe("ForgotPasswordDialog (bug 0511-107)", () => {
 
   it("FP-6: closing the dialog resets its state", async () => {
     const user = userEvent.setup();
-    mockCheckUserExists.mockResolvedValue({ exists: true, error: null });
     renderWithOuterForm();
     await user.click(screen.getByText("Open"));
     await user.type(screen.getByLabelText("auth.email"), "john@ruizmier.com");
@@ -119,47 +112,42 @@ describe("ForgotPasswordDialog (bug 0511-107)", () => {
     expect(screen.queryByText("auth.checkYourEmail")).not.toBeInTheDocument();
   });
 
-  it("FP-7: @ruizmier.com email with existing user shows success state", async () => {
+  it("FP-7: success state is uniform regardless of whether the email exists (anti-enumeration)", async () => {
+    // After dropping the staff pre-check, the dialog calls Supabase directly
+    // and always shows the success state. This prevents the dialog from
+    // revealing whether a given email is registered (CWE-204) and unblocks
+    // recovery for bootstrap admins who don't have a staff row yet.
     const user = userEvent.setup();
-    mockCheckUserExists.mockResolvedValue({ exists: true, error: null });
     renderWithOuterForm();
     await user.click(screen.getByText("Open"));
-    await user.type(screen.getByLabelText("auth.email"), "john@ruizmier.com");
+    await user.type(screen.getByLabelText("auth.email"), "any.email@ruizmier.com");
     await user.click(screen.getByText("auth.sendResetLink"));
     await waitFor(() =>
       expect(screen.getByText("auth.checkYourEmail")).toBeInTheDocument()
     );
-    expect(mockCheckUserExists).toHaveBeenCalledWith("john@ruizmier.com");
+    expect(mockResetPasswordForEmail).toHaveBeenCalledWith("any.email@ruizmier.com");
   });
 
-  it("FP-8: @ruizmier.com email with non-existing user shows error", async () => {
+  it("FP-8: Supabase reset failure is logged but the success state is still shown (anti-enumeration)", async () => {
+    // Even if Supabase returns an error (rate limit, unknown email, etc.) the
+    // UI must not reveal it — the toast/inline error stays empty and the
+    // success state is shown. The error is only logged for monitoring.
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockResetPasswordForEmail.mockResolvedValue({ error: new Error("Rate limit") });
     const user = userEvent.setup();
-    mockCheckUserExists.mockResolvedValue({ exists: false, error: null });
     renderWithOuterForm();
     await user.click(screen.getByText("Open"));
-    await user.type(screen.getByLabelText("auth.email"), "nonexistent@ruizmier.com");
+    await user.type(screen.getByLabelText("auth.email"), "unknown@ruizmier.com");
     await user.click(screen.getByText("auth.sendResetLink"));
     await waitFor(() =>
-      expect(screen.getByText("errors.userNotFound")).toBeInTheDocument()
+      expect(screen.getByText("auth.checkYourEmail")).toBeInTheDocument()
     );
-    expect(screen.queryByText("auth.checkYourEmail")).not.toBeInTheDocument();
-    expect(mockResetPasswordForEmail).not.toHaveBeenCalled();
+    expect(vi.mocked(toast.error)).not.toHaveBeenCalled();
+    expect(consoleSpy).toHaveBeenCalled();
+    consoleSpy.mockRestore();
   });
 
-  it("FP-9: @ruizmier.com email with check error shows error message", async () => {
-    const user = userEvent.setup();
-    mockCheckUserExists.mockResolvedValue({ exists: false, error: new Error("DB error") });
-    renderWithOuterForm();
-    await user.click(screen.getByText("Open"));
-    await user.type(screen.getByLabelText("auth.email"), "test@ruizmier.com");
-    await user.click(screen.getByText("auth.sendResetLink"));
-    await waitFor(() =>
-      expect(screen.getByText("errors.checkUserError")).toBeInTheDocument()
-    );
-    expect(mockResetPasswordForEmail).not.toHaveBeenCalled();
-  });
-
-  it("FP-10: external email (non-@ruizmier.com) is rejected", async () => {
+  it("FP-9: external email (non-@ruizmier.com) is rejected before reaching Supabase", async () => {
     const user = userEvent.setup();
     renderWithOuterForm();
     await user.click(screen.getByText("Open"));
@@ -169,7 +157,6 @@ describe("ForgotPasswordDialog (bug 0511-107)", () => {
       expect(screen.getByText("errors.onlyRuizmierEmail")).toBeInTheDocument()
     );
     expect(screen.queryByText("auth.checkYourEmail")).not.toBeInTheDocument();
-    expect(mockCheckUserExists).not.toHaveBeenCalled();
     expect(mockResetPasswordForEmail).not.toHaveBeenCalled();
   });
 });
