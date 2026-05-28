@@ -2531,12 +2531,12 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.check_login_allowed(text)  FROM public;
-REVOKE ALL ON FUNCTION public.record_failed_login(text)  FROM public;
-REVOKE ALL ON FUNCTION public.reset_login_attempts(text) FROM public, anon;
+REVOKE EXECUTE ON FUNCTION public.check_login_allowed(text)  FROM anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.record_failed_login(text)  FROM anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.reset_login_attempts(text) FROM public, anon;
 
-GRANT EXECUTE ON FUNCTION public.check_login_allowed(text)  TO anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.record_failed_login(text)  TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.check_login_allowed(text)  TO service_role;
+GRANT EXECUTE ON FUNCTION public.record_failed_login(text)  TO service_role;
 GRANT EXECUTE ON FUNCTION public.reset_login_attempts(text) TO authenticated;
 
 -- ============================================================================
