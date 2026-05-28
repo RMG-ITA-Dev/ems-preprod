@@ -19,6 +19,9 @@ export interface ImportResult {
   blockedWeeks: string[];
   woBlockedCount: number;
   woBlockedEngagements: string[];
+  dbErrorCount: number;
+  dbErrorWeeks: string[];
+  dbErrorMessages: string[];
 }
 
 interface AggregatedGroup {
@@ -41,6 +44,16 @@ function isWoNotApprovedError(message?: string): boolean {
   return lower.includes("work order") && lower.includes("not approved");
 }
 
+function isApprovedLineLockedError(message?: string): boolean {
+  if (!message) return false;
+  return message.toUpperCase().includes("APPROVED_LINE_LOCKED");
+}
+
+function classifyDbErrorMessage(rawMsg: string): string {
+  if (isApprovedLineLockedError(rawMsg)) return "approved_line_locked";
+  return rawMsg.length > 0 && rawMsg.length <= 120 ? rawMsg : "";
+}
+
 export function useTimesheetImport({ staffId }: { staffId: string }) {
   const [isExporting, setIsExporting] = useState(false);
   const queryClient = useQueryClient();
@@ -48,7 +61,11 @@ export function useTimesheetImport({ staffId }: { staffId: string }) {
 
   const exportEntries = async (entries: TimerEntry[]): Promise<ImportResult> => {
     if (!staffId || entries.length === 0) {
-      return { newCount: 0, mergedCount: 0, blockedCount: 0, blockedWeeks: [], woBlockedCount: 0, woBlockedEngagements: [] };
+      return {
+        newCount: 0, mergedCount: 0, blockedCount: 0, blockedWeeks: [],
+        woBlockedCount: 0, woBlockedEngagements: [],
+        dbErrorCount: 0, dbErrorWeeks: [], dbErrorMessages: [],
+      };
     }
 
     setIsExporting(true);
@@ -156,6 +173,9 @@ export function useTimesheetImport({ staffId }: { staffId: string }) {
       const blockedWeeks: string[] = [];
       let woBlockedCount = 0;
       const woBlockedEngagementsSet = new Set<string>();
+      let dbErrorCount = 0;
+      const dbErrorWeeks: string[] = [];
+      const dbErrorMessages: string[] = [];
       const exportedTimerIds: string[] = [];
       const importedMappings: { timer_id: string; time_id: string }[] = [];
 
@@ -200,7 +220,17 @@ export function useTimesheetImport({ staffId }: { staffId: string }) {
 
         if (selectError) {
           console.error("Select existing entry error:", selectError);
-          blockedCount += group.timerIds.length;
+          dbErrorCount += group.timerIds.length;
+          const [wy, wm, wd] = weekStartStr.split("-").map(Number);
+          const errWeek = format(new Date(wy, wm - 1, wd), "dd/MM/yyyy");
+          const classified = classifyDbErrorMessage((selectError as { message?: string } | undefined)?.message ?? "");
+          const weekIndex = dbErrorWeeks.indexOf(errWeek);
+          if (weekIndex === -1) {
+            dbErrorWeeks.push(errWeek);
+            dbErrorMessages.push(classified);
+          } else if (!dbErrorMessages[weekIndex] && classified) {
+            dbErrorMessages[weekIndex] = classified;
+          }
           continue;
         }
 
@@ -220,7 +250,17 @@ export function useTimesheetImport({ staffId }: { staffId: string }) {
                 || group.engagement_id.slice(0, 8);
               woBlockedEngagementsSet.add(code);
             } else {
-              blockedCount += group.timerIds.length;
+              dbErrorCount += group.timerIds.length;
+              const [wy, wm, wd] = weekStartStr.split("-").map(Number);
+              const errWeek = format(new Date(wy, wm - 1, wd), "dd/MM/yyyy");
+              const classified = classifyDbErrorMessage((updateError as { message?: string } | undefined)?.message ?? "");
+              const weekIndex = dbErrorWeeks.indexOf(errWeek);
+              if (weekIndex === -1) {
+                dbErrorWeeks.push(errWeek);
+                dbErrorMessages.push(classified);
+              } else if (!dbErrorMessages[weekIndex] && classified) {
+                dbErrorMessages[weekIndex] = classified;
+              }
             }
             continue;
           }
@@ -255,7 +295,17 @@ export function useTimesheetImport({ staffId }: { staffId: string }) {
                 || group.engagement_id.slice(0, 8);
               woBlockedEngagementsSet.add(code);
             } else {
-              blockedCount += group.timerIds.length;
+              dbErrorCount += group.timerIds.length;
+              const [wy, wm, wd] = weekStartStr.split("-").map(Number);
+              const errWeek = format(new Date(wy, wm - 1, wd), "dd/MM/yyyy");
+              const classified = classifyDbErrorMessage((insertError as { message?: string } | undefined)?.message ?? "");
+              const weekIndex = dbErrorWeeks.indexOf(errWeek);
+              if (weekIndex === -1) {
+                dbErrorWeeks.push(errWeek);
+                dbErrorMessages.push(classified);
+              } else if (!dbErrorMessages[weekIndex] && classified) {
+                dbErrorMessages[weekIndex] = classified;
+              }
             }
             continue;
           }
@@ -285,7 +335,7 @@ export function useTimesheetImport({ staffId }: { staffId: string }) {
       queryClient.invalidateQueries({ queryKey: ["timer_entries"] });
       queryClient.invalidateQueries({ queryKey: ["timer_entries_unimported"] });
 
-      return { newCount, mergedCount, blockedCount, blockedWeeks, woBlockedCount, woBlockedEngagements };
+      return { newCount, mergedCount, blockedCount, blockedWeeks, woBlockedCount, woBlockedEngagements, dbErrorCount, dbErrorWeeks, dbErrorMessages };
     } finally {
       setIsExporting(false);
     }

@@ -61,7 +61,8 @@
     "saveError": "Error al guardar los cambios. Intente nuevamente.",
     "status": "Estado",
     "back": "Volver",
-    "none": "Ninguno"
+    "none": "Ninguno",
+    "confirm": "Confirmar"
   },
   "nav": {
     "main": "Principal",
@@ -155,6 +156,9 @@
     "exportError": "Error al exportar registros",
     "exportBlockedSubmitted": "La semana del {{weekStart}} ya fue enviada. Debe retirar el envio antes de exportar.",
     "exportBlocked": "{{blockedCount}} registros bloqueados (semanas ya enviadas: {{weeks}})",
+    "exportBlockedDbError": "{{count}} registro(s) no exportados (semana: {{weeks}}): {{reason}}",
+    "dbErrorReasonApprovedLine": "la línea ya tiene una aprobación registrada",
+    "dbErrorReasonGeneric": "error interno — intente nuevamente o contacte al administrador",
     "exportBlockedWO": "{{count}} registro(s) no exportados: la Orden de Trabajo no está aprobada ({{engagements}})",
     "woNotApproved": "La Orden de Trabajo no está aprobada para este encargo.",
     "woNotApprovedSave": "No se puede guardar: la Orden de Trabajo de este encargo no está aprobada. Seleccione un encargo aprobado.",
@@ -579,6 +583,8 @@
     "holidayCreated": "Feriado creado",
     "holidayUpdated": "Feriado actualizado",
     "holidayDeleted": "Feriado eliminado",
+    "holidaysReplicated": "Los feriados se crearon exitosamente, se sugiere revisar y cotejar las fechas",
+    "holidaysReplicatedPartial": "{{count}} feriado(s) creado(s) para {{year}}. {{skipped}} fecha(s) omitida(s) (ya existían o no válidas).",
     "noStaffRecord": "No hay un perfil de personal vinculado a su cuenta. Contacte al administrador."
   },
   "errors": {
@@ -592,6 +598,8 @@
     "emailTooLong": "El correo debe tener menos de 255 caracteres",
     "afterTerminationDate": "No se puede registrar tiempo después de la fecha de salida",
     "noReingreso": "No se permite reingreso. Para reincorporar a esta persona, elimine el registro anterior y cree uno nuevo.",
+    "terminationDateImmutable": "No se puede borrar la fecha de salida en un registro inactivo. Para corregirla, ingrese una fecha diferente.",
+    "deletedAtImmutable": "Este registro está marcado como eliminado y no puede restaurarse. Para reincorporar a esta persona, cree un nuevo registro.",
     "onlyRuizmierEmail": "Solo se permiten correos @{{domain}}."
   },
   "form": {
@@ -623,7 +631,14 @@
     "deleteHoliday": "Eliminar Feriado",
     "date": "Fecha",
     "name": "Nombre",
-    "createdBy": "Creado Por"
+    "createdBy": "Creado Por",
+    "replicateButton": "Replicar al año siguiente",
+    "replicateConfirmTitle": "Replicar feriados {{fromYear}} → {{toYear}}",
+    "replicateConfirmDesc": "Se crearán {{count}} feriado(s) del año {{fromYear}} para el año {{toYear}}. Las fechas que ya existen en {{toYear}} serán omitidas. ¿Desea continuar?",
+    "noSourceHolidays": "No hay feriados cargados para el año {{year}}.",
+    "allDatesAlreadyExist": "Todos los feriados del año {{year}} ya existen.",
+    "allDatesLeapDay": "Todos los feriados de origen caen el 29 de febrero y {{year}} no es año bisiesto — nada para replicar.",
+    "allDatesLeapDayAndAlreadyExist": "No hay feriados para replicar al {{year}}: algunos caen el 29 de febrero (año no bisiesto) y el resto ya existe."
   },
  "dashboard": {
     "noData": "Sin datos disponibles para el período seleccionado",
