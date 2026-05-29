@@ -520,9 +520,9 @@ const TrackerList = () => {
           <div className="flex gap-2 w-full sm:w-auto flex-wrap">
             {/* Export to Timesheet */}
             <Button
-              variant="outline"
+              variant="submit"
               onClick={handleExport}
-              className="flex-1 sm:flex-none min-h-[44px] sm:min-h-0 bg-teal-600 text-white border-teal-600 hover:bg-teal-700 hover:text-white"
+              className="flex-1 sm:flex-none min-h-[44px] sm:min-h-0"
               disabled={selectedIds.size === 0 || isExporting}
             >
               <ArrowUpFromLine className="h-4 w-4 mr-2" />
