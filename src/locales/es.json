@@ -865,7 +865,8 @@
     "engagementDateSkipped": "{{count}} registros omitidos por fechas de encargo",
     "noSourceEntries": "La semana seleccionada no tiene registros para copiar",
     "rowMerged": "Ya existe una fila con este encargo y actividad. Las horas se combinaron automáticamente.",
-    "cannotSelectApprovedEngagement": "Este encargo ya fue aprobado. Seleccionarlo bloquearía esta fila. Contacte a su aprobador si necesita correcciones en la línea aprobada.",
+    "cannotSelectApprovedEngagement": "Esta combinación de encargo y actividad ya fue aprobada. Seleccione una actividad diferente o contacte a su aprobador.",
+    "cannotSelectApprovedEngagementActivity": "Esta combinación de encargo y actividad ya fue aprobada. Seleccione una actividad diferente o contacte a su aprobador.",
     "saveDraftSuccess": "Borrador guardado exitosamente",
     "saveDraftPartialError": "Error al guardar {{count}} registros. Intente nuevamente.",
     "previousWeekAlreadyCopied": "La estructura de la semana anterior ya existe en la semana actual",
@@ -1054,7 +1055,8 @@
     "status": {
       "pending": "Pendiente",
       "approved": "Aprobado",
-      "rejected": "Rechazado"
+      "rejected": "Rechazado",
+      "partial": "Parcial"
     },
     "decision": {
       "title": "Decisión",

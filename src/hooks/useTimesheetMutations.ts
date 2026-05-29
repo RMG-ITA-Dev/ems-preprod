@@ -201,21 +201,28 @@ export function useSubmitTimesheet() {
     mutationFn: async ({
       periodId,
       staffId,
-      engagementIds,
+      engagementActivityPairs,
       isAutoApproved,
     }: {
       periodId: string;
       staffId: string;
-      engagementIds: string[];
+      engagementActivityPairs: Array<{ engagementId: string; activityId: string }>;
       isAutoApproved: boolean;
     }) => {
-      // Defense-in-depth: deduplicate + filter nulls before RPC call
-      const uniqueEngagementIds = [...new Set(engagementIds.filter(Boolean))];
+      // Deduplicate by (engagement, activity) and filter nulls
+      const uniquePairs = [
+        ...new Map(
+          engagementActivityPairs
+            .filter(p => p.engagementId && p.activityId)
+            .map(p => [`${p.engagementId}:${p.activityId}`, p])
+        ).values(),
+      ];
 
       const { data, error } = await supabase.rpc('submit_timesheet_safe', {
-        p_period_id: periodId,
-        p_staff_id: staffId,
-        p_engagement_ids: uniqueEngagementIds,
+        p_period_id:        periodId,
+        p_staff_id:         staffId,
+        p_engagement_ids:   uniquePairs.map(p => p.engagementId),
+        p_activity_ids:     uniquePairs.map(p => p.activityId),
         p_is_auto_approved: isAutoApproved,
       });
 

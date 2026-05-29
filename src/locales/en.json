@@ -865,7 +865,8 @@
     "engagementDateSkipped": "{{count}} entries skipped due to engagement date range",
     "noSourceEntries": "The selected week has no entries to copy",
     "rowMerged": "A row with this engagement and activity already exists. Hours were merged automatically.",
-    "cannotSelectApprovedEngagement": "This engagement has already been approved. Selecting it would lock this row. Contact your approver if corrections are needed on the approved line.",
+    "cannotSelectApprovedEngagement": "This engagement + activity combination is already approved. Select a different activity or contact your approver.",
+    "cannotSelectApprovedEngagementActivity": "This engagement + activity combination is already approved. Select a different activity or contact your approver.",
     "saveDraftSuccess": "Draft saved successfully",
     "saveDraftPartialError": "Failed to save {{count}} entries. Please try again.",
     "previousWeekAlreadyCopied": "Previous week structure already exists in current week",
@@ -1054,7 +1055,8 @@
     "status": {
       "pending": "Pending",
       "approved": "Approved",
-      "rejected": "Rejected"
+      "rejected": "Rejected",
+      "partial": "Partial"
     },
     "decision": {
       "title": "Decision",

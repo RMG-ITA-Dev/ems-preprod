@@ -8,6 +8,7 @@ export interface LineApproval {
   approval_id: string;
   period_id: string;
   engagement_id: string;
+  activity_id: string;
   status: "pending" | "approved" | "rejected";
   approved_by: string | null;
   approved_at: string | null;
@@ -99,6 +100,7 @@ export interface StaffTimesheetForApproval {
 interface ApprovalWithPeriod {
   period_id: string;
   engagement_id: string;
+  activity_id: string;
   period?: {
     period_id: string;
     week_start_date: string;
@@ -138,6 +140,7 @@ export function usePendingApprovalSummaries() {
           approval_id,
           period_id,
           engagement_id,
+          activity_id,
           status,
           period:timesheet_periods!inner(
             period_id,
@@ -166,7 +169,7 @@ export function usePendingApprovalSummaries() {
       // Fetch time entries for these periods to calculate hours
       const { data: timeEntries, error: entriesError } = await supabase
         .from("time_entries")
-        .select("period_id, engagement_id, hours_logged")
+        .select("period_id, engagement_id, activity_id, hours_logged")
         .in("period_id", periodIds);
 
       if (entriesError) throw entriesError;
@@ -229,7 +232,8 @@ export function usePendingApprovalSummaries() {
           .filter(
             (te) =>
               te.period_id === periodId &&
-              te.engagement_id === approval.engagement_id
+              te.engagement_id === approval.engagement_id &&
+              te.activity_id === approval.activity_id
           )
           .reduce((sum, te) => sum + (te.hours_logged || 0), 0);
 
@@ -313,6 +317,7 @@ export function useStaffTimesheetForApproval(periodId: string | null) {
           approval_id,
           period_id,
           engagement_id,
+          activity_id,
           status,
           approved_by,
           approved_at,

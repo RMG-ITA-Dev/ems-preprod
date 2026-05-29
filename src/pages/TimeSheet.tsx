@@ -381,10 +381,17 @@ const TimeSheet = () => {
     if (isWeeklyOutOfBounds) return;
     if (!period?.period_id || !staffRecord) return;
 
-    // Get unique engagement IDs from entries
-    const uniqueEngagementIds = [...new Set(entries.map((e) => e.engagement_id))];
-    
-    if (uniqueEngagementIds.length === 0) return;
+    // Get unique (engagement, activity) pairs from entries
+    const engagementActivityPairs = [
+      ...new Map(
+        entries.map(e => [`${e.engagement_id}:${e.activity_id}`, {
+          engagementId: e.engagement_id,
+          activityId:   e.activity_id,
+        }])
+      ).values(),
+    ];
+
+    if (engagementActivityPairs.length === 0) return;
 
     // BUG 0227-67: Block submit if any activity-required engagement has empty/invalid activity
     const invalidActivityRow = entries.some(entry => {
@@ -402,10 +409,10 @@ const TimeSheet = () => {
       .rpc("is_auto_approved_category", { p_staff_id: staffRecord.staff_id });
 
     submitTimesheet.mutate({
-      periodId: period.period_id,
-      staffId: staffRecord.staff_id,
-      engagementIds: uniqueEngagementIds,
-      isAutoApproved: isAutoApproved || false,
+      periodId:               period.period_id,
+      staffId:                staffRecord.staff_id,
+      engagementActivityPairs,
+      isAutoApproved:         isAutoApproved || false,
     });
   };
 
