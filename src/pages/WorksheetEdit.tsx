@@ -306,9 +306,8 @@ const WorksheetEdit = () => {
 
             {!isReadOnly && (
               <Button
-                variant="outline"
+                variant="secondary"
                 onClick={() => setShowCopyDialog(true)}
-                className="btn-action bg-teal-600 border-teal-600 text-white hover:bg-teal-700 hover:text-white"
               >
                 <Copy className="h-4 w-4 mr-2" />
                 {t("workMatrix.copyFromEngagement")}
