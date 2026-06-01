@@ -38,20 +38,26 @@ BEGIN
   --  was set. Admins must now be able to reactivate to regularize
   --  prior-period timesheets.)
 
-  -- Audit-evidence immutability guards from BUG 0511-109/110 remain in
-  -- effect. They protect against silently erasing a recorded exit while
-  -- the staff row stays inactive (a bypass for the policy above when it
-  -- existed, and still useful as data-integrity protection).
-  IF NEW.is_active IS NOT TRUE
-     AND OLD.termination_date IS NOT NULL
-     AND NEW.termination_date IS NULL THEN
-    RAISE EXCEPTION 'TERMINATION_DATE_IMMUTABLE: Cannot clear termination_date on an inactive staff row.';
+  -- termination_date immutability — protects audit evidence on inactive
+  -- rows (0511-109/110) AND prevents clearing the date as part of the
+  -- reactivation flow (0526-123 criterion 2: reactivation must preserve
+  -- the date so trg_enforce_termination_date on time_entries keeps
+  -- blocking post-exit hour entries).
+  --
+  -- The only case where clearing termination_date is allowed is on a
+  -- row that was already active and stays active (TD-4 cleanup path).
+  IF OLD.termination_date IS NOT NULL
+     AND NEW.termination_date IS NULL
+     AND NOT (OLD.is_active = true AND NEW.is_active = true) THEN
+    RAISE EXCEPTION 'TERMINATION_DATE_IMMUTABLE: Cannot clear termination_date except on an already-active staff row.';
   END IF;
 
-  IF NEW.is_active IS NOT TRUE
-     AND OLD.deleted_at IS NOT NULL
+  -- deleted_at is never reversible. Soft-deletes are one-way regardless
+  -- of is_active state (aligned with the errors.deletedAtImmutable toast:
+  -- "create a new record instead").
+  IF OLD.deleted_at IS NOT NULL
      AND NEW.deleted_at IS NULL THEN
-    RAISE EXCEPTION 'DELETED_AT_IMMUTABLE: Cannot clear deleted_at on an inactive staff row.';
+    RAISE EXCEPTION 'DELETED_AT_IMMUTABLE: Cannot clear deleted_at on a staff row. Soft-deleted records cannot be restored; create a new record instead.';
   END IF;
 
   RETURN NEW;

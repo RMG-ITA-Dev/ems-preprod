@@ -54,6 +54,7 @@ import { toast } from "sonner";
 import { useUpdateUserRole } from "@/hooks/useUserRoles";
 import { Database } from "@/integrations/supabase/types";
 import { PROFICIENCY_LEVELS, type ProficiencyLevel } from "@/integrations/supabase/customTypes";
+import { formatFullDate, fromISODateString } from "@/lib/timesheetUtils";
 
 const todayISO = (): string => {
   const d = new Date();
@@ -780,11 +781,18 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
                       <Switch
                         checked={field.value}
                         onCheckedChange={(checked) => {
-                          // BUG 0526-123: OFF->ON on a row with a termination_date
-                          // opens a confirmation dialog. Hold the toggle until
-                          // the admin confirms.
-                          const currentTermination = form.getValues("termination_date");
-                          if (checked && field.value === false && !!currentTermination) {
+                          // BUG 0526-123: OFF->ON on a staff row that has a recorded
+                          // termination_date opens a confirmation dialog. Detection
+                          // uses the SAVED staff prop (not the live form value) so
+                          // an admin cannot bypass the dialog by clearing the date
+                          // field first. The DB guard TERMINATION_DATE_IMMUTABLE
+                          // refuses any save that nulls the date during reactivation.
+                          if (
+                            checked &&
+                            field.value === false &&
+                            isEdit &&
+                            !!staff?.termination_date
+                          ) {
                             setShowReactivateDialog(true);
                             return;
                           }
@@ -1042,14 +1050,19 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
         <DialogContent className="max-w-md">
           <DialogHeader className="space-y-3">
             <DialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-amber-500" />
+              <AlertTriangle className="h-5 w-5 text-warning" />
               {t("staff.reactivateTitle")}
             </DialogTitle>
             <DialogDescription asChild>
               <div className="space-y-2 leading-relaxed">
                 <p>
                   {t("staff.reactivateDescriptionDate", {
-                    date: form.getValues("termination_date") || "",
+                    date: staff?.termination_date
+                      ? formatFullDate(
+                          fromISODateString(staff.termination_date),
+                          i18n.language,
+                        )
+                      : "",
                   })}
                 </p>
                 <p>{t("staff.reactivateDescriptionDetails")}</p>
@@ -1062,6 +1075,15 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
             </Button>
             <Button
               onClick={() => {
+                // Restore the saved termination_date if the admin cleared the
+                // input before flipping the switch — the DB rejects a save
+                // that nulls the date during reactivation
+                // (TERMINATION_DATE_IMMUTABLE).
+                if (staff?.termination_date) {
+                  form.setValue("termination_date", staff.termination_date, {
+                    shouldDirty: true,
+                  });
+                }
                 form.setValue("is_active", true, { shouldDirty: true });
                 setShowReactivateDialog(false);
               }}

@@ -76,4 +76,22 @@ describe("prevent_staff_reactivation guard lift migration (BUG 0526-123)", () =>
     expect(sql).not.toMatch(/DROP\s+TRIGGER/i);
     expect(sql).not.toMatch(/DROP\s+FUNCTION/i);
   });
+
+  it("blocks clearing termination_date except on already-active rows (covers reactivation bypass)", () => {
+    // The consolidated guard excludes only OLD.is_active=true AND NEW.is_active=true
+    // (the TD-4 cleanup path). Reactivation (OLD=false, NEW=true) and inactive-
+    // staying-inactive both still raise.
+    expect(sql).toMatch(
+      /OLD\.termination_date\s+IS\s+NOT\s+NULL[\s\S]*?NEW\.termination_date\s+IS\s+NULL[\s\S]*?NOT\s*\(\s*OLD\.is_active\s*=\s*true\s+AND\s+NEW\.is_active\s*=\s*true\s*\)/i
+    );
+  });
+
+  it("blocks clearing deleted_at unconditionally (soft-delete is one-way)", () => {
+    // Capture the deleted_at IF block; it must NOT gate on NEW.is_active.
+    const deletedAtBlockMatch = sql.match(
+      /IF\s+OLD\.deleted_at\s+IS\s+NOT\s+NULL[\s\S]*?END\s+IF;/i
+    );
+    expect(deletedAtBlockMatch).not.toBeNull();
+    expect(deletedAtBlockMatch![0]).not.toMatch(/NEW\.is_active/i);
+  });
 });
