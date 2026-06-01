@@ -4,7 +4,9 @@ import { useNavigate } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { DataTable, Column } from "@/components/data-table/DataTable";
 import { FundRequestStatusBadge } from "@/components/fund-requests/FundRequestStatusBadge";
+import { ExpenseActionBadge } from "@/components/fund-requests/ExpenseActionBadge";
 import { useFundRequests, type FundRequest } from "@/hooks/useFundRequests";
+import { useFundRequestExpenseCounts } from "@/hooks/useFundRequestExpenseCounts";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 
 const formatCurrency = (n: number, currency: "BOB" | "USD") =>
@@ -27,6 +29,7 @@ const FundRequests = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { data, isLoading } = useFundRequests();
+  const { data: expenseCounts } = useFundRequestExpenseCounts();
   const { staffRecord } = useCurrentStaff();
 
   // Esta página muestra solo MIS solicitudes (las que yo creé).
@@ -79,6 +82,39 @@ const FundRequests = () => {
       sortable: true,
       mobilePriority: "secondary",
       render: (row) => formatDate(row.created_at),
+    },
+    {
+      key: "expenses",
+      label: t("fundRequestExpense.expensesColumn"),
+      mobilePriority: "secondary",
+      render: (row) => {
+        const c = expenseCounts?.[row.fund_request_id];
+        const toCorrect = (c?.observado ?? 0) + (c?.rechazado ?? 0);
+        if (toCorrect > 0) {
+          return (
+            <ExpenseActionBadge
+              count={toCorrect}
+              label={t("fundRequestExpense.indicators.toCorrect")}
+              tone="warning"
+            />
+          );
+        }
+        if (row.status === "fondos_entregados") {
+          return (
+            <ExpenseActionBadge label={t("fundRequestExpense.indicators.register")} tone="cta" />
+          );
+        }
+        if (c?.total) {
+          return (
+            <ExpenseActionBadge
+              count={c.total}
+              label={t("fundRequestExpense.indicators.expenses")}
+              tone="muted"
+            />
+          );
+        }
+        return null;
+      },
     },
     {
       key: "status",

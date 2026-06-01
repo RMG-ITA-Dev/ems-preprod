@@ -265,6 +265,7 @@
     "workOrder": "Orden de Trabajo",
     "workOrders": "Órdenes de Trabajo",
     "expenseLog": "Registro de Gasto",
+    "expense": "Gasto",
     "fundRequest": "Solicitud de Fondos",
     "fundRequests": "Solicitudes de Fondos",
     "skill": "Competencia",
@@ -1320,6 +1321,82 @@
       "staffNotLinked": "Su cuenta no está vinculada a un registro de personal. Contacte al administrador.",
       "notesRequired": "Debe indicar el motivo",
       "disbursedAmountInvalid": "El monto entregado debe ser mayor a cero"
+    }
+  },
+  "fundRequestExpense": {
+    "title": "Gastos de la Solicitud",
+    "manageExpenses": "Gastos",
+    "expensesColumn": "Gastos",
+    "newExpense": "Nuevo Gasto",
+    "indicators": {
+      "register": "Registrar gastos",
+      "toCorrect": "por corregir",
+      "toApprove": "por aprobar",
+      "toReview": "por revisar",
+      "expenses": "gastos"
+    },
+    "searchPlaceholder": "Buscar por descripción, factura o proveedor...",
+    "workOrder": "Orden de Trabajo",
+    "selectWorkOrder": "Seleccionar OT",
+    "expenseType": "Tipo de Gasto",
+    "selectExpenseType": "Seleccionar tipo",
+    "expenseDate": "Fecha del Gasto",
+    "amount": "Monto",
+    "description": "Descripción",
+    "descriptionPlaceholder": "Detalle el motivo del gasto...",
+    "documentNumber": "N° de Factura / Comprobante",
+    "documentNumberPlaceholder": "Ej. 001-0001-0001256",
+    "supplierName": "Proveedor",
+    "supplierTaxId": "NIT del Proveedor",
+    "supplierTaxIdPlaceholder": "NIT sin guiones ni espacios",
+    "attachmentUrl": "Respaldo (enlace)",
+    "totalSpent": "Total Gastado",
+    "balance": "Saldo",
+    "totalIvaPenalty": "IVA por Observaciones",
+    "ivaPenalty": "Penalidad IVA (13%)",
+    "invoiceObservationNotes": "Observación de la factura",
+    "status": {
+      "borrador": "Borrador",
+      "pendiente_aprobacion": "Pendiente",
+      "aprobado_gerente": "Aprobado Gerente",
+      "observado": "Observado",
+      "rechazado": "Rechazado",
+      "revisado_asistente": "Revisado"
+    },
+    "actions": {
+      "saveDraft": "Guardar Borrador",
+      "submit": "Enviar a Aprobación",
+      "review": "Revisar Factura"
+    },
+    "dialog": {
+      "reviewTitle": "Revisar factura del gasto",
+      "reviewBody": "Verifique impuestos, NIT, código OT y fechas. Si la factura tiene problemas, márquela como observada.",
+      "hasObservation": "La factura tiene observaciones",
+      "hasObservationHelp": "Ej.: factura dañada, nombre o NIT incorrectos. El solicitante asumirá el 13% de IVA.",
+      "observationPlaceholder": "Describa el problema de la factura...",
+      "ivaWarning": "Se aplicará una penalidad de IVA del 13%:",
+      "ivaOf": "13% de {{amount}} {{currency}}"
+    },
+    "confirmDelete": {
+      "title": "¿Eliminar gasto?",
+      "body": "Se eliminará este gasto. Esta acción no se puede deshacer."
+    },
+    "confirmSubmit": {
+      "title": "¿Enviar gasto a aprobación?",
+      "body": "Una vez enviado, el gerente lo revisará y no podrá editarlo hasta que sea observado o rechazado."
+    },
+    "messages": {
+      "submittedSuccess": "Gasto enviado a aprobación",
+      "approvedSuccess": "Gasto aprobado",
+      "observedSuccess": "Gasto observado — el solicitante puede corregirlo",
+      "rejectedSuccess": "Gasto rechazado",
+      "reviewedSuccess": "Factura revisada"
+    },
+    "errors": {
+      "workOrderRequired": "Debe seleccionar una OT",
+      "dateRequired": "Debe indicar la fecha del gasto",
+      "amountRequired": "El monto debe ser mayor a cero",
+      "observationNotesRequired": "Debe describir la observación de la factura"
     }
   }
 }

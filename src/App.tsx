@@ -35,6 +35,7 @@ const FundRequestNew = lazy(() => import("./pages/FundRequestNew"));
 const FundRequestEdit = lazy(() => import("./pages/FundRequestEdit"));
 const FundRequestApprovals = lazy(() => import("./pages/FundRequestApprovals"));
 const FundRequestDisbursements = lazy(() => import("./pages/FundRequestDisbursements"));
+const FundRequestExpenses = lazy(() => import("./pages/FundRequestExpenses"));
 const Staff = lazy(() => import("./pages/Staff"));
 const StaffNew = lazy(() => import("./pages/StaffNew"));
 const StaffEdit = lazy(() => import("./pages/StaffEdit"));
@@ -114,6 +115,7 @@ const router = createBrowserRouter([
       { path: "/fund-requests/approvals", element: <ProtectedRoute><FundRequestApprovals /></ProtectedRoute> },
       { path: "/fund-requests/disbursements", element: <ProtectedRoute><FundRequestDisbursements /></ProtectedRoute> },
       { path: "/fund-requests/:id", element: <ProtectedRoute><FundRequestEdit /></ProtectedRoute> },
+      { path: "/fund-requests/:id/expenses", element: <ProtectedRoute><FundRequestExpenses /></ProtectedRoute> },
       { path: "/staff", element: <ProtectedRoute><Staff /></ProtectedRoute> },
       { path: "/staff/new", element: <ProtectedRoute><StaffNew /></ProtectedRoute> },
       { path: "/staff/:id", element: <ProtectedRoute><StaffEdit /></ProtectedRoute> },

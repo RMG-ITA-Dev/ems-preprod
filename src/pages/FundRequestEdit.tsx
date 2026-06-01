@@ -111,6 +111,12 @@ const FundRequestEdit = () => {
     isAdmin &&
     !!fr &&
     !["borrador", "cerrado", "cancelado"].includes(fr.status);
+  // Gastos: visibles desde que se entregan los fondos (Fase 4 en adelante),
+  // para solicitante, gerente de la FR o admin.
+  const canViewExpenses =
+    !!fr &&
+    ["fondos_entregados", "en_liquidacion", "cerrado"].includes(fr.status) &&
+    (isRequester || isManagerOfThisFr || isAdmin);
 
   const isDirty = useMemo(() => {
     if (!values || !original) return false;
@@ -314,6 +320,15 @@ const FundRequestEdit = () => {
                 >
                   {t("common.back")}
                 </Button>
+
+                {canViewExpenses && (
+                  <Button
+                    variant="secondary"
+                    onClick={() => navigate(`/fund-requests/${fr.fund_request_id}/expenses`)}
+                  >
+                    {t("fundRequestExpense.manageExpenses")}
+                  </Button>
+                )}
 
                 {isDraft && (
                   <>

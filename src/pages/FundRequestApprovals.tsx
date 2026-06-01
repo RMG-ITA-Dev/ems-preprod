@@ -5,7 +5,9 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { DataTable, Column } from "@/components/data-table/DataTable";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FundRequestStatusBadge } from "@/components/fund-requests/FundRequestStatusBadge";
+import { ExpenseActionBadge } from "@/components/fund-requests/ExpenseActionBadge";
 import { useFundRequests, type FundRequest, type FundRequestStatus } from "@/hooks/useFundRequests";
+import { useFundRequestExpenseCounts } from "@/hooks/useFundRequestExpenseCounts";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 
 const formatCurrency = (n: number, currency: "BOB" | "USD") =>
@@ -36,6 +38,7 @@ const FundRequestApprovals = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { data, isLoading } = useFundRequests();
+  const { data: expenseCounts } = useFundRequestExpenseCounts();
   const { staffRecord } = useCurrentStaff();
   const [tab, setTab] = useState<Tab>("pending");
 
@@ -103,6 +106,21 @@ const FundRequestApprovals = () => {
       mobilePriority: "secondary",
       render: (row) =>
         tab === "pending" ? formatDate(row.submitted_at) : formatDate(row.manager_decided_at),
+    },
+    {
+      key: "expenses",
+      label: t("fundRequestExpense.expensesColumn"),
+      mobilePriority: "secondary",
+      render: (row) => {
+        const pending = expenseCounts?.[row.fund_request_id]?.pendiente_aprobacion ?? 0;
+        return (
+          <ExpenseActionBadge
+            count={pending}
+            label={t("fundRequestExpense.indicators.toApprove")}
+            tone="warning"
+          />
+        );
+      },
     },
     {
       key: "status",

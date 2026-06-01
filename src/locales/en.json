@@ -265,6 +265,7 @@
     "workOrder": "Work Order",
     "workOrders": "Work Orders",
     "expenseLog": "Expense Log",
+    "expense": "Expense",
     "fundRequest": "Fund Request",
     "fundRequests": "Fund Requests",
     "skill": "Competency",
@@ -1320,6 +1321,82 @@
       "staffNotLinked": "Your account is not linked to a staff record. Please contact the administrator.",
       "notesRequired": "You must provide a reason",
       "disbursedAmountInvalid": "The disbursed amount must be greater than zero"
+    }
+  },
+  "fundRequestExpense": {
+    "title": "Request Expenses",
+    "manageExpenses": "Expenses",
+    "expensesColumn": "Expenses",
+    "newExpense": "New Expense",
+    "indicators": {
+      "register": "Register expenses",
+      "toCorrect": "to fix",
+      "toApprove": "to approve",
+      "toReview": "to review",
+      "expenses": "expenses"
+    },
+    "searchPlaceholder": "Search by description, invoice or supplier...",
+    "workOrder": "Work Order",
+    "selectWorkOrder": "Select WO",
+    "expenseType": "Expense Type",
+    "selectExpenseType": "Select type",
+    "expenseDate": "Expense Date",
+    "amount": "Amount",
+    "description": "Description",
+    "descriptionPlaceholder": "Describe the reason for the expense...",
+    "documentNumber": "Invoice / Receipt No.",
+    "documentNumberPlaceholder": "e.g. 001-0001-0001256",
+    "supplierName": "Supplier",
+    "supplierTaxId": "Supplier Tax ID",
+    "supplierTaxIdPlaceholder": "Tax ID without dashes or spaces",
+    "attachmentUrl": "Receipt (link)",
+    "totalSpent": "Total Spent",
+    "balance": "Balance",
+    "totalIvaPenalty": "VAT from Observations",
+    "ivaPenalty": "VAT Penalty (13%)",
+    "invoiceObservationNotes": "Invoice observation",
+    "status": {
+      "borrador": "Draft",
+      "pendiente_aprobacion": "Pending",
+      "aprobado_gerente": "Manager Approved",
+      "observado": "Observed",
+      "rechazado": "Rejected",
+      "revisado_asistente": "Reviewed"
+    },
+    "actions": {
+      "saveDraft": "Save Draft",
+      "submit": "Submit for Approval",
+      "review": "Review Invoice"
+    },
+    "dialog": {
+      "reviewTitle": "Review expense invoice",
+      "reviewBody": "Verify taxes, Tax ID, WO code and dates. If the invoice has issues, mark it as observed.",
+      "hasObservation": "The invoice has observations",
+      "hasObservationHelp": "e.g.: damaged invoice, wrong name or Tax ID. The requester will assume the 13% VAT.",
+      "observationPlaceholder": "Describe the invoice issue...",
+      "ivaWarning": "A 13% VAT penalty will be applied:",
+      "ivaOf": "13% of {{amount}} {{currency}}"
+    },
+    "confirmDelete": {
+      "title": "Delete expense?",
+      "body": "This expense will be deleted. This action cannot be undone."
+    },
+    "confirmSubmit": {
+      "title": "Submit expense for approval?",
+      "body": "Once submitted, the manager will review it and you cannot edit it until it is observed or rejected."
+    },
+    "messages": {
+      "submittedSuccess": "Expense submitted for approval",
+      "approvedSuccess": "Expense approved",
+      "observedSuccess": "Expense observed — the requester can correct it",
+      "rejectedSuccess": "Expense rejected",
+      "reviewedSuccess": "Invoice reviewed"
+    },
+    "errors": {
+      "workOrderRequired": "You must select a WO",
+      "dateRequired": "You must provide the expense date",
+      "amountRequired": "The amount must be greater than zero",
+      "observationNotesRequired": "You must describe the invoice observation"
     }
   }
 }

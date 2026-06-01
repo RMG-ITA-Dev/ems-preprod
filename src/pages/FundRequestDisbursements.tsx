@@ -5,7 +5,9 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { DataTable, Column } from "@/components/data-table/DataTable";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FundRequestStatusBadge } from "@/components/fund-requests/FundRequestStatusBadge";
+import { ExpenseActionBadge } from "@/components/fund-requests/ExpenseActionBadge";
 import { useFundRequests, type FundRequest, type FundRequestStatus } from "@/hooks/useFundRequests";
+import { useFundRequestExpenseCounts } from "@/hooks/useFundRequestExpenseCounts";
 import { useUserRole } from "@/hooks/useUserRole";
 
 const formatCurrency = (n: number, currency: "BOB" | "USD") =>
@@ -35,6 +37,7 @@ const FundRequestDisbursements = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { data, isLoading } = useFundRequests();
+  const { data: expenseCounts } = useFundRequestExpenseCounts();
   const { isAdmin, isLoading: roleLoading } = useUserRole();
   const [tab, setTab] = useState<Tab>("to_disburse");
 
@@ -117,6 +120,21 @@ const FundRequestDisbursements = () => {
       sortable: true,
       mobilePriority: "secondary",
       render: (row) => formatDate(row.manager_decided_at),
+    },
+    {
+      key: "expenses",
+      label: t("fundRequestExpense.expensesColumn"),
+      mobilePriority: "secondary",
+      render: (row) => {
+        const toReview = expenseCounts?.[row.fund_request_id]?.aprobado_gerente ?? 0;
+        return (
+          <ExpenseActionBadge
+            count={toReview}
+            label={t("fundRequestExpense.indicators.toReview")}
+            tone="info"
+          />
+        );
+      },
     },
     {
       key: "status",
