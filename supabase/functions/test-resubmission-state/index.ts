@@ -92,7 +92,9 @@ Deno.serve(async (req) => {
       try {
         const { data, error } = await supabase.rpc("submit_timesheet_safe", {
           p_period_id: ids.periodId, p_staff_id: ids.staffId,
-          p_engagement_ids: [ids.engAId, ids.engBId], p_is_auto_approved: false,
+          p_engagement_ids: [ids.engAId, ids.engBId],
+          p_activity_ids:   [ids.activityId, ids.activityId],
+          p_is_auto_approved: false,
         });
         const pass = !error && data.new_pending === 2 && data.preserved_approved === 0;
         results.push({ scenario: "S4: Fresh submit baseline", pass, details: JSON.stringify(data) });
@@ -106,7 +108,9 @@ Deno.serve(async (req) => {
         // First submit
         await supabase.rpc("submit_timesheet_safe", {
           p_period_id: ids.periodId, p_staff_id: ids.staffId,
-          p_engagement_ids: [ids.engAId, ids.engBId], p_is_auto_approved: false,
+          p_engagement_ids: [ids.engAId, ids.engBId],
+          p_activity_ids:   [ids.activityId, ids.activityId],
+          p_is_auto_approved: false,
         });
         // Approve Eng-A
         await supabase.from("timesheet_line_approvals")
@@ -126,7 +130,9 @@ Deno.serve(async (req) => {
         // Resubmit
         const { data, error } = await supabase.rpc("submit_timesheet_safe", {
           p_period_id: ids.periodId, p_staff_id: ids.staffId,
-          p_engagement_ids: [ids.engAId, ids.engBId], p_is_auto_approved: false,
+          p_engagement_ids: [ids.engAId, ids.engBId],
+          p_activity_ids:   [ids.activityId, ids.activityId],
+          p_is_auto_approved: false,
         });
         const pass = !error && data.preserved_approved === 1 && data.reset_to_pending === 1;
         results.push({ scenario: "S1: Approved preserved + rejected edited requeued", pass, details: JSON.stringify(data) });
@@ -139,7 +145,9 @@ Deno.serve(async (req) => {
       try {
         await supabase.rpc("submit_timesheet_safe", {
           p_period_id: ids.periodId, p_staff_id: ids.staffId,
-          p_engagement_ids: [ids.engBId], p_is_auto_approved: false,
+          p_engagement_ids: [ids.engBId],
+          p_activity_ids:   [ids.activityId],
+          p_is_auto_approved: false,
         });
         // Reject without editing
         await new Promise(r => setTimeout(r, 100));
@@ -150,7 +158,9 @@ Deno.serve(async (req) => {
         // Resubmit without editing
         const { data, error } = await supabase.rpc("submit_timesheet_safe", {
           p_period_id: ids.periodId, p_staff_id: ids.staffId,
-          p_engagement_ids: [ids.engBId], p_is_auto_approved: false,
+          p_engagement_ids: [ids.engBId],
+          p_activity_ids:   [ids.activityId],
+          p_is_auto_approved: false,
         });
         const pass = !error && data.kept_rejected === 1;
         results.push({ scenario: "S2: Rejected unedited stays rejected", pass, details: JSON.stringify(data) });
@@ -164,13 +174,17 @@ Deno.serve(async (req) => {
         // Submit only Eng-A first
         await supabase.rpc("submit_timesheet_safe", {
           p_period_id: ids.periodId, p_staff_id: ids.staffId,
-          p_engagement_ids: [ids.engAId], p_is_auto_approved: false,
+          p_engagement_ids: [ids.engAId],
+          p_activity_ids:   [ids.activityId],
+          p_is_auto_approved: false,
         });
         await supabase.from("timesheet_periods").update({ submitted_at: null }).eq("period_id", ids.periodId);
         // Now submit with both
         const { data, error } = await supabase.rpc("submit_timesheet_safe", {
           p_period_id: ids.periodId, p_staff_id: ids.staffId,
-          p_engagement_ids: [ids.engAId, ids.engBId], p_is_auto_approved: false,
+          p_engagement_ids: [ids.engAId, ids.engBId],
+          p_activity_ids:   [ids.activityId, ids.activityId],
+          p_is_auto_approved: false,
         });
         const pass = !error && data.new_pending === 1;
         results.push({ scenario: "S3: New line inserts pending", pass, details: JSON.stringify(data) });
@@ -183,11 +197,15 @@ Deno.serve(async (req) => {
       try {
         const { data: d1 } = await supabase.rpc("submit_timesheet_safe", {
           p_period_id: ids.periodId, p_staff_id: ids.staffId,
-          p_engagement_ids: [ids.engAId, ids.engBId], p_is_auto_approved: false,
+          p_engagement_ids: [ids.engAId, ids.engBId],
+          p_activity_ids:   [ids.activityId, ids.activityId],
+          p_is_auto_approved: false,
         });
         const { data: d2 } = await supabase.rpc("submit_timesheet_safe", {
           p_period_id: ids.periodId, p_staff_id: ids.staffId,
-          p_engagement_ids: [ids.engAId, ids.engBId], p_is_auto_approved: false,
+          p_engagement_ids: [ids.engAId, ids.engBId],
+          p_activity_ids:   [ids.activityId, ids.activityId],
+          p_is_auto_approved: false,
         });
         // Second call: all lines already pending, so no new_pending
         const { count } = await supabase.from("timesheet_line_approvals")
@@ -203,7 +221,9 @@ Deno.serve(async (req) => {
       try {
         const { data, error } = await supabase.rpc("submit_timesheet_safe", {
           p_period_id: ids.periodId, p_staff_id: ids.staffId,
-          p_engagement_ids: [ids.engAId, ids.engBId], p_is_auto_approved: true,
+          p_engagement_ids: [ids.engAId, ids.engBId],
+          p_activity_ids:   [ids.activityId, ids.activityId],
+          p_is_auto_approved: true,
         });
         const pass = !error && data.new_auto_approved === 2;
         // Verify DB
@@ -220,7 +240,9 @@ Deno.serve(async (req) => {
       try {
         await supabase.rpc("submit_timesheet_safe", {
           p_period_id: ids.periodId, p_staff_id: ids.staffId,
-          p_engagement_ids: [ids.engAId], p_is_auto_approved: false,
+          p_engagement_ids: [ids.engAId],
+          p_activity_ids:   [ids.activityId],
+          p_is_auto_approved: false,
         });
         // Reject it
         await supabase.from("timesheet_line_approvals")
@@ -239,7 +261,9 @@ Deno.serve(async (req) => {
         await supabase.from("timesheet_periods").update({ submitted_at: null }).eq("period_id", ids.periodId);
         const { data, error } = await supabase.rpc("submit_timesheet_safe", {
           p_period_id: ids.periodId, p_staff_id: ids.staffId,
-          p_engagement_ids: [ids.engAId], p_is_auto_approved: false,
+          p_engagement_ids: [ids.engAId],
+          p_activity_ids:   [ids.activityId],
+          p_is_auto_approved: false,
         });
         // The RPC reads 'rejected' from its initial snapshot but the guarded UPDATE matches 0 rows
         // Actually: with service role + READ COMMITTED, the UPDATE sees the committed 'approved' status
@@ -252,13 +276,15 @@ Deno.serve(async (req) => {
       } finally { await cleanup(ids); }
     }
 
-    // ── S8: Duplicate engagement IDs ──────────────────────────
+    // ── S8: Duplicate (engagement, activity) pairs ────────────
     {
       const ids = await setupTestData(`s8-${trace_id.slice(0, 8)}`);
       try {
         const { data, error } = await supabase.rpc("submit_timesheet_safe", {
           p_period_id: ids.periodId, p_staff_id: ids.staffId,
-          p_engagement_ids: [ids.engAId, ids.engAId, ids.engAId], p_is_auto_approved: false,
+          p_engagement_ids: [ids.engAId, ids.engAId, ids.engAId],
+          p_activity_ids:   [ids.activityId, ids.activityId, ids.activityId],
+          p_is_auto_approved: false,
         });
         const { count } = await supabase.from("timesheet_line_approvals")
           .select("*", { count: "exact", head: true })
@@ -268,14 +294,17 @@ Deno.serve(async (req) => {
       } finally { await cleanup(ids); }
     }
 
-    // ── S9: NULL engagement IDs ───────────────────────────────
+    // ── S9: NULL engagement/activity IDs ─────────────────────
     {
       const ids = await setupTestData(`s9-${trace_id.slice(0, 8)}`);
       try {
         const engagementIds: Array<string | null> = [ids.engAId, null, null];
+        const activityIds: Array<string | null>   = [ids.activityId, null, null];
         const { data, error } = await supabase.rpc("submit_timesheet_safe", {
           p_period_id: ids.periodId, p_staff_id: ids.staffId,
-          p_engagement_ids: engagementIds, p_is_auto_approved: false,
+          p_engagement_ids: engagementIds,
+          p_activity_ids:   activityIds,
+          p_is_auto_approved: false,
         });
         const pass = !error && data.new_pending === 1;
         results.push({ scenario: "S9: NULL engagement IDs sanitization", pass, details: JSON.stringify(data) });
@@ -289,7 +318,9 @@ Deno.serve(async (req) => {
         // Submit
         await supabase.rpc("submit_timesheet_safe", {
           p_period_id: ids.periodId, p_staff_id: ids.staffId,
-          p_engagement_ids: [ids.engAId, ids.engBId], p_is_auto_approved: false,
+          p_engagement_ids: [ids.engAId, ids.engBId],
+          p_activity_ids:   [ids.activityId, ids.activityId],
+          p_is_auto_approved: false,
         });
         // Record Eng-A approval_id
         const { data: beforeApprovals } = await supabase.from("timesheet_line_approvals")
@@ -321,7 +352,9 @@ Deno.serve(async (req) => {
         // Resubmit
         const { data, error } = await supabase.rpc("submit_timesheet_safe", {
           p_period_id: ids.periodId, p_staff_id: ids.staffId,
-          p_engagement_ids: [ids.engAId, ids.engBId], p_is_auto_approved: false,
+          p_engagement_ids: [ids.engAId, ids.engBId],
+          p_activity_ids:   [ids.activityId, ids.activityId],
+          p_is_auto_approved: false,
         });
 
         // Verify Eng-A approval_id unchanged

@@ -1,10 +1,11 @@
-import { Bell, Menu, LogOut, UserCheck, UserX } from "lucide-react";
+import { Menu, LogOut, UserCheck, UserX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useAuth } from "@/hooks/useAuth";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
+import { NotificationsPanel } from "@/components/layout/NotificationsPanel";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -50,11 +51,13 @@ export function AppHeader({ title = "Dashboard", focusMode }: AppHeaderProps) {
     <header className="h-16 border-b border-border bg-card px-4 md:px-6 grid grid-cols-[1fr_auto_1fr] items-center">
       {/* Left zone: trigger + title */}
       <div className="flex items-center gap-4 min-w-0">
-        <div className="hidden md:block">
-          <SidebarTrigger>
-            <Menu className="h-5 w-5" />
-          </SidebarTrigger>
-        </div>
+        {!focusMode && (
+          <div className="hidden md:block">
+            <SidebarTrigger>
+              <Menu className="h-5 w-5" />
+            </SidebarTrigger>
+          </div>
+        )}
         <h1 
           className="text-sm md:text-base font-semibold text-foreground truncate"
           title={title}
@@ -76,10 +79,7 @@ export function AppHeader({ title = "Dashboard", focusMode }: AppHeaderProps) {
       {/* Right zone: running timer chip + bell + purple user name + avatar dropdown */}
       <div className="flex items-center gap-3 justify-self-end min-w-0">
         <RunningTimerChip />
-        <Button variant="ghost" size="icon" className="relative flex-shrink-0">
-          <Bell className="h-5 w-5 text-muted-foreground" />
-          <span className="absolute top-1.5 right-1.5 h-2 w-2 bg-accent rounded-full" />
-        </Button>
+        <NotificationsPanel />
         <div className="hidden sm:block">
           <ThemeToggle />
         </div>

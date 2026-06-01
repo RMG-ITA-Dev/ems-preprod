@@ -106,14 +106,14 @@ const WorksheetNew = () => {
                   </SelectTrigger>
                   <SelectContent>
                     {engagements?.map((eng) => (
-                      <SelectItem key={eng.engagement_id} value={eng.engagement_id}>
+                      <SelectItem key={eng.engagement_id} value={eng.engagement_id} className="group">
                         <div className="flex flex-col">
                           <span className="font-medium">
                             {eng.engagement_code
                               ? `${eng.engagement_code} - ${eng.engagement_name}`
                               : eng.engagement_name}
                           </span>
-                          <span className="text-xs text-muted-foreground">
+                          <span className="text-xs text-muted-foreground group-focus:text-accent-foreground group-data-[highlighted]:text-accent-foreground">
                             {eng.client?.client_legal_name || "-"}
                           </span>
                         </div>

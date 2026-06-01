@@ -272,7 +272,18 @@ const TrackerList = () => {
     setConsolidationDialogOpen(true);
   };
 
-  const showExportToasts = (result: { newCount: number; mergedCount: number; blockedCount: number; blockedWeeks: string[]; woBlockedCount: number; woBlockedEngagements: string[] }) => {
+  function resolveDbErrorReason(messages: string[], translate: ReturnType<typeof useTranslation>["t"]): string {
+    if (messages.includes("approved_line_locked")) return translate("tracker.dbErrorReasonApprovedLine");
+    const raw = messages.find((m) => m && m !== "approved_line_locked");
+    return raw ?? translate("tracker.dbErrorReasonGeneric");
+  }
+
+  const showExportToasts = (result: {
+    newCount: number; mergedCount: number;
+    blockedCount: number; blockedWeeks: string[];
+    woBlockedCount: number; woBlockedEngagements: string[];
+    dbErrorCount: number; dbErrorWeeks: string[]; dbErrorMessages: string[];
+  }) => {
     if (result.mergedCount > 0) {
       toast.success(t("tracker.exportSuccessMerged", {
         newCount: result.newCount,
@@ -291,6 +302,14 @@ const TrackerList = () => {
       toast.warning(t("tracker.exportBlocked", {
         blockedCount: result.blockedCount,
         weeks: result.blockedWeeks.join(", ")
+      }));
+    }
+    if (result.dbErrorCount > 0) {
+      const reason = resolveDbErrorReason(result.dbErrorMessages, t);
+      toast.error(t("tracker.exportBlockedDbError", {
+        count: result.dbErrorCount,
+        weeks: result.dbErrorWeeks.join(", "),
+        reason,
       }));
     }
   };
@@ -501,9 +520,9 @@ const TrackerList = () => {
           <div className="flex gap-2 w-full sm:w-auto flex-wrap">
             {/* Export to Timesheet */}
             <Button
-              variant="outline"
+              variant="submit"
               onClick={handleExport}
-              className="flex-1 sm:flex-none min-h-[44px] sm:min-h-0 bg-teal-600 text-white border-teal-600 hover:bg-teal-700 hover:text-white"
+              className="flex-1 sm:flex-none min-h-[44px] sm:min-h-0"
               disabled={selectedIds.size === 0 || isExporting}
             >
               <ArrowUpFromLine className="h-4 w-4 mr-2" />

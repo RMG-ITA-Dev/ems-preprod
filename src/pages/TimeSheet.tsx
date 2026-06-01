@@ -14,6 +14,7 @@ import { useAdminActivityId } from "@/hooks/useAdminActivity";
 import { useTimesheetPolicies } from "@/hooks/useTimesheetPolicies";
 import { useTimesheetWeek } from "@/hooks/useTimesheetWeek";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
+import { useUserRole } from "@/hooks/useUserRole";
 import { useAuth } from "@/hooks/useAuth";
 import { usePeriodLineApprovals } from "@/hooks/useTimesheetApprovals";
 import { useSubmitTimesheet, useUnsubmitTimesheet, useCopyPreviousWeek, useCopyToCurrentWeek } from "@/hooks/useTimesheetMutations";
@@ -83,6 +84,7 @@ const TimeSheet = () => {
 
 
   const { staffRecord, isLoading: staffLoading } = useCurrentStaff();
+  const { isPartner } = useUserRole();
 
   // Get policies
   const { data: policies } = useTimesheetPolicies();
@@ -346,9 +348,11 @@ const TimeSheet = () => {
     && prevWeekSubmittedOrApproved;
 
   const canUnsubmit = isSubmitted
-    && !isFullyApproved
     && !period?.is_period_locked
-    && ((isCurrentWeek && isWithinEditableWindow) || hasRejectedLines);
+    && (
+      (isFullyApproved && isCurrentWeek && isWithinEditableWindow && isPartner)
+      || (!isFullyApproved && ((isCurrentWeek && isWithinEditableWindow) || hasRejectedLines))
+    );
 
   const canSaveDraft = !isBeforeHireDate
     && !isAfterTerminationDate
@@ -377,10 +381,17 @@ const TimeSheet = () => {
     if (isWeeklyOutOfBounds) return;
     if (!period?.period_id || !staffRecord) return;
 
-    // Get unique engagement IDs from entries
-    const uniqueEngagementIds = [...new Set(entries.map((e) => e.engagement_id))];
-    
-    if (uniqueEngagementIds.length === 0) return;
+    // Get unique (engagement, activity) pairs from entries
+    const engagementActivityPairs = [
+      ...new Map(
+        entries.map(e => [`${e.engagement_id}:${e.activity_id}`, {
+          engagementId: e.engagement_id,
+          activityId:   e.activity_id,
+        }])
+      ).values(),
+    ];
+
+    if (engagementActivityPairs.length === 0) return;
 
     // BUG 0227-67: Block submit if any activity-required engagement has empty/invalid activity
     const invalidActivityRow = entries.some(entry => {
@@ -398,10 +409,10 @@ const TimeSheet = () => {
       .rpc("is_auto_approved_category", { p_staff_id: staffRecord.staff_id });
 
     submitTimesheet.mutate({
-      periodId: period.period_id,
-      staffId: staffRecord.staff_id,
-      engagementIds: uniqueEngagementIds,
-      isAutoApproved: isAutoApproved || false,
+      periodId:               period.period_id,
+      staffId:                staffRecord.staff_id,
+      engagementActivityPairs,
+      isAutoApproved:         isAutoApproved || false,
     });
   };
 

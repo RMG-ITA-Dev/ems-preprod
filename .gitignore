@@ -25,3 +25,8 @@ dist-ssr
 *.sln
 *.sw?
 bugs/*
+
+# Claude Code local config (personal, not shared)
+.claude/settings.json
+.claude/settings.local.json
+.claude/scheduled_tasks.lock

@@ -201,21 +201,28 @@ export function useSubmitTimesheet() {
     mutationFn: async ({
       periodId,
       staffId,
-      engagementIds,
+      engagementActivityPairs,
       isAutoApproved,
     }: {
       periodId: string;
       staffId: string;
-      engagementIds: string[];
+      engagementActivityPairs: Array<{ engagementId: string; activityId: string }>;
       isAutoApproved: boolean;
     }) => {
-      // Defense-in-depth: deduplicate + filter nulls before RPC call
-      const uniqueEngagementIds = [...new Set(engagementIds.filter(Boolean))];
+      // Deduplicate by (engagement, activity) and filter nulls
+      const uniquePairs = [
+        ...new Map(
+          engagementActivityPairs
+            .filter(p => p.engagementId && p.activityId)
+            .map(p => [`${p.engagementId}:${p.activityId}`, p])
+        ).values(),
+      ];
 
       const { data, error } = await supabase.rpc('submit_timesheet_safe', {
-        p_period_id: periodId,
-        p_staff_id: staffId,
-        p_engagement_ids: uniqueEngagementIds,
+        p_period_id:        periodId,
+        p_staff_id:         staffId,
+        p_engagement_ids:   uniquePairs.map(p => p.engagementId),
+        p_activity_ids:     uniquePairs.map(p => p.activityId),
         p_is_auto_approved: isAutoApproved,
       });
 
@@ -262,21 +269,11 @@ export function useUnsubmitTimesheet() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({
-      periodId,
-    }: {
-      periodId: string;
-    }) => {
-      // Only clear submitted_at. Line approval records persist for audit trail.
-      const { error: periodError } = await supabase
-        .from("timesheet_periods")
-        .update({
-          submitted_at: null,
-        })
-        .eq("period_id", periodId);
-
-      if (periodError) throw periodError;
-
+    mutationFn: async ({ periodId }: { periodId: string }) => {
+      const { error } = await supabase.rpc("unsubmit_timesheet_safe", {
+        p_period_id: periodId,
+      });
+      if (error) throw error;
       return { periodId };
     },
     onSuccess: () => {
@@ -287,7 +284,18 @@ export function useUnsubmitTimesheet() {
       queryClient.invalidateQueries({ queryKey: ["staff-timesheet-for-approval"] });
       toast.success(i18n.t("timesheet.unsubmitted"));
     },
-    onError: createMutationErrorHandler("unsubmitting timesheet"),
+    onError: (error: Error) => {
+      const msg = error.message || "";
+      if (msg.includes("UNSUBMIT_NOT_PARTNER")) {
+        toast.error(i18n.t("timesheet.unsubmitNotPartner"));
+        return;
+      }
+      if (msg.includes("APPROVED_WEEK_RECALL_WINDOW_CLOSED")) {
+        toast.error(i18n.t("timesheet.approvedRecallWindowClosed"));
+        return;
+      }
+      createMutationErrorHandler("unsubmitting timesheet")(error);
+    },
   });
 }
 

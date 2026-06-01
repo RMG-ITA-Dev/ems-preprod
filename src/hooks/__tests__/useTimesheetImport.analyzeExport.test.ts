@@ -9,7 +9,7 @@ import type { TimerEntry } from "@/hooks/useTimerEntries";
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
     from: () => ({
-      select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: null, error: null }) }) }) }),
+      select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: { period_id: "p1", submitted_at: null }, error: null }) }) }) }),
       insert: () => ({ select: () => ({ single: () => Promise.resolve({ data: { period_id: "p1" }, error: null }) }) }),
       update: () => ({ eq: () => Promise.resolve({ error: null }) }),
       in: () => Promise.resolve({ data: [], error: null }),

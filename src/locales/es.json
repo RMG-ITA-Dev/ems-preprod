@@ -61,7 +61,8 @@
     "saveError": "Error al guardar los cambios. Intente nuevamente.",
     "status": "Estado",
     "back": "Volver",
-    "none": "Ninguno"
+    "none": "Ninguno",
+    "confirm": "Confirmar"
   },
   "nav": {
     "main": "Principal",
@@ -155,6 +156,9 @@
     "exportError": "Error al exportar registros",
     "exportBlockedSubmitted": "La semana del {{weekStart}} ya fue enviada. Debe retirar el envio antes de exportar.",
     "exportBlocked": "{{blockedCount}} registros bloqueados (semanas ya enviadas: {{weeks}})",
+    "exportBlockedDbError": "{{count}} registro(s) no exportados (semana: {{weeks}}): {{reason}}",
+    "dbErrorReasonApprovedLine": "la línea ya tiene una aprobación registrada",
+    "dbErrorReasonGeneric": "error interno — intente nuevamente o contacte al administrador",
     "exportBlockedWO": "{{count}} registro(s) no exportados: la Orden de Trabajo no está aprobada ({{engagements}})",
     "woNotApproved": "La Orden de Trabajo no está aprobada para este encargo.",
     "woNotApprovedSave": "No se puede guardar: la Orden de Trabajo de este encargo no está aprobada. Seleccione un encargo aprobado.",
@@ -574,6 +578,7 @@
     "welcomeBack": "¡Bienvenido/a!",
     "accountCreated": "¡Cuenta creada exitosamente!",
     "invalidCredentials": "Correo o contraseña inválidos. Por favor intente de nuevo.",
+    "accountLocked": "Cuenta bloqueada temporalmente por demasiados intentos fallidos. Intente nuevamente en {{minutes}} minutos.",
     "emailAlreadyRegistered": "Este correo ya está registrado. Por favor inicie sesión.",
     "welcomeAdmin": "¡Bienvenido, Admin!",
     "missingCategories": "Faltan categorías requeridas: {{categories}}. Por favor agréguelas en Configuración antes de crear encargos.",
@@ -582,6 +587,8 @@
     "holidayCreated": "Feriado creado",
     "holidayUpdated": "Feriado actualizado",
     "holidayDeleted": "Feriado eliminado",
+    "holidaysReplicated": "Los feriados se crearon exitosamente, se sugiere revisar y cotejar las fechas",
+    "holidaysReplicatedPartial": "{{count}} feriado(s) creado(s) para {{year}}. {{skipped}} fecha(s) omitida(s) (ya existían o no válidas).",
     "noStaffRecord": "No hay un perfil de personal vinculado a su cuenta. Contacte al administrador."
   },
   "errors": {
@@ -597,9 +604,7 @@
     "noReingreso": "No se permite reingreso. Para reincorporar a esta persona, elimine el registro anterior y cree uno nuevo.",
     "terminationDateImmutable": "No se puede borrar la fecha de salida en un registro inactivo. Para corregirla, ingrese una fecha diferente.",
     "deletedAtImmutable": "Este registro está marcado como eliminado y no puede restaurarse. Para reincorporar a esta persona, cree un nuevo registro.",
-    "onlyRuizmierEmail": "Solo se permiten correos válidos.",
-    "userNotFound": "Usuario no encontrado en el sistema",
-    "checkUserError": "Error verificando usuario. Intente nuevamente."
+    "onlyRuizmierEmail": "Solo se permiten correos @{{domain}}."
   },
   "form": {
     "required": "Requerido",
@@ -630,7 +635,14 @@
     "deleteHoliday": "Eliminar Feriado",
     "date": "Fecha",
     "name": "Nombre",
-    "createdBy": "Creado Por"
+    "createdBy": "Creado Por",
+    "replicateButton": "Replicar al año siguiente",
+    "replicateConfirmTitle": "Replicar feriados {{fromYear}} → {{toYear}}",
+    "replicateConfirmDesc": "Se crearán {{count}} feriado(s) del año {{fromYear}} para el año {{toYear}}. Las fechas que ya existen en {{toYear}} serán omitidas. ¿Desea continuar?",
+    "noSourceHolidays": "No hay feriados cargados para el año {{year}}.",
+    "allDatesAlreadyExist": "Todos los feriados del año {{year}} ya existen.",
+    "allDatesLeapDay": "Todos los feriados de origen caen el 29 de febrero y {{year}} no es año bisiesto — nada para replicar.",
+    "allDatesLeapDayAndAlreadyExist": "No hay feriados para replicar al {{year}}: algunos caen el 29 de febrero (año no bisiesto) y el resto ya existe."
   },
  "dashboard": {
     "noData": "Sin datos disponibles para el período seleccionado",
@@ -832,6 +844,8 @@
     "submitDateRangeViolation": "No se puede enviar: algunas entradas están fuera del rango de vigencia del encargo. Corrija o elimínelas primero.",
     "unsubmit": "Retirar Envío",
     "unsubmitted": "Hoja de tiempo retirada para edición",
+    "approvedRecallWindowClosed": "Las boletas aprobadas solo se pueden retirar dentro de la misma semana.",
+    "unsubmitNotPartner": "Solo los partners pueden retirar una boleta aprobada.",
     "autoSaveHint": "Los cambios se guardan automáticamente",
     "admActivityNotConfigured": "La actividad ADM del sistema no esta configurada. Contacte al administrador.",
     "entry": "Entrada de tiempo",
@@ -855,7 +869,8 @@
     "engagementDateSkipped": "{{count}} registros omitidos por fechas de encargo",
     "noSourceEntries": "La semana seleccionada no tiene registros para copiar",
     "rowMerged": "Ya existe una fila con este encargo y actividad. Las horas se combinaron automáticamente.",
-    "cannotSelectApprovedEngagement": "Este encargo ya fue aprobado. Seleccionarlo bloquearía esta fila. Contacte a su aprobador si necesita correcciones en la línea aprobada.",
+    "cannotSelectApprovedEngagement": "Esta combinación de encargo y actividad ya fue aprobada. Seleccione una actividad diferente o contacte a su aprobador.",
+    "cannotSelectApprovedEngagementActivity": "Esta combinación de encargo y actividad ya fue aprobada. Seleccione una actividad diferente o contacte a su aprobador.",
     "saveDraftSuccess": "Borrador guardado exitosamente",
     "saveDraftPartialError": "Error al guardar {{count}} registros. Intente nuevamente.",
     "previousWeekAlreadyCopied": "La estructura de la semana anterior ya existe en la semana actual",
@@ -1044,7 +1059,8 @@
     "status": {
       "pending": "Pendiente",
       "approved": "Aprobado",
-      "rejected": "Rechazado"
+      "rejected": "Rechazado",
+      "partial": "Parcial"
     },
     "decision": {
       "title": "Decisión",
@@ -1186,5 +1202,26 @@
     "light": "Claro",
     "dark": "Oscuro",
     "system": "Sistema"
+  },
+  "notifications": {
+    "title": "Notificaciones",
+    "emptyTitle": "Sin alertas activas",
+    "emptyDescription": "No tienes alertas de staffing en este momento.",
+    "loading": "Cargando notificaciones…",
+    "error": "No se pudieron cargar las notificaciones.",
+    "count": "{{count}} alerta",
+    "count_other": "{{count}} alertas",
+    "priority": {
+      "high": "Alta",
+      "medium": "Media",
+      "low": "Baja",
+      "unknown": "—"
+    },
+    "types": {
+      "timesheet_pending_approval": "Timesheet de {{staff}} — {{engagement}}",
+      "work_order_pending_approval": "WO pendiente de aprobación — {{engagement}}",
+      "engagement_created": "Nuevo encargo: {{engagement}} ({{client}})",
+      "new_user_registered": "Nuevo usuario registrado: {{subject}}"
+    }
   }
 }

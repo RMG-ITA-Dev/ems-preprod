@@ -27,10 +27,8 @@ interface EngagementGroup {
   engagementId: string;
   engagementCode: string | null;
   engagementName: string;
-  approvalId: string | null;
-  approvalStatus: "pending" | "approved" | "rejected" | null;
-  reviewNotes: string | null;
   canApprove: boolean;
+  aggregateStatus: "approved" | "partial" | "pending" | "rejected" | null;
   totalHours: number;
   hoursByDate: { [dateStr: string]: number };
   activities: ActivityRow[];
@@ -45,6 +43,9 @@ interface ActivityRow {
   activityDescription: string;
   hours: { [dateStr: string]: number };
   total: number;
+  approvalId: string | null;
+  approvalStatus: "pending" | "approved" | "rejected" | null;
+  reviewNotes: string | null;
 }
 
 export function ApprovalTimesheetGrid({
@@ -70,11 +71,9 @@ export function ApprovalTimesheetGrid({
 
     timeEntries.forEach((entry) => {
       const engId = entry.engagement_id;
-      
-      if (!groupMap.has(engId)) {
-        const approval = lineApprovals.find((la) => la.engagement_id === engId);
-        const canApprove = approvableEngagementIds.includes(engId) && approval?.status === "pending";
 
+      if (!groupMap.has(engId)) {
+        const canApprove = approvableEngagementIds.includes(engId);
         const budget = engagementBudgets[engId];
         const budgetedHours = budget?.budgetedHours ?? null;
 
@@ -83,20 +82,18 @@ export function ApprovalTimesheetGrid({
           engagementCode: entry.engagement?.engagement_code || null,
           engagementName: entry.engagement?.engagement_name || "",
           clientName: entry.engagement?.client?.client_legal_name || null,
-          approvalId: approval?.approval_id || null,
-          approvalStatus: approval?.status || null,
-          reviewNotes: approval?.review_notes || null,
           canApprove,
+          aggregateStatus: null,
           totalHours: 0,
           hoursByDate: {},
           activities: [],
           budgetedHours,
-          remainingHours: null, // computed after totals
+          remainingHours: null,
         });
       }
 
       const group = groupMap.get(engId)!;
-      
+
       // Update engagement totals
       group.hoursByDate[entry.date_worked] = (group.hoursByDate[entry.date_worked] || 0) + entry.hours_logged;
       group.totalHours += entry.hours_logged;
@@ -104,23 +101,43 @@ export function ApprovalTimesheetGrid({
       // Find or create activity row
       let activity = group.activities.find((a) => a.activityId === entry.activity_id);
       if (!activity) {
+        const actApproval = lineApprovals.find(
+          la => la.engagement_id === engId && la.activity_id === entry.activity_id
+        );
         activity = {
-          activityId: entry.activity_id,
-          activityCode: entry.activity?.activity_code || "",
+          activityId:          entry.activity_id,
+          activityCode:        entry.activity?.activity_code || "",
           activityDescription: entry.activity?.description || "",
-          hours: {},
-          total: 0,
+          hours:               {},
+          total:               0,
+          approvalId:          actApproval?.approval_id || null,
+          approvalStatus:      actApproval?.status || null,
+          reviewNotes:         actApproval?.review_notes || null,
         };
         group.activities.push(activity);
       }
-      
+
       activity.hours[entry.date_worked] = (activity.hours[entry.date_worked] || 0) + entry.hours_logged;
       activity.total += entry.hours_logged;
     });
 
-    // Sort activities within each group + compute remaining hours
+    // Sort activities within each group + compute aggregateStatus + remaining hours
     groupMap.forEach((group) => {
       group.activities.sort((a, b) => a.activityCode.localeCompare(b.activityCode));
+
+      const statuses = group.activities.map(a => a.approvalStatus).filter(Boolean) as string[];
+      if (statuses.length === 0) {
+        group.aggregateStatus = null;
+      } else if (statuses.every(s => s === "approved")) {
+        group.aggregateStatus = "approved";
+      } else if (statuses.every(s => s === "rejected")) {
+        group.aggregateStatus = "rejected";
+      } else if (statuses.every(s => s === "pending")) {
+        group.aggregateStatus = "pending";
+      } else {
+        group.aggregateStatus = "partial";
+      }
+
       if (group.budgetedHours !== null) {
         group.remainingHours = group.budgetedHours - group.totalHours;
       }
@@ -142,29 +159,42 @@ export function ApprovalTimesheetGrid({
     return engagementGroups.reduce((sum, group) => sum + group.totalHours, 0);
   };
 
-  const renderStatusBadge = (group: EngagementGroup) => {
-    if (!group.approvalStatus || group.canApprove) return null;
-
-    const statusConfig = {
-      pending: { icon: Clock, className: "bg-warning/20 text-warning-foreground border-warning/30", label: t("approval.status.pending") },
+  const renderAggregateBadge = (status: EngagementGroup["aggregateStatus"]) => {
+    if (!status || status === "pending") return null;
+    const configs = {
       approved: { icon: Check, className: "bg-success/20 text-success-foreground border-success/30", label: t("approval.status.approved") },
-      rejected: { icon: X, className: "bg-destructive/20 text-destructive border-destructive/30", label: t("approval.status.rejected") },
+      rejected: { icon: X,     className: "bg-destructive/20 text-destructive border-destructive/30", label: t("approval.status.rejected") },
+      partial:  { icon: Clock, className: "bg-warning/20 text-warning-foreground border-warning/30", label: t("approval.status.partial") },
     };
-
-    const config = statusConfig[group.approvalStatus];
+    const config = configs[status];
     const Icon = config.icon;
+    return (
+      <Badge variant="outline" className={cn("text-xs py-0", config.className)}>
+        <Icon className="h-3 w-3 mr-1" />
+        {config.label}
+      </Badge>
+    );
+  };
 
+  const renderActivityStatusBadge = (activity: ActivityRow) => {
+    if (!activity.approvalStatus || activity.approvalStatus === "pending") return null;
+    const configs = {
+      approved: { icon: Check, className: "bg-success/20 text-success-foreground border-success/30", label: t("approval.status.approved") },
+      rejected: { icon: X,     className: "bg-destructive/20 text-destructive border-destructive/30", label: t("approval.status.rejected") },
+    };
+    const config = configs[activity.approvalStatus as "approved" | "rejected"];
+    const Icon = config.icon;
     return (
       <Tooltip>
         <TooltipTrigger asChild>
-          <Badge variant="outline" className={cn("ml-2 text-xs py-0", config.className)}>
+          <Badge variant="outline" className={cn("text-xs py-0", config.className)}>
             <Icon className="h-3 w-3 mr-1" />
             {config.label}
           </Badge>
         </TooltipTrigger>
-        {group.reviewNotes && (
+        {activity.reviewNotes && (
           <TooltipContent>
-            <p className="max-w-xs">{group.reviewNotes}</p>
+            <p className="max-w-xs">{activity.reviewNotes}</p>
           </TooltipContent>
         )}
       </Tooltip>
@@ -201,10 +231,10 @@ export function ApprovalTimesheetGrid({
           </thead>
           <tbody>
             {engagementGroups.map((group) => {
-              const isApprovable = group.canApprove && group.approvalId;
-              const currentDecision = group.approvalId 
-                ? approvalDecisions.get(group.approvalId) || "pending" 
-                : "pending";
+              const hasPendingActivities = group.activities.some(
+                a => a.approvalStatus === "pending" && a.approvalId
+              );
+              const isApprovable = group.canApprove && hasPendingActivities;
 
               return (
                 <>
@@ -233,7 +263,6 @@ export function ApprovalTimesheetGrid({
                             </div>
                           )}
                         </div>
-                        {renderStatusBadge(group)}
                       </div>
                     </td>
                     {weekDates.map((date) => {
@@ -276,12 +305,7 @@ export function ApprovalTimesheetGrid({
                       </div>
                     </td>
                     <td className="p-3 text-center">
-                      {isApprovable && group.approvalId && (
-                        <ApprovalToggle
-                          value={currentDecision}
-                          onChange={(decision) => onDecisionChange(group.approvalId!, decision)}
-                        />
-                      )}
+                      {renderAggregateBadge(group.aggregateStatus)}
                     </td>
                   </tr>
 
@@ -318,7 +342,16 @@ export function ApprovalTimesheetGrid({
                       <td className="p-3 text-right font-mono text-sm text-muted-foreground bg-muted/30 border-r border-border">
                         {activity.total}h
                       </td>
-                      <td className="text-center"></td>
+                      <td className="p-3 text-center">
+                        {group.canApprove && activity.approvalStatus === "pending" && activity.approvalId ? (
+                          <ApprovalToggle
+                            value={approvalDecisions.get(activity.approvalId) || "pending"}
+                            onChange={(decision) => onDecisionChange(activity.approvalId!, decision)}
+                          />
+                        ) : (
+                          renderActivityStatusBadge(activity)
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </>
