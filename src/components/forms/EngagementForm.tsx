@@ -62,8 +62,8 @@ const formSchema = z.object({
     .min(5, "Engagement name must be at least 5 characters")
     .max(200, "Engagement name cannot exceed 200 characters"),
   anio_fiscal: z.number().int().min(2020).max(2100, "Invalid fiscal year"),
-  oficina:     z.number().int().min(1).max(2,   "Invalid office"),
-  practica:    z.number().int().min(1).max(4,   "Invalid practice"),
+  oficina:     z.number().int().min(0).max(2,   "Invalid office"),
+  practica:    z.number().int().min(0).max(4,   "Invalid practice"),
   funcion:     z.number().int().min(0).max(3,   "Invalid function"),
   client_id: z.string().min(1, "Client is required"),
   partner_id: z.string().min(1, "Partner/Director is required"),
@@ -327,7 +327,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                 </FormItem>
               )}
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                 <FormField control={form.control} name="anio_fiscal" render={({ field }) => (
                   <FormItem>
                     <FormLabel>{t("engagement.anioFiscal")} *</FormLabel>
@@ -353,10 +353,11 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                     <Select
                       disabled={isEdit}
                       onValueChange={(v) => field.onChange(Number(v))}
-                      value={field.value ? String(field.value) : ""}
+                      value={field.value != null ? String(field.value) : ""}
                     >
                       <FormControl><SelectTrigger><SelectValue placeholder={t("engagement.selectOficina")} /></SelectTrigger></FormControl>
                       <SelectContent>
+                        <SelectItem value="0">{t("engagement.oficina.ambos")}</SelectItem>
                         <SelectItem value="1">{t("engagement.oficina.laPaz")}</SelectItem>
                         <SelectItem value="2">{t("engagement.oficina.santaCruz")}</SelectItem>
                       </SelectContent>
@@ -371,10 +372,11 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                     <Select
                       disabled={isEdit}
                       onValueChange={(v) => field.onChange(Number(v))}
-                      value={field.value ? String(field.value) : ""}
+                      value={field.value != null ? String(field.value) : ""}
                     >
                       <FormControl><SelectTrigger><SelectValue placeholder={t("engagement.selectPractica")} /></SelectTrigger></FormControl>
                       <SelectContent>
+                        <SelectItem value="0">{t("engagement.practica.firmwide")}</SelectItem>
                         <SelectItem value="1">{t("engagement.practica.auditoria")}</SelectItem>
                         <SelectItem value="2">{t("engagement.practica.consultoria")}</SelectItem>
                         <SelectItem value="3">{t("engagement.practica.tax")}</SelectItem>
