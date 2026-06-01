@@ -212,7 +212,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
           activity_required:   activityRequired,
           is_internal:         isInternal,
           approval_required:   approvalRequired,
-          // oficina, practica, anio_fiscal intentionally omitted — immutable after create
+          // oficina, practica, funcion, anio_fiscal intentionally omitted — immutable after create
         },
       });
     } else {

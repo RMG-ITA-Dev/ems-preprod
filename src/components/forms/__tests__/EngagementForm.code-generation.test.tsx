@@ -47,7 +47,7 @@ const mockEngagement: Engagement = {
   engagement_id:       "eng-test-1",
   client_id:           "client-1",
   engagement_name:     "Audit FY2027",
-  engagement_code:     "2027.12.0001",
+  engagement_code:     "2027.121.001",
   partner_id:          "staff-1",
   manager_id:          "staff-2",
   status:              "active",
@@ -60,6 +60,7 @@ const mockEngagement: Engagement = {
   approval_required:   true,
   oficina:             1,
   practica:            2,
+  funcion:             1,
   anio_fiscal:         2027,
 };
 
@@ -69,11 +70,12 @@ const suggestFiscalYear = (): number => {
   return now.getMonth() >= 6 ? now.getFullYear() + 1 : now.getFullYear();
 };
 
-// Mirror the Zod schema for the three new fields
+// Mirror the Zod schema for the four new fields (Plan v3: oficina/practica accept 0, practica max=4, funcion 0-3)
 const codeFieldsSchema = z.object({
   anio_fiscal: z.number().int().min(2020).max(2100, "Invalid fiscal year"),
-  oficina:     z.number().int().min(1).max(2,   "Invalid office"),
-  practica:    z.number().int().min(1).max(3,   "Invalid practice"),
+  oficina:     z.number().int().min(0).max(2,   "Invalid office"),
+  practica:    z.number().int().min(0).max(4,   "Invalid practice"),
+  funcion:     z.number().int().min(0).max(3,   "Invalid function"),
 });
 
 describe("suggestFiscalYear (BUG 0306-82)", () => {
@@ -107,43 +109,74 @@ describe("suggestFiscalYear (BUG 0306-82)", () => {
 });
 
 describe("Engagement create schema — new code-generation fields (BUG 0306-82)", () => {
-  it("parses successfully with valid anio_fiscal, oficina, and practica", () => {
+  it("parses successfully with valid anio_fiscal, oficina, practica, and funcion", () => {
     const result = codeFieldsSchema.safeParse({
       anio_fiscal: 2027,
       oficina: 1,
       practica: 2,
+      funcion: 1,
     });
     expect(result.success).toBe(true);
   });
 
+  it("accepts oficina=0 (Ambos)", () => {
+    const result = codeFieldsSchema.safeParse({ anio_fiscal: 2027, oficina: 0, practica: 1, funcion: 0 });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts practica=0 (Firmwide)", () => {
+    const result = codeFieldsSchema.safeParse({ anio_fiscal: 2027, oficina: 1, practica: 0, funcion: 0 });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts practica=4 (Growth & Strategy)", () => {
+    const result = codeFieldsSchema.safeParse({ anio_fiscal: 2027, oficina: 1, practica: 4, funcion: 0 });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts funcion=0 (Administrativa)", () => {
+    const result = codeFieldsSchema.safeParse({ anio_fiscal: 2027, oficina: 1, practica: 1, funcion: 0 });
+    expect(result.success).toBe(true);
+  });
+
   it("rejects when anio_fiscal is missing", () => {
-    const result = codeFieldsSchema.safeParse({ oficina: 1, practica: 2 });
+    const result = codeFieldsSchema.safeParse({ oficina: 1, practica: 2, funcion: 1 });
     expect(result.success).toBe(false);
   });
 
   it("rejects when oficina is missing", () => {
-    const result = codeFieldsSchema.safeParse({ anio_fiscal: 2027, practica: 2 });
+    const result = codeFieldsSchema.safeParse({ anio_fiscal: 2027, practica: 2, funcion: 1 });
     expect(result.success).toBe(false);
   });
 
   it("rejects when practica is missing", () => {
-    const result = codeFieldsSchema.safeParse({ anio_fiscal: 2027, oficina: 1 });
+    const result = codeFieldsSchema.safeParse({ anio_fiscal: 2027, oficina: 1, funcion: 1 });
     expect(result.success).toBe(false);
   });
 
-  it("rejects oficina value outside 1-2", () => {
-    const result = codeFieldsSchema.safeParse({ anio_fiscal: 2027, oficina: 3, practica: 1 });
+  it("rejects when funcion is missing", () => {
+    const result = codeFieldsSchema.safeParse({ anio_fiscal: 2027, oficina: 1, practica: 2 });
     expect(result.success).toBe(false);
   });
 
-  it("rejects practica value outside 1-3", () => {
-    const result = codeFieldsSchema.safeParse({ anio_fiscal: 2027, oficina: 1, practica: 4 });
+  it("rejects oficina value outside 0-2", () => {
+    const result = codeFieldsSchema.safeParse({ anio_fiscal: 2027, oficina: 3, practica: 1, funcion: 0 });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects practica value outside 0-4", () => {
+    const result = codeFieldsSchema.safeParse({ anio_fiscal: 2027, oficina: 1, practica: 5, funcion: 0 });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects funcion value outside 0-3", () => {
+    const result = codeFieldsSchema.safeParse({ anio_fiscal: 2027, oficina: 1, practica: 1, funcion: 4 });
     expect(result.success).toBe(false);
   });
 });
 
 describe("Edit payload shape (BUG 0306-82)", () => {
-  it("update payload does not contain oficina, practica, or anio_fiscal", () => {
+  it("update payload does not contain oficina, practica, funcion, or anio_fiscal", () => {
     const updatePayload = {
       engagement_name: "Updated Audit",
       client_id: "client-1",
@@ -159,6 +192,7 @@ describe("Edit payload shape (BUG 0306-82)", () => {
     };
     expect(updatePayload).not.toHaveProperty("oficina");
     expect(updatePayload).not.toHaveProperty("practica");
+    expect(updatePayload).not.toHaveProperty("funcion");
     expect(updatePayload).not.toHaveProperty("anio_fiscal");
   });
 });
@@ -183,20 +217,26 @@ describe("EngagementForm render — create mode (BUG 0306-82)", () => {
     render(<EngagementForm />);
     expect(screen.getByText("engagement.practica *")).toBeInTheDocument();
   });
+
+  it("EF-R7: renders the Function (Funcion) select label", () => {
+    render(<EngagementForm />);
+    expect(screen.getByText("engagement.funcion *")).toBeInTheDocument();
+  });
 });
 
 describe("EngagementForm render — edit mode (BUG 0306-82)", () => {
   it("EF-R5: renders engagement code as a disabled read-only input (not editable)", () => {
     render(<EngagementForm engagement={mockEngagement} />);
     expect(screen.getByText("engagement.engagementCode")).toBeInTheDocument();
-    const codeInput = screen.getByDisplayValue("2027.12.0001");
+    const codeInput = screen.getByDisplayValue("2027.121.001");
     expect(codeInput).toBeDisabled();
   });
 
-  it("EF-R6: fiscal year/office/practice labels are still present in edit mode", () => {
+  it("EF-R6: fiscal year/office/practice/function labels are still present in edit mode", () => {
     render(<EngagementForm engagement={mockEngagement} />);
     expect(screen.getByText("engagement.anioFiscal *")).toBeInTheDocument();
     expect(screen.getByText("engagement.oficina *")).toBeInTheDocument();
     expect(screen.getByText("engagement.practica *")).toBeInTheDocument();
+    expect(screen.getByText("engagement.funcion *")).toBeInTheDocument();
   });
 });

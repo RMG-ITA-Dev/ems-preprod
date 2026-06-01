@@ -1,3 +1,10 @@
+-- Eliminar el overload de 14 params (sin p_funcion) creado en migraciones anteriores.
+-- CREATE OR REPLACE no lo pisa porque la firma es distinta; hay que dropearlo explícitamente.
+DROP FUNCTION IF EXISTS public.create_engagement_with_code(
+  text, uuid, uuid, uuid, date, date, text,
+  smallint, smallint, integer, boolean, boolean, boolean, boolean
+);
+
 -- Agregar tipo a parametro para discriminar contadores por función
 ALTER TABLE public.parametro
   ADD COLUMN IF NOT EXISTS tipo text;

@@ -22,11 +22,11 @@ describe("useCreateEngagement — code generation (BUG 0306-82)", () => {
     vi.clearAllMocks();
   });
 
-  it("calls supabase.rpc with create_engagement_with_code and all 14 params", async () => {
+  it("calls supabase.rpc with create_engagement_with_code and all 15 params", async () => {
     const mockData = {
       engagement_id: "eng-100",
       engagement_name: "Audit FY2027",
-      engagement_code: "2027.12.0001",
+      engagement_code: "2027.121.001",
     };
     vi.mocked(supabase.rpc).mockResolvedValue({ data: mockData, error: null } as any);
 
@@ -44,6 +44,7 @@ describe("useCreateEngagement — code generation (BUG 0306-82)", () => {
       status: "active",
       oficina: 1,
       practica: 2,
+      funcion: 1,
       anio_fiscal: 2027,
       work_order_required: true,
       activity_required: true,
@@ -63,6 +64,7 @@ describe("useCreateEngagement — code generation (BUG 0306-82)", () => {
       p_status:              "active",
       p_oficina:             1,
       p_practica:            2,
+      p_funcion:             1,
       p_anio_fiscal:         2027,
       p_work_order_required: true,
       p_activity_required:   true,

@@ -30,15 +30,9 @@ vi.mock("@/hooks/useEmsData", () => ({
     { setting_key: "DAILY_MAX", setting_value: "8" },
     { setting_key: "WEEKLY_MIN", setting_value: "40" },
     { setting_key: "WEEKLY_MAX", setting_value: "40" },
-    { setting_key: "HOLIDAY_ENGAGEMENT_ID", setting_value: "" },
   ], isLoading: false }),
   useActivityCodes: () => ({ data: [], isLoading: false }),
   useExpenseTypes: () => ({ data: [], isLoading: false }),
-  useSkills: () => ({ data: [], isLoading: false }),
-  useEngagements: () => ({ data: [], isLoading: false }),
-}));
-vi.mock("@/hooks/useHolidays", () => ({
-  useHolidayEngagementId: () => null,
 }));
 vi.mock("@/hooks/mutations", () => ({ useUpdateGlobalSetting: () => ({ mutateAsync: vi.fn(), isPending: false }) }));
 vi.mock("@/hooks/useUserRole", () => ({ useUserRole: () => ({ isAdmin: true }) }));
@@ -81,7 +75,7 @@ describe("Settings global-focus-cancel", () => {
     const user = userEvent.setup();
     await user.click(screen.getByText("settings.globalSettings"));
     expect(screen.getByTestId("app-layout").dataset.focusMode).toBe("true");
-  }, 15000);
+  });
 
   it("TS2: lock is not active on account tab", () => {
     renderSettings();
