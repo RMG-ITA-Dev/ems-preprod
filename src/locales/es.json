@@ -572,7 +572,14 @@
     "oficina.santaCruz":      "Santa Cruz",
     "practica.auditoria":     "Auditoría",
     "practica.consultoria":   "Consultoría",
-    "practica.tax":           "TAX"
+    "practica.tax":           "TAX",
+    "practica.growthStrategy": "Growth & Strategy",
+    "funcion":           "Función",
+    "selectFuncion":     "Seleccionar función",
+    "funcion.adm":       "Administrativa",
+    "funcion.cli":       "Cliente",
+    "funcion.cap":       "Capacitación",
+    "funcion.calidad":   "Control de Calidad"
   },
   "messages": {
     "createSuccess": "{{entity}} creado/a exitosamente",

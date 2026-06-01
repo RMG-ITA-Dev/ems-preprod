@@ -97,6 +97,7 @@ export interface Engagement {
   oficina:     number | null;
   practica:    number | null;
   anio_fiscal: number | null;
+  funcion:     number | null;
   client?: Client;
   partner?: Staff;
   manager?: Staff;

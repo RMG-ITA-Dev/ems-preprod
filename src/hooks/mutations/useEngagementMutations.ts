@@ -12,6 +12,7 @@ export function useCreateEngagement() {
       client_id: string;
       oficina: number;
       practica: number;
+      funcion: number;
       anio_fiscal: number;
       partner_id?: string;
       manager_id?: string;
@@ -33,6 +34,7 @@ export function useCreateEngagement() {
         p_status:              data.status ?? "active",
         p_oficina:             data.oficina,
         p_practica:            data.practica,
+        p_funcion:             data.funcion,
         p_anio_fiscal:         data.anio_fiscal,
         p_work_order_required: data.work_order_required ?? true,
         p_activity_required:   data.activity_required ?? true,

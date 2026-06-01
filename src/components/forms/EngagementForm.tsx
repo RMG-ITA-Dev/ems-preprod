@@ -63,7 +63,8 @@ const formSchema = z.object({
     .max(200, "Engagement name cannot exceed 200 characters"),
   anio_fiscal: z.number().int().min(2020).max(2100, "Invalid fiscal year"),
   oficina:     z.number().int().min(1).max(2,   "Invalid office"),
-  practica:    z.number().int().min(1).max(3,   "Invalid practice"),
+  practica:    z.number().int().min(1).max(4,   "Invalid practice"),
+  funcion:     z.number().int().min(0).max(3,   "Invalid function"),
   client_id: z.string().min(1, "Client is required"),
   partner_id: z.string().min(1, "Partner/Director is required"),
   manager_id: z.string().min(1, "Manager is required"),
@@ -128,6 +129,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       anio_fiscal: suggestFiscalYear(),
       oficina: undefined,
       practica: undefined,
+      funcion: undefined,
       client_id: "",
       partner_id: "",
       manager_id: "",
@@ -166,6 +168,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
         anio_fiscal: engagement.anio_fiscal ?? undefined,
         oficina:     engagement.oficina     ?? undefined,
         practica:    engagement.practica    ?? undefined,
+        funcion:     engagement.funcion     ?? undefined,
         client_id: engagement.client_id,
         partner_id: engagement.partner_id || "",
         manager_id: engagement.manager_id || "",
@@ -223,6 +226,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
         status:              data.status,
         oficina:             data.oficina,
         practica:            data.practica,
+        funcion:             data.funcion,
         anio_fiscal:         data.anio_fiscal,
         work_order_required: workOrderRequired,
         activity_required:   activityRequired,
@@ -374,6 +378,27 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                         <SelectItem value="1">{t("engagement.practica.auditoria")}</SelectItem>
                         <SelectItem value="2">{t("engagement.practica.consultoria")}</SelectItem>
                         <SelectItem value="3">{t("engagement.practica.tax")}</SelectItem>
+                        <SelectItem value="4">{t("engagement.practica.growthStrategy")}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+
+                <FormField control={form.control} name="funcion" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t("engagement.funcion")} *</FormLabel>
+                    <Select
+                      disabled={isEdit}
+                      onValueChange={(v) => field.onChange(Number(v))}
+                      value={field.value !== undefined ? String(field.value) : ""}
+                    >
+                      <FormControl><SelectTrigger><SelectValue placeholder={t("engagement.selectFuncion")} /></SelectTrigger></FormControl>
+                      <SelectContent>
+                        <SelectItem value="0">{t("engagement.funcion.adm")}</SelectItem>
+                        <SelectItem value="1">{t("engagement.funcion.cli")}</SelectItem>
+                        <SelectItem value="2">{t("engagement.funcion.cap")}</SelectItem>
+                        <SelectItem value="3">{t("engagement.funcion.calidad")}</SelectItem>
                       </SelectContent>
                     </Select>
                     <FormMessage />
