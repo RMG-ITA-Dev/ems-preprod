@@ -1,8 +1,10 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Check, ChevronsUpDown } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -10,10 +12,25 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { Card, CardContent } from "@/components/ui/card";
 import { NumericInput } from "@/components/ui/numeric-input";
 import { WorkOrderAllocationEditor } from "@/components/fund-requests/WorkOrderAllocationEditor";
 import { useCategoryStaff } from "@/hooks/useCategoryStaff";
+import { useCurrentStaff } from "@/hooks/useCurrentStaff";
+import { cn } from "@/lib/utils";
 import type { AllocationInput } from "@/hooks/mutations/useFundRequestMutations";
 
 export interface FundRequestFormValues {
@@ -34,8 +51,19 @@ interface Props {
 export function FundRequestForm({ values, onChange, disabled = false }: Props) {
   const { t } = useTranslation();
   const { managerOptions } = useCategoryStaff();
+  const { staffRecord } = useCurrentStaff();
+  const [managerOpen, setManagerOpen] = useState(false);
 
-  const managerSelectOptions = useMemo(() => managerOptions ?? [], [managerOptions]);
+  // En modo edición excluimos al usuario actual (no puede auto-aprobarse).
+  // En modo lectura mostramos todos para que el valor seleccionado se muestre
+  // aunque el aprobador sea el mismo usuario que está viendo la solicitud.
+  const managerSelectOptions = useMemo(
+    () =>
+      disabled
+        ? (managerOptions ?? [])
+        : (managerOptions ?? []).filter((m) => m.value !== staffRecord?.staff_id),
+    [managerOptions, staffRecord, disabled],
+  );
 
   return (
     <Card>
@@ -44,22 +72,61 @@ export function FundRequestForm({ values, onChange, disabled = false }: Props) {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label htmlFor="fr-approver">{t("fundRequest.approver")} *</Label>
-            <Select
-              value={values.approver_manager_staff_id || undefined}
-              onValueChange={(v) => onChange({ approver_manager_staff_id: v })}
-              disabled={disabled}
-            >
-              <SelectTrigger id="fr-approver">
-                <SelectValue placeholder={t("fundRequest.selectApprover")} />
-              </SelectTrigger>
-              <SelectContent>
-                {managerSelectOptions.map((m) => (
-                  <SelectItem key={m.value} value={m.value}>
-                    {m.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Popover open={managerOpen && !disabled} onOpenChange={(o) => !disabled && setManagerOpen(o)}>
+              <PopoverTrigger asChild>
+                <Button
+                  id="fr-approver"
+                  variant="outline"
+                  role="combobox"
+                  disabled={disabled || managerSelectOptions.length === 0}
+                  className={cn(
+                    "w-full justify-between font-normal",
+                    !values.approver_manager_staff_id && "text-muted-foreground",
+                  )}
+                >
+                  <span className="truncate">
+                    {managerSelectOptions.find((m) => m.value === values.approver_manager_staff_id)
+                      ?.label ?? t("fundRequest.selectApprover")}
+                  </span>
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-full p-0" align="start">
+                <Command>
+                  <CommandInput placeholder={t("fundRequest.searchApprover")} />
+                  <CommandList>
+                    <CommandEmpty>{t("common.noResults")}</CommandEmpty>
+                    <CommandGroup>
+                      {managerSelectOptions.map((m) => (
+                        <CommandItem
+                          key={m.value}
+                          value={m.label}
+                          onSelect={() => {
+                            onChange({ approver_manager_staff_id: m.value });
+                            setManagerOpen(false);
+                          }}
+                        >
+                          <Check
+                            className={cn(
+                              "mr-2 h-4 w-4",
+                              values.approver_manager_staff_id === m.value
+                                ? "opacity-100"
+                                : "opacity-0",
+                            )}
+                          />
+                          {m.label}
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+            {managerSelectOptions.length === 0 && !disabled && (
+              <p className="text-xs text-warning">
+                {t("fundRequest.noManagersAvailable")}
+              </p>
+            )}
           </div>
 
           <div className="space-y-2">

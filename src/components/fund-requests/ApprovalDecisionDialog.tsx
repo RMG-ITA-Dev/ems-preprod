@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { CheckCircle2, Eye, XCircle } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -42,6 +43,16 @@ export function ApprovalDecisionDialog({
   }, [open, mode]);
 
   const notesRequired = mode === "observe" || mode === "reject";
+  const showNotes = mode === "observe" || mode === "reject";
+
+  const modeIcon =
+    mode === "approve" ? (
+      <CheckCircle2 className="inline-block mr-2 h-5 w-5 align-middle text-success" />
+    ) : mode === "observe" ? (
+      <Eye className="inline-block mr-2 h-5 w-5 align-middle text-warning" />
+    ) : (
+      <XCircle className="inline-block mr-2 h-5 w-5 align-middle text-destructive" />
+    );
 
   const titleKey =
     mode === "approve"
@@ -80,31 +91,32 @@ export function ApprovalDecisionDialog({
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>{t(titleKey)}</AlertDialogTitle>
+          <AlertDialogTitle>
+            {modeIcon}
+            {t(titleKey)}
+          </AlertDialogTitle>
           <AlertDialogDescription>{t(bodyKey)}</AlertDialogDescription>
         </AlertDialogHeader>
 
-        <div className="space-y-2 py-2">
-          <Label htmlFor="decision-notes">
-            {t(notesLabelKey)}
-            {notesRequired && <span className="text-destructive ml-1">*</span>}
-          </Label>
-          <Textarea
-            id="decision-notes"
-            value={notes}
-            onChange={(e) => {
-              setNotes(e.target.value);
-              if (error) setError(null);
-            }}
-            rows={4}
-            placeholder={
-              notesRequired
-                ? t("fundRequest.dialog.notesPlaceholderRequired")
-                : t("fundRequest.dialog.notesPlaceholderOptional")
-            }
-          />
-          {error && <p className="text-sm text-destructive">{error}</p>}
-        </div>
+        {showNotes && (
+          <div className="space-y-2 py-2">
+            <Label htmlFor="decision-notes">
+              {t(notesLabelKey)}
+              <span className="text-destructive ml-1">*</span>
+            </Label>
+            <Textarea
+              id="decision-notes"
+              value={notes}
+              onChange={(e) => {
+                setNotes(e.target.value);
+                if (error) setError(null);
+              }}
+              rows={4}
+              placeholder={t("fundRequest.dialog.notesPlaceholderRequired")}
+            />
+            {error && <p className="text-sm text-destructive">{error}</p>}
+          </div>
+        )}
 
         <AlertDialogFooter>
           <AlertDialogCancel disabled={isSubmitting}>{t("common.cancel")}</AlertDialogCancel>

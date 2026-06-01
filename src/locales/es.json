@@ -1207,6 +1207,7 @@
     "requester": "Solicitante",
     "approver": "Gerente Aprobador",
     "selectApprover": "Seleccionar gerente",
+    "searchApprover": "Buscar gerente...",
     "purpose": "Propósito",
     "purposePlaceholder": "Describa brevemente el motivo de la solicitud...",
     "totalRequested": "Monto Solicitado",
@@ -1222,7 +1223,14 @@
     "missingToAllocate": "Falta por distribuir",
     "overAllocated": "Exceso distribuido",
     "noApprovedWorkOrders": "No hay OTs aprobadas en {{currency}} disponibles",
+    "noApprovedWorkOrdersHelp": "Cambie la moneda o pida al equipo que apruebe una OT en esa moneda antes de continuar.",
     "noAllocationsYet": "Aún no hay OTs asignadas. Agregue al menos una.",
+    "noManagersAvailable": "No hay gerentes disponibles para asignar. Verifique que existan miembros del staff con categoría Gerente o Director.",
+    "prereq": {
+      "title": "No puede crear la solicitud todavía",
+      "noManagers": "No hay gerentes activos en el sistema para asignar como aprobador.",
+      "noApprovedWos": "No hay órdenes de trabajo en estado Aprobado. Solicite a su equipo aprobar al menos una antes de continuar."
+    },
     "approvalNotes": "Notas del gerente",
     "rejectionReason": "Razón de rechazo",
     "status": {
@@ -1262,7 +1270,10 @@
       "toDisburse": "Por Desembolsar",
       "delivered": "Entregados",
       "inSettlement": "En Liquidación",
-      "closed": "Cerrados"
+      "closed": "Cerrados",
+      "pending": "Pendientes",
+      "approved": "Aprobadas",
+      "returned": "Devueltas"
     },
     "dialog": {
       "approveTitle": "¿Aprobar solicitud?",

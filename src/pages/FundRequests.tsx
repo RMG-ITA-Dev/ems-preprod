@@ -1,9 +1,11 @@
+import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { DataTable, Column } from "@/components/data-table/DataTable";
 import { FundRequestStatusBadge } from "@/components/fund-requests/FundRequestStatusBadge";
 import { useFundRequests, type FundRequest } from "@/hooks/useFundRequests";
+import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 
 const formatCurrency = (n: number, currency: "BOB" | "USD") =>
   Math.round(n).toLocaleString(currency === "BOB" ? "es-BO" : "en-US", {
@@ -25,6 +27,15 @@ const FundRequests = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { data, isLoading } = useFundRequests();
+  const { staffRecord } = useCurrentStaff();
+
+  // Esta página muestra solo MIS solicitudes (las que yo creé).
+  // El gerente ve las que debe aprobar en /fund-requests/approvals.
+  // El admin ve la cola completa en /fund-requests/disbursements.
+  const myRequests = useMemo(() => {
+    if (!data || !staffRecord) return [];
+    return data.filter((fr) => fr.requester_staff_id === staffRecord.staff_id);
+  }, [data, staffRecord]);
 
   const columns: Column<FundRequest>[] = [
     {
@@ -33,13 +44,6 @@ const FundRequests = () => {
       sortable: true,
       mobilePriority: "primary",
       render: (row) => <span className="font-mono font-medium">{row.request_number}</span>,
-    },
-    {
-      key: "requester.last_name",
-      label: t("fundRequest.requester"),
-      sortable: true,
-      mobilePriority: "primary",
-      render: (row) => staffName(row.requester),
     },
     {
       key: "approver_manager.last_name",
@@ -89,13 +93,13 @@ const FundRequests = () => {
   return (
     <AppLayout title={t("fundRequest.title")}>
       <DataTable
-        data={data || []}
+        data={myRequests}
         columns={columns}
         searchPlaceholder={t("fundRequest.searchPlaceholder")}
         searchKeys={["request_number", "purpose"]}
         isLoading={isLoading}
-        newButtonLabel={t("fundRequest.newRequest")}
-        onNewClick={() => navigate("/fund-requests/new")}
+        newButtonLabel={staffRecord ? t("fundRequest.newRequest") : undefined}
+        onNewClick={staffRecord ? () => navigate("/fund-requests/new") : undefined}
         onRowClick={(row) => navigate(`/fund-requests/${row.fund_request_id}`)}
         getRowId={(row) => row.fund_request_id}
         statusFilter={{

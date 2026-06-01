@@ -95,7 +95,9 @@ const FundRequestEdit = () => {
     setOriginal(JSON.parse(JSON.stringify(next)));
   }, [fr]);
 
-  const isDraft = fr?.status === "borrador" || fr?.status === "observado" || fr?.status === "rechazado";
+  const isRequester = !!staffRecord && !!fr && fr.requester_staff_id === staffRecord.staff_id;
+  // rechazado es estado terminal — no se puede editar ni reenviar (distinto de observado que sí permite corrección)
+  const isDraft = isRequester && (fr?.status === "borrador" || fr?.status === "observado");
   const isReadOnly = !isDraft;
   const isManagerOfThisFr =
     !!staffRecord && !!fr && fr.approver_manager_staff_id === staffRecord.staff_id;
@@ -286,17 +288,110 @@ const FundRequestEdit = () => {
   return (
     <AppLayout title={`${t("entities.fundRequest")} — ${fr.request_number}`} focusMode>
       <div className="space-y-6">
-        {/* Header con info y estado */}
+        {/* Header con info, estado y acciones */}
         <Card className="bg-muted/30">
           <CardContent className="py-4">
-            <div className="flex items-center justify-between flex-wrap gap-3">
-              <div>
-                <p className="text-sm text-muted-foreground">{t("fundRequest.requester")}</p>
-                <p className="font-semibold">{staffName(fr.requester)}</p>
+            <div className="flex items-start justify-between flex-wrap gap-3">
+              <div className="flex gap-6 flex-wrap">
+                <div>
+                  <p className="text-sm text-muted-foreground">{t("fundRequest.requester")}</p>
+                  <p className="font-semibold">{staffName(fr.requester)}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">{t("common.status")}</p>
+                  <FundRequestStatusBadge status={fr.status} />
+                </div>
               </div>
-              <div>
-                <p className="text-sm text-muted-foreground">{t("common.status")}</p>
-                <FundRequestStatusBadge status={fr.status} />
+
+              {/* Acciones — arriba para que el toast no las tape */}
+              <div className="flex gap-2 flex-wrap justify-end">
+                <Button
+                  variant="cancel"
+                  onClick={() => {
+                    allowNextNavigation();
+                    navigate(-1);
+                  }}
+                >
+                  {t("common.back")}
+                </Button>
+
+                {isDraft && (
+                  <>
+                    <Button
+                      variant="destructive"
+                      onClick={() => setShowDeleteDialog(true)}
+                      disabled={deleteFr.isPending || fr.status !== "borrador"}
+                    >
+                      {t("common.delete")}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={handleSave}
+                      disabled={!isDirty || updateFr.isPending}
+                    >
+                      {updateFr.isPending ? t("common.saving") : t("common.saveChanges")}
+                    </Button>
+                    <Button
+                      onClick={() => setShowSubmitDialog(true)}
+                      disabled={submitFr.isPending}
+                    >
+                      {t("fundRequest.actions.submit")}
+                    </Button>
+                  </>
+                )}
+
+                {canDecide && (
+                  <>
+                    <Button
+                      variant="destructive"
+                      onClick={() => setDecisionMode("reject")}
+                      disabled={decisionPending}
+                    >
+                      {t("fundRequest.actions.reject")}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => setDecisionMode("observe")}
+                      disabled={decisionPending}
+                    >
+                      {t("fundRequest.actions.observe")}
+                    </Button>
+                    <Button onClick={() => setDecisionMode("approve")} disabled={decisionPending}>
+                      {t("fundRequest.actions.approve")}
+                    </Button>
+                  </>
+                )}
+
+                {canCancel && (
+                  <Button
+                    variant="destructive"
+                    onClick={() => setShowCancelDialog(true)}
+                    disabled={accountingPending}
+                  >
+                    {t("fundRequest.actions.cancel")}
+                  </Button>
+                )}
+
+                {canDisburse && (
+                  <Button onClick={() => setShowDisburseDialog(true)} disabled={accountingPending}>
+                    {t("fundRequest.actions.disburse")}
+                  </Button>
+                )}
+
+                {canStartSettlement && (
+                  <Button
+                    onClick={() => setShowStartSettlementDialog(true)}
+                    disabled={accountingPending}
+                  >
+                    {t("fundRequest.actions.startSettlement")}
+                  </Button>
+                )}
+
+                {canClose && (
+                  <Button onClick={() => setShowCloseDialog(true)} disabled={accountingPending}>
+                    {t("fundRequest.actions.close")}
+                  </Button>
+                )}
               </div>
             </div>
           </CardContent>
@@ -389,97 +484,6 @@ const FundRequestEdit = () => {
         )}
 
         <FundRequestForm values={values} onChange={handleChange} disabled={isReadOnly} />
-
-        {/* Acciones */}
-        <div className="flex justify-end gap-2 flex-wrap">
-          <Button
-            variant="cancel"
-            onClick={() => {
-              allowNextNavigation();
-              navigate("/fund-requests");
-            }}
-          >
-            {t("common.back")}
-          </Button>
-
-          {isDraft && (
-            <>
-              <Button
-                variant="destructive"
-                onClick={() => setShowDeleteDialog(true)}
-                disabled={deleteFr.isPending || fr.status !== "borrador"}
-              >
-                {t("common.delete")}
-              </Button>
-              <Button
-                variant="outline"
-                onClick={handleSave}
-                disabled={!isDirty || updateFr.isPending}
-              >
-                {updateFr.isPending ? t("common.saving") : t("common.saveChanges")}
-              </Button>
-              <Button
-                onClick={() => setShowSubmitDialog(true)}
-                disabled={submitFr.isPending}
-              >
-                {t("fundRequest.actions.submit")}
-              </Button>
-            </>
-          )}
-
-          {canDecide && (
-            <>
-              <Button
-                variant="destructive"
-                onClick={() => setDecisionMode("reject")}
-                disabled={decisionPending}
-              >
-                {t("fundRequest.actions.reject")}
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => setDecisionMode("observe")}
-                disabled={decisionPending}
-              >
-                {t("fundRequest.actions.observe")}
-              </Button>
-              <Button onClick={() => setDecisionMode("approve")} disabled={decisionPending}>
-                {t("fundRequest.actions.approve")}
-              </Button>
-            </>
-          )}
-
-          {canCancel && (
-            <Button
-              variant="destructive"
-              onClick={() => setShowCancelDialog(true)}
-              disabled={accountingPending}
-            >
-              {t("fundRequest.actions.cancel")}
-            </Button>
-          )}
-
-          {canDisburse && (
-            <Button onClick={() => setShowDisburseDialog(true)} disabled={accountingPending}>
-              {t("fundRequest.actions.disburse")}
-            </Button>
-          )}
-
-          {canStartSettlement && (
-            <Button
-              onClick={() => setShowStartSettlementDialog(true)}
-              disabled={accountingPending}
-            >
-              {t("fundRequest.actions.startSettlement")}
-            </Button>
-          )}
-
-          {canClose && (
-            <Button onClick={() => setShowCloseDialog(true)} disabled={accountingPending}>
-              {t("fundRequest.actions.close")}
-            </Button>
-          )}
-        </div>
       </div>
 
       {/* Disbursement dialog */}
@@ -499,8 +503,6 @@ const FundRequestEdit = () => {
         title={t("fundRequest.dialog.startSettlementTitle")}
         body={t("fundRequest.dialog.startSettlementBody")}
         confirmLabel={t("fundRequest.actions.startSettlement")}
-        notesLabel={t("fundRequest.accountingNotes")}
-        notesRequired={false}
         isSubmitting={startSettlementFr.isPending}
         onConfirm={handleStartSettlement}
       />
@@ -512,8 +514,6 @@ const FundRequestEdit = () => {
         title={t("fundRequest.dialog.closeTitle")}
         body={t("fundRequest.dialog.closeBody")}
         confirmLabel={t("fundRequest.actions.close")}
-        notesLabel={t("fundRequest.accountingNotes")}
-        notesRequired={false}
         isSubmitting={closeFr.isPending}
         onConfirm={handleClose}
       />

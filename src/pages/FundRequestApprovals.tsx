@@ -1,12 +1,12 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { DataTable, Column } from "@/components/data-table/DataTable";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FundRequestStatusBadge } from "@/components/fund-requests/FundRequestStatusBadge";
-import { useFundRequests, type FundRequest } from "@/hooks/useFundRequests";
+import { useFundRequests, type FundRequest, type FundRequestStatus } from "@/hooks/useFundRequests";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
-import { useUserRole } from "@/hooks/useUserRole";
 
 const formatCurrency = (n: number, currency: "BOB" | "USD") =>
   Math.round(n).toLocaleString(currency === "BOB" ? "es-BO" : "en-US", {
@@ -22,22 +22,43 @@ const formatDate = (iso: string | null | undefined) => {
 const staffName = (s?: { first_name?: string; last_name?: string; short_name?: string | null }) =>
   s ? s.short_name || `${s.first_name ?? ""} ${s.last_name ?? ""}`.trim() : "-";
 
+type Tab = "pending" | "approved" | "returned";
+
+const tabStatuses: Record<Tab, FundRequestStatus[]> = {
+  pending: ["pendiente_aprobacion"],
+  // "Aprobadas por mí" incluye todo lo que siguió fluyendo después de mi visto bueno
+  approved: ["aprobado_gerente", "fondos_entregados", "en_liquidacion", "cerrado"],
+  // Lo que yo regresé al solicitante o lo que se canceló después
+  returned: ["observado", "rechazado", "cancelado"],
+};
+
 const FundRequestApprovals = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { data, isLoading } = useFundRequests();
   const { staffRecord } = useCurrentStaff();
-  const { isAdmin } = useUserRole();
+  const [tab, setTab] = useState<Tab>("pending");
 
-  // Filtro: pendientes donde soy el gerente designado (admin ve todas)
-  const pending = useMemo(() => {
-    if (!data) return [];
-    return data.filter((fr) => {
-      if (fr.status !== "pendiente_aprobacion") return false;
-      if (isAdmin) return true;
-      return fr.approver_manager_staff_id === staffRecord?.staff_id;
-    });
-  }, [data, isAdmin, staffRecord]);
+  // Solo solicitudes donde yo soy el aprobador asignado.
+  const myAssigned = useMemo(() => {
+    if (!data || !staffRecord) return [];
+    return data.filter((fr) => fr.approver_manager_staff_id === staffRecord.staff_id);
+  }, [data, staffRecord]);
+
+  const filtered = useMemo(() => {
+    const allowed = tabStatuses[tab];
+    return myAssigned.filter((fr) => allowed.includes(fr.status));
+  }, [myAssigned, tab]);
+
+  const counts = useMemo(() => {
+    const c: Record<Tab, number> = { pending: 0, approved: 0, returned: 0 };
+    for (const fr of myAssigned) {
+      (Object.keys(tabStatuses) as Tab[]).forEach((k) => {
+        if (tabStatuses[k].includes(fr.status)) c[k] += 1;
+      });
+    }
+    return c;
+  }, [myAssigned]);
 
   const columns: Column<FundRequest>[] = [
     {
@@ -76,11 +97,12 @@ const FundRequestApprovals = () => {
       ),
     },
     {
-      key: "submitted_at",
-      label: t("fundRequest.submittedAt"),
+      key: tab === "pending" ? "submitted_at" : "manager_decided_at",
+      label: tab === "pending" ? t("fundRequest.submittedAt") : t("fundRequest.managerDecidedAt"),
       sortable: true,
       mobilePriority: "secondary",
-      render: (row) => formatDate(row.submitted_at),
+      render: (row) =>
+        tab === "pending" ? formatDate(row.submitted_at) : formatDate(row.manager_decided_at),
     },
     {
       key: "status",
@@ -93,15 +115,31 @@ const FundRequestApprovals = () => {
 
   return (
     <AppLayout title={t("fundRequest.approvalsQueue")}>
-      <DataTable
-        data={pending}
-        columns={columns}
-        searchPlaceholder={t("fundRequest.searchPlaceholder")}
-        searchKeys={["request_number", "purpose"]}
-        isLoading={isLoading}
-        onRowClick={(row) => navigate(`/fund-requests/${row.fund_request_id}`)}
-        getRowId={(row) => row.fund_request_id}
-      />
+      <div className="space-y-4">
+        <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)}>
+          <TabsList>
+            <TabsTrigger value="pending">
+              {t("fundRequest.tabs.pending")} ({counts.pending})
+            </TabsTrigger>
+            <TabsTrigger value="approved">
+              {t("fundRequest.tabs.approved")} ({counts.approved})
+            </TabsTrigger>
+            <TabsTrigger value="returned">
+              {t("fundRequest.tabs.returned")} ({counts.returned})
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+
+        <DataTable
+          data={filtered}
+          columns={columns}
+          searchPlaceholder={t("fundRequest.searchPlaceholder")}
+          searchKeys={["request_number", "purpose"]}
+          isLoading={isLoading}
+          onRowClick={(row) => navigate(`/fund-requests/${row.fund_request_id}`)}
+          getRowId={(row) => row.fund_request_id}
+        />
+      </div>
     </AppLayout>
   );
 };

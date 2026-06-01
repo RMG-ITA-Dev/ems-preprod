@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
@@ -10,6 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { NumericInput } from "@/components/ui/numeric-input";
 import { cn } from "@/lib/utils";
 import { useWorkOrders } from "@/hooks/useEmsData";
@@ -90,9 +91,17 @@ export function WorkOrderAllocationEditor({
       </div>
 
       {availableWorkOrders.length === 0 && allocations.length === 0 ? (
-        <p className="text-sm text-muted-foreground italic">
-          {t("fundRequest.noApprovedWorkOrders", { currency })}
-        </p>
+        <Alert>
+          <Info className="h-4 w-4" />
+          <AlertDescription>
+            <p className="font-medium mb-1">
+              {t("fundRequest.noApprovedWorkOrders", { currency })}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              {t("fundRequest.noApprovedWorkOrdersHelp")}
+            </p>
+          </AlertDescription>
+        </Alert>
       ) : allocations.length === 0 ? (
         <p className="text-sm text-muted-foreground italic">
           {t("fundRequest.noAllocationsYet")}

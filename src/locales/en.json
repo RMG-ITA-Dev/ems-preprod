@@ -1207,6 +1207,7 @@
     "requester": "Requester",
     "approver": "Approving Manager",
     "selectApprover": "Select manager",
+    "searchApprover": "Search manager...",
     "purpose": "Purpose",
     "purposePlaceholder": "Briefly describe the reason for the request...",
     "totalRequested": "Requested Amount",
@@ -1222,7 +1223,14 @@
     "missingToAllocate": "Pending to allocate",
     "overAllocated": "Over-allocated",
     "noApprovedWorkOrders": "No approved Work Orders in {{currency}} available",
+    "noApprovedWorkOrdersHelp": "Change the currency or ask the team to approve a Work Order in that currency before continuing.",
     "noAllocationsYet": "No work orders allocated yet. Add at least one.",
+    "noManagersAvailable": "No managers available to assign. Make sure there are active staff members with category Manager or Director.",
+    "prereq": {
+      "title": "You can't create a request yet",
+      "noManagers": "There are no active managers in the system to assign as approver.",
+      "noApprovedWos": "There are no work orders in Approved state. Ask your team to approve at least one before continuing."
+    },
     "approvalNotes": "Manager notes",
     "rejectionReason": "Rejection reason",
     "status": {
@@ -1262,7 +1270,10 @@
       "toDisburse": "To Disburse",
       "delivered": "Delivered",
       "inSettlement": "In Settlement",
-      "closed": "Closed"
+      "closed": "Closed",
+      "pending": "Pending",
+      "approved": "Approved",
+      "returned": "Returned"
     },
     "dialog": {
       "approveTitle": "Approve request?",
