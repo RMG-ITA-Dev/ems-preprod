@@ -32,7 +32,7 @@ const ClientEdit = () => {
 
   if (isLoading) {
     return (
-      <AppLayout title="Clients" focusMode>
+      <AppLayout title={t("nav.clients")} focusMode>
         <div className="space-y-6">
           <Skeleton className="h-10 w-64" />
           <Skeleton className="h-96 w-full" />
@@ -42,7 +42,7 @@ const ClientEdit = () => {
   }
 
   return (
-    <AppLayout title="Clients" focusMode>
+    <AppLayout title={t("nav.clients")} focusMode>
       <div className="flex flex-col h-[calc(100vh-8rem)]">
         {/* Header */}
         <div className="flex items-center justify-between mb-4">

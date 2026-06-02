@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { EngagementForm } from "@/components/forms/EngagementForm";
 import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";
@@ -8,6 +9,7 @@ import { useUserRole } from "@/hooks/useUserRole";
 
 const EngagementNew = () => {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const [isDirty, setIsDirty] = useState(false);
   const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty });
   const { isAdmin, isPartner, isDirector, isLoading: roleLoading } = useUserRole();
@@ -33,7 +35,7 @@ const EngagementNew = () => {
   };
 
   return (
-    <AppLayout title="Engagements" focusMode>
+    <AppLayout title={t("nav.engagements")} focusMode>
       <EngagementForm
         onDirtyChange={setIsDirty}
         onCancel={handleCancel}
