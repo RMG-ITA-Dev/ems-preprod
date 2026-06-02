@@ -49,6 +49,7 @@ interface WorkOrderFormProps {
   // New props for create/edit mode and dirty state
   isNew?: boolean;
   isDirty?: boolean;
+  rejectionNote?: string | null;
   onCurrencyChange: (currency: "USD" | "BOB") => void;
   onSeasonChange: (season: "High" | "Low") => void;
   onAdjustmentChange: (amount: number) => void;
@@ -94,6 +95,7 @@ export function WorkOrderForm({
   sanNotes,
   isNew = false,
   isDirty = false,
+  rejectionNote,
   onCurrencyChange,
   onSeasonChange,
   onAdjustmentChange,
@@ -585,6 +587,14 @@ export function WorkOrderForm({
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {/* Rejection note banner - visible to the submitter when WO is in Draft */}
+      {isDraft && rejectionNote && (
+        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          <span className="font-medium">{t("workOrders.rejectionNoteLabel")}</span>{" "}
+          {rejectionNote}
+        </div>
       )}
 
       {/* Actions */}

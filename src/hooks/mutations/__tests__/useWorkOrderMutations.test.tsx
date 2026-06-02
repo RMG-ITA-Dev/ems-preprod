@@ -86,6 +86,27 @@ describe("useWorkOrderMutations", () => {
       expect(mockEq).toHaveBeenCalledWith("wo_id", "wo-1");
       expect(toast.success).toHaveBeenCalled();
     });
+
+    it("should not touch notes on resubmit", async () => {
+      const mockData = { wo_id: "wo-1", approval_status: "Pending_Approval" };
+      const mockSingle = vi.fn().mockResolvedValue({ data: mockData, error: null });
+      const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
+      const mockEq = vi.fn().mockReturnValue({ select: mockSelect });
+      const mockUpdate = vi.fn().mockReturnValue({ eq: mockEq });
+      vi.mocked(supabase.from).mockReturnValue({ update: mockUpdate } as any);
+
+      const { result } = renderHook(() => useSubmitWorkOrder(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate("wo-1");
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      const payload = mockUpdate.mock.calls[0][0];
+      expect(payload).toHaveProperty("approval_status", "Pending_Approval");
+      expect(payload).not.toHaveProperty("notes");
+    });
   });
 
   describe("useApproveWorkOrder", () => {
@@ -114,6 +135,27 @@ describe("useWorkOrderMutations", () => {
       );
       expect(toast.success).toHaveBeenCalled();
     });
+
+    it("should clear notes on approve", async () => {
+      const mockData = { wo_id: "wo-1", approval_status: "Approved" };
+      const mockSingle = vi.fn().mockResolvedValue({ data: mockData, error: null });
+      const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
+      const mockEq = vi.fn().mockReturnValue({ select: mockSelect });
+      const mockUpdate = vi.fn().mockReturnValue({ eq: mockEq });
+      vi.mocked(supabase.from).mockReturnValue({ update: mockUpdate } as any);
+
+      const { result } = renderHook(() => useApproveWorkOrder(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate({ woId: "wo-1", staffId: "staff-1" });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      expect(mockUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ approval_status: "Approved", notes: null })
+      );
+    });
   });
 
   describe("useRejectWorkOrder", () => {
@@ -129,13 +171,51 @@ describe("useWorkOrderMutations", () => {
         wrapper: createWrapper(),
       });
 
-      result.current.mutate("wo-1");
+      result.current.mutate({ woId: "wo-1" });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
       expect(supabase.from).toHaveBeenCalledWith("work_orders");
-      expect(mockUpdate).toHaveBeenCalledWith({ approval_status: "Draft" });
+      expect(mockUpdate).toHaveBeenCalledWith({ approval_status: "Draft", notes: null });
       expect(toast.success).toHaveBeenCalled();
+    });
+
+    it("should save trimmed notes when provided", async () => {
+      const mockData = { wo_id: "wo-1", approval_status: "Draft" };
+      const mockSingle = vi.fn().mockResolvedValue({ data: mockData, error: null });
+      const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
+      const mockEq = vi.fn().mockReturnValue({ select: mockSelect });
+      const mockUpdate = vi.fn().mockReturnValue({ eq: mockEq });
+      vi.mocked(supabase.from).mockReturnValue({ update: mockUpdate } as any);
+
+      const { result } = renderHook(() => useRejectWorkOrder(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate({ woId: "wo-1", notes: "Falta CEAC" });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      expect(mockUpdate).toHaveBeenCalledWith({ approval_status: "Draft", notes: "Falta CEAC" });
+    });
+
+    it("should set notes to null when note is whitespace-only", async () => {
+      const mockData = { wo_id: "wo-1", approval_status: "Draft" };
+      const mockSingle = vi.fn().mockResolvedValue({ data: mockData, error: null });
+      const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
+      const mockEq = vi.fn().mockReturnValue({ select: mockSelect });
+      const mockUpdate = vi.fn().mockReturnValue({ eq: mockEq });
+      vi.mocked(supabase.from).mockReturnValue({ update: mockUpdate } as any);
+
+      const { result } = renderHook(() => useRejectWorkOrder(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate({ woId: "wo-1", notes: "   " });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      expect(mockUpdate).toHaveBeenCalledWith({ approval_status: "Draft", notes: null });
     });
   });
 });

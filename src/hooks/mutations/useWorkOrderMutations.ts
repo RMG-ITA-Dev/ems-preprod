@@ -96,6 +96,7 @@ export function useApproveWorkOrder() {
           approval_status: "Approved",
           approved_by: staffId,
           approved_at: new Date().toISOString(),
+          notes: null,
         })
         .eq("wo_id", woId)
         .select()
@@ -115,10 +116,11 @@ export function useApproveWorkOrder() {
 export function useRejectWorkOrder() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (woId: string) => {
+    mutationFn: async ({ woId, notes }: { woId: string; notes?: string }) => {
+      const trimmed = notes?.trim() || null;
       const { data: result, error } = await supabase
         .from("work_orders")
-        .update({ approval_status: "Draft" })
+        .update({ approval_status: "Draft", notes: trimmed })
         .eq("wo_id", woId)
         .select()
         .single();

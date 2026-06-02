@@ -109,6 +109,7 @@ export interface WorkOrder {
   approval_status: 'Draft' | 'Pending_Approval' | 'Approved' | 'Rejected';
   approved_by: string | null;
   approved_at: string | null;
+  notes: string | null;
   engagement?: Engagement;
   budget_lines?: WOBudgetLine[];
   expense_budget?: WOExpenseBudget[];
