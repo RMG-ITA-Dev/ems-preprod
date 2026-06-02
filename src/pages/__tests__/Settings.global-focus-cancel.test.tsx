@@ -33,6 +33,8 @@ vi.mock("@/hooks/useEmsData", () => ({
   ], isLoading: false }),
   useActivityCodes: () => ({ data: [], isLoading: false }),
   useExpenseTypes: () => ({ data: [], isLoading: false }),
+  useSkills: () => ({ data: [], isLoading: false }),
+  useEngagements: () => ({ data: [] }),
 }));
 vi.mock("@/hooks/mutations", () => ({ useUpdateGlobalSetting: () => ({ mutateAsync: vi.fn(), isPending: false }) }));
 vi.mock("@/hooks/useUserRole", () => ({ useUserRole: () => ({ isAdmin: true }) }));
