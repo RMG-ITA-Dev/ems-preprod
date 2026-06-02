@@ -983,6 +983,7 @@
     "approvedEmergency": "Emergency Approval",
     "ceacEmergencyHint": "CEAC not available — enter the reason in CEAC Notes to approve as emergency",
     "riskApprovalPending": "Risk Approval Pending",
+    "riskAssessmentRequired": "Complete the risk assessment (SAN + both dates, or SAN + emergency reason in CEAC Notes)",
     "allStatuses": "All Statuses",
     "allEngagementsHaveWorkOrders": "All active engagements already have a work order.",
     "createEngagementFirst": "Create a new engagement",

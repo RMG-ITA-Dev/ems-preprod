@@ -205,7 +205,9 @@ export function WorkOrderForm({
   const isEmergency = !ceacCompletedAt && !!sanCompletedAt;
   const canEmergencyApprove = isEmergency && !!ceacNotes?.trim();
   const riskApprovalReady = (!!ceacCompletedAt && !!sanCompletedAt) || canEmergencyApprove;
+  const isNormalSubmit = !!ceacCompletedAt && !!sanCompletedAt;
   const isEmergencySubmit = isDraft && !ceacCompletedAt && !!sanCompletedAt && !!ceacNotes?.trim();
+  const canSubmitForApproval = isNormalSubmit || isEmergencySubmit;
 
   // Get category name by ID
   const getCategoryName = (categoryId: string) => {
@@ -631,8 +633,8 @@ export function WorkOrderForm({
                   ? "bg-warning hover:bg-warning/90 text-warning-foreground btn-action"
                   : "bg-info hover:bg-info/90 btn-action"}
                 loading={isSubmitting}
-                disabled={isDirty}
-                title={isDirty ? t("workOrders.saveBeforeSubmit") : undefined}
+                disabled={isDirty || !canSubmitForApproval}
+                title={isDirty ? t("workOrders.saveBeforeSubmit") : !canSubmitForApproval ? t("workOrders.riskAssessmentRequired") : undefined}
               >
                 {isEmergencySubmit
                   ? <AlertTriangle className="h-4 w-4 mr-2" />
