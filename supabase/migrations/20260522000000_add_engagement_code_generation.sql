@@ -13,6 +13,9 @@ CREATE TABLE IF NOT EXISTS public.parametro (
   UNIQUE (nombre, periodo)
 );
 
+-- Block direct REST API access; only SECURITY DEFINER RPCs (running as postgres) can read/write.
+ALTER TABLE public.parametro ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE public.engagements
   ADD COLUMN IF NOT EXISTS oficina    smallint,
   ADD COLUMN IF NOT EXISTS practica   smallint,

@@ -199,10 +199,10 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
 
     if (!isEdit) {
       let missingCodeField = false;
-      if (data.anio_fiscal === undefined) { form.setError("anio_fiscal", { message: "Fiscal year is required" }); missingCodeField = true; }
-      if (data.oficina    === undefined) { form.setError("oficina",     { message: "Office is required"      }); missingCodeField = true; }
-      if (data.practica   === undefined) { form.setError("practica",    { message: "Service is required"     }); missingCodeField = true; }
-      if (data.funcion    === undefined) { form.setError("funcion",     { message: "Function is required"    }); missingCodeField = true; }
+      if (data.anio_fiscal === undefined) { form.setError("anio_fiscal", { message: t("engagement.requiredAnioFiscal") }); missingCodeField = true; }
+      if (data.oficina    === undefined) { form.setError("oficina",     { message: t("engagement.requiredOficina")    }); missingCodeField = true; }
+      if (data.practica   === undefined) { form.setError("practica",    { message: t("engagement.requiredPractica")   }); missingCodeField = true; }
+      if (data.funcion    === undefined) { form.setError("funcion",     { message: t("engagement.requiredFuncion")    }); missingCodeField = true; }
       if (missingCodeField) return;
     }
 
@@ -366,9 +366,9 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                     >
                       <FormControl><SelectTrigger><SelectValue placeholder={t("engagement.selectOficina")} /></SelectTrigger></FormControl>
                       <SelectContent>
-                        <SelectItem value="0">{t("engagement.oficina.ambos")}</SelectItem>
-                        <SelectItem value="1">{t("engagement.oficina.laPaz")}</SelectItem>
-                        <SelectItem value="2">{t("engagement.oficina.santaCruz")}</SelectItem>
+                        <SelectItem value="0">{t("engagement.oficina_ambos")}</SelectItem>
+                        <SelectItem value="1">{t("engagement.oficina_laPaz")}</SelectItem>
+                        <SelectItem value="2">{t("engagement.oficina_santaCruz")}</SelectItem>
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -385,11 +385,11 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                     >
                       <FormControl><SelectTrigger><SelectValue placeholder={t("engagement.selectPractica")} /></SelectTrigger></FormControl>
                       <SelectContent>
-                        <SelectItem value="0">{t("engagement.practica.firmwide")}</SelectItem>
-                        <SelectItem value="1">{t("engagement.practica.auditoria")}</SelectItem>
-                        <SelectItem value="2">{t("engagement.practica.consultoria")}</SelectItem>
-                        <SelectItem value="3">{t("engagement.practica.tax")}</SelectItem>
-                        <SelectItem value="4">{t("engagement.practica.growthStrategy")}</SelectItem>
+                        <SelectItem value="0">{t("engagement.practica_firmwide")}</SelectItem>
+                        <SelectItem value="1">{t("engagement.practica_auditoria")}</SelectItem>
+                        <SelectItem value="2">{t("engagement.practica_consultoria")}</SelectItem>
+                        <SelectItem value="3">{t("engagement.practica_tax")}</SelectItem>
+                        <SelectItem value="4">{t("engagement.practica_growthStrategy")}</SelectItem>
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -406,10 +406,10 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                     >
                       <FormControl><SelectTrigger><SelectValue placeholder={t("engagement.selectFuncion")} /></SelectTrigger></FormControl>
                       <SelectContent>
-                        <SelectItem value="0">{t("engagement.funcion.adm")}</SelectItem>
-                        <SelectItem value="1">{t("engagement.funcion.cli")}</SelectItem>
-                        <SelectItem value="2">{t("engagement.funcion.cap")}</SelectItem>
-                        <SelectItem value="3">{t("engagement.funcion.calidad")}</SelectItem>
+                        <SelectItem value="0">{t("engagement.funcion_adm")}</SelectItem>
+                        <SelectItem value="1">{t("engagement.funcion_cli")}</SelectItem>
+                        <SelectItem value="2">{t("engagement.funcion_cap")}</SelectItem>
+                        <SelectItem value="3">{t("engagement.funcion_calidad")}</SelectItem>
                       </SelectContent>
                     </Select>
                     <FormMessage />

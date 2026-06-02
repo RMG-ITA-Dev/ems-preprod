@@ -15,20 +15,20 @@ const NEW_KEYS = [
   "selectPractica",
   "anioFiscal",
   "selectAnioFiscal",
-  "oficina.laPaz",
-  "oficina.santaCruz",
-  "oficina.ambos",
-  "practica.auditoria",
-  "practica.consultoria",
-  "practica.tax",
-  "practica.firmwide",
-  "practica.growthStrategy",
+  "oficina_laPaz",
+  "oficina_santaCruz",
+  "oficina_ambos",
+  "practica_auditoria",
+  "practica_consultoria",
+  "practica_tax",
+  "practica_firmwide",
+  "practica_growthStrategy",
   "funcion",
   "selectFuncion",
-  "funcion.adm",
-  "funcion.cli",
-  "funcion.cap",
-  "funcion.calidad",
+  "funcion_adm",
+  "funcion_cli",
+  "funcion_cap",
+  "funcion_calidad",
 ] as const;
 
 describe("i18n engagement code-generation keys (BUG 0306-82)", () => {
@@ -70,28 +70,28 @@ describe("i18n engagement code-generation keys (BUG 0306-82)", () => {
     expect((es as any).engagement.anioFiscal).toBe("Año Fiscal");
   });
 
-  it("EN engagement.oficina.ambos is 'Both Offices'", () => {
-    expect((en as any).engagement["oficina.ambos"]).toBe("Both Offices");
+  it("EN engagement.oficina_ambos is 'Both Offices'", () => {
+    expect((en as any).engagement["oficina_ambos"]).toBe("Both Offices");
   });
 
-  it("ES engagement.oficina.ambos is 'Ambos'", () => {
-    expect((es as any).engagement["oficina.ambos"]).toBe("Ambos");
+  it("ES engagement.oficina_ambos is 'Ambos'", () => {
+    expect((es as any).engagement["oficina_ambos"]).toBe("Ambos");
   });
 
-  it("EN engagement.practica.firmwide is 'Firmwide'", () => {
-    expect((en as any).engagement["practica.firmwide"]).toBe("Firmwide");
+  it("EN engagement.practica_firmwide is 'Firmwide'", () => {
+    expect((en as any).engagement["practica_firmwide"]).toBe("Firmwide");
   });
 
-  it("ES engagement.practica.firmwide is 'Firmwide'", () => {
-    expect((es as any).engagement["practica.firmwide"]).toBe("Firmwide");
+  it("ES engagement.practica_firmwide is 'Firmwide'", () => {
+    expect((es as any).engagement["practica_firmwide"]).toBe("Firmwide");
   });
 
-  it("EN engagement.practica.growthStrategy is 'Growth & Strategy'", () => {
-    expect((en as any).engagement["practica.growthStrategy"]).toBe("Growth & Strategy");
+  it("EN engagement.practica_growthStrategy is 'Growth & Strategy'", () => {
+    expect((en as any).engagement["practica_growthStrategy"]).toBe("Growth & Strategy");
   });
 
-  it("ES engagement.practica.growthStrategy is 'Growth & Strategy'", () => {
-    expect((es as any).engagement["practica.growthStrategy"]).toBe("Growth & Strategy");
+  it("ES engagement.practica_growthStrategy is 'Growth & Strategy'", () => {
+    expect((es as any).engagement["practica_growthStrategy"]).toBe("Growth & Strategy");
   });
 
   it("EN engagement.funcion is 'Function'", () => {
@@ -102,35 +102,35 @@ describe("i18n engagement code-generation keys (BUG 0306-82)", () => {
     expect((es as any).engagement.funcion).toBe("Función");
   });
 
-  it("EN engagement.funcion.adm is 'Administrative'", () => {
-    expect((en as any).engagement["funcion.adm"]).toBe("Administrative");
+  it("EN engagement.funcion_adm is 'Administrative'", () => {
+    expect((en as any).engagement["funcion_adm"]).toBe("Administrative");
   });
 
-  it("ES engagement.funcion.adm is 'Administrativa'", () => {
-    expect((es as any).engagement["funcion.adm"]).toBe("Administrativa");
+  it("ES engagement.funcion_adm is 'Administrativa'", () => {
+    expect((es as any).engagement["funcion_adm"]).toBe("Administrativa");
   });
 
-  it("EN engagement.funcion.cli is 'Client'", () => {
-    expect((en as any).engagement["funcion.cli"]).toBe("Client");
+  it("EN engagement.funcion_cli is 'Client'", () => {
+    expect((en as any).engagement["funcion_cli"]).toBe("Client");
   });
 
-  it("ES engagement.funcion.cli is 'Cliente'", () => {
-    expect((es as any).engagement["funcion.cli"]).toBe("Cliente");
+  it("ES engagement.funcion_cli is 'Cliente'", () => {
+    expect((es as any).engagement["funcion_cli"]).toBe("Cliente");
   });
 
-  it("EN engagement.funcion.cap is 'Training'", () => {
-    expect((en as any).engagement["funcion.cap"]).toBe("Training");
+  it("EN engagement.funcion_cap is 'Training'", () => {
+    expect((en as any).engagement["funcion_cap"]).toBe("Training");
   });
 
-  it("ES engagement.funcion.cap is 'Capacitación'", () => {
-    expect((es as any).engagement["funcion.cap"]).toBe("Capacitación");
+  it("ES engagement.funcion_cap is 'Capacitación'", () => {
+    expect((es as any).engagement["funcion_cap"]).toBe("Capacitación");
   });
 
-  it("EN engagement.funcion.calidad is 'Quality Control'", () => {
-    expect((en as any).engagement["funcion.calidad"]).toBe("Quality Control");
+  it("EN engagement.funcion_calidad is 'Quality Control'", () => {
+    expect((en as any).engagement["funcion_calidad"]).toBe("Quality Control");
   });
 
-  it("ES engagement.funcion.calidad is 'Control de Calidad'", () => {
-    expect((es as any).engagement["funcion.calidad"]).toBe("Control de Calidad");
+  it("ES engagement.funcion_calidad is 'Control de Calidad'", () => {
+    expect((es as any).engagement["funcion_calidad"]).toBe("Control de Calidad");
   });
 });
