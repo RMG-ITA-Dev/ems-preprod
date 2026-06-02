@@ -1,6 +1,6 @@
 import React from "react";
 import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { StaffFull } from "@/hooks/useEmsData";
@@ -137,9 +137,13 @@ vi.mock("@/components/ui/dialog", () => ({
   DialogTitle: ({ children }: { children?: React.ReactNode }) => (
     <h2>{children}</h2>
   ),
-  DialogDescription: ({ children }: { children?: React.ReactNode }) => (
-    <p>{children}</p>
-  ),
+  DialogDescription: ({
+    children,
+    asChild,
+  }: {
+    children?: React.ReactNode;
+    asChild?: boolean;
+  }) => (asChild ? <>{children}</> : <p>{children}</p>),
   DialogFooter: ({ children }: { children?: React.ReactNode }) => (
     <div>{children}</div>
   ),
@@ -418,7 +422,7 @@ describe("StaffForm reactivation guard (BUG 0511-109/110)", () => {
     expect(callArg.data.termination_date).toBeNull();
   });
 
-  it("RG-2: terminated inactive staff stays blocked", async () => {
+  it("RG-2 (BUG 0526-123 rewrite): terminated inactive staff can be reactivated via confirmation dialog", async () => {
     const { container } = renderForm({
       is_active: false,
       termination_date: "2026-04-30",
@@ -436,8 +440,201 @@ describe("StaffForm reactivation guard (BUG 0511-109/110)", () => {
       'input[type="checkbox"]'
     ) as HTMLInputElement;
     expect(activeSwitch).toBeInTheDocument();
-    expect(activeSwitch.disabled).toBe(true);
+    // After 0526-123 the switch is editable regardless of termination_date.
+    expect(activeSwitch.disabled).toBe(false);
+    // The misleading legend is gone.
+    expect(screen.queryByText("errors.noReingreso")).not.toBeInTheDocument();
 
-    expect(screen.getByText("errors.noReingreso")).toBeInTheDocument();
+    // OFF -> ON should NOT commit immediately. Instead it opens the dialog.
+    fireEvent.click(activeSwitch);
+    expect(screen.getByText("staff.reactivateTitle")).toBeInTheDocument();
+    // The controlled checkbox stays unchecked while the dialog is open.
+    expect(activeSwitch.checked).toBe(false);
+  });
+
+  it("RG-3 (BUG 0526-123): confirming reactivation preserves termination_date and commits is_active=true", async () => {
+    const { container } = renderForm({
+      is_active: false,
+      termination_date: "2026-04-30",
+    });
+
+    await waitFor(() => {
+      const termInput = screen.getByLabelText(
+        "staff.terminationDate"
+      ) as HTMLInputElement;
+      expect(termInput.value).toBe("2026-04-30");
+    });
+
+    const activeSwitch = container.querySelector(
+      'input[type="checkbox"]'
+    ) as HTMLInputElement;
+
+    // Open the dialog.
+    fireEvent.click(activeSwitch);
+    expect(screen.getByText("staff.reactivateTitle")).toBeInTheDocument();
+
+    // Confirm reactivation — scope to the dialog to avoid matching the form footer.
+    const dialog = screen.getByRole("dialog");
+    const confirmBtn = within(dialog).getByText("staff.reactivateConfirm");
+    fireEvent.click(confirmBtn);
+
+    // Dialog closes; the switch reflects the new value.
+    await waitFor(() => {
+      expect(screen.queryByText("staff.reactivateTitle")).not.toBeInTheDocument();
+    });
+    expect(activeSwitch.checked).toBe(true);
+
+    // Submit; mutation receives is_active=true and termination_date preserved.
+    const form = container.querySelector("form")!;
+    fireEvent.submit(form);
+
+    await waitFor(() => expect(updateMutateAsync).toHaveBeenCalled());
+    const callArg = updateMutateAsync.mock.calls[0][0] as {
+      id: string;
+      data: { is_active: boolean; termination_date: string | null };
+    };
+    expect(callArg.data.is_active).toBe(true);
+    expect(callArg.data.termination_date).toBe("2026-04-30");
+  });
+
+  it("RG-5 (BUG 0526-123): clearing the date and then activating still opens the dialog and restores the date on confirm", async () => {
+    const { container } = renderForm({
+      is_active: false,
+      termination_date: "2026-04-30",
+    });
+
+    // Wait for hydration.
+    await waitFor(() => {
+      const termInput = screen.getByLabelText(
+        "staff.terminationDate"
+      ) as HTMLInputElement;
+      expect(termInput.value).toBe("2026-04-30");
+    });
+
+    // Admin clears the termination_date input — this is the bypass attempt.
+    const termInput = screen.getByLabelText(
+      "staff.terminationDate"
+    ) as HTMLInputElement;
+    fireEvent.change(termInput, { target: { value: "" } });
+    expect(termInput.value).toBe("");
+
+    // Toggle the switch ON. Detection should use the SAVED staff prop, not
+    // the live form value, so the dialog must still open.
+    const activeSwitch = container.querySelector(
+      'input[type="checkbox"]'
+    ) as HTMLInputElement;
+    fireEvent.click(activeSwitch);
+    expect(screen.getByText("staff.reactivateTitle")).toBeInTheDocument();
+
+    // Confirm. The handler should restore the original termination_date so
+    // the DB guard (TERMINATION_DATE_IMMUTABLE during reactivation) does not
+    // reject the save.
+    const dialog = screen.getByRole("dialog");
+    const confirmBtn = within(dialog).getByText("staff.reactivateConfirm");
+    fireEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(screen.queryByText("staff.reactivateTitle")).not.toBeInTheDocument();
+    });
+    expect(activeSwitch.checked).toBe(true);
+
+    // The date input should now show the restored value.
+    await waitFor(() => {
+      expect(
+        (screen.getByLabelText("staff.terminationDate") as HTMLInputElement).value
+      ).toBe("2026-04-30");
+    });
+
+    // Submit; mutation receives both is_active=true and the preserved date.
+    const form = container.querySelector("form")!;
+    fireEvent.submit(form);
+
+    await waitFor(() => expect(updateMutateAsync).toHaveBeenCalled());
+    const callArg = updateMutateAsync.mock.calls[0][0] as {
+      id: string;
+      data: { is_active: boolean; termination_date: string | null };
+    };
+    expect(callArg.data.is_active).toBe(true);
+    expect(callArg.data.termination_date).toBe("2026-04-30");
+  });
+
+  it("RG-6 (Codex P2): confirming reactivation respects a corrected non-empty termination_date", async () => {
+    const { container } = renderForm({
+      is_active: false,
+      termination_date: "2026-04-30",
+    });
+
+    await waitFor(() => {
+      const termInput = screen.getByLabelText(
+        "staff.terminationDate"
+      ) as HTMLInputElement;
+      expect(termInput.value).toBe("2026-04-30");
+    });
+
+    // Admin corrects the date to a different non-empty value before activating.
+    const termInput = screen.getByLabelText(
+      "staff.terminationDate"
+    ) as HTMLInputElement;
+    fireEvent.change(termInput, { target: { value: "2026-05-15" } });
+    expect(termInput.value).toBe("2026-05-15");
+
+    const activeSwitch = container.querySelector(
+      'input[type="checkbox"]'
+    ) as HTMLInputElement;
+    fireEvent.click(activeSwitch);
+    expect(screen.getByText("staff.reactivateTitle")).toBeInTheDocument();
+
+    // Confirm — the corrected date must NOT be overwritten with the DB value.
+    const dialog = screen.getByRole("dialog");
+    const confirmBtn = within(dialog).getByText("staff.reactivateConfirm");
+    fireEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(screen.queryByText("staff.reactivateTitle")).not.toBeInTheDocument();
+    });
+    expect(activeSwitch.checked).toBe(true);
+
+    const form = container.querySelector("form")!;
+    fireEvent.submit(form);
+
+    await waitFor(() => expect(updateMutateAsync).toHaveBeenCalled());
+    const callArg = updateMutateAsync.mock.calls[0][0] as {
+      id: string;
+      data: { is_active: boolean; termination_date: string | null };
+    };
+    expect(callArg.data.is_active).toBe(true);
+    expect(callArg.data.termination_date).toBe("2026-05-15");
+  });
+
+  it("RG-4 (BUG 0526-123): cancelling the dialog leaves the switch OFF", async () => {
+    const { container } = renderForm({
+      is_active: false,
+      termination_date: "2026-04-30",
+    });
+
+    await waitFor(() => {
+      const termInput = screen.getByLabelText(
+        "staff.terminationDate"
+      ) as HTMLInputElement;
+      expect(termInput.value).toBe("2026-04-30");
+    });
+
+    const activeSwitch = container.querySelector(
+      'input[type="checkbox"]'
+    ) as HTMLInputElement;
+
+    // Open the dialog.
+    fireEvent.click(activeSwitch);
+    expect(screen.getByText("staff.reactivateTitle")).toBeInTheDocument();
+
+    // Cancel — scope to the dialog because "common.cancel" also appears in the form footer.
+    const dialog = screen.getByRole("dialog");
+    const cancelBtn = within(dialog).getByText("common.cancel");
+    fireEvent.click(cancelBtn);
+
+    await waitFor(() => {
+      expect(screen.queryByText("staff.reactivateTitle")).not.toBeInTheDocument();
+    });
+    expect(activeSwitch.checked).toBe(false);
   });
 });

@@ -1744,6 +1744,9 @@ END;
 $$;
 
 -- Trigger: Prevent staff reactivation
+-- BUG 0526-123: removed REACTIVATION_BLOCKED for terminated staff (admins
+-- must be able to reactivate to regularize prior-period timesheets).
+-- Soft-deleted rows remain non-reactivatable.
 CREATE OR REPLACE FUNCTION public.prevent_staff_reactivation()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -1751,27 +1754,27 @@ SECURITY DEFINER
 SET search_path TO 'public'
 AS $$
 BEGIN
-  -- Block direct reactivation of a row with evidence of a prior exit.
-  IF OLD.is_active = false
-     AND NEW.is_active = true
-     AND (OLD.termination_date IS NOT NULL OR OLD.deleted_at IS NOT NULL) THEN
-    RAISE EXCEPTION 'REACTIVATION_BLOCKED: Staff reactivation is not permitted. Delete the record and create a new one.';
+  -- termination_date immutability — protects audit evidence on inactive
+  -- rows AND prevents clearing the date during reactivation so
+  -- trg_enforce_termination_date keeps blocking post-exit hour entries.
+  -- TD-4 exception: active→active is allowed so admins can fix a stray date.
+  IF OLD.termination_date IS NOT NULL
+     AND NEW.termination_date IS NULL
+     AND NOT (OLD.is_active = true AND NEW.is_active = true) THEN
+    RAISE EXCEPTION 'TERMINATION_DATE_IMMUTABLE: Cannot clear termination_date except on an already-active staff row.';
   END IF;
 
-  -- Block clearing exit evidence when the result row would stay non-active
-  -- (closes the two-step bypass where termination_date is cleared first and
-  -- is_active is flipped after). Active rows can still clean a stray
-  -- termination_date because NEW.is_active = true.
-  IF NEW.is_active IS NOT TRUE
-     AND OLD.termination_date IS NOT NULL
-     AND NEW.termination_date IS NULL THEN
-    RAISE EXCEPTION 'TERMINATION_DATE_IMMUTABLE: Cannot clear termination_date on an inactive staff row.';
+  -- Soft-deleted rows cannot be reactivated regardless of termination_date.
+  IF OLD.deleted_at IS NOT NULL
+     AND OLD.is_active = false
+     AND NEW.is_active = true THEN
+    RAISE EXCEPTION 'REACTIVATION_BLOCKED: Cannot reactivate a soft-deleted staff row. Create a new record instead.';
   END IF;
 
-  IF NEW.is_active IS NOT TRUE
-     AND OLD.deleted_at IS NOT NULL
+  -- deleted_at is never reversible (soft-deletes are one-way).
+  IF OLD.deleted_at IS NOT NULL
      AND NEW.deleted_at IS NULL THEN
-    RAISE EXCEPTION 'DELETED_AT_IMMUTABLE: Cannot clear deleted_at on an inactive staff row.';
+    RAISE EXCEPTION 'DELETED_AT_IMMUTABLE: Cannot clear deleted_at on a staff row. Soft-deleted records cannot be restored; create a new record instead.';
   END IF;
 
   RETURN NEW;
