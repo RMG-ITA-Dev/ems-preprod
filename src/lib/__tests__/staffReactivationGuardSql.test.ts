@@ -60,8 +60,16 @@ describe("prevent_staff_reactivation guard lift migration (BUG 0526-123)", () =>
     );
   });
 
-  it("does NOT raise REACTIVATION_BLOCKED anymore", () => {
-    expect(sql).not.toMatch(/RAISE EXCEPTION 'REACTIVATION_BLOCKED:/);
+  it("does not retain the broad REACTIVATION_BLOCKED check (termination_date OR deleted_at)", () => {
+    // 0526-123 removed the all-or-nothing block. Soft-deleted rows still
+    // raise REACTIVATION_BLOCKED via a dedicated guard (P2 fix).
+    expect(sql).not.toMatch(
+      /OLD\.termination_date\s+IS\s+NOT\s+NULL\s+OR\s+OLD\.deleted_at\s+IS\s+NOT\s+NULL/
+    );
+  });
+
+  it("raises REACTIVATION_BLOCKED for soft-deleted rows", () => {
+    expect(sql).toMatch(/RAISE EXCEPTION 'REACTIVATION_BLOCKED:/);
   });
 
   it("preserves the TERMINATION_DATE_IMMUTABLE guard", () => {
@@ -77,21 +85,25 @@ describe("prevent_staff_reactivation guard lift migration (BUG 0526-123)", () =>
     expect(sql).not.toMatch(/DROP\s+FUNCTION/i);
   });
 
-  it("blocks clearing termination_date except on already-active rows (covers reactivation bypass)", () => {
-    // The consolidated guard excludes only OLD.is_active=true AND NEW.is_active=true
-    // (the TD-4 cleanup path). Reactivation (OLD=false, NEW=true) and inactive-
-    // staying-inactive both still raise.
+  it("blocks clearing termination_date unconditionally once set (P1 fix — no TD-4 exception)", () => {
+    // P1 Codex fix: removed the TD-4 active→active cleanup exception.
+    // termination_date is immutable once set, regardless of is_active state.
     expect(sql).toMatch(
-      /OLD\.termination_date\s+IS\s+NOT\s+NULL[\s\S]*?NEW\.termination_date\s+IS\s+NULL[\s\S]*?NOT\s*\(\s*OLD\.is_active\s*=\s*true\s+AND\s+NEW\.is_active\s*=\s*true\s*\)/i
+      /OLD\.termination_date\s+IS\s+NOT\s+NULL[\s\S]*?NEW\.termination_date\s+IS\s+NULL/i
+    );
+    expect(sql).not.toMatch(
+      /NOT\s*\(\s*OLD\.is_active\s*=\s*true\s+AND\s+NEW\.is_active\s*=\s*true\s*\)/i
     );
   });
 
   it("blocks clearing deleted_at unconditionally (soft-delete is one-way)", () => {
-    // Capture the deleted_at IF block; it must NOT gate on NEW.is_active.
-    const deletedAtBlockMatch = sql.match(
-      /IF\s+OLD\.deleted_at\s+IS\s+NOT\s+NULL[\s\S]*?END\s+IF;/i
+    // Target the DELETED_AT_IMMUTABLE block specifically (starts with
+    // OLD.deleted_at IS NOT NULL AND NEW.deleted_at IS NULL), not the
+    // preceding REACTIVATION_BLOCKED block which also starts with OLD.deleted_at.
+    const deletedAtImmutableBlock = sql.match(
+      /IF\s+OLD\.deleted_at\s+IS\s+NOT\s+NULL\s+AND\s+NEW\.deleted_at\s+IS\s+NULL[\s\S]*?END\s+IF;/i
     );
-    expect(deletedAtBlockMatch).not.toBeNull();
-    expect(deletedAtBlockMatch![0]).not.toMatch(/NEW\.is_active/i);
+    expect(deletedAtImmutableBlock).not.toBeNull();
+    expect(deletedAtImmutableBlock![0]).not.toMatch(/NEW\.is_active/i);
   });
 });
