@@ -52,6 +52,14 @@ BEGIN
     RAISE EXCEPTION 'TERMINATION_DATE_IMMUTABLE: Cannot clear termination_date except on an already-active staff row.';
   END IF;
 
+  -- Soft-deleted rows cannot be reactivated. The 0526-123 policy change
+  -- only lifted the block for rows that were terminated but NOT deleted.
+  IF OLD.deleted_at IS NOT NULL
+     AND OLD.is_active = false
+     AND NEW.is_active = true THEN
+    RAISE EXCEPTION 'REACTIVATION_BLOCKED: Cannot reactivate a soft-deleted staff row. Create a new record instead.';
+  END IF;
+
   -- deleted_at is never reversible. Soft-deletes are one-way regardless
   -- of is_active state (aligned with the errors.deletedAtImmutable toast:
   -- "create a new record instead").
