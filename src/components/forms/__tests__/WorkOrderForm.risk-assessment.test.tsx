@@ -140,16 +140,28 @@ describe("WorkOrderForm — Risk Assessment Section (feat/0306-78)", () => {
     expect(screen.queryByText("workOrders.riskAssessment")).not.toBeInTheDocument();
   });
 
-  it("WF4: onRiskAssessmentChange is called with (ceacCompletedAt, value) on CEAC input change", () => {
+  it("WF4: onRiskAssessmentChange is called with (ceacCompletedAt, value) on CEAC input change in Draft", () => {
     const handler = vi.fn();
     const container = renderForm({
-      approvalStatus: "Pending_Approval",
+      approvalStatus: "Draft",
       canApprove: true,
       onRiskAssessmentChange: handler,
     });
     const [ceacInput] = container.querySelectorAll<HTMLInputElement>('input[type="date"]');
     fireEvent.change(ceacInput, { target: { value: "2026-05-01" } });
     expect(handler).toHaveBeenCalledWith("ceacCompletedAt", "2026-05-01");
+  });
+
+  it("WF4b: risk inputs are read-only in Pending_Approval (Socio cannot edit)", () => {
+    const container = renderForm({
+      approvalStatus: "Pending_Approval",
+      canApprove: true,
+      ceacCompletedAt: "2026-05-01",
+      sanCompletedAt: "2026-04-15",
+      onRiskAssessmentChange: vi.fn(),
+    });
+    const dateInputs = container.querySelectorAll<HTMLInputElement>('input[type="date"]');
+    dateInputs.forEach((input) => expect(input.readOnly).toBe(true));
   });
 
   it("WF5: Risk section is visible as read-only when OT is Approved and has risk data", () => {

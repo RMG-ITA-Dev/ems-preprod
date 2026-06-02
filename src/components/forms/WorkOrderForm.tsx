@@ -205,6 +205,7 @@ export function WorkOrderForm({
   const isEmergency = !ceacCompletedAt && !!sanCompletedAt;
   const canEmergencyApprove = isEmergency && !!ceacNotes?.trim();
   const riskApprovalReady = (!!ceacCompletedAt && !!sanCompletedAt) || canEmergencyApprove;
+  const isEmergencySubmit = isDraft && !ceacCompletedAt && !!sanCompletedAt && !!ceacNotes?.trim();
 
   // Get category name by ID
   const getCategoryName = (categoryId: string) => {
@@ -543,8 +544,9 @@ export function WorkOrderForm({
         </Card>
       </div>
 
-      {/* Risk Assessment Section - Editable for approver in Pending; read-only in Approved if data exists */}
-      {((isPending && canApprove && onRiskAssessmentChange) ||
+      {/* Risk Assessment Section - Editable for approver in Draft; read-only in Pending/Approved */}
+      {((isDraft && canApprove) ||
+        (isPending && canApprove) ||
         (isApproved && (ceacCompletedAt || sanCompletedAt))) && (
         <Card className="border-info/30 bg-info/5">
           {isApproved && !ceacCompletedAt && (
@@ -570,7 +572,7 @@ export function WorkOrderForm({
                   type="date"
                   value={ceacCompletedAt ? ceacCompletedAt.split('T')[0] : ''}
                   onChange={(e) => onRiskAssessmentChange?.('ceacCompletedAt', e.target.value || null)}
-                  readOnly={isApproved}
+                  readOnly={!isDraft}
                 />
                 {isEmergency && !isApproved && (
                   <p className="text-xs text-warning">{t("workOrders.ceacEmergencyHint")}</p>
@@ -582,7 +584,7 @@ export function WorkOrderForm({
                   type="date"
                   value={sanCompletedAt ? sanCompletedAt.split('T')[0] : ''}
                   onChange={(e) => onRiskAssessmentChange?.('sanCompletedAt', e.target.value || null)}
-                  readOnly={isApproved}
+                  readOnly={!isDraft}
                 />
               </div>
             </div>
@@ -592,7 +594,7 @@ export function WorkOrderForm({
                 <Textarea
                   value={ceacNotes || ''}
                   onChange={(e) => onRiskAssessmentChange?.('ceacNotes', e.target.value || null)}
-                  readOnly={isApproved}
+                  readOnly={!isDraft}
                   rows={2}
                 />
               </div>
@@ -601,7 +603,7 @@ export function WorkOrderForm({
                 <Textarea
                   value={sanNotes || ''}
                   onChange={(e) => onRiskAssessmentChange?.('sanNotes', e.target.value || null)}
-                  readOnly={isApproved}
+                  readOnly={!isDraft}
                   rows={2}
                 />
               </div>
@@ -623,15 +625,21 @@ export function WorkOrderForm({
               {t("common.save")}
             </LoadingButton>
             {onSubmitForApproval && (
-              <LoadingButton 
-                onClick={onSubmitForApproval} 
-                className="bg-info hover:bg-info/90 btn-action" 
+              <LoadingButton
+                onClick={onSubmitForApproval}
+                className={isEmergencySubmit
+                  ? "bg-warning hover:bg-warning/90 text-warning-foreground btn-action"
+                  : "bg-info hover:bg-info/90 btn-action"}
                 loading={isSubmitting}
                 disabled={isDirty}
                 title={isDirty ? t("workOrders.saveBeforeSubmit") : undefined}
               >
-                <Send className="h-4 w-4 mr-2" />
-                {t("workOrders.submitForApproval")}
+                {isEmergencySubmit
+                  ? <AlertTriangle className="h-4 w-4 mr-2" />
+                  : <Send className="h-4 w-4 mr-2" />}
+                {isEmergencySubmit
+                  ? t("workOrders.submitForEmergencyApproval")
+                  : t("workOrders.submitForApproval")}
               </LoadingButton>
             )}
           </>
@@ -671,7 +679,7 @@ export function WorkOrderForm({
             {isEmergency && (
               <LoadingButton
                 onClick={onEmergencyApprove}
-                className="bg-warning hover:bg-warning/90 text-warning-foreground btn-action"
+                className="bg-orange-600 hover:bg-orange-700 text-white btn-action"
                 loading={isSubmitting}
                 disabled={!canEmergencyApprove || isSubmitting}
                 title={!canEmergencyApprove ? t("workOrders.ceacEmergencyHint") : undefined}

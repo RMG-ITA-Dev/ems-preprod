@@ -67,10 +67,28 @@ export function useUpdateWorkOrder() {
 export function useSubmitWorkOrder() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (woId: string) => {
+    mutationFn: async ({
+      woId,
+      ceacCompletedAt,
+      ceacNotes,
+      sanCompletedAt,
+      sanNotes,
+    }: {
+      woId: string;
+      ceacCompletedAt?: string | null;
+      ceacNotes?: string | null;
+      sanCompletedAt?: string | null;
+      sanNotes?: string | null;
+    }) => {
       const { data: result, error } = await supabase
         .from("work_orders")
-        .update({ approval_status: "Pending_Approval" })
+        .update({
+          approval_status: "Pending_Approval",
+          ceac_completed_at: ceacCompletedAt ?? null,
+          ceac_notes: ceacNotes ?? null,
+          san_completed_at: sanCompletedAt ?? null,
+          san_notes: sanNotes ?? null,
+        })
         .eq("wo_id", woId)
         .select()
         .single();
@@ -92,17 +110,9 @@ export function useApproveWorkOrder() {
     mutationFn: async ({
       woId,
       staffId,
-      ceacCompletedAt,
-      ceacNotes,
-      sanCompletedAt,
-      sanNotes,
     }: {
       woId: string;
       staffId: string;
-      ceacCompletedAt?: string | null;
-      ceacNotes?: string | null;
-      sanCompletedAt?: string | null;
-      sanNotes?: string | null;
     }) => {
       const { data: result, error } = await supabase
         .from("work_orders")
@@ -110,10 +120,6 @@ export function useApproveWorkOrder() {
           approval_status: "Approved",
           approved_by: staffId,
           approved_at: new Date().toISOString(),
-          ceac_completed_at: ceacCompletedAt ?? null,
-          ceac_notes: ceacNotes ?? null,
-          san_completed_at: sanCompletedAt ?? null,
-          san_notes: sanNotes ?? null,
         })
         .eq("wo_id", woId)
         .select()

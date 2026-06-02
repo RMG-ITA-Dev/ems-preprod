@@ -141,41 +141,31 @@ describe("WorkOrderEdit — Risk Assessment (feat/0306-78)", () => {
     expect(capturedFormProps.sanNotes).toBeNull();
   });
 
-  it("WE2: handleApprove blocks and shows toast.error when CEAC/SAN are cleared", async () => {
+  it("WE2: handleApprove calls mutateAsync without risk fields (validation moved to submit time)", async () => {
     renderPage();
 
-    // Clear both dates via the handler WorkOrderEdit passed to WorkOrderForm
-    await act(async () => {
-      capturedFormProps.onRiskAssessmentChange("ceacCompletedAt", null);
-      capturedFormProps.onRiskAssessmentChange("sanCompletedAt", null);
-    });
-
-    // Now trigger handleApprove (the onApprove prop WorkOrderEdit passed)
     await act(async () => {
       await capturedFormProps.onApprove();
     });
 
-    expect(toast.error).toHaveBeenCalledWith("workOrders.riskAssessmentRequired");
-    expect(mockApproveAsync).not.toHaveBeenCalled();
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(mockApproveAsync).toHaveBeenCalledWith({
+      woId: "wo-1",
+      staffId: "staff-1",
+    });
   });
 
-  it("WE3: handleApprove calls mutateAsync with risk fields when both dates are present", async () => {
+  it("WE3: handleEmergencyApprove calls mutateAsync with only woId and staffId", async () => {
     renderPage();
 
     await act(async () => {
-      await capturedFormProps.onApprove();
+      await capturedFormProps.onEmergencyApprove();
     });
 
-    expect(mockApproveAsync).toHaveBeenCalledWith(
-      expect.objectContaining({
-        woId: "wo-1",
-        staffId: "staff-1",
-        ceacCompletedAt: "2026-05-01",
-        sanCompletedAt: "2026-04-15",
-        ceacNotes: "CEAC ok",
-        sanNotes: null,
-      })
-    );
+    expect(mockApproveAsync).toHaveBeenCalledWith({
+      woId: "wo-1",
+      staffId: "staff-1",
+    });
   });
 
   it("WE4: isDirty becomes true after onRiskAssessmentChange modifies CEAC date", async () => {

@@ -953,6 +953,8 @@
     "selectEngagementFirst": "Por favor seleccione un encargo primero",
     "autoDetected": "auto-detectado",
     "submitForApproval": "Enviar para Aprobación",
+    "submitForEmergencyApproval": "Enviar para Aprobación de Emergencia",
+    "sanRequired": "La fecha SAN es obligatoria para enviar para aprobación",
     "approve": "Aprobar",
     "reject": "Rechazar",
     "totalWithoutVAT": "Total s/IVA",

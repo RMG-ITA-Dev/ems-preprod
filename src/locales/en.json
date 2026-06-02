@@ -953,6 +953,8 @@
     "selectEngagementFirst": "Please select an engagement first",
     "autoDetected": "auto-detected",
     "submitForApproval": "Submit for Approval",
+    "submitForEmergencyApproval": "Submit for Emergency Approval",
+    "sanRequired": "SAN date is required to submit for approval",
     "approve": "Approve",
     "reject": "Reject",
     "totalWithoutVAT": "Total s/VAT",

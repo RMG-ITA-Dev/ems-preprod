@@ -225,18 +225,12 @@ const WorkOrderEdit = () => {
 
   const handleSubmitForApproval = async () => {
     if (!workOrder) return;
-    await submitWorkOrder.mutateAsync(workOrder.wo_id);
-  };
-
-  const handleApprove = async () => {
-    if (!workOrder || !staffRecord) return;
-    if (!ceacCompletedAt || !sanCompletedAt) {
-      toast.error(t("workOrders.riskAssessmentRequired"));
+    if (!sanCompletedAt) {
+      toast.error(t("workOrders.sanRequired"));
       return;
     }
-    await approveWorkOrder.mutateAsync({
+    await submitWorkOrder.mutateAsync({
       woId: workOrder.wo_id,
-      staffId: staffRecord.staff_id,
       ceacCompletedAt,
       ceacNotes,
       sanCompletedAt,
@@ -244,19 +238,19 @@ const WorkOrderEdit = () => {
     });
   };
 
-  const handleEmergencyApprove = async () => {
+  const handleApprove = async () => {
     if (!workOrder || !staffRecord) return;
-    if (!sanCompletedAt || !ceacNotes?.trim()) {
-      toast.error(t("workOrders.ceacEmergencyHint"));
-      return;
-    }
     await approveWorkOrder.mutateAsync({
       woId: workOrder.wo_id,
       staffId: staffRecord.staff_id,
-      ceacCompletedAt: null,
-      ceacNotes,
-      sanCompletedAt,
-      sanNotes,
+    });
+  };
+
+  const handleEmergencyApprove = async () => {
+    if (!workOrder || !staffRecord) return;
+    await approveWorkOrder.mutateAsync({
+      woId: workOrder.wo_id,
+      staffId: staffRecord.staff_id,
     });
   };
 
