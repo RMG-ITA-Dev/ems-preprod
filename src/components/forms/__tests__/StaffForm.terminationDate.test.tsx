@@ -558,6 +558,54 @@ describe("StaffForm reactivation guard (BUG 0511-109/110)", () => {
     expect(callArg.data.termination_date).toBe("2026-04-30");
   });
 
+  it("RG-6 (Codex P2): confirming reactivation respects a corrected non-empty termination_date", async () => {
+    const { container } = renderForm({
+      is_active: false,
+      termination_date: "2026-04-30",
+    });
+
+    await waitFor(() => {
+      const termInput = screen.getByLabelText(
+        "staff.terminationDate"
+      ) as HTMLInputElement;
+      expect(termInput.value).toBe("2026-04-30");
+    });
+
+    // Admin corrects the date to a different non-empty value before activating.
+    const termInput = screen.getByLabelText(
+      "staff.terminationDate"
+    ) as HTMLInputElement;
+    fireEvent.change(termInput, { target: { value: "2026-05-15" } });
+    expect(termInput.value).toBe("2026-05-15");
+
+    const activeSwitch = container.querySelector(
+      'input[type="checkbox"]'
+    ) as HTMLInputElement;
+    fireEvent.click(activeSwitch);
+    expect(screen.getByText("staff.reactivateTitle")).toBeInTheDocument();
+
+    // Confirm — the corrected date must NOT be overwritten with the DB value.
+    const dialog = screen.getByRole("dialog");
+    const confirmBtn = within(dialog).getByText("staff.reactivateConfirm");
+    fireEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(screen.queryByText("staff.reactivateTitle")).not.toBeInTheDocument();
+    });
+    expect(activeSwitch.checked).toBe(true);
+
+    const form = container.querySelector("form")!;
+    fireEvent.submit(form);
+
+    await waitFor(() => expect(updateMutateAsync).toHaveBeenCalled());
+    const callArg = updateMutateAsync.mock.calls[0][0] as {
+      id: string;
+      data: { is_active: boolean; termination_date: string | null };
+    };
+    expect(callArg.data.is_active).toBe(true);
+    expect(callArg.data.termination_date).toBe("2026-05-15");
+  });
+
   it("RG-4 (BUG 0526-123): cancelling the dialog leaves the switch OFF", async () => {
     const { container } = renderForm({
       is_active: false,

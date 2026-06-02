@@ -1075,11 +1075,12 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
             </Button>
             <Button
               onClick={() => {
-                // Restore the saved termination_date if the admin cleared the
-                // input before flipping the switch — the DB rejects a save
-                // that nulls the date during reactivation
-                // (TERMINATION_DATE_IMMUTABLE).
-                if (staff?.termination_date) {
+                // Restore the saved termination_date only when the admin
+                // cleared the field — the DB rejects nulling it
+                // (TERMINATION_DATE_IMMUTABLE). If they changed it to another
+                // non-empty date, respect that correction.
+                const currentDate = form.getValues("termination_date");
+                if (staff?.termination_date && !currentDate) {
                   form.setValue("termination_date", staff.termination_date, {
                     shouldDirty: true,
                   });
