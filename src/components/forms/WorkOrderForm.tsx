@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Trash2, Plus, Lock, CheckCircle, XCircle, Send, ShieldCheck, Undo2 } from "lucide-react";
+import { Trash2, Plus, Lock, CheckCircle, XCircle, Send, ShieldCheck, Undo2, AlertTriangle } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useCategories, useExpenseTypes, useSetting, Category, ExpenseType, type WorkOrder, type WOBudgetLine } from "@/hooks/useEmsData";
@@ -57,6 +57,7 @@ interface WorkOrderFormProps {
   onRiskAssessmentChange?: (field: string, value: string | null) => void;
   onSubmit: () => void;
   onApprove?: () => void;
+  onEmergencyApprove?: () => void;
   onReject?: () => void;
   onSubmitForApproval?: () => void;
   onUnsubmit?: () => void;
@@ -102,6 +103,7 @@ export function WorkOrderForm({
   onRiskAssessmentChange,
   onSubmit,
   onApprove,
+  onEmergencyApprove,
   onReject,
   onSubmitForApproval,
   onUnsubmit,
@@ -197,7 +199,12 @@ export function WorkOrderForm({
 
   const isDraft = approvalStatus === "Draft";
   const isPending = approvalStatus === "Pending_Approval";
+  const isApproved = approvalStatus === "Approved";
   const isEditable = !isLocked && isDraft;
+
+  const isEmergency = !ceacCompletedAt && !!sanCompletedAt;
+  const canEmergencyApprove = isEmergency && !!ceacNotes?.trim();
+  const riskApprovalReady = (!!ceacCompletedAt && !!sanCompletedAt) || canEmergencyApprove;
 
   // Get category name by ID
   const getCategoryName = (categoryId: string) => {
@@ -536,9 +543,18 @@ export function WorkOrderForm({
         </Card>
       </div>
 
-      {/* Risk Assessment Section - Visible for approval */}
-      {isPending && canApprove && onRiskAssessmentChange && (
+      {/* Risk Assessment Section - Editable for approver in Pending; read-only in Approved if data exists */}
+      {((isPending && canApprove && onRiskAssessmentChange) ||
+        (isApproved && (ceacCompletedAt || sanCompletedAt))) && (
         <Card className="border-info/30 bg-info/5">
+          {isApproved && !ceacCompletedAt && (
+            <div className="flex items-center gap-2 px-4 pt-3 pb-0">
+              <Badge variant="outline" className="bg-warning/10 text-warning border-warning/20 text-xs">
+                <AlertTriangle className="h-3 w-3 mr-1" />
+                {t("workOrders.approvedEmergency")}
+              </Badge>
+            </div>
+          )}
           <CardHeader className="py-3">
             <CardTitle className="text-base flex items-center gap-2">
               <ShieldCheck className="h-4 w-4 text-info" />
@@ -553,15 +569,20 @@ export function WorkOrderForm({
                 <Input
                   type="date"
                   value={ceacCompletedAt ? ceacCompletedAt.split('T')[0] : ''}
-                  onChange={(e) => onRiskAssessmentChange('ceacCompletedAt', e.target.value || null)}
+                  onChange={(e) => onRiskAssessmentChange?.('ceacCompletedAt', e.target.value || null)}
+                  readOnly={isApproved}
                 />
+                {isEmergency && !isApproved && (
+                  <p className="text-xs text-warning">{t("workOrders.ceacEmergencyHint")}</p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label>{t("workOrders.sanDate")}</Label>
                 <Input
                   type="date"
                   value={sanCompletedAt ? sanCompletedAt.split('T')[0] : ''}
-                  onChange={(e) => onRiskAssessmentChange('sanCompletedAt', e.target.value || null)}
+                  onChange={(e) => onRiskAssessmentChange?.('sanCompletedAt', e.target.value || null)}
+                  readOnly={isApproved}
                 />
               </div>
             </div>
@@ -570,7 +591,8 @@ export function WorkOrderForm({
                 <Label>{t("workOrders.ceacNotes")}</Label>
                 <Textarea
                   value={ceacNotes || ''}
-                  onChange={(e) => onRiskAssessmentChange('ceacNotes', e.target.value || null)}
+                  onChange={(e) => onRiskAssessmentChange?.('ceacNotes', e.target.value || null)}
+                  readOnly={isApproved}
                   rows={2}
                 />
               </div>
@@ -578,7 +600,8 @@ export function WorkOrderForm({
                 <Label>{t("workOrders.sanNotes")}</Label>
                 <Textarea
                   value={sanNotes || ''}
-                  onChange={(e) => onRiskAssessmentChange('sanNotes', e.target.value || null)}
+                  onChange={(e) => onRiskAssessmentChange?.('sanNotes', e.target.value || null)}
+                  readOnly={isApproved}
                   rows={2}
                 />
               </div>
@@ -633,10 +656,28 @@ export function WorkOrderForm({
                 {t("workOrders.reject")}
               </LoadingButton>
             )}
-            {onApprove && (
-              <LoadingButton onClick={onApprove} className="bg-success hover:bg-success/90 btn-action" loading={isSubmitting}>
+            {!isEmergency && (
+              <LoadingButton
+                onClick={onApprove}
+                className="bg-success hover:bg-success/90 btn-action"
+                loading={isSubmitting}
+                disabled={!riskApprovalReady || isSubmitting}
+                title={!riskApprovalReady ? t("workOrders.riskApprovalPending") : undefined}
+              >
                 <CheckCircle className="h-4 w-4 mr-2" />
                 {t("workOrders.approve")}
+              </LoadingButton>
+            )}
+            {isEmergency && (
+              <LoadingButton
+                onClick={onEmergencyApprove}
+                className="bg-warning hover:bg-warning/90 text-warning-foreground btn-action"
+                loading={isSubmitting}
+                disabled={!canEmergencyApprove || isSubmitting}
+                title={!canEmergencyApprove ? t("workOrders.ceacEmergencyHint") : undefined}
+              >
+                <AlertTriangle className="h-4 w-4 mr-2" />
+                {t("workOrders.approveEmergency")}
               </LoadingButton>
             )}
           </>

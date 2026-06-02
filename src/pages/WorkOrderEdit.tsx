@@ -73,6 +73,13 @@ const WorkOrderEdit = () => {
   const [originalExpenses, setOriginalExpenses] = useState<string[]>([]);
   const [showResyncDialog, setShowResyncDialog] = useState(false);
 
+  const [ceacCompletedAt, setCeacCompletedAt] = useState<string | null>(null);
+  const [ceacNotes, setCeacNotes] = useState<string | null>(null);
+  const [sanCompletedAt, setSanCompletedAt] = useState<string | null>(null);
+  const [sanNotes, setSanNotes] = useState<string | null>(null);
+  const [originalCeacCompletedAt, setOriginalCeacCompletedAt] = useState<string | null>(null);
+  const [originalSanCompletedAt, setOriginalSanCompletedAt] = useState<string | null>(null);
+
   // Track original values for dirty check
   const [originalAdjustment, setOriginalAdjustment] = useState(0);
   const [originalExpenseData, setOriginalExpenseData] = useState<ExpenseBudgetInput[]>([]);
@@ -113,6 +120,15 @@ const WorkOrderEdit = () => {
       setExpenseBudget(expenses);
       setOriginalExpenses(expenses.map((e) => e.id));
       setOriginalExpenseData(JSON.parse(JSON.stringify(expenses))); // Deep copy
+
+      const riskCeac = workOrder.ceac_completed_at ?? null;
+      const riskSan = workOrder.san_completed_at ?? null;
+      setCeacCompletedAt(riskCeac);
+      setCeacNotes(workOrder.ceac_notes ?? null);
+      setSanCompletedAt(riskSan);
+      setSanNotes(workOrder.san_notes ?? null);
+      setOriginalCeacCompletedAt(riskCeac);
+      setOriginalSanCompletedAt(riskSan);
     }
   }, [workOrder]);
 
@@ -139,8 +155,11 @@ const WorkOrderEdit = () => {
       if (orig.budgeted_amount !== exp.budgeted_amount) return true;
     }
 
+    if (ceacCompletedAt !== originalCeacCompletedAt) return true;
+    if (sanCompletedAt !== originalSanCompletedAt) return true;
+
     return false;
-  }, [workOrder, adjustmentAmount, originalAdjustment, expenseBudget, originalExpenseData]);
+  }, [workOrder, adjustmentAmount, originalAdjustment, expenseBudget, originalExpenseData, ceacCompletedAt, originalCeacCompletedAt, sanCompletedAt, originalSanCompletedAt]);
 
   const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty });
 
@@ -211,7 +230,34 @@ const WorkOrderEdit = () => {
 
   const handleApprove = async () => {
     if (!workOrder || !staffRecord) return;
-    await approveWorkOrder.mutateAsync({ woId: workOrder.wo_id, staffId: staffRecord.staff_id });
+    if (!ceacCompletedAt || !sanCompletedAt) {
+      toast.error(t("workOrders.riskAssessmentRequired"));
+      return;
+    }
+    await approveWorkOrder.mutateAsync({
+      woId: workOrder.wo_id,
+      staffId: staffRecord.staff_id,
+      ceacCompletedAt,
+      ceacNotes,
+      sanCompletedAt,
+      sanNotes,
+    });
+  };
+
+  const handleEmergencyApprove = async () => {
+    if (!workOrder || !staffRecord) return;
+    if (!sanCompletedAt || !ceacNotes?.trim()) {
+      toast.error(t("workOrders.ceacEmergencyHint"));
+      return;
+    }
+    await approveWorkOrder.mutateAsync({
+      woId: workOrder.wo_id,
+      staffId: staffRecord.staff_id,
+      ceacCompletedAt: null,
+      ceacNotes,
+      sanCompletedAt,
+      sanNotes,
+    });
   };
 
   const handleReject = async () => {
@@ -231,6 +277,13 @@ const WorkOrderEdit = () => {
       woId: workOrder.wo_id,
     });
     setShowResyncDialog(false);
+  };
+
+  const handleRiskAssessmentChange = (field: string, value: string | null) => {
+    if (field === 'ceacCompletedAt') setCeacCompletedAt(value);
+    else if (field === 'ceacNotes') setCeacNotes(value);
+    else if (field === 'sanCompletedAt') setSanCompletedAt(value);
+    else if (field === 'sanNotes') setSanNotes(value);
   };
 
   if (isLoading) {
@@ -315,11 +368,17 @@ const WorkOrderEdit = () => {
           onSubmit={handleSubmit}
           onSubmitForApproval={handleSubmitForApproval}
           onApprove={handleApprove}
+          onEmergencyApprove={handleEmergencyApprove}
           onReject={handleReject}
           onUnsubmit={handleUnsubmit}
           onCancel={() => { allowNextNavigation(); navigate("/work-orders"); }}
           isLocked={isLocked}
           canApprove={canApprove}
+          ceacCompletedAt={ceacCompletedAt}
+          ceacNotes={ceacNotes}
+          sanCompletedAt={sanCompletedAt}
+          sanNotes={sanNotes}
+          onRiskAssessmentChange={handleRiskAssessmentChange}
           isSubmitting={
             updateWorkOrder.isPending ||
             submitWorkOrder.isPending ||
