@@ -572,24 +572,38 @@ export function WorkOrderForm({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>{t("workOrders.ceacDate")}</Label>
-                <Input
-                  type="date"
-                  value={ceacCompletedAt ? ceacCompletedAt.split('T')[0] : ''}
-                  onChange={(e) => onRiskAssessmentChange?.('ceacCompletedAt', e.target.value || null)}
-                  readOnly={!isDraft}
-                />
+                {isDraft ? (
+                  <Input
+                    type="date"
+                    value={ceacCompletedAt ? ceacCompletedAt.split('T')[0] : ''}
+                    onChange={(e) => onRiskAssessmentChange?.('ceacCompletedAt', e.target.value || null)}
+                  />
+                ) : (
+                  <p className="text-sm py-2">
+                    {ceacCompletedAt
+                      ? new Date(ceacCompletedAt + 'T00:00:00').toLocaleDateString('es-BO', { day: '2-digit', month: '2-digit', year: 'numeric' })
+                      : <span className="text-muted-foreground">—</span>}
+                  </p>
+                )}
                 {isEmergency && !isApproved && (
                   <p className="text-xs text-warning">{t("workOrders.ceacEmergencyHint")}</p>
                 )}
               </div>
               <div className="space-y-2">
                 <Label>{t("workOrders.sanDate")}</Label>
-                <Input
-                  type="date"
-                  value={sanCompletedAt ? sanCompletedAt.split('T')[0] : ''}
-                  onChange={(e) => onRiskAssessmentChange?.('sanCompletedAt', e.target.value || null)}
-                  readOnly={!isDraft}
-                />
+                {isDraft ? (
+                  <Input
+                    type="date"
+                    value={sanCompletedAt ? sanCompletedAt.split('T')[0] : ''}
+                    onChange={(e) => onRiskAssessmentChange?.('sanCompletedAt', e.target.value || null)}
+                  />
+                ) : (
+                  <p className="text-sm py-2">
+                    {sanCompletedAt
+                      ? new Date(sanCompletedAt + 'T00:00:00').toLocaleDateString('es-BO', { day: '2-digit', month: '2-digit', year: 'numeric' })
+                      : <span className="text-muted-foreground">—</span>}
+                  </p>
+                )}
               </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

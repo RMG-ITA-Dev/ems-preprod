@@ -79,6 +79,8 @@ const WorkOrderEdit = () => {
   const [sanNotes, setSanNotes] = useState<string | null>(null);
   const [originalCeacCompletedAt, setOriginalCeacCompletedAt] = useState<string | null>(null);
   const [originalSanCompletedAt, setOriginalSanCompletedAt] = useState<string | null>(null);
+  const [originalCeacNotes, setOriginalCeacNotes] = useState<string | null>(null);
+  const [originalSanNotes, setOriginalSanNotes] = useState<string | null>(null);
 
   // Track original values for dirty check
   const [originalAdjustment, setOriginalAdjustment] = useState(0);
@@ -129,6 +131,8 @@ const WorkOrderEdit = () => {
       setSanNotes(workOrder.san_notes ?? null);
       setOriginalCeacCompletedAt(riskCeac);
       setOriginalSanCompletedAt(riskSan);
+      setOriginalCeacNotes(workOrder.ceac_notes ?? null);
+      setOriginalSanNotes(workOrder.san_notes ?? null);
     }
   }, [workOrder]);
 
@@ -157,9 +161,11 @@ const WorkOrderEdit = () => {
 
     if (ceacCompletedAt !== originalCeacCompletedAt) return true;
     if (sanCompletedAt !== originalSanCompletedAt) return true;
+    if ((ceacNotes ?? null) !== originalCeacNotes) return true;
+    if ((sanNotes ?? null) !== originalSanNotes) return true;
 
     return false;
-  }, [workOrder, adjustmentAmount, originalAdjustment, expenseBudget, originalExpenseData, ceacCompletedAt, originalCeacCompletedAt, sanCompletedAt, originalSanCompletedAt]);
+  }, [workOrder, adjustmentAmount, originalAdjustment, expenseBudget, originalExpenseData, ceacCompletedAt, originalCeacCompletedAt, sanCompletedAt, originalSanCompletedAt, ceacNotes, originalCeacNotes, sanNotes, originalSanNotes]);
 
   // Tracks only fields that handleSubmit persists (not risk fields — those are saved atomically by submitWorkOrder)
   const hasNonRiskDirty = useMemo(() => {
