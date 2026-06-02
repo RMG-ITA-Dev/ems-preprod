@@ -141,7 +141,7 @@ const WorksheetList = () => {
   };
 
   return (
-    <AppLayout>
+    <AppLayout title={t("workMatrix.title")}>
       <div className="space-y-4">
         {/* Header - Search + Button */}
         <div className="flex items-center justify-between gap-4">

@@ -258,7 +258,7 @@ const WorksheetEdit = () => {
 
   if (isLoading) {
     return (
-      <AppLayout focusMode>
+      <AppLayout title={t("workMatrix.title")} focusMode>
         <div className="space-y-4">
           <Skeleton className="h-8 w-48" />
           <Skeleton className="h-[400px] w-full" />
@@ -269,7 +269,7 @@ const WorksheetEdit = () => {
 
   if (!worksheet) {
     return (
-      <AppLayout focusMode>
+      <AppLayout title={t("workMatrix.title")} focusMode>
         <div className="flex flex-col items-center justify-center py-12">
           <p className="text-muted-foreground">{t("common.noResults")}</p>
           <Button variant="link" onClick={() => navigate("/worksheets")}>
@@ -281,7 +281,7 @@ const WorksheetEdit = () => {
   }
 
   return (
-    <AppLayout focusMode>
+    <AppLayout title={t("workMatrix.title")} focusMode>
       <div className="space-y-4">
       {/* Header */}
         <div className="flex items-center justify-between gap-4">
