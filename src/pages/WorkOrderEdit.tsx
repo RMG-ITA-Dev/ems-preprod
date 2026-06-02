@@ -161,6 +161,23 @@ const WorkOrderEdit = () => {
     return false;
   }, [workOrder, adjustmentAmount, originalAdjustment, expenseBudget, originalExpenseData, ceacCompletedAt, originalCeacCompletedAt, sanCompletedAt, originalSanCompletedAt]);
 
+  // Tracks only fields that handleSubmit persists (not risk fields — those are saved atomically by submitWorkOrder)
+  const hasNonRiskDirty = useMemo(() => {
+    if (!workOrder) return false;
+    if (adjustmentAmount !== originalAdjustment) return true;
+    if (expenseBudget.length !== originalExpenseData.length) return true;
+    const currentExpIds = expenseBudget.map((e) => e.id).sort();
+    const originalExpIds = originalExpenseData.map((e) => e.id).sort();
+    if (JSON.stringify(currentExpIds) !== JSON.stringify(originalExpIds)) return true;
+    for (const exp of expenseBudget) {
+      const orig = originalExpenseData.find((e) => e.id === exp.id);
+      if (!orig) return true;
+      if (orig.expense_type_id !== exp.expense_type_id) return true;
+      if (orig.budgeted_amount !== exp.budgeted_amount) return true;
+    }
+    return false;
+  }, [workOrder, adjustmentAmount, originalAdjustment, expenseBudget, originalExpenseData]);
+
   const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty });
 
   // Check if user can approve
@@ -354,6 +371,7 @@ const WorkOrderEdit = () => {
           expenseBudget={expenseBudget}
           isNew={false}
           isDirty={isDirty}
+          hasNonRiskDirty={hasNonRiskDirty}
           onCurrencyChange={setCurrency}
           onSeasonChange={setSeasonMode}
           onAdjustmentChange={setAdjustmentAmount}

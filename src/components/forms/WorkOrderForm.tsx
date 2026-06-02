@@ -49,6 +49,7 @@ interface WorkOrderFormProps {
   // New props for create/edit mode and dirty state
   isNew?: boolean;
   isDirty?: boolean;
+  hasNonRiskDirty?: boolean;
   onCurrencyChange: (currency: "USD" | "BOB") => void;
   onSeasonChange: (season: "High" | "Low") => void;
   onAdjustmentChange: (amount: number) => void;
@@ -95,6 +96,7 @@ export function WorkOrderForm({
   sanNotes,
   isNew = false,
   isDirty = false,
+  hasNonRiskDirty = false,
   onCurrencyChange,
   onSeasonChange,
   onAdjustmentChange,
@@ -633,8 +635,8 @@ export function WorkOrderForm({
                   ? "bg-warning hover:bg-warning/90 text-warning-foreground btn-action"
                   : "bg-info hover:bg-info/90 btn-action"}
                 loading={isSubmitting}
-                disabled={isDirty || !canSubmitForApproval}
-                title={isDirty ? t("workOrders.saveBeforeSubmit") : !canSubmitForApproval ? t("workOrders.riskAssessmentRequired") : undefined}
+                disabled={hasNonRiskDirty || !canSubmitForApproval}
+                title={hasNonRiskDirty ? t("workOrders.saveBeforeSubmit") : !canSubmitForApproval ? t("workOrders.riskAssessmentRequired") : undefined}
               >
                 {isEmergencySubmit
                   ? <AlertTriangle className="h-4 w-4 mr-2" />
