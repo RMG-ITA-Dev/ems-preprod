@@ -1,19 +1,10 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, act, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 // ── Stable spy ────────────────────────────────────────────────────────────────
 const mockRejectAsync = vi.hoisted(() => vi.fn().mockResolvedValue({}));
-
-// Capture latest props passed to WorkOrderForm
-let capturedFormProps: Record<string, any> = {};
-vi.mock("@/components/forms/WorkOrderForm", () => ({
-  WorkOrderForm: (props: any) => {
-    capturedFormProps = props;
-    return <div data-testid="work-order-form" />;
-  },
-}));
 
 // ── Routing ───────────────────────────────────────────────────────────────────
 vi.mock("react-router-dom", async () => {
@@ -27,6 +18,11 @@ vi.mock("@/hooks/usePageLeaveLock", () => ({
     blocker: { state: "unblocked" as const, reset: vi.fn(), proceed: vi.fn() },
     allowNextNavigation: vi.fn(),
   }),
+}));
+
+// ── Language hook (used by WorkOrderForm) ─────────────────────────────────────
+vi.mock("@/hooks/useLanguage", () => ({
+  useLanguage: () => ({ currentLanguage: "es", isLoading: false, changeLanguage: vi.fn() }),
 }));
 
 // ── Data ──────────────────────────────────────────────────────────────────────
@@ -99,7 +95,10 @@ vi.mock("@/components/ui/leave-page-dialog", () => ({
 }));
 
 vi.mock("react-i18next", () => ({
-  useTranslation: () => ({ t: (k: string) => k, i18n: { language: "es" } }),
+  useTranslation: () => ({
+    t: (k: string) => k,
+    i18n: { language: "es", changeLanguage: vi.fn() },
+  }),
 }));
 
 vi.mock("sonner", async () => {
@@ -129,28 +128,34 @@ function renderPage() {
 describe("WorkOrderEdit — Rejection Note (feat/0527-126)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    capturedFormProps = {};
     mockWorkOrderData = pendingWorkOrder;
   });
 
-  it("RN1: dialog opens when onReject is called", async () => {
+  it("RN1: dialog opens on Rechazar button click", async () => {
     renderPage();
 
-    await act(async () => { capturedFormProps.onReject(); });
+    await act(async () => {
+      fireEvent.click(screen.getByText("workOrders.reject"));
+    });
 
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
     expect(screen.getByText("workOrders.rejectDialogTitle")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("workOrders.rejectNotePlaceholder")).toBeInTheDocument();
-    expect(screen.getByText("common.cancel")).toBeInTheDocument();
     expect(screen.getByText("workOrders.rejectDialogConfirm")).toBeInTheDocument();
   });
 
   it("RN2: cancel closes dialog without calling mutateAsync", async () => {
     renderPage();
 
-    await act(async () => { capturedFormProps.onReject(); });
+    await act(async () => {
+      fireEvent.click(screen.getByText("workOrders.reject"));
+    });
 
-    const cancelBtn = screen.getByText("common.cancel");
-    await act(async () => { fireEvent.click(cancelBtn); });
+    // Use within(alertdialog) to avoid ambiguity with the form's own Cancel button
+    const dialog = screen.getByRole("alertdialog");
+    await act(async () => {
+      fireEvent.click(within(dialog).getByText("common.cancel"));
+    });
 
     expect(mockRejectAsync).not.toHaveBeenCalled();
   });
@@ -158,7 +163,9 @@ describe("WorkOrderEdit — Rejection Note (feat/0527-126)", () => {
   it("RN3: confirm with note calls mutateAsync with { woId, notes }", async () => {
     renderPage();
 
-    await act(async () => { capturedFormProps.onReject(); });
+    await act(async () => {
+      fireEvent.click(screen.getByText("workOrders.reject"));
+    });
 
     fireEvent.change(
       screen.getByPlaceholderText("workOrders.rejectNotePlaceholder"),
@@ -174,15 +181,19 @@ describe("WorkOrderEdit — Rejection Note (feat/0527-126)", () => {
     });
   });
 
-  it("RN4: Draft WO with existing note passes rejectionNote to WorkOrderForm", () => {
+  it("RN4: Draft WO with existing note shows rejection banner", () => {
     mockWorkOrderData = draftWithNote;
     renderPage();
-    expect(capturedFormProps.rejectionNote).toBe("Falta CEAC");
+
+    const label = screen.getByText("workOrders.rejectionNoteLabel");
+    expect(label).toBeInTheDocument();
+    expect(label.parentElement?.textContent).toContain("Falta CEAC");
   });
 
-  it("RN5: Draft WO with null note passes null rejectionNote to WorkOrderForm", () => {
+  it("RN5: Draft WO with null note shows no banner", () => {
     mockWorkOrderData = draftNoNote;
     renderPage();
-    expect(capturedFormProps.rejectionNote).toBeNull();
+
+    expect(screen.queryByText("workOrders.rejectionNoteLabel")).not.toBeInTheDocument();
   });
 });
