@@ -1754,12 +1754,14 @@ SECURITY DEFINER
 SET search_path TO 'public'
 AS $$
 BEGIN
-  -- termination_date is unconditionally immutable once set — protects
-  -- audit evidence and keeps trg_enforce_termination_date blocking
-  -- post-exit hour entries even on reactivated rows.
+  -- termination_date immutability — protects audit evidence on inactive
+  -- rows AND prevents clearing the date during reactivation so
+  -- trg_enforce_termination_date keeps blocking post-exit hour entries.
+  -- TD-4 exception: active→active is allowed so admins can fix a stray date.
   IF OLD.termination_date IS NOT NULL
-     AND NEW.termination_date IS NULL THEN
-    RAISE EXCEPTION 'TERMINATION_DATE_IMMUTABLE: Cannot clear termination_date once set.';
+     AND NEW.termination_date IS NULL
+     AND NOT (OLD.is_active = true AND NEW.is_active = true) THEN
+    RAISE EXCEPTION 'TERMINATION_DATE_IMMUTABLE: Cannot clear termination_date except on an already-active staff row.';
   END IF;
 
   -- Soft-deleted rows cannot be reactivated regardless of termination_date.

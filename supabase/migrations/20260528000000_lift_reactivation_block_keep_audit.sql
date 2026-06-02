@@ -38,15 +38,19 @@ BEGIN
   --  was set. Admins must now be able to reactivate to regularize
   --  prior-period timesheets.)
 
-  -- termination_date is unconditionally immutable once set — protects
-  -- audit evidence and keeps trg_enforce_termination_date blocking
-  -- post-exit hour entries even on reactivated rows.
-  -- P1 fix: the TD-4 active→active cleanup exception was removed because
-  -- it becomes a bypass hole after reactivation (OLD.is_active = true on
-  -- every subsequent save).
+  -- termination_date immutability — protects audit evidence on inactive
+  -- rows (0511-109/110) AND prevents clearing the date as part of the
+  -- reactivation flow (0526-123 criterion 2: reactivation must preserve
+  -- the date so trg_enforce_termination_date on time_entries keeps
+  -- blocking post-exit hour entries).
+  --
+  -- The only case where clearing termination_date is allowed is on a
+  -- row that was already active and stays active (TD-4 cleanup path):
+  -- an admin may fix a stray/erroneous date on a still-active employee.
   IF OLD.termination_date IS NOT NULL
-     AND NEW.termination_date IS NULL THEN
-    RAISE EXCEPTION 'TERMINATION_DATE_IMMUTABLE: Cannot clear termination_date once set.';
+     AND NEW.termination_date IS NULL
+     AND NOT (OLD.is_active = true AND NEW.is_active = true) THEN
+    RAISE EXCEPTION 'TERMINATION_DATE_IMMUTABLE: Cannot clear termination_date except on an already-active staff row.';
   END IF;
 
   -- Soft-deleted rows cannot be reactivated. The 0526-123 policy change
