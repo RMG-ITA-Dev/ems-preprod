@@ -61,10 +61,10 @@ const formSchema = z.object({
   engagement_name: z.string()
     .min(5, "Engagement name must be at least 5 characters")
     .max(200, "Engagement name cannot exceed 200 characters"),
-  anio_fiscal: z.number().int().min(2020).max(2100, "Invalid fiscal year"),
-  oficina:     z.number().int().min(0).max(2,   "Invalid office"),
-  practica:    z.number().int().min(0).max(4,   "Invalid practice"),
-  funcion:     z.number().int().min(0).max(3,   "Invalid function"),
+  anio_fiscal: z.number().int().min(2020).max(2100, "Invalid fiscal year").optional(),
+  oficina:     z.number().int().min(0).max(2,   "Invalid office").optional(),
+  practica:    z.number().int().min(0).max(4,   "Invalid practice").optional(),
+  funcion:     z.number().int().min(0).max(3,   "Invalid function").optional(),
   client_id: z.string().min(1, "Client is required"),
   partner_id: z.string().min(1, "Partner/Director is required"),
   manager_id: z.string().min(1, "Manager is required"),
@@ -197,6 +197,15 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       return;
     }
 
+    if (!isEdit) {
+      let missingCodeField = false;
+      if (data.anio_fiscal === undefined) { form.setError("anio_fiscal", { message: "Fiscal year is required" }); missingCodeField = true; }
+      if (data.oficina    === undefined) { form.setError("oficina",     { message: "Office is required"      }); missingCodeField = true; }
+      if (data.practica   === undefined) { form.setError("practica",    { message: "Service is required"     }); missingCodeField = true; }
+      if (data.funcion    === undefined) { form.setError("funcion",     { message: "Function is required"    }); missingCodeField = true; }
+      if (missingCodeField) return;
+    }
+
     if (isEdit && engagement) {
       await updateMutation.mutateAsync({
         id: engagement.engagement_id,
@@ -224,10 +233,10 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
         start_date:          data.start_date ? format(data.start_date, "yyyy-MM-dd") : undefined,
         end_date:            data.end_date   ? format(data.end_date,   "yyyy-MM-dd") : undefined,
         status:              data.status,
-        oficina:             data.oficina,
-        practica:            data.practica,
-        funcion:             data.funcion,
-        anio_fiscal:         data.anio_fiscal,
+        oficina:             data.oficina    as number,
+        practica:            data.practica   as number,
+        funcion:             data.funcion    as number,
+        anio_fiscal:         data.anio_fiscal as number,
         work_order_required: workOrderRequired,
         activity_required:   activityRequired,
         is_internal:         isInternal,

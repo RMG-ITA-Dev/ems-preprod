@@ -45,6 +45,7 @@ describe("useEngagementMutations", () => {
         client_id: "client-1",
         oficina: 1,
         practica: 2,
+        funcion: 1,
         anio_fiscal: 2027,
       });
 
@@ -57,6 +58,7 @@ describe("useEngagementMutations", () => {
           p_client_id: "client-1",
           p_oficina: 1,
           p_practica: 2,
+          p_funcion: 1,
           p_anio_fiscal: 2027,
         })
       );
@@ -84,6 +86,7 @@ describe("useEngagementMutations", () => {
         client_id: "client-1",
         oficina: 1,
         practica: 2,
+        funcion: 1,
         anio_fiscal: 2027,
         partner_id: "staff-1",
         manager_id: "staff-2",
@@ -99,6 +102,7 @@ describe("useEngagementMutations", () => {
           p_client_id: "client-1",
           p_oficina: 1,
           p_practica: 2,
+          p_funcion: 1,
           p_anio_fiscal: 2027,
         })
       );

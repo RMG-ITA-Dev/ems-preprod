@@ -40,6 +40,7 @@ describe("useEngagementMutations approval_required integration (BUG 0220-61)", (
       client_id: "c1",
       oficina: 1,
       practica: 2,
+      funcion: 1,
       anio_fiscal: 2027,
       is_internal: true,
       approval_required: false,
@@ -68,6 +69,7 @@ describe("useEngagementMutations approval_required integration (BUG 0220-61)", (
       client_id: "c2",
       oficina: 1,
       practica: 1,
+      funcion: 1,
       anio_fiscal: 2027,
     });
 

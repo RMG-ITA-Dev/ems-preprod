@@ -88,6 +88,7 @@ describe("useCreateEngagement — code generation (BUG 0306-82)", () => {
         client_id: "client-uuid",
         oficina: 1,
         practica: 1,
+        funcion: 1,
         anio_fiscal: 2027,
       },
       { onError }
