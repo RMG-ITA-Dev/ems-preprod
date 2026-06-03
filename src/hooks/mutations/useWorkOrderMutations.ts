@@ -120,7 +120,7 @@ export function useRejectWorkOrder() {
       const trimmed = notes?.trim() || null;
       const { data: result, error } = await supabase
         .from("work_orders")
-        .update({ approval_status: "Draft", notes: trimmed })
+        .update({ approval_status: "Rejected", notes: trimmed })
         .eq("wo_id", woId)
         .select()
         .single();

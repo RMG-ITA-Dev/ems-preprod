@@ -151,7 +151,7 @@ const WorkOrderEdit = () => {
   const canApprove = staffRecord?.category?.can_approve_wo || false;
 
   const approvalStatus = workOrder?.approval_status as "Draft" | "Pending_Approval" | "Approved" | "Rejected" || "Draft";
-  const isLocked = approvalStatus === "Approved" || approvalStatus === "Pending_Approval";
+  const isLocked = approvalStatus === "Approved" || approvalStatus === "Pending_Approval" || approvalStatus === "Rejected";
 
   const handleSubmit = async () => {
     if (!workOrder) return;

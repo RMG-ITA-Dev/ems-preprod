@@ -199,6 +199,7 @@ export function WorkOrderForm({
 
   const isDraft = approvalStatus === "Draft";
   const isPending = approvalStatus === "Pending_Approval";
+  const isRejected = approvalStatus === "Rejected";
   const isEditable = !isLocked && isDraft;
 
   // Get category name by ID
@@ -589,9 +590,14 @@ export function WorkOrderForm({
         </Card>
       )}
 
-      {/* Rejection note banner - visible to the submitter when WO is in Draft */}
-      {isDraft && rejectionNote && (
+      {isRejected && rejectionNote && (
         <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          <span className="font-medium">{t("workOrders.rejectionNoteLabel")}</span>{" "}
+          {rejectionNote}
+        </div>
+      )}
+      {isDraft && rejectionNote && (
+        <div className="rounded-md border border-orange-300 bg-orange-50 px-4 py-3 text-sm text-orange-800">
           <span className="font-medium">{t("workOrders.rejectionNoteLabel")}</span>{" "}
           {rejectionNote}
         </div>
@@ -622,6 +628,17 @@ export function WorkOrderForm({
               </LoadingButton>
             )}
           </>
+        )}
+        {isRejected && onUnsubmit && (
+          <LoadingButton
+            variant="outline"
+            onClick={onUnsubmit}
+            loading={isSubmitting}
+            className="bg-warning hover:bg-warning/90 text-warning-foreground btn-action"
+          >
+            <Undo2 className="h-4 w-4 mr-2" />
+            {t("workOrders.withdrawRejected")}
+          </LoadingButton>
         )}
         {/* Unsubmit button for Pending status - shown to any user */}
         {isPending && onUnsubmit && (
