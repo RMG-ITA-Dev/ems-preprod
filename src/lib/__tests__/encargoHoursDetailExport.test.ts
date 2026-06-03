@@ -1,10 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import * as XLSX from 'xlsx';
 import {
   aggregateStaffHours,
-  buildCsvString,
-  downloadCsv,
+  groupByCategory,
+  downloadXlsx,
   type RawTimeEntryRow,
 } from "@/lib/encargoHoursDetailExport";
+
+vi.mock('xlsx', () => ({
+  utils: {
+    book_new: vi.fn(() => ({})),
+    aoa_to_sheet: vi.fn((data: unknown[][]) => ({ __data: data })),
+    book_append_sheet: vi.fn(),
+  },
+  writeFile: vi.fn(),
+}));
 
 function makeRow(overrides: Partial<RawTimeEntryRow> & { staff_id: string }): RawTimeEntryRow {
   return {
@@ -25,6 +35,17 @@ const defaultHeaders = {
   year: "Año",
   week: "Semana",
   loadedHours: "Horas cargadas",
+  subtotal: "Subtotal",
+};
+
+const sampleRow = {
+  staffId: "s1",
+  staffName: "Ana Gomez",
+  categoryName: "Senior",
+  categoryDisplayOrder: 3,
+  year: 2026,
+  weekNumber: 10,
+  hoursLoaded: 3,
 };
 
 // ─── aggregateStaffHours ───────────────────────────────────────────────────
@@ -100,95 +121,85 @@ describe("aggregateStaffHours", () => {
   });
 });
 
-// ─── buildCsvString ────────────────────────────────────────────────────────
+// ─── groupByCategory ────────────────────────────────────────────────────────
 
-describe("buildCsvString", () => {
-  const sampleRow = {
-    staffId: "s1",
-    staffName: "Ana Gomez",
-    categoryName: "Senior",
-    categoryDisplayOrder: 3,
-    year: 2026,
-    weekNumber: 10,
-    hoursLoaded: 4.5,
-  };
-
+describe("groupByCategory", () => {
   // Test 6
-  it("first line equals double-quoted header values", () => {
-    const csv = buildCsvString([sampleRow], defaultHeaders);
-    const lines = csv.slice(1).split('\r\n'); // strip BOM
-    expect(lines[0]).toBe('"Nombre","Categoría","Año","Semana","Horas cargadas"');
+  it("returns one group per unique category", () => {
+    const rows = [
+      { ...sampleRow, staffId: "s1", hoursLoaded: 3 },
+      { ...sampleRow, staffId: "s2", hoursLoaded: 5 },
+      { ...sampleRow, staffId: "s3", categoryName: "Gerente", categoryDisplayOrder: 2, hoursLoaded: 2 },
+    ];
+    const groups = groupByCategory(rows);
+    expect(groups).toHaveLength(2);
+    expect(groups[0].categoryName).toBe("Senior");
+    expect(groups[1].categoryName).toBe("Gerente");
   });
 
   // Test 7
-  it("data row renders year, weekNumber, and hoursLoaded.toFixed(1) correctly", () => {
-    const csv = buildCsvString([sampleRow], defaultHeaders);
-    const lines = csv.slice(1).split('\r\n');
-    expect(lines[1]).toContain('"2026"');
-    expect(lines[1]).toContain('"10"');
-    expect(lines[1]).toContain('"4.5"');
+  it("sums hours correctly per category group", () => {
+    const rows = [
+      { ...sampleRow, staffId: "s1", hoursLoaded: 3 },
+      { ...sampleRow, staffId: "s2", hoursLoaded: 5 },
+      { ...sampleRow, staffId: "s3", categoryName: "Gerente", categoryDisplayOrder: 2, hoursLoaded: 2 },
+    ];
+    const groups = groupByCategory(rows);
+    const senior = groups.find(g => g.categoryName === "Senior")!;
+    const gerente = groups.find(g => g.categoryName === "Gerente")!;
+    expect(senior.subtotal).toBeCloseTo(8);
+    expect(gerente.subtotal).toBeCloseTo(2);
   });
 
   // Test 8
-  it("renders — for null year and weekNumber columns", () => {
-    const nullRow = { ...sampleRow, year: null, weekNumber: null };
-    const csv = buildCsvString([nullRow], defaultHeaders);
-    const lines = csv.slice(1).split('\r\n');
-    // year and week columns
-    expect(lines[1]).toContain('"—","—"');
-  });
-
-  // Test 9
-  it("wraps staff name containing comma in double quotes so CSV columns stay intact", () => {
-    const commaRow = { ...sampleRow, staffName: "Smith, John" };
-    const csv = buildCsvString([commaRow], defaultHeaders);
-    const lines = csv.slice(1).split('\r\n');
-    // The name cell must be quoted; splitting on unquoted commas would break otherwise
-    expect(lines[1]).toContain('"Smith, John"');
-  });
-
-  // Test 10
-  it("escapes internal double quotes as double-double-quotes", () => {
-    const quoteRow = { ...sampleRow, staffName: 'Say "Hi"' };
-    const csv = buildCsvString([quoteRow], defaultHeaders);
-    const lines = csv.slice(1).split('\r\n');
-    expect(lines[1]).toContain('"Say ""Hi"""');
-  });
-
-  // Test 11
-  it("output string begins with UTF-8 BOM (\\uFEFF)", () => {
-    const csv = buildCsvString([sampleRow], defaultHeaders);
-    expect(csv.charCodeAt(0)).toBe(0xfeff);
+  it("preserves input row order (first-seen category appears first)", () => {
+    const rows = [
+      { ...sampleRow, staffId: "s3", categoryName: "Gerente", categoryDisplayOrder: 2, hoursLoaded: 2 },
+      { ...sampleRow, staffId: "s1", hoursLoaded: 3 },
+    ];
+    const groups = groupByCategory(rows);
+    expect(groups[0].categoryName).toBe("Gerente");
+    expect(groups[1].categoryName).toBe("Senior");
   });
 });
 
-// ─── downloadCsv ──────────────────────────────────────────────────────────
+// ─── downloadXlsx ──────────────────────────────────────────────────────────
 
-describe("downloadCsv", () => {
+describe("downloadXlsx", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const seniorRow1 = { ...sampleRow, staffId: "s1", staffName: "Ana Gomez", hoursLoaded: 3 };
+  const seniorRow2 = { ...sampleRow, staffId: "s2", staffName: "Luis Perez", hoursLoaded: 5 };
+
+  // Test 9
+  it("first row equals header columns in order", () => {
+    downloadXlsx([seniorRow1], defaultHeaders, "test.xlsx");
+    const data = vi.mocked(XLSX.utils.aoa_to_sheet).mock.calls[0][0] as (string | number)[][];
+    expect(data[0]).toEqual(["Nombre", "Categoría", "Año", "Semana", "Horas cargadas"]);
+  });
+
+  // Test 10
+  it("inserts subtotal row after each category's data rows", () => {
+    downloadXlsx([seniorRow1, seniorRow2], defaultHeaders, "test.xlsx");
+    const data = vi.mocked(XLSX.utils.aoa_to_sheet).mock.calls[0][0] as (string | number)[][];
+    // index 0: header; index 1: Ana; index 2: Luis; index 3: subtotal
+    const subtotalCell = data[3][1] as string;
+    expect(subtotalCell).toContain("Senior");
+    expect(subtotalCell).toContain("Subtotal");
+  });
+
+  // Test 11
+  it("subtotal numeric value equals category hour sum", () => {
+    downloadXlsx([seniorRow1, seniorRow2], defaultHeaders, "test.xlsx");
+    const data = vi.mocked(XLSX.utils.aoa_to_sheet).mock.calls[0][0] as (string | number)[][];
+    expect(data[3][4]).toBeCloseTo(8);
+  });
+
   // Test 12
-  it("creates an anchor, sets download attribute, clicks it, and revokes the object URL", () => {
-    const mockUrl = "blob:mock";
-    const createObjectURL = vi.fn(() => mockUrl);
-    const revokeObjectURL = vi.fn();
-    const click = vi.fn();
-
-    const mockAnchor = {
-      href: "",
-      setAttribute: vi.fn(),
-      click,
-    } as unknown as HTMLAnchorElement;
-
-    vi.spyOn(URL, "createObjectURL").mockImplementation(createObjectURL);
-    vi.spyOn(URL, "revokeObjectURL").mockImplementation(revokeObjectURL);
-    vi.spyOn(document, "createElement").mockReturnValue(mockAnchor);
-    vi.spyOn(document.body, "appendChild").mockImplementation(() => mockAnchor);
-    vi.spyOn(document.body, "removeChild").mockImplementation(() => mockAnchor);
-
-    downloadCsv("content", "test.csv");
-
-    expect(createObjectURL).toHaveBeenCalledOnce();
-    expect(mockAnchor.setAttribute).toHaveBeenCalledWith("download", "test.csv");
-    expect(click).toHaveBeenCalledOnce();
-    expect(revokeObjectURL).toHaveBeenCalledWith(mockUrl);
+  it("calls XLSX.writeFile with the correct filename", () => {
+    downloadXlsx([seniorRow1], defaultHeaders, "horas_SSU-001_detalle.xlsx");
+    expect(vi.mocked(XLSX.writeFile)).toHaveBeenCalledWith(expect.anything(), "horas_SSU-001_detalle.xlsx");
   });
 });

@@ -797,7 +797,9 @@
         "filterByYear": "Filtrar por año",
         "filterByWeek": "Filtrar por semana",
         "filterByStaff": "Buscar por nombre",
-        "exportCsv": "Exportar CSV",
+        "exportExcel": "Exportar Excel",
+        "subtotal": "Subtotal",
+        "lastWeekOnly": "Solo última semana",
         "noData": "Sin registros de horas para este encargo",
         "all": "Todos"
       }
