@@ -563,11 +563,35 @@ export function WorkOrderForm({
         (isApproved && (ceacCompletedAt || sanCompletedAt))) && (
         <Card className="border-info/30 bg-info/5">
           <CardHeader className="py-3">
-            <CardTitle className="text-base flex items-center gap-2">
-              <ShieldCheck className="h-4 w-4 text-info" />
-              {t("workOrders.riskAssessment")}
-            </CardTitle>
-            <p className="text-sm text-muted-foreground">{t("workOrders.riskAssessmentDescription")}</p>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <ShieldCheck className="h-4 w-4 text-info" />
+                  {t("workOrders.riskAssessment")}
+                </CardTitle>
+                <p className="text-sm text-muted-foreground mt-1">{t("workOrders.riskAssessmentDescription")}</p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <Label className="text-sm whitespace-nowrap">{t("workOrders.riskLevel")}</Label>
+                {isDraft ? (
+                  <Select
+                    value={riskLevel || ''}
+                    onValueChange={(value) => onRiskAssessmentChange?.('riskLevel', value || null)}
+                  >
+                    <SelectTrigger className="w-36">
+                      <SelectValue placeholder="—" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Bajo">{t("workOrders.riskLevelBajo")}</SelectItem>
+                      <SelectItem value="Moderado">{t("workOrders.riskLevelModerado")}</SelectItem>
+                      <SelectItem value="Alto">{t("workOrders.riskLevelAlto")}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <span className="text-sm font-medium">{riskLevel || <span className="text-muted-foreground">—</span>}</span>
+                )}
+              </div>
+            </div>
           </CardHeader>
           <CardContent className="pt-0 space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -665,28 +689,6 @@ export function WorkOrderForm({
                   </>
                 ) : (
                   <p className="text-sm py-2">{sanApprovalId || <span className="text-muted-foreground">—</span>}</p>
-                )}
-              </div>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>{t("workOrders.riskLevel")}</Label>
-                {isDraft ? (
-                  <Select
-                    value={riskLevel || ''}
-                    onValueChange={(value) => onRiskAssessmentChange?.('riskLevel', value || null)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="—" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Bajo">{t("workOrders.riskLevelBajo")}</SelectItem>
-                      <SelectItem value="Moderado">{t("workOrders.riskLevelModerado")}</SelectItem>
-                      <SelectItem value="Alto">{t("workOrders.riskLevelAlto")}</SelectItem>
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <p className="text-sm py-2">{riskLevel || <span className="text-muted-foreground">—</span>}</p>
                 )}
               </div>
             </div>
