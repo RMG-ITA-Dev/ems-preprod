@@ -45,6 +45,9 @@ const mockWorkOrder = {
   ceac_notes: "CEAC ok",
   san_completed_at: "2026-04-15",
   san_notes: null,
+  ceac_number: "1234567890",
+  san_approval_id: "12345-67890",
+  risk_level: "Bajo",
   budget_lines: [],
   expense_budget: [],
   engagement: {
@@ -139,6 +142,9 @@ describe("WorkOrderEdit — Risk Assessment (feat/0306-78)", () => {
     expect(capturedFormProps.ceacNotes).toBe("CEAC ok");
     expect(capturedFormProps.sanCompletedAt).toBe("2026-04-15");
     expect(capturedFormProps.sanNotes).toBeNull();
+    expect(capturedFormProps.ceacNumber).toBe("1234567890");
+    expect(capturedFormProps.sanApprovalId).toBe("12345-67890");
+    expect(capturedFormProps.riskLevel).toBe("Bajo");
   });
 
   it("WE2: handleApprove calls mutateAsync without risk fields (validation moved to submit time)", async () => {
@@ -149,19 +155,6 @@ describe("WorkOrderEdit — Risk Assessment (feat/0306-78)", () => {
     });
 
     expect(toast.error).not.toHaveBeenCalled();
-    expect(mockApproveAsync).toHaveBeenCalledWith({
-      woId: "wo-1",
-      staffId: "staff-1",
-    });
-  });
-
-  it("WE3: handleEmergencyApprove calls mutateAsync with only woId and staffId", async () => {
-    renderPage();
-
-    await act(async () => {
-      await capturedFormProps.onEmergencyApprove();
-    });
-
     expect(mockApproveAsync).toHaveBeenCalledWith({
       woId: "wo-1",
       staffId: "staff-1",
@@ -179,5 +172,30 @@ describe("WorkOrderEdit — Risk Assessment (feat/0306-78)", () => {
 
     // After re-render, capturedFormProps reflects updated props
     expect(capturedFormProps.isDirty).toBe(true);
+  });
+
+  it("WE5: onRiskAssessmentChange for new fields updates state and sets isDirty", async () => {
+    renderPage();
+
+    await act(async () => {
+      capturedFormProps.onRiskAssessmentChange("ceacNumber", "9999999999");
+    });
+    expect(capturedFormProps.ceacNumber).toBe("9999999999");
+    expect(capturedFormProps.isDirty).toBe(true);
+
+    await act(async () => {
+      capturedFormProps.onRiskAssessmentChange("sanApprovalId", "11111-22222");
+    });
+    expect(capturedFormProps.sanApprovalId).toBe("11111-22222");
+
+    await act(async () => {
+      capturedFormProps.onRiskAssessmentChange("riskLevel", "Alto");
+    });
+    expect(capturedFormProps.riskLevel).toBe("Alto");
+  });
+
+  it("WE6: onEmergencyApprove prop is not passed to WorkOrderForm", () => {
+    renderPage();
+    expect(capturedFormProps.onEmergencyApprove).toBeUndefined();
   });
 });

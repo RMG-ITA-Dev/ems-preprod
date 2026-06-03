@@ -85,6 +85,9 @@ type FormOverrides = Partial<
     ceacNotes?: string | null;
     sanCompletedAt?: string | null;
     sanNotes?: string | null;
+    ceacNumber?: string | null;
+    sanApprovalId?: string | null;
+    riskLevel?: string | null;
     onRiskAssessmentChange?: (field: string, value: string | null) => void;
     onApprove?: () => void;
     onReject?: () => void;
@@ -118,14 +121,17 @@ describe("WorkOrderForm — Risk Assessment Section (feat/0306-78)", () => {
     expect(btn).toBeDisabled();
   });
 
-  it("WF2: Approve button is enabled when both CEAC and SAN dates are present", () => {
+  it("WF2: Approve button is enabled when all 5 risk assessment fields are valid", () => {
     renderForm({
       approvalStatus: "Pending_Approval",
       canApprove: true,
       onApprove: vi.fn(),
       onRiskAssessmentChange: vi.fn(),
       ceacCompletedAt: "2026-05-01",
+      ceacNumber: "1234567890",
       sanCompletedAt: "2026-04-15",
+      sanApprovalId: "12345-67890",
+      riskLevel: "Bajo",
     });
     const btn = screen.getByText("workOrders.approve").closest("button");
     expect(btn).not.toBeDisabled();
@@ -181,5 +187,48 @@ describe("WorkOrderForm — Risk Assessment Section (feat/0306-78)", () => {
       // No ceacCompletedAt / sanCompletedAt
     });
     expect(screen.queryByText("workOrders.riskAssessment")).not.toBeInTheDocument();
+  });
+
+  it("WF7: Approve button is disabled when ceacNumber is missing even if dates are present", () => {
+    renderForm({
+      approvalStatus: "Pending_Approval",
+      canApprove: true,
+      onApprove: vi.fn(),
+      ceacCompletedAt: "2026-05-01",
+      sanCompletedAt: "2026-04-15",
+      sanApprovalId: "12345-67890",
+      riskLevel: "Bajo",
+      // ceacNumber is absent
+    });
+    const btn = screen.getByText("workOrders.approve").closest("button");
+    expect(btn).toBeDisabled();
+  });
+
+  it("WF8: Approve button is disabled when riskLevel is missing even if all other fields are present", () => {
+    renderForm({
+      approvalStatus: "Pending_Approval",
+      canApprove: true,
+      onApprove: vi.fn(),
+      ceacCompletedAt: "2026-05-01",
+      ceacNumber: "1234567890",
+      sanCompletedAt: "2026-04-15",
+      sanApprovalId: "12345-67890",
+      // riskLevel is absent
+    });
+    const btn = screen.getByText("workOrders.approve").closest("button");
+    expect(btn).toBeDisabled();
+  });
+
+  it("WF9: No emergency approval button or emergency-related text rendered", () => {
+    renderForm({
+      approvalStatus: "Pending_Approval",
+      canApprove: true,
+      onApprove: vi.fn(),
+      ceacCompletedAt: undefined, // simulate missing CEAC
+      sanCompletedAt: "2026-04-15",
+    });
+    expect(screen.queryByText("workOrders.approveEmergency")).not.toBeInTheDocument();
+    expect(screen.queryByText("workOrders.ceacEmergencyHint")).not.toBeInTheDocument();
+    expect(screen.queryByText("workOrders.approvedEmergency")).not.toBeInTheDocument();
   });
 });

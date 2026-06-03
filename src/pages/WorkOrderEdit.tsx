@@ -77,10 +77,16 @@ const WorkOrderEdit = () => {
   const [ceacNotes, setCeacNotes] = useState<string | null>(null);
   const [sanCompletedAt, setSanCompletedAt] = useState<string | null>(null);
   const [sanNotes, setSanNotes] = useState<string | null>(null);
+  const [ceacNumber, setCeacNumber] = useState<string | null>(null);
+  const [sanApprovalId, setSanApprovalId] = useState<string | null>(null);
+  const [riskLevel, setRiskLevel] = useState<string | null>(null);
   const [originalCeacCompletedAt, setOriginalCeacCompletedAt] = useState<string | null>(null);
   const [originalSanCompletedAt, setOriginalSanCompletedAt] = useState<string | null>(null);
   const [originalCeacNotes, setOriginalCeacNotes] = useState<string | null>(null);
   const [originalSanNotes, setOriginalSanNotes] = useState<string | null>(null);
+  const [originalCeacNumber, setOriginalCeacNumber] = useState<string | null>(null);
+  const [originalSanApprovalId, setOriginalSanApprovalId] = useState<string | null>(null);
+  const [originalRiskLevel, setOriginalRiskLevel] = useState<string | null>(null);
 
   // Track original values for dirty check
   const [originalAdjustment, setOriginalAdjustment] = useState(0);
@@ -129,10 +135,16 @@ const WorkOrderEdit = () => {
       setCeacNotes(workOrder.ceac_notes ?? null);
       setSanCompletedAt(riskSan);
       setSanNotes(workOrder.san_notes ?? null);
+      setCeacNumber(workOrder.ceac_number ?? null);
+      setSanApprovalId(workOrder.san_approval_id ?? null);
+      setRiskLevel(workOrder.risk_level ?? null);
       setOriginalCeacCompletedAt(riskCeac);
       setOriginalSanCompletedAt(riskSan);
       setOriginalCeacNotes(workOrder.ceac_notes ?? null);
       setOriginalSanNotes(workOrder.san_notes ?? null);
+      setOriginalCeacNumber(workOrder.ceac_number ?? null);
+      setOriginalSanApprovalId(workOrder.san_approval_id ?? null);
+      setOriginalRiskLevel(workOrder.risk_level ?? null);
     }
   }, [workOrder]);
 
@@ -163,9 +175,12 @@ const WorkOrderEdit = () => {
     if (sanCompletedAt !== originalSanCompletedAt) return true;
     if ((ceacNotes ?? null) !== originalCeacNotes) return true;
     if ((sanNotes ?? null) !== originalSanNotes) return true;
+    if ((ceacNumber ?? null) !== originalCeacNumber) return true;
+    if ((sanApprovalId ?? null) !== originalSanApprovalId) return true;
+    if ((riskLevel ?? null) !== originalRiskLevel) return true;
 
     return false;
-  }, [workOrder, adjustmentAmount, originalAdjustment, expenseBudget, originalExpenseData, ceacCompletedAt, originalCeacCompletedAt, sanCompletedAt, originalSanCompletedAt, ceacNotes, originalCeacNotes, sanNotes, originalSanNotes]);
+  }, [workOrder, adjustmentAmount, originalAdjustment, expenseBudget, originalExpenseData, ceacCompletedAt, originalCeacCompletedAt, sanCompletedAt, originalSanCompletedAt, ceacNotes, originalCeacNotes, sanNotes, originalSanNotes, ceacNumber, originalCeacNumber, sanApprovalId, originalSanApprovalId, riskLevel, originalRiskLevel]);
 
   // Tracks only fields that handleSubmit persists (not risk fields — those are saved atomically by submitWorkOrder)
   const hasNonRiskDirty = useMemo(() => {
@@ -248,8 +263,12 @@ const WorkOrderEdit = () => {
 
   const handleSubmitForApproval = async () => {
     if (!workOrder) return;
-    if (!sanCompletedAt) {
-      toast.error(t("workOrders.sanRequired"));
+    const CEAC_NUM_RE = /^\d{10}$/;
+    const SAN_ID_RE = /^\d{10}$|^\d{5}-\d{5}$/;
+    if (!ceacCompletedAt || !CEAC_NUM_RE.test(ceacNumber ?? '')
+      || !sanCompletedAt || !SAN_ID_RE.test(sanApprovalId ?? '')
+      || !riskLevel) {
+      toast.error(t("workOrders.riskAssessmentRequired"));
       return;
     }
     await submitWorkOrder.mutateAsync({
@@ -258,18 +277,13 @@ const WorkOrderEdit = () => {
       ceacNotes,
       sanCompletedAt,
       sanNotes,
+      ceacNumber,
+      sanApprovalId,
+      riskLevel,
     });
   };
 
   const handleApprove = async () => {
-    if (!workOrder || !staffRecord) return;
-    await approveWorkOrder.mutateAsync({
-      woId: workOrder.wo_id,
-      staffId: staffRecord.staff_id,
-    });
-  };
-
-  const handleEmergencyApprove = async () => {
     if (!workOrder || !staffRecord) return;
     await approveWorkOrder.mutateAsync({
       woId: workOrder.wo_id,
@@ -301,6 +315,9 @@ const WorkOrderEdit = () => {
     else if (field === 'ceacNotes') setCeacNotes(value);
     else if (field === 'sanCompletedAt') setSanCompletedAt(value);
     else if (field === 'sanNotes') setSanNotes(value);
+    else if (field === 'ceacNumber') setCeacNumber(value);
+    else if (field === 'sanApprovalId') setSanApprovalId(value);
+    else if (field === 'riskLevel') setRiskLevel(value);
   };
 
   if (isLoading) {
@@ -386,7 +403,6 @@ const WorkOrderEdit = () => {
           onSubmit={handleSubmit}
           onSubmitForApproval={handleSubmitForApproval}
           onApprove={handleApprove}
-          onEmergencyApprove={handleEmergencyApprove}
           onReject={handleReject}
           onUnsubmit={handleUnsubmit}
           onCancel={() => { allowNextNavigation(); navigate("/work-orders"); }}
@@ -396,6 +412,9 @@ const WorkOrderEdit = () => {
           ceacNotes={ceacNotes}
           sanCompletedAt={sanCompletedAt}
           sanNotes={sanNotes}
+          ceacNumber={ceacNumber}
+          sanApprovalId={sanApprovalId}
+          riskLevel={riskLevel}
           onRiskAssessmentChange={handleRiskAssessmentChange}
           isSubmitting={
             updateWorkOrder.isPending ||

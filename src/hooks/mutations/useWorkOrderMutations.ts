@@ -73,12 +73,18 @@ export function useSubmitWorkOrder() {
       ceacNotes,
       sanCompletedAt,
       sanNotes,
+      ceacNumber,
+      sanApprovalId,
+      riskLevel,
     }: {
       woId: string;
       ceacCompletedAt?: string | null;
       ceacNotes?: string | null;
       sanCompletedAt?: string | null;
       sanNotes?: string | null;
+      ceacNumber?: string | null;
+      sanApprovalId?: string | null;
+      riskLevel?: string | null;
     }) => {
       const { data: result, error } = await supabase
         .from("work_orders")
@@ -88,6 +94,9 @@ export function useSubmitWorkOrder() {
           ceac_notes: ceacNotes ?? null,
           san_completed_at: sanCompletedAt ?? null,
           san_notes: sanNotes ?? null,
+          ceac_number: ceacNumber ?? null,
+          san_approval_id: sanApprovalId ?? null,
+          risk_level: riskLevel ?? null,
         })
         .eq("wo_id", woId)
         .select()

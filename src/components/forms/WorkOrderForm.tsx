@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Trash2, Plus, Lock, CheckCircle, XCircle, Send, ShieldCheck, Undo2, AlertTriangle } from "lucide-react";
+import { Trash2, Plus, Lock, CheckCircle, XCircle, Send, ShieldCheck, Undo2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useCategories, useExpenseTypes, useSetting, Category, ExpenseType, type WorkOrder, type WOBudgetLine } from "@/hooks/useEmsData";
@@ -46,6 +46,9 @@ interface WorkOrderFormProps {
   ceacNotes?: string | null;
   sanCompletedAt?: string | null;
   sanNotes?: string | null;
+  ceacNumber?: string | null;
+  sanApprovalId?: string | null;
+  riskLevel?: string | null;
   // New props for create/edit mode and dirty state
   isNew?: boolean;
   isDirty?: boolean;
@@ -58,7 +61,6 @@ interface WorkOrderFormProps {
   onRiskAssessmentChange?: (field: string, value: string | null) => void;
   onSubmit: () => void;
   onApprove?: () => void;
-  onEmergencyApprove?: () => void;
   onReject?: () => void;
   onSubmitForApproval?: () => void;
   onUnsubmit?: () => void;
@@ -94,6 +96,9 @@ export function WorkOrderForm({
   ceacNotes,
   sanCompletedAt,
   sanNotes,
+  ceacNumber,
+  sanApprovalId,
+  riskLevel,
   isNew = false,
   isDirty = false,
   hasNonRiskDirty = false,
@@ -105,7 +110,6 @@ export function WorkOrderForm({
   onRiskAssessmentChange,
   onSubmit,
   onApprove,
-  onEmergencyApprove,
   onReject,
   onSubmitForApproval,
   onUnsubmit,
@@ -204,12 +208,17 @@ export function WorkOrderForm({
   const isApproved = approvalStatus === "Approved";
   const isEditable = !isLocked && isDraft;
 
-  const isEmergency = !ceacCompletedAt && !!sanCompletedAt;
-  const canEmergencyApprove = isEmergency && !!ceacNotes?.trim();
-  const riskApprovalReady = (!!ceacCompletedAt && !!sanCompletedAt) || canEmergencyApprove;
-  const isNormalSubmit = !!ceacCompletedAt && !!sanCompletedAt;
-  const isEmergencySubmit = isDraft && !ceacCompletedAt && !!sanCompletedAt && !!ceacNotes?.trim();
-  const canSubmitForApproval = isNormalSubmit || isEmergencySubmit;
+  const CEAC_NUM_RE = /^\d{10}$/;
+  const SAN_ID_RE = /^\d{10}$|^\d{5}-\d{5}$/;
+  const RISK_LEVELS = ['Bajo', 'Moderado', 'Alto'] as const;
+
+  const ceacNumberValid = CEAC_NUM_RE.test(ceacNumber ?? '');
+  const sanApprovalValid = SAN_ID_RE.test(sanApprovalId ?? '');
+  const riskLevelValid = RISK_LEVELS.includes(riskLevel as typeof RISK_LEVELS[number]);
+  const riskApprovalReady = !!ceacCompletedAt && ceacNumberValid
+    && !!sanCompletedAt && sanApprovalValid
+    && riskLevelValid;
+  const canSubmitForApproval = riskApprovalReady;
 
   // Get category name by ID
   const getCategoryName = (categoryId: string) => {
@@ -553,14 +562,6 @@ export function WorkOrderForm({
         (isPending && canApprove) ||
         (isApproved && (ceacCompletedAt || sanCompletedAt))) && (
         <Card className="border-info/30 bg-info/5">
-          {isApproved && !ceacCompletedAt && (
-            <div className="flex items-center gap-2 px-4 pt-3 pb-0">
-              <Badge variant="outline" className="bg-warning/10 text-warning border-warning/20 text-xs">
-                <AlertTriangle className="h-3 w-3 mr-1" />
-                {t("workOrders.approvedEmergency")}
-              </Badge>
-            </div>
-          )}
           <CardHeader className="py-3">
             <CardTitle className="text-base flex items-center gap-2">
               <ShieldCheck className="h-4 w-4 text-info" />
@@ -584,9 +585,6 @@ export function WorkOrderForm({
                       ? new Date(ceacCompletedAt + 'T00:00:00').toLocaleDateString('es-BO', { day: '2-digit', month: '2-digit', year: 'numeric' })
                       : <span className="text-muted-foreground">—</span>}
                   </p>
-                )}
-                {isEmergency && !isApproved && (
-                  <p className="text-xs text-warning">{t("workOrders.ceacEmergencyHint")}</p>
                 )}
               </div>
               <div className="space-y-2">
@@ -626,6 +624,72 @@ export function WorkOrderForm({
                 />
               </div>
             </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>{t("workOrders.ceacNumber")}</Label>
+                {isDraft ? (
+                  <>
+                    <Input
+                      type="text"
+                      placeholder={t("workOrders.ceacNumberPlaceholder")}
+                      value={ceacNumber || ''}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/[^\d]/g, '').slice(0, 10);
+                        onRiskAssessmentChange?.('ceacNumber', val || null);
+                      }}
+                    />
+                    {(ceacNumber?.length ?? 0) > 0 && !CEAC_NUM_RE.test(ceacNumber ?? '') && (
+                      <p className="text-xs text-destructive">{t("workOrders.ceacNumberInvalid")}</p>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-sm py-2">{ceacNumber || <span className="text-muted-foreground">—</span>}</p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label>{t("workOrders.sanApprovalId")}</Label>
+                {isDraft ? (
+                  <>
+                    <Input
+                      type="text"
+                      placeholder={t("workOrders.sanApprovalIdPlaceholder")}
+                      value={sanApprovalId || ''}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/[^\d-]/g, '').replace(/(.*-.*)-/g, '$1').slice(0, 11);
+                        onRiskAssessmentChange?.('sanApprovalId', val || null);
+                      }}
+                    />
+                    {(sanApprovalId?.length ?? 0) > 0 && !SAN_ID_RE.test(sanApprovalId ?? '') && (
+                      <p className="text-xs text-destructive">{t("workOrders.sanApprovalIdInvalid")}</p>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-sm py-2">{sanApprovalId || <span className="text-muted-foreground">—</span>}</p>
+                )}
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>{t("workOrders.riskLevel")}</Label>
+                {isDraft ? (
+                  <Select
+                    value={riskLevel || ''}
+                    onValueChange={(value) => onRiskAssessmentChange?.('riskLevel', value || null)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="—" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Bajo">{t("workOrders.riskLevelBajo")}</SelectItem>
+                      <SelectItem value="Moderado">{t("workOrders.riskLevelModerado")}</SelectItem>
+                      <SelectItem value="Alto">{t("workOrders.riskLevelAlto")}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <p className="text-sm py-2">{riskLevel || <span className="text-muted-foreground">—</span>}</p>
+                )}
+              </div>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -645,19 +709,13 @@ export function WorkOrderForm({
             {onSubmitForApproval && (
               <LoadingButton
                 onClick={onSubmitForApproval}
-                className={isEmergencySubmit
-                  ? "bg-warning hover:bg-warning/90 text-warning-foreground btn-action"
-                  : "bg-info hover:bg-info/90 btn-action"}
+                className="bg-info hover:bg-info/90 btn-action"
                 loading={isSubmitting}
                 disabled={hasNonRiskDirty || !canSubmitForApproval}
                 title={hasNonRiskDirty ? t("workOrders.saveBeforeSubmit") : !canSubmitForApproval ? t("workOrders.riskAssessmentRequired") : undefined}
               >
-                {isEmergencySubmit
-                  ? <AlertTriangle className="h-4 w-4 mr-2" />
-                  : <Send className="h-4 w-4 mr-2" />}
-                {isEmergencySubmit
-                  ? t("workOrders.submitForEmergencyApproval")
-                  : t("workOrders.submitForApproval")}
+                <Send className="h-4 w-4 mr-2" />
+                {t("workOrders.submitForApproval")}
               </LoadingButton>
             )}
           </>
@@ -682,30 +740,16 @@ export function WorkOrderForm({
                 {t("workOrders.reject")}
               </LoadingButton>
             )}
-            {!isEmergency && (
-              <LoadingButton
-                onClick={onApprove}
-                className="bg-success hover:bg-success/90 btn-action"
-                loading={isSubmitting}
-                disabled={!riskApprovalReady || isSubmitting}
-                title={!riskApprovalReady ? t("workOrders.riskApprovalPending") : undefined}
-              >
-                <CheckCircle className="h-4 w-4 mr-2" />
-                {t("workOrders.approve")}
-              </LoadingButton>
-            )}
-            {isEmergency && (
-              <LoadingButton
-                onClick={onEmergencyApprove}
-                className="bg-orange-600 hover:bg-orange-700 text-white btn-action"
-                loading={isSubmitting}
-                disabled={!canEmergencyApprove || isSubmitting}
-                title={!canEmergencyApprove ? t("workOrders.ceacEmergencyHint") : undefined}
-              >
-                <AlertTriangle className="h-4 w-4 mr-2" />
-                {t("workOrders.approveEmergency")}
-              </LoadingButton>
-            )}
+            <LoadingButton
+              onClick={onApprove}
+              className="bg-success hover:bg-success/90 btn-action"
+              loading={isSubmitting}
+              disabled={!riskApprovalReady || isSubmitting}
+              title={!riskApprovalReady ? t("workOrders.riskApprovalPending") : undefined}
+            >
+              <CheckCircle className="h-4 w-4 mr-2" />
+              {t("workOrders.approve")}
+            </LoadingButton>
           </>
         )}
       </div>
