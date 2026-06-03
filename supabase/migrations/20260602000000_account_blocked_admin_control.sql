@@ -94,6 +94,7 @@ BEGIN
   -- any staff-table failure never aborts the lockout counter write above.
   IF v_locked_until IS NOT NULL THEN
     BEGIN
+      PERFORM set_config('app.allow_blocked_change', 'on', true);
       UPDATE public.staff
       SET is_blocked = true
       WHERE lower(trim(email)) = v_email
@@ -135,8 +136,12 @@ BEGIN
 
   -- BUG 0601-132: clear the admin-visible blocked flag at the same time.
   -- This covers the auto-unlock path: 15 min pass → user logs in
-  -- successfully → secure-signin calls this RPC → admin switch goes to OFF.
+  -- successfully → secure-signin calls this RPC (with the user's own JWT) →
+  -- admin switch goes to OFF. The transaction-local flag authorizes the write
+  -- past prevent_self_blocked_change(), which otherwise can't distinguish this
+  -- trusted reset from a self-service UPDATE (both carry the user's JWT).
   BEGIN
+    PERFORM set_config('app.allow_blocked_change', 'on', true);
     UPDATE public.staff
     SET is_blocked = false
     WHERE lower(trim(email)) = v_email
@@ -174,7 +179,10 @@ BEGIN
     RETURN jsonb_build_object('ok', false, 'error', 'STAFF_NOT_FOUND');
   END IF;
 
-  -- Clear the persistent blocked flag.
+  -- Clear the persistent blocked flag. Authorize the write past
+  -- prevent_self_blocked_change() (this RPC is service_role-only, so auth.uid()
+  -- is already NULL, but the flag keeps the trusted-writer contract uniform).
+  PERFORM set_config('app.allow_blocked_change', 'on', true);
   UPDATE public.staff
   SET is_blocked = false
   WHERE staff_id = p_staff_id;
@@ -217,9 +225,19 @@ SECURITY DEFINER
 SET search_path TO 'public'
 AS $$
 BEGIN
+  -- Reject only a genuine change to the flag that did NOT come from a trusted
+  -- lockout function. Those functions (record_failed_login /
+  -- reset_login_attempts / admin_unblock_account) set this transaction-local
+  -- flag before touching the row. This indirection is required because
+  -- reset_login_attempts runs with the *user's own JWT* (so secure-signin can
+  -- enforce its jwt-email guard on a successful login), which auth.uid() alone
+  -- cannot tell apart from a self-service UPDATE. A direct PostgREST UPDATE on
+  -- the staff table cannot set the flag, so self-service tampering is rejected
+  -- while the auto-unlock-on-login path keeps working.
   IF NEW.is_blocked IS DISTINCT FROM OLD.is_blocked
-     AND auth.uid() IS NOT NULL
-     AND NOT public.is_admin() THEN
+     AND current_setting('app.allow_blocked_change', true) IS DISTINCT FROM 'on'
+     AND auth.uid() IS NOT NULL          -- not service_role / postgres (edge fns, Studio)
+     AND NOT public.is_admin() THEN      -- not an administrator
     RAISE EXCEPTION 'FORBIDDEN: is_blocked can only be changed by an administrator'
       USING ERRCODE = 'insufficient_privilege';
   END IF;

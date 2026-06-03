@@ -83,4 +83,21 @@ describe("account blocked admin control migration (BUG 0601-132)", () => {
       /CREATE TRIGGER trg_prevent_self_blocked_change\s+BEFORE UPDATE OF is_blocked ON public\.staff/,
     );
   });
+
+  it("lets the trusted reset/unlock path clear is_blocked via a transaction-local flag", () => {
+    // reset_login_attempts runs with the user's own JWT, so the trigger cannot
+    // tell it apart from a self-service UPDATE by auth.uid(). It must set the
+    // transaction-local flag the trigger honors, otherwise a successful login
+    // after a lockout would leave the admin badge stuck on.
+    expect(sql).toMatch(
+      /current_setting\('app\.allow_blocked_change', true\) IS DISTINCT FROM 'on'/,
+    );
+    expect(sql).toMatch(
+      /set_config\('app\.allow_blocked_change', 'on', true\)/,
+    );
+    // The flag must be set in every trusted writer: record_failed_login,
+    // reset_login_attempts, and admin_unblock_account.
+    const setFlag = sql.match(/set_config\('app\.allow_blocked_change', 'on', true\)/g) ?? [];
+    expect(setFlag.length).toBeGreaterThanOrEqual(3);
+  });
 });

@@ -108,6 +108,10 @@ BEGIN
   -- BUG 0601-132: propagate is_blocked to the staff row.
   IF v_locked_until IS NOT NULL THEN
     BEGIN
+      -- Authorize the write past prevent_self_blocked_change() (see migration
+      -- 20260602000000). This RPC runs via service_role so auth.uid() is NULL,
+      -- but the flag keeps the trusted-writer contract uniform.
+      PERFORM set_config('app.allow_blocked_change', 'on', true);
       UPDATE public.staff
       SET is_blocked = true
       WHERE lower(trim(email)) = v_email
