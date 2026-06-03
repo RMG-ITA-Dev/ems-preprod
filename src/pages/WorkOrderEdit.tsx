@@ -37,6 +37,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Textarea } from "@/components/ui/textarea";
 
 const WorkOrderEdit = () => {
   const { t } = useTranslation();
@@ -72,6 +73,8 @@ const WorkOrderEdit = () => {
   const [originalBudgetLines, setOriginalBudgetLines] = useState<string[]>([]);
   const [originalExpenses, setOriginalExpenses] = useState<string[]>([]);
   const [showResyncDialog, setShowResyncDialog] = useState(false);
+  const [showRejectDialog, setShowRejectDialog] = useState(false);
+  const [rejectNotes, setRejectNotes] = useState("");
 
   // Track original values for dirty check
   const [originalAdjustment, setOriginalAdjustment] = useState(0);
@@ -148,7 +151,7 @@ const WorkOrderEdit = () => {
   const canApprove = staffRecord?.category?.can_approve_wo || false;
 
   const approvalStatus = workOrder?.approval_status as "Draft" | "Pending_Approval" | "Approved" | "Rejected" || "Draft";
-  const isLocked = approvalStatus === "Approved" || approvalStatus === "Pending_Approval";
+  const isLocked = approvalStatus === "Approved" || approvalStatus === "Pending_Approval" || approvalStatus === "Rejected";
 
   const handleSubmit = async () => {
     if (!workOrder) return;
@@ -214,9 +217,15 @@ const WorkOrderEdit = () => {
     await approveWorkOrder.mutateAsync({ woId: workOrder.wo_id, staffId: staffRecord.staff_id });
   };
 
-  const handleReject = async () => {
+  const handleReject = () => {
+    setShowRejectDialog(true);
+  };
+
+  const handleRejectConfirm = async () => {
     if (!workOrder) return;
-    await rejectWorkOrder.mutateAsync(workOrder.wo_id);
+    await rejectWorkOrder.mutateAsync({ woId: workOrder.wo_id, notes: rejectNotes });
+    setShowRejectDialog(false);
+    setRejectNotes("");
   };
 
   const handleUnsubmit = async () => {
@@ -320,6 +329,7 @@ const WorkOrderEdit = () => {
           onCancel={() => { allowNextNavigation(); navigate("/work-orders"); }}
           isLocked={isLocked}
           canApprove={canApprove}
+          rejectionNote={workOrder?.notes ?? null}
           isSubmitting={
             updateWorkOrder.isPending ||
             submitWorkOrder.isPending ||
@@ -346,6 +356,37 @@ const WorkOrderEdit = () => {
               disabled={resyncWorksheet.isPending}
             >
               {resyncWorksheet.isPending ? t("common.loading") : t("workMatrix.resyncToWorkOrder")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      {/* Rejection Note Dialog */}
+      <AlertDialog open={showRejectDialog} onOpenChange={setShowRejectDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("workOrders.rejectDialogTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("workOrders.rejectDialogDescription")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="py-4">
+            <Textarea
+              placeholder={t("workOrders.rejectNotePlaceholder")}
+              value={rejectNotes}
+              onChange={(e) => setRejectNotes(e.target.value)}
+              rows={3}
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setRejectNotes("")}>
+              {t("common.cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleRejectConfirm}
+              disabled={rejectWorkOrder.isPending}
+              className="bg-destructive hover:bg-destructive/90"
+            >
+              {t("workOrders.rejectDialogConfirm")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
