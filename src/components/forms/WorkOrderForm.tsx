@@ -561,7 +561,13 @@ export function WorkOrderForm({
       {((isDraft && canApprove) ||
         (isPending && canApprove) ||
         (isApproved && (ceacCompletedAt || sanCompletedAt))) && (
-        <Card className="border-info/30 bg-info/5">
+        <Card className={cn(
+          "transition-all duration-500",
+          riskLevel === 'Alto'     && "border-destructive/60 bg-destructive/5 shadow-[0_0_16px_hsl(var(--destructive)/0.25)]",
+          riskLevel === 'Moderado' && "border-warning/60 bg-warning/5 shadow-[0_0_16px_hsl(var(--warning)/0.25)]",
+          riskLevel === 'Bajo'     && "border-success/60 bg-success/5 shadow-[0_0_16px_hsl(var(--success)/0.25)]",
+          !riskLevel               && "border-info/30 bg-info/5",
+        )}>
           <CardHeader className="py-3">
             <div className="flex items-center justify-between gap-4">
               <div>
