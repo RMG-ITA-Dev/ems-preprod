@@ -13,10 +13,27 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Trash2, Plus, Lock, CheckCircle, XCircle, Send, ShieldCheck, Undo2 } from "lucide-react";
+import {
+  Trash2,
+  Plus,
+  Lock,
+  CheckCircle,
+  XCircle,
+  Send,
+  ShieldCheck,
+  Undo2,
+} from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { useCategories, useExpenseTypes, useSetting, Category, ExpenseType, type WorkOrder, type WOBudgetLine } from "@/hooks/useEmsData";
+import {
+  useCategories,
+  useExpenseTypes,
+  useSetting,
+  Category,
+  ExpenseType,
+  type WorkOrder,
+  type WOBudgetLine,
+} from "@/hooks/useEmsData";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/hooks/useLanguage";
 
@@ -127,13 +144,17 @@ export function WorkOrderForm({
 
   // Get the appropriate rate based on currency and season
   const getRate = (category: Category) => {
-    const key = `rate_${seasonMode.toLowerCase()}_${currency.toLowerCase()}` as keyof Category;
+    const key =
+      `rate_${seasonMode.toLowerCase()}_${currency.toLowerCase()}` as keyof Category;
     return Number(category[key]) || 0;
   };
 
   // Calculations
   const totalStandardFee = useMemo(() => {
-    return budgetLines.reduce((sum, line) => sum + line.budgeted_hours * line.standard_rate, 0);
+    return budgetLines.reduce(
+      (sum, line) => sum + line.budgeted_hours * line.standard_rate,
+      0,
+    );
   }, [budgetLines]);
 
   const totalBudgetedHours = useMemo(() => {
@@ -173,9 +194,15 @@ export function WorkOrderForm({
   };
 
   // Update expense budget
-  const updateExpenseBudget = (id: string, field: keyof ExpenseBudgetInput, value: string | number) => {
+  const updateExpenseBudget = (
+    id: string,
+    field: keyof ExpenseBudgetInput,
+    value: string | number,
+  ) => {
     onExpenseBudgetChange(
-      expenseBudget.map((exp) => (exp.id === id ? { ...exp, [field]: value } : exp))
+      expenseBudget.map((exp) =>
+        exp.id === id ? { ...exp, [field]: value } : exp,
+      ),
     );
   };
 
@@ -210,14 +237,19 @@ export function WorkOrderForm({
 
   const CEAC_NUM_RE = /^\d{10}$/;
   const SAN_ID_RE = /^\d{10}$|^\d{5}-\d{5}$/;
-  const RISK_LEVELS = ['Bajo', 'Moderado', 'Alto'] as const;
+  const RISK_LEVELS = ["Bajo", "Moderado", "Alto"] as const;
 
-  const ceacNumberValid = CEAC_NUM_RE.test(ceacNumber ?? '');
-  const sanApprovalValid = SAN_ID_RE.test(sanApprovalId ?? '');
-  const riskLevelValid = RISK_LEVELS.includes(riskLevel as typeof RISK_LEVELS[number]);
-  const riskApprovalReady = !!ceacCompletedAt && ceacNumberValid
-    && !!sanCompletedAt && sanApprovalValid
-    && riskLevelValid;
+  const ceacNumberValid = CEAC_NUM_RE.test(ceacNumber ?? "");
+  const sanApprovalValid = SAN_ID_RE.test(sanApprovalId ?? "");
+  const riskLevelValid = RISK_LEVELS.includes(
+    riskLevel as (typeof RISK_LEVELS)[number],
+  );
+  const riskApprovalReady =
+    !!ceacCompletedAt &&
+    ceacNumberValid &&
+    !!sanCompletedAt &&
+    sanApprovalValid &&
+    riskLevelValid;
   const canSubmitForApproval = riskApprovalReady;
 
   // Get category name by ID
@@ -231,15 +263,24 @@ export function WorkOrderForm({
       {/* Zone A: Header */}
       <Card>
         <CardHeader className="py-3">
-        <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <Badge variant="outline" className={cn("text-xs px-2.5 py-1", statusColors[approvalStatus])}>
+              <Badge
+                variant="outline"
+                className={cn(
+                  "text-xs px-2.5 py-1",
+                  statusColors[approvalStatus],
+                )}
+              >
                 {isLocked && <Lock className="h-3 w-3 mr-1" />}
                 {t(statusLabels[approvalStatus])}
               </Badge>
               {/* Dirty indicator - same size as status badge, purple to match Guardar button */}
               {isDirty && (
-                <Badge variant="outline" className="text-xs px-2.5 py-1 bg-brand-purple/10 text-brand-purple border-brand-purple/20">
+                <Badge
+                  variant="outline"
+                  className="text-xs px-2.5 py-1 bg-brand-purple/10 text-brand-purple border-brand-purple/20"
+                >
                   {t("common.unsavedChanges")}
                 </Badge>
               )}
@@ -248,8 +289,13 @@ export function WorkOrderForm({
               {/* Currency - styled chip, editable only on new */}
               {isNew ? (
                 <div className="flex items-center gap-2">
-                  <Label className="text-xs text-muted-foreground">{t("workOrders.currency")}:</Label>
-                  <Select value={currency} onValueChange={(v) => onCurrencyChange(v as "USD" | "BOB")}>
+                  <Label className="text-xs text-muted-foreground">
+                    {t("workOrders.currency")}:
+                  </Label>
+                  <Select
+                    value={currency}
+                    onValueChange={(v) => onCurrencyChange(v as "USD" | "BOB")}
+                  >
                     <SelectTrigger className="w-20 h-7 text-xs">
                       <SelectValue />
                     </SelectTrigger>
@@ -261,15 +307,22 @@ export function WorkOrderForm({
                 </div>
               ) : (
                 <div className="flex items-center gap-1.5 bg-muted/50 rounded-md px-2.5 py-1">
-                  <span className="text-xs text-muted-foreground">{t("workOrders.currency")}:</span>
+                  <span className="text-xs text-muted-foreground">
+                    {t("workOrders.currency")}:
+                  </span>
                   <span className="text-sm font-semibold">{currency}</span>
                 </div>
               )}
               {/* Season - styled chip, editable only on new */}
               {isNew ? (
                 <div className="flex items-center gap-2">
-                  <Label className="text-xs text-muted-foreground">{t("workOrders.season")}:</Label>
-                  <Select value={seasonMode} onValueChange={(v) => onSeasonChange(v as "High" | "Low")}>
+                  <Label className="text-xs text-muted-foreground">
+                    {t("workOrders.season")}:
+                  </Label>
+                  <Select
+                    value={seasonMode}
+                    onValueChange={(v) => onSeasonChange(v as "High" | "Low")}
+                  >
                     <SelectTrigger className="w-20 h-7 text-xs">
                       <SelectValue />
                     </SelectTrigger>
@@ -281,9 +334,13 @@ export function WorkOrderForm({
                 </div>
               ) : (
                 <div className="flex items-center gap-1.5 bg-muted/50 rounded-md px-2.5 py-1">
-                  <span className="text-xs text-muted-foreground">{t("workOrders.season")}:</span>
+                  <span className="text-xs text-muted-foreground">
+                    {t("workOrders.season")}:
+                  </span>
                   <span className="text-sm font-semibold">
-                    {seasonMode === "High" ? t("industry.high") : t("industry.low")}
+                    {seasonMode === "High"
+                      ? t("industry.high")
+                      : t("industry.low")}
                   </span>
                 </div>
               )}
@@ -295,50 +352,82 @@ export function WorkOrderForm({
       {/* Zone B: Budget Grid - Read-only, managed via Work Matrix */}
       <Card>
         <CardHeader className="py-3">
-          <CardTitle className="text-base">{t("workOrders.budgetLines")}</CardTitle>
+          <CardTitle className="text-base">
+            {t("workOrders.budgetLines")}
+          </CardTitle>
         </CardHeader>
         <CardContent className="pt-0">
           <div className="overflow-x-auto">
             <table className="w-full text-sm table-dense">
               <thead>
                 <tr className="border-b border-border">
-                  <th className="text-left py-1.5 px-2 font-medium text-muted-foreground" colSpan={4}>
+                  <th
+                    className="text-left py-1.5 px-2 font-medium text-muted-foreground"
+                    colSpan={4}
+                  >
                     {t("workOrders.standard")}
                   </th>
                   <th className="py-1.5 px-2 border-l border-border"></th>
-                  <th className="text-left py-1.5 px-2 font-medium text-muted-foreground border-l border-border" colSpan={2}>
+                  <th
+                    className="text-left py-1.5 px-2 font-medium text-muted-foreground border-l border-border"
+                    colSpan={2}
+                  >
                     {t("workOrders.adjusted")}
                   </th>
                 </tr>
                 <tr className="border-b border-border bg-muted/30">
-                  <th className="text-center py-1.5 px-2 font-medium border-r border-border">{t("entities.category")}</th>
-                  <th className="text-center py-1.5 px-2 font-medium border-r border-border w-24">{t("workOrders.hours")}</th>
-                  <th className="text-center py-1.5 px-2 font-medium border-r border-border w-28">{t("workOrders.rate")} ({currency})</th>
-                  <th className="text-center py-1.5 px-2 font-medium border-r border-border w-32">{t("workOrders.total")} ({currency})</th>
-                  <th className="text-center py-1.5 px-2 font-medium border-r border-border w-20">%</th>
-                  <th className="text-center py-1.5 px-2 font-medium border-r border-border w-28">{t("workOrders.adjRate")} ({currency})</th>
-                  <th className="text-center py-1.5 px-2 font-medium w-32">{t("workOrders.adjTotal")} ({currency})</th>
+                  <th className="text-center py-1.5 px-2 font-medium border-r border-border">
+                    {t("entities.category")}
+                  </th>
+                  <th className="text-center py-1.5 px-2 font-medium border-r border-border w-24">
+                    {t("workOrders.hours")}
+                  </th>
+                  <th className="text-center py-1.5 px-2 font-medium border-r border-border w-28">
+                    {t("workOrders.rate")} ({currency})
+                  </th>
+                  <th className="text-center py-1.5 px-2 font-medium border-r border-border w-32">
+                    {t("workOrders.total")} ({currency})
+                  </th>
+                  <th className="text-center py-1.5 px-2 font-medium border-r border-border w-20">
+                    %
+                  </th>
+                  <th className="text-center py-1.5 px-2 font-medium border-r border-border w-28">
+                    {t("workOrders.adjRate")} ({currency})
+                  </th>
+                  <th className="text-center py-1.5 px-2 font-medium w-32">
+                    {t("workOrders.adjTotal")} ({currency})
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {budgetLines.map((line) => {
                   const lineTotal = line.budgeted_hours * line.standard_rate;
-                  const adjustedRate = line.standard_rate * (realizationPercent / 100);
+                  const adjustedRate =
+                    line.standard_rate * (realizationPercent / 100);
                   const adjustedTotal = line.budgeted_hours * adjustedRate;
-                  const hoursPercent = totalBudgetedHours > 0 ? (line.budgeted_hours / totalBudgetedHours * 100) : 0;
-                  
+                  const hoursPercent =
+                    totalBudgetedHours > 0
+                      ? (line.budgeted_hours / totalBudgetedHours) * 100
+                      : 0;
+
                   return (
-                    <tr key={line.id} className="border-b border-border hover:bg-muted/20">
+                    <tr
+                      key={line.id}
+                      className="border-b border-border hover:bg-muted/20"
+                    >
                       {/* Category - always read-only text */}
                       <td className="py-1.5 px-2 text-left border-r border-border">
                         {getCategoryName(line.category_id)}
                       </td>
                       {/* Hours - always read-only */}
                       <td className="py-1.5 px-2 text-right font-mono border-r border-border">
-                        {line.budgeted_hours.toLocaleString(currency === "BOB" ? "es-BO" : "en-US", { 
-                          minimumFractionDigits: 1, 
-                          maximumFractionDigits: 1 
-                        })}
+                        {line.budgeted_hours.toLocaleString(
+                          currency === "BOB" ? "es-BO" : "en-US",
+                          {
+                            minimumFractionDigits: 1,
+                            maximumFractionDigits: 1,
+                          },
+                        )}
                       </td>
                       <td className="py-1.5 px-2 text-right font-mono text-muted-foreground border-r border-border">
                         {formatNumber(line.standard_rate)}
@@ -395,7 +484,9 @@ export function WorkOrderForm({
         {/* Expenses Section - Editable in Draft mode */}
         <Card>
           <CardHeader className="py-3">
-            <CardTitle className="text-base">{t("workOrders.expenses")}</CardTitle>
+            <CardTitle className="text-base">
+              {t("workOrders.expenses")}
+            </CardTitle>
           </CardHeader>
           <CardContent className="pt-0 form-dense">
             <div className="space-y-2">
@@ -403,15 +494,22 @@ export function WorkOrderForm({
                 <div key={exp.id} className="flex items-center gap-2">
                   <Select
                     value={exp.expense_type_id}
-                    onValueChange={(v) => updateExpenseBudget(exp.id, "expense_type_id", v)}
+                    onValueChange={(v) =>
+                      updateExpenseBudget(exp.id, "expense_type_id", v)
+                    }
                     disabled={!isEditable}
                   >
                     <SelectTrigger className="flex-1 h-8">
-                      <SelectValue placeholder={t("workOrders.selectExpense")} />
+                      <SelectValue
+                        placeholder={t("workOrders.selectExpense")}
+                      />
                     </SelectTrigger>
                     <SelectContent>
                       {expenseTypes?.map((type) => (
-                        <SelectItem key={type.expense_type_id} value={type.expense_type_id}>
+                        <SelectItem
+                          key={type.expense_type_id}
+                          value={type.expense_type_id}
+                        >
                           {type.expense_name}
                         </SelectItem>
                       ))}
@@ -422,7 +520,9 @@ export function WorkOrderForm({
                     locale={currentLanguage as "es" | "en"}
                     min={0}
                     value={exp.budgeted_amount || ""}
-                    onChange={(val) => updateExpenseBudget(exp.id, "budgeted_amount", val)}
+                    onChange={(val) =>
+                      updateExpenseBudget(exp.id, "budgeted_amount", val)
+                    }
                     className="w-28 text-right h-8"
                     disabled={!isEditable}
                   />
@@ -439,9 +539,9 @@ export function WorkOrderForm({
                 </div>
               ))}
               {isEditable && (
-                <Button 
-                  variant="outline" 
-                  onClick={addExpenseBudget} 
+                <Button
+                  variant="outline"
+                  onClick={addExpenseBudget}
                   size="sm"
                   className="bg-primary/10 hover:bg-primary/20 text-primary border-primary/30"
                 >
@@ -452,7 +552,9 @@ export function WorkOrderForm({
               <div className="flex justify-between pt-2 border-t border-border font-medium">
                 <span>{t("workOrders.totalExpenses")}</span>
                 <span className="font-mono">
-                  <span className="text-sm text-muted-foreground mr-2">{currency}</span>
+                  <span className="text-sm text-muted-foreground mr-2">
+                    {currency}
+                  </span>
                   {formatNumber(totalExpenses)}
                 </span>
               </div>
@@ -463,15 +565,21 @@ export function WorkOrderForm({
         {/* Summary Section - With currency codes */}
         <Card>
           <CardHeader className="py-3">
-            <CardTitle className="text-base">{t("workOrders.summary")}</CardTitle>
+            <CardTitle className="text-base">
+              {t("workOrders.summary")}
+            </CardTitle>
           </CardHeader>
           <CardContent className="pt-0 form-dense">
             <div className="space-y-2">
               {/* Standard Fee - full label on desktop, abbreviated on mobile */}
               <div className="flex justify-between items-center">
                 <span className="text-muted-foreground">
-                  <span className="hidden sm:inline">{t("workOrders.standardFeeFull")}</span>
-                  <span className="sm:hidden">{t("workOrders.standardFee")}</span>
+                  <span className="hidden sm:inline">
+                    {t("workOrders.standardFeeFull")}
+                  </span>
+                  <span className="sm:hidden">
+                    {t("workOrders.standardFee")}
+                  </span>
                 </span>
                 <span className="font-mono">
                   <span className="text-muted-foreground mr-2">{currency}</span>
@@ -480,7 +588,9 @@ export function WorkOrderForm({
               </div>
               {/* Adjustment - styled to match other rows, negative in red */}
               <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">{t("workOrders.adjustment")}</span>
+                <span className="text-muted-foreground">
+                  {t("workOrders.adjustment")}
+                </span>
                 <div className="flex items-center">
                   <span className="text-muted-foreground mr-2">{currency}</span>
                   <NumericInput
@@ -493,7 +603,7 @@ export function WorkOrderForm({
                       isEditable
                         ? "border border-input bg-background px-2 rounded-md focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-0"
                         : "border-0 bg-transparent px-0",
-                      adjustmentAmount < 0 && "text-destructive"
+                      adjustmentAmount < 0 && "text-destructive",
                     )}
                     disabled={!isEditable}
                   />
@@ -502,24 +612,40 @@ export function WorkOrderForm({
               {/* Realization - full label on desktop, abbreviated on mobile, color coded */}
               <div className="flex justify-between items-center">
                 <span className="text-muted-foreground">
-                  <span className="hidden sm:inline">{t("workOrders.realizationFull")}</span>
-                  <span className="sm:hidden">{t("workOrders.realization")}</span>
+                  <span className="hidden sm:inline">
+                    {t("workOrders.realizationFull")}
+                  </span>
+                  <span className="sm:hidden">
+                    {t("workOrders.realization")}
+                  </span>
                 </span>
-              <span className={cn(
-                  "font-mono font-medium",
-                  realizationPercent >= realizationLimitValue ? "text-success" : "text-destructive"
-                )}>
-                  {realizationPercent.toLocaleString(currency === "BOB" ? "es-BO" : "en-US", { 
-                    minimumFractionDigits: 1, 
-                    maximumFractionDigits: 1 
-                  })}%
+                <span
+                  className={cn(
+                    "font-mono font-medium",
+                    realizationPercent >= realizationLimitValue
+                      ? "text-success"
+                      : "text-destructive",
+                  )}
+                >
+                  {realizationPercent.toLocaleString(
+                    currency === "BOB" ? "es-BO" : "en-US",
+                    {
+                      minimumFractionDigits: 1,
+                      maximumFractionDigits: 1,
+                    },
+                  )}
+                  %
                 </span>
               </div>
               {/* Adjusted Fee - full label on desktop, abbreviated on mobile */}
               <div className="flex justify-between items-center">
                 <span className="text-muted-foreground">
-                  <span className="hidden sm:inline">{t("workOrders.adjustedFeeFull")}</span>
-                  <span className="sm:hidden">{t("workOrders.adjustedFee")}</span>
+                  <span className="hidden sm:inline">
+                    {t("workOrders.adjustedFeeFull")}
+                  </span>
+                  <span className="sm:hidden">
+                    {t("workOrders.adjustedFee")}
+                  </span>
                 </span>
                 <span className="font-mono">
                   <span className="text-muted-foreground mr-2">{currency}</span>
@@ -528,7 +654,9 @@ export function WorkOrderForm({
               </div>
               {/* Expenses */}
               <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">{t("workOrders.expenses")}</span>
+                <span className="text-muted-foreground">
+                  {t("workOrders.expenses")}
+                </span>
                 <span className="font-mono">
                   <span className="text-muted-foreground mr-2">{currency}</span>
                   {formatNumber(totalExpenses)}
@@ -537,18 +665,26 @@ export function WorkOrderForm({
               {/* IVA */}
               <div className="border-t border-border pt-2">
                 <div className="flex justify-between items-center text-muted-foreground">
-                  <span>{t("workOrders.iva")} ({(taxRate * 100).toFixed(0)}%)</span>
+                  <span>
+                    {t("workOrders.iva")} ({(taxRate * 100).toFixed(0)}%)
+                  </span>
                   <span className="font-mono">
                     <span className="text-sm mr-2">{currency}</span>
-                    {formatNumber(feeWithTax - totalAdjustedFee - totalExpenses)}
+                    {formatNumber(
+                      feeWithTax - totalAdjustedFee - totalExpenses,
+                    )}
                   </span>
                 </div>
               </div>
               {/* Fee with Tax */}
               <div className="flex justify-between items-center pt-2 border-t border-border">
-                <span className="font-semibold">{t("workOrders.feeWithTax")}</span>
+                <span className="font-semibold">
+                  {t("workOrders.feeWithTax")}
+                </span>
                 <span className="font-mono font-bold text-accent">
-                  <span className="text-sm font-normal text-muted-foreground mr-2">{currency}</span>
+                  <span className="text-sm font-normal text-muted-foreground mr-2">
+                    {currency}
+                  </span>
                   {formatNumber(feeWithTax)}
                 </span>
               </div>
@@ -561,13 +697,18 @@ export function WorkOrderForm({
       {((isDraft && canApprove) ||
         (isPending && canApprove) ||
         (isApproved && (ceacCompletedAt || sanCompletedAt))) && (
-        <Card className={cn(
-          "transition-all duration-500",
-          riskLevel === 'Alto'     && "border-destructive/60 bg-destructive/5 shadow-[0_0_16px_hsl(var(--destructive)/0.25)]",
-          riskLevel === 'Moderado' && "border-warning/60 bg-warning/5 shadow-[0_0_16px_hsl(var(--warning)/0.25)]",
-          riskLevel === 'Bajo'     && "border-success/60 bg-success/5 shadow-[0_0_16px_hsl(var(--success)/0.25)]",
-          !riskLevel               && "border-info/30 bg-info/5",
-        )}>
+        <Card
+          className={cn(
+            "transition-all duration-500",
+            riskLevel === "Alto" &&
+              "border-destructive/60 bg-destructive/5 shadow-[0_0_16px_hsl(var(--destructive)/0.25)]",
+            riskLevel === "Moderado" &&
+              "border-warning/60 bg-warning/5 shadow-[0_0_16px_hsl(var(--warning)/0.25)]",
+            riskLevel === "Bajo" &&
+              "border-success/60 bg-success/5 shadow-[0_0_16px_hsl(var(--success)/0.25)]",
+            !riskLevel && "border-info/30 bg-info/5",
+          )}
+        >
           <CardHeader className="py-3">
             <div className="flex items-center justify-between gap-4">
               <div>
@@ -575,26 +716,42 @@ export function WorkOrderForm({
                   <ShieldCheck className="h-4 w-4 text-info" />
                   {t("workOrders.riskAssessment")}
                 </CardTitle>
-                <p className="text-sm text-muted-foreground mt-1">{t("workOrders.riskAssessmentDescription")}</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  {t("workOrders.riskAssessmentDescription")}
+                </p>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                <Label className="text-sm whitespace-nowrap">{t("workOrders.riskLevel")}</Label>
+                <Label className="text-sm whitespace-nowrap">
+                  {t("workOrders.riskLevel")}
+                </Label>
                 {isDraft ? (
                   <Select
-                    value={riskLevel || ''}
-                    onValueChange={(value) => onRiskAssessmentChange?.('riskLevel', value || null)}
+                    value={riskLevel || ""}
+                    onValueChange={(value) =>
+                      onRiskAssessmentChange?.("riskLevel", value || null)
+                    }
                   >
                     <SelectTrigger className="w-36">
                       <SelectValue placeholder="—" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Bajo">{t("workOrders.riskLevelBajo")}</SelectItem>
-                      <SelectItem value="Moderado">{t("workOrders.riskLevelModerado")}</SelectItem>
-                      <SelectItem value="Alto">{t("workOrders.riskLevelAlto")}</SelectItem>
+                      <SelectItem value="Bajo">
+                        {t("workOrders.riskLevelBajo")}
+                      </SelectItem>
+                      <SelectItem value="Moderado">
+                        {t("workOrders.riskLevelModerado")}
+                      </SelectItem>
+                      <SelectItem value="Alto">
+                        {t("workOrders.riskLevelAlto")}
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                 ) : (
-                  <span className="text-sm font-medium">{riskLevel || <span className="text-muted-foreground">—</span>}</span>
+                  <span className="text-sm font-medium">
+                    {riskLevel || (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </span>
                 )}
               </div>
             </div>
@@ -606,14 +763,27 @@ export function WorkOrderForm({
                 {isDraft ? (
                   <Input
                     type="date"
-                    value={ceacCompletedAt ? ceacCompletedAt.split('T')[0] : ''}
-                    onChange={(e) => onRiskAssessmentChange?.('ceacCompletedAt', e.target.value || null)}
+                    value={ceacCompletedAt ? ceacCompletedAt.split("T")[0] : ""}
+                    onChange={(e) =>
+                      onRiskAssessmentChange?.(
+                        "ceacCompletedAt",
+                        e.target.value || null,
+                      )
+                    }
                   />
                 ) : (
                   <p className="text-sm py-2">
-                    {ceacCompletedAt
-                      ? new Date(ceacCompletedAt + 'T00:00:00').toLocaleDateString('es-BO', { day: '2-digit', month: '2-digit', year: 'numeric' })
-                      : <span className="text-muted-foreground">—</span>}
+                    {ceacCompletedAt ? (
+                      new Date(
+                        ceacCompletedAt + "T00:00:00",
+                      ).toLocaleDateString("es-BO", {
+                        day: "2-digit",
+                        month: "2-digit",
+                        year: "numeric",
+                      })
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
                   </p>
                 )}
               </div>
@@ -622,38 +792,29 @@ export function WorkOrderForm({
                 {isDraft ? (
                   <Input
                     type="date"
-                    value={sanCompletedAt ? sanCompletedAt.split('T')[0] : ''}
-                    onChange={(e) => onRiskAssessmentChange?.('sanCompletedAt', e.target.value || null)}
+                    value={sanCompletedAt ? sanCompletedAt.split("T")[0] : ""}
+                    onChange={(e) =>
+                      onRiskAssessmentChange?.(
+                        "sanCompletedAt",
+                        e.target.value || null,
+                      )
+                    }
                   />
                 ) : (
                   <p className="text-sm py-2">
-                    {sanCompletedAt
-                      ? new Date(sanCompletedAt + 'T00:00:00').toLocaleDateString('es-BO', { day: '2-digit', month: '2-digit', year: 'numeric' })
-                      : <span className="text-muted-foreground">—</span>}
+                    {sanCompletedAt ? (
+                      new Date(sanCompletedAt + "T00:00:00").toLocaleDateString(
+                        "es-BO",
+                        { day: "2-digit", month: "2-digit", year: "numeric" },
+                      )
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
                   </p>
                 )}
               </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>{t("workOrders.ceacNotes")}</Label>
-                <Textarea
-                  value={ceacNotes || ''}
-                  onChange={(e) => onRiskAssessmentChange?.('ceacNotes', e.target.value || null)}
-                  readOnly={!isDraft}
-                  rows={2}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>{t("workOrders.sanNotes")}</Label>
-                <Textarea
-                  value={sanNotes || ''}
-                  onChange={(e) => onRiskAssessmentChange?.('sanNotes', e.target.value || null)}
-                  readOnly={!isDraft}
-                  rows={2}
-                />
-              </div>
-            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>{t("workOrders.ceacNumber")}</Label>
@@ -662,18 +823,27 @@ export function WorkOrderForm({
                     <Input
                       type="text"
                       placeholder={t("workOrders.ceacNumberPlaceholder")}
-                      value={ceacNumber || ''}
+                      value={ceacNumber || ""}
                       onChange={(e) => {
-                        const val = e.target.value.replace(/[^\d]/g, '').slice(0, 10);
-                        onRiskAssessmentChange?.('ceacNumber', val || null);
+                        const val = e.target.value
+                          .replace(/[^\d]/g, "")
+                          .slice(0, 10);
+                        onRiskAssessmentChange?.("ceacNumber", val || null);
                       }}
                     />
-                    {(ceacNumber?.length ?? 0) > 0 && !CEAC_NUM_RE.test(ceacNumber ?? '') && (
-                      <p className="text-xs text-destructive">{t("workOrders.ceacNumberInvalid")}</p>
-                    )}
+                    {(ceacNumber?.length ?? 0) > 0 &&
+                      !CEAC_NUM_RE.test(ceacNumber ?? "") && (
+                        <p className="text-xs text-destructive">
+                          {t("workOrders.ceacNumberInvalid")}
+                        </p>
+                      )}
                   </>
                 ) : (
-                  <p className="text-sm py-2">{ceacNumber || <span className="text-muted-foreground">—</span>}</p>
+                  <p className="text-sm py-2">
+                    {ceacNumber || (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </p>
                 )}
               </div>
               <div className="space-y-2">
@@ -683,19 +853,56 @@ export function WorkOrderForm({
                     <Input
                       type="text"
                       placeholder={t("workOrders.sanApprovalIdPlaceholder")}
-                      value={sanApprovalId || ''}
+                      value={sanApprovalId || ""}
                       onChange={(e) => {
-                        const val = e.target.value.replace(/[^\d-]/g, '').replace(/(.*-.*)-/g, '$1').slice(0, 11);
-                        onRiskAssessmentChange?.('sanApprovalId', val || null);
+                        const val = e.target.value
+                          .replace(/[^\d-]/g, "")
+                          .replace(/(.*-.*)-/g, "$1")
+                          .slice(0, 11);
+                        onRiskAssessmentChange?.("sanApprovalId", val || null);
                       }}
                     />
-                    {(sanApprovalId?.length ?? 0) > 0 && !SAN_ID_RE.test(sanApprovalId ?? '') && (
-                      <p className="text-xs text-destructive">{t("workOrders.sanApprovalIdInvalid")}</p>
-                    )}
+                    {(sanApprovalId?.length ?? 0) > 0 &&
+                      !SAN_ID_RE.test(sanApprovalId ?? "") && (
+                        <p className="text-xs text-destructive">
+                          {t("workOrders.sanApprovalIdInvalid")}
+                        </p>
+                      )}
                   </>
                 ) : (
-                  <p className="text-sm py-2">{sanApprovalId || <span className="text-muted-foreground">—</span>}</p>
+                  <p className="text-sm py-2">
+                    {sanApprovalId || (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </p>
                 )}
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>{t("workOrders.ceacNotes")}</Label>
+                <Textarea
+                  value={ceacNotes || ""}
+                  onChange={(e) =>
+                    onRiskAssessmentChange?.(
+                      "ceacNotes",
+                      e.target.value || null,
+                    )
+                  }
+                  readOnly={!isDraft}
+                  rows={2}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>{t("workOrders.sanNotes")}</Label>
+                <Textarea
+                  value={sanNotes || ""}
+                  onChange={(e) =>
+                    onRiskAssessmentChange?.("sanNotes", e.target.value || null)
+                  }
+                  readOnly={!isDraft}
+                  rows={2}
+                />
               </div>
             </div>
           </CardContent>
@@ -705,13 +912,22 @@ export function WorkOrderForm({
       {/* Actions */}
       <div className="flex justify-end gap-3">
         {onCancel && (
-          <Button variant="cancel" onClick={onCancel} disabled={isSubmitting} className="btn-action">
+          <Button
+            variant="cancel"
+            onClick={onCancel}
+            disabled={isSubmitting}
+            className="btn-action"
+          >
             {t("common.cancel")}
           </Button>
         )}
         {isDraft && (
           <>
-            <LoadingButton onClick={onSubmit} loading={isSubmitting} className="btn-action">
+            <LoadingButton
+              onClick={onSubmit}
+              loading={isSubmitting}
+              className="btn-action"
+            >
               {t("common.save")}
             </LoadingButton>
             {onSubmitForApproval && (
@@ -720,7 +936,13 @@ export function WorkOrderForm({
                 className="bg-info hover:bg-info/90 btn-action"
                 loading={isSubmitting}
                 disabled={hasNonRiskDirty || !canSubmitForApproval}
-                title={hasNonRiskDirty ? t("workOrders.saveBeforeSubmit") : !canSubmitForApproval ? t("workOrders.riskAssessmentRequired") : undefined}
+                title={
+                  hasNonRiskDirty
+                    ? t("workOrders.saveBeforeSubmit")
+                    : !canSubmitForApproval
+                      ? t("workOrders.riskAssessmentRequired")
+                      : undefined
+                }
               >
                 <Send className="h-4 w-4 mr-2" />
                 {t("workOrders.submitForApproval")}
@@ -743,7 +965,12 @@ export function WorkOrderForm({
         {isPending && canApprove && (
           <>
             {onReject && (
-              <LoadingButton variant="outline" onClick={onReject} className="text-destructive border-destructive btn-action" loading={isSubmitting}>
+              <LoadingButton
+                variant="outline"
+                onClick={onReject}
+                className="text-destructive border-destructive btn-action"
+                loading={isSubmitting}
+              >
                 <XCircle className="h-4 w-4 mr-2" />
                 {t("workOrders.reject")}
               </LoadingButton>
@@ -753,7 +980,11 @@ export function WorkOrderForm({
               className="bg-success hover:bg-success/90 btn-action"
               loading={isSubmitting}
               disabled={!riskApprovalReady || isSubmitting}
-              title={!riskApprovalReady ? t("workOrders.riskApprovalPending") : undefined}
+              title={
+                !riskApprovalReady
+                  ? t("workOrders.riskApprovalPending")
+                  : undefined
+              }
             >
               <CheckCircle className="h-4 w-4 mr-2" />
               {t("workOrders.approve")}
