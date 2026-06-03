@@ -360,6 +360,33 @@ const Settings = () => {
 
   const handleSaveSettings = async () => {
     try {
+      // Validate inputs BEFORE any mutateAsync so an invalid value can never
+      // leave the save partially committed. Upper bounds mirror
+      // record_failed_login() in migration
+      // 20260602000001_account_lockout_configurable_settings.sql, which falls
+      // back to defaults for values above these limits — reject them here so we
+      // never persist a policy the DB will silently ignore.
+      const MAX_FAILED_ATTEMPTS_LIMIT = 1000;
+      const LOCKOUT_MINUTES_LIMIT = 525600; // 1 year
+      let maxFailedAttemptsValue: string | null = null;
+      if (maxFailedAttempts) {
+        const val = parseInt(maxFailedAttempts, 10);
+        if (isNaN(val) || val < 1 || val > MAX_FAILED_ATTEMPTS_LIMIT) {
+          toast.error(t("settings.maxFailedAttemptsRangeError"));
+          return;
+        }
+        maxFailedAttemptsValue = val.toString();
+      }
+      let lockoutMinutesValue: string | null = null;
+      if (lockoutMinutes) {
+        const val = parseInt(lockoutMinutes, 10);
+        if (isNaN(val) || val < 1 || val > LOCKOUT_MINUTES_LIMIT) {
+          toast.error(t("settings.lockoutMinutesRangeError"));
+          return;
+        }
+        lockoutMinutesValue = val.toString();
+      }
+
       if (taxRate) {
         await updateSettingMutation.mutateAsync({ key: "TAX_RATE", value: (parseFloat(taxRate) / 100).toString() });
       }
@@ -408,27 +435,12 @@ const Settings = () => {
       if (holidayEngagementId !== persistedHolidayEngagement) {
         await updateSettingMutation.mutateAsync({ key: "HOLIDAY_ENGAGEMENT_ID", value: holidayEngagementId });
       }
-      // Upper bounds mirror record_failed_login() in migration
-      // 20260602000001_account_lockout_configurable_settings.sql, which falls
-      // back to defaults for values above these limits. Reject them here so we
-      // never persist a policy the DB will silently ignore.
-      const MAX_FAILED_ATTEMPTS_LIMIT = 1000;
-      const LOCKOUT_MINUTES_LIMIT = 525600; // 1 year
-      if (maxFailedAttempts) {
-        const val = parseInt(maxFailedAttempts, 10);
-        if (isNaN(val) || val < 1 || val > MAX_FAILED_ATTEMPTS_LIMIT) {
-          toast.error(t("settings.maxFailedAttemptsRangeError"));
-          return;
-        }
-        await updateSettingMutation.mutateAsync({ key: "AUTH_MAX_FAILED_ATTEMPTS", value: val.toString() });
+      // Persist the lockout values validated at the top of this handler.
+      if (maxFailedAttemptsValue !== null) {
+        await updateSettingMutation.mutateAsync({ key: "AUTH_MAX_FAILED_ATTEMPTS", value: maxFailedAttemptsValue });
       }
-      if (lockoutMinutes) {
-        const val = parseInt(lockoutMinutes, 10);
-        if (isNaN(val) || val < 1 || val > LOCKOUT_MINUTES_LIMIT) {
-          toast.error(t("settings.lockoutMinutesRangeError"));
-          return;
-        }
-        await updateSettingMutation.mutateAsync({ key: "AUTH_LOCKOUT_MINUTES", value: val.toString() });
+      if (lockoutMinutesValue !== null) {
+        await updateSettingMutation.mutateAsync({ key: "AUTH_LOCKOUT_MINUTES", value: lockoutMinutesValue });
       }
       queryClient.invalidateQueries({ queryKey: ["global_settings"] });
       toast.success(t("messages.settingsSaved"));

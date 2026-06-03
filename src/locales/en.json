@@ -501,6 +501,7 @@
     "unblockConfirmDescription": "{{name}}'s account will be unblocked and a password reset email will be sent.",
     "unblockConfirmButton": "Yes, unblock",
     "unblockSuccess": "Account unblocked. Password reset email sent.",
+    "unblockNoEmail": "Account unblocked, but the password reset email could not be sent. Please send the reset manually.",
     "unblockError": "Could not unblock the account. Please try again.",
     "competencies": {
       "title": "Competencies",

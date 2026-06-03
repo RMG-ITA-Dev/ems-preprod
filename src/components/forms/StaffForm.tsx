@@ -351,9 +351,15 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
         },
       });
       if (error) throw error;
-      const result = data as { ok: boolean; code?: string } | null;
+      const result = data as { ok: boolean; code?: string; resetEmailSent?: boolean } | null;
       if (!result?.ok) throw new Error(result?.code ?? 'UNKNOWN_ERROR');
-      toast.success(t('staff.unblockSuccess'));
+      // The account is unblocked either way, but the reset email may have failed
+      // (SMTP/rate limit/redirect). Don't claim it was sent when it wasn't.
+      if (result.resetEmailSent === false) {
+        toast.warning(t('staff.unblockNoEmail'));
+      } else {
+        toast.success(t('staff.unblockSuccess'));
+      }
       setShowUnblockDialog(false);
       if (onSaveSuccess) {
         onSaveSuccess();

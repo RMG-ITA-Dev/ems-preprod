@@ -501,6 +501,7 @@
     "unblockConfirmDescription": "Se desbloqueará la cuenta de {{name}} y se enviará un correo con un enlace para restablecer su contraseña.",
     "unblockConfirmButton": "Sí, desbloquear",
     "unblockSuccess": "Cuenta desbloqueada. Se envió el correo de restablecimiento.",
+    "unblockNoEmail": "Cuenta desbloqueada, pero no se pudo enviar el correo de restablecimiento. Envíe el restablecimiento manualmente.",
     "unblockError": "No se pudo desbloquear la cuenta. Intente nuevamente.",
     "competencies": {
       "title": "Competencias",

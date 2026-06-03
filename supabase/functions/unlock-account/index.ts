@@ -8,7 +8,10 @@
 // Contract (requires valid admin JWT):
 //   Input:  { staffId: string }
 //   Output (success):
-//     { ok: true }
+//     { ok: true, resetEmailSent: boolean }
+//     resetEmailSent is false when the account was unblocked but GoTrue
+//     rejected the reset-password email (SMTP/rate limit/redirect not allowed),
+//     so the UI can warn the admin instead of claiming the email was sent.
 //   Output (not admin):
 //     { ok: false, code: "NOT_ADMIN" }
 //   Output (staff not found):
@@ -129,9 +132,12 @@ Deno.serve(async (req) => {
   });
 
   if (resetError) {
-    // Non-fatal: the account is already unblocked; log and continue.
+    // The account is already unblocked, so this is not fatal — but the user
+    // received no recovery link. Report resetEmailSent: false so the admin is
+    // warned and can re-send the reset manually instead of being told it went out.
     console.error("[unlock-account] resetPasswordForEmail failed:", resetError);
+    return jsonResponse({ ok: true, resetEmailSent: false });
   }
 
-  return jsonResponse({ ok: true });
+  return jsonResponse({ ok: true, resetEmailSent: true });
 });
