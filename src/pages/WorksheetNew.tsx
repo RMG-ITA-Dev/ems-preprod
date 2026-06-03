@@ -65,7 +65,7 @@ const WorksheetNew = () => {
   if (roleLoading || !canCreate) return null;
 
   return (
-    <AppLayout focusMode>
+    <AppLayout title={t("workMatrix.title")} focusMode>
       <div className="space-y-4 max-w-2xl">
         <h1 className="text-lg font-semibold text-foreground">
           {t("workMatrix.newWorksheet")}
