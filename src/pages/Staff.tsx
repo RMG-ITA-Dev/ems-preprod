@@ -12,14 +12,6 @@ interface StaffRow extends StaffFull {
   auth_user_id: string | null;
 }
 
-const categoryColors: Record<string, string> = {
-  Partner: "bg-accent/10 text-accent border-accent/20",
-  Manager: "bg-success/10 text-success border-success/20",
-  Senior: "bg-info/10 text-info border-info/20",
-  Staff: "bg-warning/10 text-warning border-warning/20",
-  Junior: "bg-muted text-muted-foreground border-border",
-};
-
 const Staff = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -92,7 +84,7 @@ const Staff = () => {
       mobilePriority: 'primary',
       render: (row) =>
         row.category ? (
-          <Badge variant="outline" className={categoryColors[row.category.category_name] || ""}>
+          <Badge variant="outline">
             {row.category.category_name}
           </Badge>
         ) : (
