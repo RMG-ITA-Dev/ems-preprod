@@ -21,6 +21,12 @@
 --   4. admin_unblock_account(p_staff_id uuid) — new SECURITY DEFINER RPC
 --      callable only by service_role (used by the unlock-account Edge
 --      Function). Atomically clears auth_login_attempts and staff.is_blocked.
+--
+--   5. prevent_self_blocked_change() trigger — blocks a non-admin authenticated
+--      user from changing their own is_blocked via the "Users can update their
+--      linked staff record" RLS policy, so a lockout cannot be self-cleared
+--      from a still-active session. Only admins / the no-JWT service_role +
+--      SECURITY DEFINER lockout paths may flip the flag.
 
 -- ============================================================
 -- 1. Add is_blocked column to staff
@@ -184,3 +190,46 @@ $$;
 -- Only service_role may call this RPC (the Edge Function uses service_role key).
 REVOKE ALL ON FUNCTION public.admin_unblock_account(uuid) FROM public, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.admin_unblock_account(uuid) TO service_role;
+
+-- ============================================================
+-- 5. Protect is_blocked from self-service tampering
+-- ============================================================
+-- The "Users can update their linked staff record" RLS policy lets any
+-- authenticated user UPDATE every column on their own staff row, including
+-- is_blocked. Without a guard, a user with a still-valid session could set
+-- their own is_blocked back to false and hide a lockout that fired on another
+-- device, even though only admins / the service_role lockout path should ever
+-- control this flag.
+--
+-- A BEFORE UPDATE trigger enforces that. Legitimate writers run WITHOUT an
+-- end-user JWT (auth.uid() IS NULL):
+--   * service_role — unlock-account Edge Function → admin_unblock_account
+--   * the SECURITY DEFINER lockout RPCs (record_failed_login /
+--     reset_login_attempts), invoked by secure-signin via service_role
+-- An authenticated end user may only change is_blocked if they are an admin.
+-- The app never writes is_blocked directly from the client (it is read-only in
+-- the UI; unblock goes through the Edge Function), so this never blocks a
+-- legitimate client path.
+CREATE OR REPLACE FUNCTION public.prevent_self_blocked_change()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+BEGIN
+  IF NEW.is_blocked IS DISTINCT FROM OLD.is_blocked
+     AND auth.uid() IS NOT NULL
+     AND NOT public.is_admin() THEN
+    RAISE EXCEPTION 'FORBIDDEN: is_blocked can only be changed by an administrator'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+-- Idempotent: drop before create so re-running the migration is safe.
+DROP TRIGGER IF EXISTS trg_prevent_self_blocked_change ON public.staff;
+CREATE TRIGGER trg_prevent_self_blocked_change
+  BEFORE UPDATE OF is_blocked ON public.staff
+  FOR EACH ROW
+  EXECUTE FUNCTION public.prevent_self_blocked_change();

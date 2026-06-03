@@ -2357,6 +2357,13 @@ CREATE TRIGGER trg_link_staff_to_auth_user BEFORE INSERT OR UPDATE ON public.sta
 CREATE TRIGGER trg_prevent_staff_reactivation BEFORE UPDATE ON public.staff
   FOR EACH ROW EXECUTE FUNCTION public.prevent_staff_reactivation();
 
+-- BUG 0601-132: block non-admin self-updates of is_blocked (see migration
+-- 20260602000000). Only admins / no-JWT service_role + SECURITY DEFINER lockout
+-- paths may flip the flag; the "Users can update their linked staff record"
+-- policy would otherwise let a user clear their own lockout.
+CREATE TRIGGER trg_prevent_self_blocked_change BEFORE UPDATE OF is_blocked ON public.staff
+  FOR EACH ROW EXECUTE FUNCTION public.prevent_self_blocked_change();
+
 -- Timesheet Periods triggers
 CREATE TRIGGER trg_validate_submission_has_entries BEFORE UPDATE ON public.timesheet_periods
   FOR EACH ROW WHEN (OLD.submitted_at IS NULL AND NEW.submitted_at IS NOT NULL)

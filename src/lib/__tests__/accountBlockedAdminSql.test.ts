@@ -68,4 +68,19 @@ describe("account blocked admin control migration (BUG 0601-132)", () => {
   it("admin_unblock_account guards against deleted staff (deleted_at IS NULL)", () => {
     expect(sql).toMatch(/deleted_at IS NULL/);
   });
+
+  it("protects is_blocked from non-admin self-updates via a BEFORE UPDATE trigger", () => {
+    // The trigger must reject is_blocked changes from an authenticated
+    // non-admin session so a lockout cannot be self-cleared.
+    expect(sql).toMatch(
+      /CREATE OR REPLACE FUNCTION public\.prevent_self_blocked_change\(\)/,
+    );
+    expect(sql).toMatch(/NEW\.is_blocked IS DISTINCT FROM OLD\.is_blocked/);
+    expect(sql).toMatch(/auth\.uid\(\) IS NOT NULL/);
+    expect(sql).toMatch(/NOT public\.is_admin\(\)/);
+    expect(sql).toMatch(/RAISE EXCEPTION 'FORBIDDEN: is_blocked/);
+    expect(sql).toMatch(
+      /CREATE TRIGGER trg_prevent_self_blocked_change\s+BEFORE UPDATE OF is_blocked ON public\.staff/,
+    );
+  });
 });
