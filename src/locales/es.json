@@ -292,6 +292,8 @@
     "maxFailedAttemptsHelp": "Número de intentos de inicio de sesión fallidos antes de bloquear la cuenta. Por defecto: 5.",
     "lockoutMinutes": "Duración del bloqueo (minutos)",
     "lockoutMinutesHelp": "Minutos que la cuenta permanece bloqueada tras superar el límite de intentos. Por defecto: 15.",
+    "maxFailedAttemptsRangeError": "Los intentos fallidos máximos deben estar entre 1 y 1000.",
+    "lockoutMinutesRangeError": "La duración del bloqueo debe estar entre 1 y 525600 minutos (1 año).",
     "dailyMin": "Mínimo de Horas Diarias",
     "dailyMinHelp": "Mínimo de horas por día (indicador visual)",
     "dailyMax": "Máximo de Horas Diarias",

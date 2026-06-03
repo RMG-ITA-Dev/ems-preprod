@@ -292,6 +292,8 @@
     "maxFailedAttemptsHelp": "Number of consecutive failed login attempts before the account is locked. Default: 5.",
     "lockoutMinutes": "Lockout duration (minutes)",
     "lockoutMinutesHelp": "Minutes the account remains locked after exceeding the attempt limit. Default: 15.",
+    "maxFailedAttemptsRangeError": "Max failed attempts must be between 1 and 1000.",
+    "lockoutMinutesRangeError": "Lockout duration must be between 1 and 525600 minutes (1 year).",
     "dailyMin": "Daily Minimum Hours",
     "dailyMinHelp": "Minimum hours per day (visual indicator)",
     "dailyMax": "Daily Maximum Hours",
