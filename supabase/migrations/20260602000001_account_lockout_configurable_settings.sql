@@ -6,9 +6,14 @@
 --
 -- Updates record_failed_login() to read these values from global_settings
 -- at call time, falling back to the original hardcoded defaults if the
--- rows are missing or contain an invalid (non-positive-integer) value.
--- The regex guard (^[1-9][0-9]*$) ensures a bad setting_value can never
--- disable lockout by causing a cast exception.
+-- rows are missing or contain an invalid value. Validation has two parts:
+--   1. Regex guard (^[1-9][0-9]*$) — must be a positive integer.
+--   2. Upper-bound guard (compared as numeric, which never overflows) — a
+--      value above the bound would otherwise overflow the ::integer cast and
+--      raise, aborting the function. Because secure-signin swallows the RPC
+--      error and still returns INVALID_CREDENTIALS, an aborting function
+--      would silently freeze the failed-login counter. Out-of-range values
+--      therefore fall back to the hardcoded default instead of casting.
 
 -- 1. Insert default settings (idempotent: ON CONFLICT DO NOTHING)
 INSERT INTO public.global_settings (setting_key, setting_value)
@@ -37,15 +42,18 @@ DECLARE
   v_raw          text;
 BEGIN
   -- Read configurable thresholds with defensive parsing.
-  -- Regex guard (^[1-9][0-9]*$) ensures the value is a positive integer
-  -- before casting. Any non-numeric or zero value falls back to the original
-  -- hardcoded default so a bad setting can never disable lockout.
+  -- Regex guard (^[1-9][0-9]*$) ensures the value is a positive integer, and
+  -- the numeric upper-bound guard rejects values that would overflow the
+  -- ::integer cast (and, for the interval, blow past a sane maximum). Any
+  -- non-numeric, zero, or out-of-range value falls back to the original
+  -- hardcoded default so a bad setting can never disable lockout — whether by
+  -- causing a cast exception or by silently freezing the counter.
 
   SELECT setting_value INTO v_raw
   FROM public.global_settings
   WHERE setting_key = 'AUTH_MAX_FAILED_ATTEMPTS'
   LIMIT 1;
-  IF v_raw ~ '^[1-9][0-9]*$' THEN
+  IF v_raw ~ '^[1-9][0-9]*$' AND v_raw::numeric <= 1000 THEN
     v_max := v_raw::integer;
   ELSE
     v_max := 5;
@@ -55,7 +63,8 @@ BEGIN
   FROM public.global_settings
   WHERE setting_key = 'AUTH_LOCKOUT_MINUTES'
   LIMIT 1;
-  IF v_raw ~ '^[1-9][0-9]*$' THEN
+  -- 525600 minutes = 1 year; a generous ceiling that stays well within int range.
+  IF v_raw ~ '^[1-9][0-9]*$' AND v_raw::numeric <= 525600 THEN
     v_lockout := make_interval(mins => v_raw::integer);
   ELSE
     v_lockout := interval '15 minutes';
