@@ -988,6 +988,7 @@
     "rejectDialogConfirm": "Confirmar Rechazo",
     "rejectionNoteLabel": "Nota de rechazo:",
     "rejectNotePlaceholder": "Ingrese el motivo del rechazo (opcional)...",
+    "withdrawRejected": "Retirar",
     "unsubmit": "Retirar de Aprobación",
     "unsubmitted": "Orden de trabajo devuelta a borrador",
     "saveBeforeSubmit": "Guarde los cambios antes de enviar para aprobación",
