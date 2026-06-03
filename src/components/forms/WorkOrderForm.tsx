@@ -49,6 +49,7 @@ interface WorkOrderFormProps {
   // New props for create/edit mode and dirty state
   isNew?: boolean;
   isDirty?: boolean;
+  rejectionNote?: string | null;
   onCurrencyChange: (currency: "USD" | "BOB") => void;
   onSeasonChange: (season: "High" | "Low") => void;
   onAdjustmentChange: (amount: number) => void;
@@ -61,7 +62,6 @@ interface WorkOrderFormProps {
   onSubmitForApproval?: () => void;
   onUnsubmit?: () => void;
   onCancel?: () => void;
-  rejectionNote?: string | null;
   isLocked: boolean;
   canApprove: boolean;
   isSubmitting: boolean;
@@ -95,6 +95,7 @@ export function WorkOrderForm({
   sanNotes,
   isNew = false,
   isDirty = false,
+  rejectionNote,
   onCurrencyChange,
   onSeasonChange,
   onAdjustmentChange,
@@ -107,7 +108,6 @@ export function WorkOrderForm({
   onSubmitForApproval,
   onUnsubmit,
   onCancel,
-  rejectionNote,
   isLocked,
   canApprove,
   isSubmitting,
@@ -602,6 +602,7 @@ export function WorkOrderForm({
           {rejectionNote}
         </div>
       )}
+
       {/* Actions */}
       <div className="flex justify-end gap-3">
         {onCancel && (
