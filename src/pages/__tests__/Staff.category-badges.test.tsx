@@ -48,25 +48,31 @@ vi.mock("@/hooks/useUserRole", () => ({
   useUserRole: () => ({ isAdmin: true }),
 }));
 
-const makeStaffRow = (id: string, firstName: string, categoryName: string) => ({
-  staff_id: id,
-  first_name: firstName,
-  last_name: "Tester",
-  short_name: firstName,
-  initials: firstName.slice(0, 2).toUpperCase(),
-  email: `${firstName.toLowerCase()}@firm.com`,
-  is_active: true,
-  auth_user_id: null,
-  category_id: `cat-${categoryName}`,
-  category: { category_id: `cat-${categoryName}`, category_name: categoryName },
-});
+// Defined via vi.hoisted so the fixture is initialized before the hoisted
+// vi.mock factory below runs (the factory closes over `staffRows`).
+const { staffRows } = vi.hoisted(() => {
+  const makeStaffRow = (id: string, firstName: string, categoryName: string) => ({
+    staff_id: id,
+    first_name: firstName,
+    last_name: "Tester",
+    short_name: firstName,
+    initials: firstName.slice(0, 2).toUpperCase(),
+    email: `${firstName.toLowerCase()}@firm.com`,
+    is_active: true,
+    auth_user_id: null,
+    category_id: `cat-${categoryName}`,
+    category: { category_id: `cat-${categoryName}`, category_name: categoryName },
+  });
 
-const staffRows = [
-  makeStaffRow("s1", "Carlos", "Socio"),
-  makeStaffRow("s2", "Maria", "Gerente"),
-  makeStaffRow("s3", "Luis", "Senior"),
-  makeStaffRow("s4", "Ana", "Asistente"),
-];
+  return {
+    staffRows: [
+      makeStaffRow("s1", "Carlos", "Socio"),
+      makeStaffRow("s2", "Maria", "Gerente"),
+      makeStaffRow("s3", "Luis", "Senior"),
+      makeStaffRow("s4", "Ana", "Asistente"),
+    ],
+  };
+});
 
 vi.mock("@/hooks/useEmsData", () => ({
   useStaffFull: () => ({ data: staffRows, isLoading: false }),
