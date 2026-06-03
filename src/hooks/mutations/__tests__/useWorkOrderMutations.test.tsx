@@ -159,7 +159,7 @@ describe("useWorkOrderMutations", () => {
   });
 
   describe("useRejectWorkOrder", () => {
-    it("should set approval_status back to Draft", async () => {
+    it("should set approval_status to Rejected", async () => {
       const mockData = { wo_id: "wo-1", approval_status: "Draft" };
       const mockSingle = vi.fn().mockResolvedValue({ data: mockData, error: null });
       const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
@@ -176,7 +176,7 @@ describe("useWorkOrderMutations", () => {
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
       expect(supabase.from).toHaveBeenCalledWith("work_orders");
-      expect(mockUpdate).toHaveBeenCalledWith({ approval_status: "Draft", notes: null });
+      expect(mockUpdate).toHaveBeenCalledWith({ approval_status: "Rejected", notes: null });
       expect(toast.success).toHaveBeenCalled();
     });
 
@@ -196,7 +196,7 @@ describe("useWorkOrderMutations", () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-      expect(mockUpdate).toHaveBeenCalledWith({ approval_status: "Draft", notes: "Falta CEAC" });
+      expect(mockUpdate).toHaveBeenCalledWith({ approval_status: "Rejected", notes: "Falta CEAC" });
     });
 
     it("should set notes to null when note is whitespace-only", async () => {
@@ -215,7 +215,7 @@ describe("useWorkOrderMutations", () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-      expect(mockUpdate).toHaveBeenCalledWith({ approval_status: "Draft", notes: null });
+      expect(mockUpdate).toHaveBeenCalledWith({ approval_status: "Rejected", notes: null });
     });
   });
 });
