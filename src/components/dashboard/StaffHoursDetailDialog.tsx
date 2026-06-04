@@ -165,7 +165,12 @@ export function StaffHoursDetailDialog({ open, onOpenChange, engagementId, engag
     });
   }, [aggregated, selectedCategories, nameFilter, yearFilter, weekFilter]);
 
-  function handleExport() {
+  const filteredGrandTotal = useMemo(
+    () => filtered.reduce((s, r) => s + r.hoursLoaded, 0),
+    [filtered]
+  );
+
+  async function handleExport() {
     const headers = {
       staffName: t('dashboard.encargo.hoursDetail.staffName'),
       category: t('dashboard.encargo.hoursDetail.category'),
@@ -175,7 +180,7 @@ export function StaffHoursDetailDialog({ open, onOpenChange, engagementId, engag
       subtotal: t('dashboard.encargo.hoursDetail.subtotal'),
       grandTotal: t('dashboard.encargo.hoursDetail.grandTotal'),
     };
-    downloadXlsx(filtered, headers, `horas_${engagementCode}_detalle.xlsx`);
+    await downloadXlsx(filtered, headers, `horas_${engagementCode}_detalle.xlsx`);
   }
 
   return (
@@ -348,7 +353,7 @@ export function StaffHoursDetailDialog({ open, onOpenChange, engagementId, engag
                     <TableCell className="py-2 text-right font-mono">—</TableCell>
                     <TableCell className="py-2 text-right font-mono">—</TableCell>
                     <TableCell className="py-2 text-right font-mono">
-                      {filtered.reduce((s, r) => s + r.hoursLoaded, 0).toFixed(1)}
+                      {filteredGrandTotal.toFixed(1)}
                     </TableCell>
                   </TableRow>
                 </>

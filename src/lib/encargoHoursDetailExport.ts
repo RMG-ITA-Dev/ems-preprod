@@ -1,5 +1,3 @@
-import * as XLSX from 'xlsx';
-
 export interface RawTimeEntryRow {
   staff_id: string;
   hours_logged: number;
@@ -88,7 +86,7 @@ export function groupByCategory(rows: StaffHoursReportRow[]): CategoryGroup[] {
   }));
 }
 
-export function downloadXlsx(
+export async function downloadXlsx(
   rows: StaffHoursReportRow[],
   headers: {
     staffName: string;
@@ -100,7 +98,8 @@ export function downloadXlsx(
     grandTotal: string;
   },
   filename: string
-): void {
+): Promise<void> {
+  const XLSX = await import('xlsx');
   const data: (string | number)[][] = [
     [headers.staffName, headers.category, headers.year, headers.week, headers.loadedHours],
   ];

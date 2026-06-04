@@ -36,6 +36,7 @@ const defaultHeaders = {
   week: "Semana",
   loadedHours: "Horas cargadas",
   subtotal: "Subtotal",
+  grandTotal: "Total General",
 };
 
 const sampleRow = {
@@ -174,15 +175,15 @@ describe("downloadXlsx", () => {
   const seniorRow2 = { ...sampleRow, staffId: "s2", staffName: "Luis Perez", hoursLoaded: 5 };
 
   // Test 9
-  it("first row equals header columns in order", () => {
-    downloadXlsx([seniorRow1], defaultHeaders, "test.xlsx");
+  it("first row equals header columns in order", async () => {
+    await downloadXlsx([seniorRow1], defaultHeaders, "test.xlsx");
     const data = vi.mocked(XLSX.utils.aoa_to_sheet).mock.calls[0][0] as (string | number)[][];
     expect(data[0]).toEqual(["Nombre", "Categoría", "Año", "Semana", "Horas cargadas"]);
   });
 
   // Test 10
-  it("inserts subtotal row after each category's data rows", () => {
-    downloadXlsx([seniorRow1, seniorRow2], defaultHeaders, "test.xlsx");
+  it("inserts subtotal row after each category's data rows", async () => {
+    await downloadXlsx([seniorRow1, seniorRow2], defaultHeaders, "test.xlsx");
     const data = vi.mocked(XLSX.utils.aoa_to_sheet).mock.calls[0][0] as (string | number)[][];
     // index 0: header; index 1: Ana; index 2: Luis; index 3: subtotal
     const subtotalCell = data[3][1] as string;
@@ -191,15 +192,25 @@ describe("downloadXlsx", () => {
   });
 
   // Test 11
-  it("subtotal numeric value equals category hour sum", () => {
-    downloadXlsx([seniorRow1, seniorRow2], defaultHeaders, "test.xlsx");
+  it("subtotal numeric value equals category hour sum", async () => {
+    await downloadXlsx([seniorRow1, seniorRow2], defaultHeaders, "test.xlsx");
     const data = vi.mocked(XLSX.utils.aoa_to_sheet).mock.calls[0][0] as (string | number)[][];
     expect(data[3][4]).toBeCloseTo(8);
   });
 
   // Test 12
-  it("calls XLSX.writeFile with the correct filename", () => {
-    downloadXlsx([seniorRow1], defaultHeaders, "horas_SSU-001_detalle.xlsx");
+  it("calls XLSX.writeFile with the correct filename", async () => {
+    await downloadXlsx([seniorRow1], defaultHeaders, "horas_SSU-001_detalle.xlsx");
     expect(vi.mocked(XLSX.writeFile)).toHaveBeenCalledWith(expect.anything(), "horas_SSU-001_detalle.xlsx");
+  });
+
+  // Test 13
+  it("last row is the grand total row with correct label and sum", async () => {
+    await downloadXlsx([seniorRow1, seniorRow2], defaultHeaders, "test.xlsx");
+    const data = vi.mocked(XLSX.utils.aoa_to_sheet).mock.calls[0][0] as (string | number)[][];
+    // index 0: header; 1: Ana; 2: Luis; 3: subtotal Senior; 4: grand total
+    const lastRow = data[data.length - 1];
+    expect(lastRow[1]).toBe("Total General");
+    expect(lastRow[4]).toBeCloseTo(8);
   });
 });
