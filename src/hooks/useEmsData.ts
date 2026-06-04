@@ -57,6 +57,7 @@ export interface StaffFull extends Staff {
   hire_date: string | null;
   auth_user_id: string | null;
   termination_date: string | null;
+  is_blocked: boolean | null;
   staff_skills?: StaffSkillWithSkill[];
 }
 

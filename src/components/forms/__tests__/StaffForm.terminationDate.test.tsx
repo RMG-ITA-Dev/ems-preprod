@@ -56,6 +56,12 @@ vi.mock("@/hooks/useUserRoles", () => ({
   useUpdateUserRole: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
+// BUG 0601-132: StaffForm now calls useUserRole to gate the security section.
+// Mock it here so the test doesn't need an AuthProvider wrapper.
+vi.mock("@/hooks/useUserRole", () => ({
+  useUserRole: () => ({ isAdmin: false, isLoading: false }),
+}));
+
 // Replace Radix Select with native <select>/<option> so JSDOM can resolve values.
 vi.mock("@/components/ui/select", () => ({
   Select: ({

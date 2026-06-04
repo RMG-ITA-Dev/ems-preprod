@@ -187,7 +187,8 @@ CREATE TABLE public.staff (
   weekly_capacity_hours NUMERIC NOT NULL DEFAULT 40,
   hire_date DATE,
   termination_date DATE,
-  deleted_at TIMESTAMPTZ
+  deleted_at TIMESTAMPTZ,
+  is_blocked BOOLEAN NOT NULL DEFAULT false  -- BUG 0601-132: admin-visible account lockout flag
 );
 
 -- NOTE: staff_capacity table removed in 2026-02-13 migration.
@@ -1781,6 +1782,52 @@ BEGIN
 END;
 $$;
 
+-- BUG 0601-132: block non-admin self-updates of staff.is_blocked.
+-- Trusted lockout functions (record_failed_login / reset_login_attempts /
+-- admin_unblock_account) set the transaction-local flag app.allow_blocked_change
+-- before touching the flag; a direct PostgREST UPDATE cannot, so a user cannot
+-- clear their own lockout. See migration 20260602000000.
+CREATE OR REPLACE FUNCTION public.prevent_self_blocked_change()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+BEGIN
+  IF NEW.is_blocked IS DISTINCT FROM OLD.is_blocked
+     AND current_setting('app.allow_blocked_change', true) IS DISTINCT FROM 'on'
+     AND auth.uid() IS NOT NULL
+     AND NOT public.is_admin() THEN
+    RAISE EXCEPTION 'FORBIDDEN: is_blocked can only be changed by an administrator'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+-- BUG 0601-132: restrict writes to the lockout threshold settings to admins.
+-- record_failed_login() consumes AUTH_MAX_FAILED_ATTEMPTS / AUTH_LOCKOUT_MINUTES
+-- from global_settings, so these rows are a security control. RLS on
+-- global_settings is disabled (20260115000154), so this trigger — not RLS — is
+-- what keeps an authenticated user from weakening the lockout policy via a
+-- direct PostgREST write. See migration 20260602000001.
+CREATE OR REPLACE FUNCTION public.guard_auth_lockout_settings()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+BEGIN
+  IF NEW.setting_key IN ('AUTH_MAX_FAILED_ATTEMPTS', 'AUTH_LOCKOUT_MINUTES')
+     AND auth.uid() IS NOT NULL
+     AND NOT public.is_admin() THEN
+    RAISE EXCEPTION 'FORBIDDEN: % can only be changed by an administrator', NEW.setting_key
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
 -- Trigger: Validate submission has entries
 CREATE OR REPLACE FUNCTION public.validate_submission_has_entries()
 RETURNS trigger
@@ -2356,6 +2403,20 @@ CREATE TRIGGER trg_link_staff_to_auth_user BEFORE INSERT OR UPDATE ON public.sta
 CREATE TRIGGER trg_prevent_staff_reactivation BEFORE UPDATE ON public.staff
   FOR EACH ROW EXECUTE FUNCTION public.prevent_staff_reactivation();
 
+-- BUG 0601-132: block non-admin self-updates of is_blocked (see migration
+-- 20260602000000). Only admins / no-JWT service_role + SECURITY DEFINER lockout
+-- paths may flip the flag; the "Users can update their linked staff record"
+-- policy would otherwise let a user clear their own lockout.
+CREATE TRIGGER trg_prevent_self_blocked_change BEFORE UPDATE OF is_blocked ON public.staff
+  FOR EACH ROW EXECUTE FUNCTION public.prevent_self_blocked_change();
+
+-- Global Settings triggers
+-- BUG 0601-132: restrict the lockout threshold keys to admin writers (see
+-- migration 20260602000001). RLS on global_settings is disabled, so this
+-- trigger is the actual guard against weakening the lockout policy via the API.
+CREATE TRIGGER trg_guard_auth_lockout_settings BEFORE INSERT OR UPDATE ON public.global_settings
+  FOR EACH ROW EXECUTE FUNCTION public.guard_auth_lockout_settings();
+
 -- Timesheet Periods triggers
 CREATE TRIGGER trg_validate_submission_has_entries BEFORE UPDATE ON public.timesheet_periods
   FOR EACH ROW WHEN (OLD.submitted_at IS NULL AND NEW.submitted_at IS NOT NULL)
@@ -2453,6 +2514,9 @@ BEGIN
 END;
 $$;
 
+-- BUG 0601-132: thresholds now read from global_settings (AUTH_MAX_FAILED_ATTEMPTS,
+-- AUTH_LOCKOUT_MINUTES) with defensive regex validation and fallback to 5/15.
+-- Also propagates staff.is_blocked = true when lockout fires.
 CREATE OR REPLACE FUNCTION public.record_failed_login(p_email text)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -2460,51 +2524,52 @@ SECURITY DEFINER
 SET search_path TO 'public'
 AS $$
 DECLARE
-  v_email        text         := lower(trim(p_email));
-  v_max          integer      := 5;
-  v_lockout      interval     := interval '15 minutes';
-  v_reset        interval     := interval '15 minutes';
-  v_now          timestamptz  := now();
+  v_email        text        := lower(trim(p_email));
+  v_max          integer;
+  v_lockout      interval;
+  v_reset        interval    := interval '15 minutes';
+  v_now          timestamptz := now();
   v_existing     public.auth_login_attempts%ROWTYPE;
   v_new_count    integer;
   v_locked_until timestamptz;
   v_remaining    integer;
+  v_raw          text;
 BEGIN
-  -- Atomic upsert ensures the row exists before we lock it (avoids a race
-  -- where two parallel first-failures both reach INSERT and one fails on PK).
+  SELECT setting_value INTO v_raw FROM public.global_settings WHERE setting_key = 'AUTH_MAX_FAILED_ATTEMPTS' LIMIT 1;
+  IF v_raw ~ '^[1-9][0-9]*$' THEN v_max := v_raw::integer; ELSE v_max := 5; END IF;
+
+  SELECT setting_value INTO v_raw FROM public.global_settings WHERE setting_key = 'AUTH_LOCKOUT_MINUTES' LIMIT 1;
+  IF v_raw ~ '^[1-9][0-9]*$' THEN v_lockout := make_interval(mins => v_raw::integer); ELSE v_lockout := interval '15 minutes'; END IF;
+
   INSERT INTO public.auth_login_attempts (email_normalized, attempts_count, last_attempt_at)
   VALUES (v_email, 0, v_now)
   ON CONFLICT (email_normalized) DO NOTHING;
 
-  SELECT * INTO v_existing
-  FROM public.auth_login_attempts
-  WHERE email_normalized = v_email
-  FOR UPDATE;
+  SELECT * INTO v_existing FROM public.auth_login_attempts WHERE email_normalized = v_email FOR UPDATE;
 
   IF v_existing.locked_until IS NOT NULL AND v_existing.locked_until > v_now THEN
     v_remaining := GREATEST(0, EXTRACT(EPOCH FROM (v_existing.locked_until - v_now))::integer);
     RETURN jsonb_build_object('locked', true, 'remaining_seconds', v_remaining);
   END IF;
 
-  IF v_existing.last_attempt_at < (v_now - v_reset) THEN
-    v_new_count := 1;
-  ELSE
-    v_new_count := v_existing.attempts_count + 1;
+  IF v_existing.last_attempt_at < (v_now - v_reset) THEN v_new_count := 1;
+  ELSE v_new_count := v_existing.attempts_count + 1;
   END IF;
 
-  IF v_new_count >= v_max THEN
-    v_locked_until := v_now + v_lockout;
-  ELSE
-    v_locked_until := NULL;
+  IF v_new_count >= v_max THEN v_locked_until := v_now + v_lockout;
+  ELSE v_locked_until := NULL;
   END IF;
 
   UPDATE public.auth_login_attempts
-  SET attempts_count = v_new_count,
-      last_attempt_at = v_now,
-      locked_until = v_locked_until
+  SET attempts_count = v_new_count, last_attempt_at = v_now, locked_until = v_locked_until
   WHERE email_normalized = v_email;
 
   IF v_locked_until IS NOT NULL THEN
+    BEGIN
+      UPDATE public.staff SET is_blocked = true WHERE lower(trim(email)) = v_email AND is_blocked = false;
+    EXCEPTION WHEN OTHERS THEN
+      RAISE WARNING '[0601-132] record_failed_login: could not set staff.is_blocked: %', SQLERRM;
+    END;
     v_remaining := GREATEST(0, EXTRACT(EPOCH FROM (v_locked_until - v_now))::integer);
     RETURN jsonb_build_object('locked', true, 'remaining_seconds', v_remaining);
   END IF;
@@ -2531,8 +2596,38 @@ BEGIN
 
   DELETE FROM public.auth_login_attempts
   WHERE email_normalized = v_email;
+
+  -- BUG 0601-132: clear admin-visible blocked flag on successful login (auto-unlock path).
+  BEGIN
+    UPDATE public.staff SET is_blocked = false WHERE lower(trim(email)) = v_email AND is_blocked = true;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING '[0601-132] reset_login_attempts: could not clear staff.is_blocked: %', SQLERRM;
+  END;
 END;
 $$;
+
+-- BUG 0601-132: admin manual unlock RPC (service_role only).
+-- Atomically clears staff.is_blocked and deletes auth_login_attempts row.
+-- Returns { ok, email } so the caller (unlock-account edge function) can send the reset email.
+CREATE OR REPLACE FUNCTION public.admin_unblock_account(p_staff_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_email text;
+BEGIN
+  SELECT lower(trim(email)) INTO v_email FROM public.staff WHERE staff_id = p_staff_id AND deleted_at IS NULL;
+  IF v_email IS NULL THEN RETURN jsonb_build_object('ok', false, 'error', 'STAFF_NOT_FOUND'); END IF;
+  UPDATE public.staff SET is_blocked = false WHERE staff_id = p_staff_id;
+  DELETE FROM public.auth_login_attempts WHERE email_normalized = v_email;
+  RETURN jsonb_build_object('ok', true, 'email', v_email);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.admin_unblock_account(uuid) FROM public, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_unblock_account(uuid) TO service_role;
 
 REVOKE EXECUTE ON FUNCTION public.check_login_allowed(text)  FROM anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public.record_failed_login(text)  FROM anon, authenticated;
