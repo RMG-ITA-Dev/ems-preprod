@@ -1,6 +1,7 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { ChevronDown, Download } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -181,7 +182,11 @@ export function StaffHoursDetailDialog({ open, onOpenChange, engagementId, engag
       grandTotal: t('dashboard.encargo.hoursDetail.grandTotal'),
       sheetName: t('dashboard.encargo.hoursDetail.sheetName'),
     };
-    await downloadXlsx(filtered, headers, `horas_${engagementCode}_detalle.xlsx`);
+    try {
+      await downloadXlsx(filtered, headers, `horas_${engagementCode}_detalle.xlsx`);
+    } catch {
+      toast.error(t('dashboard.encargo.hoursDetail.exportError'));
+    }
   }
 
   return (

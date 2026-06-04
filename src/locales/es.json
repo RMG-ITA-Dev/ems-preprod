@@ -803,6 +803,7 @@
         "grandTotal": "Total General",
         "sheetName": "Horas",
         "lastWeekOnly": "Solo última semana",
+        "exportError": "Error al exportar el archivo Excel",
         "noData": "Sin registros de horas para este encargo",
         "all": "Todos"
       }
