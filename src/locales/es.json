@@ -799,6 +799,7 @@
         "filterByStaff": "Buscar por nombre",
         "exportExcel": "Exportar Excel",
         "subtotal": "Subtotal",
+        "grandTotal": "Total General",
         "lastWeekOnly": "Solo última semana",
         "noData": "Sin registros de horas para este encargo",
         "all": "Todos"

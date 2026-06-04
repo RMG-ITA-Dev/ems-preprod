@@ -156,6 +156,7 @@ export function StaffHoursDetailDialog({ open, onOpenChange, engagementId, engag
       week: t('dashboard.encargo.hoursDetail.week'),
       loadedHours: t('dashboard.encargo.hoursDetail.loadedHours'),
       subtotal: t('dashboard.encargo.hoursDetail.subtotal'),
+      grandTotal: t('dashboard.encargo.hoursDetail.grandTotal'),
     };
     downloadXlsx(filtered, headers, `horas_${engagementCode}_detalle.xlsx`);
   }
@@ -277,32 +278,45 @@ export function StaffHoursDetailDialog({ open, onOpenChange, engagementId, engag
                   </TableCell>
                 </TableRow>
               ) : (
-                groupByCategory(filtered).flatMap(({ categoryName, rows, subtotal }) => [
-                  ...rows.map((row, idx) => (
-                    <TableRow key={`${row.staffId}_${row.year}_${row.weekNumber}_${idx}`} className="text-sm">
-                      <TableCell className="py-2">{row.staffName}</TableCell>
-                      <TableCell className="py-2">{row.categoryName}</TableCell>
-                      <TableCell className="py-2 text-right font-mono">
-                        {row.year !== null ? row.year : '—'}
+                <>
+                  {groupByCategory(filtered).flatMap(({ categoryName, rows, subtotal }) => [
+                    ...rows.map((row, idx) => (
+                      <TableRow key={`${row.staffId}_${row.year}_${row.weekNumber}_${idx}`} className="text-sm">
+                        <TableCell className="py-2">{row.staffName}</TableCell>
+                        <TableCell className="py-2">{row.categoryName}</TableCell>
+                        <TableCell className="py-2 text-right font-mono">
+                          {row.year !== null ? row.year : '—'}
+                        </TableCell>
+                        <TableCell className="py-2 text-right font-mono">
+                          {row.weekNumber !== null ? row.weekNumber : '—'}
+                        </TableCell>
+                        <TableCell className="py-2 text-right font-mono">
+                          {row.hoursLoaded.toFixed(1)}
+                        </TableCell>
+                      </TableRow>
+                    )),
+                    <TableRow key={`subtotal-${categoryName}`} className="bg-muted/40 font-semibold text-sm">
+                      <TableCell className="py-2" />
+                      <TableCell className="py-2">
+                        {categoryName} — {t('dashboard.encargo.hoursDetail.subtotal')}
                       </TableCell>
-                      <TableCell className="py-2 text-right font-mono">
-                        {row.weekNumber !== null ? row.weekNumber : '—'}
-                      </TableCell>
-                      <TableCell className="py-2 text-right font-mono">
-                        {row.hoursLoaded.toFixed(1)}
-                      </TableCell>
-                    </TableRow>
-                  )),
-                  <TableRow key={`subtotal-${categoryName}`} className="bg-muted/40 font-semibold text-sm">
+                      <TableCell className="py-2 text-right font-mono">—</TableCell>
+                      <TableCell className="py-2 text-right font-mono">—</TableCell>
+                      <TableCell className="py-2 text-right font-mono">{subtotal.toFixed(1)}</TableCell>
+                    </TableRow>,
+                  ])}
+                  <TableRow className="bg-muted/70 font-bold text-sm border-t-2 border-border">
                     <TableCell className="py-2" />
                     <TableCell className="py-2">
-                      {categoryName} — {t('dashboard.encargo.hoursDetail.subtotal')}
+                      {t('dashboard.encargo.hoursDetail.grandTotal')}
                     </TableCell>
                     <TableCell className="py-2 text-right font-mono">—</TableCell>
                     <TableCell className="py-2 text-right font-mono">—</TableCell>
-                    <TableCell className="py-2 text-right font-mono">{subtotal.toFixed(1)}</TableCell>
-                  </TableRow>,
-                ])
+                    <TableCell className="py-2 text-right font-mono">
+                      {filtered.reduce((s, r) => s + r.hoursLoaded, 0).toFixed(1)}
+                    </TableCell>
+                  </TableRow>
+                </>
               )}
             </TableBody>
           </Table>

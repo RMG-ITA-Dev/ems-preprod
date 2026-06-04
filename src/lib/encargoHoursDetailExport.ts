@@ -97,6 +97,7 @@ export function downloadXlsx(
     week: string;
     loadedHours: string;
     subtotal: string;
+    grandTotal: string;
   },
   filename: string
 ): void {
@@ -104,6 +105,7 @@ export function downloadXlsx(
     [headers.staffName, headers.category, headers.year, headers.week, headers.loadedHours],
   ];
 
+  let grandTotal = 0;
   for (const group of groupByCategory(rows)) {
     for (const row of group.rows) {
       data.push([
@@ -115,7 +117,9 @@ export function downloadXlsx(
       ]);
     }
     data.push(['', `${group.categoryName} — ${headers.subtotal}`, '—', '—', Number(group.subtotal.toFixed(1))]);
+    grandTotal += group.subtotal;
   }
+  data.push(['', headers.grandTotal, '—', '—', Number(grandTotal.toFixed(1))]);
 
   const ws = XLSX.utils.aoa_to_sheet(data);
   const wb = XLSX.utils.book_new();
