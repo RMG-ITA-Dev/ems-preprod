@@ -37,6 +37,7 @@ const defaultHeaders = {
   loadedHours: "Horas cargadas",
   subtotal: "Subtotal",
   grandTotal: "Total General",
+  sheetName: "Horas",
 };
 
 const sampleRow = {

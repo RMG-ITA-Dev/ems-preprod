@@ -801,6 +801,7 @@
         "exportExcel": "Exportar Excel",
         "subtotal": "Subtotal",
         "grandTotal": "Total General",
+        "sheetName": "Horas",
         "lastWeekOnly": "Solo última semana",
         "noData": "Sin registros de horas para este encargo",
         "all": "Todos"

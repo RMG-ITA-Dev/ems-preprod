@@ -96,6 +96,7 @@ export async function downloadXlsx(
     loadedHours: string;
     subtotal: string;
     grandTotal: string;
+    sheetName: string;
   },
   filename: string
 ): Promise<void> {
@@ -122,6 +123,6 @@ export async function downloadXlsx(
 
   const ws = XLSX.utils.aoa_to_sheet(data);
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Horas');
+  XLSX.utils.book_append_sheet(wb, ws, headers.sheetName);
   XLSX.writeFile(wb, filename);
 }

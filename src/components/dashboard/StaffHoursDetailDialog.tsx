@@ -179,6 +179,7 @@ export function StaffHoursDetailDialog({ open, onOpenChange, engagementId, engag
       loadedHours: t('dashboard.encargo.hoursDetail.loadedHours'),
       subtotal: t('dashboard.encargo.hoursDetail.subtotal'),
       grandTotal: t('dashboard.encargo.hoursDetail.grandTotal'),
+      sheetName: t('dashboard.encargo.hoursDetail.sheetName'),
     };
     await downloadXlsx(filtered, headers, `horas_${engagementCode}_detalle.xlsx`);
   }
