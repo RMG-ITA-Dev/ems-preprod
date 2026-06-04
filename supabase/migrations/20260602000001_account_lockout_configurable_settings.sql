@@ -14,6 +14,13 @@
 --      error and still returns INVALID_CREDENTIALS, an aborting function
 --      would silently freeze the failed-login counter. Out-of-range values
 --      therefore fall back to the hardcoded default instead of casting.
+--
+-- Also adds guard_auth_lockout_settings() — a BEFORE INSERT OR UPDATE trigger
+-- on global_settings that restricts writes to AUTH_MAX_FAILED_ATTEMPTS /
+-- AUTH_LOCKOUT_MINUTES to admins (and no-JWT service_role/postgres). Since these
+-- rows now drive a security control and RLS on global_settings is disabled
+-- (20260115000154), this trigger is what actually prevents an authenticated
+-- user from weakening the lockout policy through a direct PostgREST write.
 
 -- 1. Insert default settings (idempotent: ON CONFLICT DO NOTHING)
 INSERT INTO public.global_settings (setting_key, setting_value)
@@ -127,3 +134,45 @@ BEGIN
   RETURN jsonb_build_object('locked', false, 'remaining_seconds', 0);
 END;
 $$;
+
+-- ============================================================
+-- 3. Protect the lockout thresholds from non-admin client writes
+-- ============================================================
+-- record_failed_login() now consumes AUTH_MAX_FAILED_ATTEMPTS /
+-- AUTH_LOCKOUT_MINUTES from global_settings, so these rows became a security
+-- control. RLS on global_settings was disabled in migration 20260115000154
+-- ("disable for beta testing") with no later re-enable, leaving the admin-only
+-- "Admins can manage settings" policy inert. With Supabase's default table
+-- grants, any authenticated user could then weaken the lockout policy via a
+-- direct PostgREST write (e.g. AUTH_LOCKOUT_MINUTES=1) before brute-forcing
+-- another account — the UI admin guard in Settings.tsx does not cover the API.
+--
+-- This trigger enforces admin-only writes to those two keys regardless of the
+-- RLS state (triggers always fire, RLS on or off). Legitimate writers:
+--   * admins via the Settings UI (is_admin() = true)
+--   * no-JWT contexts (service_role / postgres: this migration's INSERT, Studio)
+-- Deleting a key is intentionally allowed: record_failed_login() then falls
+-- back to the hardcoded secure defaults (5 / 15 min), which is not a weakening.
+CREATE OR REPLACE FUNCTION public.guard_auth_lockout_settings()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+BEGIN
+  IF NEW.setting_key IN ('AUTH_MAX_FAILED_ATTEMPTS', 'AUTH_LOCKOUT_MINUTES')
+     AND auth.uid() IS NOT NULL          -- not service_role / postgres
+     AND NOT public.is_admin() THEN      -- not an administrator
+    RAISE EXCEPTION 'FORBIDDEN: % can only be changed by an administrator', NEW.setting_key
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+-- Idempotent: drop before create so re-running the migration is safe.
+DROP TRIGGER IF EXISTS trg_guard_auth_lockout_settings ON public.global_settings;
+CREATE TRIGGER trg_guard_auth_lockout_settings
+  BEFORE INSERT OR UPDATE ON public.global_settings
+  FOR EACH ROW
+  EXECUTE FUNCTION public.guard_auth_lockout_settings();

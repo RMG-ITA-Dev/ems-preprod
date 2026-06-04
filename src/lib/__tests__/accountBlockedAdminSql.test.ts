@@ -84,6 +84,28 @@ describe("account blocked admin control migration (BUG 0601-132)", () => {
     );
   });
 
+  it("restricts the lockout threshold settings to admin writers via a trigger", () => {
+    // The lockout thresholds drive a security control and RLS on global_settings
+    // is disabled, so a BEFORE INSERT/UPDATE trigger must reject non-admin writes
+    // to AUTH_MAX_FAILED_ATTEMPTS / AUTH_LOCKOUT_MINUTES.
+    const configurableSql = readFileSync(
+      resolve(
+        process.cwd(),
+        "supabase/migrations/20260602000001_account_lockout_configurable_settings.sql",
+      ),
+      "utf8",
+    );
+    expect(configurableSql).toMatch(
+      /CREATE OR REPLACE FUNCTION public\.guard_auth_lockout_settings\(\)/,
+    );
+    expect(configurableSql).toMatch(/'AUTH_MAX_FAILED_ATTEMPTS', 'AUTH_LOCKOUT_MINUTES'/);
+    expect(configurableSql).toMatch(/auth\.uid\(\) IS NOT NULL/);
+    expect(configurableSql).toMatch(/NOT public\.is_admin\(\)/);
+    expect(configurableSql).toMatch(
+      /CREATE TRIGGER trg_guard_auth_lockout_settings\s+BEFORE INSERT OR UPDATE ON public\.global_settings/,
+    );
+  });
+
   it("lets the trusted reset/unlock path clear is_blocked via a transaction-local flag", () => {
     // reset_login_attempts runs with the user's own JWT, so the trigger cannot
     // tell it apart from a self-service UPDATE by auth.uid(). It must set the

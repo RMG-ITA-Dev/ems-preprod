@@ -1782,6 +1782,52 @@ BEGIN
 END;
 $$;
 
+-- BUG 0601-132: block non-admin self-updates of staff.is_blocked.
+-- Trusted lockout functions (record_failed_login / reset_login_attempts /
+-- admin_unblock_account) set the transaction-local flag app.allow_blocked_change
+-- before touching the flag; a direct PostgREST UPDATE cannot, so a user cannot
+-- clear their own lockout. See migration 20260602000000.
+CREATE OR REPLACE FUNCTION public.prevent_self_blocked_change()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+BEGIN
+  IF NEW.is_blocked IS DISTINCT FROM OLD.is_blocked
+     AND current_setting('app.allow_blocked_change', true) IS DISTINCT FROM 'on'
+     AND auth.uid() IS NOT NULL
+     AND NOT public.is_admin() THEN
+    RAISE EXCEPTION 'FORBIDDEN: is_blocked can only be changed by an administrator'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+-- BUG 0601-132: restrict writes to the lockout threshold settings to admins.
+-- record_failed_login() consumes AUTH_MAX_FAILED_ATTEMPTS / AUTH_LOCKOUT_MINUTES
+-- from global_settings, so these rows are a security control. RLS on
+-- global_settings is disabled (20260115000154), so this trigger — not RLS — is
+-- what keeps an authenticated user from weakening the lockout policy via a
+-- direct PostgREST write. See migration 20260602000001.
+CREATE OR REPLACE FUNCTION public.guard_auth_lockout_settings()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+BEGIN
+  IF NEW.setting_key IN ('AUTH_MAX_FAILED_ATTEMPTS', 'AUTH_LOCKOUT_MINUTES')
+     AND auth.uid() IS NOT NULL
+     AND NOT public.is_admin() THEN
+    RAISE EXCEPTION 'FORBIDDEN: % can only be changed by an administrator', NEW.setting_key
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
 -- Trigger: Validate submission has entries
 CREATE OR REPLACE FUNCTION public.validate_submission_has_entries()
 RETURNS trigger
@@ -2363,6 +2409,13 @@ CREATE TRIGGER trg_prevent_staff_reactivation BEFORE UPDATE ON public.staff
 -- policy would otherwise let a user clear their own lockout.
 CREATE TRIGGER trg_prevent_self_blocked_change BEFORE UPDATE OF is_blocked ON public.staff
   FOR EACH ROW EXECUTE FUNCTION public.prevent_self_blocked_change();
+
+-- Global Settings triggers
+-- BUG 0601-132: restrict the lockout threshold keys to admin writers (see
+-- migration 20260602000001). RLS on global_settings is disabled, so this
+-- trigger is the actual guard against weakening the lockout policy via the API.
+CREATE TRIGGER trg_guard_auth_lockout_settings BEFORE INSERT OR UPDATE ON public.global_settings
+  FOR EACH ROW EXECUTE FUNCTION public.guard_auth_lockout_settings();
 
 -- Timesheet Periods triggers
 CREATE TRIGGER trg_validate_submission_has_entries BEFORE UPDATE ON public.timesheet_periods
