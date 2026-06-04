@@ -305,7 +305,7 @@ export function StaffHoursDetailDialog({ open, onOpenChange, engagementId, engag
                       <TableCell className="py-2 text-right font-mono">{subtotal.toFixed(1)}</TableCell>
                     </TableRow>,
                   ])}
-                  <TableRow className="bg-muted/70 font-bold text-sm border-t-2 border-border">
+                  <TableRow className="bg-muted/70 font-bold text-sm border-t-4 border-border">
                     <TableCell className="py-2" />
                     <TableCell className="py-2">
                       {t('dashboard.encargo.hoursDetail.grandTotal')}
