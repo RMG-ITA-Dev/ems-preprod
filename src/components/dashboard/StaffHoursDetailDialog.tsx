@@ -1,12 +1,13 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
-import { Download } from "lucide-react";
+import { ChevronDown, Download } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -26,7 +27,7 @@ interface Props {
 
 export function StaffHoursDetailDialog({ open, onOpenChange, engagementId, engagementCode }: Props) {
   const { t } = useTranslation();
-  const [categoryFilter, setCategoryFilter] = useState<string>('__all__');
+  const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
   const [nameFilter, setNameFilter] = useState('');
   const [yearFilter, setYearFilter] = useState<string>('__all__');
   const [weekFilter, setWeekFilter] = useState<string>('__all__');
@@ -80,7 +81,7 @@ export function StaffHoursDetailDialog({ open, onOpenChange, engagementId, engag
   useEffect(() => {
     if (!open) {
       initialized.current = false;
-      setCategoryFilter('__all__');
+      setSelectedCategories(new Set());
       setNameFilter('');
       setYearFilter('__all__');
       setWeekFilter('__all__');
@@ -99,6 +100,22 @@ export function StaffHoursDetailDialog({ open, onOpenChange, engagementId, engag
     }
     return options;
   }, [aggregated]);
+
+  function toggleCategory(cat: string) {
+    setSelectedCategories(prev => {
+      const next = new Set(prev);
+      if (next.has(cat)) next.delete(cat);
+      else next.add(cat);
+      return next;
+    });
+  }
+
+  const categoryLabel =
+    selectedCategories.size === 0
+      ? t('dashboard.encargo.hoursDetail.all')
+      : selectedCategories.size === 1
+        ? [...selectedCategories][0]
+        : t('dashboard.encargo.hoursDetail.nCategoriesSelected', { count: selectedCategories.size });
 
   const yearOptions = useMemo(() => {
     const years = new Set<number>();
@@ -139,14 +156,14 @@ export function StaffHoursDetailDialog({ open, onOpenChange, engagementId, engag
 
   const filtered = useMemo(() => {
     return aggregated.filter(row => {
-      const matchesCategory = categoryFilter === '__all__' || row.categoryName === categoryFilter;
+      const matchesCategory = selectedCategories.size === 0 || selectedCategories.has(row.categoryName);
       const matchesName = nameFilter.trim() === '' ||
         row.staffName.toLowerCase().includes(nameFilter.trim().toLowerCase());
       const matchesYear = yearFilter === '__all__' || (row.year !== null && String(row.year) === yearFilter);
       const matchesWeek = weekFilter === '__all__' || (row.weekNumber !== null && String(row.weekNumber) === weekFilter);
       return matchesCategory && matchesName && matchesYear && matchesWeek;
     });
-  }, [aggregated, categoryFilter, nameFilter, yearFilter, weekFilter]);
+  }, [aggregated, selectedCategories, nameFilter, yearFilter, weekFilter]);
 
   function handleExport() {
     const headers = {
@@ -173,17 +190,35 @@ export function StaffHoursDetailDialog({ open, onOpenChange, engagementId, engag
 
         {/* Filters */}
         <div className="flex flex-col sm:flex-row gap-3 pt-2">
-          <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-            <SelectTrigger className="w-full sm:w-44" aria-label={t('dashboard.encargo.hoursDetail.filterByCategory')}>
-              <SelectValue placeholder={t('dashboard.encargo.hoursDetail.filterByCategory')} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__all__">{t('dashboard.encargo.hoursDetail.all')}</SelectItem>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                className="w-full sm:w-44 justify-between font-normal"
+                aria-label={t('dashboard.encargo.hoursDetail.filterByCategory')}
+              >
+                <span className="truncate">{categoryLabel}</span>
+                <ChevronDown className="ml-1 h-4 w-4 shrink-0 opacity-50" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-48 p-2" align="start">
               {categoryOptions.map(cat => (
-                <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                <div
+                  key={cat}
+                  className="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-muted"
+                >
+                  <Checkbox
+                    id={`cat-filter-${cat}`}
+                    checked={selectedCategories.has(cat)}
+                    onCheckedChange={() => toggleCategory(cat)}
+                  />
+                  <label htmlFor={`cat-filter-${cat}`} className="text-sm cursor-pointer flex-1 select-none">
+                    {cat}
+                  </label>
+                </div>
               ))}
-            </SelectContent>
-          </Select>
+            </PopoverContent>
+          </Popover>
 
           <Select value={yearFilter} onValueChange={handleYearChange}>
             <SelectTrigger className="w-full sm:w-28" aria-label={t('dashboard.encargo.hoursDetail.filterByYear')}>

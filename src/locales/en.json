@@ -794,6 +794,7 @@
         "week": "Week",
         "loadedHours": "Hours",
         "filterByCategory": "Filter by category",
+        "nCategoriesSelected": "{{count}} categories",
         "filterByYear": "Filter by year",
         "filterByWeek": "Filter by week",
         "filterByStaff": "Search by name",

@@ -82,7 +82,7 @@ describe("useWorkOrderMutations", () => {
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
       expect(supabase.from).toHaveBeenCalledWith("work_orders");
-      expect(mockUpdate).toHaveBeenCalledWith({ approval_status: "Pending_Approval" });
+      expect(mockUpdate).toHaveBeenCalledWith({ approval_status: "Pending_Approval", notes: null });
       expect(mockEq).toHaveBeenCalledWith("wo_id", "wo-1");
       expect(toast.success).toHaveBeenCalled();
     });
@@ -159,7 +159,7 @@ describe("useWorkOrderMutations", () => {
   });
 
   describe("useRejectWorkOrder", () => {
-    it("should set approval_status to Rejected", async () => {
+    it("should set approval_status to Rejected with notes: null when no note given", async () => {
       const mockData = { wo_id: "wo-1", approval_status: "Draft" };
       const mockSingle = vi.fn().mockResolvedValue({ data: mockData, error: null });
       const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
@@ -177,6 +177,7 @@ describe("useWorkOrderMutations", () => {
 
       expect(supabase.from).toHaveBeenCalledWith("work_orders");
       expect(mockUpdate).toHaveBeenCalledWith({ approval_status: "Rejected", notes: null });
+      expect(mockEq).toHaveBeenCalledWith("wo_id", "wo-1");
       expect(toast.success).toHaveBeenCalled();
     });
 

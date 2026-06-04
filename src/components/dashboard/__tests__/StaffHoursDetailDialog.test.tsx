@@ -163,7 +163,7 @@ describe("StaffHoursDetailDialog", () => {
     expect(mockFrom).not.toHaveBeenCalled();
   });
 
-  // Test 4 — updated: 2 aggregated rows (Senior + Gerente) → 2 data + 2 subtotal rows = 5 total
+  // Test 4 — updated: 2 aggregated rows (Senior + Gerente) → 2 data + 2 subtotal rows + 1 grand total = 6 total
   it("renders correct table rows for 3 raw entries (2 same staff/week, 1 different)", async () => {
     const raw = [
       makeRaw({ staff_id: "s1", hours_logged: 2 }),
@@ -183,14 +183,14 @@ describe("StaffHoursDetailDialog", () => {
     });
 
     await vi.waitFor(() => {
-      // Each data row has 5 cells; subtotal rows are added per category group
+      // Each data row has 5 cells; subtotal rows are added per category group; plus 1 grand total row
       const rows = screen.getAllByRole("row");
-      // 1 header + 2 data rows + 2 subtotal rows (one per category)
-      expect(rows).toHaveLength(5);
+      // 1 header + 2 data rows + 2 subtotal rows (one per category) + 1 grand total
+      expect(rows).toHaveLength(6);
     });
   });
 
-  // Test 5 — uses aria-label to find the category combobox among 3 selectors
+  // Test 5 — uses aria-label to find the category popover trigger among the filter controls
   it("category filter hides rows that do not match selected category", async () => {
     const raw = [
       makeRaw({ staff_id: "s1", first_name: "Ana", last_name: "G", category_name: "Senior", display_order: 3 }),
@@ -203,23 +203,23 @@ describe("StaffHoursDetailDialog", () => {
       wrapper: createWrapper(),
     });
 
-    // Wait for data to load (auto-init sets year=2026, week=10 — both rows match so 2 data + 2 subtotal rows)
+    // Wait for data to load (auto-init sets year=2026, week=10 — both rows match so 2 data + 2 subtotal rows + 1 grand total)
     await vi.waitFor(() => {
-      expect(screen.getAllByRole("row")).toHaveLength(5); // header + 2 data + 2 subtotal
+      expect(screen.getAllByRole("row")).toHaveLength(6); // header + 2 data + 2 subtotal + 1 grand total
     });
 
-    // Open the category select by aria-label
-    const trigger = getCombobox("dashboard.encargo.hoursDetail.filterByCategory");
+    // Open the category multi-select popover
+    const trigger = screen.getByRole("button", { name: "dashboard.encargo.hoursDetail.filterByCategory" });
     await user.click(trigger);
 
-    // Click the "Senior" option
-    const seniorOption = await screen.findByRole("option", { name: "Senior" });
-    await user.click(seniorOption);
+    // Check the "Senior" checkbox to select only Senior
+    const seniorCheckbox = await screen.findByRole("checkbox", { name: "Senior" });
+    await user.click(seniorCheckbox);
 
-    // Only the Senior row + its subtotal should remain visible
+    // Only the Senior row + its subtotal + grand total should remain visible
     await vi.waitFor(() => {
       const rows = screen.getAllByRole("row");
-      expect(rows).toHaveLength(3); // header + 1 data row + 1 subtotal
+      expect(rows).toHaveLength(4); // header + 1 data row + 1 subtotal + 1 grand total
       expect(screen.getByText("Ana G")).toBeInTheDocument();
       expect(screen.queryByText("Luis P")).not.toBeInTheDocument();
     });
@@ -238,9 +238,9 @@ describe("StaffHoursDetailDialog", () => {
       wrapper: createWrapper(),
     });
 
-    // Both rows are Senior in same year/week → 2 data + 1 subtotal row (one Senior group)
+    // Both rows are Senior in same year/week → 2 data + 1 subtotal row + 1 grand total (one Senior group)
     await vi.waitFor(() => {
-      expect(screen.getAllByRole("row")).toHaveLength(4); // header + 2 data + 1 subtotal
+      expect(screen.getAllByRole("row")).toHaveLength(5); // header + 2 data + 1 subtotal + 1 grand total
     });
 
     const searchInput = screen.getByPlaceholderText(
@@ -248,9 +248,9 @@ describe("StaffHoursDetailDialog", () => {
     );
     await user.type(searchInput, "Gomez");
 
-    // After filter: 1 data row (Ana) + 1 subtotal (Senior group)
+    // After filter: 1 data row (Ana) + 1 subtotal (Senior group) + 1 grand total
     await vi.waitFor(() => {
-      expect(screen.getAllByRole("row")).toHaveLength(3); // header + 1 data + 1 subtotal
+      expect(screen.getAllByRole("row")).toHaveLength(4); // header + 1 data + 1 subtotal + 1 grand total
       expect(screen.getByText("Ana Gomez")).toBeInTheDocument();
       expect(screen.queryByText("Luis Perez")).not.toBeInTheDocument();
     });
@@ -315,9 +315,9 @@ describe("StaffHoursDetailDialog", () => {
       wrapper: createWrapper(),
     });
 
-    // Only the row for year=2026 week=11 should be visible (+ its subtotal row)
+    // Only the row for year=2026 week=11 should be visible (+ its subtotal row + grand total)
     await vi.waitFor(() => {
-      expect(screen.getAllByRole("row")).toHaveLength(3); // header + 1 data + 1 subtotal
+      expect(screen.getAllByRole("row")).toHaveLength(4); // header + 1 data + 1 subtotal + 1 grand total
       expect(screen.getByText("Luis P")).toBeInTheDocument();
       expect(screen.queryByText("Ana G")).not.toBeInTheDocument();
     });
