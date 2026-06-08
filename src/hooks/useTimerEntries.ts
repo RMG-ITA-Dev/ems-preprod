@@ -157,6 +157,26 @@ export function useDeleteTimerEntry() {
   });
 }
 
+export function useDeleteTimerEntries() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (timer_ids: string[]) => {
+      if (timer_ids.length === 0) return;
+      const { error } = await supabase
+        .from('timer_entries')
+        .delete()
+        .in('timer_id', timer_ids);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['timer_entries'] });
+      queryClient.invalidateQueries({ queryKey: ['timer_entries_unimported'] });
+    },
+  });
+}
+
 export function useRunningTimerEntries() {
   const { staffRecord } = useCurrentStaff();
 
