@@ -687,6 +687,7 @@ const TimeSheet = () => {
                       .map((v) => `${format(v.date, "EEE dd/MM", { locale: getLocale(lang) })} (${v.total}h)`)
                       .join(", "),
                     min: dailyMin,
+                    max: dailyMax,
                   })}
                 </span>
               </AlertDescription>

@@ -28,6 +28,18 @@ Object.defineProperty(window, "matchMedia", {
 // Hoisted mock fn — lets each describe block control what useTimesheetWeek returns
 const mockUseTimesheetWeek = vi.hoisted(() => vi.fn());
 
+// Expose interpolated `days` parameter so tests can assert on offending day labels and hours.
+// Other keys fall back to the key string (consistent with the rest of the test suite).
+const mockT = vi.hoisted(() =>
+  vi.fn((k: string, opts?: Record<string, unknown>) =>
+    opts?.days ? `${k}:${String(opts.days)}` : k
+  )
+);
+
+vi.mock("react-i18next", () => ({
+  useTranslation: () => ({ t: mockT, i18n: { language: "en" } }),
+}));
+
 // Auto-mock all hooks — use importOriginal for modules with many exports
 vi.mock("@/hooks/useAuth", () => ({
   useAuth: () => ({ session: { user: { id: "user-1" } }, user: { id: "user-1" } })
@@ -206,7 +218,13 @@ describe("TimeSheet daily-limit submit gate — Bug 0608-144", () => {
   it("shows dailyLimitSubmitBlocked banner and hides submitWeek when daily violations exist (10/8/8/8/6 = 40h)", () => {
     mockUseTimesheetWeek.mockReturnValue(DAILY_INVALID_WEEK);
     renderWithRouter(<TimeSheet />);
-    expect(screen.getByText(/dailyLimitSubmitBlocked/)).toBeInTheDocument();
+    // Banner appears
+    const banner = screen.getByText(/dailyLimitSubmitBlocked/);
+    expect(banner).toBeInTheDocument();
+    // Banner lists offending days and their hours (acceptance criterion)
+    expect(banner.textContent).toContain("(10h)");
+    expect(banner.textContent).toContain("(6h)");
+    // Submit button hidden
     expect(screen.queryByText("timesheet.submitWeek")).not.toBeInTheDocument();
   });
 
