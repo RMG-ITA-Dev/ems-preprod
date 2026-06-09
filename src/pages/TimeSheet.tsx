@@ -31,7 +31,7 @@ import {
 import { useGlobalSettings } from "@/hooks/useEmsData";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { parseISO, isBefore, startOfDay } from "date-fns";
+import { parseISO, isBefore, startOfDay, format } from "date-fns";
 import {
   getWeekInfo,
   getWeekMonday,
@@ -40,6 +40,9 @@ import {
   calculateDeadline,
   toISODateString,
   getEffectiveWeeklyLimits,
+  getDailyHourViolations,
+  getLocale,
+  type DailyHourViolation,
 } from "@/lib/timesheetUtils";
 
 type SaveStatus = "idle" | "saving" | "saved";
@@ -193,6 +196,13 @@ const TimeSheet = () => {
   const isBelowWeeklyMin = weeklyGrandTotal < effectiveWeeklyMin;
   const isAboveWeeklyMax = weeklyGrandTotal > effectiveWeeklyMax;
   const isWeeklyOutOfBounds = isBelowWeeklyMin || isAboveWeeklyMax;
+
+  // BUG 0608-144: daily-limit submit gate
+  const dailyViolations: DailyHourViolation[] = useMemo(
+    () => getDailyHourViolations(entries, weekInfo.weekDates, dailyMin, dailyMax),
+    [entries, weekInfo.weekDates, dailyMin, dailyMax],
+  );
+  const hasDailyViolations = dailyViolations.length > 0;
 
   const hasWeekHolidays = holidayMap.size > 0;
 
@@ -369,12 +379,12 @@ const TimeSheet = () => {
   // BUG #21: Separate "can submit" from "can edit cells"
   // BUG #0213-33: Also gate on weekly limit
   const canSubmit = !isBeforeHireDate && !isAfterTerminationDate && isWithinEditableWindow && entries.length > 0 &&
-    !isSubmitted && !period?.is_period_locked && !isWeeklyOutOfBounds;
+    !isSubmitted && !period?.is_period_locked && !isWeeklyOutOfBounds && !hasDailyViolations;
 
   // Handle submit
   const handleSubmit = async () => {
-    // DEFENSE-IN-DEPTH: weekly limit guard (do NOT rely only on canSubmit)
-    if (isWeeklyOutOfBounds) return;
+    // DEFENSE-IN-DEPTH: weekly + daily limit guard (do NOT rely only on canSubmit)
+    if (isWeeklyOutOfBounds || hasDailyViolations) return;
     if (!period?.period_id || !staffRecord) return;
 
     // Get unique engagement IDs from entries
@@ -647,6 +657,29 @@ const TimeSheet = () => {
                   {t("timesheet.weeklyMaxExceeded", {
                     total: weeklyGrandTotal.toFixed(1),
                     max: effectiveWeeklyMax,
+                  })}
+                </span>
+              </AlertDescription>
+            </Alert>
+        )}
+
+        {/* BUG 0608-144: daily-limit blocking banner */}
+        {hasDailyViolations &&
+          !isBeforeHireDate &&
+          isWithinEditableWindow &&
+          entries.length > 0 &&
+          !isSubmitted &&
+          !period?.is_period_locked && (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>
+                <span className="font-bold">
+                  {t("timesheet.dailyLimitSubmitBlocked", {
+                    days: dailyViolations
+                      .map((v) => `${format(v.date, "EEE dd/MM", { locale: getLocale(lang) })} (${v.total}h)`)
+                      .join(", "),
+                    min: dailyMin,
+                    max: dailyMax,
                   })}
                 </span>
               </AlertDescription>
