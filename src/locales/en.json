@@ -804,7 +804,7 @@
     "weeklyMinNotMetPartial": "CANNOT SUBMIT: the total hours ({{total}}h) are below the adjusted minimum ({{min}}h) for this partial week ({{days}} workable days).",
     "invalidActivityRow": "One or more rows have an invalid activity. Please select a valid activity for each client engagement before submitting.",
     "weeklyMaxExceeded": "CANNOT SUBMIT: the total hours ({{total}}h) exceed the weekly maximum ({{max}}h).",
-    "dailyLimitSubmitBlocked": "CANNOT SUBMIT: the following days violate the daily limit ({{min}}h–{{max}}h): {{days}}.",
+    "dailyLimitSubmitBlocked": "CANNOT SUBMIT: The following days must log exactly {{min}} hours: {{days}}.",
     "selectEngagement": "Select engagement",
     "searchEngagement": "Search engagement...",
     "noMatchingEngagements": "No matching engagements.",

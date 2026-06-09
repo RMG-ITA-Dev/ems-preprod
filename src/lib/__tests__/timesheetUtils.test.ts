@@ -452,13 +452,26 @@ describe("getDailyHourViolations", () => {
     expect(result).toHaveLength(0);
   });
 
-  it("skips days with no hours (partial week)", () => {
+  it("flags days with 0h when they are in weekDates (caller pre-filters workable days)", () => {
+    // Only Monday is passed as workable; Tue-Fri were filtered out by the caller
+    const entries = [{ date_worked: "2025-05-19", hours_logged: 8 }];
+    const result = getDailyHourViolations(entries, [weekDates[0]], 8, 8);
+    expect(result).toHaveLength(0); // Mon = 8h exact → no violation
+  });
+
+  it("flags a workable day with 0h as a violation", () => {
+    // Caller passes all 5 days; Fri has no entry → 0h → violation
     const entries = [
       { date_worked: "2025-05-19", hours_logged: 8 },
-      // Tue–Fri have no entries
+      { date_worked: "2025-05-20", hours_logged: 8 },
+      { date_worked: "2025-05-21", hours_logged: 8 },
+      { date_worked: "2025-05-22", hours_logged: 8 },
+      // Fri: no entry → dayTotal = 0 → violation
     ];
     const result = getDailyHourViolations(entries, weekDates, 8, 8);
-    expect(result).toHaveLength(0);
+    expect(result).toHaveLength(1);
+    expect(result[0].dateStr).toBe("2025-05-23");
+    expect(result[0].total).toBe(0);
   });
 
   it("sums across multiple rows (engagements) on the same day", () => {
@@ -466,7 +479,8 @@ describe("getDailyHourViolations", () => {
       { date_worked: "2025-05-19", hours_logged: 5 },
       { date_worked: "2025-05-19", hours_logged: 5 }, // total Mon = 10h → violation
     ];
-    const result = getDailyHourViolations(entries, weekDates, 8, 8);
+    // Caller pre-filters: only Monday is workable in this scenario
+    const result = getDailyHourViolations(entries, [weekDates[0]], 8, 8);
     expect(result).toHaveLength(1);
     expect(result[0].dateStr).toBe("2025-05-19");
     expect(result[0].total).toBe(10);
@@ -476,7 +490,8 @@ describe("getDailyHourViolations", () => {
     const entries = [
       { date_worked: "2025-05-19", hours_logged: 4 },
     ];
-    const result = getDailyHourViolations(entries, weekDates, 8, 8);
+    // Caller pre-filters: only Monday is workable in this scenario
+    const result = getDailyHourViolations(entries, [weekDates[0]], 8, 8);
     expect(result).toHaveLength(1);
     expect(result[0].dateStr).toBe("2025-05-19");
     expect(result[0].total).toBe(4);

@@ -243,7 +243,7 @@ export const getDailyHourViolations = (
     const dayTotal = entries
       .filter((e) => e.date_worked === dateStr)
       .reduce((sum, e) => sum + Number(e.hours_logged ?? 0), 0);
-    if (dayTotal > 0 && (dayTotal < dailyMin || dayTotal > dailyMax)) {
+    if (dayTotal < dailyMin || dayTotal > dailyMax) {
       violations.push({ date, dateStr, total: dayTotal });
     }
   }

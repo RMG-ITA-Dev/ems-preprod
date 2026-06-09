@@ -197,13 +197,6 @@ const TimeSheet = () => {
   const isAboveWeeklyMax = weeklyGrandTotal > effectiveWeeklyMax;
   const isWeeklyOutOfBounds = isBelowWeeklyMin || isAboveWeeklyMax;
 
-  // BUG 0608-144: daily-limit submit gate
-  const dailyViolations: DailyHourViolation[] = useMemo(
-    () => getDailyHourViolations(entries, weekInfo.weekDates, dailyMin, dailyMax),
-    [entries, weekInfo.weekDates, dailyMin, dailyMax],
-  );
-  const hasDailyViolations = dailyViolations.length > 0;
-
   const hasWeekHolidays = holidayMap.size > 0;
 
   // Compute activityNotRequiredIds from engagement data
@@ -325,6 +318,21 @@ const TimeSheet = () => {
     });
     return locked;
   }, [staffRecord?.termination_date, weekInfo.weekDates]);
+
+  // BUG 0608-144: days workable by the employee (excludes hire/termination locked days)
+  const workableWeekDates = useMemo(
+    () => weekInfo.weekDates.filter(
+      (_, i) => !lockedDaysBeforeHire.has(i) && !lockedDaysAfterTermination.has(i)
+    ),
+    [weekInfo.weekDates, lockedDaysBeforeHire, lockedDaysAfterTermination],
+  );
+
+  // BUG 0608-144: daily-limit submit gate (0h days included; caller pre-filters workable days)
+  const dailyViolations: DailyHourViolation[] = useMemo(
+    () => getDailyHourViolations(entries, workableWeekDates, dailyMin, dailyMax),
+    [entries, workableWeekDates, dailyMin, dailyMax],
+  );
+  const hasDailyViolations = dailyViolations.length > 0;
 
   // BUG #5: Earliest navigable week based on hire date
   const earliestWeekStart = useMemo(() => {
@@ -679,7 +687,6 @@ const TimeSheet = () => {
                       .map((v) => `${format(v.date, "EEE dd/MM", { locale: getLocale(lang) })} (${v.total}h)`)
                       .join(", "),
                     min: dailyMin,
-                    max: dailyMax,
                   })}
                 </span>
               </AlertDescription>
