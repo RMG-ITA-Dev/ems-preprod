@@ -224,6 +224,32 @@ export const getEffectiveWeeklyLimits = (
   return { effectiveMin, effectiveMax, workableDays, totalDays };
 };
 
+// BUG 0608-144: daily-limit submit gate
+export interface DailyHourViolation {
+  date: Date;
+  dateStr: string;   // "YYYY-MM-DD"
+  total: number;
+}
+
+export const getDailyHourViolations = (
+  entries: { date_worked: string; hours_logged: number | null }[],
+  weekDates: Date[],
+  dailyMin: number,
+  dailyMax: number,
+): DailyHourViolation[] => {
+  const violations: DailyHourViolation[] = [];
+  for (const date of weekDates) {
+    const dateStr = toISODateString(date);
+    const dayTotal = entries
+      .filter((e) => e.date_worked === dateStr)
+      .reduce((sum, e) => sum + Number(e.hours_logged ?? 0), 0);
+    if (dayTotal < dailyMin || dayTotal > dailyMax) {
+      violations.push({ date, dateStr, total: dayTotal });
+    }
+  }
+  return violations;
+};
+
 // ============== STATUS HELPERS ==============
 // Note: Legacy status helpers removed. Status is now determined by:
 // - submitted_at: null = draft/open, not-null = submitted

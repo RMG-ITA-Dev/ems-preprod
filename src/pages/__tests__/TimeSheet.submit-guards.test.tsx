@@ -28,6 +28,18 @@ Object.defineProperty(window, "matchMedia", {
 // Hoisted mock fn — lets each describe block control what useTimesheetWeek returns
 const mockUseTimesheetWeek = vi.hoisted(() => vi.fn());
 
+// Expose interpolated `days` parameter so tests can assert on offending day labels and hours.
+// Other keys fall back to the key string (consistent with the rest of the test suite).
+const mockT = vi.hoisted(() =>
+  vi.fn((k: string, opts?: Record<string, unknown>) =>
+    opts?.days ? `${k}:${String(opts.days)}` : k
+  )
+);
+
+vi.mock("react-i18next", () => ({
+  useTranslation: () => ({ t: mockT, i18n: { language: "en" } }),
+}));
+
 // Auto-mock all hooks — use importOriginal for modules with many exports
 vi.mock("@/hooks/useAuth", () => ({
   useAuth: () => ({ session: { user: { id: "user-1" } }, user: { id: "user-1" } })
@@ -135,6 +147,36 @@ const SUBMITTED_WEEK = {
   isLoading: false,
 };
 
+// Week: Mon 2025-05-19 … Fri 2025-05-23 (40h total, Mon=10 Fri=6 → daily violations)
+const DAILY_INVALID_WEEK = {
+  period: { period_id: "p1", is_period_locked: false },
+  entries: [
+    { hours_logged: 10, date_worked: "2025-05-19", engagement_id: "eng-1", activity_id: "act-1" },
+    { hours_logged: 8,  date_worked: "2025-05-20", engagement_id: "eng-1", activity_id: "act-1" },
+    { hours_logged: 8,  date_worked: "2025-05-21", engagement_id: "eng-1", activity_id: "act-1" },
+    { hours_logged: 8,  date_worked: "2025-05-22", engagement_id: "eng-1", activity_id: "act-1" },
+    { hours_logged: 6,  date_worked: "2025-05-23", engagement_id: "eng-1", activity_id: "act-1" },
+  ],
+  engagements: [{ engagement_id: "eng-1", engagement_name: "Eng A", activity_required: true }],
+  activities: [],
+  isLoading: false,
+};
+
+// Week: 8/8/8/8/8 = 40h, all valid
+const DAILY_VALID_WEEK = {
+  period: { period_id: "p1", is_period_locked: false },
+  entries: [
+    { hours_logged: 8, date_worked: "2025-05-19", engagement_id: "eng-1", activity_id: "act-1" },
+    { hours_logged: 8, date_worked: "2025-05-20", engagement_id: "eng-1", activity_id: "act-1" },
+    { hours_logged: 8, date_worked: "2025-05-21", engagement_id: "eng-1", activity_id: "act-1" },
+    { hours_logged: 8, date_worked: "2025-05-22", engagement_id: "eng-1", activity_id: "act-1" },
+    { hours_logged: 8, date_worked: "2025-05-23", engagement_id: "eng-1", activity_id: "act-1" },
+  ],
+  engagements: [{ engagement_id: "eng-1", engagement_name: "Eng A", activity_required: true }],
+  activities: [],
+  isLoading: false,
+};
+
 describe("TimeSheet Submit Guards", () => {
   beforeEach(() => {
     mockUseTimesheetWeek.mockReturnValue(DEFAULT_WEEK);
@@ -156,6 +198,62 @@ describe("TimeSheet Submit Guards", () => {
     // but the UI should still render since the guard prevents submission.
     // Verify the page renders without crash (guard is defense-in-depth at submit time)
     expect(screen.getByText(/weeklyMinNotMet/)).toBeInTheDocument();
+  });
+});
+
+// BUG 0608-144: daily-limit submit gate tests
+// System time is pinned to Wed 2025-05-21 so currentWeekStart = 2025-05-19,
+// matching the date_worked values in the test entry mocks (Open Question #4 from plan_v2).
+describe("TimeSheet daily-limit submit gate — Bug 0608-144", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2025, 4, 21)); // Wed 2025-05-21
+    mockUsePeriodLineApprovals.mockReturnValue({ data: [] });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("shows dailyLimitSubmitBlocked banner and hides submitWeek when daily violations exist (10/8/8/8/6 = 40h)", () => {
+    mockUseTimesheetWeek.mockReturnValue(DAILY_INVALID_WEEK);
+    renderWithRouter(<TimeSheet />);
+    // Banner appears
+    const banner = screen.getByText(/dailyLimitSubmitBlocked/);
+    expect(banner).toBeInTheDocument();
+    // Banner lists offending days and their hours (acceptance criterion)
+    expect(banner.textContent).toContain("(10h)");
+    expect(banner.textContent).toContain("(6h)");
+    // Submit button hidden
+    expect(screen.queryByText("timesheet.submitWeek")).not.toBeInTheDocument();
+  });
+
+  it("shows submitWeek and hides banner when all days are exactly 8h (8/8/8/8/8 = 40h)", () => {
+    mockUseTimesheetWeek.mockReturnValue(DAILY_VALID_WEEK);
+    renderWithRouter(<TimeSheet />);
+    expect(screen.getByText("timesheet.submitWeek")).toBeInTheDocument();
+    expect(screen.queryByText(/dailyLimitSubmitBlocked/)).not.toBeInTheDocument();
+  });
+
+  it("shows banner and hides submitWeek for multi-row same-day violation (4h+6h Mon = 10h, Fri=6h, total=40h)", () => {
+    mockUseTimesheetWeek.mockReturnValue({
+      ...DAILY_INVALID_WEEK,
+      entries: [
+        { hours_logged: 4,  date_worked: "2025-05-19", engagement_id: "eng-1", activity_id: "act-1" },
+        { hours_logged: 6,  date_worked: "2025-05-19", engagement_id: "eng-2", activity_id: "act-1" },
+        { hours_logged: 8,  date_worked: "2025-05-20", engagement_id: "eng-1", activity_id: "act-1" },
+        { hours_logged: 8,  date_worked: "2025-05-21", engagement_id: "eng-1", activity_id: "act-1" },
+        { hours_logged: 8,  date_worked: "2025-05-22", engagement_id: "eng-1", activity_id: "act-1" },
+        { hours_logged: 6,  date_worked: "2025-05-23", engagement_id: "eng-1", activity_id: "act-1" },
+      ],
+      engagements: [
+        { engagement_id: "eng-1", engagement_name: "Eng A", activity_required: true },
+        { engagement_id: "eng-2", engagement_name: "Eng B", activity_required: true },
+      ],
+    });
+    renderWithRouter(<TimeSheet />);
+    expect(screen.getByText(/dailyLimitSubmitBlocked/)).toBeInTheDocument();
+    expect(screen.queryByText("timesheet.submitWeek")).not.toBeInTheDocument();
   });
 });
 

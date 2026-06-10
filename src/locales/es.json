@@ -853,6 +853,7 @@
     "weeklyMinNotMetPartial": "NO SE PUEDE ENVIAR: el total de horas ({{total}}h) está por debajo del mínimo ajustado ({{min}}h) para esta semana parcial ({{days}} días hábiles).",
     "invalidActivityRow": "Una o mas filas tienen una actividad invalida. Seleccione una actividad valida para cada encargo de cliente antes de enviar.",
     "weeklyMaxExceeded": "NO SE PUEDE ENVIAR: el total de horas ({{total}}h) excede el máximo semanal ({{max}}h).",
+    "dailyLimitSubmitBlocked": "NO SE PUEDE ENVIAR: Los siguientes días están fuera del límite diario ({{min}}h–{{max}}h): {{days}}.",
     "selectEngagement": "Seleccionar Encargo",
     "searchEngagement": "Buscar encargo...",
     "noMatchingEngagements": "No se encontraron encargos.",
