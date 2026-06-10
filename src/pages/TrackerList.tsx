@@ -240,18 +240,20 @@ const TrackerList = () => {
     [filteredEntries]
   );
 
-  // Bulk-delete: only finished, non-imported records — matches the individual
-  // "Eliminar" button condition in TrackerEdit (isImported guard).
+  // Bulk-delete: only finished, non-imported records that are CURRENTLY VISIBLE
+  // under the active filters. Deriving from filteredEntries (not the full cache)
+  // ensures a selection hidden by a filter change can't be deleted silently —
+  // the button, count, and delete set all reflect what the user actually sees.
   const selectedDeletableEntries = useMemo(
     () =>
-      (entries || []).filter(
+      filteredEntries.filter(
         (entry) =>
           selectedIds.has(entry.timer_id) &&
           !!entry.ended_at &&
           !entry.is_imported &&
           !entry.imported_to_time_id
       ),
-    [entries, selectedIds]
+    [filteredEntries, selectedIds]
   );
 
   const toggleSelect = (timerId: string, e?: React.MouseEvent) => {
