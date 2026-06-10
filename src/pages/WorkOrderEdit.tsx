@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FileSpreadsheet, RefreshCw } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
 import { WorkOrderForm, BudgetLineInput, ExpenseBudgetInput } from "@/components/forms/WorkOrderForm";
 import { useWorkOrderById, useSetting, useCategories } from "@/hooks/useEmsData";
 import {
@@ -37,7 +38,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Textarea } from "@/components/ui/textarea";
 
 const WorkOrderEdit = () => {
   const { t } = useTranslation();
@@ -327,9 +327,9 @@ const WorkOrderEdit = () => {
           onReject={handleReject}
           onUnsubmit={handleUnsubmit}
           onCancel={() => { allowNextNavigation(); navigate("/work-orders"); }}
+          rejectionNote={workOrder?.notes ?? null}
           isLocked={isLocked}
           canApprove={canApprove}
-          rejectionNote={workOrder?.notes ?? null}
           isSubmitting={
             updateWorkOrder.isPending ||
             submitWorkOrder.isPending ||

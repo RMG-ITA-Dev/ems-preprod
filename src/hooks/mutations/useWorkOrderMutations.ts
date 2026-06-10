@@ -70,7 +70,7 @@ export function useSubmitWorkOrder() {
     mutationFn: async (woId: string) => {
       const { data: result, error } = await supabase
         .from("work_orders")
-        .update({ approval_status: "Pending_Approval" })
+        .update({ approval_status: "Pending_Approval", notes: null })
         .eq("wo_id", woId)
         .select()
         .single();

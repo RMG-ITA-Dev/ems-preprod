@@ -816,10 +816,16 @@
         "week": "Week",
         "loadedHours": "Hours",
         "filterByCategory": "Filter by category",
+        "nCategoriesSelected": "{{count}} categories",
         "filterByYear": "Filter by year",
         "filterByWeek": "Filter by week",
         "filterByStaff": "Search by name",
-        "exportCsv": "Export CSV",
+        "exportExcel": "Export Excel",
+        "subtotal": "Subtotal",
+        "grandTotal": "Grand Total",
+        "sheetName": "Hours",
+        "lastWeekOnly": "Last week only",
+        "exportError": "Error exporting the Excel file",
         "noData": "No time entries for this engagement",
         "all": "All"
       }
