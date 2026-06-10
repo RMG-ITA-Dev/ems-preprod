@@ -524,11 +524,13 @@ describe("StaffHoursDetailDialog", () => {
     });
     await userEvent.click(exportBtn);
 
-    const { writeFile } = await import('xlsx');
-    expect(vi.mocked(writeFile)).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.stringContaining('SSU-001')
-    );
+    await vi.waitFor(async () => {
+      const { writeFile } = await import('xlsx');
+      expect(vi.mocked(writeFile)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.stringContaining('SSU-001')
+      );
+    });
   });
 
   // Test 17 — new: lastWeekOnly checkbox renders checked on dialog open
