@@ -15,6 +15,14 @@ vi.mock('xlsx', () => ({
   writeFile: vi.fn(),
 }));
 
+vi.mock('@/lib/encargoHoursDetailExport', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/encargoHoursDetailExport')>();
+  return {
+    ...(actual as object),
+    downloadXlsx: vi.fn().mockResolvedValue(undefined),
+  };
+});
+
 // Polyfills for Radix UI Select which requires APIs not implemented in jsdom
 if (typeof window !== "undefined") {
   if (!Element.prototype.hasPointerCapture) {
@@ -525,8 +533,9 @@ describe("StaffHoursDetailDialog", () => {
     await userEvent.click(exportBtn);
 
     await vi.waitFor(async () => {
-      const { writeFile } = await import('xlsx');
-      expect(vi.mocked(writeFile)).toHaveBeenCalledWith(
+      const { downloadXlsx } = await import('@/lib/encargoHoursDetailExport');
+      expect(vi.mocked(downloadXlsx)).toHaveBeenCalledWith(
+        expect.anything(),
         expect.anything(),
         expect.stringContaining('SSU-001')
       );

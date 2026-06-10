@@ -82,7 +82,7 @@ describe("useWorkOrderMutations", () => {
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
       expect(supabase.from).toHaveBeenCalledWith("work_orders");
-      expect(mockUpdate).toHaveBeenCalledWith({ approval_status: "Pending_Approval", notes: null });
+      expect(mockUpdate).toHaveBeenCalledWith({ approval_status: "Pending_Approval" });
       expect(mockEq).toHaveBeenCalledWith("wo_id", "wo-1");
       expect(toast.success).toHaveBeenCalled();
     });
