@@ -673,6 +673,7 @@ const TimeSheet = () => {
 
         {/* BUG 0608-144: daily-limit blocking banner */}
         {hasDailyViolations &&
+          !isWeeklyOutOfBounds &&
           !isBeforeHireDate &&
           isWithinEditableWindow &&
           entries.length > 0 &&
