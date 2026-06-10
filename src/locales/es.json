@@ -199,6 +199,8 @@
     "sectionDetail": "Detalle",
     "recordSaved": "Registro actualizado exitosamente",
     "recordDeleted": "Registro eliminado exitosamente",
+    "deleteSelectedConfirm": "Esta acción eliminará permanentemente {{count}} registro(s) de tiempo seleccionado(s).",
+    "recordsDeleted": "{{count}} registro(s) eliminado(s) exitosamente",
     "hours": "Horas",
     "maxHoursExceeded": "El máximo permitido es 8 horas",
     "timerAutoStopped": "El cronómetro se detuvo automáticamente al máximo de 8 horas.",

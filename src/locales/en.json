@@ -199,6 +199,8 @@
     "sectionDetail": "Detail",
     "recordSaved": "Record updated successfully",
     "recordDeleted": "Record deleted successfully",
+    "deleteSelectedConfirm": "This will permanently delete {{count}} selected time record(s).",
+    "recordsDeleted": "{{count}} record(s) deleted successfully",
     "hours": "Hours",
     "maxHoursExceeded": "Maximum allowed is 8 hours",
     "timerAutoStopped": "Timer auto-stopped at 8 hours maximum.",
