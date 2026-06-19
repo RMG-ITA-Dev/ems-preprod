@@ -50,6 +50,11 @@ export function DisbursementDialog({
       setError(t("fundRequest.errors.disbursedAmountInvalid"));
       return;
     }
+    if (amount > requestedAmount) {
+      e.preventDefault();
+      setError(t("fundRequest.errors.disbursedAmountExceedsRequested"));
+      return;
+    }
     onConfirm({ amount, notes });
   };
 

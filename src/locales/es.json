@@ -1451,7 +1451,8 @@
       "allocationMismatch": "La suma de la distribución no coincide con el monto solicitado",
       "staffNotLinked": "Su cuenta no está vinculada a un registro de personal. Contacte al administrador.",
       "notesRequired": "Debe indicar el motivo",
-      "disbursedAmountInvalid": "El monto entregado debe ser mayor a cero"
+      "disbursedAmountInvalid": "El monto entregado debe ser mayor a cero",
+      "disbursedAmountExceedsRequested": "El monto entregado no puede ser mayor al solicitado"
     }
   },
   "fundRequestExpense": {
