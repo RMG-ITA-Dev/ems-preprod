@@ -66,6 +66,8 @@ interface WorkOrderFormProps {
   currency: "USD" | "BOB";
   seasonMode: "High" | "Low";
   approvalStatus: "Draft" | "Pending_Approval" | "Approved" | "Rejected";
+  // Socio approval timestamp — drives the track status indicator.
+  approvedAt?: string | null;
   adjustmentAmount: number;
   taxRate: number;
   budgetLines: BudgetLineInput[];
@@ -131,6 +133,7 @@ export function WorkOrderForm({
   currency,
   seasonMode,
   approvalStatus,
+  approvedAt,
   adjustmentAmount,
   taxRate,
   budgetLines,
@@ -327,8 +330,11 @@ export function WorkOrderForm({
   const showRiskActions =
     canApproveRisk && !isDraft && riskStatus !== "Approved";
   // Emergency (risk data empty) requires two sequential sign-offs. Normal/post-completion
-  // (data present) requires a single approval.
-  const showNormalRiskApprove = riskApprovalReady && !!onApproveRisk;
+  // (data present) requires a single approval — but only once the data has been SENT for
+  // review (risk_status back to Pending), never while still Emergency_Approved (i.e. while
+  // the Manager is still completing the data).
+  const showNormalRiskApprove =
+    riskApprovalReady && !isEmergencyApproved && !!onApproveRisk;
   const showEmergencyReview =
     !riskApprovalReady &&
     !isEmergencyApproved &&
@@ -342,10 +348,12 @@ export function WorkOrderForm({
     !!onApproveEmergencyPartner;
   const hasRiskAction =
     showNormalRiskApprove || showEmergencyReview || showEmergencyPartner;
+  // Socio can act only while pending AND not yet approved (once approved, the button is
+  // replaced by the track status indicator below).
+  const socioCanAct = isPending && canApprove && !approvedAt;
   // True when the Socio/Riesgos labeled boxes are shown — used to vertically align
   // the standalone Cancel/Save/Unsubmit buttons with the buttons inside those boxes.
-  const hasActionBoxes =
-    (isPending && canApprove) || (showRiskActions && hasRiskAction);
+  const hasActionBoxes = socioCanAct || (showRiskActions && hasRiskAction);
   // Risk-level color: Alto=red, Moderado=yellow, Bajo=green.
   const riskLevelColorClass =
     riskLevel === "Alto"
@@ -1096,6 +1104,48 @@ export function WorkOrderForm({
         </Card>
       )}
 
+      {/* Approval track status — shows which of the two tracks (Socio / Riesgos) has
+          already signed off, visible to everyone (not just approvers). */}
+      {(isPending || isApproved) && (
+        <div className="flex flex-wrap justify-end gap-x-6 gap-y-1 text-sm">
+          <span className="flex items-center gap-1.5">
+            <span className="text-muted-foreground">
+              {t("workOrders.partnerActionsLabel")}:
+            </span>
+            {approvedAt ? (
+              <span className="flex items-center gap-1 font-medium text-success">
+                <CheckCircle className="h-3.5 w-3.5" />
+                {t("workOrders.trackApproved")}
+              </span>
+            ) : (
+              <span className="text-muted-foreground">
+                {t("workOrders.trackPending")}
+              </span>
+            )}
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="text-muted-foreground">
+              {t("workOrders.riskActionsLabel")}:
+            </span>
+            {riskStatus === "Approved" ? (
+              <span className="flex items-center gap-1 font-medium text-success">
+                <ShieldCheck className="h-3.5 w-3.5" />
+                {t("workOrders.trackApproved")}
+              </span>
+            ) : riskStatus === "Emergency_Approved" ? (
+              <span className="flex items-center gap-1 font-medium text-orange-500">
+                <ShieldAlert className="h-3.5 w-3.5" />
+                {t("workOrders.trackEmergency")}
+              </span>
+            ) : (
+              <span className="text-muted-foreground">
+                {t("workOrders.trackPending")}
+              </span>
+            )}
+          </span>
+        </div>
+      )}
+
       {/* Actions */}
       <div className="flex justify-end gap-3 items-start">
         {/* Standalone buttons. When the Socio/Riesgos boxes are shown they are taller
@@ -1161,8 +1211,9 @@ export function WorkOrderForm({
             </LoadingButton>
           )}
         </div>
-        {/* Socio track: business approval. No longer gated by risk completeness. */}
-        {isPending && canApprove && (
+        {/* Socio track: business approval. Hidden once the Socio has approved (the track
+            status indicator above then shows "Aprobado"). */}
+        {socioCanAct && (
           <div className="relative rounded-md border p-3 pt-4">
             <span className="absolute -top-2 left-3 bg-background px-1 text-xs font-medium text-muted-foreground">
               {t("workOrders.partnerActionsLabel")}

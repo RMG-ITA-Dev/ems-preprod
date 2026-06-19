@@ -83,6 +83,7 @@ const baseProps = {
 type FormOverrides = Partial<
   typeof baseProps & {
     approvalStatus: "Draft" | "Pending_Approval" | "Approved" | "Rejected";
+    approvedAt?: string | null;
     ceacCompletedAt?: string | null;
     ceacNotes?: string | null;
     sanCompletedAt?: string | null;
@@ -314,6 +315,63 @@ describe("WorkOrderForm — Risk dual-track + emergency (feat/0306-78)", () => {
     fireEvent.click(screen.getByText("workOrders.submitForApproval").closest("button")!);
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     expect(onSubmitForApproval).toHaveBeenCalledWith();
+  });
+
+  it("WF16: emergency-approved completion shows 'Agregar datos' then 'Enviar', never 'Aprobar Riesgo'", () => {
+    renderForm({
+      approvalStatus: "Approved",
+      riskStatus: "Emergency_Approved",
+      emergencyDeadlineAt: "2026-06-26",
+      canApproveRisk: true,
+      onApproveRisk: vi.fn(),
+      onRejectRisk: vi.fn(),
+      onCompleteRisk: vi.fn(),
+      ...fullRisk,
+    });
+    // Before opting in: only "Agregar datos de Riesgo"; no risk-approval button.
+    expect(screen.getByText("workOrders.addRiskData")).toBeInTheDocument();
+    expect(screen.queryByText("workOrders.approveRisk")).not.toBeInTheDocument();
+    expect(screen.queryByText("workOrders.sendRiskForApproval")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("workOrders.addRiskData").closest("button")!);
+
+    // After opting in: "Enviar a aprobación de Riesgos" shows, but still NOT "Aprobar Riesgo".
+    expect(screen.getByText("workOrders.sendRiskForApproval")).toBeInTheDocument();
+    expect(screen.queryByText("workOrders.approveRisk")).not.toBeInTheDocument();
+  });
+
+  it("WF17: once data has been sent (risk_status Pending, data present) 'Aprobar Riesgo' shows", () => {
+    renderForm({
+      approvalStatus: "Approved",
+      riskStatus: "Pending",
+      canApproveRisk: true,
+      onApproveRisk: vi.fn(),
+      onRejectRisk: vi.fn(),
+      ...fullRisk,
+    });
+    expect(screen.getByText("workOrders.approveRisk")).toBeInTheDocument();
+  });
+
+  it("WF18: Socio buttons are hidden once the Socio approved; status shows 'Aprobado'", () => {
+    renderForm({
+      approvalStatus: "Pending_Approval",
+      canApprove: true,
+      approvedAt: "2026-06-19T10:00:00Z",
+      onApprove: vi.fn(),
+      onReject: vi.fn(),
+    });
+    expect(screen.queryByText("workOrders.approve")).not.toBeInTheDocument();
+    // Track status row reflects the Socio sign-off.
+    expect(screen.getByText("workOrders.trackApproved")).toBeInTheDocument();
+  });
+
+  it("WF19: track status shows the emergency badge for Riesgos when Emergency_Approved", () => {
+    renderForm({
+      approvalStatus: "Approved",
+      riskStatus: "Emergency_Approved",
+      emergencyDeadlineAt: "2026-06-26",
+    });
+    expect(screen.getByText("workOrders.trackEmergency")).toBeInTheDocument();
   });
 
   it("WF12: emergency banner is shown when riskStatus is Emergency_Approved", () => {

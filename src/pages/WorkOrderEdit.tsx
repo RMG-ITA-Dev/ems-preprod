@@ -455,6 +455,7 @@ const WorkOrderEdit = () => {
           currency={currency}
           seasonMode={seasonMode}
           approvalStatus={approvalStatus}
+          approvedAt={workOrder.approved_at}
           adjustmentAmount={adjustmentAmount}
           taxRate={workOrder.tax_rate || taxRate}
           budgetLines={budgetLines}
