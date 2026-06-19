@@ -115,28 +115,18 @@ describe("useFundRequestMutations", () => {
   });
 
   describe("useSubmitFundRequest", () => {
-    it("resets the OTs to pendiente and sets the request to pendiente_aprobacion", async () => {
-      const woEq = vi.fn().mockResolvedValue({ error: null });
-      const woUpdate = vi.fn().mockReturnValue({ eq: woEq });
-      const frEq = vi.fn().mockResolvedValue({ error: null });
-      const frUpdate = vi.fn().mockReturnValue({ eq: frEq });
-      vi.mocked(supabase.from).mockImplementation(
-        (t: string) =>
-          (t === "fund_request_work_orders"
-            ? { update: woUpdate }
-            : { update: frUpdate }) as never,
-      );
+    it("submits through the atomic RPC (reset OTs + status in one transaction)", async () => {
+      vi.mocked(supabase.rpc).mockResolvedValue({ data: null, error: null } as never);
 
       const { result } = renderHook(() => useSubmitFundRequest(), { wrapper: createWrapper() });
       result.current.mutate("fr1");
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      expect(woUpdate).toHaveBeenCalledWith(
-        expect.objectContaining({ approval_status: "pendiente" }),
-      );
-      expect(frUpdate).toHaveBeenCalledWith(
-        expect.objectContaining({ status: "pendiente_aprobacion" }),
-      );
+      expect(supabase.rpc).toHaveBeenCalledWith("fund_request_submit", {
+        p_fund_request_id: "fr1",
+      });
+      // Ya no se escriben las tablas por separado desde el cliente.
+      expect(supabase.from).not.toHaveBeenCalled();
     });
   });
 

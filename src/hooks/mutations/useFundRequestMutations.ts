@@ -111,29 +111,13 @@ export function useSubmitFundRequest() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      // Reset de las OTs a 'pendiente' (en reenvío tras observado/rechazado,
-      // todas vuelven a requerir aprobación). Se hace ANTES de cambiar el
-      // estado de la solicitud para que el trigger de rollup no interfiera.
-      const { error: woErr } = await sb
-        .from("fund_request_work_orders")
-        .update({
-          approval_status: "pendiente",
-          manager_notes: null,
-          rejection_reason: null,
-          manager_decided_at: null,
-        })
-        .eq("fund_request_id", id);
-      if (woErr) throw woErr;
-
-      const { error } = await sb
-        .from("fund_requests")
-        .update({
-          status: "pendiente_aprobacion",
-          submitted_at: new Date().toISOString(),
-          rejection_reason: null,
-          manager_notes: null,
-        })
-        .eq("fund_request_id", id);
+      // Reset de OTs + estado de la solicitud en UNA transacción (RPC). Hacerlo
+      // en el cliente fallaba: el reset de OTs dispara el rollup que ya mueve la
+      // solicitud a 'pendiente_aprobacion', y el update posterior quedaba
+      // filtrado por RLS (submitted_at sin fijar). El RPC lo resuelve atómico.
+      const { error } = await sb.rpc("fund_request_submit", {
+        p_fund_request_id: id,
+      });
       if (error) throw error;
       return { fund_request_id: id };
     },
