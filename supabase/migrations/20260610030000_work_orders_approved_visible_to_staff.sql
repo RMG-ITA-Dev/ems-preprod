@@ -13,10 +13,10 @@
 -- - Requiere staff vinculado (get_my_staff_id() IS NOT NULL) para evitar
 --   exponer datos a cuentas auth sin staff.
 
+-- NOTA: esta policy amplia exponía cliente/NIT/presupuesto/notas de TODAS las
+-- OTs aprobadas a cualquier staff (vía useWorkOrders → select *). Se REEMPLAZÓ
+-- por un acceso acotado en 20260610190000_fund_request_wo_safe_access.sql:
+--   - vista segura `fund_request_selectable_work_orders` para el dropdown, y
+--   - policy angosta `wo_in_my_fund_request` para el embed.
+-- Aquí solo se asegura que la policy amplia NO exista.
 DROP POLICY IF EXISTS "Staff can view approved work orders" ON public.work_orders;
-CREATE POLICY "Staff can view approved work orders" ON public.work_orders
-  FOR SELECT TO authenticated
-  USING (
-    approval_status = 'Approved'
-    AND get_my_staff_id() IS NOT NULL
-  );

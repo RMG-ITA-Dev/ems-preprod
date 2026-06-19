@@ -133,3 +133,56 @@ export function useFundRequestById(id: string | undefined) {
     enabled: !!id,
   });
 }
+
+// OTs aprobadas seleccionables para una solicitud de fondos. Lee la VISTA
+// segura `fund_request_selectable_work_orders` (solo columnas mínimas), NO la
+// tabla base — así el dropdown no expone cliente/NIT/presupuesto/notas.
+export interface SelectableWorkOrder {
+  wo_id: string;
+  currency: "BOB" | "USD";
+  approval_status: string;
+  engagement: {
+    engagement_id: string;
+    engagement_code: string | null;
+    engagement_name: string | null;
+    manager_id: string | null;
+    manager: {
+      staff_id: string;
+      short_name: string | null;
+      first_name: string;
+      last_name: string;
+    } | null;
+  };
+}
+
+export function useSelectableWorkOrders() {
+  return useQuery({
+    queryKey: ["fund_request_selectable_work_orders"],
+    queryFn: async (): Promise<SelectableWorkOrder[]> => {
+      const { data, error } = await sb
+        .from("fund_request_selectable_work_orders")
+        .select("*");
+      if (error) throw error;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return (data ?? []).map((r: any) => ({
+        wo_id: r.wo_id,
+        currency: r.currency,
+        approval_status: r.approval_status,
+        engagement: {
+          engagement_id: r.engagement_id,
+          engagement_code: r.engagement_code,
+          engagement_name: r.engagement_name,
+          manager_id: r.manager_id,
+          manager: r.manager_staff_id
+            ? {
+                staff_id: r.manager_staff_id,
+                short_name: r.manager_short_name,
+                first_name: r.manager_first_name,
+                last_name: r.manager_last_name,
+              }
+            : null,
+        },
+      }));
+    },
+  });
+}

@@ -21,9 +21,11 @@ AS $$
 DECLARE
   v_requester UUID;
   v_status public.fund_request_status;
+  v_total NUMERIC;
+  v_alloc NUMERIC;
 BEGIN
-  SELECT requester_staff_id, status
-  INTO v_requester, v_status
+  SELECT requester_staff_id, status, total_requested_amount
+  INTO v_requester, v_status, v_total
   FROM public.fund_requests
   WHERE fund_request_id = p_fund_request_id;
 
@@ -42,11 +44,22 @@ BEGIN
   END IF;
 
   -- Debe tener al menos una OT; si no, nadie podría aprobarla.
-  IF NOT EXISTS (
+  SELECT COALESCE(SUM(allocated_amount), 0)
+  INTO v_alloc
+  FROM public.fund_request_work_orders
+  WHERE fund_request_id = p_fund_request_id;
+
+  IF v_alloc = 0 AND NOT EXISTS (
     SELECT 1 FROM public.fund_request_work_orders
     WHERE fund_request_id = p_fund_request_id
   ) THEN
     RAISE EXCEPTION 'La solicitud no tiene OTs asignadas; no se puede enviar a aprobación';
+  END IF;
+
+  -- La suma de las asignaciones por OT debe cuadrar con el monto solicitado.
+  -- (El form ya lo valida, pero por API directa podría enviarse descuadrada.)
+  IF round(v_alloc, 2) <> round(COALESCE(v_total, 0), 2) THEN
+    RAISE EXCEPTION 'La suma de las OTs (%) no coincide con el monto solicitado (%)', v_alloc, v_total;
   END IF;
 
   -- Reset de las OTs a 'pendiente' (en reenvío todas vuelven a requerir

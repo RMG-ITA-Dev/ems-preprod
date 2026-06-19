@@ -13,7 +13,7 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { NumericInput } from "@/components/ui/numeric-input";
 import { cn } from "@/lib/utils";
-import { useWorkOrders } from "@/hooks/useEmsData";
+import { useSelectableWorkOrders } from "@/hooks/useFundRequests";
 import type { AllocationInput } from "@/hooks/mutations/useFundRequestMutations";
 
 interface Props {
@@ -37,7 +37,7 @@ export function WorkOrderAllocationEditor({
   disabled = false,
 }: Props) {
   const { t } = useTranslation();
-  const { data: workOrders } = useWorkOrders();
+  const { data: workOrders } = useSelectableWorkOrders();
 
   const staffName = (s?: { first_name?: string; last_name?: string; short_name?: string | null }) =>
     s ? s.short_name || `${s.first_name ?? ""} ${s.last_name ?? ""}`.trim() : "-";

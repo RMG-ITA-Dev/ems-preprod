@@ -13,7 +13,7 @@ import {
 } from "@/components/fund-requests/FundRequestForm";
 import { useCreateFundRequest } from "@/hooks/mutations/useFundRequestMutations";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
-import { useWorkOrders } from "@/hooks/useEmsData";
+import { useSelectableWorkOrders } from "@/hooks/useFundRequests";
 import { toast } from "sonner";
 
 const emptyValues: FundRequestFormValues = {
@@ -28,7 +28,7 @@ const FundRequestNew = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { staffRecord, isLoading: staffLoading } = useCurrentStaff();
-  const { data: workOrders } = useWorkOrders();
+  const { data: workOrders } = useSelectableWorkOrders();
   const createFr = useCreateFundRequest();
 
   const [values, setValues] = useState<FundRequestFormValues>(emptyValues);
