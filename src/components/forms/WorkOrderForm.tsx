@@ -21,10 +21,22 @@ import {
   XCircle,
   Send,
   ShieldCheck,
+  ShieldAlert,
+  AlertTriangle,
   Undo2,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   useCategories,
   useExpenseTypes,
@@ -66,6 +78,9 @@ interface WorkOrderFormProps {
   ceacNumber?: string | null;
   sanApprovalId?: string | null;
   riskLevel?: string | null;
+  // Risk dual-track + emergency
+  riskStatus?: string | null;
+  emergencyDeadlineAt?: string | null;
   // New props for create/edit mode and dirty state
   isNew?: boolean;
   isDirty?: boolean;
@@ -82,6 +97,12 @@ interface WorkOrderFormProps {
   onSubmitForApproval?: () => void;
   onUnsubmit?: () => void;
   onCancel?: () => void;
+  // Riesgos (Administrator) track
+  canApproveRisk?: boolean;
+  onApproveRisk?: () => void;
+  onRejectRisk?: (riskNotes: string | null) => void;
+  onEmergencyApprove?: (justification: string) => void;
+  onCompleteRisk?: () => void;
   isLocked: boolean;
   canApprove: boolean;
   isSubmitting: boolean;
@@ -116,6 +137,8 @@ export function WorkOrderForm({
   ceacNumber,
   sanApprovalId,
   riskLevel,
+  riskStatus,
+  emergencyDeadlineAt,
   isNew = false,
   isDirty = false,
   hasNonRiskDirty = false,
@@ -131,11 +154,20 @@ export function WorkOrderForm({
   onSubmitForApproval,
   onUnsubmit,
   onCancel,
+  canApproveRisk = false,
+  onApproveRisk,
+  onRejectRisk,
+  onEmergencyApprove,
+  onCompleteRisk,
   isLocked,
   canApprove,
   isSubmitting,
 }: WorkOrderFormProps) {
   const { t } = useTranslation();
+  const [emergencyDialogOpen, setEmergencyDialogOpen] = useState(false);
+  const [emergencyJustification, setEmergencyJustification] = useState("");
+  const [rejectRiskDialogOpen, setRejectRiskDialogOpen] = useState(false);
+  const [rejectRiskNotes, setRejectRiskNotes] = useState("");
   const { currentLanguage } = useLanguage();
   const { data: categories } = useCategories();
   const { data: expenseTypes } = useExpenseTypes();
@@ -250,7 +282,34 @@ export function WorkOrderForm({
     !!sanCompletedAt &&
     sanApprovalValid &&
     riskLevelValid;
-  const canSubmitForApproval = riskApprovalReady;
+  // Emergency: all 5 risk fields left empty so the OT can be submitted before
+  // Riesgos provides the data (the request to Riesgos happens externally by email).
+  const riskAllEmpty =
+    !ceacCompletedAt &&
+    !ceacNumber &&
+    !sanCompletedAt &&
+    !sanApprovalId &&
+    !riskLevel;
+  // Submit is all-or-nothing: fully complete (normal) or fully empty (emergency).
+  // Partial risk data is blocked.
+  const canSubmitForApproval = riskApprovalReady || riskAllEmpty;
+
+  const isEmergencyApproved = riskStatus === "Emergency_Approved";
+  const hasRiskData = !!(ceacCompletedAt || sanCompletedAt);
+  // Risk fields are editable by the creator/Manager in Draft, and again when an
+  // emergency-approved OT needs its risk data completed.
+  const riskFieldsEditable =
+    (isDraft && !!onRiskAssessmentChange) ||
+    (isApproved && isEmergencyApproved && !!onCompleteRisk);
+  // Risk section visibility.
+  const showRiskSection =
+    (isDraft && !!onRiskAssessmentChange) ||
+    ((isPending || isApproved) &&
+      (canApproveRisk || hasRiskData || isEmergencyApproved));
+  // The Riesgos approver acts while risk is not yet approved (Pending, post-emergency,
+  // or after the Manager completes the data and it returns to Pending for re-review).
+  const showRiskActions =
+    canApproveRisk && !isDraft && riskStatus !== "Approved";
 
   // Get category name by ID
   const getCategoryName = (categoryId: string) => {
@@ -693,10 +752,9 @@ export function WorkOrderForm({
         </Card>
       </div>
 
-      {/* Risk Assessment Section - Editable for approver in Draft; read-only in Pending/Approved */}
-      {((isDraft && canApprove) ||
-        (isPending && canApprove) ||
-        (isApproved && (ceacCompletedAt || sanCompletedAt))) && (
+      {/* Risk Assessment Section - editable by creator/Manager in Draft (or emergency
+          completion); read-only for the Riesgos approver in Pending/Approved */}
+      {showRiskSection && (
         <Card
           className={cn(
             "transition-all duration-500",
@@ -724,7 +782,7 @@ export function WorkOrderForm({
                 <Label className="text-sm whitespace-nowrap">
                   {t("workOrders.riskLevel")}
                 </Label>
-                {isDraft ? (
+                {riskFieldsEditable ? (
                   <Select
                     value={riskLevel || ""}
                     onValueChange={(value) =>
@@ -757,10 +815,33 @@ export function WorkOrderForm({
             </div>
           </CardHeader>
           <CardContent className="pt-0 space-y-4">
+            {isEmergencyApproved && (
+              <div className="flex items-start gap-3 rounded-md border border-warning/40 bg-warning/10 p-3">
+                <AlertTriangle className="h-5 w-5 text-warning shrink-0 mt-0.5" />
+                <div className="space-y-0.5">
+                  <p className="text-sm font-semibold text-warning">
+                    {t("workOrders.riskApprovedEmergency")}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    {t("workOrders.emergencyDeadlineBanner", {
+                      date: emergencyDeadlineAt
+                        ? new Date(
+                            emergencyDeadlineAt + "T00:00:00",
+                          ).toLocaleDateString("es-BO", {
+                            day: "2-digit",
+                            month: "2-digit",
+                            year: "numeric",
+                          })
+                        : "—",
+                    })}
+                  </p>
+                </div>
+              </div>
+            )}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>{t("workOrders.ceacDate")}</Label>
-                {isDraft ? (
+                {riskFieldsEditable ? (
                   <Input
                     type="date"
                     value={ceacCompletedAt ? ceacCompletedAt.split("T")[0] : ""}
@@ -789,7 +870,7 @@ export function WorkOrderForm({
               </div>
               <div className="space-y-2">
                 <Label>{t("workOrders.sanDate")}</Label>
-                {isDraft ? (
+                {riskFieldsEditable ? (
                   <Input
                     type="date"
                     value={sanCompletedAt ? sanCompletedAt.split("T")[0] : ""}
@@ -818,7 +899,7 @@ export function WorkOrderForm({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>{t("workOrders.ceacNumber")}</Label>
-                {isDraft ? (
+                {riskFieldsEditable ? (
                   <>
                     <Input
                       type="text"
@@ -848,7 +929,7 @@ export function WorkOrderForm({
               </div>
               <div className="space-y-2">
                 <Label>{t("workOrders.sanApprovalId")}</Label>
-                {isDraft ? (
+                {riskFieldsEditable ? (
                   <>
                     <Input
                       type="text"
@@ -889,7 +970,7 @@ export function WorkOrderForm({
                       e.target.value || null,
                     )
                   }
-                  readOnly={!isDraft}
+                  readOnly={!riskFieldsEditable}
                   rows={2}
                 />
               </div>
@@ -900,11 +981,30 @@ export function WorkOrderForm({
                   onChange={(e) =>
                     onRiskAssessmentChange?.("sanNotes", e.target.value || null)
                   }
-                  readOnly={!isDraft}
+                  readOnly={!riskFieldsEditable}
                   rows={2}
                 />
               </div>
             </div>
+            {/* Manager completes risk data after an emergency approval */}
+            {isApproved && isEmergencyApproved && onCompleteRisk && (
+              <div className="flex justify-end">
+                <LoadingButton
+                  onClick={onCompleteRisk}
+                  className="bg-info hover:bg-info/90 btn-action"
+                  loading={isSubmitting}
+                  disabled={!riskApprovalReady || isSubmitting}
+                  title={
+                    !riskApprovalReady
+                      ? t("workOrders.riskAssessmentRequired")
+                      : undefined
+                  }
+                >
+                  <ShieldCheck className="h-4 w-4 mr-2" />
+                  {t("workOrders.completeRiskAssessment")}
+                </LoadingButton>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
@@ -962,6 +1062,7 @@ export function WorkOrderForm({
             {t("workOrders.unsubmit")}
           </LoadingButton>
         )}
+        {/* Socio track: business approval. No longer gated by risk completeness. */}
         {isPending && canApprove && (
           <>
             {onReject && (
@@ -979,19 +1080,129 @@ export function WorkOrderForm({
               onClick={onApprove}
               className="bg-success hover:bg-success/90 btn-action"
               loading={isSubmitting}
-              disabled={!riskApprovalReady || isSubmitting}
-              title={
-                !riskApprovalReady
-                  ? t("workOrders.riskApprovalPending")
-                  : undefined
-              }
+              disabled={isSubmitting}
             >
               <CheckCircle className="h-4 w-4 mr-2" />
               {t("workOrders.approve")}
             </LoadingButton>
           </>
         )}
+        {/* Riesgos track: Administrator. Either normal risk approval, or emergency
+            approval when the risk fields are empty. */}
+        {showRiskActions && (
+          <>
+            {onRejectRisk && (
+              <LoadingButton
+                variant="outline"
+                onClick={() => {
+                  setRejectRiskNotes("");
+                  setRejectRiskDialogOpen(true);
+                }}
+                className="text-destructive border-destructive btn-action"
+                loading={isSubmitting}
+              >
+                <XCircle className="h-4 w-4 mr-2" />
+                {t("workOrders.rejectRisk")}
+              </LoadingButton>
+            )}
+            {riskApprovalReady ? (
+              onApproveRisk && (
+                <LoadingButton
+                  onClick={onApproveRisk}
+                  className="bg-success hover:bg-success/90 btn-action"
+                  loading={isSubmitting}
+                  disabled={isSubmitting}
+                >
+                  <ShieldCheck className="h-4 w-4 mr-2" />
+                  {t("workOrders.approveRisk")}
+                </LoadingButton>
+              )
+            ) : (
+              onEmergencyApprove && (
+                <LoadingButton
+                  onClick={() => {
+                    setEmergencyJustification("");
+                    setEmergencyDialogOpen(true);
+                  }}
+                  className="bg-warning hover:bg-warning/90 text-warning-foreground btn-action"
+                  loading={isSubmitting}
+                  disabled={isSubmitting}
+                >
+                  <ShieldAlert className="h-4 w-4 mr-2" />
+                  {t("workOrders.approveEmergency")}
+                </LoadingButton>
+              )
+            )}
+          </>
+        )}
       </div>
+
+      {/* Emergency approval dialog — requires a mandatory justification */}
+      <AlertDialog open={emergencyDialogOpen} onOpenChange={setEmergencyDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("workOrders.emergencyConfirmTitle")}
+            </AlertDialogTitle>
+          </AlertDialogHeader>
+          <div className="space-y-2 py-2">
+            <Label>{t("workOrders.emergencyJustificationLabel")}</Label>
+            <Textarea
+              value={emergencyJustification}
+              onChange={(e) => setEmergencyJustification(e.target.value)}
+              rows={3}
+            />
+            {emergencyJustification.trim().length === 0 && (
+              <p className="text-xs text-destructive">
+                {t("workOrders.emergencyJustificationRequired")}
+              </p>
+            )}
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={emergencyJustification.trim().length === 0}
+              onClick={() => {
+                onEmergencyApprove?.(emergencyJustification.trim());
+                setEmergencyDialogOpen(false);
+              }}
+            >
+              {t("workOrders.approveEmergency")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Reject risk dialog — optional notes */}
+      <AlertDialog open={rejectRiskDialogOpen} onOpenChange={setRejectRiskDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("workOrders.rejectRiskDialogTitle")}
+            </AlertDialogTitle>
+          </AlertDialogHeader>
+          <div className="space-y-2 py-2">
+            <Label>{t("workOrders.sanNotes")}</Label>
+            <Textarea
+              value={rejectRiskNotes}
+              onChange={(e) => setRejectRiskNotes(e.target.value)}
+              rows={3}
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive hover:bg-destructive/90"
+              onClick={() => {
+                onRejectRisk?.(rejectRiskNotes.trim() || null);
+                setRejectRiskDialogOpen(false);
+              }}
+            >
+              {t("workOrders.rejectRisk")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

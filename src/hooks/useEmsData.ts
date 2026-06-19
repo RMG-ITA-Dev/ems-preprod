@@ -116,6 +116,12 @@ export interface WorkOrder {
   ceac_number?: string | null;
   san_approval_id?: string | null;
   risk_level?: string | null;
+  risk_status?: string | null;
+  risk_approved_by?: string | null;
+  risk_approved_at?: string | null;
+  risk_notes?: string | null;
+  emergency_deadline_at?: string | null;
+  emergency_justification?: string | null;
   engagement?: Engagement;
   budget_lines?: WOBudgetLine[];
   expense_budget?: WOExpenseBudget[];

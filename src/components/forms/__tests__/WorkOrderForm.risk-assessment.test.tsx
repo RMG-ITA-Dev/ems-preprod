@@ -1,6 +1,6 @@
 import React from "react";
 import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 // ── Stubs ─────────────────────────────────────────────────────────────────────
@@ -46,6 +46,8 @@ beforeAll(() => {
     disconnect = vi.fn();
   }
   (globalThis as any).ResizeObserver = MockResizeObserver;
+  // Radix AlertDialog focus management uses these in some browsers.
+  (Element.prototype as any).scrollIntoView = vi.fn();
 });
 
 // ── Import under test (after all vi.mock hoists) ───────────────────────────────
@@ -88,9 +90,18 @@ type FormOverrides = Partial<
     ceacNumber?: string | null;
     sanApprovalId?: string | null;
     riskLevel?: string | null;
+    riskStatus?: string | null;
+    emergencyDeadlineAt?: string | null;
+    hasNonRiskDirty?: boolean;
     onRiskAssessmentChange?: (field: string, value: string | null) => void;
     onApprove?: () => void;
     onReject?: () => void;
+    onSubmitForApproval?: () => void;
+    canApproveRisk?: boolean;
+    onApproveRisk?: () => void;
+    onRejectRisk?: (notes: string | null) => void;
+    onEmergencyApprove?: (justification: string) => void;
+    onCompleteRisk?: () => void;
   }
 >;
 
@@ -104,73 +115,78 @@ function renderForm(overrides: FormOverrides = {}) {
   return container;
 }
 
+const fullRisk = {
+  ceacCompletedAt: "2026-05-01",
+  ceacNumber: "1234567890",
+  sanCompletedAt: "2026-04-15",
+  sanApprovalId: "12345-67890",
+  riskLevel: "Bajo",
+};
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-describe("WorkOrderForm — Risk Assessment Section (feat/0306-78)", () => {
+describe("WorkOrderForm — Risk dual-track + emergency (feat/0306-78)", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("WF1: Approve button is disabled when CEAC or SAN date is missing", () => {
+  // ── Socio track ──────────────────────────────────────────────────────────────
+  it("WF1: Socio Approve button is enabled even when risk data is missing", () => {
     renderForm({
       approvalStatus: "Pending_Approval",
       canApprove: true,
       onApprove: vi.fn(),
-      onRiskAssessmentChange: vi.fn(),
-      // No ceacCompletedAt / sanCompletedAt
-    });
-    const btn = screen.getByText("workOrders.approve").closest("button");
-    expect(btn).toBeDisabled();
-  });
-
-  it("WF2: Approve button is enabled when all 5 risk assessment fields are valid", () => {
-    renderForm({
-      approvalStatus: "Pending_Approval",
-      canApprove: true,
-      onApprove: vi.fn(),
-      onRiskAssessmentChange: vi.fn(),
-      ceacCompletedAt: "2026-05-01",
-      ceacNumber: "1234567890",
-      sanCompletedAt: "2026-04-15",
-      sanApprovalId: "12345-67890",
-      riskLevel: "Bajo",
     });
     const btn = screen.getByText("workOrders.approve").closest("button");
     expect(btn).not.toBeDisabled();
   });
 
-  it("WF3: Risk section is not rendered for non-approvers (canApprove=false)", () => {
+  it("WF2: Socio Approve button is enabled when risk data is present too", () => {
     renderForm({
       approvalStatus: "Pending_Approval",
-      canApprove: false,
-      onRiskAssessmentChange: vi.fn(),
+      canApprove: true,
+      onApprove: vi.fn(),
+      ...fullRisk,
+    });
+    const btn = screen.getByText("workOrders.approve").closest("button");
+    expect(btn).not.toBeDisabled();
+  });
+
+  // ── Risk section visibility ────────────────────────────────────────────────────
+  it("WF3: Risk section is hidden for a pure Socio approver (no canApproveRisk, no data)", () => {
+    renderForm({
+      approvalStatus: "Pending_Approval",
+      canApprove: true,
+      canApproveRisk: false,
     });
     expect(screen.queryByText("workOrders.riskAssessment")).not.toBeInTheDocument();
   });
 
-  it("WF4: onRiskAssessmentChange is called with (ceacCompletedAt, value) on CEAC input change in Draft", () => {
+  it("WF4: Risk section is visible read-only for the Riesgos approver in Pending", () => {
+    const container = renderForm({
+      approvalStatus: "Pending_Approval",
+      canApproveRisk: true,
+      ...fullRisk,
+    });
+    // Section is rendered for the risk approver...
+    expect(screen.getByText("workOrders.riskAssessment")).toBeInTheDocument();
+    // ...but read-only: dates render as text, not editable date inputs.
+    const dateInputs = container.querySelectorAll<HTMLInputElement>('input[type="date"]');
+    expect(dateInputs.length).toBe(0);
+  });
+
+  it("WF5: Risk fields are editable by the creator/Manager in Draft", () => {
     const handler = vi.fn();
     const container = renderForm({
       approvalStatus: "Draft",
-      canApprove: true,
       onRiskAssessmentChange: handler,
     });
+    expect(screen.getByText("workOrders.riskAssessment")).toBeInTheDocument();
     const [ceacInput] = container.querySelectorAll<HTMLInputElement>('input[type="date"]');
+    expect(ceacInput.readOnly).toBe(false);
     fireEvent.change(ceacInput, { target: { value: "2026-05-01" } });
     expect(handler).toHaveBeenCalledWith("ceacCompletedAt", "2026-05-01");
   });
 
-  it("WF4b: risk inputs are read-only in Pending_Approval (Socio cannot edit)", () => {
-    const container = renderForm({
-      approvalStatus: "Pending_Approval",
-      canApprove: true,
-      ceacCompletedAt: "2026-05-01",
-      sanCompletedAt: "2026-04-15",
-      onRiskAssessmentChange: vi.fn(),
-    });
-    const dateInputs = container.querySelectorAll<HTMLInputElement>('input[type="date"]');
-    dateInputs.forEach((input) => expect(input.readOnly).toBe(true));
-  });
-
-  it("WF5: Risk section is visible as read-only when OT is Approved and has risk data", () => {
+  it("WF6: Risk section visible read-only when Approved and has risk data", () => {
     const container = renderForm({
       approvalStatus: "Approved",
       ceacCompletedAt: "2026-05-01",
@@ -181,54 +197,123 @@ describe("WorkOrderForm — Risk Assessment Section (feat/0306-78)", () => {
     dateInputs.forEach((input) => expect(input.readOnly).toBe(true));
   });
 
-  it("WF6: Risk card is absent for Approved OT with no risk data (pre-feature records)", () => {
-    renderForm({
-      approvalStatus: "Approved",
-      // No ceacCompletedAt / sanCompletedAt
-    });
+  it("WF7: Risk card absent for Approved OT with no risk data and not emergency", () => {
+    renderForm({ approvalStatus: "Approved" });
     expect(screen.queryByText("workOrders.riskAssessment")).not.toBeInTheDocument();
   });
 
-  it("WF7: Approve button is disabled when ceacNumber is missing even if dates are present", () => {
+  // ── Risk action buttons ────────────────────────────────────────────────────────
+  it("WF8: Riesgos approver with complete data sees 'Aprobar Riesgo', not the emergency button", () => {
     renderForm({
       approvalStatus: "Pending_Approval",
-      canApprove: true,
-      onApprove: vi.fn(),
-      ceacCompletedAt: "2026-05-01",
-      sanCompletedAt: "2026-04-15",
-      sanApprovalId: "12345-67890",
-      riskLevel: "Bajo",
-      // ceacNumber is absent
+      canApproveRisk: true,
+      onApproveRisk: vi.fn(),
+      onEmergencyApprove: vi.fn(),
+      onRejectRisk: vi.fn(),
+      ...fullRisk,
     });
-    const btn = screen.getByText("workOrders.approve").closest("button");
-    expect(btn).toBeDisabled();
-  });
-
-  it("WF8: Approve button is disabled when riskLevel is missing even if all other fields are present", () => {
-    renderForm({
-      approvalStatus: "Pending_Approval",
-      canApprove: true,
-      onApprove: vi.fn(),
-      ceacCompletedAt: "2026-05-01",
-      ceacNumber: "1234567890",
-      sanCompletedAt: "2026-04-15",
-      sanApprovalId: "12345-67890",
-      // riskLevel is absent
-    });
-    const btn = screen.getByText("workOrders.approve").closest("button");
-    expect(btn).toBeDisabled();
-  });
-
-  it("WF9: No emergency approval button or emergency-related text rendered", () => {
-    renderForm({
-      approvalStatus: "Pending_Approval",
-      canApprove: true,
-      onApprove: vi.fn(),
-      ceacCompletedAt: undefined, // simulate missing CEAC
-      sanCompletedAt: "2026-04-15",
-    });
+    expect(screen.getByText("workOrders.approveRisk")).toBeInTheDocument();
     expect(screen.queryByText("workOrders.approveEmergency")).not.toBeInTheDocument();
-    expect(screen.queryByText("workOrders.ceacEmergencyHint")).not.toBeInTheDocument();
-    expect(screen.queryByText("workOrders.approvedEmergency")).not.toBeInTheDocument();
+    expect(screen.getByText("workOrders.rejectRisk")).toBeInTheDocument();
+  });
+
+  it("WF9: Riesgos approver with empty risk sees 'Aprobar de Emergencia', not 'Aprobar Riesgo'", () => {
+    renderForm({
+      approvalStatus: "Pending_Approval",
+      canApproveRisk: true,
+      onApproveRisk: vi.fn(),
+      onEmergencyApprove: vi.fn(),
+      onRejectRisk: vi.fn(),
+      // no risk fields
+    });
+    expect(screen.getByText("workOrders.approveEmergency")).toBeInTheDocument();
+    expect(screen.queryByText("workOrders.approveRisk")).not.toBeInTheDocument();
+  });
+
+  it("WF10: Risk action buttons are not shown without canApproveRisk", () => {
+    renderForm({
+      approvalStatus: "Pending_Approval",
+      canApprove: true,
+      canApproveRisk: false,
+      onApproveRisk: vi.fn(),
+      onEmergencyApprove: vi.fn(),
+      ...fullRisk,
+    });
+    expect(screen.queryByText("workOrders.approveRisk")).not.toBeInTheDocument();
+    expect(screen.queryByText("workOrders.approveEmergency")).not.toBeInTheDocument();
+  });
+
+  it("WF11: emergency AlertDialog requires a justification before onEmergencyApprove fires", () => {
+    const onEmergencyApprove = vi.fn();
+    renderForm({
+      approvalStatus: "Pending_Approval",
+      canApproveRisk: true,
+      onEmergencyApprove,
+      onRejectRisk: vi.fn(),
+    });
+
+    // Open the dialog from the trigger button.
+    fireEvent.click(screen.getByText("workOrders.approveEmergency").closest("button")!);
+
+    const dialog = screen.getByRole("alertdialog");
+    const confirmBtn = within(dialog)
+      .getByText("workOrders.approveEmergency")
+      .closest("button")!;
+    // Empty justification → confirm disabled, callback not fired.
+    expect(confirmBtn).toBeDisabled();
+
+    const textarea = dialog.querySelector("textarea")!;
+    fireEvent.change(textarea, { target: { value: "Pedido por correo a Riesgos" } });
+
+    expect(confirmBtn).not.toBeDisabled();
+    fireEvent.click(confirmBtn);
+    expect(onEmergencyApprove).toHaveBeenCalledWith("Pedido por correo a Riesgos");
+  });
+
+  it("WF12: emergency banner is shown when riskStatus is Emergency_Approved", () => {
+    renderForm({
+      approvalStatus: "Approved",
+      riskStatus: "Emergency_Approved",
+      emergencyDeadlineAt: "2026-06-25",
+    });
+    expect(screen.getByText("workOrders.riskApprovedEmergency")).toBeInTheDocument();
+    expect(screen.getByText("workOrders.emergencyDeadlineBanner")).toBeInTheDocument();
+  });
+
+  // ── Submit gate (all-or-nothing) ───────────────────────────────────────────────
+  it("WF13: Submit is enabled with fully empty risk (emergency submit)", () => {
+    renderForm({
+      approvalStatus: "Draft",
+      onSubmitForApproval: vi.fn(),
+      onRiskAssessmentChange: vi.fn(),
+      hasNonRiskDirty: false,
+      // no risk fields
+    });
+    const btn = screen.getByText("workOrders.submitForApproval").closest("button");
+    expect(btn).not.toBeDisabled();
+  });
+
+  it("WF14: Submit is disabled with partial risk data", () => {
+    renderForm({
+      approvalStatus: "Draft",
+      onSubmitForApproval: vi.fn(),
+      onRiskAssessmentChange: vi.fn(),
+      hasNonRiskDirty: false,
+      ceacCompletedAt: "2026-05-01", // partial only
+    });
+    const btn = screen.getByText("workOrders.submitForApproval").closest("button");
+    expect(btn).toBeDisabled();
+  });
+
+  it("WF15: Submit is enabled with all 5 risk fields complete (normal submit)", () => {
+    renderForm({
+      approvalStatus: "Draft",
+      onSubmitForApproval: vi.fn(),
+      onRiskAssessmentChange: vi.fn(),
+      hasNonRiskDirty: false,
+      ...fullRisk,
+    });
+    const btn = screen.getByText("workOrders.submitForApproval").closest("button");
+    expect(btn).not.toBeDisabled();
   });
 });

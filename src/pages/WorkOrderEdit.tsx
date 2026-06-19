@@ -20,10 +20,14 @@ import {
   useDeleteExpenseBudget,
   useSubmitWorkOrder,
   useApproveWorkOrder,
+  useApproveRisk,
+  useRejectRisk,
+  useCompleteRiskAssessment,
   useRejectWorkOrder,
   useUnsubmitWorkOrder,
 } from "@/hooks/mutations";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
+import { useUserRole } from "@/hooks/useUserRole";
 import { useWorksheetByEngagementId } from "@/hooks/useWorksheetData";
 import { useResyncWorksheetToWorkOrder } from "@/hooks/useWorksheetMutations";
 import { toast } from "sonner";
@@ -60,9 +64,13 @@ const WorkOrderEdit = () => {
   const deleteExpenseBudget = useDeleteExpenseBudget();
   const submitWorkOrder = useSubmitWorkOrder();
   const approveWorkOrder = useApproveWorkOrder();
+  const approveRisk = useApproveRisk();
+  const rejectRisk = useRejectRisk();
+  const completeRiskAssessment = useCompleteRiskAssessment();
   const rejectWorkOrder = useRejectWorkOrder();
   const unsubmitWorkOrder = useUnsubmitWorkOrder();
   const resyncWorksheet = useResyncWorksheetToWorkOrder();
+  const { isAdmin } = useUserRole();
 
   const [currency, setCurrency] = useState<"USD" | "BOB">("BOB");
   const [seasonMode, setSeasonMode] = useState<"High" | "Low">("High");
@@ -203,6 +211,9 @@ const WorkOrderEdit = () => {
 
   // Check if user can approve
   const canApprove = staffRecord?.category?.can_approve_wo || false;
+  // Riesgos approver = Administrator role (OQ-4). Needs a staff record because
+  // risk_approved_by references staff(staff_id).
+  const canApproveRisk = isAdmin && !!staffRecord;
 
   const approvalStatus = workOrder?.approval_status as "Draft" | "Pending_Approval" | "Approved" | "Rejected" || "Draft";
   const isLocked = approvalStatus === "Approved" || approvalStatus === "Pending_Approval";
@@ -265,9 +276,14 @@ const WorkOrderEdit = () => {
     if (!workOrder) return;
     const CEAC_NUM_RE = /^\d{10}$/;
     const SAN_ID_RE = /^\d{10}$|^\d{5}-\d{5}$/;
-    if (!ceacCompletedAt || !CEAC_NUM_RE.test(ceacNumber ?? '')
-      || !sanCompletedAt || !SAN_ID_RE.test(sanApprovalId ?? '')
-      || !riskLevel) {
+    const allComplete =
+      !!ceacCompletedAt && CEAC_NUM_RE.test(ceacNumber ?? '')
+      && !!sanCompletedAt && SAN_ID_RE.test(sanApprovalId ?? '')
+      && !!riskLevel;
+    const allEmpty =
+      !ceacCompletedAt && !ceacNumber && !sanCompletedAt && !sanApprovalId && !riskLevel;
+    // All-or-nothing: complete (normal) or empty (emergency). Partial is blocked.
+    if (!allComplete && !allEmpty) {
       toast.error(t("workOrders.riskAssessmentRequired"));
       return;
     }
@@ -288,6 +304,44 @@ const WorkOrderEdit = () => {
     await approveWorkOrder.mutateAsync({
       woId: workOrder.wo_id,
       staffId: staffRecord.staff_id,
+    });
+  };
+
+  const handleApproveRisk = async () => {
+    if (!workOrder || !staffRecord) return;
+    await approveRisk.mutateAsync({
+      woId: workOrder.wo_id,
+      staffId: staffRecord.staff_id,
+      isEmergency: false,
+    });
+  };
+
+  const handleEmergencyApprove = async (justification: string) => {
+    if (!workOrder || !staffRecord) return;
+    await approveRisk.mutateAsync({
+      woId: workOrder.wo_id,
+      staffId: staffRecord.staff_id,
+      isEmergency: true,
+      emergencyJustification: justification,
+    });
+  };
+
+  const handleRejectRisk = async (riskNotes: string | null) => {
+    if (!workOrder) return;
+    await rejectRisk.mutateAsync({ woId: workOrder.wo_id, riskNotes });
+  };
+
+  const handleCompleteRisk = async () => {
+    if (!workOrder) return;
+    await completeRiskAssessment.mutateAsync({
+      woId: workOrder.wo_id,
+      ceacCompletedAt,
+      ceacNotes,
+      sanCompletedAt,
+      sanNotes,
+      ceacNumber,
+      sanApprovalId,
+      riskLevel,
     });
   };
 
@@ -408,6 +462,13 @@ const WorkOrderEdit = () => {
           onCancel={() => { allowNextNavigation(); navigate("/work-orders"); }}
           isLocked={isLocked}
           canApprove={canApprove}
+          canApproveRisk={canApproveRisk}
+          riskStatus={workOrder.risk_status}
+          emergencyDeadlineAt={workOrder.emergency_deadline_at}
+          onApproveRisk={handleApproveRisk}
+          onRejectRisk={handleRejectRisk}
+          onEmergencyApprove={handleEmergencyApprove}
+          onCompleteRisk={handleCompleteRisk}
           ceacCompletedAt={ceacCompletedAt}
           ceacNotes={ceacNotes}
           sanCompletedAt={sanCompletedAt}
@@ -420,6 +481,9 @@ const WorkOrderEdit = () => {
             updateWorkOrder.isPending ||
             submitWorkOrder.isPending ||
             approveWorkOrder.isPending ||
+            approveRisk.isPending ||
+            rejectRisk.isPending ||
+            completeRiskAssessment.isPending ||
             rejectWorkOrder.isPending ||
             unsubmitWorkOrder.isPending
           }

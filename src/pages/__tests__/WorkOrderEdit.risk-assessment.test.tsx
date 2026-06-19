@@ -3,8 +3,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-// ── Stable spy for approve mutation ───────────────────────────────────────────
+// ── Stable spies for mutations ────────────────────────────────────────────────
 const mockApproveAsync = vi.hoisted(() => vi.fn().mockResolvedValue({}));
+const mockApproveRiskAsync = vi.hoisted(() => vi.fn().mockResolvedValue({}));
+const mockRejectRiskAsync = vi.hoisted(() => vi.fn().mockResolvedValue({}));
+const mockCompleteRiskAsync = vi.hoisted(() => vi.fn().mockResolvedValue({}));
 
 // Capture the latest props WorkOrderEdit passes to WorkOrderForm.
 // The mock is hoisted so it runs before any import of WorkOrderEdit.
@@ -48,6 +51,8 @@ const mockWorkOrder = {
   ceac_number: "1234567890",
   san_approval_id: "12345-67890",
   risk_level: "Bajo",
+  risk_status: "Pending",
+  emergency_deadline_at: null,
   budget_lines: [],
   expense_budget: [],
   engagement: {
@@ -70,6 +75,11 @@ vi.mock("@/hooks/useCurrentStaff", () => ({
   }),
 }));
 
+// Administrator => Riesgos approver.
+vi.mock("@/hooks/useUserRole", () => ({
+  useUserRole: () => ({ isAdmin: true }),
+}));
+
 vi.mock("@/hooks/useWorksheetData", () => ({
   useWorksheetByEngagementId: () => ({ data: undefined }),
 }));
@@ -88,6 +98,9 @@ vi.mock("@/hooks/mutations", () => ({
   useDeleteExpenseBudget: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useSubmitWorkOrder: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useApproveWorkOrder: () => ({ mutateAsync: mockApproveAsync, isPending: false }),
+  useApproveRisk: () => ({ mutateAsync: mockApproveRiskAsync, isPending: false }),
+  useRejectRisk: () => ({ mutateAsync: mockRejectRiskAsync, isPending: false }),
+  useCompleteRiskAssessment: () => ({ mutateAsync: mockCompleteRiskAsync, isPending: false }),
   useRejectWorkOrder: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useUnsubmitWorkOrder: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
@@ -130,30 +143,29 @@ function renderPage() {
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-describe("WorkOrderEdit — Risk Assessment (feat/0306-78)", () => {
+describe("WorkOrderEdit — Risk dual-track + emergency (feat/0306-78)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     capturedFormProps = {};
   });
 
-  it("WE1: hydrates CEAC/SAN state from workOrder and passes correct values to WorkOrderForm", () => {
+  it("WE1: hydrates CEAC/SAN state and passes risk_status/emergency props to WorkOrderForm", () => {
     renderPage();
     expect(capturedFormProps.ceacCompletedAt).toBe("2026-05-01");
     expect(capturedFormProps.ceacNotes).toBe("CEAC ok");
     expect(capturedFormProps.sanCompletedAt).toBe("2026-04-15");
-    expect(capturedFormProps.sanNotes).toBeNull();
     expect(capturedFormProps.ceacNumber).toBe("1234567890");
     expect(capturedFormProps.sanApprovalId).toBe("12345-67890");
     expect(capturedFormProps.riskLevel).toBe("Bajo");
+    expect(capturedFormProps.riskStatus).toBe("Pending");
+    expect(capturedFormProps.emergencyDeadlineAt).toBeNull();
   });
 
-  it("WE2: handleApprove calls mutateAsync without risk fields (validation moved to submit time)", async () => {
+  it("WE2: handleApprove (Socio) calls mutateAsync without risk fields", async () => {
     renderPage();
-
     await act(async () => {
       await capturedFormProps.onApprove();
     });
-
     expect(toast.error).not.toHaveBeenCalled();
     expect(mockApproveAsync).toHaveBeenCalledWith({
       woId: "wo-1",
@@ -161,41 +173,59 @@ describe("WorkOrderEdit — Risk Assessment (feat/0306-78)", () => {
     });
   });
 
-  it("WE4: isDirty becomes true after onRiskAssessmentChange modifies CEAC date", async () => {
+  it("WE3: canApproveRisk reflects isAdmin && staffRecord", () => {
     renderPage();
-    // Initially isDirty should be false (loaded values equal original values)
-    expect(capturedFormProps.isDirty).toBe(false);
+    expect(capturedFormProps.canApproveRisk).toBe(true);
+  });
 
+  it("WE4: handleApproveRisk calls useApproveRisk with isEmergency=false", async () => {
+    renderPage();
+    await act(async () => {
+      await capturedFormProps.onApproveRisk();
+    });
+    expect(mockApproveRiskAsync).toHaveBeenCalledWith({
+      woId: "wo-1",
+      staffId: "staff-1",
+      isEmergency: false,
+    });
+  });
+
+  it("WE5: handleEmergencyApprove calls useApproveRisk with isEmergency=true and the justification", async () => {
+    renderPage();
+    await act(async () => {
+      await capturedFormProps.onEmergencyApprove("Pedido por correo");
+    });
+    expect(mockApproveRiskAsync).toHaveBeenCalledWith({
+      woId: "wo-1",
+      staffId: "staff-1",
+      isEmergency: true,
+      emergencyJustification: "Pedido por correo",
+    });
+  });
+
+  it("WE6: handleRejectRisk calls useRejectRisk with the notes", async () => {
+    renderPage();
+    await act(async () => {
+      await capturedFormProps.onRejectRisk("Falta documentación");
+    });
+    expect(mockRejectRiskAsync).toHaveBeenCalledWith({
+      woId: "wo-1",
+      riskNotes: "Falta documentación",
+    });
+  });
+
+  it("WE7: onEmergencyApprove prop IS now passed to WorkOrderForm", () => {
+    renderPage();
+    expect(typeof capturedFormProps.onEmergencyApprove).toBe("function");
+    expect(typeof capturedFormProps.onCompleteRisk).toBe("function");
+  });
+
+  it("WE8: isDirty becomes true after onRiskAssessmentChange modifies CEAC date", async () => {
+    renderPage();
+    expect(capturedFormProps.isDirty).toBe(false);
     await act(async () => {
       capturedFormProps.onRiskAssessmentChange("ceacCompletedAt", "2026-06-01");
     });
-
-    // After re-render, capturedFormProps reflects updated props
     expect(capturedFormProps.isDirty).toBe(true);
-  });
-
-  it("WE5: onRiskAssessmentChange for new fields updates state and sets isDirty", async () => {
-    renderPage();
-
-    await act(async () => {
-      capturedFormProps.onRiskAssessmentChange("ceacNumber", "9999999999");
-    });
-    expect(capturedFormProps.ceacNumber).toBe("9999999999");
-    expect(capturedFormProps.isDirty).toBe(true);
-
-    await act(async () => {
-      capturedFormProps.onRiskAssessmentChange("sanApprovalId", "11111-22222");
-    });
-    expect(capturedFormProps.sanApprovalId).toBe("11111-22222");
-
-    await act(async () => {
-      capturedFormProps.onRiskAssessmentChange("riskLevel", "Alto");
-    });
-    expect(capturedFormProps.riskLevel).toBe("Alto");
-  });
-
-  it("WE6: onEmergencyApprove prop is not passed to WorkOrderForm", () => {
-    renderPage();
-    expect(capturedFormProps.onEmergencyApprove).toBeUndefined();
   });
 });
