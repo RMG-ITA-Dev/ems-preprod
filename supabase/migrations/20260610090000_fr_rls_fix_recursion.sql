@@ -43,21 +43,38 @@ AS $$
   );
 $$;
 
+-- Helper SECURITY DEFINER: ¿la solicitud ya salió de 'borrador'? Se usa para
+-- que la visibilidad del gerente empiece SOLO tras el envío (sin subconsulta
+-- directa a fund_requests en las políticas, evitando recursión).
+CREATE OR REPLACE FUNCTION public.fr_is_submitted(p_fr_id uuid)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public' AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.fund_requests fr
+    WHERE fr.fund_request_id = p_fr_id
+      AND fr.status <> 'borrador'
+  );
+$$;
+
 -- =====================================================
 -- Reescritura de las políticas que causaban el ciclo
 -- =====================================================
--- fund_requests: el gerente ve la solicitud si gestiona ≥1 OT (vía función).
+-- fund_requests: el gerente ve la solicitud si gestiona ≥1 OT (vía función) y
+-- SOLO una vez enviada (no debe ver borradores privados del solicitante).
 DROP POLICY IF EXISTS "fr_select_manager" ON public.fund_requests;
 CREATE POLICY "fr_select_manager" ON public.fund_requests
   FOR SELECT TO authenticated
-  USING (public.fr_is_ot_manager(fund_request_id));
+  USING (
+    status <> 'borrador'
+    AND public.fr_is_ot_manager(fund_request_id)
+  );
 
 -- fund_request_work_orders: SELECT sin subconsulta directa a fund_requests.
+-- El gerente solo ve las OTs de solicitudes ya enviadas (no borradores).
 DROP POLICY IF EXISTS "fr_wo_select" ON public.fund_request_work_orders;
 CREATE POLICY "fr_wo_select" ON public.fund_request_work_orders
   FOR SELECT TO authenticated
   USING (
-    manager_staff_id = get_my_staff_id()
+    (manager_staff_id = get_my_staff_id() AND public.fr_is_submitted(fund_request_id))
     OR public.fr_is_requester(fund_request_id)
     OR is_admin()
   );

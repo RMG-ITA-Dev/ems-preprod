@@ -89,10 +89,26 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  -- Reenvío del solicitante DIRECTO al asistente (solo si fue devuelto por él)
+  -- Reenvío del solicitante DIRECTO al asistente (solo si fue devuelto por él).
+  -- Esta vía SE SALTA la re-aprobación del gerente, así que solo se permite
+  -- re-adjuntar el respaldo: cualquier cambio a los datos del gasto exige pasar
+  -- de nuevo por el gerente (reenvío normal a 'pendiente_aprobacion').
   IF NEW.status = 'aprobado_gerente'
      AND OLD.status = 'observado'
      AND OLD.returned_by_assistant THEN
+    IF NEW.amount           IS DISTINCT FROM OLD.amount
+       OR NEW.wo_id            IS DISTINCT FROM OLD.wo_id
+       OR NEW.expense_type_id  IS DISTINCT FROM OLD.expense_type_id
+       OR NEW.expense_date     IS DISTINCT FROM OLD.expense_date
+       OR NEW.expense_date_end IS DISTINCT FROM OLD.expense_date_end
+       OR NEW.days             IS DISTINCT FROM OLD.days
+       OR NEW.description      IS DISTINCT FROM OLD.description
+       OR NEW.document_number  IS DISTINCT FROM OLD.document_number
+       OR NEW.supplier_name    IS DISTINCT FROM OLD.supplier_name
+       OR NEW.supplier_tax_id  IS DISTINCT FROM OLD.supplier_tax_id
+       OR NEW.currency         IS DISTINCT FROM OLD.currency THEN
+      RAISE EXCEPTION 'Al reenviar a contabilidad solo se puede actualizar el respaldo (adjunto); para cambiar datos reenvíe al gerente';
+    END IF;
     RETURN NEW;
   END IF;
 
