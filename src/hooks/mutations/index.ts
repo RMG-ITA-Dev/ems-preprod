@@ -29,6 +29,8 @@ export {
   useSubmitWorkOrder,
   useApproveWorkOrder,
   useApproveRisk,
+  useApproveEmergencyReview,
+  useApproveEmergencyPartner,
   useRejectRisk,
   useCompleteRiskAssessment,
   useRejectWorkOrder,

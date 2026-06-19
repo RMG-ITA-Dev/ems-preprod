@@ -9,6 +9,8 @@ import {
   useSubmitWorkOrder,
   useApproveWorkOrder,
   useApproveRisk,
+  useApproveEmergencyReview,
+  useApproveEmergencyPartner,
   useRejectRisk,
   useCompleteRiskAssessment,
   useRejectWorkOrder,
@@ -102,6 +104,7 @@ describe("useWorkOrderMutations", () => {
         ceac_number: "1234567890",
         san_approval_id: "12345-67890",
         risk_level: "Bajo",
+        emergency_justification: null,
       });
       expect(mockEq).toHaveBeenCalledWith("wo_id", "wo-1");
       expect(toast.success).toHaveBeenCalled();
@@ -119,7 +122,7 @@ describe("useWorkOrderMutations", () => {
         wrapper: createWrapper(),
       });
 
-      result.current.mutate({ woId: "wo-1" });
+      result.current.mutate({ woId: "wo-1", emergencyJustification: "Pedido por correo" });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
@@ -132,6 +135,7 @@ describe("useWorkOrderMutations", () => {
         ceac_number: null,
         san_approval_id: null,
         risk_level: null,
+        emergency_justification: "Pedido por correo",
       });
     });
   });
@@ -194,7 +198,7 @@ describe("useWorkOrderMutations", () => {
         wrapper: createWrapper(),
       });
 
-      result.current.mutate({ woId: "wo-1", staffId: "admin-1", isEmergency: false });
+      result.current.mutate({ woId: "wo-1", staffId: "admin-1" });
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
       expect(mockUpdate).toHaveBeenCalledWith(
@@ -208,32 +212,74 @@ describe("useWorkOrderMutations", () => {
       expect(mockNot).toHaveBeenCalledWith("approved_at", "is", null);
     });
 
-    it("emergency approval sets Emergency_Approved with deadline (+7d) and justification", async () => {
+    it("does NOT write any emergency_* fields (those belong to the two-step hooks)", async () => {
       const { mockUpdate } = makeRiskMock({ wo_id: "wo-1" });
 
       const { result } = renderHook(() => useApproveRisk(), {
         wrapper: createWrapper(),
       });
 
-      result.current.mutate({
-        woId: "wo-1",
-        staffId: "admin-1",
-        isEmergency: true,
-        emergencyJustification: "Solicitado a Riesgos por correo",
+      result.current.mutate({ woId: "wo-1", staffId: "admin-1" });
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      const riskWrite = mockUpdate.mock.calls.map((c) => c[0]).find((a) => a.risk_status);
+      expect("emergency_deadline_at" in riskWrite).toBe(false);
+      expect("emergency_justification" in riskWrite).toBe(false);
+    });
+  });
+
+  describe("useApproveEmergencyReview (emergency step 1: Riesgo)", () => {
+    it("records the first sign-off only — no deadline, no close", async () => {
+      const mockSingle = vi.fn().mockResolvedValue({ data: { wo_id: "wo-1" }, error: null });
+      const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
+      const mockEq = vi.fn().mockReturnValue({ select: mockSelect });
+      const mockUpdate = vi.fn().mockReturnValue({ eq: mockEq });
+      vi.mocked(supabase.from).mockReturnValue({ update: mockUpdate } as any);
+
+      const { result } = renderHook(() => useApproveEmergencyReview(), {
+        wrapper: createWrapper(),
       });
+
+      result.current.mutate({ woId: "wo-1", staffId: "admin-1" });
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      const arg = mockUpdate.mock.calls[0][0];
+      expect(arg.emergency_review_by).toBe("admin-1");
+      expect(arg.emergency_review_at).toBeTruthy();
+      expect("risk_status" in arg).toBe(false);
+      expect("emergency_deadline_at" in arg).toBe(false);
+      // Only one UPDATE — no conditional close.
+      expect(mockUpdate).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("useApproveEmergencyPartner (emergency step 2: Socio de Riesgos)", () => {
+    it("sets Emergency_Approved + deadline (+7d) and closes when Socio track is done", async () => {
+      const mockSingle = vi.fn().mockResolvedValue({ data: { wo_id: "wo-1" }, error: null });
+      const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
+      const mockNot = vi.fn().mockResolvedValue({ error: null });
+      const mockEq = vi.fn().mockReturnValue({ select: mockSelect, not: mockNot });
+      const mockUpdate = vi.fn().mockReturnValue({ eq: mockEq });
+      vi.mocked(supabase.from).mockReturnValue({ update: mockUpdate } as any);
+
+      const { result } = renderHook(() => useApproveEmergencyPartner(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate({ woId: "wo-1", staffId: "admin-2" });
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
       const riskWrite = mockUpdate.mock.calls
         .map((c) => c[0])
         .find((arg) => arg.risk_status === "Emergency_Approved");
       expect(riskWrite).toBeTruthy();
-      expect(riskWrite.emergency_justification).toBe("Solicitado a Riesgos por correo");
-      // +7 calendar days from today, formatted YYYY-MM-DD.
+      expect(riskWrite.emergency_partner_by).toBe("admin-2");
       const expected = new Date();
       expected.setDate(expected.getDate() + 7);
-      expect(riskWrite.emergency_deadline_at).toBe(
-        expected.toISOString().split("T")[0]
-      );
+      expect(riskWrite.emergency_deadline_at).toBe(expected.toISOString().split("T")[0]);
+      // Conditional close gated on the Socio track.
+      expect(mockUpdate).toHaveBeenCalledWith({ approval_status: "Approved" });
+      expect(mockNot).toHaveBeenCalledWith("approved_at", "is", null);
     });
   });
 
@@ -257,6 +303,12 @@ describe("useWorkOrderMutations", () => {
         risk_status: "Rejected",
         risk_notes: "Falta documentación",
         approval_status: "Draft",
+        emergency_review_by: null,
+        emergency_review_at: null,
+        emergency_partner_by: null,
+        emergency_partner_at: null,
+        emergency_deadline_at: null,
+        emergency_justification: null,
       });
     });
   });

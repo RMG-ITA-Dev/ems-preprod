@@ -81,6 +81,9 @@ interface WorkOrderFormProps {
   // Risk dual-track + emergency
   riskStatus?: string | null;
   emergencyDeadlineAt?: string | null;
+  // Emergency two-step sign-offs (Riesgo assistant -> Socio de Riesgos)
+  emergencyReviewAt?: string | null;
+  emergencyPartnerAt?: string | null;
   // New props for create/edit mode and dirty state
   isNew?: boolean;
   isDirty?: boolean;
@@ -94,14 +97,16 @@ interface WorkOrderFormProps {
   onSubmit: () => void;
   onApprove?: () => void;
   onReject?: () => void;
-  onSubmitForApproval?: () => void;
+  // Emergency justification is captured here (at submit) when risk data is empty.
+  onSubmitForApproval?: (emergencyJustification?: string) => void;
   onUnsubmit?: () => void;
   onCancel?: () => void;
   // Riesgos (Administrator) track
   canApproveRisk?: boolean;
   onApproveRisk?: () => void;
   onRejectRisk?: (riskNotes: string | null) => void;
-  onEmergencyApprove?: (justification: string) => void;
+  onApproveEmergencyReview?: () => void;
+  onApproveEmergencyPartner?: () => void;
   onCompleteRisk?: () => void;
   isLocked: boolean;
   canApprove: boolean;
@@ -139,6 +144,8 @@ export function WorkOrderForm({
   riskLevel,
   riskStatus,
   emergencyDeadlineAt,
+  emergencyReviewAt,
+  emergencyPartnerAt,
   isNew = false,
   isDirty = false,
   hasNonRiskDirty = false,
@@ -157,17 +164,23 @@ export function WorkOrderForm({
   canApproveRisk = false,
   onApproveRisk,
   onRejectRisk,
-  onEmergencyApprove,
+  onApproveEmergencyReview,
+  onApproveEmergencyPartner,
   onCompleteRisk,
   isLocked,
   canApprove,
   isSubmitting,
 }: WorkOrderFormProps) {
   const { t } = useTranslation();
-  const [emergencyDialogOpen, setEmergencyDialogOpen] = useState(false);
-  const [emergencyJustification, setEmergencyJustification] = useState("");
+  // Emergency confirmation now lives at submit time (Manager), capturing a mandatory
+  // motive/reference into emergency_justification. Riesgos approvers enter nothing.
+  const [submitEmergencyDialogOpen, setSubmitEmergencyDialogOpen] = useState(false);
+  const [submitJustification, setSubmitJustification] = useState("");
   const [rejectRiskDialogOpen, setRejectRiskDialogOpen] = useState(false);
   const [rejectRiskNotes, setRejectRiskNotes] = useState("");
+  // Risk fields stay locked after an emergency approval until the Manager explicitly
+  // opts to add the data via the "Agregar datos de Riesgo" button.
+  const [addingRiskData, setAddingRiskData] = useState(false);
   const { currentLanguage } = useLanguage();
   const { data: categories } = useCategories();
   const { data: expenseTypes } = useExpenseTypes();
@@ -296,11 +309,14 @@ export function WorkOrderForm({
 
   const isEmergencyApproved = riskStatus === "Emergency_Approved";
   const hasRiskData = !!(ceacCompletedAt || sanCompletedAt);
+  // After an emergency approval the Manager must click "Agregar datos de Riesgo"
+  // before the fields unlock for completion.
+  const canCompleteRiskData = isApproved && isEmergencyApproved && !!onCompleteRisk;
   // Risk fields are editable by the creator/Manager in Draft, and again when an
-  // emergency-approved OT needs its risk data completed.
+  // emergency-approved OT needs its risk data completed (only after opting in).
   const riskFieldsEditable =
     (isDraft && !!onRiskAssessmentChange) ||
-    (isApproved && isEmergencyApproved && !!onCompleteRisk);
+    (canCompleteRiskData && addingRiskData);
   // Risk section visibility.
   const showRiskSection =
     (isDraft && !!onRiskAssessmentChange) ||
@@ -310,6 +326,22 @@ export function WorkOrderForm({
   // or after the Manager completes the data and it returns to Pending for re-review).
   const showRiskActions =
     canApproveRisk && !isDraft && riskStatus !== "Approved";
+  // Emergency (risk data empty) requires two sequential sign-offs. Normal/post-completion
+  // (data present) requires a single approval.
+  const showNormalRiskApprove = riskApprovalReady && !!onApproveRisk;
+  const showEmergencyReview =
+    !riskApprovalReady &&
+    !isEmergencyApproved &&
+    !emergencyReviewAt &&
+    !!onApproveEmergencyReview;
+  const showEmergencyPartner =
+    !riskApprovalReady &&
+    !isEmergencyApproved &&
+    !!emergencyReviewAt &&
+    !emergencyPartnerAt &&
+    !!onApproveEmergencyPartner;
+  const hasRiskAction =
+    showNormalRiskApprove || showEmergencyReview || showEmergencyPartner;
 
   // Get category name by ID
   const getCategoryName = (categoryId: string) => {
@@ -986,23 +1018,36 @@ export function WorkOrderForm({
                 />
               </div>
             </div>
-            {/* Manager completes risk data after an emergency approval */}
-            {isApproved && isEmergencyApproved && onCompleteRisk && (
+            {/* Manager completes risk data after an emergency approval. Fields stay
+                locked until "Agregar datos de Riesgo" is pressed; then the data is
+                sent back to Riesgos for a single approval. */}
+            {canCompleteRiskData && (
               <div className="flex justify-end">
-                <LoadingButton
-                  onClick={onCompleteRisk}
-                  className="bg-info hover:bg-info/90 btn-action"
-                  loading={isSubmitting}
-                  disabled={!riskApprovalReady || isSubmitting}
-                  title={
-                    !riskApprovalReady
-                      ? t("workOrders.riskAssessmentRequired")
-                      : undefined
-                  }
-                >
-                  <ShieldCheck className="h-4 w-4 mr-2" />
-                  {t("workOrders.completeRiskAssessment")}
-                </LoadingButton>
+                {!addingRiskData ? (
+                  <Button
+                    onClick={() => setAddingRiskData(true)}
+                    className="bg-info hover:bg-info/90 btn-action"
+                    disabled={isSubmitting}
+                  >
+                    <ShieldCheck className="h-4 w-4 mr-2" />
+                    {t("workOrders.addRiskData")}
+                  </Button>
+                ) : (
+                  <LoadingButton
+                    onClick={onCompleteRisk}
+                    className="bg-info hover:bg-info/90 btn-action"
+                    loading={isSubmitting}
+                    disabled={!riskApprovalReady || isSubmitting}
+                    title={
+                      !riskApprovalReady
+                        ? t("workOrders.riskAssessmentRequired")
+                        : undefined
+                    }
+                  >
+                    <Send className="h-4 w-4 mr-2" />
+                    {t("workOrders.sendRiskForApproval")}
+                  </LoadingButton>
+                )}
               </div>
             )}
           </CardContent>
@@ -1032,7 +1077,15 @@ export function WorkOrderForm({
             </LoadingButton>
             {onSubmitForApproval && (
               <LoadingButton
-                onClick={onSubmitForApproval}
+                onClick={() => {
+                  // Empty risk data => emergency: confirm + capture motive first.
+                  if (riskAllEmpty) {
+                    setSubmitJustification("");
+                    setSubmitEmergencyDialogOpen(true);
+                  } else {
+                    onSubmitForApproval();
+                  }
+                }}
                 className="bg-info hover:bg-info/90 btn-action"
                 loading={isSubmitting}
                 disabled={hasNonRiskDirty || !canSubmitForApproval}
@@ -1064,49 +1117,58 @@ export function WorkOrderForm({
         )}
         {/* Socio track: business approval. No longer gated by risk completeness. */}
         {isPending && canApprove && (
-          <>
-            {onReject && (
+          <div className="relative rounded-md border p-3 pt-4">
+            <span className="absolute -top-2 left-3 bg-background px-1 text-xs font-medium text-muted-foreground">
+              {t("workOrders.partnerActionsLabel")}
+            </span>
+            <div className="flex justify-end gap-3">
+              {onReject && (
+                <LoadingButton
+                  variant="outline"
+                  onClick={onReject}
+                  className="text-destructive border-destructive btn-action"
+                  loading={isSubmitting}
+                >
+                  <XCircle className="h-4 w-4 mr-2" />
+                  {t("workOrders.reject")}
+                </LoadingButton>
+              )}
               <LoadingButton
-                variant="outline"
-                onClick={onReject}
-                className="text-destructive border-destructive btn-action"
+                onClick={onApprove}
+                className="bg-success hover:bg-success/90 btn-action"
                 loading={isSubmitting}
+                disabled={isSubmitting}
               >
-                <XCircle className="h-4 w-4 mr-2" />
-                {t("workOrders.reject")}
+                <CheckCircle className="h-4 w-4 mr-2" />
+                {t("workOrders.approve")}
               </LoadingButton>
-            )}
-            <LoadingButton
-              onClick={onApprove}
-              className="bg-success hover:bg-success/90 btn-action"
-              loading={isSubmitting}
-              disabled={isSubmitting}
-            >
-              <CheckCircle className="h-4 w-4 mr-2" />
-              {t("workOrders.approve")}
-            </LoadingButton>
-          </>
+            </div>
+          </div>
         )}
-        {/* Riesgos track: Administrator. Either normal risk approval, or emergency
-            approval when the risk fields are empty. */}
-        {showRiskActions && (
-          <>
-            {onRejectRisk && (
-              <LoadingButton
-                variant="outline"
-                onClick={() => {
-                  setRejectRiskNotes("");
-                  setRejectRiskDialogOpen(true);
-                }}
-                className="text-destructive border-destructive btn-action"
-                loading={isSubmitting}
-              >
-                <XCircle className="h-4 w-4 mr-2" />
-                {t("workOrders.rejectRisk")}
-              </LoadingButton>
-            )}
-            {riskApprovalReady ? (
-              onApproveRisk && (
+        {/* Riesgos track: Administrator (roles split later). Normal flow / post-completion
+            => single "Aprobar Riesgo". Emergency (risk empty) => two sequential orange
+            sign-offs: Riesgo (assistant) then Socio de Riesgos. */}
+        {showRiskActions && hasRiskAction && (
+          <div className="relative rounded-md border p-3 pt-4">
+            <span className="absolute -top-2 left-3 bg-background px-1 text-xs font-medium text-muted-foreground">
+              {t("workOrders.riskActionsLabel")}
+            </span>
+            <div className="flex justify-end gap-3">
+              {onRejectRisk && (
+                <LoadingButton
+                  variant="outline"
+                  onClick={() => {
+                    setRejectRiskNotes("");
+                    setRejectRiskDialogOpen(true);
+                  }}
+                  className="text-destructive border-destructive btn-action"
+                  loading={isSubmitting}
+                >
+                  <XCircle className="h-4 w-4 mr-2" />
+                  {t("workOrders.rejectRisk")}
+                </LoadingButton>
+              )}
+              {showNormalRiskApprove && (
                 <LoadingButton
                   onClick={onApproveRisk}
                   className="bg-success hover:bg-success/90 btn-action"
@@ -1116,58 +1178,72 @@ export function WorkOrderForm({
                   <ShieldCheck className="h-4 w-4 mr-2" />
                   {t("workOrders.approveRisk")}
                 </LoadingButton>
-              )
-            ) : (
-              onEmergencyApprove && (
+              )}
+              {showEmergencyReview && (
                 <LoadingButton
-                  onClick={() => {
-                    setEmergencyJustification("");
-                    setEmergencyDialogOpen(true);
-                  }}
-                  className="bg-warning hover:bg-warning/90 text-warning-foreground btn-action"
+                  onClick={onApproveEmergencyReview}
+                  className="bg-orange-500 hover:bg-orange-600 text-white btn-action"
                   loading={isSubmitting}
                   disabled={isSubmitting}
                 >
                   <ShieldAlert className="h-4 w-4 mr-2" />
-                  {t("workOrders.approveEmergency")}
+                  {t("workOrders.approveRiskAssistant")}
                 </LoadingButton>
-              )
-            )}
-          </>
+              )}
+              {showEmergencyPartner && (
+                <LoadingButton
+                  onClick={onApproveEmergencyPartner}
+                  className="bg-orange-500 hover:bg-orange-600 text-white btn-action"
+                  loading={isSubmitting}
+                  disabled={isSubmitting}
+                >
+                  <ShieldAlert className="h-4 w-4 mr-2" />
+                  {t("workOrders.approveRiskPartner")}
+                </LoadingButton>
+              )}
+            </div>
+          </div>
         )}
       </div>
 
-      {/* Emergency approval dialog — requires a mandatory justification */}
-      <AlertDialog open={emergencyDialogOpen} onOpenChange={setEmergencyDialogOpen}>
+      {/* Submit-time emergency dialog — Manager confirms sending without risk data and
+          records a mandatory motive/reference (stored in emergency_justification). */}
+      <AlertDialog
+        open={submitEmergencyDialogOpen}
+        onOpenChange={setSubmitEmergencyDialogOpen}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {t("workOrders.emergencyConfirmTitle")}
+              {t("workOrders.submitEmergencyTitle")}
             </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("workOrders.submitEmergencyMessage")}
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="space-y-2 py-2">
-            <Label>{t("workOrders.emergencyJustificationLabel")}</Label>
+            <Label>{t("workOrders.submitEmergencyJustificationLabel")}</Label>
             <Textarea
-              value={emergencyJustification}
-              onChange={(e) => setEmergencyJustification(e.target.value)}
+              value={submitJustification}
+              onChange={(e) => setSubmitJustification(e.target.value)}
               rows={3}
             />
-            {emergencyJustification.trim().length === 0 && (
+            {submitJustification.trim().length === 0 && (
               <p className="text-xs text-destructive">
-                {t("workOrders.emergencyJustificationRequired")}
+                {t("workOrders.submitEmergencyJustificationRequired")}
               </p>
             )}
           </div>
           <AlertDialogFooter>
             <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
             <AlertDialogAction
-              disabled={emergencyJustification.trim().length === 0}
+              disabled={submitJustification.trim().length === 0}
               onClick={() => {
-                onEmergencyApprove?.(emergencyJustification.trim());
-                setEmergencyDialogOpen(false);
+                onSubmitForApproval?.(submitJustification.trim());
+                setSubmitEmergencyDialogOpen(false);
               }}
             >
-              {t("workOrders.approveEmergency")}
+              {t("workOrders.submitForApproval")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

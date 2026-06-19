@@ -76,6 +76,7 @@ export function useSubmitWorkOrder() {
       ceacNumber,
       sanApprovalId,
       riskLevel,
+      emergencyJustification,
     }: {
       woId: string;
       ceacCompletedAt?: string | null;
@@ -85,6 +86,9 @@ export function useSubmitWorkOrder() {
       ceacNumber?: string | null;
       sanApprovalId?: string | null;
       riskLevel?: string | null;
+      // Captured by the Manager at submit time when sending with empty risk data
+      // (emergency flow). Riesgos approvers never enter a justification.
+      emergencyJustification?: string | null;
     }) => {
       const { data: result, error } = await supabase
         .from("work_orders")
@@ -97,6 +101,7 @@ export function useSubmitWorkOrder() {
           ceac_number: ceacNumber ?? null,
           san_approval_id: sanApprovalId ?? null,
           risk_level: riskLevel ?? null,
+          emergency_justification: emergencyJustification ?? null,
         })
         .eq("wo_id", woId)
         .select()
@@ -154,41 +159,26 @@ export function useApproveWorkOrder() {
   });
 }
 
+// Normal Riesgos approval (single sign-off): used by the normal flow AND by the
+// post-completion data review after an emergency OT completes its risk data.
 export function useApproveRisk() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({
       woId,
       staffId,
-      isEmergency,
-      emergencyJustification,
     }: {
       woId: string;
       staffId: string;
-      isEmergency: boolean;
-      emergencyJustification?: string | null;
     }) => {
-      const nowIso = new Date().toISOString();
-      let updateData: Record<string, unknown> = {
-        risk_approved_by: staffId,
-        risk_approved_at: nowIso,
-      };
-      if (isEmergency) {
-        const deadline = new Date();
-        deadline.setDate(deadline.getDate() + 7); // +7 calendar days
-        updateData = {
-          ...updateData,
-          risk_status: "Emergency_Approved",
-          emergency_deadline_at: deadline.toISOString().split("T")[0],
-          emergency_justification: emergencyJustification ?? null,
-        };
-      } else {
-        updateData = { ...updateData, risk_status: "Approved" };
-      }
       // Riesgos track.
       const { data: result, error } = await supabase
         .from("work_orders")
-        .update(updateData)
+        .update({
+          risk_approved_by: staffId,
+          risk_approved_at: new Date().toISOString(),
+          risk_status: "Approved",
+        })
         .eq("wo_id", woId)
         .select()
         .single();
@@ -211,6 +201,84 @@ export function useApproveRisk() {
   });
 }
 
+// Emergency step 1: Riesgo (assistant) sign-off. Does NOT start the deadline nor
+// close the OT — it only records the first emergency approval.
+export function useApproveEmergencyReview() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      woId,
+      staffId,
+    }: {
+      woId: string;
+      staffId: string;
+    }) => {
+      const { data: result, error } = await supabase
+        .from("work_orders")
+        .update({
+          emergency_review_by: staffId,
+          emergency_review_at: new Date().toISOString(),
+        })
+        .eq("wo_id", woId)
+        .select()
+        .single();
+      if (error) throw error;
+      return result;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["work_orders"] });
+      queryClient.invalidateQueries({ queryKey: ["work_order"] });
+      toast.success(i18n.t("workOrders.riskReviewApproved"));
+    },
+    onError: createMutationErrorHandler("approving emergency risk review"),
+  });
+}
+
+// Emergency step 2: Socio de Riesgos sign-off. With both emergency approvals in,
+// risk_status becomes 'Emergency_Approved', the +7 calendar-day deadline starts,
+// and the OT closes if the Socio (business) track is already done.
+export function useApproveEmergencyPartner() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      woId,
+      staffId,
+    }: {
+      woId: string;
+      staffId: string;
+    }) => {
+      const deadline = new Date();
+      deadline.setDate(deadline.getDate() + 7); // +7 calendar days (~5 business days)
+      const { data: result, error } = await supabase
+        .from("work_orders")
+        .update({
+          emergency_partner_by: staffId,
+          emergency_partner_at: new Date().toISOString(),
+          risk_status: "Emergency_Approved",
+          emergency_deadline_at: deadline.toISOString().split("T")[0],
+        })
+        .eq("wo_id", woId)
+        .select()
+        .single();
+      if (error) throw error;
+      // Atomic close: flip to Approved only if the Socio track is already done.
+      const { error: closeError } = await supabase
+        .from("work_orders")
+        .update({ approval_status: "Approved" })
+        .eq("wo_id", woId)
+        .not("approved_at", "is", null);
+      if (closeError) throw closeError;
+      return result;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["work_orders"] });
+      queryClient.invalidateQueries({ queryKey: ["work_order"] });
+      toast.success(i18n.t("workOrders.approved"));
+    },
+    onError: createMutationErrorHandler("approving emergency risk"),
+  });
+}
+
 export function useRejectRisk() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -227,6 +295,13 @@ export function useRejectRisk() {
           risk_status: "Rejected",
           risk_notes: riskNotes ?? null,
           approval_status: "Draft",
+          // Clear emergency sign-offs/justification so a resubmit starts clean.
+          emergency_review_by: null,
+          emergency_review_at: null,
+          emergency_partner_by: null,
+          emergency_partner_at: null,
+          emergency_deadline_at: null,
+          emergency_justification: null,
         })
         .eq("wo_id", woId)
         .select()

@@ -92,15 +92,18 @@ type FormOverrides = Partial<
     riskLevel?: string | null;
     riskStatus?: string | null;
     emergencyDeadlineAt?: string | null;
+    emergencyReviewAt?: string | null;
+    emergencyPartnerAt?: string | null;
     hasNonRiskDirty?: boolean;
     onRiskAssessmentChange?: (field: string, value: string | null) => void;
     onApprove?: () => void;
     onReject?: () => void;
-    onSubmitForApproval?: () => void;
+    onSubmitForApproval?: (emergencyJustification?: string) => void;
     canApproveRisk?: boolean;
     onApproveRisk?: () => void;
     onRejectRisk?: (notes: string | null) => void;
-    onEmergencyApprove?: (justification: string) => void;
+    onApproveEmergencyReview?: () => void;
+    onApproveEmergencyPartner?: () => void;
     onCompleteRisk?: () => void;
   }
 >;
@@ -203,31 +206,59 @@ describe("WorkOrderForm — Risk dual-track + emergency (feat/0306-78)", () => {
   });
 
   // ── Risk action buttons ────────────────────────────────────────────────────────
-  it("WF8: Riesgos approver with complete data sees 'Aprobar Riesgo', not the emergency button", () => {
+  it("WF8: Riesgos approver with complete data sees single 'Aprobar Riesgo', no emergency steps", () => {
     renderForm({
       approvalStatus: "Pending_Approval",
       canApproveRisk: true,
       onApproveRisk: vi.fn(),
-      onEmergencyApprove: vi.fn(),
+      onApproveEmergencyReview: vi.fn(),
+      onApproveEmergencyPartner: vi.fn(),
       onRejectRisk: vi.fn(),
       ...fullRisk,
     });
     expect(screen.getByText("workOrders.approveRisk")).toBeInTheDocument();
-    expect(screen.queryByText("workOrders.approveEmergency")).not.toBeInTheDocument();
+    expect(screen.queryByText("workOrders.approveRiskAssistant")).not.toBeInTheDocument();
+    expect(screen.queryByText("workOrders.approveRiskPartner")).not.toBeInTheDocument();
     expect(screen.getByText("workOrders.rejectRisk")).toBeInTheDocument();
   });
 
-  it("WF9: Riesgos approver with empty risk sees 'Aprobar de Emergencia', not 'Aprobar Riesgo'", () => {
+  it("WF9: emergency step 1 — empty risk shows 'Aprobar (Riesgo)', not normal/partner", () => {
     renderForm({
       approvalStatus: "Pending_Approval",
       canApproveRisk: true,
       onApproveRisk: vi.fn(),
-      onEmergencyApprove: vi.fn(),
+      onApproveEmergencyReview: vi.fn(),
+      onApproveEmergencyPartner: vi.fn(),
       onRejectRisk: vi.fn(),
-      // no risk fields
+      // no risk fields, no sign-offs yet
     });
-    expect(screen.getByText("workOrders.approveEmergency")).toBeInTheDocument();
+    expect(screen.getByText("workOrders.approveRiskAssistant")).toBeInTheDocument();
+    expect(screen.queryByText("workOrders.approveRiskPartner")).not.toBeInTheDocument();
     expect(screen.queryByText("workOrders.approveRisk")).not.toBeInTheDocument();
+  });
+
+  it("WF9b: emergency step 2 — after the first sign-off shows 'Aprobar (Socio de Riesgos)'", () => {
+    renderForm({
+      approvalStatus: "Pending_Approval",
+      canApproveRisk: true,
+      onApproveEmergencyReview: vi.fn(),
+      onApproveEmergencyPartner: vi.fn(),
+      onRejectRisk: vi.fn(),
+      emergencyReviewAt: "2026-06-19T10:00:00Z",
+    });
+    expect(screen.getByText("workOrders.approveRiskPartner")).toBeInTheDocument();
+    expect(screen.queryByText("workOrders.approveRiskAssistant")).not.toBeInTheDocument();
+  });
+
+  it("WF9c: emergency button uses the orange (not warning) color", () => {
+    renderForm({
+      approvalStatus: "Pending_Approval",
+      canApproveRisk: true,
+      onApproveEmergencyReview: vi.fn(),
+      onRejectRisk: vi.fn(),
+    });
+    const btn = screen.getByText("workOrders.approveRiskAssistant").closest("button")!;
+    expect(btn.className).toContain("bg-orange-500");
   });
 
   it("WF10: Risk action buttons are not shown without canApproveRisk", () => {
@@ -236,30 +267,31 @@ describe("WorkOrderForm — Risk dual-track + emergency (feat/0306-78)", () => {
       canApprove: true,
       canApproveRisk: false,
       onApproveRisk: vi.fn(),
-      onEmergencyApprove: vi.fn(),
+      onApproveEmergencyReview: vi.fn(),
       ...fullRisk,
     });
     expect(screen.queryByText("workOrders.approveRisk")).not.toBeInTheDocument();
-    expect(screen.queryByText("workOrders.approveEmergency")).not.toBeInTheDocument();
+    expect(screen.queryByText("workOrders.approveRiskAssistant")).not.toBeInTheDocument();
   });
 
-  it("WF11: emergency AlertDialog requires a justification before onEmergencyApprove fires", () => {
-    const onEmergencyApprove = vi.fn();
+  it("WF11: submit-time emergency dialog requires a justification before onSubmitForApproval fires", () => {
+    const onSubmitForApproval = vi.fn();
     renderForm({
-      approvalStatus: "Pending_Approval",
-      canApproveRisk: true,
-      onEmergencyApprove,
-      onRejectRisk: vi.fn(),
+      approvalStatus: "Draft",
+      onSubmitForApproval,
+      onRiskAssessmentChange: vi.fn(),
+      hasNonRiskDirty: false,
+      // empty risk => emergency submit path
     });
 
-    // Open the dialog from the trigger button.
-    fireEvent.click(screen.getByText("workOrders.approveEmergency").closest("button")!);
+    // Clicking submit with empty risk opens the confirmation dialog (no direct submit).
+    fireEvent.click(screen.getByText("workOrders.submitForApproval").closest("button")!);
+    expect(onSubmitForApproval).not.toHaveBeenCalled();
 
     const dialog = screen.getByRole("alertdialog");
     const confirmBtn = within(dialog)
-      .getByText("workOrders.approveEmergency")
+      .getByText("workOrders.submitForApproval")
       .closest("button")!;
-    // Empty justification → confirm disabled, callback not fired.
     expect(confirmBtn).toBeDisabled();
 
     const textarea = dialog.querySelector("textarea")!;
@@ -267,7 +299,21 @@ describe("WorkOrderForm — Risk dual-track + emergency (feat/0306-78)", () => {
 
     expect(confirmBtn).not.toBeDisabled();
     fireEvent.click(confirmBtn);
-    expect(onEmergencyApprove).toHaveBeenCalledWith("Pedido por correo a Riesgos");
+    expect(onSubmitForApproval).toHaveBeenCalledWith("Pedido por correo a Riesgos");
+  });
+
+  it("WF11b: submit with complete risk data submits directly (no dialog)", () => {
+    const onSubmitForApproval = vi.fn();
+    renderForm({
+      approvalStatus: "Draft",
+      onSubmitForApproval,
+      onRiskAssessmentChange: vi.fn(),
+      hasNonRiskDirty: false,
+      ...fullRisk,
+    });
+    fireEvent.click(screen.getByText("workOrders.submitForApproval").closest("button")!);
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(onSubmitForApproval).toHaveBeenCalledWith();
   });
 
   it("WF12: emergency banner is shown when riskStatus is Emergency_Approved", () => {

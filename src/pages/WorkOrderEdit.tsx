@@ -21,6 +21,8 @@ import {
   useSubmitWorkOrder,
   useApproveWorkOrder,
   useApproveRisk,
+  useApproveEmergencyReview,
+  useApproveEmergencyPartner,
   useRejectRisk,
   useCompleteRiskAssessment,
   useRejectWorkOrder,
@@ -65,6 +67,8 @@ const WorkOrderEdit = () => {
   const submitWorkOrder = useSubmitWorkOrder();
   const approveWorkOrder = useApproveWorkOrder();
   const approveRisk = useApproveRisk();
+  const approveEmergencyReview = useApproveEmergencyReview();
+  const approveEmergencyPartner = useApproveEmergencyPartner();
   const rejectRisk = useRejectRisk();
   const completeRiskAssessment = useCompleteRiskAssessment();
   const rejectWorkOrder = useRejectWorkOrder();
@@ -272,7 +276,7 @@ const WorkOrderEdit = () => {
     }
   };
 
-  const handleSubmitForApproval = async () => {
+  const handleSubmitForApproval = async (emergencyJustification?: string) => {
     if (!workOrder) return;
     const CEAC_NUM_RE = /^\d{10}$/;
     const SAN_ID_RE = /^\d{10}$|^\d{5}-\d{5}$/;
@@ -296,6 +300,8 @@ const WorkOrderEdit = () => {
       ceacNumber,
       sanApprovalId,
       riskLevel,
+      // Only meaningful for the emergency path (empty risk data).
+      emergencyJustification: allEmpty ? (emergencyJustification ?? null) : null,
     });
   };
 
@@ -312,17 +318,24 @@ const WorkOrderEdit = () => {
     await approveRisk.mutateAsync({
       woId: workOrder.wo_id,
       staffId: staffRecord.staff_id,
-      isEmergency: false,
     });
   };
 
-  const handleEmergencyApprove = async (justification: string) => {
+  // Emergency step 1: Riesgo (assistant).
+  const handleApproveEmergencyReview = async () => {
     if (!workOrder || !staffRecord) return;
-    await approveRisk.mutateAsync({
+    await approveEmergencyReview.mutateAsync({
       woId: workOrder.wo_id,
       staffId: staffRecord.staff_id,
-      isEmergency: true,
-      emergencyJustification: justification,
+    });
+  };
+
+  // Emergency step 2: Socio de Riesgos (starts the deadline, closes the OT).
+  const handleApproveEmergencyPartner = async () => {
+    if (!workOrder || !staffRecord) return;
+    await approveEmergencyPartner.mutateAsync({
+      woId: workOrder.wo_id,
+      staffId: staffRecord.staff_id,
     });
   };
 
@@ -465,9 +478,12 @@ const WorkOrderEdit = () => {
           canApproveRisk={canApproveRisk}
           riskStatus={workOrder.risk_status}
           emergencyDeadlineAt={workOrder.emergency_deadline_at}
+          emergencyReviewAt={workOrder.emergency_review_at}
+          emergencyPartnerAt={workOrder.emergency_partner_at}
           onApproveRisk={handleApproveRisk}
           onRejectRisk={handleRejectRisk}
-          onEmergencyApprove={handleEmergencyApprove}
+          onApproveEmergencyReview={handleApproveEmergencyReview}
+          onApproveEmergencyPartner={handleApproveEmergencyPartner}
           onCompleteRisk={handleCompleteRisk}
           ceacCompletedAt={ceacCompletedAt}
           ceacNotes={ceacNotes}
@@ -482,6 +498,8 @@ const WorkOrderEdit = () => {
             submitWorkOrder.isPending ||
             approveWorkOrder.isPending ||
             approveRisk.isPending ||
+            approveEmergencyReview.isPending ||
+            approveEmergencyPartner.isPending ||
             rejectRisk.isPending ||
             completeRiskAssessment.isPending ||
             rejectWorkOrder.isPending ||

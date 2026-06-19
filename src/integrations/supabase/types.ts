@@ -1735,6 +1735,10 @@ export type Database = {
           risk_notes: string | null
           emergency_deadline_at: string | null
           emergency_justification: string | null
+          emergency_review_by: string | null
+          emergency_review_at: string | null
+          emergency_partner_by: string | null
+          emergency_partner_at: string | null
           season_mode: string
           tax_rate: number | null
           updated_at: string | null
@@ -1762,6 +1766,10 @@ export type Database = {
           risk_notes?: string | null
           emergency_deadline_at?: string | null
           emergency_justification?: string | null
+          emergency_review_by?: string | null
+          emergency_review_at?: string | null
+          emergency_partner_by?: string | null
+          emergency_partner_at?: string | null
           season_mode: string
           tax_rate?: number | null
           updated_at?: string | null
@@ -1789,6 +1797,10 @@ export type Database = {
           risk_notes?: string | null
           emergency_deadline_at?: string | null
           emergency_justification?: string | null
+          emergency_review_by?: string | null
+          emergency_review_at?: string | null
+          emergency_partner_by?: string | null
+          emergency_partner_at?: string | null
           season_mode?: string
           tax_rate?: number | null
           updated_at?: string | null

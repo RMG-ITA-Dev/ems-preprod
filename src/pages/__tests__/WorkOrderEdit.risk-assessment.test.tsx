@@ -6,6 +6,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 // ── Stable spies for mutations ────────────────────────────────────────────────
 const mockApproveAsync = vi.hoisted(() => vi.fn().mockResolvedValue({}));
 const mockApproveRiskAsync = vi.hoisted(() => vi.fn().mockResolvedValue({}));
+const mockApproveEmergencyReviewAsync = vi.hoisted(() => vi.fn().mockResolvedValue({}));
+const mockApproveEmergencyPartnerAsync = vi.hoisted(() => vi.fn().mockResolvedValue({}));
 const mockRejectRiskAsync = vi.hoisted(() => vi.fn().mockResolvedValue({}));
 const mockCompleteRiskAsync = vi.hoisted(() => vi.fn().mockResolvedValue({}));
 
@@ -99,6 +101,8 @@ vi.mock("@/hooks/mutations", () => ({
   useSubmitWorkOrder: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useApproveWorkOrder: () => ({ mutateAsync: mockApproveAsync, isPending: false }),
   useApproveRisk: () => ({ mutateAsync: mockApproveRiskAsync, isPending: false }),
+  useApproveEmergencyReview: () => ({ mutateAsync: mockApproveEmergencyReviewAsync, isPending: false }),
+  useApproveEmergencyPartner: () => ({ mutateAsync: mockApproveEmergencyPartnerAsync, isPending: false }),
   useRejectRisk: () => ({ mutateAsync: mockRejectRiskAsync, isPending: false }),
   useCompleteRiskAssessment: () => ({ mutateAsync: mockCompleteRiskAsync, isPending: false }),
   useRejectWorkOrder: () => ({ mutateAsync: vi.fn(), isPending: false }),
@@ -178,7 +182,7 @@ describe("WorkOrderEdit — Risk dual-track + emergency (feat/0306-78)", () => {
     expect(capturedFormProps.canApproveRisk).toBe(true);
   });
 
-  it("WE4: handleApproveRisk calls useApproveRisk with isEmergency=false", async () => {
+  it("WE4: handleApproveRisk calls useApproveRisk (single normal sign-off)", async () => {
     renderPage();
     await act(async () => {
       await capturedFormProps.onApproveRisk();
@@ -186,20 +190,24 @@ describe("WorkOrderEdit — Risk dual-track + emergency (feat/0306-78)", () => {
     expect(mockApproveRiskAsync).toHaveBeenCalledWith({
       woId: "wo-1",
       staffId: "staff-1",
-      isEmergency: false,
     });
   });
 
-  it("WE5: handleEmergencyApprove calls useApproveRisk with isEmergency=true and the justification", async () => {
+  it("WE5: emergency two-step handlers call the right mutations", async () => {
     renderPage();
     await act(async () => {
-      await capturedFormProps.onEmergencyApprove("Pedido por correo");
+      await capturedFormProps.onApproveEmergencyReview();
     });
-    expect(mockApproveRiskAsync).toHaveBeenCalledWith({
+    expect(mockApproveEmergencyReviewAsync).toHaveBeenCalledWith({
       woId: "wo-1",
       staffId: "staff-1",
-      isEmergency: true,
-      emergencyJustification: "Pedido por correo",
+    });
+    await act(async () => {
+      await capturedFormProps.onApproveEmergencyPartner();
+    });
+    expect(mockApproveEmergencyPartnerAsync).toHaveBeenCalledWith({
+      woId: "wo-1",
+      staffId: "staff-1",
     });
   });
 
@@ -214,10 +222,12 @@ describe("WorkOrderEdit — Risk dual-track + emergency (feat/0306-78)", () => {
     });
   });
 
-  it("WE7: onEmergencyApprove prop IS now passed to WorkOrderForm", () => {
+  it("WE7: emergency two-step + completion props are passed to WorkOrderForm", () => {
     renderPage();
-    expect(typeof capturedFormProps.onEmergencyApprove).toBe("function");
+    expect(typeof capturedFormProps.onApproveEmergencyReview).toBe("function");
+    expect(typeof capturedFormProps.onApproveEmergencyPartner).toBe("function");
     expect(typeof capturedFormProps.onCompleteRisk).toBe("function");
+    expect(capturedFormProps.onEmergencyApprove).toBeUndefined();
   });
 
   it("WE8: isDirty becomes true after onRiskAssessmentChange modifies CEAC date", async () => {
