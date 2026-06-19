@@ -38,12 +38,16 @@ BEGIN
     OR NEW.fund_request_id  IS DISTINCT FROM OLD.fund_request_id
     OR NEW.manager_staff_id IS DISTINCT FROM OLD.manager_staff_id;
 
-  -- El gerente real de la OT solo puede registrar su DECISIÓN, no cambiar la
-  -- asignación del solicitante (monto, OT, etc.).
+  -- NINGÚN no-admin puede cambiar la asignación/identidad por UPDATE: las
+  -- allocations se editan vía RPC (delete+insert) y manager_staff_id lo fija el
+  -- setter. Esto cierra que el solicitante se ponga como gerente de su OT
+  -- (manager_staff_id) para luego auto-aprobarse.
+  IF v_alloc_changed THEN
+    RAISE EXCEPTION 'No se puede modificar la asignación de la OT (monto/OT/gerente) por esta vía';
+  END IF;
+
+  -- El gerente real de la OT puede registrar su DECISIÓN libremente.
   IF OLD.manager_staff_id IS NOT DISTINCT FROM v_me THEN
-    IF v_alloc_changed THEN
-      RAISE EXCEPTION 'El gerente solo puede aprobar/observar/rechazar, no modificar la asignación de la OT';
-    END IF;
     RETURN NEW;
   END IF;
 

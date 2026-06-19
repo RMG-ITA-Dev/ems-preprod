@@ -68,8 +68,13 @@ CREATE POLICY "Staff can view fund request work orders" ON public.work_orders
   USING (public.wo_in_my_fund_request(wo_id));
 
 -- =====================================================
--- fr_wo_set_manager → SECURITY DEFINER
+-- Triggers que leen work_orders en el INSERT de la OT → SECURITY DEFINER
 -- =====================================================
+-- Ambos corren BEFORE INSERT y leen work_orders; con la policy angosta el
+-- solicitante (no del equipo) no vería la OT por RLS, así que deben resolverla
+-- como owner (sin RLS), o crear/editar una solicitud se rompería.
+
+-- (1) Asignar el gerente desde el engagement de la OT.
 CREATE OR REPLACE FUNCTION public.fr_wo_set_manager()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public' AS $$
 DECLARE v_mgr uuid;
@@ -87,3 +92,22 @@ BEGIN
   RETURN NEW;
 END;
 $$;
+
+-- (2) Validar que la OT exista y esté en estado Approved.
+CREATE OR REPLACE FUNCTION public.fr_wo_validate_approved()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public' AS $$
+DECLARE
+  v_status text;
+BEGIN
+  SELECT approval_status INTO v_status FROM public.work_orders WHERE wo_id = NEW.wo_id;
+  IF v_status IS NULL THEN
+    RAISE EXCEPTION 'Work order % does not exist', NEW.wo_id;
+  END IF;
+  IF v_status <> 'Approved' THEN
+    RAISE EXCEPTION 'Work order % must be Approved to be allocated (current: %)', NEW.wo_id, v_status;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+NOTIFY pgrst, 'reload schema';
