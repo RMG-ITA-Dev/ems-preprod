@@ -53,6 +53,10 @@ RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public'
     FROM public.fund_request_work_orders frwo
     JOIN public.fund_requests fr ON fr.fund_request_id = frwo.fund_request_id
     WHERE frwo.wo_id = p_wo_id
+      -- Solo solicitudes YA ENVIADAS: un borrador no debe conceder lectura de la
+      -- WO base (si no, cualquiera crea un borrador, agrega una OT aprobada y lee
+      -- notas/presupuesto de cualquier OT). En borrador la info viene de la vista.
+      AND fr.status <> 'borrador'
       AND (
         fr.requester_staff_id = get_my_staff_id()
         OR frwo.manager_staff_id = get_my_staff_id()
@@ -109,5 +113,3 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
-NOTIFY pgrst, 'reload schema';

@@ -53,6 +53,9 @@ const FundRequestApprovals = () => {
   const myDecisionTab = useMemo(() => {
     const myStaffId = staffRecord?.staff_id;
     return (fr: FundRequest): DecisionTab | null => {
+      // Un borrador no enviado nunca entra a la cola de aprobación (puede verse
+      // si el gerente es también el solicitante de su propio borrador).
+      if (fr.status === "borrador") return null;
       if (fr.status === "cancelado") return "returned";
       const myOts = (fr.fund_request_work_orders ?? []).filter(
         (o) => o.manager_staff_id === myStaffId,

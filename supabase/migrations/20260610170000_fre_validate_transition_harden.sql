@@ -54,6 +54,13 @@ BEGIN
     RAISE EXCEPTION 'Solo contabilidad puede modificar los campos de revisión del gasto';
   END IF;
 
+  -- El gasto NO se puede mover a otra solicitud por UPDATE (ni el solicitante ni
+  -- el gerente): cambiaría conteos/liquidación de ambas. El solicitante sí puede
+  -- reasignar el `wo_id` dentro de la MISMA solicitud (se valida aparte).
+  IF NEW.fund_request_id IS DISTINCT FROM OLD.fund_request_id THEN
+    RAISE EXCEPTION 'No se puede mover el gasto a otra solicitud de fondos';
+  END IF;
+
   -- ¿El que actúa es el solicitante (dueño) de la solicitud?
   SELECT (fr.requester_staff_id = v_me) INTO v_is_requester
   FROM public.fund_requests fr
