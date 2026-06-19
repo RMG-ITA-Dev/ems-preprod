@@ -296,6 +296,17 @@ const FundRequestEdit = () => {
     }
   };
 
+  // No encontrado (id borrado/typo/oculto por RLS): hay que evaluarlo ANTES del
+  // gate de `values`, porque si `fr` es null el efecto nunca inicializa `values`
+  // y el skeleton quedaría para siempre (la rama noResults sería inalcanzable).
+  if (!isLoading && !fr) {
+    return (
+      <AppLayout title={t("entities.fundRequest")} focusMode>
+        <div className="text-center py-12 text-muted-foreground">{t("common.noResults")}</div>
+      </AppLayout>
+    );
+  }
+
   if (isLoading || !values) {
     return (
       <AppLayout title={t("entities.fundRequest")} focusMode>
@@ -303,14 +314,6 @@ const FundRequestEdit = () => {
           <Skeleton className="h-10 w-48" />
           <Skeleton className="h-64 w-full" />
         </div>
-      </AppLayout>
-    );
-  }
-
-  if (!fr) {
-    return (
-      <AppLayout title={t("entities.fundRequest")} focusMode>
-        <div className="text-center py-12 text-muted-foreground">{t("common.noResults")}</div>
       </AppLayout>
     );
   }

@@ -182,8 +182,11 @@ CREATE POLICY "fr_select_manager" ON public.fund_requests
 -- El gerente ya NO actualiza la solicitud directamente: lo hace el trigger de rollup.
 DROP POLICY IF EXISTS "fr_update_manager" ON public.fund_requests;
 
--- El solicitante puede editar/reenviar en borrador, observado o rechazado
--- (rechazado vuelve a ser editable, como en el diagrama del PDF).
+-- El solicitante puede editar en borrador, observado o rechazado (rechazado
+-- vuelve a ser editable, como en el diagrama del PDF). El estado resultante NO
+-- puede ser 'pendiente_aprobacion': enviar a aprobación solo se hace vía el RPC
+-- `fund_request_submit` (SECURITY DEFINER), que además resetea las OTs y fija
+-- submitted_at. Así un UPDATE directo no puede brincarse ese flujo.
 DROP POLICY IF EXISTS "fr_update_requester_draft" ON public.fund_requests;
 CREATE POLICY "fr_update_requester_draft" ON public.fund_requests
   FOR UPDATE TO authenticated
@@ -193,7 +196,7 @@ CREATE POLICY "fr_update_requester_draft" ON public.fund_requests
   )
   WITH CHECK (
     requester_staff_id = get_my_staff_id()
-    AND status IN ('borrador', 'observado', 'rechazado', 'pendiente_aprobacion')
+    AND status IN ('borrador', 'observado', 'rechazado')
   );
 
 -- =====================================================
