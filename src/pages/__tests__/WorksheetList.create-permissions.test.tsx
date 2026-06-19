@@ -40,7 +40,12 @@ vi.mock("@/hooks/useCurrentStaff", () => ({
   useCurrentStaff: () => ({ data: { staff_id: "s1" } }),
 }));
 vi.mock("@/components/layout/AppLayout", () => ({
-  AppLayout: ({ children }: any) => <div>{children}</div>,
+  AppLayout: ({ children, title }: any) => (
+    <div>
+      {title && <span data-testid="page-title">{title}</span>}
+      {children}
+    </div>
+  ),
 }));
 vi.mock("@/components/worksheet/WorksheetGrid", () => ({
   WorksheetGrid: () => <div data-testid="worksheet-grid" />,
@@ -145,5 +150,11 @@ describe("WorksheetList — create permissions (0306-75)", () => {
     mockRole = { isAdmin: false, isPartner: false, isDirector: false, isManager: false, isLoading: true };
     wrap(<WorksheetNew />);
     expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it("passes workMatrix.title as the page title (0525-125)", () => {
+    mockRole = { isAdmin: false, isPartner: false, isDirector: false, isManager: false, isLoading: false };
+    wrap(<WorksheetList />);
+    expect(screen.getByTestId("page-title")).toHaveTextContent("workMatrix.title");
   });
 });

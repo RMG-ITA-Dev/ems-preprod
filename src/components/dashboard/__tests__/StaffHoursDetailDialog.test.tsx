@@ -6,6 +6,23 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { StaffHoursDetailDialog } from "../StaffHoursDetailDialog";
 
+vi.mock('xlsx', () => ({
+  utils: {
+    book_new: vi.fn(() => ({})),
+    aoa_to_sheet: vi.fn((data: unknown[][]) => ({ __data: data })),
+    book_append_sheet: vi.fn(),
+  },
+  writeFile: vi.fn(),
+}));
+
+vi.mock('@/lib/encargoHoursDetailExport', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/encargoHoursDetailExport')>();
+  return {
+    ...(actual as object),
+    downloadXlsx: vi.fn().mockResolvedValue(undefined),
+  };
+});
+
 // Polyfills for Radix UI Select which requires APIs not implemented in jsdom
 if (typeof window !== "undefined") {
   if (!Element.prototype.hasPointerCapture) {
@@ -154,8 +171,8 @@ describe("StaffHoursDetailDialog", () => {
     expect(mockFrom).not.toHaveBeenCalled();
   });
 
-  // Test 4
-  it("renders exactly 2 table rows for 3 raw entries (2 same staff/week, 1 different)", async () => {
+  // Test 4 — updated: 2 aggregated rows (Senior + Gerente) → 2 data + 2 subtotal rows + 1 grand total = 6 total
+  it("renders correct table rows for 3 raw entries (2 same staff/week, 1 different)", async () => {
     const raw = [
       makeRaw({ staff_id: "s1", hours_logged: 2 }),
       makeRaw({ staff_id: "s1", hours_logged: 3 }),
@@ -174,14 +191,14 @@ describe("StaffHoursDetailDialog", () => {
     });
 
     await vi.waitFor(() => {
-      // Each data row has 5 cells
+      // Each data row has 5 cells; subtotal rows are added per category group; plus 1 grand total row
       const rows = screen.getAllByRole("row");
-      // 1 header row + 2 data rows
-      expect(rows).toHaveLength(3);
+      // 1 header + 2 data rows + 2 subtotal rows (one per category) + 1 grand total
+      expect(rows).toHaveLength(6);
     });
   });
 
-  // Test 5 — uses aria-label to find the category combobox among 3 selectors
+  // Test 5 — uses aria-label to find the category popover trigger among the filter controls
   it("category filter hides rows that do not match selected category", async () => {
     const raw = [
       makeRaw({ staff_id: "s1", first_name: "Ana", last_name: "G", category_name: "Senior", display_order: 3 }),
@@ -194,23 +211,23 @@ describe("StaffHoursDetailDialog", () => {
       wrapper: createWrapper(),
     });
 
-    // Wait for data to load (auto-init sets year=2026, week=10 — both rows match so 2 rows visible)
+    // Wait for data to load (auto-init sets year=2026, week=10 — both rows match so 2 data + 2 subtotal rows + 1 grand total)
     await vi.waitFor(() => {
-      expect(screen.getAllByRole("row")).toHaveLength(3); // header + 2 rows
+      expect(screen.getAllByRole("row")).toHaveLength(6); // header + 2 data + 2 subtotal + 1 grand total
     });
 
-    // Open the category select by aria-label
-    const trigger = getCombobox("dashboard.encargo.hoursDetail.filterByCategory");
+    // Open the category multi-select popover
+    const trigger = screen.getByRole("button", { name: "dashboard.encargo.hoursDetail.filterByCategory" });
     await user.click(trigger);
 
-    // Click the "Senior" option
-    const seniorOption = await screen.findByRole("option", { name: "Senior" });
-    await user.click(seniorOption);
+    // Check the "Senior" checkbox to select only Senior
+    const seniorCheckbox = await screen.findByRole("checkbox", { name: "Senior" });
+    await user.click(seniorCheckbox);
 
-    // Only the Senior row should remain visible
+    // Only the Senior row + its subtotal + grand total should remain visible
     await vi.waitFor(() => {
       const rows = screen.getAllByRole("row");
-      expect(rows).toHaveLength(2); // header + 1 data row
+      expect(rows).toHaveLength(4); // header + 1 data row + 1 subtotal + 1 grand total
       expect(screen.getByText("Ana G")).toBeInTheDocument();
       expect(screen.queryByText("Luis P")).not.toBeInTheDocument();
     });
@@ -229,8 +246,9 @@ describe("StaffHoursDetailDialog", () => {
       wrapper: createWrapper(),
     });
 
+    // Both rows are Senior in same year/week → 2 data + 1 subtotal row + 1 grand total (one Senior group)
     await vi.waitFor(() => {
-      expect(screen.getAllByRole("row")).toHaveLength(3);
+      expect(screen.getAllByRole("row")).toHaveLength(5); // header + 2 data + 1 subtotal + 1 grand total
     });
 
     const searchInput = screen.getByPlaceholderText(
@@ -238,8 +256,9 @@ describe("StaffHoursDetailDialog", () => {
     );
     await user.type(searchInput, "Gomez");
 
+    // After filter: 1 data row (Ana) + 1 subtotal (Senior group) + 1 grand total
     await vi.waitFor(() => {
-      expect(screen.getAllByRole("row")).toHaveLength(2); // header + 1
+      expect(screen.getAllByRole("row")).toHaveLength(4); // header + 1 data + 1 subtotal + 1 grand total
       expect(screen.getByText("Ana Gomez")).toBeInTheDocument();
       expect(screen.queryByText("Luis Perez")).not.toBeInTheDocument();
     });
@@ -260,8 +279,8 @@ describe("StaffHoursDetailDialog", () => {
     });
   });
 
-  // Test 8
-  it("renders the Export CSV button", async () => {
+  // Test 8 — updated: exportCsv → exportExcel
+  it("renders the Export Excel button", async () => {
     render(<StaffHoursDetailDialog {...defaultProps} />, {
       wrapper: createWrapper(),
     });
@@ -269,7 +288,7 @@ describe("StaffHoursDetailDialog", () => {
     await vi.waitFor(() => {
       expect(
         screen.getByRole("button", {
-          name: /dashboard\.encargo\.hoursDetail\.exportCsv/i,
+          name: /dashboard\.encargo\.hoursDetail\.exportExcel/i,
         })
       ).toBeInTheDocument();
     });
@@ -286,12 +305,13 @@ describe("StaffHoursDetailDialog", () => {
 
     await vi.waitFor(() => {
       const dashCells = screen.getAllByText("—");
-      // Should appear in Year and Week columns (2 cells)
+      // Should appear in Year and Week columns of data row and subtotal row (≥4 cells)
       expect(dashCells.length).toBeGreaterThanOrEqual(2);
     });
   });
 
   // Test 10 — auto-init: dialog opens showing only the last year/week rows
+  // updated: 1 data row + 1 subtotal row = 3 total (header + 2)
   it("auto-initializes to the last year and last week on first data load", async () => {
     const raw = [
       makeRaw({ staff_id: "s1", first_name: "Ana", last_name: "G", period: { year: 2025, week_number: 9, week_start_date: "2025-02-24" } }),
@@ -303,9 +323,9 @@ describe("StaffHoursDetailDialog", () => {
       wrapper: createWrapper(),
     });
 
-    // Only the row for year=2026 week=11 should be visible
+    // Only the row for year=2026 week=11 should be visible (+ its subtotal row + grand total)
     await vi.waitFor(() => {
-      expect(screen.getAllByRole("row")).toHaveLength(2); // header + 1 row
+      expect(screen.getAllByRole("row")).toHaveLength(4); // header + 1 data + 1 subtotal + 1 grand total
       expect(screen.getByText("Luis P")).toBeInTheDocument();
       expect(screen.queryByText("Ana G")).not.toBeInTheDocument();
     });
@@ -489,10 +509,8 @@ describe("StaffHoursDetailDialog", () => {
     expect(weekLabels).not.toContain("11");
   });
 
-  // Test 16 — CSV export is triggered when year/week filters are active
-  // Content correctness is covered by encargoHoursDetailExport.test.ts.
-  // Here we verify: (a) only filtered rows are in the table, (b) clicking Export calls downloadCsv.
-  it("CSV export button triggers download when year and week filters are active", async () => {
+  // Test 16 — updated: Excel export via XLSX.writeFile (replaces CSV download)
+  it("Excel export button triggers downloadXlsx with correct filename", async () => {
     const raw = [
       makeRaw({ staff_id: "s1", first_name: "Ana", last_name: "G", hours_logged: 3, period: { year: 2025, week_number: 9, week_start_date: "2025-02-24" } }),
       makeRaw({ staff_id: "s2", first_name: "Luis", last_name: "P", hours_logged: 5, period: { year: 2026, week_number: 10, week_start_date: "2026-03-02" } }),
@@ -509,27 +527,130 @@ describe("StaffHoursDetailDialog", () => {
       expect(screen.queryByText("Ana G")).not.toBeInTheDocument();
     });
 
-    // Set up download mocks AFTER the dialog fully renders
-    const clickSpy = vi.fn();
-    const appendChildSpy = vi.spyOn(document.body, "appendChild").mockImplementation((el) => {
-      (el as HTMLAnchorElement).click = clickSpy;
-      return el;
-    });
-    const removeChildSpy = vi.spyOn(document.body, "removeChild").mockImplementation((el) => el);
-    const createObjectURL = vi.fn(() => "blob:test");
-    const revokeObjectURL = vi.fn();
-    Object.defineProperty(window, "URL", { value: { createObjectURL, revokeObjectURL }, writable: true });
-
     const exportBtn = screen.getByRole("button", {
-      name: /dashboard\.encargo\.hoursDetail\.exportCsv/i,
+      name: /dashboard\.encargo\.hoursDetail\.exportExcel/i,
     });
     await userEvent.click(exportBtn);
 
-    // download was triggered
-    expect(createObjectURL).toHaveBeenCalled();
-    expect(clickSpy).toHaveBeenCalled();
+    await vi.waitFor(async () => {
+      const { downloadXlsx } = await import('@/lib/encargoHoursDetailExport');
+      expect(vi.mocked(downloadXlsx)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.stringContaining('SSU-001')
+      );
+    });
+  });
 
-    appendChildSpy.mockRestore();
-    removeChildSpy.mockRestore();
+  // Test 17 — new: lastWeekOnly checkbox renders checked on dialog open
+  it("lastWeekOnly checkbox renders checked on dialog open", async () => {
+    mockEqForecast.mockResolvedValue({ data: [], error: null });
+
+    render(<StaffHoursDetailDialog {...defaultProps} />, {
+      wrapper: createWrapper(),
+    });
+
+    await vi.waitFor(() => {
+      const checkbox = screen.getByRole("checkbox", {
+        name: /lastWeekOnly/i,
+      });
+      expect(checkbox).toHaveAttribute("aria-checked", "true");
+    });
+  });
+
+  // Test 18 — new: unchecking lastWeekOnly shows all rows across all years
+  it("unchecking lastWeekOnly shows all rows across all years", async () => {
+    const raw = [
+      makeRaw({ staff_id: "s1", first_name: "Ana", last_name: "G", period: { year: 2025, week_number: 9, week_start_date: "2025-02-24" } }),
+      makeRaw({ staff_id: "s2", first_name: "Luis", last_name: "P", period: { year: 2026, week_number: 11, week_start_date: "2026-03-09" } }),
+    ];
+    mockEqForecast.mockResolvedValue({ data: raw, error: null });
+
+    const user = userEvent.setup();
+    render(<StaffHoursDetailDialog {...defaultProps} />, {
+      wrapper: createWrapper(),
+    });
+
+    // Auto-init → year=2026, week=11 → only Luis visible
+    await vi.waitFor(() => {
+      expect(screen.getByText("Luis P")).toBeInTheDocument();
+      expect(screen.queryByText("Ana G")).not.toBeInTheDocument();
+    });
+
+    // Uncheck the checkbox → year and week reset to __all__
+    const checkbox = screen.getByRole("checkbox", { name: /lastWeekOnly/i });
+    await user.click(checkbox);
+
+    // Both rows should now be visible
+    await vi.waitFor(() => {
+      expect(screen.getByText("Ana G")).toBeInTheDocument();
+      expect(screen.getByText("Luis P")).toBeInTheDocument();
+    });
+  });
+
+  // Test 19 — new: re-checking lastWeekOnly restores last-week filter
+  it("checking lastWeekOnly after unchecking restores last-week filter", async () => {
+    const raw = [
+      makeRaw({ staff_id: "s1", first_name: "Ana", last_name: "G", period: { year: 2025, week_number: 9, week_start_date: "2025-02-24" } }),
+      makeRaw({ staff_id: "s2", first_name: "Luis", last_name: "P", period: { year: 2026, week_number: 11, week_start_date: "2026-03-09" } }),
+    ];
+    mockEqForecast.mockResolvedValue({ data: raw, error: null });
+
+    const user = userEvent.setup();
+    render(<StaffHoursDetailDialog {...defaultProps} />, {
+      wrapper: createWrapper(),
+    });
+
+    // Wait for auto-init
+    await vi.waitFor(() => {
+      expect(screen.getByText("Luis P")).toBeInTheDocument();
+    });
+
+    const checkbox = screen.getByRole("checkbox", { name: /lastWeekOnly/i });
+
+    // Uncheck → all rows visible
+    await user.click(checkbox);
+    await vi.waitFor(() => {
+      expect(screen.getByText("Ana G")).toBeInTheDocument();
+    });
+
+    // Re-check → only last week visible again
+    await user.click(checkbox);
+    await vi.waitFor(() => {
+      expect(screen.getByText("Luis P")).toBeInTheDocument();
+      expect(screen.queryByText("Ana G")).not.toBeInTheDocument();
+    });
+  });
+
+  // Test 20 — new: manually changing year dropdown unchecks lastWeekOnly
+  it("manually changing year dropdown unchecks lastWeekOnly", async () => {
+    const raw = [
+      makeRaw({ staff_id: "s1", first_name: "Ana", last_name: "G", period: { year: 2025, week_number: 9, week_start_date: "2025-02-24" } }),
+      makeRaw({ staff_id: "s2", first_name: "Luis", last_name: "P", period: { year: 2026, week_number: 11, week_start_date: "2026-03-09" } }),
+    ];
+    mockEqForecast.mockResolvedValue({ data: raw, error: null });
+
+    const user = userEvent.setup();
+    render(<StaffHoursDetailDialog {...defaultProps} />, {
+      wrapper: createWrapper(),
+    });
+
+    // Wait for auto-init — checkbox should be checked
+    await vi.waitFor(() => {
+      const checkbox = screen.getByRole("checkbox", { name: /lastWeekOnly/i });
+      expect(checkbox).toHaveAttribute("aria-checked", "true");
+    });
+
+    // Change year manually via dropdown
+    const yearTrigger = getCombobox("dashboard.encargo.hoursDetail.filterByYear");
+    await user.click(yearTrigger);
+    const year2025 = await screen.findByRole("option", { name: "2025" });
+    await user.click(year2025);
+
+    // Checkbox should now be unchecked
+    await vi.waitFor(() => {
+      const checkbox = screen.getByRole("checkbox", { name: /lastWeekOnly/i });
+      expect(checkbox).toHaveAttribute("aria-checked", "false");
+    });
   });
 });

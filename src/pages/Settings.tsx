@@ -108,6 +108,8 @@ const Settings = () => {
   const [allowedEmailDomain, setAllowedEmailDomain] = useState<string>("");
   const [realizationLimit, setRealizationLimit] = useState<string>("");
   const [holidayEngagementId, setHolidayEngagementId] = useState<string>("");
+  const [maxFailedAttempts, setMaxFailedAttempts] = useState<string>("");
+  const [lockoutMinutes, setLockoutMinutes] = useState<string>("");
 
   const getSetting = useCallback(
     (key: string) => settings?.find((s) => s.setting_key === key)?.setting_value || "",
@@ -138,6 +140,10 @@ const Settings = () => {
       }
       const holidayEngagementSetting = settings.find((s) => s.setting_key === "HOLIDAY_ENGAGEMENT_ID");
       setHolidayEngagementId(holidayEngagementSetting?.setting_value ?? "");
+      const maxAttemptsSetting = settings.find((s) => s.setting_key === "AUTH_MAX_FAILED_ATTEMPTS");
+      if (maxAttemptsSetting) setMaxFailedAttempts(maxAttemptsSetting.setting_value);
+      const lockoutMinutesSetting = settings.find((s) => s.setting_key === "AUTH_LOCKOUT_MINUTES");
+      if (lockoutMinutesSetting) setLockoutMinutes(lockoutMinutesSetting.setting_value);
     }
   }, [settings]);
 
@@ -155,6 +161,8 @@ const Settings = () => {
     const persistedWeeklyMin = getSetting("WEEKLY_MIN") || "40";
     const persistedWeeklyMax = getSetting("WEEKLY_MAX") || "40";
     const persistedHolidayEngagement = getSetting("HOLIDAY_ENGAGEMENT_ID") || "";
+    const persistedMaxAttempts = getSetting("AUTH_MAX_FAILED_ATTEMPTS") || "5";
+    const persistedLockoutMinutes = getSetting("AUTH_LOCKOUT_MINUTES") || "15";
 
     return (
       language !== persistedLang ||
@@ -167,10 +175,13 @@ const Settings = () => {
       (dailyMin !== "" && dailyMin !== persistedDailyMin) ||
       (dailyMax !== "" && dailyMax !== persistedDailyMax) ||
       (weeklyMin !== "" && weeklyMin !== persistedWeeklyMin) ||
-      (weeklyMax !== "" && weeklyMax !== persistedWeeklyMax)
+      (weeklyMax !== "" && weeklyMax !== persistedWeeklyMax) ||
+      (maxFailedAttempts !== "" && maxFailedAttempts !== persistedMaxAttempts) ||
+      (lockoutMinutes !== "" && lockoutMinutes !== persistedLockoutMinutes)
     );
   }, [settings, getSetting, language, allowWeekendTracking, compactFont, allowedEmailDomain,
-      holidayEngagementId, taxRate, realizationLimit, dailyMin, dailyMax, weeklyMin, weeklyMax]);
+      holidayEngagementId, taxRate, realizationLimit, dailyMin, dailyMax, weeklyMin, weeklyMax,
+      maxFailedAttempts, lockoutMinutes]);
 
   // Navigation lock - only when global tab is active
   const { blocker } = usePageLeaveLock({
@@ -195,6 +206,8 @@ const Settings = () => {
     setDailyMax("");
     setWeeklyMin("");
     setWeeklyMax("");
+    setMaxFailedAttempts("");
+    setLockoutMinutes("");
 
     setActiveTab("account");
   };
@@ -347,6 +360,33 @@ const Settings = () => {
 
   const handleSaveSettings = async () => {
     try {
+      // Validate inputs BEFORE any mutateAsync so an invalid value can never
+      // leave the save partially committed. Upper bounds mirror
+      // record_failed_login() in migration
+      // 20260602000001_account_lockout_configurable_settings.sql, which falls
+      // back to defaults for values above these limits — reject them here so we
+      // never persist a policy the DB will silently ignore.
+      const MAX_FAILED_ATTEMPTS_LIMIT = 1000;
+      const LOCKOUT_MINUTES_LIMIT = 525600; // 1 year
+      let maxFailedAttemptsValue: string | null = null;
+      if (maxFailedAttempts) {
+        const val = parseInt(maxFailedAttempts, 10);
+        if (isNaN(val) || val < 1 || val > MAX_FAILED_ATTEMPTS_LIMIT) {
+          toast.error(t("settings.maxFailedAttemptsRangeError"));
+          return;
+        }
+        maxFailedAttemptsValue = val.toString();
+      }
+      let lockoutMinutesValue: string | null = null;
+      if (lockoutMinutes) {
+        const val = parseInt(lockoutMinutes, 10);
+        if (isNaN(val) || val < 1 || val > LOCKOUT_MINUTES_LIMIT) {
+          toast.error(t("settings.lockoutMinutesRangeError"));
+          return;
+        }
+        lockoutMinutesValue = val.toString();
+      }
+
       if (taxRate) {
         await updateSettingMutation.mutateAsync({ key: "TAX_RATE", value: (parseFloat(taxRate) / 100).toString() });
       }
@@ -394,6 +434,13 @@ const Settings = () => {
       const persistedHolidayEngagement = getSetting("HOLIDAY_ENGAGEMENT_ID") || "";
       if (holidayEngagementId !== persistedHolidayEngagement) {
         await updateSettingMutation.mutateAsync({ key: "HOLIDAY_ENGAGEMENT_ID", value: holidayEngagementId });
+      }
+      // Persist the lockout values validated at the top of this handler.
+      if (maxFailedAttemptsValue !== null) {
+        await updateSettingMutation.mutateAsync({ key: "AUTH_MAX_FAILED_ATTEMPTS", value: maxFailedAttemptsValue });
+      }
+      if (lockoutMinutesValue !== null) {
+        await updateSettingMutation.mutateAsync({ key: "AUTH_LOCKOUT_MINUTES", value: lockoutMinutesValue });
       }
       queryClient.invalidateQueries({ queryKey: ["global_settings"] });
       toast.success(t("messages.settingsSaved"));
@@ -666,6 +713,35 @@ const Settings = () => {
                         <span className="text-muted-foreground">%</span>
                       </div>
                       <p className="text-sm text-muted-foreground">{t("settings.taxRateHelp")}</p>
+                    </div>
+
+                    {/* Account Lockout Settings (BUG 0601-132) */}
+                    <div className="space-y-4 py-4 border-b border-border">
+                      <h4 className="font-medium text-sm">{t("settings.accountLockout")}</h4>
+                      <div className="grid grid-cols-2 gap-6">
+                        <div className="space-y-2">
+                          <Label htmlFor="maxFailedAttempts">{t("settings.maxFailedAttempts")}</Label>
+                          <NumericInput
+                            id="maxFailedAttempts"
+                            value={maxFailedAttempts || getSetting("AUTH_MAX_FAILED_ATTEMPTS") || "5"}
+                            onValueChange={setMaxFailedAttempts}
+                            placeholder="5"
+                            decimals={0}
+                          />
+                          <p className="text-sm text-muted-foreground">{t("settings.maxFailedAttemptsHelp")}</p>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="lockoutMinutes">{t("settings.lockoutMinutes")}</Label>
+                          <NumericInput
+                            id="lockoutMinutes"
+                            value={lockoutMinutes || getSetting("AUTH_LOCKOUT_MINUTES") || "15"}
+                            onValueChange={setLockoutMinutes}
+                            placeholder="15"
+                            decimals={0}
+                          />
+                          <p className="text-sm text-muted-foreground">{t("settings.lockoutMinutesHelp")}</p>
+                        </div>
+                      </div>
                     </div>
 
                     {/* Realization Limit Setting */}

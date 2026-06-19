@@ -57,6 +57,7 @@ export interface StaffFull extends Staff {
   hire_date: string | null;
   auth_user_id: string | null;
   termination_date: string | null;
+  is_blocked: boolean | null;
   staff_skills?: StaffSkillWithSkill[];
 }
 
@@ -94,6 +95,10 @@ export interface Engagement {
   activity_required: boolean;
   is_internal: boolean;
   approval_required: boolean;
+  oficina:     number | null;
+  practica:    number | null;
+  anio_fiscal: number | null;
+  funcion:     number | null;
   client?: Client;
   partner?: Staff;
   manager?: Staff;
@@ -109,6 +114,7 @@ export interface WorkOrder {
   approval_status: 'Draft' | 'Pending_Approval' | 'Approved' | 'Rejected';
   approved_by: string | null;
   approved_at: string | null;
+  notes: string | null;
   engagement?: Engagement;
   budget_lines?: WOBudgetLine[];
   expense_budget?: WOExpenseBudget[];

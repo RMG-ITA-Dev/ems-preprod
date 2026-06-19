@@ -58,45 +58,52 @@ describe("TimesheetGrid activity transitions", () => {
   });
 });
 
-// ── BUG 0508-106: approved-engagement guard in handleEngagementChange ──────────────
+// ── BUG 0508-106 Plan v3: per-activity guard in handleEngagementChange / handleActivityChange ──
 
-describe("handleEngagementChange approved-engagement guard (BUG 0508-106)", () => {
-  // Mirrors the exact predicate used in the guard:
-  //   lineApprovals.find(la => la.engagement_id === engagementId)?.status === "approved"
-  const isEngagementApproved = (
-    lineApprovals: Array<{ engagement_id: string; status: string }>,
-    engagementId: string
+describe("handleEngagementChange/handleActivityChange per-activity guard (BUG 0508-106 Plan v3)", () => {
+  // Mirrors the exact predicate used in both guards:
+  //   lineApprovals.find(la => la.engagement_id === engagementId && la.activity_id === activityId)?.status === "approved"
+  const isApprovalBlocked = (
+    lineApprovals: Array<{ engagement_id: string; activity_id: string; status: string }>,
+    engagementId: string,
+    activityId: string
   ): boolean =>
-    lineApprovals.some(la => la.engagement_id === engagementId && la.status === "approved");
+    lineApprovals.some(
+      la => la.engagement_id === engagementId &&
+            la.activity_id   === activityId   &&
+            la.status        === "approved"
+    );
 
-  const APPROVED  = { engagement_id: "eng-approved", status: "approved" };
-  const REJECTED  = { engagement_id: "eng-rejected", status: "rejected" };
-  const PENDING   = { engagement_id: "eng-pending",  status: "pending"  };
+  const APPROVED_XY = { engagement_id: "eng-X", activity_id: "act-Y", status: "approved" };
+  const REJECTED_XZ = { engagement_id: "eng-X", activity_id: "act-Z", status: "rejected" };
+  const PENDING_AW  = { engagement_id: "eng-A", activity_id: "act-W", status: "pending"  };
 
-  it("blocks selecting an engagement with an approved line approval", () => {
-    expect(isEngagementApproved([APPROVED], "eng-approved")).toBe(true);
+  it("blocks selecting an approved (engagement, activity) pair", () => {
+    expect(isApprovalBlocked([APPROVED_XY], "eng-X", "act-Y")).toBe(true);
   });
 
-  it("allows selecting an engagement with a rejected line approval", () => {
-    expect(isEngagementApproved([REJECTED], "eng-rejected")).toBe(false);
+  it("allows selecting the SAME engagement with a DIFFERENT activity (core scenario)", () => {
+    // eng-X is approved for act-Y but NOT for act-Z — must allow
+    expect(isApprovalBlocked([APPROVED_XY], "eng-X", "act-Z")).toBe(false);
   });
 
-  it("allows selecting an engagement with a pending line approval", () => {
-    expect(isEngagementApproved([PENDING], "eng-pending")).toBe(false);
+  it("allows selecting an engagement with a rejected activity", () => {
+    expect(isApprovalBlocked([REJECTED_XZ], "eng-X", "act-Z")).toBe(false);
   });
 
-  it("allows selecting an engagement with no approval record at all", () => {
-    expect(isEngagementApproved([], "eng-any")).toBe(false);
+  it("allows selecting an engagement with a pending activity", () => {
+    expect(isApprovalBlocked([PENDING_AW], "eng-A", "act-W")).toBe(false);
   });
 
-  it("does not block a different engagement even when one engagement is approved", () => {
-    // Approved record for eng-approved must not affect unrelated eng-other
-    expect(isEngagementApproved([APPROVED], "eng-other")).toBe(false);
+  it("allows selecting an engagement with no approval record", () => {
+    expect(isApprovalBlocked([], "eng-X", "act-Y")).toBe(false);
   });
 
-  it("rejected row selecting rejected-status engagement is not blocked", () => {
-    // Core scenario: editing a rejected row to point to another non-approved engagement
-    // is the valid use case; only approved target is blocked
-    expect(isEngagementApproved([REJECTED, APPROVED], "eng-rejected")).toBe(false);
+  it("does not block a different engagement even when one pair is approved", () => {
+    expect(isApprovalBlocked([APPROVED_XY], "eng-A", "act-Y")).toBe(false);
+  });
+
+  it("does not block when engagement matches but activity differs", () => {
+    expect(isApprovalBlocked([APPROVED_XY, REJECTED_XZ], "eng-X", "act-Z")).toBe(false);
   });
 });

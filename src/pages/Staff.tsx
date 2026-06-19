@@ -5,20 +5,12 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useStaffFull, useEngagements, useCategories, StaffFull } from "@/hooks/useEmsData";
 import { DataTable, Column } from "@/components/data-table/DataTable";
 import { useNavigate } from "react-router-dom";
-import { Check } from "lucide-react";
+import { Check, Lock } from "lucide-react";
 import { useUserRole } from "@/hooks/useUserRole";
 
 interface StaffRow extends StaffFull {
   auth_user_id: string | null;
 }
-
-const categoryColors: Record<string, string> = {
-  Partner: "bg-accent/10 text-accent border-accent/20",
-  Manager: "bg-success/10 text-success border-success/20",
-  Senior: "bg-info/10 text-info border-info/20",
-  Staff: "bg-warning/10 text-warning border-warning/20",
-  Junior: "bg-muted text-muted-foreground border-border",
-};
 
 const Staff = () => {
   const { t } = useTranslation();
@@ -92,7 +84,7 @@ const Staff = () => {
       mobilePriority: 'primary',
       render: (row) =>
         row.category ? (
-          <Badge variant="outline" className={categoryColors[row.category.category_name] || ""}>
+          <Badge variant="outline">
             {row.category.category_name}
           </Badge>
         ) : (
@@ -106,12 +98,20 @@ const Staff = () => {
       filterKey: "is_active",
       mobilePriority: 'primary',
       render: (row) => (
-        <Badge
-          variant="outline"
-          className={row.is_active ? "bg-success/10 text-success border-success/20" : "bg-muted text-muted-foreground"}
-        >
-          {row.is_active ? t("status.active") : t("status.inactive")}
-        </Badge>
+        <div className="flex items-center gap-2">
+          <Badge
+            variant="outline"
+            className={row.is_active ? "bg-success/10 text-success border-success/20" : "bg-muted text-muted-foreground"}
+          >
+            {row.is_active ? t("status.active") : t("status.inactive")}
+          </Badge>
+          {(row as StaffRow).is_blocked && (
+            <Badge variant="outline" className="bg-destructive/10 text-destructive border-destructive/20 gap-1">
+              <Lock className="h-3 w-3" />
+              {t("staff.blockedBadge")}
+            </Badge>
+          )}
+        </div>
       ),
     },
     {
