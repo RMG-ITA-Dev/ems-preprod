@@ -13,12 +13,10 @@ import {
 } from "@/components/fund-requests/FundRequestForm";
 import { useCreateFundRequest } from "@/hooks/mutations/useFundRequestMutations";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
-import { useCategoryStaff } from "@/hooks/useCategoryStaff";
 import { useWorkOrders } from "@/hooks/useEmsData";
 import { toast } from "sonner";
 
 const emptyValues: FundRequestFormValues = {
-  approver_manager_staff_id: "",
   total_requested_amount: 0,
   currency: "BOB",
   purpose: "",
@@ -30,26 +28,22 @@ const FundRequestNew = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { staffRecord, isLoading: staffLoading } = useCurrentStaff();
-  const { managerOptions } = useCategoryStaff();
   const { data: workOrders } = useWorkOrders();
   const createFr = useCreateFundRequest();
 
   const [values, setValues] = useState<FundRequestFormValues>(emptyValues);
 
-  // ¿Hay condiciones globales que impiden completar la solicitud?
-  const availableManagerCount = useMemo(
-    () => (managerOptions ?? []).filter((m) => m.value !== staffRecord?.staff_id).length,
-    [managerOptions, staffRecord],
-  );
-  const approvedWoCount = useMemo(
-    () => (workOrders ?? []).filter((wo) => wo.approval_status === "Approved").length,
+  // Prerequisito: deben existir OTs aprobadas CON gerente para poder asignarlas.
+  const usableWoCount = useMemo(
+    () =>
+      (workOrders ?? []).filter(
+        (wo) => wo.approval_status === "Approved" && !!wo.engagement?.manager_id,
+      ).length,
     [workOrders],
   );
-  const hasBlockingIssue =
-    !!staffRecord && (availableManagerCount === 0 || approvedWoCount === 0);
+  const hasBlockingIssue = !!staffRecord && usableWoCount === 0;
 
   const isDirty =
-    values.approver_manager_staff_id !== "" ||
     values.total_requested_amount > 0 ||
     values.purpose !== "" ||
     values.allocations.length > 0;
@@ -61,7 +55,6 @@ const FundRequestNew = () => {
   };
 
   const validate = (): string | null => {
-    if (!values.approver_manager_staff_id) return t("fundRequest.errors.approverRequired");
     if (!values.total_requested_amount || values.total_requested_amount <= 0)
       return t("fundRequest.errors.amountRequired");
     if (values.allocations.length === 0) return t("fundRequest.errors.allocationsRequired");
@@ -91,7 +84,6 @@ const FundRequestNew = () => {
     try {
       const created = await createFr.mutateAsync({
         requester_staff_id: staffRecord.staff_id,
-        approver_manager_staff_id: values.approver_manager_staff_id,
         total_requested_amount: values.total_requested_amount,
         currency: values.currency,
         purpose: values.purpose || null,
@@ -148,12 +140,7 @@ const FundRequestNew = () => {
             <AlertTitle>{t("fundRequest.prereq.title")}</AlertTitle>
             <AlertDescription>
               <ul className="list-disc pl-5 space-y-1 text-sm">
-                {availableManagerCount === 0 && (
-                  <li>{t("fundRequest.prereq.noManagers")}</li>
-                )}
-                {approvedWoCount === 0 && (
-                  <li>{t("fundRequest.prereq.noApprovedWos")}</li>
-                )}
+                <li>{t("fundRequest.prereq.noUsableWos")}</li>
               </ul>
             </AlertDescription>
           </Alert>

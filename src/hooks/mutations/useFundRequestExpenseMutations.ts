@@ -14,6 +14,8 @@ export interface FundRequestExpenseInput {
   wo_id: string;
   expense_type_id?: string | null;
   expense_date: string;
+  expense_date_end?: string | null;
+  days?: number | null;
   amount: number;
   currency: "BOB" | "USD";
   description?: string | null;
@@ -97,6 +99,152 @@ export function useSubmitFundRequestExpense() {
       toast.success(i18n.t("fundRequestExpense.messages.submittedSuccess"));
     },
     onError: createMutationErrorHandler("submitting fund request expense"),
+  });
+}
+
+/**
+ * Envío en LOTE: manda todos los gastos indicados a aprobación de una sola vez
+ * (modelo "rendición": se envía el conjunto, no uno por uno).
+ */
+export function useSubmitAllFundRequestExpenses() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      fundRequestId,
+      ids,
+    }: {
+      fundRequestId: string;
+      ids: string[];
+    }) => {
+      if (ids.length === 0) return { fundRequestId, count: 0 };
+      const { error } = await sb
+        .from("fund_request_expenses")
+        .update({ status: "pendiente_aprobacion", submitted_at: new Date().toISOString() })
+        .in("fre_id", ids);
+      if (error) throw error;
+      return { fundRequestId, count: ids.length };
+    },
+    onSuccess: ({ fundRequestId, count }) => {
+      invalidate(queryClient, fundRequestId);
+      queryClient.invalidateQueries({ queryKey: ["fund_request_expenses"] });
+      toast.success(i18n.t("fundRequestExpense.messages.allSubmittedSuccess", { count }));
+    },
+    onError: createMutationErrorHandler("submitting fund request expenses"),
+  });
+}
+
+/**
+ * El solicitante reenvía DIRECTO a contabilidad un gasto que el asistente
+ * había devuelto: adjunta el respaldo y vuelve a 'aprobado_gerente' (no pasa
+ * por el gerente otra vez). Solo se cambia el respaldo; el resto queda igual.
+ */
+export function useResendReturnedExpense() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, attachmentUrl }: { id: string; attachmentUrl: string | null }) => {
+      const { error } = await sb
+        .from("fund_request_expenses")
+        .update({
+          attachment_url: attachmentUrl,
+          status: "aprobado_gerente",
+          returned_by_assistant: false,
+        })
+        .eq("fre_id", id);
+      if (error) throw error;
+      return { fre_id: id };
+    },
+    onSuccess: (_, { id }) => {
+      invalidate(queryClient, undefined, id);
+      queryClient.invalidateQueries({ queryKey: ["fund_request_expenses"] });
+      toast.success(i18n.t("fundRequestExpense.messages.resentToAccountingSuccess"));
+    },
+    onError: createMutationErrorHandler("resending returned expense"),
+  });
+}
+
+/**
+ * Asistente devuelve un gasto por falta de respaldo: vuelve al solicitante
+ * (observado) con el flag para que, al reenviar, regrese DIRECTO al asistente.
+ */
+export function useReturnFundRequestExpense() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, notes }: { id: string; notes: string }) => {
+      const { error } = await sb
+        .from("fund_request_expenses")
+        .update({
+          status: "observado",
+          returned_by_assistant: true,
+          invoice_observation_notes: notes.trim(),
+          has_invoice_observation: false,
+          iva_penalty_amount: 0,
+        })
+        .eq("fre_id", id);
+      if (error) throw error;
+      return { fre_id: id };
+    },
+    onSuccess: (_, { id }) => {
+      invalidate(queryClient, undefined, id);
+      queryClient.invalidateQueries({ queryKey: ["fund_request_expenses"] });
+      toast.success(i18n.t("fundRequestExpense.messages.returnedSuccess"));
+    },
+    onError: createMutationErrorHandler("returning fund request expense"),
+  });
+}
+
+/**
+ * Decisión en LOTE del gerente: aprueba / observa / rechaza TODOS los gastos
+ * indicados de una sola vez (no uno por uno). RLS filtra por OT del gerente.
+ */
+export function useDecideAllFundRequestExpenses() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      fundRequestId,
+      ids,
+      decision,
+      notes,
+    }: {
+      fundRequestId: string;
+      ids: string[];
+      decision: "aprobado_gerente" | "observado" | "rechazado";
+      notes?: string;
+    }) => {
+      if (ids.length === 0) return { fundRequestId, decision, count: 0 };
+      const now = new Date().toISOString();
+      const update: Record<string, unknown> =
+        decision === "rechazado"
+          ? {
+              status: "rechazado",
+              manager_decided_at: now,
+              rejection_reason: notes?.trim() || null,
+              manager_notes: null,
+            }
+          : {
+              status: decision,
+              manager_decided_at: now,
+              manager_notes: notes?.trim() || null,
+              rejection_reason: null,
+            };
+      const { error } = await sb
+        .from("fund_request_expenses")
+        .update(update)
+        .in("fre_id", ids);
+      if (error) throw error;
+      return { fundRequestId, decision, count: ids.length };
+    },
+    onSuccess: ({ fundRequestId, decision, count }) => {
+      invalidate(queryClient, fundRequestId);
+      queryClient.invalidateQueries({ queryKey: ["fund_request_expenses"] });
+      const key =
+        decision === "aprobado_gerente"
+          ? "fundRequestExpense.messages.allApprovedSuccess"
+          : decision === "observado"
+            ? "fundRequestExpense.messages.allObservedSuccess"
+            : "fundRequestExpense.messages.allRejectedSuccess";
+      toast.success(i18n.t(key, { count }));
+    },
+    onError: createMutationErrorHandler("deciding fund request expenses"),
   });
 }
 

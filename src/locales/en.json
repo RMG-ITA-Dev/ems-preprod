@@ -1207,8 +1207,20 @@
     "requestNumber": "Number",
     "requester": "Requester",
     "approver": "Approving Manager",
+    "managers": "Manager(s)",
+    "manager": "Manager",
     "selectApprover": "Select manager",
     "searchApprover": "Search manager...",
+    "otsBlockedNoManager": "{{count}} approved WO(s) can't be used: their engagement has no manager assigned.",
+    "otApproval": {
+      "title": "Approval by WO",
+      "status": {
+        "pendiente": "Pending",
+        "aprobado": "Approved",
+        "observado": "Observed",
+        "rechazado": "Rejected"
+      }
+    },
     "purpose": "Purpose",
     "purposePlaceholder": "Briefly describe the reason for the request...",
     "totalRequested": "Requested Amount",
@@ -1230,7 +1242,8 @@
     "prereq": {
       "title": "You can't create a request yet",
       "noManagers": "There are no active managers in the system to assign as approver.",
-      "noApprovedWos": "There are no work orders in Approved state. Ask your team to approve at least one before continuing."
+      "noApprovedWos": "There are no work orders in Approved state. Ask your team to approve at least one before continuing.",
+      "noUsableWos": "There are no approved work orders whose engagement has a manager assigned. Ask for a WO to be approved and its engagement to have a manager before continuing."
     },
     "approvalNotes": "Manager notes",
     "rejectionReason": "Rejection reason",
@@ -1270,15 +1283,18 @@
     "tabs": {
       "toDisburse": "To Disburse",
       "delivered": "Delivered",
+      "readyToSettle": "Ready to Settle",
       "inSettlement": "In Settlement",
       "closed": "Closed",
       "pending": "Pending",
       "approved": "Approved",
-      "returned": "Returned"
+      "returned": "Returned",
+      "expensesToApprove": "Expenses to approve",
+      "expensesToReview": "Expenses to review"
     },
     "dialog": {
       "approveTitle": "Approve request?",
-      "approveBody": "The request will move to \"Approved by Manager\" and be ready for Accounting to register fund delivery. You may leave an optional note.",
+      "approveBody": "Confirm the approval. Once all WOs are approved, the request will move to \"Approved by Manager\" and be ready for Accounting to register fund delivery.",
       "observeTitle": "Observe request",
       "observeBody": "The request will go back to the requester for corrections. Explain what needs to be adjusted.",
       "rejectTitle": "Reject request",
@@ -1302,8 +1318,34 @@
       "title": "Submit for approval?",
       "body": "Once submitted, the request will go to manager review and you will not be able to edit it until it is observed or rejected."
     },
+    "settlement": {
+      "action": "Settle",
+      "title": "Request settlement",
+      "body": "Review the calculation and record how the balance is resolved. On confirm, the settlement is sent to the Accounting head for closing.",
+      "confirm": "Settle",
+      "summaryTitle": "Settlement",
+      "resolutionLabel": "Resolution",
+      "amount": "Amount",
+      "notesPlaceholder": "Settlement details (optional)...",
+      "chooseResolution": "Choose how the balance was resolved",
+      "noBalance": "no balance",
+      "favorsFirm": "in favor of the firm",
+      "favorsRequester": "in favor of the requester",
+      "noBalanceHelp": "There is no pending balance.",
+      "payRequesterHelp": "The requester overspent: Accounting will process the payment of the balance owed to them.",
+      "firmQuestion": "Money was left over. How was it resolved?",
+      "blockedHint": "There are {{count}} unfinished expense(s). You can't start settlement until all are reviewed or rejected.",
+      "resolution": {
+        "sin_saldo": "No balance",
+        "devolucion": "Return within deadline",
+        "descuento_planilla": "Payroll deduction",
+        "pago_solicitante": "Payment to requester"
+      }
+    },
     "messages": {
       "submittedSuccess": "Request submitted for approval",
+      "otDecisionSaved": "Decision saved on the WO",
+      "settledSuccess": "Settlement recorded and sent for closing",
       "approvedSuccess": "Request approved",
       "observedSuccess": "Request observed — the requester can correct it",
       "rejectedSuccess": "Request rejected",
@@ -1330,8 +1372,8 @@
     "newExpense": "New Expense",
     "indicators": {
       "register": "Register expenses",
-      "toCorrect": "to fix",
-      "toApprove": "to approve",
+      "toCorrect": "To fix",
+      "toApprove": "To approve",
       "toReview": "to review",
       "expenses": "expenses"
     },
@@ -1341,6 +1383,9 @@
     "expenseType": "Expense Type",
     "selectExpenseType": "Select type",
     "expenseDate": "Expense Date",
+    "expenseDateStart": "Date (From)",
+    "expenseDateEnd": "Date (To)",
+    "days": "Days",
     "amount": "Amount",
     "description": "Description",
     "descriptionPlaceholder": "Describe the reason for the expense...",
@@ -1349,11 +1394,15 @@
     "supplierName": "Supplier",
     "supplierTaxId": "Supplier Tax ID",
     "supplierTaxIdPlaceholder": "Tax ID without dashes or spaces",
-    "attachmentUrl": "Receipt (link)",
+    "attachmentUrl": "Receipt",
+    "fileTooLarge": "The file must be smaller than 5MB",
+    "fileTypes": "JPG, PNG, WebP or PDF (max 5MB)",
+    "pendingLockHint": "This request already has submitted or approved expenses, so you can't register new ones. Any unused balance is resolved during settlement.",
+    "returnedLockHint": "Accounting returned one or more expenses for a missing receipt. Open them, upload the attachment / invoice and resend them to Accounting.",
     "totalSpent": "Total Spent",
     "balance": "Balance",
-    "totalIvaPenalty": "VAT from Observations",
-    "ivaPenalty": "VAT Penalty (13%)",
+    "totalIvaPenalty": "Returns (13%)",
+    "ivaPenalty": "Return (13%)",
     "invoiceObservationNotes": "Invoice observation",
     "status": {
       "borrador": "Draft",
@@ -1364,17 +1413,39 @@
       "revisado_asistente": "Reviewed"
     },
     "actions": {
-      "saveDraft": "Save Draft",
+      "saveDraft": "Save",
       "submit": "Submit for Approval",
-      "review": "Review Invoice"
+      "submitAll": "Submit for Approval",
+      "approveAll": "Approve all",
+      "observeAll": "Observe all",
+      "rejectAll": "Reject all",
+      "review": "Review Invoice",
+      "validate": "Validate",
+      "returnToRequester": "Return to requester",
+      "resendToAccounting": "Resend to Accounting"
+    },
+    "confirmSubmitAll": {
+      "title": "Submit all expenses for approval?",
+      "body": "{{count}} expense(s) will be sent to the manager for approval. They are reviewed together. While under review you can't edit them."
     },
     "dialog": {
+      "approveTitle": "Approve expenses?",
+      "approveBody": "All selected expenses will be approved and sent to Accounting for review.",
+      "observeTitle": "Observe expenses",
+      "observeBody": "The expenses will return to the requester to correct. Indicate what needs adjusting.",
+      "rejectTitle": "Reject expenses",
+      "rejectBody": "The expenses will be rejected. The requester can correct and resubmit them. Provide the reason.",
       "reviewTitle": "Review expense invoice",
-      "reviewBody": "Verify taxes, Tax ID, WO code and dates. If the invoice has issues, mark it as observed.",
-      "hasObservation": "The invoice has observations",
-      "hasObservationHelp": "e.g.: damaged invoice, wrong name or Tax ID. The requester will assume the 13% VAT.",
-      "observationPlaceholder": "Describe the invoice issue...",
-      "ivaWarning": "A 13% VAT penalty will be applied:",
+      "reviewBody": "Verify taxes, Tax ID, WO code and dates.",
+      "hasInvoiceQuestion": "Does the expense have an invoice / receipt?",
+      "noInvoiceWarning": "Without a receipt it can't be validated: the expense will be returned to the requester to attach the invoice.",
+      "returnReason": "Reason for return",
+      "noInvoicePlaceholder": "Indicate which receipt is missing...",
+      "invoiceCorrectQuestion": "Is the invoice / receipt correct?",
+      "invoiceCorrect": "Correct",
+      "invoiceIncorrect": "Incorrect",
+      "observationPlaceholder": "Describe the invoice issue (damaged, wrong name/Tax ID)...",
+      "ivaWarning": "A 13% (VAT) return will be applied:",
       "ivaOf": "13% of {{amount}} {{currency}}"
     },
     "confirmDelete": {
@@ -1387,16 +1458,24 @@
     },
     "messages": {
       "submittedSuccess": "Expense submitted for approval",
+      "allSubmittedSuccess": "{{count}} expense(s) submitted for approval",
+      "allApprovedSuccess": "{{count}} expense(s) approved",
+      "allObservedSuccess": "{{count}} expense(s) observed — returned to requester",
+      "allRejectedSuccess": "{{count}} expense(s) rejected",
       "approvedSuccess": "Expense approved",
       "observedSuccess": "Expense observed — the requester can correct it",
       "rejectedSuccess": "Expense rejected",
-      "reviewedSuccess": "Invoice reviewed"
+      "reviewedSuccess": "Invoice reviewed",
+      "returnedSuccess": "Expense returned to requester to attach the receipt",
+      "resentToAccountingSuccess": "Expense resent to Accounting"
     },
     "errors": {
       "workOrderRequired": "You must select a WO",
       "dateRequired": "You must provide the expense date",
       "amountRequired": "The amount must be greater than zero",
-      "observationNotesRequired": "You must describe the invoice observation"
+      "observationNotesRequired": "You must describe the invoice observation",
+      "noInvoiceNotesRequired": "Indicate which receipt is missing before returning",
+      "attachmentRequired": "Attach the receipt before resending"
     }
   }
 }

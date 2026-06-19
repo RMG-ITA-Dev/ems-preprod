@@ -21,6 +21,8 @@ export interface FundRequestExpense {
   wo_id: string;
   expense_type_id: string | null;
   expense_date: string;
+  expense_date_end: string | null;
+  days: number | null;
   amount: number;
   currency: "BOB" | "USD";
   description: string | null;
@@ -38,6 +40,7 @@ export interface FundRequestExpense {
   has_invoice_observation: boolean;
   invoice_observation_notes: string | null;
   iva_penalty_amount: number;
+  returned_by_assistant: boolean;
   created_at: string;
   updated_at: string;
   work_order?: WorkOrder;

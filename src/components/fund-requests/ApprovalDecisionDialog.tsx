@@ -22,6 +22,8 @@ interface Props {
   mode: DecisionMode;
   isSubmitting?: boolean;
   onConfirm: (notes: string) => void;
+  /** "request" (default) = aprobar la solicitud/OT; "expense" = aprobar gastos en lote */
+  entity?: "request" | "expense";
 }
 
 export function ApprovalDecisionDialog({
@@ -30,6 +32,7 @@ export function ApprovalDecisionDialog({
   mode,
   isSubmitting,
   onConfirm,
+  entity = "request",
 }: Props) {
   const { t } = useTranslation();
   const [notes, setNotes] = useState("");
@@ -54,19 +57,21 @@ export function ApprovalDecisionDialog({
       <XCircle className="inline-block mr-2 h-5 w-5 align-middle text-destructive" />
     );
 
+  const prefix = entity === "expense" ? "fundRequestExpense.dialog" : "fundRequest.dialog";
+
   const titleKey =
     mode === "approve"
-      ? "fundRequest.dialog.approveTitle"
+      ? `${prefix}.approveTitle`
       : mode === "observe"
-        ? "fundRequest.dialog.observeTitle"
-        : "fundRequest.dialog.rejectTitle";
+        ? `${prefix}.observeTitle`
+        : `${prefix}.rejectTitle`;
 
   const bodyKey =
     mode === "approve"
-      ? "fundRequest.dialog.approveBody"
+      ? `${prefix}.approveBody`
       : mode === "observe"
-        ? "fundRequest.dialog.observeBody"
-        : "fundRequest.dialog.rejectBody";
+        ? `${prefix}.observeBody`
+        : `${prefix}.rejectBody`;
 
   const notesLabelKey =
     mode === "reject" ? "fundRequest.rejectionReason" : "fundRequest.approvalNotes";

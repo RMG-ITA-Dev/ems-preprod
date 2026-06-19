@@ -12,22 +12,23 @@ import {
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Checkbox } from "@/components/ui/checkbox";
 import { FundRequestExpenseStatusBadge } from "@/components/fund-requests/FundRequestExpenseStatusBadge";
 import {
   FundRequestExpenseForm,
   type FundRequestExpenseFormValues,
 } from "@/components/fund-requests/FundRequestExpenseForm";
+import { computeExpenseDays } from "@/lib/fundRequest";
 import type { FundRequest } from "@/hooks/useFundRequests";
 import type { FundRequestExpense } from "@/hooks/useFundRequestExpenses";
 import {
   useCreateFundRequestExpense,
   useUpdateFundRequestExpense,
-  useSubmitFundRequestExpense,
   useApproveFundRequestExpense,
   useObserveFundRequestExpense,
   useRejectFundRequestExpense,
   useReviewFundRequestExpense,
+  useReturnFundRequestExpense,
+  useResendReturnedExpense,
   useDeleteFundRequestExpense,
 } from "@/hooks/mutations/useFundRequestExpenseMutations";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
@@ -38,6 +39,7 @@ const emptyValues: FundRequestExpenseFormValues = {
   wo_id: "",
   expense_type_id: "",
   expense_date: "",
+  expense_date_end: "",
   amount: 0,
   description: "",
   document_number: "",
@@ -74,26 +76,42 @@ export function FundRequestExpenseDialog({
 
   const createExpense = useCreateFundRequestExpense();
   const updateExpense = useUpdateFundRequestExpense();
-  const submitExpense = useSubmitFundRequestExpense();
   const approveExpense = useApproveFundRequestExpense();
   const observeExpense = useObserveFundRequestExpense();
   const rejectExpense = useRejectFundRequestExpense();
   const reviewExpense = useReviewFundRequestExpense();
+  const returnExpense = useReturnFundRequestExpense();
+  const resendReturned = useResendReturnedExpense();
   const deleteExpense = useDeleteFundRequestExpense();
 
   const [values, setValues] = useState<FundRequestExpenseFormValues>(emptyValues);
   const [subPanel, setSubPanel] = useState<SubPanel>(null);
   const [notes, setNotes] = useState("");
-  const [hasObservation, setHasObservation] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Revisión del asistente (árbol): ¿tiene factura? → ¿correcta?
+  const [hasInvoice, setHasInvoice] = useState<"yes" | "no" | null>(null);
+  const [invoiceCorrect, setInvoiceCorrect] = useState<"yes" | "no" | null>(null);
 
   const isCreate = !expense;
   const currency = fundRequest.currency;
 
   const isRequester =
     !!staffRecord && fundRequest.requester_staff_id === staffRecord.staff_id;
+  // El gasto lo aprueba el gerente de SU OT (modelo de aprobación por OT).
   const isManager =
-    !!staffRecord && fundRequest.approver_manager_staff_id === staffRecord.staff_id;
+    !!staffRecord &&
+    !!expense &&
+    (fundRequest.fund_request_work_orders ?? []).some(
+      (o) => o.wo_id === expense.wo_id && o.manager_staff_id === staffRecord.staff_id,
+    );
+
+  // Gasto devuelto por contabilidad: el solicitante SOLO adjunta el respaldo y
+  // lo reenvía directo a contabilidad (no edita el resto ni pasa por el gerente).
+  const isReturnedByAssistant =
+    !isCreate &&
+    isRequester &&
+    expense!.status === "observado" &&
+    expense!.returned_by_assistant;
 
   const isEditable =
     isCreate ||
@@ -107,13 +125,15 @@ export function FundRequestExpenseDialog({
     if (!open) return;
     setSubPanel(null);
     setNotes("");
-    setHasObservation(false);
+    setHasInvoice(null);
+    setInvoiceCorrect(null);
     setError(null);
     if (expense) {
       setValues({
         wo_id: expense.wo_id,
         expense_type_id: expense.expense_type_id || "",
         expense_date: expense.expense_date || "",
+        expense_date_end: expense.expense_date_end || "",
         amount: Number(expense.amount),
         description: expense.description || "",
         document_number: expense.document_number || "",
@@ -141,6 +161,8 @@ export function FundRequestExpenseDialog({
     wo_id: values.wo_id,
     expense_type_id: values.expense_type_id || null,
     expense_date: values.expense_date,
+    expense_date_end: values.expense_date_end || null,
+    days: computeExpenseDays(values.expense_date, values.expense_date_end),
     amount: values.amount,
     description: values.description || null,
     document_number: values.document_number || null,
@@ -152,11 +174,12 @@ export function FundRequestExpenseDialog({
   const anyPending =
     createExpense.isPending ||
     updateExpense.isPending ||
-    submitExpense.isPending ||
     approveExpense.isPending ||
     observeExpense.isPending ||
     rejectExpense.isPending ||
     reviewExpense.isPending ||
+    returnExpense.isPending ||
+    resendReturned.isPending ||
     deleteExpense.isPending;
 
   // ── Acciones del solicitante ────────────────────────────────
@@ -187,39 +210,27 @@ export function FundRequestExpenseDialog({
     }
   };
 
-  const handleSaveAndSubmit = async () => {
-    if (!expense) return;
-    const err = validate();
-    if (err) return toast.error(err);
-    try {
-      await updateExpense.mutateAsync({ id: expense.fre_id, data: payload() });
-      await submitExpense.mutateAsync(expense.fre_id);
-      onOpenChange(false);
-    } catch {
-      /* toast por mutation */
-    }
-  };
-
-  const handleCreateAndSubmit = async () => {
-    const err = validate();
-    if (err) return toast.error(err);
-    try {
-      const created = await createExpense.mutateAsync({
-        fund_request_id: fundRequest.fund_request_id,
-        currency,
-        ...payload(),
-      });
-      await submitExpense.mutateAsync(created.fre_id);
-      onOpenChange(false);
-    } catch {
-      /* toast por mutation */
-    }
-  };
-
   const handleDelete = async () => {
     if (!expense) return;
     try {
       await deleteExpense.mutateAsync(expense.fre_id);
+      onOpenChange(false);
+    } catch {
+      /* toast por mutation */
+    }
+  };
+
+  // Reenvío directo a contabilidad (gasto devuelto por falta de respaldo)
+  const handleResend = async () => {
+    if (!expense) return;
+    if (!values.attachment_url) {
+      return toast.error(t("fundRequestExpense.errors.attachmentRequired"));
+    }
+    try {
+      await resendReturned.mutateAsync({
+        id: expense.fre_id,
+        attachmentUrl: values.attachment_url,
+      });
       onOpenChange(false);
     } catch {
       /* toast por mutation */
@@ -251,14 +262,26 @@ export function FundRequestExpenseDialog({
   // ── Sub-panel: revisión de factura del asistente ────────────
   const confirmReview = async () => {
     if (!expense) return;
-    if (hasObservation && notes.trim().length === 0) {
-      setError(t("fundRequestExpense.errors.observationNotesRequired"));
-      return;
-    }
     try {
+      // Sin factura → se devuelve al solicitante (con flag para que vuelva
+      // directo al asistente al reenviar).
+      if (hasInvoice === "no") {
+        if (notes.trim().length === 0) {
+          setError(t("fundRequestExpense.errors.noInvoiceNotesRequired"));
+          return;
+        }
+        await returnExpense.mutateAsync({ id: expense.fre_id, notes });
+        onOpenChange(false);
+        return;
+      }
+      // Con factura incorrecta → validar con devolución del 13%.
+      if (invoiceCorrect === "no" && notes.trim().length === 0) {
+        setError(t("fundRequestExpense.errors.observationNotesRequired"));
+        return;
+      }
       await reviewExpense.mutateAsync({
         id: expense.fre_id,
-        hasObservation,
+        hasObservation: invoiceCorrect === "no",
         observationNotes: notes,
         amount: Number(expense.amount),
         reviewedByStaffId: staffRecord?.staff_id ?? null,
@@ -269,9 +292,14 @@ export function FundRequestExpenseDialog({
     }
   };
 
+  // ¿La elección de revisión está completa para habilitar el confirmar?
+  const reviewReady =
+    hasInvoice === "no" || (hasInvoice === "yes" && invoiceCorrect !== null);
+
   const openSubPanel = (panel: SubPanel) => {
     setNotes("");
-    setHasObservation(false);
+    setHasInvoice(null);
+    setInvoiceCorrect(null);
     setError(null);
     setSubPanel(panel);
   };
@@ -346,31 +374,100 @@ export function FundRequestExpenseDialog({
           </div>
         )}
 
-        {/* ── Sub-panel: revisión de factura ── */}
+        {/* ── Sub-panel: revisión de factura (asistente) ── */}
         {subPanel === "review" && (
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
               {t("fundRequestExpense.dialog.reviewBody")}
             </p>
-            <div className="flex items-start gap-3 rounded-md border p-3">
-              <Checkbox
-                id="exp-invoice-observation"
-                checked={hasObservation}
-                onCheckedChange={(c) => {
-                  setHasObservation(c === true);
-                  if (error) setError(null);
-                }}
-              />
-              <div className="space-y-1">
-                <Label htmlFor="exp-invoice-observation" className="cursor-pointer">
-                  {t("fundRequestExpense.dialog.hasObservation")}
-                </Label>
-                <p className="text-xs text-muted-foreground">
-                  {t("fundRequestExpense.dialog.hasObservationHelp")}
-                </p>
+
+            {/* Paso 1: ¿tiene factura/respaldo? */}
+            <div className="space-y-2">
+              <Label>{t("fundRequestExpense.dialog.hasInvoiceQuestion")}</Label>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant={hasInvoice === "yes" ? "default" : "outline"}
+                  onClick={() => {
+                    setHasInvoice("yes");
+                    setInvoiceCorrect(null);
+                    setNotes("");
+                    setError(null);
+                  }}
+                >
+                  {t("common.yes")}
+                </Button>
+                <Button
+                  type="button"
+                  variant={hasInvoice === "no" ? "destructive" : "outline"}
+                  onClick={() => {
+                    setHasInvoice("no");
+                    setInvoiceCorrect(null);
+                    setNotes("");
+                    setError(null);
+                  }}
+                >
+                  {t("common.no")}
+                </Button>
               </div>
             </div>
-            {hasObservation && (
+
+            {/* Sin factura → se devuelve al solicitante */}
+            {hasInvoice === "no" && (
+              <div className="space-y-2">
+                <div className="rounded-md bg-warning/10 border border-warning/30 p-3 text-sm text-warning">
+                  {t("fundRequestExpense.dialog.noInvoiceWarning")}
+                </div>
+                <Label htmlFor="exp-noinvoice-notes">
+                  {t("fundRequestExpense.dialog.returnReason")}
+                  <span className="text-destructive ml-1">*</span>
+                </Label>
+                <Textarea
+                  id="exp-noinvoice-notes"
+                  value={notes}
+                  onChange={(e) => {
+                    setNotes(e.target.value);
+                    if (error) setError(null);
+                  }}
+                  rows={3}
+                  placeholder={t("fundRequestExpense.dialog.noInvoicePlaceholder")}
+                />
+                {error && <p className="text-sm text-destructive">{error}</p>}
+              </div>
+            )}
+
+            {/* Paso 2: ¿la factura es correcta? */}
+            {hasInvoice === "yes" && (
+              <div className="space-y-2">
+                <Label>{t("fundRequestExpense.dialog.invoiceCorrectQuestion")}</Label>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant={invoiceCorrect === "yes" ? "default" : "outline"}
+                    onClick={() => {
+                      setInvoiceCorrect("yes");
+                      setNotes("");
+                      setError(null);
+                    }}
+                  >
+                    {t("fundRequestExpense.dialog.invoiceCorrect")}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={invoiceCorrect === "no" ? "destructive" : "outline"}
+                    onClick={() => {
+                      setInvoiceCorrect("no");
+                      setError(null);
+                    }}
+                  >
+                    {t("fundRequestExpense.dialog.invoiceIncorrect")}
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Factura incorrecta → nota + devolución 13% */}
+            {hasInvoice === "yes" && invoiceCorrect === "no" && (
               <>
                 <div className="space-y-2">
                   <Label htmlFor="exp-observation-notes">
@@ -405,6 +502,17 @@ export function FundRequestExpenseDialog({
         {/* ── Formulario (crear / ver / editar) ── */}
         {!subPanel && (
           <>
+            {/* Banner: contabilidad devolvió por falta de respaldo */}
+            {!isCreate &&
+              expense!.returned_by_assistant &&
+              expense!.invoice_observation_notes && (
+                <div className="rounded-md border border-warning/30 bg-warning/5 p-3">
+                  <p className="text-sm font-medium text-warning">
+                    {t("fundRequestExpense.dialog.returnReason")} ({t("entities.fundRequest")})
+                  </p>
+                  <p className="text-sm">{expense!.invoice_observation_notes}</p>
+                </div>
+              )}
             {/* Banner rechazado */}
             {!isCreate && expense!.status === "rechazado" && expense!.rejection_reason && (
               <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3">
@@ -458,6 +566,7 @@ export function FundRequestExpenseDialog({
               workOrders={fundRequest.fund_request_work_orders ?? []}
               currency={currency}
               disabled={!isEditable}
+              onlyAttachment={isReturnedByAssistant}
             />
           </>
         )}
@@ -470,8 +579,12 @@ export function FundRequestExpenseDialog({
                 {t("common.cancel")}
               </Button>
               {subPanel === "review" ? (
-                <Button onClick={confirmReview} disabled={anyPending}>
-                  {anyPending ? t("common.saving") : t("fundRequestExpense.actions.review")}
+                <Button onClick={confirmReview} disabled={anyPending || !reviewReady}>
+                  {anyPending
+                    ? t("common.saving")
+                    : hasInvoice === "no"
+                      ? t("fundRequestExpense.actions.returnToRequester")
+                      : t("fundRequestExpense.actions.validate")}
                 </Button>
               ) : (
                 <Button
@@ -499,50 +612,30 @@ export function FundRequestExpenseDialog({
                 {isEditable || canDecide || canReview ? t("common.cancel") : t("common.close")}
               </Button>
 
-              {/* Solicitante: crear */}
+              {/* Solicitante: crear (solo guardar — el envío es en lote desde la lista) */}
               {isCreate && (
-                <>
-                  <Button variant="outline" onClick={handleCreate} disabled={anyPending}>
-                    {t("fundRequestExpense.actions.saveDraft")}
-                  </Button>
-                  <Button onClick={handleCreateAndSubmit} disabled={anyPending}>
-                    {t("fundRequestExpense.actions.submit")}
-                  </Button>
-                </>
+                <Button onClick={handleCreate} disabled={anyPending}>
+                  {t("fundRequestExpense.actions.saveDraft")}
+                </Button>
               )}
 
-              {/* Solicitante: editar */}
-              {!isCreate && isEditable && (
+              {/* Solicitante: gasto devuelto por contabilidad → solo reenviar */}
+              {isReturnedByAssistant && (
+                <Button onClick={handleResend} disabled={anyPending}>
+                  {t("fundRequestExpense.actions.resendToAccounting")}
+                </Button>
+              )}
+
+              {/* Solicitante: editar normal (solo guardar) */}
+              {!isCreate && isEditable && !isReturnedByAssistant && (
                 <>
                   {expense!.status === "borrador" && (
                     <Button variant="destructive" onClick={handleDelete} disabled={anyPending}>
                       {t("common.delete")}
                     </Button>
                   )}
-                  <Button variant="outline" onClick={handleSave} disabled={anyPending}>
+                  <Button onClick={handleSave} disabled={anyPending}>
                     {t("common.saveChanges")}
-                  </Button>
-                  <Button onClick={handleSaveAndSubmit} disabled={anyPending}>
-                    {t("fundRequestExpense.actions.submit")}
-                  </Button>
-                </>
-              )}
-
-              {/* Gerente: decisión */}
-              {canDecide && (
-                <>
-                  <Button
-                    variant="destructive"
-                    onClick={() => openSubPanel("reject")}
-                    disabled={anyPending}
-                  >
-                    {t("fundRequest.actions.reject")}
-                  </Button>
-                  <Button variant="outline" onClick={() => openSubPanel("observe")} disabled={anyPending}>
-                    {t("fundRequest.actions.observe")}
-                  </Button>
-                  <Button onClick={() => openSubPanel("approve")} disabled={anyPending}>
-                    {t("fundRequest.actions.approve")}
                   </Button>
                 </>
               )}

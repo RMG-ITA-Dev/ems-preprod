@@ -49,11 +49,19 @@ const FundRequests = () => {
       render: (row) => <span className="font-mono font-medium">{row.request_number}</span>,
     },
     {
-      key: "approver_manager.last_name",
-      label: t("fundRequest.approver"),
-      sortable: true,
+      key: "managers",
+      label: t("fundRequest.managers"),
       mobilePriority: "secondary",
-      render: (row) => staffName(row.approver_manager),
+      render: (row) => {
+        const names = Array.from(
+          new Set(
+            (row.fund_request_work_orders ?? [])
+              .map((o) => staffName(o.manager))
+              .filter((n) => n && n !== "-"),
+          ),
+        );
+        return names.length ? names.join(", ") : "-";
+      },
     },
     {
       key: "purpose",
@@ -91,9 +99,9 @@ const FundRequests = () => {
         const c = expenseCounts?.[row.fund_request_id];
         const toCorrect = (c?.observado ?? 0) + (c?.rechazado ?? 0);
         if (toCorrect > 0) {
+          // Se muestra como un solo aviso ("Por corregir"), no el número de gastos.
           return (
             <ExpenseActionBadge
-              count={toCorrect}
               label={t("fundRequestExpense.indicators.toCorrect")}
               tone="warning"
             />
@@ -136,7 +144,13 @@ const FundRequests = () => {
         isLoading={isLoading}
         newButtonLabel={staffRecord ? t("fundRequest.newRequest") : undefined}
         onNewClick={staffRecord ? () => navigate("/fund-requests/new") : undefined}
-        onRowClick={(row) => navigate(`/fund-requests/${row.fund_request_id}`)}
+        onRowClick={(row) =>
+          navigate(
+            ["fondos_entregados", "en_liquidacion"].includes(row.status)
+              ? `/fund-requests/${row.fund_request_id}/expenses`
+              : `/fund-requests/${row.fund_request_id}`,
+          )
+        }
         getRowId={(row) => row.fund_request_id}
         statusFilter={{
           key: "status",

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -8,6 +8,7 @@ import { FundRequestStatusBadge } from "@/components/fund-requests/FundRequestSt
 import { ExpenseActionBadge } from "@/components/fund-requests/ExpenseActionBadge";
 import { useFundRequests, type FundRequest, type FundRequestStatus } from "@/hooks/useFundRequests";
 import { useFundRequestExpenseCounts } from "@/hooks/useFundRequestExpenseCounts";
+import { expensePhase } from "@/lib/fundRequest";
 import { useUserRole } from "@/hooks/useUserRole";
 
 const formatCurrency = (n: number, currency: "BOB" | "USD") =>
@@ -24,14 +25,13 @@ const formatDate = (iso: string | null | undefined) => {
 const staffName = (s?: { first_name?: string; last_name?: string; short_name?: string | null }) =>
   s ? s.short_name || `${s.first_name ?? ""} ${s.last_name ?? ""}`.trim() : "-";
 
-type Tab = "to_disburse" | "delivered" | "in_settlement" | "closed";
-
-const tabStatuses: Record<Tab, FundRequestStatus[]> = {
-  to_disburse: ["aprobado_gerente"],
-  delivered: ["fondos_entregados"],
-  in_settlement: ["en_liquidacion"],
-  closed: ["cerrado", "cancelado"],
-};
+type Tab =
+  | "to_disburse"
+  | "delivered"
+  | "expenses_review"
+  | "ready_to_settle"
+  | "in_settlement"
+  | "closed";
 
 const FundRequestDisbursements = () => {
   const { t } = useTranslation();
@@ -41,22 +41,44 @@ const FundRequestDisbursements = () => {
   const { isAdmin, isLoading: roleLoading } = useUserRole();
   const [tab, setTab] = useState<Tab>("to_disburse");
 
-  const filtered = useMemo(() => {
-    if (!data) return [];
-    const allowed = tabStatuses[tab];
-    return data.filter((fr) => allowed.includes(fr.status));
-  }, [data, tab]);
+  const tabOf = useCallback(
+    (fr: FundRequest): Tab | null => {
+      if (fr.status === "aprobado_gerente") return "to_disburse";
+      if (fr.status === "en_liquidacion") return "in_settlement";
+      if (fr.status === "cerrado" || fr.status === "cancelado") return "closed";
+      if (fr.status === "fondos_entregados") {
+        const phase = expensePhase(expenseCounts?.[fr.fund_request_id]);
+        return phase === "review"
+          ? "expenses_review"
+          : phase === "ready"
+            ? "ready_to_settle"
+            : "delivered";
+      }
+      return null;
+    },
+    [expenseCounts],
+  );
+
+  const filtered = useMemo(
+    () => (data ?? []).filter((fr) => tabOf(fr) === tab),
+    [data, tab, tabOf],
+  );
 
   const counts = useMemo(() => {
-    const c: Record<Tab, number> = { to_disburse: 0, delivered: 0, in_settlement: 0, closed: 0 };
-    if (!data) return c;
-    for (const fr of data) {
-      (Object.keys(tabStatuses) as Tab[]).forEach((k) => {
-        if (tabStatuses[k].includes(fr.status)) c[k] += 1;
-      });
+    const c: Record<Tab, number> = {
+      to_disburse: 0,
+      delivered: 0,
+      expenses_review: 0,
+      ready_to_settle: 0,
+      in_settlement: 0,
+      closed: 0,
+    };
+    for (const fr of data ?? []) {
+      const k = tabOf(fr);
+      if (k) c[k] += 1;
     }
     return c;
-  }, [data]);
+  }, [data, tabOf]);
 
   if (!roleLoading && !isAdmin) {
     return (
@@ -82,11 +104,19 @@ const FundRequestDisbursements = () => {
       render: (row) => staffName(row.requester),
     },
     {
-      key: "approver_manager.last_name",
-      label: t("fundRequest.approver"),
-      sortable: true,
+      key: "managers",
+      label: t("fundRequest.managers"),
       mobilePriority: "secondary",
-      render: (row) => staffName(row.approver_manager),
+      render: (row) => {
+        const names = Array.from(
+          new Set(
+            (row.fund_request_work_orders ?? [])
+              .map((o) => staffName(o.manager))
+              .filter((n) => n && n !== "-"),
+          ),
+        );
+        return names.length ? names.join(", ") : "-";
+      },
     },
     {
       key: "total_requested_amount",
@@ -156,6 +186,12 @@ const FundRequestDisbursements = () => {
             <TabsTrigger value="delivered">
               {t("fundRequest.tabs.delivered")} ({counts.delivered})
             </TabsTrigger>
+            <TabsTrigger value="expenses_review">
+              {t("fundRequest.tabs.expensesToReview")} ({counts.expenses_review})
+            </TabsTrigger>
+            <TabsTrigger value="ready_to_settle">
+              {t("fundRequest.tabs.readyToSettle")} ({counts.ready_to_settle})
+            </TabsTrigger>
             <TabsTrigger value="in_settlement">
               {t("fundRequest.tabs.inSettlement")} ({counts.in_settlement})
             </TabsTrigger>
@@ -171,7 +207,13 @@ const FundRequestDisbursements = () => {
           searchPlaceholder={t("fundRequest.searchPlaceholder")}
           searchKeys={["request_number", "purpose"]}
           isLoading={isLoading}
-          onRowClick={(row) => navigate(`/fund-requests/${row.fund_request_id}`)}
+          onRowClick={(row) =>
+            navigate(
+              tab === "expenses_review"
+                ? `/fund-requests/${row.fund_request_id}/expenses`
+                : `/fund-requests/${row.fund_request_id}`,
+            )
+          }
           getRowId={(row) => row.fund_request_id}
         />
       </div>

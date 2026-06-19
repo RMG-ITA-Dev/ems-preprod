@@ -24,9 +24,11 @@ const formatDate = (iso: string | null | undefined) => {
 const staffName = (s?: { first_name?: string; last_name?: string; short_name?: string | null }) =>
   s ? s.short_name || `${s.first_name ?? ""} ${s.last_name ?? ""}`.trim() : "-";
 
-type Tab = "pending" | "approved" | "returned";
+type Tab = "pending" | "approved" | "returned" | "expenses";
 
-const tabStatuses: Record<Tab, FundRequestStatus[]> = {
+// Tabs que se filtran por estado de la SOLICITUD ("expenses" se filtra aparte
+// por gastos pendientes de aprobación).
+const tabStatuses: Record<"pending" | "approved" | "returned", FundRequestStatus[]> = {
   pending: ["pendiente_aprobacion"],
   // "Aprobadas por mí" incluye todo lo que siguió fluyendo después de mi visto bueno
   approved: ["aprobado_gerente", "fondos_entregados", "en_liquidacion", "cerrado"],
@@ -42,26 +44,41 @@ const FundRequestApprovals = () => {
   const { staffRecord } = useCurrentStaff();
   const [tab, setTab] = useState<Tab>("pending");
 
-  // Solo solicitudes donde yo soy el aprobador asignado.
+  // Solicitudes donde gestiono al menos una OT (modelo de aprobación por OT).
   const myAssigned = useMemo(() => {
     if (!data || !staffRecord) return [];
-    return data.filter((fr) => fr.approver_manager_staff_id === staffRecord.staff_id);
+    return data.filter((fr) =>
+      (fr.fund_request_work_orders ?? []).some(
+        (o) => o.manager_staff_id === staffRecord.staff_id,
+      ),
+    );
   }, [data, staffRecord]);
 
+  // Solicitudes con gastos pendientes de MI aprobación (el conteo ya viene
+  // filtrado por RLS a las OTs que gestiono).
+  const withExpensesToApprove = useMemo(
+    () =>
+      myAssigned.filter(
+        (fr) => (expenseCounts?.[fr.fund_request_id]?.pendiente_aprobacion ?? 0) > 0,
+      ),
+    [myAssigned, expenseCounts],
+  );
+
   const filtered = useMemo(() => {
-    const allowed = tabStatuses[tab];
-    return myAssigned.filter((fr) => allowed.includes(fr.status));
-  }, [myAssigned, tab]);
+    if (tab === "expenses") return withExpensesToApprove;
+    return myAssigned.filter((fr) => tabStatuses[tab].includes(fr.status));
+  }, [myAssigned, tab, withExpensesToApprove]);
 
   const counts = useMemo(() => {
-    const c: Record<Tab, number> = { pending: 0, approved: 0, returned: 0 };
+    const c: Record<Tab, number> = { pending: 0, approved: 0, returned: 0, expenses: 0 };
     for (const fr of myAssigned) {
-      (Object.keys(tabStatuses) as Tab[]).forEach((k) => {
+      (Object.keys(tabStatuses) as ("pending" | "approved" | "returned")[]).forEach((k) => {
         if (tabStatuses[k].includes(fr.status)) c[k] += 1;
       });
     }
+    c.expenses = withExpensesToApprove.length;
     return c;
-  }, [myAssigned]);
+  }, [myAssigned, withExpensesToApprove]);
 
   const columns: Column<FundRequest>[] = [
     {
@@ -113,9 +130,10 @@ const FundRequestApprovals = () => {
       mobilePriority: "secondary",
       render: (row) => {
         const pending = expenseCounts?.[row.fund_request_id]?.pendiente_aprobacion ?? 0;
+        if (pending === 0) return null;
+        // Se muestra como un solo lote ("Por aprobar"), no el número de gastos.
         return (
           <ExpenseActionBadge
-            count={pending}
             label={t("fundRequestExpense.indicators.toApprove")}
             tone="warning"
           />
@@ -145,6 +163,9 @@ const FundRequestApprovals = () => {
             <TabsTrigger value="returned">
               {t("fundRequest.tabs.returned")} ({counts.returned})
             </TabsTrigger>
+            <TabsTrigger value="expenses">
+              {t("fundRequest.tabs.expensesToApprove")} ({counts.expenses})
+            </TabsTrigger>
           </TabsList>
         </Tabs>
 
@@ -154,7 +175,13 @@ const FundRequestApprovals = () => {
           searchPlaceholder={t("fundRequest.searchPlaceholder")}
           searchKeys={["request_number", "purpose"]}
           isLoading={isLoading}
-          onRowClick={(row) => navigate(`/fund-requests/${row.fund_request_id}`)}
+          onRowClick={(row) =>
+            navigate(
+              tab === "expenses"
+                ? `/fund-requests/${row.fund_request_id}/expenses`
+                : `/fund-requests/${row.fund_request_id}`,
+            )
+          }
           getRowId={(row) => row.fund_request_id}
         />
       </div>

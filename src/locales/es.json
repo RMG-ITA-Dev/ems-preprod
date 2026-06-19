@@ -1207,8 +1207,20 @@
     "requestNumber": "Número",
     "requester": "Solicitante",
     "approver": "Gerente Aprobador",
+    "managers": "Gerente(s)",
+    "manager": "Gerente",
     "selectApprover": "Seleccionar gerente",
     "searchApprover": "Buscar gerente...",
+    "otsBlockedNoManager": "{{count}} OT(s) aprobada(s) no se pueden usar: su engagement no tiene gerente asignado.",
+    "otApproval": {
+      "title": "Aprobación por OT",
+      "status": {
+        "pendiente": "Pendiente",
+        "aprobado": "Aprobado",
+        "observado": "Observado",
+        "rechazado": "Rechazado"
+      }
+    },
     "purpose": "Propósito",
     "purposePlaceholder": "Describa brevemente el motivo de la solicitud...",
     "totalRequested": "Monto Solicitado",
@@ -1230,7 +1242,8 @@
     "prereq": {
       "title": "No puede crear la solicitud todavía",
       "noManagers": "No hay gerentes activos en el sistema para asignar como aprobador.",
-      "noApprovedWos": "No hay órdenes de trabajo en estado Aprobado. Solicite a su equipo aprobar al menos una antes de continuar."
+      "noApprovedWos": "No hay órdenes de trabajo en estado Aprobado. Solicite a su equipo aprobar al menos una antes de continuar.",
+      "noUsableWos": "No hay órdenes de trabajo aprobadas con gerente asignado en su engagement. Pida que se apruebe una OT y que su engagement tenga gerente antes de continuar."
     },
     "approvalNotes": "Notas del gerente",
     "rejectionReason": "Razón de rechazo",
@@ -1270,15 +1283,18 @@
     "tabs": {
       "toDisburse": "Por Desembolsar",
       "delivered": "Entregados",
+      "readyToSettle": "Por Liquidar",
       "inSettlement": "En Liquidación",
       "closed": "Cerrados",
       "pending": "Pendientes",
       "approved": "Aprobadas",
-      "returned": "Devueltas"
+      "returned": "Devueltas",
+      "expensesToApprove": "Gastos por aprobar",
+      "expensesToReview": "Gastos por revisar"
     },
     "dialog": {
       "approveTitle": "¿Aprobar solicitud?",
-      "approveBody": "La solicitud pasará a estado \"Aprobado por Gerente\" y quedará lista para que Contabilidad registre la entrega de fondos. Puede dejar una nota opcional.",
+      "approveBody": "Confirma la aprobación. Cuando todas las OTs estén aprobadas, la solicitud pasará a \"Aprobado por Gerente\" y quedará lista para que Contabilidad registre la entrega de fondos.",
       "observeTitle": "Observar solicitud",
       "observeBody": "La solicitud volverá al solicitante para que la corrija. Indique qué debe ajustarse.",
       "rejectTitle": "Rechazar solicitud",
@@ -1302,8 +1318,34 @@
       "title": "¿Enviar a aprobación?",
       "body": "Una vez enviada, la solicitud pasará a revisión del gerente y no podrá editarla hasta que sea observada o rechazada."
     },
+    "settlement": {
+      "action": "Liquidar",
+      "title": "Liquidación de la solicitud",
+      "body": "Revisa el cálculo y registra cómo se resuelve el saldo. Al confirmar, la liquidación se envía al encargado de Contabilidad para el cierre.",
+      "confirm": "Liquidar",
+      "summaryTitle": "Liquidación",
+      "resolutionLabel": "Resolución",
+      "amount": "Monto",
+      "notesPlaceholder": "Detalle de la liquidación (opcional)...",
+      "chooseResolution": "Elige cómo se resolvió el saldo",
+      "noBalance": "sin saldo",
+      "favorsFirm": "a favor de la firma",
+      "favorsRequester": "a favor del solicitante",
+      "noBalanceHelp": "No hay saldo pendiente.",
+      "payRequesterHelp": "El solicitante gastó de más: Contabilidad procesará el pago del saldo a su favor.",
+      "firmQuestion": "Sobró dinero. ¿Cómo se resolvió?",
+      "blockedHint": "Hay {{count}} gasto(s) sin finalizar. No puedes marcar en liquidación hasta que todos estén revisados o rechazados.",
+      "resolution": {
+        "sin_saldo": "Sin saldo",
+        "devolucion": "Devolución en plazo",
+        "descuento_planilla": "Descuento en planilla",
+        "pago_solicitante": "Pago al solicitante"
+      }
+    },
     "messages": {
       "submittedSuccess": "Solicitud enviada a aprobación",
+      "otDecisionSaved": "Decisión registrada en la OT",
+      "settledSuccess": "Liquidación registrada y enviada para cierre",
       "approvedSuccess": "Solicitud aprobada",
       "observedSuccess": "Solicitud observada — el solicitante puede corregirla",
       "rejectedSuccess": "Solicitud rechazada",
@@ -1330,8 +1372,8 @@
     "newExpense": "Nuevo Gasto",
     "indicators": {
       "register": "Registrar gastos",
-      "toCorrect": "por corregir",
-      "toApprove": "por aprobar",
+      "toCorrect": "Por corregir",
+      "toApprove": "Por aprobar",
       "toReview": "por revisar",
       "expenses": "gastos"
     },
@@ -1341,6 +1383,9 @@
     "expenseType": "Tipo de Gasto",
     "selectExpenseType": "Seleccionar tipo",
     "expenseDate": "Fecha del Gasto",
+    "expenseDateStart": "Fecha (Del)",
+    "expenseDateEnd": "Fecha (Al)",
+    "days": "Días",
     "amount": "Monto",
     "description": "Descripción",
     "descriptionPlaceholder": "Detalle el motivo del gasto...",
@@ -1349,11 +1394,15 @@
     "supplierName": "Proveedor",
     "supplierTaxId": "NIT del Proveedor",
     "supplierTaxIdPlaceholder": "NIT sin guiones ni espacios",
-    "attachmentUrl": "Respaldo (enlace)",
+    "attachmentUrl": "Respaldo",
+    "fileTooLarge": "El archivo debe pesar menos de 5MB",
+    "fileTypes": "JPG, PNG, WebP o PDF (máx 5MB)",
+    "pendingLockHint": "Ya hay gastos enviados o aprobados en esta solicitud, por lo que no puedes registrar nuevos. El saldo no utilizado se resolverá en la liquidación.",
+    "returnedLockHint": "Contabilidad devolvió uno o más gastos por falta de respaldo. Ábrelos, sube el adjunto / factura y reenvíalos a Contabilidad.",
     "totalSpent": "Total Gastado",
     "balance": "Saldo",
-    "totalIvaPenalty": "IVA por Observaciones",
-    "ivaPenalty": "Penalidad IVA (13%)",
+    "totalIvaPenalty": "Devoluciones (13%)",
+    "ivaPenalty": "Devolución (13%)",
     "invoiceObservationNotes": "Observación de la factura",
     "status": {
       "borrador": "Borrador",
@@ -1364,17 +1413,39 @@
       "revisado_asistente": "Revisado"
     },
     "actions": {
-      "saveDraft": "Guardar Borrador",
+      "saveDraft": "Guardar",
       "submit": "Enviar a Aprobación",
-      "review": "Revisar Factura"
+      "submitAll": "Enviar a Aprobación",
+      "approveAll": "Aprobar todo",
+      "observeAll": "Observar todo",
+      "rejectAll": "Rechazar todo",
+      "review": "Revisar Factura",
+      "validate": "Validar",
+      "returnToRequester": "Devolver al solicitante",
+      "resendToAccounting": "Reenviar a Contabilidad"
+    },
+    "confirmSubmitAll": {
+      "title": "¿Enviar todos los gastos a aprobación?",
+      "body": "Se enviarán {{count}} gasto(s) al gerente para su aprobación. Los revisará en conjunto. Mientras estén en revisión no podrás editarlos."
     },
     "dialog": {
+      "approveTitle": "¿Aprobar gastos?",
+      "approveBody": "Se aprobarán todos los gastos seleccionados y pasarán a revisión de Contabilidad.",
+      "observeTitle": "Observar gastos",
+      "observeBody": "Los gastos volverán al solicitante para que los corrija. Indica qué debe ajustarse.",
+      "rejectTitle": "Rechazar gastos",
+      "rejectBody": "Los gastos quedarán rechazados. El solicitante podrá corregirlos y reenviarlos. Indica la razón.",
       "reviewTitle": "Revisar factura del gasto",
-      "reviewBody": "Verifique impuestos, NIT, código OT y fechas. Si la factura tiene problemas, márquela como observada.",
-      "hasObservation": "La factura tiene observaciones",
-      "hasObservationHelp": "Ej.: factura dañada, nombre o NIT incorrectos. El solicitante asumirá el 13% de IVA.",
-      "observationPlaceholder": "Describa el problema de la factura...",
-      "ivaWarning": "Se aplicará una penalidad de IVA del 13%:",
+      "reviewBody": "Verifica impuestos, NIT, código OT y fechas.",
+      "hasInvoiceQuestion": "¿El gasto tiene factura / respaldo?",
+      "noInvoiceWarning": "Sin respaldo no se puede validar: el gasto se devolverá al solicitante para que adjunte la factura.",
+      "returnReason": "Motivo de la devolución",
+      "noInvoicePlaceholder": "Indica qué respaldo falta...",
+      "invoiceCorrectQuestion": "¿La factura / respaldo es correcta?",
+      "invoiceCorrect": "Correcta",
+      "invoiceIncorrect": "Incorrecta",
+      "observationPlaceholder": "Describe el problema de la factura (dañada, nombre/NIT incorrecto)...",
+      "ivaWarning": "Se aplicará una devolución del 13% (IVA):",
       "ivaOf": "13% de {{amount}} {{currency}}"
     },
     "confirmDelete": {
@@ -1387,16 +1458,24 @@
     },
     "messages": {
       "submittedSuccess": "Gasto enviado a aprobación",
+      "allSubmittedSuccess": "{{count}} gasto(s) enviado(s) a aprobación",
+      "allApprovedSuccess": "{{count}} gasto(s) aprobado(s)",
+      "allObservedSuccess": "{{count}} gasto(s) observado(s) — vuelven al solicitante",
+      "allRejectedSuccess": "{{count}} gasto(s) rechazado(s)",
       "approvedSuccess": "Gasto aprobado",
       "observedSuccess": "Gasto observado — el solicitante puede corregirlo",
       "rejectedSuccess": "Gasto rechazado",
-      "reviewedSuccess": "Factura revisada"
+      "reviewedSuccess": "Factura revisada",
+      "returnedSuccess": "Gasto devuelto al solicitante para adjuntar el respaldo",
+      "resentToAccountingSuccess": "Gasto reenviado a Contabilidad"
     },
     "errors": {
       "workOrderRequired": "Debe seleccionar una OT",
       "dateRequired": "Debe indicar la fecha del gasto",
       "amountRequired": "El monto debe ser mayor a cero",
-      "observationNotesRequired": "Debe describir la observación de la factura"
+      "observationNotesRequired": "Debe describir la observación de la factura",
+      "noInvoiceNotesRequired": "Indique qué respaldo falta antes de devolver",
+      "attachmentRequired": "Adjunte el respaldo antes de reenviar"
     }
   }
 }

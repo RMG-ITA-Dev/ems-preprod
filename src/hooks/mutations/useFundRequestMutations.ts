@@ -18,7 +18,6 @@ export interface AllocationInput {
 
 export interface FundRequestCreateInput {
   requester_staff_id: string;
-  approver_manager_staff_id: string;
   total_requested_amount: number;
   currency: "BOB" | "USD";
   purpose?: string | null;
@@ -27,7 +26,6 @@ export interface FundRequestCreateInput {
 }
 
 export interface FundRequestUpdateInput {
-  approver_manager_staff_id?: string;
   total_requested_amount?: number;
   currency?: "BOB" | "USD";
   purpose?: string | null;
@@ -126,9 +124,28 @@ export function useSubmitFundRequest() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
+      // Reset de las OTs a 'pendiente' (en reenvío tras observado/rechazado,
+      // todas vuelven a requerir aprobación). Se hace ANTES de cambiar el
+      // estado de la solicitud para que el trigger de rollup no interfiera.
+      const { error: woErr } = await sb
+        .from("fund_request_work_orders")
+        .update({
+          approval_status: "pendiente",
+          manager_notes: null,
+          rejection_reason: null,
+          manager_decided_at: null,
+        })
+        .eq("fund_request_id", id);
+      if (woErr) throw woErr;
+
       const { error } = await sb
         .from("fund_requests")
-        .update({ status: "pendiente_aprobacion", submitted_at: new Date().toISOString() })
+        .update({
+          status: "pendiente_aprobacion",
+          submitted_at: new Date().toISOString(),
+          rejection_reason: null,
+          manager_notes: null,
+        })
         .eq("fund_request_id", id);
       if (error) throw error;
       return { fund_request_id: id };
@@ -141,75 +158,42 @@ export function useSubmitFundRequest() {
   });
 }
 
-export function useApproveFundRequest() {
+/**
+ * Decisión del gerente sobre UNA OT (aprobar / observar / rechazar).
+ * El trigger de rollup recalcula el estado de la solicitud automáticamente.
+ */
+export function useDecideWorkOrder() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, notes }: { id: string; notes?: string }) => {
+    mutationFn: async ({
+      frWoId,
+      fundRequestId,
+      decision,
+      notes,
+    }: {
+      frWoId: string;
+      fundRequestId: string;
+      decision: "aprobado" | "observado" | "rechazado";
+      notes?: string;
+    }) => {
+      const update: Record<string, unknown> = {
+        approval_status: decision,
+        manager_decided_at: new Date().toISOString(),
+        manager_notes: decision === "rechazado" ? null : notes?.trim() || null,
+        rejection_reason: decision === "rechazado" ? notes?.trim() || null : null,
+      };
       const { error } = await sb
-        .from("fund_requests")
-        .update({
-          status: "aprobado_gerente",
-          manager_decided_at: new Date().toISOString(),
-          manager_notes: notes?.trim() || null,
-          rejection_reason: null,
-        })
-        .eq("fund_request_id", id);
+        .from("fund_request_work_orders")
+        .update(update)
+        .eq("fr_wo_id", frWoId);
       if (error) throw error;
-      return { fund_request_id: id };
+      return { fundRequestId };
     },
-    onSuccess: (_, { id }) => {
-      invalidateAll(queryClient, id);
-      toast.success(i18n.t("fundRequest.messages.approvedSuccess"));
+    onSuccess: ({ fundRequestId }) => {
+      invalidateAll(queryClient, fundRequestId);
+      toast.success(i18n.t("fundRequest.messages.otDecisionSaved"));
     },
-    onError: createMutationErrorHandler("approving fund request"),
-  });
-}
-
-export function useObserveFundRequest() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ id, notes }: { id: string; notes: string }) => {
-      const { error } = await sb
-        .from("fund_requests")
-        .update({
-          status: "observado",
-          manager_decided_at: new Date().toISOString(),
-          manager_notes: notes.trim(),
-          rejection_reason: null,
-        })
-        .eq("fund_request_id", id);
-      if (error) throw error;
-      return { fund_request_id: id };
-    },
-    onSuccess: (_, { id }) => {
-      invalidateAll(queryClient, id);
-      toast.success(i18n.t("fundRequest.messages.observedSuccess"));
-    },
-    onError: createMutationErrorHandler("observing fund request"),
-  });
-}
-
-export function useRejectFundRequest() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ id, reason }: { id: string; reason: string }) => {
-      const { error } = await sb
-        .from("fund_requests")
-        .update({
-          status: "rechazado",
-          manager_decided_at: new Date().toISOString(),
-          rejection_reason: reason.trim(),
-          manager_notes: null,
-        })
-        .eq("fund_request_id", id);
-      if (error) throw error;
-      return { fund_request_id: id };
-    },
-    onSuccess: (_, { id }) => {
-      invalidateAll(queryClient, id);
-      toast.success(i18n.t("fundRequest.messages.rejectedSuccess"));
-    },
-    onError: createMutationErrorHandler("rejecting fund request"),
+    onError: createMutationErrorHandler("deciding work order"),
   });
 }
 
@@ -269,6 +253,55 @@ export function useStartSettlementFundRequest() {
   });
 }
 
+export interface SettlementInput {
+  id: string;
+  totalSpent: number;
+  balance: number;
+  ivaTotal: number;
+  resolution: "sin_saldo" | "devolucion" | "descuento_planilla" | "pago_solicitante";
+  amount: number;
+  notes?: string;
+  settledByStaffId?: string | null;
+}
+
+/**
+ * Liquidar (Asistente de Contabilidad): guarda el snapshot del cálculo
+ * (entregado − gastado), la resolución elegida y ENVÍA al encargado de
+ * contabilidad (status → en_liquidacion). No cierra todavía.
+ */
+export function useSettleFundRequest() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: SettlementInput) => {
+      const { error } = await sb
+        .from("fund_requests")
+        .update({
+          status: "en_liquidacion",
+          settlement_total_spent: input.totalSpent,
+          settlement_balance: input.balance,
+          settlement_iva_total: input.ivaTotal,
+          settlement_resolution: input.resolution,
+          settlement_amount: input.amount,
+          settlement_notes: input.notes?.trim() || null,
+          settled_at: new Date().toISOString(),
+          settled_by_staff_id: input.settledByStaffId ?? null,
+        })
+        .eq("fund_request_id", input.id);
+      if (error) throw error;
+      return { fund_request_id: input.id };
+    },
+    onSuccess: (_, { id }) => {
+      invalidateAll(queryClient, id);
+      toast.success(i18n.t("fundRequest.messages.settledSuccess"));
+    },
+    onError: createMutationErrorHandler("settling fund request"),
+  });
+}
+
+/**
+ * Cerrar (Encargado de Contabilidad): cierra el flujo una vez revisada la
+ * liquidación que registró el asistente.
+ */
 export function useCloseFundRequest() {
   const queryClient = useQueryClient();
   return useMutation({

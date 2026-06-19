@@ -39,14 +39,24 @@ export function WorkOrderAllocationEditor({
   const { t } = useTranslation();
   const { data: workOrders } = useWorkOrders();
 
-  // Solo OTs aprobadas en la moneda de la solicitud
-  const availableWorkOrders = useMemo(
+  const staffName = (s?: { first_name?: string; last_name?: string; short_name?: string | null }) =>
+    s ? s.short_name || `${s.first_name ?? ""} ${s.last_name ?? ""}`.trim() : "-";
+
+  // OTs aprobadas en la moneda de la solicitud.
+  const approvedInCurrency = useMemo(
     () =>
       (workOrders ?? []).filter(
         (wo) => wo.approval_status === "Approved" && wo.currency === currency,
       ),
     [workOrders, currency],
   );
+  // Solo seleccionables las que tienen gerente en su engagement: la aprobación
+  // de la solicitud se deriva de ese gerente, así que una OT sin gerente no sirve.
+  const availableWorkOrders = useMemo(
+    () => approvedInCurrency.filter((wo) => !!wo.engagement?.manager_id),
+    [approvedInCurrency],
+  );
+  const blockedNoManager = approvedInCurrency.length - availableWorkOrders.length;
 
   const allocatedTotal = allocations.reduce(
     (sum, a) => sum + (Number(a.allocated_amount) || 0),
@@ -58,7 +68,10 @@ export function WorkOrderAllocationEditor({
   const usedIds = new Set(allocations.map((a) => a.wo_id).filter(Boolean));
 
   const addRow = () => {
-    onChange([...allocations, { wo_id: "", allocated_amount: 0 }]);
+    // La nueva fila se prellena con lo que falta por distribuir: la primera OT
+    // toma el total; las siguientes quedan en 0 (vacías) si ya está repartido.
+    const remaining = Math.max(totalRequested - allocatedTotal, 0);
+    onChange([...allocations, { wo_id: "", allocated_amount: remaining }]);
   };
 
   const updateRow = (index: number, patch: Partial<AllocationInput>) => {
@@ -90,6 +103,15 @@ export function WorkOrderAllocationEditor({
         )}
       </div>
 
+      {!disabled && blockedNoManager > 0 && (
+        <Alert>
+          <Info className="h-4 w-4" />
+          <AlertDescription className="text-sm">
+            {t("fundRequest.otsBlockedNoManager", { count: blockedNoManager })}
+          </AlertDescription>
+        </Alert>
+      )}
+
       {availableWorkOrders.length === 0 && allocations.length === 0 ? (
         <Alert>
           <Info className="h-4 w-4" />
@@ -112,6 +134,7 @@ export function WorkOrderAllocationEditor({
             <thead className="bg-muted/50">
               <tr>
                 <th className="text-left px-3 py-2 font-medium">{t("fundRequest.workOrder")}</th>
+                <th className="text-left px-3 py-2 font-medium">{t("fundRequest.manager")}</th>
                 <th className="text-right px-3 py-2 font-medium w-40">
                   {t("fundRequest.amount")} ({currency})
                 </th>
@@ -123,6 +146,7 @@ export function WorkOrderAllocationEditor({
                 const selectable = availableWorkOrders.filter(
                   (wo) => wo.wo_id === alloc.wo_id || !usedIds.has(wo.wo_id),
                 );
+                const selectedWo = approvedInCurrency.find((wo) => wo.wo_id === alloc.wo_id);
                 return (
                   <tr key={idx} className="border-t border-border">
                     <td className="px-3 py-2">
@@ -143,6 +167,9 @@ export function WorkOrderAllocationEditor({
                           ))}
                         </SelectContent>
                       </Select>
+                    </td>
+                    <td className="px-3 py-2 text-muted-foreground">
+                      {staffName(selectedWo?.engagement?.manager)}
                     </td>
                     <td className="px-3 py-2">
                       <NumericInput
@@ -173,7 +200,7 @@ export function WorkOrderAllocationEditor({
             </tbody>
             <tfoot>
               <tr className="border-t border-border bg-muted/30">
-                <td className="px-3 py-2 font-medium text-right">
+                <td className="px-3 py-2 font-medium text-right" colSpan={2}>
                   {t("fundRequest.totalAllocated")}:
                 </td>
                 <td className="px-3 py-2 text-right font-mono font-semibold">
@@ -183,7 +210,7 @@ export function WorkOrderAllocationEditor({
               </tr>
               {mismatch && totalRequested > 0 && (
                 <tr className="border-t border-border bg-destructive/5">
-                  <td className="px-3 py-2 text-right text-destructive text-xs">
+                  <td className="px-3 py-2 text-right text-destructive text-xs" colSpan={2}>
                     {diff > 0
                       ? t("fundRequest.missingToAllocate")
                       : t("fundRequest.overAllocated")}

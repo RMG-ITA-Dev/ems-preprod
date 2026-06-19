@@ -5,15 +5,36 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { AlertTriangle, Info } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { DataTable, Column } from "@/components/data-table/DataTable";
 import { FundRequestExpenseStatusBadge } from "@/components/fund-requests/FundRequestExpenseStatusBadge";
 import { FundRequestExpenseDialog } from "@/components/fund-requests/FundRequestExpenseDialog";
+import {
+  ApprovalDecisionDialog,
+  type DecisionMode,
+} from "@/components/fund-requests/ApprovalDecisionDialog";
 import { useFundRequestById } from "@/hooks/useFundRequests";
 import {
   useFundRequestExpenses,
   type FundRequestExpense,
 } from "@/hooks/useFundRequestExpenses";
+import {
+  useSubmitAllFundRequestExpenses,
+  useDecideAllFundRequestExpenses,
+} from "@/hooks/mutations/useFundRequestExpenseMutations";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
+import { useUserRole } from "@/hooks/useUserRole";
 
 const formatCurrency = (n: number, currency: "BOB" | "USD") =>
   Number(n).toLocaleString(currency === "BOB" ? "es-BO" : "en-US", {
@@ -38,17 +59,97 @@ const FundRequestExpenses = () => {
   const { data: fr, isLoading: frLoading } = useFundRequestById(id);
   const { data: expenses, isLoading: expLoading } = useFundRequestExpenses(id);
   const { staffRecord } = useCurrentStaff();
+  const { isAdmin } = useUserRole();
+
+  const submitAll = useSubmitAllFundRequestExpenses();
+  const decideAll = useDecideAllFundRequestExpenses();
 
   // Modal: undefined = cerrado, null = crear, objeto = ver/editar
   const [dialogExpense, setDialogExpense] = useState<FundRequestExpense | null | undefined>(
     undefined,
   );
+  const [showSubmitAll, setShowSubmitAll] = useState(false);
+  const [decisionMode, setDecisionMode] = useState<DecisionMode | null>(null);
 
   const isRequester =
     !!staffRecord && !!fr && fr.requester_staff_id === staffRecord.staff_id;
-  // El solicitante registra gastos mientras la solicitud tenga fondos entregados.
+  // Hay gastos "bloqueados": enviados (pendiente), aprobados por el gerente o
+  // revisados por contabilidad. Mientras exista alguno, el solicitante no puede
+  // registrar/enviar nuevos gastos.
+  const hasLockedExpenses = (expenses ?? []).some((e) =>
+    ["pendiente_aprobacion", "aprobado_gerente", "revisado_asistente"].includes(e.status),
+  );
+  // Gastos devueltos por contabilidad (solo falta adjuntar respaldo): se
+  // reenvían UNO POR UNO desde su modal, no en lote. Mientras exista alguno,
+  // tampoco se agregan nuevos gastos (irían al gerente y aquí toca resolver
+  // primero lo de contabilidad).
+  const hasReturnedByAssistant = (expenses ?? []).some(
+    (e) => e.status === "observado" && e.returned_by_assistant,
+  );
   const canAddExpenses =
-    isRequester && fr?.status === "fondos_entregados";
+    isRequester &&
+    fr?.status === "fondos_entregados" &&
+    !hasLockedExpenses &&
+    !hasReturnedByAssistant;
+
+  // Gastos que se pueden enviar en lote al gerente (excluye los devueltos por
+  // contabilidad, que se reenvían individualmente).
+  const submittable = useMemo(
+    () =>
+      (expenses ?? []).filter(
+        (e) =>
+          ["borrador", "observado", "rechazado"].includes(e.status) &&
+          !e.returned_by_assistant,
+      ),
+    [expenses],
+  );
+  const canSubmitAll = canAddExpenses && submittable.length > 0;
+
+  const handleSubmitAll = async () => {
+    if (!id) return;
+    try {
+      await submitAll.mutateAsync({ fundRequestId: id, ids: submittable.map((e) => e.fre_id) });
+      setShowSubmitAll(false);
+    } catch {
+      /* toast por mutation */
+    }
+  };
+
+  // Gastos pendientes que ESTE gerente debe decidir (sus OTs). El admin ve todos.
+  const myPendingExpenses = useMemo(() => {
+    const list = (expenses ?? []).filter((e) => e.status === "pendiente_aprobacion");
+    if (isAdmin) return list;
+    if (!staffRecord || !fr) return [];
+    const myWoIds = new Set(
+      (fr.fund_request_work_orders ?? [])
+        .filter((o) => o.manager_staff_id === staffRecord.staff_id)
+        .map((o) => o.wo_id),
+    );
+    return list.filter((e) => myWoIds.has(e.wo_id));
+  }, [expenses, fr, staffRecord, isAdmin]);
+
+  const canDecideAll = myPendingExpenses.length > 0;
+
+  const handleDecideAll = async (notes: string) => {
+    if (!id || !decisionMode) return;
+    const decision =
+      decisionMode === "approve"
+        ? "aprobado_gerente"
+        : decisionMode === "observe"
+          ? "observado"
+          : "rechazado";
+    try {
+      await decideAll.mutateAsync({
+        fundRequestId: id,
+        ids: myPendingExpenses.map((e) => e.fre_id),
+        decision,
+        notes,
+      });
+      setDecisionMode(null);
+    } catch {
+      /* toast por mutation */
+    }
+  };
 
   const currency = (fr?.currency ?? "BOB") as "BOB" | "USD";
 
@@ -183,14 +284,60 @@ const FundRequestExpenses = () => {
                   {t("common.back")}
                 </Button>
                 {canAddExpenses && (
-                  <Button onClick={() => setDialogExpense(null)}>
+                  <Button variant="outline" onClick={() => setDialogExpense(null)}>
                     {t("fundRequestExpense.newExpense")}
                   </Button>
+                )}
+                {canSubmitAll && (
+                  <Button onClick={() => setShowSubmitAll(true)} disabled={submitAll.isPending}>
+                    {t("fundRequestExpense.actions.submitAll")}
+                  </Button>
+                )}
+
+                {canDecideAll && (
+                  <>
+                    <Button
+                      variant="destructive"
+                      onClick={() => setDecisionMode("reject")}
+                      disabled={decideAll.isPending}
+                    >
+                      {t("fundRequestExpense.actions.rejectAll")}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => setDecisionMode("observe")}
+                      disabled={decideAll.isPending}
+                    >
+                      {t("fundRequestExpense.actions.observeAll")}
+                    </Button>
+                    <Button onClick={() => setDecisionMode("approve")} disabled={decideAll.isPending}>
+                      {t("fundRequestExpense.actions.approveAll")}
+                    </Button>
+                  </>
                 )}
               </div>
             </div>
           </CardContent>
         </Card>
+
+        {/* Banner: contabilidad devolvió gastos por falta de respaldo */}
+        {isRequester && fr.status === "fondos_entregados" && hasReturnedByAssistant && (
+          <Alert className="border-warning/30 bg-warning/5 text-warning [&>svg]:text-warning">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>{t("fundRequestExpense.returnedLockHint")}</AlertDescription>
+          </Alert>
+        )}
+
+        {/* Banner: hay gastos en proceso, no se pueden registrar nuevos */}
+        {isRequester &&
+          fr.status === "fondos_entregados" &&
+          hasLockedExpenses &&
+          !hasReturnedByAssistant && (
+            <Alert>
+              <Info className="h-4 w-4" />
+              <AlertDescription>{t("fundRequestExpense.pendingLockHint")}</AlertDescription>
+            </Alert>
+          )}
 
         <DataTable
           data={expenses ?? []}
@@ -222,6 +369,35 @@ const FundRequestExpenses = () => {
           expense={dialogExpense}
         />
       )}
+
+      <AlertDialog open={showSubmitAll} onOpenChange={setShowSubmitAll}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("fundRequestExpense.confirmSubmitAll.title")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("fundRequestExpense.confirmSubmitAll.body", { count: submittable.length })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={submitAll.isPending}>
+              {t("common.cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={handleSubmitAll} disabled={submitAll.isPending}>
+              {t("fundRequestExpense.actions.submitAll")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Decisión en lote del gerente (aprobar/observar/rechazar todo) */}
+      <ApprovalDecisionDialog
+        open={decisionMode !== null}
+        onOpenChange={(o) => !o && setDecisionMode(null)}
+        mode={decisionMode ?? "approve"}
+        entity="expense"
+        isSubmitting={decideAll.isPending}
+        onConfirm={handleDecideAll}
+      />
     </AppLayout>
   );
 };
