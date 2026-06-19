@@ -41,6 +41,14 @@ BEGIN
     RAISE EXCEPTION 'La solicitud no se puede enviar en su estado actual (%)', v_status;
   END IF;
 
+  -- Debe tener al menos una OT; si no, nadie podría aprobarla.
+  IF NOT EXISTS (
+    SELECT 1 FROM public.fund_request_work_orders
+    WHERE fund_request_id = p_fund_request_id
+  ) THEN
+    RAISE EXCEPTION 'La solicitud no tiene OTs asignadas; no se puede enviar a aprobación';
+  END IF;
+
   -- Reset de las OTs a 'pendiente' (en reenvío todas vuelven a requerir
   -- aprobación). Dispara el rollup, que puede mover la solicitud a
   -- 'pendiente_aprobacion'; el update siguiente fija submitted_at y limpia.

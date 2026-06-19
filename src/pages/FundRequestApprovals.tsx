@@ -6,7 +6,7 @@ import { DataTable, Column } from "@/components/data-table/DataTable";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FundRequestStatusBadge } from "@/components/fund-requests/FundRequestStatusBadge";
 import { ExpenseActionBadge } from "@/components/fund-requests/ExpenseActionBadge";
-import { useFundRequests, type FundRequest, type FundRequestStatus } from "@/hooks/useFundRequests";
+import { useFundRequests, type FundRequest } from "@/hooks/useFundRequests";
 import { useFundRequestExpenseCounts } from "@/hooks/useFundRequestExpenseCounts";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 
@@ -25,16 +25,7 @@ const staffName = (s?: { first_name?: string; last_name?: string; short_name?: s
   s ? s.short_name || `${s.first_name ?? ""} ${s.last_name ?? ""}`.trim() : "-";
 
 type Tab = "pending" | "approved" | "returned" | "expenses";
-
-// Tabs que se filtran por estado de la SOLICITUD ("expenses" se filtra aparte
-// por gastos pendientes de aprobación).
-const tabStatuses: Record<"pending" | "approved" | "returned", FundRequestStatus[]> = {
-  pending: ["pendiente_aprobacion"],
-  // "Aprobadas por mí" incluye todo lo que siguió fluyendo después de mi visto bueno
-  approved: ["aprobado_gerente", "fondos_entregados", "en_liquidacion", "cerrado"],
-  // Lo que yo regresé al solicitante o lo que se canceló después
-  returned: ["observado", "rechazado", "cancelado"],
-};
+type DecisionTab = "pending" | "approved" | "returned";
 
 const FundRequestApprovals = () => {
   const { t } = useTranslation();
@@ -54,6 +45,26 @@ const FundRequestApprovals = () => {
     );
   }, [data, staffRecord]);
 
+  // Clasifica la solicitud según el estado de MIS OTs (no el estado agregado de
+  // la solicitud): en multi-gerente, ya aprobé mi parte aunque otra OT siga
+  // pendiente. Prioridad: alguna mía pendiente → "por aprobar"; alguna mía
+  // observada/rechazada (o solicitud cancelada) → "regresadas"; todas mías
+  // aprobadas → "aprobadas".
+  const myDecisionTab = useMemo(() => {
+    const myStaffId = staffRecord?.staff_id;
+    return (fr: FundRequest): DecisionTab | null => {
+      if (fr.status === "cancelado") return "returned";
+      const myOts = (fr.fund_request_work_orders ?? []).filter(
+        (o) => o.manager_staff_id === myStaffId,
+      );
+      if (myOts.length === 0) return null;
+      if (myOts.some((o) => o.approval_status === "pendiente")) return "pending";
+      if (myOts.some((o) => o.approval_status === "observado" || o.approval_status === "rechazado"))
+        return "returned";
+      return "approved";
+    };
+  }, [staffRecord]);
+
   // Solicitudes con gastos pendientes de MI aprobación (el conteo ya viene
   // filtrado por RLS a las OTs que gestiono).
   const withExpensesToApprove = useMemo(
@@ -66,19 +77,18 @@ const FundRequestApprovals = () => {
 
   const filtered = useMemo(() => {
     if (tab === "expenses") return withExpensesToApprove;
-    return myAssigned.filter((fr) => tabStatuses[tab].includes(fr.status));
-  }, [myAssigned, tab, withExpensesToApprove]);
+    return myAssigned.filter((fr) => myDecisionTab(fr) === tab);
+  }, [myAssigned, tab, withExpensesToApprove, myDecisionTab]);
 
   const counts = useMemo(() => {
     const c: Record<Tab, number> = { pending: 0, approved: 0, returned: 0, expenses: 0 };
     for (const fr of myAssigned) {
-      (Object.keys(tabStatuses) as ("pending" | "approved" | "returned")[]).forEach((k) => {
-        if (tabStatuses[k].includes(fr.status)) c[k] += 1;
-      });
+      const k = myDecisionTab(fr);
+      if (k) c[k] += 1;
     }
     c.expenses = withExpensesToApprove.length;
     return c;
-  }, [myAssigned, withExpensesToApprove]);
+  }, [myAssigned, withExpensesToApprove, myDecisionTab]);
 
   const columns: Column<FundRequest>[] = [
     {
