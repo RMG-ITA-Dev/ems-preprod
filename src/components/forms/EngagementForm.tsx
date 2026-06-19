@@ -41,10 +41,19 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Engagement, useClients } from "@/hooks/useEmsData";
 import { useCategoryStaff } from "@/hooks/useCategoryStaff";
 import { useCreateEngagement, useUpdateEngagement, useDeleteEngagement } from "@/hooks/mutations";
-import { Trash2, CalendarIcon, AlertCircle } from "lucide-react";
+import { Trash2, CalendarIcon, AlertCircle, Copy } from "lucide-react";
+import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Switch } from "@/components/ui/switch";
@@ -137,6 +146,9 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     },
   });
 
+  // BUG #0603-140: code assigned by the server, shown in a confirmation modal after create
+  const [createdCode, setCreatedCode] = useState<string | null>(null);
+
   // Policy flags state (outside react-hook-form since they're admin-only)
   const [workOrderRequired, setWorkOrderRequired] = useState(engagement?.work_order_required ?? true);
   const [activityRequired, setActivityRequired] = useState(engagement?.activity_required ?? true);
@@ -224,24 +236,37 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
           // oficina, practica, funcion, anio_fiscal intentionally omitted — immutable after create
         },
       });
-    } else {
-      await createMutation.mutateAsync({
-        engagement_name:     data.engagement_name,
-        client_id:           data.client_id,
-        partner_id:          data.partner_id || undefined,
-        manager_id:          data.manager_id || undefined,
-        start_date:          data.start_date ? format(data.start_date, "yyyy-MM-dd") : undefined,
-        end_date:            data.end_date   ? format(data.end_date,   "yyyy-MM-dd") : undefined,
-        status:              data.status,
-        oficina:             data.oficina    as number,
-        practica:            data.practica   as number,
-        funcion:             data.funcion    as number,
-        anio_fiscal:         data.anio_fiscal as number,
-        work_order_required: workOrderRequired,
-        activity_required:   activityRequired,
-        is_internal:         isInternal,
-        approval_required:   approvalRequired,
-      });
+      if (onSaveSuccess) {
+        onSaveSuccess();
+      } else {
+        navigate("/engagements");
+      }
+      return;
+    }
+
+    const created = await createMutation.mutateAsync({
+      engagement_name:     data.engagement_name,
+      client_id:           data.client_id,
+      partner_id:          data.partner_id || undefined,
+      manager_id:          data.manager_id || undefined,
+      start_date:          data.start_date ? format(data.start_date, "yyyy-MM-dd") : undefined,
+      end_date:            data.end_date   ? format(data.end_date,   "yyyy-MM-dd") : undefined,
+      status:              data.status,
+      oficina:             data.oficina    as number,
+      practica:            data.practica   as number,
+      funcion:             data.funcion    as number,
+      anio_fiscal:         data.anio_fiscal as number,
+      work_order_required: workOrderRequired,
+      activity_required:   activityRequired,
+      is_internal:         isInternal,
+      approval_required:   approvalRequired,
+    });
+
+    // BUG #0603-140: show the assigned code in a confirmation modal; navigation is
+    // deferred until it closes. Defensive fallback: if no code came back, navigate as before.
+    if (created?.engagement_code) {
+      setCreatedCode(created.engagement_code);
+      return;
     }
     if (onSaveSuccess) {
       onSaveSuccess();
@@ -265,6 +290,37 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     { length: new Date().getFullYear() + FISCAL_YEAR_LOOKAHEAD - FISCAL_YEAR_START + 1 },
     (_, i) => FISCAL_YEAR_START + i
   )
+
+  // BUG #0603-140: live code preview during creation. Mirrors the server format
+  // FY.[oficina][practica][funcion].[correlativo] (migration 20260601100000, lines 113-115);
+  // the correlativo is unknown until insert, so it shows as the placeholder `---`.
+  const [wAnio, wOficina, wPractica, wFuncion] = form.watch(["anio_fiscal", "oficina", "practica", "funcion"]);
+  const previewIncomplete =
+    wAnio == null || wOficina == null || wPractica == null || wFuncion == null;
+  const previewCodePrefix = previewIncomplete
+    ? null
+    : `${wAnio}.${wOficina}${wPractica}${wFuncion}.`;
+
+  const handleCopyCode = async () => {
+    if (!createdCode) return;
+    try {
+      await navigator.clipboard.writeText(createdCode);
+      toast.success(t("engagement.codeCopied"));
+    } catch {
+      toast.error(t("engagement.codeCopyError"));
+    }
+  };
+
+  // Defer navigation until the success modal is dismissed (button or `X`), so the
+  // user always sees the assigned code before leaving the form.
+  const handleSuccessDialogClose = () => {
+    setCreatedCode(null);
+    if (onSaveSuccess) {
+      onSaveSuccess();
+    } else {
+      navigate("/engagements");
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -327,14 +383,28 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                   )}
                 />
 
+                {isEdit ? (
+                  <FormItem>
+                    <FormLabel>{t("engagement.engagementCode")}</FormLabel>
+                    <Input value={engagement?.engagement_code ?? ""} readOnly disabled />
+                  </FormItem>
+                ) : (
+                  <FormItem>
+                    <FormLabel>{t("engagement.engagementCode")}</FormLabel>
+                    <div className="flex h-10 items-center rounded-md border border-input bg-muted px-3 text-sm">
+                      {previewIncomplete ? (
+                        <span className="text-muted-foreground">{t("engagement.codePreviewIncomplete")}</span>
+                      ) : (
+                        <span className="font-mono">
+                          {previewCodePrefix}
+                          <span className="text-muted-foreground">---</span>
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground">{t("engagement.codePreviewHelp")}</p>
+                  </FormItem>
+                )}
               </div>
-
-              {isEdit && (
-                <FormItem>
-                  <FormLabel>{t("engagement.engagementCode")}</FormLabel>
-                  <Input value={engagement?.engagement_code ?? ""} readOnly disabled />
-                </FormItem>
-              )}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                 <FormField control={form.control} name="anio_fiscal" render={({ field }) => (
@@ -661,6 +731,28 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
           </form>
         </Form>
       </div>
+
+      {/* BUG #0603-140: confirmation modal showing the server-assigned code */}
+      <Dialog open={!!createdCode} onOpenChange={(open) => { if (!open) handleSuccessDialogClose(); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("engagement.codeCreatedTitle")}</DialogTitle>
+            <DialogDescription>{t("engagement.codeCreatedDescription")}</DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center justify-center py-4">
+            <span className="font-mono text-2xl font-semibold">{createdCode}</span>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={handleCopyCode}>
+              <Copy className="h-4 w-4 mr-2" />
+              {t("engagement.copyCode")}
+            </Button>
+            <Button type="button" onClick={handleSuccessDialogClose}>
+              {t("common.close")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

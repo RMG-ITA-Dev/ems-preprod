@@ -73,6 +73,31 @@ describe("useCreateEngagement — code generation (BUG 0306-82)", () => {
     });
   });
 
+  it("exposes the server-assigned engagement_code on a successful mutation (BUG 0603-140)", async () => {
+    const mockData = {
+      engagement_id: "eng-101",
+      engagement_name: "Audit FY2027",
+      engagement_code: "2027.121.007",
+    };
+    vi.mocked(supabase.rpc).mockResolvedValue({ data: mockData, error: null } as any);
+
+    const { result } = renderHook(() => useCreateEngagement(), {
+      wrapper: createWrapper(),
+    });
+
+    const returned = await result.current.mutateAsync({
+      engagement_name: "Audit FY2027",
+      client_id: "client-uuid",
+      oficina: 1,
+      practica: 2,
+      funcion: 1,
+      anio_fiscal: 2027,
+    });
+
+    expect(returned.engagement_code).toBe("2027.121.007");
+    await waitFor(() => expect(result.current.data?.engagement_code).toBe("2027.121.007"));
+  });
+
   it("surfaces an RPC error as a rejected mutation", async () => {
     const rpcError = { message: "Correlativo error", code: "P0001" };
     vi.mocked(supabase.rpc).mockResolvedValue({ data: null, error: rpcError } as any);

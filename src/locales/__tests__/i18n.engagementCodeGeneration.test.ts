@@ -29,6 +29,15 @@ const NEW_KEYS = [
   "funcion_cli",
   "funcion_cap",
   "funcion_calidad",
+  // BUG 0603-140: engagement code visibility (preview + post-create confirmation modal)
+  "codePreviewHelp",
+  "codePreviewPending",
+  "codePreviewIncomplete",
+  "codeCreatedTitle",
+  "codeCreatedDescription",
+  "copyCode",
+  "codeCopied",
+  "codeCopyError",
 ] as const;
 
 describe("i18n engagement code-generation keys (BUG 0306-82)", () => {

@@ -43,7 +43,7 @@ export function useCreateEngagement() {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
       }) as unknown as { data: any; error: any };
       if (error) throw error;
-      return result;
+      return result as unknown as { engagement_id: string; engagement_code: string | null };
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["engagements"] });
