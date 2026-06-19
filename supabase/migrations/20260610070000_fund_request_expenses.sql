@@ -95,9 +95,12 @@ BEGIN
 END;
 $$;
 
+-- Dispara también con cambios de fund_request_id: si solo se moviera el gasto a
+-- otra solicitud (dejando el wo_id), había que re-validar que la OT pertenezca
+-- a la nueva solicitud.
 DROP TRIGGER IF EXISTS tr_fre_validate_wo ON public.fund_request_expenses;
 CREATE TRIGGER tr_fre_validate_wo
-  BEFORE INSERT OR UPDATE OF wo_id ON public.fund_request_expenses
+  BEFORE INSERT OR UPDATE OF wo_id, fund_request_id ON public.fund_request_expenses
   FOR EACH ROW EXECUTE FUNCTION public.fre_validate_wo_in_request();
 
 -- =====================================================

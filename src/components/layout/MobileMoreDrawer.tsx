@@ -11,6 +11,8 @@ import {
   LogOut,
   UserCheck,
   UserX,
+  Wallet,
+  Banknote,
 } from "lucide-react";
 import {
   Drawer,
@@ -34,7 +36,8 @@ export function MobileMoreDrawer({ open, onOpenChange }: MobileMoreDrawerProps) 
   const { t } = useTranslation();
   const { user, signOut } = useAuth();
   const { data: staffRecord } = useCurrentStaff();
-  const { isAdmin } = useUserRole();
+  const { isAdmin, isPartner, isDirector, isManager } = useUserRole();
+  const canApproveFunds = isAdmin || isPartner || isDirector || isManager;
 
   const userInitials = staffRecord?.initials
     ? staffRecord.initials
@@ -69,6 +72,25 @@ export function MobileMoreDrawer({ open, onOpenChange }: MobileMoreDrawerProps) 
 
   const operationsItems = [
     { path: "/timesheet/approvals", icon: CheckSquare, labelKey: "nav.timesheetApprovals" },
+    { path: "/fund-requests", icon: Wallet, labelKey: "nav.fundRequests" },
+    ...(canApproveFunds
+      ? [
+          {
+            path: "/fund-requests/approvals",
+            icon: CheckSquare,
+            labelKey: "nav.fundRequestApprovals",
+          },
+        ]
+      : []),
+    ...(isAdmin
+      ? [
+          {
+            path: "/fund-requests/disbursements",
+            icon: Banknote,
+            labelKey: "nav.fundRequestDisbursements",
+          },
+        ]
+      : []),
   ];
 
   const adminItems = [
