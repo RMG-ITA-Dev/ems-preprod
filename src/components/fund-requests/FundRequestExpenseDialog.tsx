@@ -105,17 +105,24 @@ export function FundRequestExpenseDialog({
       (o) => o.wo_id === expense.wo_id && o.manager_staff_id === staffRecord.staff_id,
     );
 
+  // El solicitante solo puede editar/registrar mientras la solicitud sigue en
+  // fase de registro de gastos. Tras en_liquidacion/cerrado queda congelado
+  // (si no, se podría editar un gasto rechazado y ensuciar la auditoría).
+  const isEntryPhase = fundRequest.status === "fondos_entregados";
+
   // Gasto devuelto por contabilidad: el solicitante SOLO adjunta el respaldo y
   // lo reenvía directo a contabilidad (no edita el resto ni pasa por el gerente).
   const isReturnedByAssistant =
+    isEntryPhase &&
     !isCreate &&
     isRequester &&
     expense!.status === "observado" &&
     expense!.returned_by_assistant;
 
   const isEditable =
-    isCreate ||
-    (isRequester && ["borrador", "observado", "rechazado"].includes(expense!.status));
+    isEntryPhase &&
+    (isCreate ||
+      (isRequester && ["borrador", "observado", "rechazado"].includes(expense!.status)));
   const canDecide =
     !isCreate && expense!.status === "pendiente_aprobacion" && (isManager || isAdmin);
   const canReview = !isCreate && isAdmin && expense!.status === "aprobado_gerente";

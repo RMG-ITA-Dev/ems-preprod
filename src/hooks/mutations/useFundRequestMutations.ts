@@ -92,23 +92,17 @@ export function useUpdateFundRequest() {
       }
 
       if (allocations !== undefined) {
-        const { error: delErr } = await sb
-          .from("fund_request_work_orders")
-          .delete()
-          .eq("fund_request_id", id);
-        if (delErr) throw delErr;
-
-        if (allocations.length > 0) {
-          const rows = allocations.map((a) => ({
-            fund_request_id: id,
+        // Reemplazo atómico vía RPC: delete + insert en una sola transacción.
+        // Si el insert falla, se revierte todo y las OTs viejas quedan intactas
+        // (en vez de dejar la solicitud sin ninguna asignación).
+        const { error: replErr } = await sb.rpc("fund_request_replace_allocations", {
+          p_fund_request_id: id,
+          p_allocations: allocations.map((a) => ({
             wo_id: a.wo_id,
             allocated_amount: a.allocated_amount,
-          }));
-          const { error: insErr } = await sb
-            .from("fund_request_work_orders")
-            .insert(rows);
-          if (insErr) throw insErr;
-        }
+          })),
+        });
+        if (replErr) throw replErr;
       }
       return { fund_request_id: id };
     },

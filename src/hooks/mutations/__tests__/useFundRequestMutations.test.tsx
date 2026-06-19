@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import {
   useCreateFundRequest,
+  useUpdateFundRequest,
   useSubmitFundRequest,
   useDecideWorkOrder,
   useSettleFundRequest,
@@ -72,6 +73,42 @@ describe("useFundRequestMutations", () => {
       await waitFor(() => expect(result.current.isError).toBe(true));
       expect(frDelete).toHaveBeenCalled();
       expect(frDeleteEq).toHaveBeenCalledWith("fund_request_id", "fr1");
+    });
+  });
+
+  describe("useUpdateFundRequest", () => {
+    it("replaces allocations atomically via the RPC (not a raw delete+insert)", async () => {
+      const frEq = vi.fn().mockResolvedValue({ error: null });
+      const frUpdate = vi.fn().mockReturnValue({ eq: frEq });
+      vi.mocked(supabase.from).mockReturnValue({ update: frUpdate } as never);
+      vi.mocked(supabase.rpc).mockResolvedValue({ data: null, error: null } as never);
+
+      const { result } = renderHook(() => useUpdateFundRequest(), { wrapper: createWrapper() });
+      result.current.mutate({
+        id: "fr1",
+        data: {
+          total_requested_amount: 200,
+          allocations: [{ wo_id: "wo1", allocated_amount: 200 }],
+        },
+      });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+      expect(supabase.rpc).toHaveBeenCalledWith("fund_request_replace_allocations", {
+        p_fund_request_id: "fr1",
+        p_allocations: [{ wo_id: "wo1", allocated_amount: 200 }],
+      });
+    });
+
+    it("does not touch allocations when none are provided", async () => {
+      const frEq = vi.fn().mockResolvedValue({ error: null });
+      const frUpdate = vi.fn().mockReturnValue({ eq: frEq });
+      vi.mocked(supabase.from).mockReturnValue({ update: frUpdate } as never);
+
+      const { result } = renderHook(() => useUpdateFundRequest(), { wrapper: createWrapper() });
+      result.current.mutate({ id: "fr1", data: { total_requested_amount: 200 } });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+      expect(supabase.rpc).not.toHaveBeenCalled();
     });
   });
 

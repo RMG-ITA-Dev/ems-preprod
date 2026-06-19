@@ -35,6 +35,7 @@ import {
 } from "@/hooks/mutations/useFundRequestExpenseMutations";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { useUserRole } from "@/hooks/useUserRole";
+import { parseDateLocal } from "@/lib/timesheetUtils";
 
 const formatCurrency = (n: number, currency: "BOB" | "USD") =>
   Number(n).toLocaleString(currency === "BOB" ? "es-BO" : "en-US", {
@@ -44,7 +45,9 @@ const formatCurrency = (n: number, currency: "BOB" | "USD") =>
 
 const formatDate = (iso: string | null | undefined) => {
   if (!iso) return "-";
-  return new Date(iso).toLocaleDateString("es-BO", {
+  // expense_date es un DATE (YYYY-MM-DD): parsear como fecha local para evitar
+  // el corrimiento de un día que provoca new Date() al interpretarlo como UTC.
+  return parseDateLocal(iso).toLocaleDateString("es-BO", {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
