@@ -97,19 +97,31 @@ BEGIN
 END;
 $$;
 
--- (2) Validar que la OT exista y esté en estado Approved.
+-- (2) Validar que la OT exista, esté Approved y su moneda coincida con la de la
+--     solicitud (el form filtra por moneda, pero por API directa podría pegarse
+--     una OT en otra moneda y mezclar monedas en aprobación/liquidación).
 CREATE OR REPLACE FUNCTION public.fr_wo_validate_approved()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public' AS $$
 DECLARE
   v_status text;
+  v_wo_currency text;
+  v_fr_currency text;
 BEGIN
-  SELECT approval_status INTO v_status FROM public.work_orders WHERE wo_id = NEW.wo_id;
+  SELECT approval_status, currency INTO v_status, v_wo_currency
+  FROM public.work_orders WHERE wo_id = NEW.wo_id;
   IF v_status IS NULL THEN
     RAISE EXCEPTION 'Work order % does not exist', NEW.wo_id;
   END IF;
   IF v_status <> 'Approved' THEN
     RAISE EXCEPTION 'Work order % must be Approved to be allocated (current: %)', NEW.wo_id, v_status;
   END IF;
+
+  SELECT currency INTO v_fr_currency
+  FROM public.fund_requests WHERE fund_request_id = NEW.fund_request_id;
+  IF v_wo_currency IS DISTINCT FROM v_fr_currency THEN
+    RAISE EXCEPTION 'La moneda de la OT (%) no coincide con la de la solicitud (%)', v_wo_currency, v_fr_currency;
+  END IF;
+
   RETURN NEW;
 END;
 $$;
