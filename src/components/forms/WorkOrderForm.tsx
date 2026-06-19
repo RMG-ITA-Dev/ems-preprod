@@ -342,6 +342,19 @@ export function WorkOrderForm({
     !!onApproveEmergencyPartner;
   const hasRiskAction =
     showNormalRiskApprove || showEmergencyReview || showEmergencyPartner;
+  // True when the Socio/Riesgos labeled boxes are shown — used to vertically align
+  // the standalone Cancel/Save/Unsubmit buttons with the buttons inside those boxes.
+  const hasActionBoxes =
+    (isPending && canApprove) || (showRiskActions && hasRiskAction);
+  // Risk-level color: Alto=red, Moderado=yellow, Bajo=green.
+  const riskLevelColorClass =
+    riskLevel === "Alto"
+      ? "text-destructive"
+      : riskLevel === "Moderado"
+        ? "text-warning"
+        : riskLevel === "Bajo"
+          ? "text-success"
+          : "text-muted-foreground";
 
   // Get category name by ID
   const getCategoryName = (categoryId: string) => {
@@ -809,10 +822,19 @@ export function WorkOrderForm({
                 <p className="text-sm text-muted-foreground mt-1">
                   {t("workOrders.riskAssessmentDescription")}
                 </p>
+                {riskFieldsEditable && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    <span className="text-destructive">*</span>{" "}
+                    {t("workOrders.riskRequiredHint")}
+                  </p>
+                )}
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <Label className="text-sm whitespace-nowrap">
-                  {t("workOrders.riskLevel")}
+                  {t("workOrders.riskLevel")}:
+                  {riskFieldsEditable && (
+                    <span className="text-destructive"> *</span>
+                  )}
                 </Label>
                 {riskFieldsEditable ? (
                   <Select
@@ -837,7 +859,7 @@ export function WorkOrderForm({
                     </SelectContent>
                   </Select>
                 ) : (
-                  <span className="text-sm font-medium">
+                  <span className={cn("text-sm font-semibold", riskLevelColorClass)}>
                     {riskLevel || (
                       <span className="text-muted-foreground">—</span>
                     )}
@@ -872,7 +894,12 @@ export function WorkOrderForm({
             )}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>{t("workOrders.ceacDate")}</Label>
+                <Label>
+                  {t("workOrders.ceacDate")}
+                  {riskFieldsEditable && (
+                    <span className="text-destructive"> *</span>
+                  )}
+                </Label>
                 {riskFieldsEditable ? (
                   <Input
                     type="date"
@@ -901,7 +928,12 @@ export function WorkOrderForm({
                 )}
               </div>
               <div className="space-y-2">
-                <Label>{t("workOrders.sanDate")}</Label>
+                <Label>
+                  {t("workOrders.sanDate")}
+                  {riskFieldsEditable && (
+                    <span className="text-destructive"> *</span>
+                  )}
+                </Label>
                 {riskFieldsEditable ? (
                   <Input
                     type="date"
@@ -930,7 +962,12 @@ export function WorkOrderForm({
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>{t("workOrders.ceacNumber")}</Label>
+                <Label>
+                  {t("workOrders.ceacNumber")}
+                  {riskFieldsEditable && (
+                    <span className="text-destructive"> *</span>
+                  )}
+                </Label>
                 {riskFieldsEditable ? (
                   <>
                     <Input
@@ -960,7 +997,12 @@ export function WorkOrderForm({
                 )}
               </div>
               <div className="space-y-2">
-                <Label>{t("workOrders.sanApprovalId")}</Label>
+                <Label>
+                  {t("workOrders.sanApprovalId")}
+                  {riskFieldsEditable && (
+                    <span className="text-destructive"> *</span>
+                  )}
+                </Label>
                 {riskFieldsEditable ? (
                   <>
                     <Input
@@ -1055,66 +1097,70 @@ export function WorkOrderForm({
       )}
 
       {/* Actions */}
-      <div className="flex justify-end gap-3">
-        {onCancel && (
-          <Button
-            variant="cancel"
-            onClick={onCancel}
-            disabled={isSubmitting}
-            className="btn-action"
-          >
-            {t("common.cancel")}
-          </Button>
-        )}
-        {isDraft && (
-          <>
-            <LoadingButton
-              onClick={onSubmit}
-              loading={isSubmitting}
+      <div className="flex justify-end gap-3 items-start">
+        {/* Standalone buttons. When the Socio/Riesgos boxes are shown they are taller
+            (border + top label), so pad the top here to keep all buttons aligned. */}
+        <div className={cn("flex gap-3", hasActionBoxes && "pt-4")}>
+          {onCancel && (
+            <Button
+              variant="cancel"
+              onClick={onCancel}
+              disabled={isSubmitting}
               className="btn-action"
             >
-              {t("common.save")}
-            </LoadingButton>
-            {onSubmitForApproval && (
+              {t("common.cancel")}
+            </Button>
+          )}
+          {isDraft && (
+            <>
               <LoadingButton
-                onClick={() => {
-                  // Empty risk data => emergency: confirm + capture motive first.
-                  if (riskAllEmpty) {
-                    setSubmitJustification("");
-                    setSubmitEmergencyDialogOpen(true);
-                  } else {
-                    onSubmitForApproval();
-                  }
-                }}
-                className="bg-info hover:bg-info/90 btn-action"
+                onClick={onSubmit}
                 loading={isSubmitting}
-                disabled={hasNonRiskDirty || !canSubmitForApproval}
-                title={
-                  hasNonRiskDirty
-                    ? t("workOrders.saveBeforeSubmit")
-                    : !canSubmitForApproval
-                      ? t("workOrders.riskAssessmentRequired")
-                      : undefined
-                }
+                className="btn-action"
               >
-                <Send className="h-4 w-4 mr-2" />
-                {t("workOrders.submitForApproval")}
+                {t("common.save")}
               </LoadingButton>
-            )}
-          </>
-        )}
-        {/* Unsubmit button for Pending status - shown to any user */}
-        {isPending && onUnsubmit && (
-          <LoadingButton
-            variant="outline"
-            onClick={onUnsubmit}
-            loading={isSubmitting}
-            className="bg-warning hover:bg-warning/90 text-warning-foreground btn-action"
-          >
-            <Undo2 className="h-4 w-4 mr-2" />
-            {t("workOrders.unsubmit")}
-          </LoadingButton>
-        )}
+              {onSubmitForApproval && (
+                <LoadingButton
+                  onClick={() => {
+                    // Empty risk data => emergency: confirm + capture motive first.
+                    if (riskAllEmpty) {
+                      setSubmitJustification("");
+                      setSubmitEmergencyDialogOpen(true);
+                    } else {
+                      onSubmitForApproval();
+                    }
+                  }}
+                  className="bg-info hover:bg-info/90 btn-action"
+                  loading={isSubmitting}
+                  disabled={hasNonRiskDirty || !canSubmitForApproval}
+                  title={
+                    hasNonRiskDirty
+                      ? t("workOrders.saveBeforeSubmit")
+                      : !canSubmitForApproval
+                        ? t("workOrders.riskAssessmentRequired")
+                        : undefined
+                  }
+                >
+                  <Send className="h-4 w-4 mr-2" />
+                  {t("workOrders.submitForApproval")}
+                </LoadingButton>
+              )}
+            </>
+          )}
+          {/* Unsubmit button for Pending status - shown to any user */}
+          {isPending && onUnsubmit && (
+            <LoadingButton
+              variant="outline"
+              onClick={onUnsubmit}
+              loading={isSubmitting}
+              className="bg-warning hover:bg-warning/90 text-warning-foreground btn-action"
+            >
+              <Undo2 className="h-4 w-4 mr-2" />
+              {t("workOrders.unsubmit")}
+            </LoadingButton>
+          )}
+        </div>
         {/* Socio track: business approval. No longer gated by risk completeness. */}
         {isPending && canApprove && (
           <div className="relative rounded-md border p-3 pt-4">

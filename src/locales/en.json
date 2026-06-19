@@ -990,6 +990,7 @@
     "riskLevelAlto": "Alto",
     "approveRisk": "Approve Risk",
     "rejectRisk": "Reject Risk",
+    "riskRequiredHint": "Marked fields are required (or leave them all empty for emergency submission).",
     "approveRiskAssistant": "Approve (Risk)",
     "approveRiskPartner": "Approve (Risk Partner)",
     "riskApprovedEmergency": "Risk approved under emergency procedure",

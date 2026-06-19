@@ -990,6 +990,7 @@
     "riskLevelAlto": "Alto",
     "approveRisk": "Aprobar Riesgo",
     "rejectRisk": "Rechazar Riesgo",
+    "riskRequiredHint": "Los campos marcados son obligatorios (o déjelos todos vacíos para envío de emergencia).",
     "approveRiskAssistant": "Aprobar (Riesgo)",
     "approveRiskPartner": "Aprobar (Socio de Riesgos)",
     "riskApprovedEmergency": "Riesgo aprobado en modo emergencia",
