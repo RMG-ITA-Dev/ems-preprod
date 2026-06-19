@@ -77,10 +77,7 @@ describe("useFundRequestMutations", () => {
   });
 
   describe("useUpdateFundRequest", () => {
-    it("replaces allocations atomically via the RPC (not a raw delete+insert)", async () => {
-      const frEq = vi.fn().mockResolvedValue({ error: null });
-      const frUpdate = vi.fn().mockReturnValue({ eq: frEq });
-      vi.mocked(supabase.from).mockReturnValue({ update: frUpdate } as never);
+    it("saves header + allocations atomically in one RPC (not separate writes)", async () => {
       vi.mocked(supabase.rpc).mockResolvedValue({ data: null, error: null } as never);
 
       const { result } = renderHook(() => useUpdateFundRequest(), { wrapper: createWrapper() });
@@ -93,22 +90,27 @@ describe("useFundRequestMutations", () => {
       });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      expect(supabase.rpc).toHaveBeenCalledWith("fund_request_replace_allocations", {
+      expect(supabase.rpc).toHaveBeenCalledWith("fund_request_save_edit", {
         p_fund_request_id: "fr1",
+        p_fields: { total_requested_amount: 200 },
         p_allocations: [{ wo_id: "wo1", allocated_amount: 200 }],
       });
+      // El header ya NO se escribe por separado (todo va dentro del RPC).
+      expect(supabase.from).not.toHaveBeenCalled();
     });
 
-    it("does not touch allocations when none are provided", async () => {
-      const frEq = vi.fn().mockResolvedValue({ error: null });
-      const frUpdate = vi.fn().mockReturnValue({ eq: frEq });
-      vi.mocked(supabase.from).mockReturnValue({ update: frUpdate } as never);
+    it("passes null allocations when none are provided (header-only edit)", async () => {
+      vi.mocked(supabase.rpc).mockResolvedValue({ data: null, error: null } as never);
 
       const { result } = renderHook(() => useUpdateFundRequest(), { wrapper: createWrapper() });
       result.current.mutate({ id: "fr1", data: { total_requested_amount: 200 } });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      expect(supabase.rpc).not.toHaveBeenCalled();
+      expect(supabase.rpc).toHaveBeenCalledWith("fund_request_save_edit", {
+        p_fund_request_id: "fr1",
+        p_fields: { total_requested_amount: 200 },
+        p_allocations: null,
+      });
     });
   });
 

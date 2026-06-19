@@ -83,27 +83,20 @@ export function useUpdateFundRequest() {
     mutationFn: async ({ id, data }: { id: string; data: FundRequestUpdateInput }) => {
       const { allocations, ...frFields } = data;
 
-      if (Object.keys(frFields).length > 0) {
-        const { error } = await sb
-          .from("fund_requests")
-          .update(frFields)
-          .eq("fund_request_id", id);
-        if (error) throw error;
-      }
-
-      if (allocations !== undefined) {
-        // Reemplazo atómico vía RPC: delete + insert en una sola transacción.
-        // Si el insert falla, se revierte todo y las OTs viejas quedan intactas
-        // (en vez de dejar la solicitud sin ninguna asignación).
-        const { error: replErr } = await sb.rpc("fund_request_replace_allocations", {
-          p_fund_request_id: id,
-          p_allocations: allocations.map((a) => ({
-            wo_id: a.wo_id,
-            allocated_amount: a.allocated_amount,
-          })),
-        });
-        if (replErr) throw replErr;
-      }
+      // Header + OTs en UNA sola transacción (RPC): si el reemplazo de OTs falla,
+      // se revierte también el header y la solicitud queda intacta.
+      const { error } = await sb.rpc("fund_request_save_edit", {
+        p_fund_request_id: id,
+        p_fields: frFields,
+        p_allocations:
+          allocations === undefined
+            ? null
+            : allocations.map((a) => ({
+                wo_id: a.wo_id,
+                allocated_amount: a.allocated_amount,
+              })),
+      });
+      if (error) throw error;
       return { fund_request_id: id };
     },
     onSuccess: (_, { id }) => {

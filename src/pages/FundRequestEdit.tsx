@@ -53,6 +53,9 @@ const FundRequestEdit = () => {
 
   const { data: fr, isLoading } = useFundRequestById(id);
   const { data: expenses } = useFundRequestExpenses(id);
+  // Los gastos cargaron (data !== undefined). Mientras cargan, los totales de
+  // liquidación dan 0 y no se debe permitir liquidar (condición de carrera).
+  const expensesLoaded = expenses !== undefined;
   const { staffRecord } = useCurrentStaff();
   const { isAdmin } = useUserRole();
   const updateFr = useUpdateFundRequest();
@@ -127,7 +130,8 @@ const FundRequestEdit = () => {
   const settlementBlocked = unfinishedExpenses.length > 0;
   // Asistente liquida (calcula + resuelve) cuando hay fondos entregados y no
   // quedan gastos a medio camino → envía al encargado (en_liquidacion).
-  const canLiquidate = isAdmin && fr?.status === "fondos_entregados" && !settlementBlocked;
+  const canLiquidate =
+    isAdmin && fr?.status === "fondos_entregados" && expensesLoaded && !settlementBlocked;
   // Encargado cierra (o cancela) una vez recibida la liquidación.
   const canCloseSettlement = isAdmin && fr?.status === "en_liquidacion";
   const canCancel =

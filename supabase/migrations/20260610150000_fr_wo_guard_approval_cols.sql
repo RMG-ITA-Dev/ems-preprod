@@ -25,13 +25,25 @@ AS $$
 DECLARE
   v_me UUID := get_my_staff_id();
   v_decision_changed BOOLEAN;
+  v_alloc_changed BOOLEAN;
 BEGIN
   IF is_admin() THEN
     RETURN NEW;
   END IF;
 
-  -- El gerente real de la OT puede registrar su decisión libremente.
+  -- ¿Cambian las columnas de asignación / identidad de la OT?
+  v_alloc_changed :=
+       NEW.allocated_amount IS DISTINCT FROM OLD.allocated_amount
+    OR NEW.wo_id            IS DISTINCT FROM OLD.wo_id
+    OR NEW.fund_request_id  IS DISTINCT FROM OLD.fund_request_id
+    OR NEW.manager_staff_id IS DISTINCT FROM OLD.manager_staff_id;
+
+  -- El gerente real de la OT solo puede registrar su DECISIÓN, no cambiar la
+  -- asignación del solicitante (monto, OT, etc.).
   IF OLD.manager_staff_id IS NOT DISTINCT FROM v_me THEN
+    IF v_alloc_changed THEN
+      RAISE EXCEPTION 'El gerente solo puede aprobar/observar/rechazar, no modificar la asignación de la OT';
+    END IF;
     RETURN NEW;
   END IF;
 
