@@ -361,8 +361,8 @@ describe("WorkOrderForm — Risk dual-track + emergency (feat/0306-78)", () => {
       onReject: vi.fn(),
     });
     expect(screen.queryByText("workOrders.approve")).not.toBeInTheDocument();
-    // Track status row reflects the Socio sign-off.
-    expect(screen.getByText("workOrders.trackApproved")).toBeInTheDocument();
+    // Track status (header + bottom) reflects the Socio sign-off.
+    expect(screen.getAllByText("workOrders.trackApproved").length).toBeGreaterThan(0);
   });
 
   it("WF19: track status shows the emergency badge for Riesgos when Emergency_Approved", () => {
@@ -371,7 +371,19 @@ describe("WorkOrderForm — Risk dual-track + emergency (feat/0306-78)", () => {
       riskStatus: "Emergency_Approved",
       emergencyDeadlineAt: "2026-06-26",
     });
-    expect(screen.getByText("workOrders.trackEmergency")).toBeInTheDocument();
+    expect(screen.getAllByText("workOrders.trackEmergency").length).toBeGreaterThan(0);
+  });
+
+  it("WF20: Rejected by Riesgos keeps Socio 'Aprobado' visible and shows Riesgos 'Rechazado'", () => {
+    renderForm({
+      approvalStatus: "Rejected",
+      approvedAt: "2026-06-19T10:00:00Z",
+      riskStatus: "Rejected",
+      rejectionNote: "Falta CEAC",
+    });
+    // Both tracks render (header + bottom): Socio Aprobado persists, Riesgos Rechazado.
+    expect(screen.getAllByText("workOrders.trackApproved").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("workOrders.trackRejected").length).toBeGreaterThan(0);
   });
 
   it("WF12: emergency banner is shown when riskStatus is Emergency_Approved", () => {

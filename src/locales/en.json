@@ -1054,6 +1054,7 @@
     "riskRequiredHint": "Marked fields are required (or leave them all empty for emergency submission).",
     "trackApproved": "Approved",
     "trackPending": "Pending",
+    "trackRejected": "Rejected",
     "trackEmergency": "Approved (emergency)",
     "approveRiskAssistant": "Approve (Risk)",
     "approveRiskPartner": "Approve (Risk Partner)",

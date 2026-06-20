@@ -367,6 +367,60 @@ export function WorkOrderForm({
           ? "text-success"
           : "text-muted-foreground";
 
+  // Per-track approval status (Socio / Riesgos), shown both in the header and the
+  // bottom action area. Visible once the OT leaves Draft (Pending/Approved/Rejected),
+  // so the Socio sign-off stays visible even after a rejection.
+  const showTrackStatus = isPending || isApproved || isRejected;
+  const renderTrackStatus = () => (
+    <>
+      <span className="flex items-center gap-1.5">
+        <span className="text-muted-foreground">
+          {t("workOrders.partnerActionsLabel")}:
+        </span>
+        {approvedAt ? (
+          <span className="flex items-center gap-1 font-medium text-success">
+            <CheckCircle className="h-3.5 w-3.5" />
+            {t("workOrders.trackApproved")}
+          </span>
+        ) : isRejected && riskStatus !== "Rejected" ? (
+          <span className="flex items-center gap-1 font-medium text-destructive">
+            <XCircle className="h-3.5 w-3.5" />
+            {t("workOrders.trackRejected")}
+          </span>
+        ) : (
+          <span className="text-muted-foreground">
+            {t("workOrders.trackPending")}
+          </span>
+        )}
+      </span>
+      <span className="flex items-center gap-1.5">
+        <span className="text-muted-foreground">
+          {t("workOrders.riskActionsLabel")}:
+        </span>
+        {riskStatus === "Approved" ? (
+          <span className="flex items-center gap-1 font-medium text-success">
+            <ShieldCheck className="h-3.5 w-3.5" />
+            {t("workOrders.trackApproved")}
+          </span>
+        ) : riskStatus === "Emergency_Approved" ? (
+          <span className="flex items-center gap-1 font-medium text-orange-500">
+            <ShieldAlert className="h-3.5 w-3.5" />
+            {t("workOrders.trackEmergency")}
+          </span>
+        ) : riskStatus === "Rejected" ? (
+          <span className="flex items-center gap-1 font-medium text-destructive">
+            <XCircle className="h-3.5 w-3.5" />
+            {t("workOrders.trackRejected")}
+          </span>
+        ) : (
+          <span className="text-muted-foreground">
+            {t("workOrders.trackPending")}
+          </span>
+        )}
+      </span>
+    </>
+  );
+
   // Get category name by ID
   const getCategoryName = (categoryId: string) => {
     const category = categories?.find((c) => c.category_id === categoryId);
@@ -461,6 +515,12 @@ export function WorkOrderForm({
               )}
             </div>
           </div>
+          {/* Estado por pista (Socio / Riesgos) — visible en el encabezado. */}
+          {showTrackStatus && (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm mt-2 pt-2 border-t">
+              {renderTrackStatus()}
+            </div>
+          )}
         </CardHeader>
       </Card>
 
@@ -1107,45 +1167,10 @@ export function WorkOrderForm({
         </Card>
       )}
 
-      {/* Approval track status — shows which of the two tracks (Socio / Riesgos) has
-          already signed off, visible to everyone (not just approvers). */}
-      {(isPending || isApproved) && (
+      {/* Approval track status (fila inferior) — espejo del indicador del encabezado. */}
+      {showTrackStatus && (
         <div className="flex flex-wrap justify-end gap-x-6 gap-y-1 text-sm">
-          <span className="flex items-center gap-1.5">
-            <span className="text-muted-foreground">
-              {t("workOrders.partnerActionsLabel")}:
-            </span>
-            {approvedAt ? (
-              <span className="flex items-center gap-1 font-medium text-success">
-                <CheckCircle className="h-3.5 w-3.5" />
-                {t("workOrders.trackApproved")}
-              </span>
-            ) : (
-              <span className="text-muted-foreground">
-                {t("workOrders.trackPending")}
-              </span>
-            )}
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="text-muted-foreground">
-              {t("workOrders.riskActionsLabel")}:
-            </span>
-            {riskStatus === "Approved" ? (
-              <span className="flex items-center gap-1 font-medium text-success">
-                <ShieldCheck className="h-3.5 w-3.5" />
-                {t("workOrders.trackApproved")}
-              </span>
-            ) : riskStatus === "Emergency_Approved" ? (
-              <span className="flex items-center gap-1 font-medium text-orange-500">
-                <ShieldAlert className="h-3.5 w-3.5" />
-                {t("workOrders.trackEmergency")}
-              </span>
-            ) : (
-              <span className="text-muted-foreground">
-                {t("workOrders.trackPending")}
-              </span>
-            )}
-          </span>
+          {renderTrackStatus()}
         </div>
       )}
       {/* Rejection note banner (de 0527-126): rojo en Rechazado, naranja en Draft. */}

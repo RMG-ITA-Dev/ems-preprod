@@ -1054,6 +1054,7 @@
     "riskRequiredHint": "Los campos marcados son obligatorios (o déjelos todos vacíos para envío de emergencia).",
     "trackApproved": "Aprobado",
     "trackPending": "Pendiente",
+    "trackRejected": "Rechazado",
     "trackEmergency": "Aprobado (emergencia)",
     "approveRiskAssistant": "Aprobar (Riesgo)",
     "approveRiskPartner": "Aprobar (Socio de Riesgos)",
