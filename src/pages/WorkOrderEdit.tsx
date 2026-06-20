@@ -25,6 +25,8 @@ import {
   useApproveEmergencyReview,
   useApproveEmergencyPartner,
   useRejectRisk,
+  useRevertSocioApproval,
+  useRevertRiskApproval,
   useCompleteRiskAssessment,
   useRejectWorkOrder,
   useUnsubmitWorkOrder,
@@ -71,6 +73,8 @@ const WorkOrderEdit = () => {
   const approveEmergencyReview = useApproveEmergencyReview();
   const approveEmergencyPartner = useApproveEmergencyPartner();
   const rejectRisk = useRejectRisk();
+  const revertSocioApproval = useRevertSocioApproval();
+  const revertRiskApproval = useRevertRiskApproval();
   const completeRiskAssessment = useCompleteRiskAssessment();
   const rejectWorkOrder = useRejectWorkOrder();
   const unsubmitWorkOrder = useUnsubmitWorkOrder();
@@ -347,6 +351,17 @@ const WorkOrderEdit = () => {
     await rejectRisk.mutateAsync({ woId: workOrder.wo_id, riskNotes });
   };
 
+  // Admin-only: revertir aprobaciones accidentales.
+  const handleRevertSocio = async () => {
+    if (!workOrder) return;
+    await revertSocioApproval.mutateAsync({ woId: workOrder.wo_id });
+  };
+
+  const handleRevertRisk = async () => {
+    if (!workOrder) return;
+    await revertRiskApproval.mutateAsync({ woId: workOrder.wo_id });
+  };
+
   const handleCompleteRisk = async () => {
     if (!workOrder) return;
     await completeRiskAssessment.mutateAsync({
@@ -496,6 +511,10 @@ const WorkOrderEdit = () => {
           onApproveEmergencyReview={handleApproveEmergencyReview}
           onApproveEmergencyPartner={handleApproveEmergencyPartner}
           onCompleteRisk={handleCompleteRisk}
+          riskNote={workOrder.risk_notes}
+          canRevert={isAdmin}
+          onRevertSocio={handleRevertSocio}
+          onRevertRisk={handleRevertRisk}
           ceacCompletedAt={ceacCompletedAt}
           ceacNotes={ceacNotes}
           sanCompletedAt={sanCompletedAt}
@@ -512,6 +531,8 @@ const WorkOrderEdit = () => {
             approveEmergencyReview.isPending ||
             approveEmergencyPartner.isPending ||
             rejectRisk.isPending ||
+            revertSocioApproval.isPending ||
+            revertRiskApproval.isPending ||
             completeRiskAssessment.isPending ||
             rejectWorkOrder.isPending ||
             unsubmitWorkOrder.isPending

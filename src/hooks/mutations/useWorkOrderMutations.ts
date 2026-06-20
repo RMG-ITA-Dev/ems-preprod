@@ -94,9 +94,9 @@ export function useSubmitWorkOrder() {
         .from("work_orders")
         .update({
           approval_status: "Pending_Approval",
-          // Reset risk_status so a previous Riesgos rejection doesn't linger on resubmit.
-          // (notes is intentionally NOT reset — respeta fix 49c2ac5.)
-          risk_status: "Pending",
+          // No se toca risk_status: las pistas son independientes, así el Aprobado de
+          // Riesgos persiste tras un rechazo del Socio + Retirar + reenviar.
+          // (notes tampoco se resetea — respeta fix 49c2ac5.)
           ceac_completed_at: ceacCompletedAt ?? null,
           ceac_notes: ceacNotes ?? null,
           san_completed_at: sanCompletedAt ?? null,
@@ -293,21 +293,15 @@ export function useRejectRisk() {
       woId: string;
       riskNotes?: string | null;
     }) => {
+      // Pistas independientes: el rechazo de Riesgos NO cambia approval_status
+      // (la OT sigue Pending/Approved) ni toca la aprobación del Socio. Solo marca la
+      // pista de Riesgos como rechazada con su nota; el Gerente corrige y reenvía a
+      // Riesgos ("Enviar a aprobar a Riesgos" -> risk_status='Pending').
       const { data: result, error } = await supabase
         .from("work_orders")
         .update({
           risk_status: "Rejected",
           risk_notes: riskNotes ?? null,
-          // Rejected (no Draft) para que "Rechazado" sea visible arriba, consistente
-          // con el rechazo del Socio (0527-126). Se vuelve a Draft con "Retirar".
-          approval_status: "Rejected",
-          // Clear emergency sign-offs/justification so a resubmit starts clean.
-          emergency_review_by: null,
-          emergency_review_at: null,
-          emergency_partner_by: null,
-          emergency_partner_at: null,
-          emergency_deadline_at: null,
-          emergency_justification: null,
         })
         .eq("wo_id", woId)
         .select()
@@ -321,6 +315,76 @@ export function useRejectRisk() {
       toast.success(i18n.t("workOrders.rejected"));
     },
     onError: createMutationErrorHandler("rejecting risk"),
+  });
+}
+
+// Admin-only: revert an accidental Socio approval. Clears the Socio track and, if the
+// OT had closed to Approved, reopens it to Pending_Approval.
+export function useRevertSocioApproval() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ woId }: { woId: string }) => {
+      const { data: result, error } = await supabase
+        .from("work_orders")
+        .update({ approved_by: null, approved_at: null })
+        .eq("wo_id", woId)
+        .select()
+        .single();
+      if (error) throw error;
+      // Reopen if it had been fully approved.
+      const { error: reopenError } = await supabase
+        .from("work_orders")
+        .update({ approval_status: "Pending_Approval" })
+        .eq("wo_id", woId)
+        .eq("approval_status", "Approved");
+      if (reopenError) throw reopenError;
+      return result;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["work_orders"] });
+      queryClient.invalidateQueries({ queryKey: ["work_order"] });
+      toast.success(i18n.t("workOrders.approvalReverted"));
+    },
+    onError: createMutationErrorHandler("reverting socio approval"),
+  });
+}
+
+// Admin-only: revert an accidental Riesgos approval. Resets the Risk track to Pending
+// and reopens the OT if it had closed to Approved.
+export function useRevertRiskApproval() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ woId }: { woId: string }) => {
+      const { data: result, error } = await supabase
+        .from("work_orders")
+        .update({
+          risk_status: "Pending",
+          risk_approved_by: null,
+          risk_approved_at: null,
+          emergency_review_by: null,
+          emergency_review_at: null,
+          emergency_partner_by: null,
+          emergency_partner_at: null,
+          emergency_deadline_at: null,
+        })
+        .eq("wo_id", woId)
+        .select()
+        .single();
+      if (error) throw error;
+      const { error: reopenError } = await supabase
+        .from("work_orders")
+        .update({ approval_status: "Pending_Approval" })
+        .eq("wo_id", woId)
+        .eq("approval_status", "Approved");
+      if (reopenError) throw reopenError;
+      return result;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["work_orders"] });
+      queryClient.invalidateQueries({ queryKey: ["work_order"] });
+      toast.success(i18n.t("workOrders.approvalReverted"));
+    },
+    onError: createMutationErrorHandler("reverting risk approval"),
   });
 }
 

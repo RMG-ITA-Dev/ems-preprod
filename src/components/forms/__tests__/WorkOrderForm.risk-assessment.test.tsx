@@ -106,6 +106,10 @@ type FormOverrides = Partial<
     onApproveEmergencyReview?: () => void;
     onApproveEmergencyPartner?: () => void;
     onCompleteRisk?: () => void;
+    riskNote?: string | null;
+    canRevert?: boolean;
+    onRevertSocio?: () => void;
+    onRevertRisk?: () => void;
   }
 >;
 
@@ -384,6 +388,63 @@ describe("WorkOrderForm — Risk dual-track + emergency (feat/0306-78)", () => {
     // Both tracks render (header + bottom): Socio Aprobado persists, Riesgos Rechazado.
     expect(screen.getAllByText("workOrders.trackApproved").length).toBeGreaterThan(0);
     expect(screen.getAllByText("workOrders.trackRejected").length).toBeGreaterThan(0);
+  });
+
+  it("WF21: Riesgos rejected (OT still Pending) shows note + editable risk + 'Enviar a aprobar a Riesgos', no approve buttons", () => {
+    const container = renderForm({
+      approvalStatus: "Pending_Approval",
+      approvedAt: "2026-06-19T10:00:00Z",
+      riskStatus: "Rejected",
+      riskNote: "Corrige el SAN",
+      canApproveRisk: true,
+      onApproveRisk: vi.fn(),
+      onRejectRisk: vi.fn(),
+      onCompleteRisk: vi.fn(),
+      onRiskAssessmentChange: vi.fn(),
+      ...fullRisk,
+    });
+    // Risk fields editable (a date input is rendered, not read-only text).
+    const dateInputs = container.querySelectorAll<HTMLInputElement>('input[type="date"]');
+    expect(dateInputs.length).toBeGreaterThan(0);
+    // Risk rejection note shown + re-send button; approve/reject risk hidden.
+    expect(screen.getByText("Corrige el SAN")).toBeInTheDocument();
+    expect(screen.getByText("workOrders.sendRiskForReapproval")).toBeInTheDocument();
+    expect(screen.queryByText("workOrders.approveRisk")).not.toBeInTheDocument();
+    // Socio approval persists in the track status.
+    expect(screen.getAllByText("workOrders.trackApproved").length).toBeGreaterThan(0);
+  });
+
+  it("WF22: admin sees 'Deshacer' next to an approved track; non-admin does not", () => {
+    const onRevertSocio = vi.fn();
+    const { rerender } = render(
+      <QueryClientProvider client={makeQC()}>
+        <WorkOrderForm
+          {...(baseProps as any)}
+          approvalStatus="Pending_Approval"
+          approvedAt="2026-06-19T10:00:00Z"
+          canRevert={true}
+          onRevertSocio={onRevertSocio}
+        />
+      </QueryClientProvider>
+    );
+    const undoBtns = screen.getAllByTitle("workOrders.revertApproval");
+    expect(undoBtns.length).toBeGreaterThan(0);
+    fireEvent.click(undoBtns[0]);
+    expect(onRevertSocio).toHaveBeenCalled();
+
+    // Non-admin (canRevert false) sees no undo control.
+    rerender(
+      <QueryClientProvider client={makeQC()}>
+        <WorkOrderForm
+          {...(baseProps as any)}
+          approvalStatus="Pending_Approval"
+          approvedAt="2026-06-19T10:00:00Z"
+          canRevert={false}
+          onRevertSocio={onRevertSocio}
+        />
+      </QueryClientProvider>
+    );
+    expect(screen.queryByTitle("workOrders.revertApproval")).not.toBeInTheDocument();
   });
 
   it("WF12: emergency banner is shown when riskStatus is Emergency_Approved", () => {

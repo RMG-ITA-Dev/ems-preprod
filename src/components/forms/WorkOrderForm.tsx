@@ -111,6 +111,12 @@ interface WorkOrderFormProps {
   onApproveEmergencyReview?: () => void;
   onApproveEmergencyPartner?: () => void;
   onCompleteRisk?: () => void;
+  // Nota de rechazo de Riesgos (risk_notes), mostrada al corregir.
+  riskNote?: string | null;
+  // Admin-only: revertir aprobaciones accidentales (ambas pistas).
+  canRevert?: boolean;
+  onRevertSocio?: () => void;
+  onRevertRisk?: () => void;
   isLocked: boolean;
   canApprove: boolean;
   isSubmitting: boolean;
@@ -172,6 +178,10 @@ export function WorkOrderForm({
   onApproveEmergencyReview,
   onApproveEmergencyPartner,
   onCompleteRisk,
+  riskNote,
+  canRevert = false,
+  onRevertSocio,
+  onRevertRisk,
   isLocked,
   canApprove,
   isSubmitting,
@@ -314,24 +324,32 @@ export function WorkOrderForm({
   const canSubmitForApproval = riskApprovalReady || riskAllEmpty;
 
   const isEmergencyApproved = riskStatus === "Emergency_Approved";
+  // Riesgos rejected its track: the OT stays Pending/Approved (Socio untouched); the
+  // Manager corrects the risk data and re-sends only the Risk track.
+  const isRiskRejected = riskStatus === "Rejected";
   const hasRiskData = !!(ceacCompletedAt || sanCompletedAt);
   // After an emergency approval the Manager must click "Agregar datos de Riesgo"
   // before the fields unlock for completion.
   const canCompleteRiskData = isApproved && isEmergencyApproved && !!onCompleteRisk;
-  // Risk fields are editable by the creator/Manager in Draft, and again when an
-  // emergency-approved OT needs its risk data completed (only after opting in).
+  // Risk fields are editable by the creator/Manager in Draft, again when an
+  // emergency-approved OT completes its data, and when Riesgos rejected (to correct).
   const riskFieldsEditable =
     (isDraft && !!onRiskAssessmentChange) ||
-    (canCompleteRiskData && addingRiskData);
+    (canCompleteRiskData && addingRiskData) ||
+    (isRiskRejected && !!onRiskAssessmentChange);
   // Risk section visibility.
   const showRiskSection =
     (isDraft && !!onRiskAssessmentChange) ||
-    ((isPending || isApproved) &&
-      (canApproveRisk || hasRiskData || isEmergencyApproved));
-  // The Riesgos approver acts while risk is not yet approved (Pending, post-emergency,
-  // or after the Manager completes the data and it returns to Pending for re-review).
+    ((isPending || isApproved || isRejected) &&
+      (canApproveRisk || hasRiskData || isEmergencyApproved || isRiskRejected));
+  // The Riesgos approver acts while risk is pending review — never on a rejected risk
+  // track (waits for re-submission) nor on a Socio-rejected (blocked) OT.
   const showRiskActions =
-    canApproveRisk && !isDraft && riskStatus !== "Approved";
+    canApproveRisk &&
+    !isDraft &&
+    !isRejected &&
+    riskStatus !== "Approved" &&
+    riskStatus !== "Rejected";
   // Emergency (risk data empty) requires two sequential sign-offs. Normal/post-completion
   // (data present) requires a single approval — but only once the data has been SENT for
   // review (risk_status back to Pending), never while still Emergency_Approved (i.e. while
@@ -392,6 +410,17 @@ export function WorkOrderForm({
             {t("workOrders.trackPending")}
           </span>
         )}
+        {canRevert && approvedAt && onRevertSocio && (
+          <button
+            type="button"
+            onClick={onRevertSocio}
+            disabled={isSubmitting}
+            title={t("workOrders.revertApproval")}
+            className="ml-0.5 inline-flex items-center text-muted-foreground hover:text-foreground disabled:opacity-50"
+          >
+            <Undo2 className="h-3.5 w-3.5" />
+          </button>
+        )}
       </span>
       <span className="flex items-center gap-1.5">
         <span className="text-muted-foreground">
@@ -417,6 +446,19 @@ export function WorkOrderForm({
             {t("workOrders.trackPending")}
           </span>
         )}
+        {canRevert &&
+          (riskStatus === "Approved" || riskStatus === "Emergency_Approved") &&
+          onRevertRisk && (
+            <button
+              type="button"
+              onClick={onRevertRisk}
+              disabled={isSubmitting}
+              title={t("workOrders.revertApproval")}
+              className="ml-0.5 inline-flex items-center text-muted-foreground hover:text-foreground disabled:opacity-50"
+            >
+              <Undo2 className="h-3.5 w-3.5" />
+            </button>
+          )}
       </span>
     </>
   );
@@ -1163,6 +1205,26 @@ export function WorkOrderForm({
                 )}
               </div>
             )}
+            {/* Riesgos rejected its track: correct the data and re-send only to Riesgos.
+                Fields are already editable (riskFieldsEditable). Socio approval intact. */}
+            {isRiskRejected && onCompleteRisk && (
+              <div className="flex justify-end">
+                <LoadingButton
+                  onClick={onCompleteRisk}
+                  className="bg-info hover:bg-info/90 btn-action"
+                  loading={isSubmitting}
+                  disabled={!riskApprovalReady || isSubmitting}
+                  title={
+                    !riskApprovalReady
+                      ? t("workOrders.riskAssessmentRequired")
+                      : undefined
+                  }
+                >
+                  <Send className="h-4 w-4 mr-2" />
+                  {t("workOrders.sendRiskForReapproval")}
+                </LoadingButton>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
@@ -1184,6 +1246,13 @@ export function WorkOrderForm({
         <div className="rounded-md border border-orange-300 bg-orange-50 px-4 py-3 text-sm text-orange-800">
           <span className="font-medium">{t("workOrders.rejectionNoteLabel")}</span>{" "}
           {rejectionNote}
+        </div>
+      )}
+      {/* Nota de rechazo de Riesgos — visible mientras se corrige (risk_status='Rejected'). */}
+      {isRiskRejected && riskNote && (
+        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          <span className="font-medium">{t("workOrders.riskRejectionNoteLabel")}</span>{" "}
+          {riskNote}
         </div>
       )}
 

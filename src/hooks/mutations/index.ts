@@ -32,6 +32,8 @@ export {
   useApproveEmergencyReview,
   useApproveEmergencyPartner,
   useRejectRisk,
+  useRevertSocioApproval,
+  useRevertRiskApproval,
   useCompleteRiskAssessment,
   useRejectWorkOrder,
   useUnsubmitWorkOrder,

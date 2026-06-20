@@ -12,6 +12,8 @@ import {
   useApproveEmergencyReview,
   useApproveEmergencyPartner,
   useRejectRisk,
+  useRevertSocioApproval,
+  useRevertRiskApproval,
   useCompleteRiskAssessment,
   useRejectWorkOrder,
 } from "../useWorkOrderMutations";
@@ -97,7 +99,6 @@ describe("useWorkOrderMutations", () => {
       expect(supabase.from).toHaveBeenCalledWith("work_orders");
       expect(mockUpdate).toHaveBeenCalledWith({
         approval_status: "Pending_Approval",
-        risk_status: "Pending",
         ceac_completed_at: "2026-05-01",
         ceac_notes: "OK",
         san_completed_at: "2026-04-15",
@@ -150,7 +151,6 @@ describe("useWorkOrderMutations", () => {
 
       expect(mockUpdate).toHaveBeenCalledWith({
         approval_status: "Pending_Approval",
-        risk_status: "Pending",
         ceac_completed_at: null,
         ceac_notes: null,
         san_completed_at: null,
@@ -307,7 +307,7 @@ describe("useWorkOrderMutations", () => {
   });
 
   describe("useRejectRisk", () => {
-    it("sets risk_status=Rejected with notes and leaves the OT in Rejected", async () => {
+    it("sets only risk_status=Rejected + notes; does NOT touch approval_status nor emergency_*", async () => {
       const mockData = { wo_id: "wo-1", risk_status: "Rejected" };
       const mockSingle = vi.fn().mockResolvedValue({ data: mockData, error: null });
       const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
@@ -322,17 +322,60 @@ describe("useWorkOrderMutations", () => {
       result.current.mutate({ woId: "wo-1", riskNotes: "Falta documentación" });
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-      expect(mockUpdate).toHaveBeenCalledWith({
+      const arg = mockUpdate.mock.calls[0][0];
+      expect(arg).toEqual({
         risk_status: "Rejected",
         risk_notes: "Falta documentación",
-        approval_status: "Rejected",
-        emergency_review_by: null,
-        emergency_review_at: null,
-        emergency_partner_by: null,
-        emergency_partner_at: null,
-        emergency_deadline_at: null,
-        emergency_justification: null,
       });
+      // Tracks independientes: no toca el Socio ni la emergencia.
+      expect("approval_status" in arg).toBe(false);
+      expect("emergency_deadline_at" in arg).toBe(false);
+    });
+  });
+
+  describe("useRevertSocioApproval (admin)", () => {
+    it("clears the Socio track and reopens the OT if it was Approved", async () => {
+      const mockSingle = vi.fn().mockResolvedValue({ data: { wo_id: "wo-1" }, error: null });
+      const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
+      // First update: .eq().select().single(); second (reopen): .eq().eq()
+      const mockEq2 = vi.fn().mockResolvedValue({ error: null });
+      const mockEq1 = vi.fn().mockReturnValue({ select: mockSelect, eq: mockEq2 });
+      const mockUpdate = vi.fn().mockReturnValue({ eq: mockEq1 });
+      vi.mocked(supabase.from).mockReturnValue({ update: mockUpdate } as any);
+
+      const { result } = renderHook(() => useRevertSocioApproval(), {
+        wrapper: createWrapper(),
+      });
+      result.current.mutate({ woId: "wo-1" });
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      expect(mockUpdate).toHaveBeenCalledWith({ approved_by: null, approved_at: null });
+      // Conditional reopen gated on approval_status='Approved'.
+      expect(mockUpdate).toHaveBeenCalledWith({ approval_status: "Pending_Approval" });
+      expect(mockEq2).toHaveBeenCalledWith("approval_status", "Approved");
+    });
+  });
+
+  describe("useRevertRiskApproval (admin)", () => {
+    it("resets the Risk track to Pending and reopens the OT if it was Approved", async () => {
+      const mockSingle = vi.fn().mockResolvedValue({ data: { wo_id: "wo-1" }, error: null });
+      const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
+      const mockEq2 = vi.fn().mockResolvedValue({ error: null });
+      const mockEq1 = vi.fn().mockReturnValue({ select: mockSelect, eq: mockEq2 });
+      const mockUpdate = vi.fn().mockReturnValue({ eq: mockEq1 });
+      vi.mocked(supabase.from).mockReturnValue({ update: mockUpdate } as any);
+
+      const { result } = renderHook(() => useRevertRiskApproval(), {
+        wrapper: createWrapper(),
+      });
+      result.current.mutate({ woId: "wo-1" });
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      const arg = mockUpdate.mock.calls[0][0];
+      expect(arg.risk_status).toBe("Pending");
+      expect(arg.risk_approved_at).toBeNull();
+      expect(mockUpdate).toHaveBeenCalledWith({ approval_status: "Pending_Approval" });
+      expect(mockEq2).toHaveBeenCalledWith("approval_status", "Approved");
     });
   });
 
