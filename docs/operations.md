@@ -49,7 +49,7 @@
 ## Backend (Lovable Cloud)
 
 - Supabase project ID: `ugqxfnrxvksiltwxzist`
-- 5 Edge Functions (inventory below)
+- 6 Edge Functions (inventory below)
 - 67+ timestamped migrations in `supabase/migrations/`
 - Key RPC functions: `submit_timesheet_safe()`, `assign_user_role_atomic()`, `update_timesheet_minmax_settings()`
 
@@ -62,6 +62,7 @@
 | `manage-auth-user` | Auth user management (create, update, delete) |
 | `test-minmax-settings` | Backend integration tests for the min/max settings RPC |
 | `test-resubmission-state` | Backend integration tests for timesheet resubmission state |
+| `unlock-account` | Admin manual account unlock — clears `staff.is_blocked` + sends password reset email (BUG 0601-132) |
 
 ---
 

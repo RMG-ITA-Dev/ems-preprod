@@ -258,7 +258,7 @@ const WorksheetEdit = () => {
 
   if (isLoading) {
     return (
-      <AppLayout focusMode>
+      <AppLayout title={t("workMatrix.title")} focusMode>
         <div className="space-y-4">
           <Skeleton className="h-8 w-48" />
           <Skeleton className="h-[400px] w-full" />
@@ -269,7 +269,7 @@ const WorksheetEdit = () => {
 
   if (!worksheet) {
     return (
-      <AppLayout focusMode>
+      <AppLayout title={t("workMatrix.title")} focusMode>
         <div className="flex flex-col items-center justify-center py-12">
           <p className="text-muted-foreground">{t("common.noResults")}</p>
           <Button variant="link" onClick={() => navigate("/worksheets")}>
@@ -281,7 +281,7 @@ const WorksheetEdit = () => {
   }
 
   return (
-    <AppLayout focusMode>
+    <AppLayout title={t("workMatrix.title")} focusMode>
       <div className="space-y-4">
       {/* Header */}
         <div className="flex items-center justify-between gap-4">
@@ -295,16 +295,7 @@ const WorksheetEdit = () => {
             {hasUnsavedChanges && !isSaving && (
               <span className="text-sm text-muted-foreground">{t("common.unsavedChanges")}</span>
             )}
-            {!isReadOnly && (
-              <Button
-                variant="outline"
-                onClick={() => setShowCopyDialog(true)}
-                className="btn-action"
-              >
-                <Copy className="h-4 w-4 mr-2" />
-                {t("workMatrix.copyFromEngagement")}
-              </Button>
-            )}
+
             <Button
               variant="cancel"
               onClick={() => { allowNextNavigation(); navigate("/worksheets"); }}
@@ -312,6 +303,17 @@ const WorksheetEdit = () => {
             >
               {t("common.cancel")}
             </Button>
+
+            {!isReadOnly && (
+              <Button
+                variant="secondary"
+                onClick={() => setShowCopyDialog(true)}
+              >
+                <Copy className="h-4 w-4 mr-2" />
+                {t("workMatrix.copyFromEngagement")}
+              </Button>
+            )}
+            
             <Button
               onClick={handleSave}
               disabled={!hasUnsavedChanges || isSaving || isReadOnly}

@@ -31,10 +31,21 @@ import { Calendar } from "@/components/ui/calendar";
 import { Card, CardContent } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, Search, ArrowUpDown, ArrowUp, ArrowDown, Filter, ChevronDown, ArrowUpFromLine } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { Plus, Search, ArrowUpDown, ArrowUp, ArrowDown, Filter, ChevronDown, ArrowUpFromLine, Trash2 } from "lucide-react";
 import { ManualEntryDialog } from "@/components/tracker/ManualEntryDialog";
 import { ConsolidationDialog } from "@/components/tracker/ConsolidationDialog";
-import { useTimerEntries, TimerEntry, useCreateTimerEntry, useRunningTimerEntry } from "@/hooks/useTimerEntries";
+import { useTimerEntries, TimerEntry, useCreateTimerEntry, useRunningTimerEntry, useDeleteTimerEntries } from "@/hooks/useTimerEntries";
 import { useTimesheetImport } from "@/hooks/useTimesheetImport";
 import {
   resolveFinalExportSet,
@@ -62,11 +73,13 @@ const TrackerList = () => {
   const { staffRecord, isLoading: staffLoading } = useCurrentStaff();
   const { data: entries, isLoading: entriesLoading } = useTimerEntries();
   const createEntry = useCreateTimerEntry();
+  const deleteEntries = useDeleteTimerEntries();
   const { data: runningEntry } = useRunningTimerEntry();
   const hasRunningTimer = !!runningEntry;
 
   // Selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [manualDialogOpen, setManualDialogOpen] = useState(false);
   const [consolidationDialogOpen, setConsolidationDialogOpen] = useState(false);
   const [consolidationAnalysis, setConsolidationAnalysis] = useState<PreflightAnalysis | null>(null);
@@ -227,6 +240,22 @@ const TrackerList = () => {
     [filteredEntries]
   );
 
+  // Bulk-delete: only finished, non-imported records that are CURRENTLY VISIBLE
+  // under the active filters. Deriving from filteredEntries (not the full cache)
+  // ensures a selection hidden by a filter change can't be deleted silently —
+  // the button, count, and delete set all reflect what the user actually sees.
+  const selectedDeletableEntries = useMemo(
+    () =>
+      filteredEntries.filter(
+        (entry) =>
+          selectedIds.has(entry.timer_id) &&
+          !!entry.ended_at &&
+          !entry.is_imported &&
+          !entry.imported_to_time_id
+      ),
+    [filteredEntries, selectedIds]
+  );
+
   const toggleSelect = (timerId: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
     setSelectedIds(prev => {
@@ -270,6 +299,21 @@ const TrackerList = () => {
     setPreviousAnalysis(null);
     setConsolidationAnalysis(analysis);
     setConsolidationDialogOpen(true);
+  };
+
+  // Bulk-delete handler
+  const handleBulkDelete = async () => {
+    const ids = selectedDeletableEntries.map((e) => e.timer_id);
+    if (ids.length === 0) return;
+    try {
+      await deleteEntries.mutateAsync(ids);
+      setSelectedIds(new Set());
+      setDeleteDialogOpen(false);
+      toast.success(t("tracker.recordsDeleted", { count: ids.length }));
+    } catch (error) {
+      console.error("Bulk delete error:", error);
+      toast.error(t("tracker.errorDeleting"));
+    }
   };
 
   function resolveDbErrorReason(messages: string[], translate: ReturnType<typeof useTranslation>["t"]): string {
@@ -508,7 +552,7 @@ const TrackerList = () => {
       <div className="space-y-4">
         {/* Filters Row + Buttons */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
-          <div className="relative w-full sm:min-w-[200px] sm:max-w-md">
+          <div className="relative w-full sm:min-w-[200px] sm:max-w-xs">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder={t("tracker.searchPlaceholder")}
@@ -518,11 +562,46 @@ const TrackerList = () => {
             />
           </div>
           <div className="flex gap-2 w-full sm:w-auto flex-wrap">
+            {/* Bulk Delete - only visible when ≥1 deletable record is selected */}
+            {selectedDeletableEntries.length > 0 && (
+              <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant="destructive"
+                    className="flex-1 sm:flex-none min-h-[44px] sm:min-h-0"
+                    disabled={deleteEntries.isPending}
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    {t("common.delete")}
+                    <Badge className="ml-2 bg-accent text-accent-foreground text-xs">
+                      {selectedDeletableEntries.length}
+                    </Badge>
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>{t("common.delete")}</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      {t("tracker.deleteSelectedConfirm", { count: selectedDeletableEntries.length })}
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={handleBulkDelete}
+                      className="bg-destructive/70 text-destructive-foreground hover:bg-destructive"
+                    >
+                      {t("common.delete")}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
             {/* Export to Timesheet */}
             <Button
-              variant="outline"
+              variant="submit"
               onClick={handleExport}
-              className="flex-1 sm:flex-none min-h-[44px] sm:min-h-0 bg-teal-600 text-white border-teal-600 hover:bg-teal-700 hover:text-white"
+              className="flex-1 sm:flex-none min-h-[44px] sm:min-h-0"
               disabled={selectedIds.size === 0 || isExporting}
             >
               <ArrowUpFromLine className="h-4 w-4 mr-2" />

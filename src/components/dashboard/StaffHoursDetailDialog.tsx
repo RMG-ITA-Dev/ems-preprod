@@ -1,18 +1,21 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
-import { Download } from "lucide-react";
+import { toast } from "sonner";
+import { ChevronDown, Download } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   aggregateStaffHours,
-  buildCsvString,
-  downloadCsv,
+  groupByCategory,
+  downloadXlsx,
   type RawTimeEntryRow,
 } from "@/lib/encargoHoursDetailExport";
 
@@ -25,10 +28,11 @@ interface Props {
 
 export function StaffHoursDetailDialog({ open, onOpenChange, engagementId, engagementCode }: Props) {
   const { t } = useTranslation();
-  const [categoryFilter, setCategoryFilter] = useState<string>('__all__');
+  const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
   const [nameFilter, setNameFilter] = useState('');
   const [yearFilter, setYearFilter] = useState<string>('__all__');
   const [weekFilter, setWeekFilter] = useState<string>('__all__');
+  const [lastWeekOnly, setLastWeekOnly] = useState(true);
   const initialized = useRef(false);
 
   const { data: rawRows, isLoading } = useQuery({
@@ -56,36 +60,33 @@ export function StaffHoursDetailDialog({ open, onOpenChange, engagementId, engag
 
   const aggregated = useMemo(() => aggregateStaffHours(rawRows ?? []), [rawRows]);
 
+  const { maxYear, maxWeek } = useMemo(() => {
+    const years = aggregated.filter(r => r.year !== null).map(r => r.year as number);
+    if (years.length === 0) return { maxYear: null, maxWeek: null };
+    const my = Math.max(...years);
+    const weeks = aggregated
+      .filter(r => r.year === my && r.weekNumber !== null)
+      .map(r => r.weekNumber as number);
+    return { maxYear: my, maxWeek: weeks.length > 0 ? Math.max(...weeks) : null };
+  }, [aggregated]);
+
   // Auto-initialize year/week to the most recent data on first load
   useEffect(() => {
     if (!open || initialized.current || aggregated.length === 0) return;
-
-    const years = aggregated
-      .filter(r => r.year !== null)
-      .map(r => r.year as number);
-
-    if (years.length === 0) return;
-
-    const maxYear = Math.max(...years);
-    const weeksInMaxYear = aggregated
-      .filter(r => r.year === maxYear && r.weekNumber !== null)
-      .map(r => r.weekNumber as number);
-
-    setYearFilter(String(maxYear));
-    if (weeksInMaxYear.length > 0) {
-      setWeekFilter(String(Math.max(...weeksInMaxYear)));
-    }
+    if (maxYear !== null) setYearFilter(String(maxYear));
+    if (maxWeek !== null) setWeekFilter(String(maxWeek));
     initialized.current = true;
-  }, [open, aggregated]);
+  }, [open, aggregated, maxYear, maxWeek]);
 
   // Reset all filters when dialog closes so next open re-initializes
   useEffect(() => {
     if (!open) {
       initialized.current = false;
-      setCategoryFilter('__all__');
+      setSelectedCategories(new Set());
       setNameFilter('');
       setYearFilter('__all__');
       setWeekFilter('__all__');
+      setLastWeekOnly(true);
     }
   }, [open]);
 
@@ -100,6 +101,22 @@ export function StaffHoursDetailDialog({ open, onOpenChange, engagementId, engag
     }
     return options;
   }, [aggregated]);
+
+  function toggleCategory(cat: string) {
+    setSelectedCategories(prev => {
+      const next = new Set(prev);
+      if (next.has(cat)) next.delete(cat);
+      else next.add(cat);
+      return next;
+    });
+  }
+
+  const categoryLabel =
+    selectedCategories.size === 0
+      ? t('dashboard.encargo.hoursDetail.all')
+      : selectedCategories.size === 1
+        ? [...selectedCategories][0]
+        : t('dashboard.encargo.hoursDetail.nCategoriesSelected', { count: selectedCategories.size });
 
   const yearOptions = useMemo(() => {
     const years = new Set<number>();
@@ -120,6 +137,7 @@ export function StaffHoursDetailDialog({ open, onOpenChange, engagementId, engag
   }, [aggregated, yearFilter]);
 
   function handleYearChange(value: string) {
+    setLastWeekOnly(false);
     setYearFilter(value);
     if (weekFilter !== '__all__') {
       const availableWeeks = aggregated
@@ -132,27 +150,43 @@ export function StaffHoursDetailDialog({ open, onOpenChange, engagementId, engag
     }
   }
 
+  function handleWeekChange(value: string) {
+    setWeekFilter(value);
+    setLastWeekOnly(false);
+  }
+
   const filtered = useMemo(() => {
     return aggregated.filter(row => {
-      const matchesCategory = categoryFilter === '__all__' || row.categoryName === categoryFilter;
+      const matchesCategory = selectedCategories.size === 0 || selectedCategories.has(row.categoryName);
       const matchesName = nameFilter.trim() === '' ||
         row.staffName.toLowerCase().includes(nameFilter.trim().toLowerCase());
       const matchesYear = yearFilter === '__all__' || (row.year !== null && String(row.year) === yearFilter);
       const matchesWeek = weekFilter === '__all__' || (row.weekNumber !== null && String(row.weekNumber) === weekFilter);
       return matchesCategory && matchesName && matchesYear && matchesWeek;
     });
-  }, [aggregated, categoryFilter, nameFilter, yearFilter, weekFilter]);
+  }, [aggregated, selectedCategories, nameFilter, yearFilter, weekFilter]);
 
-  function handleExport() {
+  const filteredGrandTotal = useMemo(
+    () => filtered.reduce((s, r) => s + r.hoursLoaded, 0),
+    [filtered]
+  );
+
+  async function handleExport() {
     const headers = {
       staffName: t('dashboard.encargo.hoursDetail.staffName'),
       category: t('dashboard.encargo.hoursDetail.category'),
       year: t('dashboard.encargo.hoursDetail.year'),
       week: t('dashboard.encargo.hoursDetail.week'),
       loadedHours: t('dashboard.encargo.hoursDetail.loadedHours'),
+      subtotal: t('dashboard.encargo.hoursDetail.subtotal'),
+      grandTotal: t('dashboard.encargo.hoursDetail.grandTotal'),
+      sheetName: t('dashboard.encargo.hoursDetail.sheetName'),
     };
-    const csv = buildCsvString(filtered, headers);
-    downloadCsv(csv, `horas_${engagementCode}_detalle.csv`);
+    try {
+      await downloadXlsx(filtered, headers, `horas_${engagementCode}_detalle.xlsx`);
+    } catch {
+      toast.error(t('dashboard.encargo.hoursDetail.exportError'));
+    }
   }
 
   return (
@@ -167,17 +201,35 @@ export function StaffHoursDetailDialog({ open, onOpenChange, engagementId, engag
 
         {/* Filters */}
         <div className="flex flex-col sm:flex-row gap-3 pt-2">
-          <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-            <SelectTrigger className="w-full sm:w-44" aria-label={t('dashboard.encargo.hoursDetail.filterByCategory')}>
-              <SelectValue placeholder={t('dashboard.encargo.hoursDetail.filterByCategory')} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__all__">{t('dashboard.encargo.hoursDetail.all')}</SelectItem>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                className="w-full sm:w-44 justify-between font-normal"
+                aria-label={t('dashboard.encargo.hoursDetail.filterByCategory')}
+              >
+                <span className="truncate">{categoryLabel}</span>
+                <ChevronDown className="ml-1 h-4 w-4 shrink-0 opacity-50" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-48 p-2" align="start">
               {categoryOptions.map(cat => (
-                <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                <div
+                  key={cat}
+                  className="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-muted"
+                >
+                  <Checkbox
+                    id={`cat-filter-${cat}`}
+                    checked={selectedCategories.has(cat)}
+                    onCheckedChange={() => toggleCategory(cat)}
+                  />
+                  <label htmlFor={`cat-filter-${cat}`} className="text-sm cursor-pointer flex-1 select-none">
+                    {cat}
+                  </label>
+                </div>
               ))}
-            </SelectContent>
-          </Select>
+            </PopoverContent>
+          </Popover>
 
           <Select value={yearFilter} onValueChange={handleYearChange}>
             <SelectTrigger className="w-full sm:w-28" aria-label={t('dashboard.encargo.hoursDetail.filterByYear')}>
@@ -191,7 +243,7 @@ export function StaffHoursDetailDialog({ open, onOpenChange, engagementId, engag
             </SelectContent>
           </Select>
 
-          <Select value={weekFilter} onValueChange={setWeekFilter}>
+          <Select value={weekFilter} onValueChange={handleWeekChange}>
             <SelectTrigger className="w-full sm:w-28" aria-label={t('dashboard.encargo.hoursDetail.filterByWeek')}>
               <SelectValue placeholder={t('dashboard.encargo.hoursDetail.filterByWeek')} />
             </SelectTrigger>
@@ -202,6 +254,27 @@ export function StaffHoursDetailDialog({ open, onOpenChange, engagementId, engag
               ))}
             </SelectContent>
           </Select>
+
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="lastWeekOnly"
+              checked={lastWeekOnly}
+              onCheckedChange={(checked) => {
+                const isChecked = checked === true;
+                setLastWeekOnly(isChecked);
+                if (isChecked) {
+                  if (maxYear !== null) setYearFilter(String(maxYear));
+                  if (maxWeek !== null) setWeekFilter(String(maxWeek));
+                } else {
+                  setYearFilter('__all__');
+                  setWeekFilter('__all__');
+                }
+              }}
+            />
+            <label htmlFor="lastWeekOnly" className="text-sm cursor-pointer">
+              {t('dashboard.encargo.hoursDetail.lastWeekOnly')}
+            </label>
+          </div>
 
           <Input
             className="w-full sm:flex-1"
@@ -217,7 +290,7 @@ export function StaffHoursDetailDialog({ open, onOpenChange, engagementId, engag
             onClick={handleExport}
           >
             <Download className="h-4 w-4" />
-            {t('dashboard.encargo.hoursDetail.exportCsv')}
+            {t('dashboard.encargo.hoursDetail.exportExcel')}
           </Button>
         </div>
 
@@ -251,21 +324,45 @@ export function StaffHoursDetailDialog({ open, onOpenChange, engagementId, engag
                   </TableCell>
                 </TableRow>
               ) : (
-                filtered.map((row, idx) => (
-                  <TableRow key={`${row.staffId}_${row.year}_${row.weekNumber}_${idx}`} className="text-sm">
-                    <TableCell className="py-2">{row.staffName}</TableCell>
-                    <TableCell className="py-2">{row.categoryName}</TableCell>
-                    <TableCell className="py-2 text-right font-mono">
-                      {row.year !== null ? row.year : '—'}
+                <>
+                  {groupByCategory(filtered).flatMap(({ categoryName, rows, subtotal }) => [
+                    ...rows.map((row, idx) => (
+                      <TableRow key={`${row.staffId}_${row.year}_${row.weekNumber}_${idx}`} className="text-sm">
+                        <TableCell className="py-2">{row.staffName}</TableCell>
+                        <TableCell className="py-2">{row.categoryName}</TableCell>
+                        <TableCell className="py-2 text-right font-mono">
+                          {row.year !== null ? row.year : '—'}
+                        </TableCell>
+                        <TableCell className="py-2 text-right font-mono">
+                          {row.weekNumber !== null ? row.weekNumber : '—'}
+                        </TableCell>
+                        <TableCell className="py-2 text-right font-mono">
+                          {row.hoursLoaded.toFixed(1)}
+                        </TableCell>
+                      </TableRow>
+                    )),
+                    <TableRow key={`subtotal-${categoryName}`} className="bg-muted/40 font-semibold text-sm">
+                      <TableCell className="py-2" />
+                      <TableCell className="py-2">
+                        {categoryName} — {t('dashboard.encargo.hoursDetail.subtotal')}
+                      </TableCell>
+                      <TableCell className="py-2 text-right font-mono">—</TableCell>
+                      <TableCell className="py-2 text-right font-mono">—</TableCell>
+                      <TableCell className="py-2 text-right font-mono">{subtotal.toFixed(1)}</TableCell>
+                    </TableRow>,
+                  ])}
+                  <TableRow className="bg-muted/70 font-bold text-sm border-t-4 border-border">
+                    <TableCell className="py-2" />
+                    <TableCell className="py-2">
+                      {t('dashboard.encargo.hoursDetail.grandTotal')}
                     </TableCell>
+                    <TableCell className="py-2 text-right font-mono">—</TableCell>
+                    <TableCell className="py-2 text-right font-mono">—</TableCell>
                     <TableCell className="py-2 text-right font-mono">
-                      {row.weekNumber !== null ? row.weekNumber : '—'}
-                    </TableCell>
-                    <TableCell className="py-2 text-right font-mono">
-                      {row.hoursLoaded.toFixed(1)}
+                      {filteredGrandTotal.toFixed(1)}
                     </TableCell>
                   </TableRow>
-                ))
+                </>
               )}
             </TableBody>
           </Table>

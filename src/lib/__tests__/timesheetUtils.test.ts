@@ -21,6 +21,7 @@ import {
   isFutureWeek,
   isPastWeek,
   getEffectiveWeeklyLimits,
+  getDailyHourViolations,
 } from "../timesheetUtils";
 import { es, enUS } from "date-fns/locale";
 
@@ -410,5 +411,89 @@ describe("getEffectiveWeeklyLimits", () => {
     expect(result.effectiveMin).toBe(0);
     expect(result.effectiveMax).toBe(0);
     expect(result.workableDays).toBe(0);
+  });
+});
+
+describe("getDailyHourViolations", () => {
+  // Week: Mon 2025-05-19 … Fri 2025-05-23
+  const weekDates = [
+    new Date(2025, 4, 19), // Mon
+    new Date(2025, 4, 20), // Tue
+    new Date(2025, 4, 21), // Wed
+    new Date(2025, 4, 22), // Thu
+    new Date(2025, 4, 23), // Fri
+  ];
+
+  it("returns 2 violations when Mon above max and Fri below min (10/8/8/8/6)", () => {
+    const entries = [
+      { date_worked: "2025-05-19", hours_logged: 10 },
+      { date_worked: "2025-05-20", hours_logged: 8 },
+      { date_worked: "2025-05-21", hours_logged: 8 },
+      { date_worked: "2025-05-22", hours_logged: 8 },
+      { date_worked: "2025-05-23", hours_logged: 6 },
+    ];
+    const result = getDailyHourViolations(entries, weekDates, 8, 8);
+    expect(result).toHaveLength(2);
+    expect(result[0].dateStr).toBe("2025-05-19");
+    expect(result[0].total).toBe(10);
+    expect(result[1].dateStr).toBe("2025-05-23");
+    expect(result[1].total).toBe(6);
+  });
+
+  it("returns 0 violations when all days are exactly 8h (8/8/8/8/8)", () => {
+    const entries = [
+      { date_worked: "2025-05-19", hours_logged: 8 },
+      { date_worked: "2025-05-20", hours_logged: 8 },
+      { date_worked: "2025-05-21", hours_logged: 8 },
+      { date_worked: "2025-05-22", hours_logged: 8 },
+      { date_worked: "2025-05-23", hours_logged: 8 },
+    ];
+    const result = getDailyHourViolations(entries, weekDates, 8, 8);
+    expect(result).toHaveLength(0);
+  });
+
+  it("flags days with 0h when they are in weekDates (caller pre-filters workable days)", () => {
+    // Only Monday is passed as workable; Tue-Fri were filtered out by the caller
+    const entries = [{ date_worked: "2025-05-19", hours_logged: 8 }];
+    const result = getDailyHourViolations(entries, [weekDates[0]], 8, 8);
+    expect(result).toHaveLength(0); // Mon = 8h exact → no violation
+  });
+
+  it("flags a workable day with 0h as a violation", () => {
+    // Caller passes all 5 days; Fri has no entry → 0h → violation
+    const entries = [
+      { date_worked: "2025-05-19", hours_logged: 8 },
+      { date_worked: "2025-05-20", hours_logged: 8 },
+      { date_worked: "2025-05-21", hours_logged: 8 },
+      { date_worked: "2025-05-22", hours_logged: 8 },
+      // Fri: no entry → dayTotal = 0 → violation
+    ];
+    const result = getDailyHourViolations(entries, weekDates, 8, 8);
+    expect(result).toHaveLength(1);
+    expect(result[0].dateStr).toBe("2025-05-23");
+    expect(result[0].total).toBe(0);
+  });
+
+  it("sums across multiple rows (engagements) on the same day", () => {
+    const entries = [
+      { date_worked: "2025-05-19", hours_logged: 5 },
+      { date_worked: "2025-05-19", hours_logged: 5 }, // total Mon = 10h → violation
+    ];
+    // Caller pre-filters: only Monday is workable in this scenario
+    const result = getDailyHourViolations(entries, [weekDates[0]], 8, 8);
+    expect(result).toHaveLength(1);
+    expect(result[0].dateStr).toBe("2025-05-19");
+    expect(result[0].total).toBe(10);
+  });
+
+  it("returns 1 violation when a single day is below min", () => {
+    const entries = [
+      { date_worked: "2025-05-19", hours_logged: 4 },
+    ];
+    // Caller pre-filters: only Monday is workable in this scenario
+    const result = getDailyHourViolations(entries, [weekDates[0]], 8, 8);
+    expect(result).toHaveLength(1);
+    expect(result[0].dateStr).toBe("2025-05-19");
+    expect(result[0].total).toBe(4);
   });
 });

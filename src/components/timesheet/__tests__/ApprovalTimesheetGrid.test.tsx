@@ -45,6 +45,7 @@ const makeApproval = (overrides: Partial<LineApproval> = {}): LineApproval => ({
   approval_id: "ap-1",
   period_id: "p1",
   engagement_id: "eng-a",
+  activity_id: "act-1",
   status: "pending",
   approved_by: null,
   approved_at: null,
@@ -100,14 +101,19 @@ describe("ApprovalTimesheetGrid budget summary", () => {
     expect(screen.getByText(/approval\.budgetNA/)).toBeInTheDocument();
   });
 
-  it("GT-4: approved rows show locked badge, no toggle", () => {
+  it("GT-4: approved activity shows locked badge and no approval toggle — even when approver has permission", () => {
+    // canApprove=true (approver has permission) + approved activity → toggle must NOT render
     renderGrid({
       timeEntries: [makeEntry()],
       lineApprovals: [makeApproval({ status: "approved" })],
-      approvableEngagementIds: [],
+      approvableEngagementIds: ["eng-a"],
       engagementBudgets: {},
     });
-    expect(screen.getByText("approval.status.approved")).toBeInTheDocument();
+    // Approved badge appears (engagement aggregate row + activity row both show it)
+    expect(screen.getAllByText("approval.status.approved").length).toBeGreaterThan(0);
+    // No toggle decision buttons for the approved activity
+    expect(screen.queryByText("approval.decision.approve")).toBeNull();
+    expect(screen.queryByText("approval.decision.reject")).toBeNull();
   });
 
   it("GT-5: zero budget renders 0h not N/A", () => {

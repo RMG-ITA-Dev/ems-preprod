@@ -94,6 +94,9 @@ export function useSubmitWorkOrder() {
         .from("work_orders")
         .update({
           approval_status: "Pending_Approval",
+          // Reset risk_status so a previous Riesgos rejection doesn't linger on resubmit.
+          // (notes is intentionally NOT reset — respeta fix 49c2ac5.)
+          risk_status: "Pending",
           ceac_completed_at: ceacCompletedAt ?? null,
           ceac_notes: ceacNotes ?? null,
           san_completed_at: sanCompletedAt ?? null,
@@ -134,6 +137,7 @@ export function useApproveWorkOrder() {
         .update({
           approved_by: staffId,
           approved_at: new Date().toISOString(),
+          notes: null,
         })
         .eq("wo_id", woId)
         .select()
@@ -294,7 +298,9 @@ export function useRejectRisk() {
         .update({
           risk_status: "Rejected",
           risk_notes: riskNotes ?? null,
-          approval_status: "Draft",
+          // Rejected (no Draft) para que "Rechazado" sea visible arriba, consistente
+          // con el rechazo del Socio (0527-126). Se vuelve a Draft con "Retirar".
+          approval_status: "Rejected",
           // Clear emergency sign-offs/justification so a resubmit starts clean.
           emergency_review_by: null,
           emergency_review_at: null,
@@ -372,10 +378,11 @@ export function useCompleteRiskAssessment() {
 export function useRejectWorkOrder() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (woId: string) => {
+    mutationFn: async ({ woId, notes }: { woId: string; notes?: string }) => {
+      const trimmed = notes?.trim() || null;
       const { data: result, error } = await supabase
         .from("work_orders")
-        .update({ approval_status: "Draft" })
+        .update({ approval_status: "Rejected", notes: trimmed })
         .eq("wo_id", woId)
         .select()
         .single();

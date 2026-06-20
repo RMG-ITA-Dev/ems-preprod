@@ -19,6 +19,12 @@ export interface StaffHoursReportRow {
   hoursLoaded: number;
 }
 
+export interface CategoryGroup {
+  categoryName: string;
+  rows: StaffHoursReportRow[];
+  subtotal: number;
+}
+
 export function aggregateStaffHours(raw: RawTimeEntryRow[]): StaffHoursReportRow[] {
   const map = new Map<string, StaffHoursReportRow>();
 
@@ -66,49 +72,57 @@ export function aggregateStaffHours(raw: RawTimeEntryRow[]): StaffHoursReportRow
   });
 }
 
-function escapeCsvCell(value: string): string {
-  return `"${value.replace(/"/g, '""')}"`;
-}
-
-export function buildCsvString(
-  rows: StaffHoursReportRow[],
-  headers: { staffName: string; category: string; year: string; week: string; loadedHours: string }
-): string {
-  const lines: string[] = [];
-
-  lines.push(
-    [
-      escapeCsvCell(headers.staffName),
-      escapeCsvCell(headers.category),
-      escapeCsvCell(headers.year),
-      escapeCsvCell(headers.week),
-      escapeCsvCell(headers.loadedHours),
-    ].join(',')
-  );
-
+export function groupByCategory(rows: StaffHoursReportRow[]): CategoryGroup[] {
+  const map = new Map<string, StaffHoursReportRow[]>();
   for (const row of rows) {
-    lines.push(
-      [
-        escapeCsvCell(row.staffName),
-        escapeCsvCell(row.categoryName),
-        escapeCsvCell(row.year !== null ? String(row.year) : '—'),
-        escapeCsvCell(row.weekNumber !== null ? String(row.weekNumber) : '—'),
-        escapeCsvCell(row.hoursLoaded.toFixed(1)),
-      ].join(',')
-    );
+    const list = map.get(row.categoryName) ?? [];
+    list.push(row);
+    map.set(row.categoryName, list);
   }
-
-  return '﻿' + lines.join('\r\n');
+  return Array.from(map.entries()).map(([categoryName, catRows]) => ({
+    categoryName,
+    rows: catRows,
+    subtotal: catRows.reduce((s, r) => s + r.hoursLoaded, 0),
+  }));
 }
 
-export function downloadCsv(csvContent: string, filename: string): void {
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.setAttribute('download', filename);
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+export async function downloadXlsx(
+  rows: StaffHoursReportRow[],
+  headers: {
+    staffName: string;
+    category: string;
+    year: string;
+    week: string;
+    loadedHours: string;
+    subtotal: string;
+    grandTotal: string;
+    sheetName: string;
+  },
+  filename: string
+): Promise<void> {
+  const XLSX = await import('xlsx');
+  const data: (string | number)[][] = [
+    [headers.staffName, headers.category, headers.year, headers.week, headers.loadedHours],
+  ];
+
+  let grandTotal = 0;
+  for (const group of groupByCategory(rows)) {
+    for (const row of group.rows) {
+      data.push([
+        row.staffName,
+        row.categoryName,
+        row.year !== null ? row.year : '—',
+        row.weekNumber !== null ? row.weekNumber : '—',
+        Number(row.hoursLoaded.toFixed(1)),
+      ]);
+    }
+    data.push(['', `${group.categoryName} — ${headers.subtotal}`, '—', '—', Number(group.subtotal.toFixed(1))]);
+    grandTotal += group.subtotal;
+  }
+  data.push(['', headers.grandTotal, '—', '—', Number(grandTotal.toFixed(1))]);
+
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, headers.sheetName);
+  XLSX.writeFile(wb, filename);
 }

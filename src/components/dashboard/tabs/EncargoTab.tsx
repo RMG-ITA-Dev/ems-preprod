@@ -182,7 +182,8 @@ export function EncargoTab() {
         .from('time_entries')
         .select(`
           hours_logged,
-          period_id
+          period_id,
+          activity_id
         `)
         .eq('engagement_id', selectedEngagementId)
         .eq('is_forecast', false)
@@ -203,22 +204,25 @@ export function EncargoTab() {
       // Get line approvals for this engagement
       const { data: approvals, error: approvalsError } = await supabase
         .from('timesheet_line_approvals')
-        .select('period_id, status')
+        .select('period_id, activity_id, status')
         .eq('engagement_id', selectedEngagementId)
         .in('period_id', periodIds)
         .abortSignal(signal);
 
       if (approvalsError) throw approvalsError;
 
-      // Map period_id to approval status
+      // Key by (period_id, activity_id) so each activity's status is independent
       const approvalMap = new Map<string, string>();
-      approvals?.forEach(a => approvalMap.set(a.period_id, a.status));
+      approvals?.forEach(a => approvalMap.set(`${a.period_id}:${a.activity_id}`, a.status));
 
-      // Sum hours by status
+      // Sum hours by status — each entry is classified by its own (period, activity) pair
       let approved = 0;
       let pending = 0;
       entries.forEach(entry => {
-        const status = entry.period_id ? approvalMap.get(entry.period_id) : null;
+        const key = entry.period_id && entry.activity_id
+          ? `${entry.period_id}:${entry.activity_id}`
+          : null;
+        const status = key ? approvalMap.get(key) : null;
         if (status === 'approved') {
           approved += safeNumber(entry.hours_logged);
         } else {

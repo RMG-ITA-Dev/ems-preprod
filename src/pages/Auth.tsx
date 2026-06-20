@@ -87,6 +87,10 @@ const Auth = () => {
             toast.error(t('messages.accountInactive'));
           } else if (error.message === 'NO_STAFF_RECORD') {
             toast.error(t('messages.noStaffRecord'));
+          } else if (error.message.startsWith('ACCOUNT_LOCKED:')) {
+            const seconds = parseInt(error.message.slice('ACCOUNT_LOCKED:'.length), 10) || 0;
+            const minutes = Math.max(1, Math.ceil(seconds / 60));
+            toast.error(t('messages.accountLocked', { minutes }));
           } else if (error.message.includes("Invalid login credentials")) {
             toast.error(t("messages.invalidCredentials"));
           } else {

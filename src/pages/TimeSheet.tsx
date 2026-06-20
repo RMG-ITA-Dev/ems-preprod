@@ -14,6 +14,7 @@ import { useAdminActivityId } from "@/hooks/useAdminActivity";
 import { useTimesheetPolicies } from "@/hooks/useTimesheetPolicies";
 import { useTimesheetWeek } from "@/hooks/useTimesheetWeek";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
+import { useUserRole } from "@/hooks/useUserRole";
 import { useAuth } from "@/hooks/useAuth";
 import { usePeriodLineApprovals } from "@/hooks/useTimesheetApprovals";
 import { useSubmitTimesheet, useUnsubmitTimesheet, useCopyPreviousWeek, useCopyToCurrentWeek } from "@/hooks/useTimesheetMutations";
@@ -31,7 +32,7 @@ import {
 import { useGlobalSettings } from "@/hooks/useEmsData";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { parseISO, isBefore, startOfDay } from "date-fns";
+import { parseISO, isBefore, startOfDay, format } from "date-fns";
 import {
   getWeekInfo,
   getWeekMonday,
@@ -40,6 +41,9 @@ import {
   calculateDeadline,
   toISODateString,
   getEffectiveWeeklyLimits,
+  getDailyHourViolations,
+  getLocale,
+  type DailyHourViolation,
 } from "@/lib/timesheetUtils";
 
 type SaveStatus = "idle" | "saving" | "saved";
@@ -83,6 +87,7 @@ const TimeSheet = () => {
 
 
   const { staffRecord, isLoading: staffLoading } = useCurrentStaff();
+  const { isPartner } = useUserRole();
 
   // Get policies
   const { data: policies } = useTimesheetPolicies();
@@ -316,6 +321,21 @@ const TimeSheet = () => {
     return locked;
   }, [staffRecord?.termination_date, weekInfo.weekDates]);
 
+  // BUG 0608-144: days workable by the employee (excludes hire/termination locked days)
+  const workableWeekDates = useMemo(
+    () => weekInfo.weekDates.filter(
+      (_, i) => !lockedDaysBeforeHire.has(i) && !lockedDaysAfterTermination.has(i)
+    ),
+    [weekInfo.weekDates, lockedDaysBeforeHire, lockedDaysAfterTermination],
+  );
+
+  // BUG 0608-144: daily-limit submit gate (0h days included; caller pre-filters workable days)
+  const dailyViolations: DailyHourViolation[] = useMemo(
+    () => getDailyHourViolations(entries, workableWeekDates, dailyMin, dailyMax),
+    [entries, workableWeekDates, dailyMin, dailyMax],
+  );
+  const hasDailyViolations = dailyViolations.length > 0;
+
   // BUG #5: Earliest navigable week based on hire date
   const earliestWeekStart = useMemo(() => {
     if (!staffRecord?.hire_date) return undefined;
@@ -346,9 +366,11 @@ const TimeSheet = () => {
     && prevWeekSubmittedOrApproved;
 
   const canUnsubmit = isSubmitted
-    && !isFullyApproved
     && !period?.is_period_locked
-    && ((isCurrentWeek && isWithinEditableWindow) || hasRejectedLines);
+    && (
+      (isFullyApproved && isCurrentWeek && isWithinEditableWindow && isPartner)
+      || (!isFullyApproved && ((isCurrentWeek && isWithinEditableWindow) || hasRejectedLines))
+    );
 
   const canSaveDraft = !isBeforeHireDate
     && !isAfterTerminationDate
@@ -369,18 +391,25 @@ const TimeSheet = () => {
   // BUG #21: Separate "can submit" from "can edit cells"
   // BUG #0213-33: Also gate on weekly limit
   const canSubmit = !isBeforeHireDate && !isAfterTerminationDate && isWithinEditableWindow && entries.length > 0 &&
-    !isSubmitted && !period?.is_period_locked && !isWeeklyOutOfBounds;
+    !isSubmitted && !period?.is_period_locked && !isWeeklyOutOfBounds && !hasDailyViolations;
 
   // Handle submit
   const handleSubmit = async () => {
-    // DEFENSE-IN-DEPTH: weekly limit guard (do NOT rely only on canSubmit)
-    if (isWeeklyOutOfBounds) return;
+    // DEFENSE-IN-DEPTH: weekly + daily limit guard (do NOT rely only on canSubmit)
+    if (isWeeklyOutOfBounds || hasDailyViolations) return;
     if (!period?.period_id || !staffRecord) return;
 
-    // Get unique engagement IDs from entries
-    const uniqueEngagementIds = [...new Set(entries.map((e) => e.engagement_id))];
-    
-    if (uniqueEngagementIds.length === 0) return;
+    // Get unique (engagement, activity) pairs from entries
+    const engagementActivityPairs = [
+      ...new Map(
+        entries.map(e => [`${e.engagement_id}:${e.activity_id}`, {
+          engagementId: e.engagement_id,
+          activityId:   e.activity_id,
+        }])
+      ).values(),
+    ];
+
+    if (engagementActivityPairs.length === 0) return;
 
     // BUG 0227-67: Block submit if any activity-required engagement has empty/invalid activity
     const invalidActivityRow = entries.some(entry => {
@@ -398,10 +427,10 @@ const TimeSheet = () => {
       .rpc("is_auto_approved_category", { p_staff_id: staffRecord.staff_id });
 
     submitTimesheet.mutate({
-      periodId: period.period_id,
-      staffId: staffRecord.staff_id,
-      engagementIds: uniqueEngagementIds,
-      isAutoApproved: isAutoApproved || false,
+      periodId:               period.period_id,
+      staffId:                staffRecord.staff_id,
+      engagementActivityPairs,
+      isAutoApproved:         isAutoApproved || false,
     });
   };
 
@@ -647,6 +676,30 @@ const TimeSheet = () => {
                   {t("timesheet.weeklyMaxExceeded", {
                     total: weeklyGrandTotal.toFixed(1),
                     max: effectiveWeeklyMax,
+                  })}
+                </span>
+              </AlertDescription>
+            </Alert>
+        )}
+
+        {/* BUG 0608-144: daily-limit blocking banner */}
+        {hasDailyViolations &&
+          !isWeeklyOutOfBounds &&
+          !isBeforeHireDate &&
+          isWithinEditableWindow &&
+          entries.length > 0 &&
+          !isSubmitted &&
+          !period?.is_period_locked && (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>
+                <span className="font-bold">
+                  {t("timesheet.dailyLimitSubmitBlocked", {
+                    days: dailyViolations
+                      .map((v) => `${format(v.date, "EEE dd/MM", { locale: getLocale(lang) })} (${v.total}h)`)
+                      .join(", "),
+                    min: dailyMin,
+                    max: dailyMax,
                   })}
                 </span>
               </AlertDescription>
