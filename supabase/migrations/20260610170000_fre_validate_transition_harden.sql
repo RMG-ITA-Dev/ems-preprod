@@ -107,7 +107,17 @@ BEGIN
   END IF;
 
   -- ── Validación de transiciones de estado ──
+  -- En una edición SIN cambio de estado, un no-admin no puede tocar la metadata
+  -- de decisión/envío: esos campos solo cambian en transiciones legítimas (la
+  -- decisión del gerente o el reenvío, que SÍ cambian el status). Evita que el
+  -- solicitante forje o borre el rastro de aprobación por un UPDATE directo.
   IF NEW.status = OLD.status THEN
+    IF NEW.manager_notes      IS DISTINCT FROM OLD.manager_notes
+       OR NEW.rejection_reason   IS DISTINCT FROM OLD.rejection_reason
+       OR NEW.manager_decided_at IS DISTINCT FROM OLD.manager_decided_at
+       OR NEW.submitted_at       IS DISTINCT FROM OLD.submitted_at THEN
+      RAISE EXCEPTION 'No autorizado a modificar la metadata de aprobación/envío del gasto';
+    END IF;
     RETURN NEW;
   END IF;
 
