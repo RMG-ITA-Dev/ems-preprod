@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { CheckCircle2, Eye, XCircle, FileSearch } from "lucide-react";
+import { FileSearch } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -23,9 +23,6 @@ import type { FundRequestExpense } from "@/hooks/useFundRequestExpenses";
 import {
   useCreateFundRequestExpense,
   useUpdateFundRequestExpense,
-  useApproveFundRequestExpense,
-  useObserveFundRequestExpense,
-  useRejectFundRequestExpense,
   useReviewFundRequestExpense,
   useReturnFundRequestExpense,
   useResendReturnedExpense,
@@ -54,7 +51,7 @@ const formatCurrency = (n: number, currency: "BOB" | "USD") =>
     maximumFractionDigits: 2,
   });
 
-type SubPanel = "approve" | "observe" | "reject" | "review" | null;
+type SubPanel = "review" | null;
 
 interface Props {
   open: boolean;
@@ -76,9 +73,6 @@ export function FundRequestExpenseDialog({
 
   const createExpense = useCreateFundRequestExpense();
   const updateExpense = useUpdateFundRequestExpense();
-  const approveExpense = useApproveFundRequestExpense();
-  const observeExpense = useObserveFundRequestExpense();
-  const rejectExpense = useRejectFundRequestExpense();
   const reviewExpense = useReviewFundRequestExpense();
   const returnExpense = useReturnFundRequestExpense();
   const resendReturned = useResendReturnedExpense();
@@ -97,13 +91,6 @@ export function FundRequestExpenseDialog({
 
   const isRequester =
     !!staffRecord && fundRequest.requester_staff_id === staffRecord.staff_id;
-  // El gasto lo aprueba el gerente de SU OT (modelo de aprobación por OT).
-  const isManager =
-    !!staffRecord &&
-    !!expense &&
-    (fundRequest.fund_request_work_orders ?? []).some(
-      (o) => o.wo_id === expense.wo_id && o.manager_staff_id === staffRecord.staff_id,
-    );
 
   // El solicitante solo puede editar/registrar mientras la solicitud sigue en
   // fase de registro de gastos. Tras en_liquidacion/cerrado queda congelado
@@ -123,8 +110,9 @@ export function FundRequestExpenseDialog({
     isEntryPhase &&
     (isCreate ||
       (isRequester && ["borrador", "observado", "rechazado"].includes(expense!.status)));
-  const canDecide =
-    !isCreate && expense!.status === "pendiente_aprobacion" && (isManager || isAdmin);
+  // La decisión del gerente sobre los gastos se hace EN LOTE desde la página
+  // (FundRequestExpenses), no por gasto individual: si uno está mal, se rechazan
+  // todos juntos. Por eso aquí no hay botones de aprobar/observar/rechazar.
   const canReview = !isCreate && isAdmin && expense!.status === "aprobado_gerente";
 
   // Resetear estado al abrir / cambiar de gasto
@@ -181,9 +169,6 @@ export function FundRequestExpenseDialog({
   const anyPending =
     createExpense.isPending ||
     updateExpense.isPending ||
-    approveExpense.isPending ||
-    observeExpense.isPending ||
-    rejectExpense.isPending ||
     reviewExpense.isPending ||
     returnExpense.isPending ||
     resendReturned.isPending ||
@@ -244,28 +229,6 @@ export function FundRequestExpenseDialog({
     }
   };
 
-  // ── Sub-panel: decisión del gerente ─────────────────────────
-  const confirmDecision = async () => {
-    if (!expense) return;
-    const requiresNotes = subPanel === "observe" || subPanel === "reject";
-    if (requiresNotes && notes.trim().length === 0) {
-      setError(t("fundRequest.errors.notesRequired"));
-      return;
-    }
-    try {
-      if (subPanel === "approve") {
-        await approveExpense.mutateAsync({ id: expense.fre_id, notes });
-      } else if (subPanel === "observe") {
-        await observeExpense.mutateAsync({ id: expense.fre_id, notes });
-      } else if (subPanel === "reject") {
-        await rejectExpense.mutateAsync({ id: expense.fre_id, reason: notes });
-      }
-      onOpenChange(false);
-    } catch {
-      /* toast por mutation */
-    }
-  };
-
   // ── Sub-panel: revisión de factura del asistente ────────────
   const confirmReview = async () => {
     if (!expense) return;
@@ -314,15 +277,9 @@ export function FundRequestExpenseDialog({
   // ── Título dinámico ─────────────────────────────────────────
   const title = isCreate
     ? t("fundRequestExpense.newExpense")
-    : subPanel === "approve"
-      ? t("fundRequest.dialog.approveTitle")
-      : subPanel === "observe"
-        ? t("fundRequest.dialog.observeTitle")
-        : subPanel === "reject"
-          ? t("fundRequest.dialog.rejectTitle")
-          : subPanel === "review"
-            ? t("fundRequestExpense.dialog.reviewTitle")
-            : t("entities.expense");
+    : subPanel === "review"
+      ? t("fundRequestExpense.dialog.reviewTitle")
+      : t("entities.expense");
 
   const ivaPenalty = expense ? Math.round(Number(expense.amount) * 0.13 * 100) / 100 : 0;
 
@@ -331,9 +288,6 @@ export function FundRequestExpenseDialog({
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            {subPanel === "approve" && <CheckCircle2 className="h-5 w-5 text-success" />}
-            {subPanel === "observe" && <Eye className="h-5 w-5 text-warning" />}
-            {subPanel === "reject" && <XCircle className="h-5 w-5 text-destructive" />}
             {subPanel === "review" && <FileSearch className="h-5 w-5 text-info" />}
             {title}
           </DialogTitle>
@@ -346,40 +300,6 @@ export function FundRequestExpenseDialog({
             </DialogDescription>
           )}
         </DialogHeader>
-
-        {/* ── Sub-panel: decisión del gerente ── */}
-        {subPanel && subPanel !== "review" && (
-          <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">
-              {subPanel === "approve"
-                ? t("fundRequest.dialog.approveBody")
-                : subPanel === "observe"
-                  ? t("fundRequest.dialog.observeBody")
-                  : t("fundRequest.dialog.rejectBody")}
-            </p>
-            {subPanel !== "approve" && (
-              <div className="space-y-2">
-                <Label htmlFor="exp-decision-notes">
-                  {subPanel === "reject"
-                    ? t("fundRequest.rejectionReason")
-                    : t("fundRequest.approvalNotes")}
-                  <span className="text-destructive ml-1">*</span>
-                </Label>
-                <Textarea
-                  id="exp-decision-notes"
-                  value={notes}
-                  onChange={(e) => {
-                    setNotes(e.target.value);
-                    if (error) setError(null);
-                  }}
-                  rows={4}
-                  placeholder={t("fundRequest.dialog.notesPlaceholderRequired")}
-                />
-                {error && <p className="text-sm text-destructive">{error}</p>}
-              </div>
-            )}
-          </div>
-        )}
 
         {/* ── Sub-panel: revisión de factura (asistente) ── */}
         {subPanel === "review" && (
@@ -585,38 +505,19 @@ export function FundRequestExpenseDialog({
               <Button variant="cancel" onClick={() => setSubPanel(null)} disabled={anyPending}>
                 {t("common.cancel")}
               </Button>
-              {subPanel === "review" ? (
-                <Button onClick={confirmReview} disabled={anyPending || !reviewReady}>
-                  {anyPending
-                    ? t("common.saving")
-                    : hasInvoice === "no"
-                      ? t("fundRequestExpense.actions.returnToRequester")
-                      : t("fundRequestExpense.actions.validate")}
-                </Button>
-              ) : (
-                <Button
-                  onClick={confirmDecision}
-                  disabled={anyPending}
-                  className={
-                    subPanel === "reject"
-                      ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                      : undefined
-                  }
-                >
-                  {anyPending
-                    ? t("common.saving")
-                    : subPanel === "approve"
-                      ? t("fundRequest.actions.approve")
-                      : subPanel === "observe"
-                        ? t("fundRequest.actions.observe")
-                        : t("fundRequest.actions.reject")}
-                </Button>
-              )}
+              {/* Único subpanel: revisión del asistente */}
+              <Button onClick={confirmReview} disabled={anyPending || !reviewReady}>
+                {anyPending
+                  ? t("common.saving")
+                  : hasInvoice === "no"
+                    ? t("fundRequestExpense.actions.returnToRequester")
+                    : t("fundRequestExpense.actions.validate")}
+              </Button>
             </>
           ) : (
             <>
               <Button variant="cancel" onClick={() => onOpenChange(false)} disabled={anyPending}>
-                {isEditable || canDecide || canReview ? t("common.cancel") : t("common.close")}
+                {isEditable || canReview ? t("common.cancel") : t("common.close")}
               </Button>
 
               {/* Solicitante: crear (solo guardar — el envío es en lote desde la lista) */}
