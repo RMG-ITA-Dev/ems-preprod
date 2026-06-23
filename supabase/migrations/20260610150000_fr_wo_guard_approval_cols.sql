@@ -10,10 +10,9 @@
 -- Este trigger BEFORE UPDATE bloquea cambios a las columnas de decisión
 -- (approval_status, manager_notes, rejection_reason, manager_decided_at) salvo:
 --   - admin, o
---   - el gerente real de la OT (OLD.manager_staff_id = get_my_staff_id())
---     -> preserva la auto-aprobación legítima cuando el solicitante ES el gerente, o
---   - el reset del reenvío: approval_status='pendiente' con las 3 columnas en NULL
---     (exactamente lo que hace la mutación "Enviar").
+--   - el reset del reenvío desde fund_request_submit, o
+--   - el gerente real de la OT decidiendo una OT pendiente mientras la solicitud
+--     padre está en pendiente_aprobacion.
 -- Idempotente.
 
 CREATE OR REPLACE FUNCTION public.fr_wo_guard_approval_cols()
@@ -24,8 +23,11 @@ SET search_path = public
 AS $$
 DECLARE
   v_me UUID := get_my_staff_id();
+  v_parent_status public.fund_request_status;
   v_decision_changed BOOLEAN;
   v_alloc_changed BOOLEAN;
+  v_submit_reset BOOLEAN;
+  v_manager_decision BOOLEAN;
 BEGIN
   IF is_admin() THEN
     RETURN NEW;
@@ -46,11 +48,6 @@ BEGIN
     RAISE EXCEPTION 'No se puede modificar la asignación de la OT (monto/OT/gerente) por esta vía';
   END IF;
 
-  -- El gerente real de la OT puede registrar su DECISIÓN libremente.
-  IF OLD.manager_staff_id IS NOT DISTINCT FROM v_me THEN
-    RETURN NEW;
-  END IF;
-
   v_decision_changed :=
        NEW.approval_status   IS DISTINCT FROM OLD.approval_status
     OR NEW.manager_notes     IS DISTINCT FROM OLD.manager_notes
@@ -58,19 +55,38 @@ BEGIN
     OR NEW.manager_decided_at IS DISTINCT FROM OLD.manager_decided_at;
 
   IF v_decision_changed THEN
-    -- Único cambio permitido a un no-gerente: el reset del reenvío, y SOLO si
-    -- viene del RPC fund_request_submit (lleva el flag transaccional). Un UPDATE
-    -- directo por API no puede resetear las OTs y brincarse las validaciones del
-    -- submit (suma de OTs, submitted_at, limpieza de notas).
-    IF NOT (
+    -- Reset del reenvío: SOLO desde el RPC fund_request_submit (lleva el flag
+    -- transaccional). Un UPDATE directo por API no puede resetear las OTs y
+    -- brincarse las validaciones del submit (suma de OTs, submitted_at,
+    -- limpieza de notas).
+    v_submit_reset :=
       NEW.approval_status = 'pendiente'
       AND NEW.manager_notes IS NULL
       AND NEW.rejection_reason IS NULL
       AND NEW.manager_decided_at IS NULL
-      AND current_setting('app.fr_submitting', true) = 'on'
-    ) THEN
-      RAISE EXCEPTION 'El reenvío solo puede hacerse mediante la acción de enviar la solicitud';
+      AND COALESCE(current_setting('app.fr_submitting', true) = 'on', false);
+
+    IF v_submit_reset THEN
+      RETURN NEW;
     END IF;
+
+    SELECT status INTO v_parent_status
+    FROM public.fund_requests
+    WHERE fund_request_id = OLD.fund_request_id;
+
+    -- Decisión legítima del gerente: solo durante la fase pendiente_aprobacion,
+    -- desde una OT pendiente hacia uno de los estados finales de decisión.
+    v_manager_decision :=
+      OLD.manager_staff_id IS NOT DISTINCT FROM v_me
+      AND v_parent_status = 'pendiente_aprobacion'
+      AND OLD.approval_status = 'pendiente'
+      AND NEW.approval_status IN ('aprobado', 'observado', 'rechazado');
+
+    IF v_manager_decision THEN
+      RETURN NEW;
+    END IF;
+
+    RAISE EXCEPTION 'Las columnas de decisión de la OT solo pueden cambiarse por el gerente durante la aprobación pendiente o mediante la acción de enviar la solicitud';
   END IF;
 
   RETURN NEW;
