@@ -58,14 +58,18 @@ BEGIN
     OR NEW.manager_decided_at IS DISTINCT FROM OLD.manager_decided_at;
 
   IF v_decision_changed THEN
-    -- Único cambio permitido a un no-gerente: el reset del reenvío.
+    -- Único cambio permitido a un no-gerente: el reset del reenvío, y SOLO si
+    -- viene del RPC fund_request_submit (lleva el flag transaccional). Un UPDATE
+    -- directo por API no puede resetear las OTs y brincarse las validaciones del
+    -- submit (suma de OTs, submitted_at, limpieza de notas).
     IF NOT (
       NEW.approval_status = 'pendiente'
       AND NEW.manager_notes IS NULL
       AND NEW.rejection_reason IS NULL
       AND NEW.manager_decided_at IS NULL
+      AND current_setting('app.fr_submitting', true) = 'on'
     ) THEN
-      RAISE EXCEPTION 'Solo el gerente de la OT puede registrar la decisión de aprobación';
+      RAISE EXCEPTION 'El reenvío solo puede hacerse mediante la acción de enviar la solicitud';
     END IF;
   END IF;
 

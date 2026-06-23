@@ -65,6 +65,10 @@ BEGIN
   -- Reset de las OTs a 'pendiente' (en reenvío todas vuelven a requerir
   -- aprobación). Dispara el rollup, que puede mover la solicitud a
   -- 'pendiente_aprobacion'; el update siguiente fija submitted_at y limpia.
+  -- Marca transaccional para que el guard `fr_wo_guard_approval_cols` permita
+  -- el reset SOLO desde este RPC (un UPDATE directo por API no lleva el flag).
+  PERFORM set_config('app.fr_submitting', 'on', true);
+
   UPDATE public.fund_request_work_orders
   SET approval_status = 'pendiente',
       manager_notes = NULL,

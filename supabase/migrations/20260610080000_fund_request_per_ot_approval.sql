@@ -284,11 +284,16 @@ CREATE POLICY "fre_select" ON public.fund_request_expenses
       WHERE fr.fund_request_id = fund_request_expenses.fund_request_id
         AND (fr.requester_staff_id = get_my_staff_id() OR is_admin())
     )
-    OR EXISTS (
-      SELECT 1 FROM public.fund_request_work_orders frwo
-      WHERE frwo.fund_request_id = fund_request_expenses.fund_request_id
-        AND frwo.wo_id = fund_request_expenses.wo_id
-        AND frwo.manager_staff_id = get_my_staff_id()
+    OR (
+      -- El gerente NO ve borradores de gastos (aún sin enviar); solo enviados o
+      -- ya decididos.
+      fund_request_expenses.status <> 'borrador'
+      AND EXISTS (
+        SELECT 1 FROM public.fund_request_work_orders frwo
+        WHERE frwo.fund_request_id = fund_request_expenses.fund_request_id
+          AND frwo.wo_id = fund_request_expenses.wo_id
+          AND frwo.manager_staff_id = get_my_staff_id()
+      )
     )
   );
 
