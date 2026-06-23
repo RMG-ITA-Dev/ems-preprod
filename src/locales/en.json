@@ -21,6 +21,7 @@
     "inactive": "Inactive",
     "loading": "Loading...",
     "noResults": "No results found.",
+    "noAccess": "You don't have access to this section.",
     "rowsPerPage": "Rows per page:",
     "showing": "Showing {{start}}-{{end}} of {{total}}",
     "page": "Page {{current}} of {{total}}",

@@ -83,7 +83,7 @@ const FundRequestDisbursements = () => {
   if (!roleLoading && !isAdmin) {
     return (
       <AppLayout title={t("fundRequest.disbursementsQueue")}>
-        <div className="text-muted-foreground">{t("common.noAccess") ?? "Sin acceso"}</div>
+        <div className="text-muted-foreground">{t("common.noAccess")}</div>
       </AppLayout>
     );
   }

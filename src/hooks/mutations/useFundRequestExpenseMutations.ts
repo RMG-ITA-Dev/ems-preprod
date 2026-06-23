@@ -119,7 +119,15 @@ export function useSubmitAllFundRequestExpenses() {
       if (ids.length === 0) return { fundRequestId, count: 0 };
       const { error } = await sb
         .from("fund_request_expenses")
-        .update({ status: "pendiente_aprobacion", submitted_at: new Date().toISOString() })
+        .update({
+          status: "pendiente_aprobacion",
+          submitted_at: new Date().toISOString(),
+          // Limpia la decisión previa (al reenviar un gasto observado/rechazado
+          // arranca un ciclo nuevo; el gerente no debe ver la nota vieja).
+          manager_notes: null,
+          rejection_reason: null,
+          manager_decided_at: null,
+        })
         .in("fre_id", ids);
       if (error) throw error;
       return { fundRequestId, count: ids.length };
