@@ -1567,6 +1567,7 @@
       "workOrderRequired": "You must select a WO",
       "dateRequired": "You must provide the expense date",
       "amountRequired": "The amount must be greater than zero",
+      "invalidDateRange": "The 'To' date cannot be earlier than the 'From' date",
       "observationNotesRequired": "You must describe the invoice observation",
       "noInvoiceNotesRequired": "Indicate which receipt is missing before returning",
       "attachmentRequired": "Attach the receipt before resending"

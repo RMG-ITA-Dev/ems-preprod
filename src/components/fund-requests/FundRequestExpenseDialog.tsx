@@ -149,6 +149,14 @@ export function FundRequestExpenseDialog({
     if (!values.wo_id) return t("fundRequestExpense.errors.workOrderRequired");
     if (!values.expense_date) return t("fundRequestExpense.errors.dateRequired");
     if (!values.amount || values.amount <= 0) return t("fundRequestExpense.errors.amountRequired");
+    // Rango inválido: hay fecha "Al" pero es anterior a "Del" (computeExpenseDays
+    // devuelve null). Evita guardar un rango imposible con days null.
+    if (
+      values.expense_date_end &&
+      computeExpenseDays(values.expense_date, values.expense_date_end) === null
+    ) {
+      return t("fundRequestExpense.errors.invalidDateRange");
+    }
     return null;
   };
 

@@ -1567,6 +1567,7 @@
       "workOrderRequired": "Debe seleccionar una OT",
       "dateRequired": "Debe indicar la fecha del gasto",
       "amountRequired": "El monto debe ser mayor a cero",
+      "invalidDateRange": "La fecha 'Al' no puede ser anterior a la fecha 'Del'",
       "observationNotesRequired": "Debe describir la observación de la factura",
       "noInvoiceNotesRequired": "Indique qué respaldo falta antes de devolver",
       "attachmentRequired": "Adjunte el respaldo antes de reenviar"
