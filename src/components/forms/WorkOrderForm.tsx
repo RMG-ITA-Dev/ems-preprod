@@ -294,7 +294,18 @@ export function WorkOrderForm({
   const isPending = approvalStatus === "Pending_Approval";
   const isApproved = approvalStatus === "Approved";
   const isRejected = approvalStatus === "Rejected";
-  const isEditable = !isLocked && isDraft;
+  // Estado por pista (independiente). Pista Socio = approved_at; pista Riesgos = risk_status.
+  // La editabilidad y la visibilidad del estado se derivan por pista, no del approval_status
+  // global, para que la pista aprobada nunca se edite ni pierda su indicador "Aprobado".
+  const socioApproved = !!approvedAt;
+  const socioRejected = isRejected;
+  const riskApproved =
+    riskStatus === "Approved" || riskStatus === "Emergency_Approved";
+  // Pista Socio en modo corrección tras un rechazo (gastos/ajuste vuelven a editarse).
+  const socioCorrecting = socioRejected;
+  // gastos/ajuste editables (la matriz/grid sigue siempre read-only). La pista Socio
+  // aprobada (approved_at) NUNCA es editable; en Draft o en corrección tras rechazo sí.
+  const isEditable = ((isDraft && !isLocked) || socioCorrecting) && !socioApproved;
 
   const CEAC_NUM_RE = /^\d{10}$/;
   const SAN_ID_RE = /^\d{10}$|^\d{5}-\d{5}$/;
@@ -389,19 +400,29 @@ export function WorkOrderForm({
   // Per-track approval status (Socio / Riesgos), shown both in the header and the
   // bottom action area. Visible once the OT leaves Draft (Pending/Approved/Rejected),
   // so the Socio sign-off stays visible even after a rejection.
-  const showTrackStatus = isPending || isApproved || isRejected;
+  // Visible mientras cualquiera de las dos pistas tenga un estado decidido — incluido
+  // tras retirar (la OT vuelve a Draft pero approved_at/risk_status persisten), de modo
+  // que la pista aprobada nunca pierde su indicador "Aprobado".
+  const showTrackStatus =
+    socioApproved ||
+    socioRejected ||
+    riskApproved ||
+    isRiskRejected ||
+    isPending ||
+    isApproved ||
+    isRejected;
   const renderTrackStatus = () => (
     <>
       <span className="flex items-center gap-1.5">
         <span className="text-muted-foreground">
           {t("workOrders.partnerActionsLabel")}:
         </span>
-        {approvedAt ? (
+        {socioApproved ? (
           <span className="flex items-center gap-1 font-medium text-success">
             <CheckCircle className="h-3.5 w-3.5" />
             {t("workOrders.trackApproved")}
           </span>
-        ) : isRejected && riskStatus !== "Rejected" ? (
+        ) : socioRejected ? (
           <span className="flex items-center gap-1 font-medium text-destructive">
             <XCircle className="h-3.5 w-3.5" />
             {t("workOrders.trackRejected")}
@@ -1309,8 +1330,41 @@ export function WorkOrderForm({
               )}
             </>
           )}
-          {/* Withdraw button for Rejected status (de 0527-126): vuelve a Draft. */}
-          {isRejected && onUnsubmit && (
+          {/* Corrección de la pista Socio en sitio (Rechazado): gastos/ajuste editables;
+              Guardar persiste los cambios y "Enviar para Aprobación" reenvía SOLO la pista
+              Socio (el riesgo decidido permanece bloqueado y visible). No usa el flujo de
+              emergencia (riesgo ya resuelto), por eso el guard es solo hasNonRiskDirty. */}
+          {socioCorrecting && (
+            <>
+              <LoadingButton
+                onClick={onSubmit}
+                loading={isSubmitting}
+                className="btn-action"
+              >
+                {t("common.save")}
+              </LoadingButton>
+              {onSubmitForApproval && (
+                <LoadingButton
+                  onClick={() => onSubmitForApproval()}
+                  className="bg-info hover:bg-info/90 btn-action"
+                  loading={isSubmitting}
+                  disabled={hasNonRiskDirty}
+                  title={
+                    hasNonRiskDirty
+                      ? t("workOrders.saveBeforeSubmit")
+                      : undefined
+                  }
+                >
+                  <Send className="h-4 w-4 mr-2" />
+                  {t("workOrders.submitForApproval")}
+                </LoadingButton>
+              )}
+            </>
+          )}
+          {/* Retirar de Aprobación: vuelve a Draft completo. Rechazado (escape hatch) o
+              Pendiente sin aprobar. Oculto si el Socio ya aprobó (esa pista solo se
+              revierte por admin). */}
+          {socioRejected && onUnsubmit && (
             <LoadingButton
               variant="outline"
               onClick={onUnsubmit}
@@ -1321,8 +1375,8 @@ export function WorkOrderForm({
               {t("workOrders.withdrawRejected")}
             </LoadingButton>
           )}
-          {/* Unsubmit button for Pending status - shown to any user */}
-          {isPending && onUnsubmit && (
+          {/* Unsubmit button for Pending status - hidden once the Socio has approved. */}
+          {isPending && !socioApproved && onUnsubmit && (
             <LoadingButton
               variant="outline"
               onClick={onUnsubmit}

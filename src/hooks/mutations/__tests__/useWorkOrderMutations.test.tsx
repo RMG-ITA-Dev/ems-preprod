@@ -16,6 +16,7 @@ import {
   useRevertRiskApproval,
   useCompleteRiskAssessment,
   useRejectWorkOrder,
+  useUnsubmitWorkOrder,
 } from "../useWorkOrderMutations";
 
 function createWrapper() {
@@ -430,6 +431,31 @@ describe("useWorkOrderMutations", () => {
       expect(mockUpdate).toHaveBeenCalledWith(
         expect.objectContaining({ approved_by: "staff-1", notes: null })
       );
+    });
+  });
+
+  describe("useUnsubmitWorkOrder", () => {
+    it("writes ONLY { approval_status: 'Draft' } — no toca approved_at ni risk_status (contrato bug 0306-78)", async () => {
+      const mockData = { wo_id: "wo-1", approval_status: "Draft" };
+      const mockSingle = vi.fn().mockResolvedValue({ data: mockData, error: null });
+      const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
+      const mockEq = vi.fn().mockReturnValue({ select: mockSelect });
+      const mockUpdate = vi.fn().mockReturnValue({ eq: mockEq });
+      vi.mocked(supabase.from).mockReturnValue({ update: mockUpdate } as any);
+
+      const { result } = renderHook(() => useUnsubmitWorkOrder(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate("wo-1");
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      const arg = mockUpdate.mock.calls[0][0];
+      expect(arg).toEqual({ approval_status: "Draft" });
+      // La pista Socio (approved_at) y la pista Riesgos (risk_status) deben permanecer.
+      expect("approved_at" in arg).toBe(false);
+      expect("risk_status" in arg).toBe(false);
+      expect(mockEq).toHaveBeenCalledWith("wo_id", "wo-1");
     });
   });
 

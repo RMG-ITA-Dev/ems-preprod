@@ -285,6 +285,16 @@ const WorkOrderEdit = () => {
 
   const handleSubmitForApproval = async (emergencyJustification?: string) => {
     if (!workOrder) return;
+    // Reenvío de la pista Socio en corrección (estado Rejected): no se re-evalúa ni se
+    // reescribe Riesgos; solo se reabre la pista Socio a Pending_Approval. La pista de
+    // Riesgos conserva su estado (aprobada, o rechazada y corregida por separado).
+    if (workOrder.approval_status === "Rejected") {
+      await updateWorkOrder.mutateAsync({
+        id: workOrder.wo_id,
+        data: { approval_status: "Pending_Approval" },
+      });
+      return;
+    }
     const CEAC_NUM_RE = /^\d{10}$/;
     const SAN_ID_RE = /^\d{10}$|^\d{5}-\d{5}$/;
     const allComplete =
