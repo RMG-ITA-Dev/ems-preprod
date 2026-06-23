@@ -24,6 +24,7 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/useAuth";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { useUserRole } from "@/hooks/useUserRole";
+import { useManagesAnyOt } from "@/hooks/useFundRequests";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
 
 interface MobileMoreDrawerProps {
@@ -37,7 +38,11 @@ export function MobileMoreDrawer({ open, onOpenChange }: MobileMoreDrawerProps) 
   const { user, signOut } = useAuth();
   const { data: staffRecord } = useCurrentStaff();
   const { isAdmin, isPartner, isDirector, isManager } = useUserRole();
-  const canApproveFunds = isAdmin || isPartner || isDirector || isManager;
+  const { data: managesAnyOt } = useManagesAnyOt(staffRecord?.staff_id);
+  // El gerente de OT puede ser un Senior (sin rol de app manager): se incluye si
+  // gestiona al menos una OT, para que vea el link de aprobaciones.
+  const canApproveFunds =
+    isAdmin || isPartner || isDirector || isManager || !!managesAnyOt;
 
   const userInitials = staffRecord?.initials
     ? staffRecord.initials

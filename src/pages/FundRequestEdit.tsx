@@ -120,7 +120,11 @@ const FundRequestEdit = () => {
   const unfinishedExpenses = useMemo(
     () =>
       (expenses ?? []).filter((e) =>
-        ["borrador", "pendiente_aprobacion", "aprobado_gerente", "observado"].includes(e.status),
+        // rechazado entra: el solicitante aún puede corregirlo y reenviarlo, así
+        // que liquidar antes lo dejaría sin resolver y sin contar en el snapshot.
+        ["borrador", "pendiente_aprobacion", "aprobado_gerente", "observado", "rechazado"].includes(
+          e.status,
+        ),
       ),
     [expenses],
   );

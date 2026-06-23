@@ -155,6 +155,26 @@ export interface SelectableWorkOrder {
   };
 }
 
+// ¿El usuario gestiona al menos una OT de una solicitud (enviada)? Sirve para
+// mostrar el link de "Aprobación de Fondos" a gerentes de OT que NO tienen rol
+// de app manager/partner/etc. (el gerente se deriva de engagement.manager_id y
+// puede ser un Senior). La RLS de fund_request_work_orders ya limita el conteo
+// a OTs que gestiono en solicitudes enviadas.
+export function useManagesAnyOt(staffId: string | undefined) {
+  return useQuery({
+    queryKey: ["manages_any_ot", staffId],
+    queryFn: async (): Promise<boolean> => {
+      const { count, error } = await sb
+        .from("fund_request_work_orders")
+        .select("fr_wo_id", { count: "exact", head: true })
+        .eq("manager_staff_id", staffId);
+      if (error) throw error;
+      return (count ?? 0) > 0;
+    },
+    enabled: !!staffId,
+  });
+}
+
 export function useSelectableWorkOrders() {
   return useQuery({
     queryKey: ["fund_request_selectable_work_orders"],

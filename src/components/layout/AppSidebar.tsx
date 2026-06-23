@@ -18,6 +18,8 @@ import { useTranslation } from "react-i18next";
 import { NavLink } from "@/components/NavLink";
 import { useAuth } from "@/hooks/useAuth";
 import { useUserRole } from "@/hooks/useUserRole";
+import { useCurrentStaff } from "@/hooks/useCurrentStaff";
+import { useManagesAnyOt } from "@/hooks/useFundRequests";
 import { useNavigate } from "react-router-dom";
 import {
   Sidebar,
@@ -36,7 +38,12 @@ export function AppSidebar() {
   const { signOut } = useAuth();
   const navigate = useNavigate();
   const { isAdmin, isPartner, isDirector, isManager } = useUserRole();
-  const canApproveFunds = isAdmin || isPartner || isDirector || isManager;
+  const { data: staffRecord } = useCurrentStaff();
+  const { data: managesAnyOt } = useManagesAnyOt(staffRecord?.staff_id);
+  // El gerente de OT puede ser un Senior (sin rol de app manager): se incluye si
+  // gestiona al menos una OT, para que vea el link de aprobaciones.
+  const canApproveFunds =
+    isAdmin || isPartner || isDirector || isManager || !!managesAnyOt;
 
   const handleSignOut = async () => {
     await signOut();
