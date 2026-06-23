@@ -344,8 +344,10 @@ export function WorkOrderForm({
   const canCompleteRiskData = isApproved && isEmergencyApproved && !!onCompleteRisk;
   // Risk fields are editable by the creator/Manager in Draft, again when an
   // emergency-approved OT completes its data, and when Riesgos rejected (to correct).
+  // Una pista de Riesgos aprobada (Approved/Emergency_Approved) queda bloqueada aunque la
+  // OT vuelva a Draft por "Retirar": al retirar solo se corrige lo que NO está aprobado.
   const riskFieldsEditable =
-    (isDraft && !!onRiskAssessmentChange) ||
+    (isDraft && !riskApproved && !!onRiskAssessmentChange) ||
     (canCompleteRiskData && addingRiskData) ||
     (isRiskRejected && !!onRiskAssessmentChange);
   // Risk section visibility.
@@ -384,6 +386,14 @@ export function WorkOrderForm({
   // Socio can act only while pending AND not yet approved (once approved, the button is
   // replaced by the track status indicator below).
   const socioCanAct = isPending && canApprove && !approvedAt;
+  // "Retirar de Aprobación": visible solo cuando hay una pista a la espera de decisión.
+  // Se evalúa a nivel de pista (no del approval_status global, que sigue en
+  // Pending_Approval aun con el Socio ya aprobado). Si ambas pistas están rechazadas
+  // —o una aprobada y la otra rechazada— no hay pendiente => no se muestra (se corrige
+  // en sitio). El guard !isDraft evita mostrarlo en una OT nueva en borrador.
+  const socioPending = isPending && !socioApproved;
+  const riskPending = !isDraft && (riskStatus === "Pending" || !riskStatus);
+  const showWithdraw = !!onUnsubmit && (socioPending || riskPending);
   // True when the Socio/Riesgos labeled boxes are shown — used to vertically align
   // the standalone Cancel/Save/Unsubmit buttons with the buttons inside those boxes.
   const hasActionBoxes = socioCanAct || (showRiskActions && hasRiskAction);
@@ -1168,33 +1178,8 @@ export function WorkOrderForm({
                 )}
               </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>{t("workOrders.ceacNotes")}</Label>
-                <Textarea
-                  value={ceacNotes || ""}
-                  onChange={(e) =>
-                    onRiskAssessmentChange?.(
-                      "ceacNotes",
-                      e.target.value || null,
-                    )
-                  }
-                  readOnly={!riskFieldsEditable}
-                  rows={2}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>{t("workOrders.sanNotes")}</Label>
-                <Textarea
-                  value={sanNotes || ""}
-                  onChange={(e) =>
-                    onRiskAssessmentChange?.("sanNotes", e.target.value || null)
-                  }
-                  readOnly={!riskFieldsEditable}
-                  rows={2}
-                />
-              </div>
-            </div>
+            {/* Notas CEAC/SAN retiradas del formulario (0306-78): las observaciones de
+                rechazo se capturan en el diálogo de rechazo de Riesgos (risk_notes). */}
             {/* Manager completes risk data after an emergency approval. Fields stay
                 locked until "Agregar datos de Riesgo" is pressed; then the data is
                 sent back to Riesgos for a single approval. */}
@@ -1356,27 +1341,16 @@ export function WorkOrderForm({
                   }
                 >
                   <Send className="h-4 w-4 mr-2" />
-                  {t("workOrders.submitForApproval")}
+                  {t("workOrders.sendForPartnerApproval")}
                 </LoadingButton>
               )}
             </>
           )}
-          {/* Retirar de Aprobación: vuelve a Draft completo. Rechazado (escape hatch) o
-              Pendiente sin aprobar. Oculto si el Socio ya aprobó (esa pista solo se
-              revierte por admin). */}
-          {socioRejected && onUnsubmit && (
-            <LoadingButton
-              variant="outline"
-              onClick={onUnsubmit}
-              loading={isSubmitting}
-              className="bg-warning hover:bg-warning/90 text-warning-foreground btn-action"
-            >
-              <Undo2 className="h-4 w-4 mr-2" />
-              {t("workOrders.withdrawRejected")}
-            </LoadingButton>
-          )}
-          {/* Unsubmit button for Pending status - hidden once the Socio has approved. */}
-          {isPending && !socioApproved && onUnsubmit && (
+          {/* Retirar de Aprobación: solo cuando hay una pista pendiente (socioPending ||
+              riskPending). Devuelve la OT a Draft; al editar, solo se corrige la pista no
+              aprobada. Con ambas pistas rechazadas (o una aprobada + otra rechazada) no hay
+              pendiente => no se muestra: la corrección se hace en sitio. */}
+          {showWithdraw && (
             <LoadingButton
               variant="outline"
               onClick={onUnsubmit}

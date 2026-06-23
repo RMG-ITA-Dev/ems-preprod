@@ -145,7 +145,7 @@ describe("WorkOrderEdit — reenvío por pista (bug 0306-78)", () => {
     renderPage();
 
     await act(async () => {
-      fireEvent.click(screen.getByText("workOrders.submitForApproval"));
+      fireEvent.click(screen.getByText("workOrders.sendForPartnerApproval"));
     });
 
     await waitFor(() => {

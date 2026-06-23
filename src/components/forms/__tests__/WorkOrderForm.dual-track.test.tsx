@@ -134,7 +134,7 @@ describe("WorkOrderForm — dual-track withdraw/edit (bug 0306-78)", () => {
     expect(screen.queryByText("workOrders.unsubmit")).not.toBeInTheDocument();
   });
 
-  it("DT2: Riesgos aprobado + Socio rechazado → gastos editable, riesgos bloqueado, Riesgos 'Aprobado' visible, retiro + reenvío Socio", () => {
+  it("DT2: Riesgos aprobado + Socio rechazado → gastos editable, riesgos bloqueado, sin 'Retirar', reenvío del Socio", () => {
     const container = renderForm({
       approvalStatus: "Rejected",
       approvedAt: null,
@@ -150,17 +150,19 @@ describe("WorkOrderForm — dual-track withdraw/edit (bug 0306-78)", () => {
     expect(dateInputs(container).length).toBe(0);
     // Riesgos sigue mostrando "Aprobado"
     expect(screen.getAllByText("workOrders.trackApproved").length).toBeGreaterThan(0);
-    // botón retirar + reenvío de la pista Socio
-    expect(screen.getByText("workOrders.withdrawRejected")).toBeInTheDocument();
-    expect(screen.getByText("workOrders.submitForApproval")).toBeInTheDocument();
+    // sin "Retirar" (no hay pista pendiente: Socio rechazado + Riesgos aprobado)
+    expect(screen.queryByText("workOrders.unsubmit")).not.toBeInTheDocument();
+    // reenvío de la pista Socio con etiqueta dedicada
+    expect(screen.getByText("workOrders.sendForPartnerApproval")).toBeInTheDocument();
   });
 
-  it("DT3: doble rechazo (Socio y Riesgos) → ambos 'Rechazado', sin 'Pendiente', botón retirar visible (regresión línea 404)", () => {
+  it("DT3: doble rechazo (Socio y Riesgos) → ambos 'Rechazado', sin 'Retirar', dos reenvíos por pista", () => {
     renderForm({
       approvalStatus: "Rejected",
       approvedAt: null,
       riskStatus: "Rejected",
       onRiskAssessmentChange: vi.fn(),
+      onSubmitForApproval: vi.fn(),
       onCompleteRisk: vi.fn(),
       onUnsubmit: vi.fn(),
       ...fullRisk,
@@ -168,17 +170,23 @@ describe("WorkOrderForm — dual-track withdraw/edit (bug 0306-78)", () => {
     // Ambas pistas en "Rechazado"; el Socio NO debe caer a "Pendiente".
     expect(screen.getAllByText("workOrders.trackRejected").length).toBeGreaterThan(0);
     expect(screen.queryByText("workOrders.trackPending")).not.toBeInTheDocument();
-    // botón retirar de aprobación
-    expect(screen.getByText("workOrders.withdrawRejected")).toBeInTheDocument();
+    // sin "Retirar" cuando ambas están rechazadas
+    expect(screen.queryByText("workOrders.unsubmit")).not.toBeInTheDocument();
+    // dos reenvíos independientes: Socio (abajo) y Riesgos (arriba)
+    expect(screen.getByText("workOrders.sendForPartnerApproval")).toBeInTheDocument();
+    expect(screen.getByText("workOrders.sendRiskForReapproval")).toBeInTheDocument();
   });
 
-  it("DT4: Socio aprobado en Pending → gastos bloqueados y unsubmit oculto", () => {
-    renderForm({
-      approvalStatus: "Pending_Approval",
+  it("DT4: OT cerrada (Socio aprobado + Riesgos aprobado) → todo bloqueado y sin 'Retirar'", () => {
+    const container = renderForm({
+      approvalStatus: "Approved",
       approvedAt: "2026-06-01T00:00:00Z",
+      riskStatus: "Approved",
       onUnsubmit: vi.fn(),
+      ...fullRisk,
     });
     expect(gastosEditable()).toBe(false);
+    expect(dateInputs(container).length).toBe(0);
     expect(screen.queryByText("workOrders.unsubmit")).not.toBeInTheDocument();
   });
 
@@ -214,5 +222,45 @@ describe("WorkOrderForm — dual-track withdraw/edit (bug 0306-78)", () => {
     const dates = dateInputs(container);
     expect(dates.length).toBeGreaterThan(0);
     dates.forEach((d) => expect(d.readOnly).toBe(false));
+  });
+
+  it("DT7: Socio Pendiente + Riesgos Aprobado (pantalla 1) → 'Retirar' visible y riesgos read-only", () => {
+    const container = renderForm({
+      approvalStatus: "Pending_Approval",
+      approvedAt: null, // Socio aún sin decidir
+      riskStatus: "Approved",
+      canApprove: true,
+      onApprove: vi.fn(),
+      onReject: vi.fn(),
+      onUnsubmit: vi.fn(),
+      onRiskAssessmentChange: vi.fn(),
+      ...fullRisk,
+    });
+    // hay pista pendiente (Socio) → "Retirar" visible
+    expect(screen.getByText("workOrders.unsubmit")).toBeInTheDocument();
+    // Riesgos aprobado → campos de riesgo read-only (sin date inputs)
+    expect(dateInputs(container).length).toBe(0);
+  });
+
+  it("DT8: Draft tras retirar con Riesgos Aprobado → riesgos bloqueado, gastos editables", () => {
+    const container = renderForm({
+      approvalStatus: "Draft",
+      approvedAt: null,
+      riskStatus: "Approved",
+      onRiskAssessmentChange: vi.fn(),
+      ...fullRisk,
+    });
+    // solo se corrige lo no aprobado: gastos editables, riesgo bloqueado
+    expect(gastosEditable()).toBe(true);
+    expect(dateInputs(container).length).toBe(0);
+  });
+
+  it("DT9: el formulario ya no renderiza 'Notas CEAC' ni 'Notas SAN'", () => {
+    renderForm({
+      approvalStatus: "Draft",
+      onRiskAssessmentChange: vi.fn(),
+    });
+    expect(screen.queryByText("workOrders.ceacNotes")).not.toBeInTheDocument();
+    expect(screen.queryByText("workOrders.sanNotes")).not.toBeInTheDocument();
   });
 });
