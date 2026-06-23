@@ -93,21 +93,21 @@ export function EngagementCreatedDialog({
             {summaryRows.map((row) => (
               <div key={row.label} className="flex flex-col">
                 <dt className="text-xs text-muted-foreground">{row.label}</dt>
-                <dd className="text-sm">{row.value || "—"}</dd>
+                <dd className="text-sm">{row.value || t("common.notAvailable")}</dd>
               </div>
             ))}
           </dl>
         </div>
 
         <DialogFooter className="flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button type="button" variant="cancel" onClick={onClose}>
+            {t("common.close")}
+          </Button>
           <Button type="button" variant="outline" onClick={onGoToWorkMatrix}>
             {t("engagement.goToWorkMatrix")}
           </Button>
-          <Button type="button" variant="outline" onClick={onCreateAnother}>
+          <Button type="button" variant="default" onClick={onCreateAnother}>
             {t("engagement.createAnother")}
-          </Button>
-          <Button type="button" onClick={onClose}>
-            {t("common.close")}
           </Button>
         </DialogFooter>
       </DialogContent>
