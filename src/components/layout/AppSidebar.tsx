@@ -5,7 +5,6 @@ import {
   Users,
   Settings,
   FileText,
-  Receipt,
   LogOut,
   CheckSquare,
   Timer,
@@ -81,7 +80,6 @@ export function AppSidebar() {
           },
         ]
       : []),
-    { title: t("nav.expenses"), url: "/expenses", icon: Receipt },
   ];
 
   const adminItems = [

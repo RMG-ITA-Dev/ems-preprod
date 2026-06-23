@@ -80,12 +80,10 @@
     "fundRequests": "Solicitudes de Fondos",
     "fundRequestApprovals": "Aprobaciones de Fondos",
     "fundRequestDisbursements": "Desembolsos",
-    "expenses": "Gastos",
     "staff": "Personal",
     "settings": "Configuración",
     "signOut": "Cerrar sesión",
-    "timeEntries": "Entradas de Tiempo",
-    "expenseLogs": "Registros de Gastos"
+    "timeEntries": "Entradas de Tiempo"
   },
   "tracker": {
     "title": "Registros de Tiempo",
@@ -954,34 +952,6 @@
       "currentWeek": "Semana actual"
     }
   },
-  "expenses": {
-    "title": "Gastos",
-    "searchPlaceholder": "Buscar gastos...",
-    "logExpense": "Registrar Gasto",
-    "newExpense": "Nuevo Gasto",
-    "editExpense": "Editar Gasto",
-    "date": "Fecha",
-    "type": "Tipo",
-    "description": "Descripción",
-    "amount": "Monto",
-    "total": "TOTALES",
-    "engagement": "Encargo",
-    "expenseType": "Tipo de Gasto",
-    "currency": "Moneda",
-    "receiptUrl": "Recibo",
-    "backToList": "Volver a Gastos",
-    "uploadReceipt": "Subir Recibo",
-    "uploading": "Subiendo...",
-    "fileUploaded": "Archivo subido exitosamente",
-    "uploadFailed": "Error al subir archivo",
-    "fileTooLarge": "El archivo debe ser menor a 10MB",
-    "invalidFileType": "Solo se permiten archivos JPG, PNG, WebP y PDF",
-    "fileTypes": "JPG, PNG, WebP o PDF (máx 10MB)",
-    "receiptAttached": "Recibo adjunto",
-    "myExpenses": "Mis Gastos",
-    "loggedBy": "Registrado Por",
-    "allTeamExpenses": "Todos los Gastos del Equipo"
-  },
   "workOrders": {
     "title": "Órdenes de Trabajo",
     "searchPlaceholder": "Buscar órdenes de trabajo...",
@@ -1081,24 +1051,6 @@
     "filterByEngagement": "Filtrar por Encargo",
     "allStaff": "Todo el Personal",
     "allEngagements": "Todos los Encargos"
-  },
-  "adminExpenseLogs": {
-    "title": "Registros de Gastos",
-    "searchPlaceholder": "Buscar por encargo, tipo...",
-    "editExpenseLog": "Editar Registro de Gasto",
-    "expenseType": "Tipo de Gasto",
-    "engagement": "Encargo",
-    "date": "Fecha Incurrida",
-    "amount": "Monto",
-    "currency": "Moneda",
-    "description": "Descripción",
-    "receipt": "Recibo",
-    "filterByExpenseType": "Filtrar por Tipo",
-    "filterByCurrency": "Filtrar por Moneda",
-    "allTypes": "Todos los Tipos",
-    "allCurrencies": "Todas las Monedas",
-    "noReceipt": "Sin recibo",
-    "viewReceipt": "Ver"
   },
   "approval": {
     "title": "Aprobaciones de Hojas de Tiempo",

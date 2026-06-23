@@ -80,12 +80,10 @@
     "fundRequests": "Fund Requests",
     "fundRequestApprovals": "Fund Approvals",
     "fundRequestDisbursements": "Disbursements",
-    "expenses": "Expenses",
     "staff": "Staff",
     "settings": "Settings",
     "signOut": "Sign out",
-    "timeEntries": "Time Entries",
-    "expenseLogs": "Expense Logs"
+    "timeEntries": "Time Entries"
   },
   "tracker": {
     "title": "Time Records",
@@ -954,34 +952,6 @@
       "currentWeek": "Current week"
     }
   },
-  "expenses": {
-    "title": "Expenses",
-    "searchPlaceholder": "Search expenses...",
-    "logExpense": "Log Expense",
-    "newExpense": "New Expense",
-    "editExpense": "Edit Expense",
-    "date": "Date",
-    "type": "Type",
-    "description": "Description",
-    "amount": "Amount",
-    "total": "TOTALS",
-    "engagement": "Engagement",
-    "expenseType": "Expense Type",
-    "currency": "Currency",
-    "receiptUrl": "Receipt",
-    "backToList": "Back to Expenses",
-    "uploadReceipt": "Upload Receipt",
-    "uploading": "Uploading...",
-    "fileUploaded": "File uploaded successfully",
-    "uploadFailed": "Failed to upload file",
-    "fileTooLarge": "File size must be less than 10MB",
-    "invalidFileType": "Only JPG, PNG, WebP and PDF files are allowed",
-    "fileTypes": "JPG, PNG, WebP or PDF (max 10MB)",
-    "receiptAttached": "Receipt attached",
-    "myExpenses": "My Expenses",
-    "loggedBy": "Logged By",
-    "allTeamExpenses": "All Team Expenses"
-  },
   "workOrders": {
     "title": "Work Orders",
     "searchPlaceholder": "Search work orders...",
@@ -1081,24 +1051,6 @@
     "filterByEngagement": "Filter by Engagement",
     "allStaff": "All Staff",
     "allEngagements": "All Engagements"
-  },
-  "adminExpenseLogs": {
-    "title": "Expense Logs",
-    "searchPlaceholder": "Search by engagement, type...",
-    "editExpenseLog": "Edit Expense Log",
-    "expenseType": "Expense Type",
-    "engagement": "Engagement",
-    "date": "Date Incurred",
-    "amount": "Amount",
-    "currency": "Currency",
-    "description": "Description",
-    "receipt": "Receipt",
-    "filterByExpenseType": "Filter by Type",
-    "filterByCurrency": "Filter by Currency",
-    "allTypes": "All Types",
-    "allCurrencies": "All Currencies",
-    "noReceipt": "No receipt",
-    "viewReceipt": "View"
   },
   "approval": {
     "title": "Timesheet Approvals",
