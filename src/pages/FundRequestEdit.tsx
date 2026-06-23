@@ -617,6 +617,7 @@ const FundRequestEdit = () => {
         disbursed={Number(fr.total_disbursed_amount)}
         spent={settlementSpent}
         ivaTotal={settlementIvaTotal}
+        hasNoExpenses={(expenses?.length ?? 0) === 0}
         isSubmitting={settleFr.isPending}
         onConfirm={handleSettle}
       />

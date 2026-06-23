@@ -338,6 +338,9 @@ CREATE POLICY "fre_select" ON public.fund_request_expenses
     )
   );
 
+-- El gerente solo decide gastos mientras la solicitud padre sigue en fase activa
+-- (fondos_entregados). Si la solicitud se cancela/liquida con gastos pendientes,
+-- esos gastos quedan congelados (no se pueden aprobar/observar/rechazar).
 DROP POLICY IF EXISTS "fre_update_manager" ON public.fund_request_expenses;
 CREATE POLICY "fre_update_manager" ON public.fund_request_expenses
   FOR UPDATE TO authenticated
@@ -345,17 +348,21 @@ CREATE POLICY "fre_update_manager" ON public.fund_request_expenses
     status = 'pendiente_aprobacion'
     AND EXISTS (
       SELECT 1 FROM public.fund_request_work_orders frwo
+      JOIN public.fund_requests fr ON fr.fund_request_id = frwo.fund_request_id
       WHERE frwo.fund_request_id = fund_request_expenses.fund_request_id
         AND frwo.wo_id = fund_request_expenses.wo_id
         AND frwo.manager_staff_id = get_my_staff_id()
+        AND fr.status = 'fondos_entregados'
     )
   )
   WITH CHECK (
     status IN ('aprobado_gerente', 'observado', 'rechazado')
     AND EXISTS (
       SELECT 1 FROM public.fund_request_work_orders frwo
+      JOIN public.fund_requests fr ON fr.fund_request_id = frwo.fund_request_id
       WHERE frwo.fund_request_id = fund_request_expenses.fund_request_id
         AND frwo.wo_id = fund_request_expenses.wo_id
         AND frwo.manager_staff_id = get_my_staff_id()
+        AND fr.status = 'fondos_entregados'
     )
   );

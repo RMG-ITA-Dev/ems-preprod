@@ -78,7 +78,11 @@ const FundRequestApprovals = () => {
   const withExpensesToApprove = useMemo(
     () =>
       myAssigned.filter(
-        (fr) => (expenseCounts?.[fr.fund_request_id]?.pendiente_aprobacion ?? 0) > 0,
+        (fr) =>
+          // Solo solicitudes en fase activa: gastos de una solicitud
+          // cancelada/liquidada ya no son accionables por el gerente.
+          fr.status === "fondos_entregados" &&
+          (expenseCounts?.[fr.fund_request_id]?.pendiente_aprobacion ?? 0) > 0,
       ),
     [myAssigned, expenseCounts],
   );

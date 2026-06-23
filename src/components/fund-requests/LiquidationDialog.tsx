@@ -14,6 +14,9 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { NumericInput } from "@/components/ui/numeric-input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { computeSettlement } from "@/lib/fundRequest";
 import type { SettlementResolution } from "@/hooks/useFundRequests";
@@ -25,6 +28,8 @@ interface Props {
   disbursed: number;
   spent: number;
   ivaTotal: number;
+  /** No hay gastos registrados → liquidar devolvería todo. Exige confirmación. */
+  hasNoExpenses?: boolean;
   isSubmitting?: boolean;
   onConfirm: (payload: {
     resolution: SettlementResolution;
@@ -46,6 +51,7 @@ export function LiquidationDialog({
   disbursed,
   spent,
   ivaTotal,
+  hasNoExpenses = false,
   isSubmitting,
   onConfirm,
 }: Props) {
@@ -60,6 +66,8 @@ export function LiquidationDialog({
   const [amount, setAmount] = useState<number>(Math.abs(balance));
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // Confirmación explícita cuando no hay gastos registrados (devolución total).
+  const [ackNoExpenses, setAckNoExpenses] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -67,6 +75,7 @@ export function LiquidationDialog({
       setAmount(Math.abs(balance));
       setNotes("");
       setError(null);
+      setAckNoExpenses(false);
     }
   }, [open, balance]);
 
@@ -77,6 +86,11 @@ export function LiquidationDialog({
       : firmChoice; // a favor de la firma → requiere elección
 
   const handleConfirm = (e: React.MouseEvent) => {
+    if (hasNoExpenses && !ackNoExpenses) {
+      e.preventDefault();
+      setError(t("fundRequest.settlement.noExpensesConfirmRequired"));
+      return;
+    }
     if (!resolution) {
       e.preventDefault();
       setError(t("fundRequest.settlement.chooseResolution"));
@@ -130,6 +144,26 @@ export function LiquidationDialog({
             </div>
           )}
         </div>
+
+        {/* Aviso: sin gastos registrados (devolución total) → confirmar */}
+        {hasNoExpenses && (
+          <Alert className="border-warning/50 text-warning [&>svg]:text-warning">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription className="space-y-2">
+              <p>{t("fundRequest.settlement.noExpensesWarning")}</p>
+              <label className="flex items-center gap-2 text-sm font-medium">
+                <Checkbox
+                  checked={ackNoExpenses}
+                  onCheckedChange={(v) => {
+                    setAckNoExpenses(v === true);
+                    if (error) setError(null);
+                  }}
+                />
+                {t("fundRequest.settlement.noExpensesConfirm")}
+              </label>
+            </AlertDescription>
+          </Alert>
+        )}
 
         {/* Resolución */}
         <div className="space-y-3 py-1">
