@@ -63,8 +63,12 @@ describe("expensePhase", () => {
     expect(expensePhase({ total: 3, aprobado_gerente: 2, revisado_asistente: 1 })).toBe("review");
   });
 
-  it("is 'ready' when all expenses are finalized (none in flight, none to review)", () => {
-    expect(expensePhase({ total: 2, revisado_asistente: 1, rechazado: 1 })).toBe("ready");
+  it("is 'ready' when all expenses are validated (none in flight, none to review)", () => {
+    expect(expensePhase({ total: 2, revisado_asistente: 2 })).toBe("ready");
+  });
+
+  it("is 'delivered' (not ready) when a rejected expense remains — it's still correctable", () => {
+    expect(expensePhase({ total: 2, revisado_asistente: 1, rechazado: 1 })).toBe("delivered");
   });
 
   it("is 'delivered' when there are no expenses yet", () => {

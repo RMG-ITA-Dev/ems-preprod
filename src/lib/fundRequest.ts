@@ -41,14 +41,21 @@ export type ExpenseStatusCounts = Partial<Record<FundRequestExpenseStatus, numbe
 /**
  * Fase de gastos de una solicitud en fondos_entregados (mutuamente excluyente):
  *   review    → hay gastos esperando a contabilidad (aprobado_gerente)
- *   ready     → todos los gastos finalizados (revisados/rechazados) → por liquidar
- *   delivered → recién entregada / gastos aún en proceso del solicitante o gerente
+ *   ready     → todos los gastos finalizados (revisados) → por liquidar
+ *   delivered → recién entregada / gastos aún en proceso (incl. rechazado, que
+ *               sigue siendo corregible) del solicitante o gerente
  */
 export function expensePhase(c?: ExpenseStatusCounts): ExpensePhase {
   const total = c?.total ?? 0;
   const toReview = c?.aprobado_gerente ?? 0;
   const inFlight =
-    (c?.borrador ?? 0) + (c?.pendiente_aprobacion ?? 0) + (c?.observado ?? 0);
+    (c?.borrador ?? 0) +
+    (c?.pendiente_aprobacion ?? 0) +
+    (c?.observado ?? 0) +
+    // rechazado sigue siendo corregible/reenviable → no está finalizado, así que
+    // la solicitud no debe entrar a "Por liquidar" hasta resolverlo (consistente
+    // con unfinishedExpenses en FundRequestEdit).
+    (c?.rechazado ?? 0);
   if (toReview > 0) return "review";
   if (total > 0 && inFlight === 0) return "ready";
   return "delivered";
