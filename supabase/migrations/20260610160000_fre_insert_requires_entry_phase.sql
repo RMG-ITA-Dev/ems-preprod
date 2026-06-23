@@ -15,6 +15,11 @@ CREATE POLICY "fre_insert_requester" ON public.fund_request_expenses
   FOR INSERT TO authenticated
   WITH CHECK (
     status = 'borrador'
+    -- El flag de devolución del asistente NO puede nacer en true: solo lo
+    -- enciende el asistente (admin) al devolver un gasto. Si no, un solicitante
+    -- crearía un borrador con el flag y, tras una observación del gerente, lo
+    -- reenviaría directo a contabilidad saltándose la re-aprobación.
+    AND returned_by_assistant = false
     AND EXISTS (
       SELECT 1 FROM public.fund_requests fr
       WHERE fr.fund_request_id = fund_request_expenses.fund_request_id
