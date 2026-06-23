@@ -343,11 +343,12 @@ export function WorkOrderForm({
     ((isPending || isApproved || isRejected) &&
       (canApproveRisk || hasRiskData || isEmergencyApproved || isRiskRejected));
   // The Riesgos approver acts while risk is pending review — never on a rejected risk
-  // track (waits for re-submission) nor on a Socio-rejected (blocked) OT.
+  // track (waits for re-submission). The Socio and Riesgos tracks are independent, so a
+  // Socio rejection must NOT hide the Risk actions: Riesgos can still sign off on its own
+  // track even when the Socio has rejected the OT.
   const showRiskActions =
     canApproveRisk &&
     !isDraft &&
-    !isRejected &&
     riskStatus !== "Approved" &&
     riskStatus !== "Rejected";
   // Emergency (risk data empty) requires two sequential sign-offs. Normal/post-completion
