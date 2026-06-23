@@ -1,5 +1,5 @@
 import { useLocation, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Grid3X3, Timer, Receipt, Menu } from "lucide-react";
+import { LayoutDashboard, Grid3X3, Timer, Menu } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 
@@ -11,7 +11,6 @@ const navItems = [
   { path: "/", icon: LayoutDashboard, labelKey: "nav.dashboard" },
   { path: "/timesheet", icon: Grid3X3, labelKey: "nav.timeSheet" },
   { path: "/tracker", icon: Timer, labelKey: "nav.tracker" },
-  { path: "/expenses", icon: Receipt, labelKey: "nav.expenses" },
 ];
 
 export function MobileBottomNav({ onMoreClick }: MobileBottomNavProps) {

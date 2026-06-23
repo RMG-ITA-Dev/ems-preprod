@@ -39,7 +39,7 @@ export { useCreateBudgetLine, useUpdateBudgetLine, useDeleteBudgetLine } from ".
 export { useCreateExpenseBudget, useUpdateExpenseBudget, useDeleteExpenseBudget } from "./useExpenseBudgetMutations";
 
 // Admin mutations
-export { useUpdateTimeEntry, useUpdateExpenseLog } from "./useAdminMutations";
+export { useUpdateTimeEntry } from "./useAdminMutations";
 
 // Holidays
 export { useCreateHoliday, useUpdateHoliday, useDeleteHoliday, useReplicateHolidaysToNextYear } from "./useHolidayMutations";
