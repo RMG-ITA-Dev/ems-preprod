@@ -56,6 +56,11 @@ const FundRequestApprovals = () => {
       // Un borrador no enviado nunca entra a la cola de aprobación (puede verse
       // si el gerente es también el solicitante de su propio borrador).
       if (fr.status === "borrador") return null;
+      // Si el parent request ya fue movido a observado/rechazado por la accion
+      // de OTRO gerente, mostrar en la pestana "Regresadas" aunque este gerente
+      // aun tenga OTs pendientes, porque OtApprovalList bloquea decisiones
+      // cuando el parent no esta en pendiente_aprobacion.
+      if (fr.status === "observado" || fr.status === "rechazado") return "returned";
       if (fr.status === "cancelado") return "returned";
       const myOts = (fr.fund_request_work_orders ?? []).filter(
         (o) => o.manager_staff_id === myStaffId,

@@ -265,6 +265,47 @@ CREATE POLICY "fr_wo_manager_decide" ON public.fund_request_work_orders
   )
   WITH CHECK (manager_staff_id = get_my_staff_id());
 
+-- =====================================================
+-- GUARD: proteger columnas contables/de liquidación del UPDATE directo del
+-- solicitante. La RLS `fr_update_requester_draft` es row-level y no impide
+-- que el solicitante modifique cualquier columna mientras el status sea
+-- editable. Este trigger bloquea cambios en campos contables si el usuario
+-- no es admin.
+-- =====================================================
+CREATE OR REPLACE FUNCTION public.fr_guard_accounting_cols()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public' AS $$
+BEGIN
+  IF is_admin() THEN
+    RETURN NEW;
+  END IF;
+
+  IF (
+    NEW.total_disbursed_amount IS DISTINCT FROM OLD.total_disbursed_amount OR
+    NEW.disbursed_at IS DISTINCT FROM OLD.disbursed_at OR
+    NEW.disbursed_by_staff_id IS DISTINCT FROM OLD.disbursed_by_staff_id OR
+    NEW.accounting_notes IS DISTINCT FROM OLD.accounting_notes OR
+    NEW.closed_at IS DISTINCT FROM OLD.closed_at OR
+    NEW.settlement_total_spent IS DISTINCT FROM OLD.settlement_total_spent OR
+    NEW.settlement_balance IS DISTINCT FROM OLD.settlement_balance OR
+    NEW.settlement_iva_total IS DISTINCT FROM OLD.settlement_iva_total OR
+    NEW.settlement_resolution IS DISTINCT FROM OLD.settlement_resolution OR
+    NEW.settlement_amount IS DISTINCT FROM OLD.settlement_amount OR
+    NEW.settlement_notes IS DISTINCT FROM OLD.settlement_notes OR
+    NEW.settled_at IS DISTINCT FROM OLD.settled_at OR
+    NEW.settled_by_staff_id IS DISTINCT FROM OLD.settled_by_staff_id
+  ) THEN
+    RAISE EXCEPTION 'Solo contabilidad puede modificar campos contables o de liquidacion';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS tr_fr_guard_accounting_cols ON public.fund_requests;
+CREATE TRIGGER tr_fr_guard_accounting_cols
+  BEFORE UPDATE ON public.fund_requests
+  FOR EACH ROW EXECUTE FUNCTION public.fr_guard_accounting_cols();
+
 -- Admin override (mantener gestión por contabilidad)
 DROP POLICY IF EXISTS "fr_wo_admin" ON public.fund_request_work_orders;
 CREATE POLICY "fr_wo_admin" ON public.fund_request_work_orders
