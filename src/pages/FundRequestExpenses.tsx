@@ -106,7 +106,15 @@ const FundRequestExpenses = () => {
       ),
     [expenses],
   );
-  const canSubmitAll = canAddExpenses && submittable.length > 0;
+  // Reenviar correcciones (observado/rechazado) NO depende de poder agregar
+  // gastos nuevos: aunque haya un gasto ya revisado (bloqueado), el solicitante
+  // debe poder reenviar lo corregido. Solo se respeta el gate de los devueltos
+  // por contabilidad (que se reenvían uno por uno).
+  const canSubmitAll =
+    isRequester &&
+    fr?.status === "fondos_entregados" &&
+    !hasReturnedByAssistant &&
+    submittable.length > 0;
 
   const handleSubmitAll = async () => {
     if (!id) return;

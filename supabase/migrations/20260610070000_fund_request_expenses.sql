@@ -83,6 +83,8 @@ CREATE TRIGGER tr_fre_touch
 -- =====================================================
 CREATE OR REPLACE FUNCTION public.fre_validate_wo_in_request()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
+DECLARE
+  v_fr_currency text;
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM public.fund_request_work_orders frwo
@@ -91,16 +93,25 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'Work order % is not associated with fund request %', NEW.wo_id, NEW.fund_request_id;
   END IF;
+
+  -- La moneda del gasto debe coincidir con la de la solicitud (la liquidación
+  -- suma montos como números planos bajo fr.currency; mezclar monedas corrompe
+  -- el saldo). El form siempre manda la moneda de la solicitud, pero por API no.
+  SELECT currency INTO v_fr_currency
+  FROM public.fund_requests WHERE fund_request_id = NEW.fund_request_id;
+  IF NEW.currency IS DISTINCT FROM v_fr_currency THEN
+    RAISE EXCEPTION 'La moneda del gasto (%) no coincide con la de la solicitud (%)', NEW.currency, v_fr_currency;
+  END IF;
+
   RETURN NEW;
 END;
 $$;
 
--- Dispara también con cambios de fund_request_id: si solo se moviera el gasto a
--- otra solicitud (dejando el wo_id), había que re-validar que la OT pertenezca
--- a la nueva solicitud.
+-- Dispara con cambios de wo_id, fund_request_id o currency: mover el gasto a
+-- otra solicitud (revalidar pertenencia) o cambiar la moneda deben re-validarse.
 DROP TRIGGER IF EXISTS tr_fre_validate_wo ON public.fund_request_expenses;
 CREATE TRIGGER tr_fre_validate_wo
-  BEFORE INSERT OR UPDATE OF wo_id, fund_request_id ON public.fund_request_expenses
+  BEFORE INSERT OR UPDATE OF wo_id, fund_request_id, currency ON public.fund_request_expenses
   FOR EACH ROW EXECUTE FUNCTION public.fre_validate_wo_in_request();
 
 -- =====================================================

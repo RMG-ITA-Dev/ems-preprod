@@ -38,7 +38,10 @@ SELECT
 FROM public.work_orders wo
 JOIN public.engagements e ON e.engagement_id = wo.engagement_id
 LEFT JOIN public.staff s ON s.staff_id = e.manager_id
-WHERE wo.approval_status = 'Approved';
+-- Solo OTs aprobadas y solo para cuentas con staff vinculado (replica el guard
+-- de la policy vieja: una cuenta auth sin staff no debe enumerar engagements).
+WHERE wo.approval_status = 'Approved'
+  AND get_my_staff_id() IS NOT NULL;
 
 GRANT SELECT ON public.fund_request_selectable_work_orders TO authenticated;
 
