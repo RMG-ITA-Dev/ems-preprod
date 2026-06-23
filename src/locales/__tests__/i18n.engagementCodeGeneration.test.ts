@@ -31,7 +31,6 @@ const NEW_KEYS = [
   "funcion_calidad",
   // BUG 0603-140: engagement code visibility (preview + post-create confirmation modal)
   "codePreviewHelp",
-  "codePreviewPending",
   "codePreviewIncomplete",
   "codeCreatedTitle",
   "codeCreatedDescription",

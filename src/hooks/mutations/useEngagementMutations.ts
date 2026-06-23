@@ -47,6 +47,9 @@ export function useCreateEngagement() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["engagements"] });
+      // BUG #0603-140: the new engagement is a candidate for the Work Matrix picker; invalidate
+      // so the "Go to Work Matrix" shortcut doesn't land on a stale (60s-fresh) candidate cache.
+      queryClient.invalidateQueries({ queryKey: ["engagements-without-worksheet"] });
       toast.success(i18n.t("messages.createSuccess", { entity: i18n.t("entities.engagement") }));
     },
     onError: createMutationErrorHandler("creating engagement"),

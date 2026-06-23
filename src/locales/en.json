@@ -562,7 +562,6 @@
     "code": "Code",
     "engagementCode": "Engagement Code",
     "codePreviewHelp": "This code will be assigned automatically when you save.",
-    "codePreviewPending": "Pending",
     "codePreviewIncomplete": "Select fiscal year, office, service and function to preview the code.",
     "codeCreatedTitle": "Engagement created successfully",
     "codeCreatedDescription": "The engagement is ready to plan and manage the service. Save its code for reference throughout the engagement lifecycle.",

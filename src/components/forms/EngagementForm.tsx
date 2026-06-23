@@ -279,6 +279,11 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       approval_required:   approvalRequired,
     });
 
+    // BUG #0603-140: the engagement is now persisted, so clear the dirty state before the
+    // confirmation modal opens. Otherwise isDirty stays true while the modal is up and a
+    // browser back-button would trigger a misleading "unsaved changes" warning.
+    form.reset(data);
+
     // BUG #0603-140: show the assigned code in a confirmation modal; navigation is
     // deferred until it closes. Defensive fallback: if no code came back, navigate as before.
     if (created?.engagement_code) {

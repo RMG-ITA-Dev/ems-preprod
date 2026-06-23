@@ -562,7 +562,6 @@
     "code": "Código",
     "engagementCode": "Código del Encargo",
     "codePreviewHelp": "Este código se asignará automáticamente al guardar.",
-    "codePreviewPending": "Pendiente",
     "codePreviewIncomplete": "Seleccione año fiscal, oficina, servicio y función para previsualizar el código.",
     "codeCreatedTitle": "Encargo creado correctamente",
     "codeCreatedDescription": "El encargo está listo para planificar y gestionar el servicio. Guarde su código como referencia durante todo el ciclo de vida del encargo.",
