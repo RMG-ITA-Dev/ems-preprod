@@ -38,6 +38,11 @@ const NEW_KEYS = [
   "copyCode",
   "codeCopied",
   "codeCopyError",
+  // BUG 0603-140 (enhancement): enriched post-creation modal
+  "codeGeneratedLabel",
+  "summaryTitle",
+  "createAnother",
+  "goToWorkMatrix",
 ] as const;
 
 describe("i18n engagement code-generation keys (BUG 0306-82)", () => {

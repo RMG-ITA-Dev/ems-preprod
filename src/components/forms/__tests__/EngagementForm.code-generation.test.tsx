@@ -240,6 +240,13 @@ describe("EngagementForm render — create mode (BUG 0306-82 / 0603-140)", () =>
     expect(screen.queryByDisplayValue(/\d{4}\.\d{3}\./)).not.toBeInTheDocument();
   });
 
+  it("EF-R8: create-mode preview block uses the semantic warning token (yellow highlight)", () => {
+    render(<EngagementForm />);
+    const preview = screen.getByTestId("engagement-code-preview");
+    expect(preview).toHaveClass("bg-warning/10");
+    expect(preview).toHaveClass("border-warning/30");
+  });
+
   it("EF-R2: renders the Fiscal Year select label", () => {
     render(<EngagementForm />);
     expect(screen.getByText("engagement.anioFiscal *")).toBeInTheDocument();
@@ -262,11 +269,15 @@ describe("EngagementForm render — create mode (BUG 0306-82 / 0603-140)", () =>
 });
 
 describe("EngagementForm render — edit mode (BUG 0306-82)", () => {
-  it("EF-R5: renders engagement code as a disabled read-only input (not editable)", () => {
+  it("EF-R5: renders engagement code as a disabled read-only input with a subtle warning accent", () => {
     render(<EngagementForm engagement={mockEngagement} />);
     expect(screen.getByText("engagement.engagementCode")).toBeInTheDocument();
-    const codeInput = screen.getByDisplayValue("2027.121.001");
+    const codeInput = screen.getByTestId("engagement-code-readonly");
     expect(codeInput).toBeDisabled();
+    expect(codeInput).toHaveValue("2027.121.001");
+    // Subtle accent (border only), not the full warning background used in create mode.
+    expect(codeInput).toHaveClass("border-warning/40");
+    expect(codeInput).not.toHaveClass("bg-warning/10");
   });
 
   it("EF-R6: fiscal year/office/practice/function labels are still present in edit mode", () => {

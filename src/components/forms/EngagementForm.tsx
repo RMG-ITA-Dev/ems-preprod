@@ -41,19 +41,11 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { EngagementCreatedDialog } from "@/components/forms/EngagementCreatedDialog";
 import { Engagement, useClients } from "@/hooks/useEmsData";
 import { useCategoryStaff } from "@/hooks/useCategoryStaff";
 import { useCreateEngagement, useUpdateEngagement, useDeleteEngagement } from "@/hooks/mutations";
-import { Trash2, CalendarIcon, AlertCircle, Copy } from "lucide-react";
-import { toast } from "sonner";
+import { Trash2, CalendarIcon, AlertCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Switch } from "@/components/ui/switch";
@@ -65,6 +57,22 @@ const suggestFiscalYear = (): number => {
 }
 const FISCAL_YEAR_START = 2025
 const FISCAL_YEAR_LOOKAHEAD = 3
+
+// BUG #0603-140: reuse the same i18n keys as the form's SelectItems to label the
+// created-engagement summary in the confirmation modal.
+const PRACTICA_LABEL_KEYS: Record<number, string> = {
+  0: "engagement.practica_firmwide",
+  1: "engagement.practica_auditoria",
+  2: "engagement.practica_consultoria",
+  3: "engagement.practica_tax",
+  4: "engagement.practica_growthStrategy",
+}
+const FUNCION_LABEL_KEYS: Record<number, string> = {
+  0: "engagement.funcion_adm",
+  1: "engagement.funcion_cli",
+  2: "engagement.funcion_cap",
+  3: "engagement.funcion_calidad",
+}
 
 const formSchema = z.object({
   engagement_name: z.string()
@@ -97,9 +105,10 @@ interface EngagementFormProps {
   onDirtyChange?: (dirty: boolean) => void;
   onCancel?: () => void;
   onSaveSuccess?: () => void;
+  onGoToWorkMatrix?: () => void;
 }
 
-export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSuccess }: EngagementFormProps) {
+export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSuccess, onGoToWorkMatrix }: EngagementFormProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { isAdmin } = useUserRole();
@@ -146,8 +155,16 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     },
   });
 
-  // BUG #0603-140: code assigned by the server, shown in a confirmation modal after create
-  const [createdCode, setCreatedCode] = useState<string | null>(null);
+  // BUG #0603-140: data assigned by the server, shown in a confirmation modal after create
+  const [createdInfo, setCreatedInfo] = useState<{
+    code: string;
+    name: string;
+    clientName: string;
+    anioFiscal: number;
+    service: string;
+    funcion: string;
+    status: string;
+  } | null>(null);
 
   // Policy flags state (outside react-hook-form since they're admin-only)
   const [workOrderRequired, setWorkOrderRequired] = useState(engagement?.work_order_required ?? true);
@@ -265,7 +282,16 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     // BUG #0603-140: show the assigned code in a confirmation modal; navigation is
     // deferred until it closes. Defensive fallback: if no code came back, navigate as before.
     if (created?.engagement_code) {
-      setCreatedCode(created.engagement_code);
+      const clientName = clientOptions.find((c) => c.client_id === data.client_id)?.client_legal_name ?? "";
+      setCreatedInfo({
+        code: created.engagement_code,
+        name: data.engagement_name,
+        clientName,
+        anioFiscal: data.anio_fiscal as number,
+        service: data.practica != null ? t(PRACTICA_LABEL_KEYS[data.practica]) : "",
+        funcion: data.funcion != null ? t(FUNCION_LABEL_KEYS[data.funcion]) : "",
+        status: t(`status.${data.status}`),
+      });
       return;
     }
     if (onSaveSuccess) {
@@ -301,24 +327,44 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     ? null
     : `${wAnio}.${wOficina}${wPractica}${wFuncion}.`;
 
-  const handleCopyCode = async () => {
-    if (!createdCode) return;
-    try {
-      await navigator.clipboard.writeText(createdCode);
-      toast.success(t("engagement.codeCopied"));
-    } catch {
-      toast.error(t("engagement.codeCopyError"));
-    }
-  };
-
-  // Defer navigation until the success modal is dismissed (button or `X`), so the
-  // user always sees the assigned code before leaving the form.
+  // Defer navigation until the success modal is dismissed (Close button or `X`), so
+  // the user always sees the assigned code before leaving the form.
   const handleSuccessDialogClose = () => {
-    setCreatedCode(null);
+    setCreatedInfo(null);
     if (onSaveSuccess) {
       onSaveSuccess();
     } else {
       navigate("/engagements");
+    }
+  };
+
+  // Create another: clear the modal, reset the form to creation defaults and policy
+  // flags, and stay on the page. form.reset() clears isDirty, so no LeavePageDialog fires.
+  const handleCreateAnother = () => {
+    setCreatedInfo(null);
+    form.reset({
+      engagement_name: "",
+      anio_fiscal: suggestFiscalYear(),
+      oficina: undefined,
+      practica: undefined,
+      funcion: undefined,
+      client_id: "",
+      partner_id: "",
+      manager_id: "",
+      status: "active",
+    });
+    setWorkOrderRequired(true);
+    setActivityRequired(true);
+    setIsInternal(false);
+    setApprovalRequired(true);
+  };
+
+  const handleGoToWorkMatrix = () => {
+    setCreatedInfo(null);
+    if (onGoToWorkMatrix) {
+      onGoToWorkMatrix();
+    } else {
+      navigate("/worksheets");
     }
   };
 
@@ -386,18 +432,27 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                 {isEdit ? (
                   <FormItem>
                     <FormLabel>{t("engagement.engagementCode")}</FormLabel>
-                    <Input value={engagement?.engagement_code ?? ""} readOnly disabled />
+                    <Input
+                      data-testid="engagement-code-readonly"
+                      value={engagement?.engagement_code ?? ""}
+                      readOnly
+                      disabled
+                      className="font-mono border-warning/40"
+                    />
                   </FormItem>
                 ) : (
                   <FormItem>
                     <FormLabel>{t("engagement.engagementCode")}</FormLabel>
-                    <div className="flex h-10 items-center rounded-md border border-input bg-muted px-3 text-sm">
+                    <div
+                      data-testid="engagement-code-preview"
+                      className="flex h-10 items-center rounded-md border border-warning/30 bg-warning/10 px-3 text-sm"
+                    >
                       {previewIncomplete ? (
                         <span className="text-muted-foreground">{t("engagement.codePreviewIncomplete")}</span>
                       ) : (
-                        <span className="font-mono">
+                        <span className="font-mono text-warning">
                           {previewCodePrefix}
-                          <span className="text-muted-foreground">---</span>
+                          <span className="text-warning/60">---</span>
                         </span>
                       )}
                     </div>
@@ -733,26 +788,19 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       </div>
 
       {/* BUG #0603-140: confirmation modal showing the server-assigned code */}
-      <Dialog open={!!createdCode} onOpenChange={(open) => { if (!open) handleSuccessDialogClose(); }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t("engagement.codeCreatedTitle")}</DialogTitle>
-            <DialogDescription>{t("engagement.codeCreatedDescription")}</DialogDescription>
-          </DialogHeader>
-          <div className="flex items-center justify-center py-4">
-            <span className="font-mono text-2xl font-semibold">{createdCode}</span>
-          </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={handleCopyCode}>
-              <Copy className="h-4 w-4 mr-2" />
-              {t("engagement.copyCode")}
-            </Button>
-            <Button type="button" onClick={handleSuccessDialogClose}>
-              {t("common.close")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <EngagementCreatedDialog
+        open={!!createdInfo}
+        code={createdInfo?.code ?? ""}
+        name={createdInfo?.name ?? ""}
+        clientName={createdInfo?.clientName ?? ""}
+        anioFiscal={createdInfo?.anioFiscal ?? ""}
+        service={createdInfo?.service ?? ""}
+        funcion={createdInfo?.funcion ?? ""}
+        status={createdInfo?.status ?? ""}
+        onClose={handleSuccessDialogClose}
+        onCreateAnother={handleCreateAnother}
+        onGoToWorkMatrix={handleGoToWorkMatrix}
+      />
     </div>
   );
 }
