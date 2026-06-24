@@ -230,6 +230,7 @@ export function useApproveEmergencyReview() {
           emergency_review_at: new Date().toISOString(),
         })
         .eq("wo_id", woId)
+        .is("emergency_review_at", null) // first click wins; concurrent double-click fails instead of overwriting
         .select()
         .single();
       if (error) throw error;

@@ -254,10 +254,11 @@ describe("useWorkOrderMutations", () => {
   });
 
   describe("useApproveEmergencyReview (emergency step 1: Riesgo)", () => {
-    it("records the first sign-off only — no deadline, no close", async () => {
+    it("records the first sign-off only — no deadline, no close; guard prevents double-click overwrite", async () => {
       const mockSingle = vi.fn().mockResolvedValue({ data: { wo_id: "wo-1" }, error: null });
       const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
-      const mockEq = vi.fn().mockReturnValue({ select: mockSelect });
+      const mockIs = vi.fn().mockReturnValue({ select: mockSelect });
+      const mockEq = vi.fn().mockReturnValue({ is: mockIs });
       const mockUpdate = vi.fn().mockReturnValue({ eq: mockEq });
       vi.mocked(supabase.from).mockReturnValue({ update: mockUpdate } as any);
 
@@ -273,6 +274,8 @@ describe("useWorkOrderMutations", () => {
       expect(arg.emergency_review_at).toBeTruthy();
       expect("risk_status" in arg).toBe(false);
       expect("emergency_deadline_at" in arg).toBe(false);
+      // Guard: only writes when emergency_review_at is null (first click wins).
+      expect(mockIs).toHaveBeenCalledWith("emergency_review_at", null);
       // Only one UPDATE — no conditional close.
       expect(mockUpdate).toHaveBeenCalledTimes(1);
     });
