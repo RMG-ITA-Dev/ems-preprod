@@ -253,13 +253,20 @@ export function useApproveEmergencyPartner() {
     }) => {
       const deadline = new Date();
       deadline.setDate(deadline.getDate() + 7); // +7 calendar days (~5 business days)
+      // Use local date components to avoid UTC offset shifting the stored DATE by one day
+      // (toISOString() returns UTC, which can be ±1 day from local time in Bolivia/UTC-4).
+      const deadlineStr = [
+        deadline.getFullYear(),
+        String(deadline.getMonth() + 1).padStart(2, "0"),
+        String(deadline.getDate()).padStart(2, "0"),
+      ].join("-");
       const { data: result, error } = await supabase
         .from("work_orders")
         .update({
           emergency_partner_by: staffId,
           emergency_partner_at: new Date().toISOString(),
           risk_status: "Emergency_Approved",
-          emergency_deadline_at: deadline.toISOString().split("T")[0],
+          emergency_deadline_at: deadlineStr,
         })
         .eq("wo_id", woId)
         .not("emergency_review_at", "is", null)
