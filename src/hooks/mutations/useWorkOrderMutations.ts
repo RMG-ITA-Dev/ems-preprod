@@ -493,7 +493,18 @@ export function useUnsubmitWorkOrder() {
     mutationFn: async (woId: string) => {
       const { data: result, error } = await supabase
         .from("work_orders")
-        .update({ approval_status: "Draft" })
+        .update({
+          approval_status: "Draft",
+          // Clear emergency signing timestamps so a re-submit starts the two-step
+          // flow from scratch; stale emergency_review_at would let the partner skip
+          // the assistant review on the next emergency submission.
+          emergency_review_by: null,
+          emergency_review_at: null,
+          emergency_partner_by: null,
+          emergency_partner_at: null,
+          emergency_deadline_at: null,
+          emergency_justification: null,
+        })
         .eq("wo_id", woId)
         .select()
         .single();

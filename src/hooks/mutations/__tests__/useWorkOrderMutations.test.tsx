@@ -306,9 +306,14 @@ describe("useWorkOrderMutations", () => {
         .find((arg) => arg.risk_status === "Emergency_Approved");
       expect(riskWrite).toBeTruthy();
       expect(riskWrite.emergency_partner_by).toBe("admin-2");
-      const expected = new Date();
-      expected.setDate(expected.getDate() + 7);
-      expect(riskWrite.emergency_deadline_at).toBe(expected.toISOString().split("T")[0]);
+      const d = new Date();
+      d.setDate(d.getDate() + 7);
+      const expectedDeadline = [
+        d.getFullYear(),
+        String(d.getMonth() + 1).padStart(2, "0"),
+        String(d.getDate()).padStart(2, "0"),
+      ].join("-");
+      expect(riskWrite.emergency_deadline_at).toBe(expectedDeadline);
       // Conditional close gated on the Socio track.
       expect(mockUpdate).toHaveBeenCalledWith({ approval_status: "Approved" });
       expect(mockNot).toHaveBeenCalledWith("approved_at", "is", null);
@@ -497,7 +502,7 @@ describe("useWorkOrderMutations", () => {
   });
 
   describe("useUnsubmitWorkOrder", () => {
-    it("writes ONLY { approval_status: 'Draft' } — no toca approved_at ni risk_status (contrato bug 0306-78)", async () => {
+    it("sets approval_status=Draft and nulls emergency signing timestamps — no toca approved_at ni risk_status (contrato bug 0306-78)", async () => {
       const mockData = { wo_id: "wo-1", approval_status: "Draft" };
       const mockSingle = vi.fn().mockResolvedValue({ data: mockData, error: null });
       const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
@@ -513,8 +518,17 @@ describe("useWorkOrderMutations", () => {
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
       const arg = mockUpdate.mock.calls[0][0];
-      expect(arg).toEqual({ approval_status: "Draft" });
-      // La pista Socio (approved_at) y la pista Riesgos (risk_status) deben permanecer.
+      expect(arg.approval_status).toBe("Draft");
+      // Emergency signing timestamps must be cleared so a re-submit starts the
+      // two-step flow from scratch (stale emergency_review_at would let the partner
+      // skip the assistant review).
+      expect(arg.emergency_review_by).toBeNull();
+      expect(arg.emergency_review_at).toBeNull();
+      expect(arg.emergency_partner_by).toBeNull();
+      expect(arg.emergency_partner_at).toBeNull();
+      expect(arg.emergency_deadline_at).toBeNull();
+      expect(arg.emergency_justification).toBeNull();
+      // Socio track (approved_at) and Risk track (risk_status) must NOT be touched.
       expect("approved_at" in arg).toBe(false);
       expect("risk_status" in arg).toBe(false);
       expect(mockEq).toHaveBeenCalledWith("wo_id", "wo-1");
