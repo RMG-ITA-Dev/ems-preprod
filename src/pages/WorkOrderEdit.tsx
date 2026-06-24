@@ -325,8 +325,16 @@ const WorkOrderEdit = () => {
       ceacNumber,
       sanApprovalId,
       riskLevel,
-      // Only meaningful for the emergency path (empty risk data).
-      emergencyJustification: allEmpty ? (emergencyJustification ?? null) : null,
+      // Emergency justification:
+      //   null  → normal submit with data (clear any stale value).
+      //   value → new emergency submit (from modal).
+      //   undefined → Risk track already Emergency_Approved, re-submitting Socio only;
+      //               useSubmitWorkOrder will skip writing the key, preserving DB value.
+      emergencyJustification: !allEmpty
+        ? null
+        : workOrder.risk_status === "Emergency_Approved"
+          ? undefined
+          : (emergencyJustification ?? null),
     });
     riskEditedRef.current = false;
   };
@@ -421,7 +429,10 @@ const WorkOrderEdit = () => {
 
   const handleUnsubmit = async () => {
     if (!workOrder) return;
-    await unsubmitWorkOrder.mutateAsync(workOrder.wo_id);
+    await unsubmitWorkOrder.mutateAsync({
+      woId: workOrder.wo_id,
+      currentRiskStatus: workOrder.risk_status,
+    });
   };
 
   const handleResync = async () => {

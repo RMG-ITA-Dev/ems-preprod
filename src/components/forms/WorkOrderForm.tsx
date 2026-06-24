@@ -1344,8 +1344,10 @@ export function WorkOrderForm({
               {onSubmitForApproval && (
                 <LoadingButton
                   onClick={() => {
-                    // Empty risk data => emergency: confirm + capture motive first.
-                    if (riskAllEmpty) {
+                    // Empty risk data + risk NOT yet approved => new emergency: capture motive.
+                    // If risk is already Emergency_Approved (re-submitting Socio track only),
+                    // skip the modal — no new justification needed.
+                    if (riskAllEmpty && !riskApproved) {
                       setSubmitJustification("");
                       setEmergencyDialogMode("submit");
                       setSubmitEmergencyDialogOpen(true);

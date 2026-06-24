@@ -502,7 +502,7 @@ describe("useWorkOrderMutations", () => {
   });
 
   describe("useUnsubmitWorkOrder", () => {
-    it("sets approval_status=Draft and nulls emergency signing timestamps — no toca approved_at ni risk_status (contrato bug 0306-78)", async () => {
+    it("sets approval_status=Draft and nulls emergency signing timestamps when risk track is in-progress — no toca approved_at ni risk_status (contrato bug 0306-78)", async () => {
       const mockData = { wo_id: "wo-1", approval_status: "Draft" };
       const mockSingle = vi.fn().mockResolvedValue({ data: mockData, error: null });
       const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
@@ -514,7 +514,7 @@ describe("useWorkOrderMutations", () => {
         wrapper: createWrapper(),
       });
 
-      result.current.mutate("wo-1");
+      result.current.mutate({ woId: "wo-1", currentRiskStatus: "Pending" });
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
       const arg = mockUpdate.mock.calls[0][0];
@@ -531,6 +531,34 @@ describe("useWorkOrderMutations", () => {
       // Socio track (approved_at) and Risk track (risk_status) must NOT be touched.
       expect("approved_at" in arg).toBe(false);
       expect("risk_status" in arg).toBe(false);
+      expect(mockEq).toHaveBeenCalledWith("wo_id", "wo-1");
+    });
+
+    it("preserves emergency audit columns when risk track is Emergency_Approved (Socio-only withdraw)", async () => {
+      const mockData = { wo_id: "wo-1", approval_status: "Draft" };
+      const mockSingle = vi.fn().mockResolvedValue({ data: mockData, error: null });
+      const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
+      const mockEq = vi.fn().mockReturnValue({ select: mockSelect });
+      const mockUpdate = vi.fn().mockReturnValue({ eq: mockEq });
+      vi.mocked(supabase.from).mockReturnValue({ update: mockUpdate } as any);
+
+      const { result } = renderHook(() => useUnsubmitWorkOrder(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate({ woId: "wo-1", currentRiskStatus: "Emergency_Approved" });
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      const arg = mockUpdate.mock.calls[0][0];
+      expect(arg.approval_status).toBe("Draft");
+      // Emergency columns must NOT be cleared: the risk track is fully signed off
+      // and the audit record must be preserved.
+      expect("emergency_review_by" in arg).toBe(false);
+      expect("emergency_review_at" in arg).toBe(false);
+      expect("emergency_partner_by" in arg).toBe(false);
+      expect("emergency_partner_at" in arg).toBe(false);
+      expect("emergency_deadline_at" in arg).toBe(false);
+      expect("emergency_justification" in arg).toBe(false);
       expect(mockEq).toHaveBeenCalledWith("wo_id", "wo-1");
     });
   });

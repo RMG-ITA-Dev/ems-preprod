@@ -90,22 +90,28 @@ export function useSubmitWorkOrder() {
       // (emergency flow). Riesgos approvers never enter a justification.
       emergencyJustification?: string | null;
     }) => {
+      // No se toca risk_status: las pistas son independientes, así el Aprobado de
+      // Riesgos persiste tras un rechazo del Socio + Retirar + reenviar.
+      // (notes tampoco se resetea — respeta fix 49c2ac5.)
+      const submitPayload: Record<string, unknown> = {
+        approval_status: "Pending_Approval",
+        ceac_completed_at: ceacCompletedAt ?? null,
+        ceac_notes: ceacNotes ?? null,
+        san_completed_at: sanCompletedAt ?? null,
+        san_notes: sanNotes ?? null,
+        ceac_number: ceacNumber ?? null,
+        san_approval_id: sanApprovalId ?? null,
+        risk_level: riskLevel ?? null,
+      };
+      // undefined = re-submitting Socio track with Risk already Emergency_Approved;
+      // skip the key entirely so the existing emergency_justification is preserved in DB.
+      // null = normal submit or new emergency cleared — write to clear/set.
+      if (emergencyJustification !== undefined) {
+        submitPayload.emergency_justification = emergencyJustification;
+      }
       const { data: result, error } = await supabase
         .from("work_orders")
-        .update({
-          approval_status: "Pending_Approval",
-          // No se toca risk_status: las pistas son independientes, así el Aprobado de
-          // Riesgos persiste tras un rechazo del Socio + Retirar + reenviar.
-          // (notes tampoco se resetea — respeta fix 49c2ac5.)
-          ceac_completed_at: ceacCompletedAt ?? null,
-          ceac_notes: ceacNotes ?? null,
-          san_completed_at: sanCompletedAt ?? null,
-          san_notes: sanNotes ?? null,
-          ceac_number: ceacNumber ?? null,
-          san_approval_id: sanApprovalId ?? null,
-          risk_level: riskLevel ?? null,
-          emergency_justification: emergencyJustification ?? null,
-        })
+        .update(submitPayload)
         .eq("wo_id", woId)
         .select()
         .single();
@@ -490,21 +496,28 @@ export function useRejectWorkOrder() {
 export function useUnsubmitWorkOrder() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (woId: string) => {
+    mutationFn: async ({
+      woId,
+      currentRiskStatus,
+    }: {
+      woId: string;
+      currentRiskStatus?: string | null;
+    }) => {
+      const updatePayload: Record<string, unknown> = { approval_status: "Draft" };
+      // Only clear emergency signing timestamps when the risk track has NOT yet reached
+      // Emergency_Approved. If it has (both signatures done), this withdrawal only
+      // resets the Socio track — preserve the emergency audit record.
+      if (currentRiskStatus !== "Emergency_Approved") {
+        updatePayload.emergency_review_by = null;
+        updatePayload.emergency_review_at = null;
+        updatePayload.emergency_partner_by = null;
+        updatePayload.emergency_partner_at = null;
+        updatePayload.emergency_deadline_at = null;
+        updatePayload.emergency_justification = null;
+      }
       const { data: result, error } = await supabase
         .from("work_orders")
-        .update({
-          approval_status: "Draft",
-          // Clear emergency signing timestamps so a re-submit starts the two-step
-          // flow from scratch; stale emergency_review_at would let the partner skip
-          // the assistant review on the next emergency submission.
-          emergency_review_by: null,
-          emergency_review_at: null,
-          emergency_partner_by: null,
-          emergency_partner_at: null,
-          emergency_deadline_at: null,
-          emergency_justification: null,
-        })
+        .update(updatePayload)
         .eq("wo_id", woId)
         .select()
         .single();
