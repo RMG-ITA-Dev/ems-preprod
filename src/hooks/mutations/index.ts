@@ -28,6 +28,13 @@ export {
   useUpdateWorkOrder,
   useSubmitWorkOrder,
   useApproveWorkOrder,
+  useApproveRisk,
+  useApproveEmergencyReview,
+  useApproveEmergencyPartner,
+  useRejectRisk,
+  useRevertSocioApproval,
+  useRevertRiskApproval,
+  useCompleteRiskAssessment,
   useRejectWorkOrder,
   useUnsubmitWorkOrder,
 } from "./useWorkOrderMutations";

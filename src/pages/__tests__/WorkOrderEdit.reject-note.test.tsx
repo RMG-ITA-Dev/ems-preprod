@@ -68,6 +68,10 @@ vi.mock("@/hooks/useWorksheetData", () => ({
   useWorksheetByEngagementId: () => ({ data: undefined }),
 }));
 
+vi.mock("@/hooks/useUserRole", () => ({
+  useUserRole: () => ({ isAdmin: true }),
+}));
+
 vi.mock("@/hooks/useWorksheetMutations", () => ({
   useResyncWorksheetToWorkOrder: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
@@ -82,6 +86,13 @@ vi.mock("@/hooks/mutations", () => ({
   useDeleteExpenseBudget: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useSubmitWorkOrder:     () => ({ mutateAsync: vi.fn(), isPending: false }),
   useApproveWorkOrder:    () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useApproveRisk:             () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useApproveEmergencyReview:  () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useApproveEmergencyPartner: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useRejectRisk:              () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useRevertSocioApproval:     () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useRevertRiskApproval:      () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useCompleteRiskAssessment:  () => ({ mutateAsync: vi.fn(), isPending: false }),
   useRejectWorkOrder:     () => ({ mutateAsync: mockRejectAsync, isPending: false }),
   useUnsubmitWorkOrder:   () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
