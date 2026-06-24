@@ -349,7 +349,7 @@ export function WorkOrderForm({
   // The track is (or was) going through emergency: pending sign-offs, already approved in
   // emergency mode, or pending with empty risk data (just submitted).
   const isEmergencyTrack =
-    isEmergencyApproved || !!emergencyReviewAt || !!emergencyPartnerAt || (isPending && riskAllEmpty);
+    isEmergencyApproved || !!emergencyReviewAt || !!emergencyPartnerAt || (riskStatus === "Pending" && riskAllEmpty);
   const showEmergencyReason = !!emergencyJustification && isEmergencyTrack;
   const hasRiskData = !!(ceacCompletedAt || sanCompletedAt);
   // After an emergency approval the Manager must click "Agregar datos de Riesgo"
@@ -366,6 +366,7 @@ export function WorkOrderForm({
   // Risk section visibility.
   const showRiskSection =
     (isDraft && !!onRiskAssessmentChange) ||
+    showEmergencyReason ||
     ((isPending || isApproved || isRejected) &&
       (canApproveRisk || hasRiskData || isEmergencyApproved || isRiskRejected));
   // The Riesgos approver acts while risk is pending review — never on a rejected risk
