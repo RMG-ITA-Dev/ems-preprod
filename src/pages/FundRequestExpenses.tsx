@@ -90,6 +90,11 @@ const FundRequestExpenses = () => {
   // de OT, o admin (contabilidad por ahora). Y solo si hay gastos que reportar.
   const canExport =
     (isRequester || isManagerOfThisFr || isAdmin) && (expenses?.length ?? 0) > 0;
+  // Vista "acotada al gerente": por RLS, un gerente puro (no solicitante ni admin)
+  // solo ve SUS OTs y los gastos de esas OTs, pero fr.total_disbursed_amount es de
+  // toda la solicitud. Para que el resumen/saldo cuadre, se usa el monto asignado
+  // de SUS OTs como referencia (no el entregado total).
+  const isManagerScoped = isManagerOfThisFr && !isRequester && !isAdmin;
   // Hay gastos "bloqueados": enviados (pendiente), aprobados por el gerente o
   // revisados por contabilidad. Mientras exista alguno, el solicitante no puede
   // registrar/enviar nuevos gastos.
@@ -182,10 +187,17 @@ const FundRequestExpenses = () => {
     const list = expenses ?? [];
     const spent = list.reduce((s, e) => s + Number(e.amount || 0), 0);
     const ivaPenalty = list.reduce((s, e) => s + Number(e.iva_penalty_amount || 0), 0);
-    const disbursed = Number(fr?.total_disbursed_amount ?? 0);
+    // Para un gerente acotado, la referencia es el asignado de SUS OTs visibles
+    // (no el entregado total de la solicitud), así el saldo cuadra con lo que ve.
+    const disbursed = isManagerScoped
+      ? (fr?.fund_request_work_orders ?? []).reduce(
+          (s, o) => s + Number(o.allocated_amount || 0),
+          0,
+        )
+      : Number(fr?.total_disbursed_amount ?? 0);
     const balance = disbursed - spent;
     return { spent, ivaPenalty, disbursed, balance };
-  }, [expenses, fr]);
+  }, [expenses, fr, isManagerScoped]);
 
   const handleExport = async () => {
     if (!fr) return;
@@ -195,7 +207,9 @@ const FundRequestExpenses = () => {
       summary: {
         requester: t("fundRequest.requester"),
         status: t("common.status"),
-        disbursed: t("fundRequest.totalDisbursed"),
+        disbursed: isManagerScoped
+          ? t("fundRequestExpense.report.allocatedScoped")
+          : t("fundRequest.totalDisbursed"),
         spent: t("fundRequestExpense.totalSpent"),
         balance: t("fundRequestExpense.balance"),
         ivaTotal: t("fundRequestExpense.totalIvaPenalty"),
@@ -322,7 +336,11 @@ const FundRequestExpenses = () => {
             <div className="flex items-start justify-between flex-wrap gap-3">
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
                 <div>
-                  <p className="text-muted-foreground">{t("fundRequest.totalDisbursed")}</p>
+                  <p className="text-muted-foreground">
+                    {isManagerScoped
+                      ? t("fundRequestExpense.report.allocatedScoped")
+                      : t("fundRequest.totalDisbursed")}
+                  </p>
                   <p className="font-mono font-semibold">
                     {formatCurrency(totals.disbursed, currency)} {currency}
                   </p>

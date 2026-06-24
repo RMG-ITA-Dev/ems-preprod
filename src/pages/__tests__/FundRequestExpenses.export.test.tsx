@@ -139,6 +139,19 @@ describe("FundRequestExpenses — export report (0319-91)", () => {
     expect(filename).toBe("gastos_FR-2026-0026.xlsx");
   });
 
+  it("uses the manager's allocated total (not the request disbursement) for a scoped manager", async () => {
+    mockFr = makeFr({
+      requester_staff_id: "other",
+      total_disbursed_amount: 100,
+      fund_request_work_orders: [{ wo_id: "wo-1", manager_staff_id: STAFF_ID, allocated_amount: 40 }],
+    });
+    wrap();
+    fireEvent.click(screen.getByText(EXPORT_LABEL));
+    await waitFor(() => expect(downloadExpenseReportXlsx).toHaveBeenCalled());
+    const [input] = vi.mocked(downloadExpenseReportXlsx).mock.calls[0];
+    expect(input.totals.disbursed).toBe(40); // asignado de sus OTs, no 100
+  });
+
   it("shows a toast on export failure", async () => {
     vi.mocked(downloadExpenseReportXlsx).mockRejectedValueOnce(new Error("boom"));
     mockFr = makeFr({ requester_staff_id: STAFF_ID });

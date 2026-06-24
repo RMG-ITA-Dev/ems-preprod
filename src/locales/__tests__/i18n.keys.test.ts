@@ -36,6 +36,7 @@ const REPORT_KEYS_0319_91 = [
   "fundRequestExpense.report.workOrdersSection",
   "fundRequestExpense.report.engagement",
   "fundRequestExpense.report.allocated",
+  "fundRequestExpense.report.allocatedScoped",
   "fundRequestExpense.report.detailSection",
   "fundRequestExpense.report.documentNumber",
   "fundRequestExpense.report.supplier",

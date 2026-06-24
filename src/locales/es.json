@@ -1420,6 +1420,7 @@
       "workOrdersSection": "Órdenes de Trabajo",
       "engagement": "Engagement",
       "allocated": "Monto Asignado",
+      "allocatedScoped": "Monto Asignado (mis OTs)",
       "detailSection": "Detalle de Gastos",
       "documentNumber": "N° Factura/Comprobante",
       "supplier": "Proveedor",

@@ -1420,6 +1420,7 @@
       "workOrdersSection": "Work Orders",
       "engagement": "Engagement",
       "allocated": "Allocated Amount",
+      "allocatedScoped": "Allocated to my WOs",
       "detailSection": "Expense Detail",
       "documentNumber": "Invoice/Receipt No.",
       "supplier": "Supplier",
