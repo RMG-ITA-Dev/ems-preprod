@@ -1219,7 +1219,7 @@ export function WorkOrderForm({
                   </Button>
                 ) : (
                   <LoadingButton
-                    onClick={onCompleteRisk}
+                    onClick={() => onCompleteRisk?.()}
                     className="bg-info hover:bg-info/90 btn-action"
                     loading={isSubmitting}
                     disabled={!riskApprovalReady || isSubmitting}

@@ -374,6 +374,8 @@ const WorkOrderEdit = () => {
 
   const handleCompleteRisk = async (emergencyJustification?: string) => {
     if (!workOrder) return;
+    const justification =
+      typeof emergencyJustification === "string" ? emergencyJustification : undefined;
     await completeRiskAssessment.mutateAsync({
       woId: workOrder.wo_id,
       ceacCompletedAt,
@@ -383,7 +385,7 @@ const WorkOrderEdit = () => {
       ceacNumber,
       sanApprovalId,
       riskLevel,
-      emergencyJustification,
+      emergencyJustification: justification,
     });
   };
 
