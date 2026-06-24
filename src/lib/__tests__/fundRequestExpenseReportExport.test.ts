@@ -134,10 +134,15 @@ describe("buildExpenseReportMatrix", () => {
 });
 
 describe("reportFilename", () => {
-  it("sanitizes the request number", () => {
-    expect(reportFilename("FR-2026-0026")).toBe("gastos_FR-2026-0026.xlsx");
+  it("uses the localized prefix and sanitizes the request number", () => {
+    expect(reportFilename("FR-2026-0026", "gastos", "solicitud")).toBe("gastos_FR-2026-0026.xlsx");
+    expect(reportFilename("FR-2026-0026", "expenses", "request")).toBe("expenses_FR-2026-0026.xlsx");
   });
-  it("falls back when empty", () => {
-    expect(reportFilename("")).toBe("gastos_solicitud.xlsx");
+  it("falls back to the localized fallback when the request number is empty", () => {
+    expect(reportFilename("", "gastos", "solicitud")).toBe("gastos_solicitud.xlsx");
+    expect(reportFilename("", "expenses", "request")).toBe("expenses_request.xlsx");
+  });
+  it("sanitizes unsafe characters in prefix and base", () => {
+    expect(reportFilename("FR 2026/26", "mis gastos", "x")).toBe("mis_gastos_FR_2026_26.xlsx");
   });
 });

@@ -174,10 +174,15 @@ export function buildExpenseReportMatrix(
   return rows;
 }
 
-/** Sanea el request_number para usarlo como nombre de archivo. */
-export function reportFilename(requestNumber: string): string {
-  const safe = (requestNumber || "solicitud").replace(/[^a-zA-Z0-9._-]+/g, "_");
-  return `gastos_${safe}.xlsx`;
+/**
+ * Nombre de archivo del reporte. `prefix` y `fallback` llegan localizados desde
+ * el caller (i18n); se sanean para que el nombre sea seguro en el filesystem.
+ */
+export function reportFilename(requestNumber: string, prefix: string, fallback: string): string {
+  const sanitize = (s: string) => s.replace(/[^a-zA-Z0-9._-]+/g, "_");
+  const safePrefix = sanitize(prefix || "report");
+  const safeBase = sanitize(requestNumber || fallback || "export");
+  return `${safePrefix}_${safeBase}.xlsx`;
 }
 
 /** Genera y descarga el .xlsx (import dinámico de xlsx, igual que el resto del sistema). */

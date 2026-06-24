@@ -1417,6 +1417,8 @@
       "exportButton": "Download report",
       "title": "Expense Report",
       "sheetName": "Expenses",
+      "filenamePrefix": "expenses",
+      "filenameFallback": "request",
       "workOrdersSection": "Work Orders",
       "engagement": "Engagement",
       "allocated": "Allocated Amount",

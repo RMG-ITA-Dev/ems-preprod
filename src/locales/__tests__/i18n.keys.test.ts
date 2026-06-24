@@ -33,6 +33,8 @@ const REPORT_KEYS_0319_91 = [
   "fundRequestExpense.report.exportButton",
   "fundRequestExpense.report.title",
   "fundRequestExpense.report.sheetName",
+  "fundRequestExpense.report.filenamePrefix",
+  "fundRequestExpense.report.filenameFallback",
   "fundRequestExpense.report.workOrdersSection",
   "fundRequestExpense.report.engagement",
   "fundRequestExpense.report.allocated",

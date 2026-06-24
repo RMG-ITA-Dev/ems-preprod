@@ -245,7 +245,11 @@ const FundRequestExpenses = () => {
       await downloadExpenseReportXlsx(
         { fr, expenses: expenses ?? [], totals },
         labels,
-        reportFilename(fr.request_number),
+        reportFilename(
+          fr.request_number,
+          t("fundRequestExpense.report.filenamePrefix"),
+          t("fundRequestExpense.report.filenameFallback"),
+        ),
       );
     } catch {
       toast.error(t("fundRequestExpense.report.exportError"));
