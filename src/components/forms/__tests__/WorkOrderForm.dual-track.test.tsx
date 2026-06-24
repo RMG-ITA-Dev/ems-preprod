@@ -77,7 +77,7 @@ const baseProps = {
   isSubmitting: false,
 };
 
-type FormOverrides = Partial<typeof baseProps & Record<string, unknown>>;
+type FormOverrides = Partial<Parameters<typeof WorkOrderForm>[0]>;
 
 function renderForm(overrides: FormOverrides = {}) {
   const props = { ...baseProps, ...overrides } as Parameters<typeof WorkOrderForm>[0];
