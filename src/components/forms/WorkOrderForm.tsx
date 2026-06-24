@@ -1024,9 +1024,10 @@ export function WorkOrderForm({
                   </Select>
                 ) : (
                   <span className={cn("text-sm font-semibold", riskLevelColorClass)}>
-                    {riskLevel || (
-                      <span className="text-muted-foreground">—</span>
-                    )}
+                    {riskLevel
+                      ? t(`workOrders.riskLevel${riskLevel}`)
+                      : <span className="text-muted-foreground">—</span>
+                    }
                   </span>
                 )}
               </div>

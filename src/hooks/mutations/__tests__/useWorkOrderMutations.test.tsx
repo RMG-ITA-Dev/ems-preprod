@@ -93,6 +93,7 @@ describe("useWorkOrderMutations", () => {
         ceacNumber: "1234567890",
         sanApprovalId: "12345-67890",
         riskLevel: "Bajo",
+        emergencyJustification: null, // normal submit: WorkOrderEdit passes null to clear any stale value
       });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
