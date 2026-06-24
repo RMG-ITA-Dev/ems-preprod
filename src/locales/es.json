@@ -1059,6 +1059,7 @@
     "approveRiskAssistant": "Aprobar (Riesgo)",
     "approveRiskPartner": "Aprobar (Socio de Riesgos)",
     "riskApprovedEmergency": "Riesgo aprobado en modo emergencia",
+    "emergencyReasonLabel": "Motivo de emergencia:",
     "emergencyDeadlineBanner": "La evaluación de riesgo debe completarse dentro de 5 días hábiles (fecha límite: {{date}}).",
     "addRiskData": "Agregar datos de Riesgo",
     "sendRiskForApproval": "Enviar a aprobación de Riesgos",

@@ -87,6 +87,7 @@ interface WorkOrderFormProps {
   // Emergency two-step sign-offs (Riesgo assistant -> Socio de Riesgos)
   emergencyReviewAt?: string | null;
   emergencyPartnerAt?: string | null;
+  emergencyJustification?: string | null;
   // New props for create/edit mode and dirty state
   isNew?: boolean;
   isDirty?: boolean;
@@ -159,6 +160,7 @@ export function WorkOrderForm({
   emergencyDeadlineAt,
   emergencyReviewAt,
   emergencyPartnerAt,
+  emergencyJustification,
   isNew = false,
   isDirty = false,
   hasNonRiskDirty = false,
@@ -344,6 +346,11 @@ export function WorkOrderForm({
   // Riesgos rejected its track: the OT stays Pending/Approved (Socio untouched); the
   // Manager corrects the risk data and re-sends only the Risk track.
   const isRiskRejected = riskStatus === "Rejected";
+  // The track is (or was) going through emergency: pending sign-offs, already approved in
+  // emergency mode, or pending with empty risk data (just submitted).
+  const isEmergencyTrack =
+    isEmergencyApproved || !!emergencyReviewAt || !!emergencyPartnerAt || (isPending && riskAllEmpty);
+  const showEmergencyReason = !!emergencyJustification && isEmergencyTrack;
   const hasRiskData = !!(ceacCompletedAt || sanCompletedAt);
   // After an emergency approval the Manager must click "Agregar datos de Riesgo"
   // before the fields unlock for completion.
@@ -1020,6 +1027,15 @@ export function WorkOrderForm({
             </div>
           </CardHeader>
           <CardContent className="pt-0 space-y-4">
+            {showEmergencyReason && (
+              <div className="flex items-start gap-3 rounded-md border border-orange-300 bg-orange-50 px-4 py-3 text-sm text-orange-800">
+                <ShieldAlert className="h-5 w-5 shrink-0 mt-0.5 text-orange-500" />
+                <p>
+                  <span className="font-medium">{t("workOrders.emergencyReasonLabel")}</span>{" "}
+                  {emergencyJustification}
+                </p>
+              </div>
+            )}
             {isEmergencyApproved && (
               <div className="flex items-start gap-3 rounded-md border border-warning/40 bg-warning/10 p-3">
                 <AlertTriangle className="h-5 w-5 text-warning shrink-0 mt-0.5" />

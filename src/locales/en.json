@@ -1059,6 +1059,7 @@
     "approveRiskAssistant": "Approve (Risk)",
     "approveRiskPartner": "Approve (Risk Partner)",
     "riskApprovedEmergency": "Risk approved under emergency procedure",
+    "emergencyReasonLabel": "Emergency reason:",
     "emergencyDeadlineBanner": "Risk assessment must be completed within 5 business days (deadline: {{date}}).",
     "addRiskData": "Add Risk Data",
     "sendRiskForApproval": "Send for Risk Approval",

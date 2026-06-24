@@ -525,6 +525,7 @@ const WorkOrderEdit = () => {
           emergencyDeadlineAt={workOrder.emergency_deadline_at}
           emergencyReviewAt={workOrder.emergency_review_at}
           emergencyPartnerAt={workOrder.emergency_partner_at}
+          emergencyJustification={workOrder.emergency_justification}
           onApproveRisk={handleApproveRisk}
           onRejectRisk={handleRejectRisk}
           onApproveEmergencyReview={handleApproveEmergencyReview}
