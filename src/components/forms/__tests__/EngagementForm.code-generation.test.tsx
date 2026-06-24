@@ -197,10 +197,54 @@ describe("Edit payload shape (BUG 0306-82)", () => {
   });
 });
 
-describe("EngagementForm render — create mode (BUG 0306-82)", () => {
-  it("EF-R1: does not render a free-text engagement code input", () => {
+// BUG 0603-140: live code preview during creation. Mirrors the helper in
+// EngagementForm.tsx and the server format FY.[oficina][practica][funcion].[correlativo]
+// (migration 20260601100000, lines 113-115). The correlativo is unknown until insert (`---`).
+const buildCodePreview = (fy?: number, of?: number, pr?: number, fn?: number): string | null => {
+  if (fy == null || of == null || pr == null || fn == null) return null;
+  return `${fy}.${of}${pr}${fn}.---`;
+};
+
+describe("Engagement code preview format (BUG 0603-140)", () => {
+  it("builds the prefix with placeholder correlativo when all four fields are set", () => {
+    expect(buildCodePreview(2027, 1, 2, 1)).toBe("2027.121.---");
+  });
+
+  it("treats 0 values (Ambos / Firmwide / Administrativa) as present", () => {
+    expect(buildCodePreview(2027, 0, 0, 0)).toBe("2027.000.---");
+  });
+
+  it("concatenates the raw digits for max values", () => {
+    expect(buildCodePreview(2027, 2, 4, 3)).toBe("2027.243.---");
+  });
+
+  it("returns null (incomplete) when oficina is missing", () => {
+    expect(buildCodePreview(2027, undefined, 2, 1)).toBeNull();
+  });
+
+  it("returns null (incomplete) when fiscal year is missing", () => {
+    expect(buildCodePreview(undefined, 1, 2, 1)).toBeNull();
+  });
+});
+
+describe("EngagementForm render — create mode (BUG 0306-82 / 0603-140)", () => {
+  it("EF-R1: renders the engagement code as a non-editable preview (no free-text code input)", () => {
     render(<EngagementForm />);
-    expect(screen.queryByText("engagement.engagementCode")).not.toBeInTheDocument();
+    // The code label is now shown in create mode (preview), not hidden.
+    expect(screen.getByText("engagement.engagementCode")).toBeInTheDocument();
+    // With no office/service/function selected yet, the incomplete state is shown.
+    expect(screen.getByText("engagement.codePreviewIncomplete")).toBeInTheDocument();
+    // And the helper text explaining the code is assigned on save.
+    expect(screen.getByText("engagement.codePreviewHelp")).toBeInTheDocument();
+    // The preview is not a writable input: no field shows an editable code value.
+    expect(screen.queryByDisplayValue(/\d{4}\.\d{3}\./)).not.toBeInTheDocument();
+  });
+
+  it("EF-R8: create-mode preview block uses the semantic warning token (yellow highlight)", () => {
+    render(<EngagementForm />);
+    const preview = screen.getByTestId("engagement-code-preview");
+    expect(preview).toHaveClass("bg-warning/10");
+    expect(preview).toHaveClass("border-warning/30");
   });
 
   it("EF-R2: renders the Fiscal Year select label", () => {
@@ -225,11 +269,15 @@ describe("EngagementForm render — create mode (BUG 0306-82)", () => {
 });
 
 describe("EngagementForm render — edit mode (BUG 0306-82)", () => {
-  it("EF-R5: renders engagement code as a disabled read-only input (not editable)", () => {
+  it("EF-R5: renders engagement code as a disabled read-only input with a subtle warning accent", () => {
     render(<EngagementForm engagement={mockEngagement} />);
     expect(screen.getByText("engagement.engagementCode")).toBeInTheDocument();
-    const codeInput = screen.getByDisplayValue("2027.121.001");
+    const codeInput = screen.getByTestId("engagement-code-readonly");
     expect(codeInput).toBeDisabled();
+    expect(codeInput).toHaveValue("2027.121.001");
+    // Subtle accent (border only), not the full warning background used in create mode.
+    expect(codeInput).toHaveClass("border-warning/40");
+    expect(codeInput).not.toHaveClass("bg-warning/10");
   });
 
   it("EF-R6: fiscal year/office/practice/function labels are still present in edit mode", () => {

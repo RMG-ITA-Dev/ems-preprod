@@ -34,12 +34,18 @@ const EngagementNew = () => {
     navigate("/engagements");
   };
 
+  const handleGoToWorkMatrix = () => {
+    allowNextNavigation();
+    navigate("/worksheets");
+  };
+
   return (
     <AppLayout title={t("nav.engagements")} focusMode>
       <EngagementForm
         onDirtyChange={setIsDirty}
         onCancel={handleCancel}
         onSaveSuccess={handleSaveSuccess}
+        onGoToWorkMatrix={handleGoToWorkMatrix}
       />
       <LeavePageDialog blocker={blocker} isDirty={isDirty} />
     </AppLayout>
