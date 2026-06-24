@@ -372,7 +372,7 @@ const WorkOrderEdit = () => {
     await revertRiskApproval.mutateAsync({ woId: workOrder.wo_id });
   };
 
-  const handleCompleteRisk = async () => {
+  const handleCompleteRisk = async (emergencyJustification?: string) => {
     if (!workOrder) return;
     await completeRiskAssessment.mutateAsync({
       woId: workOrder.wo_id,
@@ -383,7 +383,16 @@ const WorkOrderEdit = () => {
       ceacNumber,
       sanApprovalId,
       riskLevel,
+      emergencyJustification,
     });
+  };
+
+  const handleClearRiskData = () => {
+    setCeacCompletedAt(null);
+    setCeacNumber(null);
+    setSanCompletedAt(null);
+    setSanApprovalId(null);
+    setRiskLevel(null);
   };
 
   const handleReject = () => {
@@ -521,6 +530,7 @@ const WorkOrderEdit = () => {
           onApproveEmergencyReview={handleApproveEmergencyReview}
           onApproveEmergencyPartner={handleApproveEmergencyPartner}
           onCompleteRisk={handleCompleteRisk}
+          onClearRiskData={handleClearRiskData}
           riskNote={workOrder.risk_notes}
           canRevert={isAdmin}
           onRevertSocio={handleRevertSocio}

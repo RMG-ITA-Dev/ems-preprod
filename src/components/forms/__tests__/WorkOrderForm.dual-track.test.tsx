@@ -263,4 +263,72 @@ describe("WorkOrderForm — dual-track withdraw/edit (bug 0306-78)", () => {
     expect(screen.queryByText("workOrders.ceacNotes")).not.toBeInTheDocument();
     expect(screen.queryByText("workOrders.sanNotes")).not.toBeInTheDocument();
   });
+
+  // ── Iteración 3: reenvío de Riesgos por emergencia ────────────────────────────
+
+  it("DT10: Riesgos rechazado + 5 campos vacíos → botón reenviar habilitado (todo-o-nada)", () => {
+    // Draft + risk=Rejected: estado típico tras "Retirar" cuando Riesgos rechazó.
+    renderForm({
+      approvalStatus: "Draft",
+      riskStatus: "Rejected",
+      onRiskAssessmentChange: vi.fn(),
+      onCompleteRisk: vi.fn(),
+      // Sin datos de riesgo → riskAllEmpty=true → botón habilitado
+    });
+    const btn = screen.getByText("workOrders.sendRiskForReapproval");
+    expect(btn.closest("button")).not.toBeDisabled();
+  });
+
+  it("DT11: Riesgos rechazado + 5 campos completos → botón reenviar habilitado", () => {
+    renderForm({
+      approvalStatus: "Draft",
+      riskStatus: "Rejected",
+      onRiskAssessmentChange: vi.fn(),
+      onCompleteRisk: vi.fn(),
+      ...fullRisk,
+    });
+    const btn = screen.getByText("workOrders.sendRiskForReapproval");
+    expect(btn.closest("button")).not.toBeDisabled();
+  });
+
+  it("DT12: Riesgos rechazado + datos parciales → botón reenviar deshabilitado", () => {
+    renderForm({
+      approvalStatus: "Draft",
+      riskStatus: "Rejected",
+      onRiskAssessmentChange: vi.fn(),
+      onCompleteRisk: vi.fn(),
+      ceacCompletedAt: "2026-05-01", // solo un campo → parcial
+    });
+    const btn = screen.getByText("workOrders.sendRiskForReapproval");
+    expect(btn.closest("button")).toBeDisabled();
+  });
+
+  it("DT13: Riesgos rechazado → botón 'Limpiar datos de Riesgos' presente y llama onClearRiskData", () => {
+    const onClearRiskData = vi.fn();
+    renderForm({
+      approvalStatus: "Draft",
+      riskStatus: "Rejected",
+      onRiskAssessmentChange: vi.fn(),
+      onCompleteRisk: vi.fn(),
+      onClearRiskData,
+      ...fullRisk, // tiene datos → Limpiar habilitado
+    });
+    const btn = screen.getByText("workOrders.clearRiskData");
+    expect(btn).toBeInTheDocument();
+    fireEvent.click(btn);
+    expect(onClearRiskData).toHaveBeenCalledTimes(1);
+  });
+
+  it("DT14: Riesgos rechazado + campos vacíos → botón 'Limpiar' deshabilitado (ya vacío)", () => {
+    renderForm({
+      approvalStatus: "Draft",
+      riskStatus: "Rejected",
+      onRiskAssessmentChange: vi.fn(),
+      onCompleteRisk: vi.fn(),
+      onClearRiskData: vi.fn(),
+      // Sin datos → riskAllEmpty=true → Limpiar disabled
+    });
+    const btn = screen.getByText("workOrders.clearRiskData");
+    expect(btn.closest("button")).toBeDisabled();
+  });
 });

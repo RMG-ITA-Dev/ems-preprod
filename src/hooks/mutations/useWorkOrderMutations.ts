@@ -297,11 +297,19 @@ export function useRejectRisk() {
       // (la OT sigue Pending/Approved) ni toca la aprobación del Socio. Solo marca la
       // pista de Riesgos como rechazada con su nota; el Gerente corrige y reenvía a
       // Riesgos ("Enviar a aprobar a Riesgos" -> risk_status='Pending').
+      // Limpia todas las marcas de emergencia para que un reenvío posterior
+      // reinicie el flujo de dos firmas desde el paso 1.
       const { data: result, error } = await supabase
         .from("work_orders")
         .update({
           risk_status: "Rejected",
           risk_notes: riskNotes ?? null,
+          emergency_review_by: null,
+          emergency_review_at: null,
+          emergency_partner_by: null,
+          emergency_partner_at: null,
+          emergency_deadline_at: null,
+          emergency_justification: null,
         })
         .eq("wo_id", woId)
         .select()
@@ -400,6 +408,7 @@ export function useCompleteRiskAssessment() {
       ceacNumber,
       sanApprovalId,
       riskLevel,
+      emergencyJustification,
     }: {
       woId: string;
       ceacCompletedAt?: string | null;
@@ -409,21 +418,28 @@ export function useCompleteRiskAssessment() {
       ceacNumber?: string | null;
       sanApprovalId?: string | null;
       riskLevel?: string | null;
+      emergencyJustification?: string | null;
     }) => {
-      // Manager completes risk data on an emergency-approved OT.
-      // approval_status is left untouched; risk_status returns to Pending for re-review.
+      // Manager completes risk data on an emergency-approved OT, or re-sends as emergency
+      // after rejection. approval_status is left untouched; risk_status returns to Pending.
+      const updatePayload: Record<string, unknown> = {
+        ceac_completed_at: ceacCompletedAt ?? null,
+        ceac_notes: ceacNotes ?? null,
+        san_completed_at: sanCompletedAt ?? null,
+        san_notes: sanNotes ?? null,
+        ceac_number: ceacNumber ?? null,
+        san_approval_id: sanApprovalId ?? null,
+        risk_level: riskLevel ?? null,
+        risk_status: "Pending",
+      };
+      // Solo escribe emergency_justification si el argumento está presente
+      // (reenvío de emergencia). Los flujos sin argumento preservan el historial.
+      if (emergencyJustification !== undefined) {
+        updatePayload.emergency_justification = emergencyJustification;
+      }
       const { data: result, error } = await supabase
         .from("work_orders")
-        .update({
-          ceac_completed_at: ceacCompletedAt ?? null,
-          ceac_notes: ceacNotes ?? null,
-          san_completed_at: sanCompletedAt ?? null,
-          san_notes: sanNotes ?? null,
-          ceac_number: ceacNumber ?? null,
-          san_approval_id: sanApprovalId ?? null,
-          risk_level: riskLevel ?? null,
-          risk_status: "Pending",
-        })
+        .update(updatePayload)
         .eq("wo_id", woId)
         .select()
         .single();

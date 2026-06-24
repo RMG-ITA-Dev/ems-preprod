@@ -308,7 +308,7 @@ describe("useWorkOrderMutations", () => {
   });
 
   describe("useRejectRisk", () => {
-    it("sets only risk_status=Rejected + notes; does NOT touch approval_status nor emergency_*", async () => {
+    it("rechaza la pista de Riesgos y limpia todas las columnas de emergencia para reiniciar el flujo", async () => {
       const mockData = { wo_id: "wo-1", risk_status: "Rejected" };
       const mockSingle = vi.fn().mockResolvedValue({ data: mockData, error: null });
       const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
@@ -324,13 +324,17 @@ describe("useWorkOrderMutations", () => {
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
       const arg = mockUpdate.mock.calls[0][0];
-      expect(arg).toEqual({
-        risk_status: "Rejected",
-        risk_notes: "Falta documentación",
-      });
-      // Tracks independientes: no toca el Socio ni la emergencia.
+      expect(arg.risk_status).toBe("Rejected");
+      expect(arg.risk_notes).toBe("Falta documentación");
+      // Limpia marcas de emergencia para que un reenvío reinicie el flujo desde paso 1.
+      expect(arg.emergency_review_by).toBeNull();
+      expect(arg.emergency_review_at).toBeNull();
+      expect(arg.emergency_partner_by).toBeNull();
+      expect(arg.emergency_partner_at).toBeNull();
+      expect(arg.emergency_deadline_at).toBeNull();
+      expect(arg.emergency_justification).toBeNull();
+      // Tracks independientes: no toca el Socio.
       expect("approval_status" in arg).toBe(false);
-      expect("emergency_deadline_at" in arg).toBe(false);
     });
   });
 
@@ -408,8 +412,37 @@ describe("useWorkOrderMutations", () => {
       expect(arg.ceac_completed_at).toBe("2026-06-01");
       expect(arg.risk_level).toBe("Moderado");
       expect("approval_status" in arg).toBe(false);
+      // Sin emergencyJustification en el argumento => la clave NO está en el payload.
+      expect("emergency_justification" in arg).toBe(false);
     });
 
+    it("con emergencyJustification escribe esa clave en el payload", async () => {
+      const mockData = { wo_id: "wo-1", risk_status: "Pending" };
+      const mockSingle = vi.fn().mockResolvedValue({ data: mockData, error: null });
+      const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
+      const mockEq = vi.fn().mockReturnValue({ select: mockSelect });
+      const mockUpdate = vi.fn().mockReturnValue({ eq: mockEq });
+      vi.mocked(supabase.from).mockReturnValue({ update: mockUpdate } as any);
+
+      const { result } = renderHook(() => useCompleteRiskAssessment(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate({
+        woId: "wo-1",
+        emergencyJustification: "Facturación urgente por cierre fiscal",
+      });
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      const arg = mockUpdate.mock.calls[0][0];
+      expect(arg.risk_status).toBe("Pending");
+      expect(arg.emergency_justification).toBe("Facturación urgente por cierre fiscal");
+    });
+  });
+
+  // Pseudo-describe que el test original nombra incorrectamente como useCompleteRiskAssessment
+  // pero prueba useApproveWorkOrder (notas del Socio). Mantenido para no perder cobertura.
+  describe("useApproveWorkOrder — notas del Socio", () => {
     it("should clear notes on the Socio approve write", async () => {
       const mockSingle = vi.fn().mockResolvedValue({ data: { wo_id: "wo-1" }, error: null });
       const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });

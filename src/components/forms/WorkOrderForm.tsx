@@ -24,6 +24,7 @@ import {
   ShieldAlert,
   AlertTriangle,
   Undo2,
+  Eraser,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -110,7 +111,9 @@ interface WorkOrderFormProps {
   onRejectRisk?: (riskNotes: string | null) => void;
   onApproveEmergencyReview?: () => void;
   onApproveEmergencyPartner?: () => void;
-  onCompleteRisk?: () => void;
+  onCompleteRisk?: (emergencyJustification?: string) => void;
+  // Limpia los 5 campos de riesgo (estado local) para habilitar reenvío de emergencia.
+  onClearRiskData?: () => void;
   // Nota de rechazo de Riesgos (risk_notes), mostrada al corregir.
   riskNote?: string | null;
   // Admin-only: revertir aprobaciones accidentales (ambas pistas).
@@ -178,6 +181,7 @@ export function WorkOrderForm({
   onApproveEmergencyReview,
   onApproveEmergencyPartner,
   onCompleteRisk,
+  onClearRiskData,
   riskNote,
   canRevert = false,
   onRevertSocio,
@@ -191,6 +195,8 @@ export function WorkOrderForm({
   // motive/reference into emergency_justification. Riesgos approvers enter nothing.
   const [submitEmergencyDialogOpen, setSubmitEmergencyDialogOpen] = useState(false);
   const [submitJustification, setSubmitJustification] = useState("");
+  // "submit" = Draft con campos vacíos → onSubmitForApproval; "resend" = Rechazado con campos vacíos → onCompleteRisk.
+  const [emergencyDialogMode, setEmergencyDialogMode] = useState<"submit" | "resend">("submit");
   const [rejectRiskDialogOpen, setRejectRiskDialogOpen] = useState(false);
   const [rejectRiskNotes, setRejectRiskNotes] = useState("");
   // Risk fields stay locked after an emergency approval until the Manager explicitly
@@ -1213,17 +1219,37 @@ export function WorkOrderForm({
               </div>
             )}
             {/* Riesgos rejected its track: correct the data and re-send only to Riesgos.
-                Fields are already editable (riskFieldsEditable). Socio approval intact. */}
+                Todo-o-nada: 5 campos completos → reenvío normal; 5 vacíos → emergencia (modal).
+                Parcial → deshabilitado. Botón Limpiar para facilitar el path de emergencia. */}
             {isRiskRejected && onCompleteRisk && (
-              <div className="flex justify-end">
+              <div className="flex justify-end gap-2">
+                {onClearRiskData && (
+                  <Button
+                    variant="outline"
+                    onClick={onClearRiskData}
+                    disabled={riskAllEmpty || isSubmitting}
+                    className="btn-action"
+                  >
+                    <Eraser className="h-4 w-4 mr-2" />
+                    {t("workOrders.clearRiskData")}
+                  </Button>
+                )}
                 <LoadingButton
-                  onClick={onCompleteRisk}
+                  onClick={() => {
+                    if (riskAllEmpty) {
+                      setSubmitJustification("");
+                      setEmergencyDialogMode("resend");
+                      setSubmitEmergencyDialogOpen(true);
+                    } else {
+                      onCompleteRisk();
+                    }
+                  }}
                   className="bg-info hover:bg-info/90 btn-action"
                   loading={isSubmitting}
-                  disabled={!riskApprovalReady || isSubmitting}
+                  disabled={!(riskApprovalReady || riskAllEmpty) || isSubmitting}
                   title={
-                    !riskApprovalReady
-                      ? t("workOrders.riskAssessmentRequired")
+                    !(riskApprovalReady || riskAllEmpty)
+                      ? t("workOrders.riskAssessmentRequiredOrEmpty")
                       : undefined
                   }
                 >
@@ -1293,6 +1319,7 @@ export function WorkOrderForm({
                     // Empty risk data => emergency: confirm + capture motive first.
                     if (riskAllEmpty) {
                       setSubmitJustification("");
+                      setEmergencyDialogMode("submit");
                       setSubmitEmergencyDialogOpen(true);
                     } else {
                       onSubmitForApproval();
@@ -1487,7 +1514,12 @@ export function WorkOrderForm({
             <AlertDialogAction
               disabled={submitJustification.trim().length === 0}
               onClick={() => {
-                onSubmitForApproval?.(submitJustification.trim());
+                const justif = submitJustification.trim();
+                if (emergencyDialogMode === "resend") {
+                  onCompleteRisk?.(justif);
+                } else {
+                  onSubmitForApproval?.(justif);
+                }
                 setSubmitEmergencyDialogOpen(false);
               }}
             >

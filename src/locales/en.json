@@ -1064,6 +1064,8 @@
     "sendRiskForApproval": "Send for Risk Approval",
     "sendRiskForReapproval": "Send for Risk Approval.",
     "sendForPartnerApproval": "Send for Partner Approval.",
+    "clearRiskData": "Clear Risk Data",
+    "riskAssessmentRequiredOrEmpty": "Complete all 5 Risk fields or leave all empty for emergency submission.",
     "riskRejectionNoteLabel": "Risk rejection note:",
     "revertApproval": "Undo approval",
     "approvalReverted": "Approval reverted",

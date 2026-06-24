@@ -1064,6 +1064,8 @@
     "sendRiskForApproval": "Enviar a aprobación de Riesgos",
     "sendRiskForReapproval": "Enviar para aprobación a Riesgos.",
     "sendForPartnerApproval": "Enviar para aprobación del Socio.",
+    "clearRiskData": "Limpiar datos de Riesgos",
+    "riskAssessmentRequiredOrEmpty": "Complete los 5 campos de Riesgos o deje todos vacíos para envío de emergencia.",
     "riskRejectionNoteLabel": "Nota de rechazo de Riesgos:",
     "revertApproval": "Deshacer aprobación",
     "approvalReverted": "Aprobación revertida",
