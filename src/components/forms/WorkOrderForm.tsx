@@ -1555,7 +1555,7 @@ export function WorkOrderForm({
             </AlertDialogTitle>
           </AlertDialogHeader>
           <div className="space-y-2 py-2">
-            <Label>{t("workOrders.sanNotes")}</Label>
+            <Label>{t("workOrders.riskRejectionNoteLabel")}</Label>
             <Textarea
               value={rejectRiskNotes}
               onChange={(e) => setRejectRiskNotes(e.target.value)}
