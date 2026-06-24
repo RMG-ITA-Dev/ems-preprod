@@ -77,6 +77,7 @@ export function useSubmitWorkOrder() {
       sanApprovalId,
       riskLevel,
       emergencyJustification,
+      resetRiskToPending,
     }: {
       woId: string;
       ceacCompletedAt?: string | null;
@@ -89,10 +90,16 @@ export function useSubmitWorkOrder() {
       // Captured by the Manager at submit time when sending with empty risk data
       // (emergency flow). Riesgos approvers never enter a justification.
       emergencyJustification?: string | null;
+      // True when risk_status='Rejected' at submit time: resets the Risk track to
+      // Pending so the Risk team gets a fresh review signal. Preserves Approved and
+      // Emergency_Approved (independent tracks design, A1).
+      resetRiskToPending?: boolean;
     }) => {
-      // No se toca risk_status: las pistas son independientes, así el Aprobado de
-      // Riesgos persiste tras un rechazo del Socio + Retirar + reenviar.
-      // (notes tampoco se resetea — respeta fix 49c2ac5.)
+      // risk_status is intentionally not touched in the general case: the tracks are
+      // independent, so an Approved Risk track persists across Socio-reject → Withdraw →
+      // Resubmit cycles. Exception: when the Risk track was Rejected, it must be reset
+      // to Pending so the Risk team receives a new review signal (see resetRiskToPending).
+      // (notes are also not reset — respects fix 49c2ac5.)
       const submitPayload: Record<string, unknown> = {
         approval_status: "Pending_Approval",
         ceac_completed_at: ceacCompletedAt ?? null,
@@ -108,6 +115,9 @@ export function useSubmitWorkOrder() {
       // null = normal submit or new emergency cleared — write to clear/set.
       if (emergencyJustification !== undefined) {
         submitPayload.emergency_justification = emergencyJustification;
+      }
+      if (resetRiskToPending) {
+        submitPayload.risk_status = "Pending";
       }
       const { data: result, error } = await supabase
         .from("work_orders")

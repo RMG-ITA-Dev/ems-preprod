@@ -163,6 +163,60 @@ describe("useWorkOrderMutations", () => {
         emergency_justification: "Pedido por correo",
       });
     });
+
+    it("should include risk_status=Pending when resetRiskToPending=true (Rejected track reset)", async () => {
+      const mockData = { wo_id: "wo-1", approval_status: "Pending_Approval" };
+      const mockSingle = vi.fn().mockResolvedValue({ data: mockData, error: null });
+      const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
+      const mockEq = vi.fn().mockReturnValue({ select: mockSelect });
+      const mockUpdate = vi.fn().mockReturnValue({ eq: mockEq });
+      vi.mocked(supabase.from).mockReturnValue({ update: mockUpdate } as any);
+
+      const { result } = renderHook(() => useSubmitWorkOrder(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate({
+        woId: "wo-1",
+        ceacCompletedAt: "2026-05-01",
+        ceacNumber: "1234567890",
+        sanCompletedAt: "2026-04-15",
+        sanApprovalId: "12345-67890",
+        riskLevel: "Bajo",
+        emergencyJustification: null,
+        resetRiskToPending: true,
+      });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      const payload = mockUpdate.mock.calls[0][0];
+      expect(payload).toHaveProperty("risk_status", "Pending");
+      expect(payload).toHaveProperty("approval_status", "Pending_Approval");
+    });
+
+    it("should NOT include risk_status when resetRiskToPending is false or omitted (Approved track preserved)", async () => {
+      const mockData = { wo_id: "wo-1", approval_status: "Pending_Approval" };
+      const mockSingle = vi.fn().mockResolvedValue({ data: mockData, error: null });
+      const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
+      const mockEq = vi.fn().mockReturnValue({ select: mockSelect });
+      const mockUpdate = vi.fn().mockReturnValue({ eq: mockEq });
+      vi.mocked(supabase.from).mockReturnValue({ update: mockUpdate } as any);
+
+      const { result } = renderHook(() => useSubmitWorkOrder(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate({
+        woId: "wo-1",
+        emergencyJustification: null,
+        resetRiskToPending: false,
+      });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      const payload = mockUpdate.mock.calls[0][0];
+      expect(payload).not.toHaveProperty("risk_status");
+    });
   });
 
   describe("useApproveWorkOrder (Socio track)", () => {

@@ -335,6 +335,9 @@ const WorkOrderEdit = () => {
         : workOrder.risk_status === "Emergency_Approved"
           ? undefined
           : (emergencyJustification ?? null),
+      // Reset Risk track from Rejected → Pending so the Risk team gets a fresh review
+      // signal. Approved/Emergency_Approved are preserved (independent tracks, A1).
+      resetRiskToPending: workOrder.risk_status === "Rejected",
     });
     riskEditedRef.current = false;
   };
