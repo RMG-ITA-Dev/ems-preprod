@@ -91,10 +91,20 @@ const FundRequestExpenses = () => {
   const canExport =
     (isRequester || isManagerOfThisFr || isAdmin) && (expenses?.length ?? 0) > 0;
   // Vista "acotada al gerente": por RLS, un gerente puro (no solicitante ni admin)
-  // solo ve SUS OTs y los gastos de esas OTs, pero fr.total_disbursed_amount es de
-  // toda la solicitud. Para que el resumen/saldo cuadre, se usa el monto asignado
-  // de SUS OTs como referencia (no el entregado total).
-  const isManagerScoped = isManagerOfThisFr && !isRequester && !isAdmin;
+  // solo ve SUS OTs y los gastos de esas OTs.
+  // Excepción: si gestiona TODAS las OTs (su asignado == lo solicitado), ve la
+  // solicitud completa y puede mostrar el Entregado/Saldo REALES (exactos). Solo
+  // cuando ve un subconjunto se usa el marco de presupuesto (Asignado/Por gastar),
+  // porque el entregado total no se puede atribuir a sus OTs (desembolso es global
+  // y puede ser parcial).
+  const myAllocatedTotal = (fr?.fund_request_work_orders ?? []).reduce(
+    (s, o) => s + Number(o.allocated_amount || 0),
+    0,
+  );
+  const seesWholeRequest =
+    Math.abs(myAllocatedTotal - Number(fr?.total_requested_amount ?? 0)) < 0.01;
+  const isManagerScoped =
+    isManagerOfThisFr && !isRequester && !isAdmin && !seesWholeRequest;
   // Hay gastos "bloqueados": enviados (pendiente), aprobados por el gerente o
   // revisados por contabilidad. Mientras exista alguno, el solicitante no puede
   // registrar/enviar nuevos gastos.
