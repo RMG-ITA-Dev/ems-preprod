@@ -262,6 +262,8 @@ export function useApproveEmergencyPartner() {
           emergency_deadline_at: deadline.toISOString().split("T")[0],
         })
         .eq("wo_id", woId)
+        .not("emergency_review_at", "is", null)
+        .is("emergency_partner_at", null)
         .select()
         .single();
       if (error) throw error;

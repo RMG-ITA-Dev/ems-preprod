@@ -20,3 +20,12 @@ ALTER TABLE public.work_orders
   ADD COLUMN IF NOT EXISTS risk_notes              TEXT,
   ADD COLUMN IF NOT EXISTS emergency_deadline_at   DATE,
   ADD COLUMN IF NOT EXISTS emergency_justification TEXT;
+
+-- Backfill: pre-existing approved work orders must have risk_status='Approved' so that
+-- the conditional close (approval_status='Approved' WHERE risk_status IN ('Approved','Emergency_Approved'))
+-- keeps working when the Socio approves any WO that was already fully approved before this migration.
+-- Pending_Approval WOs keep risk_status='Pending' and will require a manual Risk approval
+-- going forward, which is intentional (all new approvals now require the Risk track).
+UPDATE public.work_orders
+  SET risk_status = 'Approved'
+WHERE approval_status = 'Approved';

@@ -281,8 +281,13 @@ describe("useWorkOrderMutations", () => {
     it("sets Emergency_Approved + deadline (+7d) and closes when Socio track is done", async () => {
       const mockSingle = vi.fn().mockResolvedValue({ data: { wo_id: "wo-1" }, error: null });
       const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
-      const mockNot = vi.fn().mockResolvedValue({ error: null });
-      const mockEq = vi.fn().mockReturnValue({ select: mockSelect, not: mockNot });
+      const mockIs = vi.fn().mockReturnValue({ select: mockSelect });
+      // First .not() → guard on emergency_review_at → { is: mockIs }
+      // Second .not() → conditional close on approved_at → resolves to { error: null }
+      const mockNot = vi.fn()
+        .mockReturnValueOnce({ is: mockIs })
+        .mockResolvedValue({ error: null });
+      const mockEq = vi.fn().mockReturnValue({ not: mockNot });
       const mockUpdate = vi.fn().mockReturnValue({ eq: mockEq });
       vi.mocked(supabase.from).mockReturnValue({ update: mockUpdate } as any);
 
@@ -293,6 +298,9 @@ describe("useWorkOrderMutations", () => {
       result.current.mutate({ woId: "wo-1", staffId: "admin-2" });
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
+      // Sequential guard filters applied before writing Emergency_Approved.
+      expect(mockNot).toHaveBeenCalledWith("emergency_review_at", "is", null);
+      expect(mockIs).toHaveBeenCalledWith("emergency_partner_at", null);
       const riskWrite = mockUpdate.mock.calls
         .map((c) => c[0])
         .find((arg) => arg.risk_status === "Emergency_Approved");
@@ -304,6 +312,27 @@ describe("useWorkOrderMutations", () => {
       // Conditional close gated on the Socio track.
       expect(mockUpdate).toHaveBeenCalledWith({ approval_status: "Approved" });
       expect(mockNot).toHaveBeenCalledWith("approved_at", "is", null);
+    });
+
+    it("does NOT write Emergency_Approved and fails when step 1 was not completed (sequential guard)", async () => {
+      const pgrst116 = { code: "PGRST116", message: "No rows matched the guard filters" };
+      const mockSingle = vi.fn().mockResolvedValue({ data: null, error: pgrst116 });
+      const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
+      const mockIs = vi.fn().mockReturnValue({ select: mockSelect });
+      const mockNot = vi.fn().mockReturnValue({ is: mockIs });
+      const mockEq = vi.fn().mockReturnValue({ not: mockNot });
+      const mockUpdate = vi.fn().mockReturnValue({ eq: mockEq });
+      vi.mocked(supabase.from).mockReturnValue({ update: mockUpdate } as any);
+
+      const { result } = renderHook(() => useApproveEmergencyPartner(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate({ woId: "wo-1", staffId: "admin-2" });
+      await waitFor(() => expect(result.current.isError).toBe(true));
+
+      // Guard prevented the write: only 1 UPDATE issued (no conditional close).
+      expect(mockUpdate).toHaveBeenCalledTimes(1);
     });
   });
 

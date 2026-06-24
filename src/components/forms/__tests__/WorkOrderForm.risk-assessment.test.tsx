@@ -242,6 +242,24 @@ describe("WorkOrderForm — Risk dual-track + emergency (feat/0306-78)", () => {
     expect(screen.queryByText("workOrders.approveRisk")).not.toBeInTheDocument();
   });
 
+  it("WF9d: Pending + partial risk data → no approval or rejection action (action box hidden when hasRiskAction=false)", () => {
+    renderForm({
+      approvalStatus: "Pending_Approval",
+      canApproveRisk: true,
+      onApproveRisk: vi.fn(),
+      onApproveEmergencyReview: vi.fn(),
+      onApproveEmergencyPartner: vi.fn(),
+      onRejectRisk: vi.fn(),
+      ceacCompletedAt: "2026-05-01", // one field filled → partial → neither normal nor emergency
+    });
+    // With partial data: riskApprovalReady=false AND riskAllEmpty=false → hasRiskAction=false.
+    // The entire action box is gated on showRiskActions && hasRiskAction, so no buttons appear.
+    expect(screen.queryByText("workOrders.approveRisk")).not.toBeInTheDocument();
+    expect(screen.queryByText("workOrders.approveRiskAssistant")).not.toBeInTheDocument();
+    expect(screen.queryByText("workOrders.approveRiskPartner")).not.toBeInTheDocument();
+    expect(screen.queryByText("workOrders.rejectRisk")).not.toBeInTheDocument();
+  });
+
   it("WF9b: emergency step 2 — after the first sign-off shows 'Aprobar (Socio de Riesgos)'", () => {
     renderForm({
       approvalStatus: "Pending_Approval",

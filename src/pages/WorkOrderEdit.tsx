@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -107,6 +107,10 @@ const WorkOrderEdit = () => {
   const [originalSanApprovalId, setOriginalSanApprovalId] = useState<string | null>(null);
   const [originalRiskLevel, setOriginalRiskLevel] = useState<string | null>(null);
 
+  // Prevents the useEffect from clobbering in-progress risk edits when a non-risk save triggers a refetch.
+  // Set to true on any user edit; reset to false after risk data is persisted to DB.
+  const riskEditedRef = useRef(false);
+
   // Track original values for dirty check
   const [originalAdjustment, setOriginalAdjustment] = useState(0);
   const [originalExpenseData, setOriginalExpenseData] = useState<ExpenseBudgetInput[]>([]);
@@ -150,13 +154,17 @@ const WorkOrderEdit = () => {
 
       const riskCeac = workOrder.ceac_completed_at ?? null;
       const riskSan = workOrder.san_completed_at ?? null;
-      setCeacCompletedAt(riskCeac);
-      setCeacNotes(workOrder.ceac_notes ?? null);
-      setSanCompletedAt(riskSan);
-      setSanNotes(workOrder.san_notes ?? null);
-      setCeacNumber(workOrder.ceac_number ?? null);
-      setSanApprovalId(workOrder.san_approval_id ?? null);
-      setRiskLevel(workOrder.risk_level ?? null);
+      // Only reset current risk state from DB when the user hasn't edited them locally.
+      // Prevents non-risk saves (handleSubmit) from clobbering in-progress risk edits via refetch.
+      if (!riskEditedRef.current) {
+        setCeacCompletedAt(riskCeac);
+        setCeacNotes(workOrder.ceac_notes ?? null);
+        setSanCompletedAt(riskSan);
+        setSanNotes(workOrder.san_notes ?? null);
+        setCeacNumber(workOrder.ceac_number ?? null);
+        setSanApprovalId(workOrder.san_approval_id ?? null);
+        setRiskLevel(workOrder.risk_level ?? null);
+      }
       setOriginalCeacCompletedAt(riskCeac);
       setOriginalSanCompletedAt(riskSan);
       setOriginalCeacNotes(workOrder.ceac_notes ?? null);
@@ -320,6 +328,7 @@ const WorkOrderEdit = () => {
       // Only meaningful for the emergency path (empty risk data).
       emergencyJustification: allEmpty ? (emergencyJustification ?? null) : null,
     });
+    riskEditedRef.current = false;
   };
 
   const handleApprove = async () => {
@@ -387,9 +396,11 @@ const WorkOrderEdit = () => {
       riskLevel,
       emergencyJustification: justification,
     });
+    riskEditedRef.current = false;
   };
 
   const handleClearRiskData = () => {
+    riskEditedRef.current = true;
     setCeacCompletedAt(null);
     setCeacNumber(null);
     setSanCompletedAt(null);
@@ -423,6 +434,7 @@ const WorkOrderEdit = () => {
   };
 
   const handleRiskAssessmentChange = (field: string, value: string | null) => {
+    riskEditedRef.current = true;
     if (field === 'ceacCompletedAt') setCeacCompletedAt(value);
     else if (field === 'ceacNotes') setCeacNotes(value);
     else if (field === 'sanCompletedAt') setSanCompletedAt(value);

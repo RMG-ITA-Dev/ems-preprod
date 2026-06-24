@@ -353,8 +353,10 @@ export function WorkOrderForm({
   const showEmergencyReason = !!emergencyJustification && isEmergencyTrack;
   const hasRiskData = !!(ceacCompletedAt || sanCompletedAt);
   // After an emergency approval the Manager must click "Agregar datos de Riesgo"
-  // before the fields unlock for completion.
-  const canCompleteRiskData = isApproved && isEmergencyApproved && !!onCompleteRisk;
+  // before the fields unlock for completion. Gate on the risk track only (isEmergencyApproved),
+  // not on the global approval_status: the deadline starts when the risk track is signed off,
+  // which can happen before the Socio track completes.
+  const canCompleteRiskData = isEmergencyApproved && !!onCompleteRisk;
   // Risk fields are editable by the creator/Manager in Draft, again when an
   // emergency-approved OT completes its data, and when Riesgos rejected (to correct).
   // Una pista de Riesgos aprobada (Approved/Emergency_Approved) queda bloqueada aunque la
@@ -385,12 +387,12 @@ export function WorkOrderForm({
   const showNormalRiskApprove =
     riskApprovalReady && !isEmergencyApproved && !!onApproveRisk;
   const showEmergencyReview =
-    !riskApprovalReady &&
+    riskAllEmpty &&
     !isEmergencyApproved &&
     !emergencyReviewAt &&
     !!onApproveEmergencyReview;
   const showEmergencyPartner =
-    !riskApprovalReady &&
+    riskAllEmpty &&
     !isEmergencyApproved &&
     !!emergencyReviewAt &&
     !emergencyPartnerAt &&
@@ -1540,7 +1542,9 @@ export function WorkOrderForm({
                 setSubmitEmergencyDialogOpen(false);
               }}
             >
-              {t("workOrders.submitForApproval")}
+              {emergencyDialogMode === "resend"
+                ? t("workOrders.sendRiskForReapproval")
+                : t("workOrders.submitForApproval")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
