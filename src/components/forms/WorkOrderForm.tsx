@@ -348,8 +348,11 @@ export function WorkOrderForm({
   const isRiskRejected = riskStatus === "Rejected";
   // The track is (or was) going through emergency: pending sign-offs, already approved in
   // emergency mode, or pending with empty risk data (just submitted).
+  // Once risk_status reaches "Approved" (post-emergency normalization), the emergency
+  // track is fully resolved — banner and emergency-specific UI must not persist.
   const isEmergencyTrack =
-    isEmergencyApproved || !!emergencyReviewAt || !!emergencyPartnerAt || (riskStatus === "Pending" && riskAllEmpty);
+    (isEmergencyApproved || !!emergencyReviewAt || !!emergencyPartnerAt || (riskStatus === "Pending" && riskAllEmpty))
+    && riskStatus !== "Approved";
   const showEmergencyReason = !!emergencyJustification && isEmergencyTrack;
   const hasRiskData = !!(ceacCompletedAt || sanCompletedAt);
   // After an emergency approval the Manager must click "Agregar datos de Riesgo"
@@ -1329,6 +1332,12 @@ export function WorkOrderForm({
                 onClick={onSubmit}
                 loading={isSubmitting}
                 className="btn-action"
+                disabled={isDirty && !hasNonRiskDirty}
+                title={
+                  isDirty && !hasNonRiskDirty
+                    ? t("workOrders.riskSavedOnSubmit")
+                    : undefined
+                }
               >
                 {t("common.save")}
               </LoadingButton>
