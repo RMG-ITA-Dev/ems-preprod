@@ -578,8 +578,8 @@
     "holidayCreated": "Holiday created",
     "holidayUpdated": "Holiday updated",
     "holidayDeleted": "Holiday deleted",
-    "holidaysReplicated": "Holidays created successfully. Please review and verify the dates.",
-    "holidaysReplicatedPartial": "{{count}} holiday(s) created for {{year}}. {{skipped}} date(s) skipped (already existed or invalid).",
+    "holidaysGenerated": "Holidays created successfully. Please review and verify the dates.",
+    "holidaysGeneratedPartial": "{{count}} holiday(s) created for {{year}}. {{skipped}} already existed and were skipped.",
     "noStaffRecord": "No staff profile is linked to your account. Please contact an administrator."
   },
   "errors": {
@@ -624,13 +624,10 @@
     "date": "Date",
     "name": "Name",
     "createdBy": "Created By",
-    "replicateButton": "Replicate to next year",
-    "replicateConfirmTitle": "Replicate holidays {{fromYear}} → {{toYear}}",
-    "replicateConfirmDesc": "{{count}} holiday(s) from {{fromYear}} will be created for {{toYear}}. Dates already present in {{toYear}} will be skipped. Continue?",
-    "noSourceHolidays": "No holidays are loaded for year {{year}}.",
-    "allDatesAlreadyExist": "All holidays for {{year}} already exist.",
-    "allDatesLeapDay": "All source holidays fall on Feb 29 and {{year}} is not a leap year — nothing to replicate.",
-    "allDatesLeapDayAndAlreadyExist": "No holidays to replicate to {{year}}: some fall on Feb 29 (non-leap year) and the rest already exist."
+    "generateButton": "Generate {{year}} national holidays",
+    "generateConfirmTitle": "Generate {{year}} national holidays",
+    "generateConfirmDesc": "Year {{year}}: {{total}} national holidays calculated, {{alreadyExist}} already exist, {{toInsert}} will be created. Continue?",
+    "allNationalAlreadyExist": "All national holidays for {{year}} already exist."
   },
  "dashboard": {
     "noData": "No data available for the selected period",

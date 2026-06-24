@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { format } from "date-fns";
-import { Copy } from "lucide-react";
+import { Wand2 } from "lucide-react";
 import { DataTable, Column } from "@/components/data-table/DataTable";
 import { useHolidays, type Holiday } from "@/hooks/useHolidays";
 import { useStaff } from "@/hooks/useEmsData";
@@ -12,8 +12,9 @@ import {
   AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
   AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { useReplicateHolidaysToNextYear } from "@/hooks/mutations/useHolidayMutations";
+import { useGenerateNationalHolidays } from "@/hooks/mutations/useHolidayMutations";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
+import { getBoliviaNationalHolidays } from "@/lib/boliviaHolidays";
 
 export function HolidaysManager() {
   const { t } = useTranslation();
@@ -22,15 +23,20 @@ export function HolidaysManager() {
 
   const [formOpen, setFormOpen] = useState(false);
   const [selectedHoliday, setSelectedHoliday] = useState<Holiday | null>(null);
-  const [replicateOpen, setReplicateOpen] = useState(false);
-  const replicateMutation = useReplicateHolidaysToNextYear();
+  const [generateOpen, setGenerateOpen] = useState(false);
+  const generateMutation = useGenerateNationalHolidays();
   const { staffRecord } = useCurrentStaff();
 
-  const currentYear = new Date().getFullYear();
-  const sourceCount = (holidays ?? []).filter((h) =>
-    h.holiday_date.startsWith(`${currentYear}-`)
-  ).length;
-  const hasSource = sourceCount > 0;
+  const targetYear = new Date().getFullYear() + 1;
+  const generatedList = getBoliviaNationalHolidays(targetYear);
+  const existingTargetDates = new Set(
+    (holidays ?? [])
+      .filter((h) => h.holiday_date.startsWith(`${targetYear}-`))
+      .map((h) => h.holiday_date)
+  );
+  const totalNational = generatedList.length;
+  const alreadyExist = generatedList.filter((g) => existingTargetDates.has(g.date)).length;
+  const toInsertCount = totalNational - alreadyExist;
 
   const getStaffName = (staffId: string) => {
     const s = staffList?.find((st) => st.staff_id === staffId);
@@ -76,11 +82,11 @@ export function HolidaysManager() {
       <div className="flex justify-end mb-2">
         <Button
           variant="outline"
-          disabled={!hasSource || replicateMutation.isPending || !staffRecord}
-          onClick={() => setReplicateOpen(true)}
+          disabled={generateMutation.isPending || !staffRecord}
+          onClick={() => setGenerateOpen(true)}
         >
-          <Copy className="h-4 w-4 mr-2" />
-          {t("holiday.replicateButton")}
+          <Wand2 className="h-4 w-4 mr-2" />
+          {t("holiday.generateButton", { year: targetYear })}
         </Button>
       </div>
 
@@ -108,20 +114,18 @@ export function HolidaysManager() {
         holiday={selectedHoliday}
       />
 
-      <AlertDialog open={replicateOpen} onOpenChange={setReplicateOpen}>
+      <AlertDialog open={generateOpen} onOpenChange={setGenerateOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {t("holiday.replicateConfirmTitle", {
-                fromYear: currentYear,
-                toYear: currentYear + 1,
-              })}
+              {t("holiday.generateConfirmTitle", { year: targetYear })}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {t("holiday.replicateConfirmDesc", {
-                count: sourceCount,
-                fromYear: currentYear,
-                toYear: currentYear + 1,
+              {t("holiday.generateConfirmDesc", {
+                year: targetYear,
+                total: totalNational,
+                alreadyExist,
+                toInsert: toInsertCount,
               })}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -130,9 +134,9 @@ export function HolidaysManager() {
             <AlertDialogAction
               onClick={() => {
                 if (staffRecord) {
-                  replicateMutation.mutate({ created_by: staffRecord.staff_id });
+                  generateMutation.mutate({ created_by: staffRecord.staff_id, year: targetYear });
                 }
-                setReplicateOpen(false);
+                setGenerateOpen(false);
               }}
             >
               {t("common.confirm")}

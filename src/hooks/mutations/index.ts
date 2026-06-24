@@ -42,7 +42,7 @@ export { useCreateExpenseBudget, useUpdateExpenseBudget, useDeleteExpenseBudget 
 export { useUpdateTimeEntry, useUpdateExpenseLog } from "./useAdminMutations";
 
 // Holidays
-export { useCreateHoliday, useUpdateHoliday, useDeleteHoliday, useReplicateHolidaysToNextYear } from "./useHolidayMutations";
+export { useCreateHoliday, useUpdateHoliday, useDeleteHoliday, useGenerateNationalHolidays } from "./useHolidayMutations";
 
 // Skills
 export { useCreateSkill, useUpdateSkill, useDeleteSkill } from "./useSkillMutations";
