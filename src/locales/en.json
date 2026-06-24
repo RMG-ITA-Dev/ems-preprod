@@ -1413,6 +1413,22 @@
   },
   "fundRequestExpense": {
     "title": "Request Expenses",
+    "report": {
+      "exportButton": "Download report",
+      "title": "Expense Report",
+      "sheetName": "Expenses",
+      "workOrdersSection": "Work Orders",
+      "engagement": "Engagement",
+      "allocated": "Allocated Amount",
+      "detailSection": "Expense Detail",
+      "documentNumber": "Invoice/Receipt No.",
+      "supplier": "Supplier",
+      "supplierTaxId": "Supplier Tax ID",
+      "currency": "Currency",
+      "iva": "VAT (13%)",
+      "total": "TOTAL",
+      "exportError": "Could not generate the report"
+    },
     "manageExpenses": "Expenses",
     "expensesColumn": "Expenses",
     "newExpense": "New Expense",
