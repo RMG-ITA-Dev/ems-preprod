@@ -6,7 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { AlertTriangle, Info } from "lucide-react";
+import { AlertTriangle, Info, Download } from "lucide-react";
+import { toast } from "sonner";
+import {
+  downloadExpenseReportXlsx,
+  reportFilename,
+  type ExpenseReportLabels,
+} from "@/lib/fundRequestExpenseReportExport";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -76,6 +82,29 @@ const FundRequestExpenses = () => {
 
   const isRequester =
     !!staffRecord && !!fr && fr.requester_staff_id === staffRecord.staff_id;
+  // Gerente de alguna OT de esta solicitud.
+  const isManagerOfThisFr =
+    !!staffRecord &&
+    (fr?.fund_request_work_orders ?? []).some((o) => o.manager_staff_id === staffRecord.staff_id);
+  // Solo los actores del flujo pueden descargar el reporte: solicitante, gerente
+  // de OT, o admin (contabilidad por ahora). Y solo si hay gastos que reportar.
+  const canExport =
+    (isRequester || isManagerOfThisFr || isAdmin) && (expenses?.length ?? 0) > 0;
+  // Vista "acotada al gerente": por RLS, un gerente puro (no solicitante ni admin)
+  // solo ve SUS OTs y los gastos de esas OTs.
+  // Excepción: si gestiona TODAS las OTs (su asignado == lo solicitado), ve la
+  // solicitud completa y puede mostrar el Entregado/Saldo REALES (exactos). Solo
+  // cuando ve un subconjunto se usa el marco de presupuesto (Asignado/Por gastar),
+  // porque el entregado total no se puede atribuir a sus OTs (desembolso es global
+  // y puede ser parcial).
+  const myAllocatedTotal = (fr?.fund_request_work_orders ?? []).reduce(
+    (s, o) => s + Number(o.allocated_amount || 0),
+    0,
+  );
+  const seesWholeRequest =
+    Math.abs(myAllocatedTotal - Number(fr?.total_requested_amount ?? 0)) < 0.01;
+  const isManagerScoped =
+    isManagerOfThisFr && !isRequester && !isAdmin && !seesWholeRequest;
   // Hay gastos "bloqueados": enviados (pendiente), aprobados por el gerente o
   // revisados por contabilidad. Mientras exista alguno, el solicitante no puede
   // registrar/enviar nuevos gastos.
@@ -168,10 +197,74 @@ const FundRequestExpenses = () => {
     const list = expenses ?? [];
     const spent = list.reduce((s, e) => s + Number(e.amount || 0), 0);
     const ivaPenalty = list.reduce((s, e) => s + Number(e.iva_penalty_amount || 0), 0);
-    const disbursed = Number(fr?.total_disbursed_amount ?? 0);
+    // Para un gerente acotado, la referencia es el asignado de SUS OTs visibles
+    // (no el entregado total de la solicitud), así el saldo cuadra con lo que ve.
+    const disbursed = isManagerScoped
+      ? (fr?.fund_request_work_orders ?? []).reduce(
+          (s, o) => s + Number(o.allocated_amount || 0),
+          0,
+        )
+      : Number(fr?.total_disbursed_amount ?? 0);
     const balance = disbursed - spent;
     return { spent, ivaPenalty, disbursed, balance };
-  }, [expenses, fr]);
+  }, [expenses, fr, isManagerScoped]);
+
+  const handleExport = async () => {
+    if (!fr) return;
+    const labels: ExpenseReportLabels = {
+      title: t("fundRequestExpense.report.title"),
+      sheetName: t("fundRequestExpense.report.sheetName"),
+      summary: {
+        requester: t("fundRequest.requester"),
+        status: t("common.status"),
+        disbursed: isManagerScoped
+          ? t("fundRequestExpense.report.allocatedScoped")
+          : t("fundRequest.totalDisbursed"),
+        spent: t("fundRequestExpense.totalSpent"),
+        balance: t("fundRequestExpense.balance"),
+        ivaTotal: t("fundRequestExpense.totalIvaPenalty"),
+      },
+      workOrders: {
+        section: t("fundRequestExpense.report.workOrdersSection"),
+        code: t("fundRequestExpense.workOrder"),
+        engagement: t("fundRequestExpense.report.engagement"),
+        manager: t("fundRequest.manager"),
+        allocated: t("fundRequestExpense.report.allocated"),
+        status: t("common.status"),
+      },
+      detail: {
+        section: t("fundRequestExpense.report.detailSection"),
+        date: t("fundRequestExpense.expenseDate"),
+        workOrder: t("fundRequestExpense.workOrder"),
+        expenseType: t("fundRequestExpense.expenseType"),
+        description: t("fundRequestExpense.description"),
+        documentNumber: t("fundRequestExpense.report.documentNumber"),
+        supplier: t("fundRequestExpense.report.supplier"),
+        supplierTaxId: t("fundRequestExpense.report.supplierTaxId"),
+        amount: t("fundRequestExpense.amount"),
+        currency: t("fundRequestExpense.report.currency"),
+        iva: t("fundRequestExpense.report.iva"),
+        status: t("common.status"),
+        total: t("fundRequestExpense.report.total"),
+      },
+      frStatusLabel: (s) => t(`fundRequest.status.${s}`),
+      otStatusLabel: (s) => t(`fundRequest.otApproval.status.${s}`),
+      expenseStatusLabel: (s) => t(`fundRequestExpense.status.${s}`),
+    };
+    try {
+      await downloadExpenseReportXlsx(
+        { fr, expenses: expenses ?? [], totals },
+        labels,
+        reportFilename(
+          fr.request_number,
+          t("fundRequestExpense.report.filenamePrefix"),
+          t("fundRequestExpense.report.filenameFallback"),
+        ),
+      );
+    } catch {
+      toast.error(t("fundRequestExpense.report.exportError"));
+    }
+  };
 
   const columns: Column<FundRequestExpense>[] = [
     {
@@ -257,7 +350,11 @@ const FundRequestExpenses = () => {
             <div className="flex items-start justify-between flex-wrap gap-3">
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
                 <div>
-                  <p className="text-muted-foreground">{t("fundRequest.totalDisbursed")}</p>
+                  <p className="text-muted-foreground">
+                    {isManagerScoped
+                      ? t("fundRequestExpense.report.allocatedScoped")
+                      : t("fundRequest.totalDisbursed")}
+                  </p>
                   <p className="font-mono font-semibold">
                     {formatCurrency(totals.disbursed, currency)} {currency}
                   </p>
@@ -294,6 +391,12 @@ const FundRequestExpenses = () => {
                 <Button variant="cancel" onClick={() => navigate(-1)}>
                   {t("common.back")}
                 </Button>
+                {canExport && (
+                  <Button variant="outline" onClick={handleExport}>
+                    <Download className="h-4 w-4 mr-1" />
+                    {t("fundRequestExpense.report.exportButton")}
+                  </Button>
+                )}
                 {canAddExpenses && (
                   <Button variant="outline" onClick={() => setDialogExpense(null)}>
                     {t("fundRequestExpense.newExpense")}

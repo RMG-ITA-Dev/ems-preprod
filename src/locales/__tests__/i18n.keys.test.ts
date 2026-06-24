@@ -28,3 +28,35 @@ describe("i18n new keys from bug 0306-77", () => {
     });
   });
 });
+
+const REPORT_KEYS_0319_91 = [
+  "fundRequestExpense.report.exportButton",
+  "fundRequestExpense.report.title",
+  "fundRequestExpense.report.sheetName",
+  "fundRequestExpense.report.filenamePrefix",
+  "fundRequestExpense.report.filenameFallback",
+  "fundRequestExpense.report.workOrdersSection",
+  "fundRequestExpense.report.engagement",
+  "fundRequestExpense.report.allocated",
+  "fundRequestExpense.report.allocatedScoped",
+  "fundRequestExpense.report.detailSection",
+  "fundRequestExpense.report.documentNumber",
+  "fundRequestExpense.report.supplier",
+  "fundRequestExpense.report.supplierTaxId",
+  "fundRequestExpense.report.currency",
+  "fundRequestExpense.report.iva",
+  "fundRequestExpense.report.total",
+  "fundRequestExpense.report.exportError",
+];
+
+describe("i18n new keys from bug 0319-91 (expense report export)", () => {
+  REPORT_KEYS_0319_91.forEach((key) => {
+    it(`es.json has key: ${key}`, () => {
+      expect(getNestedValue(esJson as Record<string, unknown>, key)).toBeDefined();
+    });
+
+    it(`en.json has key: ${key}`, () => {
+      expect(getNestedValue(enJson as Record<string, unknown>, key)).toBeDefined();
+    });
+  });
+});
