@@ -49,7 +49,8 @@ vi.mock("@/hooks/useEmsData", () => ({
 }));
 
 vi.mock("@/components/data-table/DataTable", () => ({
-  DataTable: () => React.createElement("div", { "data-testid": "data-table" }),
+  DataTable: ({ headerActions }: { headerActions?: React.ReactNode }) =>
+    React.createElement("div", { "data-testid": "data-table" }, headerActions ?? null),
 }));
 
 vi.mock("@/components/forms/HolidayForm", () => ({

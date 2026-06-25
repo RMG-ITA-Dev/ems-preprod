@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { format } from "date-fns";
-import { ChevronLeft, ChevronRight, Wand2 } from "lucide-react";
+import { Wand2 } from "lucide-react";
 import { DataTable, Column } from "@/components/data-table/DataTable";
 import { useHolidays, type Holiday } from "@/hooks/useHolidays";
 import { useStaff } from "@/hooks/useEmsData";
@@ -28,9 +28,7 @@ export function HolidaysManager() {
   const { staffRecord } = useCurrentStaff();
 
   const currentYear = new Date().getFullYear();
-  const [targetYear, setTargetYear] = useState(currentYear + 1);
-  const minYear = currentYear;
-  const maxYear = currentYear + 5;
+  const targetYear = currentYear + 1;
   const generatedList = getBoliviaNationalHolidays(targetYear);
   const generatedDates = new Set(generatedList.map((g) => g.date));
   const targetYearHolidays = (holidays ?? []).filter((h) =>
@@ -83,28 +81,6 @@ export function HolidaysManager() {
     },
   ];
 
-  const yearSelector = (
-    <div className="flex items-center gap-1">
-      <Button
-        variant="ghost"
-        size="icon"
-        disabled={targetYear <= minYear}
-        onClick={() => setTargetYear((y) => y - 1)}
-      >
-        <ChevronLeft className="h-4 w-4" />
-      </Button>
-      <span className="w-12 text-center font-medium tabular-nums">{targetYear}</span>
-      <Button
-        variant="ghost"
-        size="icon"
-        disabled={targetYear >= maxYear}
-        onClick={() => setTargetYear((y) => y + 1)}
-      >
-        <ChevronRight className="h-4 w-4" />
-      </Button>
-    </div>
-  );
-
   return (
     <>
       <DataTable
@@ -114,17 +90,14 @@ export function HolidaysManager() {
         searchKeys={["holiday_name"]}
         isLoading={isLoading}
         headerActions={
-          <>
-            {yearSelector}
-            <Button
-              variant="outline"
-              disabled={generateMutation.isPending || !staffRecord}
-              onClick={() => setGenerateOpen(true)}
-            >
-              <Wand2 className="h-4 w-4 mr-2" />
-              {t("holiday.generateButton", { year: targetYear })}
-            </Button>
-          </>
+          <Button
+            variant="outline"
+            disabled={generateMutation.isPending || !staffRecord}
+            onClick={() => setGenerateOpen(true)}
+          >
+            <Wand2 className="h-4 w-4 mr-2" />
+            {t("holiday.generateButton", { year: targetYear })}
+          </Button>
         }
         newButtonLabel={t("holiday.addHoliday")}
         onNewClick={() => {
