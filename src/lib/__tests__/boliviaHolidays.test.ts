@@ -101,17 +101,31 @@ describe("normalizeHolidayName", () => {
   });
 });
 
-describe("Monday transfer rule (mechanism)", () => {
-  it("transfer OFF (default): dates are unchanged even with applyMondayTransfer:false", () => {
-    const a = getBoliviaNationalHolidays(2027, { applyMondayTransfer: false });
-    const b = getBoliviaNationalHolidays(2027);
-    expect(a.map((h) => h.date)).toEqual(b.map((h) => h.date));
+describe("Monday transfer rule", () => {
+  // 2023: Jan 1 = Sunday, Jan 22 = Sunday, Aug 6 = Sunday.
+  it("default (ON): fixed holidays on Sunday shift to Monday", () => {
+    const holidays = getBoliviaNationalHolidays(2023);
+    const byName = Object.fromEntries(holidays.map((h) => [h.name, h.date]));
+    expect(byName["Año Nuevo"]).toBe("2023-01-02");                    // Sun 01-01 → Mon 01-02
+    expect(byName["Día del Estado Plurinacional"]).toBe("2023-01-23"); // Sun 01-22 → Mon 01-23
+    expect(byName["Día de la Independencia"]).toBe("2023-08-07");      // Sun 08-06 → Mon 08-07
   });
 
-  it("transfer ON but no holiday has transfers:true → dates unchanged", () => {
-    // transfers flag is commented out in source; result is identical to OFF
-    const a = getBoliviaNationalHolidays(2027, { applyMondayTransfer: true });
-    const b = getBoliviaNationalHolidays(2027, { applyMondayTransfer: false });
-    expect(a.map((h) => h.date)).toEqual(b.map((h) => h.date));
+  it("explicit OFF: Sunday holidays keep their calendar date", () => {
+    const holidays = getBoliviaNationalHolidays(2023, { applyMondayTransfer: false });
+    const byName = Object.fromEntries(holidays.map((h) => [h.name, h.date]));
+    expect(byName["Año Nuevo"]).toBe("2023-01-01");
+    expect(byName["Día del Estado Plurinacional"]).toBe("2023-01-22");
+    expect(byName["Día de la Independencia"]).toBe("2023-08-06");
+  });
+
+  it("moveable holidays are never transferred (day of week is fixed by definition)", () => {
+    const on  = getBoliviaNationalHolidays(2023);
+    const off = getBoliviaNationalHolidays(2023, { applyMondayTransfer: false });
+    ["Lunes de Carnaval", "Martes de Carnaval", "Viernes Santo", "Corpus Christi"].forEach((name) => {
+      expect(on.find((h) => h.name === name)?.date).toBe(
+        off.find((h) => h.name === name)?.date,
+      );
+    });
   });
 });

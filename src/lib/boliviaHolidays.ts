@@ -30,27 +30,26 @@ export interface GeneratedHoliday {
 }
 
 // SINGLE SOURCE OF TRUTH — Bolivia national holidays only (no departmental).
+// List and Sun→Mon transfer rule confirmed by user (Ruizmier, 2026-06-25).
 // Ref: https://en.wikipedia.org/wiki/Public_holidays_in_Bolivia
-// Confirm list and transfer rules against an authoritative/legal source before shipping.
 export function getBoliviaNationalHolidays(
   year: number,
-  opts: { applyMondayTransfer?: boolean } = {},
+  opts: { applyMondayTransfer?: boolean } = { applyMondayTransfer: true },
 ): GeneratedHoliday[] {
   const easter = computeEaster(year);
 
   const list: GeneratedHoliday[] = [
-    { date: `${year}-01-01`, name: "Año Nuevo" },
-    { date: `${year}-01-22`, name: "Día del Estado Plurinacional" },
+    { date: `${year}-01-01`, name: "Año Nuevo",                       transfers: true },
+    { date: `${year}-01-22`, name: "Día del Estado Plurinacional",    transfers: true },
     { date: ymd(addDays(easter, -48)), name: "Lunes de Carnaval" },
     { date: ymd(addDays(easter, -47)), name: "Martes de Carnaval" },
-    { date: ymd(addDays(easter, -2)), name: "Viernes Santo" },
-    // transfers flag commented until legal confirmation of D.S. 2750 scope
-    { date: `${year}-05-01`, name: "Día del Trabajo" /* , transfers: true */ },
-    { date: ymd(addDays(easter, 60)), name: "Corpus Christi" },
-    { date: `${year}-06-21`, name: "Año Nuevo Andino Amazónico" },
-    { date: `${year}-08-06`, name: "Día de la Independencia" },
-    { date: `${year}-11-02`, name: "Día de los Difuntos" },
-    { date: `${year}-12-25`, name: "Navidad" },
+    { date: ymd(addDays(easter, -2)),  name: "Viernes Santo" },
+    { date: `${year}-05-01`, name: "Día del Trabajo",                 transfers: true },
+    { date: ymd(addDays(easter, 60)),  name: "Corpus Christi" },
+    { date: `${year}-06-21`, name: "Año Nuevo Andino Amazónico",      transfers: true },
+    { date: `${year}-08-06`, name: "Día de la Independencia",         transfers: true },
+    { date: `${year}-11-02`, name: "Día de los Difuntos",             transfers: true },
+    { date: `${year}-12-25`, name: "Navidad",                         transfers: true },
   ];
 
   const out = list.map((h) => {
