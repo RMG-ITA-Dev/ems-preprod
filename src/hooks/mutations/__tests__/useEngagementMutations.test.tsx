@@ -34,10 +34,7 @@ describe("useEngagementMutations", () => {
         engagement_name: "Audit 2024",
         client_id: "client-1",
       };
-      const mockSingle = vi.fn().mockResolvedValue({ data: mockData, error: null });
-      const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
-      const mockInsert = vi.fn().mockReturnValue({ select: mockSelect });
-      vi.mocked(supabase.from).mockReturnValue({ insert: mockInsert } as any);
+      vi.mocked(supabase.rpc).mockResolvedValue({ data: mockData, error: null } as any);
 
       const { result } = renderHook(() => useCreateEngagement(), {
         wrapper: createWrapper(),
@@ -46,15 +43,26 @@ describe("useEngagementMutations", () => {
       result.current.mutate({
         engagement_name: "Audit 2024",
         client_id: "client-1",
+        oficina: 1,
+        practica: 2,
+        funcion: 1,
+        anio_fiscal: 2027,
       });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-      expect(supabase.from).toHaveBeenCalledWith("engagements");
-      expect(mockInsert).toHaveBeenCalledWith({
-        engagement_name: "Audit 2024",
-        client_id: "client-1",
-      });
+      expect(supabase.rpc).toHaveBeenCalledWith(
+        "create_engagement_with_code",
+        expect.objectContaining({
+          p_engagement_name: "Audit 2024",
+          p_client_id: "client-1",
+          p_oficina: 1,
+          p_practica: 2,
+          p_funcion: 1,
+          p_anio_fiscal: 2027,
+        })
+      );
+      expect(supabase.from).not.toHaveBeenCalledWith("engagements");
       expect(toast.success).toHaveBeenCalled();
     });
 
@@ -62,16 +70,12 @@ describe("useEngagementMutations", () => {
       const mockData = {
         engagement_id: "eng-1",
         engagement_name: "Audit 2024",
-        engagement_code: "AUD-2024-001",
         client_id: "client-1",
         partner_id: "staff-1",
         manager_id: "staff-2",
         status: "active",
       };
-      const mockSingle = vi.fn().mockResolvedValue({ data: mockData, error: null });
-      const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
-      const mockInsert = vi.fn().mockReturnValue({ select: mockSelect });
-      vi.mocked(supabase.from).mockReturnValue({ insert: mockInsert } as any);
+      vi.mocked(supabase.rpc).mockResolvedValue({ data: mockData, error: null } as any);
 
       const { result } = renderHook(() => useCreateEngagement(), {
         wrapper: createWrapper(),
@@ -79,14 +83,29 @@ describe("useEngagementMutations", () => {
 
       result.current.mutate({
         engagement_name: "Audit 2024",
-        engagement_code: "AUD-2024-001",
         client_id: "client-1",
+        oficina: 1,
+        practica: 2,
+        funcion: 1,
+        anio_fiscal: 2027,
         partner_id: "staff-1",
         manager_id: "staff-2",
         status: "active",
       });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      expect(supabase.rpc).toHaveBeenCalledWith(
+        "create_engagement_with_code",
+        expect.objectContaining({
+          p_engagement_name: "Audit 2024",
+          p_client_id: "client-1",
+          p_oficina: 1,
+          p_practica: 2,
+          p_funcion: 1,
+          p_anio_fiscal: 2027,
+        })
+      );
     });
   });
 

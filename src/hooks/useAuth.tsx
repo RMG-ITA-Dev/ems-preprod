@@ -68,45 +68,84 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signIn = async (email: string, password: string) => {
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
+    // BUG 0514-115: account lockout policy runs server-side inside the
+    // `secure-signin` edge function. The client used to call the lockout RPCs
+    // directly, but Codex flagged that `anon` could POST `record_failed_login`
+    // with any email and lock the account without ever attempting a real
+    // login. Migration 20260527000000 strips those anon grants; this function
+    // is the only legitimate caller now (via service role), so the counter
+    // only moves when GoTrue itself confirms a credential failure.
+    const { data: invokeData, error: invokeError } = await supabase.functions.invoke(
+      'secure-signin',
+      { body: { email, password } },
+    );
+
+    if (invokeError) {
+      return { error: invokeError as Error };
+    }
+
+    const result = invokeData as
+      | { ok: true; session: { access_token: string; refresh_token: string } }
+      | { ok: false; code: string; message?: string; remaining_seconds?: number }
+      | null;
+
+    if (!result) {
+      return { error: new Error('Sign in failed') };
+    }
+
+    if (result.ok === false) {
+      if (result.code === 'ACCOUNT_LOCKED') {
+        const remaining = result.remaining_seconds ?? 0;
+        return { error: new Error(`ACCOUNT_LOCKED:${remaining}`) };
+      }
+      if (result.code === 'INVALID_CREDENTIALS') {
+        return { error: new Error('Invalid login credentials') };
+      }
+      return { error: new Error(result.message ?? 'Sign in failed') };
+    }
+
+    // Install the session locally so onAuthStateChange fires and the rest of
+    // the app sees an authenticated user.
+    const { data: setData, error: setErr } = await supabase.auth.setSession({
+      access_token: result.session.access_token,
+      refresh_token: result.session.refresh_token,
     });
-    
-    if (!error && data.session) {
-      // Check if linked staff record is inactive
-      const { data: staffCheck } = await supabase
-        .from('staff')
-        .select('is_active')
-        .eq('auth_user_id', data.user.id)
+    if (setErr || !setData.session || !setData.user) {
+      return { error: (setErr as Error) ?? new Error('Failed to install session') };
+    }
+
+    // Check if linked staff record is inactive
+    const { data: staffCheck } = await supabase
+      .from('staff')
+      .select('is_active')
+      .eq('auth_user_id', setData.user.id)
+      .maybeSingle();
+
+    if (staffCheck && staffCheck.is_active === false) {
+      await supabase.auth.signOut();
+      return { error: new Error('ACCOUNT_INACTIVE') };
+    }
+
+    // No staff record at all — check if admin (bootstrap) or block
+    if (!staffCheck) {
+      const { data: adminRole } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', setData.user.id)
+        .eq('role', 'admin')
         .maybeSingle();
 
-      if (staffCheck && staffCheck.is_active === false) {
+      if (!adminRole) {
         await supabase.auth.signOut();
-        return { error: new Error('ACCOUNT_INACTIVE') };
+        return { error: new Error('NO_STAFF_RECORD') };
       }
-
-      // No staff record at all — check if admin (bootstrap) or block
-      if (!staffCheck) {
-        const { data: adminRole } = await supabase
-          .from("user_roles")
-          .select("role")
-          .eq("user_id", data.user.id)
-          .eq("role", "admin")
-          .maybeSingle();
-
-        if (!adminRole) {
-          await supabase.auth.signOut();
-          return { error: new Error('NO_STAFF_RECORD') };
-        }
-        // Admin without staff record: allow login, ProtectedRoute sends to /bootstrap
-      }
-
-      // Ensure user has a role (handles users who signed up before this fix)
-      await assignUserRole(data.session);
+      // Admin without staff record: allow login, ProtectedRoute sends to /bootstrap
     }
-    
-    return { error: error as Error | null };
+
+    // Ensure user has a role (handles users who signed up before this fix)
+    await assignUserRole(setData.session);
+
+    return { error: null };
   };
 
   const signUp = async (email: string, password: string, firstName: string, lastName: string) => {
@@ -145,9 +184,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const updatePassword = async (newPassword: string) => {
-    const { error } = await supabase.auth.updateUser({
+    const { data, error } = await supabase.auth.updateUser({
       password: newPassword,
     });
+    // BUG 0514-115: clear any lockout state so a recovery flow lets the user
+    // sign in with the new password immediately instead of waiting out the
+    // residual 15-minute window from the failed attempts that preceded reset.
+    if (!error && data.user?.email) {
+      const { error: resetErr } = await supabase.rpc('reset_login_attempts', {
+        p_email: data.user.email.trim().toLowerCase(),
+      });
+      if (resetErr) {
+        console.error('[lockout] reset_login_attempts after password update failed:', resetErr);
+      }
+    }
     return { error: error as Error | null };
   };
 

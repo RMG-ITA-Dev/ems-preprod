@@ -28,6 +28,13 @@ export {
   useUpdateWorkOrder,
   useSubmitWorkOrder,
   useApproveWorkOrder,
+  useApproveRisk,
+  useApproveEmergencyReview,
+  useApproveEmergencyPartner,
+  useRejectRisk,
+  useRevertSocioApproval,
+  useRevertRiskApproval,
+  useCompleteRiskAssessment,
   useRejectWorkOrder,
   useUnsubmitWorkOrder,
 } from "./useWorkOrderMutations";
@@ -39,7 +46,7 @@ export { useCreateBudgetLine, useUpdateBudgetLine, useDeleteBudgetLine } from ".
 export { useCreateExpenseBudget, useUpdateExpenseBudget, useDeleteExpenseBudget } from "./useExpenseBudgetMutations";
 
 // Admin mutations
-export { useUpdateTimeEntry, useUpdateExpenseLog } from "./useAdminMutations";
+export { useUpdateTimeEntry } from "./useAdminMutations";
 
 // Holidays
 export { useCreateHoliday, useUpdateHoliday, useDeleteHoliday, useGenerateNationalHolidays } from "./useHolidayMutations";

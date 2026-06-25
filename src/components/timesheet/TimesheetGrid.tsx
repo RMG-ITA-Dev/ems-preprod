@@ -34,6 +34,7 @@ import { logger } from "@/lib/logger";
 interface LineApproval {
   approval_id: string;
   engagement_id: string;
+  activity_id: string;
   status: "pending" | "approved" | "rejected";
   review_notes: string | null;
 }
@@ -233,8 +234,8 @@ export function TimesheetGrid({
 
       rowsRef.current.forEach((row) => {
         if (!row.engagementId) return;
-        // Approved line guard: skip approved rows in batch save
-        const rowApproval = lineApprovals.find(la => la.engagement_id === row.engagementId);
+        // Approved line guard: skip approved (engagement, activity) pairs in batch save
+        const rowApproval = lineApprovals.find(la => la.engagement_id === row.engagementId && la.activity_id === row.activityId);
         if (rowApproval?.status === "approved") return;
         const isActNotReq = activityNotRequiredIds?.has(row.engagementId);
         const effectiveActivityId = isActNotReq && adminActivityId ? adminActivityId : row.activityId;
@@ -348,7 +349,11 @@ export function TimesheetGrid({
 
       executeBatch();
     }
-  }, [saveNowTrigger, weekDates, staffId, periodId, upsertEntry, t, engagementDateMap, activityNotRequiredIds, adminActivityId, lineApprovals]);
+    // lineApprovals/activityNotRequiredIds/adminActivityId are read from the current closure
+    // at trigger time via rowsRef; adding them would re-arm the effect on every prop change
+    // (unintentionally triggering a batch save). rowsRef keeps their values fresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saveNowTrigger, weekDates, staffId, periodId, upsertEntry, t, engagementDateMap]);
 
   const addNewRow = () => {
     setRows([
@@ -433,6 +438,19 @@ export function TimesheetGrid({
       activityRequired,
     });
 
+    // BUG 0508-106 Plan v3: block only the specific (engagement, activity) pair if approved.
+    // Guard moved after normalizeActivityForEngagement so we know the resulting activity.
+    // If activityId is empty (activity required, not yet chosen), allow — handleActivityChange guards it.
+    if (activityId) {
+      const targetApproval = lineApprovals.find(
+        la => la.engagement_id === engagementId && la.activity_id === activityId
+      );
+      if (targetApproval?.status === "approved") {
+        toast.error(t("timesheet.cannotSelectApprovedEngagementActivity"));
+        return;
+      }
+    }
+
     // Check for duplicate — another row with same engagement+activity
     const existingRow = rows.find(r => r.id !== rowId && r.engagementId === engagementId && r.activityId === activityId && activityId !== '');
     if (existingRow) {
@@ -461,6 +479,17 @@ export function TimesheetGrid({
     const currentRow = rows.find(r => r.id === rowId);
     if (!currentRow) return;
     const engagementId = currentRow.engagementId;
+
+    // BUG 0508-106 Plan v3: block if this (engagement, activity) pair is already approved
+    if (engagementId) {
+      const targetApproval = lineApprovals.find(
+        la => la.engagement_id === engagementId && la.activity_id === activityId
+      );
+      if (targetApproval?.status === "approved") {
+        toast.error(t("timesheet.cannotSelectApprovedEngagementActivity"));
+        return;
+      }
+    }
 
     // Check for duplicate
     const existingRow = rows.find(r => r.id !== rowId && r.engagementId === engagementId && r.activityId === activityId && engagementId !== '');
@@ -541,10 +570,13 @@ export function TimesheetGrid({
         }
       }
 
-      // Approved line guard
+      // Approved line guard — check the specific (engagement, activity) pair
       const currentRowForApproval = rowsRef.current.find((r) => r.id === rowId);
       if (currentRowForApproval) {
-        const rowApproval = lineApprovals.find(la => la.engagement_id === currentRowForApproval.engagementId);
+        const rowApproval = lineApprovals.find(
+          la => la.engagement_id === currentRowForApproval.engagementId
+             && la.activity_id   === currentRowForApproval.activityId
+        );
         if (rowApproval?.status === "approved") return;
       }
 
@@ -657,13 +689,15 @@ export function TimesheetGrid({
   }, [rows]);
 
 
-  // Get approval status for an engagement
-  const getApprovalStatus = (engagementId: string) => {
-    return lineApprovals.find((la) => la.engagement_id === engagementId);
+  // Get approval status for a specific (engagement, activity) pair
+  const getApprovalStatus = (engagementId: string, activityId: string) => {
+    return lineApprovals.find(
+      (la) => la.engagement_id === engagementId && la.activity_id === activityId
+    );
   };
 
-  const renderApprovalBadge = (engagementId: string) => {
-    const approval = getApprovalStatus(engagementId);
+  const renderApprovalBadge = (engagementId: string, activityId: string) => {
+    const approval = getApprovalStatus(engagementId, activityId);
     if (!approval) return null;
 
     const statusConfig = {
@@ -749,7 +783,7 @@ export function TimesheetGrid({
           </thead>
           <tbody>
             {rows.map((row) => {
-              const rowApproval = getApprovalStatus(row.engagementId);
+              const rowApproval = getApprovalStatus(row.engagementId, row.activityId);
               const isRowApproved = rowApproval?.status === "approved";
               const isRowLocked = isLocked || isRowApproved;
               return (
@@ -769,7 +803,7 @@ export function TimesheetGrid({
                       disabled={isRowLocked}
                       placeholder={t("timesheet.selectEngagement")}
                     />
-                    {row.engagementId && renderApprovalBadge(row.engagementId)}
+                    {row.engagementId && row.activityId && renderApprovalBadge(row.engagementId, row.activityId)}
                   </div>
                 </td>
                 <td className="p-2 text-left border-r border-border">
@@ -844,6 +878,28 @@ export function TimesheetGrid({
                           </TooltipTrigger>
                           <TooltipContent>
                             <p>{t("timesheet.cellOutsideEngagementDates")}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      ) : (isDayLockedByHire || isDayLockedByTermination) ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div className="relative">
+                              <NumericInput
+                                decimals={1}
+                                locale="en"
+                                min={0}
+                                max={24}
+                                value={row.hours[dateStr] || ""}
+                                onChange={(val) =>
+                                  handleHoursChange(row.id, date, String(val))
+                                }
+                                disabled={true}
+                                className="w-16 text-center mx-auto border-0 bg-transparent font-mono opacity-50"
+                              />
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>{t("timesheet.dayNotEnabledForEntry")}</p>
                           </TooltipContent>
                         </Tooltip>
                       ) : (

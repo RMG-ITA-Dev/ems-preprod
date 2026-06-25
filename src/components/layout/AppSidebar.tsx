@@ -1,20 +1,24 @@
-import { 
-  LayoutDashboard, 
-  Briefcase, 
-  FolderKanban, 
-  Users, 
+import {
+  LayoutDashboard,
+  Briefcase,
+  FolderKanban,
+  Users,
   Settings,
   FileText,
-  Receipt,
   LogOut,
   CheckSquare,
   Timer,
   Grid3X3,
   TableProperties,
+  Wallet,
+  Banknote,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { NavLink } from "@/components/NavLink";
 import { useAuth } from "@/hooks/useAuth";
+import { useUserRole } from "@/hooks/useUserRole";
+import { useCurrentStaff } from "@/hooks/useCurrentStaff";
+import { useManagesAnyOt } from "@/hooks/useFundRequests";
 import { useNavigate } from "react-router-dom";
 import {
   Sidebar,
@@ -32,6 +36,13 @@ export function AppSidebar() {
   const { t } = useTranslation();
   const { signOut } = useAuth();
   const navigate = useNavigate();
+  const { isAdmin, isPartner, isDirector, isManager } = useUserRole();
+  const { data: staffRecord } = useCurrentStaff();
+  const { data: managesAnyOt } = useManagesAnyOt(staffRecord?.staff_id);
+  // El gerente de OT puede ser un Senior (sin rol de app manager): se incluye si
+  // gestiona al menos una OT, para que vea el link de aprobaciones.
+  const canApproveFunds =
+    isAdmin || isPartner || isDirector || isManager || !!managesAnyOt;
 
   const handleSignOut = async () => {
     await signOut();
@@ -50,7 +61,25 @@ export function AppSidebar() {
     { title: t("nav.tracker"), url: "/tracker", icon: Timer },
     { title: t("nav.timeSheet"), url: "/timesheet", icon: Grid3X3 },
     { title: t("nav.timesheetApprovals"), url: "/timesheet/approvals", icon: CheckSquare },
-    { title: t("nav.expenses"), url: "/expenses", icon: Receipt },
+    { title: t("nav.fundRequests"), url: "/fund-requests", icon: Wallet },
+    ...(canApproveFunds
+      ? [
+          {
+            title: t("nav.fundRequestApprovals"),
+            url: "/fund-requests/approvals",
+            icon: CheckSquare,
+          },
+        ]
+      : []),
+    ...(isAdmin
+      ? [
+          {
+            title: t("nav.fundRequestDisbursements"),
+            url: "/fund-requests/disbursements",
+            icon: Banknote,
+          },
+        ]
+      : []),
   ];
 
   const adminItems = [
@@ -96,9 +125,9 @@ export function AppSidebar() {
               {operationsItems.map((item) => (
                 <SidebarMenuItem key={item.url}>
                   <SidebarMenuButton asChild tooltip={item.title}>
-                    <NavLink 
+                    <NavLink
                       to={item.url}
-                      end={item.url === "/timesheet"}
+                      end={item.url === "/timesheet" || item.url === "/fund-requests"}
                       className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors"
                       activeClassName="bg-sidebar-accent text-sidebar-foreground font-medium"
                     >

@@ -187,7 +187,8 @@ CREATE TABLE public.staff (
   weekly_capacity_hours NUMERIC NOT NULL DEFAULT 40,
   hire_date DATE,
   termination_date DATE,
-  deleted_at TIMESTAMPTZ
+  deleted_at TIMESTAMPTZ,
+  is_blocked BOOLEAN NOT NULL DEFAULT false  -- BUG 0601-132: admin-visible account lockout flag
 );
 
 -- NOTE: staff_capacity table removed in 2026-02-13 migration.
@@ -1744,6 +1745,9 @@ END;
 $$;
 
 -- Trigger: Prevent staff reactivation
+-- BUG 0526-123: removed REACTIVATION_BLOCKED for terminated staff (admins
+-- must be able to reactivate to regularize prior-period timesheets).
+-- Soft-deleted rows remain non-reactivatable.
 CREATE OR REPLACE FUNCTION public.prevent_staff_reactivation()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -1751,8 +1755,74 @@ SECURITY DEFINER
 SET search_path TO 'public'
 AS $$
 BEGIN
-  IF OLD.is_active = false AND NEW.is_active = true THEN
-    RAISE EXCEPTION 'REACTIVATION_BLOCKED: Staff reactivation is not permitted. Delete the record and create a new one.';
+  -- termination_date immutability — protects audit evidence on inactive
+  -- rows AND prevents clearing the date during reactivation so
+  -- trg_enforce_termination_date keeps blocking post-exit hour entries.
+  -- TD-4 exception: active→active is allowed so admins can fix a stray date.
+  IF OLD.termination_date IS NOT NULL
+     AND NEW.termination_date IS NULL
+     AND NOT (OLD.is_active = true AND NEW.is_active = true) THEN
+    RAISE EXCEPTION 'TERMINATION_DATE_IMMUTABLE: Cannot clear termination_date except on an already-active staff row.';
+  END IF;
+
+  -- Soft-deleted rows cannot be reactivated regardless of termination_date.
+  IF OLD.deleted_at IS NOT NULL
+     AND OLD.is_active = false
+     AND NEW.is_active = true THEN
+    RAISE EXCEPTION 'REACTIVATION_BLOCKED: Cannot reactivate a soft-deleted staff row. Create a new record instead.';
+  END IF;
+
+  -- deleted_at is never reversible (soft-deletes are one-way).
+  IF OLD.deleted_at IS NOT NULL
+     AND NEW.deleted_at IS NULL THEN
+    RAISE EXCEPTION 'DELETED_AT_IMMUTABLE: Cannot clear deleted_at on a staff row. Soft-deleted records cannot be restored; create a new record instead.';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+-- BUG 0601-132: block non-admin self-updates of staff.is_blocked.
+-- Trusted lockout functions (record_failed_login / reset_login_attempts /
+-- admin_unblock_account) set the transaction-local flag app.allow_blocked_change
+-- before touching the flag; a direct PostgREST UPDATE cannot, so a user cannot
+-- clear their own lockout. See migration 20260602000000.
+CREATE OR REPLACE FUNCTION public.prevent_self_blocked_change()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+BEGIN
+  IF NEW.is_blocked IS DISTINCT FROM OLD.is_blocked
+     AND current_setting('app.allow_blocked_change', true) IS DISTINCT FROM 'on'
+     AND auth.uid() IS NOT NULL
+     AND NOT public.is_admin() THEN
+    RAISE EXCEPTION 'FORBIDDEN: is_blocked can only be changed by an administrator'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+-- BUG 0601-132: restrict writes to the lockout threshold settings to admins.
+-- record_failed_login() consumes AUTH_MAX_FAILED_ATTEMPTS / AUTH_LOCKOUT_MINUTES
+-- from global_settings, so these rows are a security control. RLS on
+-- global_settings is disabled (20260115000154), so this trigger — not RLS — is
+-- what keeps an authenticated user from weakening the lockout policy via a
+-- direct PostgREST write. See migration 20260602000001.
+CREATE OR REPLACE FUNCTION public.guard_auth_lockout_settings()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+BEGIN
+  IF NEW.setting_key IN ('AUTH_MAX_FAILED_ATTEMPTS', 'AUTH_LOCKOUT_MINUTES')
+     AND auth.uid() IS NOT NULL
+     AND NOT public.is_admin() THEN
+    RAISE EXCEPTION 'FORBIDDEN: % can only be changed by an administrator', NEW.setting_key
+      USING ERRCODE = 'insufficient_privilege';
   END IF;
   RETURN NEW;
 END;
@@ -2333,6 +2403,20 @@ CREATE TRIGGER trg_link_staff_to_auth_user BEFORE INSERT OR UPDATE ON public.sta
 CREATE TRIGGER trg_prevent_staff_reactivation BEFORE UPDATE ON public.staff
   FOR EACH ROW EXECUTE FUNCTION public.prevent_staff_reactivation();
 
+-- BUG 0601-132: block non-admin self-updates of is_blocked (see migration
+-- 20260602000000). Only admins / no-JWT service_role + SECURITY DEFINER lockout
+-- paths may flip the flag; the "Users can update their linked staff record"
+-- policy would otherwise let a user clear their own lockout.
+CREATE TRIGGER trg_prevent_self_blocked_change BEFORE UPDATE OF is_blocked ON public.staff
+  FOR EACH ROW EXECUTE FUNCTION public.prevent_self_blocked_change();
+
+-- Global Settings triggers
+-- BUG 0601-132: restrict the lockout threshold keys to admin writers (see
+-- migration 20260602000001). RLS on global_settings is disabled, so this
+-- trigger is the actual guard against weakening the lockout policy via the API.
+CREATE TRIGGER trg_guard_auth_lockout_settings BEFORE INSERT OR UPDATE ON public.global_settings
+  FOR EACH ROW EXECUTE FUNCTION public.guard_auth_lockout_settings();
+
 -- Timesheet Periods triggers
 CREATE TRIGGER trg_validate_submission_has_entries BEFORE UPDATE ON public.timesheet_periods
   FOR EACH ROW WHEN (OLD.submitted_at IS NULL AND NEW.submitted_at IS NOT NULL)
@@ -2391,6 +2475,167 @@ CREATE TRIGGER update_skills_updated_at BEFORE UPDATE ON public.skills
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 CREATE TRIGGER update_staff_skills_updated_at BEFORE UPDATE ON public.staff_skills
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+-- ============================================================================
+-- Account Lockout Policy (BUG 0514-115)
+-- ============================================================================
+
+CREATE TABLE public.auth_login_attempts (
+  email_normalized text PRIMARY KEY,
+  attempts_count   integer     NOT NULL DEFAULT 0,
+  last_attempt_at  timestamptz NOT NULL DEFAULT now(),
+  locked_until     timestamptz
+);
+
+ALTER TABLE public.auth_login_attempts ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.auth_login_attempts FROM anon, authenticated, public;
+
+CREATE OR REPLACE FUNCTION public.check_login_allowed(p_email text)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_email     text := lower(trim(p_email));
+  v_locked    timestamptz;
+  v_remaining integer;
+BEGIN
+  SELECT locked_until INTO v_locked
+  FROM public.auth_login_attempts
+  WHERE email_normalized = v_email;
+
+  IF v_locked IS NOT NULL AND v_locked > now() THEN
+    v_remaining := GREATEST(0, EXTRACT(EPOCH FROM (v_locked - now()))::integer);
+    RETURN jsonb_build_object('allowed', false, 'remaining_seconds', v_remaining);
+  END IF;
+
+  RETURN jsonb_build_object('allowed', true, 'remaining_seconds', 0);
+END;
+$$;
+
+-- BUG 0601-132: thresholds now read from global_settings (AUTH_MAX_FAILED_ATTEMPTS,
+-- AUTH_LOCKOUT_MINUTES) with defensive regex validation and fallback to 5/15.
+-- Also propagates staff.is_blocked = true when lockout fires.
+CREATE OR REPLACE FUNCTION public.record_failed_login(p_email text)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_email        text        := lower(trim(p_email));
+  v_max          integer;
+  v_lockout      interval;
+  v_reset        interval    := interval '15 minutes';
+  v_now          timestamptz := now();
+  v_existing     public.auth_login_attempts%ROWTYPE;
+  v_new_count    integer;
+  v_locked_until timestamptz;
+  v_remaining    integer;
+  v_raw          text;
+BEGIN
+  SELECT setting_value INTO v_raw FROM public.global_settings WHERE setting_key = 'AUTH_MAX_FAILED_ATTEMPTS' LIMIT 1;
+  IF v_raw ~ '^[1-9][0-9]*$' THEN v_max := v_raw::integer; ELSE v_max := 5; END IF;
+
+  SELECT setting_value INTO v_raw FROM public.global_settings WHERE setting_key = 'AUTH_LOCKOUT_MINUTES' LIMIT 1;
+  IF v_raw ~ '^[1-9][0-9]*$' THEN v_lockout := make_interval(mins => v_raw::integer); ELSE v_lockout := interval '15 minutes'; END IF;
+
+  INSERT INTO public.auth_login_attempts (email_normalized, attempts_count, last_attempt_at)
+  VALUES (v_email, 0, v_now)
+  ON CONFLICT (email_normalized) DO NOTHING;
+
+  SELECT * INTO v_existing FROM public.auth_login_attempts WHERE email_normalized = v_email FOR UPDATE;
+
+  IF v_existing.locked_until IS NOT NULL AND v_existing.locked_until > v_now THEN
+    v_remaining := GREATEST(0, EXTRACT(EPOCH FROM (v_existing.locked_until - v_now))::integer);
+    RETURN jsonb_build_object('locked', true, 'remaining_seconds', v_remaining);
+  END IF;
+
+  IF v_existing.last_attempt_at < (v_now - v_reset) THEN v_new_count := 1;
+  ELSE v_new_count := v_existing.attempts_count + 1;
+  END IF;
+
+  IF v_new_count >= v_max THEN v_locked_until := v_now + v_lockout;
+  ELSE v_locked_until := NULL;
+  END IF;
+
+  UPDATE public.auth_login_attempts
+  SET attempts_count = v_new_count, last_attempt_at = v_now, locked_until = v_locked_until
+  WHERE email_normalized = v_email;
+
+  IF v_locked_until IS NOT NULL THEN
+    BEGIN
+      UPDATE public.staff SET is_blocked = true WHERE lower(trim(email)) = v_email AND is_blocked = false;
+    EXCEPTION WHEN OTHERS THEN
+      RAISE WARNING '[0601-132] record_failed_login: could not set staff.is_blocked: %', SQLERRM;
+    END;
+    v_remaining := GREATEST(0, EXTRACT(EPOCH FROM (v_locked_until - v_now))::integer);
+    RETURN jsonb_build_object('locked', true, 'remaining_seconds', v_remaining);
+  END IF;
+
+  RETURN jsonb_build_object('locked', false, 'remaining_seconds', 0);
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.reset_login_attempts(p_email text)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_email     text := lower(trim(p_email));
+  v_jwt_email text := lower(trim(coalesce((auth.jwt() ->> 'email'), '')));
+BEGIN
+  -- Authenticated callers may only reset their own counter.
+  -- postgres/service_role (no JWT) is allowed for admin/Studio unblock.
+  IF auth.jwt() IS NOT NULL AND v_jwt_email IS DISTINCT FROM v_email THEN
+    RAISE EXCEPTION 'RESET_FORBIDDEN: caller email mismatch';
+  END IF;
+
+  DELETE FROM public.auth_login_attempts
+  WHERE email_normalized = v_email;
+
+  -- BUG 0601-132: clear admin-visible blocked flag on successful login (auto-unlock path).
+  BEGIN
+    UPDATE public.staff SET is_blocked = false WHERE lower(trim(email)) = v_email AND is_blocked = true;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING '[0601-132] reset_login_attempts: could not clear staff.is_blocked: %', SQLERRM;
+  END;
+END;
+$$;
+
+-- BUG 0601-132: admin manual unlock RPC (service_role only).
+-- Atomically clears staff.is_blocked and deletes auth_login_attempts row.
+-- Returns { ok, email } so the caller (unlock-account edge function) can send the reset email.
+CREATE OR REPLACE FUNCTION public.admin_unblock_account(p_staff_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_email text;
+BEGIN
+  SELECT lower(trim(email)) INTO v_email FROM public.staff WHERE staff_id = p_staff_id AND deleted_at IS NULL;
+  IF v_email IS NULL THEN RETURN jsonb_build_object('ok', false, 'error', 'STAFF_NOT_FOUND'); END IF;
+  UPDATE public.staff SET is_blocked = false WHERE staff_id = p_staff_id;
+  DELETE FROM public.auth_login_attempts WHERE email_normalized = v_email;
+  RETURN jsonb_build_object('ok', true, 'email', v_email);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.admin_unblock_account(uuid) FROM public, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_unblock_account(uuid) TO service_role;
+
+REVOKE EXECUTE ON FUNCTION public.check_login_allowed(text)  FROM anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.record_failed_login(text)  FROM anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.reset_login_attempts(text) FROM public, anon;
+
+GRANT EXECUTE ON FUNCTION public.check_login_allowed(text)  TO service_role;
+GRANT EXECUTE ON FUNCTION public.record_failed_login(text)  TO service_role;
+GRANT EXECUTE ON FUNCTION public.reset_login_attempts(text) TO authenticated;
 
 -- ============================================================================
 -- END OF SCHEMA
