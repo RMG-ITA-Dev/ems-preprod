@@ -105,22 +105,19 @@ export function useGenerateNationalHolidays() {
       // staleByName — wrong date but name matches a national holiday; delete then re-insert correctly
       // custom      — unrelated; leave untouched
       const exactMatchDates = new Set(
-        rows.filter((h) => generatedDates.has(h.holiday_date)).map((h) => h.holiday_date)
+        rows
+          .filter(
+            (h) =>
+              generatedDates.has(h.holiday_date) &&
+              NATIONAL_HOLIDAY_NAMES.has(normalizeHolidayName(h.holiday_name))
+          )
+          .map((h) => h.holiday_date)
       );
       const staleByName = rows.filter(
         (h) =>
           !generatedDates.has(h.holiday_date) &&
           NATIONAL_HOLIDAY_NAMES.has(normalizeHolidayName(h.holiday_name))
       );
-
-      // Delete stale entries at wrong dates.
-      if (staleByName.length > 0) {
-        const { error: eDel } = await supabase
-          .from("holidays")
-          .delete()
-          .in("holiday_id", staleByName.map((h) => h.holiday_id));
-        if (eDel) throw eDel;
-      }
 
       // Insert generated holidays that are not already at the correct date.
       const toInsert = generated
@@ -130,9 +127,19 @@ export function useGenerateNationalHolidays() {
       if (toInsert.length === 0 && staleByName.length === 0)
         throw new Error(i18n.t("holiday.allNationalAlreadyExist", { year }));
 
+      // Insert first — if this fails, stale entries are preserved (no data loss).
       if (toInsert.length > 0) {
         const { error: e2 } = await supabase.from("holidays").insert(toInsert);
         if (e2) throw e2;
+      }
+
+      // Delete stale entries only after insert succeeds.
+      if (staleByName.length > 0) {
+        const { error: eDel } = await supabase
+          .from("holidays")
+          .delete()
+          .in("holiday_id", staleByName.map((h) => h.holiday_id));
+        if (eDel) throw eDel;
       }
 
       return {

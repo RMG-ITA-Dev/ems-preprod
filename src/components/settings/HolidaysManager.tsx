@@ -34,7 +34,11 @@ export function HolidaysManager() {
   const targetYearHolidays = (holidays ?? []).filter((h) =>
     h.holiday_date.startsWith(`${targetYear}-`)
   );
-  const exactMatch = targetYearHolidays.filter((h) => generatedDates.has(h.holiday_date)).length;
+  const exactMatch = targetYearHolidays.filter(
+    (h) =>
+      generatedDates.has(h.holiday_date) &&
+      NATIONAL_HOLIDAY_NAMES.has(normalizeHolidayName(h.holiday_name))
+  ).length;
   const staleToReplace = targetYearHolidays.filter(
     (h) =>
       !generatedDates.has(h.holiday_date) &&
