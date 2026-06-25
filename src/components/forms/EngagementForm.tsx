@@ -45,11 +45,96 @@ import { EngagementCreatedDialog } from "@/components/forms/EngagementCreatedDia
 import { Engagement, useClients } from "@/hooks/useEmsData";
 import { useCategoryStaff } from "@/hooks/useCategoryStaff";
 import { useCreateEngagement, useUpdateEngagement, useDeleteEngagement } from "@/hooks/mutations";
-import { Trash2, CalendarIcon, AlertCircle } from "lucide-react";
+import { Trash2, CalendarIcon, AlertCircle, ChevronsUpDown, Check } from "lucide-react";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Switch } from "@/components/ui/switch";
 import { useUserRole } from "@/hooks/useUserRole";
+
+interface StaffComboboxProps {
+  label: string;
+  placeholder: string;
+  searchPlaceholder: string;
+  noResultsText: string;
+  noAplicaText: string;
+  options: { value: string; label: string }[];
+  value: string | null;
+  onChange: (value: string | null) => void;
+  showNoAplica?: boolean;
+}
+
+function StaffCombobox({
+  label,
+  placeholder,
+  searchPlaceholder,
+  noResultsText,
+  noAplicaText,
+  options = [],
+  value,
+  onChange,
+  showNoAplica = true,
+}: StaffComboboxProps) {
+  const [open, setOpen] = useState(false);
+  const selectedLabel = value ? options.find((o) => o.value === value)?.label : null;
+
+  return (
+    <FormItem>
+      <FormLabel>{label}</FormLabel>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <FormControl>
+            <Button
+              variant="outline"
+              role="combobox"
+              className={cn("w-full justify-between font-normal", !selectedLabel && "text-muted-foreground")}
+            >
+              {selectedLabel ?? placeholder}
+              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+            </Button>
+          </FormControl>
+        </PopoverTrigger>
+        <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+          <Command>
+            <CommandInput placeholder={searchPlaceholder} />
+            <CommandList>
+              <CommandEmpty>{noResultsText}</CommandEmpty>
+              <CommandGroup>
+                {showNoAplica && (
+                  <CommandItem
+                    value="__no_aplica__"
+                    onSelect={() => { onChange(null); setOpen(false); }}
+                  >
+                    <Check className={cn("mr-2 h-4 w-4", value === null ? "opacity-100" : "opacity-0")} />
+                    {noAplicaText}
+                  </CommandItem>
+                )}
+                {options.map((opt) => (
+                  <CommandItem
+                    key={opt.value}
+                    value={opt.label}
+                    onSelect={() => { onChange(opt.value); setOpen(false); }}
+                  >
+                    <Check className={cn("mr-2 h-4 w-4", value === opt.value ? "opacity-100" : "opacity-0")} />
+                    {opt.label}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
+      <FormMessage />
+    </FormItem>
+  );
+}
 
 const suggestFiscalYear = (): number => {
   const now = new Date()
@@ -88,6 +173,10 @@ const formSchema = z.object({
   start_date: z.date({ required_error: "Start date is required" }),
   end_date: z.date({ required_error: "End date is required" }),
   status: z.string(),
+  sqr_id: z.string().nullable().optional(),
+  encargado_id: z.string().nullable().optional(),
+  specialist_it_id: z.string().nullable().optional(),
+  specialist_tax_id: z.string().nullable().optional(),
 }).refine((data) => {
   if (data.start_date && data.end_date) {
     return data.end_date >= data.start_date;
@@ -115,7 +204,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   const isEdit = !!engagement;
 
   const { data: clients } = useClients();
-  const { partners, managerOptions, hasPartnerCategory, hasManagerCategory } = useCategoryStaff();
+  const { partnerOptions, managerOptions, hasPartnerCategory, hasManagerCategory, allActiveStaff } = useCategoryStaff();
   const createMutation = useCreateEngagement();
   const updateMutation = useUpdateEngagement();
   const deleteMutation = useDeleteEngagement();
@@ -152,6 +241,10 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       partner_id: "",
       manager_id: "",
       status: "active",
+      sqr_id: null,
+      encargado_id: null,
+      specialist_it_id: null,
+      specialist_tax_id: null,
     },
   });
 
@@ -204,6 +297,10 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
         status: engagement.status,
         start_date: engagement.start_date ? parseDateLocal(engagement.start_date) : undefined,
         end_date: engagement.end_date ? parseDateLocal(engagement.end_date) : undefined,
+        sqr_id: engagement.sqr_id ?? null,
+        encargado_id: engagement.encargado_id ?? null,
+        specialist_it_id: engagement.specialist_it_id ?? null,
+        specialist_tax_id: engagement.specialist_tax_id ?? null,
       });
       setWorkOrderRequired(engagement.work_order_required ?? true);
       setActivityRequired(engagement.activity_required ?? true);
@@ -250,6 +347,10 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
           activity_required:   activityRequired,
           is_internal:         isInternal,
           approval_required:   approvalRequired,
+          sqr_id:              data.sqr_id ?? null,
+          encargado_id:        data.encargado_id ?? null,
+          specialist_it_id:    data.specialist_it_id ?? null,
+          specialist_tax_id:   data.specialist_tax_id ?? null,
           // oficina, practica, funcion, anio_fiscal intentionally omitted — immutable after create
         },
       });
@@ -277,6 +378,10 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       activity_required:   activityRequired,
       is_internal:         isInternal,
       approval_required:   approvalRequired,
+      sqr_id:              data.sqr_id ?? null,
+      encargado_id:        data.encargado_id ?? null,
+      specialist_it_id:    data.specialist_it_id ?? null,
+      specialist_tax_id:   data.specialist_tax_id ?? null,
     });
 
     // BUG #0603-140: the engagement is now persisted, so clear the dirty state before the
@@ -357,6 +462,10 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       partner_id: "",
       manager_id: "",
       status: "active",
+      sqr_id: null,
+      encargado_id: null,
+      specialist_it_id: null,
+      specialist_tax_id: null,
     });
     setWorkOrderRequired(true);
     setActivityRequired(true);
@@ -417,7 +526,9 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       <div className="bg-card rounded-xl border border-border p-6">
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-            <div className="space-y-4">
+
+            <div className="border border-border bg-background/50 rounded-xl p-8">
+              <div className="space-y-4">
               <h3 className="font-medium text-lg">{t("common.basicInfo")}</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <FormField
@@ -599,64 +710,9 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                   )}
                 />
               </div>
-            </div>
-
-            <div className="space-y-4">
-              <h3 className="font-medium text-lg">{t("common.team")}</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="partner_id"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t("engagement.partner")} *</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder={t("engagement.selectPartner")} />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {partners?.map((p) => (
-                            <SelectItem key={p.staff_id} value={p.staff_id}>
-                              {p.first_name} {p.last_name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="manager_id"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t("engagement.manager")} *</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder={t("engagement.selectManager")} />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {managerOptions.map((opt) => (
-                            <SelectItem key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
               </div>
-            </div>
 
-            <div className="space-y-4">
+              <div className="space-y-4">
               <h3 className="font-medium text-lg">{t("common.dates")}</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <FormField
@@ -738,10 +794,123 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                   )}
                 />
               </div>
+              </div>
+            </div>
+
+            <div className="border border-border bg-background/50 rounded-xl p-8">
+              <div className="space-y-4">
+              <h3 className="font-medium text-lg">{t("common.team")}</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <FormField
+                  control={form.control}
+                  name="partner_id"
+                  render={({ field }) => (
+                    <StaffCombobox
+                      label={`${t("engagement.partner")} *`}
+                      placeholder={t("engagement.selectPartner")}
+                      searchPlaceholder={t("engagement.searchStaff")}
+                      noResultsText={t("engagement.noStaffFound")}
+                      noAplicaText={t("engagement.noAplica")}
+                      options={partnerOptions}
+                      value={field.value || null}
+                      onChange={(v) => field.onChange(v ?? "")}
+                      showNoAplica={false}
+                    />
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="sqr_id"
+                  render={({ field }) => (
+                    <StaffCombobox
+                      label={t("engagement.sqr")}
+                      placeholder={t("engagement.selectSqr")}
+                      searchPlaceholder={t("engagement.searchStaff")}
+                      noResultsText={t("engagement.noStaffFound")}
+                      noAplicaText={t("engagement.noAplica")}
+                      options={allActiveStaff}
+                      value={field.value ?? null}
+                      onChange={field.onChange}
+                    />
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="manager_id"
+                  render={({ field }) => (
+                    <StaffCombobox
+                      label={`${t("engagement.manager")} *`}
+                      placeholder={t("engagement.selectManager")}
+                      searchPlaceholder={t("engagement.searchStaff")}
+                      noResultsText={t("engagement.noStaffFound")}
+                      noAplicaText={t("engagement.noAplica")}
+                      options={managerOptions}
+                      value={field.value || null}
+                      onChange={(v) => field.onChange(v ?? "")}
+                      showNoAplica={false}
+                    />
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="encargado_id"
+                  render={({ field }) => (
+                    <StaffCombobox
+                      label={t("engagement.encargado")}
+                      placeholder={t("engagement.selectEncargado")}
+                      searchPlaceholder={t("engagement.searchStaff")}
+                      noResultsText={t("engagement.noStaffFound")}
+                      noAplicaText={t("engagement.noAplica")}
+                      options={allActiveStaff}
+                      value={field.value ?? null}
+                      onChange={field.onChange}
+                    />
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="specialist_it_id"
+                  render={({ field }) => (
+                    <StaffCombobox
+                      label={t("engagement.specialistIt1")}
+                      placeholder={t("engagement.selectSpecialistIt1")}
+                      searchPlaceholder={t("engagement.searchStaff")}
+                      noResultsText={t("engagement.noStaffFound")}
+                      noAplicaText={t("engagement.noAplica")}
+                      options={allActiveStaff}
+                      value={field.value ?? null}
+                      onChange={field.onChange}
+                    />
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="specialist_tax_id"
+                  render={({ field }) => (
+                    <StaffCombobox
+                      label={t("engagement.specialistTax1")}
+                      placeholder={t("engagement.selectSpecialistTax1")}
+                      searchPlaceholder={t("engagement.searchStaff")}
+                      noResultsText={t("engagement.noStaffFound")}
+                      noAplicaText={t("engagement.noAplica")}
+                      options={allActiveStaff}
+                      value={field.value ?? null}
+                      onChange={field.onChange}
+                    />
+                  )}
+                />
+              </div>
+              </div>
             </div>
 
             {isAdmin && (
-              <div className="space-y-4 pt-2">
+              <div className="border border-border bg-background/50 rounded-xl p-8">
+                <div className="space-y-4">
                 <h3 className="text-sm font-semibold text-foreground">{t("engagement.timesheetPolicy")}</h3>
                 <div className="flex items-center justify-between gap-4">
                   <div>
@@ -770,6 +939,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                     <p className="text-xs text-muted-foreground">{t("engagement.approvalRequiredHelp")}</p>
                   </div>
                   <Switch checked={approvalRequired} onCheckedChange={setApprovalRequired} />
+                </div>
                 </div>
               </div>
             )}
