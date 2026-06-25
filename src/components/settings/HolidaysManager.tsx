@@ -37,13 +37,18 @@ export function HolidaysManager() {
   const exactMatch = targetYearHolidays.filter(
     (h) => generatedByDate.get(h.holiday_date) === normalizeHolidayName(h.holiday_name)
   ).length;
-  const staleToReplace = targetYearHolidays.filter((h) => {
+  const crossedStale = targetYearHolidays.filter((h) => {
     const n = normalizeHolidayName(h.holiday_name);
-    if (!NATIONAL_HOLIDAY_NAMES.has(n)) return false;
-    if (!generatedByDate.has(h.holiday_date)) return true;   // regular stale
-    return generatedByDate.get(h.holiday_date) !== n;         // crossed stale (updated in-place)
-  }).length;
-  const toInsertCount = generatedList.length - exactMatch - staleToReplace;
+    return NATIONAL_HOLIDAY_NAMES.has(n) && generatedByDate.has(h.holiday_date) && generatedByDate.get(h.holiday_date) !== n;
+  });
+  const regularStale = targetYearHolidays.filter((h) => {
+    const n = normalizeHolidayName(h.holiday_name);
+    return NATIONAL_HOLIDAY_NAMES.has(n) && !generatedByDate.has(h.holiday_date);
+  });
+  const staleToReplace = crossedStale.length + regularStale.length;
+  // Regular stale entries sit at wrong dates; their generated-date slots are free and WILL be inserted.
+  // Only crossed stale (UPDATE in-place) don't produce a new row, so only those reduce toInsertCount.
+  const toInsertCount = generatedList.length - exactMatch - crossedStale.length;
 
   const getStaffName = (staffId: string) => {
     const s = staffList?.find((st) => st.staff_id === staffId);
