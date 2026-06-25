@@ -92,7 +92,7 @@ const Auth = () => {
             const minutes = Math.max(1, Math.ceil(seconds / 60));
             toast.error(t('messages.accountLocked', { minutes }));
           } else if (error.message.startsWith('INVALID_CREDENTIALS:')) {
-            const remaining = parseInt(error.message.split(':')[1], 10);
+            const remaining = parseInt(error.message.split(':')[1], 10) || 0;
             toast.warning(t('messages.invalidCredentialsWithAttempts', { remaining }));
           } else if (error.message.includes("Invalid login credentials")) {
             toast.warning(t("messages.invalidCredentials"));
