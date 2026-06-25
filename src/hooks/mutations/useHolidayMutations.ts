@@ -114,15 +114,32 @@ export function useGenerateNationalHolidays() {
           )
           .map((h) => h.holiday_date)
       );
-      const staleByName = rows.filter(
-        (h) =>
-          !generatedDates.has(h.holiday_date) &&
-          NATIONAL_HOLIDAY_NAMES.has(normalizeHolidayName(h.holiday_name))
-      );
+      // Partition stale into two groups based on whether the occupied date is a generated date.
+      // Crossed stale: national name at a generated date but wrong name for that slot.
+      //   → Must be deleted BEFORE insert: UNIQUE constraint prevents inserting the correct
+      //     holiday while this row still occupies the same date.
+      // Regular stale: national name at a non-generated date (old wrong-year copy).
+      //   → Deleted AFTER insert (R10 safety: insert first so data is never absent on failure).
+      const staleAtGeneratedDates = rows.filter((h) => {
+        const n = normalizeHolidayName(h.holiday_name);
+        return (
+          NATIONAL_HOLIDAY_NAMES.has(n) &&
+          generatedByDate.has(h.holiday_date) &&
+          generatedByDate.get(h.holiday_date) !== n
+        );
+      });
+      const staleAtOtherDates = rows.filter((h) => {
+        const n = normalizeHolidayName(h.holiday_name);
+        return NATIONAL_HOLIDAY_NAMES.has(n) && !generatedByDate.has(h.holiday_date);
+      });
+      const staleByName = [...staleAtGeneratedDates, ...staleAtOtherDates];
 
-      // All dates occupied in the target year — used to respect the UNIQUE(holiday_date) constraint.
-      // A custom entry at a generated date blocks that national holiday; user must remove it manually.
-      const allExistingDates = new Set(rows.map((h) => h.holiday_date));
+      // Exclude crossed-stale dates from allExistingDates — they will be deleted before insert,
+      // freeing those slots for the correct holidays.
+      const staleAtGeneratedIds = new Set(staleAtGeneratedDates.map((h) => h.holiday_id));
+      const allExistingDates = new Set(
+        rows.filter((h) => !staleAtGeneratedIds.has(h.holiday_id)).map((h) => h.holiday_date)
+      );
 
       // Insert generated holidays that are not already at the correct date.
       const toInsert = generated
@@ -132,18 +149,28 @@ export function useGenerateNationalHolidays() {
       if (toInsert.length === 0 && staleByName.length === 0)
         throw new Error(i18n.t("holiday.allNationalAlreadyExist", { year }));
 
-      // Insert first — if this fails, stale entries are preserved (no data loss).
+      // Delete crossed stale BEFORE insert — UNIQUE constraint requires their slots to be free.
+      if (staleAtGeneratedDates.length > 0) {
+        const { error: eDelCrossed } = await supabase
+          .from("holidays")
+          .delete()
+          .in("holiday_id", staleAtGeneratedDates.map((h) => h.holiday_id));
+        if (eDelCrossed) throw eDelCrossed;
+      }
+
+      // Insert correct holidays — if this fails, only crossed-stale slots are lost (recoverable
+      // by running the generator again); regular stale entries are still intact.
       if (toInsert.length > 0) {
         const { error: e2 } = await supabase.from("holidays").insert(toInsert);
         if (e2) throw e2;
       }
 
-      // Delete stale entries only after insert succeeds.
-      if (staleByName.length > 0) {
+      // Delete regular stale AFTER insert (R10 safety: data never absent if insert fails).
+      if (staleAtOtherDates.length > 0) {
         const { error: eDel } = await supabase
           .from("holidays")
           .delete()
-          .in("holiday_id", staleByName.map((h) => h.holiday_id));
+          .in("holiday_id", staleAtOtherDates.map((h) => h.holiday_id));
         if (eDel) throw eDel;
       }
 
