@@ -104,12 +104,13 @@ export function useGenerateNationalHolidays() {
       // exactMatch  — date already correct; skip insert
       // staleByName — wrong date but name matches a national holiday; delete then re-insert correctly
       // custom      — unrelated; leave untouched
+      // Map from generated date → expected name, used to verify both date AND name match.
+      const generatedByDate = new Map(generated.map((g) => [g.date, g.name]));
+
       const exactMatchDates = new Set(
         rows
           .filter(
-            (h) =>
-              generatedDates.has(h.holiday_date) &&
-              NATIONAL_HOLIDAY_NAMES.has(normalizeHolidayName(h.holiday_name))
+            (h) => generatedByDate.get(h.holiday_date) === normalizeHolidayName(h.holiday_name)
           )
           .map((h) => h.holiday_date)
       );
