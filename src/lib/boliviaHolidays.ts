@@ -62,3 +62,19 @@ export function getBoliviaNationalHolidays(
 
   return out.sort((a, b) => a.date.localeCompare(b.date));
 }
+
+// Canonical name set — used for stale detection in the mutation.
+// Built from a fixed year because names are year-independent.
+export const NATIONAL_HOLIDAY_NAMES: ReadonlySet<string> = new Set(
+  getBoliviaNationalHolidays(2000).map((h) => h.name)
+);
+
+// Strip the "Feriado - " prefix that the old "Replicar" feature used in existing data.
+// Does NOT strip "(Adicional)" — those are firm-custom extensions that must be preserved.
+// Examples:
+//   "Feriado - Corpus Christi"             → "Corpus Christi"            ✓ matches national
+//   "Feriado - Corpus Christi (Adicional)" → "Corpus Christi (Adicional)" ✗ no match, preserved
+//   "Carnaval 2026"                        → "Carnaval 2026"             ✗ no match, manual cleanup needed
+export function normalizeHolidayName(name: string): string {
+  return name.replace(/^Feriado\s*-\s*/i, "").trim();
+}

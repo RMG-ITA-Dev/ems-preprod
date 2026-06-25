@@ -579,7 +579,8 @@
     "holidayUpdated": "Feriado actualizado",
     "holidayDeleted": "Feriado eliminado",
     "holidaysGenerated": "Los feriados se crearon exitosamente, se sugiere revisar y cotejar las fechas",
-    "holidaysGeneratedPartial": "{{count}} feriado(s) creado(s) para {{year}}. {{skipped}} ya existían y se omitieron.",
+    "holidaysGeneratedPartial": "{{created}} feriado(s) creado(s) para {{year}}. {{skipped}} ya existían y se omitieron.",
+    "holidaysGeneratedWithReplacement": "{{created}} feriado(s) creado(s) para {{year}}. {{replaced}} feriado(s) con fechas incorrectas reemplazado(s).",
     "noStaffRecord": "No hay un perfil de personal vinculado a su cuenta. Contacte al administrador."
   },
   "errors": {
@@ -626,7 +627,7 @@
     "createdBy": "Creado Por",
     "generateButton": "Generar feriados nacionales {{year}}",
     "generateConfirmTitle": "Generar feriados nacionales {{year}}",
-    "generateConfirmDesc": "Año {{year}}: {{total}} feriados nacionales calculados, {{alreadyExist}} ya existen, {{toInsert}} se crearán. ¿Desea continuar?",
+    "generateConfirmDesc": "Año {{year}}: {{total}} feriados nacionales calculados — {{alreadyExist}} ya correctos, {{staleToReplace}} con fechas incorrectas que se reemplazarán, {{toInsert}} se crearán. ¿Desea continuar?",
     "allNationalAlreadyExist": "Todos los feriados nacionales de {{year}} ya existen."
   },
  "dashboard": {

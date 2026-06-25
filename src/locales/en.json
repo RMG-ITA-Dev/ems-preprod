@@ -579,7 +579,8 @@
     "holidayUpdated": "Holiday updated",
     "holidayDeleted": "Holiday deleted",
     "holidaysGenerated": "Holidays created successfully. Please review and verify the dates.",
-    "holidaysGeneratedPartial": "{{count}} holiday(s) created for {{year}}. {{skipped}} already existed and were skipped.",
+    "holidaysGeneratedPartial": "{{created}} holiday(s) created for {{year}}. {{skipped}} already existed and were skipped.",
+    "holidaysGeneratedWithReplacement": "{{created}} holiday(s) created for {{year}}. {{replaced}} holiday(s) with incorrect dates replaced.",
     "noStaffRecord": "No staff profile is linked to your account. Please contact an administrator."
   },
   "errors": {
@@ -626,7 +627,7 @@
     "createdBy": "Created By",
     "generateButton": "Generate {{year}} national holidays",
     "generateConfirmTitle": "Generate {{year}} national holidays",
-    "generateConfirmDesc": "Year {{year}}: {{total}} national holidays calculated, {{alreadyExist}} already exist, {{toInsert}} will be created. Continue?",
+    "generateConfirmDesc": "Year {{year}}: {{total}} national holidays calculated — {{alreadyExist}} already correct, {{staleToReplace}} with incorrect dates to be replaced, {{toInsert}} will be created. Continue?",
     "allNationalAlreadyExist": "All national holidays for {{year}} already exist."
   },
  "dashboard": {

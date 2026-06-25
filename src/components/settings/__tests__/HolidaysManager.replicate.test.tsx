@@ -40,6 +40,8 @@ vi.mock("@/lib/boliviaHolidays", () => ({
     { date: "2027-01-01", name: "Año Nuevo" },
     { date: "2027-05-01", name: "Día del Trabajo" },
   ],
+  NATIONAL_HOLIDAY_NAMES: new Set(["Año Nuevo", "Día del Trabajo"]),
+  normalizeHolidayName: (name: string) => name.replace(/^Feriado\s*-\s*/i, "").trim(),
 }));
 
 vi.mock("@/hooks/useEmsData", () => ({
@@ -81,7 +83,7 @@ describe("HolidaysManager — generate national holidays (0513-113)", () => {
     vi.useRealTimers();
   });
 
-  it("HM1: generate button is enabled when staffRecord is loaded (no source-year requirement)", () => {
+  it("HM1: generate button is enabled when staffRecord is loaded (no source-year gate)", () => {
     render(React.createElement(HolidaysManager));
     expect(
       screen.getByRole("button", { name: /holiday\.generateButton/i })

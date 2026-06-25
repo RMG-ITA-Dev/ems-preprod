@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useGenerateNationalHolidays } from "@/hooks/mutations/useHolidayMutations";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
-import { getBoliviaNationalHolidays } from "@/lib/boliviaHolidays";
+import { getBoliviaNationalHolidays, NATIONAL_HOLIDAY_NAMES, normalizeHolidayName } from "@/lib/boliviaHolidays";
 
 export function HolidaysManager() {
   const { t } = useTranslation();
@@ -29,14 +29,17 @@ export function HolidaysManager() {
 
   const targetYear = new Date().getFullYear() + 1;
   const generatedList = getBoliviaNationalHolidays(targetYear);
-  const existingTargetDates = new Set(
-    (holidays ?? [])
-      .filter((h) => h.holiday_date.startsWith(`${targetYear}-`))
-      .map((h) => h.holiday_date)
+  const generatedDates = new Set(generatedList.map((g) => g.date));
+  const targetYearHolidays = (holidays ?? []).filter((h) =>
+    h.holiday_date.startsWith(`${targetYear}-`)
   );
-  const totalNational = generatedList.length;
-  const alreadyExist = generatedList.filter((g) => existingTargetDates.has(g.date)).length;
-  const toInsertCount = totalNational - alreadyExist;
+  const exactMatch = targetYearHolidays.filter((h) => generatedDates.has(h.holiday_date)).length;
+  const staleToReplace = targetYearHolidays.filter(
+    (h) =>
+      !generatedDates.has(h.holiday_date) &&
+      NATIONAL_HOLIDAY_NAMES.has(normalizeHolidayName(h.holiday_name))
+  ).length;
+  const toInsertCount = generatedList.length - exactMatch;
 
   const getStaffName = (staffId: string) => {
     const s = staffList?.find((st) => st.staff_id === staffId);
@@ -123,8 +126,9 @@ export function HolidaysManager() {
             <AlertDialogDescription>
               {t("holiday.generateConfirmDesc", {
                 year: targetYear,
-                total: totalNational,
-                alreadyExist,
+                total: generatedList.length,
+                alreadyExist: exactMatch,
+                staleToReplace,
                 toInsert: toInsertCount,
               })}
             </AlertDialogDescription>
