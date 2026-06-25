@@ -661,8 +661,9 @@
     "holidayCreated": "Feriado creado",
     "holidayUpdated": "Feriado actualizado",
     "holidayDeleted": "Feriado eliminado",
-    "holidaysReplicated": "Los feriados se crearon exitosamente, se sugiere revisar y cotejar las fechas",
-    "holidaysReplicatedPartial": "{{count}} feriado(s) creado(s) para {{year}}. {{skipped}} fecha(s) omitida(s) (ya existían o no válidas).",
+    "holidaysGenerated": "Los feriados se crearon exitosamente, se sugiere revisar y cotejar las fechas",
+    "holidaysGeneratedPartial": "{{created}} feriado(s) creado(s) para {{year}}. {{skipped}} ya existían y se omitieron.",
+    "holidaysGeneratedWithReplacement": "{{created}} feriado(s) creado(s) para {{year}}. {{replaced}} feriado(s) con fechas incorrectas reemplazado(s).",
     "noStaffRecord": "No hay un perfil de personal vinculado a su cuenta. Contacte al administrador."
   },
   "errors": {
@@ -710,13 +711,10 @@
     "date": "Fecha",
     "name": "Nombre",
     "createdBy": "Creado Por",
-    "replicateButton": "Replicar al año siguiente",
-    "replicateConfirmTitle": "Replicar feriados {{fromYear}} → {{toYear}}",
-    "replicateConfirmDesc": "Se crearán {{count}} feriado(s) del año {{fromYear}} para el año {{toYear}}. Las fechas que ya existen en {{toYear}} serán omitidas. ¿Desea continuar?",
-    "noSourceHolidays": "No hay feriados cargados para el año {{year}}.",
-    "allDatesAlreadyExist": "Todos los feriados del año {{year}} ya existen.",
-    "allDatesLeapDay": "Todos los feriados de origen caen el 29 de febrero y {{year}} no es año bisiesto — nada para replicar.",
-    "allDatesLeapDayAndAlreadyExist": "No hay feriados para replicar al {{year}}: algunos caen el 29 de febrero (año no bisiesto) y el resto ya existe."
+    "generateButton": "Generar feriados nacionales {{year}}",
+    "generateConfirmTitle": "Generar feriados nacionales {{year}}",
+    "generateConfirmDesc": "Año {{year}}: {{total}} feriados nacionales calculados — {{alreadyExist}} ya correctos, {{staleToReplace}} con fechas incorrectas que se reemplazarán, {{toInsert}} se crearán. ¿Desea continuar?",
+    "allNationalAlreadyExist": "Todos los feriados nacionales de {{year}} ya existen."
   },
  "dashboard": {
     "noData": "Sin datos disponibles para el período seleccionado",
