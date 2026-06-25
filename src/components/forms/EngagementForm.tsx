@@ -92,6 +92,7 @@ function StaffCombobox({
         <PopoverTrigger asChild>
           <FormControl>
             <Button
+              type="button"
               variant="outline"
               role="combobox"
               className={cn("w-full justify-between font-normal", !selectedLabel && "text-muted-foreground")}
