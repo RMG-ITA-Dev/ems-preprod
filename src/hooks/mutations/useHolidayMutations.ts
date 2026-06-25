@@ -119,9 +119,13 @@ export function useGenerateNationalHolidays() {
           NATIONAL_HOLIDAY_NAMES.has(normalizeHolidayName(h.holiday_name))
       );
 
+      // All dates occupied in the target year — used to respect the UNIQUE(holiday_date) constraint.
+      // A custom entry at a generated date blocks that national holiday; user must remove it manually.
+      const allExistingDates = new Set(rows.map((h) => h.holiday_date));
+
       // Insert generated holidays that are not already at the correct date.
       const toInsert = generated
-        .filter((g) => !exactMatchDates.has(g.date))
+        .filter((g) => !allExistingDates.has(g.date))
         .map((g) => ({ holiday_date: g.date, holiday_name: g.name, created_by }));
 
       if (toInsert.length === 0 && staleByName.length === 0)
