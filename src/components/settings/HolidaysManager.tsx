@@ -30,21 +30,20 @@ export function HolidaysManager() {
   const currentYear = new Date().getFullYear();
   const targetYear = currentYear + 1;
   const generatedList = getBoliviaNationalHolidays(targetYear);
-  const generatedDates = new Set(generatedList.map((g) => g.date));
+  const generatedByDate = new Map(generatedList.map((g) => [g.date, g.name]));
   const targetYearHolidays = (holidays ?? []).filter((h) =>
     h.holiday_date.startsWith(`${targetYear}-`)
   );
   const exactMatch = targetYearHolidays.filter(
-    (h) =>
-      generatedDates.has(h.holiday_date) &&
-      NATIONAL_HOLIDAY_NAMES.has(normalizeHolidayName(h.holiday_name))
+    (h) => generatedByDate.get(h.holiday_date) === normalizeHolidayName(h.holiday_name)
   ).length;
-  const staleToReplace = targetYearHolidays.filter(
-    (h) =>
-      !generatedDates.has(h.holiday_date) &&
-      NATIONAL_HOLIDAY_NAMES.has(normalizeHolidayName(h.holiday_name))
-  ).length;
-  const toInsertCount = generatedList.length - exactMatch;
+  const staleToReplace = targetYearHolidays.filter((h) => {
+    const n = normalizeHolidayName(h.holiday_name);
+    if (!NATIONAL_HOLIDAY_NAMES.has(n)) return false;
+    if (!generatedByDate.has(h.holiday_date)) return true;   // regular stale
+    return generatedByDate.get(h.holiday_date) !== n;         // crossed stale (updated in-place)
+  }).length;
+  const toInsertCount = generatedList.length - exactMatch - staleToReplace;
 
   const getStaffName = (staffId: string) => {
     const s = staffList?.find((st) => st.staff_id === staffId);
