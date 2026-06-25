@@ -60,6 +60,15 @@ export function useCategoryStaff() {
       }));
   }, [staff]);
 
+  // All active staff (no category filter) — for Personal Responsable dropdowns
+  const allActiveStaff = useMemo(() => {
+    if (!staff) return [];
+    return staff.map((s) => ({
+      value: s.staff_id,
+      label: `${s.first_name} ${s.last_name}`,
+    }));
+  }, [staff]);
+
   // Legacy aliases for backwards compatibility
   const partners = leadershipStaff;
   const managers = managementStaff;
@@ -83,6 +92,7 @@ export function useCategoryStaff() {
     managerOptions,
     hasPartnerCategory,
     hasManagerCategory,
+    allActiveStaff,
     isLoading: isLoadingStaff || isLoadingCategories,
   };
 }

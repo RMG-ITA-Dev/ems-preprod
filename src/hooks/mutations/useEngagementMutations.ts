@@ -23,6 +23,10 @@ export function useCreateEngagement() {
       activity_required?: boolean;
       approval_required?: boolean;
       is_internal?: boolean;
+      sqr_id?: string | null;
+      encargado_id?: string | null;
+      specialist_it_id?: string | null;
+      specialist_tax_id?: string | null;
     }) => {
       const { data: result, error } = await supabase.rpc("create_engagement_with_code", {
         p_engagement_name:     data.engagement_name,
@@ -40,6 +44,10 @@ export function useCreateEngagement() {
         p_activity_required:   data.activity_required ?? true,
         p_is_internal:         data.is_internal ?? false,
         p_approval_required:   data.approval_required ?? true,
+        p_sqr_id:              data.sqr_id ?? null,
+        p_encargado_id:        data.encargado_id ?? null,
+        p_specialist_it_id:    data.specialist_it_id ?? null,
+        p_specialist_tax_id:   data.specialist_tax_id ?? null,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
       }) as unknown as { data: any; error: any };
       if (error) throw error;
@@ -77,6 +85,10 @@ export function useUpdateEngagement() {
         activity_required: boolean;
         is_internal: boolean;
         approval_required: boolean;
+        sqr_id: string | null;
+        encargado_id: string | null;
+        specialist_it_id: string | null;
+        specialist_tax_id: string | null;
       }>;
     }) => {
       const { data: result, error } = await supabase
