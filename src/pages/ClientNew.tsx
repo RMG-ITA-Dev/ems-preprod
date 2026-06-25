@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { ClientForm } from "@/components/forms/ClientForm";
 import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";
@@ -8,6 +9,7 @@ import { useUserRole } from "@/hooks/useUserRole";
 
 const ClientNew = () => {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const [isDirty, setIsDirty] = useState(false);
   const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty });
   const { isAdmin, isPartner, isDirector, isLoading: roleLoading } = useUserRole();
@@ -33,7 +35,7 @@ const ClientNew = () => {
   };
 
   return (
-    <AppLayout title="Clients" focusMode>
+    <AppLayout title={t("nav.clients")} focusMode>
       <ClientForm
         onDirtyChange={setIsDirty}
         onCancel={handleCancel}

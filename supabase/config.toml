@@ -5,3 +5,7 @@ verify_jwt = false
 
 [functions.manage-auth-user]
 verify_jwt = true
+
+# secure-signin is the auth endpoint itself — callers do not yet have a JWT.
+[functions.secure-signin]
+verify_jwt = false

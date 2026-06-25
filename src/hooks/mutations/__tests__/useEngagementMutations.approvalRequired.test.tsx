@@ -25,14 +25,11 @@ describe("useEngagementMutations approval_required integration (BUG 0220-61)", (
     vi.clearAllMocks();
   });
 
-  it("useCreateEngagement passes approval_required=false in insert payload", async () => {
-    const mockSingle = vi.fn().mockResolvedValue({
+  it("useCreateEngagement passes approval_required=false in RPC payload", async () => {
+    vi.mocked(supabase.rpc).mockResolvedValue({
       data: { engagement_id: "e1", approval_required: false },
       error: null,
-    });
-    const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
-    const mockInsert = vi.fn().mockReturnValue({ select: mockSelect });
-    vi.mocked(supabase.from).mockReturnValue({ insert: mockInsert } as any);
+    } as any);
 
     const { result } = renderHook(() => useCreateEngagement(), {
       wrapper: createWrapper(),
@@ -41,25 +38,27 @@ describe("useEngagementMutations approval_required integration (BUG 0220-61)", (
     result.current.mutate({
       engagement_name: "Holiday",
       client_id: "c1",
+      oficina: 1,
+      practica: 2,
+      funcion: 1,
+      anio_fiscal: 2027,
       is_internal: true,
       approval_required: false,
     });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(mockInsert).toHaveBeenCalledWith(
-      expect.objectContaining({ approval_required: false })
+    expect(supabase.rpc).toHaveBeenCalledWith(
+      "create_engagement_with_code",
+      expect.objectContaining({ p_approval_required: false })
     );
   });
 
-  it("useCreateEngagement defaults (no approval_required) does not break insert", async () => {
-    const mockSingle = vi.fn().mockResolvedValue({
+  it("useCreateEngagement defaults (no approval_required) does not break RPC call", async () => {
+    vi.mocked(supabase.rpc).mockResolvedValue({
       data: { engagement_id: "e2" },
       error: null,
-    });
-    const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
-    const mockInsert = vi.fn().mockReturnValue({ select: mockSelect });
-    vi.mocked(supabase.from).mockReturnValue({ insert: mockInsert } as any);
+    } as any);
 
     const { result } = renderHook(() => useCreateEngagement(), {
       wrapper: createWrapper(),
@@ -68,13 +67,17 @@ describe("useEngagementMutations approval_required integration (BUG 0220-61)", (
     result.current.mutate({
       engagement_name: "Client Audit",
       client_id: "c2",
+      oficina: 1,
+      practica: 1,
+      funcion: 1,
+      anio_fiscal: 2027,
     });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    // approval_required should not be in payload when not provided
-    const insertCall = mockInsert.mock.calls[0][0];
-    expect(insertCall).not.toHaveProperty("approval_required");
+    // p_approval_required defaults to true when not provided
+    const rpcCall = vi.mocked(supabase.rpc).mock.calls[0][1] as Record<string, unknown>;
+    expect(rpcCall.p_approval_required).toBe(true);
   });
 
   it("useUpdateEngagement passes approval_required in update payload", async () => {

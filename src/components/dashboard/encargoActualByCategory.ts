@@ -44,12 +44,72 @@ export function aggregateActualHoursByCategory(
         category_id: category.category_id,
         category_name: category.category_name ?? '',
         actual_hours: safe,
-        display_order: category.display_order ?? 99,
+        display_order: category.display_order != null ? safeNumber(category.display_order) : 99,
       });
     }
   }
 
   return Array.from(byCategory.values()).sort(
+    (a, b) => a.display_order - b.display_order,
+  );
+}
+
+// Category Breakdown Merge
+
+export interface CategoryBudgetRow {
+  category_id: string;
+  category_name: string | null;
+  total_budget_hours: number | null;
+  category_display_order: number | null;
+}
+
+export interface CategoryBreakdownRow {
+  category_id: string;
+  category_name: string;
+  budget_hours: number;
+  actual_hours: number;
+  variance: number;
+  consumed_percent: number;
+  display_order: number;
+}
+
+export function mergeCategoryBreakdown(
+  categoryBudget: CategoryBudgetRow[],
+  actualByCategory: ActualHoursByCategoryRow[],
+): CategoryBreakdownRow[] {
+  const budgetedIds = new Set(categoryBudget.map(b => b.category_id));
+
+  const fromBudget: CategoryBreakdownRow[] = categoryBudget.map(budget => {
+    const actual = actualByCategory.find(a => a.category_id === budget.category_id);
+    const budgetHours = safeNumber(budget.total_budget_hours);
+    const actualHours = safeNumber(actual?.actual_hours);
+    return {
+      category_id: budget.category_id,
+      category_name: budget.category_name ?? '',
+      budget_hours: budgetHours,
+      actual_hours: actualHours,
+      variance: budgetHours - actualHours,
+      consumed_percent: budgetHours > 0 ? (actualHours / budgetHours) * 100 : 0,
+      display_order: budget.category_display_order != null ? safeNumber(budget.category_display_order) : 99,
+    };
+  });
+
+  const fromActualOnly: CategoryBreakdownRow[] = actualByCategory
+    .filter(a => !budgetedIds.has(a.category_id))
+    .map(a => {
+      const actualHours = safeNumber(a.actual_hours);
+      return {
+        category_id: a.category_id,
+        category_name: a.category_name,
+        budget_hours: 0,
+        actual_hours: actualHours,
+        variance: -actualHours,
+        consumed_percent: 0,
+        display_order: safeNumber(a.display_order),
+      };
+    });
+
+  return [...fromBudget, ...fromActualOnly].sort(
     (a, b) => a.display_order - b.display_order,
   );
 }

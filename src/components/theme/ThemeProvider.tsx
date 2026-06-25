@@ -24,19 +24,13 @@ function applyTheme(resolved: ResolvedTheme) {
   root.style.colorScheme = resolved;
 }
 
-function readStoredTheme(): Theme {
-  try {
+export function ThemeProvider({ children }: { children: React.ReactNode }) {
+  const [theme, setThemeState] = useState<Theme>(() => {
     const stored = localStorage.getItem("theme");
     return stored === "light" || stored === "dark" || stored === "system"
       ? stored
       : "system";
-  } catch {
-    return "system";
-  }
-}
-
-export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>(readStoredTheme);
+  });
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() =>
     theme === "system" ? getSystemTheme() : theme
   );
@@ -59,11 +53,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   }, [theme]);
 
   const setTheme = (newTheme: Theme) => {
-    try {
-      localStorage.setItem("theme", newTheme);
-    } catch {
-      // ignore — storage unavailable in test/SSR environments
-    }
+    localStorage.setItem("theme", newTheme);
     setThemeState(newTheme);
   };
 

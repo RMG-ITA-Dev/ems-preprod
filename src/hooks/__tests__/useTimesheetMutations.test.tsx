@@ -102,15 +102,19 @@ describe("useTimesheetMutations (BUG 0220-45)", () => {
       result.current.mutate({
         periodId: "period-1",
         staffId: "staff-1",
-        engagementIds: ["eng-1", "eng-2"],
+        engagementActivityPairs: [
+          { engagementId: "eng-1", activityId: "act-1" },
+          { engagementId: "eng-2", activityId: "act-2" },
+        ],
         isAutoApproved: false,
       });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
       expect(supabase.rpc).toHaveBeenCalledWith("submit_timesheet_safe", {
-        p_period_id: "period-1",
-        p_staff_id: "staff-1",
-        p_engagement_ids: ["eng-1", "eng-2"],
+        p_period_id:        "period-1",
+        p_staff_id:         "staff-1",
+        p_engagement_ids:   ["eng-1", "eng-2"],
+        p_activity_ids:     ["act-1", "act-2"],
         p_is_auto_approved: false,
       });
     });
@@ -129,7 +133,7 @@ describe("useTimesheetMutations (BUG 0220-45)", () => {
       result.current.mutate({
         periodId: "p1",
         staffId: "s1",
-        engagementIds: ["e1"],
+        engagementActivityPairs: [{ engagementId: "e1", activityId: "act-1" }],
         isAutoApproved: true,
       });
 
@@ -151,7 +155,7 @@ describe("useTimesheetMutations (BUG 0220-45)", () => {
       result.current.mutate({
         periodId: "p1",
         staffId: "s1",
-        engagementIds: ["e1"],
+        engagementActivityPairs: [{ engagementId: "e1", activityId: "act-1" }],
         isAutoApproved: false,
       });
 
@@ -173,7 +177,7 @@ describe("useTimesheetMutations (BUG 0220-45)", () => {
       result.current.mutate({
         periodId: "p1",
         staffId: "s1",
-        engagementIds: ["e1"],
+        engagementActivityPairs: [{ engagementId: "e1", activityId: "act-1" }],
         isAutoApproved: false,
       });
 
@@ -195,7 +199,7 @@ describe("useTimesheetMutations (BUG 0220-45)", () => {
       result.current.mutate({
         periodId: "p1",
         staffId: "s1",
-        engagementIds: ["e1"],
+        engagementActivityPairs: [{ engagementId: "e1", activityId: "act-1" }],
         isAutoApproved: false,
       });
 
@@ -217,22 +221,25 @@ describe("useTimesheetMutations (BUG 0220-45)", () => {
       result.current.mutate({
         periodId: "p1",
         staffId: "s1",
-        engagementIds: ["eng-1", "eng-1", "eng-2"],
+        engagementActivityPairs: [
+          { engagementId: "eng-1", activityId: "act-1" },
+          { engagementId: "eng-1", activityId: "act-1" },
+          { engagementId: "eng-2", activityId: "act-2" },
+        ],
         isAutoApproved: false,
       });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
       expect(supabase.rpc).toHaveBeenCalledWith("submit_timesheet_safe", expect.objectContaining({
         p_engagement_ids: ["eng-1", "eng-2"],
+        p_activity_ids:   ["act-1", "act-2"],
       }));
     });
   });
 
-  describe("useUnsubmitTimesheet (BUG 0220-51)", () => {
-    it("T2: does not DELETE line approvals, only clears submitted_at", async () => {
-      const mockEq = vi.fn().mockResolvedValue({ error: null });
-      const mockUpdate = vi.fn().mockReturnValue({ eq: mockEq });
-      vi.mocked(supabase.from).mockReturnValue({ update: mockUpdate } as any);
+  describe("useUnsubmitTimesheet (BUG 0220-51 / BUG 0508-105)", () => {
+    it("T2: calls unsubmit_timesheet_safe RPC and does not directly touch timesheet_periods or line_approvals", async () => {
+      vi.mocked(supabase.rpc).mockResolvedValue({ data: null, error: null } as any);
 
       const { useUnsubmitTimesheet } = await import("../useTimesheetMutations");
       const { result } = renderHook(() => useUnsubmitTimesheet(), {
@@ -242,9 +249,28 @@ describe("useTimesheetMutations (BUG 0220-45)", () => {
       result.current.mutate({ periodId: "period-1" });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      expect(supabase.from).toHaveBeenCalledWith("timesheet_periods");
-      // Verify no delete call was made
+      expect(supabase.rpc).toHaveBeenCalledWith("unsubmit_timesheet_safe", {
+        p_period_id: "period-1",
+      });
+      expect(supabase.from).not.toHaveBeenCalledWith("timesheet_periods");
       expect(supabase.from).not.toHaveBeenCalledWith("timesheet_line_approvals");
+    });
+
+    it("T2-err: shows approvedRecallWindowClosed toast when RPC rejects out-of-window recall", async () => {
+      vi.mocked(supabase.rpc).mockResolvedValue({
+        data: null,
+        error: { message: "APPROVED_WEEK_RECALL_WINDOW_CLOSED" },
+      } as any);
+
+      const { useUnsubmitTimesheet } = await import("../useTimesheetMutations");
+      const { result } = renderHook(() => useUnsubmitTimesheet(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate({ periodId: "period-1" });
+
+      await waitFor(() => expect(result.current.isError).toBe(true));
+      expect(toast.error).toHaveBeenCalledWith("timesheet.approvedRecallWindowClosed");
     });
   });
 });

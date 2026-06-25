@@ -18,9 +18,10 @@ import { z } from "zod";
 
 interface ForgotPasswordDialogProps {
   children: React.ReactNode;
+  allowedDomain?: string;
 }
 
-export function ForgotPasswordDialog({ children }: ForgotPasswordDialogProps) {
+export function ForgotPasswordDialog({ children, allowedDomain }: ForgotPasswordDialogProps) {
   const { t } = useTranslation();
   const { resetPasswordForEmail } = useAuth();
   const [open, setOpen] = useState(false);
@@ -37,25 +38,43 @@ export function ForgotPasswordDialog({ children }: ForgotPasswordDialogProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     setLoading(true);
     setEmailError(null);
 
     try {
-      // Validate email
-      emailSchema.parse(email);
+      // Validate email format. Use the trimmed/normalized value from the
+      // schema for every downstream check and the Supabase call — otherwise
+      // an accidental whitespace would defeat the domain check and pass a
+      // non-normalized address to GoTrue.
+      const validatedEmail = emailSchema.parse(email);
 
-      const { error } = await resetPasswordForEmail(email);
+      // Only allowed domain emails permitted
+      if (allowedDomain) {
+        const isAllowedDomain = validatedEmail.toLowerCase().endsWith(`@${allowedDomain.toLowerCase()}`);
+        if (!isAllowedDomain) {
+          setEmailError(t("errors.onlyRuizmierEmail", { domain: allowedDomain }));
+          return;
+        }
+      }
+
+      // Always call Supabase and show the uniform success state. Pre-checking
+      // whether the email belongs to a known user would (a) require letting
+      // `anon` read public.staff — currently blocked by RLS, which is what
+      // broke this dialog after commit 47c169a — and (b) reveal whether an
+      // email is registered (CWE-204 account enumeration). Supabase silently
+      // no-ops the reset for unknown emails, which is the OWASP-recommended
+      // behavior. Errors are logged for monitoring but never surfaced to the
+      // user; success state is shown unconditionally.
+      const { error } = await resetPasswordForEmail(validatedEmail);
 
       if (error) {
-        // Don't reveal if email exists or not for security
         console.error("Reset password error:", error);
       }
 
-      // Always show success message for security (don't reveal if email exists)
       setSent(true);
     } catch (err) {
       if (err instanceof z.ZodError) {
-        // BUG #6: Show inline error instead of toast only
         setEmailError(err.errors[0].message);
       }
     } finally {

@@ -29,6 +29,7 @@ import { cn } from "@/lib/utils";
 import { safeNumber, hasItems } from "@/lib/queryHelpers";
 import {
   aggregateActualHoursByCategory,
+  mergeCategoryBreakdown,
   type ActualHoursTimeEntryRow,
 } from "@/components/dashboard/encargoActualByCategory";
 import { Button } from "@/components/ui/button";
@@ -181,7 +182,8 @@ export function EncargoTab() {
         .from('time_entries')
         .select(`
           hours_logged,
-          period_id
+          period_id,
+          activity_id
         `)
         .eq('engagement_id', selectedEngagementId)
         .eq('is_forecast', false)
@@ -202,22 +204,25 @@ export function EncargoTab() {
       // Get line approvals for this engagement
       const { data: approvals, error: approvalsError } = await supabase
         .from('timesheet_line_approvals')
-        .select('period_id, status')
+        .select('period_id, activity_id, status')
         .eq('engagement_id', selectedEngagementId)
         .in('period_id', periodIds)
         .abortSignal(signal);
 
       if (approvalsError) throw approvalsError;
 
-      // Map period_id to approval status
+      // Key by (period_id, activity_id) so each activity's status is independent
       const approvalMap = new Map<string, string>();
-      approvals?.forEach(a => approvalMap.set(a.period_id, a.status));
+      approvals?.forEach(a => approvalMap.set(`${a.period_id}:${a.activity_id}`, a.status));
 
-      // Sum hours by status
+      // Sum hours by status — each entry is classified by its own (period, activity) pair
       let approved = 0;
       let pending = 0;
       entries.forEach(entry => {
-        const status = entry.period_id ? approvalMap.get(entry.period_id) : null;
+        const key = entry.period_id && entry.activity_id
+          ? `${entry.period_id}:${entry.activity_id}`
+          : null;
+        const status = key ? approvalMap.get(key) : null;
         if (status === 'approved') {
           approved += safeNumber(entry.hours_logged);
         } else {
@@ -253,22 +258,10 @@ export function EncargoTab() {
   };
 
   // Merge category budget and actual
-  const categoryBreakdown = categoryBudget?.map(budget => {
-    const actual = actualByCategory?.find(a => a.category_id === budget.category_id);
-    const budgetHours = safeNumber(budget.total_budget_hours);
-    const actualHours = safeNumber(actual?.actual_hours);
-    const variance = budgetHours - actualHours;
-    const consumedPercent = budgetHours > 0 ? (actualHours / budgetHours) * 100 : 0;
-
-    return {
-      category_id: budget.category_id,
-      category_name: budget.category_name,
-      budget_hours: budgetHours,
-      actual_hours: actualHours,
-      variance,
-      consumed_percent: consumedPercent
-    };
-  }) || [];
+  const categoryBreakdown = mergeCategoryBreakdown(
+    categoryBudget ?? [],
+    actualByCategory ?? [],
+  );
 
   // Activity breakdown (top 10 by hours)
   const activityBreakdown = budgetData

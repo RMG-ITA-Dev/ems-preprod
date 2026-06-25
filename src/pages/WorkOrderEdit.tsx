@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FileSpreadsheet, RefreshCw } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
 import { WorkOrderForm, BudgetLineInput, ExpenseBudgetInput } from "@/components/forms/WorkOrderForm";
 import { useWorkOrderById, useSetting, useCategories } from "@/hooks/useEmsData";
 import {
@@ -20,10 +21,18 @@ import {
   useDeleteExpenseBudget,
   useSubmitWorkOrder,
   useApproveWorkOrder,
+  useApproveRisk,
+  useApproveEmergencyReview,
+  useApproveEmergencyPartner,
+  useRejectRisk,
+  useRevertSocioApproval,
+  useRevertRiskApproval,
+  useCompleteRiskAssessment,
   useRejectWorkOrder,
   useUnsubmitWorkOrder,
 } from "@/hooks/mutations";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
+import { useUserRole } from "@/hooks/useUserRole";
 import { useWorksheetByEngagementId } from "@/hooks/useWorksheetData";
 import { useResyncWorksheetToWorkOrder } from "@/hooks/useWorksheetMutations";
 import { toast } from "sonner";
@@ -60,9 +69,17 @@ const WorkOrderEdit = () => {
   const deleteExpenseBudget = useDeleteExpenseBudget();
   const submitWorkOrder = useSubmitWorkOrder();
   const approveWorkOrder = useApproveWorkOrder();
+  const approveRisk = useApproveRisk();
+  const approveEmergencyReview = useApproveEmergencyReview();
+  const approveEmergencyPartner = useApproveEmergencyPartner();
+  const rejectRisk = useRejectRisk();
+  const revertSocioApproval = useRevertSocioApproval();
+  const revertRiskApproval = useRevertRiskApproval();
+  const completeRiskAssessment = useCompleteRiskAssessment();
   const rejectWorkOrder = useRejectWorkOrder();
   const unsubmitWorkOrder = useUnsubmitWorkOrder();
   const resyncWorksheet = useResyncWorksheetToWorkOrder();
+  const { isAdmin } = useUserRole();
 
   const [currency, setCurrency] = useState<"USD" | "BOB">("BOB");
   const [seasonMode, setSeasonMode] = useState<"High" | "Low">("High");
@@ -72,6 +89,27 @@ const WorkOrderEdit = () => {
   const [originalBudgetLines, setOriginalBudgetLines] = useState<string[]>([]);
   const [originalExpenses, setOriginalExpenses] = useState<string[]>([]);
   const [showResyncDialog, setShowResyncDialog] = useState(false);
+  const [showRejectDialog, setShowRejectDialog] = useState(false);
+  const [rejectNotes, setRejectNotes] = useState("");
+
+  const [ceacCompletedAt, setCeacCompletedAt] = useState<string | null>(null);
+  const [ceacNotes, setCeacNotes] = useState<string | null>(null);
+  const [sanCompletedAt, setSanCompletedAt] = useState<string | null>(null);
+  const [sanNotes, setSanNotes] = useState<string | null>(null);
+  const [ceacNumber, setCeacNumber] = useState<string | null>(null);
+  const [sanApprovalId, setSanApprovalId] = useState<string | null>(null);
+  const [riskLevel, setRiskLevel] = useState<string | null>(null);
+  const [originalCeacCompletedAt, setOriginalCeacCompletedAt] = useState<string | null>(null);
+  const [originalSanCompletedAt, setOriginalSanCompletedAt] = useState<string | null>(null);
+  const [originalCeacNotes, setOriginalCeacNotes] = useState<string | null>(null);
+  const [originalSanNotes, setOriginalSanNotes] = useState<string | null>(null);
+  const [originalCeacNumber, setOriginalCeacNumber] = useState<string | null>(null);
+  const [originalSanApprovalId, setOriginalSanApprovalId] = useState<string | null>(null);
+  const [originalRiskLevel, setOriginalRiskLevel] = useState<string | null>(null);
+
+  // Prevents the useEffect from clobbering in-progress risk edits when a non-risk save triggers a refetch.
+  // Set to true on any user edit; reset to false after risk data is persisted to DB.
+  const riskEditedRef = useRef(false);
 
   // Track original values for dirty check
   const [originalAdjustment, setOriginalAdjustment] = useState(0);
@@ -113,6 +151,27 @@ const WorkOrderEdit = () => {
       setExpenseBudget(expenses);
       setOriginalExpenses(expenses.map((e) => e.id));
       setOriginalExpenseData(JSON.parse(JSON.stringify(expenses))); // Deep copy
+
+      const riskCeac = workOrder.ceac_completed_at ?? null;
+      const riskSan = workOrder.san_completed_at ?? null;
+      // Only reset current risk state from DB when the user hasn't edited them locally.
+      // Prevents non-risk saves (handleSubmit) from clobbering in-progress risk edits via refetch.
+      if (!riskEditedRef.current) {
+        setCeacCompletedAt(riskCeac);
+        setCeacNotes(workOrder.ceac_notes ?? null);
+        setSanCompletedAt(riskSan);
+        setSanNotes(workOrder.san_notes ?? null);
+        setCeacNumber(workOrder.ceac_number ?? null);
+        setSanApprovalId(workOrder.san_approval_id ?? null);
+        setRiskLevel(workOrder.risk_level ?? null);
+      }
+      setOriginalCeacCompletedAt(riskCeac);
+      setOriginalSanCompletedAt(riskSan);
+      setOriginalCeacNotes(workOrder.ceac_notes ?? null);
+      setOriginalSanNotes(workOrder.san_notes ?? null);
+      setOriginalCeacNumber(workOrder.ceac_number ?? null);
+      setOriginalSanApprovalId(workOrder.san_approval_id ?? null);
+      setOriginalRiskLevel(workOrder.risk_level ?? null);
     }
   }, [workOrder]);
 
@@ -139,6 +198,31 @@ const WorkOrderEdit = () => {
       if (orig.budgeted_amount !== exp.budgeted_amount) return true;
     }
 
+    if (ceacCompletedAt !== originalCeacCompletedAt) return true;
+    if (sanCompletedAt !== originalSanCompletedAt) return true;
+    if ((ceacNotes ?? null) !== originalCeacNotes) return true;
+    if ((sanNotes ?? null) !== originalSanNotes) return true;
+    if ((ceacNumber ?? null) !== originalCeacNumber) return true;
+    if ((sanApprovalId ?? null) !== originalSanApprovalId) return true;
+    if ((riskLevel ?? null) !== originalRiskLevel) return true;
+
+    return false;
+  }, [workOrder, adjustmentAmount, originalAdjustment, expenseBudget, originalExpenseData, ceacCompletedAt, originalCeacCompletedAt, sanCompletedAt, originalSanCompletedAt, ceacNotes, originalCeacNotes, sanNotes, originalSanNotes, ceacNumber, originalCeacNumber, sanApprovalId, originalSanApprovalId, riskLevel, originalRiskLevel]);
+
+  // Tracks only fields that handleSubmit persists (not risk fields — those are saved atomically by submitWorkOrder)
+  const hasNonRiskDirty = useMemo(() => {
+    if (!workOrder) return false;
+    if (adjustmentAmount !== originalAdjustment) return true;
+    if (expenseBudget.length !== originalExpenseData.length) return true;
+    const currentExpIds = expenseBudget.map((e) => e.id).sort();
+    const originalExpIds = originalExpenseData.map((e) => e.id).sort();
+    if (JSON.stringify(currentExpIds) !== JSON.stringify(originalExpIds)) return true;
+    for (const exp of expenseBudget) {
+      const orig = originalExpenseData.find((e) => e.id === exp.id);
+      if (!orig) return true;
+      if (orig.expense_type_id !== exp.expense_type_id) return true;
+      if (orig.budgeted_amount !== exp.budgeted_amount) return true;
+    }
     return false;
   }, [workOrder, adjustmentAmount, originalAdjustment, expenseBudget, originalExpenseData]);
 
@@ -146,9 +230,12 @@ const WorkOrderEdit = () => {
 
   // Check if user can approve
   const canApprove = staffRecord?.category?.can_approve_wo || false;
+  // Riesgos approver = Administrator role (OQ-4). Needs a staff record because
+  // risk_approved_by references staff(staff_id).
+  const canApproveRisk = isAdmin && !!staffRecord;
 
   const approvalStatus = workOrder?.approval_status as "Draft" | "Pending_Approval" | "Approved" | "Rejected" || "Draft";
-  const isLocked = approvalStatus === "Approved" || approvalStatus === "Pending_Approval";
+  const isLocked = approvalStatus === "Approved" || approvalStatus === "Pending_Approval" || approvalStatus === "Rejected";
 
   const handleSubmit = async () => {
     if (!workOrder) return;
@@ -204,24 +291,151 @@ const WorkOrderEdit = () => {
     }
   };
 
-  const handleSubmitForApproval = async () => {
+  const handleSubmitForApproval = async (emergencyJustification?: string) => {
     if (!workOrder) return;
-    await submitWorkOrder.mutateAsync(workOrder.wo_id);
+    // Reenvío de la pista Socio en corrección (estado Rejected): no se re-evalúa ni se
+    // reescribe Riesgos; solo se reabre la pista Socio a Pending_Approval. La pista de
+    // Riesgos conserva su estado (aprobada, o rechazada y corregida por separado).
+    if (workOrder.approval_status === "Rejected") {
+      await updateWorkOrder.mutateAsync({
+        id: workOrder.wo_id,
+        data: { approval_status: "Pending_Approval" },
+      });
+      return;
+    }
+    const CEAC_NUM_RE = /^\d{10}$/;
+    const SAN_ID_RE = /^\d{10}$|^\d{5}-\d{5}$/;
+    const allComplete =
+      !!ceacCompletedAt && CEAC_NUM_RE.test(ceacNumber ?? '')
+      && !!sanCompletedAt && SAN_ID_RE.test(sanApprovalId ?? '')
+      && !!riskLevel;
+    const allEmpty =
+      !ceacCompletedAt && !ceacNumber && !sanCompletedAt && !sanApprovalId && !riskLevel;
+    // All-or-nothing: complete (normal) or empty (emergency). Partial is blocked.
+    if (!allComplete && !allEmpty) {
+      toast.error(t("workOrders.riskAssessmentRequired"));
+      return;
+    }
+    await submitWorkOrder.mutateAsync({
+      woId: workOrder.wo_id,
+      ceacCompletedAt,
+      ceacNotes,
+      sanCompletedAt,
+      sanNotes,
+      ceacNumber,
+      sanApprovalId,
+      riskLevel,
+      // Emergency justification:
+      //   null  → normal submit with data (clear any stale value).
+      //   value → new emergency submit (from modal).
+      //   undefined → Risk track already Emergency_Approved, re-submitting Socio only;
+      //               useSubmitWorkOrder will skip writing the key, preserving DB value.
+      emergencyJustification: !allEmpty
+        ? null
+        : workOrder.risk_status === "Emergency_Approved"
+          ? undefined
+          : (emergencyJustification ?? null),
+      // Reset Risk track from Rejected → Pending so the Risk team gets a fresh review
+      // signal. Approved/Emergency_Approved are preserved (independent tracks, A1).
+      resetRiskToPending: workOrder.risk_status === "Rejected",
+    });
+    riskEditedRef.current = false;
   };
 
   const handleApprove = async () => {
     if (!workOrder || !staffRecord) return;
-    await approveWorkOrder.mutateAsync({ woId: workOrder.wo_id, staffId: staffRecord.staff_id });
+    await approveWorkOrder.mutateAsync({
+      woId: workOrder.wo_id,
+      staffId: staffRecord.staff_id,
+    });
   };
 
-  const handleReject = async () => {
+  const handleApproveRisk = async () => {
+    if (!workOrder || !staffRecord) return;
+    await approveRisk.mutateAsync({
+      woId: workOrder.wo_id,
+      staffId: staffRecord.staff_id,
+    });
+  };
+
+  // Emergency step 1: Riesgo (assistant).
+  const handleApproveEmergencyReview = async () => {
+    if (!workOrder || !staffRecord) return;
+    await approveEmergencyReview.mutateAsync({
+      woId: workOrder.wo_id,
+      staffId: staffRecord.staff_id,
+    });
+  };
+
+  // Emergency step 2: Socio de Riesgos (starts the deadline, closes the OT).
+  const handleApproveEmergencyPartner = async () => {
+    if (!workOrder || !staffRecord) return;
+    await approveEmergencyPartner.mutateAsync({
+      woId: workOrder.wo_id,
+      staffId: staffRecord.staff_id,
+    });
+  };
+
+  const handleRejectRisk = async (riskNotes: string | null) => {
     if (!workOrder) return;
-    await rejectWorkOrder.mutateAsync(workOrder.wo_id);
+    await rejectRisk.mutateAsync({ woId: workOrder.wo_id, riskNotes });
+  };
+
+  // Admin-only: revertir aprobaciones accidentales.
+  const handleRevertSocio = async () => {
+    if (!workOrder) return;
+    await revertSocioApproval.mutateAsync({ woId: workOrder.wo_id });
+  };
+
+  const handleRevertRisk = async () => {
+    if (!workOrder) return;
+    await revertRiskApproval.mutateAsync({ woId: workOrder.wo_id });
+  };
+
+  const handleCompleteRisk = async (emergencyJustification?: string) => {
+    if (!workOrder) return;
+    const justification =
+      typeof emergencyJustification === "string" ? emergencyJustification : undefined;
+    await completeRiskAssessment.mutateAsync({
+      woId: workOrder.wo_id,
+      ceacCompletedAt,
+      ceacNotes,
+      sanCompletedAt,
+      sanNotes,
+      ceacNumber,
+      sanApprovalId,
+      riskLevel,
+      emergencyJustification: justification,
+    });
+    riskEditedRef.current = false;
+  };
+
+  const handleClearRiskData = () => {
+    riskEditedRef.current = true;
+    setCeacCompletedAt(null);
+    setCeacNumber(null);
+    setSanCompletedAt(null);
+    setSanApprovalId(null);
+    setRiskLevel(null);
+  };
+
+  const handleReject = () => {
+    setShowRejectDialog(true);
+  };
+
+  const handleRejectConfirm = async () => {
+    if (!workOrder) return;
+    await rejectWorkOrder.mutateAsync({ woId: workOrder.wo_id, notes: rejectNotes });
+    setShowRejectDialog(false);
+    setRejectNotes("");
   };
 
   const handleUnsubmit = async () => {
     if (!workOrder) return;
-    await unsubmitWorkOrder.mutateAsync(workOrder.wo_id);
+    await unsubmitWorkOrder.mutateAsync({
+      woId: workOrder.wo_id,
+      currentRiskStatus: workOrder.risk_status,
+    });
   };
 
   const handleResync = async () => {
@@ -231,6 +445,17 @@ const WorkOrderEdit = () => {
       woId: workOrder.wo_id,
     });
     setShowResyncDialog(false);
+  };
+
+  const handleRiskAssessmentChange = (field: string, value: string | null) => {
+    riskEditedRef.current = true;
+    if (field === 'ceacCompletedAt') setCeacCompletedAt(value);
+    else if (field === 'ceacNotes') setCeacNotes(value);
+    else if (field === 'sanCompletedAt') setSanCompletedAt(value);
+    else if (field === 'sanNotes') setSanNotes(value);
+    else if (field === 'ceacNumber') setCeacNumber(value);
+    else if (field === 'sanApprovalId') setSanApprovalId(value);
+    else if (field === 'riskLevel') setRiskLevel(value);
   };
 
   if (isLoading) {
@@ -301,12 +526,14 @@ const WorkOrderEdit = () => {
           currency={currency}
           seasonMode={seasonMode}
           approvalStatus={approvalStatus}
+          approvedAt={workOrder.approved_at}
           adjustmentAmount={adjustmentAmount}
           taxRate={workOrder.tax_rate || taxRate}
           budgetLines={budgetLines}
           expenseBudget={expenseBudget}
           isNew={false}
           isDirty={isDirty}
+          hasNonRiskDirty={hasNonRiskDirty}
           onCurrencyChange={setCurrency}
           onSeasonChange={setSeasonMode}
           onAdjustmentChange={setAdjustmentAmount}
@@ -318,12 +545,44 @@ const WorkOrderEdit = () => {
           onReject={handleReject}
           onUnsubmit={handleUnsubmit}
           onCancel={() => { allowNextNavigation(); navigate("/work-orders"); }}
+          rejectionNote={workOrder?.notes ?? null}
           isLocked={isLocked}
           canApprove={canApprove}
+          canApproveRisk={canApproveRisk}
+          riskStatus={workOrder.risk_status}
+          emergencyDeadlineAt={workOrder.emergency_deadline_at}
+          emergencyReviewAt={workOrder.emergency_review_at}
+          emergencyPartnerAt={workOrder.emergency_partner_at}
+          emergencyJustification={workOrder.emergency_justification}
+          onApproveRisk={handleApproveRisk}
+          onRejectRisk={handleRejectRisk}
+          onApproveEmergencyReview={handleApproveEmergencyReview}
+          onApproveEmergencyPartner={handleApproveEmergencyPartner}
+          onCompleteRisk={handleCompleteRisk}
+          onClearRiskData={handleClearRiskData}
+          riskNote={workOrder.risk_notes}
+          canRevert={isAdmin}
+          onRevertSocio={handleRevertSocio}
+          onRevertRisk={handleRevertRisk}
+          ceacCompletedAt={ceacCompletedAt}
+          ceacNotes={ceacNotes}
+          sanCompletedAt={sanCompletedAt}
+          sanNotes={sanNotes}
+          ceacNumber={ceacNumber}
+          sanApprovalId={sanApprovalId}
+          riskLevel={riskLevel}
+          onRiskAssessmentChange={handleRiskAssessmentChange}
           isSubmitting={
             updateWorkOrder.isPending ||
             submitWorkOrder.isPending ||
             approveWorkOrder.isPending ||
+            approveRisk.isPending ||
+            approveEmergencyReview.isPending ||
+            approveEmergencyPartner.isPending ||
+            rejectRisk.isPending ||
+            revertSocioApproval.isPending ||
+            revertRiskApproval.isPending ||
+            completeRiskAssessment.isPending ||
             rejectWorkOrder.isPending ||
             unsubmitWorkOrder.isPending
           }
@@ -346,6 +605,37 @@ const WorkOrderEdit = () => {
               disabled={resyncWorksheet.isPending}
             >
               {resyncWorksheet.isPending ? t("common.loading") : t("workMatrix.resyncToWorkOrder")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      {/* Rejection Note Dialog */}
+      <AlertDialog open={showRejectDialog} onOpenChange={setShowRejectDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("workOrders.rejectDialogTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("workOrders.rejectDialogDescription")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="py-4">
+            <Textarea
+              placeholder={t("workOrders.rejectNotePlaceholder")}
+              value={rejectNotes}
+              onChange={(e) => setRejectNotes(e.target.value)}
+              rows={3}
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setRejectNotes("")}>
+              {t("common.cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleRejectConfirm}
+              disabled={rejectWorkOrder.isPending}
+              className="bg-destructive hover:bg-destructive/90"
+            >
+              {t("workOrders.rejectDialogConfirm")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

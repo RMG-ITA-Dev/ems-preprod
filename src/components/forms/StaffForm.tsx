@@ -47,13 +47,15 @@ import {
 } from "@/components/ui/dialog";
 import { StaffFull, useCategories, useActiveSkills } from "@/hooks/useEmsData";
 import { useCreateStaff, useUpdateStaff, useDeleteStaff, useCreateStaffCompetency, useUpdateStaffCompetency, useDeleteStaffCompetency } from "@/hooks/mutations";
-import { Trash2, AlertTriangle, RefreshCw, Plus } from "lucide-react";
+import { Trash2, AlertTriangle, RefreshCw, Plus, Lock, LockOpen } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useUpdateUserRole } from "@/hooks/useUserRoles";
+import { useUserRole } from "@/hooks/useUserRole";
 import { Database } from "@/integrations/supabase/types";
 import { PROFICIENCY_LEVELS, type ProficiencyLevel } from "@/integrations/supabase/customTypes";
+import { formatFullDate, fromISODateString } from "@/lib/timesheetUtils";
 
 const todayISO = (): string => {
   const d = new Date();
@@ -76,7 +78,7 @@ const findFirstErrorMessage = (errors: unknown): string | undefined => {
 
 type AppRole = Database["public"]["Enums"]["app_role"];
 
-const createFormSchema = (t: TFunction) =>
+const createFormSchema = (t: TFunction, isEdit: boolean = false, previousIsActive?: boolean) =>
   z.object({
     first_name: z.string().min(1, t("validation.firstNameRequired")),
     last_name: z.string().min(1, t("validation.lastNameRequired")),
@@ -110,6 +112,19 @@ const createFormSchema = (t: TFunction) =>
       });
     }).default([]),
   }).refine(
+    (data) => {
+      // Require termination_date only for actual active→inactive transitions
+      // Don't require if already inactive or transitioning to active
+      if (previousIsActive === true && !data.is_active && !data.termination_date) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message: t("validation.terminationDateRequired"),
+      path: ["termination_date"],
+    }
+  ).refine(
     (data) => {
       if (data.termination_date && data.hire_date) {
         return data.termination_date >= data.hire_date;
@@ -185,6 +200,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const isEdit = !!staff;
+  const { isAdmin } = useUserRole();
   const { data: categories } = useCategories();
   const { data: activeSkills } = useActiveSkills();
   const createMutation = useCreateStaff();
@@ -206,7 +222,16 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
   const [showSyncDialog, setShowSyncDialog] = useState(false);
   const [syncData, setSyncData] = useState<{ userId: string; newRole: AppRole } | null>(null);
 
-  const formSchema = useMemo(() => createFormSchema(t), [t]);
+  // Reactivation confirmation dialog state (BUG 0526-123).
+  // Opens when an admin toggles is_active OFF->ON on a row that still has a
+  // termination_date. The DB-side hour-loading restriction stays in effect.
+  const [showReactivateDialog, setShowReactivateDialog] = useState(false);
+
+  // Unblock dialog state (BUG 0601-132)
+  const [showUnblockDialog, setShowUnblockDialog] = useState(false);
+  const [isUnblocking, setIsUnblocking] = useState(false);
+
+  const formSchema = useMemo(() => createFormSchema(t, isEdit, staff?.is_active), [t, isEdit, staff?.is_active]);
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -271,11 +296,6 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
   const lastName = form.watch("last_name");
   const currentShortName = form.watch("short_name");
   const currentInitials = form.watch("initials");
-  const watchIsActive = form.watch("is_active");
-  const watchTerminationDate = form.watch("termination_date");
-
-  // No-Reingreso: block reactivation for deactivated staff with termination_date
-  const isReactivationBlocked = isEdit && staff && !staff.is_active && !!staff.termination_date;
 
   useEffect(() => {
     // Only auto-suggest if fields are empty (don't override user edits)
@@ -289,12 +309,6 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
     }
   }, [firstName, lastName, isEdit, currentShortName, currentInitials, form]);
 
-  // Auto-set termination_date when toggling is_active from true to false
-  useEffect(() => {
-    if (isEdit && staff?.is_active && !watchIsActive && !watchTerminationDate) {
-      form.setValue("termination_date", new Date().toISOString().split("T")[0]);
-    }
-  }, [watchIsActive, isEdit, staff?.is_active, watchTerminationDate, form]);
 
   const onConfirmSync = async () => {
     if (syncData) {
@@ -323,6 +337,40 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
       onSaveSuccess();
     } else {
       navigate("/staff");
+    }
+  };
+
+  const handleUnblock = async () => {
+    if (!staff) return;
+    setIsUnblocking(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('unlock-account', {
+        body: {
+          staffId: staff.staff_id,
+          redirectTo: `${window.location.origin}/reset-password?reason=admin_unlock`,
+        },
+      });
+      if (error) throw error;
+      const result = data as { ok: boolean; code?: string; resetEmailSent?: boolean } | null;
+      if (!result?.ok) throw new Error(result?.code ?? 'UNKNOWN_ERROR');
+      // The account is unblocked either way, but the reset email may have failed
+      // (SMTP/rate limit/redirect). Don't claim it was sent when it wasn't.
+      if (result.resetEmailSent === false) {
+        toast.warning(t('staff.unblockNoEmail'));
+      } else {
+        toast.success(t('staff.unblockSuccess'));
+      }
+      setShowUnblockDialog(false);
+      if (onSaveSuccess) {
+        onSaveSuccess();
+      } else {
+        navigate('/staff');
+      }
+    } catch (err) {
+      console.error('[StaffForm] unlock-account failed:', err);
+      toast.error(t('staff.unblockError'));
+    } finally {
+      setIsUnblocking(false);
     }
   };
 
@@ -766,22 +814,72 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
                     <div className="space-y-0.5">
                       <FormLabel className="text-base">{t("common.active")}</FormLabel>
                       <FormDescription>
-                        {isReactivationBlocked
-                          ? t("errors.noReingreso")
-                          : isEdit ? t("staff.activeDescription") : t("staff.activeDescriptionNew")}
+                        {isEdit ? t("staff.activeDescription") : t("staff.activeDescriptionNew")}
                       </FormDescription>
                     </div>
                     <FormControl>
                       <Switch
                         checked={field.value}
-                        onCheckedChange={field.onChange}
-                        disabled={isReactivationBlocked}
+                        onCheckedChange={(checked) => {
+                          // BUG 0526-123: OFF->ON on a staff row that has a recorded
+                          // termination_date opens a confirmation dialog. Detection
+                          // uses the SAVED staff prop (not the live form value) so
+                          // an admin cannot bypass the dialog by clearing the date
+                          // field first. The DB guard TERMINATION_DATE_IMMUTABLE
+                          // refuses any save that nulls the date during reactivation.
+                          if (
+                            checked &&
+                            field.value === false &&
+                            isEdit &&
+                            !!staff?.termination_date
+                          ) {
+                            setShowReactivateDialog(true);
+                            return;
+                          }
+                          field.onChange(checked);
+                        }}
                       />
                     </FormControl>
                   </FormItem>
                 )}
               />
             </div>
+
+            {/* Account security section — admin only, edit mode, auth-linked users */}
+            {isEdit && isAdmin && staff?.auth_user_id && (
+              <div className="space-y-4">
+                <h3 className="font-medium text-lg">{t("staff.accountSecurity")}</h3>
+                <div className={`flex items-center justify-between rounded-lg border p-4 ${staff?.is_blocked ? 'border-destructive/40 bg-destructive/5' : ''}`}>
+                  <div className="space-y-0.5">
+                    <div className="flex items-center gap-2">
+                      {staff?.is_blocked
+                        ? <Lock className="h-4 w-4 text-destructive" />
+                        : <LockOpen className="h-4 w-4 text-muted-foreground" />
+                      }
+                      <span className="text-base font-medium">
+                        {staff?.is_blocked ? t("staff.blocked") : t("staff.notBlocked")}
+                      </span>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      {staff?.is_blocked
+                        ? t("staff.blockedDescription")
+                        : t("staff.notBlockedDescription")}
+                    </p>
+                  </div>
+                  {staff?.is_blocked && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowUnblockDialog(true)}
+                      className="border-destructive/40 text-destructive hover:bg-destructive/10 shrink-0"
+                    >
+                      {t("staff.unblockAction")}
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Competencies section */}
             <div className="space-y-3">
@@ -1023,6 +1121,56 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
         </DialogContent>
       </Dialog>
 
+      {/* Reactivation Confirmation Dialog (BUG 0526-123) */}
+      <Dialog open={showReactivateDialog} onOpenChange={setShowReactivateDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader className="space-y-3">
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-warning" />
+              {t("staff.reactivateTitle")}
+            </DialogTitle>
+            <DialogDescription asChild>
+              <div className="space-y-2 leading-relaxed">
+                <p>
+                  {t("staff.reactivateDescriptionDate", {
+                    date: staff?.termination_date
+                      ? formatFullDate(
+                          fromISODateString(staff.termination_date),
+                          i18n.language,
+                        )
+                      : "",
+                  })}
+                </p>
+                <p>{t("staff.reactivateDescriptionDetails")}</p>
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col sm:flex-row gap-2 pt-2">
+            <Button variant="cancel" onClick={() => setShowReactivateDialog(false)}>
+              {t("common.cancel")}
+            </Button>
+            <Button
+              onClick={() => {
+                // Restore the saved termination_date only when the admin
+                // cleared the field — the DB rejects nulling it
+                // (TERMINATION_DATE_IMMUTABLE). If they changed it to another
+                // non-empty date, respect that correction.
+                const currentDate = form.getValues("termination_date");
+                if (staff?.termination_date && !currentDate) {
+                  form.setValue("termination_date", staff.termination_date, {
+                    shouldDirty: true,
+                  });
+                }
+                form.setValue("is_active", true, { shouldDirty: true });
+                setShowReactivateDialog(false);
+              }}
+            >
+              {t("staff.reactivateConfirm")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Role Sync Dialog */}
       <Dialog open={showSyncDialog} onOpenChange={(open) => !open && onSkipSync()}>
         <DialogContent className="max-w-md">
@@ -1042,6 +1190,38 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
             <Button onClick={onConfirmSync}>
               {t("staff.syncRoleConfirm")}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Unblock Confirmation Dialog (BUG 0601-132) */}
+      <Dialog open={showUnblockDialog} onOpenChange={(open) => !isUnblocking && setShowUnblockDialog(open)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <LockOpen className="h-5 w-5 text-primary" />
+              {t("staff.unblockConfirmTitle")}
+            </DialogTitle>
+            <DialogDescription>
+              {t("staff.unblockConfirmDescription", {
+                name: staff ? `${staff.first_name} ${staff.last_name}` : '',
+              })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button
+              variant="cancel"
+              onClick={() => setShowUnblockDialog(false)}
+              disabled={isUnblocking}
+            >
+              {t("common.cancel")}
+            </Button>
+            <LoadingButton
+              onClick={handleUnblock}
+              loading={isUnblocking}
+            >
+              {t("staff.unblockConfirmButton")}
+            </LoadingButton>
           </DialogFooter>
         </DialogContent>
       </Dialog>
