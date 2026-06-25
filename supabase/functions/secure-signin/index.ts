@@ -18,7 +18,9 @@
 //   Output (locked, either by pre-check or by tripping on this attempt):
 //     { ok: false, code: "ACCOUNT_LOCKED", remaining_seconds: number }
 //   Output (bad credentials, no lockout yet):
-//     { ok: false, code: "INVALID_CREDENTIALS", message: string }
+//     { ok: false, code: "INVALID_CREDENTIALS", message: string, remaining_attempts?: number }
+//     (remaining_attempts is the count left before lockout, when record_failed_login
+//      returns it; omitted if the RPC failed so the client falls back gracefully.)
 //   Output (anything else):
 //     { ok: false, code: "UNKNOWN_ERROR", message: string }
 
