@@ -52,6 +52,16 @@ describe("Toaster wrapper (sonner.tsx)", () => {
     expect(classNames.cancelButton).toBeTruthy();
   });
 
+  it("enables richColors for severity-based toast styling", () => {
+    const props = renderToaster();
+    expect(props.richColors).toBe(true);
+  });
+
+  it("sets explicit duration to 4000ms", () => {
+    const props = renderToaster();
+    expect(props.duration).toBe(4000);
+  });
+
   it("renders without throwing", () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     expect(() => renderToaster()).not.toThrow();

@@ -652,6 +652,7 @@
     "welcomeBack": "Welcome back!",
     "accountCreated": "Account created successfully!",
     "invalidCredentials": "Invalid email or password. Please try again.",
+    "invalidCredentialsWithAttempts": "Invalid email or password. You have {{remaining}} attempt(s) remaining before lockout.",
     "accountLocked": "Account temporarily locked due to too many failed attempts. Try again in {{minutes}} minutes or contact your administrator.",
     "emailAlreadyRegistered": "This email is already registered. Please sign in instead.",
     "welcomeAdmin": "Welcome, Admin!",

@@ -652,6 +652,7 @@
     "welcomeBack": "¡Bienvenido/a!",
     "accountCreated": "¡Cuenta creada exitosamente!",
     "invalidCredentials": "Correo o contraseña inválidos. Por favor intente de nuevo.",
+    "invalidCredentialsWithAttempts": "Correo o contraseña inválidos. Le quedan {{remaining}} intento(s) antes del bloqueo.",
     "accountLocked": "Cuenta bloqueada temporalmente por demasiados intentos fallidos. Intente nuevamente en {{minutes}} minutos o contacte al administrador.",
     "emailAlreadyRegistered": "Este correo ya está registrado. Por favor inicie sesión.",
     "welcomeAdmin": "¡Bienvenido, Admin!",
