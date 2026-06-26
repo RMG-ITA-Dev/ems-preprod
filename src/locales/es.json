@@ -271,7 +271,9 @@
     "fundRequest": "Solicitud de Fondos",
     "fundRequests": "Solicitudes de Fondos",
     "skill": "Competencia",
-    "skills": "Competencias"
+    "skills": "Competencias",
+    "service": "Servicio",
+    "services": "Servicios"
   },
   "status": {
     "active": "Activo",
@@ -327,6 +329,7 @@
     "realizationLimit": "Límite de Realización (%)",
     "realizationLimitHelp": "Umbral para codificación por color: verde si R >= X%, rojo si R < X%",
     "skills": "Competencias",
+    "services": "Servicios",
     "holidays": "Feriados",
     "userRoles": "Roles de Usuario",
     "holidayEngagement": "Encargo de Feriados",
@@ -436,6 +439,18 @@
       "certification": "Certificación",
       "other": "Otro"
     }
+  },
+  "service": {
+    "name": "Nombre",
+    "code": "Código",
+    "allowsRatesActivities": "Permite Tarifas / Actividades",
+    "status": "Estado",
+    "newService": "Nuevo Servicio",
+    "editService": "Editar Servicio",
+    "createService": "Crear Servicio",
+    "activeDescription": "Los servicios activos aparecen al crear encargos",
+    "deactivateConfirmTitle": "¿Desactivar servicio?",
+    "deactivateConfirmBody": "Los servicios inactivos ya no aparecerán al crear encargos. Los encargos existentes no se ven afectados."
   },
   "expense": {
     "name": "Nombre del Gasto",
@@ -614,11 +629,6 @@
     "oficina_ambos":          "Ambos",
     "oficina_laPaz":          "La Paz",
     "oficina_santaCruz":      "Santa Cruz",
-    "practica_firmwide":      "Firmwide",
-    "practica_auditoria":     "Auditoría",
-    "practica_consultoria":   "Consultoría",
-    "practica_tax":           "TAX",
-    "practica_growthStrategy": "Growth & Strategy",
     "funcion":           "Función",
     "selectFuncion":     "Seleccionar función",
     "funcion_adm":       "Administrativa",

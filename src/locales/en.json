@@ -271,7 +271,9 @@
     "fundRequest": "Fund Request",
     "fundRequests": "Fund Requests",
     "skill": "Competency",
-    "skills": "Competencies"
+    "skills": "Competencies",
+    "service": "Service",
+    "services": "Services"
   },
   "status": {
     "active": "Active",
@@ -327,6 +329,7 @@
     "realizationLimit": "Realization Limit (%)",
     "realizationLimitHelp": "Threshold for color coding: green if R >= X%, red if R < X%",
     "skills": "Competencies",
+    "services": "Services",
     "holidays": "Holidays",
     "userRoles": "User Roles",
     "holidayEngagement": "Holiday Engagement",
@@ -436,6 +439,18 @@
       "certification": "Certification",
       "other": "Other"
     }
+  },
+  "service": {
+    "name": "Name",
+    "code": "Code",
+    "allowsRatesActivities": "Allows Rates / Activities",
+    "status": "Status",
+    "newService": "New Service",
+    "editService": "Edit Service",
+    "createService": "Create Service",
+    "activeDescription": "Active services appear in the engagement service selector",
+    "deactivateConfirmTitle": "Deactivate service?",
+    "deactivateConfirmBody": "Inactive services will no longer appear when creating engagements. Existing engagements are not affected."
   },
   "expense": {
     "name": "Expense Name",
@@ -614,11 +629,6 @@
     "oficina_ambos":          "Both Offices",
     "oficina_laPaz":          "La Paz",
     "oficina_santaCruz":      "Santa Cruz",
-    "practica_firmwide":      "Firmwide",
-    "practica_auditoria":     "Audit",
-    "practica_consultoria":   "Consulting",
-    "practica_tax":           "TAX",
-    "practica_growthStrategy": "Growth & Strategy",
     "funcion":           "Function",
     "selectFuncion":     "Select function",
     "funcion_adm":       "Administrative",

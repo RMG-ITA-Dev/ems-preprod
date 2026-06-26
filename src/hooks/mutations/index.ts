@@ -56,3 +56,6 @@ export { useCreateSkill, useUpdateSkill, useDeleteSkill } from "./useSkillMutati
 
 // Staff Competencies
 export { useCreateStaffCompetency, useUpdateStaffCompetency, useDeleteStaffCompetency } from "./useStaffCompetencyMutations";
+
+// Services
+export { useCreateService, useUpdateService } from "./useServiceMutations";

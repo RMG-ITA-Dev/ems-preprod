@@ -3,9 +3,8 @@ import en from "@/locales/en.json";
 import es from "@/locales/es.json";
 
 /**
- * BUG 0306-82: Verifies all 20 new i18n keys for auto-generated engagement code fields.
- * Includes Plan v3 item 5 (funcion.*), additional locale changes (oficina.ambos,
- * practica.firmwide) and Growth & Strategy (practica.growthStrategy).
+ * BUG 0306-82: Verifies i18n keys for auto-generated engagement code fields.
+ * practica_* keys removed (0625-149): service names now come from the DB catalog.
  */
 
 const NEW_KEYS = [
@@ -18,11 +17,6 @@ const NEW_KEYS = [
   "oficina_laPaz",
   "oficina_santaCruz",
   "oficina_ambos",
-  "practica_auditoria",
-  "practica_consultoria",
-  "practica_tax",
-  "practica_firmwide",
-  "practica_growthStrategy",
   "funcion",
   "selectFuncion",
   "funcion_adm",
@@ -75,6 +69,11 @@ describe("i18n engagement code-generation keys (BUG 0306-82)", () => {
     expect((es as any).engagement.practica).toBe("Servicio");
   });
 
+  // 0625-149: service names come from the catalog — practica_* keys deleted
+  it("EN engagement no longer has practica_firmwide (catalog-driven)", () => {
+    expect((en as any).engagement["practica_firmwide"]).toBeUndefined();
+  });
+
   it("EN engagement.anioFiscal is 'Fiscal Year'", () => {
     expect((en as any).engagement.anioFiscal).toBe("Fiscal Year");
   });
@@ -89,22 +88,6 @@ describe("i18n engagement code-generation keys (BUG 0306-82)", () => {
 
   it("ES engagement.oficina_ambos is 'Ambos'", () => {
     expect((es as any).engagement["oficina_ambos"]).toBe("Ambos");
-  });
-
-  it("EN engagement.practica_firmwide is 'Firmwide'", () => {
-    expect((en as any).engagement["practica_firmwide"]).toBe("Firmwide");
-  });
-
-  it("ES engagement.practica_firmwide is 'Firmwide'", () => {
-    expect((es as any).engagement["practica_firmwide"]).toBe("Firmwide");
-  });
-
-  it("EN engagement.practica_growthStrategy is 'Growth & Strategy'", () => {
-    expect((en as any).engagement["practica_growthStrategy"]).toBe("Growth & Strategy");
-  });
-
-  it("ES engagement.practica_growthStrategy is 'Growth & Strategy'", () => {
-    expect((es as any).engagement["practica_growthStrategy"]).toBe("Growth & Strategy");
   });
 
   it("EN engagement.funcion is 'Function'", () => {
