@@ -533,4 +533,28 @@ describe("signIn account lockout (BUG 0514-115)", () => {
       expect(response.error?.message).toBe("Invalid login credentials");
     });
   });
+
+  it("AL-4 (0625-146): remaining_attempts in response encodes as INVALID_CREDENTIALS:<n>", async () => {
+    mockInvoke({
+      "secure-signin": async () => ({
+        data: {
+          ok: false,
+          code: "INVALID_CREDENTIALS",
+          message: "Invalid login credentials",
+          remaining_attempts: 3,
+        },
+        error: null,
+      }),
+    });
+
+    const { result } = renderHook(() => useAuth(), { wrapper: createWrapper() });
+
+    await act(async () => {
+      const response = await result.current.signIn("user@example.com", "wrong");
+      expect(response.error?.message).toBe("INVALID_CREDENTIALS:3");
+    });
+
+    // Session must not be installed when credentials are invalid.
+    expect(supabase.auth.setSession).not.toHaveBeenCalled();
+  });
 });

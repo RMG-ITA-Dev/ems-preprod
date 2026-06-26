@@ -146,7 +146,7 @@ export function useDeleteStaff() {
       const { data: engagements } = await supabase
         .from("engagements")
         .select("engagement_id")
-        .or(`partner_id.eq.${id},manager_id.eq.${id}`)
+        .or(`partner_id.eq.${id},manager_id.eq.${id},sqr_id.eq.${id},encargado_id.eq.${id},specialist_it_id.eq.${id},specialist_tax_id.eq.${id}`)
         .limit(1);
       
       const hasRecords = 
