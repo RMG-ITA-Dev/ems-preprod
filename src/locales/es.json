@@ -451,7 +451,11 @@
     "createService": "Crear Servicio",
     "activeDescription": "Los servicios activos aparecen al crear encargos",
     "deactivateConfirmTitle": "¿Desactivar servicio?",
-    "deactivateConfirmBody": "Los servicios inactivos ya no aparecerán al crear encargos. Los encargos existentes no se ven afectados."
+    "deactivateConfirmBody": "Los servicios inactivos ya no aparecerán al crear encargos. Los encargos existentes no se ven afectados.",
+    "nameRequired": "El nombre es requerido",
+    "namePlaceholder": "ej., Auditoría",
+    "noDigitsAvailable": "Todos los códigos (0–9) están en uso. Desactive un servicio para liberar un código.",
+    "formDescription": "Administra los detalles y disponibilidad del servicio."
   },
   "expense": {
     "name": "Nombre del Gasto",

@@ -451,7 +451,11 @@
     "createService": "Create Service",
     "activeDescription": "Active services appear in the engagement service selector",
     "deactivateConfirmTitle": "Deactivate service?",
-    "deactivateConfirmBody": "Inactive services will no longer appear when creating engagements. Existing engagements are not affected."
+    "deactivateConfirmBody": "Inactive services will no longer appear when creating engagements. Existing engagements are not affected.",
+    "nameRequired": "Name is required",
+    "namePlaceholder": "e.g., Auditoría",
+    "noDigitsAvailable": "All codes (0–9) are in use. Deactivate a service to free up a code.",
+    "formDescription": "Manage service details and availability."
   },
   "expense": {
     "name": "Expense Name",

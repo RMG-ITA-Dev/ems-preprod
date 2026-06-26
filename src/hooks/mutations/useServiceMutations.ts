@@ -13,8 +13,8 @@ export function useCreateService() {
       allows_rates_activities: boolean;
       is_active: boolean;
     }) => {
-      // @ts-ignore — types.ts regenerated after Lovable applies migration
-      const { data: result, error } = await supabase
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: result, error } = await (supabase as any)
         .from("services")
         .insert(data)
         .select()
@@ -44,8 +44,8 @@ export function useUpdateService() {
         is_active: boolean;
       }>;
     }) => {
-      // @ts-ignore — types.ts regenerated after Lovable applies migration
-      const { data: result, error } = await supabase
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: result, error } = await (supabase as any)
         .from("services")
         .update(data)
         .eq("service_id", id)

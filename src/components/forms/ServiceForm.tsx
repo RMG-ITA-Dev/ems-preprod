@@ -26,6 +26,7 @@ import {
 import {
   Sheet,
   SheetContent,
+  SheetDescription,
   SheetHeader,
   SheetTitle,
   SheetFooter,
@@ -46,14 +47,12 @@ import { useCreateService, useUpdateService } from "@/hooks/mutations";
 
 const ALL_DIGITS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 
-const formSchema = z.object({
-  name: z.string().min(1, "Name is required"),
-  code: z.number().int().min(0).max(9),
-  allows_rates_activities: z.boolean(),
-  is_active: z.boolean(),
-});
-
-type FormData = z.infer<typeof formSchema>;
+type FormData = {
+  name: string;
+  code: number;
+  allows_rates_activities: boolean;
+  is_active: boolean;
+};
 
 interface ServiceFormProps {
   open: boolean;
@@ -65,6 +64,13 @@ interface ServiceFormProps {
 export function ServiceForm({ open, onOpenChange, service, usedCodes }: ServiceFormProps) {
   const { t } = useTranslation();
   const isEdit = !!service;
+
+  const formSchema = z.object({
+    name: z.string().min(1, t("service.nameRequired")),
+    code: z.number().int().min(0).max(9),
+    allows_rates_activities: z.boolean(),
+    is_active: z.boolean(),
+  });
   const createMutation = useCreateService();
   const updateMutation = useUpdateService();
 
@@ -75,6 +81,8 @@ export function ServiceForm({ open, onOpenChange, service, usedCodes }: ServiceF
     const taken = new Set(isEdit ? usedCodes.filter(c => c !== service.code) : usedCodes);
     return ALL_DIGITS.filter(d => !taken.has(d));
   }, [isEdit, service, usedCodes]);
+
+  const noDigitsLeft = !isEdit && availableDigits.length === 0;
 
   const defaultCode = useMemo(() => {
     if (isEdit) return service.code;
@@ -149,6 +157,7 @@ export function ServiceForm({ open, onOpenChange, service, usedCodes }: ServiceF
             <SheetTitle>
               {isEdit ? t("service.editService") : t("service.newService")}
             </SheetTitle>
+            <SheetDescription>{t("service.formDescription")}</SheetDescription>
           </SheetHeader>
 
           <Form {...form}>
@@ -160,7 +169,7 @@ export function ServiceForm({ open, onOpenChange, service, usedCodes }: ServiceF
                   <FormItem>
                     <FormLabel>{t("service.name")} *</FormLabel>
                     <FormControl>
-                      <Input placeholder="e.g., Auditoría" {...field} />
+                      <Input placeholder={t("service.namePlaceholder")} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -180,13 +189,17 @@ export function ServiceForm({ open, onOpenChange, service, usedCodes }: ServiceF
                         className="font-mono max-w-[80px]"
                         data-testid="service-code-readonly"
                       />
+                    ) : noDigitsLeft ? (
+                      <p className="text-sm text-destructive" data-testid="no-digits-message">
+                        {t("service.noDigitsAvailable")}
+                      </p>
                     ) : (
                       <Select
                         onValueChange={(v) => field.onChange(Number(v))}
                         value={String(field.value)}
                       >
                         <FormControl>
-                          <SelectTrigger className="max-w-[80px]">
+                          <SelectTrigger className="max-w-[80px]" data-testid="code-select-trigger">
                             <SelectValue />
                           </SelectTrigger>
                         </FormControl>
@@ -253,6 +266,7 @@ export function ServiceForm({ open, onOpenChange, service, usedCodes }: ServiceF
                   type="submit"
                   className="w-full sm:w-auto min-h-[44px] sm:min-h-0"
                   loading={createMutation.isPending || updateMutation.isPending}
+                  disabled={noDigitsLeft}
                 >
                   {isEdit ? t("common.saveChanges") : t("service.createService")}
                 </LoadingButton>

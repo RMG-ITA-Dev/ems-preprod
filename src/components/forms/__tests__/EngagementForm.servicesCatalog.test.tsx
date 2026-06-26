@@ -1,11 +1,28 @@
 import React from "react";
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@/test/utils";
+import { render, screen, waitFor } from "@/test/utils";
+import userEvent from "@testing-library/user-event";
 
 /**
  * 0625-149: EngagementForm — catalog-driven practica select.
  * Verifies active-only options in create mode and name resolution in edit mode.
  */
+
+// Radix Select requires pointer-capture and scroll APIs in JSDOM
+if (typeof (globalThis as any).PointerEvent === "undefined") {
+  (globalThis as any).PointerEvent = MouseEvent;
+}
+if (!Element.prototype.hasPointerCapture) {
+  Element.prototype.hasPointerCapture = () => false;
+}
+if (!Element.prototype.setPointerCapture) {
+  Element.prototype.setPointerCapture = () => {};
+}
+if (!Element.prototype.releasePointerCapture) {
+  Element.prototype.releasePointerCapture = () => {};
+}
+// JSDOM defines scrollIntoView as non-callable; override unconditionally
+Element.prototype.scrollIntoView = () => {};
 
 vi.mock("react-router-dom", async () => {
   const actual = await vi.importActual("react-router-dom");
@@ -87,5 +104,45 @@ describe("EngagementForm — catalog-driven practica (0625-149)", () => {
     const codeInput = screen.getByTestId("engagement-code-readonly");
     expect(codeInput).toBeDisabled();
     expect(codeInput).toHaveValue("2026.011.002");
+  });
+
+  it("in edit mode inactive service name is resolved and shown in the disabled select", () => {
+    render(<EngagementForm engagement={mockEngagementInactiveService} />);
+    // practica=0 maps to "Firmwide (inactivo)" — resolved from full service list.
+    // Radix renders the selected label in both the visible trigger span and a hidden
+    // native <select>, so getAllByText returns multiple nodes — at least one must be present.
+    expect(screen.getAllByText("Firmwide (inactivo)").length).toBeGreaterThan(0);
+  });
+
+  it("create mode: opening the practica select shows only active services", async () => {
+    const user = userEvent.setup();
+    render(<EngagementForm />);
+
+    // Find the practica select trigger via its label
+    const practica = screen.getByLabelText(/engagement\.practica/);
+    await user.click(practica);
+
+    await waitFor(() => {
+      expect(screen.getByRole("option", { name: "Auditoría" })).toBeInTheDocument();
+      expect(screen.getByRole("option", { name: "Tax" })).toBeInTheDocument();
+      expect(screen.queryByRole("option", { name: "Firmwide (inactivo)" })).not.toBeInTheDocument();
+    });
+  });
+
+  it("selecting an active service in create mode stores its numeric code", async () => {
+    const user = userEvent.setup();
+    render(<EngagementForm />);
+
+    const practica = screen.getByLabelText(/engagement\.practica/);
+    await user.click(practica);
+
+    // Select "Auditoría" (code=1)
+    await waitFor(() => screen.getByRole("option", { name: "Auditoría" }));
+    await user.click(screen.getByRole("option", { name: "Auditoría" }));
+
+    // After selection the trigger should reflect the chosen service name
+    await waitFor(() => {
+      expect(practica).toHaveTextContent("Auditoría");
+    });
   });
 });
