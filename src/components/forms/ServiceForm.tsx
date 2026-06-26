@@ -213,6 +213,9 @@ export function ServiceForm({ open, onOpenChange, service, usedCodes }: ServiceF
                       <FormLabel className="text-base">
                         {t("service.allowsRatesActivities")}
                       </FormLabel>
+                      <FormDescription>
+                        {t("service.allowsRatesActivitiesDescription")}
+                      </FormDescription>
                     </div>
                     <FormControl>
                       <Switch checked={field.value} onCheckedChange={field.onChange} />

@@ -443,7 +443,8 @@
   "service": {
     "name": "Nombre",
     "code": "Código",
-    "allowsRatesActivities": "Permite Tarifas / Actividades",
+    "allowsRatesActivities": "Requiere configuración adicional",
+    "allowsRatesActivitiesDescription": "Define Taxonomía, tarifas y actividades para este servicio.",
     "status": "Estado",
     "newService": "Nuevo Servicio",
     "editService": "Editar Servicio",
