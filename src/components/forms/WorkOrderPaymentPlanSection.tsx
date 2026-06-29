@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Trash2, AlertTriangle, Plus, Minus } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -140,6 +140,23 @@ export function WorkOrderPaymentPlanSection({
       handleNumInstallmentsChange(1);
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // When feeWithTax changes (e.g. adjustment edited), recompute stored amounts so
+  // the saved value matches what the table displays. Guard via ref to avoid loops.
+  const prevFeeWithTax = useRef(feeWithTax);
+  useEffect(() => {
+    if (prevFeeWithTax.current === feeWithTax || installments.length === 0) {
+      prevFeeWithTax.current = feeWithTax;
+      return;
+    }
+    prevFeeWithTax.current = feeWithTax;
+    onInstallmentsChange(
+      installments.map((inst) => ({
+        ...inst,
+        amount: computeAmount(inst.percentage, feeWithTax),
+      })),
+    );
+  }, [feeWithTax]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ----- Installment count handler -----
 

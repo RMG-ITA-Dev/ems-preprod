@@ -70,6 +70,17 @@ export function useBatchUpsertInstallments() {
         .filter((inst) => !inst.installment_id)
         .map((inst) => baseRow(inst));
 
+      // Delete orphans FIRST so renumbered rows don't collide on UNIQUE (plan_id, installment_number)
+      if (existingRows.length > 0) {
+        const keptIds = existingRows.map((r) => r.installment_id);
+        const { error: deleteError } = await supabase
+          .from("wo_payment_installments")
+          .delete()
+          .eq("plan_id", planId)
+          .not("installment_id", "in", `(${keptIds.join(",")})`);
+        if (deleteError) throw deleteError;
+      }
+
       if (existingRows.length > 0) {
         const { error } = await supabase
           .from("wo_payment_installments")
@@ -82,17 +93,6 @@ export function useBatchUpsertInstallments() {
           .from("wo_payment_installments")
           .insert(newRows);
         if (error) throw error;
-      }
-
-      // Delete orphaned rows (installments the user removed from the plan)
-      if (existingRows.length > 0) {
-        const keptIds = existingRows.map((r) => r.installment_id);
-        const { error: deleteError } = await supabase
-          .from("wo_payment_installments")
-          .delete()
-          .eq("plan_id", planId)
-          .not("installment_id", "in", `(${keptIds.join(",")})`);
-        if (deleteError) throw deleteError;
       }
     },
     onSuccess: (_data, variables) => {

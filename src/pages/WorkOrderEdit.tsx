@@ -659,7 +659,7 @@ const WorkOrderEdit = () => {
           woId={workOrder.wo_id}
           paymentPlan={paymentPlan}
           paymentInstallments={paymentInstallments}
-          isAdminDateEditable={isAdmin || isPartner || isDirector || isManager}
+          isAdminDateEditable={(approvalStatus === "Draft" || approvalStatus === "Rejected") && (isAdmin || isPartner || isDirector || isManager)}
           isStatusEditable={isAdmin}
           onPaymentPlanChange={setPaymentPlan}
           onPaymentInstallmentsChange={setPaymentInstallments}
