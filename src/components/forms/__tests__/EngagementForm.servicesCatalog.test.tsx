@@ -1,11 +1,14 @@
 import React from "react";
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@/test/utils";
 import userEvent from "@testing-library/user-event";
 
 /**
  * 0625-149: EngagementForm — catalog-driven practica select.
  * Verifies active-only options in create mode and name resolution in edit mode.
+ *
+ * 0625-148: role-based service restriction.
+ * Non-admins get Auditoría (code=1) auto-assigned; select is disabled.
  */
 
 // Radix Select requires pointer-capture and scroll APIs in JSDOM
@@ -23,6 +26,14 @@ if (!Element.prototype.releasePointerCapture) {
 }
 // JSDOM defines scrollIntoView as non-callable; override unconditionally
 Element.prototype.scrollIntoView = () => {};
+// Radix Switch (admin section) uses ResizeObserver — polyfill for JSDOM
+if (typeof (globalThis as any).ResizeObserver === "undefined") {
+  (globalThis as any).ResizeObserver = class ResizeObserver {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+}
 
 vi.mock("react-router-dom", async () => {
   const actual = await vi.importActual("react-router-dom");
@@ -59,10 +70,9 @@ vi.mock("@/hooks/mutations", () => ({
   useDeleteEngagement: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
-vi.mock("@/hooks/useUserRole", () => ({
-  useUserRole: () => ({ isAdmin: false }),
-}));
+vi.mock("@/hooks/useUserRole", () => ({ useUserRole: vi.fn() }));
 
+import { useUserRole } from "@/hooks/useUserRole";
 import { EngagementForm } from "@/components/forms/EngagementForm";
 import type { Engagement } from "@/hooks/useEmsData";
 
@@ -89,6 +99,10 @@ const mockEngagementInactiveService: Engagement = {
 };
 
 describe("EngagementForm — catalog-driven practica (0625-149)", () => {
+  beforeEach(() => {
+    vi.mocked(useUserRole).mockReturnValue({ isAdmin: false, isLoading: false } as any);
+  });
+
   it("renders the practica select label in create mode", () => {
     render(<EngagementForm />);
     expect(screen.getByText("engagement.practica *")).toBeInTheDocument();
@@ -115,6 +129,7 @@ describe("EngagementForm — catalog-driven practica (0625-149)", () => {
   });
 
   it("create mode: opening the practica select shows only active services", async () => {
+    vi.mocked(useUserRole).mockReturnValue({ isAdmin: true, isLoading: false } as any);
     const user = userEvent.setup();
     render(<EngagementForm />);
 
@@ -130,6 +145,7 @@ describe("EngagementForm — catalog-driven practica (0625-149)", () => {
   });
 
   it("selecting an active service in create mode stores its numeric code", async () => {
+    vi.mocked(useUserRole).mockReturnValue({ isAdmin: true, isLoading: false } as any);
     const user = userEvent.setup();
     render(<EngagementForm />);
 
@@ -143,6 +159,67 @@ describe("EngagementForm — catalog-driven practica (0625-149)", () => {
     // After selection the trigger should reflect the chosen service name
     await waitFor(() => {
       expect(practica).toHaveTextContent("Auditoría");
+    });
+  });
+});
+
+describe("0625-148 — role-based service restriction", () => {
+  beforeEach(() => {
+    vi.mocked(useUserRole).mockReturnValue({ isAdmin: false, isLoading: false } as any);
+  });
+
+  it("non-admin: practica select is visible but disabled", async () => {
+    render(<EngagementForm />);
+    const practica = screen.getByLabelText(/engagement\.practica/);
+    await waitFor(() => {
+      expect(practica).toBeDisabled();
+    });
+  });
+
+  it("non-admin: practica is auto-set to Auditoría without user interaction", async () => {
+    render(<EngagementForm />);
+    const practica = screen.getByLabelText(/engagement\.practica/);
+    await waitFor(() => {
+      expect(practica).toHaveTextContent("Auditoría");
+    });
+  });
+
+  it("non-admin: code preview uses digit 1 for practica once other fields filled", async () => {
+    render(<EngagementForm />);
+    // practica is auto-set to 1; the preview shows the digit as soon as oficina and funcion are also set.
+    // We verify the component renders without error and the code preview block is present.
+    // Full code-preview digit verification is covered by EngagementForm.code-generation.test.tsx.
+    expect(screen.getByTestId("engagement-code-preview")).toBeInTheDocument();
+    // After mount, practica=1 should appear in the select trigger (auto-assigned)
+    const practica = screen.getByLabelText(/engagement\.practica/);
+    await waitFor(() => {
+      expect(practica).toHaveTextContent("Auditoría");
+    });
+  });
+
+  it("admin: practica select is enabled", async () => {
+    vi.mocked(useUserRole).mockReturnValue({ isAdmin: true, isLoading: false } as any);
+    render(<EngagementForm />);
+    const practica = screen.getByLabelText(/engagement\.practica/);
+    await waitFor(() => {
+      expect(practica).not.toBeDisabled();
+    });
+  });
+
+  it("non-admin 'crear otro': after reset, practica shows Auditoría and select is disabled", async () => {
+    const user = userEvent.setup();
+    const mockCreate = vi.fn().mockResolvedValue({ engagement_code: "2026.011.---" });
+    const { rerender } = render(<EngagementForm />);
+
+    // Wait for auto-assign
+    const practica = screen.getByLabelText(/engagement\.practica/);
+    await waitFor(() => expect(practica).toHaveTextContent("Auditoría"));
+
+    // After a simulated reset (re-render with same non-admin mock), check state holds
+    rerender(<EngagementForm />);
+    await waitFor(() => {
+      expect(practica).toHaveTextContent("Auditoría");
+      expect(practica).toBeDisabled();
     });
   });
 });

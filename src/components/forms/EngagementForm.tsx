@@ -192,10 +192,12 @@ interface EngagementFormProps {
   onGoToWorkMatrix?: () => void;
 }
 
+const AUDITORIA_SERVICE_CODE = 1;
+
 export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSuccess, onGoToWorkMatrix }: EngagementFormProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { isAdmin, isManager, isPartner } = useUserRole();
+  const { isAdmin, isManager, isPartner, isLoading: roleLoading } = useUserRole();
   const isEdit = !!engagement;
   // BUG #0604-143: closing date (and the FY it derives) may be edited by Admin/Gerente/Socio;
   // oficina/practica/funcion/engagement_code remain fully immutable after create.
@@ -209,6 +211,8 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     () => (allServices ?? []).filter((s) => s.is_active || s.code === engagement?.practica),
     [allServices, engagement?.practica]
   );
+
+  const serviceSelectDisabled = isEdit || roleLoading || !isAdmin;
 
   const serviceNameByCode = useMemo(() => {
     const map: Record<number, string> = {};
@@ -293,6 +297,13 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
 
   // Destructure isDirty before effects that depend on it
   const { isDirty } = form.formState;
+
+  // 0625-148: auto-assign Auditoría (code=1) for non-admin users in create mode
+  useEffect(() => {
+    if (isEdit || isAdmin || roleLoading || !allServices) return;
+    if (form.getValues("practica") === AUDITORIA_SERVICE_CODE) return;
+    form.setValue("practica", AUDITORIA_SERVICE_CODE, { shouldDirty: false, shouldValidate: true });
+  }, [isAdmin, roleLoading, isEdit, allServices, form]);
 
   useEffect(() => {
     if (
@@ -543,7 +554,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       engagement_name: "",
       anio_fiscal: suggestFiscalYear(),
       oficina: undefined,
-      practica: undefined,
+      practica: isAdmin ? undefined : AUDITORIA_SERVICE_CODE,
       funcion: undefined,
       client_id: "",
       partner_id: "",
@@ -726,7 +737,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                   <FormItem>
                     <FormLabel>{t("engagement.practica")} *</FormLabel>
                     <Select
-                      disabled={isEdit}
+                      disabled={serviceSelectDisabled}
                       onValueChange={(v) => field.onChange(Number(v))}
                       value={field.value != null ? String(field.value) : ""}
                     >
