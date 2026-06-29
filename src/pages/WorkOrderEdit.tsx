@@ -32,6 +32,7 @@ import {
   useUnsubmitWorkOrder,
   useUpsertPaymentPlan,
   useBatchUpsertInstallments,
+  useDeletePaymentPlan,
 } from "@/hooks/mutations";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { useUserRole } from "@/hooks/useUserRole";
@@ -84,6 +85,7 @@ const WorkOrderEdit = () => {
   const resyncWorksheet = useResyncWorksheetToWorkOrder();
   const upsertPaymentPlan = useUpsertPaymentPlan();
   const batchUpsertInstallments = useBatchUpsertInstallments();
+  const deletePaymentPlan = useDeletePaymentPlan();
   const { isAdmin, isPartner, isDirector, isManager } = useUserRole();
 
   const [currency, setCurrency] = useState<"USD" | "BOB" | "USDT">("BOB");
@@ -331,7 +333,7 @@ const WorkOrderEdit = () => {
         }
       }
 
-      // Persist payment plan if installments are present
+      // Persist payment plan
       if (paymentInstallments.length > 0) {
         const savedPlan = await upsertPaymentPlan.mutateAsync({
           plan_id: paymentPlan?.plan_id,
@@ -352,6 +354,14 @@ const WorkOrderEdit = () => {
         };
         setOriginalPaymentPlan(updatedPlan);
         setOriginalInstallments(JSON.parse(JSON.stringify(paymentInstallments)));
+      } else if (paymentPlan?.plan_id) {
+        // All installments removed → delete the plan (cascades to installments)
+        await deletePaymentPlan.mutateAsync({
+          planId: paymentPlan.plan_id,
+          woId: workOrder.wo_id,
+        });
+        setOriginalPaymentPlan(null);
+        setOriginalInstallments([]);
       }
 
       // Reset dirty state tracking after successful save

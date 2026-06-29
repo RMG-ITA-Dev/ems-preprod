@@ -46,8 +46,7 @@ export function useBatchUpsertInstallments() {
       woId: string;
       installments: PaymentInstallmentInput[];
     }) => {
-      const rows = installments.map((inst) => ({
-        ...(inst.installment_id ? { installment_id: inst.installment_id } : {}),
+      const baseRow = (inst: PaymentInstallmentInput) => ({
         plan_id: planId,
         wo_id: woId,
         installment_number: inst.installment_number,
@@ -59,18 +58,35 @@ export function useBatchUpsertInstallments() {
         percentage: inst.percentage,
         amount: inst.amount,
         status: inst.status,
-      }));
+      });
 
-      const { error } = await supabase
-        .from("wo_payment_installments")
-        .upsert(rows, { onConflict: "plan_id,installment_number" });
-      if (error) throw error;
+      // Existing rows: update by installment_id (avoids renumber → PK conflict)
+      const existingRows = installments
+        .filter((inst) => inst.installment_id)
+        .map((inst) => ({ installment_id: inst.installment_id!, ...baseRow(inst) }));
+
+      // New rows: plain insert — Postgres generates the UUID
+      const newRows = installments
+        .filter((inst) => !inst.installment_id)
+        .map((inst) => baseRow(inst));
+
+      if (existingRows.length > 0) {
+        const { error } = await supabase
+          .from("wo_payment_installments")
+          .upsert(existingRows, { onConflict: "installment_id" });
+        if (error) throw error;
+      }
+
+      if (newRows.length > 0) {
+        const { error } = await supabase
+          .from("wo_payment_installments")
+          .insert(newRows);
+        if (error) throw error;
+      }
 
       // Delete orphaned rows (installments the user removed from the plan)
-      const keptIds = installments
-        .filter((inst) => inst.installment_id)
-        .map((inst) => inst.installment_id!);
-      if (keptIds.length > 0) {
+      if (existingRows.length > 0) {
+        const keptIds = existingRows.map((r) => r.installment_id);
         const { error: deleteError } = await supabase
           .from("wo_payment_installments")
           .delete()
@@ -135,6 +151,24 @@ export function useUpdateInstallmentStatus() {
       queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
     },
     onError: createMutationErrorHandler("updating installment status"),
+  });
+}
+
+// Delete the payment plan header (cascades to all installments via FK).
+export function useDeletePaymentPlan() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ planId, woId }: { planId: string; woId: string }) => {
+      const { error } = await supabase
+        .from("wo_payment_plan")
+        .delete()
+        .eq("plan_id", planId);
+      if (error) throw error;
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
+    },
+    onError: createMutationErrorHandler("deleting payment plan"),
   });
 }
 

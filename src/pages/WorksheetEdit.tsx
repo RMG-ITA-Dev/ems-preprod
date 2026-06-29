@@ -70,7 +70,7 @@ const WorksheetEdit = () => {
 
   // Create WO dialog state
   const [showCreateWODialog, setShowCreateWODialog] = useState(false);
-  const [woCurrency, setWOCurrency] = useState<"USD" | "BOB" | "USDT">("BOB");
+  const [woCurrency, setWOCurrency] = useState<"USD" | "BOB">("BOB");
   const [woSeasonMode, setWOSeasonMode] = useState<"High" | "Low">("High");
   const [confirmCreate, setConfirmCreate] = useState(false);
 
@@ -480,14 +480,13 @@ const WorksheetEdit = () => {
             <div className="space-y-4 py-4">
               <div className="space-y-2">
                 <Label>{t("workOrders.currency")}</Label>
-                <Select value={woCurrency} onValueChange={(v) => setWOCurrency(v as "USD" | "BOB" | "USDT")}>
+                <Select value={woCurrency} onValueChange={(v) => setWOCurrency(v as "USD" | "BOB")}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="BOB">BOB - Bolivianos</SelectItem>
                     <SelectItem value="USD">USD - US Dollars</SelectItem>
-                    <SelectItem value="USDT">USDT - Tether</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
