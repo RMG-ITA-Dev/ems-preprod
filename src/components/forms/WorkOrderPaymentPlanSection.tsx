@@ -23,7 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { useUpdateInstallmentStatus } from "@/hooks/mutations";
+import { useUpdateInstallmentStatus, useUpdateCollectionDate } from "@/hooks/mutations";
 import {
   distributePercentages,
   computeAmount,
@@ -85,9 +85,14 @@ export function WorkOrderPaymentPlanSection({
 }: WorkOrderPaymentPlanSectionProps) {
   const { t } = useTranslation();
   const updateStatus = useUpdateInstallmentStatus();
+  const updateCollectionDate = useUpdateCollectionDate();
   const [pendingChange, setPendingChange] = useState<{
     idx: number;
     newStatus: "Invoiced" | "Completed" | "Overdue";
+  } | null>(null);
+  const [pendingCollectionDate, setPendingCollectionDate] = useState<{
+    installmentId: string;
+    newDate: string;
   } | null>(null);
 
   const currentPlan = plan ?? { wo_id: woId, exchange_rate: null, payment_days: 30 };
@@ -463,7 +468,13 @@ export function WorkOrderPaymentPlanSection({
                           <Input
                             type="date"
                             value={inst.collection_invoice_date ?? ""}
-                            onChange={(e) => handleCollectionInvoiceDateChange(idx, e.target.value)}
+                            onChange={(e) => {
+                              if (inst.installment_id && e.target.value) {
+                                setPendingCollectionDate({ installmentId: inst.installment_id, newDate: e.target.value });
+                              } else {
+                                handleCollectionInvoiceDateChange(idx, e.target.value);
+                              }
+                            }}
                             className="h-8 text-sm"
                           />
                         ) : (
@@ -601,6 +612,38 @@ export function WorkOrderPaymentPlanSection({
             {pendingChange?.newStatus === "Invoiced" && t("workOrders.paymentPlan.confirmInvoicedAction")}
             {pendingChange?.newStatus === "Completed" && t("workOrders.paymentPlan.confirmCompletedAction")}
             {pendingChange?.newStatus === "Overdue" && t("workOrders.paymentPlan.confirmOverdueAction")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    {/* Collection invoice date correction dialog (admin direct-save) */}
+    <Dialog open={!!pendingCollectionDate} onOpenChange={(open) => { if (!open) setPendingCollectionDate(null); }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t("workOrders.paymentPlan.confirmCollectionDateTitle")}</DialogTitle>
+          <DialogDescription>
+            {t("workOrders.paymentPlan.confirmCollectionDateDesc", { date: pendingCollectionDate?.newDate ?? "" })}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setPendingCollectionDate(null)}>
+            {t("common.cancel")}
+          </Button>
+          <Button
+            onClick={async () => {
+              if (pendingCollectionDate) {
+                await updateCollectionDate.mutateAsync({
+                  installmentId: pendingCollectionDate.installmentId,
+                  collectionInvoiceDate: pendingCollectionDate.newDate,
+                  paymentDays: currentPlan.payment_days,
+                  woId,
+                });
+                setPendingCollectionDate(null);
+              }
+            }}
+          >
+            {t("workOrders.paymentPlan.confirmCollectionDateAction")}
           </Button>
         </DialogFooter>
       </DialogContent>

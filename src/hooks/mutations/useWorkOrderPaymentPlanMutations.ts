@@ -70,7 +70,8 @@ export function useBatchUpsertInstallments() {
         .filter((inst) => !inst.installment_id)
         .map((inst) => baseRow(inst));
 
-      // Delete orphans FIRST so renumbered rows don't collide on UNIQUE (plan_id, installment_number)
+      // Delete orphans FIRST so renumbered rows don't collide on UNIQUE (plan_id, installment_number).
+      // When all rows are new (user cleared plan and rebuilt), purge all DB rows before inserting.
       if (existingRows.length > 0) {
         const keptIds = existingRows.map((r) => r.installment_id);
         const { error: deleteError } = await supabase
@@ -78,6 +79,12 @@ export function useBatchUpsertInstallments() {
           .delete()
           .eq("plan_id", planId)
           .not("installment_id", "in", `(${keptIds.join(",")})`);
+        if (deleteError) throw deleteError;
+      } else if (newRows.length > 0) {
+        const { error: deleteError } = await supabase
+          .from("wo_payment_installments")
+          .delete()
+          .eq("plan_id", planId);
         if (deleteError) throw deleteError;
       }
 
@@ -169,6 +176,36 @@ export function useDeletePaymentPlan() {
       queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
     },
     onError: createMutationErrorHandler("deleting payment plan"),
+  });
+}
+
+// Correct the collection invoice date for a single installment (admin-only direct save).
+// Also recalculates collection_payment_date from the new date + paymentDays.
+export function useUpdateCollectionDate() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      installmentId,
+      collectionInvoiceDate,
+      paymentDays,
+      woId,
+    }: {
+      installmentId: string;
+      collectionInvoiceDate: string;
+      paymentDays: number;
+      woId: string;
+    }) => {
+      const collectionPaymentDate = computePaymentDate(collectionInvoiceDate, paymentDays);
+      const { error } = await supabase
+        .from("wo_payment_installments")
+        .update({ collection_invoice_date: collectionInvoiceDate, collection_payment_date: collectionPaymentDate })
+        .eq("installment_id", installmentId);
+      if (error) throw error;
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
+    },
+    onError: createMutationErrorHandler("updating collection date"),
   });
 }
 

@@ -1129,7 +1129,10 @@
       "confirmOverdueDesc": "This installment will be marked as overdue. The status can be reverted to Invoiced if needed.",
       "confirmOverdueAction": "Mark as Overdue",
       "confirmIrreversible": "This action cannot be edited.",
-      "validationPercentageSum": "Percentages must sum to 100%"
+      "validationPercentageSum": "Percentages must sum to 100%",
+      "confirmCollectionDateTitle": "Update Collection Invoice Date",
+      "confirmCollectionDateDesc": "The collection invoice date will be set to {{date}}. The collection payment date will be recalculated automatically.",
+      "confirmCollectionDateAction": "Save date"
     }
   },
   "adminTimeEntries": {
