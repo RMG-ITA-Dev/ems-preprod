@@ -71,6 +71,12 @@ const STATUS_TRANSITIONS: Record<PaymentInstallmentStatus, PaymentInstallmentSta
   Completed: [],
 };
 
+const fmtDate = (d: string | null): string => {
+  if (!d) return "—";
+  const [y, m, day] = d.split("-");
+  return `${day}/${m}/${y}`;
+};
+
 export function WorkOrderPaymentPlanSection({
   woId,
   currency,
@@ -449,7 +455,7 @@ export function WorkOrderPaymentPlanSection({
                         />
                       </td>
                       <td className="py-3 px-3 text-muted-foreground font-mono text-xs border-b border-border/50">
-                        {inst.agreed_payment_date ?? "—"}
+                        {fmtDate(inst.agreed_payment_date)}
                       </td>
                       <td className="py-3 px-3 border-b border-border/50">
                         <NumericInput
@@ -479,12 +485,12 @@ export function WorkOrderPaymentPlanSection({
                           />
                         ) : (
                           <span className="text-muted-foreground font-mono text-xs">
-                            {inst.collection_invoice_date ?? "—"}
+                            {fmtDate(inst.collection_invoice_date)}
                           </span>
                         )}
                       </td>
                       <td className="py-3 px-3 text-muted-foreground font-mono text-xs border-b border-border/50 bg-muted/10">
-                        {inst.collection_payment_date ?? "—"}
+                        {fmtDate(inst.collection_payment_date)}
                       </td>
                       <td className="py-3 px-3 border-b border-r border-border/50 bg-muted/10">
                         {isStatusEditable && availableOptions.length > 0 ? (
@@ -623,7 +629,7 @@ export function WorkOrderPaymentPlanSection({
         <DialogHeader>
           <DialogTitle>{t("workOrders.paymentPlan.confirmCollectionDateTitle")}</DialogTitle>
           <DialogDescription>
-            {t("workOrders.paymentPlan.confirmCollectionDateDesc", { date: pendingCollectionDate?.newDate ?? "" })}
+            {t("workOrders.paymentPlan.confirmCollectionDateDesc", { date: fmtDate(pendingCollectionDate?.newDate ?? null) })}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>

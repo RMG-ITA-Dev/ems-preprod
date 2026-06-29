@@ -3,7 +3,66 @@
 -- Also widens work_orders.currency CHECK to allow USDT.
 -- Fully idempotent: safe to re-paste in Supabase SQL Editor.
 
--- 1. Widen currency constraint on work_orders to include USDT
+-- 1. Widen currency column type (VARCHAR(3) → TEXT) and update CHECK to include USDT
+-- Two views depend on currency; drop both, alter, recreate to avoid rule-dependency errors.
+DROP VIEW IF EXISTS public.work_order_summary;
+DROP VIEW IF EXISTS public.fund_request_selectable_work_orders;
+
+ALTER TABLE public.work_orders ALTER COLUMN currency TYPE TEXT;
+
+CREATE VIEW public.work_order_summary
+WITH (security_invoker = true)
+AS
+SELECT
+    wo.wo_id,
+    wo.engagement_id,
+    wo.currency,
+    wo.season_mode,
+    wo.tax_rate,
+    wo.adjustment_amount,
+    wo.notes,
+    wo.created_at,
+    wo.updated_at,
+    wo.approval_status,
+    wo.approved_by,
+    wo.approved_at,
+    COALESCE(sum(bl.budgeted_hours * bl.standard_rate), 0::numeric) AS total_standard_fee,
+    CASE
+        WHEN COALESCE(sum(bl.budgeted_hours * bl.standard_rate), 0::numeric) > 0::numeric
+        THEN (COALESCE(sum(bl.budgeted_hours * bl.standard_rate), 0::numeric) + COALESCE(wo.adjustment_amount, 0::numeric))
+             / COALESCE(sum(bl.budgeted_hours * bl.standard_rate), 0::numeric)
+        ELSE 1::numeric
+    END AS realization_percent,
+    (COALESCE(sum(bl.budgeted_hours * bl.standard_rate), 0::numeric) + COALESCE(wo.adjustment_amount, 0::numeric))
+    / (1::numeric - COALESCE(wo.tax_rate, 0.13)) AS fee_with_tax_gross_up
+FROM work_orders wo
+LEFT JOIN wo_budget_lines bl ON wo.wo_id = bl.wo_id
+GROUP BY wo.wo_id;
+
+GRANT SELECT ON public.work_order_summary TO authenticated;
+
+CREATE OR REPLACE VIEW public.fund_request_selectable_work_orders
+WITH (security_invoker = false) AS
+SELECT
+  wo.wo_id,
+  wo.currency,
+  wo.approval_status,
+  e.engagement_id,
+  e.engagement_code,
+  e.engagement_name,
+  e.manager_id,
+  s.staff_id   AS manager_staff_id,
+  s.short_name AS manager_short_name,
+  s.first_name AS manager_first_name,
+  s.last_name  AS manager_last_name
+FROM public.work_orders wo
+JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+LEFT JOIN public.staff s ON s.staff_id = e.manager_id
+WHERE wo.approval_status = 'Approved'
+  AND get_my_staff_id() IS NOT NULL;
+
+GRANT SELECT ON public.fund_request_selectable_work_orders TO authenticated;
+
 DO $$
 DECLARE v_con TEXT;
 BEGIN
