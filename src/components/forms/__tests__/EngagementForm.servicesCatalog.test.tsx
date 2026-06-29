@@ -64,7 +64,9 @@ vi.mock("@/hooks/useEmsData", () => ({
 vi.mock("@/hooks/useCategoryStaff", () => ({
   useCategoryStaff: () => ({
     partners: [{ staff_id: "p1", first_name: "Juan", last_name: "Partner" }],
+    partnerOptions: [{ value: "p1", label: "Juan Partner" }],
     managerOptions: [{ value: "m1", label: "Ana Manager" }],
+    allActiveStaff: [{ value: "x1", label: "Staff One" }, { value: "x2", label: "Staff Two" }],
     hasPartnerCategory: true,
     hasManagerCategory: true,
   }),
