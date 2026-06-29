@@ -293,6 +293,15 @@ const WorkOrderEdit = () => {
   const handleSubmit = async () => {
     if (!workOrder) return;
 
+    // Validate before any mutations to avoid partial saves
+    if (paymentInstallments.length > 0) {
+      const pctSum = paymentInstallments.reduce((s, i) => s + i.percentage, 0);
+      if (Math.abs(pctSum - 100) > 0.01) {
+        toast.error(t("workOrders.paymentPlan.validationPercentageSum"));
+        return;
+      }
+    }
+
     try {
       // Update work order
       await updateWorkOrder.mutateAsync({
@@ -335,11 +344,6 @@ const WorkOrderEdit = () => {
 
       // Persist payment plan
       if (paymentInstallments.length > 0) {
-        const pctSum = paymentInstallments.reduce((s, i) => s + i.percentage, 0);
-        if (Math.abs(pctSum - 100) > 0.01) {
-          toast.error(t("workOrders.paymentPlan.validationPercentageSum"));
-          return;
-        }
         const savedPlan = await upsertPaymentPlan.mutateAsync({
           plan_id: paymentPlan?.plan_id,
           wo_id: workOrder.wo_id,

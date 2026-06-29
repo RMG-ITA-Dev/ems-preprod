@@ -124,7 +124,16 @@ const WorkOrderNew = () => {
 
   const handleConfirmCreate = async () => {
     setShowConfirmDialog(false);
-    
+
+    // Validate before any mutations to avoid partial saves
+    if (paymentInstallments.length > 0) {
+      const pctSum = paymentInstallments.reduce((s, i) => s + i.percentage, 0);
+      if (Math.abs(pctSum - 100) > 0.01) {
+        toast.error(t("workOrders.paymentPlan.validationPercentageSum"));
+        return;
+      }
+    }
+
     try {
       // Create work order
       const wo = await createWorkOrder.mutateAsync({
