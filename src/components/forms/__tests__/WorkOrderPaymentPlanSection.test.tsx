@@ -15,6 +15,7 @@ vi.mock("react-i18next", () => ({
 // Prevent Supabase client from being imported in the mutation hook
 vi.mock("@/hooks/mutations", () => ({
   useUpdateInstallmentStatus: () => ({ mutate: vi.fn(), isPending: false }),
+  useUpdateCollectionDate: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
 // Radix Select requires PointerEvent APIs not available in jsdom
@@ -324,6 +325,6 @@ describe("WorkOrderPaymentPlanSection — collection_invoice_date rendering", ()
     const container = renderSection({ installments, isStatusEditable: false });
     // Only 1 date input (agreed_invoice_date)
     expect(container.querySelectorAll('input[type="date"]')).toHaveLength(1);
-    expect(screen.getByText("2026-08-01")).toBeInTheDocument();
+    expect(screen.getByText("01/08/2026")).toBeInTheDocument();
   });
 });

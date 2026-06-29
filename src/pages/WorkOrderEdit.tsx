@@ -593,7 +593,7 @@ const WorkOrderEdit = () => {
                     variant="outline"
                     size="sm"
                     onClick={() => setShowResyncDialog(true)}
-                    disabled={isLocked || resyncWorksheet.isPending}
+                    disabled={isLocked || resyncWorksheet.isPending || currency === "USDT"}
                     className="gap-2 bg-info/10 hover:bg-info/20 text-info border-info/30"
                   >
                     <RefreshCw className={`h-4 w-4 ${resyncWorksheet.isPending ? "animate-spin" : ""}`} />
