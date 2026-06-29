@@ -127,6 +127,10 @@ const WorkOrderNew = () => {
 
     // Validate before any mutations to avoid partial saves
     if (paymentInstallments.length > 0) {
+      if (paymentInstallments.some((i) => i.percentage < 0 || i.percentage > 100)) {
+        toast.error(t("workOrders.paymentPlan.validationPercentageRange"));
+        return;
+      }
       const pctSum = paymentInstallments.reduce((s, i) => s + i.percentage, 0);
       if (Math.abs(pctSum - 100) > 0.01) {
         toast.error(t("workOrders.paymentPlan.validationPercentageSum"));

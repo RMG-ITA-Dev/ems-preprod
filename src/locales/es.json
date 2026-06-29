@@ -1129,6 +1129,7 @@
       "confirmOverdueDesc": "Se marcará esta cuota como en mora. El estado puede revertirse a Facturado si es necesario.",
       "confirmOverdueAction": "Marcar como Mora",
       "confirmIrreversible": "Esta acción no podrá editarse.",
+      "validationPercentageRange": "Cada porcentaje de cuota debe estar entre 0 y 100",
       "validationPercentageSum": "La suma de porcentajes debe ser 100%",
       "confirmCollectionDateTitle": "Actualizar Fecha de Facturación de Cobranza",
       "confirmCollectionDateDesc": "La fecha de facturación de cobranza se actualizará a {{date}}. La fecha de pago de cobranza se recalculará automáticamente.",

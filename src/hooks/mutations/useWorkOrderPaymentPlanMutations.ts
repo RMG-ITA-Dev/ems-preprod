@@ -128,7 +128,7 @@ export function useUpdateInstallmentStatus() {
       woId: string;
       paymentDays?: number;
     }) => {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/La_Paz" }).format(new Date());
       const updates: Record<string, unknown> = { status: newStatus };
 
       if (newStatus === "Invoiced") {

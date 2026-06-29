@@ -103,7 +103,7 @@ export function WorkOrderPaymentPlanSection({
 
   const currentPlan = plan ?? { wo_id: woId, exchange_rate: null, payment_days: 30 };
   const numInstallments = installments.length;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/La_Paz" }).format(new Date());
 
   // Effective status: auto-Mora when Pending and agreed_invoice_date is past
   const getEffectiveStatus = (inst: PaymentInstallmentInput): PaymentInstallmentStatus => {
@@ -462,6 +462,8 @@ export function WorkOrderPaymentPlanSection({
                           value={inst.percentage}
                           onChange={(val) => handlePercentageChange(idx, val)}
                           disabled={!isEditable}
+                          min={0}
+                          max={100}
                           className="w-full h-8"
                         />
                       </td>
