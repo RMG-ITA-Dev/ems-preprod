@@ -30,8 +30,9 @@ import { WorkOrderForm, BudgetLineInput, ExpenseBudgetInput } from "@/components
 import { useEngagements, useSetting, useCategories, useWorkOrders } from "@/hooks/useEmsData";
 import { useUserRole } from "@/hooks/useUserRole";
 import { useWorksheetByEngagementId } from "@/hooks/useWorksheetData";
-import { useCreateWorkOrder, useCreateBudgetLine, useCreateExpenseBudget } from "@/hooks/mutations";
+import { useCreateWorkOrder, useCreateBudgetLine, useCreateExpenseBudget, useUpsertPaymentPlan, useBatchUpsertInstallments } from "@/hooks/mutations";
 import { toast } from "sonner";
+import type { PaymentPlanInput, PaymentInstallmentInput } from "@/types/workOrderPaymentPlan";
 
 const WorkOrderNew = () => {
   const { t } = useTranslation();
@@ -49,13 +50,17 @@ const WorkOrderNew = () => {
   const createWorkOrder = useCreateWorkOrder();
   const createBudgetLine = useCreateBudgetLine();
   const createExpenseBudget = useCreateExpenseBudget();
+  const upsertPaymentPlan = useUpsertPaymentPlan();
+  const batchUpsertInstallments = useBatchUpsertInstallments();
 
   const [selectedEngagementId, setSelectedEngagementId] = useState(engagementIdParam || "");
-  const [currency, setCurrency] = useState<"USD" | "BOB">("BOB");
+  const [currency, setCurrency] = useState<"USD" | "BOB" | "USDT">("BOB");
   const [seasonMode, setSeasonMode] = useState<"High" | "Low">("High");
   const [adjustmentAmount, setAdjustmentAmount] = useState(0);
   const [budgetLines, setBudgetLines] = useState<BudgetLineInput[]>([]);
   const [expenseBudget, setExpenseBudget] = useState<ExpenseBudgetInput[]>([]);
+  const [paymentPlan, setPaymentPlan] = useState<PaymentPlanInput | null>(null);
+  const [paymentInstallments, setPaymentInstallments] = useState<PaymentInstallmentInput[]>([]);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
 
   const woIsDirty = !!(selectedEngagementId || budgetLines.length > 0 || expenseBudget.length > 0);
@@ -95,11 +100,12 @@ const WorkOrderNew = () => {
   useEffect(() => {
     if (!categories) return;
     
+    const effectiveCurrency = currency === "USDT" ? "usd" : currency.toLowerCase();
     setBudgetLines((prev) =>
       prev.map((line) => {
         const category = categories.find((c) => c.category_id === line.category_id);
         if (!category) return line;
-        const rateKey = `rate_${seasonMode.toLowerCase()}_${currency.toLowerCase()}` as keyof typeof category;
+        const rateKey = `rate_${seasonMode.toLowerCase()}_${effectiveCurrency}` as keyof typeof category;
         return { ...line, standard_rate: Number(category[rateKey]) || 0 };
       })
     );
@@ -151,6 +157,20 @@ const WorkOrderNew = () => {
             budgeted_amount: exp.budgeted_amount,
           });
         }
+      }
+
+      // Persist payment plan if any installments were configured
+      if (paymentInstallments.length > 0) {
+        const savedPlan = await upsertPaymentPlan.mutateAsync({
+          wo_id: wo.wo_id,
+          exchange_rate: paymentPlan?.exchange_rate ?? null,
+          payment_days: paymentPlan?.payment_days ?? 30,
+        });
+        await batchUpsertInstallments.mutateAsync({
+          planId: savedPlan.plan_id,
+          woId: wo.wo_id,
+          installments: paymentInstallments,
+        });
       }
 
       toast.success(t("messages.createSuccess", { entity: t("entities.workOrder") }));
@@ -281,6 +301,13 @@ const WorkOrderNew = () => {
             isLocked={false}
             canApprove={false}
             isSubmitting={createWorkOrder.isPending}
+            woId=""
+            paymentPlan={paymentPlan}
+            paymentInstallments={paymentInstallments}
+            isAdminDateEditable={false}
+            isStatusEditable={isAdmin}
+            onPaymentPlanChange={setPaymentPlan}
+            onPaymentInstallmentsChange={setPaymentInstallments}
           />
         )}
       </div>

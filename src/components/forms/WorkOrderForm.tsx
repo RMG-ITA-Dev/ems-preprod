@@ -49,6 +49,7 @@ import {
 } from "@/hooks/useEmsData";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/hooks/useLanguage";
+import { WorkOrderPaymentPlanSection } from "./WorkOrderPaymentPlanSection";
 
 export interface BudgetLineInput {
   id: string;
@@ -64,7 +65,7 @@ export interface ExpenseBudgetInput {
 }
 
 interface WorkOrderFormProps {
-  currency: "USD" | "BOB";
+  currency: "USD" | "BOB" | "USDT";
   seasonMode: "High" | "Low";
   approvalStatus: "Draft" | "Pending_Approval" | "Approved" | "Rejected";
   // Socio approval timestamp — drives the track status indicator.
@@ -93,7 +94,15 @@ interface WorkOrderFormProps {
   isDirty?: boolean;
   hasNonRiskDirty?: boolean;
   rejectionNote?: string | null;
-  onCurrencyChange: (currency: "USD" | "BOB") => void;
+  onCurrencyChange: (currency: "USD" | "BOB" | "USDT") => void;
+  // Payment plan
+  woId?: string;
+  paymentPlan?: import("@/types/workOrderPaymentPlan").PaymentPlanInput | null;
+  paymentInstallments?: import("@/types/workOrderPaymentPlan").PaymentInstallmentInput[];
+  isAdminDateEditable?: boolean;
+  isStatusEditable?: boolean;
+  onPaymentPlanChange?: (plan: import("@/types/workOrderPaymentPlan").PaymentPlanInput) => void;
+  onPaymentInstallmentsChange?: (rows: import("@/types/workOrderPaymentPlan").PaymentInstallmentInput[]) => void;
   onSeasonChange: (season: "High" | "Low") => void;
   onAdjustmentChange: (amount: number) => void;
   onBudgetLinesChange: (lines: BudgetLineInput[]) => void;
@@ -191,6 +200,13 @@ export function WorkOrderForm({
   isLocked,
   canApprove,
   isSubmitting,
+  woId = "",
+  paymentPlan = null,
+  paymentInstallments = [],
+  isAdminDateEditable = false,
+  isStatusEditable = false,
+  onPaymentPlanChange,
+  onPaymentInstallmentsChange,
 }: WorkOrderFormProps) {
   const { t } = useTranslation();
   // Emergency confirmation now lives at submit time (Manager), capturing a mandatory
@@ -210,10 +226,11 @@ export function WorkOrderForm({
   const realizationLimitSetting = useSetting("REALIZATION_LIMIT");
   const realizationLimitValue = parseFloat(realizationLimitSetting || "75");
 
-  // Get the appropriate rate based on currency and season
+  // Get the appropriate rate based on currency and season.
+  // USDT uses USD rates (USDT budget rate system is out of scope).
   const getRate = (category: Category) => {
-    const key =
-      `rate_${seasonMode.toLowerCase()}_${currency.toLowerCase()}` as keyof Category;
+    const effectiveCurrency = currency === "USDT" ? "usd" : currency.toLowerCase();
+    const key = `rate_${seasonMode.toLowerCase()}_${effectiveCurrency}` as keyof Category;
     return Number(category[key]) || 0;
   };
 
@@ -556,14 +573,15 @@ export function WorkOrderForm({
                   </Label>
                   <Select
                     value={currency}
-                    onValueChange={(v) => onCurrencyChange(v as "USD" | "BOB")}
+                    onValueChange={(v) => onCurrencyChange(v as "USD" | "BOB" | "USDT")}
                   >
-                    <SelectTrigger className="w-20 h-7 text-xs">
+                    <SelectTrigger className="w-24 h-7 text-xs">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="BOB">BOB</SelectItem>
                       <SelectItem value="USD">USD</SelectItem>
+                      <SelectItem value="USDT">USDT</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -960,6 +978,22 @@ export function WorkOrderForm({
           </CardContent>
         </Card>
       </div>
+
+      {/* Plan de Pagos */}
+      {onPaymentPlanChange && onPaymentInstallmentsChange && (
+        <WorkOrderPaymentPlanSection
+          woId={woId}
+          currency={currency}
+          feeWithTax={feeWithTax}
+          plan={paymentPlan ?? null}
+          installments={paymentInstallments}
+          isEditable={isEditable}
+          isStatusEditable={isStatusEditable}
+          isAdminDateEditable={isAdminDateEditable}
+          onPlanChange={onPaymentPlanChange}
+          onInstallmentsChange={onPaymentInstallmentsChange}
+        />
+      )}
 
       {/* Risk Assessment Section - editable by creator/Manager in Draft (or emergency
           completion); read-only for the Riesgos approver in Pending/Approved */}
