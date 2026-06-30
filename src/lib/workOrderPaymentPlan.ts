@@ -67,9 +67,10 @@ export function detectOverdue(installment: PaymentInstallmentInput): boolean {
 export function isAlertDue(installment: PaymentInstallmentInput, windowDays = 7): boolean {
   if (!installment.agreed_invoice_date) return false;
   if (installment.status !== 'Pending' && installment.status !== 'Invoiced') return false;
-  const today = new Date();
-  const invoice = new Date(`${installment.agreed_invoice_date}T00:00:00Z`);
-  const diffMs = invoice.getTime() - today.getTime();
-  const diffDays = diffMs / 86400000;
+  // Normalize both to midnight local (Bolivia) to compare pure dates, not timestamps
+  const todayStr = new Intl.DateTimeFormat("en-CA", { timeZone: "America/La_Paz" }).format(new Date());
+  const today = new Date(todayStr + "T00:00:00");
+  const invoice = new Date(installment.agreed_invoice_date + "T00:00:00");
+  const diffDays = (invoice.getTime() - today.getTime()) / 86400000;
   return diffDays >= 0 && diffDays <= windowDays;
 }
