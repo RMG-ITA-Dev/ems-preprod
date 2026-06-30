@@ -101,6 +101,7 @@ interface WorkOrderFormProps {
   paymentInstallments?: import("@/types/workOrderPaymentPlan").PaymentInstallmentInput[];
   isAdminDateEditable?: boolean;
   isStatusEditable?: boolean;
+  isPaymentPlanDirty?: boolean;
   onPaymentPlanChange?: (plan: import("@/types/workOrderPaymentPlan").PaymentPlanInput) => void;
   onPaymentInstallmentsChange?: (rows: import("@/types/workOrderPaymentPlan").PaymentInstallmentInput[]) => void;
   onSeasonChange: (season: "High" | "Low") => void;
@@ -205,6 +206,7 @@ export function WorkOrderForm({
   paymentInstallments = [],
   isAdminDateEditable = false,
   isStatusEditable = false,
+  isPaymentPlanDirty = false,
   onPaymentPlanChange,
   onPaymentInstallmentsChange,
 }: WorkOrderFormProps) {
@@ -990,6 +992,7 @@ export function WorkOrderForm({
           isEditable={isEditable}
           isStatusEditable={isStatusEditable}
           isAdminDateEditable={isAdminDateEditable}
+          isPaymentPlanDirty={isPaymentPlanDirty}
           onPlanChange={onPaymentPlanChange}
           onInstallmentsChange={onPaymentInstallmentsChange}
         />
