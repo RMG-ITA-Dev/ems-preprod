@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { format } from "date-fns";
-import { Copy } from "lucide-react";
+import { Wand2 } from "lucide-react";
 import { DataTable, Column } from "@/components/data-table/DataTable";
 import { useHolidays, type Holiday } from "@/hooks/useHolidays";
 import { useStaff } from "@/hooks/useEmsData";
@@ -12,8 +12,9 @@ import {
   AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
   AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { useReplicateHolidaysToNextYear } from "@/hooks/mutations/useHolidayMutations";
+import { useGenerateNationalHolidays } from "@/hooks/mutations/useHolidayMutations";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
+import { getBoliviaNationalHolidays, NATIONAL_HOLIDAY_NAMES, normalizeHolidayName } from "@/lib/boliviaHolidays";
 
 export function HolidaysManager() {
   const { t } = useTranslation();
@@ -22,15 +23,32 @@ export function HolidaysManager() {
 
   const [formOpen, setFormOpen] = useState(false);
   const [selectedHoliday, setSelectedHoliday] = useState<Holiday | null>(null);
-  const [replicateOpen, setReplicateOpen] = useState(false);
-  const replicateMutation = useReplicateHolidaysToNextYear();
+  const [generateOpen, setGenerateOpen] = useState(false);
+  const generateMutation = useGenerateNationalHolidays();
   const { staffRecord } = useCurrentStaff();
 
   const currentYear = new Date().getFullYear();
-  const sourceCount = (holidays ?? []).filter((h) =>
-    h.holiday_date.startsWith(`${currentYear}-`)
+  const targetYear = currentYear + 1;
+  const generatedList = getBoliviaNationalHolidays(targetYear);
+  const generatedByDate = new Map(generatedList.map((g) => [g.date, g.name]));
+  const targetYearHolidays = (holidays ?? []).filter((h) =>
+    h.holiday_date.startsWith(`${targetYear}-`)
+  );
+  const exactMatch = targetYearHolidays.filter(
+    (h) => generatedByDate.get(h.holiday_date) === normalizeHolidayName(h.holiday_name)
   ).length;
-  const hasSource = sourceCount > 0;
+  const crossedStale = targetYearHolidays.filter((h) => {
+    const n = normalizeHolidayName(h.holiday_name);
+    return NATIONAL_HOLIDAY_NAMES.has(n) && generatedByDate.has(h.holiday_date) && generatedByDate.get(h.holiday_date) !== n;
+  });
+  const regularStale = targetYearHolidays.filter((h) => {
+    const n = normalizeHolidayName(h.holiday_name);
+    return NATIONAL_HOLIDAY_NAMES.has(n) && !generatedByDate.has(h.holiday_date);
+  });
+  const staleToReplace = crossedStale.length + regularStale.length;
+  // Regular stale entries sit at wrong dates; their generated-date slots are free and WILL be inserted.
+  // Only crossed stale (UPDATE in-place) don't produce a new row, so only those reduce toInsertCount.
+  const toInsertCount = generatedList.length - exactMatch - crossedStale.length;
 
   const getStaffName = (staffId: string) => {
     const s = staffList?.find((st) => st.staff_id === staffId);
@@ -73,23 +91,22 @@ export function HolidaysManager() {
 
   return (
     <>
-      <div className="flex justify-end mb-2">
-        <Button
-          variant="outline"
-          disabled={!hasSource || replicateMutation.isPending || !staffRecord}
-          onClick={() => setReplicateOpen(true)}
-        >
-          <Copy className="h-4 w-4 mr-2" />
-          {t("holiday.replicateButton")}
-        </Button>
-      </div>
-
       <DataTable
         data={holidays || []}
         columns={columns}
         searchPlaceholder={t("common.search")}
         searchKeys={["holiday_name"]}
         isLoading={isLoading}
+        headerActions={
+          <Button
+            variant="outline"
+            disabled={generateMutation.isPending || !staffRecord}
+            onClick={() => setGenerateOpen(true)}
+          >
+            <Wand2 className="h-4 w-4 mr-2" />
+            {t("holiday.generateButton", { year: targetYear })}
+          </Button>
+        }
         newButtonLabel={t("holiday.addHoliday")}
         onNewClick={() => {
           setSelectedHoliday(null);
@@ -108,20 +125,19 @@ export function HolidaysManager() {
         holiday={selectedHoliday}
       />
 
-      <AlertDialog open={replicateOpen} onOpenChange={setReplicateOpen}>
+      <AlertDialog open={generateOpen} onOpenChange={setGenerateOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {t("holiday.replicateConfirmTitle", {
-                fromYear: currentYear,
-                toYear: currentYear + 1,
-              })}
+              {t("holiday.generateConfirmTitle", { year: targetYear })}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {t("holiday.replicateConfirmDesc", {
-                count: sourceCount,
-                fromYear: currentYear,
-                toYear: currentYear + 1,
+              {t("holiday.generateConfirmDesc", {
+                year: targetYear,
+                total: generatedList.length,
+                alreadyExist: exactMatch,
+                staleToReplace,
+                toInsert: toInsertCount,
               })}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -130,9 +146,9 @@ export function HolidaysManager() {
             <AlertDialogAction
               onClick={() => {
                 if (staffRecord) {
-                  replicateMutation.mutate({ created_by: staffRecord.staff_id });
+                  generateMutation.mutate({ created_by: staffRecord.staff_id, year: targetYear });
                 }
-                setReplicateOpen(false);
+                setGenerateOpen(false);
               }}
             >
               {t("common.confirm")}

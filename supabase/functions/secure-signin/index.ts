@@ -18,7 +18,9 @@
 //   Output (locked, either by pre-check or by tripping on this attempt):
 //     { ok: false, code: "ACCOUNT_LOCKED", remaining_seconds: number }
 //   Output (bad credentials, no lockout yet):
-//     { ok: false, code: "INVALID_CREDENTIALS", message: string }
+//     { ok: false, code: "INVALID_CREDENTIALS", message: string, remaining_attempts?: number }
+//     (remaining_attempts is the count left before lockout, when record_failed_login
+//      returns it; omitted if the RPC failed so the client falls back gracefully.)
 //   Output (anything else):
 //     { ok: false, code: "UNKNOWN_ERROR", message: string }
 
@@ -114,6 +116,7 @@ Deno.serve(async (req) => {
   //    the failure. This is the invariant Codex asked for.
   if (signInError) {
     if (signInError.message === "Invalid login credentials") {
+      let attemptsRemaining: number | undefined;
       try {
         const { data: record, error: recordErr } = await supabaseAdmin.rpc(
           "record_failed_login",
@@ -124,6 +127,8 @@ Deno.serve(async (req) => {
         } else if (record && (record as { locked?: boolean }).locked === true) {
           const remaining = (record as { remaining_seconds?: number }).remaining_seconds ?? 0;
           return jsonResponse({ ok: false, code: "ACCOUNT_LOCKED", remaining_seconds: remaining });
+        } else if (record) {
+          attemptsRemaining = (record as { attempts_remaining?: number }).attempts_remaining;
         }
       } catch (err) {
         console.error("[secure-signin] record_failed_login threw:", err);
@@ -133,6 +138,7 @@ Deno.serve(async (req) => {
         ok: false,
         code: "INVALID_CREDENTIALS",
         message: "Invalid login credentials",
+        remaining_attempts: attemptsRemaining,
       });
     }
 

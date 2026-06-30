@@ -106,7 +106,11 @@ CREATE TABLE public.engagements (
   work_order_required BOOLEAN NOT NULL DEFAULT true,
   activity_required BOOLEAN NOT NULL DEFAULT true,
   is_internal BOOLEAN NOT NULL DEFAULT false,
-  approval_required BOOLEAN NOT NULL DEFAULT true
+  approval_required BOOLEAN NOT NULL DEFAULT true,
+  sqr_id           UUID REFERENCES public.staff(staff_id),
+  encargado_id     UUID REFERENCES public.staff(staff_id),
+  specialist_it_id  UUID REFERENCES public.staff(staff_id),
+  specialist_tax_id UUID REFERENCES public.staff(staff_id)
 );
 
 -- Expense Logs

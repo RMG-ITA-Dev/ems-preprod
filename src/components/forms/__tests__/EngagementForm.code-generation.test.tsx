@@ -31,7 +31,9 @@ vi.mock("@/hooks/useEmsData", () => ({
 vi.mock("@/hooks/useCategoryStaff", () => ({
   useCategoryStaff: () => ({
     partners: [],
+    partnerOptions: [],
     managerOptions: [],
+    allActiveStaff: [],
     hasPartnerCategory: true,
     hasManagerCategory: true,
   }),
@@ -69,6 +71,10 @@ const mockEngagement: Engagement = {
   practica:            2,
   funcion:             1,
   anio_fiscal:         2027,
+  sqr_id:              null,
+  encargado_id:        null,
+  specialist_it_id:    null,
+  specialist_tax_id:   null,
 };
 
 // Mirror the helpers from EngagementForm.tsx

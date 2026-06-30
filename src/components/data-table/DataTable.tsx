@@ -43,6 +43,7 @@ export interface DataTableProps<T> {
     options: { value: string; label: string }[];
   };
   filters?: FilterConfig[];
+  headerActions?: React.ReactNode;
   getRowId: (row: T) => string;
 }
 
@@ -69,6 +70,7 @@ export function DataTable<T extends Record<string, unknown>>({
   isLoading = false,
   statusFilter,
   filters = [],
+  headerActions,
   getRowId,
 }: DataTableProps<T>) {
   const { t } = useTranslation();
@@ -457,11 +459,16 @@ export function DataTable<T extends Record<string, unknown>>({
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
-        {onNewClick && (
-          <Button variant="default" onClick={onNewClick} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
-            <Plus className="h-4 w-4 mr-2" />
-            {newButtonLabel || t("common.new")}
-          </Button>
+        {(headerActions || onNewClick) && (
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            {headerActions}
+            {onNewClick && (
+              <Button variant="default" onClick={onNewClick} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
+                <Plus className="h-4 w-4 mr-2" />
+                {newButtonLabel || t("common.new")}
+              </Button>
+            )}
+          </div>
         )}
       </div>
 

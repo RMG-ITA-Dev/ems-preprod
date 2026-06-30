@@ -86,7 +86,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const result = invokeData as
       | { ok: true; session: { access_token: string; refresh_token: string } }
-      | { ok: false; code: string; message?: string; remaining_seconds?: number }
+      | { ok: false; code: string; message?: string; remaining_seconds?: number; remaining_attempts?: number }
       | null;
 
     if (!result) {
@@ -99,6 +99,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { error: new Error(`ACCOUNT_LOCKED:${remaining}`) };
       }
       if (result.code === 'INVALID_CREDENTIALS') {
+        if (result.remaining_attempts !== undefined) {
+          return { error: new Error(`INVALID_CREDENTIALS:${result.remaining_attempts}`) };
+        }
         return { error: new Error('Invalid login credentials') };
       }
       return { error: new Error(result.message ?? 'Sign in failed') };

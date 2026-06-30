@@ -28,7 +28,14 @@ const Staff = () => {
   };
 
   const getEngagementCount = (staffId: string) => {
-    return engagements?.filter((e) => e.partner_id === staffId || e.manager_id === staffId).length || 0;
+    return engagements?.filter((e) =>
+      e.partner_id === staffId ||
+      e.manager_id === staffId ||
+      e.sqr_id === staffId ||
+      e.encargado_id === staffId ||
+      e.specialist_it_id === staffId ||
+      e.specialist_tax_id === staffId
+    ).length || 0;
   };
 
   const categoryOptions = (categories || []).map((cat) => ({

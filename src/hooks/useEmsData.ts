@@ -99,9 +99,17 @@ export interface Engagement {
   practica:    number | null;
   anio_fiscal: number | null;
   funcion:     number | null;
+  sqr_id: string | null;
+  encargado_id: string | null;
+  specialist_it_id: string | null;
+  specialist_tax_id: string | null;
   client?: Client;
   partner?: Staff;
   manager?: Staff;
+  sqr?: Staff;
+  encargado?: Staff;
+  specialist_it?: Staff;
+  specialist_tax?: Staff;
 }
 
 export interface WorkOrder {
@@ -379,7 +387,11 @@ export function useEngagements() {
           *,
           client:clients(*),
           partner:staff!engagements_partner_id_fkey(*),
-          manager:staff!engagements_manager_id_fkey(*)
+          manager:staff!engagements_manager_id_fkey(*),
+          sqr:staff!engagements_sqr_id_fkey(*),
+          encargado:staff!engagements_encargado_id_fkey(*),
+          specialist_it:staff!engagements_specialist_it_id_fkey(*),
+          specialist_tax:staff!engagements_specialist_tax_id_fkey(*)
         `)
         .order('created_at', { ascending: false });
       if (error) throw error;
@@ -400,7 +412,11 @@ export function useWorkOrders() {
             *,
             client:clients(*),
             partner:staff!engagements_partner_id_fkey(*),
-            manager:staff!engagements_manager_id_fkey(*)
+            manager:staff!engagements_manager_id_fkey(*),
+            sqr:staff!engagements_sqr_id_fkey(*),
+            encargado:staff!engagements_encargado_id_fkey(*),
+            specialist_it:staff!engagements_specialist_it_id_fkey(*),
+            specialist_tax:staff!engagements_specialist_tax_id_fkey(*)
           ),
           budget_lines:wo_budget_lines(
             *,
