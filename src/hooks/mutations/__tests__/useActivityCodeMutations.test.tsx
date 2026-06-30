@@ -9,6 +9,8 @@ import {
   useUpdateActivityCode,
   useDeleteActivityCode,
   useDeactivateServiceActivity,
+  useReactivateServiceActivity,
+  useReorderServiceActivity,
 } from "../useActivityCodeMutations";
 
 function createWrapper() {
@@ -171,6 +173,49 @@ describe("useActivityCodeMutations", () => {
 
       expect(supabase.rpc).toHaveBeenCalledWith("deactivate_service_activity", {
         p_activity_id: "activity-uuid",
+      });
+      expect(toast.success).toHaveBeenCalled();
+    });
+  });
+
+  // ── useReactivateServiceActivity ─────────────────────────────────────────
+  describe("useReactivateServiceActivity", () => {
+    it("calls supabase.rpc('reactivate_service_activity') with the activity id", async () => {
+      const mockRpc = vi.fn().mockResolvedValue({ data: null, error: null });
+      vi.mocked(supabase.rpc).mockImplementation(mockRpc as any);
+
+      const { result } = renderHook(() => useReactivateServiceActivity(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate("activity-uuid");
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      expect(supabase.rpc).toHaveBeenCalledWith("reactivate_service_activity", {
+        p_activity_id: "activity-uuid",
+      });
+      expect(toast.success).toHaveBeenCalled();
+    });
+  });
+
+  // ── useReorderServiceActivity ────────────────────────────────────────────
+  describe("useReorderServiceActivity", () => {
+    it("calls supabase.rpc('reorder_service_activity') with activity id and position", async () => {
+      const mockRpc = vi.fn().mockResolvedValue({ data: null, error: null });
+      vi.mocked(supabase.rpc).mockImplementation(mockRpc as any);
+
+      const { result } = renderHook(() => useReorderServiceActivity(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate({ activityId: "activity-uuid", newPosition: 3 });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      expect(supabase.rpc).toHaveBeenCalledWith("reorder_service_activity", {
+        p_activity_id: "activity-uuid",
+        p_new_position: 3,
       });
       expect(toast.success).toHaveBeenCalled();
     });

@@ -33,7 +33,7 @@ import {
   Skill,
   Service,
 } from "@/hooks/useEmsData";
-import { useUpdateGlobalSetting } from "@/hooks/mutations";
+import { useUpdateGlobalSetting, useReorderServiceActivity } from "@/hooks/mutations";
 import { supabase } from "@/integrations/supabase/client";
 import { useUserRole } from "@/hooks/useUserRole";
 import { useLanguage } from "@/hooks/useLanguage";
@@ -49,7 +49,7 @@ import { ChangePasswordCard } from "@/components/settings/ChangePasswordCard";
 import { HolidaysManager } from "@/components/settings/HolidaysManager";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Lock, CheckCircle, AlertTriangle } from "lucide-react";
+import { Lock, CheckCircle, AlertTriangle, ArrowUp, ArrowDown } from "lucide-react";
 import { formatFiscalYearEnd } from "@/lib/fiscalYearDisplay";
 import { useHolidayEngagementId } from "@/hooks/useHolidays";
 import { toast } from "sonner";
@@ -79,6 +79,23 @@ const Settings = () => {
   const { data: engagements } = useEngagements();
   const persistedHolidayEngagementId = useHolidayEngagementId();
   const updateSettingMutation = useUpdateGlobalSetting();
+  const reorderActivityMutation = useReorderServiceActivity();
+
+  // Active service-linked activities grouped by service, ordered by code.
+  // Used to compute the 1-based position of each row for the ↑/↓ controls.
+  const activeActivitiesByService = useMemo(() => {
+    const map = new Map<string, string[]>();
+    (activityCodes ?? [])
+      .filter((a) => a.is_active && a.service_id)
+      .slice()
+      .sort((a, b) => a.activity_code.localeCompare(b.activity_code))
+      .forEach((a) => {
+        const arr = map.get(a.service_id!) ?? [];
+        arr.push(a.activity_id);
+        map.set(a.service_id!, arr);
+      });
+    return map;
+  }, [activityCodes]);
 
   // Controlled tab state
   const [activeTab, setActiveTab] = useState("account");
@@ -360,6 +377,54 @@ const Settings = () => {
           {row.is_active ? t("status.active") : t("status.inactive")}
         </Badge>
       ),
+    },
+    {
+      key: "reorder",
+      label: "",
+      sortable: false,
+      className: "w-24",
+      mobilePriority: 'secondary',
+      render: (row) => {
+        // ↑/↓ only for active service-linked activities; swap code with the
+        // adjacent sibling of the same service via reorder_service_activity.
+        if (!isAdmin || !row.is_active || !row.service_id) return null;
+        const siblings = activeActivitiesByService.get(row.service_id) ?? [];
+        const pos = siblings.indexOf(row.activity_id) + 1; // 1-based
+        const total = siblings.length;
+        if (pos < 1 || total < 2) return null;
+        return (
+          <div className="flex gap-1">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              disabled={pos <= 1 || reorderActivityMutation.isPending}
+              aria-label={t("activity.moveUp")}
+              onClick={(e) => {
+                e.stopPropagation();
+                reorderActivityMutation.mutate({ activityId: row.activity_id, newPosition: pos - 1 });
+              }}
+            >
+              <ArrowUp className="h-4 w-4" />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              disabled={pos >= total || reorderActivityMutation.isPending}
+              aria-label={t("activity.moveDown")}
+              onClick={(e) => {
+                e.stopPropagation();
+                reorderActivityMutation.mutate({ activityId: row.activity_id, newPosition: pos + 1 });
+              }}
+            >
+              <ArrowDown className="h-4 w-4" />
+            </Button>
+          </div>
+        );
+      },
     },
   ];
 

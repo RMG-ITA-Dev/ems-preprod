@@ -33,6 +33,7 @@ vi.mock("react-i18next", () => ({
 
 const createMutateAsync = vi.hoisted(() => vi.fn());
 const deactivateMutateAsync = vi.hoisted(() => vi.fn());
+const reactivateMutateAsync = vi.hoisted(() => vi.fn());
 const deleteMutateAsync = vi.hoisted(() => vi.fn());
 
 vi.mock("@/hooks/mutations", () => ({
@@ -40,6 +41,7 @@ vi.mock("@/hooks/mutations", () => ({
   useUpdateActivityCode: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useDeleteActivityCode: () => ({ mutateAsync: deleteMutateAsync, isPending: false }),
   useDeactivateServiceActivity: () => ({ mutateAsync: deactivateMutateAsync, isPending: false }),
+  useReactivateServiceActivity: () => ({ mutateAsync: reactivateMutateAsync, isPending: false }),
 }));
 
 const mockServices = [
@@ -68,6 +70,16 @@ const linkedActivity: ActivityCode = {
   activity_code: "AUD-A1",
   description: "Audit Planning",
   is_active: true,
+  service_id: "s1",
+  entity_type: "A",
+  service: { service_id: "s1", name: "Auditoría", abbreviation: "AUD", code: 1, allows_rates_activities: true, is_active: true, created_at: "" },
+};
+
+const inactiveLinkedActivity: ActivityCode = {
+  activity_id: "act-linked-inactive",
+  activity_code: "AUD-AX",
+  description: "Old Step",
+  is_active: false,
   service_id: "s1",
   entity_type: "A",
   service: { service_id: "s1", name: "Auditoría", abbreviation: "AUD", code: 1, allows_rates_activities: true, is_active: true, created_at: "" },
@@ -209,6 +221,40 @@ describe("ActivityCodeForm — edit service-linked (0513-114)", () => {
   it("does not show the service selector in edit mode", () => {
     render(<ActivityCodeForm open={true} onOpenChange={vi.fn()} activityCode={linkedActivity} />);
     expect(screen.queryByTestId("activity-service-select")).not.toBeInTheDocument();
+  });
+});
+
+// ── Reactivate inactive service-linked activity ───────────────────────────
+
+describe("ActivityCodeForm — reactivate inactive service-linked (0513-114)", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("shows activate button (not deactivate) for an inactive linked activity", () => {
+    render(<ActivityCodeForm open={true} onOpenChange={vi.fn()} activityCode={inactiveLinkedActivity} />);
+    expect(screen.getByTestId("activate-button")).toBeInTheDocument();
+    expect(screen.queryByTestId("deactivate-button")).not.toBeInTheDocument();
+  });
+
+  it("confirming activate calls the reactivate mutation with the activity id", async () => {
+    const user = userEvent.setup();
+    reactivateMutateAsync.mockResolvedValue({});
+
+    render(<ActivityCodeForm open={true} onOpenChange={vi.fn()} activityCode={inactiveLinkedActivity} />);
+
+    await user.click(screen.getByTestId("activate-button"));
+    // AlertDialog action button (label = activity.activate).
+    const confirmButtons = await screen.findAllByRole("button", { name: "activity.activate" });
+    await user.click(confirmButtons[confirmButtons.length - 1]);
+
+    await waitFor(() =>
+      expect(reactivateMutateAsync).toHaveBeenCalledWith("act-linked-inactive")
+    );
+  });
+
+  it("active linked activity still shows deactivate (not activate)", () => {
+    render(<ActivityCodeForm open={true} onOpenChange={vi.fn()} activityCode={linkedActivity} />);
+    expect(screen.getByTestId("deactivate-button")).toBeInTheDocument();
+    expect(screen.queryByTestId("activate-button")).not.toBeInTheDocument();
   });
 });
 

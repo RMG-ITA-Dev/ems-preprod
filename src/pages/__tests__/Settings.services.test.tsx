@@ -59,6 +59,7 @@ vi.mock("@/hooks/mutations", () => ({
   useUpdateGlobalSetting: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useCreateService: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useUpdateService: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useReorderServiceActivity: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
 }));
 
 vi.mock("@/hooks/useLanguage", () => ({

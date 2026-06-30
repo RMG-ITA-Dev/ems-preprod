@@ -430,6 +430,11 @@
     "deactivate": "Deactivate",
     "deactivateTitle": "Deactivate activity?",
     "deactivateDescription": "Activity {{code}} will be marked inactive (→ AX) and later activities will be renumbered. This cannot be undone.",
+    "activate": "Activate",
+    "activateTitle": "Activate activity?",
+    "activateDescription": "Activity {{code}} will become active again and receive the next available code (added at the end).",
+    "moveUp": "Move up",
+    "moveDown": "Move down",
     "maxActivitiesReached": "Maximum of 9 active activities per service per type reached.",
     "abbreviationMissing": "The selected service has no abbreviation. Set one in Services before adding activities."
   },

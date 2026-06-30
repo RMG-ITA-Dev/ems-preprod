@@ -111,3 +111,44 @@ export function useDeactivateServiceActivity() {
     onError: createMutationErrorHandler("deactivating service activity"),
   });
 }
+
+export function useReactivateServiceActivity() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (activityId: string) => {
+      const { error } = await supabase.rpc("reactivate_service_activity", {
+        p_activity_id: activityId,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      invalidateActivityCodes(queryClient);
+      toast.success(i18n.t("messages.updateSuccess", { entity: i18n.t("entities.activityCode") }));
+    },
+    onError: createMutationErrorHandler("reactivating service activity"),
+  });
+}
+
+export function useReorderServiceActivity() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      activityId,
+      newPosition,
+    }: {
+      activityId: string;
+      newPosition: number;
+    }) => {
+      const { error } = await supabase.rpc("reorder_service_activity", {
+        p_activity_id: activityId,
+        p_new_position: newPosition,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      invalidateActivityCodes(queryClient);
+      toast.success(i18n.t("messages.updateSuccess", { entity: i18n.t("entities.activityCode") }));
+    },
+    onError: createMutationErrorHandler("reordering service activity"),
+  });
+}

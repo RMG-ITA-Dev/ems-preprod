@@ -48,8 +48,9 @@ import {
   useUpdateActivityCode,
   useDeleteActivityCode,
   useDeactivateServiceActivity,
+  useReactivateServiceActivity,
 } from "@/hooks/mutations";
-import { Trash2 } from "lucide-react";
+import { Trash2, RotateCcw } from "lucide-react";
 
 const formSchema = z.object({
   activity_code: z.string().max(10, "Max 10 characters"),
@@ -70,11 +71,13 @@ export function ActivityCodeForm({ open, onOpenChange, activityCode }: ActivityC
   const { t } = useTranslation();
   const isEdit = !!activityCode;
   const isServiceLinked = !!activityCode?.service_id;
+  const isActive = activityCode?.is_active ?? true;
 
   const createMutation = useCreateActivityCode();
   const updateMutation = useUpdateActivityCode();
   const deleteMutation = useDeleteActivityCode();
   const deactivateMutation = useDeactivateServiceActivity();
+  const reactivateMutation = useReactivateServiceActivity();
 
   const { data: services } = useServices();
   const activeServices = (services ?? []).filter(
@@ -150,6 +153,12 @@ export function ActivityCodeForm({ open, onOpenChange, activityCode }: ActivityC
   const handleDeactivate = async () => {
     if (!activityCode) return;
     await deactivateMutation.mutateAsync(activityCode.activity_id);
+    onOpenChange(false);
+  };
+
+  const handleReactivate = async () => {
+    if (!activityCode) return;
+    await reactivateMutation.mutateAsync(activityCode.activity_id);
     onOpenChange(false);
   };
 
@@ -281,7 +290,7 @@ export function ActivityCodeForm({ open, onOpenChange, activityCode }: ActivityC
                 {t("common.cancel")}
               </Button>
 
-              {isEdit && isServiceLinked && (
+              {isEdit && isServiceLinked && isActive && (
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
                     <Button type="button" variant="destructive" className="w-full sm:w-auto min-h-[44px] sm:min-h-0" data-testid="deactivate-button">
@@ -300,6 +309,31 @@ export function ActivityCodeForm({ open, onOpenChange, activityCode }: ActivityC
                       <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
                       <AlertDialogAction onClick={handleDeactivate} className="bg-destructive/70 text-destructive-foreground hover:bg-destructive">
                         {t("activity.deactivate")}
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              )}
+
+              {isEdit && isServiceLinked && !isActive && (
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button type="button" variant="outline" className="w-full sm:w-auto min-h-[44px] sm:min-h-0" data-testid="activate-button">
+                      <RotateCcw className="h-4 w-4" />
+                      {t("activity.activate")}
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>{t("activity.activateTitle")}</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        {t("activity.activateDescription", { code: activityCode?.activity_code })}
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+                      <AlertDialogAction onClick={handleReactivate}>
+                        {t("activity.activate")}
                       </AlertDialogAction>
                     </AlertDialogFooter>
                   </AlertDialogContent>

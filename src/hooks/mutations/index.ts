@@ -5,7 +5,7 @@ export { useCreateIndustry, useUpdateIndustry, useDeleteIndustry } from "./useIn
 export { useCreateCategory, useUpdateCategory, useDeleteCategory } from "./useCategoryMutations";
 
 // Activity Codes
-export { useCreateActivityCode, useUpdateActivityCode, useDeleteActivityCode, useDeactivateServiceActivity } from "./useActivityCodeMutations";
+export { useCreateActivityCode, useUpdateActivityCode, useDeleteActivityCode, useDeactivateServiceActivity, useReactivateServiceActivity, useReorderServiceActivity } from "./useActivityCodeMutations";
 
 // Expense Types
 export { useCreateExpenseType, useUpdateExpenseType, useDeleteExpenseType } from "./useExpenseTypeMutations";
