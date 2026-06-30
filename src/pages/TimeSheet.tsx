@@ -84,7 +84,7 @@ const TimeSheet = () => {
 
 
   const { staffRecord, isLoading: staffLoading } = useCurrentStaff();
-  const { isPartner } = useUserRole();
+  const { isPartner, isAdmin } = useUserRole();
 
   // Get policies
   const { data: policies } = useTimesheetPolicies();
@@ -350,7 +350,7 @@ const TimeSheet = () => {
   const canUnsubmit = isSubmitted
     && !period?.is_period_locked
     && (
-      (isFullyApproved && isCurrentWeek && isWithinEditableWindow && isPartner)
+      (isFullyApproved && isCurrentWeek && isWithinEditableWindow && (isPartner || isAdmin))
       || (!isFullyApproved && ((isCurrentWeek && isWithinEditableWindow) || hasRejectedLines))
     );
 
