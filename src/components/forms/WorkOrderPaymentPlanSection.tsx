@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import { Trash2, AlertTriangle, Plus, Minus } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -45,6 +46,7 @@ interface WorkOrderPaymentPlanSectionProps {
   isEditable: boolean;
   isStatusEditable: boolean;
   isAdminDateEditable: boolean;
+  isPaymentPlanDirty?: boolean;
   onPlanChange: (plan: PaymentPlanInput) => void;
   onInstallmentsChange: (rows: PaymentInstallmentInput[]) => void;
 }
@@ -86,6 +88,7 @@ export function WorkOrderPaymentPlanSection({
   isEditable,
   isStatusEditable,
   isAdminDateEditable,
+  isPaymentPlanDirty = false,
   onPlanChange,
   onInstallmentsChange,
 }: WorkOrderPaymentPlanSectionProps) {
@@ -500,6 +503,10 @@ export function WorkOrderPaymentPlanSection({
                             value={effectiveStatus}
                             onValueChange={(val) => {
                               const s = val as PaymentInstallmentStatus;
+                              if (isPaymentPlanDirty && inst.installment_id) {
+                                toast.error(t("workOrders.paymentPlan.validationSavePlanFirst"));
+                                return;
+                              }
                               if (s === "Invoiced" || s === "Completed" || s === "Overdue") {
                                 setPendingChange({ idx, newStatus: s });
                               } else {

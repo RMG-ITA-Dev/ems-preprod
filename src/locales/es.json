@@ -1131,6 +1131,7 @@
       "confirmIrreversible": "Esta acción no podrá editarse.",
       "validationPercentageRange": "Cada porcentaje de cuota debe estar entre 0 y 100",
       "validationPercentageSum": "La suma de porcentajes debe ser 100%",
+      "validationSavePlanFirst": "Guarda los cambios del plan de pagos antes de cambiar el estado de la cuota.",
       "confirmCollectionDateTitle": "Actualizar Fecha de Facturación de Cobranza",
       "confirmCollectionDateDesc": "La fecha de facturación de cobranza se actualizará a {{date}}. La fecha de pago de cobranza se recalculará automáticamente.",
       "confirmCollectionDateAction": "Guardar fecha"

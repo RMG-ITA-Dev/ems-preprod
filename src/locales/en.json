@@ -1131,6 +1131,7 @@
       "confirmIrreversible": "This action cannot be edited.",
       "validationPercentageRange": "Each installment percentage must be between 0 and 100",
       "validationPercentageSum": "Percentages must sum to 100%",
+      "validationSavePlanFirst": "Save payment plan changes before updating installment status.",
       "confirmCollectionDateTitle": "Update Collection Invoice Date",
       "confirmCollectionDateDesc": "The collection invoice date will be set to {{date}}. The collection payment date will be recalculated automatically.",
       "confirmCollectionDateAction": "Save date"
