@@ -166,7 +166,7 @@ describe("ActivityCodeForm — create (0513-114)", () => {
     await waitFor(() => expect(screen.getByTestId("activity-code-readonly")).toBeInTheDocument());
 
     // Fill description
-    const descInput = screen.getByPlaceholderText("e.g., Planning");
+    const descInput = screen.getByPlaceholderText("activity.descriptionPlaceholder");
     await user.type(descInput, "Audit Step");
 
     // Submit
@@ -192,7 +192,7 @@ describe("ActivityCodeForm — create (0513-114)", () => {
     selectNativeValue("s1");
     await waitFor(() => expect(screen.getByTestId("activity-code-readonly")).toBeInTheDocument());
 
-    await user.type(screen.getByPlaceholderText("e.g., Planning"), "Review");
+    await user.type(screen.getByPlaceholderText("activity.descriptionPlaceholder"), "Review");
     await user.click(screen.getByRole("button", { name: "activity.createActivity" }));
 
     await waitFor(() => expect(createMutateAsync).toHaveBeenCalled());
@@ -237,7 +237,7 @@ describe("ActivityCodeForm — recommended max hint (0513-114)", () => {
     await waitFor(() => expect(screen.getByTestId("activity-recommended-max")).toBeInTheDocument());
 
     // The create button is still enabled and works.
-    await user.type(screen.getByPlaceholderText("e.g., Planning"), "Tenth activity");
+    await user.type(screen.getByPlaceholderText("activity.descriptionPlaceholder"), "Tenth activity");
     await user.click(screen.getByRole("button", { name: "activity.createActivity" }));
 
     await waitFor(() =>

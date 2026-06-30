@@ -32,3 +32,16 @@ export function filterActivitiesByService<
       act.activity_id === currentActivityId,
   );
 }
+
+/**
+ * Numeric-aware comparator for activity codes.
+ * Sorts by prefix (alphabetical) then by numeric suffix so that
+ * AUD-A2 < AUD-A10 < AUD-A11 (instead of the lexicographic AUD-A10 < AUD-A2).
+ */
+export function compareActivityCodes(a: string, b: string): number {
+  const suffix = (code: string) => parseInt(code.match(/(\d+)$/)?.[1] ?? '0', 10);
+  const prefix = (code: string) => code.replace(/\d+$/, '');
+  const pa = prefix(a), pb = prefix(b);
+  if (pa !== pb) return pa.localeCompare(pb);
+  return suffix(a) - suffix(b);
+}

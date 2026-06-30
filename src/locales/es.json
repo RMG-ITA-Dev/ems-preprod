@@ -166,6 +166,7 @@
     "woNotApproved": "La Orden de Trabajo no está aprobada para este encargo.",
     "woNotApprovedSave": "No se puede guardar: la Orden de Trabajo de este encargo no está aprobada. Seleccione un encargo aprobado.",
     "woNotApprovedEdit": "La Orden de Trabajo de este encargo no está aprobada. Seleccione un encargo aprobado para guardar.",
+    "activityServiceMismatch": "No se puede guardar: la actividad seleccionada no corresponde al servicio de este encargo. Cambie la actividad antes de guardar.",
     "noApprovedEngagements": "No hay encargos con Orden de Trabajo aprobada. Solicite a un gerente que apruebe la Orden de Trabajo.",
     "noPeriodForWeek": "No se pudo crear la hoja de tiempo para la semana del {{weekStart}}",
     "cycles": {

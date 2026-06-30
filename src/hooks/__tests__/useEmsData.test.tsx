@@ -203,11 +203,7 @@ describe("useEmsData hooks", () => {
         { activity_id: "2", activity_code: "A200", description: "Execution", is_active: true },
       ];
 
-      const mockOrder = vi.fn().mockResolvedValue({
-        data: mockCodes,
-        error: null,
-      });
-      const mockEq = vi.fn().mockReturnValue({ order: mockOrder });
+      const mockEq = vi.fn().mockResolvedValue({ data: mockCodes, error: null });
       const mockSelect = vi.fn().mockReturnValue({ eq: mockEq });
       vi.mocked(supabase.from).mockReturnValue({ select: mockSelect } as any);
 
@@ -230,8 +226,7 @@ describe("useEmsData hooks", () => {
         { activity_id: "3", activity_code: "100-PLA", description: "Legacy Plan", is_active: true, service_id: null, entity_type: "A", service: null },
       ];
 
-      const mockOrder = vi.fn().mockResolvedValue({ data: mockCodes, error: null });
-      const mockSelect = vi.fn().mockReturnValue({ order: mockOrder });
+      const mockSelect = vi.fn().mockResolvedValue({ data: mockCodes, error: null });
       vi.mocked(supabase.from).mockReturnValue({ select: mockSelect } as any);
 
       const { result } = renderHook(() => useAllActivityCodes(), {
@@ -246,8 +241,7 @@ describe("useEmsData hooks", () => {
     });
 
     it("does NOT call .eq('is_active', true)", async () => {
-      const mockOrder = vi.fn().mockResolvedValue({ data: [], error: null });
-      const mockSelect = vi.fn().mockReturnValue({ order: mockOrder });
+      const mockSelect = vi.fn().mockResolvedValue({ data: [], error: null });
       vi.mocked(supabase.from).mockReturnValue({ select: mockSelect } as any);
 
       const { result } = renderHook(() => useAllActivityCodes(), {
@@ -256,10 +250,9 @@ describe("useEmsData hooks", () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-      // mockSelect is called without going through an .eq() chain
+      // select is called directly — no .eq() filter applied
       expect(mockSelect).toHaveBeenCalled();
-      // Verify the chain returned by select goes straight to order (no eq in between)
-      expect(mockOrder).toHaveBeenCalledWith("activity_code");
+      // The mock has no .eq — if the hook called .eq() it would throw and isSuccess would be false
     });
   });
 

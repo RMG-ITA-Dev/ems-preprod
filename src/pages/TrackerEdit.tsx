@@ -222,6 +222,16 @@ const TrackerEdit = () => {
     return filterActivitiesByService(activeActivities, selectedEng?.practica, activityId || undefined);
   }, [activeActivities, activeEngagements, engagementId, activityId]);
 
+  const handleEngagementChange = (newEngagementId: string) => {
+    const newEng = activeEngagements.find(e => e.engagement_id === newEngagementId);
+    const newPractica = newEng?.practica ?? null;
+    const currentAct = (activityCodes || []).find(a => a.activity_id === activityId);
+    if (currentAct?.service != null && currentAct.service.code !== newPractica) {
+      setActivityId("");
+    }
+    setEngagementId(newEngagementId);
+  };
+
   const handleSave = async () => {
     if (!entry || !date) return;
 
@@ -231,6 +241,14 @@ const TrackerEdit = () => {
     );
     if (!isApproved) {
       toast.error(t("tracker.woNotApprovedSave"));
+      return;
+    }
+
+    // Block save if activity belongs to a different service than the engagement
+    const chosenEng = activeEngagements.find(e => e.engagement_id === engagementId);
+    const chosenAct = (activityCodes || []).find(a => a.activity_id === activityId);
+    if (activityId && chosenAct?.service != null && chosenAct.service.code !== (chosenEng?.practica ?? null)) {
+      toast.error(t("tracker.activityServiceMismatch"));
       return;
     }
 
@@ -460,7 +478,7 @@ const TrackerEdit = () => {
               {/* Engagement */}
               <div className="space-y-2">
                 <Label>{t("tracker.engagement")}</Label>
-                <Select value={engagementId} onValueChange={setEngagementId} disabled={isImported}>
+                <Select value={engagementId} onValueChange={handleEngagementChange} disabled={isImported}>
                   <SelectTrigger>
                     <SelectValue placeholder={t("tracker.selectEngagement")} />
                   </SelectTrigger>

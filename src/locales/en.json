@@ -166,6 +166,7 @@
     "woNotApproved": "Work Order is not approved for this engagement.",
     "woNotApprovedSave": "Cannot save: the Work Order for this engagement is not approved. Select an approved engagement.",
     "woNotApprovedEdit": "This engagement's Work Order is not approved. Select an approved engagement to save.",
+    "activityServiceMismatch": "Cannot save: the selected activity does not belong to this engagement's service. Change the activity before saving.",
     "noApprovedEngagements": "No approved engagements available. Ask a manager to approve the Work Order.",
     "noPeriodForWeek": "Could not create timesheet period for the week of {{weekStart}}",
     "cycles": {
