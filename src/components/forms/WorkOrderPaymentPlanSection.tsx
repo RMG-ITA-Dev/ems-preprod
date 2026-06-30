@@ -105,13 +105,8 @@ export function WorkOrderPaymentPlanSection({
   const numInstallments = installments.length;
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/La_Paz" }).format(new Date());
 
-  // Effective status: auto-Mora when Pending and agreed_invoice_date is past
   const getEffectiveStatus = (inst: PaymentInstallmentInput): PaymentInstallmentStatus => {
-    if (
-      inst.status === "Pending" &&
-      inst.agreed_invoice_date &&
-      inst.agreed_invoice_date < today
-    ) return "Overdue";
+    if (inst.status === "Pending" && inst.agreed_invoice_date && inst.agreed_invoice_date < today) return "Overdue";
     return inst.status as PaymentInstallmentStatus;
   };
 

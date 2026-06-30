@@ -59,7 +59,7 @@ export function computePaymentDate(invoiceDate: string | null, paymentDays: numb
 export function detectOverdue(installment: PaymentInstallmentInput): boolean {
   if (installment.status !== 'Invoiced') return false;
   if (!installment.agreed_payment_date) return false;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/La_Paz" }).format(new Date());
   return installment.agreed_payment_date < today;
 }
 
