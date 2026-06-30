@@ -39,6 +39,7 @@ const editService: Service = {
   service_id: "s3",
   name: "Tax",
   code: 3,
+  abbreviation: "TAX",
   allows_rates_activities: true,
   is_active: true,
   created_at: "",
@@ -46,31 +47,62 @@ const editService: Service = {
 
 const usedCodes_0_to_4 = [0, 1, 2, 3, 4];
 
-describe("ServiceForm — Zod schema (0625-149)", () => {
+describe("ServiceForm — Zod schema (0625-149 / 0513-114)", () => {
+  const abbrevSchema = z
+    .string()
+    .regex(/^[A-Z]{2,5}$/)
+    .or(z.literal(""));
+
   const formSchema = z.object({
     name: z.string().min(1, "Name is required"),
     code: z.number().int().min(0).max(9),
+    abbreviation: abbrevSchema,
     allows_rates_activities: z.boolean(),
     is_active: z.boolean(),
   });
 
   it("accepts a valid service", () => {
-    const r = formSchema.safeParse({ name: "Tax", code: 3, allows_rates_activities: true, is_active: true });
+    const r = formSchema.safeParse({ name: "Tax", code: 3, abbreviation: "TAX", allows_rates_activities: true, is_active: true });
+    expect(r.success).toBe(true);
+  });
+
+  it("accepts empty abbreviation (optional)", () => {
+    const r = formSchema.safeParse({ name: "Tax", code: 3, abbreviation: "", allows_rates_activities: true, is_active: true });
+    expect(r.success).toBe(true);
+  });
+
+  it("rejects abbreviation with lowercase letters", () => {
+    const r = abbrevSchema.safeParse("Aud");
+    expect(r.success).toBe(false);
+  });
+
+  it("rejects abbreviation shorter than 2 chars", () => {
+    const r = abbrevSchema.safeParse("A");
+    expect(r.success).toBe(false);
+  });
+
+  it("rejects abbreviation longer than 5 chars", () => {
+    const r = abbrevSchema.safeParse("AUDITS");
+    expect(r.success).toBe(false);
+  });
+
+  it("accepts AUD (3 uppercase letters)", () => {
+    const r = abbrevSchema.safeParse("AUD");
     expect(r.success).toBe(true);
   });
 
   it("rejects code=10 (outside 0-9)", () => {
-    const r = formSchema.safeParse({ name: "X", code: 10, allows_rates_activities: false, is_active: true });
+    const r = formSchema.safeParse({ name: "X", code: 10, abbreviation: "", allows_rates_activities: false, is_active: true });
     expect(r.success).toBe(false);
   });
 
   it("rejects code=-1", () => {
-    const r = formSchema.safeParse({ name: "X", code: -1, allows_rates_activities: false, is_active: true });
+    const r = formSchema.safeParse({ name: "X", code: -1, abbreviation: "", allows_rates_activities: false, is_active: true });
     expect(r.success).toBe(false);
   });
 
   it("rejects empty name", () => {
-    const r = formSchema.safeParse({ name: "", code: 5, allows_rates_activities: false, is_active: true });
+    const r = formSchema.safeParse({ name: "", code: 5, abbreviation: "", allows_rates_activities: false, is_active: true });
     expect(r.success).toBe(false);
   });
 });
@@ -157,5 +189,59 @@ describe("ServiceForm — deactivation confirmation (0625-149)", () => {
     await user.click(screen.getByRole("button", { name: "common.confirm" }));
 
     await waitFor(() => expect(updateMutateAsync).toHaveBeenCalledOnce());
+  });
+});
+
+describe("ServiceForm — abbreviation field (0513-114)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    updateMutateAsync.mockResolvedValue({});
+  });
+
+  it("renders abbreviation input", () => {
+    render(
+      <ServiceForm open={true} onOpenChange={vi.fn()} service={null} usedCodes={usedCodes_0_to_4} />
+    );
+    expect(screen.getByTestId("service-abbreviation-input")).toBeInTheDocument();
+  });
+
+  it("pre-fills abbreviation from the existing service in edit mode", () => {
+    render(
+      <ServiceForm open={true} onOpenChange={vi.fn()} service={editService} usedCodes={usedCodes_0_to_4} />
+    );
+    const abbrevInput = screen.getByTestId("service-abbreviation-input") as HTMLInputElement;
+    expect(abbrevInput.value).toBe("TAX");
+  });
+
+  it("uppercases abbreviation input on change", async () => {
+    const user = userEvent.setup();
+    render(
+      <ServiceForm open={true} onOpenChange={vi.fn()} service={null} usedCodes={usedCodes_0_to_4} />
+    );
+    const abbrevInput = screen.getByTestId("service-abbreviation-input");
+    await user.type(abbrevInput, "con");
+    expect((abbrevInput as HTMLInputElement).value).toBe("CON");
+  });
+
+  it("includes abbreviation in updateMutation payload on save", async () => {
+    const user = userEvent.setup();
+    render(
+      <ServiceForm open={true} onOpenChange={vi.fn()} service={editService} usedCodes={usedCodes_0_to_4} />
+    );
+
+    // Clear and retype abbreviation
+    const abbrevInput = screen.getByTestId("service-abbreviation-input");
+    await user.clear(abbrevInput);
+    await user.type(abbrevInput, "AUD");
+
+    await user.click(screen.getByRole("button", { name: "common.saveChanges" }));
+
+    await waitFor(() =>
+      expect(updateMutateAsync).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ abbreviation: "AUD" }),
+        })
+      )
+    );
   });
 });

@@ -159,6 +159,9 @@ export interface ActivityCode {
   activity_code: string;
   description: string;
   is_active: boolean;
+  service_id: string | null;
+  entity_type: string;
+  service?: Service;
 }
 
 export interface Service {
@@ -168,6 +171,7 @@ export interface Service {
   allows_rates_activities: boolean;
   is_active: boolean;
   created_at: string;
+  abbreviation?: string | null;
 }
 
 export interface Skill {
@@ -455,6 +459,20 @@ export function useActivityCodes() {
         .from('activity_codes')
         .select('*')
         .eq('is_active', true)
+        .order('activity_code');
+      if (error) throw error;
+      return data as ActivityCode[];
+    },
+  });
+}
+
+export function useAllActivityCodes() {
+  return useQuery({
+    queryKey: ['activity_codes', 'all'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('activity_codes')
+        .select('*, service:services(service_id, name, abbreviation)')
         .order('activity_code');
       if (error) throw error;
       return data as ActivityCode[];

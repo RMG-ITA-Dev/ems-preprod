@@ -10,6 +10,7 @@ export function useCreateService() {
     mutationFn: async (data: {
       name: string;
       code: number;
+      abbreviation?: string | null;
       allows_rates_activities: boolean;
       is_active: boolean;
     }) => {
@@ -40,6 +41,7 @@ export function useUpdateService() {
       id: string;
       data: Partial<{
         name: string;
+        abbreviation: string | null;
         allows_rates_activities: boolean;
         is_active: boolean;
       }>;

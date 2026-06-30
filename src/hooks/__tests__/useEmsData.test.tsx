@@ -10,6 +10,7 @@ import {
   useClients,
   useEngagements,
   useActivityCodes,
+  useAllActivityCodes,
   useExpenseTypes,
   useGlobalSettings,
 } from "../useEmsData";
@@ -218,6 +219,47 @@ describe("useEmsData hooks", () => {
 
       expect(supabase.from).toHaveBeenCalledWith("activity_codes");
       expect(mockEq).toHaveBeenCalledWith("is_active", true);
+    });
+  });
+
+  describe("useAllActivityCodes (0513-114)", () => {
+    it("fetches ALL activity codes without is_active filter (for admin)", async () => {
+      const mockCodes = [
+        { activity_id: "1", activity_code: "AUD-A1", description: "Planning", is_active: true, service_id: "s1", entity_type: "A", service: { service_id: "s1", name: "Auditoría", abbreviation: "AUD" } },
+        { activity_id: "2", activity_code: "AUD-AX", description: "Old Step", is_active: false, service_id: "s1", entity_type: "A", service: { service_id: "s1", name: "Auditoría", abbreviation: "AUD" } },
+        { activity_id: "3", activity_code: "100-PLA", description: "Legacy Plan", is_active: true, service_id: null, entity_type: "A", service: null },
+      ];
+
+      const mockOrder = vi.fn().mockResolvedValue({ data: mockCodes, error: null });
+      const mockSelect = vi.fn().mockReturnValue({ order: mockOrder });
+      vi.mocked(supabase.from).mockReturnValue({ select: mockSelect } as any);
+
+      const { result } = renderHook(() => useAllActivityCodes(), {
+        wrapper: createWrapper(),
+      });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      expect(supabase.from).toHaveBeenCalledWith("activity_codes");
+      // Must NOT filter by is_active — all 3 rows returned including the inactive AX one
+      expect(result.current.data).toHaveLength(3);
+    });
+
+    it("does NOT call .eq('is_active', true)", async () => {
+      const mockOrder = vi.fn().mockResolvedValue({ data: [], error: null });
+      const mockSelect = vi.fn().mockReturnValue({ order: mockOrder });
+      vi.mocked(supabase.from).mockReturnValue({ select: mockSelect } as any);
+
+      const { result } = renderHook(() => useAllActivityCodes(), {
+        wrapper: createWrapper(),
+      });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      // mockSelect is called without going through an .eq() chain
+      expect(mockSelect).toHaveBeenCalled();
+      // Verify the chain returned by select goes straight to order (no eq in between)
+      expect(mockOrder).toHaveBeenCalledWith("activity_code");
     });
   });
 

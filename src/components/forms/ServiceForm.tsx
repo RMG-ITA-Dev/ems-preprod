@@ -50,6 +50,7 @@ const ALL_DIGITS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 type FormData = {
   name: string;
   code: number;
+  abbreviation: string;
   allows_rates_activities: boolean;
   is_active: boolean;
 };
@@ -68,6 +69,10 @@ export function ServiceForm({ open, onOpenChange, service, usedCodes }: ServiceF
   const formSchema = z.object({
     name: z.string().min(1, t("service.nameRequired")),
     code: z.number().int().min(0).max(9),
+    abbreviation: z
+      .string()
+      .regex(/^[A-Z]{2,5}$/, t("service.abbreviationInvalid"))
+      .or(z.literal("")),
     allows_rates_activities: z.boolean(),
     is_active: z.boolean(),
   });
@@ -94,6 +99,7 @@ export function ServiceForm({ open, onOpenChange, service, usedCodes }: ServiceF
     defaultValues: {
       name: "",
       code: defaultCode,
+      abbreviation: "",
       allows_rates_activities: false,
       is_active: true,
     },
@@ -104,6 +110,7 @@ export function ServiceForm({ open, onOpenChange, service, usedCodes }: ServiceF
       form.reset({
         name: service?.name ?? "",
         code: isEdit ? (service.code ?? defaultCode) : defaultCode,
+        abbreviation: service?.abbreviation ?? "",
         allows_rates_activities: service?.allows_rates_activities ?? false,
         is_active: service?.is_active ?? true,
       });
@@ -113,11 +120,13 @@ export function ServiceForm({ open, onOpenChange, service, usedCodes }: ServiceF
   }, [open, service, isEdit, defaultCode, form]);
 
   const commitSubmit = async (data: FormData) => {
+    const abbreviation = data.abbreviation.trim() || null;
     if (isEdit && service) {
       await updateMutation.mutateAsync({
         id: service.service_id,
         data: {
           name: data.name,
+          abbreviation,
           allows_rates_activities: data.allows_rates_activities,
           is_active: data.is_active,
         },
@@ -126,6 +135,7 @@ export function ServiceForm({ open, onOpenChange, service, usedCodes }: ServiceF
       await createMutation.mutateAsync({
         name: data.name,
         code: data.code,
+        abbreviation,
         allows_rates_activities: data.allows_rates_activities,
         is_active: data.is_active,
       });
@@ -171,6 +181,27 @@ export function ServiceForm({ open, onOpenChange, service, usedCodes }: ServiceF
                     <FormControl>
                       <Input placeholder={t("service.namePlaceholder")} {...field} />
                     </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="abbreviation"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t("service.abbreviation")}</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder={t("service.abbreviationPlaceholder")}
+                        maxLength={5}
+                        {...field}
+                        onChange={(e) => field.onChange(e.target.value.toUpperCase())}
+                        data-testid="service-abbreviation-input"
+                      />
+                    </FormControl>
+                    <FormDescription>{t("service.abbreviationDescription")}</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}

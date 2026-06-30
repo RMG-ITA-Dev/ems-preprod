@@ -21,7 +21,7 @@ import {
   useCategories,
   useIndustries,
   useGlobalSettings,
-  useActivityCodes,
+  useAllActivityCodes,
   useExpenseTypes,
   useSkills,
   useEngagements,
@@ -72,7 +72,7 @@ const Settings = () => {
   const { data: categories, isLoading: categoriesLoading } = useCategories();
   const { data: industries, isLoading: industriesLoading } = useIndustries();
   const { data: settings, isLoading: settingsLoading } = useGlobalSettings();
-  const { data: activityCodes, isLoading: activitiesLoading } = useActivityCodes();
+  const { data: activityCodes, isLoading: activitiesLoading } = useAllActivityCodes();
   const { data: expenseTypes, isLoading: expenseTypesLoading } = useExpenseTypes();
   const { data: skills, isLoading: skillsLoading } = useSkills();
   const { data: services, isLoading: servicesLoading } = useServices();
@@ -333,6 +333,17 @@ const Settings = () => {
     { key: "activity_code", label: t("activity.code"), sortable: true, className: "font-mono w-24", mobilePriority: 'primary' },
     { key: "description", label: t("activity.description"), sortable: true, mobilePriority: 'primary' },
     {
+      key: "service_id",
+      label: t("activity.service"),
+      sortable: false,
+      mobilePriority: 'secondary',
+      render: (row) => row.service ? (
+        <span className="text-sm">{row.service.name}</span>
+      ) : (
+        <span className="text-muted-foreground text-sm">—</span>
+      ),
+    },
+    {
       key: "is_active",
       label: t("activity.status"),
       sortable: true,
@@ -356,6 +367,14 @@ const Settings = () => {
   const serviceColumns: Column<Service>[] = [
     { key: "code", label: t("service.code"), sortable: true, className: "w-16 font-mono", mobilePriority: 'primary' },
     { key: "name", label: t("service.name"), sortable: true, mobilePriority: 'primary' },
+    {
+      key: "abbreviation",
+      label: t("service.abbreviation"),
+      sortable: true,
+      className: "font-mono w-20",
+      mobilePriority: 'secondary',
+      render: (row) => row.abbreviation ?? <span className="text-muted-foreground">—</span>,
+    },
     {
       key: "allows_rates_activities",
       label: t("service.allowsRatesActivities"),
