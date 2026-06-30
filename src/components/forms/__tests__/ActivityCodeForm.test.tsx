@@ -49,8 +49,11 @@ const mockServices = [
   { service_id: "s2", name: "Consultoría", code: 2, abbreviation: "CON", allows_rates_activities: true, is_active: true, created_at: "" },
 ];
 
+const mockAllActivities = vi.hoisted(() => ({ current: [] as any[] }));
+
 vi.mock("@/hooks/useEmsData", () => ({
   useServices: () => ({ data: mockServices }),
+  useAllActivityCodes: () => ({ data: mockAllActivities.current }),
 }));
 
 import { ActivityCodeForm } from "@/components/forms/ActivityCodeForm";
@@ -195,6 +198,52 @@ describe("ActivityCodeForm — create (0513-114)", () => {
     await waitFor(() => expect(createMutateAsync).toHaveBeenCalled());
     expect(createMutateAsync).not.toHaveBeenCalledWith(
       expect.objectContaining({ activity_code: expect.any(String) })
+    );
+  });
+});
+
+// ── Soft recommendation (≥ 9 activities) ──────────────────────────────────
+
+describe("ActivityCodeForm — recommended max hint (0513-114)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAllActivities.current = [];
+  });
+
+  it("does NOT show the hint when the service has fewer than 9 active activities", async () => {
+    mockAllActivities.current = [
+      { activity_id: "a1", service_id: "s1", is_active: true, activity_code: "AUD-A1", description: "x", entity_type: "A" },
+    ];
+    render(<ActivityCodeForm open={true} onOpenChange={vi.fn()} activityCode={null} />);
+    selectNativeValue("s1");
+    await waitFor(() => expect(screen.getByTestId("activity-code-readonly")).toBeInTheDocument());
+    expect(screen.queryByTestId("activity-recommended-max")).not.toBeInTheDocument();
+  });
+
+  it("shows the non-blocking hint when the service already has 9 active activities, submit still works", async () => {
+    const user = userEvent.setup();
+    createMutateAsync.mockResolvedValue({});
+    mockAllActivities.current = Array.from({ length: 9 }, (_, i) => ({
+      activity_id: `a${i + 1}`,
+      service_id: "s1",
+      is_active: true,
+      activity_code: `AUD-A${i + 1}`,
+      description: `desc ${i + 1}`,
+      entity_type: "A",
+    }));
+
+    render(<ActivityCodeForm open={true} onOpenChange={vi.fn()} activityCode={null} />);
+    selectNativeValue("s1");
+    await waitFor(() => expect(screen.getByTestId("activity-recommended-max")).toBeInTheDocument());
+
+    // The create button is still enabled and works.
+    await user.type(screen.getByPlaceholderText("e.g., Planning"), "Tenth activity");
+    await user.click(screen.getByRole("button", { name: "activity.createActivity" }));
+
+    await waitFor(() =>
+      expect(createMutateAsync).toHaveBeenCalledWith(
+        expect.objectContaining({ service_id: "s1", entity_type: "A", description: "Tenth activity" })
+      )
     );
   });
 });

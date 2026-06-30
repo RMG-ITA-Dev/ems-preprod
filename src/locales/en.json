@@ -435,7 +435,7 @@
     "activateDescription": "Activity {{code}} will become active again and receive the next available code (added at the end).",
     "moveUp": "Move up",
     "moveDown": "Move down",
-    "maxActivitiesReached": "Maximum of 9 active activities per service per type reached.",
+    "recommendedMaxHint": "Recommendation: up to 9 active activities per service. You can add more if you need to.",
     "abbreviationMissing": "The selected service has no abbreviation. Set one in Services before adding activities."
   },
   "skill": {

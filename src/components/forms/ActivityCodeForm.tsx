@@ -42,7 +42,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { ActivityCode } from "@/hooks/useEmsData";
-import { useServices } from "@/hooks/useEmsData";
+import { useServices, useAllActivityCodes } from "@/hooks/useEmsData";
 import {
   useCreateActivityCode,
   useUpdateActivityCode,
@@ -50,7 +50,11 @@ import {
   useDeactivateServiceActivity,
   useReactivateServiceActivity,
 } from "@/hooks/mutations";
-import { Trash2, RotateCcw } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Trash2, RotateCcw, AlertTriangle } from "lucide-react";
+
+// Soft recommendation: services usually keep 1–9 activities, but it is not enforced.
+const RECOMMENDED_MAX_ACTIVITIES = 9;
 
 const formSchema = z.object({
   activity_code: z.string().max(10, "Max 10 characters"),
@@ -96,8 +100,16 @@ export function ActivityCodeForm({ open, onOpenChange, activityCode }: ActivityC
     },
   });
 
+  const { data: allActivities } = useAllActivityCodes();
+
   const watchedServiceId = form.watch("service_id");
   const selectedService = activeServices.find((s) => s.service_id === watchedServiceId);
+
+  // Active activities already linked to the selected service (for the soft
+  // recommendation note when creating a new one).
+  const activeCountForService = watchedServiceId
+    ? (allActivities ?? []).filter((a) => a.service_id === watchedServiceId && a.is_active).length
+    : 0;
 
   // Derive a preview code for a NEW service-linked activity.
   const derivedCodePreview = (() => {
@@ -206,6 +218,14 @@ export function ActivityCodeForm({ open, onOpenChange, activityCode }: ActivityC
                   </FormItem>
                 )}
               />
+            )}
+
+            {/* Non-blocking recommendation: 1–9 activities per service. */}
+            {isServiceLinkedNew && activeCountForService >= RECOMMENDED_MAX_ACTIVITIES && (
+              <Alert data-testid="activity-recommended-max">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription>{t("activity.recommendedMaxHint")}</AlertDescription>
+              </Alert>
             )}
 
             {/* Show current service in edit mode */}
