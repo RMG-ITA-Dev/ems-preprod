@@ -473,7 +473,7 @@ export function useActivityCodes() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('activity_codes')
-        .select('*')
+        .select('*, service:services(code)')
         .eq('is_active', true);
       if (error) throw error;
       const suffix = (code: string) => parseInt(code.match(/(\d+)$/)?.[1] ?? '0', 10);

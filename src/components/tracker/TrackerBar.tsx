@@ -13,6 +13,7 @@ import { EngagementCombobox } from "@/components/tracker/EngagementCombobox";
 import { useActivityCodes } from "@/hooks/useEmsData";
 import { useApprovedEngagements } from "@/hooks/useApprovedEngagements";
 import { useAdminActivityId } from "@/hooks/useAdminActivity";
+import { filterActivitiesByService } from "@/lib/activityFilters";
 import { cn } from "@/lib/utils";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle } from "lucide-react";
@@ -65,6 +66,11 @@ export function TrackerBar({
   const selectedEngagement = engagements.find(e => e.engagement_id === engagementId);
   const isActivityNotRequired = selectedEngagement && !selectedEngagement.activity_required;
   const selectedActivity = activeActivities.find(a => a.activity_id === activityId);
+  const visibleActivities = filterActivitiesByService(
+    activeActivities,
+    selectedEngagement?.practica,
+    activityId ?? undefined,
+  );
 
   const isEngagementApproved = engagements.some(e => e.engagement_id === engagementId);
   const canStart = engagementId && (activityId || isActivityNotRequired) && isEngagementApproved && (remainingHours === null || remainingHours > 0) && (!isActivityNotRequired || !!adminActivityId);
@@ -123,7 +129,7 @@ export function TrackerBar({
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                {activeActivities.map((act) => (
+                {visibleActivities.map((act) => (
                   <SelectItem key={act.activity_id} value={act.activity_id}>
                     <span className="font-medium">{act.activity_code}</span>
                     <span className="text-muted-foreground ml-2">- {act.description}</span>

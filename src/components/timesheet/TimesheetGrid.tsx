@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { normalizeActivityForEngagement } from "@/lib/timesheetActivityRules";
+import { filterActivitiesByService } from "@/lib/activityFilters";
 import { toast } from "sonner";
 import { logger } from "@/lib/logger";
 
@@ -688,6 +689,13 @@ export function TimesheetGrid({
     return map;
   }, [rows]);
 
+  // Map engagement → service code (practica) to filter activities per row.
+  const practicaByEngagement = useMemo(() => {
+    const map = new Map<string, number | null>();
+    engagements.forEach(e => map.set(e.engagement_id, e.practica));
+    return map;
+  }, [engagements]);
+
 
   // Get approval status for a specific (engagement, activity) pair
   const getApprovalStatus = (engagementId: string, activityId: string) => {
@@ -820,7 +828,11 @@ export function TimesheetGrid({
                       } />
                     </SelectTrigger>
                     <SelectContent>
-                      {activities.map((act) => {
+                      {filterActivitiesByService(
+                        activities,
+                        practicaByEngagement.get(row.engagementId),
+                        row.activityId,
+                      ).map((act) => {
                         const isUsedElsewhere = usedActivitiesByEngagement
                           .get(row.engagementId)?.has(act.activity_id) && row.activityId !== act.activity_id;
                         return (

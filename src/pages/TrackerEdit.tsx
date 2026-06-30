@@ -61,6 +61,7 @@ import { useApprovedEngagements } from "@/hooks/useApprovedEngagements";
 import { useLanguage } from "@/hooks/useLanguage";
 // toast imported at top of file
 import { cn } from "@/lib/utils";
+import { filterActivitiesByService } from "@/lib/activityFilters";
 
 const TrackerEdit = () => {
   const { id } = useParams<{ id: string }>();
@@ -214,6 +215,12 @@ const TrackerEdit = () => {
     if (!activityCodes) return [];
     return activityCodes.filter(a => a.is_active || a.activity_id === entry?.activity_id);
   }, [activityCodes, entry?.activity_id]);
+
+  // Restrict to the selected engagement's service (+ global activities); keep current selection.
+  const visibleActivities = useMemo(() => {
+    const selectedEng = activeEngagements.find(e => e.engagement_id === engagementId);
+    return filterActivitiesByService(activeActivities, selectedEng?.practica, activityId || undefined);
+  }, [activeActivities, activeEngagements, engagementId, activityId]);
 
   const handleSave = async () => {
     if (!entry || !date) return;
@@ -481,7 +488,7 @@ const TrackerEdit = () => {
                     <SelectValue placeholder={t("tracker.selectActivity")} />
                   </SelectTrigger>
                   <SelectContent>
-                    {activeActivities.map((act) => (
+                    {visibleActivities.map((act) => (
                       <SelectItem key={act.activity_id} value={act.activity_id}>
                         {act.activity_code} - {act.description}
                       </SelectItem>
