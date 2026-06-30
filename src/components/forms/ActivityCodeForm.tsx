@@ -80,8 +80,10 @@ export function ActivityCodeForm({ open, onOpenChange, activityCode }: ActivityC
   const reactivateMutation = useReactivateServiceActivity();
 
   const { data: services } = useServices();
+  // Only services that require extra configuration (allows_rates_activities)
+  // and have an abbreviation can host service-linked activities.
   const activeServices = (services ?? []).filter(
-    (s) => s.is_active && s.abbreviation
+    (s) => s.is_active && s.abbreviation && s.allows_rates_activities
   );
 
   const form = useForm<FormData>({
