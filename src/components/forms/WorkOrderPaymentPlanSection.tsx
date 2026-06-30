@@ -267,8 +267,12 @@ export function WorkOrderPaymentPlanSection({
     const updates: Partial<PaymentInstallmentInput> = { status: newStatus };
 
     if (newStatus === "Invoiced") {
-      updates.collection_invoice_date = today;
-      updates.collection_payment_date = computePaymentDate(today, currentPlan.payment_days);
+      if (inst.status !== "Overdue") {
+        // First invoice (Pending / auto-Overdue→Invoiced): set collection dates
+        updates.collection_invoice_date = today;
+        updates.collection_payment_date = computePaymentDate(today, currentPlan.payment_days);
+      }
+      // Manual Overdue→Invoiced revert: keep existing collection dates
       updates.payment_date_actual = null;
     }
     if (newStatus === "Completed") {
@@ -283,6 +287,7 @@ export function WorkOrderPaymentPlanSection({
       updateStatus.mutate({
         installmentId: inst.installment_id,
         newStatus,
+        prevStatus: inst.status as PaymentInstallmentStatus,
         woId,
         paymentDays: currentPlan.payment_days,
       });

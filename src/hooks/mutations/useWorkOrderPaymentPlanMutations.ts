@@ -120,11 +120,13 @@ export function useUpdateInstallmentStatus() {
     mutationFn: async ({
       installmentId,
       newStatus,
+      prevStatus,
       woId,
       paymentDays,
     }: {
       installmentId: string;
       newStatus: PaymentInstallmentStatus;
+      prevStatus?: PaymentInstallmentStatus;
       woId: string;
       paymentDays?: number;
     }) => {
@@ -132,10 +134,14 @@ export function useUpdateInstallmentStatus() {
       const updates: Record<string, unknown> = { status: newStatus };
 
       if (newStatus === "Invoiced") {
-        updates.collection_invoice_date = today;
-        if (paymentDays != null) {
-          updates.collection_payment_date = computePaymentDate(today, paymentDays);
+        if (prevStatus !== "Overdue") {
+          // First invoice (Pending/auto-Overdue): set collection dates
+          updates.collection_invoice_date = today;
+          if (paymentDays != null) {
+            updates.collection_payment_date = computePaymentDate(today, paymentDays);
+          }
         }
+        // Manual Overdue→Invoiced revert: keep existing collection dates in DB
       }
       if (newStatus === "Pending") {
         updates.collection_invoice_date = null;
