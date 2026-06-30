@@ -88,7 +88,10 @@ const Settings = () => {
     (activityCodes ?? [])
       .filter((a) => a.is_active && a.service_id)
       .slice()
-      .sort((a, b) => a.activity_code.localeCompare(b.activity_code))
+      .sort((a, b) => {
+        const n = (code: string) => parseInt(code.match(/(\d+)$/)?.[1] ?? "0", 10);
+        return n(a.activity_code) - n(b.activity_code);
+      })
       .forEach((a) => {
         const arr = map.get(a.service_id!) ?? [];
         arr.push(a.activity_id);

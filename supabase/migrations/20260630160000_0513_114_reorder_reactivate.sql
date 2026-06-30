@@ -177,7 +177,7 @@ BEGIN
      AND is_active   = true
    FOR UPDATE;
 
-  SELECT array_agg(activity_id ORDER BY activity_code)
+  SELECT array_agg(activity_id ORDER BY substring(activity_code FROM '[0-9]+$')::int)
     INTO v_ids
     FROM public.activity_codes
    WHERE service_id  = v_service_id
@@ -215,3 +215,74 @@ $$;
 
 REVOKE ALL ON FUNCTION public.reorder_service_activity(uuid, integer) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.reorder_service_activity(uuid, integer) TO authenticated;
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- 4. deactivate_service_activity — numeric ordinal comparison (R1 fix)
+--    Replaces the original definition from 20260629000000, which used lexicographic
+--    comparison (activity_code > '…A9') and ORDER BY activity_code — both wrong
+--    once ordinals exceed 9.
+-- ────────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.deactivate_service_activity(
+  p_activity_id uuid
+) RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_service_id  uuid;
+  v_entity_type text;
+  v_abbrev      text;
+  v_old_code    text;
+  v_old_ordinal integer;
+  rec           RECORD;
+  v_ordinal     integer;
+BEGIN
+  IF NOT public.is_admin() THEN
+    RAISE EXCEPTION 'Permission denied: admin only';
+  END IF;
+
+  -- Lock and fetch the target activity.
+  SELECT ac.service_id, ac.entity_type, ac.activity_code, s.abbreviation
+    INTO v_service_id, v_entity_type, v_old_code, v_abbrev
+    FROM public.activity_codes ac
+    JOIN public.services s USING (service_id)
+   WHERE ac.activity_id = p_activity_id AND ac.is_active = true
+   FOR UPDATE OF ac;
+
+  IF v_service_id IS NULL THEN
+    RAISE EXCEPTION 'Activity not found, already inactive, or not service-linked';
+  END IF;
+
+  -- Extract current ordinal from code (e.g. AUD-A3 → 3, AUD-A10 → 10).
+  v_old_ordinal := (regexp_replace(v_old_code, '^.*[A-Z](\d+)$', '\1'))::integer;
+
+  -- Mark target as inactive with AX code.
+  UPDATE public.activity_codes
+     SET is_active = false,
+         activity_code = v_abbrev || '-' || v_entity_type || 'X'
+   WHERE activity_id = p_activity_id;
+
+  -- Renumber actives with ordinal > old_ordinal (shift back by 1).
+  -- Uses numeric extraction to correctly handle ordinals > 9.
+  v_ordinal := v_old_ordinal;
+  FOR rec IN
+    SELECT activity_id
+      FROM public.activity_codes
+     WHERE service_id  = v_service_id
+       AND entity_type = v_entity_type
+       AND is_active   = true
+       AND substring(activity_code FROM '[0-9]+$')::int > v_old_ordinal
+     ORDER BY substring(activity_code FROM '[0-9]+$')::int
+     FOR UPDATE
+  LOOP
+    UPDATE public.activity_codes
+       SET activity_code = v_abbrev || '-' || v_entity_type || v_ordinal::text
+     WHERE activity_id = rec.activity_id;
+    v_ordinal := v_ordinal + 1;
+  END LOOP;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.deactivate_service_activity(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.deactivate_service_activity(uuid) TO authenticated;

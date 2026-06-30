@@ -26,6 +26,7 @@ import {
 import {
   Sheet,
   SheetContent,
+  SheetDescription,
   SheetHeader,
   SheetTitle,
   SheetFooter,
@@ -183,6 +184,7 @@ export function ActivityCodeForm({ open, onOpenChange, activityCode }: ActivityC
       <SheetContent className="sm:max-w-lg">
         <SheetHeader>
           <SheetTitle>{isEdit ? t("activity.editActivity") : t("activity.newActivity")}</SheetTitle>
+          <SheetDescription>{t("activity.formDescription")}</SheetDescription>
         </SheetHeader>
 
         <Form {...form}>
@@ -257,7 +259,7 @@ export function ActivityCodeForm({ open, onOpenChange, activityCode }: ActivityC
                       />
                     ) : (
                       <Input
-                        placeholder="e.g., PLN"
+                        placeholder={t("activity.codePlaceholder")}
                         maxLength={10}
                         {...field}
                         onChange={(e) => field.onChange(e.target.value.toUpperCase())}
@@ -279,7 +281,7 @@ export function ActivityCodeForm({ open, onOpenChange, activityCode }: ActivityC
                 <FormItem>
                   <FormLabel>{t("activity.description")} *</FormLabel>
                   <FormControl>
-                    <Input placeholder="e.g., Planning" {...field} />
+                    <Input placeholder={t("activity.descriptionPlaceholder")} {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

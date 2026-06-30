@@ -436,7 +436,10 @@
     "moveUp": "Subir",
     "moveDown": "Bajar",
     "recommendedMaxHint": "Recomendación: hasta 9 actividades activas por servicio. Puedes agregar más si lo necesitas.",
-    "abbreviationMissing": "El servicio seleccionado no tiene abreviación. Configúrela en Servicios antes de agregar actividades."
+    "abbreviationMissing": "El servicio seleccionado no tiene abreviación. Configúrela en Servicios antes de agregar actividades.",
+    "formDescription": "Administra los detalles y vinculación del código de actividad.",
+    "codePlaceholder": "ej., PLN",
+    "descriptionPlaceholder": "ej., Planeación"
   },
   "skill": {
     "name": "Nombre",

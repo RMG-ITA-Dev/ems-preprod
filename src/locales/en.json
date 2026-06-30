@@ -436,7 +436,10 @@
     "moveUp": "Move up",
     "moveDown": "Move down",
     "recommendedMaxHint": "Recommendation: up to 9 active activities per service. You can add more if you need to.",
-    "abbreviationMissing": "The selected service has no abbreviation. Set one in Services before adding activities."
+    "abbreviationMissing": "The selected service has no abbreviation. Set one in Services before adding activities.",
+    "formDescription": "Manage activity code details and service linkage.",
+    "codePlaceholder": "e.g., PLN",
+    "descriptionPlaceholder": "e.g., Planning"
   },
   "skill": {
     "name": "Name",
