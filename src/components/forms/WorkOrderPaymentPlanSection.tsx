@@ -481,6 +481,10 @@ export function WorkOrderPaymentPlanSection({
                             value={inst.collection_invoice_date ?? ""}
                             onChange={(e) => {
                               if (inst.installment_id && e.target.value) {
+                                if (isPaymentPlanDirty) {
+                                  toast.error(t("workOrders.paymentPlan.validationSavePlanFirst"));
+                                  return;
+                                }
                                 setPendingCollectionDate({ installmentId: inst.installment_id, newDate: e.target.value });
                               } else {
                                 handleCollectionInvoiceDateChange(idx, e.target.value);

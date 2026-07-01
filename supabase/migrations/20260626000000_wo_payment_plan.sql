@@ -197,11 +197,11 @@ CREATE POLICY "Admins can view all payment installments"
   USING (is_admin());
 CREATE POLICY "Team can manage payment installments"
   ON public.wo_payment_installments FOR ALL TO authenticated
-  USING  ((EXISTS (SELECT 1 FROM public.work_orders wo WHERE wo.wo_id = wo_payment_installments.wo_id AND is_engagement_team_member(wo.engagement_id))))
-  WITH CHECK ((EXISTS (SELECT 1 FROM public.work_orders wo WHERE wo.wo_id = wo_payment_installments.wo_id AND is_engagement_team_member(wo.engagement_id))));
+  USING  ((EXISTS (SELECT 1 FROM public.wo_payment_plan p JOIN public.work_orders wo ON wo.wo_id = p.wo_id WHERE p.plan_id = wo_payment_installments.plan_id AND is_engagement_team_member(wo.engagement_id))))
+  WITH CHECK ((EXISTS (SELECT 1 FROM public.wo_payment_plan p JOIN public.work_orders wo ON wo.wo_id = p.wo_id WHERE p.plan_id = wo_payment_installments.plan_id AND is_engagement_team_member(wo.engagement_id))));
 CREATE POLICY "Team can view payment installments"
   ON public.wo_payment_installments FOR SELECT TO authenticated
-  USING  ((EXISTS (SELECT 1 FROM public.work_orders wo WHERE wo.wo_id = wo_payment_installments.wo_id AND is_engagement_team_member(wo.engagement_id))));
+  USING  ((EXISTS (SELECT 1 FROM public.wo_payment_plan p JOIN public.work_orders wo ON wo.wo_id = p.wo_id WHERE p.plan_id = wo_payment_installments.plan_id AND is_engagement_team_member(wo.engagement_id))));
 
 -- 5. updated_at triggers
 DROP TRIGGER IF EXISTS update_wo_payment_plan_updated_at         ON public.wo_payment_plan;
