@@ -26,10 +26,15 @@ vi.mock("react-i18next", () => ({
 
 // Hoisted so the reference is available inside the vi.mock factory
 const updateMutateAsync = vi.hoisted(() => vi.fn());
+const mockAllActivities = vi.hoisted(() => ({ current: [] as any[] }));
 
 vi.mock("@/hooks/mutations", () => ({
   useCreateService: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useUpdateService: () => ({ mutateAsync: updateMutateAsync, isPending: false }),
+}));
+
+vi.mock("@/hooks/useEmsData", () => ({
+  useAllActivityCodes: () => ({ data: mockAllActivities.current }),
 }));
 
 import { ServiceForm } from "@/components/forms/ServiceForm";
@@ -196,6 +201,7 @@ describe("ServiceForm — abbreviation field (0513-114)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     updateMutateAsync.mockResolvedValue({});
+    mockAllActivities.current = [];
   });
 
   it("renders abbreviation input", () => {
@@ -241,6 +247,40 @@ describe("ServiceForm — abbreviation field (0513-114)", () => {
         expect.objectContaining({
           data: expect.objectContaining({ abbreviation: "AUD" }),
         })
+      )
+    );
+  });
+
+  it("blocks clearing the abbreviation when the service has linked activities (R21)", async () => {
+    const user = userEvent.setup();
+    mockAllActivities.current = [
+      { activity_id: "a1", service_id: "s3", is_active: true, activity_code: "TAX-A1", description: "x", entity_type: "A" },
+    ];
+    render(
+      <ServiceForm open={true} onOpenChange={vi.fn()} service={editService} usedCodes={usedCodes_0_to_4} />
+    );
+
+    await user.clear(screen.getByTestId("service-abbreviation-input"));
+    await user.click(screen.getByRole("button", { name: "common.saveChanges" }));
+
+    // Update must be blocked and the error surfaced.
+    expect(await screen.findByText("service.abbreviationRequiredLinked")).toBeInTheDocument();
+    expect(updateMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("allows clearing the abbreviation when the service has NO linked activities", async () => {
+    const user = userEvent.setup();
+    mockAllActivities.current = [];
+    render(
+      <ServiceForm open={true} onOpenChange={vi.fn()} service={editService} usedCodes={usedCodes_0_to_4} />
+    );
+
+    await user.clear(screen.getByTestId("service-abbreviation-input"));
+    await user.click(screen.getByRole("button", { name: "common.saveChanges" }));
+
+    await waitFor(() =>
+      expect(updateMutateAsync).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ abbreviation: null }) })
       )
     );
   });

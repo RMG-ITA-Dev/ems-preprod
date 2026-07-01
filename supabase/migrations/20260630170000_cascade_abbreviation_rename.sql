@@ -85,6 +85,12 @@ BEGIN
     RAISE EXCEPTION 'Activity not found, already inactive, or not service-linked';
   END IF;
 
+  -- Defense in depth: a service whose abbreviation was cleared would build a
+  -- NULL activity_code and hit the NOT NULL constraint. Fail with a clear error.
+  IF v_abbrev IS NULL THEN
+    RAISE EXCEPTION 'Service has no abbreviation';
+  END IF;
+
   -- Extract current ordinal from code (e.g. AUD-A3 → 3, AUD-A10 → 10).
   v_old_ordinal := (regexp_replace(v_old_code, '^.*[A-Z](\d+)$', '\1'))::integer;
 
@@ -219,6 +225,12 @@ BEGIN
 
   IF v_service_id IS NULL THEN
     RAISE EXCEPTION 'Activity not found or not an active service-linked activity';
+  END IF;
+
+  -- Defense in depth: a service whose abbreviation was cleared would build a
+  -- NULL activity_code and hit the NOT NULL constraint. Fail with a clear error.
+  IF v_abbrev IS NULL THEN
+    RAISE EXCEPTION 'Service has no abbreviation';
   END IF;
 
   -- Lock every active sibling of this (service, entity_type) before reading the

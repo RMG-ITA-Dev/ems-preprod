@@ -467,6 +467,7 @@
     "abbreviationPlaceholder": "e.g., AUD",
     "abbreviationDescription": "2–5 uppercase letters. Used as prefix for auto-generated activity codes (e.g., AUD-A1).",
     "abbreviationInvalid": "Must be 2–5 uppercase letters (A–Z only)",
+    "abbreviationRequiredLinked": "This service has linked activities, so the abbreviation cannot be cleared. Change it to another valid one instead.",
     "allowsRatesActivities": "Requires additional configuration",
     "allowsRatesActivitiesDescription": "Defines taxonomy, rates and activities for this service.",
     "status": "Status",

@@ -467,6 +467,7 @@
     "abbreviationPlaceholder": "ej., AUD",
     "abbreviationDescription": "2–5 letras mayúsculas. Se usa como prefijo para los códigos de actividad autogenerados (ej., AUD-A1).",
     "abbreviationInvalid": "Debe tener entre 2 y 5 letras mayúsculas (solo A–Z)",
+    "abbreviationRequiredLinked": "Este servicio tiene actividades vinculadas, por lo que no se puede vaciar la abreviación. Cámbiala por otra válida.",
     "allowsRatesActivities": "Requiere configuración adicional",
     "allowsRatesActivitiesDescription": "Define Taxonomía, tarifas y actividades para este servicio.",
     "status": "Estado",
