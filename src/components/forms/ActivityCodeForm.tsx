@@ -131,11 +131,23 @@ export function ActivityCodeForm({ open, onOpenChange, activityCode }: ActivityC
 
   const onSubmit = async (data: FormData) => {
     if (isEdit && activityCode) {
-      // Only description can be edited for service-linked activities.
-      await updateMutation.mutateAsync({
-        id: activityCode.activity_id,
-        data: { description: data.description },
-      });
+      if (isServiceLinked) {
+        // Service-linked: only description is editable (code is managed by RPCs).
+        await updateMutation.mutateAsync({
+          id: activityCode.activity_id,
+          data: { description: data.description },
+        });
+      } else {
+        // Legacy (no service): code and active status can also change.
+        await updateMutation.mutateAsync({
+          id: activityCode.activity_id,
+          data: {
+            description: data.description,
+            ...(data.activity_code && { activity_code: data.activity_code.toUpperCase() }),
+            is_active: data.is_active,
+          },
+        });
+      }
     } else if (data.service_id) {
       // New service-linked activity: code derived by RPC.
       await createMutation.mutateAsync({

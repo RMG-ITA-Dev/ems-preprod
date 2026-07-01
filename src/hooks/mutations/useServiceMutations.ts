@@ -25,6 +25,7 @@ export function useCreateService() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["services"] });
+      queryClient.invalidateQueries({ queryKey: ["activity_codes"] });
       toast.success(i18n.t("messages.createSuccess", { entity: i18n.t("entities.service") }));
     },
     onError: createMutationErrorHandler("creating service"),
@@ -58,6 +59,7 @@ export function useUpdateService() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["services"] });
+      queryClient.invalidateQueries({ queryKey: ["activity_codes"] });
       toast.success(i18n.t("messages.updateSuccess", { entity: i18n.t("entities.service") }));
     },
     onError: createMutationErrorHandler("updating service"),

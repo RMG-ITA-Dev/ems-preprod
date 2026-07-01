@@ -101,11 +101,13 @@ export function TrackerBar({
               engagements={engagements}
               value={engagementId || ""}
               onValueChange={(val) => {
-                onEngagementChange(val || null);
                 const eng = engagements.find(e => e.engagement_id === val);
+                onEngagementChange(val || null);
                 if (eng && !eng.activity_required && adminActivityId) {
                   onActivityChange(adminActivityId);
                 } else if (eng && !eng.activity_required) {
+                  onActivityChange(null);
+                } else if (eng && selectedActivity?.service != null && selectedActivity.service.code !== eng.practica) {
                   onActivityChange(null);
                 }
               }}
