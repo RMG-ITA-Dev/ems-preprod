@@ -674,7 +674,10 @@ const WorkOrderEdit = () => {
           paymentInstallments={paymentInstallments}
           isAdminDateEditable={(approvalStatus === "Draft" || approvalStatus === "Rejected") && (isAdmin || isPartner || isDirector || isManager)}
           isStatusEditable={isAdmin}
-          isPaymentPlanDirty={JSON.stringify(paymentInstallments) !== JSON.stringify(originalInstallments)}
+          isPaymentPlanDirty={
+            JSON.stringify(paymentInstallments) !== JSON.stringify(originalInstallments) ||
+            JSON.stringify(paymentPlan) !== JSON.stringify(originalPaymentPlan)
+          }
           onPaymentPlanChange={setPaymentPlan}
           onPaymentInstallmentsChange={setPaymentInstallments}
           isSubmitting={
