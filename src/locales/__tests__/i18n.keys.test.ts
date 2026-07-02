@@ -29,6 +29,31 @@ describe("i18n new keys from bug 0306-77", () => {
   });
 });
 
+const NEW_KEYS_0625_151 = [
+  "engagement.contractScanned",
+  "engagement.contractRequired",
+  "engagement.uploadContract",
+  "engagement.contractUploaded",
+  "engagement.contractUploadFailed",
+  "engagement.contractDownloadFailed",
+  "engagement.invalidContractFileType",
+  "engagement.contractFileTooLarge",
+  "engagement.downloadContract",
+  "engagement.removeContract",
+];
+
+describe("i18n new keys from bug 0625-151 (contrato escaneado)", () => {
+  NEW_KEYS_0625_151.forEach((key) => {
+    it(`es.json has key: ${key}`, () => {
+      expect(getNestedValue(esJson as Record<string, unknown>, key)).toBeDefined();
+    });
+
+    it(`en.json has key: ${key}`, () => {
+      expect(getNestedValue(enJson as Record<string, unknown>, key)).toBeDefined();
+    });
+  });
+});
+
 const REPORT_KEYS_0319_91 = [
   "fundRequestExpense.report.exportButton",
   "fundRequestExpense.report.title",

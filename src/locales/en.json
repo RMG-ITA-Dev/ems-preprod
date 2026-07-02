@@ -639,7 +639,17 @@
     "requiredAnioFiscal": "Fiscal year is required",
     "requiredOficina":    "Office is required",
     "requiredPractica":   "Service is required",
-    "requiredFuncion":    "Function is required"
+    "requiredFuncion":    "Function is required",
+    "contractScanned": "Scanned Contract",
+    "contractRequired": "The scanned contract is required",
+    "uploadContract": "Upload Contract",
+    "contractUploaded": "Contract uploaded successfully",
+    "contractUploadFailed": "Could not upload the contract",
+    "contractDownloadFailed": "Could not download the contract",
+    "invalidContractFileType": "Only PDF files are allowed",
+    "contractFileTooLarge": "The file must be smaller than 5MB",
+    "downloadContract": "Download Contract",
+    "removeContract": "Remove file"
   },
   "messages": {
     "createSuccess": "{{entity}} created successfully",

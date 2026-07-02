@@ -103,6 +103,7 @@ export interface Engagement {
   encargado_id: string | null;
   specialist_it_id: string | null;
   specialist_tax_id: string | null;
+  contract_file_path: string | null;
   client?: Client;
   partner?: Staff;
   manager?: Staff;

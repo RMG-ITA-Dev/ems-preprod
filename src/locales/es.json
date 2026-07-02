@@ -639,7 +639,17 @@
     "requiredAnioFiscal": "El año fiscal es requerido",
     "requiredOficina":    "La oficina es requerida",
     "requiredPractica":   "El servicio es requerido",
-    "requiredFuncion":    "La función es requerida"
+    "requiredFuncion":    "La función es requerida",
+    "contractScanned": "Contrato Escaneado",
+    "contractRequired": "El contrato escaneado es obligatorio",
+    "uploadContract": "Subir Contrato",
+    "contractUploaded": "Contrato subido correctamente",
+    "contractUploadFailed": "No se pudo subir el contrato",
+    "contractDownloadFailed": "No se pudo descargar el contrato",
+    "invalidContractFileType": "Solo se permiten archivos PDF",
+    "contractFileTooLarge": "El archivo debe pesar menos de 5MB",
+    "downloadContract": "Descargar Contrato",
+    "removeContract": "Quitar archivo"
   },
   "messages": {
     "createSuccess": "{{entity}} creado/a exitosamente",

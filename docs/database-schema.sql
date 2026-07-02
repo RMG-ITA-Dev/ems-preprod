@@ -110,7 +110,11 @@ CREATE TABLE public.engagements (
   sqr_id           UUID REFERENCES public.staff(staff_id),
   encargado_id     UUID REFERENCES public.staff(staff_id),
   specialist_it_id  UUID REFERENCES public.staff(staff_id),
-  specialist_tax_id UUID REFERENCES public.staff(staff_id)
+  specialist_tax_id UUID REFERENCES public.staff(staff_id),
+  -- FEAT 0625-151: ruta (no URL) del contrato escaneado en el bucket privado
+  -- 'engagement-contracts' (PDF, 5MB). Nullable: obligatorio solo en el formulario de
+  -- creación para encargos de cliente (is_internal = false), no a nivel de base de datos.
+  contract_file_path TEXT
 );
 
 -- Expense Logs
