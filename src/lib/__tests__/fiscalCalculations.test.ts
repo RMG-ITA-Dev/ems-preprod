@@ -11,6 +11,8 @@ import {
   getFiscalYearForDate,
   getFiscalWeekOneMonday,
   getFiscalWeekNumber,
+  buildClosingDate,
+  deriveFiscalYearFromClosing,
 } from "../fiscalCalculations";
 
 describe("getCalendarYearPeriod", () => {
@@ -369,4 +371,75 @@ describe("getFiscalWeekNumber", () => {
     });
   });
 });
+});
+
+// BUG 0604-143: derive Año Fiscal from an engagement closing date.
+describe("buildClosingDate", () => {
+  it("builds December 31 at the given calendar year", () => {
+    const date = buildClosingDate("December 31", 2025);
+    expect(date?.getFullYear()).toBe(2025);
+    expect(date?.getMonth()).toBe(11);
+    expect(date?.getDate()).toBe(31);
+  });
+
+  it("builds March 31 at the given calendar year", () => {
+    const date = buildClosingDate("March 31", 2026);
+    expect(date?.getMonth()).toBe(2);
+    expect(date?.getDate()).toBe(31);
+  });
+
+  it("builds June 30 at the given calendar year", () => {
+    const date = buildClosingDate("June 30", 2026);
+    expect(date?.getMonth()).toBe(5);
+    expect(date?.getDate()).toBe(30);
+  });
+
+  it("builds September 30 at the given calendar year", () => {
+    const date = buildClosingDate("September 30", 2026);
+    expect(date?.getMonth()).toBe(8);
+    expect(date?.getDate()).toBe(30);
+  });
+
+  it("returns the custom date as-is for 'Otro'", () => {
+    const custom = new Date(2025, 10, 15);
+    expect(buildClosingDate("Otro", 2025, custom)).toEqual(custom);
+  });
+
+  it("returns null for 'Otro' without a custom date", () => {
+    expect(buildClosingDate("Otro", 2025, undefined)).toBeNull();
+  });
+
+  it("returns null for an unrecognized option", () => {
+    expect(buildClosingDate("Not a real option", 2025)).toBeNull();
+  });
+
+  it("returns null when option is missing", () => {
+    expect(buildClosingDate(undefined, 2025)).toBeNull();
+  });
+});
+
+describe("deriveFiscalYearFromClosing", () => {
+  it("Dec 31, 2025 -> FY2026", () => {
+    expect(deriveFiscalYearFromClosing("December 31", 2025)).toBe(2026);
+  });
+
+  it("Mar 31, 2026 -> FY2026", () => {
+    expect(deriveFiscalYearFromClosing("March 31", 2026)).toBe(2026);
+  });
+
+  it("Jun 30, 2026 -> FY2026", () => {
+    expect(deriveFiscalYearFromClosing("June 30", 2026)).toBe(2026);
+  });
+
+  it("Sep 30, 2026 -> FY2026", () => {
+    expect(deriveFiscalYearFromClosing("September 30", 2026)).toBe(2026);
+  });
+
+  it("Otro Nov 15, 2025 -> FY2026", () => {
+    expect(deriveFiscalYearFromClosing("Otro", 2025, new Date(2025, 10, 15))).toBe(2026);
+  });
+
+  it("returns null when the closing date cannot be built", () => {
+    expect(deriveFiscalYearFromClosing("Otro", 2025, undefined)).toBeNull();
+  });
 });

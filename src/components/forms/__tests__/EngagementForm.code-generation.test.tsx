@@ -1,12 +1,37 @@
 import React from "react";
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import * as z from "zod";
-import { render, screen } from "@/test/utils";
+import { render, screen, fireEvent, waitFor } from "@/test/utils";
+import userEvent from "@testing-library/user-event";
 
 /**
  * BUG 0306-82: Auto-generate Engagement Code on Insert
  * Pure-logic tests + render-level tests that exercise the production component.
  */
+
+// Polyfills for Radix UI Select, which calls APIs not implemented in jsdom
+// (mirrors StaffHoursDetailDialog.test.tsx / EncargoTab.test.tsx).
+if (typeof window !== "undefined") {
+  if (!Element.prototype.hasPointerCapture) {
+    Element.prototype.hasPointerCapture = () => false;
+  }
+  if (!Element.prototype.setPointerCapture) {
+    Element.prototype.setPointerCapture = () => undefined;
+  }
+  if (!Element.prototype.releasePointerCapture) {
+    Element.prototype.releasePointerCapture = () => undefined;
+  }
+  if (!Element.prototype.scrollIntoView) {
+    Element.prototype.scrollIntoView = () => undefined;
+  }
+}
+if (typeof global.ResizeObserver === "undefined") {
+  global.ResizeObserver = class ResizeObserver {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+}
 
 vi.mock("react-router-dom", async () => {
   const actual = await vi.importActual("react-router-dom");
@@ -38,8 +63,9 @@ vi.mock("@/hooks/mutations", () => ({
   useDeleteEngagement: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
+let mockRole: { isAdmin: boolean; isManager?: boolean; isPartner?: boolean } = { isAdmin: false };
 vi.mock("@/hooks/useUserRole", () => ({
-  useUserRole: () => ({ isAdmin: false }),
+  useUserRole: () => mockRole,
 }));
 
 import { EngagementForm } from "@/components/forms/EngagementForm";
@@ -64,6 +90,8 @@ const mockEngagement: Engagement = {
   practica:            2,
   funcion:             1,
   anio_fiscal:         2027,
+  fecha_cierre:        "2026-09-30",
+  anio_fiscal_override: false,
   sqr_id:              null,
   encargado_id:        null,
   specialist_it_id:    null,
@@ -292,5 +320,108 @@ describe("EngagementForm render — edit mode (BUG 0306-82)", () => {
     expect(screen.getByText("engagement.oficina *")).toBeInTheDocument();
     expect(screen.getByText("engagement.practica *")).toBeInTheDocument();
     expect(screen.getByText("engagement.funcion *")).toBeInTheDocument();
+  });
+});
+
+// BUG 0604-143: Año Fiscal is derived from a new closing-date field (now grouped with
+// Fecha de Inicio/Fin in the "Fechas" section) instead of being manually selected,
+// except for an admin-only override.
+describe("EngagementForm — closing date drives Año Fiscal (BUG 0604-143)", () => {
+  beforeEach(() => {
+    mockRole = { isAdmin: false };
+  });
+
+  it("non-admin: renders the closing-date field and the fiscal-year helper text", () => {
+    render(<EngagementForm />);
+    expect(screen.getByText("engagement.closingDate *")).toBeInTheDocument();
+    expect(screen.getByText("engagement.fiscalYearHelper")).toBeInTheDocument();
+  });
+
+  it("non-admin: Año Fiscal has no editable Select (derived, read-only only)", () => {
+    render(<EngagementForm />);
+    expect(screen.getByTestId("anio-fiscal-derived")).toBeInTheDocument();
+    expect(screen.getByTestId("anio-fiscal-derived")).toBeDisabled();
+    // The Select placeholder for a manual pick never renders for non-admin.
+    expect(screen.queryByText("engagement.selectAnioFiscal")).not.toBeInTheDocument();
+    expect(screen.queryByText("engagement.fiscalYearOverride")).not.toBeInTheDocument();
+  });
+
+  it("admin: sees the manual-override toggle in addition to the derived read-only value", () => {
+    mockRole = { isAdmin: true };
+    render(<EngagementForm />);
+    expect(screen.getByText("engagement.fiscalYearOverride")).toBeInTheDocument();
+    // Override is off by default: still read-only, no Select yet.
+    expect(screen.getByTestId("anio-fiscal-derived")).toBeInTheDocument();
+    expect(screen.queryByText("engagement.selectAnioFiscal")).not.toBeInTheDocument();
+  });
+
+  it("edit mode: non-privileged role cannot edit the closing date", () => {
+    mockRole = { isAdmin: false, isManager: false, isPartner: false };
+    render(<EngagementForm engagement={mockEngagement} />);
+    expect(screen.getByRole("combobox", { name: "engagement.closingDate *" })).toBeDisabled();
+  });
+
+  it("edit mode: Manager can edit the closing date", () => {
+    mockRole = { isAdmin: false, isManager: true, isPartner: false };
+    render(<EngagementForm engagement={mockEngagement} />);
+    expect(screen.getByRole("combobox", { name: "engagement.closingDate *" })).not.toBeDisabled();
+  });
+
+  it("picking 'September 30' derives FY2026 in the read-only Año Fiscal field", async () => {
+    // Fix "today" inside FY2026 (Jun 2026) so the hidden closing-calendar-year default
+    // (current calendar year) derives a deterministic FY regardless of when tests run.
+    // shouldAdvanceTime keeps real timers ticking so userEvent's internal waits don't hang.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(2026, 5, 1));
+    const user = userEvent.setup({ delay: null });
+    render(<EngagementForm />);
+    const closingDateSelect = screen.getByRole("combobox", { name: "engagement.closingDate *" });
+    await user.click(closingDateSelect);
+    const option = await screen.findByRole("option", { name: "September 30" });
+    await user.click(option);
+    await waitFor(() => {
+      expect(screen.getByTestId("anio-fiscal-derived")).toHaveValue("2026");
+    });
+    vi.useRealTimers();
+  });
+
+  it("picking 'December 31' rolls into the next fiscal year and completes the code preview", async () => {
+    // "Today" is fixed to Jun 2026; a Dec 31 closing date always falls in the NEXT Oct-Sep
+    // fiscal window, so with the hidden calendar year defaulting to the current year (2026),
+    // Dec 31, 2026 -> FY2027.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(2026, 5, 1));
+    const user = userEvent.setup({ delay: null });
+    render(<EngagementForm />);
+    await user.click(screen.getByRole("combobox", { name: "engagement.oficina *" }));
+    await user.click(await screen.findByRole("option", { name: "engagement.oficina_laPaz" }));
+    await user.click(screen.getByRole("combobox", { name: "engagement.practica *" }));
+    await user.click(await screen.findByRole("option", { name: "engagement.practica_auditoria" }));
+    await user.click(screen.getByRole("combobox", { name: "engagement.funcion *" }));
+    await user.click(await screen.findByRole("option", { name: "engagement.funcion_cli" }));
+
+    const closingDateSelect = screen.getByRole("combobox", { name: "engagement.closingDate *" });
+    await user.click(closingDateSelect);
+    await user.click(await screen.findByRole("option", { name: "December 31" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("anio-fiscal-derived")).toHaveValue("2027");
+    });
+    expect(screen.getByTestId("engagement-code-preview")).toHaveTextContent("2027.111.");
+    vi.useRealTimers();
+  });
+
+  it("admin: toggling the override reveals the manual Fiscal Year Select", async () => {
+    const user = userEvent.setup({ delay: null });
+    mockRole = { isAdmin: true };
+    render(<EngagementForm />);
+    // The override switch is the first switch in DOM order (it renders in the code-fields
+    // grid, ahead of the admin-only Timesheet Policy switches further down the form).
+    const toggle = screen.getAllByRole("switch")[0];
+    await user.click(toggle);
+    await waitFor(() => {
+      expect(screen.queryByTestId("anio-fiscal-derived")).not.toBeInTheDocument();
+    });
+    expect(screen.getByRole("combobox", { name: "engagement.anioFiscal *" })).toBeInTheDocument();
   });
 });

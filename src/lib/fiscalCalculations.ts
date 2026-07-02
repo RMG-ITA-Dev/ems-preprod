@@ -183,6 +183,45 @@ export function getFiscalYearForDate(date: Date): number {
     : date.getFullYear();
 }
 
+const STANDARD_CLOSING_MONTH_DAY: Record<string, [number, number]> = {
+  "December 31": [11, 31],
+  "March 31": [2, 31],
+  "June 30": [5, 30],
+  "September 30": [8, 30],
+};
+
+/**
+ * Build a normalized closing Date from a standard option + calendar year, or from
+ * a custom date when option is "Otro". Returns null when the inputs are incomplete
+ * or the option is unrecognized.
+ */
+export function buildClosingDate(
+  option: string | null | undefined,
+  calendarYear: number,
+  customDate?: Date | null
+): Date | null {
+  if (!option) return null;
+  if (option === "Otro") {
+    return customDate ?? null;
+  }
+  const monthDay = STANDARD_CLOSING_MONTH_DAY[option];
+  if (!monthDay) return null;
+  return new Date(calendarYear, monthDay[0], monthDay[1]);
+}
+
+/**
+ * Derive the fiscal year from a closing-date selection. Thin wrapper around
+ * buildClosingDate + getFiscalYearForDate.
+ */
+export function deriveFiscalYearFromClosing(
+  option: string | null | undefined,
+  calendarYear: number,
+  customDate?: Date | null
+): number | null {
+  const date = buildClosingDate(option, calendarYear, customDate);
+  return date ? getFiscalYearForDate(date) : null;
+}
+
 /**
  * Get the Monday that starts fiscal Week 1 for a given fiscal year.
  * Anchor: October 1 of (fiscalYear - 1).

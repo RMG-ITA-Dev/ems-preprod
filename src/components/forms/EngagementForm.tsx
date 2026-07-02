@@ -58,6 +58,8 @@ import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Switch } from "@/components/ui/switch";
 import { useUserRole } from "@/hooks/useUserRole";
+import { getFiscalYearOptions, formatFiscalYearEnd } from "@/lib/fiscalYearDisplay";
+import { buildClosingDate, deriveFiscalYearFromClosing } from "@/lib/fiscalCalculations";
 
 interface StaffComboboxProps {
   label: string;
@@ -144,6 +146,25 @@ const suggestFiscalYear = (): number => {
 const FISCAL_YEAR_START = 2025
 const FISCAL_YEAR_LOOKAHEAD = 3
 
+// BUG #0604-143: closing-date options driving the derived Año Fiscal.
+const CLOSING_DATE_OPTIONS = [...getFiscalYearOptions(), "Otro"] as const;
+const STANDARD_CLOSING_MONTH_DAY: Record<string, [number, number]> = {
+  "December 31": [11, 31],
+  "March 31": [2, 31],
+  "June 30": [5, 30],
+  "September 30": [8, 30],
+};
+// Matches a stored closing date back to its standard option (by month/day, ignoring year),
+// falling back to "Otro" for client/service-specific dates.
+const matchClosingDateOption = (date: Date): (typeof CLOSING_DATE_OPTIONS)[number] => {
+  for (const [option, [month, day]] of Object.entries(STANDARD_CLOSING_MONTH_DAY)) {
+    if (date.getMonth() === month && date.getDate() === day) {
+      return option as (typeof CLOSING_DATE_OPTIONS)[number];
+    }
+  }
+  return "Otro";
+};
+
 // BUG #0603-140: reuse the same i18n keys as the form's SelectItems to label the
 // created-engagement summary in the confirmation modal.
 const PRACTICA_LABEL_KEYS: Record<number, string> = {
@@ -178,6 +199,8 @@ const formSchema = z.object({
   encargado_id: z.string().nullable().optional(),
   specialist_it_id: z.string().nullable().optional(),
   specialist_tax_id: z.string().nullable().optional(),
+  closing_date_option: z.enum(CLOSING_DATE_OPTIONS).optional(),
+  closing_date_custom: z.date().optional(),
 }).refine((data) => {
   if (data.start_date && data.end_date) {
     return data.end_date >= data.start_date;
@@ -186,6 +209,14 @@ const formSchema = z.object({
 }, {
   message: "End date must be on or after the start date",
   path: ["end_date"],
+}).refine((data) => {
+  if (data.closing_date_option === "Otro") {
+    return !!data.closing_date_custom;
+  }
+  return true;
+}, {
+  message: "A custom closing date is required when 'Other' is selected",
+  path: ["closing_date_custom"],
 });
 
 type FormData = z.infer<typeof formSchema>;
@@ -199,10 +230,13 @@ interface EngagementFormProps {
 }
 
 export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSuccess, onGoToWorkMatrix }: EngagementFormProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
-  const { isAdmin } = useUserRole();
+  const { isAdmin, isManager, isPartner } = useUserRole();
   const isEdit = !!engagement;
+  // BUG #0604-143: closing date (and the FY it derives) may be edited by Admin/Gerente/Socio;
+  // oficina/practica/funcion/engagement_code remain fully immutable after create.
+  const canEditClosing = isAdmin || isManager || isPartner;
 
   const { data: clients } = useClients();
   const { partnerOptions, managerOptions, hasPartnerCategory, hasManagerCategory, allActiveStaff } = useCategoryStaff();
@@ -246,6 +280,8 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       encargado_id: null,
       specialist_it_id: null,
       specialist_tax_id: null,
+      closing_date_option: undefined,
+      closing_date_custom: undefined,
     },
   });
 
@@ -265,6 +301,18 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   const [activityRequired, setActivityRequired] = useState(engagement?.activity_required ?? true);
   const [isInternal, setIsInternal] = useState(engagement?.is_internal ?? false);
   const [approvalRequired, setApprovalRequired] = useState(engagement?.approval_required ?? true);
+  // BUG #0604-143: admin-only manual override of the derived Año Fiscal.
+  const [overrideOn, setOverrideOn] = useState(engagement?.anio_fiscal_override ?? false);
+  // Hidden "closing calendar year" (operator A3): for a fresh standard-option pick it's the
+  // current calendar year; when reconstructing an existing engagement's closing date it must
+  // be that date's own year, or redisplaying an unedited record would re-derive a different FY.
+  const [closingCalendarYear, setClosingCalendarYear] = useState(() => {
+    if (engagement?.fecha_cierre) {
+      const closingDate = parseDateLocal(engagement.fecha_cierre);
+      if (matchClosingDateOption(closingDate) !== "Otro") return closingDate.getFullYear();
+    }
+    return new Date().getFullYear();
+  });
 
   // BUG #0206-19 + #0220-48: Minimum allowed start date (bypassed for internal)
   const minStartDate = useMemo(() => {
@@ -286,6 +334,8 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       initializedEngagementIdRef.current !== engagement.engagement_id
     ) {
       initializedEngagementIdRef.current = engagement.engagement_id;
+      const closingDate = engagement.fecha_cierre ? parseDateLocal(engagement.fecha_cierre) : undefined;
+      const closingDateOption = closingDate ? matchClosingDateOption(closingDate) : undefined;
       form.reset({
         engagement_name: engagement.engagement_name,
         anio_fiscal: engagement.anio_fiscal ?? undefined,
@@ -302,11 +352,17 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
         encargado_id: engagement.encargado_id ?? null,
         specialist_it_id: engagement.specialist_it_id ?? null,
         specialist_tax_id: engagement.specialist_tax_id ?? null,
+        closing_date_option: closingDateOption,
+        closing_date_custom: closingDateOption === "Otro" ? closingDate : undefined,
       });
       setWorkOrderRequired(engagement.work_order_required ?? true);
       setActivityRequired(engagement.activity_required ?? true);
       setIsInternal(engagement.is_internal ?? false);
       setApprovalRequired(engagement.approval_required ?? true);
+      setOverrideOn(engagement.anio_fiscal_override ?? false);
+      setClosingCalendarYear(
+        closingDateOption && closingDateOption !== "Otro" ? closingDate!.getFullYear() : new Date().getFullYear()
+      );
     }
   }, [engagement, clients, form, isDirty]);
 
@@ -314,6 +370,31 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   useEffect(() => {
     onDirtyChange?.(isDirty);
   }, [isDirty, onDirtyChange]);
+
+  // BUG #0604-143: derive Año Fiscal from the closing date in real time. The closing
+  // calendar year is not a visible field — standard presets use closingCalendarYear
+  // (current year for a fresh pick, the record's own year when reconstructed on edit);
+  // "Otro" carries its own full date.
+  const [wClosingOption, wClosingCustom] = form.watch(["closing_date_option", "closing_date_custom"]);
+  const derivedFiscalYear = useMemo(
+    () => deriveFiscalYearFromClosing(wClosingOption, closingCalendarYear, wClosingCustom),
+    [wClosingOption, wClosingCustom, closingCalendarYear]
+  );
+  const overrideActive = isAdmin && overrideOn;
+
+  // Keep the effective anio_fiscal in sync with the derived value unless an admin override is active.
+  useEffect(() => {
+    if (!overrideActive) {
+      form.setValue("anio_fiscal", derivedFiscalYear ?? undefined, { shouldValidate: false, shouldDirty: false });
+    }
+  }, [derivedFiscalYear, overrideActive, form]);
+
+  const handleOverrideToggle = (checked: boolean) => {
+    setOverrideOn(checked);
+    if (checked && form.getValues("anio_fiscal") == null) {
+      form.setValue("anio_fiscal", suggestFiscalYear());
+    }
+  };
 
   const onSubmit = async (data: FormData) => {
     // BUG #0206-19 + #0220-48: skip for internal engagements
@@ -330,10 +411,14 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       if (data.oficina    === undefined) { form.setError("oficina",     { message: t("engagement.requiredOficina")    }); missingCodeField = true; }
       if (data.practica   === undefined) { form.setError("practica",    { message: t("engagement.requiredPractica")   }); missingCodeField = true; }
       if (data.funcion    === undefined) { form.setError("funcion",     { message: t("engagement.requiredFuncion")    }); missingCodeField = true; }
+      if (data.closing_date_option === undefined) { form.setError("closing_date_option", { message: t("engagement.requiredClosingDate") }); missingCodeField = true; }
       if (missingCodeField) return;
     }
 
     if (isEdit && engagement) {
+      const closingDateResolved = canEditClosing
+        ? buildClosingDate(data.closing_date_option, closingCalendarYear, data.closing_date_custom)
+        : null;
       await updateMutation.mutateAsync({
         id: engagement.engagement_id,
         data: {
@@ -352,7 +437,14 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
           encargado_id:        data.encargado_id ?? null,
           specialist_it_id:    data.specialist_it_id ?? null,
           specialist_tax_id:   data.specialist_tax_id ?? null,
-          // oficina, practica, funcion, anio_fiscal intentionally omitted — immutable after create
+          // oficina, practica, funcion, engagement_code intentionally omitted — immutable after create
+          ...(canEditClosing && closingDateResolved
+            ? {
+                anio_fiscal:          data.anio_fiscal as number,
+                fecha_cierre:         format(closingDateResolved, "yyyy-MM-dd"),
+                anio_fiscal_override: overrideActive,
+              }
+            : {}),
         },
       });
       if (onSaveSuccess) {
@@ -363,6 +455,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       return;
     }
 
+    const closingDateResolved = buildClosingDate(data.closing_date_option, closingCalendarYear, data.closing_date_custom) as Date;
     const created = await createMutation.mutateAsync({
       engagement_name:     data.engagement_name,
       client_id:           data.client_id,
@@ -375,6 +468,8 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       practica:            data.practica   as number,
       funcion:             data.funcion    as number,
       anio_fiscal:         data.anio_fiscal as number,
+      fecha_cierre:        format(closingDateResolved, "yyyy-MM-dd"),
+      anio_fiscal_override: overrideActive,
       work_order_required: workOrderRequired,
       activity_required:   activityRequired,
       is_internal:         isInternal,
@@ -433,7 +528,8 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   // the correlativo is unknown until insert, so it shows as the placeholder `---`.
   const [wAnio, wOficina, wPractica, wFuncion] = form.watch(["anio_fiscal", "oficina", "practica", "funcion"]);
   const previewIncomplete =
-    wAnio == null || wOficina == null || wPractica == null || wFuncion == null;
+    wAnio == null || wOficina == null || wPractica == null || wFuncion == null ||
+    (!overrideActive && wClosingOption == null);
   const previewCodePrefix = previewIncomplete
     ? null
     : `${wAnio}.${wOficina}${wPractica}${wFuncion}.`;
@@ -467,11 +563,15 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       encargado_id: null,
       specialist_it_id: null,
       specialist_tax_id: null,
+      closing_date_option: undefined,
+      closing_date_custom: undefined,
     });
     setWorkOrderRequired(true);
     setActivityRequired(true);
     setIsInternal(false);
     setApprovalRequired(true);
+    setOverrideOn(false);
+    setClosingCalendarYear(new Date().getFullYear());
   };
 
   const handleGoToWorkMatrix = () => {
@@ -582,18 +682,34 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                 <FormField control={form.control} name="anio_fiscal" render={({ field }) => (
                   <FormItem>
                     <FormLabel>{t("engagement.anioFiscal")} *</FormLabel>
-                    <Select
-                      disabled={isEdit}
-                      onValueChange={(v) => field.onChange(Number(v))}
-                      value={field.value ? String(field.value) : ""}
-                    >
-                      <FormControl><SelectTrigger><SelectValue placeholder={t("engagement.selectAnioFiscal")} /></SelectTrigger></FormControl>
-                      <SelectContent>
-                        {fiscalYearOptions.map((fy) => (
-                          <SelectItem key={fy} value={String(fy)}>{fy}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    {overrideActive ? (
+                      <Select
+                        onValueChange={(v) => field.onChange(Number(v))}
+                        value={field.value ? String(field.value) : ""}
+                      >
+                        <FormControl><SelectTrigger><SelectValue placeholder={t("engagement.selectAnioFiscal")} /></SelectTrigger></FormControl>
+                        <SelectContent>
+                          {fiscalYearOptions.map((fy) => (
+                            <SelectItem key={fy} value={String(fy)}>{fy}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        data-testid="anio-fiscal-derived"
+                        readOnly
+                        disabled
+                        value={field.value ?? ""}
+                        className="font-mono"
+                      />
+                    )}
+                    {isAdmin && (
+                      <div className="flex items-center gap-2 pt-1">
+                        <Switch checked={overrideOn} onCheckedChange={handleOverrideToggle} />
+                        <span className="text-xs text-muted-foreground">{t("engagement.fiscalYearOverride")}</span>
+                      </div>
+                    )}
+                    <p className="text-xs text-muted-foreground">{t("engagement.fiscalYearHelper")}</p>
                     <FormMessage />
                   </FormItem>
                 )} />
@@ -715,7 +831,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
 
               <div className="space-y-4">
               <h3 className="font-medium text-lg">{t("common.dates")}</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                 <FormField
                   control={form.control}
                   name="start_date"
@@ -794,6 +910,70 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                     </FormItem>
                   )}
                 />
+
+                <FormField control={form.control} name="closing_date_option" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t("engagement.closingDate")} *</FormLabel>
+                    <Select
+                      disabled={isEdit && !canEditClosing}
+                      onValueChange={(v) => {
+                        field.onChange(v);
+                        // A fresh pick of a standard option always means "this year's" date.
+                        setClosingCalendarYear(new Date().getFullYear());
+                      }}
+                      value={field.value ?? ""}
+                    >
+                      <FormControl><SelectTrigger><SelectValue placeholder={t("engagement.selectClosingDate")} /></SelectTrigger></FormControl>
+                      <SelectContent>
+                        {getFiscalYearOptions().map((opt) => (
+                          <SelectItem key={opt} value={opt}>{formatFiscalYearEnd(opt, i18n.language)}</SelectItem>
+                        ))}
+                        <SelectItem value="Otro">{t("engagement.closingDate_otro")}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+
+                {wClosingOption === "Otro" && (
+                  <FormField
+                    control={form.control}
+                    name="closing_date_custom"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-col">
+                        <FormLabel>{t("engagement.closingDateCustom")} *</FormLabel>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <FormControl>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                disabled={isEdit && !canEditClosing}
+                                className={cn(
+                                  "w-full pl-3 text-left font-normal",
+                                  !field.value && "text-muted-foreground"
+                                )}
+                              >
+                                {field.value ? format(field.value, "dd/MM/yyyy") : t("common.pickDate")}
+                                <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                              </Button>
+                            </FormControl>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0" align="start">
+                            <Calendar
+                              mode="single"
+                              selected={field.value}
+                              onSelect={field.onChange}
+                              initialFocus
+                              className="pointer-events-auto"
+                            />
+                          </PopoverContent>
+                        </Popover>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
               </div>
               </div>
             </div>
@@ -943,6 +1123,10 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                 </div>
                 </div>
               </div>
+            )}
+
+            {!isEdit && (
+              <p className="text-xs text-muted-foreground">{t("engagement.immutabilityHint")}</p>
             )}
 
             <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 sm:gap-4 pt-4">

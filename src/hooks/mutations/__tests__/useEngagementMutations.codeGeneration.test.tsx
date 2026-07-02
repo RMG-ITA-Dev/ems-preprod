@@ -22,7 +22,7 @@ describe("useCreateEngagement — code generation (BUG 0306-82)", () => {
     vi.clearAllMocks();
   });
 
-  it("calls supabase.rpc with create_engagement_with_code and all 19 params", async () => {
+  it("calls supabase.rpc with create_engagement_with_code and all 21 params", async () => {
     const mockData = {
       engagement_id: "eng-100",
       engagement_name: "Audit FY2027",
@@ -46,6 +46,8 @@ describe("useCreateEngagement — code generation (BUG 0306-82)", () => {
       practica: 2,
       funcion: 1,
       anio_fiscal: 2027,
+      fecha_cierre: "2026-09-30",
+      anio_fiscal_override: false,
       work_order_required: true,
       activity_required: true,
       is_internal: false,
@@ -70,6 +72,8 @@ describe("useCreateEngagement — code generation (BUG 0306-82)", () => {
       p_activity_required:   true,
       p_is_internal:         false,
       p_approval_required:   true,
+      p_fecha_cierre:          "2026-09-30",
+      p_anio_fiscal_override:  false,
       p_sqr_id:              null,
       p_encargado_id:        null,
       p_specialist_it_id:    null,
@@ -96,6 +100,7 @@ describe("useCreateEngagement — code generation (BUG 0306-82)", () => {
       practica: 2,
       funcion: 1,
       anio_fiscal: 2027,
+      fecha_cierre: "2027-09-30",
     });
 
     expect(returned.engagement_code).toBe("2027.121.007");
@@ -119,6 +124,7 @@ describe("useCreateEngagement — code generation (BUG 0306-82)", () => {
         practica: 1,
         funcion: 1,
         anio_fiscal: 2027,
+        fecha_cierre: "2027-09-30",
       },
       { onError }
     );
