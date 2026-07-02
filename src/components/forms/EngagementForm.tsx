@@ -809,7 +809,10 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
 
               <div className="space-y-4">
               <h3 className="font-medium text-lg">{t("common.dates")}</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+              <div className={cn(
+                "grid grid-cols-1 sm:grid-cols-2 gap-4",
+                wClosingOption === "Otro" ? "md:grid-cols-4" : "md:grid-cols-3"
+              )}>
                 <FormField
                   control={form.control}
                   name="start_date"
