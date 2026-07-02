@@ -1,4 +1,4 @@
-import { startOfYear, endOfYear, startOfQuarter, endOfQuarter, startOfMonth, endOfMonth, startOfWeek, format, subYears, addMonths, getYear, getQuarter } from 'date-fns';
+import { startOfYear, endOfYear, startOfQuarter, endOfQuarter, startOfMonth, endOfMonth, startOfWeek, startOfDay, format, subYears, addMonths, getYear, getQuarter } from 'date-fns';
 import { es } from 'date-fns/locale';
 
 export type PeriodType = 'calendar' | 'tax_bolivia' | 'custom';
@@ -183,43 +183,43 @@ export function getFiscalYearForDate(date: Date): number {
     : date.getFullYear();
 }
 
-const STANDARD_CLOSING_MONTH_DAY: Record<string, [number, number]> = {
-  "December 31": [11, 31],
-  "March 31": [2, 31],
-  "June 30": [5, 30],
-  "September 30": [8, 30],
-};
+// BUG #0604-143: standard quarter-end closing dates, as [month (0-indexed), day].
+export type ClosingDateKey = "December 31" | "March 31" | "June 30" | "September 30";
+const CLOSING_MONTH_DAY: [ClosingDateKey, number, number][] = [
+  ["December 31", 11, 31],
+  ["March 31", 2, 31],
+  ["June 30", 5, 30],
+  ["September 30", 8, 30],
+];
 
-/**
- * Build a normalized closing Date from a standard option + calendar year, or from
- * a custom date when option is "Otro". Returns null when the inputs are incomplete
- * or the option is unrecognized.
- */
-export function buildClosingDate(
-  option: string | null | undefined,
-  calendarYear: number,
-  customDate?: Date | null
-): Date | null {
-  if (!option) return null;
-  if (option === "Otro") {
-    return customDate ?? null;
-  }
-  const monthDay = STANDARD_CLOSING_MONTH_DAY[option];
-  if (!monthDay) return null;
-  return new Date(calendarYear, monthDay[0], monthDay[1]);
+export interface ClosingDateOption {
+  value: string;        // normalized "yyyy-MM-dd"
+  key: ClosingDateKey;  // for localized labeling via formatFiscalYearEnd
+  year: number;         // calendar year of the closing date
+  date: Date;
 }
 
 /**
- * Derive the fiscal year from a closing-date selection. Thin wrapper around
- * buildClosingDate + getFiscalYearForDate.
+ * BUG #0604-143: upcoming quarter-end closing dates for the "Fecha de Cierre" dropdown.
+ * Returns every standard close with date >= today, through Sep 30 of the next fiscal year
+ * (fiscal year = Oct→Sep, named by its ending year), sorted ascending. Each option carries
+ * its full date so the derived fiscal year is unambiguous (no implicit "current year").
  */
-export function deriveFiscalYearFromClosing(
-  option: string | null | undefined,
-  calendarYear: number,
-  customDate?: Date | null
-): number | null {
-  const date = buildClosingDate(option, calendarYear, customDate);
-  return date ? getFiscalYearForDate(date) : null;
+export function getUpcomingClosingDates(today: Date = new Date()): ClosingDateOption[] {
+  const start = startOfDay(today);
+  const currentFY = getFiscalYearForDate(today);
+  const upper = new Date(currentFY + 1, 8, 30); // Sep 30 of next fiscal year
+  const out: ClosingDateOption[] = [];
+  for (let y = start.getFullYear(); y <= currentFY + 1; y++) {
+    for (const [key, m, d] of CLOSING_MONTH_DAY) {
+      const date = new Date(y, m, d);
+      if (date >= start && date <= upper) {
+        out.push({ value: format(date, "yyyy-MM-dd"), key, year: y, date });
+      }
+    }
+  }
+  out.sort((a, b) => a.date.getTime() - b.date.getTime());
+  return out;
 }
 
 /**

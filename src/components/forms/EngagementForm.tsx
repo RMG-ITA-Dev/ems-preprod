@@ -58,8 +58,8 @@ import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Switch } from "@/components/ui/switch";
 import { useUserRole } from "@/hooks/useUserRole";
-import { getFiscalYearOptions, formatFiscalYearEnd } from "@/lib/fiscalYearDisplay";
-import { buildClosingDate, deriveFiscalYearFromClosing } from "@/lib/fiscalCalculations";
+import { formatClosingDateLabel } from "@/lib/fiscalYearDisplay";
+import { getUpcomingClosingDates, getFiscalYearForDate } from "@/lib/fiscalCalculations";
 
 interface StaffComboboxProps {
   label: string;
@@ -146,25 +146,6 @@ const suggestFiscalYear = (): number => {
 const FISCAL_YEAR_START = 2025
 const FISCAL_YEAR_LOOKAHEAD = 3
 
-// BUG #0604-143: closing-date options driving the derived Año Fiscal.
-const CLOSING_DATE_OPTIONS = [...getFiscalYearOptions(), "Otro"] as const;
-const STANDARD_CLOSING_MONTH_DAY: Record<string, [number, number]> = {
-  "December 31": [11, 31],
-  "March 31": [2, 31],
-  "June 30": [5, 30],
-  "September 30": [8, 30],
-};
-// Matches a stored closing date back to its standard option (by month/day, ignoring year),
-// falling back to "Otro" for client/service-specific dates.
-const matchClosingDateOption = (date: Date): (typeof CLOSING_DATE_OPTIONS)[number] => {
-  for (const [option, [month, day]] of Object.entries(STANDARD_CLOSING_MONTH_DAY)) {
-    if (date.getMonth() === month && date.getDate() === day) {
-      return option as (typeof CLOSING_DATE_OPTIONS)[number];
-    }
-  }
-  return "Otro";
-};
-
 // BUG #0603-140: reuse the same i18n keys as the form's SelectItems to label the
 // created-engagement summary in the confirmation modal.
 const PRACTICA_LABEL_KEYS: Record<number, string> = {
@@ -199,7 +180,7 @@ const formSchema = z.object({
   encargado_id: z.string().nullable().optional(),
   specialist_it_id: z.string().nullable().optional(),
   specialist_tax_id: z.string().nullable().optional(),
-  closing_date_option: z.enum(CLOSING_DATE_OPTIONS).optional(),
+  closing_date_option: z.string().optional(), // "yyyy-MM-dd" of a standard close, or "Otro"
   closing_date_custom: z.date().optional(),
 }).refine((data) => {
   if (data.start_date && data.end_date) {
@@ -303,16 +284,9 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   const [approvalRequired, setApprovalRequired] = useState(engagement?.approval_required ?? true);
   // BUG #0604-143: admin-only manual override of the derived Año Fiscal.
   const [overrideOn, setOverrideOn] = useState(engagement?.anio_fiscal_override ?? false);
-  // Hidden "closing calendar year" (operator A3): for a fresh standard-option pick it's the
-  // current calendar year; when reconstructing an existing engagement's closing date it must
-  // be that date's own year, or redisplaying an unedited record would re-derive a different FY.
-  const [closingCalendarYear, setClosingCalendarYear] = useState(() => {
-    if (engagement?.fecha_cierre) {
-      const closingDate = parseDateLocal(engagement.fecha_cierre);
-      if (matchClosingDateOption(closingDate) !== "Otro") return closingDate.getFullYear();
-    }
-    return new Date().getFullYear();
-  });
+  // BUG #0604-143: dated closing-date options (upcoming quarter-ends, each carrying its full
+  // date so the derived FY is unambiguous). "Otro" reveals a calendar for client-specific dates.
+  const closingDateOptions = useMemo(() => getUpcomingClosingDates(), []);
 
   // BUG #0206-19 + #0220-48: Minimum allowed start date (bypassed for internal)
   const minStartDate = useMemo(() => {
@@ -334,8 +308,12 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       initializedEngagementIdRef.current !== engagement.engagement_id
     ) {
       initializedEngagementIdRef.current = engagement.engagement_id;
-      const closingDate = engagement.fecha_cierre ? parseDateLocal(engagement.fecha_cierre) : undefined;
-      const closingDateOption = closingDate ? matchClosingDateOption(closingDate) : undefined;
+      // Reconstruct the closing-date control: if the stored date is one of the offered dated
+      // options select it; otherwise (past close or client-specific date) fall back to "Otro"
+      // with the date prefilled.
+      const storedClosing = engagement.fecha_cierre || undefined;
+      const closingInWindow = storedClosing != null && closingDateOptions.some((o) => o.value === storedClosing);
+      const closingDateOption = storedClosing ? (closingInWindow ? storedClosing : "Otro") : undefined;
       form.reset({
         engagement_name: engagement.engagement_name,
         anio_fiscal: engagement.anio_fiscal ?? undefined,
@@ -353,33 +331,29 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
         specialist_it_id: engagement.specialist_it_id ?? null,
         specialist_tax_id: engagement.specialist_tax_id ?? null,
         closing_date_option: closingDateOption,
-        closing_date_custom: closingDateOption === "Otro" ? closingDate : undefined,
+        closing_date_custom: closingDateOption === "Otro" && storedClosing ? parseDateLocal(storedClosing) : undefined,
       });
       setWorkOrderRequired(engagement.work_order_required ?? true);
       setActivityRequired(engagement.activity_required ?? true);
       setIsInternal(engagement.is_internal ?? false);
       setApprovalRequired(engagement.approval_required ?? true);
       setOverrideOn(engagement.anio_fiscal_override ?? false);
-      setClosingCalendarYear(
-        closingDateOption && closingDateOption !== "Otro" ? closingDate!.getFullYear() : new Date().getFullYear()
-      );
     }
-  }, [engagement, clients, form, isDirty]);
+  }, [engagement, clients, form, isDirty, closingDateOptions]);
 
   // Report dirty state to parent
   useEffect(() => {
     onDirtyChange?.(isDirty);
   }, [isDirty, onDirtyChange]);
 
-  // BUG #0604-143: derive Año Fiscal from the closing date in real time. The closing
-  // calendar year is not a visible field — standard presets use closingCalendarYear
-  // (current year for a fresh pick, the record's own year when reconstructed on edit);
-  // "Otro" carries its own full date.
+  // BUG #0604-143: derive Año Fiscal from the closing date in real time. Standard options
+  // carry their full "yyyy-MM-dd" value; "Otro" carries its own picked date.
   const [wClosingOption, wClosingCustom] = form.watch(["closing_date_option", "closing_date_custom"]);
-  const derivedFiscalYear = useMemo(
-    () => deriveFiscalYearFromClosing(wClosingOption, closingCalendarYear, wClosingCustom),
-    [wClosingOption, wClosingCustom, closingCalendarYear]
-  );
+  const resolvedClosingDate = useMemo(() => {
+    if (wClosingOption === "Otro") return wClosingCustom ?? null;
+    return wClosingOption ? parseDateLocal(wClosingOption) : null;
+  }, [wClosingOption, wClosingCustom]);
+  const derivedFiscalYear = resolvedClosingDate ? getFiscalYearForDate(resolvedClosingDate) : null;
   const overrideActive = isAdmin && overrideOn;
 
   // Keep the effective anio_fiscal in sync with the derived value unless an admin override is active.
@@ -415,10 +389,15 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       if (missingCodeField) return;
     }
 
+    // Resolve the closing date from the submitted values: standard option carries its
+    // "yyyy-MM-dd" value; "Otro" carries the picked custom date.
+    const resolveClosing = (): Date | null =>
+      data.closing_date_option === "Otro"
+        ? (data.closing_date_custom ?? null)
+        : (data.closing_date_option ? parseDateLocal(data.closing_date_option) : null);
+
     if (isEdit && engagement) {
-      const closingDateResolved = canEditClosing
-        ? buildClosingDate(data.closing_date_option, closingCalendarYear, data.closing_date_custom)
-        : null;
+      const closingDateResolved = canEditClosing ? resolveClosing() : null;
       await updateMutation.mutateAsync({
         id: engagement.engagement_id,
         data: {
@@ -455,7 +434,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       return;
     }
 
-    const closingDateResolved = buildClosingDate(data.closing_date_option, closingCalendarYear, data.closing_date_custom) as Date;
+    const closingDateResolved = resolveClosing() as Date;
     const created = await createMutation.mutateAsync({
       engagement_name:     data.engagement_name,
       client_id:           data.client_id,
@@ -571,7 +550,6 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     setIsInternal(false);
     setApprovalRequired(true);
     setOverrideOn(false);
-    setClosingCalendarYear(new Date().getFullYear());
   };
 
   const handleGoToWorkMatrix = () => {
@@ -916,17 +894,15 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                     <FormLabel>{t("engagement.closingDate")} *</FormLabel>
                     <Select
                       disabled={isEdit && !canEditClosing}
-                      onValueChange={(v) => {
-                        field.onChange(v);
-                        // A fresh pick of a standard option always means "this year's" date.
-                        setClosingCalendarYear(new Date().getFullYear());
-                      }}
+                      onValueChange={field.onChange}
                       value={field.value ?? ""}
                     >
                       <FormControl><SelectTrigger><SelectValue placeholder={t("engagement.selectClosingDate")} /></SelectTrigger></FormControl>
                       <SelectContent>
-                        {getFiscalYearOptions().map((opt) => (
-                          <SelectItem key={opt} value={opt}>{formatFiscalYearEnd(opt, i18n.language)}</SelectItem>
+                        {closingDateOptions.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {formatClosingDateLabel(opt.key, opt.year, i18n.language)}
+                          </SelectItem>
                         ))}
                         <SelectItem value="Otro">{t("engagement.closingDate_otro")}</SelectItem>
                       </SelectContent>

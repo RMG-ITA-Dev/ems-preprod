@@ -38,3 +38,16 @@ export function formatFiscalYearEnd(
 export function getFiscalYearOptions(): FiscalDateKey[] {
   return ["December 31", "March 31", "June 30", "September 30"];
 }
+
+/**
+ * BUG #0604-143: localized label for a dated closing-date option (month/day + year).
+ * ES: "30 de septiembre de 2026"; EN: "September 30, 2026".
+ */
+export function formatClosingDateLabel(
+  value: string,
+  year: number,
+  language: string
+): string {
+  const base = formatFiscalYearEnd(value, language);
+  return language === "es" ? `${base} de ${year}` : `${base}, ${year}`;
+}

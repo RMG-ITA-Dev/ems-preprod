@@ -367,17 +367,17 @@ describe("EngagementForm — closing date drives Año Fiscal (BUG 0604-143)", ()
     expect(screen.getByRole("combobox", { name: "engagement.closingDate *" })).not.toBeDisabled();
   });
 
-  it("picking 'September 30' derives FY2026 in the read-only Año Fiscal field", async () => {
-    // Fix "today" inside FY2026 (Jun 2026) so the hidden closing-calendar-year default
-    // (current calendar year) derives a deterministic FY regardless of when tests run.
-    // shouldAdvanceTime keeps real timers ticking so userEvent's internal waits don't hang.
+  it("picking the Sep 30 2026 close derives FY2026 in the read-only Año Fiscal field", async () => {
+    // Fix "today" to Jun 1 2026 so the dated dropdown window is deterministic. At that date the
+    // window includes "September 30, 2026" (a future close within FY2026). shouldAdvanceTime
+    // keeps real timers ticking so userEvent's internal waits don't hang.
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date(2026, 5, 1));
     const user = userEvent.setup({ delay: null });
     render(<EngagementForm />);
     const closingDateSelect = screen.getByRole("combobox", { name: "engagement.closingDate *" });
     await user.click(closingDateSelect);
-    const option = await screen.findByRole("option", { name: "September 30" });
+    const option = await screen.findByRole("option", { name: "September 30, 2026" });
     await user.click(option);
     await waitFor(() => {
       expect(screen.getByTestId("anio-fiscal-derived")).toHaveValue("2026");
@@ -385,10 +385,9 @@ describe("EngagementForm — closing date drives Año Fiscal (BUG 0604-143)", ()
     vi.useRealTimers();
   });
 
-  it("picking 'December 31' rolls into the next fiscal year and completes the code preview", async () => {
-    // "Today" is fixed to Jun 2026; a Dec 31 closing date always falls in the NEXT Oct-Sep
-    // fiscal window, so with the hidden calendar year defaulting to the current year (2026),
-    // Dec 31, 2026 -> FY2027.
+  it("picking the Dec 31 2026 close rolls into FY2027 and completes the code preview", async () => {
+    // "Today" is Jun 1 2026; the window offers "December 31, 2026" which falls in FY2027
+    // (Oct 2026 → Sep 2027).
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date(2026, 5, 1));
     const user = userEvent.setup({ delay: null });
@@ -402,7 +401,7 @@ describe("EngagementForm — closing date drives Año Fiscal (BUG 0604-143)", ()
 
     const closingDateSelect = screen.getByRole("combobox", { name: "engagement.closingDate *" });
     await user.click(closingDateSelect);
-    await user.click(await screen.findByRole("option", { name: "December 31" }));
+    await user.click(await screen.findByRole("option", { name: "December 31, 2026" }));
 
     await waitFor(() => {
       expect(screen.getByTestId("anio-fiscal-derived")).toHaveValue("2027");
