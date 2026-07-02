@@ -893,7 +893,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                 />
 
                 <FormField control={form.control} name="closing_date_option" render={({ field }) => (
-                  <FormItem>
+                  <FormItem className="flex flex-col">
                     <FormLabel>{t("engagement.closingDate")} *</FormLabel>
                     <Select
                       disabled={isEdit && !canEditClosing}
