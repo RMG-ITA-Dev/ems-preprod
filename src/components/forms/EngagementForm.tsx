@@ -505,15 +505,6 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     }
     setContractError(null);
 
-    // BUG #0625-151: el contrato escaneado es obligatorio solo para encargos de cliente
-    // (no aplica a internos). El archivo ya se subió a Storage al seleccionarlo, así que
-    // solo validamos que exista una ruta antes de crear el encargo.
-    if (!isEdit && !isInternal && !contractFilePath) {
-      setContractError(t("engagement.contractRequired"));
-      return;
-    }
-    setContractError(null);
-
     // Resolve the closing date from the submitted values: standard option carries its
     // "yyyy-MM-dd" value; "Otro" carries the picked custom date.
     const resolveClosing = (): Date | null =>
