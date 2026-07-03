@@ -573,21 +573,13 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       encargado_id:        data.encargado_id ?? null,
       specialist_it_id:    data.specialist_it_id ?? null,
       specialist_tax_id:   data.specialist_tax_id ?? null,
+      // BUG #0625-151 (Codex review): linked inside the RPC (SECURITY DEFINER) instead of a
+      // separate client-side update — the old update() was subject to the "Team can update
+      // engagements" RLS policy, which a creator who isn't the assigned partner/manager/admin
+      // (e.g. a Director assigning others) would fail, silently saving a client engagement
+      // without its mandatory contract. The file itself is already durably in Storage either way.
+      contract_file_path:  !isInternal ? contractFilePath : null,
     });
-
-    // BUG #0625-151: el archivo ya está en Storage; solo falta enlazarlo al encargo recién
-    // creado con un update simple (mucho menos riesgoso que subir el archivo después de
-    // crear). Si falla, el archivo sigue a salvo en Storage — se avisa para reintentar.
-    if (!isInternal && contractFilePath && created?.engagement_id) {
-      const { error: linkError } = await supabase
-        .from("engagements")
-        .update({ contract_file_path: contractFilePath })
-        .eq("engagement_id", created.engagement_id);
-      if (linkError) {
-        console.error("Contract link error:", linkError);
-        toast.error(t("engagement.contractUploadFailed"));
-      }
-    }
 
     // BUG #0603-140: the engagement is now persisted, so clear the dirty state before the
     // confirmation modal opens. Otherwise isDirty stays true while the modal is up and a
@@ -682,6 +674,15 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     setIsInternal(false);
     setApprovalRequired(true);
     setOverrideOn(false);
+    // BUG #0625-151 (Codex review): the previous engagement's contract was already uploaded
+    // and linked — without this reset, the next engagement would start with that same file
+    // "attached," pass the mandatory-contract check unnoticed, and link the same private
+    // contract to a different engagement/team. Only clears local state, not the Storage object
+    // (which correctly still belongs to the engagement just created).
+    setContractFilePath(null);
+    setContractFileName(null);
+    setContractProgress(0);
+    setContractError(null);
   };
 
   const handleGoToWorkMatrix = () => {

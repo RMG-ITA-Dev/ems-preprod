@@ -65,15 +65,13 @@ vi.mock("@/hooks/useCurrentStaff", () => ({
 const mockUpload = vi.fn();
 const mockRemove = vi.fn();
 const mockCreateSignedUrl = vi.fn();
-const mockUpdateEq = vi.fn();
 
+// BUG 0625-151 (Codex review): contract_file_path is now linked atomically inside
+// create_engagement_with_code (see useEngagementMutations.codeGeneration.test.tsx for the
+// RPC payload assertion), not via a separate supabase.from("engagements").update() call —
+// so this mock no longer needs to stub `.from(...)`, only Storage.
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
-    from: vi.fn(() => ({
-      update: vi.fn(() => ({
-        eq: mockUpdateEq,
-      })),
-    })),
     storage: {
       from: vi.fn(() => ({
         upload: mockUpload,
@@ -125,7 +123,6 @@ describe("EngagementForm — contract file upload (BUG 0625-151)", () => {
     mockUpload.mockResolvedValue({ data: { path: "contracts/123-abc.pdf" }, error: null });
     mockRemove.mockResolvedValue({ data: null, error: null });
     mockCreateSignedUrl.mockResolvedValue({ data: { signedUrl: "https://example.com/signed" }, error: null });
-    mockUpdateEq.mockResolvedValue({ data: null, error: null });
   });
 
   it("renders the required 'Contrato Escaneado' upload control for a new client engagement", () => {
