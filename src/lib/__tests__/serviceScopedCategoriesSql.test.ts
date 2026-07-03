@@ -73,3 +73,35 @@ describe("service-scoped categories migration (0702-152)", () => {
     expect(sql).toContain("TO authenticated");
   });
 });
+
+// ── Review fixes migration (iterations 1-2) ─────────────────────────────────
+const fixesPath = resolve(
+  __dirname,
+  "../../../supabase/migrations/20260703000000_service_scoped_categories_fixes.sql"
+);
+const fixesSql = readFileSync(fixesPath, "utf-8");
+
+describe("service-scoped categories review fixes (0702-152)", () => {
+  it("#4 defines delete_category_for_service guarded by is_admin() and granted to authenticated", () => {
+    expect(fixesSql).toContain("FUNCTION public.delete_category_for_service");
+    expect(fixesSql).toContain("public.is_admin()");
+    expect(fixesSql).toContain("GRANT EXECUTE ON FUNCTION public.delete_category_for_service");
+    expect(fixesSql).toContain("TO authenticated");
+  });
+
+  it("#4 delete compacts the order by pulling later siblings up by one", () => {
+    expect(fixesSql).toMatch(/SET display_order = display_order - 1\s+WHERE service_id = v_service_id\s+AND display_order > v_pos/);
+  });
+
+  it("#2 create RPC enforces allows_rates_activities", () => {
+    expect(fixesSql).toContain("SELECT is_active, allows_rates_activities");
+    expect(fixesSql).toMatch(/IF NOT v_allows THEN/);
+  });
+
+  it("#3 copy RPC validates source and target existence + validity", () => {
+    expect(fixesSql).toContain("source_not_found");
+    expect(fixesSql).toContain("source_invalid");
+    expect(fixesSql).toContain("target_not_found");
+    expect(fixesSql).toContain("target_invalid");
+  });
+});

@@ -147,6 +147,20 @@ export function CategoryForm({ open, onOpenChange, category, serviceId }: Catego
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, category, serviceId, form]);
 
+  // The suggested order (max+1) can't be computed until useCategories() resolves.
+  // If the sheet opened before that data arrived, the reset above left it at 1;
+  // recompute once the list loads — but only on create and only while the user
+  // hasn't manually edited the field (so a hand-picked position is preserved).
+  useEffect(() => {
+    if (!open || isEdit) return;
+    if (form.formState.dirtyFields.display_order) return;
+    const sid = form.getValues("service_id");
+    if (sid) {
+      form.setValue("display_order", nextOrderFor(sid));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, isEdit, allCategories]);
+
   const currentServiceId = form.watch("service_id");
   const currentService = activeServices.find((s) => s.service_id === currentServiceId)
     ?? (category?.service ?? null);

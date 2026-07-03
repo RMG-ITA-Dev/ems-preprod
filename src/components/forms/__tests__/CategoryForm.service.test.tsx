@@ -43,9 +43,12 @@ const mockAllCategories = [
   { category_id: "c2", category_name: "Gerente", service_id: "s1", display_order: 2, rate_high_bob: 150, rate_low_bob: 100, rate_high_usd: 25, rate_low_usd: 20, can_approve_wo: false, can_approve_timesheets: true, default_app_role: null },
 ];
 
+// Mutable so a test can simulate useCategories() resolving AFTER the form opens.
+let mockCategoriesData: typeof mockAllCategories | undefined = mockAllCategories;
+
 vi.mock("@/hooks/useEmsData", () => ({
   useServices: () => ({ data: mockServices }),
-  useCategories: () => ({ data: mockAllCategories }),
+  useCategories: () => ({ data: mockCategoriesData }),
 }));
 
 import { CategoryForm } from "@/components/forms/CategoryForm";
@@ -87,7 +90,10 @@ describe("CategoryForm — service required (0702-152)", () => {
 
 // ── Create mode ────────────────────────────────────────────────────────────
 describe("CategoryForm — create (0702-152)", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCategoriesData = mockAllCategories;
+  });
 
   it("shows the service selector when creating", () => {
     render(<CategoryForm open={true} onOpenChange={vi.fn()} category={null} />);
@@ -99,6 +105,20 @@ describe("CategoryForm — create (0702-152)", () => {
     // s1 has display_order 1 and 2 → next suggested is 3.
     render(<CategoryForm open={true} onOpenChange={vi.fn()} category={null} serviceId="s1" />);
     expect(screen.getByDisplayValue("3")).toBeInTheDocument();
+  });
+
+  it("recomputes the suggested order when categories load after the form opens", async () => {
+    // Sheet opens before useCategories() resolves → default falls back to 1.
+    mockCategoriesData = undefined;
+    const { rerender } = render(
+      <CategoryForm open={true} onOpenChange={vi.fn()} category={null} serviceId="s1" />
+    );
+    expect(screen.getByDisplayValue("1")).toBeInTheDocument();
+
+    // Data arrives → the guarded effect updates the suggestion to max + 1 = 3.
+    mockCategoriesData = mockAllCategories;
+    rerender(<CategoryForm open={true} onOpenChange={vi.fn()} category={null} serviceId="s1" />);
+    expect(await screen.findByDisplayValue("3")).toBeInTheDocument();
   });
 });
 

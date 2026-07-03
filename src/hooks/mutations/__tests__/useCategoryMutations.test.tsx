@@ -128,10 +128,9 @@ describe("useCategoryMutations", () => {
   });
 
   describe("useDeleteCategory", () => {
-    it("deletes a category by id (direct hard delete)", async () => {
-      const mockEq = vi.fn().mockResolvedValue({ error: null });
-      const mockDelete = vi.fn().mockReturnValue({ eq: mockEq });
-      vi.mocked(supabase.from).mockReturnValue({ delete: mockDelete } as any);
+    it("routes to delete_category_for_service RPC (compacts order, no hole)", async () => {
+      const mockRpc = vi.fn().mockResolvedValue({ data: null, error: null });
+      vi.mocked(supabase.rpc).mockImplementation(mockRpc as any);
 
       const { result } = renderHook(() => useDeleteCategory(), { wrapper: createWrapper() });
 
@@ -139,8 +138,9 @@ describe("useCategoryMutations", () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-      expect(supabase.from).toHaveBeenCalledWith("categories");
-      expect(mockEq).toHaveBeenCalledWith("category_id", "cat-123");
+      expect(supabase.rpc).toHaveBeenCalledWith("delete_category_for_service", {
+        p_category_id: "cat-123",
+      });
       expect(toast.success).toHaveBeenCalled();
     });
   });

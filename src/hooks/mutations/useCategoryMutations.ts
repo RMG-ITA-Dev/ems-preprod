@@ -98,7 +98,12 @@ export function useDeleteCategory() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from("categories").delete().eq("category_id", id);
+      // Delete via RPC so the per-service order is compacted (gap-free 1..N).
+      // A direct delete would leave a hole at the removed position.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error } = await (supabase as any).rpc("delete_category_for_service", {
+        p_category_id: id,
+      });
       if (error) throw error;
     },
     onSuccess: () => {
