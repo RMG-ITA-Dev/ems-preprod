@@ -5,6 +5,25 @@
 ALTER TABLE public.engagements
   ADD COLUMN IF NOT EXISTS contract_file_path text;
 
+-- Codex review (P1): the storage SELECT policy below grants access to any object whose path is
+-- referenced by *some* engagements row the caller is a team member of — not necessarily the row
+-- the file was originally uploaded for. "Authenticated users can read engagements" is USING (true),
+-- so any user can read another engagement's contract_file_path and then set that same value on an
+-- engagement of their own (direct REST update or via create_engagement_with_code), making the
+-- SELECT policy's EXISTS check pass for a contract that was never theirs. A UNIQUE constraint closes
+-- this at the source: no second row can ever claim a path already linked to another engagement.
+-- (Multiple NULLs — internal/pending engagements — remain allowed; Postgres does not treat NULL as
+-- equal to NULL for uniqueness.)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'engagements_contract_file_path_unique'
+  ) THEN
+    ALTER TABLE public.engagements
+      ADD CONSTRAINT engagements_contract_file_path_unique UNIQUE (contract_file_path);
+  END IF;
+END $$;
+
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 VALUES (
   'engagement-contracts',
@@ -36,6 +55,23 @@ USING (
     SELECT 1 FROM public.engagements e
     WHERE e.contract_file_path = storage.objects.name
       AND (is_engagement_team_member(e.engagement_id) OR is_admin())
+  )
+);
+
+-- Codex review (P2): Supabase Storage's remove() needs the object to be selectable, not just
+-- deletable — the SELECT policy above only matches objects already linked to an engagement, so a
+-- just-uploaded, not-yet-linked file could never be found/removed via the "X" cancel flow, leaving
+-- it orphaned in Storage while the UI's local state cleared as if it succeeded. Mirrors the DELETE
+-- policy's predicate exactly, scoped to the uploader's own unlinked objects only.
+DROP POLICY IF EXISTS "Uploader can view their unlinked engagement contract" ON storage.objects;
+CREATE POLICY "Uploader can view their unlinked engagement contract"
+ON storage.objects FOR SELECT
+TO authenticated
+USING (
+  bucket_id = 'engagement-contracts'
+  AND (owner = auth.uid() OR owner_id = (auth.uid())::text)
+  AND NOT EXISTS (
+    SELECT 1 FROM public.engagements e WHERE e.contract_file_path = storage.objects.name
   )
 );
 
