@@ -13,7 +13,7 @@
 -- ────────────────────────────────────────────────────────────────────────────
 -- #4. RPC: delete_category_for_service
 --     Deletes the category and pulls every later sibling up by one so the
---     service keeps a gap-free 1..N order. FK violations (staff / budget lines)
+--     service keeps a gap-free 1..N aorder. FK violations (staff / budget lines)
 --     still propagate as before.
 -- ────────────────────────────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.delete_category_for_service(
