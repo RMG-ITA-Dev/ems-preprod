@@ -57,6 +57,7 @@ DECLARE
   v_date_begin  date;
   v_date_end    date;
   v_tipo        text;
+  v_derived_fy  integer;
 BEGIN
   IF p_oficina IS NULL OR p_oficina NOT IN (0, 1, 2) THEN
     RAISE EXCEPTION 'Oficina inválida: %', p_oficina;
@@ -72,6 +73,30 @@ BEGIN
 
   IF p_anio_fiscal IS NULL OR p_anio_fiscal < 2020 OR p_anio_fiscal > 2100 THEN
     RAISE EXCEPTION 'Año fiscal inválido: %', p_anio_fiscal;
+  END IF;
+
+  IF p_fecha_cierre IS NULL THEN
+    RAISE EXCEPTION 'Fecha de cierre requerida';
+  END IF;
+
+  -- REVIEW FIX (0604-143 it.3): p_anio_fiscal was trusted as-is from the caller with no relation
+  -- to p_fecha_cierre, so a mismatched pair (stale client, direct RPC call) could persist an
+  -- anio_fiscal that the closing date never derives, even with anio_fiscal_override = false.
+  -- Mirrors getFiscalYearForDate (src/lib/fiscalCalculations.ts): fiscal year runs Oct 1 -> Sep 30,
+  -- named by the ending year.
+  v_derived_fy := CASE
+    WHEN EXTRACT(MONTH FROM p_fecha_cierre) >= 10 THEN EXTRACT(YEAR FROM p_fecha_cierre)::integer + 1
+    ELSE EXTRACT(YEAR FROM p_fecha_cierre)::integer
+  END;
+
+  IF p_anio_fiscal_override THEN
+    IF NOT public.is_admin() THEN
+      RAISE EXCEPTION 'FORBIDDEN: el override manual del año fiscal requiere rol administrador'
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
+  ELSIF p_anio_fiscal IS DISTINCT FROM v_derived_fy THEN
+    RAISE EXCEPTION 'Año fiscal % no coincide con el derivado de la fecha de cierre % (esperado %)',
+      p_anio_fiscal, p_fecha_cierre, v_derived_fy;
   END IF;
 
   v_date_begin := ((p_anio_fiscal - 1)::text || '-10-01')::date;
