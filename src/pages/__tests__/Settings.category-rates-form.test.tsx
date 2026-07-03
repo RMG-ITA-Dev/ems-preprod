@@ -79,6 +79,10 @@ const mockServices = [
   { service_id: TAX, name: "Tax", code: 3, allows_rates_activities: true, is_active: true, created_at: "", abbreviation: "TAX" },
 ];
 
+// Mutable so a test can simulate useServices() resolving AFTER useCategories()
+// already has warm cache data — the race window behind review finding #5.
+let mockServicesData: typeof mockServices | undefined = mockServices;
+
 vi.mock("@/hooks/useEmsData", () => ({
   useCategories: (serviceId?: string) => ({
     data: serviceId ? (catsByService[serviceId] ?? []) : Object.values(catsByService).flat(),
@@ -105,7 +109,7 @@ vi.mock("@/hooks/useEmsData", () => ({
   useExpenseTypes:     () => ({ data: [], isLoading: false }),
   useSkills: () => ({ data: [], isLoading: false }),
   useEngagements: () => ({ data: [], isLoading: false }),
-  useServices: () => ({ data: mockServices, isLoading: false }),
+  useServices: () => ({ data: mockServicesData, isLoading: !mockServicesData }),
 }));
 
 const moveCategoryMutate = vi.fn();
@@ -149,6 +153,7 @@ describe("Settings category-rates (0702-152 / BUG 0306-73)", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockServicesData = mockServices;
     queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
@@ -232,6 +237,21 @@ describe("Settings category-rates (0702-152 / BUG 0306-73)", () => {
     const downButtons = screen.getAllByLabelText("category.moveDown");
     await user.click(downButtons[0]); // Socio (pos 1) → down to 2
     expect(moveCategoryMutate).toHaveBeenCalledWith({ categoryId: "a1", newPosition: 2 });
+  });
+
+  it("hides reorder arrows while services haven't loaded yet (review fix #5)", async () => {
+    // Simulate the race: useCategories() already has warm cache data for ALL
+    // services (ratesServiceId is still "" at this point), while useServices()
+    // hasn't resolved. Before the fix, total was computed from every service's
+    // categories while pos was per-service, mis-enabling the down arrow.
+    mockServicesData = undefined;
+    renderSettings();
+    const user = userEvent.setup();
+    await goToRates(user);
+
+    expect(screen.getByText("Socio")).toBeInTheDocument();
+    expect(screen.queryAllByLabelText("category.moveUp")).toHaveLength(0);
+    expect(screen.queryAllByLabelText("category.moveDown")).toHaveLength(0);
   });
 
   it("copy button opens the copy dialog with a target selector", async () => {

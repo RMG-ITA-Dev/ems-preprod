@@ -386,7 +386,10 @@ const Settings = () => {
       render: (row) => {
         // ↑/↓ reorder within the selected service. Categories are a gap-free
         // 1..N sequence, so display_order is the 1-based position.
-        if (!isAdmin) return null;
+        // Wait for ratesServiceId before computing total — otherwise
+        // useCategories(undefined) can return ALL services' categories while
+        // pos is per-service, mismatching the bounds check.
+        if (!isAdmin || !ratesServiceId) return null;
         const total = (categories ?? []).length;
         const pos = row.display_order;
         if (total < 2) return null;
