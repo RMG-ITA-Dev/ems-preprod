@@ -74,7 +74,7 @@ describe("service-scoped categories migration (0702-152)", () => {
   });
 });
 
-// ── Review fixes migration (iterations 1-2) ─────────────────────────────────
+// ── Review fixes migration (iterations 1, 2 and 4 — consolidated) ───────────
 const fixesPath = resolve(
   __dirname,
   "../../../supabase/migrations/20260703000000_service_scoped_categories_fixes.sql"
@@ -103,5 +103,12 @@ describe("service-scoped categories review fixes (0702-152)", () => {
     expect(fixesSql).toContain("source_invalid");
     expect(fixesSql).toContain("target_not_found");
     expect(fixesSql).toContain("target_invalid");
+  });
+
+  it("#8 copy RPC checks every FK to categories before replace, not just staff/wo_budget_lines", () => {
+    expect(fixesSql).toContain("staff s WHERE s.category_id");
+    expect(fixesSql).toContain("wo_budget_lines b WHERE b.category_id");
+    expect(fixesSql).toContain("activity_worksheet_cells w WHERE w.category_id");
+    expect(fixesSql).toContain("activity_codes a WHERE a.default_category_id");
   });
 });

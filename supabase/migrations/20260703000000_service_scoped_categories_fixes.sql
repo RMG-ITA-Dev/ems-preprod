@@ -6,6 +6,9 @@
 --    (backend enforcement of the "active + rate-bearing" rule, not just the UI).
 -- #3 copy_categories_between_services — validate that source AND target exist,
 --    are active and rate-bearing, instead of silently returning 0.
+-- #8 copy_categories_between_services — also check activity_worksheet_cells and
+--    activity_codes.default_category_id before deleting the target's categories
+--    in replace mode (docs/database-schema.sql lists 4 FKs to categories, not 2).
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- #4. RPC: delete_category_for_service
@@ -208,13 +211,15 @@ BEGIN
       RAISE EXCEPTION 'target_not_empty';
     END IF;
 
-    -- Refuse to delete target categories that are still in use.
+    -- Refuse to delete target categories that are still in use anywhere.
     SELECT COUNT(*) INTO v_referenced
       FROM public.categories c
      WHERE c.service_id = p_target_service_id
        AND (
          EXISTS (SELECT 1 FROM public.staff s WHERE s.category_id = c.category_id)
          OR EXISTS (SELECT 1 FROM public.wo_budget_lines b WHERE b.category_id = c.category_id)
+         OR EXISTS (SELECT 1 FROM public.activity_worksheet_cells w WHERE w.category_id = c.category_id)
+         OR EXISTS (SELECT 1 FROM public.activity_codes a WHERE a.default_category_id = c.category_id)
        );
 
     IF v_referenced > 0 THEN
