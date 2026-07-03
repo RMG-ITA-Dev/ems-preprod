@@ -2,7 +2,7 @@
 export { useCreateIndustry, useUpdateIndustry, useDeleteIndustry } from "./useIndustryMutations";
 
 // Categories
-export { useCreateCategory, useUpdateCategory, useDeleteCategory } from "./useCategoryMutations";
+export { useCreateCategory, useUpdateCategory, useDeleteCategory, useMoveCategory, useCopyCategories } from "./useCategoryMutations";
 
 // Activity Codes
 export { useCreateActivityCode, useUpdateActivityCode, useDeleteActivityCode, useDeactivateServiceActivity, useReactivateServiceActivity, useReorderServiceActivity } from "./useActivityCodeMutations";

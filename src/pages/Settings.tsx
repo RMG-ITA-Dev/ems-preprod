@@ -33,7 +33,17 @@ import {
   Skill,
   Service,
 } from "@/hooks/useEmsData";
-import { useUpdateGlobalSetting, useReorderServiceActivity } from "@/hooks/mutations";
+import { useUpdateGlobalSetting, useReorderServiceActivity, useMoveCategory, useCopyCategories } from "@/hooks/mutations";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useUserRole } from "@/hooks/useUserRole";
 import { useLanguage } from "@/hooks/useLanguage";
@@ -69,7 +79,6 @@ const Settings = () => {
   const { isAdmin } = useUserRole();
   const { currentLanguage } = useLanguage();
   
-  const { data: categories, isLoading: categoriesLoading } = useCategories();
   const { data: industries, isLoading: industriesLoading } = useIndustries();
   const { data: settings, isLoading: settingsLoading } = useGlobalSettings();
   const { data: activityCodes, isLoading: activitiesLoading } = useAllActivityCodes();
@@ -80,6 +89,28 @@ const Settings = () => {
   const persistedHolidayEngagementId = useHolidayEngagementId();
   const updateSettingMutation = useUpdateGlobalSetting();
   const reorderActivityMutation = useReorderServiceActivity();
+  const moveCategoryMutation = useMoveCategory();
+  const copyCategoriesMutation = useCopyCategories();
+
+  // ── Category rates: service-scoped filter (default Auditoría) ──────────────
+  const ratesServices = useMemo(
+    () => (services ?? []).filter((s) => s.is_active && s.allows_rates_activities),
+    [services]
+  );
+  const [ratesServiceId, setRatesServiceId] = useState<string>("");
+  useEffect(() => {
+    if (!ratesServiceId && ratesServices.length > 0) {
+      const auditoria = ratesServices.find((s) => s.code === 1) ?? ratesServices[0];
+      setRatesServiceId(auditoria.service_id);
+    }
+  }, [ratesServices, ratesServiceId]);
+
+  const { data: categories, isLoading: categoriesLoading } = useCategories(ratesServiceId || undefined);
+
+  // Copy-categories dialog state.
+  const [copyDialogOpen, setCopyDialogOpen] = useState(false);
+  const [copyTargetId, setCopyTargetId] = useState<string>("");
+  const [copyNeedsReplace, setCopyNeedsReplace] = useState(false);
 
   // Active service-linked activities grouped by service, ordered by code.
   // Used to compute the 1-based position of each row for the ↑/↓ controls.
@@ -346,6 +377,53 @@ const Settings = () => {
       mobilePriority: 'secondary',
       render: (row) => Math.round(row.rate_low_usd).toLocaleString("en-US", { maximumFractionDigits: 0 }),
     },
+    {
+      key: "reorder",
+      label: "",
+      sortable: false,
+      className: "w-24",
+      mobilePriority: 'secondary',
+      render: (row) => {
+        // ↑/↓ reorder within the selected service. Categories are a gap-free
+        // 1..N sequence, so display_order is the 1-based position.
+        if (!isAdmin) return null;
+        const total = (categories ?? []).length;
+        const pos = row.display_order;
+        if (total < 2) return null;
+        return (
+          <div className="flex gap-1">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              disabled={pos <= 1 || moveCategoryMutation.isPending}
+              aria-label={t("category.moveUp")}
+              onClick={(e) => {
+                e.stopPropagation();
+                moveCategoryMutation.mutate({ categoryId: row.category_id, newPosition: pos - 1 });
+              }}
+            >
+              <ArrowUp className="h-4 w-4" />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              disabled={pos >= total || moveCategoryMutation.isPending}
+              aria-label={t("category.moveDown")}
+              onClick={(e) => {
+                e.stopPropagation();
+                moveCategoryMutation.mutate({ categoryId: row.category_id, newPosition: pos + 1 });
+              }}
+            >
+              <ArrowDown className="h-4 w-4" />
+            </Button>
+          </div>
+        );
+      },
+    },
   ];
 
   // Activity code columns
@@ -572,6 +650,37 @@ const Settings = () => {
     }
   };
 
+  // Copy-categories: available targets are the other rate-bearing services.
+  const copyTargetServices = ratesServices.filter((s) => s.service_id !== ratesServiceId);
+
+  const openCopyDialog = () => {
+    setCopyTargetId("");
+    setCopyNeedsReplace(false);
+    setCopyDialogOpen(true);
+  };
+
+  const handleCopyCategories = async (replace: boolean) => {
+    if (!ratesServiceId || !copyTargetId) return;
+    try {
+      await copyCategoriesMutation.mutateAsync({
+        sourceServiceId: ratesServiceId,
+        targetServiceId: copyTargetId,
+        replace,
+      });
+      setCopyDialogOpen(false);
+      setCopyNeedsReplace(false);
+    } catch (error) {
+      // target_not_empty → switch to the replace confirmation; other codes are
+      // surfaced as toasts by the mutation's onError.
+      if (((error as Error)?.message ?? "").includes("target_not_empty")) {
+        setCopyNeedsReplace(true);
+      }
+    }
+  };
+
+  const ratesServiceName = (id: string) =>
+    ratesServices.find((s) => s.service_id === id)?.name ?? "";
+
   return (
     <AppLayout title={t("settings.title")} focusMode={isGlobalTabActive}>
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
@@ -650,6 +759,34 @@ const Settings = () => {
         )}
 
         <TabsContent value="rates" className="space-y-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Label htmlFor="ratesServiceFilter">{t("category.service")}</Label>
+              <Select value={ratesServiceId} onValueChange={setRatesServiceId}>
+                <SelectTrigger id="ratesServiceFilter" className="w-56" data-testid="rates-service-filter">
+                  <SelectValue placeholder={t("category.selectService")} />
+                </SelectTrigger>
+                <SelectContent>
+                  {ratesServices.map((s) => (
+                    <SelectItem key={s.service_id} value={s.service_id}>
+                      {s.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {isAdmin && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={openCopyDialog}
+                disabled={!ratesServiceId || copyTargetServices.length === 0}
+                data-testid="copy-categories-button"
+              >
+                {t("category.copyFromService")}
+              </Button>
+            )}
+          </div>
           <DataTable
             data={categories || []}
             columns={categoryColumns}
@@ -665,7 +802,68 @@ const Settings = () => {
             open={categoryFormOpen}
             onOpenChange={setCategoryFormOpen}
             category={selectedCategory}
+            serviceId={ratesServiceId}
           />
+
+          {/* Copy categories from the current service into another */}
+          <AlertDialog open={copyDialogOpen} onOpenChange={setCopyDialogOpen}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>{t("category.copyFromService")}</AlertDialogTitle>
+                <AlertDialogDescription>
+                  {t("category.copySource", { service: ratesServiceName(ratesServiceId) })}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+
+              <div className="space-y-2">
+                <Label htmlFor="copyTarget">{t("category.copyTarget")}</Label>
+                <Select
+                  value={copyTargetId}
+                  onValueChange={(v) => { setCopyTargetId(v); setCopyNeedsReplace(false); }}
+                >
+                  <SelectTrigger id="copyTarget" data-testid="copy-target-select">
+                    <SelectValue placeholder={t("category.selectService")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {copyTargetServices.map((s) => (
+                      <SelectItem key={s.service_id} value={s.service_id}>
+                        {s.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {copyNeedsReplace && (
+                  <Alert variant="destructive" data-testid="copy-replace-warning">
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertDescription>{t("category.copyReplaceWarning")}</AlertDescription>
+                  </Alert>
+                )}
+              </div>
+
+              <AlertDialogFooter>
+                <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+                {copyNeedsReplace ? (
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    disabled={!copyTargetId || copyCategoriesMutation.isPending}
+                    onClick={() => handleCopyCategories(true)}
+                    data-testid="copy-replace-confirm"
+                  >
+                    {t("category.copyReplaceConfirm")}
+                  </Button>
+                ) : (
+                  <AlertDialogAction
+                    disabled={!copyTargetId || copyCategoriesMutation.isPending}
+                    onClick={(e) => { e.preventDefault(); handleCopyCategories(false); }}
+                    data-testid="copy-confirm"
+                  >
+                    {t("category.copyConfirm")}
+                  </AlertDialogAction>
+                )}
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </TabsContent>
 
         <TabsContent value="activities" className="space-y-6">
