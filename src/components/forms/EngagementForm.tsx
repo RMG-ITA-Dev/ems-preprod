@@ -190,14 +190,6 @@ const formSchema = z.object({
 }, {
   message: "End date must be on or after the start date",
   path: ["end_date"],
-}).refine((data) => {
-  if (data.closing_date_option === "Otro") {
-    return !!data.closing_date_custom;
-  }
-  return true;
-}, {
-  message: "A custom closing date is required when 'Other' is selected",
-  path: ["closing_date_custom"],
 });
 
 type FormData = z.infer<typeof formSchema>;
@@ -354,14 +346,21 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     return wClosingOption ? parseDateLocal(wClosingOption) : null;
   }, [wClosingOption, wClosingCustom]);
   const derivedFiscalYear = resolvedClosingDate ? getFiscalYearForDate(resolvedClosingDate) : null;
-  const overrideActive = isAdmin && overrideOn;
+  // REVIEW FIX (0604-143 it.1): `overrideOn` already reflects the persisted anio_fiscal_override —
+  // only an admin can flip it via the Switch below, non-admins simply inherit it on load — so the
+  // *effective* override must not depend on the current viewer's role. Gating it on `isAdmin` here
+  // made a Manager/Partner save silently discard an admin's override (it forced the derived value
+  // and wrote anio_fiscal_override: false). `isAdmin` still gates whether the editable Select
+  // (vs. the read-only Input) is rendered.
+  const effectiveOverride = overrideOn;
+  const showOverrideSelect = isAdmin && overrideOn;
 
-  // Keep the effective anio_fiscal in sync with the derived value unless an admin override is active.
+  // Keep the effective anio_fiscal in sync with the derived value unless an override is active.
   useEffect(() => {
-    if (!overrideActive) {
+    if (!effectiveOverride) {
       form.setValue("anio_fiscal", derivedFiscalYear ?? undefined, { shouldValidate: false, shouldDirty: false });
     }
-  }, [derivedFiscalYear, overrideActive, form]);
+  }, [derivedFiscalYear, effectiveOverride, form]);
 
   const handleOverrideToggle = (checked: boolean) => {
     setOverrideOn(checked);
@@ -376,6 +375,14 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       form.setError("start_date", {
         message: t("engagement.startDateBeforeCreation"),
       });
+      return;
+    }
+
+    // REVIEW FIX (0604-143 it.1): moved out of the Zod schema (which has no access to `t()`, so it
+    // could only carry a hardcoded English string) into a localized setError, mirroring the
+    // required-code-field checks below.
+    if (data.closing_date_option === "Otro" && !data.closing_date_custom) {
+      form.setError("closing_date_custom", { message: t("engagement.requiredClosingDateCustom") });
       return;
     }
 
@@ -421,7 +428,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
             ? {
                 anio_fiscal:          data.anio_fiscal as number,
                 fecha_cierre:         format(closingDateResolved, "yyyy-MM-dd"),
-                anio_fiscal_override: overrideActive,
+                anio_fiscal_override: effectiveOverride,
               }
             : {}),
         },
@@ -448,7 +455,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       funcion:             data.funcion    as number,
       anio_fiscal:         data.anio_fiscal as number,
       fecha_cierre:        format(closingDateResolved, "yyyy-MM-dd"),
-      anio_fiscal_override: overrideActive,
+      anio_fiscal_override: effectiveOverride,
       work_order_required: workOrderRequired,
       activity_required:   activityRequired,
       is_internal:         isInternal,
@@ -506,9 +513,11 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   // FY.[oficina][practica][funcion].[correlativo] (migration 20260601100000, lines 113-115);
   // the correlativo is unknown until insert, so it shows as the placeholder `---`.
   const [wAnio, wOficina, wPractica, wFuncion] = form.watch(["anio_fiscal", "oficina", "practica", "funcion"]);
+  // REVIEW FIX (0604-143 it.1): fecha_cierre is always required (NOT NULL), independent of an
+  // admin override on anio_fiscal, so the preview must not look "complete" without a closing date.
   const previewIncomplete =
     wAnio == null || wOficina == null || wPractica == null || wFuncion == null ||
-    (!overrideActive && wClosingOption == null);
+    wClosingOption == null;
   const previewCodePrefix = previewIncomplete
     ? null
     : `${wAnio}.${wOficina}${wPractica}${wFuncion}.`;
@@ -660,7 +669,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                 <FormField control={form.control} name="anio_fiscal" render={({ field }) => (
                   <FormItem>
                     <FormLabel>{t("engagement.anioFiscal")} *</FormLabel>
-                    {overrideActive ? (
+                    {showOverrideSelect ? (
                       <Select
                         onValueChange={(v) => field.onChange(Number(v))}
                         value={field.value ? String(field.value) : ""}

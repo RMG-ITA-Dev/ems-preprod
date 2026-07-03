@@ -43,7 +43,10 @@ vi.mock("react-i18next", () => ({
 }));
 
 vi.mock("@/hooks/useEmsData", () => ({
-  useClients: () => ({ data: [] }),
+  // Includes the client referenced by mockEngagement so the client Select can resolve a
+  // matching SelectItem for full-submit tests (Radix Select can't retain a `value` that has
+  // no corresponding item, which otherwise silently clears the field and fails validation).
+  useClients: () => ({ data: [{ client_id: "client-1", client_legal_name: "Test Client", is_active: true }] }),
 }));
 
 vi.mock("@/hooks/useCategoryStaff", () => ({
@@ -57,9 +60,10 @@ vi.mock("@/hooks/useCategoryStaff", () => ({
   }),
 }));
 
+let mockUpdateMutateAsync = vi.fn();
 vi.mock("@/hooks/mutations", () => ({
   useCreateEngagement: () => ({ mutateAsync: vi.fn(), isPending: false }),
-  useUpdateEngagement: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useUpdateEngagement: () => ({ mutateAsync: mockUpdateMutateAsync, isPending: false }),
   useDeleteEngagement: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
@@ -329,6 +333,7 @@ describe("EngagementForm render — edit mode (BUG 0306-82)", () => {
 describe("EngagementForm — closing date drives Año Fiscal (BUG 0604-143)", () => {
   beforeEach(() => {
     mockRole = { isAdmin: false };
+    mockUpdateMutateAsync = vi.fn().mockResolvedValue(undefined);
   });
 
   it("non-admin: renders the closing-date field and the fiscal-year helper text", () => {
@@ -422,5 +427,27 @@ describe("EngagementForm — closing date drives Año Fiscal (BUG 0604-143)", ()
       expect(screen.queryByTestId("anio-fiscal-derived")).not.toBeInTheDocument();
     });
     expect(screen.getByRole("combobox", { name: "engagement.anioFiscal *" })).toBeInTheDocument();
+  });
+
+  // REVIEW FIX regression (0604-143 it.1): a Manager/Partner saving an engagement that already
+  // carries an admin override must not silently discard it. Before the fix, `overrideActive`
+  // was gated on `isAdmin`, so any non-admin save forced anio_fiscal back to the derived value
+  // and wrote anio_fiscal_override: false.
+  it("edit mode: Manager saving an admin-overridden engagement preserves the override (does not recalculate)", async () => {
+    const user = userEvent.setup({ delay: null });
+    mockRole = { isAdmin: false, isManager: true, isPartner: false };
+    const overriddenEngagement: Engagement = {
+      ...mockEngagement,
+      anio_fiscal: 2030,             // deliberately different from the FY that fecha_cierre (2026-09-30) would derive (2026)
+      anio_fiscal_override: true,
+    };
+    render(<EngagementForm engagement={overriddenEngagement} />);
+
+    await user.click(screen.getByRole("button", { name: "common.saveChanges" }));
+
+    await waitFor(() => expect(mockUpdateMutateAsync).toHaveBeenCalled());
+    const [[call]] = mockUpdateMutateAsync.mock.calls;
+    expect(call.data.anio_fiscal_override).toBe(true);
+    expect(call.data.anio_fiscal).toBe(2030);
   });
 });
