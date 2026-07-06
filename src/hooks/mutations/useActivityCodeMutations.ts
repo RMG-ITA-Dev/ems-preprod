@@ -4,9 +4,10 @@ import { toast } from "sonner";
 import { createMutationErrorHandler } from "@/lib/error-handler";
 import i18n from "@/i18n";
 
-// Invalidates both the active-only and the all-codes admin caches.
+// Invalidates the admin caches and the Timesheet's separately-keyed active-activities cache.
 function invalidateActivityCodes(queryClient: ReturnType<typeof useQueryClient>) {
   queryClient.invalidateQueries({ queryKey: ["activity_codes"] });
+  queryClient.invalidateQueries({ queryKey: ["activity-codes-active"] });
 }
 
 export function useCreateActivityCode() {
