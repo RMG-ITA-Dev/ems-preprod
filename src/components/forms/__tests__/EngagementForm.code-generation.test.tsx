@@ -372,6 +372,25 @@ describe("EngagementForm — closing date drives Año Fiscal (BUG 0604-143)", ()
     expect(screen.getByRole("combobox", { name: "engagement.closingDate *" })).not.toBeDisabled();
   });
 
+  // REVIEW FIX regression (0604-143 it.6): the DB update trigger (engagement_fiscal_year_update_guard.sql,
+  // review it.5) requires admin whenever OLD.anio_fiscal_override is true, even if the submitted value is
+  // unchanged. A Manager/Partner changing the closing date on an already-overridden engagement would send a
+  // new fecha_cierre and get rejected server-side. The Select must be disabled for non-admins in that case
+  // so the form never exposes an edit path that always fails.
+  it("edit mode: Manager cannot edit the closing date when an admin override is active", () => {
+    mockRole = { isAdmin: false, isManager: true, isPartner: false };
+    const overriddenEngagement: Engagement = { ...mockEngagement, anio_fiscal_override: true };
+    render(<EngagementForm engagement={overriddenEngagement} />);
+    expect(screen.getByRole("combobox", { name: "engagement.closingDate *" })).toBeDisabled();
+  });
+
+  it("edit mode: Admin can still edit the closing date when an admin override is active", () => {
+    mockRole = { isAdmin: true };
+    const overriddenEngagement: Engagement = { ...mockEngagement, anio_fiscal_override: true };
+    render(<EngagementForm engagement={overriddenEngagement} />);
+    expect(screen.getByRole("combobox", { name: "engagement.closingDate *" })).not.toBeDisabled();
+  });
+
   it("picking the Sep 30 2026 close derives FY2026 in the read-only Año Fiscal field", async () => {
     // Fix "today" to Jun 1 2026 so the dated dropdown window is deterministic. At that date the
     // window includes "September 30, 2026" (a future close within FY2026). shouldAdvanceTime
