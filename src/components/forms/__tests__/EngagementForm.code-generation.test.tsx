@@ -393,15 +393,16 @@ describe("EngagementForm — closing date drives Año Fiscal (BUG 0604-143)", ()
 
   it("picking the Sep 30 2026 close derives FY2026 in the read-only Año Fiscal field", async () => {
     // Fix "today" to Jun 1 2026 so the dated dropdown window is deterministic. At that date the
-    // window includes "September 30, 2026" (a future close within FY2026). shouldAdvanceTime
-    // keeps real timers ticking so userEvent's internal waits don't hang.
+    // window includes "30/09/2026" (a future close within FY2026, rendered DD/MM/YYYY per
+    // docs/operations.md — review it.7). shouldAdvanceTime keeps real timers ticking so
+    // userEvent's internal waits don't hang.
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date(2026, 5, 1));
     const user = userEvent.setup({ delay: null });
     render(<EngagementForm />);
     const closingDateSelect = screen.getByRole("combobox", { name: "engagement.closingDate *" });
     await user.click(closingDateSelect);
-    const option = await screen.findByRole("option", { name: "September 30, 2026" });
+    const option = await screen.findByRole("option", { name: "30/09/2026" });
     await user.click(option);
     await waitFor(() => {
       expect(screen.getByTestId("anio-fiscal-derived")).toHaveValue("2026");
@@ -410,8 +411,8 @@ describe("EngagementForm — closing date drives Año Fiscal (BUG 0604-143)", ()
   });
 
   it("picking the Dec 31 2026 close rolls into FY2027 and completes the code preview", async () => {
-    // "Today" is Jun 1 2026; the window offers "December 31, 2026" which falls in FY2027
-    // (Oct 2026 → Sep 2027).
+    // "Today" is Jun 1 2026; the window offers "31/12/2026" (DD/MM/YYYY — review it.7) which
+    // falls in FY2027 (Oct 2026 → Sep 2027).
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date(2026, 5, 1));
     const user = userEvent.setup({ delay: null });
@@ -425,7 +426,7 @@ describe("EngagementForm — closing date drives Año Fiscal (BUG 0604-143)", ()
 
     const closingDateSelect = screen.getByRole("combobox", { name: "engagement.closingDate *" });
     await user.click(closingDateSelect);
-    await user.click(await screen.findByRole("option", { name: "December 31, 2026" }));
+    await user.click(await screen.findByRole("option", { name: "31/12/2026" }));
 
     await waitFor(() => {
       expect(screen.getByTestId("anio-fiscal-derived")).toHaveValue("2027");

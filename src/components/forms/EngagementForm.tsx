@@ -58,7 +58,6 @@ import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Switch } from "@/components/ui/switch";
 import { useUserRole } from "@/hooks/useUserRole";
-import { formatClosingDateLabel } from "@/lib/fiscalYearDisplay";
 import { getUpcomingClosingDates, getFiscalYearForDate } from "@/lib/fiscalCalculations";
 
 interface StaffComboboxProps {
@@ -203,7 +202,7 @@ interface EngagementFormProps {
 }
 
 export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSuccess, onGoToWorkMatrix }: EngagementFormProps) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { isAdmin, isManager, isPartner } = useUserRole();
   const isEdit = !!engagement;
@@ -913,7 +912,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                       <SelectContent>
                         {closingDateOptions.map((opt) => (
                           <SelectItem key={opt.value} value={opt.value}>
-                            {formatClosingDateLabel(opt.key, opt.year, i18n.language)}
+                            {format(opt.date, "dd/MM/yyyy")}
                           </SelectItem>
                         ))}
                         <SelectItem value="Otro">{t("engagement.closingDate_otro")}</SelectItem>
