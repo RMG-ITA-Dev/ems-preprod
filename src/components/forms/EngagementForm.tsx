@@ -558,6 +558,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       specialist_tax_id: null,
       closing_date_option: undefined,
       closing_date_custom: undefined,
+      start_date: startOfDay(new Date()),
     });
     setWorkOrderRequired(true);
     setActivityRequired(true);
