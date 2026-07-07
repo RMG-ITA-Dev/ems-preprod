@@ -33,6 +33,7 @@ export function useCreateEngagement() {
       // client-side update, which was subject to the "Team can update engagements" RLS policy
       // and could silently fail for a creator who isn't the assigned partner/manager/admin.
       contract_file_path?: string | null;
+      taxonomy_id?: string | null;
     }) => {
       const { data: result, error } = await supabase.rpc("create_engagement_with_code", {
         p_engagement_name:     data.engagement_name,
@@ -57,6 +58,7 @@ export function useCreateEngagement() {
         p_specialist_it_id:    data.specialist_it_id ?? null,
         p_specialist_tax_id:   data.specialist_tax_id ?? null,
         p_contract_file_path:  data.contract_file_path ?? null,
+        p_taxonomy_id:         data.taxonomy_id ?? null,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
       }) as unknown as { data: any; error: any };
       if (error) throw error;
@@ -101,6 +103,7 @@ export function useUpdateEngagement() {
         encargado_id: string | null;
         specialist_it_id: string | null;
         specialist_tax_id: string | null;
+        taxonomy_id: string | null;
       }>;
     }) => {
       const { data: result, error } = await supabase

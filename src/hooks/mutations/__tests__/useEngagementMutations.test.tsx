@@ -60,6 +60,7 @@ describe("useEngagementMutations", () => {
           p_practica: 2,
           p_funcion: 1,
           p_anio_fiscal: 2027,
+          p_taxonomy_id: null,
         })
       );
       expect(supabase.from).not.toHaveBeenCalledWith("engagements");
@@ -91,6 +92,7 @@ describe("useEngagementMutations", () => {
         partner_id: "staff-1",
         manager_id: "staff-2",
         status: "active",
+        taxonomy_id: "tax-1",
       });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
@@ -104,6 +106,7 @@ describe("useEngagementMutations", () => {
           p_practica: 2,
           p_funcion: 1,
           p_anio_fiscal: 2027,
+          p_taxonomy_id: "tax-1",
         })
       );
     });

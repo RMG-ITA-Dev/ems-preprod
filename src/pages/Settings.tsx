@@ -26,12 +26,14 @@ import {
   useSkills,
   useEngagements,
   useServices,
+  useTaxonomies,
   Category,
   Industry,
   ActivityCode,
   ExpenseType,
   Skill,
   Service,
+  Taxonomy,
 } from "@/hooks/useEmsData";
 import { useUpdateGlobalSetting, useReorderServiceActivity, useMoveCategory, useCopyCategories } from "@/hooks/mutations";
 import {
@@ -54,6 +56,7 @@ import { ActivityCodeForm } from "@/components/forms/ActivityCodeForm";
 import { ExpenseTypeForm } from "@/components/forms/ExpenseTypeForm";
 import { SkillForm } from "@/components/forms/SkillForm";
 import { ServiceForm } from "@/components/forms/ServiceForm";
+import { TaxonomyForm } from "@/components/forms/TaxonomyForm";
 import { UserRolesManager } from "@/components/settings/UserRolesManager";
 import { ChangePasswordCard } from "@/components/settings/ChangePasswordCard";
 import { HolidaysManager } from "@/components/settings/HolidaysManager";
@@ -85,6 +88,7 @@ const Settings = () => {
   const { data: expenseTypes, isLoading: expenseTypesLoading } = useExpenseTypes();
   const { data: skills, isLoading: skillsLoading } = useSkills();
   const { data: services, isLoading: servicesLoading } = useServices();
+  const { data: taxonomies, isLoading: taxonomiesLoading } = useTaxonomies();
   const { data: engagements } = useEngagements();
   const persistedHolidayEngagementId = useHolidayEngagementId();
   const updateSettingMutation = useUpdateGlobalSetting();
@@ -153,6 +157,9 @@ const Settings = () => {
 
   const [serviceFormOpen, setServiceFormOpen] = useState(false);
   const [selectedService, setSelectedService] = useState<Service | null>(null);
+
+  const [taxonomyFormOpen, setTaxonomyFormOpen] = useState(false);
+  const [selectedTaxonomy, setSelectedTaxonomy] = useState<Taxonomy | null>(null);
 
   // Settings state
   const [taxRate, setTaxRate] = useState<string>("");
@@ -548,6 +555,33 @@ const Settings = () => {
     },
   ];
 
+  // Taxonomy columns
+  const taxonomyColumns: Column<Taxonomy>[] = [
+    { key: "code", label: t("taxonomy.code"), sortable: true, className: "w-24 font-mono", mobilePriority: 'primary' },
+    { key: "name", label: t("taxonomy.name"), sortable: true, mobilePriority: 'primary' },
+    {
+      key: "service_id",
+      label: t("taxonomy.service"),
+      sortable: false,
+      mobilePriority: 'secondary',
+      render: (row) => {
+        const service = (services || []).find((s) => s.service_id === row.service_id);
+        return service ? service.name : t("taxonomy.global");
+      },
+    },
+    {
+      key: "is_active",
+      label: t("taxonomy.status"),
+      sortable: true,
+      mobilePriority: 'secondary',
+      render: (row) => (
+        <Badge variant="outline" className={row.is_active ? "bg-success/10 text-success border-success/20" : "bg-muted text-muted-foreground"}>
+          {row.is_active ? t("status.active") : t("status.inactive")}
+        </Badge>
+      ),
+    },
+  ];
+
   // Expense type columns
   const expenseTypeColumns: Column<ExpenseType>[] = [
     { key: "expense_name", label: t("expense.name"), sortable: true, mobilePriority: 'primary' },
@@ -704,6 +738,9 @@ const Settings = () => {
           )}
           {isAdmin && (
             <TabsTrigger value="services">{t("settings.services")}</TabsTrigger>
+          )}
+          {isAdmin && (
+            <TabsTrigger value="taxonomies">{t("settings.taxonomies")}</TabsTrigger>
           )}
           {isAdmin && (
             <TabsTrigger value="global">{t("settings.globalSettings")}</TabsTrigger>
@@ -1178,6 +1215,35 @@ const Settings = () => {
               onOpenChange={setServiceFormOpen}
               service={selectedService}
               usedCodes={(services || []).map((s) => s.code)}
+            />
+          </TabsContent>
+        )}
+
+        {isAdmin && (
+          <TabsContent value="taxonomies" className="space-y-6">
+            <DataTable
+              data={taxonomies || []}
+              columns={taxonomyColumns}
+              searchPlaceholder={t("common.search")}
+              searchKeys={["name", "code"]}
+              isLoading={taxonomiesLoading}
+              newButtonLabel={t("taxonomy.newTaxonomy")}
+              onNewClick={() => { setSelectedTaxonomy(null); setTaxonomyFormOpen(true); }}
+              onRowClick={(row) => { setSelectedTaxonomy(row); setTaxonomyFormOpen(true); }}
+              getRowId={(row) => row.taxonomy_id}
+              statusFilter={{
+                key: "is_active",
+                options: [
+                  { value: "active", label: t("status.active") },
+                  { value: "inactive", label: t("status.inactive") },
+                ],
+              }}
+            />
+            <TaxonomyForm
+              open={taxonomyFormOpen}
+              onOpenChange={setTaxonomyFormOpen}
+              taxonomy={selectedTaxonomy}
+              usedCodes={(taxonomies || []).map((tx) => tx.code)}
             />
           </TabsContent>
         )}

@@ -274,7 +274,9 @@
     "skill": "Competency",
     "skills": "Competencies",
     "service": "Service",
-    "services": "Services"
+    "services": "Services",
+    "taxonomy": "Taxonomy",
+    "taxonomies": "Taxonomies"
   },
   "status": {
     "active": "Active",
@@ -331,6 +333,7 @@
     "realizationLimitHelp": "Threshold for color coding: green if R >= X%, red if R < X%",
     "skills": "Competencies",
     "services": "Services",
+    "taxonomies": "Taxonomies",
     "holidays": "Holidays",
     "userRoles": "User Roles",
     "holidayEngagement": "Holiday Engagement",
@@ -494,6 +497,27 @@
     "namePlaceholder": "e.g., Auditoría",
     "noDigitsAvailable": "All codes (0–9) are in use. Deactivate a service to free up a code.",
     "formDescription": "Manage service details and availability."
+  },
+  "taxonomy": {
+    "name": "Name",
+    "code": "Code",
+    "codePlaceholder": "e.g., AA1006",
+    "namePlaceholder": "e.g., Tax Compliance",
+    "service": "Service",
+    "global": "Global",
+    "newTaxonomy": "New Taxonomy",
+    "editTaxonomy": "Edit Taxonomy",
+    "createTaxonomy": "Create Taxonomy",
+    "status": "Status",
+    "activeDescription": "Active taxonomies appear in the engagement taxonomy selector",
+    "deactivateConfirmTitle": "Deactivate taxonomy?",
+    "deactivateConfirmBody": "Inactive taxonomies will no longer appear when creating engagements. Existing engagements are not affected.",
+    "nameRequired": "Name is required",
+    "codeRequired": "Code is required",
+    "codeTooLong": "Code cannot exceed 10 characters",
+    "codeInUse": "This code is already in use by another taxonomy",
+    "serviceDescription": "Optional. Leave as Global unless this taxonomy belongs to a specific service.",
+    "formDescription": "Manage taxonomy details and availability."
   },
   "expense": {
     "name": "Expense Name",
@@ -713,7 +737,13 @@
     "invalidContractFileType": "Only PDF files are allowed",
     "contractFileTooLarge": "The file must be smaller than 5MB",
     "downloadContract": "Download Contract",
-    "removeContract": "Remove file"
+    "removeContract": "Remove file",
+    "taxonomy":           "Taxonomy",
+    "selectTaxonomy":     "Select taxonomy",
+    "searchTaxonomy":     "Search taxonomy...",
+    "noMatchingTaxonomies": "No matching taxonomies.",
+    "noAplicaTaxonomy":   "Not applicable",
+    "requiredTaxonomyCliente": "Taxonomy is required for Client engagements"
   },
   "messages": {
     "createSuccess": "{{entity}} created successfully",

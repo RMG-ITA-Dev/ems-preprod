@@ -69,3 +69,6 @@ export {
 
 // Services
 export { useCreateService, useUpdateService } from "./useServiceMutations";
+
+// Taxonomies
+export { useCreateTaxonomy, useUpdateTaxonomy } from "./useTaxonomyMutations";

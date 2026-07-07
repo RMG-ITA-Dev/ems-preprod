@@ -42,7 +42,8 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { EngagementCreatedDialog } from "@/components/forms/EngagementCreatedDialog";
-import { Engagement, useClients, useServices } from "@/hooks/useEmsData";
+import { TaxonomyCombobox, NO_APLICA_VALUE } from "@/components/forms/TaxonomyCombobox";
+import { Engagement, useClients, useServices, useTaxonomies } from "@/hooks/useEmsData";
 import { useCategoryStaff } from "@/hooks/useCategoryStaff";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { useCreateEngagement, useUpdateEngagement, useDeleteEngagement } from "@/hooks/mutations";
@@ -155,6 +156,7 @@ const FUNCION_LABEL_KEYS: Record<number, string> = {
   2: "engagement.funcion_cap",
   3: "engagement.funcion_calidad",
 }
+const FUNCION_CLIENTE = 1
 
 const formSchema = z.object({
   engagement_name: z.string()
@@ -164,6 +166,7 @@ const formSchema = z.object({
   oficina:     z.number().int().min(0).max(2,   "Invalid office").optional(),
   practica:    z.number().int().min(0).max(9,   "Invalid practice").optional(),
   funcion:     z.number().int().min(0).max(3,   "Invalid function").optional(),
+  taxonomy_id: z.string().optional(),
   client_id: z.string().min(1, "Client is required"),
   partner_id: z.string().min(1, "Partner/Director is required"),
   manager_id: z.string().min(1, "Manager is required"),
@@ -209,6 +212,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
 
   const { data: clients } = useClients();
   const { data: allServices } = useServices();
+  const { data: allTaxonomies } = useTaxonomies();
   const { partnerOptions, managerOptions, hasPartnerCategory, hasManagerCategory, allActiveStaff } = useCategoryStaff();
   const { staffRecord } = useCurrentStaff();
 
@@ -218,6 +222,11 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   );
 
   const serviceSelectDisabled = isEdit || roleLoading || !isAdmin;
+
+  const activeTaxonomyOptions = useMemo(
+    () => (allTaxonomies ?? []).filter((tx) => tx.is_active || tx.taxonomy_id === engagement?.taxonomy_id),
+    [allTaxonomies, engagement?.taxonomy_id]
+  );
 
   const serviceNameByCode = useMemo(() => {
     const map: Record<number, string> = {};
@@ -266,6 +275,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       oficina: undefined,
       practica: undefined,
       funcion: undefined,
+      taxonomy_id: undefined,
       client_id: "",
       partner_id: "",
       manager_id: "",
@@ -345,6 +355,10 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
         oficina:     engagement.oficina     ?? undefined,
         practica:    engagement.practica    ?? undefined,
         funcion:     engagement.funcion     ?? undefined,
+        // 0602-136: a null taxonomy on an existing engagement is a legacy fact, not an
+        // unanswered field — default it to the explicit "No aplica" sentinel so editing
+        // an old record doesn't spuriously trip the Cliente-required check below.
+        taxonomy_id: engagement.taxonomy_id  ?? NO_APLICA_VALUE,
         client_id: engagement.client_id,
         partner_id: engagement.partner_id || "",
         manager_id: engagement.manager_id || "",
@@ -523,6 +537,17 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     }
     setContractError(null);
 
+    // 0602-136: taxonomy is mandatory only for Cliente engagements. `taxonomy_id`
+    // stays `undefined` only while the field has never been touched — an explicit
+    // "No aplica" pick (or any real selection) already satisfies this.
+    if (data.funcion === FUNCION_CLIENTE && !data.taxonomy_id) {
+      form.setError("taxonomy_id", { message: t("engagement.requiredTaxonomyCliente") });
+      return;
+    }
+    const taxonomyIdPayload = data.taxonomy_id && data.taxonomy_id !== NO_APLICA_VALUE
+      ? data.taxonomy_id
+      : null;
+
     // Resolve the closing date from the submitted values: standard option carries its
     // "yyyy-MM-dd" value; "Otro" carries the picked custom date.
     const resolveClosing = (): Date | null =>
@@ -550,6 +575,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
           encargado_id:        data.encargado_id ?? null,
           specialist_it_id:    data.specialist_it_id ?? null,
           specialist_tax_id:   data.specialist_tax_id ?? null,
+          taxonomy_id:         taxonomyIdPayload,
           // oficina, practica, funcion, engagement_code intentionally omitted — immutable after create
           ...(canEditClosing && closingDateResolved
             ? {
@@ -591,6 +617,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       encargado_id:        data.encargado_id ?? null,
       specialist_it_id:    data.specialist_it_id ?? null,
       specialist_tax_id:   data.specialist_tax_id ?? null,
+      taxonomy_id:         taxonomyIdPayload,
       // BUG #0625-151 (Codex review): linked inside the RPC (SECURITY DEFINER) instead of a
       // separate client-side update — the old update() was subject to the "Team can update
       // engagements" RLS policy, which a creator who isn't the assigned partner/manager/admin
@@ -676,6 +703,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       oficina: undefined,
       practica: isAdmin ? undefined : AUDITORIA_SERVICE_CODE,
       funcion: undefined,
+      taxonomy_id: undefined,
       client_id: "",
       partner_id: "",
       manager_id: "",
@@ -957,6 +985,26 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                   )}
                 />
               </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="taxonomy_id"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>
+                        {t("engagement.taxonomy")}
+                        {form.watch("funcion") === FUNCION_CLIENTE && " *"}
+                      </FormLabel>
+                      <TaxonomyCombobox
+                        taxonomies={activeTaxonomyOptions}
+                        value={field.value}
+                        onValueChange={field.onChange}
+                      />
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
               </div>
 
               <div className="space-y-4">

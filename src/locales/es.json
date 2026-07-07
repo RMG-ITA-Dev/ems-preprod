@@ -274,7 +274,9 @@
     "skill": "Competencia",
     "skills": "Competencias",
     "service": "Servicio",
-    "services": "Servicios"
+    "services": "Servicios",
+    "taxonomy": "Taxonomía",
+    "taxonomies": "Taxonomías"
   },
   "status": {
     "active": "Activo",
@@ -331,6 +333,7 @@
     "realizationLimitHelp": "Umbral para codificación por color: verde si R >= X%, rojo si R < X%",
     "skills": "Competencias",
     "services": "Servicios",
+    "taxonomies": "Taxonomías",
     "holidays": "Feriados",
     "userRoles": "Roles de Usuario",
     "holidayEngagement": "Encargo de Feriados",
@@ -494,6 +497,27 @@
     "namePlaceholder": "ej., Auditoría",
     "noDigitsAvailable": "Todos los códigos (0–9) están en uso. Desactive un servicio para liberar un código.",
     "formDescription": "Administra los detalles y disponibilidad del servicio."
+  },
+  "taxonomy": {
+    "name": "Nombre",
+    "code": "Código",
+    "codePlaceholder": "ej., AA1006",
+    "namePlaceholder": "ej., Tax Compliance",
+    "service": "Servicio",
+    "global": "Global",
+    "newTaxonomy": "Nueva Taxonomía",
+    "editTaxonomy": "Editar Taxonomía",
+    "createTaxonomy": "Crear Taxonomía",
+    "status": "Estado",
+    "activeDescription": "Las taxonomías activas aparecen en el selector de taxonomía del encargo",
+    "deactivateConfirmTitle": "¿Desactivar taxonomía?",
+    "deactivateConfirmBody": "Las taxonomías inactivas ya no aparecerán al crear encargos. Los encargos existentes no se ven afectados.",
+    "nameRequired": "El nombre es requerido",
+    "codeRequired": "El código es requerido",
+    "codeTooLong": "El código no puede exceder 10 caracteres",
+    "codeInUse": "Este código ya está en uso por otra taxonomía",
+    "serviceDescription": "Opcional. Deje Global salvo que esta taxonomía pertenezca a un servicio específico.",
+    "formDescription": "Administra los detalles y disponibilidad de la taxonomía."
   },
   "expense": {
     "name": "Nombre del Gasto",
@@ -713,7 +737,13 @@
     "invalidContractFileType": "Solo se permiten archivos PDF",
     "contractFileTooLarge": "El archivo debe pesar menos de 5MB",
     "downloadContract": "Descargar Contrato",
-    "removeContract": "Quitar archivo"
+    "removeContract": "Quitar archivo",
+    "taxonomy":           "Taxonomía",
+    "selectTaxonomy":     "Seleccionar taxonomía",
+    "searchTaxonomy":     "Buscar taxonomía...",
+    "noMatchingTaxonomies": "No se encontraron taxonomías.",
+    "noAplicaTaxonomy":   "No aplica",
+    "requiredTaxonomyCliente": "La taxonomía es requerida para encargos de tipo Cliente"
   },
   "messages": {
     "createSuccess": "{{entity}} creado/a exitosamente",

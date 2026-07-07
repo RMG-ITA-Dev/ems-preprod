@@ -54,6 +54,7 @@ vi.mock("@/hooks/useEmsData", () => ({
   // no corresponding item, which otherwise silently clears the field and fails validation).
   useClients: () => ({ data: [{ client_id: "client-1", client_legal_name: "Test Client", is_active: true }] }),
   useServices: () => ({ data: mockServices }),
+  useTaxonomies: () => ({ data: [] }),
 }));
 
 vi.mock("@/hooks/useCategoryStaff", () => ({
@@ -111,6 +112,7 @@ const mockEngagement: Engagement = {
   encargado_id:        null,
   specialist_it_id:    null,
   specialist_tax_id:   null,
+  taxonomy_id:         null,
 };
 
 // Mirror the helpers from EngagementForm.tsx

@@ -59,6 +59,7 @@ vi.mock("@/hooks/useEmsData", () => ({
     { client_id: "c1", client_legal_name: "Acme Corp", is_active: true },
   ] }),
   useServices: () => ({ data: mockServices }),
+  useTaxonomies: () => ({ data: [] }),
 }));
 
 vi.mock("@/hooks/useCategoryStaff", () => ({
@@ -132,6 +133,7 @@ const mockEngagementInactiveService: Engagement = {
   practica:            0,
   funcion:             1,
   anio_fiscal:         2026,
+  taxonomy_id:         null,
 };
 
 describe("EngagementForm — catalog-driven practica (0625-149)", () => {
