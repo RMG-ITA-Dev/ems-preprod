@@ -42,11 +42,18 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (k: string) => k, i18n: { language: "en" } }),
 }));
 
+const mockServices = [
+  { service_id: "s1", name: "Auditoría",  code: 1, allows_rates_activities: true,  is_active: true,  created_at: "" },
+  { service_id: "s2", name: "Tax",        code: 3, allows_rates_activities: true,  is_active: true,  created_at: "" },
+  { service_id: "s3", name: "Firmwide",   code: 0, allows_rates_activities: false, is_active: false, created_at: "" },
+];
+
 vi.mock("@/hooks/useEmsData", () => ({
   // Includes the client referenced by mockEngagement so the client Select can resolve a
   // matching SelectItem for full-submit tests (Radix Select can't retain a `value` that has
   // no corresponding item, which otherwise silently clears the field and fails validation).
-  useClients: () => ({ data: [{ client_id: "client-1", client_legal_name: "Test Client", is_active: true }] }),
+  useClients:  () => ({ data: [{ client_id: "client-1", client_legal_name: "Test Client", is_active: true }] }),
+  useServices: () => ({ data: mockServices }),
 }));
 
 vi.mock("@/hooks/useCategoryStaff", () => ({
@@ -108,11 +115,11 @@ const suggestFiscalYear = (): number => {
   return now.getMonth() >= 6 ? now.getFullYear() + 1 : now.getFullYear();
 };
 
-// Mirror the Zod schema for the four new fields (Plan v3: oficina/practica accept 0, practica max=4, funcion 0-3)
+// Mirror the Zod schema (0625-149: practica max relaxed to 9 — catalog-driven)
 const codeFieldsSchema = z.object({
   anio_fiscal: z.number().int().min(2020).max(2100, "Invalid fiscal year"),
   oficina:     z.number().int().min(0).max(2,   "Invalid office"),
-  practica:    z.number().int().min(0).max(4,   "Invalid practice"),
+  practica:    z.number().int().min(0).max(9,   "Invalid practice"),
   funcion:     z.number().int().min(0).max(3,   "Invalid function"),
 });
 
@@ -172,6 +179,11 @@ describe("Engagement create schema — new code-generation fields (BUG 0306-82)"
     expect(result.success).toBe(true);
   });
 
+  it("accepts practica=9 (catalog-driven max)", () => {
+    const result = codeFieldsSchema.safeParse({ anio_fiscal: 2027, oficina: 1, practica: 9, funcion: 0 });
+    expect(result.success).toBe(true);
+  });
+
   it("accepts funcion=0 (Administrativa)", () => {
     const result = codeFieldsSchema.safeParse({ anio_fiscal: 2027, oficina: 1, practica: 1, funcion: 0 });
     expect(result.success).toBe(true);
@@ -202,8 +214,8 @@ describe("Engagement create schema — new code-generation fields (BUG 0306-82)"
     expect(result.success).toBe(false);
   });
 
-  it("rejects practica value outside 0-4", () => {
-    const result = codeFieldsSchema.safeParse({ anio_fiscal: 2027, oficina: 1, practica: 5, funcion: 0 });
+  it("rejects practica value outside 0-9", () => {
+    const result = codeFieldsSchema.safeParse({ anio_fiscal: 2027, oficina: 1, practica: 10, funcion: 0 });
     expect(result.success).toBe(false);
   });
 
@@ -420,7 +432,7 @@ describe("EngagementForm — closing date drives Año Fiscal (BUG 0604-143)", ()
     await user.click(screen.getByRole("combobox", { name: "engagement.oficina *" }));
     await user.click(await screen.findByRole("option", { name: "engagement.oficina_laPaz" }));
     await user.click(screen.getByRole("combobox", { name: "engagement.practica *" }));
-    await user.click(await screen.findByRole("option", { name: "engagement.practica_auditoria" }));
+    await user.click(await screen.findByRole("option", { name: "Auditoría" }));
     await user.click(screen.getByRole("combobox", { name: "engagement.funcion *" }));
     await user.click(await screen.findByRole("option", { name: "engagement.funcion_cli" }));
 

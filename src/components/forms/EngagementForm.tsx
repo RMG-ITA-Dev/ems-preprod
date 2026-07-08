@@ -42,7 +42,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { EngagementCreatedDialog } from "@/components/forms/EngagementCreatedDialog";
-import { Engagement, useClients } from "@/hooks/useEmsData";
+import { Engagement, useClients, useServices } from "@/hooks/useEmsData";
 import { useCategoryStaff } from "@/hooks/useCategoryStaff";
 import { useCreateEngagement, useUpdateEngagement, useDeleteEngagement } from "@/hooks/mutations";
 import { Trash2, CalendarIcon, AlertCircle, ChevronsUpDown, Check } from "lucide-react";
@@ -145,15 +145,6 @@ const suggestFiscalYear = (): number => {
 const FISCAL_YEAR_START = 2025
 const FISCAL_YEAR_LOOKAHEAD = 3
 
-// BUG #0603-140: reuse the same i18n keys as the form's SelectItems to label the
-// created-engagement summary in the confirmation modal.
-const PRACTICA_LABEL_KEYS: Record<number, string> = {
-  0: "engagement.practica_firmwide",
-  1: "engagement.practica_auditoria",
-  2: "engagement.practica_consultoria",
-  3: "engagement.practica_tax",
-  4: "engagement.practica_growthStrategy",
-}
 const FUNCION_LABEL_KEYS: Record<number, string> = {
   0: "engagement.funcion_adm",
   1: "engagement.funcion_cli",
@@ -167,7 +158,7 @@ const formSchema = z.object({
     .max(200, "Engagement name cannot exceed 200 characters"),
   anio_fiscal: z.number().int().min(2020).max(2100, "Invalid fiscal year").optional(),
   oficina:     z.number().int().min(0).max(2,   "Invalid office").optional(),
-  practica:    z.number().int().min(0).max(4,   "Invalid practice").optional(),
+  practica:    z.number().int().min(0).max(9,   "Invalid practice").optional(),
   funcion:     z.number().int().min(0).max(3,   "Invalid function").optional(),
   client_id: z.string().min(1, "Client is required"),
   partner_id: z.string().min(1, "Partner/Director is required"),
@@ -211,6 +202,18 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   const canEditClosing = isAdmin || isManager || isPartner;
 
   const { data: clients } = useClients();
+  const { data: allServices } = useServices();
+
+  const activeServiceOptions = useMemo(
+    () => (allServices ?? []).filter((s) => s.is_active || s.code === engagement?.practica),
+    [allServices, engagement?.practica]
+  );
+
+  const serviceNameByCode = useMemo(() => {
+    const map: Record<number, string> = {};
+    (allServices ?? []).forEach((s) => { map[s.code] = s.name; });
+    return map;
+  }, [allServices]);
   const { partnerOptions, managerOptions, hasPartnerCategory, hasManagerCategory, allActiveStaff } = useCategoryStaff();
   const createMutation = useCreateEngagement();
   const updateMutation = useUpdateEngagement();
@@ -479,7 +482,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
         name: data.engagement_name,
         clientName,
         anioFiscal: data.anio_fiscal as number,
-        service: data.practica != null ? t(PRACTICA_LABEL_KEYS[data.practica]) : "",
+        service: data.practica != null ? (serviceNameByCode[data.practica] ?? String(data.practica)) : "",
         funcion: data.funcion != null ? t(FUNCION_LABEL_KEYS[data.funcion]) : "",
         status: t(`status.${data.status}`),
       });
@@ -729,11 +732,11 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                     >
                       <FormControl><SelectTrigger><SelectValue placeholder={t("engagement.selectPractica")} /></SelectTrigger></FormControl>
                       <SelectContent>
-                        <SelectItem value="0">{t("engagement.practica_firmwide")}</SelectItem>
-                        <SelectItem value="1">{t("engagement.practica_auditoria")}</SelectItem>
-                        <SelectItem value="2">{t("engagement.practica_consultoria")}</SelectItem>
-                        <SelectItem value="3">{t("engagement.practica_tax")}</SelectItem>
-                        <SelectItem value="4">{t("engagement.practica_growthStrategy")}</SelectItem>
+                        {activeServiceOptions.map((s) => (
+                          <SelectItem key={s.code} value={String(s.code)}>
+                            {s.name}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                     <FormMessage />

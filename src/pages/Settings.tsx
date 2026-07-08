@@ -25,11 +25,13 @@ import {
   useExpenseTypes,
   useSkills,
   useEngagements,
+  useServices,
   Category,
   Industry,
   ActivityCode,
   ExpenseType,
   Skill,
+  Service,
 } from "@/hooks/useEmsData";
 import { useUpdateGlobalSetting } from "@/hooks/mutations";
 import { supabase } from "@/integrations/supabase/client";
@@ -41,6 +43,7 @@ import { CategoryForm } from "@/components/forms/CategoryForm";
 import { ActivityCodeForm } from "@/components/forms/ActivityCodeForm";
 import { ExpenseTypeForm } from "@/components/forms/ExpenseTypeForm";
 import { SkillForm } from "@/components/forms/SkillForm";
+import { ServiceForm } from "@/components/forms/ServiceForm";
 import { UserRolesManager } from "@/components/settings/UserRolesManager";
 import { ChangePasswordCard } from "@/components/settings/ChangePasswordCard";
 import { HolidaysManager } from "@/components/settings/HolidaysManager";
@@ -72,6 +75,7 @@ const Settings = () => {
   const { data: activityCodes, isLoading: activitiesLoading } = useActivityCodes();
   const { data: expenseTypes, isLoading: expenseTypesLoading } = useExpenseTypes();
   const { data: skills, isLoading: skillsLoading } = useSkills();
+  const { data: services, isLoading: servicesLoading } = useServices();
   const { data: engagements } = useEngagements();
   const persistedHolidayEngagementId = useHolidayEngagementId();
   const updateSettingMutation = useUpdateGlobalSetting();
@@ -95,6 +99,9 @@ const Settings = () => {
 
   const [skillFormOpen, setSkillFormOpen] = useState(false);
   const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null);
+
+  const [serviceFormOpen, setServiceFormOpen] = useState(false);
+  const [selectedService, setSelectedService] = useState<Service | null>(null);
 
   // Settings state
   const [taxRate, setTaxRate] = useState<string>("");
@@ -345,6 +352,34 @@ const Settings = () => {
     },
   ];
 
+  // Service columns
+  const serviceColumns: Column<Service>[] = [
+    { key: "code", label: t("service.code"), sortable: true, className: "w-16 font-mono", mobilePriority: 'primary' },
+    { key: "name", label: t("service.name"), sortable: true, mobilePriority: 'primary' },
+    {
+      key: "allows_rates_activities",
+      label: t("service.allowsRatesActivities"),
+      sortable: true,
+      mobilePriority: 'secondary',
+      render: (row) => (
+        <Badge variant="outline" className={row.allows_rates_activities ? "bg-success/10 text-success border-success/20" : "bg-muted text-muted-foreground"}>
+          {row.allows_rates_activities ? t("common.yes") : t("common.no")}
+        </Badge>
+      ),
+    },
+    {
+      key: "is_active",
+      label: t("service.status"),
+      sortable: true,
+      mobilePriority: 'secondary',
+      render: (row) => (
+        <Badge variant="outline" className={row.is_active ? "bg-success/10 text-success border-success/20" : "bg-muted text-muted-foreground"}>
+          {row.is_active ? t("status.active") : t("status.inactive")}
+        </Badge>
+      ),
+    },
+  ];
+
   // Expense type columns
   const expenseTypeColumns: Column<ExpenseType>[] = [
     { key: "expense_name", label: t("expense.name"), sortable: true, mobilePriority: 'primary' },
@@ -467,6 +502,9 @@ const Settings = () => {
           )}
           {isAdmin && (
             <TabsTrigger value="roles">{t("settings.userRoles")}</TabsTrigger>
+          )}
+          {isAdmin && (
+            <TabsTrigger value="services">{t("settings.services")}</TabsTrigger>
           )}
           {isAdmin && (
             <TabsTrigger value="global">{t("settings.globalSettings")}</TabsTrigger>
@@ -824,6 +862,35 @@ const Settings = () => {
                 )}
               </CardContent>
             </Card>
+          </TabsContent>
+        )}
+
+        {isAdmin && (
+          <TabsContent value="services" className="space-y-6">
+            <DataTable
+              data={services || []}
+              columns={serviceColumns}
+              searchPlaceholder={t("common.search")}
+              searchKeys={["name"]}
+              isLoading={servicesLoading}
+              newButtonLabel={t("service.newService")}
+              onNewClick={() => { setSelectedService(null); setServiceFormOpen(true); }}
+              onRowClick={(row) => { setSelectedService(row); setServiceFormOpen(true); }}
+              getRowId={(row) => row.service_id}
+              statusFilter={{
+                key: "is_active",
+                options: [
+                  { value: "active", label: t("status.active") },
+                  { value: "inactive", label: t("status.inactive") },
+                ],
+              }}
+            />
+            <ServiceForm
+              open={serviceFormOpen}
+              onOpenChange={setServiceFormOpen}
+              service={selectedService}
+              usedCodes={(services || []).map((s) => s.code)}
+            />
           </TabsContent>
         )}
 
