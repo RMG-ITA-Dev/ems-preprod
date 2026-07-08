@@ -169,6 +169,15 @@ export interface ActivityCode {
   is_active: boolean;
 }
 
+export interface Service {
+  service_id: string;
+  name: string;
+  code: number;
+  allows_rates_activities: boolean;
+  is_active: boolean;
+  created_at: string;
+}
+
 export interface Skill {
   skill_id: string;
   name: string;
@@ -204,6 +213,21 @@ export interface GlobalSetting {
 }
 
 // Hooks
+export function useServices() {
+  return useQuery({
+    queryKey: ['services'],
+    queryFn: async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any)
+        .from('services')
+        .select('*')
+        .order('code');
+      if (error) throw error;
+      return data as Service[];
+    },
+  });
+}
+
 export function useCategories() {
   return useQuery({
     queryKey: ['categories'],

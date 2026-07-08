@@ -78,6 +78,7 @@ vi.mock("@/hooks/useEmsData", () => ({
   useExpenseTypes: () => ({ data: [], isLoading: false }),
   useSkills: () => ({ data: [], isLoading: false }),
   useEngagements: () => ({ data: [], isLoading: false }),
+  useServices: () => ({ data: [], isLoading: false }),
 }));
 
 vi.mock("@/hooks/mutations", () => ({
