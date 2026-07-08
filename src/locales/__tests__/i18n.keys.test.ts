@@ -85,3 +85,13 @@ describe("i18n new keys from bug 0319-91 (expense report export)", () => {
     });
   });
 });
+
+describe("i18n capitalization — bug 0625-147", () => {
+  it("ES userRoles.roles.specialist_tax is 'Especialista Tax'", () => {
+    expect((esJson as any).userRoles.roles.specialist_tax).toBe("Especialista Tax");
+  });
+
+  it("EN userRoles.roles.specialist_tax is 'Tax Specialist'", () => {
+    expect((enJson as any).userRoles.roles.specialist_tax).toBe("Tax Specialist");
+  });
+});
