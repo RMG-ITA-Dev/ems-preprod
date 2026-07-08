@@ -41,7 +41,10 @@ BEGIN
   END;
 
   IF NEW.anio_fiscal_override THEN
-    IF NOT public.is_admin() THEN
+    -- Only block when the override flag is being turned ON; if it was already on (admin set it
+    -- previously), non-admin users (Manager/Partner/Director) may still update fecha_cierre.
+    IF NEW.anio_fiscal_override IS DISTINCT FROM OLD.anio_fiscal_override
+       AND NOT public.is_admin() THEN
       RAISE EXCEPTION 'FORBIDDEN: el override manual del año fiscal requiere rol administrador'
         USING ERRCODE = 'insufficient_privilege';
     END IF;

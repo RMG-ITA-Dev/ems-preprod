@@ -196,11 +196,11 @@ interface EngagementFormProps {
 export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSuccess, onGoToWorkMatrix }: EngagementFormProps) {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
-  const { isAdmin, isManager, isPartner } = useUserRole();
+  const { isAdmin, isManager, isPartner, isDirector } = useUserRole();
   const isEdit = !!engagement;
-  // BUG #0604-143: closing date (and the FY it derives) may be edited by Admin/Gerente/Socio;
+  // BUG #0604-143: closing date (and the FY it derives) may be edited by Admin/Gerente/Socio/Director;
   // oficina/practica/funcion/engagement_code remain fully immutable after create.
-  const canEditClosing = isAdmin || isManager || isPartner;
+  const canEditClosing = isAdmin || isManager || isPartner || isDirector;
 
   const { data: clients } = useClients();
   const { data: allServices } = useServices();
