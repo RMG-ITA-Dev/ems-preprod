@@ -66,3 +66,6 @@ export {
   useDeletePaymentPlan,
   useDeleteInstallment,
 } from "./useWorkOrderPaymentPlanMutations";
+
+// Services
+export { useCreateService, useUpdateService } from "./useServiceMutations";
