@@ -12,8 +12,8 @@ const EngagementNew = () => {
   const { t } = useTranslation();
   const [isDirty, setIsDirty] = useState(false);
   const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty });
-  const { isAdmin, isPartner, isDirector, isLoading: roleLoading } = useUserRole();
-  const canCreate = isAdmin || isPartner || isDirector;
+  const { isAdmin, isPartner, isDirector, isManager, isSQR, isLoading: roleLoading } = useUserRole();
+  const canCreate = isAdmin || isPartner || isDirector || isManager || isSQR;
 
   useEffect(() => {
     if (!roleLoading && !canCreate) {

@@ -28,8 +28,8 @@ const Engagements = () => {
   const navigate = useNavigate();
   const { data: engagements, isLoading } = useEngagements();
   const { partnerOptions, managerOptions } = useCategoryStaff();
-  const { isAdmin, isPartner, isDirector } = useUserRole();
-  const canCreate = isAdmin || isPartner || isDirector;
+  const { isAdmin, isPartner, isDirector, isManager, isSQR } = useUserRole();
+  const canCreate = isAdmin || isPartner || isDirector || isManager || isSQR;
 
   const columns: Column<Engagement>[] = [
     {
