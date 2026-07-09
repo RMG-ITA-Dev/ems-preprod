@@ -1,12 +1,37 @@
 import React from "react";
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import * as z from "zod";
-import { render, screen } from "@/test/utils";
+import { render, screen, fireEvent, waitFor } from "@/test/utils";
+import userEvent from "@testing-library/user-event";
 
 /**
  * BUG 0306-82: Auto-generate Engagement Code on Insert
  * Pure-logic tests + render-level tests that exercise the production component.
  */
+
+// Polyfills for Radix UI Select, which calls APIs not implemented in jsdom
+// (mirrors StaffHoursDetailDialog.test.tsx / EncargoTab.test.tsx).
+if (typeof window !== "undefined") {
+  if (!Element.prototype.hasPointerCapture) {
+    Element.prototype.hasPointerCapture = () => false;
+  }
+  if (!Element.prototype.setPointerCapture) {
+    Element.prototype.setPointerCapture = () => undefined;
+  }
+  if (!Element.prototype.releasePointerCapture) {
+    Element.prototype.releasePointerCapture = () => undefined;
+  }
+  if (!Element.prototype.scrollIntoView) {
+    Element.prototype.scrollIntoView = () => undefined;
+  }
+}
+if (typeof global.ResizeObserver === "undefined") {
+  global.ResizeObserver = class ResizeObserver {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+}
 
 vi.mock("react-router-dom", async () => {
   const actual = await vi.importActual("react-router-dom");
@@ -24,7 +49,10 @@ const mockServices = [
 ];
 
 vi.mock("@/hooks/useEmsData", () => ({
-  useClients:  () => ({ data: [] }),
+  // Includes the client referenced by mockEngagement so the client Select can resolve a
+  // matching SelectItem for full-submit tests (Radix Select can't retain a `value` that has
+  // no corresponding item, which otherwise silently clears the field and fails validation).
+  useClients:  () => ({ data: [{ client_id: "client-1", client_legal_name: "Test Client", is_active: true }] }),
   useServices: () => ({ data: mockServices }),
 }));
 
@@ -39,14 +67,16 @@ vi.mock("@/hooks/useCategoryStaff", () => ({
   }),
 }));
 
+let mockUpdateMutateAsync = vi.fn();
 vi.mock("@/hooks/mutations", () => ({
   useCreateEngagement: () => ({ mutateAsync: vi.fn(), isPending: false }),
-  useUpdateEngagement: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useUpdateEngagement: () => ({ mutateAsync: mockUpdateMutateAsync, isPending: false }),
   useDeleteEngagement: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
+let mockRole: { isAdmin: boolean; isManager?: boolean; isPartner?: boolean } = { isAdmin: false };
 vi.mock("@/hooks/useUserRole", () => ({
-  useUserRole: () => ({ isAdmin: false }),
+  useUserRole: () => mockRole,
 }));
 
 import { EngagementForm } from "@/components/forms/EngagementForm";
@@ -71,6 +101,8 @@ const mockEngagement: Engagement = {
   practica:            2,
   funcion:             1,
   anio_fiscal:         2027,
+  fecha_cierre:        "2026-09-30",
+  anio_fiscal_override: false,
   sqr_id:              null,
   encargado_id:        null,
   specialist_it_id:    null,
@@ -304,5 +336,150 @@ describe("EngagementForm render — edit mode (BUG 0306-82)", () => {
     expect(screen.getByText("engagement.oficina *")).toBeInTheDocument();
     expect(screen.getByText("engagement.practica *")).toBeInTheDocument();
     expect(screen.getByText("engagement.funcion *")).toBeInTheDocument();
+  });
+});
+
+// BUG 0604-143: Año Fiscal is derived from a new closing-date field (now grouped with
+// Fecha de Inicio/Fin in the "Fechas" section) instead of being manually selected,
+// except for an admin-only override.
+describe("EngagementForm — closing date drives Año Fiscal (BUG 0604-143)", () => {
+  beforeEach(() => {
+    mockRole = { isAdmin: false };
+    mockUpdateMutateAsync = vi.fn().mockResolvedValue(undefined);
+  });
+
+  it("non-admin: renders the closing-date field and the fiscal-year helper text", () => {
+    render(<EngagementForm />);
+    expect(screen.getByText("engagement.closingDate *")).toBeInTheDocument();
+    expect(screen.getByText("engagement.fiscalYearHelper")).toBeInTheDocument();
+  });
+
+  it("non-admin: Año Fiscal has no editable Select (derived, read-only only)", () => {
+    render(<EngagementForm />);
+    expect(screen.getByTestId("anio-fiscal-derived")).toBeInTheDocument();
+    expect(screen.getByTestId("anio-fiscal-derived")).toBeDisabled();
+    // The Select placeholder for a manual pick never renders for non-admin.
+    expect(screen.queryByText("engagement.selectAnioFiscal")).not.toBeInTheDocument();
+    expect(screen.queryByText("engagement.fiscalYearOverride")).not.toBeInTheDocument();
+  });
+
+  it("admin: sees the manual-override toggle in addition to the derived read-only value", () => {
+    mockRole = { isAdmin: true };
+    render(<EngagementForm />);
+    expect(screen.getByText("engagement.fiscalYearOverride")).toBeInTheDocument();
+    // Override is off by default: still read-only, no Select yet.
+    expect(screen.getByTestId("anio-fiscal-derived")).toBeInTheDocument();
+    expect(screen.queryByText("engagement.selectAnioFiscal")).not.toBeInTheDocument();
+  });
+
+  it("edit mode: non-privileged role cannot edit the closing date", () => {
+    mockRole = { isAdmin: false, isManager: false, isPartner: false };
+    render(<EngagementForm engagement={mockEngagement} />);
+    expect(screen.getByRole("combobox", { name: "engagement.closingDate *" })).toBeDisabled();
+  });
+
+  it("edit mode: Manager can edit the closing date", () => {
+    mockRole = { isAdmin: false, isManager: true, isPartner: false };
+    render(<EngagementForm engagement={mockEngagement} />);
+    expect(screen.getByRole("combobox", { name: "engagement.closingDate *" })).not.toBeDisabled();
+  });
+
+  // REVIEW FIX regression (0604-143 it.6): the DB update trigger (engagement_fiscal_year_update_guard.sql,
+  // review it.5) requires admin whenever OLD.anio_fiscal_override is true, even if the submitted value is
+  // unchanged. A Manager/Partner changing the closing date on an already-overridden engagement would send a
+  // new fecha_cierre and get rejected server-side. The Select must be disabled for non-admins in that case
+  // so the form never exposes an edit path that always fails.
+  it("edit mode: Manager cannot edit the closing date when an admin override is active", () => {
+    mockRole = { isAdmin: false, isManager: true, isPartner: false };
+    const overriddenEngagement: Engagement = { ...mockEngagement, anio_fiscal_override: true };
+    render(<EngagementForm engagement={overriddenEngagement} />);
+    expect(screen.getByRole("combobox", { name: "engagement.closingDate *" })).toBeDisabled();
+  });
+
+  it("edit mode: Admin can still edit the closing date when an admin override is active", () => {
+    mockRole = { isAdmin: true };
+    const overriddenEngagement: Engagement = { ...mockEngagement, anio_fiscal_override: true };
+    render(<EngagementForm engagement={overriddenEngagement} />);
+    expect(screen.getByRole("combobox", { name: "engagement.closingDate *" })).not.toBeDisabled();
+  });
+
+  it("picking the Sep 30 2026 close derives FY2026 in the read-only Año Fiscal field", async () => {
+    // Fix "today" to Jun 1 2026 so the dated dropdown window is deterministic. At that date the
+    // window includes "30/09/2026" (a future close within FY2026, rendered DD/MM/YYYY per
+    // docs/operations.md — review it.7). shouldAdvanceTime keeps real timers ticking so
+    // userEvent's internal waits don't hang.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(2026, 5, 1));
+    const user = userEvent.setup({ delay: null });
+    render(<EngagementForm />);
+    const closingDateSelect = screen.getByRole("combobox", { name: "engagement.closingDate *" });
+    await user.click(closingDateSelect);
+    const option = await screen.findByRole("option", { name: "30/09/2026" });
+    await user.click(option);
+    await waitFor(() => {
+      expect(screen.getByTestId("anio-fiscal-derived")).toHaveValue("2026");
+    });
+    vi.useRealTimers();
+  });
+
+  it("picking the Dec 31 2026 close rolls into FY2027 and completes the code preview", async () => {
+    // "Today" is Jun 1 2026; the window offers "31/12/2026" (DD/MM/YYYY — review it.7) which
+    // falls in FY2027 (Oct 2026 → Sep 2027).
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(2026, 5, 1));
+    const user = userEvent.setup({ delay: null });
+    render(<EngagementForm />);
+    await user.click(screen.getByRole("combobox", { name: "engagement.oficina *" }));
+    await user.click(await screen.findByRole("option", { name: "engagement.oficina_laPaz" }));
+    await user.click(screen.getByRole("combobox", { name: "engagement.practica *" }));
+    await user.click(await screen.findByRole("option", { name: "Auditoría" }));
+    await user.click(screen.getByRole("combobox", { name: "engagement.funcion *" }));
+    await user.click(await screen.findByRole("option", { name: "engagement.funcion_cli" }));
+
+    const closingDateSelect = screen.getByRole("combobox", { name: "engagement.closingDate *" });
+    await user.click(closingDateSelect);
+    await user.click(await screen.findByRole("option", { name: "31/12/2026" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("anio-fiscal-derived")).toHaveValue("2027");
+    });
+    expect(screen.getByTestId("engagement-code-preview")).toHaveTextContent("2027.111.");
+    vi.useRealTimers();
+  });
+
+  it("admin: toggling the override reveals the manual Fiscal Year Select", async () => {
+    const user = userEvent.setup({ delay: null });
+    mockRole = { isAdmin: true };
+    render(<EngagementForm />);
+    // The override switch is the first switch in DOM order (it renders in the code-fields
+    // grid, ahead of the admin-only Timesheet Policy switches further down the form).
+    const toggle = screen.getAllByRole("switch")[0];
+    await user.click(toggle);
+    await waitFor(() => {
+      expect(screen.queryByTestId("anio-fiscal-derived")).not.toBeInTheDocument();
+    });
+    expect(screen.getByRole("combobox", { name: "engagement.anioFiscal *" })).toBeInTheDocument();
+  });
+
+  // REVIEW FIX regression (0604-143 it.1): a Manager/Partner saving an engagement that already
+  // carries an admin override must not silently discard it. Before the fix, `overrideActive`
+  // was gated on `isAdmin`, so any non-admin save forced anio_fiscal back to the derived value
+  // and wrote anio_fiscal_override: false.
+  it("edit mode: Manager saving an admin-overridden engagement preserves the override (does not recalculate)", async () => {
+    const user = userEvent.setup({ delay: null });
+    mockRole = { isAdmin: false, isManager: true, isPartner: false };
+    const overriddenEngagement: Engagement = {
+      ...mockEngagement,
+      anio_fiscal: 2030,             // deliberately different from the FY that fecha_cierre (2026-09-30) would derive (2026)
+      anio_fiscal_override: true,
+    };
+    render(<EngagementForm engagement={overriddenEngagement} />);
+
+    await user.click(screen.getByRole("button", { name: "common.saveChanges" }));
+
+    await waitFor(() => expect(mockUpdateMutateAsync).toHaveBeenCalled());
+    const [[call]] = mockUpdateMutateAsync.mock.calls;
+    expect(call.data.anio_fiscal_override).toBe(true);
+    expect(call.data.anio_fiscal).toBe(2030);
   });
 });

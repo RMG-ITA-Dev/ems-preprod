@@ -31,7 +31,7 @@ interface ClientEngagementsTableProps {
   clientId: string;
 }
 
-type SortField = "engagement_code" | "engagement_name" | "partner" | "manager" | "start_date" | "end_date" | "status";
+type SortField = "engagement_code" | "engagement_name" | "partner" | "manager" | "start_date" | "end_date" | "fecha_cierre" | "status";
 type SortDirection = "asc" | "desc" | null;
 
 export function ClientEngagementsTable({ clientId }: ClientEngagementsTableProps) {
@@ -122,6 +122,10 @@ export function ClientEngagementsTable({ clientId }: ClientEngagementsTableProps
           case "end_date":
             aVal = a.end_date || "";
             bVal = b.end_date || "";
+            break;
+          case "fecha_cierre":
+            aVal = a.fecha_cierre || "";
+            bVal = b.fecha_cierre || "";
             break;
           case "status":
             aVal = a.status || "";
@@ -297,6 +301,15 @@ export function ClientEngagementsTable({ clientId }: ClientEngagementsTableProps
                 </div>
               </TableHead>
               <TableHead
+                className="cursor-pointer hover:bg-muted/80 text-center border-r border-border"
+                onClick={() => handleSort("fecha_cierre")}
+              >
+                <div className="flex items-center justify-center">
+                  {t("engagement.closingDate")}
+                  {getSortIcon("fecha_cierre")}
+                </div>
+              </TableHead>
+              <TableHead
                 className="cursor-pointer hover:bg-muted/80 text-center"
                 onClick={() => handleSort("status")}
               >
@@ -310,13 +323,13 @@ export function ClientEngagementsTable({ clientId }: ClientEngagementsTableProps
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
                   {t("common.loading")}
                 </TableCell>
               </TableRow>
             ) : filteredAndSorted.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
                   {t("client.noEngagements")}
                 </TableCell>
               </TableRow>
@@ -333,6 +346,7 @@ export function ClientEngagementsTable({ clientId }: ClientEngagementsTableProps
                   <TableCell className="text-left border-r border-border">{getStaffName(engagement.manager_id)}</TableCell>
                   <TableCell className="text-center border-r border-border">{formatDate(engagement.start_date)}</TableCell>
                   <TableCell className="text-center border-r border-border">{formatDate(engagement.end_date)}</TableCell>
+                  <TableCell className="text-center border-r border-border">{formatDate(engagement.fecha_cierre)}</TableCell>
                   <TableCell className="text-center">{getStatusBadge(engagement.status)}</TableCell>
                 </TableRow>
               ))

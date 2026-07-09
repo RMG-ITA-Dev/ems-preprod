@@ -11,6 +11,7 @@ import {
   getFiscalYearForDate,
   getFiscalWeekOneMonday,
   getFiscalWeekNumber,
+  getUpcomingClosingDates,
 } from "../fiscalCalculations";
 
 describe("getCalendarYearPeriod", () => {
@@ -369,4 +370,58 @@ describe("getFiscalWeekNumber", () => {
     });
   });
 });
+});
+
+// BUG 0604-143: dated rolling-window closing-date options for the "Fecha de Cierre" dropdown.
+describe("getUpcomingClosingDates", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("July 2026 → next close through Sep 30 of next FY (5 options)", () => {
+    const opts = getUpcomingClosingDates(new Date(2026, 6, 1)); // Jul 1, 2026
+    expect(opts.map((o) => o.value)).toEqual([
+      "2026-09-30",
+      "2026-12-31",
+      "2027-03-31",
+      "2027-06-30",
+      "2027-09-30",
+    ]);
+  });
+
+  it("February 2026 → 7 options, first Mar 31 2026, last Sep 30 2027", () => {
+    const opts = getUpcomingClosingDates(new Date(2026, 1, 1)); // Feb 1, 2026
+    expect(opts.map((o) => o.value)).toEqual([
+      "2026-03-31",
+      "2026-06-30",
+      "2026-09-30",
+      "2026-12-31",
+      "2027-03-31",
+      "2027-06-30",
+      "2027-09-30",
+    ]);
+  });
+
+  it("includes today when today is exactly a quarter-end (Sep 30)", () => {
+    const opts = getUpcomingClosingDates(new Date(2026, 8, 30)); // Sep 30, 2026
+    expect(opts[0].value).toBe("2026-09-30");
+  });
+
+  it("is sorted ascending, all >= today, and ends at Sep 30 of the next fiscal year", () => {
+    const today = new Date(2026, 6, 1);
+    const opts = getUpcomingClosingDates(today);
+    const times = opts.map((o) => o.date.getTime());
+    expect([...times]).toEqual([...times].sort((a, b) => a - b));
+    expect(times.every((t) => t >= new Date(2026, 6, 1).getTime())).toBe(true);
+    expect(opts[opts.length - 1].value).toBe("2027-09-30"); // FY2026 → next FY ends Sep 30 2027
+  });
+
+  it("each option's date derives the expected fiscal year via getFiscalYearForDate", () => {
+    const opts = getUpcomingClosingDates(new Date(2026, 6, 1));
+    const fyByValue = Object.fromEntries(opts.map((o) => [o.value, getFiscalYearForDate(o.date)]));
+    expect(fyByValue["2026-09-30"]).toBe(2026);
+    expect(fyByValue["2026-12-31"]).toBe(2027);
+    expect(fyByValue["2027-03-31"]).toBe(2027);
+    expect(fyByValue["2027-09-30"]).toBe(2027);
+  });
 });

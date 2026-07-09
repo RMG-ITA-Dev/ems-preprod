@@ -692,7 +692,16 @@
     "requiredAnioFiscal": "El año fiscal es requerido",
     "requiredOficina":    "La oficina es requerida",
     "requiredPractica":   "El servicio es requerido",
-    "requiredFuncion":    "La función es requerida"
+    "requiredFuncion":    "La función es requerida",
+    "closingDate":            "Fecha de Corte",
+    "selectClosingDate":      "Seleccionar fecha de corte",
+    "closingDate_otro":       "Otro",
+    "closingDateCustom":      "Fecha de Corte Personalizada",
+    "fiscalYearHelper":       "El año fiscal se calcula según la fecha de corte del encargo",
+    "fiscalYearOverride":     "Override manual (admin)",
+    "immutabilityHint":      "Verifique el año fiscal, oficina, servicio y función antes de guardar: el código del encargo no puede modificarse después; para corregirlo deberá crear un encargo nuevo.",
+    "requiredClosingDate":       "La fecha de corte es requerida",
+    "requiredClosingDateCustom": "La fecha de corte personalizada es requerida"
   },
   "messages": {
     "createSuccess": "{{entity}} creado/a exitosamente",

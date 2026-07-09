@@ -23,6 +23,8 @@ export function useCreateEngagement() {
       activity_required?: boolean;
       approval_required?: boolean;
       is_internal?: boolean;
+      fecha_cierre: string;
+      anio_fiscal_override?: boolean;
       sqr_id?: string | null;
       encargado_id?: string | null;
       specialist_it_id?: string | null;
@@ -44,6 +46,8 @@ export function useCreateEngagement() {
         p_activity_required:   data.activity_required ?? true,
         p_is_internal:         data.is_internal ?? false,
         p_approval_required:   data.approval_required ?? true,
+        p_fecha_cierre:          data.fecha_cierre,
+        p_anio_fiscal_override:  data.anio_fiscal_override ?? false,
         p_sqr_id:              data.sqr_id ?? null,
         p_encargado_id:        data.encargado_id ?? null,
         p_specialist_it_id:    data.specialist_it_id ?? null,
@@ -85,6 +89,9 @@ export function useUpdateEngagement() {
         activity_required: boolean;
         is_internal: boolean;
         approval_required: boolean;
+        anio_fiscal: number;
+        fecha_cierre: string;
+        anio_fiscal_override: boolean;
         sqr_id: string | null;
         encargado_id: string | null;
         specialist_it_id: string | null;

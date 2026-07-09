@@ -36,6 +36,16 @@ const NEW_KEYS = [
   "summaryTitle",
   "createAnother",
   "goToWorkMatrix",
+  // BUG 0604-143: closing date drives the derived Año Fiscal
+  "closingDate",
+  "selectClosingDate",
+  "closingDate_otro",
+  "closingDateCustom",
+  "fiscalYearHelper",
+  "fiscalYearOverride",
+  "immutabilityHint",
+  "requiredClosingDate",
+  "requiredClosingDateCustom",
 ] as const;
 
 describe("i18n engagement code-generation keys (BUG 0306-82)", () => {

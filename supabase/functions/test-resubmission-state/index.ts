@@ -31,6 +31,7 @@ Deno.serve(async (req) => {
       client_id: client!.client_id,
       work_order_required: false,
       activity_required: false,
+      fecha_cierre: "2026-09-30",
     }).select().single();
 
     const { data: engB } = await supabase.from("engagements").insert({
@@ -38,6 +39,7 @@ Deno.serve(async (req) => {
       client_id: client!.client_id,
       work_order_required: false,
       activity_required: false,
+      fecha_cierre: "2026-09-30",
     }).select().single();
 
     // Create staff

@@ -101,6 +101,8 @@ export interface Engagement {
   practica:    number | null;
   anio_fiscal: number | null;
   funcion:     number | null;
+  fecha_cierre: string;
+  anio_fiscal_override: boolean;
   sqr_id: string | null;
   encargado_id: string | null;
   specialist_it_id: string | null;
