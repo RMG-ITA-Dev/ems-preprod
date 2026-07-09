@@ -19,6 +19,7 @@ vi.mock("react-i18next", () => ({
 
 vi.mock("@/hooks/useEmsData", () => ({
   useClients: () => ({ data: [] }),
+  useServices: () => ({ data: [] }),
 }));
 
 vi.mock("@/hooks/useCategoryStaff", () => ({

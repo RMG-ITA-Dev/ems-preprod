@@ -40,9 +40,12 @@ BEGIN
     ELSE EXTRACT(YEAR FROM NEW.fecha_cierre)::integer
   END;
 
-  -- Admin required to change the override flag in either direction (on→off or off→on).
-  -- Non-admins (Manager/Partner/Director) may still update fecha_cierre while the flag stays unchanged.
-  IF NEW.anio_fiscal_override IS DISTINCT FROM OLD.anio_fiscal_override THEN
+  -- Admin required to: (a) change the override flag in either direction, or
+  -- (b) change anio_fiscal while override is already active.
+  -- Non-admins (Manager/Partner/Director) may update fecha_cierre while both the flag and
+  -- anio_fiscal stay unchanged (their UI payload carries the same admin-set value).
+  IF NEW.anio_fiscal_override IS DISTINCT FROM OLD.anio_fiscal_override
+     OR (NEW.anio_fiscal_override AND NEW.anio_fiscal IS DISTINCT FROM OLD.anio_fiscal) THEN
     IF NOT public.is_admin() THEN
       RAISE EXCEPTION 'FORBIDDEN: el override manual del año fiscal requiere rol administrador'
         USING ERRCODE = 'insufficient_privilege';
