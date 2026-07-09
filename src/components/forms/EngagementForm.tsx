@@ -965,23 +965,6 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                 "grid grid-cols-1 sm:grid-cols-3 gap-4",
                 wClosingOption === "Otro" ? "md:grid-cols-4" : "md:grid-cols-3"
               )}>
-                {/* BUG #0602-134: creation date is system-generated and immutable for every role */}
-                <FormItem className="flex flex-col">
-                  <FormLabel>{t("engagement.creationDate")}</FormLabel>
-                  {isEdit && engagement?.created_at ? (
-                    <Input
-                      readOnly
-                      disabled
-                      // BUG 0220-59 pattern: parse the date part locally to avoid a UTC-vs-local
-                      // timezone shift showing the wrong calendar day.
-                      value={format(parseDateLocal(engagement.created_at.slice(0, 10)), "dd/MM/yyyy")}
-                    />
-                  ) : (
-                    <div className="flex h-10 w-full items-center rounded-md border border-input bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
-                      {t("engagement.creationDateHelp")}
-                    </div>
-                  )}
-                </FormItem>
 
                 <FormField
                   control={form.control}
