@@ -197,6 +197,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
 
   const { data: clients } = useClients();
   const { data: allServices } = useServices();
+  const { partnerOptions, managerOptions, hasPartnerCategory, hasManagerCategory, allActiveStaff } = useCategoryStaff();
 
   const activeServiceOptions = useMemo(
     () => (allServices ?? []).filter((s) => s.is_active || s.code === engagement?.practica),
@@ -208,7 +209,6 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     (allServices ?? []).forEach((s) => { map[s.code] = s.name; });
     return map;
   }, [allServices]);
-  const { partnerOptions, managerOptions, hasPartnerCategory, hasManagerCategory, allActiveStaff } = useCategoryStaff();
   const createMutation = useCreateEngagement();
   const updateMutation = useUpdateEngagement();
   const deleteMutation = useDeleteEngagement();

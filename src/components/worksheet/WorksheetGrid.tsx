@@ -12,6 +12,7 @@ import {
 import { cn } from "@/lib/utils";
 import { Category, ActivityCode } from "@/hooks/useEmsData";
 import { WorksheetCell } from "@/hooks/useWorksheetData";
+import { compareActivityCodes } from "@/lib/activityFilters";
 
 interface WorksheetGridProps {
   categories: Category[];
@@ -36,9 +37,9 @@ export function WorksheetGrid({
     [categories]
   );
 
-  // Sort activities by activity_code
+  // Sort activities by activity_code (numeric-aware: AUD-A2 < AUD-A10)
   const sortedActivities = useMemo(
-    () => [...activities].sort((a, b) => a.activity_code.localeCompare(b.activity_code)),
+    () => [...activities].sort((a, b) => compareActivityCodes(a.activity_code, b.activity_code)),
     [activities]
   );
 

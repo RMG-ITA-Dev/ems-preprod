@@ -74,8 +74,9 @@ vi.mock("@/hooks/useEmsData", () => ({
     ],
     isLoading: false,
   }),
-  useActivityCodes: () => ({ data: [], isLoading: false }),
-  useExpenseTypes: () => ({ data: [], isLoading: false }),
+  useActivityCodes:    () => ({ data: [], isLoading: false }),
+  useAllActivityCodes: () => ({ data: [], isLoading: false }),
+  useExpenseTypes:     () => ({ data: [], isLoading: false }),
   useSkills: () => ({ data: [], isLoading: false }),
   useEngagements: () => ({ data: [], isLoading: false }),
   useServices: () => ({ data: [], isLoading: false }),
@@ -86,6 +87,7 @@ vi.mock("@/hooks/mutations", () => ({
   useCreateCategory: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useUpdateCategory: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useDeleteCategory: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useReorderServiceActivity: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
 }));
 
 vi.mock("@/hooks/useUserRole", () => ({ useUserRole: () => ({ isAdmin: true }) }));

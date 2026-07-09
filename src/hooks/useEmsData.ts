@@ -191,6 +191,9 @@ export interface ActivityCode {
   activity_code: string;
   description: string;
   is_active: boolean;
+  service_id: string | null;
+  entity_type: string;
+  service?: Service;
 }
 
 export interface Service {
@@ -200,6 +203,7 @@ export interface Service {
   allows_rates_activities: boolean;
   is_active: boolean;
   created_at: string;
+  abbreviation?: string | null;
 }
 
 export interface Skill {
@@ -497,11 +501,35 @@ export function useActivityCodes() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('activity_codes')
-        .select('*')
-        .eq('is_active', true)
-        .order('activity_code');
+        .select('*, service:services(code)')
+        .eq('is_active', true);
       if (error) throw error;
-      return data as ActivityCode[];
+      const suffix = (code: string) => parseInt(code.match(/(\d+)$/)?.[1] ?? '0', 10);
+      const prefix = (code: string) => code.replace(/\d+$/, '');
+      return [...(data as ActivityCode[])].sort((a, b) => {
+        const pa = prefix(a.activity_code), pb = prefix(b.activity_code);
+        if (pa !== pb) return pa.localeCompare(pb);
+        return suffix(a.activity_code) - suffix(b.activity_code);
+      });
+    },
+  });
+}
+
+export function useAllActivityCodes() {
+  return useQuery({
+    queryKey: ['activity_codes', 'all'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('activity_codes')
+        .select('*, service:services(service_id, name, abbreviation)');
+      if (error) throw error;
+      const suffix = (code: string) => parseInt(code.match(/(\d+)$/)?.[1] ?? '0', 10);
+      const prefix = (code: string) => code.replace(/\d+$/, '');
+      return [...(data as ActivityCode[])].sort((a, b) => {
+        const pa = prefix(a.activity_code), pb = prefix(b.activity_code);
+        if (pa !== pb) return pa.localeCompare(pb);
+        return suffix(a.activity_code) - suffix(b.activity_code);
+      });
     },
   });
 }
