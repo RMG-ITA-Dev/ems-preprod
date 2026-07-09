@@ -55,7 +55,7 @@ BEGIN
     RAISE EXCEPTION 'Oficina inválida: %', p_oficina;
   END IF;
 
-  IF p_practica IS NULL OR p_practica NOT IN (0, 1, 2, 3, 4) THEN
+  IF NOT EXISTS (SELECT 1 FROM public.services WHERE code = p_practica AND is_active) THEN
     RAISE EXCEPTION 'Práctica inválida: %', p_practica;
   END IF;
 
