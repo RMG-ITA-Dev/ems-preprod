@@ -43,8 +43,9 @@ vi.mock("@/hooks/useEmsData", () => ({
   useCategories:    () => ({ data: [], isLoading: false }),
   useIndustries:    () => ({ data: [], isLoading: false }),
   useGlobalSettings:() => ({ data: [], isLoading: false }),
-  useActivityCodes: () => ({ data: [], isLoading: false }),
-  useExpenseTypes:  () => ({ data: [], isLoading: false }),
+  useActivityCodes:    () => ({ data: [], isLoading: false }),
+  useAllActivityCodes: () => ({ data: [], isLoading: false }),
+  useExpenseTypes:     () => ({ data: [], isLoading: false }),
   useSkills:        () => ({ data: [], isLoading: false }),
   useEngagements:   () => ({ data: [] }),
   useServices:      () => ({ data: mockServices, isLoading: false }),
@@ -58,6 +59,9 @@ vi.mock("@/hooks/mutations", () => ({
   useUpdateGlobalSetting: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useCreateService: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useUpdateService: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useReorderServiceActivity: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
+  useMoveCategory: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
+  useCopyCategories: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
 }));
 
 vi.mock("@/hooks/useLanguage", () => ({

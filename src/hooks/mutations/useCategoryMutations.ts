@@ -11,6 +11,7 @@ export function useCreateCategory() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (data: {
+      service_id: string;
       category_name: string;
       display_order?: number;
       rate_high_bob: number;
@@ -21,11 +22,21 @@ export function useCreateCategory() {
       can_approve_timesheets?: boolean;
       default_app_role?: AppRole | null;
     }) => {
-      const { data: result, error } = await supabase
-        .from("categories")
-        .insert(data)
-        .select()
-        .single();
+      // Position/shift handled transactionally in the DB (service-scoped order).
+      // Cast: RPC signatures land in types.ts after the next Lovable regen.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: result, error } = await (supabase as any).rpc("create_category_for_service", {
+        p_service_id: data.service_id,
+        p_category_name: data.category_name,
+        p_display_order: data.display_order ?? null,
+        p_rate_high_bob: data.rate_high_bob,
+        p_rate_low_bob: data.rate_low_bob,
+        p_rate_high_usd: data.rate_high_usd,
+        p_rate_low_usd: data.rate_low_usd,
+        p_can_approve_wo: data.can_approve_wo ?? false,
+        p_can_approve_timesheets: data.can_approve_timesheets ?? false,
+        p_default_app_role: data.default_app_role ?? null,
+      });
       if (error) throw error;
       return result;
     },
@@ -45,7 +56,7 @@ export function useUpdateCategory() {
       data,
     }: {
       id: string;
-      data: Partial<{
+      data: {
         category_name: string;
         display_order: number;
         rate_high_bob: number;
@@ -55,14 +66,23 @@ export function useUpdateCategory() {
         can_approve_wo: boolean;
         can_approve_timesheets: boolean;
         default_app_role: AppRole | null;
-      }>;
+      };
     }) => {
-      const { data: result, error } = await supabase
-        .from("categories")
-        .update(data)
-        .eq("category_id", id)
-        .select()
-        .single();
+      // Service is immutable on edit — never sent. Order changes reorder within
+      // the same service transactionally.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: result, error } = await (supabase as any).rpc("update_category_for_service", {
+        p_category_id: id,
+        p_category_name: data.category_name,
+        p_display_order: data.display_order,
+        p_rate_high_bob: data.rate_high_bob,
+        p_rate_low_bob: data.rate_low_bob,
+        p_rate_high_usd: data.rate_high_usd,
+        p_rate_low_usd: data.rate_low_usd,
+        p_can_approve_wo: data.can_approve_wo,
+        p_can_approve_timesheets: data.can_approve_timesheets,
+        p_default_app_role: data.default_app_role,
+      });
       if (error) throw error;
       return result;
     },
@@ -78,7 +98,12 @@ export function useDeleteCategory() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from("categories").delete().eq("category_id", id);
+      // Delete via RPC so the per-service order is compacted (gap-free 1..N).
+      // A direct delete would leave a hole at the removed position.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error } = await (supabase as any).rpc("delete_category_for_service", {
+        p_category_id: id,
+      });
       if (error) throw error;
     },
     onSuccess: () => {
@@ -86,5 +111,75 @@ export function useDeleteCategory() {
       toast.success(i18n.t("messages.deleteSuccess", { entity: i18n.t("entities.category") }));
     },
     onError: createMutationErrorHandler("deleting category"),
+  });
+}
+
+// Position-based reorder within a service (mirrors reorder_service_activity).
+export function useMoveCategory() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      categoryId,
+      newPosition,
+    }: {
+      categoryId: string;
+      newPosition: number;
+    }) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error } = await (supabase as any).rpc("move_category", {
+        p_category_id: categoryId,
+        p_new_position: newPosition,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["categories"] });
+      toast.success(i18n.t("messages.updateSuccess", { entity: i18n.t("entities.category") }));
+    },
+    onError: createMutationErrorHandler("reordering category"),
+  });
+}
+
+// Copy the full category list of one service into another.
+export function useCopyCategories() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      sourceServiceId,
+      targetServiceId,
+      replace,
+    }: {
+      sourceServiceId: string;
+      targetServiceId: string;
+      replace?: boolean;
+    }) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any).rpc("copy_categories_between_services", {
+        p_source_service_id: sourceServiceId,
+        p_target_service_id: targetServiceId,
+        p_replace: replace ?? false,
+      });
+      if (error) throw error;
+      return data as number;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["categories"] });
+      toast.success(i18n.t("messages.updateSuccess", { entity: i18n.t("entities.category") }));
+    },
+    onError: (error: Error) => {
+      const msg = error?.message ?? "";
+      // target_not_empty is a control-flow signal: the dialog switches to the
+      // replace confirmation, so no toast here.
+      if (msg.includes("target_not_empty")) return;
+      if (msg.includes("target_referenced")) {
+        toast.error(i18n.t("category.targetReferenced"));
+        return;
+      }
+      if (msg.includes("same_service")) {
+        toast.error(i18n.t("category.sameService"));
+        return;
+      }
+      createMutationErrorHandler("copying categories")(error);
+    },
   });
 }

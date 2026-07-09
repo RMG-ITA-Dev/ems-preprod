@@ -10,6 +10,7 @@ export function useCreateService() {
     mutationFn: async (data: {
       name: string;
       code: number;
+      abbreviation?: string | null;
       allows_rates_activities: boolean;
       is_active: boolean;
     }) => {
@@ -24,6 +25,7 @@ export function useCreateService() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["services"] });
+      queryClient.invalidateQueries({ queryKey: ["activity_codes"] });
       toast.success(i18n.t("messages.createSuccess", { entity: i18n.t("entities.service") }));
     },
     onError: createMutationErrorHandler("creating service"),
@@ -40,6 +42,7 @@ export function useUpdateService() {
       id: string;
       data: Partial<{
         name: string;
+        abbreviation: string | null;
         allows_rates_activities: boolean;
         is_active: boolean;
       }>;
@@ -56,6 +59,7 @@ export function useUpdateService() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["services"] });
+      queryClient.invalidateQueries({ queryKey: ["activity_codes"] });
       toast.success(i18n.t("messages.updateSuccess", { entity: i18n.t("entities.service") }));
     },
     onError: createMutationErrorHandler("updating service"),

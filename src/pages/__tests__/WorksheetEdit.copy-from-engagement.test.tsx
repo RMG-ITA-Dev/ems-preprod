@@ -78,6 +78,7 @@ vi.mock("@/hooks/useEmsData", () => ({
     isLoading: false,
   }),
   useSetting: () => "0.13",
+  useServices: () => ({ data: [] }),
 }));
 
 vi.mock("@/hooks/useUserRole", () => ({

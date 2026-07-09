@@ -8,6 +8,9 @@ import {
   useCreateActivityCode,
   useUpdateActivityCode,
   useDeleteActivityCode,
+  useDeactivateServiceActivity,
+  useReactivateServiceActivity,
+  useReorderServiceActivity,
 } from "../useActivityCodeMutations";
 
 function createWrapper() {
@@ -24,8 +27,9 @@ describe("useActivityCodeMutations", () => {
     vi.clearAllMocks();
   });
 
-  describe("useCreateActivityCode", () => {
-    it("calls supabase insert with correct data", async () => {
+  // ── Heredada (legacy) path ───────────────────────────────────────────────
+  describe("useCreateActivityCode — heredada (no service_id)", () => {
+    it("calls supabase.from('activity_codes').insert() when no service_id", async () => {
       const mockSingle = vi.fn().mockResolvedValue({
         data: { activity_id: "123", activity_code: "AC001", description: "Test" },
         error: null,
@@ -56,6 +60,53 @@ describe("useActivityCodeMutations", () => {
     });
   });
 
+  // ── Vinculada (service-linked) path ─────────────────────────────────────
+  describe("useCreateActivityCode — vinculada (with service_id)", () => {
+    it("calls supabase.rpc('create_service_activity') when service_id provided", async () => {
+      const mockRpc = vi.fn().mockResolvedValue({ data: { activity_id: "456" }, error: null });
+      vi.mocked(supabase.rpc).mockImplementation(mockRpc as any);
+
+      const { result } = renderHook(() => useCreateActivityCode(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate({
+        service_id: "svc-uuid",
+        description: "Audit Planning",
+        entity_type: "A",
+      });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      expect(supabase.rpc).toHaveBeenCalledWith("create_service_activity", {
+        p_service_id:  "svc-uuid",
+        p_description: "Audit Planning",
+        p_entity_type: "A",
+      });
+      expect(toast.success).toHaveBeenCalled();
+    });
+
+    it("does NOT call supabase.from() when service_id is provided", async () => {
+      const mockRpc = vi.fn().mockResolvedValue({ data: { activity_id: "456" }, error: null });
+      vi.mocked(supabase.rpc).mockImplementation(mockRpc as any);
+
+      const { result } = renderHook(() => useCreateActivityCode(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate({
+        service_id: "svc-uuid",
+        description: "Review",
+        entity_type: "A",
+      });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      expect(supabase.from).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── useUpdateActivityCode ────────────────────────────────────────────────
   describe("useUpdateActivityCode", () => {
     it("calls supabase update with correct id and data", async () => {
       const mockSingle = vi.fn().mockResolvedValue({
@@ -79,17 +130,15 @@ describe("useActivityCodeMutations", () => {
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
       expect(supabase.from).toHaveBeenCalledWith("activity_codes");
-      expect(mockUpdate).toHaveBeenCalledWith({
-        activity_code: "AC002",
-        description: "Updated",
-      });
+      expect(mockUpdate).toHaveBeenCalledWith({ activity_code: "AC002", description: "Updated" });
       expect(mockEq).toHaveBeenCalledWith("activity_id", "123");
       expect(toast.success).toHaveBeenCalled();
     });
   });
 
+  // ── useDeleteActivityCode ────────────────────────────────────────────────
   describe("useDeleteActivityCode", () => {
-    it("calls supabase delete with correct id", async () => {
+    it("calls supabase.delete() with correct id (heredada path)", async () => {
       const mockEq = vi.fn().mockResolvedValue({ error: null });
       const mockDelete = vi.fn().mockReturnValue({ eq: mockEq });
       vi.mocked(supabase.from).mockReturnValue({ delete: mockDelete } as any);
@@ -104,6 +153,70 @@ describe("useActivityCodeMutations", () => {
 
       expect(supabase.from).toHaveBeenCalledWith("activity_codes");
       expect(mockEq).toHaveBeenCalledWith("activity_id", "123");
+      expect(toast.success).toHaveBeenCalled();
+    });
+  });
+
+  // ── useDeactivateServiceActivity ─────────────────────────────────────────
+  describe("useDeactivateServiceActivity", () => {
+    it("calls supabase.rpc('deactivate_service_activity') with the activity id", async () => {
+      const mockRpc = vi.fn().mockResolvedValue({ data: null, error: null });
+      vi.mocked(supabase.rpc).mockImplementation(mockRpc as any);
+
+      const { result } = renderHook(() => useDeactivateServiceActivity(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate("activity-uuid");
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      expect(supabase.rpc).toHaveBeenCalledWith("deactivate_service_activity", {
+        p_activity_id: "activity-uuid",
+      });
+      expect(toast.success).toHaveBeenCalled();
+    });
+  });
+
+  // ── useReactivateServiceActivity ─────────────────────────────────────────
+  describe("useReactivateServiceActivity", () => {
+    it("calls supabase.rpc('reactivate_service_activity') with the activity id", async () => {
+      const mockRpc = vi.fn().mockResolvedValue({ data: null, error: null });
+      vi.mocked(supabase.rpc).mockImplementation(mockRpc as any);
+
+      const { result } = renderHook(() => useReactivateServiceActivity(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate("activity-uuid");
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      expect(supabase.rpc).toHaveBeenCalledWith("reactivate_service_activity", {
+        p_activity_id: "activity-uuid",
+      });
+      expect(toast.success).toHaveBeenCalled();
+    });
+  });
+
+  // ── useReorderServiceActivity ────────────────────────────────────────────
+  describe("useReorderServiceActivity", () => {
+    it("calls supabase.rpc('reorder_service_activity') with activity id and position", async () => {
+      const mockRpc = vi.fn().mockResolvedValue({ data: null, error: null });
+      vi.mocked(supabase.rpc).mockImplementation(mockRpc as any);
+
+      const { result } = renderHook(() => useReorderServiceActivity(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate({ activityId: "activity-uuid", newPosition: 3 });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      expect(supabase.rpc).toHaveBeenCalledWith("reorder_service_activity", {
+        p_activity_id: "activity-uuid",
+        p_new_position: 3,
+      });
       expect(toast.success).toHaveBeenCalled();
     });
   });

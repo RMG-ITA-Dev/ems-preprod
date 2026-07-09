@@ -58,7 +58,6 @@ import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Switch } from "@/components/ui/switch";
 import { useUserRole } from "@/hooks/useUserRole";
-import { formatClosingDateLabel } from "@/lib/fiscalYearDisplay";
 import { getUpcomingClosingDates, getFiscalYearForDate } from "@/lib/fiscalCalculations";
 
 interface StaffComboboxProps {
@@ -194,7 +193,7 @@ interface EngagementFormProps {
 }
 
 export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSuccess, onGoToWorkMatrix }: EngagementFormProps) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { isAdmin, isManager, isPartner, isDirector } = useUserRole();
   const isEdit = !!engagement;
@@ -204,6 +203,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
 
   const { data: clients } = useClients();
   const { data: allServices } = useServices();
+  const { partnerOptions, managerOptions, hasPartnerCategory, hasManagerCategory, allActiveStaff } = useCategoryStaff();
 
   const activeServiceOptions = useMemo(
     () => (allServices ?? []).filter((s) => s.is_active || s.code === engagement?.practica),
@@ -215,7 +215,6 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     (allServices ?? []).forEach((s) => { map[s.code] = s.name; });
     return map;
   }, [allServices]);
-  const { partnerOptions, managerOptions, hasPartnerCategory, hasManagerCategory, allActiveStaff } = useCategoryStaff();
   const createMutation = useCreateEngagement();
   const updateMutation = useUpdateEngagement();
   const deleteMutation = useDeleteEngagement();
@@ -932,7 +931,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                   <FormItem className="flex flex-col">
                     <FormLabel>{t("engagement.closingDate")} *</FormLabel>
                     <Select
-                      disabled={isEdit && !canEditClosing}
+                      disabled={isEdit && (!canEditClosing || (overrideOn && !isAdmin))}
                       onValueChange={field.onChange}
                       value={field.value ?? ""}
                     >
@@ -940,7 +939,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                       <SelectContent>
                         {closingDateOptions.map((opt) => (
                           <SelectItem key={opt.value} value={opt.value}>
-                            {formatClosingDateLabel(opt.key, opt.year, i18n.language)}
+                            {format(opt.date, "dd/MM/yyyy")}
                           </SelectItem>
                         ))}
                         <SelectItem value="Otro">{t("engagement.closingDate_otro")}</SelectItem>
@@ -963,7 +962,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                               <Button
                                 type="button"
                                 variant="outline"
-                                disabled={isEdit && !canEditClosing}
+                                disabled={isEdit && (!canEditClosing || (overrideOn && !isAdmin))}
                                 className={cn(
                                   "w-full pl-3 text-left font-normal",
                                   !field.value && "text-muted-foreground"

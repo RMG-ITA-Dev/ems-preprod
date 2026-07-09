@@ -42,6 +42,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Category } from "@/hooks/useEmsData";
+import { useServices, useCategories } from "@/hooks/useEmsData";
 import { useCreateCategory, useUpdateCategory, useDeleteCategory } from "@/hooks/mutations";
 import { Trash2 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -52,8 +53,9 @@ type AppRole = Database["public"]["Enums"]["app_role"];
 const NO_DEFAULT_ROLE = "__none__";
 
 const formSchema = z.object({
+  service_id: z.string().min(1, "validation.categoryServiceRequired"),
   category_name: z.string().min(1, "Category name is required"),
-  display_order: z.coerce.number().int().min(0),
+  display_order: z.coerce.number().int().min(1),
   rate_high_bob: z.coerce.number().positive("Rate must be greater than 0"),
   rate_low_bob: z.coerce.number().positive("Rate must be greater than 0"),
   rate_high_usd: z.coerce.number().positive("Rate must be greater than 0"),
@@ -69,6 +71,8 @@ interface CategoryFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   category?: Category | null;
+  /** Default service for a new category (the currently filtered service). */
+  serviceId?: string;
 }
 
 const ROLES: AppRole[] = [
@@ -85,7 +89,7 @@ const ROLES: AppRole[] = [
   "specialist_tax",
 ];
 
-export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps) {
+export function CategoryForm({ open, onOpenChange, category, serviceId }: CategoryFormProps) {
   const { t, i18n } = useTranslation();
   const numericLocale = i18n.language === "es" ? "es" : "en";
   const isEdit = !!category;
@@ -93,11 +97,26 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
   const updateMutation = useUpdateCategory();
   const deleteMutation = useDeleteCategory();
 
+  const { data: services } = useServices();
+  // Only active services that host rates/activities can own categories
+  // (mirrors ActivityCodeForm.activeServices; excludes Firmwide).
+  const activeServices = (services ?? []).filter(
+    (s) => s.is_active && s.allows_rates_activities
+  );
+
+  // All categories (cached) — used to derive the next display_order per service.
+  const { data: allCategories } = useCategories();
+  const nextOrderFor = (sid: string) =>
+    (allCategories ?? [])
+      .filter((c) => c.service_id === sid)
+      .reduce((max, c) => Math.max(max, c.display_order), 0) + 1;
+
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
     defaultValues: {
+      service_id: "",
       category_name: "",
-      display_order: 0,
+      display_order: 1,
       rate_high_bob: undefined as unknown as number,
       rate_low_bob: undefined as unknown as number,
       rate_high_usd: undefined as unknown as number,
@@ -110,9 +129,12 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
 
   useEffect(() => {
     if (open) {
+      const defaultService = category?.service_id || serviceId || "";
       form.reset({
+        service_id: defaultService,
         category_name: category?.category_name || "",
-        display_order: category?.display_order || 0,
+        display_order:
+          category?.display_order ?? (defaultService ? nextOrderFor(defaultService) : 1),
         rate_high_bob: category?.rate_high_bob ?? (undefined as unknown as number),
         rate_low_bob: category?.rate_low_bob ?? (undefined as unknown as number),
         rate_high_usd: category?.rate_high_usd ?? (undefined as unknown as number),
@@ -122,7 +144,26 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
         default_app_role: category?.default_app_role || "__none__",
       });
     }
-  }, [open, category, form]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, category, serviceId, form]);
+
+  // The suggested order (max+1) can't be computed until useCategories() resolves.
+  // If the sheet opened before that data arrived, the reset above left it at 1;
+  // recompute once the list loads — but only on create and only while the user
+  // hasn't manually edited the field (so a hand-picked position is preserved).
+  useEffect(() => {
+    if (!open || isEdit) return;
+    if (form.formState.dirtyFields.display_order) return;
+    const sid = form.getValues("service_id");
+    if (sid) {
+      form.setValue("display_order", nextOrderFor(sid));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, isEdit, allCategories]);
+
+  const currentServiceId = form.watch("service_id");
+  const currentService = activeServices.find((s) => s.service_id === currentServiceId)
+    ?? (category?.service ?? null);
 
   const onSubmit = async (data: FormData) => {
     const payload = {
@@ -137,9 +178,10 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
       default_app_role: (data.default_app_role === "__none__" ? null : data.default_app_role as AppRole) ?? null,
     };
     if (isEdit && category) {
+      // Service is immutable on edit — never included in the update payload.
       await updateMutation.mutateAsync({ id: category.category_id, data: payload });
     } else {
-      await createMutation.mutateAsync(payload);
+      await createMutation.mutateAsync({ service_id: data.service_id, ...payload });
     }
     onOpenChange(false);
     form.reset();
@@ -161,6 +203,50 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6 mt-6">
+            {/* Service selector — required on create; read-only on edit. */}
+            {isEdit ? (
+              <FormItem>
+                <FormLabel>{t("category.service")}</FormLabel>
+                <Input
+                  value={currentService?.name ?? ""}
+                  disabled
+                  data-testid="category-service-readonly"
+                />
+                <FormDescription>{t("category.serviceReadOnly")}</FormDescription>
+              </FormItem>
+            ) : (
+              <FormField
+                control={form.control}
+                name="service_id"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t("category.service")} *</FormLabel>
+                    <Select
+                      onValueChange={(v) => {
+                        field.onChange(v);
+                        form.setValue("display_order", nextOrderFor(v));
+                      }}
+                      value={field.value || undefined}
+                    >
+                      <FormControl>
+                        <SelectTrigger data-testid="category-service-select">
+                          <SelectValue placeholder={t("category.selectService")} />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {activeServices.map((s) => (
+                          <SelectItem key={s.service_id} value={s.service_id}>
+                            {s.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <FormField
                 control={form.control}
@@ -183,12 +269,12 @@ export function CategoryForm({ open, onOpenChange, category }: CategoryFormProps
                   <FormItem>
                     <FormLabel>{t("category.displayOrder")}</FormLabel>
                     <FormControl>
-                      <NumericInput 
-                        decimals={0} 
-                        locale="en" 
-                        min={0} 
-                        value={field.value} 
-                        onChange={field.onChange} 
+                      <NumericInput
+                        decimals={0}
+                        locale="en"
+                        min={1}
+                        value={field.value}
+                        onChange={field.onChange}
                       />
                     </FormControl>
                     <FormMessage />

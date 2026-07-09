@@ -30,9 +30,13 @@ import {
   useCompleteRiskAssessment,
   useRejectWorkOrder,
   useUnsubmitWorkOrder,
+  useUpsertPaymentPlan,
+  useBatchUpsertInstallments,
+  useDeletePaymentPlan,
 } from "@/hooks/mutations";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { useUserRole } from "@/hooks/useUserRole";
+import type { PaymentPlanInput, PaymentInstallmentInput } from "@/types/workOrderPaymentPlan";
 import { useWorksheetByEngagementId } from "@/hooks/useWorksheetData";
 import { useResyncWorksheetToWorkOrder } from "@/hooks/useWorksheetMutations";
 import { toast } from "sonner";
@@ -79,13 +83,20 @@ const WorkOrderEdit = () => {
   const rejectWorkOrder = useRejectWorkOrder();
   const unsubmitWorkOrder = useUnsubmitWorkOrder();
   const resyncWorksheet = useResyncWorksheetToWorkOrder();
-  const { isAdmin } = useUserRole();
+  const upsertPaymentPlan = useUpsertPaymentPlan();
+  const batchUpsertInstallments = useBatchUpsertInstallments();
+  const deletePaymentPlan = useDeletePaymentPlan();
+  const { isAdmin, isPartner, isDirector, isManager } = useUserRole();
 
-  const [currency, setCurrency] = useState<"USD" | "BOB">("BOB");
+  const [currency, setCurrency] = useState<"USD" | "BOB" | "USDT">("BOB");
   const [seasonMode, setSeasonMode] = useState<"High" | "Low">("High");
   const [adjustmentAmount, setAdjustmentAmount] = useState(0);
   const [budgetLines, setBudgetLines] = useState<BudgetLineInput[]>([]);
   const [expenseBudget, setExpenseBudget] = useState<ExpenseBudgetInput[]>([]);
+  const [paymentPlan, setPaymentPlan] = useState<PaymentPlanInput | null>(null);
+  const [paymentInstallments, setPaymentInstallments] = useState<PaymentInstallmentInput[]>([]);
+  const [originalPaymentPlan, setOriginalPaymentPlan] = useState<PaymentPlanInput | null>(null);
+  const [originalInstallments, setOriginalInstallments] = useState<PaymentInstallmentInput[]>([]);
   const [originalBudgetLines, setOriginalBudgetLines] = useState<string[]>([]);
   const [originalExpenses, setOriginalExpenses] = useState<string[]>([]);
   const [showResyncDialog, setShowResyncDialog] = useState(false);
@@ -152,6 +163,41 @@ const WorkOrderEdit = () => {
       setOriginalExpenses(expenses.map((e) => e.id));
       setOriginalExpenseData(JSON.parse(JSON.stringify(expenses))); // Deep copy
 
+      // Load payment plan
+      if (workOrder.payment_plan) {
+        const plan: PaymentPlanInput = {
+          plan_id: workOrder.payment_plan.plan_id,
+          wo_id: workOrder.payment_plan.wo_id,
+          exchange_rate: workOrder.payment_plan.exchange_rate,
+          payment_days: workOrder.payment_plan.payment_days,
+        };
+        const installs: PaymentInstallmentInput[] = (workOrder.payment_plan.installments ?? [])
+          .sort((a, b) => a.installment_number - b.installment_number)
+          .map((i) => ({
+            installment_id: i.installment_id,
+            plan_id: i.plan_id,
+            wo_id: i.wo_id,
+            installment_number: i.installment_number,
+            agreed_invoice_date: i.agreed_invoice_date,
+            agreed_payment_date: i.agreed_payment_date,
+            collection_invoice_date: i.collection_invoice_date,
+            collection_payment_date: i.collection_payment_date,
+            payment_date_actual: i.payment_date_actual,
+            percentage: Number(i.percentage),
+            amount: i.amount !== null ? Number(i.amount) : null,
+            status: i.status as PaymentInstallmentInput["status"],
+          }));
+        setPaymentPlan(plan);
+        setPaymentInstallments(installs);
+        setOriginalPaymentPlan(plan);
+        setOriginalInstallments(JSON.parse(JSON.stringify(installs)));
+      } else {
+        setPaymentPlan(null);
+        setPaymentInstallments([]);
+        setOriginalPaymentPlan(null);
+        setOriginalInstallments([]);
+      }
+
       const riskCeac = workOrder.ceac_completed_at ?? null;
       const riskSan = workOrder.san_completed_at ?? null;
       // Only reset current risk state from DB when the user hasn't edited them locally.
@@ -206,8 +252,12 @@ const WorkOrderEdit = () => {
     if ((sanApprovalId ?? null) !== originalSanApprovalId) return true;
     if ((riskLevel ?? null) !== originalRiskLevel) return true;
 
+    // Payment plan
+    if (JSON.stringify(paymentPlan) !== JSON.stringify(originalPaymentPlan)) return true;
+    if (JSON.stringify(paymentInstallments) !== JSON.stringify(originalInstallments)) return true;
+
     return false;
-  }, [workOrder, adjustmentAmount, originalAdjustment, expenseBudget, originalExpenseData, ceacCompletedAt, originalCeacCompletedAt, sanCompletedAt, originalSanCompletedAt, ceacNotes, originalCeacNotes, sanNotes, originalSanNotes, ceacNumber, originalCeacNumber, sanApprovalId, originalSanApprovalId, riskLevel, originalRiskLevel]);
+  }, [workOrder, adjustmentAmount, originalAdjustment, expenseBudget, originalExpenseData, ceacCompletedAt, originalCeacCompletedAt, sanCompletedAt, originalSanCompletedAt, ceacNotes, originalCeacNotes, sanNotes, originalSanNotes, ceacNumber, originalCeacNumber, sanApprovalId, originalSanApprovalId, riskLevel, originalRiskLevel, paymentPlan, originalPaymentPlan, paymentInstallments, originalInstallments]);
 
   // Tracks only fields that handleSubmit persists (not risk fields — those are saved atomically by submitWorkOrder)
   const hasNonRiskDirty = useMemo(() => {
@@ -223,8 +273,11 @@ const WorkOrderEdit = () => {
       if (orig.expense_type_id !== exp.expense_type_id) return true;
       if (orig.budgeted_amount !== exp.budgeted_amount) return true;
     }
+    // Payment plan
+    if (JSON.stringify(paymentPlan) !== JSON.stringify(originalPaymentPlan)) return true;
+    if (JSON.stringify(paymentInstallments) !== JSON.stringify(originalInstallments)) return true;
     return false;
-  }, [workOrder, adjustmentAmount, originalAdjustment, expenseBudget, originalExpenseData]);
+  }, [workOrder, adjustmentAmount, originalAdjustment, expenseBudget, originalExpenseData, paymentPlan, originalPaymentPlan, paymentInstallments, originalInstallments]);
 
   const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty });
 
@@ -239,6 +292,19 @@ const WorkOrderEdit = () => {
 
   const handleSubmit = async () => {
     if (!workOrder) return;
+
+    // Validate before any mutations to avoid partial saves
+    if (paymentInstallments.length > 0) {
+      if (paymentInstallments.some((i) => i.percentage < 0 || i.percentage > 100)) {
+        toast.error(t("workOrders.paymentPlan.validationPercentageRange"));
+        return;
+      }
+      const pctSum = paymentInstallments.reduce((s, i) => s + i.percentage, 0);
+      if (Math.abs(pctSum - 100) > 0.01) {
+        toast.error(t("workOrders.paymentPlan.validationPercentageSum"));
+        return;
+      }
+    }
 
     try {
       // Update work order
@@ -278,6 +344,37 @@ const WorkOrderEdit = () => {
             });
           }
         }
+      }
+
+      // Persist payment plan
+      if (paymentInstallments.length > 0) {
+        const savedPlan = await upsertPaymentPlan.mutateAsync({
+          plan_id: paymentPlan?.plan_id,
+          wo_id: workOrder.wo_id,
+          exchange_rate: paymentPlan?.exchange_rate ?? null,
+          payment_days: paymentPlan?.payment_days ?? 30,
+        });
+        await batchUpsertInstallments.mutateAsync({
+          planId: savedPlan.plan_id,
+          woId: workOrder.wo_id,
+          installments: paymentInstallments,
+        });
+        const updatedPlan: PaymentPlanInput = {
+          plan_id: savedPlan.plan_id,
+          wo_id: savedPlan.wo_id,
+          exchange_rate: savedPlan.exchange_rate,
+          payment_days: savedPlan.payment_days,
+        };
+        setOriginalPaymentPlan(updatedPlan);
+        setOriginalInstallments(JSON.parse(JSON.stringify(paymentInstallments)));
+      } else if (paymentPlan?.plan_id) {
+        // All installments removed → delete the plan (cascades to installments)
+        await deletePaymentPlan.mutateAsync({
+          planId: paymentPlan.plan_id,
+          woId: workOrder.wo_id,
+        });
+        setOriginalPaymentPlan(null);
+        setOriginalInstallments([]);
       }
 
       // Reset dirty state tracking after successful save
@@ -500,7 +597,7 @@ const WorkOrderEdit = () => {
                     variant="outline"
                     size="sm"
                     onClick={() => setShowResyncDialog(true)}
-                    disabled={isLocked || resyncWorksheet.isPending}
+                    disabled={isLocked || resyncWorksheet.isPending || currency === "USDT"}
                     className="gap-2 bg-info/10 hover:bg-info/20 text-info border-info/30"
                   >
                     <RefreshCw className={`h-4 w-4 ${resyncWorksheet.isPending ? "animate-spin" : ""}`} />
@@ -572,6 +669,17 @@ const WorkOrderEdit = () => {
           sanApprovalId={sanApprovalId}
           riskLevel={riskLevel}
           onRiskAssessmentChange={handleRiskAssessmentChange}
+          woId={workOrder.wo_id}
+          paymentPlan={paymentPlan}
+          paymentInstallments={paymentInstallments}
+          isAdminDateEditable={(approvalStatus === "Draft" || approvalStatus === "Rejected") && (isAdmin || isPartner || isDirector || isManager)}
+          isStatusEditable={isAdmin}
+          isPaymentPlanDirty={
+            JSON.stringify(paymentInstallments) !== JSON.stringify(originalInstallments) ||
+            JSON.stringify(paymentPlan) !== JSON.stringify(originalPaymentPlan)
+          }
+          onPaymentPlanChange={setPaymentPlan}
+          onPaymentInstallmentsChange={setPaymentInstallments}
           isSubmitting={
             updateWorkOrder.isPending ||
             submitWorkOrder.isPending ||

@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { normalizeActivityForEngagement } from "@/lib/timesheetActivityRules";
+import { filterActivitiesByService } from "@/lib/activityFilters";
 import { toast } from "sonner";
 import { logger } from "@/lib/logger";
 
@@ -431,12 +432,21 @@ export function TimesheetGrid({
     const isActivityNotRequired = activityNotRequiredIds?.has(engagementId);
     const engagementObj = engagements.find(e => e.engagement_id === engagementId);
     const activityRequired = engagementObj?.activity_required ?? true;
-    const { nextActivityId: activityId } = normalizeActivityForEngagement({
+    const { nextActivityId } = normalizeActivityForEngagement({
       engagementId,
       currentActivityId: currentRow.activityId,
       adminActivityId: adminActivityId ?? null,
       activityRequired,
     });
+    // Clear the carried-over activity if it belongs to a different service than the new engagement.
+    let activityId = nextActivityId;
+    if (activityId) {
+      const act = activities.find(a => a.activity_id === activityId);
+      const newPractica = engagementObj?.practica ?? null;
+      if (act?.service != null && act.service.code !== newPractica) {
+        activityId = "";
+      }
+    }
 
     // BUG 0508-106 Plan v3: block only the specific (engagement, activity) pair if approved.
     // Guard moved after normalizeActivityForEngagement so we know the resulting activity.
@@ -688,6 +698,13 @@ export function TimesheetGrid({
     return map;
   }, [rows]);
 
+  // Map engagement → service code (practica) to filter activities per row.
+  const practicaByEngagement = useMemo(() => {
+    const map = new Map<string, number | null>();
+    engagements.forEach(e => map.set(e.engagement_id, e.practica));
+    return map;
+  }, [engagements]);
+
 
   // Get approval status for a specific (engagement, activity) pair
   const getApprovalStatus = (engagementId: string, activityId: string) => {
@@ -820,7 +837,11 @@ export function TimesheetGrid({
                       } />
                     </SelectTrigger>
                     <SelectContent>
-                      {activities.map((act) => {
+                      {filterActivitiesByService(
+                        activities,
+                        practicaByEngagement.get(row.engagementId),
+                        row.activityId,
+                      ).map((act) => {
                         const isUsedElsewhere = usedActivitiesByEngagement
                           .get(row.engagementId)?.has(act.activity_id) && row.activityId !== act.activity_id;
                         return (
