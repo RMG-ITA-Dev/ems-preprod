@@ -52,7 +52,7 @@ vi.mock("@/hooks/useEmsData", () => ({
   // Includes the client referenced by mockEngagement so the client Select can resolve a
   // matching SelectItem for full-submit tests (Radix Select can't retain a `value` that has
   // no corresponding item, which otherwise silently clears the field and fails validation).
-  useClients:  () => ({ data: [{ client_id: "client-1", client_legal_name: "Test Client", is_active: true }] }),
+  useClients: () => ({ data: [{ client_id: "client-1", client_legal_name: "Test Client", is_active: true }] }),
   useServices: () => ({ data: mockServices }),
 }));
 

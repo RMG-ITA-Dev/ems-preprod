@@ -701,7 +701,9 @@
     "fiscalYearOverride":     "Override manual (admin)",
     "immutabilityHint":      "Verifique el año fiscal, oficina, servicio y función antes de guardar: el código del encargo no puede modificarse después; para corregirlo deberá crear un encargo nuevo.",
     "requiredClosingDate":       "La fecha de corte es requerida",
-    "requiredClosingDateCustom": "La fecha de corte personalizada es requerida"
+    "requiredClosingDateCustom": "La fecha de corte personalizada es requerida",
+    "creationDate": "Fecha de Creación",
+    "creationDateHelp": "Esta fecha se asignará automáticamente al guardar."
   },
   "messages": {
     "createSuccess": "{{entity}} creado/a exitosamente",

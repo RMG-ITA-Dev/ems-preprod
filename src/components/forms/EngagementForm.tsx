@@ -197,11 +197,11 @@ const AUDITORIA_SERVICE_CODE = 1;
 export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSuccess, onGoToWorkMatrix }: EngagementFormProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { isAdmin, isManager, isPartner, isLoading: roleLoading } = useUserRole();
+  const { isAdmin, isManager, isPartner, isLoading: roleLoading, isDirector } = useUserRole();
   const isEdit = !!engagement;
-  // BUG #0604-143: closing date (and the FY it derives) may be edited by Admin/Gerente/Socio;
+  // BUG #0604-143: closing date (and the FY it derives) may be edited by Admin/Gerente/Socio/Director;
   // oficina/practica/funcion/engagement_code remain fully immutable after create.
-  const canEditClosing = isAdmin || isManager || isPartner;
+  const canEditClosing = isAdmin || isManager || isPartner || isDirector;
 
   const { data: clients } = useClients();
   const { data: allServices } = useServices();
@@ -261,6 +261,8 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       specialist_tax_id: null,
       closing_date_option: undefined,
       closing_date_custom: undefined,
+      // BUG #0602-134: suggest today (≈ future created_at) as the default start date on create
+      start_date: engagement ? undefined : startOfDay(new Date()),
     },
   });
 
@@ -294,6 +296,9 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     }
     return startOfDay(new Date());
   }, [isInternal, isEdit, engagement?.created_at]);
+
+  // BUG #0602-134: admin has no floor on start_date at all — create or edit
+  const effectiveMinStartDate = isAdmin ? undefined : minStartDate;
 
   // Destructure isDirty before effects that depend on it
   const { isDirty } = form.formState;
@@ -383,8 +388,8 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   };
 
   const onSubmit = async (data: FormData) => {
-    // BUG #0206-19 + #0220-48: skip for internal engagements
-    if (!isInternal && minStartDate && data.start_date && isBefore(startOfDay(data.start_date), minStartDate)) {
+    // BUG #0206-19 + #0220-48: skip for internal engagements; BUG #0602-134: admin has no floor
+    if (!isInternal && effectiveMinStartDate && data.start_date && isBefore(startOfDay(data.start_date), effectiveMinStartDate)) {
       form.setError("start_date", {
         message: t("engagement.startDateBeforeCreation"),
       });
@@ -566,6 +571,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       specialist_tax_id: null,
       closing_date_option: undefined,
       closing_date_custom: undefined,
+      start_date: startOfDay(new Date()),
     });
     setWorkOrderRequired(true);
     setActivityRequired(true);
@@ -832,9 +838,27 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
               <div className="space-y-4">
               <h3 className="font-medium text-lg">{t("common.dates")}</h3>
               <div className={cn(
-                "grid grid-cols-1 sm:grid-cols-2 gap-4",
+                "grid grid-cols-1 sm:grid-cols-3 gap-4",
                 wClosingOption === "Otro" ? "md:grid-cols-4" : "md:grid-cols-3"
               )}>
+                {/* BUG #0602-134: creation date is system-generated and immutable for every role */}
+                <FormItem className="flex flex-col">
+                  <FormLabel>{t("engagement.creationDate")}</FormLabel>
+                  {isEdit && engagement?.created_at ? (
+                    <Input
+                      readOnly
+                      disabled
+                      // BUG 0220-59 pattern: parse the date part locally to avoid a UTC-vs-local
+                      // timezone shift showing the wrong calendar day.
+                      value={format(parseDateLocal(engagement.created_at.slice(0, 10)), "dd/MM/yyyy")}
+                    />
+                  ) : (
+                    <div className="flex h-10 w-full items-center rounded-md border border-input bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+                      {t("engagement.creationDateHelp")}
+                    </div>
+                  )}
+                </FormItem>
+
                 <FormField
                   control={form.control}
                   name="start_date"
@@ -861,7 +885,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                             mode="single"
                             selected={field.value}
                             onSelect={field.onChange}
-                            disabled={minStartDate ? (date) => isBefore(startOfDay(date), minStartDate) : undefined}
+                            disabled={effectiveMinStartDate ? (date) => isBefore(startOfDay(date), effectiveMinStartDate) : undefined}
                             initialFocus
                             className="pointer-events-auto"
                           />
