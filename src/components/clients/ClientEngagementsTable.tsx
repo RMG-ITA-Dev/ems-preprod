@@ -40,8 +40,8 @@ export function ClientEngagementsTable({ clientId }: ClientEngagementsTableProps
   const { data: engagements, isLoading } = useEngagements();
   const { data: staff } = useStaff();
   const { partners, managers } = useCategoryStaff();
-  const { isAdmin, isPartner, isDirector } = useUserRole();
-  const canCreateEngagement = isAdmin || isPartner || isDirector;
+  const { isAdmin, isPartner, isDirector, isManager, isSQR } = useUserRole();
+  const canCreateEngagement = isAdmin || isPartner || isDirector || isManager || isSQR;
 
   const [search, setSearch] = useState("");
   const [sortField, setSortField] = useState<SortField | null>(null);

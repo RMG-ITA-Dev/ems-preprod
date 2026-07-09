@@ -42,3 +42,36 @@ describe("EngagementForm start date (BUG 0220-48)", () => {
     expect(result).toEqual(startOfDay(new Date(createdAt)));
   });
 });
+
+/**
+ * BUG #0602-134: Admin has no floor on start_date at all, create or edit.
+ * Mirrors `effectiveMinStartDate = isAdmin ? undefined : minStartDate` in EngagementForm.tsx.
+ */
+function computeEffectiveMinStartDate(
+  isAdmin: boolean,
+  isInternal: boolean,
+  isEdit: boolean,
+  createdAt?: string
+): Date | undefined {
+  if (isAdmin) return undefined;
+  return computeMinStartDate(isInternal, isEdit, createdAt);
+}
+
+describe("EngagementForm effective start date — admin bypass (BUG #0602-134)", () => {
+  it("admin has no restriction when creating", () => {
+    expect(computeEffectiveMinStartDate(true, false, false)).toBeUndefined();
+  });
+
+  it("admin has no restriction when editing, even with a created_at", () => {
+    expect(computeEffectiveMinStartDate(true, false, true, "2025-11-20T14:30:00Z")).toBeUndefined();
+  });
+
+  it("non-admin still restricted to today when creating", () => {
+    expect(computeEffectiveMinStartDate(false, false, false)).toEqual(startOfDay(new Date()));
+  });
+
+  it("non-admin still restricted to created_at when editing", () => {
+    const createdAt = "2025-11-20T14:30:00Z";
+    expect(computeEffectiveMinStartDate(false, false, true, createdAt)).toEqual(startOfDay(new Date(createdAt)));
+  });
+});

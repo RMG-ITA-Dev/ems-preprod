@@ -1,11 +1,15 @@
 import React from "react";
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@/test/utils";
+import { fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 /**
  * 0625-149: EngagementForm — catalog-driven practica select.
  * Verifies active-only options in create mode and name resolution in edit mode.
+ *
+ * 0625-148: role-based service restriction.
+ * Non-admins get Auditoría (code=1) auto-assigned; select is disabled.
  */
 
 // Radix Select requires pointer-capture and scroll APIs in JSDOM
@@ -23,6 +27,14 @@ if (!Element.prototype.releasePointerCapture) {
 }
 // JSDOM defines scrollIntoView as non-callable; override unconditionally
 Element.prototype.scrollIntoView = () => {};
+// Radix Switch (admin section) uses ResizeObserver — polyfill for JSDOM
+if (typeof (globalThis as any).ResizeObserver === "undefined") {
+  (globalThis as any).ResizeObserver = class ResizeObserver {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+}
 
 vi.mock("react-router-dom", async () => {
   const actual = await vi.importActual("react-router-dom");
@@ -39,30 +51,64 @@ const mockServices = [
   { service_id: "s3", name: "Firmwide (inactivo)", code: 0, allows_rates_activities: false, is_active: false, created_at: "" },
 ];
 
+// Module-level controllable create mock (Review 2 — test #5)
+const mockCreateMutateAsync = vi.fn();
+
 vi.mock("@/hooks/useEmsData", () => ({
-  useClients:  () => ({ data: [] }),
+  useClients:  () => ({ data: [
+    { client_id: "c1", client_legal_name: "Acme Corp", is_active: true },
+  ] }),
   useServices: () => ({ data: mockServices }),
 }));
 
 vi.mock("@/hooks/useCategoryStaff", () => ({
   useCategoryStaff: () => ({
-    partners: [],
-    managerOptions: [],
+    partners: [{ staff_id: "p1", first_name: "Juan", last_name: "Partner" }],
+    partnerOptions: [{ value: "p1", label: "Juan Partner" }],
+    managerOptions: [{ value: "m1", label: "Ana Manager" }],
+    allActiveStaff: [{ value: "x1", label: "Staff One" }, { value: "x2", label: "Staff Two" }],
     hasPartnerCategory: true,
     hasManagerCategory: true,
   }),
 }));
 
 vi.mock("@/hooks/mutations", () => ({
-  useCreateEngagement: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useCreateEngagement: () => ({ mutateAsync: mockCreateMutateAsync, isPending: false }),
   useUpdateEngagement: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useDeleteEngagement: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
-vi.mock("@/hooks/useUserRole", () => ({
-  useUserRole: () => ({ isAdmin: false }),
+vi.mock("@/hooks/useUserRole", () => ({ useUserRole: vi.fn() }));
+
+// Mock Calendar with a simple date input so date fields can be set via fireEvent (Review 2)
+vi.mock("@/components/ui/calendar", () => ({
+  Calendar: ({ onSelect }: any) => (
+    <input
+      data-testid="calendar-mock"
+      type="date"
+      onChange={(e) => e.target.value && onSelect(new Date(e.target.value + "T12:00:00"))}
+    />
+  ),
 }));
 
+// Mock Popover to always render its children so Calendar inputs are reachable (Review 2)
+vi.mock("@/components/ui/popover", () => ({
+  Popover:        ({ children }: any) => <>{children}</>,
+  PopoverTrigger: ({ children }: any) => <>{children}</>,
+  PopoverContent: ({ children }: any) => <>{children}</>,
+}));
+
+// Minimal EngagementCreatedDialog mock — renders the "crear otro" button when open (Review 2)
+vi.mock("@/components/forms/EngagementCreatedDialog", () => ({
+  EngagementCreatedDialog: ({ open, onCreateAnother }: any) =>
+    open ? (
+      <button type="button" onClick={onCreateAnother}>
+        engagement.createAnother
+      </button>
+    ) : null,
+}));
+
+import { useUserRole } from "@/hooks/useUserRole";
 import { EngagementForm } from "@/components/forms/EngagementForm";
 import type { Engagement } from "@/hooks/useEmsData";
 
@@ -89,6 +135,11 @@ const mockEngagementInactiveService: Engagement = {
 };
 
 describe("EngagementForm — catalog-driven practica (0625-149)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(useUserRole).mockReturnValue({ isAdmin: false, isLoading: false } as any);
+  });
+
   it("renders the practica select label in create mode", () => {
     render(<EngagementForm />);
     expect(screen.getByText("engagement.practica *")).toBeInTheDocument();
@@ -115,6 +166,7 @@ describe("EngagementForm — catalog-driven practica (0625-149)", () => {
   });
 
   it("create mode: opening the practica select shows only active services", async () => {
+    vi.mocked(useUserRole).mockReturnValue({ isAdmin: true, isLoading: false } as any);
     const user = userEvent.setup();
     render(<EngagementForm />);
 
@@ -130,6 +182,7 @@ describe("EngagementForm — catalog-driven practica (0625-149)", () => {
   });
 
   it("selecting an active service in create mode stores its numeric code", async () => {
+    vi.mocked(useUserRole).mockReturnValue({ isAdmin: true, isLoading: false } as any);
     const user = userEvent.setup();
     render(<EngagementForm />);
 
@@ -143,6 +196,129 @@ describe("EngagementForm — catalog-driven practica (0625-149)", () => {
     // After selection the trigger should reflect the chosen service name
     await waitFor(() => {
       expect(practica).toHaveTextContent("Auditoría");
+    });
+  });
+});
+
+describe("0625-148 — role-based service restriction", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(useUserRole).mockReturnValue({ isAdmin: false, isLoading: false } as any);
+  });
+
+  it("non-admin: practica select is visible but disabled", async () => {
+    render(<EngagementForm />);
+    const practica = screen.getByLabelText(/engagement\.practica/);
+    await waitFor(() => {
+      expect(practica).toBeDisabled();
+    });
+  });
+
+  it("non-admin: practica is auto-set to Auditoría without user interaction", async () => {
+    render(<EngagementForm />);
+    const practica = screen.getByLabelText(/engagement\.practica/);
+    await waitFor(() => {
+      expect(practica).toHaveTextContent("Auditoría");
+    });
+  });
+
+  // Review 1: fill oficina + funcion, then assert preview text pins practica digit to 1
+  it("non-admin: code preview uses digit 1 for practica once other fields filled", async () => {
+    const user = userEvent.setup();
+    render(<EngagementForm />);
+
+    // Wait for practica auto-assignment (code=1 → "Auditoría")
+    const practica = screen.getByLabelText(/engagement\.practica/);
+    await waitFor(() => expect(practica).toHaveTextContent("Auditoría"));
+
+    // Select oficina = Ambos (value 0)
+    const oficina = screen.getByLabelText(/engagement\.oficina/);
+    await user.click(oficina);
+    await waitFor(() => screen.getByRole("option", { name: "engagement.oficina_ambos" }));
+    await user.click(screen.getByRole("option", { name: "engagement.oficina_ambos" }));
+
+    // Select funcion = funcion_cli (value 1)
+    const funcion = screen.getByLabelText(/engagement\.funcion/);
+    await user.click(funcion);
+    await waitFor(() => screen.getByRole("option", { name: "engagement.funcion_cli" }));
+    await user.click(screen.getByRole("option", { name: "engagement.funcion_cli" }));
+
+    // anio_fiscal is auto-defaulted; oficina=0, practica=1, funcion=1 → "YYYY.011.---"
+    const preview = screen.getByTestId("engagement-code-preview");
+    await waitFor(() => {
+      expect(preview).toHaveTextContent(/\d{4}\.011\.---/);
+    });
+  });
+
+  it("admin: practica select is enabled", async () => {
+    vi.mocked(useUserRole).mockReturnValue({ isAdmin: true, isLoading: false } as any);
+    render(<EngagementForm />);
+    const practica = screen.getByLabelText(/engagement\.practica/);
+    await waitFor(() => {
+      expect(practica).not.toBeDisabled();
+    });
+  });
+
+  // Review 2: wire create mutation, submit a valid form, click "crear otro", assert reset state
+  it("non-admin 'crear otro': after reset, practica shows Auditoría and select is disabled", async () => {
+    const user = userEvent.setup();
+    mockCreateMutateAsync.mockResolvedValue({ engagement_code: "2026.011.001" });
+
+    render(<EngagementForm />);
+
+    // Fill engagement name (min 5 chars)
+    await user.type(screen.getByLabelText(/engagement\.name/), "Test Engagement Alpha");
+
+    // Select client
+    const clientSelect = screen.getByLabelText(/engagement\.client/);
+    await user.click(clientSelect);
+    await waitFor(() => screen.getByRole("option", { name: "Acme Corp" }));
+    await user.click(screen.getByRole("option", { name: "Acme Corp" }));
+
+    // Select partner
+    const partnerSelect = screen.getByLabelText(/engagement\.partner/);
+    await user.click(partnerSelect);
+    await waitFor(() => screen.getByRole("option", { name: "Juan Partner" }));
+    await user.click(screen.getByRole("option", { name: "Juan Partner" }));
+
+    // Select manager
+    const managerSelect = screen.getByLabelText(/engagement\.manager/);
+    await user.click(managerSelect);
+    await waitFor(() => screen.getByRole("option", { name: "Ana Manager" }));
+    await user.click(screen.getByRole("option", { name: "Ana Manager" }));
+
+    // Set start and end dates via the mocked Calendar inputs (always visible via Popover mock)
+    const calendars = screen.getAllByTestId("calendar-mock");
+    fireEvent.change(calendars[0], { target: { value: "2026-10-01" } });
+    fireEvent.change(calendars[1], { target: { value: "2027-09-30" } });
+
+    // Select oficina (Ambos = 0)
+    const oficina = screen.getByLabelText(/engagement\.oficina/);
+    await user.click(oficina);
+    await waitFor(() => screen.getByRole("option", { name: "engagement.oficina_ambos" }));
+    await user.click(screen.getByRole("option", { name: "engagement.oficina_ambos" }));
+
+    // Select funcion (funcion_cli = 1)
+    const funcion = screen.getByLabelText(/engagement\.funcion/);
+    await user.click(funcion);
+    await waitFor(() => screen.getByRole("option", { name: "engagement.funcion_cli" }));
+    await user.click(screen.getByRole("option", { name: "engagement.funcion_cli" }));
+
+    // practica is auto-assigned to Auditoría; submit
+    await user.click(screen.getByText("engagement.createEngagement"));
+
+    // EngagementCreatedDialog mock renders once createdInfo is set
+    await waitFor(() => {
+      expect(screen.getByText("engagement.createAnother")).toBeInTheDocument();
+    });
+
+    // handleCreateAnother: resets form with practica = AUDITORIA_SERVICE_CODE (1)
+    await user.click(screen.getByText("engagement.createAnother"));
+
+    const practica = screen.getByLabelText(/engagement\.practica/);
+    await waitFor(() => {
+      expect(practica).toHaveTextContent("Auditoría");
+      expect(practica).toBeDisabled();
     });
   });
 });
