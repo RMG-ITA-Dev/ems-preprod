@@ -63,6 +63,28 @@ describe("useEmsData hooks", () => {
       expect(result.current.data).toEqual(mockCategories);
     });
 
+    it("scopes to a service via .eq('service_id', serviceId) when a serviceId is given", async () => {
+      const mockCategories = [
+        { category_id: "1", category_name: "Socio", display_order: 1, service_id: "svc-aud" },
+      ];
+
+      const mockOrder = vi.fn().mockResolvedValue({ data: mockCategories, error: null });
+      const mockEq = vi.fn().mockReturnValue({ order: mockOrder });
+      const mockSelect = vi.fn().mockReturnValue({ eq: mockEq });
+      vi.mocked(supabase.from).mockReturnValue({ select: mockSelect } as any);
+
+      const { result } = renderHook(() => useCategories("svc-aud"), {
+        wrapper: createWrapper(),
+      });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      expect(supabase.from).toHaveBeenCalledWith("categories");
+      expect(mockEq).toHaveBeenCalledWith("service_id", "svc-aud");
+      expect(mockOrder).toHaveBeenCalledWith("display_order");
+      expect(result.current.data).toEqual(mockCategories);
+    });
+
     it("handles errors", async () => {
       const mockOrder = vi.fn().mockResolvedValue({
         data: null,

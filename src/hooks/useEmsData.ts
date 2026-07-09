@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 export interface Category {
   category_id: string;
   category_name: string;
+  service_id: string;
   rate_high_bob: number;
   rate_low_bob: number;
   rate_high_usd: number;
@@ -12,6 +13,7 @@ export interface Category {
   can_approve_wo: boolean;
   can_approve_timesheets: boolean;
   default_app_role: string | null;
+  service?: Service;
 }
 
 export interface Industry {
@@ -256,14 +258,18 @@ export function useServices() {
   });
 }
 
-export function useCategories() {
+// useCategories(serviceId?) — no argument returns ALL categories (Staff / WO
+// pickers rely on this). Passing a serviceId scopes the list to one service,
+// keyed separately so the Settings rates tab can switch services independently.
+export function useCategories(serviceId?: string) {
   return useQuery({
-    queryKey: ['categories'],
+    queryKey: ['categories', serviceId ?? 'all'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('categories')
-        .select('*')
-        .order('display_order');
+      let query = supabase.from('categories').select('*');
+      if (serviceId) {
+        query = query.eq('service_id', serviceId);
+      }
+      const { data, error } = await query.order('display_order');
       if (error) throw error;
       return data as Category[];
     },

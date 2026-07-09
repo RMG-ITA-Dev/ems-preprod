@@ -13,7 +13,7 @@ import { Save, Loader2, FileText, Sun, Snowflake, Lock, Copy } from "lucide-reac
 import { useWorksheetById } from "@/hooks/useWorksheetData";
 import { useUserRole } from "@/hooks/useUserRole";
 import { useBatchUpsertCells, useUpdateWorksheet, useCreateWorkOrderFromWorksheet } from "@/hooks/useWorksheetMutations";
-import { useCategories, useActivityCodes, useSetting } from "@/hooks/useEmsData";
+import { useCategories, useActivityCodes, useSetting, useServices } from "@/hooks/useEmsData";
 import { WorksheetGrid } from "@/components/worksheet/WorksheetGrid";
 import { CopyFromEngagementDialog } from "@/components/worksheet/CopyFromEngagementDialog";
 import { WorksheetCell } from "@/hooks/useWorksheetData";
@@ -52,6 +52,7 @@ const WorksheetEdit = () => {
   const { data: worksheet, isLoading: wsLoading } = useWorksheetById(id);
   const { data: categories, isLoading: catLoading } = useCategories();
   const { data: activityCodes, isLoading: actLoading } = useActivityCodes();
+  const { data: services } = useServices();
   const globalTaxRate = useSetting("TAX_RATE");
   
   const batchUpsertCells = useBatchUpsertCells();
@@ -94,6 +95,27 @@ const WorksheetEdit = () => {
     () => activityCodes?.filter((a) => a.is_active) || [],
     [activityCodes]
   );
+
+  // Optional service filter (view-only convenience to shorten the matrix).
+  // Default "all" shows every category, so the on-screen total matches the WO.
+  const [filterServiceId, setFilterServiceId] = useState<string>("all");
+
+  // Services that actually have at least one category, mapped to their name.
+  const serviceFilterOptions = useMemo(() => {
+    const presentIds = new Set((categories ?? []).map((c) => c.service_id));
+    return (services ?? [])
+      .filter((s) => presentIds.has(s.service_id))
+      .map((s) => ({ service_id: s.service_id, name: s.name }));
+  }, [categories, services]);
+
+  // Categories shown in the grid. The filter never touches the `cells` prop, so
+  // hidden rows keep their hours (save merges all DB cells) and the WO — built
+  // server-side from all stored cells — is unaffected.
+  const visibleCategories = useMemo(() => {
+    if (!categories) return categories;
+    if (filterServiceId === "all") return categories;
+    return categories.filter((c) => c.service_id === filterServiceId);
+  }, [categories, filterServiceId]);
 
   const handleCellChange = useCallback(
     (categoryId: string, activityId: string, hours: number) => {
@@ -190,6 +212,17 @@ const WorksheetEdit = () => {
 
     return Array.from(cellsMap.values());
   }, [worksheet, localCells, id]);
+
+  // Overall hours across ALL categories (independent of the service filter),
+  // surfaced when a filter is active so the filtered subtotal isn't misread.
+  const grandTotalHours = useMemo(
+    () => mergedCells.reduce((sum, c) => sum + c.budget_hours, 0),
+    [mergedCells]
+  );
+  const filteredServiceName = useMemo(
+    () => serviceFilterOptions.find((s) => s.service_id === filterServiceId)?.name ?? "",
+    [serviceFilterOptions, filterServiceId]
+  );
 
   const isLoading = wsLoading || catLoading || actLoading;
   const isSaving = batchUpsertCells.isPending || updateWorksheet.isPending;
@@ -436,11 +469,38 @@ const WorksheetEdit = () => {
 
         {/* Budget Grid */}
         <div className="space-y-2">
-          <h2 className="text-lg font-semibold">{t("workMatrix.budgetGrid")}</h2>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold">{t("workMatrix.budgetGrid")}</h2>
+            {serviceFilterOptions.length > 1 && (
+              <div className="flex items-center gap-2">
+                <Label htmlFor="worksheetServiceFilter" className="text-sm text-muted-foreground">
+                  {t("workMatrix.filterByService")}
+                </Label>
+                <Select value={filterServiceId} onValueChange={setFilterServiceId}>
+                  <SelectTrigger id="worksheetServiceFilter" className="w-56" data-testid="worksheet-service-filter">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{t("workMatrix.allServices")}</SelectItem>
+                    {serviceFilterOptions.map((s) => (
+                      <SelectItem key={s.service_id} value={s.service_id}>
+                        {s.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
+          {filterServiceId !== "all" && (
+            <p className="text-sm text-muted-foreground" data-testid="worksheet-filtered-total-hint">
+              {t("workMatrix.filteredTotalHint", { service: filteredServiceName, hours: grandTotalHours })}
+            </p>
+          )}
           {categories && activeActivities.length > 0 ? (
             <WorksheetGrid
               key={gridKey}
-              categories={categories}
+              categories={visibleCategories ?? []}
               activities={activeActivities}
               cells={mergedCells}
               onChange={handleCellChange}
