@@ -63,7 +63,13 @@ BEGIN
     RAISE EXCEPTION 'Oficina inválida: %', p_oficina;
   END IF;
 
-  IF p_practica IS NULL OR p_practica NOT IN (0, 1, 2, 3, 4) THEN
+  -- Validate practica against the active services catalog (carried forward from
+  -- 20260626000000_create_services_catalog.sql, which had landed this check on an
+  -- orphaned 15-arg overload never invoked by the frontend after 20260625000000
+  -- extended the live signature to 19 args).
+  IF NOT EXISTS (
+    SELECT 1 FROM public.services WHERE code = p_practica AND is_active
+  ) THEN
     RAISE EXCEPTION 'Práctica inválida: %', p_practica;
   END IF;
 

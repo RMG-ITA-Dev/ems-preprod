@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 export interface Category {
   category_id: string;
   category_name: string;
+  service_id: string;
   rate_high_bob: number;
   rate_low_bob: number;
   rate_high_usd: number;
@@ -12,6 +13,7 @@ export interface Category {
   can_approve_wo: boolean;
   can_approve_timesheets: boolean;
   default_app_role: string | null;
+  service?: Service;
 }
 
 export interface Industry {
@@ -115,10 +117,33 @@ export interface Engagement {
   specialist_tax?: Staff;
 }
 
+export interface WOPaymentInstallment {
+  installment_id: string;
+  plan_id: string;
+  wo_id: string;
+  installment_number: number;
+  agreed_invoice_date: string | null;
+  agreed_payment_date: string | null;
+  collection_invoice_date: string | null;
+  collection_payment_date: string | null;
+  payment_date_actual: string | null;
+  percentage: number;
+  amount: number | null;
+  status: string;
+}
+
+export interface WOPaymentPlan {
+  plan_id: string;
+  wo_id: string;
+  exchange_rate: number | null;
+  payment_days: number;
+  installments?: WOPaymentInstallment[];
+}
+
 export interface WorkOrder {
   wo_id: string;
   engagement_id: string;
-  currency: 'USD' | 'BOB';
+  currency: 'USD' | 'BOB' | 'USDT';
   season_mode: 'High' | 'Low';
   tax_rate: number;
   adjustment_amount: number;
@@ -146,6 +171,7 @@ export interface WorkOrder {
   engagement?: Engagement;
   budget_lines?: WOBudgetLine[];
   expense_budget?: WOExpenseBudget[];
+  payment_plan?: WOPaymentPlan | null;
 }
 
 export interface WOExpenseBudget {
@@ -170,6 +196,19 @@ export interface ActivityCode {
   activity_code: string;
   description: string;
   is_active: boolean;
+  service_id: string | null;
+  entity_type: string;
+  service?: Service;
+}
+
+export interface Service {
+  service_id: string;
+  name: string;
+  code: number;
+  allows_rates_activities: boolean;
+  is_active: boolean;
+  created_at: string;
+  abbreviation?: string | null;
 }
 
 export interface Skill {
@@ -207,14 +246,33 @@ export interface GlobalSetting {
 }
 
 // Hooks
-export function useCategories() {
+export function useServices() {
   return useQuery({
-    queryKey: ['categories'],
+    queryKey: ['services'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('categories')
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any)
+        .from('services')
         .select('*')
-        .order('display_order');
+        .order('code');
+      if (error) throw error;
+      return data as Service[];
+    },
+  });
+}
+
+// useCategories(serviceId?) — no argument returns ALL categories (Staff / WO
+// pickers rely on this). Passing a serviceId scopes the list to one service,
+// keyed separately so the Settings rates tab can switch services independently.
+export function useCategories(serviceId?: string) {
+  return useQuery({
+    queryKey: ['categories', serviceId ?? 'all'],
+    queryFn: async () => {
+      let query = supabase.from('categories').select('*');
+      if (serviceId) {
+        query = query.eq('service_id', serviceId);
+      }
+      const { data, error } = await query.order('display_order');
       if (error) throw error;
       return data as Category[];
     },
@@ -431,6 +489,10 @@ export function useWorkOrderById(id: string) {
           expense_budget:wo_expense_budget(
             *,
             expense_type:expense_types(*)
+          ),
+          payment_plan:wo_payment_plan(
+            *,
+            installments:wo_payment_installments(*)
           )
         `)
         .eq('wo_id', id)
@@ -448,11 +510,35 @@ export function useActivityCodes() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('activity_codes')
-        .select('*')
-        .eq('is_active', true)
-        .order('activity_code');
+        .select('*, service:services(code)')
+        .eq('is_active', true);
       if (error) throw error;
-      return data as ActivityCode[];
+      const suffix = (code: string) => parseInt(code.match(/(\d+)$/)?.[1] ?? '0', 10);
+      const prefix = (code: string) => code.replace(/\d+$/, '');
+      return [...(data as ActivityCode[])].sort((a, b) => {
+        const pa = prefix(a.activity_code), pb = prefix(b.activity_code);
+        if (pa !== pb) return pa.localeCompare(pb);
+        return suffix(a.activity_code) - suffix(b.activity_code);
+      });
+    },
+  });
+}
+
+export function useAllActivityCodes() {
+  return useQuery({
+    queryKey: ['activity_codes', 'all'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('activity_codes')
+        .select('*, service:services(service_id, name, abbreviation)');
+      if (error) throw error;
+      const suffix = (code: string) => parseInt(code.match(/(\d+)$/)?.[1] ?? '0', 10);
+      const prefix = (code: string) => code.replace(/\d+$/, '');
+      return [...(data as ActivityCode[])].sort((a, b) => {
+        const pa = prefix(a.activity_code), pb = prefix(b.activity_code);
+        if (pa !== pb) return pa.localeCompare(pb);
+        return suffix(a.activity_code) - suffix(b.activity_code);
+      });
     },
   });
 }

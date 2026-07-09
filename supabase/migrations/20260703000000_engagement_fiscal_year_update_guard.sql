@@ -40,12 +40,17 @@ BEGIN
     ELSE EXTRACT(YEAR FROM NEW.fecha_cierre)::integer
   END;
 
-  IF NEW.anio_fiscal_override THEN
+  -- Admin required to set an override AND to remove/alter an existing one (review it.5):
+  -- otherwise a non-admin team member could flip anio_fiscal_override true->false while
+  -- setting anio_fiscal to the derived value, silently discarding an admin's manual override.
+  IF NEW.anio_fiscal_override OR OLD.anio_fiscal_override THEN
     IF NOT public.is_admin() THEN
       RAISE EXCEPTION 'FORBIDDEN: el override manual del año fiscal requiere rol administrador'
         USING ERRCODE = 'insufficient_privilege';
     END IF;
-  ELSIF NEW.anio_fiscal IS DISTINCT FROM v_derived_fy THEN
+  END IF;
+
+  IF NOT NEW.anio_fiscal_override AND NEW.anio_fiscal IS DISTINCT FROM v_derived_fy THEN
     RAISE EXCEPTION 'Año fiscal % no coincide con el derivado de la fecha de cierre % (esperado %)',
       NEW.anio_fiscal, NEW.fecha_cierre, v_derived_fy;
   END IF;

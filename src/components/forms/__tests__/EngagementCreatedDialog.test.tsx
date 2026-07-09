@@ -4,6 +4,7 @@ import { render, screen } from "@/test/utils";
 
 /**
  * BUG 0603-140 (enhancement): post-creation confirmation modal.
+ * 0625-149: service prop now receives a catalog name (e.g. "Auditoría") instead of an i18n key.
  * The component is presentational, so it can be tested directly without driving a
  * full form submit (which is infeasible in this harness — empty entity mocks + Radix
  * Select in jsdom).
@@ -21,7 +22,7 @@ const baseProps = {
   name: "Audit FY2027",
   clientName: "ACME Corp",
   anioFiscal: 2027,
-  service: "engagement.practica_auditoria",
+  service: "Auditoría",           // 0625-149: catalog name, not an i18n key
   funcion: "engagement.funcion_cli",
   status: "status.active",
   onClose: vi.fn(),
@@ -43,7 +44,7 @@ describe("EngagementCreatedDialog (BUG 0603-140 enhancement)", () => {
     expect(screen.getByText("Audit FY2027")).toBeInTheDocument();
     expect(screen.getByText("ACME Corp")).toBeInTheDocument();
     expect(screen.getByText("2027")).toBeInTheDocument();
-    expect(screen.getByText("engagement.practica_auditoria")).toBeInTheDocument();
+    expect(screen.getByText("Auditoría")).toBeInTheDocument();
     expect(screen.getByText("engagement.funcion_cli")).toBeInTheDocument();
     expect(screen.getByText("status.active")).toBeInTheDocument();
   });

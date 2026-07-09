@@ -11,6 +11,7 @@ import { getDayName, formatDayMonth, toISODateString, getWorkDays, parseDateLoca
 import { cn } from "@/lib/utils";
 import { Check, Clock, X } from "lucide-react";
 import type { LineApproval, TimeEntryForApproval } from "@/hooks/useTimesheetApprovals";
+import { compareActivityCodes } from "@/lib/activityFilters";
 
 interface ApprovalTimesheetGridProps {
   weekStartDate: string;
@@ -123,7 +124,7 @@ export function ApprovalTimesheetGrid({
 
     // Sort activities within each group + compute aggregateStatus + remaining hours
     groupMap.forEach((group) => {
-      group.activities.sort((a, b) => a.activityCode.localeCompare(b.activityCode));
+      group.activities.sort((a, b) => compareActivityCodes(a.activityCode, b.activityCode));
 
       const statuses = group.activities.map(a => a.approvalStatus).filter(Boolean) as string[];
       if (statuses.length === 0) {

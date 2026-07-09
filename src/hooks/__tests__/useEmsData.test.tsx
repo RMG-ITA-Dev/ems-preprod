@@ -10,6 +10,7 @@ import {
   useClients,
   useEngagements,
   useActivityCodes,
+  useAllActivityCodes,
   useExpenseTypes,
   useGlobalSettings,
 } from "../useEmsData";
@@ -58,6 +59,28 @@ describe("useEmsData hooks", () => {
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
       expect(supabase.from).toHaveBeenCalledWith("categories");
+      expect(mockOrder).toHaveBeenCalledWith("display_order");
+      expect(result.current.data).toEqual(mockCategories);
+    });
+
+    it("scopes to a service via .eq('service_id', serviceId) when a serviceId is given", async () => {
+      const mockCategories = [
+        { category_id: "1", category_name: "Socio", display_order: 1, service_id: "svc-aud" },
+      ];
+
+      const mockOrder = vi.fn().mockResolvedValue({ data: mockCategories, error: null });
+      const mockEq = vi.fn().mockReturnValue({ order: mockOrder });
+      const mockSelect = vi.fn().mockReturnValue({ eq: mockEq });
+      vi.mocked(supabase.from).mockReturnValue({ select: mockSelect } as any);
+
+      const { result } = renderHook(() => useCategories("svc-aud"), {
+        wrapper: createWrapper(),
+      });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      expect(supabase.from).toHaveBeenCalledWith("categories");
+      expect(mockEq).toHaveBeenCalledWith("service_id", "svc-aud");
       expect(mockOrder).toHaveBeenCalledWith("display_order");
       expect(result.current.data).toEqual(mockCategories);
     });
@@ -202,11 +225,7 @@ describe("useEmsData hooks", () => {
         { activity_id: "2", activity_code: "A200", description: "Execution", is_active: true },
       ];
 
-      const mockOrder = vi.fn().mockResolvedValue({
-        data: mockCodes,
-        error: null,
-      });
-      const mockEq = vi.fn().mockReturnValue({ order: mockOrder });
+      const mockEq = vi.fn().mockResolvedValue({ data: mockCodes, error: null });
       const mockSelect = vi.fn().mockReturnValue({ eq: mockEq });
       vi.mocked(supabase.from).mockReturnValue({ select: mockSelect } as any);
 
@@ -218,6 +237,44 @@ describe("useEmsData hooks", () => {
 
       expect(supabase.from).toHaveBeenCalledWith("activity_codes");
       expect(mockEq).toHaveBeenCalledWith("is_active", true);
+    });
+  });
+
+  describe("useAllActivityCodes (0513-114)", () => {
+    it("fetches ALL activity codes without is_active filter (for admin)", async () => {
+      const mockCodes = [
+        { activity_id: "1", activity_code: "AUD-A1", description: "Planning", is_active: true, service_id: "s1", entity_type: "A", service: { service_id: "s1", name: "Auditoría", abbreviation: "AUD" } },
+        { activity_id: "2", activity_code: "AUD-AX", description: "Old Step", is_active: false, service_id: "s1", entity_type: "A", service: { service_id: "s1", name: "Auditoría", abbreviation: "AUD" } },
+        { activity_id: "3", activity_code: "100-PLA", description: "Legacy Plan", is_active: true, service_id: null, entity_type: "A", service: null },
+      ];
+
+      const mockSelect = vi.fn().mockResolvedValue({ data: mockCodes, error: null });
+      vi.mocked(supabase.from).mockReturnValue({ select: mockSelect } as any);
+
+      const { result } = renderHook(() => useAllActivityCodes(), {
+        wrapper: createWrapper(),
+      });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      expect(supabase.from).toHaveBeenCalledWith("activity_codes");
+      // Must NOT filter by is_active — all 3 rows returned including the inactive AX one
+      expect(result.current.data).toHaveLength(3);
+    });
+
+    it("does NOT call .eq('is_active', true)", async () => {
+      const mockSelect = vi.fn().mockResolvedValue({ data: [], error: null });
+      vi.mocked(supabase.from).mockReturnValue({ select: mockSelect } as any);
+
+      const { result } = renderHook(() => useAllActivityCodes(), {
+        wrapper: createWrapper(),
+      });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      // select is called directly — no .eq() filter applied
+      expect(mockSelect).toHaveBeenCalled();
+      // The mock has no .eq — if the hook called .eq() it would throw and isSuccess would be false
     });
   });
 

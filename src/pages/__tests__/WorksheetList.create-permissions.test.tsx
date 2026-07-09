@@ -34,6 +34,7 @@ vi.mock("@/hooks/useWorksheetMutations", () => ({
 vi.mock("@/hooks/useEmsData", () => ({
   useCategories: () => ({ data: [], isLoading: false }),
   useActivityCodes: () => ({ data: [], isLoading: false }),
+  useServices: () => ({ data: [], isLoading: false }),
   useSetting: () => "0.13",
 }));
 vi.mock("@/hooks/useCurrentStaff", () => ({

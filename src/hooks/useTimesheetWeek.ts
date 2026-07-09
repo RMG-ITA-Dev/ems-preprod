@@ -37,6 +37,7 @@ export interface ApprovedEngagement {
   activity_required: boolean;
   work_order_required: boolean;
   is_internal: boolean;
+  practica: number | null;     // service code (matches services.code) — for activity filtering
   start_date: string | null;   // BUG 0220-63
   end_date: string | null;     // BUG 0220-63
   client: {
@@ -50,6 +51,7 @@ export interface ActivityCode {
   activity_code: string;
   description: string;
   is_active: boolean;
+  service?: { code: number } | null;
 }
 
 export interface TimesheetWeekData {
@@ -152,7 +154,7 @@ export function useTimesheetWeek(weekStartDate: Date, workDays: number = 5): Tim
           .from("engagements")
           .select(`
             engagement_id, engagement_code, engagement_name,
-            activity_required, work_order_required, is_internal,
+            activity_required, work_order_required, is_internal, practica,
             start_date, end_date,
             client:clients!client_id(client_id, client_legal_name)
           `)
@@ -171,7 +173,7 @@ export function useTimesheetWeek(weekStartDate: Date, workDays: number = 5): Tim
         .from("engagements")
         .select(`
           engagement_id, engagement_code, engagement_name,
-          activity_required, work_order_required, is_internal,
+          activity_required, work_order_required, is_internal, practica,
           start_date, end_date,
           client:clients!client_id(client_id, client_legal_name)
         `)
@@ -205,12 +207,17 @@ export function useTimesheetWeek(weekStartDate: Date, workDays: number = 5): Tim
     queryFn: async () => {
       const { data, error } = await supabase
         .from("activity_codes")
-        .select("*")
-        .eq("is_active", true)
-        .order("activity_code");
+        .select("*, service:services(code)")
+        .eq("is_active", true);
 
       if (error) throw error;
-      return (data || []) as ActivityCode[];
+      const suffix = (code: string) => parseInt(code.match(/(\d+)$/)?.[1] ?? '0', 10);
+      const prefix = (code: string) => code.replace(/\d+$/, '');
+      return [...(data || []) as ActivityCode[]].sort((a, b) => {
+        const pa = prefix(a.activity_code), pb = prefix(b.activity_code);
+        if (pa !== pb) return pa.localeCompare(pb);
+        return suffix(a.activity_code) - suffix(b.activity_code);
+      });
     },
     staleTime: 5 * 60 * 1000, // Cache for 5 minutes
   });

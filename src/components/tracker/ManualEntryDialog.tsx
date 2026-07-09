@@ -30,6 +30,7 @@ import { CalendarIcon } from "lucide-react";
 import { useActivityCodes } from "@/hooks/useEmsData";
 import { useManualEntryEngagements } from "@/hooks/useManualEntryEngagements";
 import { useAdminActivityId } from "@/hooks/useAdminActivity";
+import { filterActivitiesByService } from "@/lib/activityFilters";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -176,6 +177,7 @@ export function ManualEntryDialog({
 
   const selectedEng = engagements.find(e => e.engagement_id === engagementId);
   const isActNotReq = selectedEng && !selectedEng.activity_required;
+  const visibleActivities = filterActivitiesByService(activeActivities, selectedEng?.practica, activityId || undefined);
   const canSubmit = engagementId && (activityId || (isActNotReq && adminActivityId)) && hours > 0 && (!useExplicitTimes || (startTime && endTime));
 
   return (
@@ -298,7 +300,7 @@ export function ManualEntryDialog({
                 <SelectValue placeholder={t("tracker.selectActivity")} />
               </SelectTrigger>
               <SelectContent>
-                {activeActivities.map((act) => (
+                {visibleActivities.map((act) => (
                   <SelectItem key={act.activity_id} value={act.activity_id}>
                     {act.activity_code} - {act.description}
                   </SelectItem>

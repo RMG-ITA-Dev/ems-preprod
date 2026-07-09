@@ -42,11 +42,18 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (k: string) => k, i18n: { language: "en" } }),
 }));
 
+const mockServices = [
+  { service_id: "s1", name: "Auditoría",  code: 1, allows_rates_activities: true,  is_active: true,  created_at: "" },
+  { service_id: "s2", name: "Tax",        code: 3, allows_rates_activities: true,  is_active: true,  created_at: "" },
+  { service_id: "s3", name: "Firmwide",   code: 0, allows_rates_activities: false, is_active: false, created_at: "" },
+];
+
 vi.mock("@/hooks/useEmsData", () => ({
   // Includes the client referenced by mockEngagement so the client Select can resolve a
   // matching SelectItem for full-submit tests (Radix Select can't retain a `value` that has
   // no corresponding item, which otherwise silently clears the field and fails validation).
-  useClients: () => ({ data: [{ client_id: "client-1", client_legal_name: "Test Client", is_active: true }] }),
+  useClients:  () => ({ data: [{ client_id: "client-1", client_legal_name: "Test Client", is_active: true }] }),
+  useServices: () => ({ data: mockServices }),
 }));
 
 vi.mock("@/hooks/useCategoryStaff", () => ({
@@ -112,11 +119,11 @@ const suggestFiscalYear = (): number => {
   return now.getMonth() >= 6 ? now.getFullYear() + 1 : now.getFullYear();
 };
 
-// Mirror the Zod schema for the four new fields (Plan v3: oficina/practica accept 0, practica max=4, funcion 0-3)
+// Mirror the Zod schema (0625-149: practica max relaxed to 9 — catalog-driven)
 const codeFieldsSchema = z.object({
   anio_fiscal: z.number().int().min(2020).max(2100, "Invalid fiscal year"),
   oficina:     z.number().int().min(0).max(2,   "Invalid office"),
-  practica:    z.number().int().min(0).max(4,   "Invalid practice"),
+  practica:    z.number().int().min(0).max(9,   "Invalid practice"),
   funcion:     z.number().int().min(0).max(3,   "Invalid function"),
 });
 
@@ -176,6 +183,11 @@ describe("Engagement create schema — new code-generation fields (BUG 0306-82)"
     expect(result.success).toBe(true);
   });
 
+  it("accepts practica=9 (catalog-driven max)", () => {
+    const result = codeFieldsSchema.safeParse({ anio_fiscal: 2027, oficina: 1, practica: 9, funcion: 0 });
+    expect(result.success).toBe(true);
+  });
+
   it("accepts funcion=0 (Administrativa)", () => {
     const result = codeFieldsSchema.safeParse({ anio_fiscal: 2027, oficina: 1, practica: 1, funcion: 0 });
     expect(result.success).toBe(true);
@@ -206,8 +218,8 @@ describe("Engagement create schema — new code-generation fields (BUG 0306-82)"
     expect(result.success).toBe(false);
   });
 
-  it("rejects practica value outside 0-4", () => {
-    const result = codeFieldsSchema.safeParse({ anio_fiscal: 2027, oficina: 1, practica: 5, funcion: 0 });
+  it("rejects practica value outside 0-9", () => {
+    const result = codeFieldsSchema.safeParse({ anio_fiscal: 2027, oficina: 1, practica: 10, funcion: 0 });
     expect(result.success).toBe(false);
   });
 
@@ -376,17 +388,37 @@ describe("EngagementForm — closing date drives Año Fiscal (BUG 0604-143)", ()
     expect(screen.getByRole("combobox", { name: "engagement.closingDate *" })).not.toBeDisabled();
   });
 
+  // REVIEW FIX regression (0604-143 it.6): the DB update trigger (engagement_fiscal_year_update_guard.sql,
+  // review it.5) requires admin whenever OLD.anio_fiscal_override is true, even if the submitted value is
+  // unchanged. A Manager/Partner changing the closing date on an already-overridden engagement would send a
+  // new fecha_cierre and get rejected server-side. The Select must be disabled for non-admins in that case
+  // so the form never exposes an edit path that always fails.
+  it("edit mode: Manager cannot edit the closing date when an admin override is active", () => {
+    mockRole = { isAdmin: false, isManager: true, isPartner: false };
+    const overriddenEngagement: Engagement = { ...mockEngagement, anio_fiscal_override: true };
+    render(<EngagementForm engagement={overriddenEngagement} />);
+    expect(screen.getByRole("combobox", { name: "engagement.closingDate *" })).toBeDisabled();
+  });
+
+  it("edit mode: Admin can still edit the closing date when an admin override is active", () => {
+    mockRole = { isAdmin: true };
+    const overriddenEngagement: Engagement = { ...mockEngagement, anio_fiscal_override: true };
+    render(<EngagementForm engagement={overriddenEngagement} />);
+    expect(screen.getByRole("combobox", { name: "engagement.closingDate *" })).not.toBeDisabled();
+  });
+
   it("picking the Sep 30 2026 close derives FY2026 in the read-only Año Fiscal field", async () => {
     // Fix "today" to Jun 1 2026 so the dated dropdown window is deterministic. At that date the
-    // window includes "September 30, 2026" (a future close within FY2026). shouldAdvanceTime
-    // keeps real timers ticking so userEvent's internal waits don't hang.
+    // window includes "30/09/2026" (a future close within FY2026, rendered DD/MM/YYYY per
+    // docs/operations.md — review it.7). shouldAdvanceTime keeps real timers ticking so
+    // userEvent's internal waits don't hang.
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date(2026, 5, 1));
     const user = userEvent.setup({ delay: null });
     render(<EngagementForm />);
     const closingDateSelect = screen.getByRole("combobox", { name: "engagement.closingDate *" });
     await user.click(closingDateSelect);
-    const option = await screen.findByRole("option", { name: "September 30, 2026" });
+    const option = await screen.findByRole("option", { name: "30/09/2026" });
     await user.click(option);
     await waitFor(() => {
       expect(screen.getByTestId("anio-fiscal-derived")).toHaveValue("2026");
@@ -395,8 +427,8 @@ describe("EngagementForm — closing date drives Año Fiscal (BUG 0604-143)", ()
   });
 
   it("picking the Dec 31 2026 close rolls into FY2027 and completes the code preview", async () => {
-    // "Today" is Jun 1 2026; the window offers "December 31, 2026" which falls in FY2027
-    // (Oct 2026 → Sep 2027).
+    // "Today" is Jun 1 2026; the window offers "31/12/2026" (DD/MM/YYYY — review it.7) which
+    // falls in FY2027 (Oct 2026 → Sep 2027).
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date(2026, 5, 1));
     const user = userEvent.setup({ delay: null });
@@ -404,13 +436,13 @@ describe("EngagementForm — closing date drives Año Fiscal (BUG 0604-143)", ()
     await user.click(screen.getByRole("combobox", { name: "engagement.oficina *" }));
     await user.click(await screen.findByRole("option", { name: "engagement.oficina_laPaz" }));
     await user.click(screen.getByRole("combobox", { name: "engagement.practica *" }));
-    await user.click(await screen.findByRole("option", { name: "engagement.practica_auditoria" }));
+    await user.click(await screen.findByRole("option", { name: "Auditoría" }));
     await user.click(screen.getByRole("combobox", { name: "engagement.funcion *" }));
     await user.click(await screen.findByRole("option", { name: "engagement.funcion_cli" }));
 
     const closingDateSelect = screen.getByRole("combobox", { name: "engagement.closingDate *" });
     await user.click(closingDateSelect);
-    await user.click(await screen.findByRole("option", { name: "December 31, 2026" }));
+    await user.click(await screen.findByRole("option", { name: "31/12/2026" }));
 
     await waitFor(() => {
       expect(screen.getByTestId("anio-fiscal-derived")).toHaveValue("2027");

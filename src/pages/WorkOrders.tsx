@@ -70,7 +70,7 @@ const WorkOrders = () => {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [partnerFilter, setPartnerFilter] = useState<string>("all");
   const [managerFilter, setManagerFilter] = useState<string>("all");
-  const [currencyTab, setCurrencyTab] = useState<"BOB" | "USD">("BOB");
+  const [currencyTab, setCurrencyTab] = useState<"BOB" | "USD" | "USDT">("BOB");
   const [sortColumn, setSortColumn] = useState<SortColumn>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>(null);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
@@ -229,10 +229,11 @@ const WorkOrders = () => {
         {/* Currency Tabs + Search + Add Button */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
           <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 w-full sm:w-auto">
-            <Tabs value={currencyTab} onValueChange={(v) => setCurrencyTab(v as "BOB" | "USD")}>
+            <Tabs value={currencyTab} onValueChange={(v) => setCurrencyTab(v as "BOB" | "USD" | "USDT")}>
               <TabsList>
                 <TabsTrigger value="BOB">BOB</TabsTrigger>
                 <TabsTrigger value="USD">USD</TabsTrigger>
+                <TabsTrigger value="USDT">USDT</TabsTrigger>
               </TabsList>
             </Tabs>
             <div className="relative w-full sm:min-w-[300px] sm:max-w-xl">
