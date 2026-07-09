@@ -703,7 +703,17 @@
     "requiredClosingDate":       "La fecha de corte es requerida",
     "requiredClosingDateCustom": "La fecha de corte personalizada es requerida",
     "creationDate": "Fecha de Creación",
-    "creationDateHelp": "Esta fecha se asignará automáticamente al guardar."
+    "creationDateHelp": "Esta fecha se asignará automáticamente al guardar.",
+    "contractScanned": "Contrato Escaneado",
+    "contractRequired": "El contrato escaneado es obligatorio",
+    "uploadContract": "Subir Contrato",
+    "contractUploaded": "Contrato subido correctamente",
+    "contractUploadFailed": "No se pudo subir el contrato",
+    "contractDownloadFailed": "No se pudo descargar el contrato",
+    "invalidContractFileType": "Solo se permiten archivos PDF",
+    "contractFileTooLarge": "El archivo debe pesar menos de 5MB",
+    "downloadContract": "Descargar Contrato",
+    "removeContract": "Quitar archivo"
   },
   "messages": {
     "createSuccess": "{{entity}} creado/a exitosamente",

@@ -702,8 +702,18 @@
     "immutabilityHint":      "Verify fiscal year, office, service and function before saving: the engagement code cannot be changed afterward; to correct it you must create a new engagement.",
     "requiredClosingDate":       "Closing date is required",
     "requiredClosingDateCustom": "Custom closing date is required",
-     "creationDate": "Creation Date",
-    "creationDateHelp": "This date will be assigned automatically when you save."
+    "creationDate": "Creation Date",
+    "creationDateHelp": "This date will be assigned automatically when you save.",
+    "contractScanned": "Scanned Contract",
+    "contractRequired": "The scanned contract is required",
+    "uploadContract": "Upload Contract",
+    "contractUploaded": "Contract uploaded successfully",
+    "contractUploadFailed": "Could not upload the contract",
+    "contractDownloadFailed": "Could not download the contract",
+    "invalidContractFileType": "Only PDF files are allowed",
+    "contractFileTooLarge": "The file must be smaller than 5MB",
+    "downloadContract": "Download Contract",
+    "removeContract": "Remove file"
   },
   "messages": {
     "createSuccess": "{{entity}} created successfully",

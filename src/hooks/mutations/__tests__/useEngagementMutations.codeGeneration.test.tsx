@@ -22,7 +22,7 @@ describe("useCreateEngagement — code generation (BUG 0306-82)", () => {
     vi.clearAllMocks();
   });
 
-  it("calls supabase.rpc with create_engagement_with_code and all 21 params", async () => {
+  it("calls supabase.rpc with create_engagement_with_code and all 22 params", async () => {
     const mockData = {
       engagement_id: "eng-100",
       engagement_name: "Audit FY2027",
@@ -52,6 +52,7 @@ describe("useCreateEngagement — code generation (BUG 0306-82)", () => {
       activity_required: true,
       is_internal: false,
       approval_required: true,
+      contract_file_path: "contracts/123-abc.pdf",
     });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
@@ -78,7 +79,35 @@ describe("useCreateEngagement — code generation (BUG 0306-82)", () => {
       p_encargado_id:        null,
       p_specialist_it_id:    null,
       p_specialist_tax_id:   null,
+      p_contract_file_path:  "contracts/123-abc.pdf",
     });
+  });
+
+  it("BUG 0625-151 (Codex review): defaults p_contract_file_path to null when omitted (internal engagements)", async () => {
+    const mockData = {
+      engagement_id: "eng-102",
+      engagement_name: "Internal Training",
+      engagement_code: "2027.100.001",
+    };
+    vi.mocked(supabase.rpc).mockResolvedValue({ data: mockData, error: null } as any);
+
+    const { result } = renderHook(() => useCreateEngagement(), {
+      wrapper: createWrapper(),
+    });
+
+    await result.current.mutateAsync({
+      engagement_name: "Internal Training",
+      client_id: "client-uuid",
+      oficina: 1,
+      practica: 0,
+      funcion: 0,
+      anio_fiscal: 2027,
+      fecha_cierre: "2027-09-30",
+      is_internal: true,
+    });
+
+    const [, callArgs] = vi.mocked(supabase.rpc).mock.calls[0];
+    expect((callArgs as { p_contract_file_path: unknown }).p_contract_file_path).toBeNull();
   });
 
   it("exposes the server-assigned engagement_code on a successful mutation (BUG 0603-140)", async () => {
