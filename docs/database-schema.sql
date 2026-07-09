@@ -318,6 +318,35 @@ CREATE TABLE public.work_orders (
   san_notes TEXT
 );
 
+-- Payment Plan (one per work order)
+CREATE TABLE public.wo_payment_plan (
+  plan_id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  wo_id UUID NOT NULL UNIQUE REFERENCES public.work_orders(wo_id) ON DELETE CASCADE,
+  exchange_rate NUMERIC,
+  payment_days INTEGER NOT NULL DEFAULT 30,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Payment Installments (many per plan)
+CREATE TABLE public.wo_payment_installments (
+  installment_id          UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  plan_id                 UUID NOT NULL REFERENCES public.wo_payment_plan(plan_id) ON DELETE CASCADE,
+  wo_id                   UUID NOT NULL REFERENCES public.work_orders(wo_id) ON DELETE CASCADE,
+  installment_number      INTEGER NOT NULL,
+  agreed_invoice_date     DATE,         -- entered by manager: planned invoice date
+  agreed_payment_date     DATE,         -- auto: agreed_invoice_date + payment_days business days
+  collection_invoice_date DATE,         -- auto: date status changed to Invoiced
+  collection_payment_date DATE,         -- auto: collection_invoice_date + payment_days business days
+  payment_date_actual     DATE,         -- recorded when status → Completed
+  percentage              NUMERIC NOT NULL,
+  amount                  NUMERIC,
+  status                  TEXT NOT NULL DEFAULT 'Pending' CHECK (status IN ('Pending', 'Invoiced', 'Completed', 'Overdue')),
+  created_at              TIMESTAMPTZ DEFAULT now(),
+  updated_at              TIMESTAMPTZ DEFAULT now(),
+  UNIQUE (plan_id, installment_number)
+);
+
 -- ============================================================================
 -- INDEXES
 -- ============================================================================

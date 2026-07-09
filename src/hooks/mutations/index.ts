@@ -57,5 +57,15 @@ export { useCreateSkill, useUpdateSkill, useDeleteSkill } from "./useSkillMutati
 // Staff Competencies
 export { useCreateStaffCompetency, useUpdateStaffCompetency, useDeleteStaffCompetency } from "./useStaffCompetencyMutations";
 
+// Work Order Payment Plan
+export {
+  useUpsertPaymentPlan,
+  useBatchUpsertInstallments,
+  useUpdateInstallmentStatus,
+  useUpdateCollectionDate,
+  useDeletePaymentPlan,
+  useDeleteInstallment,
+} from "./useWorkOrderPaymentPlanMutations";
+
 // Services
 export { useCreateService, useUpdateService } from "./useServiceMutations";

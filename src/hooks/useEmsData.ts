@@ -112,10 +112,33 @@ export interface Engagement {
   specialist_tax?: Staff;
 }
 
+export interface WOPaymentInstallment {
+  installment_id: string;
+  plan_id: string;
+  wo_id: string;
+  installment_number: number;
+  agreed_invoice_date: string | null;
+  agreed_payment_date: string | null;
+  collection_invoice_date: string | null;
+  collection_payment_date: string | null;
+  payment_date_actual: string | null;
+  percentage: number;
+  amount: number | null;
+  status: string;
+}
+
+export interface WOPaymentPlan {
+  plan_id: string;
+  wo_id: string;
+  exchange_rate: number | null;
+  payment_days: number;
+  installments?: WOPaymentInstallment[];
+}
+
 export interface WorkOrder {
   wo_id: string;
   engagement_id: string;
-  currency: 'USD' | 'BOB';
+  currency: 'USD' | 'BOB' | 'USDT';
   season_mode: 'High' | 'Low';
   tax_rate: number;
   adjustment_amount: number;
@@ -143,6 +166,7 @@ export interface WorkOrder {
   engagement?: Engagement;
   budget_lines?: WOBudgetLine[];
   expense_budget?: WOExpenseBudget[];
+  payment_plan?: WOPaymentPlan | null;
 }
 
 export interface WOExpenseBudget {
@@ -452,6 +476,10 @@ export function useWorkOrderById(id: string) {
           expense_budget:wo_expense_budget(
             *,
             expense_type:expense_types(*)
+          ),
+          payment_plan:wo_payment_plan(
+            *,
+            installments:wo_payment_installments(*)
           )
         `)
         .eq('wo_id', id)
