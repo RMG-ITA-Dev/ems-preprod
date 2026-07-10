@@ -114,7 +114,11 @@ CREATE TABLE public.engagements (
   -- FEAT 0625-151: ruta (no URL) del contrato escaneado en el bucket privado
   -- 'engagement-contracts' (PDF, 5MB). Nullable: obligatorio solo en el formulario de
   -- creación para encargos de cliente (is_internal = false), no a nivel de base de datos.
-  contract_file_path TEXT
+  contract_file_path TEXT,
+  -- FEAT 0602-136: clasificación granular del servicio vendido al cliente, independiente
+  -- de `practica`. Nullable: sin backfill de encargos legados; obligatoria en el formulario
+  -- solo cuando funcion = Cliente (1), no a nivel de base de datos.
+  taxonomy_id UUID REFERENCES public.taxonomies(taxonomy_id)
 );
 
 -- Expense Logs
@@ -201,6 +205,19 @@ CREATE TABLE public.staff (
 
 -- NOTE: staff_capacity table removed in 2026-02-13 migration.
 -- weekly_capacity_hours is now a column on the staff table (DEFAULT 40).
+
+-- Taxonomies (FEAT 0602-136: admin-managed catalog, independent of `services`/`practica`)
+CREATE TABLE public.taxonomies (
+  taxonomy_id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  code VARCHAR(10) NOT NULL, -- CHECK char_length(trim(code)) BETWEEN 1 AND 10; unique index on lower(trim(code))
+  name TEXT NOT NULL,
+  service_id UUID REFERENCES public.services(service_id) ON DELETE SET NULL, -- NULL = global
+  is_active BOOLEAN NOT NULL DEFAULT true, -- deactivate-only, no DELETE policy
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- NOTE: `public.services` (the practica catalog) is not yet documented in this file
+-- (added 2026-06-26, migration 20260626000000_create_services_catalog.sql) — pre-existing gap.
 
 -- Time Entries
 CREATE TABLE public.time_entries (
