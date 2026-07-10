@@ -1006,8 +1006,9 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                   )}
                 />
               </div>
+            </div>
 
-              <div className="space-y-4">
+            <div className="space-y-4">
               <h3 className="font-medium text-lg">{t("common.dates")}</h3>
               <div className={cn(
                 "grid grid-cols-1 sm:grid-cols-3 gap-4",

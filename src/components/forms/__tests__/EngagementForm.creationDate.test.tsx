@@ -20,6 +20,7 @@ vi.mock("react-i18next", () => ({
 vi.mock("@/hooks/useEmsData", () => ({
   useClients: () => ({ data: [] }),
   useServices: () => ({ data: [] }),
+  useTaxonomies: () => ({ data: [] }),
 }));
 
 vi.mock("@/hooks/useCategoryStaff", () => ({
@@ -31,6 +32,10 @@ vi.mock("@/hooks/useCategoryStaff", () => ({
     hasPartnerCategory: true,
     hasManagerCategory: true,
   }),
+}));
+
+vi.mock("@/hooks/useCurrentStaff", () => ({
+  useCurrentStaff: () => ({ staffRecord: null }),
 }));
 
 vi.mock("@/hooks/mutations", () => ({

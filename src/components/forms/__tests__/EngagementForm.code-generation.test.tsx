@@ -435,10 +435,9 @@ describe("EngagementForm — closing date drives Año Fiscal (BUG 0604-143)", ()
     vi.setSystemTime(new Date(2026, 5, 1));
     const user = userEvent.setup({ delay: null });
     render(<EngagementForm />);
+    // 0625-148: non-admin practica select is disabled and auto-assigned to Auditoría (code=1).
     await user.click(screen.getByRole("combobox", { name: "engagement.oficina *" }));
     await user.click(await screen.findByRole("option", { name: "engagement.oficina_laPaz" }));
-    await user.click(screen.getByRole("combobox", { name: "engagement.practica *" }));
-    await user.click(await screen.findByRole("option", { name: "Auditoría" }));
     await user.click(screen.getByRole("combobox", { name: "engagement.funcion *" }));
     await user.click(await screen.findByRole("option", { name: "engagement.funcion_cli" }));
 

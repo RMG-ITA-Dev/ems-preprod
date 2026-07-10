@@ -81,6 +81,24 @@ vi.mock("@/hooks/mutations", () => ({
 
 vi.mock("@/hooks/useUserRole", () => ({ useUserRole: vi.fn() }));
 
+vi.mock("@/hooks/useCurrentStaff", () => ({
+  useCurrentStaff: () => ({ staffRecord: null }),
+}));
+
+// 0625-151: creating a non-internal engagement now requires an uploaded contract file.
+const mockContractUpload = vi.fn().mockResolvedValue({ data: { path: "contracts/1-abc.pdf" }, error: null });
+vi.mock("@/integrations/supabase/client", () => ({
+  supabase: {
+    storage: {
+      from: vi.fn(() => ({ upload: mockContractUpload })),
+    },
+  },
+}));
+
+function makePdfFile(name = "contrato.pdf", sizeBytes = 1024) {
+  return new File([new Uint8Array(sizeBytes)], name, { type: "application/pdf" });
+}
+
 // Mock Calendar with a simple date input so date fields can be set via fireEvent (Review 2)
 vi.mock("@/components/ui/calendar", () => ({
   Calendar: ({ onSelect }: any) => (
@@ -245,6 +263,12 @@ describe("0625-148 — role-based service restriction", () => {
     await waitFor(() => screen.getByRole("option", { name: "engagement.funcion_cli" }));
     await user.click(screen.getByRole("option", { name: "engagement.funcion_cli" }));
 
+    // 0604-143: the preview also requires a closing date; pick whichever option comes first.
+    const closingDate = screen.getByRole("combobox", { name: "engagement.closingDate *" });
+    await user.click(closingDate);
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBeGreaterThan(0));
+    await user.click(screen.getAllByRole("option")[0]);
+
     // anio_fiscal is auto-defaulted; oficina=0, practica=1, funcion=1 → "YYYY.011.---"
     const preview = screen.getByTestId("engagement-code-preview");
     await waitFor(() => {
@@ -262,6 +286,8 @@ describe("0625-148 — role-based service restriction", () => {
   });
 
   // Review 2: wire create mutation, submit a valid form, click "crear otro", assert reset state
+  // Extended timeout: drives many sequential Selects (client/partner/manager/oficina/funcion/
+  // closingDate) plus the create-and-reset round trip, which is slow with real timers.
   it("non-admin 'crear otro': after reset, practica shows Auditoría and select is disabled", async () => {
     const user = userEvent.setup();
     mockCreateMutateAsync.mockResolvedValue({ engagement_code: "2026.011.001" });
@@ -300,11 +326,22 @@ describe("0625-148 — role-based service restriction", () => {
     await waitFor(() => screen.getByRole("option", { name: "engagement.oficina_ambos" }));
     await user.click(screen.getByRole("option", { name: "engagement.oficina_ambos" }));
 
-    // Select funcion (funcion_cli = 1)
+    // Select funcion (funcion_adm = 0 — avoids the Cliente-only taxonomy requirement below)
     const funcion = screen.getByLabelText(/engagement\.funcion/);
     await user.click(funcion);
-    await waitFor(() => screen.getByRole("option", { name: "engagement.funcion_cli" }));
-    await user.click(screen.getByRole("option", { name: "engagement.funcion_cli" }));
+    await waitFor(() => screen.getByRole("option", { name: "engagement.funcion_adm" }));
+    await user.click(screen.getByRole("option", { name: "engagement.funcion_adm" }));
+
+    // 0604-143: closing date is required before the form can be submitted.
+    const closingDate = screen.getByRole("combobox", { name: "engagement.closingDate *" });
+    await user.click(closingDate);
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBeGreaterThan(0));
+    await user.click(screen.getAllByRole("option")[0]);
+
+    // 0625-151: upload the (now mandatory) scanned contract before submitting.
+    const contractInput = document.getElementById("engagement-contract-upload") as HTMLInputElement;
+    fireEvent.change(contractInput, { target: { files: [makePdfFile()] } });
+    await waitFor(() => expect(mockContractUpload).toHaveBeenCalledTimes(1));
 
     // practica is auto-assigned to Auditoría; submit
     await user.click(screen.getByText("engagement.createEngagement"));
@@ -322,5 +359,5 @@ describe("0625-148 — role-based service restriction", () => {
       expect(practica).toHaveTextContent("Auditoría");
       expect(practica).toBeDisabled();
     });
-  });
+  }, 15000);
 });

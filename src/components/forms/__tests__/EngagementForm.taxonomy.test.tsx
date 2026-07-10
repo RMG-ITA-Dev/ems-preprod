@@ -79,6 +79,10 @@ vi.mock("@/hooks/useUserRole", () => ({
   useUserRole: () => ({ isAdmin: false }),
 }));
 
+vi.mock("@/hooks/useCurrentStaff", () => ({
+  useCurrentStaff: () => ({ staffRecord: null }),
+}));
+
 import { EngagementForm } from "@/components/forms/EngagementForm";
 import { NO_APLICA_VALUE } from "@/components/forms/TaxonomyCombobox";
 import type { Engagement } from "@/hooks/useEmsData";

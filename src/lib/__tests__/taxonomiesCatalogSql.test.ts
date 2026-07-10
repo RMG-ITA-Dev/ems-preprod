@@ -11,7 +11,7 @@ const migrationPath = resolve(
   __dirname,
   "../../../supabase/migrations/20260707000000_create_taxonomies_catalog.sql"
 );
-const sql = readFileSync(migrationPath, "utf-8");
+const sql = readFileSync(migrationPath, "utf-8").replace(/\r\n/g, "\n");
 
 describe("taxonomies catalog migration (0602-136)", () => {
   it("creates the public.taxonomies table", () => {
@@ -63,7 +63,7 @@ describe("taxonomies catalog migration (0602-136)", () => {
   });
 
   it("RPC signature includes p_taxonomy_id with a default of NULL", () => {
-    expect(sql).toContain("p_taxonomy_id         uuid DEFAULT NULL");
+    expect(sql).toContain("p_taxonomy_id          uuid DEFAULT NULL");
   });
 
   it("RPC validates the taxonomy is active when provided", () => {
@@ -75,9 +75,9 @@ describe("taxonomies catalog migration (0602-136)", () => {
     expect(sql).toContain("p_taxonomy_id\n  ) RETURNING * INTO v_engagement;");
   });
 
-  it("GRANT/REVOKE reference the updated 16-arg signature", () => {
+  it("GRANT/REVOKE reference the updated 22-arg signature (ending in p_taxonomy_id)", () => {
     expect(sql).toContain(
-      "smallint, smallint, smallint, integer, boolean, boolean, boolean, boolean, uuid"
+      "date, boolean, uuid, uuid, uuid, uuid, text, uuid"
     );
   });
 });
