@@ -52,6 +52,8 @@ vi.mock("@/hooks/mutations", () => ({
   useCreateWorkOrder: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useCreateBudgetLine: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useCreateExpenseBudget: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useUpsertPaymentPlan: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useBatchUpsertInstallments: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
 vi.mock("@/components/layout/AppLayout", () => ({

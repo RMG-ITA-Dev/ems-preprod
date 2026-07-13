@@ -49,6 +49,7 @@ vi.mock("@/hooks/useEmsData", () => ({
   useSkills:        () => ({ data: [], isLoading: false }),
   useEngagements:   () => ({ data: [] }),
   useServices:      () => ({ data: mockServices, isLoading: false }),
+  useTaxonomies:    () => ({ data: [], isLoading: false }),
 }));
 
 vi.mock("@/hooks/useUserRole", () => ({

@@ -97,6 +97,11 @@ vi.mock("@/hooks/mutations", () => ({
   useCompleteRiskAssessment:  () => ({ mutateAsync: vi.fn(), isPending: false }),
   useRejectWorkOrder:     () => ({ mutateAsync: vi.fn(), isPending: false }),
   useUnsubmitWorkOrder:   () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useUpsertPaymentPlan:          () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useBatchUpsertInstallments:    () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useDeletePaymentPlan:          () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useUpdateInstallmentStatus:    () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useUpdateCollectionDate:       () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
 vi.mock("@/components/layout/AppLayout", () => ({

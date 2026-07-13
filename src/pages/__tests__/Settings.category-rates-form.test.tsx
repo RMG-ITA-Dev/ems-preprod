@@ -110,6 +110,7 @@ vi.mock("@/hooks/useEmsData", () => ({
   useSkills: () => ({ data: [], isLoading: false }),
   useEngagements: () => ({ data: [], isLoading: false }),
   useServices: () => ({ data: mockServicesData, isLoading: !mockServicesData }),
+  useTaxonomies: () => ({ data: [], isLoading: false }),
 }));
 
 const moveCategoryMutate = vi.fn();

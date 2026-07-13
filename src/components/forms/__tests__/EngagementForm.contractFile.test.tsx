@@ -30,18 +30,25 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (k: string) => k, i18n: { language: "en" } }),
 }));
 
+// Stable (module-level) empty arrays — a fresh `[]` literal returned on every call would give
+// EngagementForm's effects a new `allServices`/`allTaxonomies` reference on every render, which
+// never lets their dependency arrays settle and hangs the test in an infinite render loop.
+const emptyClients: never[] = [];
+const emptyServices: never[] = [];
+const emptyTaxonomies: never[] = [];
 vi.mock("@/hooks/useEmsData", () => ({
-  useClients: () => ({ data: [] }),
-  useServices: () => ({ data: [] }),
-  useTaxonomies: () => ({ data: [] }),
+  useClients: () => ({ data: emptyClients }),
+  useServices: () => ({ data: emptyServices }),
+  useTaxonomies: () => ({ data: emptyTaxonomies }),
 }));
 
+const emptyStaffList: never[] = [];
 vi.mock("@/hooks/useCategoryStaff", () => ({
   useCategoryStaff: () => ({
-    partners: [],
-    partnerOptions: [],
-    managerOptions: [],
-    allActiveStaff: [],
+    partners: emptyStaffList,
+    partnerOptions: emptyStaffList,
+    managerOptions: emptyStaffList,
+    allActiveStaff: emptyStaffList,
     hasPartnerCategory: true,
     hasManagerCategory: true,
   }),

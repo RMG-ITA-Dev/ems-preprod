@@ -22,7 +22,7 @@ describe("useCreateEngagement — code generation (BUG 0306-82)", () => {
     vi.clearAllMocks();
   });
 
-  it("calls supabase.rpc with create_engagement_with_code and all 22 params", async () => {
+  it("calls supabase.rpc with create_engagement_with_code and all 23 params", async () => {
     const mockData = {
       engagement_id: "eng-100",
       engagement_name: "Audit FY2027",
@@ -80,6 +80,7 @@ describe("useCreateEngagement — code generation (BUG 0306-82)", () => {
       p_specialist_it_id:    null,
       p_specialist_tax_id:   null,
       p_contract_file_path:  "contracts/123-abc.pdf",
+      p_taxonomy_id:         null,
     });
   });
 
