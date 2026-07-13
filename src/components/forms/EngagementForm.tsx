@@ -355,10 +355,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
         oficina:     engagement.oficina     ?? undefined,
         practica:    engagement.practica    ?? undefined,
         funcion:     engagement.funcion     ?? undefined,
-        // 0602-136: a null taxonomy on an existing engagement is a legacy fact, not an
-        // unanswered field — default it to the explicit "No aplica" sentinel so editing
-        // an old record doesn't spuriously trip the Cliente-required check below.
-        taxonomy_id: engagement.taxonomy_id  ?? NO_APLICA_VALUE,
+        taxonomy_id: engagement.taxonomy_id ?? undefined,
         client_id: engagement.client_id,
         partner_id: engagement.partner_id || "",
         manager_id: engagement.manager_id || "",
@@ -537,10 +534,9 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     }
     setContractError(null);
 
-    // 0602-136: taxonomy is mandatory only for Cliente engagements. `taxonomy_id`
-    // stays `undefined` only while the field has never been touched — an explicit
-    // "No aplica" pick (or any real selection) already satisfies this.
-    if (data.funcion === FUNCION_CLIENTE && !data.taxonomy_id) {
+    // 0602-136: taxonomy is mandatory for Cliente engagements — "No aplica" does not
+    // satisfy it (unlike other funciones, where it's a valid explicit opt-out).
+    if (data.funcion === FUNCION_CLIENTE && (!data.taxonomy_id || data.taxonomy_id === NO_APLICA_VALUE)) {
       form.setError("taxonomy_id", { message: t("engagement.requiredTaxonomyCliente") });
       return;
     }
@@ -1000,6 +996,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                         taxonomies={activeTaxonomyOptions}
                         value={field.value}
                         onValueChange={field.onChange}
+                        showNoAplica={form.watch("funcion") !== FUNCION_CLIENTE}
                       />
                       <FormMessage />
                     </FormItem>

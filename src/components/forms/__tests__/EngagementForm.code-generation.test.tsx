@@ -112,7 +112,10 @@ const mockEngagement: Engagement = {
   encargado_id:        null,
   specialist_it_id:    null,
   specialist_tax_id:   null,
-  taxonomy_id:         null,
+  // 0602-136: funcion=Cliente (1) now requires a real taxonomy — this mock represents an
+  // already-saved Cliente engagement, so it must already have one (unrelated to what any
+  // individual test in this file is actually exercising).
+  taxonomy_id:         "tx-1",
 };
 
 // Mirror the helpers from EngagementForm.tsx

@@ -7,8 +7,10 @@ import userEvent from "@testing-library/user-event";
  * 0602-136: EngagementForm — taxonomy combobox.
  * - Combobox lists only ACTIVE taxonomies (+ the current one in edit mode, even if inactive)
  * - Editable in both create and edit mode
- * - Required only when funcion = Cliente (1); the "No aplica" sentinel is a distinct
- *   explicit choice from an untouched field, and legacy null values don't force it
+ * - Required only when funcion = Cliente (1) — and for Cliente, "No aplica" does NOT
+ *   satisfy the requirement (unlike other funciones, where it's a valid opt-out); the
+ *   option is hidden from the combobox entirely while funcion = Cliente. No exception
+ *   for legacy null taxonomy on edit.
  * Mirrors the pure-logic testing approach used in EngagementForm.code-generation.test.tsx
  * for the parts that would otherwise require driving a full, fully-valid form submission.
  */
@@ -142,23 +144,34 @@ describe("EngagementForm — taxonomy combobox filtering (0602-136)", () => {
     expect(trigger).not.toBeDisabled();
     expect(trigger).toHaveTextContent("AA1501");
   });
+
+  it("funcion=Cliente: 'No aplica' is hidden from the combobox options", async () => {
+    const user = userEvent.setup();
+    render(<EngagementForm engagement={mockEngagementInactiveTaxonomy} />);
+
+    await user.click(screen.getByTestId("taxonomy-combobox-trigger"));
+
+    await waitFor(() => {
+      expect(screen.queryByText("engagement.noAplicaTaxonomy")).not.toBeInTheDocument();
+      expect(screen.getByText("AA1006")).toBeInTheDocument();
+    });
+  });
 });
 
 describe("EngagementForm — taxonomy requiredness (mirrors onSubmit logic, 0602-136)", () => {
   const FUNCION_CLIENTE = 1;
 
-  // Mirrors the check in EngagementForm.tsx onSubmit: required only for Cliente,
-  // and only when the field was never touched (undefined) — not when the user
-  // explicitly picked "No aplica".
+  // Mirrors the check in EngagementForm.tsx onSubmit: required for Cliente, and
+  // "No aplica" does NOT satisfy it there (unlike other funciones).
   const isTaxonomyMissing = (funcion: number | undefined, taxonomyId: string | undefined) =>
-    funcion === FUNCION_CLIENTE && !taxonomyId;
+    funcion === FUNCION_CLIENTE && (!taxonomyId || taxonomyId === NO_APLICA_VALUE);
 
   it("is missing when funcion=Cliente and the field was never touched", () => {
     expect(isTaxonomyMissing(FUNCION_CLIENTE, undefined)).toBe(true);
   });
 
-  it("is NOT missing when funcion=Cliente and the user explicitly picked 'No aplica'", () => {
-    expect(isTaxonomyMissing(FUNCION_CLIENTE, NO_APLICA_VALUE)).toBe(false);
+  it("is missing when funcion=Cliente and the user picked 'No aplica'", () => {
+    expect(isTaxonomyMissing(FUNCION_CLIENTE, NO_APLICA_VALUE)).toBe(true);
   });
 
   it("is NOT missing when funcion=Cliente and a real taxonomy was picked", () => {
@@ -187,9 +200,9 @@ describe("EngagementForm — taxonomy requiredness (mirrors onSubmit logic, 0602
 });
 
 describe("EngagementForm — legacy null taxonomy on edit (0602-136)", () => {
-  it("edit mode: a legacy non-Cliente engagement with taxonomy_id=null defaults the combobox to 'No aplica' instead of leaving it untouched", () => {
+  it("edit mode: a legacy non-Cliente engagement with taxonomy_id=null shows the unanswered placeholder (not pre-filled to 'No aplica')", () => {
     render(<EngagementForm engagement={mockEngagementLegacyNullTaxonomy} />);
     const trigger = screen.getByTestId("taxonomy-combobox-trigger");
-    expect(trigger).toHaveTextContent("engagement.noAplicaTaxonomy");
+    expect(trigger).toHaveTextContent("engagement.selectTaxonomy");
   });
 });

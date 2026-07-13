@@ -32,6 +32,7 @@ interface TaxonomyComboboxProps {
   onValueChange: (value: string) => void;
   disabled?: boolean;
   placeholder?: string;
+  showNoAplica?: boolean;
 }
 
 function formatTaxonomyLabel(code: string, name: string): string {
@@ -44,6 +45,7 @@ export function TaxonomyCombobox({
   onValueChange,
   disabled = false,
   placeholder,
+  showNoAplica = true,
 }: TaxonomyComboboxProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -78,21 +80,23 @@ export function TaxonomyCombobox({
           <CommandList>
             <CommandEmpty>{t("engagement.noMatchingTaxonomies")}</CommandEmpty>
             <CommandGroup>
-              <CommandItem
-                value={t("engagement.noAplicaTaxonomy")}
-                onSelect={() => {
-                  onValueChange(NO_APLICA_VALUE);
-                  setOpen(false);
-                }}
-              >
-                <Check
-                  className={cn(
-                    "mr-2 h-4 w-4",
-                    isNoAplica ? "opacity-100" : "opacity-0"
-                  )}
-                />
-                <span className="text-muted-foreground">{t("engagement.noAplicaTaxonomy")}</span>
-              </CommandItem>
+              {showNoAplica && (
+                <CommandItem
+                  value={t("engagement.noAplicaTaxonomy")}
+                  onSelect={() => {
+                    onValueChange(NO_APLICA_VALUE);
+                    setOpen(false);
+                  }}
+                >
+                  <Check
+                    className={cn(
+                      "mr-2 h-4 w-4",
+                      isNoAplica ? "opacity-100" : "opacity-0"
+                    )}
+                  />
+                  <span className="text-muted-foreground">{t("engagement.noAplicaTaxonomy")}</span>
+                </CommandItem>
+              )}
               {taxonomies.map((tx) => (
                 <CommandItem
                   key={tx.taxonomy_id}
