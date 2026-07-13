@@ -52,6 +52,9 @@ vi.mock("@/hooks/mutations", () => ({
   useCreateWorkOrder: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useCreateBudgetLine: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useCreateExpenseBudget: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  // Payment-plan feature: WorkOrderNew now also consumes these mutations.
+  useUpsertPaymentPlan: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useBatchUpsertInstallments: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
 vi.mock("@/components/layout/AppLayout", () => ({

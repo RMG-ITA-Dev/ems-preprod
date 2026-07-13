@@ -61,6 +61,28 @@ vi.mock("@/hooks/useEmsData", () => ({
   useServices: () => ({ data: mockServices }),
 }));
 
+// BUG #0625-151 added useCurrentStaff (→ useAuth) to EngagementForm; mock it so the
+// component doesn't require a real AuthProvider.
+vi.mock("@/hooks/useCurrentStaff", () => ({
+  useCurrentStaff: () => ({ staffRecord: null }),
+}));
+
+// BUG #0625-151: creating a client (non-internal) engagement uploads a scanned contract via
+// Supabase Storage before submit. Stub Storage so the upload resolves in tests.
+vi.mock("@/integrations/supabase/client", () => ({
+  supabase: {
+    storage: {
+      from: () => ({
+        upload: vi.fn().mockResolvedValue({ data: { path: "contracts/test.pdf" }, error: null }),
+        remove: vi.fn().mockResolvedValue({ data: null, error: null }),
+        createSignedUrl: vi.fn().mockResolvedValue({ data: { signedUrl: "https://example/x" }, error: null }),
+      }),
+    },
+    from: vi.fn(),
+    rpc: vi.fn(),
+  },
+}));
+
 vi.mock("@/hooks/useCategoryStaff", () => ({
   useCategoryStaff: () => ({
     partners: [{ staff_id: "p1", first_name: "Juan", last_name: "Partner" }],
@@ -243,7 +265,12 @@ describe("0625-148 — role-based service restriction", () => {
     await waitFor(() => screen.getByRole("option", { name: "engagement.funcion_cli" }));
     await user.click(screen.getByRole("option", { name: "engagement.funcion_cli" }));
 
-    // anio_fiscal is auto-defaulted; oficina=0, practica=1, funcion=1 → "YYYY.011.---"
+    // BUG 0604-143: anio_fiscal derives from the closing date, so pick the first upcoming
+    // close to complete the code (oficina=0, practica=1, funcion=1 → "YYYY.011.---").
+    const closingDateSelect = screen.getByRole("combobox", { name: "engagement.closingDate *" });
+    await user.click(closingDateSelect);
+    await user.click((await screen.findAllByRole("option"))[0]);
+
     const preview = screen.getByTestId("engagement-code-preview");
     await waitFor(() => {
       expect(preview).toHaveTextContent(/\d{4}\.011\.---/);
@@ -303,6 +330,19 @@ describe("0625-148 — role-based service restriction", () => {
     await user.click(funcion);
     await waitFor(() => screen.getByRole("option", { name: "engagement.funcion_cli" }));
     await user.click(screen.getByRole("option", { name: "engagement.funcion_cli" }));
+
+    // BUG 0604-143: anio_fiscal derives from the closing date — pick the first upcoming close
+    // so the form passes validation on submit.
+    const closingDateSelect = screen.getByRole("combobox", { name: "engagement.closingDate *" });
+    await user.click(closingDateSelect);
+    await user.click((await screen.findAllByRole("option"))[0]);
+
+    // BUG 0625-151: a client (non-internal) engagement requires a scanned contract before submit.
+    const contractInput = document.getElementById("engagement-contract-upload") as HTMLInputElement;
+    fireEvent.change(contractInput, {
+      target: { files: [new File([new Uint8Array(1024)], "contrato.pdf", { type: "application/pdf" })] },
+    });
+    await waitFor(() => expect(screen.getByText("contrato.pdf")).toBeInTheDocument());
 
     // practica is auto-assigned to Auditoría; submit
     await user.click(screen.getByText("engagement.createEngagement"));

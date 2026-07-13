@@ -111,6 +111,7 @@ const mockEngagement: Engagement = {
   encargado_id:        null,
   specialist_it_id:    null,
   specialist_tax_id:   null,
+  contract_file_path:  null,
 };
 
 // Mirror the helpers from EngagementForm.tsx
@@ -431,6 +432,9 @@ describe("EngagementForm — closing date drives Año Fiscal (BUG 0604-143)", ()
     // falls in FY2027 (Oct 2026 → Sep 2027).
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date(2026, 5, 1));
+    // 0625-148: the practica Select is only enabled (manually selectable) for admins;
+    // non-admins get Auditoría auto-assigned into a disabled control.
+    mockRole = { isAdmin: true };
     const user = userEvent.setup({ delay: null });
     render(<EngagementForm />);
     await user.click(screen.getByRole("combobox", { name: "engagement.oficina *" }));

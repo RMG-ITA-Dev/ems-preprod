@@ -30,9 +30,15 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (k: string) => k, i18n: { language: "en" } }),
 }));
 
+// Stable references are required: `allServices` (from useServices) is a useEffect dependency
+// in EngagementForm (the auto-assign-practica effect). Returning a new [] on every render
+// makes that effect re-run → setValue → re-render forever (infinite loop). Same pattern as
+// WorkOrderNew.focus-cancel.test.tsx.
+const stableClients: never[] = [];
+const stableServices: never[] = [];
 vi.mock("@/hooks/useEmsData", () => ({
-  useClients: () => ({ data: [] }),
-  useServices: () => ({ data: [] }),
+  useClients: () => ({ data: stableClients }),
+  useServices: () => ({ data: stableServices }),
 }));
 
 vi.mock("@/hooks/useCategoryStaff", () => ({
@@ -109,6 +115,8 @@ const mockEngagement: Engagement = {
   practica: 2,
   funcion: 1,
   anio_fiscal: 2027,
+  anio_fiscal_override: false,
+  fecha_cierre: "2027-09-30",
   sqr_id: null,
   encargado_id: null,
   specialist_it_id: null,
