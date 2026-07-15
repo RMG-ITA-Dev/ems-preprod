@@ -67,11 +67,14 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  -- Original WO approval check (unchanged)
+  -- WO approval check. FEAT 0602-135: excluye OT con Riesgos rechazado — useRejectRisk deja
+  -- approval_status='Approved' pero risk_status='Rejected', que la máquina trata como estado 8
+  -- Rechazado (no cargable). Sin este filtro el gate permitiría horas en un encargo rechazado.
   IF NOT EXISTS (
     SELECT 1 FROM work_orders wo
     WHERE wo.engagement_id = NEW.engagement_id
     AND wo.approval_status = 'Approved'
+    AND wo.risk_status IS DISTINCT FROM 'Rejected'
   ) THEN
     RAISE EXCEPTION 'Cannot log time: Work Order is not approved';
   END IF;
@@ -210,3 +213,30 @@ BEGIN
     $cron$SELECT public.finalize_due_engagements();$cron$
   );
 END $$;
+
+-- ============================================================================
+-- 4) RLS: el rol SQR (Calidad-Riesgo) aprueba/rechaza la pista de Riesgos, lo que actualiza
+--    work_orders (risk_status, risk_approved_by/at). La UPDATE RLS previa solo permitía admin o
+--    team member (partner/manager), así que un SQR que no sea partner/manager del encargo fallaba
+--    por RLS. Se concede UPDATE al rol sqr (permiso global, coherente con canApproveRisk = isSQR||isAdmin).
+-- ============================================================================
+DROP POLICY IF EXISTS "SQR can update work orders for risk approval" ON public.work_orders;
+CREATE POLICY "SQR can update work orders for risk approval" ON public.work_orders
+  FOR UPDATE TO authenticated
+  USING (public.has_role(auth.uid(), 'sqr'::public.app_role))
+  WITH CHECK (public.has_role(auth.uid(), 'sqr'::public.app_role));
+
+-- ============================================================================
+-- 5) Vista RLS-safe para el estado de la OT en el badge del encargo.
+--    engagements es legible por todos los autenticados, pero work_orders SELECT es team/admin-only.
+--    El badge (listas legibles por todos) necesita el estado de la OT para derivarlo. Esta vista
+--    expone SOLO los 3 campos de estado (no presupuesto/cliente/notas). security_invoker=false →
+--    corre con privilegios del owner y no se filtra por la RLS de work_orders.
+-- ============================================================================
+CREATE OR REPLACE VIEW public.engagement_wo_state
+  WITH (security_invoker = false)
+AS
+  SELECT engagement_id, approval_status, approved_at, risk_status
+  FROM public.work_orders;
+
+GRANT SELECT ON public.engagement_wo_state TO authenticated;

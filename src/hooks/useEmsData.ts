@@ -432,17 +432,30 @@ export function useEngagements() {
           sqr:staff!engagements_sqr_id_fkey(*),
           encargado:staff!engagements_encargado_id_fkey(*),
           specialist_it:staff!engagements_specialist_it_id_fkey(*),
-          specialist_tax:staff!engagements_specialist_tax_id_fkey(*),
-          work_order:work_orders(approval_status, approved_at, risk_status)
+          specialist_tax:staff!engagements_specialist_tax_id_fkey(*)
         `)
         .order('created_at', { ascending: false });
       if (error) throw error;
-      // FEAT 0602-135: work_orders.engagement_id es UNIQUE (1:1). Normalizamos el embed a un
-      // objeto único o null por si PostgREST lo devuelve como arreglo.
-      const rows = (data ?? []).map((row) => {
-        const wo = (row as { work_order?: unknown }).work_order;
-        return { ...row, work_order: Array.isArray(wo) ? (wo[0] ?? null) : (wo ?? null) };
-      });
+      // FEAT 0602-135: el estado de la OT para el badge se lee de la vista RLS-safe
+      // engagement_wo_state (work_orders SELECT es team/admin-only, pero el listado de encargos
+      // es legible por todos; el embed directo devolvía null para no-team → badge Pendiente falso).
+      // La vista expone solo los 3 campos de estado.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: woStates, error: woErr } = await (supabase as any)
+        .from('engagement_wo_state')
+        .select('engagement_id, approval_status, approved_at, risk_status');
+      if (woErr) throw woErr;
+      const woMap = new Map<string, Engagement['work_order']>(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ((woStates ?? []) as any[]).map((w) => [
+          w.engagement_id,
+          { approval_status: w.approval_status, approved_at: w.approved_at, risk_status: w.risk_status },
+        ]),
+      );
+      const rows = (data ?? []).map((row) => ({
+        ...row,
+        work_order: woMap.get((row as { engagement_id: string }).engagement_id) ?? null,
+      }));
       return rows as unknown as Engagement[];
     },
   });
