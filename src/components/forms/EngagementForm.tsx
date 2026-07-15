@@ -226,11 +226,13 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   const derivedState = engagement
     ? deriveEngagementState(engagement, engagement.work_order)
     : null;
-  // El Gerente solo congela/descongela cuando el estado DERIVADO de la OT es Aprobado (4). Así NO
-  // puede convertir en Aprobado (y habilitar horas) un encargo cuyo estado real es Pendiente/
-  // Rechazado/Emergencia aunque el Admin lo haya congelado. Descongelar vuelve a "Automático"
-  // (→ estado derivado = Aprobado). Evita la escalación de permiso (Codex P2).
-  const canManagerFreeze = derivedState === EngagementState.Aprobado;
+  // El Gerente solo congela/descongela (null→9 o 9→null) cuando el estado DERIVADO de la OT es
+  // Aprobado (4). No puede tocar overrides fijados por el Admin (4/5/6/7/8). Espejo exacto del guard
+  // DB `authorize_engagement_state_override` (evita error de RLS y escalación de permiso).
+  const savedOverride = engagement?.engagement_state_override ?? null;
+  const canManagerFreeze =
+    derivedState === EngagementState.Aprobado &&
+    (savedOverride === null || savedOverride === EngagementState.Congelado);
   // Decisión A: en estados terminales/congelado (6 Cancelado, 7 Finalizado, 9 Congelado) NO se
   // editan las fechas. Excepción: el Admin sí (necesario para reabrir un Finalizado extendiendo la
   // fecha fin — Política 6, Opción 1).

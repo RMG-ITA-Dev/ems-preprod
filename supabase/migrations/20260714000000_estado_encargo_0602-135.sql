@@ -250,6 +250,18 @@ CREATE POLICY "Assigned SQR can update work orders" ON public.work_orders
       AND e.sqr_id = public.get_my_staff_id()
   ));
 
+-- El SQR asignado también necesita SELECT: useWorkOrderById carga la OT con un SELECT directo, y las
+-- policies de SELECT previas solo cubren team (partner/manager) + admin. Sin esto, el SQR asignado no
+-- puede abrir la OT para aprobar Riesgos. (Codex P2)
+DROP POLICY IF EXISTS "Assigned SQR can view work orders" ON public.work_orders;
+CREATE POLICY "Assigned SQR can view work orders" ON public.work_orders
+  FOR SELECT TO authenticated
+  USING (EXISTS (
+    SELECT 1 FROM public.engagements e
+    WHERE e.engagement_id = work_orders.engagement_id
+      AND e.sqr_id = public.get_my_staff_id()
+  ));
+
 -- ============================================================================
 -- 5) Vista RLS-safe para el estado de la OT en el badge del encargo.
 --    engagements es legible por todos los autenticados, pero work_orders SELECT es team/admin-only.
@@ -264,3 +276,65 @@ AS
   FROM public.work_orders;
 
 GRANT SELECT ON public.engagement_wo_state TO authenticated;
+
+-- ============================================================================
+-- 6) Autorización server-side del override de estado (engagement_state_override).
+--    check_wo_approved confía en este campo para permitir/bloquear horas, así que no basta el guard
+--    del frontend: la policy "Team can update engagements" deja a partner/manager escribir cualquier
+--    columna de sus encargos. Este trigger valida quién puede CAMBIAR el override (espejo del frontend):
+--      - Admin: cualquier valor.
+--      - Gerente (manager): solo congelar/descongelar (Aprobado↔Congelado): null→9 o 9→null, y solo si
+--        el estado DERIVADO es Aprobado.
+--      - Otros roles: no pueden cambiarlo.
+--    Operaciones de sistema (cron/service_role, sin auth.uid()) pasan. Corre ANTES de
+--    trg_recompute_engagement_finalization (orden alfabético: "authorize" < "recompute"), así valida el
+--    cambio que trae el usuario; el override=7/reapertura que fija el recálculo es acción de sistema posterior.
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.authorize_engagement_state_override()
+  RETURNS trigger
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path TO 'public'
+AS $function$
+BEGIN
+  -- Sistema (cron/service_role/definer sin sesión): sin auth.uid() → permitir.
+  IF auth.uid() IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.engagement_state_override IS NOT NULL AND NOT public.is_admin() THEN
+      RAISE EXCEPTION 'No autorizado a fijar el estado del encargo';
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  -- UPDATE: solo validar si el override cambia.
+  IF NEW.engagement_state_override IS NOT DISTINCT FROM OLD.engagement_state_override THEN
+    RETURN NEW;
+  END IF;
+
+  IF public.is_admin() THEN
+    RETURN NEW;
+  END IF;
+
+  -- Gerente: congelar (null→9) o descongelar (9→null), solo con estado derivado Aprobado.
+  IF public.has_role(auth.uid(), 'manager'::public.app_role)
+     AND public.engagement_is_approved_state(NEW.engagement_id, NULL, NEW.work_order_required)
+     AND (
+       (OLD.engagement_state_override IS NULL AND NEW.engagement_state_override = 9)
+       OR (OLD.engagement_state_override = 9 AND NEW.engagement_state_override IS NULL)
+     )
+  THEN
+    RETURN NEW;
+  END IF;
+
+  RAISE EXCEPTION 'No autorizado a cambiar el estado del encargo (override)';
+END;
+$function$;
+
+DROP TRIGGER IF EXISTS trg_authorize_engagement_state_override ON public.engagements;
+CREATE TRIGGER trg_authorize_engagement_state_override
+  BEFORE INSERT OR UPDATE ON public.engagements
+  FOR EACH ROW
+  EXECUTE FUNCTION public.authorize_engagement_state_override();
