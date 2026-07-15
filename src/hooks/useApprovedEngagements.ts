@@ -21,12 +21,16 @@ export function useApprovedEngagements() {
       // Group A: Engagements with approved WOs
       const { data: workOrders, error: woError } = await supabase
         .from("work_orders")
-        .select("engagement_id")
+        .select("engagement_id, risk_status")
         .eq("approval_status", "Approved");
       if (woError) throw woError;
 
+      // FEAT 0602-135: excluir OT con Riesgos rechazado (approval_status='Approved' + risk_status
+      // ='Rejected' = estado 8 Rechazado, no cargable; el gate DB también lo bloquea).
       const approvedIds = [...new Set(
-        (workOrders || []).map(wo => wo.engagement_id)
+        (workOrders || [])
+          .filter((wo) => (wo as { risk_status?: string | null }).risk_status !== "Rejected")
+          .map(wo => wo.engagement_id)
       )];
 
       let groupA: Engagement[] = [];

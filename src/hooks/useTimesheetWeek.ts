@@ -144,11 +144,15 @@ export function useTimesheetWeek(weekStartDate: Date, workDays: number = 5): Tim
       // Group A: Active engagements with approved WOs (existing logic)
       const { data: workOrders, error: woError } = await supabase
         .from("work_orders")
-        .select("engagement_id")
+        .select("engagement_id, risk_status")
         .eq("approval_status", "Approved");
       if (woError) throw woError;
 
-      const approvedEngagementIds = workOrders?.map((wo) => wo.engagement_id) || [];
+      // FEAT 0602-135: excluir OT con Riesgos rechazado (estado 8, no cargable; el gate DB lo bloquea).
+      const approvedEngagementIds =
+        workOrders
+          ?.filter((wo) => (wo as { risk_status?: string | null }).risk_status !== "Rejected")
+          .map((wo) => wo.engagement_id) || [];
 
       let groupA: ApprovedEngagement[] = [];
       if (approvedEngagementIds.length > 0) {

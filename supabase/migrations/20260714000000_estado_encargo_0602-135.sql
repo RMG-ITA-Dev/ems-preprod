@@ -115,12 +115,14 @@ BEGIN
   IF p_wo_required = false THEN
     RETURN true;
   END IF;
-  -- Derivado: OT aprobada y NO en emergencia (emergencia sería estado 5, excluido).
+  -- Derivado: estado 4 Aprobado = OT aprobada, NO en emergencia (sería 5) y NO risk-rejected
+  -- (sería 8 Rechazado). Ambos se excluyen del auto-cierre.
   RETURN EXISTS (
     SELECT 1 FROM public.work_orders wo
     WHERE wo.engagement_id = p_engagement_id
       AND wo.approval_status = 'Approved'
       AND wo.risk_status IS DISTINCT FROM 'Emergency_Approved'
+      AND wo.risk_status IS DISTINCT FROM 'Rejected'
   );
 END;
 $function$;
