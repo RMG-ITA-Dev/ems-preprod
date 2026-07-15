@@ -83,6 +83,18 @@ BEGIN
 END;
 $function$;
 
+-- FEAT 0602-135: el gate debe cubrir INSERT y UPDATE. El merge de useTimesheetImport hace UPDATE
+-- sobre time_entries existentes; el trigger histórico enforce_wo_approval era BEFORE INSERT solo,
+-- así que un encargo Congelado/Cancelado/Finalizado/no-aprobado podía acumular horas por merge sin
+-- pasar por el gate de estado. Se consolida en un único trigger BEFORE INSERT OR UPDATE (idempotente;
+-- elimina ambos nombres previos para no duplicar).
+DROP TRIGGER IF EXISTS enforce_wo_approval ON public.time_entries;
+DROP TRIGGER IF EXISTS trg_check_wo_approved ON public.time_entries;
+CREATE TRIGGER trg_check_wo_approved
+  BEFORE INSERT OR UPDATE ON public.time_entries
+  FOR EACH ROW
+  EXECUTE FUNCTION public.check_wo_approved();
+
 -- ============================================================================
 -- 3) Auto-cierre (7 Finalizado). Reglas (equipo, iteración 2):
 --    - Se basa SOLO en end_date, sin período de gracia: fecha fin 15-jul -> Finalizado el
@@ -217,16 +229,26 @@ BEGIN
 END $$;
 
 -- ============================================================================
--- 4) RLS: el rol SQR (Calidad-Riesgo) aprueba/rechaza la pista de Riesgos, lo que actualiza
---    work_orders (risk_status, risk_approved_by/at). La UPDATE RLS previa solo permitía admin o
---    team member (partner/manager), así que un SQR que no sea partner/manager del encargo fallaba
---    por RLS. Se concede UPDATE al rol sqr (permiso global, coherente con canApproveRisk = isSQR||isAdmin).
+-- 4) RLS: el SQR ASIGNADO al encargo (engagements.sqr_id) aprueba/rechaza la pista de Riesgos,
+--    lo que actualiza work_orders. La UPDATE RLS previa solo permitía admin o team (partner/manager),
+--    así que el SQR asignado fallaba por RLS. Se le concede UPDATE SOLO sobre las OT de los encargos
+--    donde es el SQR asignado — mismo modelo/alcance que un team member (is_engagement_team_member),
+--    no un permiso global. (Codex: evita que cualquier SQR toque cualquier OT.)
 -- ============================================================================
 DROP POLICY IF EXISTS "SQR can update work orders for risk approval" ON public.work_orders;
-CREATE POLICY "SQR can update work orders for risk approval" ON public.work_orders
+DROP POLICY IF EXISTS "Assigned SQR can update work orders" ON public.work_orders;
+CREATE POLICY "Assigned SQR can update work orders" ON public.work_orders
   FOR UPDATE TO authenticated
-  USING (public.has_role(auth.uid(), 'sqr'::public.app_role))
-  WITH CHECK (public.has_role(auth.uid(), 'sqr'::public.app_role));
+  USING (EXISTS (
+    SELECT 1 FROM public.engagements e
+    WHERE e.engagement_id = work_orders.engagement_id
+      AND e.sqr_id = public.get_my_staff_id()
+  ))
+  WITH CHECK (EXISTS (
+    SELECT 1 FROM public.engagements e
+    WHERE e.engagement_id = work_orders.engagement_id
+      AND e.sqr_id = public.get_my_staff_id()
+  ));
 
 -- ============================================================================
 -- 5) Vista RLS-safe para el estado de la OT en el badge del encargo.

@@ -283,9 +283,13 @@ const WorkOrderEdit = () => {
 
   // Check if user can approve
   const canApprove = staffRecord?.category?.can_approve_wo || false;
-  // FEAT 0602-135: el aprobador de Riesgos es el rol SQR (Calidad-Riesgo), con el Admin
-  // como respaldo. Necesita un staff record porque risk_approved_by referencia staff(staff_id).
-  const canApproveRisk = (isSQR || isAdmin) && !!staffRecord;
+  // FEAT 0602-135: el aprobador de Riesgos es el SQR ASIGNADO al encargo (engagement.sqr_id),
+  // con el Admin como respaldo. Se scopea al asignado (no a cualquier SQR) para coincidir con la
+  // RLS scoped por sqr_id (least-privilege, como partner/manager del team). Necesita staff record
+  // porque risk_approved_by referencia staff(staff_id).
+  const isAssignedSqr =
+    isSQR && !!staffRecord && workOrder?.engagement?.sqr_id === staffRecord.staff_id;
+  const canApproveRisk = (isAdmin || isAssignedSqr) && !!staffRecord;
 
   const approvalStatus = workOrder?.approval_status as "Draft" | "Pending_Approval" | "Approved" | "Rejected" || "Draft";
   const isLocked = approvalStatus === "Approved" || approvalStatus === "Pending_Approval" || approvalStatus === "Rejected";

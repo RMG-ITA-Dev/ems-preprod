@@ -223,20 +223,14 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   const savedEffectiveState = engagement
     ? effectiveEngagementState(engagement, engagement.work_order)
     : null;
-  const canManagerFreeze =
-    savedEffectiveState === EngagementState.Aprobado ||
-    savedEffectiveState === EngagementState.Congelado;
-  // Al DESCONGELAR debe salir a "Aprobado" (requisito del equipo). Si la OT ya deriva a
-  // Aprobado/Emergencia, volvemos a "Automático" (mantiene el vínculo con la OT); si no
-  // (p. ej. el Aprobado venía de un override manual), fijamos override=4 para garantizarlo.
   const derivedState = engagement
     ? deriveEngagementState(engagement, engagement.work_order)
     : null;
-  // Requisito del equipo: descongelar vuelve estrictamente a Aprobado (4). Si la OT ya deriva a
-  // Aprobado dejamos "auto" (mantiene el vínculo con la OT); en cualquier otro caso (incl.
-  // Aprobado de emergencia) fijamos override=4 para garantizar Aprobado y no caer a otro estado.
-  const unfreezeValue =
-    derivedState === EngagementState.Aprobado ? "auto" : String(EngagementState.Aprobado);
+  // El Gerente solo congela/descongela cuando el estado DERIVADO de la OT es Aprobado (4). Así NO
+  // puede convertir en Aprobado (y habilitar horas) un encargo cuyo estado real es Pendiente/
+  // Rechazado/Emergencia aunque el Admin lo haya congelado. Descongelar vuelve a "Automático"
+  // (→ estado derivado = Aprobado). Evita la escalación de permiso (Codex P2).
+  const canManagerFreeze = derivedState === EngagementState.Aprobado;
   // Decisión A: en estados terminales/congelado (6 Cancelado, 7 Finalizado, 9 Congelado) NO se
   // editan las fechas. Excepción: el Admin sí (necesario para reabrir un Finalizado extendiendo la
   // fecha fin — Política 6, Opción 1).
@@ -1020,7 +1014,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                           <Switch
                             checked={field.value === "9"}
                             disabled={!canManagerFreeze}
-                            onCheckedChange={(on) => field.onChange(on ? "9" : unfreezeValue)}
+                            onCheckedChange={(on) => field.onChange(on ? "9" : "auto")}
                             aria-label={t("engagement.freezeToggle")}
                           />
                           <span className="text-sm font-medium">{t("engagement.freezeToggle")}</span>
