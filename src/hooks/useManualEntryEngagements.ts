@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { Engagement } from "@/hooks/useEmsData";
+import { canLogHours, type EngagementState } from "@/lib/engagementStatus";
 
 /**
  * Engagement list for the manual timer entry dialog.
@@ -53,14 +54,16 @@ export function useManualEntryEngagements() {
           partner:staff!engagements_partner_id_fkey(*),
           manager:staff!engagements_manager_id_fkey(*)
         `)
-        .eq("work_order_required", false)
+        // FEAT 0602-135: administrativos (sin OT) O con override manual Aprobado/Emergencia (4/5).
+        .or("work_order_required.eq.false,engagement_state_override.in.(4,5)")
         .eq("status", "active")
         // NO is_internal filter -- manual entry includes internal engagements
         .order("created_at", { ascending: false });
 
       if (!isAdmin && myStaffId) {
+        // FEAT 0602-135: override 4/5 (aprobado manual) visible para todo el staff, como una OT aprobada.
         groupBQuery = groupBQuery.or(
-          `is_internal.eq.true,partner_id.eq.${myStaffId},manager_id.eq.${myStaffId}`
+          `is_internal.eq.true,partner_id.eq.${myStaffId},manager_id.eq.${myStaffId},engagement_state_override.in.(4,5)`
         );
       }
 
@@ -73,7 +76,10 @@ export function useManualEntryEngagements() {
       for (const e of groupA) merged.set(e.engagement_id, e);
       for (const e of groupB) merged.set(e.engagement_id, e);
 
-      return Array.from(merged.values());
+      // FEAT 0602-135: excluir encargos cuyo override manual impide cargar horas.
+      return Array.from(merged.values()).filter(
+        (e) => e.engagement_state_override == null || canLogHours(e.engagement_state_override as EngagementState),
+      );
     },
   });
 }

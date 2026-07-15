@@ -223,4 +223,35 @@ describe("useApprovedEngagements", () => {
 
     expect(result.current.data).toEqual([]);
   });
+
+  // T9 (FEAT 0602-135): includes engagement approved via manual override 4/5 (no approved WO)
+  it("includes engagement with manual override Aprobado/Emergencia (4/5)", async () => {
+    const overridden = makeEngagement({
+      engagement_id: "eng-ov4",
+      is_internal: false,
+      engagement_state_override: 4,
+    });
+    setupMocks({ woEngagementIds: [], groupAEngagements: [], groupBEngagements: [overridden] });
+
+    const { result } = renderHook(() => useApprovedEngagements(), { wrapper: createWrapper() });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(result.current.data).toHaveLength(1);
+    expect(result.current.data![0].engagement_id).toBe("eng-ov4");
+  });
+
+  // T10 (FEAT 0602-135): isLoggable excludes terminal/non-loggable overrides (6/7/9)
+  it("excludes engagement with terminal override (Cancelado/Finalizado/Congelado)", async () => {
+    const frozen = makeEngagement({
+      engagement_id: "eng-frozen",
+      is_internal: false,
+      engagement_state_override: 9,
+    });
+    setupMocks({ woEngagementIds: [], groupAEngagements: [], groupBEngagements: [frozen] });
+
+    const { result } = renderHook(() => useApprovedEngagements(), { wrapper: createWrapper() });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(result.current.data).toEqual([]);
+  });
 });

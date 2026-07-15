@@ -101,11 +101,16 @@ export function useUpdateEngagement() {
         encargado_id: string | null;
         specialist_it_id: string | null;
         specialist_tax_id: string | null;
+        // FEAT 0602-135: override manual del estado (1..9) o null para volver al derivado.
+        engagement_state_override: number | null;
       }>;
     }) => {
       const { data: result, error } = await supabase
         .from("engagements")
-        .update(data)
+        // engagement_state_override lo agrega la migración 20260714000000 y aún no está en los
+        // tipos generados; el cast puentea hasta regenerar types.ts tras el deploy.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .update(data as any)
         .eq("engagement_id", id)
         .select()
         .single();

@@ -108,6 +108,8 @@ export interface Engagement {
   specialist_it_id: string | null;
   specialist_tax_id: string | null;
   contract_file_path: string | null;
+  // FEAT 0602-135: override manual del estado del encargo (1..9). NULL = derivado de la OT.
+  engagement_state_override?: number | null;
   client?: Client;
   partner?: Staff;
   manager?: Staff;
@@ -115,6 +117,12 @@ export interface Engagement {
   encargado?: Staff;
   specialist_it?: Staff;
   specialist_tax?: Staff;
+  // FEAT 0602-135: OT asociada (1:1) para derivar el estado efectivo. Normalizada a objeto o null.
+  work_order?: {
+    approval_status: string | null;
+    approved_at: string | null;
+    risk_status: string | null;
+  } | null;
 }
 
 export interface WOPaymentInstallment {
@@ -424,11 +432,18 @@ export function useEngagements() {
           sqr:staff!engagements_sqr_id_fkey(*),
           encargado:staff!engagements_encargado_id_fkey(*),
           specialist_it:staff!engagements_specialist_it_id_fkey(*),
-          specialist_tax:staff!engagements_specialist_tax_id_fkey(*)
+          specialist_tax:staff!engagements_specialist_tax_id_fkey(*),
+          work_order:work_orders(approval_status, approved_at, risk_status)
         `)
         .order('created_at', { ascending: false });
       if (error) throw error;
-      return data as Engagement[];
+      // FEAT 0602-135: work_orders.engagement_id es UNIQUE (1:1). Normalizamos el embed a un
+      // objeto único o null por si PostgREST lo devuelve como arreglo.
+      const rows = (data ?? []).map((row) => {
+        const wo = (row as { work_order?: unknown }).work_order;
+        return { ...row, work_order: Array.isArray(wo) ? (wo[0] ?? null) : (wo ?? null) };
+      });
+      return rows as unknown as Engagement[];
     },
   });
 }

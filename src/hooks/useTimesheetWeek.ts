@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toISODateString, getWorkDays } from "@/lib/timesheetUtils";
 import { getFiscalWeekNumber } from "@/lib/fiscalCalculations";
+import { canLogHours, type EngagementState } from "@/lib/engagementStatus";
 import { useCurrentStaff } from "./useCurrentStaff";
 import { useEffect } from "react";
 
@@ -40,6 +41,7 @@ export interface ApprovedEngagement {
   practica: number | null;     // service code (matches services.code) — for activity filtering
   start_date: string | null;   // BUG 0220-63
   end_date: string | null;     // BUG 0220-63
+  engagement_state_override?: number | null;  // FEAT 0602-135: override manual del estado
   client: {
     client_id: string;
     client_legal_name: string;
@@ -155,7 +157,7 @@ export function useTimesheetWeek(weekStartDate: Date, workDays: number = 5): Tim
           .select(`
             engagement_id, engagement_code, engagement_name,
             activity_required, work_order_required, is_internal, practica,
-            start_date, end_date,
+            start_date, end_date, engagement_state_override,
             client:clients!client_id(client_id, client_legal_name)
           `)
           .in("engagement_id", approvedEngagementIds)
@@ -174,15 +176,17 @@ export function useTimesheetWeek(weekStartDate: Date, workDays: number = 5): Tim
         .select(`
           engagement_id, engagement_code, engagement_name,
           activity_required, work_order_required, is_internal, practica,
-          start_date, end_date,
+          start_date, end_date, engagement_state_override,
           client:clients!client_id(client_id, client_legal_name)
         `)
-        .eq("work_order_required", false)
+        // FEAT 0602-135: administrativos (sin OT) O con override manual Aprobado/Emergencia (4/5).
+        .or("work_order_required.eq.false,engagement_state_override.in.(4,5)")
         .eq("status", "active");
 
       if (!isAdmin) {
+        // FEAT 0602-135: override 4/5 (aprobado manual) visible para todo el staff, como una OT aprobada.
         groupBQuery = groupBQuery.or(
-          `is_internal.eq.true,partner_id.eq.${staffId},manager_id.eq.${staffId}`
+          `is_internal.eq.true,partner_id.eq.${staffId},manager_id.eq.${staffId},engagement_state_override.in.(4,5)`
         );
       }
 
@@ -195,7 +199,11 @@ export function useTimesheetWeek(weekStartDate: Date, workDays: number = 5): Tim
       for (const e of groupA) merged.set(e.engagement_id, e);
       for (const e of groupB) merged.set(e.engagement_id, e);
 
-      return Array.from(merged.values());
+      // FEAT 0602-135: excluir encargos cuyo override manual impide cargar horas
+      // (6 Cancelado, 7 Finalizado, 9 Congelado, u otro no-cargable).
+      return Array.from(merged.values()).filter(
+        (e) => e.engagement_state_override == null || canLogHours(e.engagement_state_override as EngagementState),
+      );
     },
     enabled: !!staffId,
     staleTime: 5 * 60 * 1000,

@@ -62,6 +62,13 @@ import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Switch } from "@/components/ui/switch";
 import { useUserRole } from "@/hooks/useUserRole";
+import {
+  ENGAGEMENT_STATES,
+  engagementStateI18nKey,
+  effectiveEngagementState,
+  deriveEngagementState,
+  EngagementState,
+} from "@/lib/engagementStatus";
 import { getUpcomingClosingDates, getFiscalYearForDate } from "@/lib/fiscalCalculations";
 
 interface StaffComboboxProps {
@@ -170,6 +177,8 @@ const formSchema = z.object({
   start_date: z.date({ required_error: "Start date is required" }),
   end_date: z.date({ required_error: "End date is required" }),
   status: z.string(),
+  // FEAT 0602-135: override manual del estado del encargo. "auto" = derivado de la OT; "1".."9" = override.
+  engagement_state_override: z.string().optional(),
   sqr_id: z.string().nullable().optional(),
   encargado_id: z.string().nullable().optional(),
   specialist_it_id: z.string().nullable().optional(),
@@ -206,6 +215,37 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   // BUG #0604-143: closing date (and the FY it derives) may be edited by Admin/Gerente/Socio/Director;
   // oficina/practica/funcion/engagement_code remain fully immutable after create.
   const canEditClosing = isAdmin || isManager || isPartner || isDirector;
+  // FEAT 0602-135: control del estado del encargo.
+  // - Admin: control total (los 9 estados + "Automático").
+  // - Gerente: solo congelar/descongelar (Aprobado ↔ Congelado), y solo cuando el encargo
+  //   ya está Aprobado o Congelado. El resto de estados los gobierna la OT / el Admin.
+  const canManageEngagementState = isAdmin || isManager;
+  const savedEffectiveState = engagement
+    ? effectiveEngagementState(engagement, engagement.work_order)
+    : null;
+  const canManagerFreeze =
+    savedEffectiveState === EngagementState.Aprobado ||
+    savedEffectiveState === EngagementState.Congelado;
+  // Al DESCONGELAR debe salir a "Aprobado" (requisito del equipo). Si la OT ya deriva a
+  // Aprobado/Emergencia, volvemos a "Automático" (mantiene el vínculo con la OT); si no
+  // (p. ej. el Aprobado venía de un override manual), fijamos override=4 para garantizarlo.
+  const derivedState = engagement
+    ? deriveEngagementState(engagement, engagement.work_order)
+    : null;
+  // Requisito del equipo: descongelar vuelve estrictamente a Aprobado (4). Si la OT ya deriva a
+  // Aprobado dejamos "auto" (mantiene el vínculo con la OT); en cualquier otro caso (incl.
+  // Aprobado de emergencia) fijamos override=4 para garantizar Aprobado y no caer a otro estado.
+  const unfreezeValue =
+    derivedState === EngagementState.Aprobado ? "auto" : String(EngagementState.Aprobado);
+  // Decisión A: en estados terminales/congelado (6 Cancelado, 7 Finalizado, 9 Congelado) NO se
+  // editan las fechas. Excepción: el Admin sí (necesario para reabrir un Finalizado extendiendo la
+  // fecha fin — Política 6, Opción 1).
+  const datesLockedByState =
+    isEdit &&
+    !isAdmin &&
+    (savedEffectiveState === EngagementState.Cancelado ||
+      savedEffectiveState === EngagementState.Finalizado ||
+      savedEffectiveState === EngagementState.Congelado);
 
   const { data: clients } = useClients();
   const { data: allServices } = useServices();
@@ -251,13 +291,6 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   if (!hasManagerCategory) missingCategories.push(t("engagement.manager"));
   const hasMissingCategories = missingCategories.length > 0;
 
-  const statusOptions = [
-    { value: "active", label: t("status.active") },
-    { value: "pending", label: t("status.pending") },
-    { value: "completed", label: t("status.completed") },
-    { value: "cancelled", label: t("status.cancelled") },
-  ];
-
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -270,6 +303,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       partner_id: "",
       manager_id: "",
       status: "active",
+      engagement_state_override: "auto",
       sqr_id: null,
       encargado_id: null,
       specialist_it_id: null,
@@ -349,6 +383,8 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
         partner_id: engagement.partner_id || "",
         manager_id: engagement.manager_id || "",
         status: engagement.status,
+        engagement_state_override:
+          engagement.engagement_state_override != null ? String(engagement.engagement_state_override) : "auto",
         start_date: engagement.start_date ? parseDateLocal(engagement.start_date) : undefined,
         end_date: engagement.end_date ? parseDateLocal(engagement.end_date) : undefined,
         sqr_id: engagement.sqr_id ?? null,
@@ -550,6 +586,15 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
           encargado_id:        data.encargado_id ?? null,
           specialist_it_id:    data.specialist_it_id ?? null,
           specialist_tax_id:   data.specialist_tax_id ?? null,
+          // FEAT 0602-135: solo Admin/Gerente escriben el override manual del estado.
+          ...(canManageEngagementState
+            ? {
+                engagement_state_override:
+                  !data.engagement_state_override || data.engagement_state_override === "auto"
+                    ? null
+                    : Number(data.engagement_state_override),
+              }
+            : {}),
           // oficina, practica, funcion, engagement_code intentionally omitted — immutable after create
           ...(canEditClosing && closingDateResolved
             ? {
@@ -680,6 +725,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       partner_id: "",
       manager_id: "",
       status: "active",
+      engagement_state_override: "auto",
       sqr_id: null,
       encargado_id: null,
       specialist_it_id: null,
@@ -932,35 +978,79 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                   )}
                 />
 
-                <FormField
-                  control={form.control}
-                  name="status"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t("engagement.status")}</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder={t("engagement.selectStatus")} />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {statusOptions.map((opt) => (
-                            <SelectItem key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                {/* FEAT 0602-135: control del estado del encargo. "Automático" = derivado de la OT.
+                    El campo `status` legacy queda en 'active' por defecto. */}
+                {isEdit && isAdmin ? (
+                  // Admin: control total de los 9 estados + Automático.
+                  <FormField
+                    control={form.control}
+                    name="engagement_state_override"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t("engagement.status")}</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value ?? "auto"}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="auto">{t("engagementState.auto")}</SelectItem>
+                            {ENGAGEMENT_STATES.map((s) => (
+                              <SelectItem key={s} value={String(s)}>
+                                {t(engagementStateI18nKey(s))}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                ) : isEdit && isManager ? (
+                  // Gerente: solo congelar/descongelar, habilitado únicamente cuando el encargo
+                  // está Aprobado o Congelado. ON => override 9 (Congelado); OFF => Automático (vuelve a Aprobado).
+                  <FormField
+                    control={form.control}
+                    name="engagement_state_override"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t("engagement.status")}</FormLabel>
+                        <div className="flex items-center gap-3 h-10">
+                          <Switch
+                            checked={field.value === "9"}
+                            disabled={!canManagerFreeze}
+                            onCheckedChange={(on) => field.onChange(on ? "9" : unfreezeValue)}
+                            aria-label={t("engagement.freezeToggle")}
+                          />
+                          <span className="text-sm font-medium">{t("engagement.freezeToggle")}</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {canManagerFreeze ? t("engagement.freezeHint") : t("engagement.freezeUnavailable")}
+                        </p>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                ) : (
+                  // Otros roles (o creación): estado efectivo en solo lectura.
+                  <FormItem>
+                    <FormLabel>{t("engagement.status")}</FormLabel>
+                    <div className="flex h-10 items-center rounded-md border border-input bg-muted px-3 text-sm text-muted-foreground">
+                      {savedEffectiveState
+                        ? t(engagementStateI18nKey(savedEffectiveState))
+                        : t("engagementState.auto")}
+                    </div>
+                  </FormItem>
+                )}
               </div>
               </div>
 
               <div className="space-y-4">
               <h3 className="font-medium text-lg">{t("common.dates")}</h3>
+              {datesLockedByState && (
+                <p className="text-xs text-muted-foreground">{t("engagement.datesLockedByState")}</p>
+              )}
               <div className={cn(
                 "grid grid-cols-1 sm:grid-cols-3 gap-4",
                 wClosingOption === "Otro" ? "md:grid-cols-4" : "md:grid-cols-3"
@@ -977,6 +1067,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                           <FormControl>
                             <Button
                               variant="outline"
+                              disabled={datesLockedByState}
                               className={cn(
                                 "w-full pl-3 text-left font-normal",
                                 !field.value && "text-muted-foreground"
@@ -1014,6 +1105,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                           <FormControl>
                             <Button
                               variant="outline"
+                              disabled={datesLockedByState}
                               className={cn(
                                 "w-full pl-3 text-left font-normal",
                                 !field.value && "text-muted-foreground"

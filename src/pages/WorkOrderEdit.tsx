@@ -86,7 +86,7 @@ const WorkOrderEdit = () => {
   const upsertPaymentPlan = useUpsertPaymentPlan();
   const batchUpsertInstallments = useBatchUpsertInstallments();
   const deletePaymentPlan = useDeletePaymentPlan();
-  const { isAdmin, isPartner, isDirector, isManager } = useUserRole();
+  const { isAdmin, isPartner, isDirector, isManager, isSQR } = useUserRole();
 
   const [currency, setCurrency] = useState<"USD" | "BOB" | "USDT">("BOB");
   const [seasonMode, setSeasonMode] = useState<"High" | "Low">("High");
@@ -283,9 +283,9 @@ const WorkOrderEdit = () => {
 
   // Check if user can approve
   const canApprove = staffRecord?.category?.can_approve_wo || false;
-  // Riesgos approver = Administrator role (OQ-4). Needs a staff record because
-  // risk_approved_by references staff(staff_id).
-  const canApproveRisk = isAdmin && !!staffRecord;
+  // FEAT 0602-135: el aprobador de Riesgos es el rol SQR (Calidad-Riesgo), con el Admin
+  // como respaldo. Necesita un staff record porque risk_approved_by referencia staff(staff_id).
+  const canApproveRisk = (isSQR || isAdmin) && !!staffRecord;
 
   const approvalStatus = workOrder?.approval_status as "Draft" | "Pending_Approval" | "Approved" | "Rejected" || "Draft";
   const isLocked = approvalStatus === "Approved" || approvalStatus === "Pending_Approval" || approvalStatus === "Rejected";
