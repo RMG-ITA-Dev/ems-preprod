@@ -27,6 +27,21 @@ COMMENT ON COLUMN public.engagements.engagement_state_override IS
   'FEAT 0602-135: override manual del estado del encargo (1..9). NULL = derivado de la OT. '
   '6 Cancelado / 7 Finalizado / 9 Congelado son terminales; 7 lo escribe el cron finalize-engagements.';
 
+-- Backfill de estados legacy (Codex): la UI nueva deriva el estado de override/OT e ignora el
+-- campo `status` legacy ('active'/'pending'/'completed'/'cancelled'). Sin backfill, un encargo
+-- 'cancelled'/'completed' se mostraría como Aprobado. Se mapea SOLO los estados terminales legacy:
+--   cancelled -> 6 Cancelado, completed -> 7 Finalizado.
+-- 'active'/'pending' quedan en NULL a propósito (derivan de la OT; los aprobados vencidos los
+-- finaliza el cron/trigger). Idempotente: solo filas con override aún NULL (no pisa overrides ya
+-- fijados). Corre antes de crear los triggers de estado, así que no los dispara en la 1ra aplicación.
+UPDATE public.engagements
+   SET engagement_state_override = 6
+ WHERE status = 'cancelled' AND engagement_state_override IS NULL;
+
+UPDATE public.engagements
+   SET engagement_state_override = 7
+ WHERE status = 'completed' AND engagement_state_override IS NULL;
+
 -- ============================================================================
 -- 2) Gating de horas (Política 13). Espejo EXACTO de canLogHours (frontend): solo los
 --    estados 4 Aprobado y 5 Aprobado de emergencia permiten cargar horas.
