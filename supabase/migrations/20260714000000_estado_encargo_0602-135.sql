@@ -223,6 +223,20 @@ BEGIN
     END IF;
   END IF;
 
+  -- (c) Reactivar el `status` legacy al SALIR de un estado terminal legacy-mapeado (override 6/7).
+  -- El backfill dejó status='cancelled'/'completed' en las filas que mapeó a override 6/7. Al reabrir
+  -- (override final → NULL o 1..5, sea por extensión de fecha (b) o por cambio manual del Admin), esos
+  -- encargos seguirían excluidos por el gate `status='active'` de los selectores operativos
+  -- (timesheet/manual-entry/dashboard), quedando invisibles/inusables. Se evalúa con el override FINAL
+  -- porque este trigger corre último; si (a) forward-finalize ya hizo RETURN, no llega aquí (correcto).
+  IF TG_OP = 'UPDATE'
+     AND OLD.engagement_state_override IN (6, 7)
+     AND (NEW.engagement_state_override IS NULL OR NEW.engagement_state_override BETWEEN 1 AND 5)
+     AND NEW.status IS DISTINCT FROM 'active'
+  THEN
+    NEW.status := 'active';
+  END IF;
+
   RETURN NEW;
 END;
 $function$;
