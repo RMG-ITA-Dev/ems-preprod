@@ -234,6 +234,14 @@ END $$;
 --    así que el SQR asignado fallaba por RLS. Se le concede UPDATE SOLO sobre las OT de los encargos
 --    donde es el SQR asignado — mismo modelo/alcance que un team member (is_engagement_team_member),
 --    no un permiso global. (Codex: evita que cualquier SQR toque cualquier OT.)
+--
+--    DECISIÓN DE DISEÑO (aceptada por el equipo, review Codex): RLS es a nivel de fila, no de
+--    columna, así que esta policy permite al SQR asignado actualizar cualquier columna de la OT de
+--    SUS encargos — el MISMO alcance que ya tienen partner/manager vía "Team can manage engagement
+--    work orders". El SQR asignado se considera miembro del equipo del encargo (se asigna en el
+--    apartado de Equipo). No es un permiso nuevo/mayor que el de partner/manager. Si en el futuro se
+--    quisiera least-privilege estricto (SQR solo campos de riesgo), habría que mover las mutaciones de
+--    riesgo a RPCs SECURITY DEFINER y quitar esta policy UPDATE (dejando solo la SELECT de abajo).
 -- ============================================================================
 DROP POLICY IF EXISTS "SQR can update work orders for risk approval" ON public.work_orders;
 DROP POLICY IF EXISTS "Assigned SQR can update work orders" ON public.work_orders;
