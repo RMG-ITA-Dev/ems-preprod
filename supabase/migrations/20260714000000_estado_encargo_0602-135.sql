@@ -301,6 +301,11 @@ GRANT SELECT ON public.engagement_wo_state TO authenticated;
 --    Operaciones de sistema (cron/service_role, sin auth.uid()) pasan. Corre ANTES de
 --    trg_recompute_engagement_finalization (orden alfabético: "authorize" < "recompute"), así valida el
 --    cambio que trae el usuario; el override=7/reapertura que fija el recálculo es acción de sistema posterior.
+--
+--    También aplica el bloqueo de EDICIÓN DE FECHAS por no-admin en estados terminales (Decisión A):
+--    si el estado actual (override) es 6 Cancelado / 7 Finalizado / 9 Congelado, un no-admin no puede
+--    cambiar start_date/end_date/fecha_cierre (espejo de datesLockedByState del frontend). El Admin sí
+--    (necesario para reabrir un Finalizado extendiendo la fecha fin).
 -- ============================================================================
 CREATE OR REPLACE FUNCTION public.authorize_engagement_state_override()
   RETURNS trigger
@@ -321,7 +326,20 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  -- UPDATE: solo validar si el override cambia.
+  -- Decisión A (Codex): bloqueo server-side de edición de fechas por no-admin cuando el estado
+  -- actual es terminal (override 6/7/9). Debe evaluarse aunque el override no cambie.
+  IF NOT public.is_admin()
+     AND OLD.engagement_state_override IN (6, 7, 9)
+     AND (
+       NEW.start_date   IS DISTINCT FROM OLD.start_date
+       OR NEW.end_date  IS DISTINCT FROM OLD.end_date
+       OR NEW.fecha_cierre IS DISTINCT FROM OLD.fecha_cierre
+     )
+  THEN
+    RAISE EXCEPTION 'No autorizado a editar fechas de un encargo Cancelado/Finalizado/Congelado';
+  END IF;
+
+  -- UPDATE: validación del override solo si cambia.
   IF NEW.engagement_state_override IS NOT DISTINCT FROM OLD.engagement_state_override THEN
     RETURN NEW;
   END IF;
