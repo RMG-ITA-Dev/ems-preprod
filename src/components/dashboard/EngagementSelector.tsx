@@ -32,7 +32,7 @@ export function EngagementSelector() {
   // Fetch accessible engagements based on role
   const { data: engagements, isLoading } = useQuery({
     queryKey: ['encargo-engagements', staffRecord?.staff_id, isPartner, isManager, startDateStr, endDateStr],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!staffRecord?.staff_id) return [];
 
       // Partners see all engagements
@@ -48,7 +48,8 @@ export function EngagementSelector() {
             client:clients(client_legal_name)
           `)
           .eq('status', 'active')
-          .order('engagement_code');
+          .order('engagement_code')
+          .abortSignal(signal);
 
         if (error) throw error;
         // FEAT 0602-135: excluir estados terminales/pausados (override 6/7/9) aunque status='active'.
@@ -71,7 +72,8 @@ export function EngagementSelector() {
           `)
           .eq('status', 'active')
           .or(`partner_id.eq.${staffRecord.staff_id},manager_id.eq.${staffRecord.staff_id}`)
-          .order('engagement_code');
+          .order('engagement_code')
+          .abortSignal(signal);
 
         if (error) throw error;
         return (data || []).filter(
@@ -95,7 +97,8 @@ export function EngagementSelector() {
         `)
         .eq('staff_id', staffRecord.staff_id)
         .gte('date_worked', startDateStr)
-        .lte('date_worked', endDateStr);
+        .lte('date_worked', endDateStr)
+        .abortSignal(signal);
 
       if (timeError) throw timeError;
 
