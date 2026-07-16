@@ -74,6 +74,20 @@ BEGIN
     RAISE EXCEPTION 'Una o más OTs asignadas ya no estan en estado Approved; no se puede enviar a aprobacion';
   END IF;
 
+  -- FEAT 0602-135: el estado efectivo del encargo debe seguir admitiendo solicitudes
+  -- (4 Aprobado / 5 Emergencia) al momento de ENVIAR. El trigger de INSERT ya bloquea
+  -- asignaciones nuevas, pero una asignación creada mientras el encargo estaba activo y
+  -- luego Congelado(9)/Finalizado(7)/Cancelado(6)/Rechazado(8) llegaría hasta aquí.
+  IF EXISTS (
+    SELECT 1
+    FROM public.fund_request_work_orders frwo
+    JOIN public.work_orders wo ON wo.wo_id = frwo.wo_id
+    WHERE frwo.fund_request_id = p_fund_request_id
+      AND NOT public.engagement_allows_hours_or_requests(wo.engagement_id)
+  ) THEN
+    RAISE EXCEPTION 'Una o más OTs pertenecen a un encargo que ya no admite solicitudes (congelado/finalizado/cancelado)';
+  END IF;
+
   -- Reset de las OTs a 'pendiente' (en reenvío todas vuelven a requerir
   -- aprobación). Dispara el rollup, que puede mover la solicitud a
   -- 'pendiente_aprobacion'; el update siguiente fija submitted_at y limpia.

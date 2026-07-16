@@ -570,6 +570,7 @@ export type Database = {
           engagement_code: string | null
           engagement_id: string
           engagement_name: string
+          engagement_state_override: number | null
           is_internal: boolean
           is_recurring: boolean
           manager_id: string | null
@@ -592,6 +593,7 @@ export type Database = {
           engagement_code?: string | null
           engagement_id?: string
           engagement_name: string
+          engagement_state_override?: number | null
           is_internal?: boolean
           is_recurring?: boolean
           manager_id?: string | null
@@ -614,6 +616,7 @@ export type Database = {
           engagement_code?: string | null
           engagement_id?: string
           engagement_name?: string
+          engagement_state_override?: number | null
           is_internal?: boolean
           is_recurring?: boolean
           manager_id?: string | null

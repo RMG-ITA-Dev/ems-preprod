@@ -75,6 +75,26 @@ export function PracticaTab() {
         .filter((e) => !isHiddenFromActivePickers((e as { engagement_state_override?: number | null }).engagement_state_override))
         .map((e) => e.engagement_id);
 
+      // Sin encargos operativos: devolver métricas en cero sin emitir `.in('...', [])`.
+      if (!hasItems(engagementIds)) {
+        const { count: emptyPendingCount } = await supabase
+          .from('timesheet_line_approvals')
+          .select('*', { count: 'exact', head: true })
+          .eq('status', 'pending')
+          .abortSignal(signal);
+        return {
+          totalActiveEngagements: 0,
+          totalBudgetHours: 0,
+          totalActualHours: 0,
+          totalStandardFees: 0,
+          totalAdjustedFees: 0,
+          utilizationPercent: 0,
+          atRiskEngagements: 0,
+          overBudgetEngagements: 0,
+          pendingApprovals: emptyPendingCount || 0,
+        };
+      }
+
       // Get work order summaries
       const { data: woSummaries } = await supabase
         .from('work_order_summary')
