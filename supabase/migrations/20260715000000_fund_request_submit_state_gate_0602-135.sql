@@ -1,16 +1,17 @@
--- Fund Requests — enviar a aprobación (reset OTs + estado) en una transacción
+-- FEAT 0602-135 — Gate de estado del encargo al ENVIAR una solicitud de fondos
 -- ===========================================================================
--- El "Enviar" se hacía en dos llamadas del cliente: (1) reset de OTs a
--- 'pendiente' y (2) update de la solicitud a 'pendiente_aprobacion' + submitted_at.
--- Pero el reset de OTs dispara `tr_fr_wo_rollup`, que (con la solicitud aún en
--- observado/rechazado) ya mueve la solicitud a 'pendiente_aprobacion'. Para la
--- 2ª llamada, la RLS `fr_update_requester_draft` ya no matchea ese estado, así
--- que NO se aplica: submitted_at queda null y rejection_reason/manager_notes
--- viejos no se limpian (reenvío inconsistente).
+-- `fund_request_submit` (definido en 20260610180000) ya re-valida que todas las
+-- OTs asignadas sigan en approval_status='Approved', pero NO revisa el estado
+-- efectivo del encargo. El trigger de INSERT sobre fund_request_work_orders
+-- (migración 20260714000000) bloquea asignaciones NUEVAS cuando el encargo no
+-- admite solicitudes, pero una asignación creada mientras el encargo estaba
+-- Aprobado(4)/Emergencia(5) y luego Congelado(9)/Finalizado(7)/Cancelado(6)/
+-- Rechazado(8) llegaría hasta el envío sin volver a validarse.
 --
--- Se mueve todo a un RPC SECURITY DEFINER que valida dueño + estado y aplica
--- ambos updates en una transacción, sin que la RLS filtre el segundo.
--- Idempotente.
+-- Se re-crea la función agregando ese gate. Va en una migración NUEVA (posterior
+-- a 20260610180000 y a 20260714000000, donde vive engagement_allows_hours_or_requests)
+-- para que los entornos que ya aplicaron el RPC original reciban el cambio.
+-- Idempotente (CREATE OR REPLACE).
 
 CREATE OR REPLACE FUNCTION public.fund_request_submit(p_fund_request_id UUID)
 RETURNS VOID
@@ -72,6 +73,20 @@ BEGIN
       AND wo.approval_status IS DISTINCT FROM 'Approved'
   ) THEN
     RAISE EXCEPTION 'Una o más OTs asignadas ya no estan en estado Approved; no se puede enviar a aprobacion';
+  END IF;
+
+  -- FEAT 0602-135: el estado efectivo del encargo debe seguir admitiendo solicitudes
+  -- (4 Aprobado / 5 Emergencia) al momento de ENVIAR. El trigger de INSERT ya bloquea
+  -- asignaciones nuevas, pero una asignación creada mientras el encargo estaba activo y
+  -- luego Congelado(9)/Finalizado(7)/Cancelado(6)/Rechazado(8) llegaría hasta aquí.
+  IF EXISTS (
+    SELECT 1
+    FROM public.fund_request_work_orders frwo
+    JOIN public.work_orders wo ON wo.wo_id = frwo.wo_id
+    WHERE frwo.fund_request_id = p_fund_request_id
+      AND NOT public.engagement_allows_hours_or_requests(wo.engagement_id)
+  ) THEN
+    RAISE EXCEPTION 'Una o más OTs pertenecen a un encargo que ya no admite solicitudes (congelado/finalizado/cancelado)';
   END IF;
 
   -- Reset de las OTs a 'pendiente' (en reenvío todas vuelven a requerir
