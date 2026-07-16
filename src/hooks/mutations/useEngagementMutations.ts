@@ -119,6 +119,15 @@ export function useUpdateEngagement() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["engagements"] });
+      // FEAT 0602-135: esta mutación puede cambiar engagement_state_override, y los selectores
+      // "activos" filtran por estado efectivo (ocultan 6/7/9). Sin invalidar sus cachés, un encargo
+      // recién congelado/finalizado seguiría seleccionable hasta que el trigger rechace el guardado.
+      // (Prefijo de key: invalida también las variantes con staffId, p. ej. ["approved-engagements", id].)
+      queryClient.invalidateQueries({ queryKey: ["approved-engagements"] });
+      queryClient.invalidateQueries({ queryKey: ["approved-engagements-for-tracker"] });
+      queryClient.invalidateQueries({ queryKey: ["engagements-for-manual-entry"] });
+      queryClient.invalidateQueries({ queryKey: ["engagements-without-worksheet"] });
+      queryClient.invalidateQueries({ queryKey: ["encargo-engagements"] });
       toast.success(i18n.t("messages.updateSuccess", { entity: i18n.t("entities.engagement") }));
     },
     onError: createMutationErrorHandler("updating engagement"),
