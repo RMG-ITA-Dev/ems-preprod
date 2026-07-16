@@ -177,7 +177,11 @@ CREATE OR REPLACE FUNCTION public.recompute_engagement_finalization()
   SET search_path TO 'public'
 AS $function$
 BEGIN
-  IF TG_OP = 'UPDATE' AND NEW.end_date IS NOT DISTINCT FROM OLD.end_date THEN
+  -- Recalcular si cambia end_date O el override. (Codex P2: limpiar/cambiar el override de un
+  -- encargo cuya fecha fin ya pasó debía re-evaluar la finalización, no esperar al cron.)
+  IF TG_OP = 'UPDATE'
+     AND NEW.end_date IS NOT DISTINCT FROM OLD.end_date
+     AND NEW.engagement_state_override IS NOT DISTINCT FROM OLD.engagement_state_override THEN
     RETURN NEW;
   END IF;
 
@@ -346,3 +350,107 @@ CREATE TRIGGER trg_authorize_engagement_state_override
   BEFORE INSERT OR UPDATE ON public.engagements
   FOR EACH ROW
   EXECUTE FUNCTION public.authorize_engagement_state_override();
+
+-- ============================================================================
+-- 7) Solicitudes de fondos: bloquear por estado efectivo del encargo.
+--    El spec de los 9 estados dice que Congelado(9)/Finalizado(7) no admiten "solicitudes de gastos",
+--    y el hint de la UI lo promete, pero el gate de estado solo estaba en time_entries. Fondos
+--    (vista del dropdown + trigger fr_wo_validate_approved) aceptaba cualquier OT 'Approved'. Se
+--    replica el mismo criterio que el gate de horas: solo estado efectivo 4/5 admite solicitudes.
+-- ============================================================================
+
+-- Helper compartido: ¿el encargo admite horas/solicitudes? (estado efectivo 4 Aprobado o 5 Emergencia).
+-- Misma regla que check_wo_approved (gate de horas), centralizada para Fondos.
+CREATE OR REPLACE FUNCTION public.engagement_allows_hours_or_requests(p_engagement_id uuid)
+  RETURNS boolean
+  LANGUAGE plpgsql
+  STABLE
+  SECURITY DEFINER
+  SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_override    smallint;
+  v_wo_required boolean;
+  v_approval    text;
+  v_risk        text;
+BEGIN
+  SELECT e.engagement_state_override, e.work_order_required
+    INTO v_override, v_wo_required
+  FROM public.engagements e WHERE e.engagement_id = p_engagement_id;
+
+  -- Override manual manda: solo 4/5 permiten.
+  IF v_override IS NOT NULL THEN
+    RETURN v_override IN (4, 5);
+  END IF;
+  -- Administrativo (sin OT) = Aprobado.
+  IF v_wo_required = false THEN
+    RETURN true;
+  END IF;
+  -- Derivado: OT aprobada y NO risk-rejected (=8 Rechazado).
+  SELECT approval_status, risk_status INTO v_approval, v_risk
+  FROM public.work_orders WHERE engagement_id = p_engagement_id;
+  RETURN v_approval = 'Approved' AND v_risk IS DISTINCT FROM 'Rejected';
+END;
+$function$;
+
+-- (a) Vista del dropdown: excluir encargos cuyo estado no admite solicitudes. Se reproduce la vista
+--     de 20260610190000 + el filtro por estado (CREATE OR REPLACE, mismas columnas).
+CREATE OR REPLACE VIEW public.fund_request_selectable_work_orders
+WITH (security_invoker = false) AS
+SELECT
+  wo.wo_id,
+  wo.currency,
+  wo.approval_status,
+  e.engagement_id,
+  e.engagement_code,
+  e.engagement_name,
+  e.manager_id,
+  s.staff_id   AS manager_staff_id,
+  s.short_name AS manager_short_name,
+  s.first_name AS manager_first_name,
+  s.last_name  AS manager_last_name
+FROM public.work_orders wo
+JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+LEFT JOIN public.staff s ON s.staff_id = e.manager_id
+WHERE wo.approval_status = 'Approved'
+  AND get_my_staff_id() IS NOT NULL
+  AND public.engagement_allows_hours_or_requests(e.engagement_id);  -- FEAT 0602-135
+
+GRANT SELECT ON public.fund_request_selectable_work_orders TO authenticated;
+
+-- (b) Trigger de validación al asignar una OT a una solicitud: además de 'Approved', el estado
+--     efectivo del encargo debe admitir solicitudes. Se reproduce fr_wo_validate_approved
+--     (20260610190000) + el chequeo de estado.
+CREATE OR REPLACE FUNCTION public.fr_wo_validate_approved()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public' AS $$
+DECLARE
+  v_status text;
+  v_wo_currency text;
+  v_fr_currency text;
+  v_engagement_id uuid;
+BEGIN
+  SELECT approval_status, currency, engagement_id
+    INTO v_status, v_wo_currency, v_engagement_id
+  FROM public.work_orders WHERE wo_id = NEW.wo_id;
+  IF v_status IS NULL THEN
+    RAISE EXCEPTION 'Work order % does not exist', NEW.wo_id;
+  END IF;
+  IF v_status <> 'Approved' THEN
+    RAISE EXCEPTION 'Work order % must be Approved to be allocated (current: %)', NEW.wo_id, v_status;
+  END IF;
+
+  -- FEAT 0602-135: el estado efectivo del encargo debe admitir solicitudes (4/5). Bloquea
+  -- Congelado(9)/Finalizado(7)/Cancelado(6)/Rechazado(8) y overrides no-cargables.
+  IF NOT public.engagement_allows_hours_or_requests(v_engagement_id) THEN
+    RAISE EXCEPTION 'El encargo no admite solicitudes de fondos en su estado actual';
+  END IF;
+
+  SELECT currency INTO v_fr_currency
+  FROM public.fund_requests WHERE fund_request_id = NEW.fund_request_id;
+  IF v_wo_currency IS DISTINCT FROM v_fr_currency THEN
+    RAISE EXCEPTION 'La moneda de la OT (%) no coincide con la de la solicitud (%)', v_wo_currency, v_fr_currency;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
