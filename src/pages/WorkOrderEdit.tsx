@@ -86,7 +86,7 @@ const WorkOrderEdit = () => {
   const upsertPaymentPlan = useUpsertPaymentPlan();
   const batchUpsertInstallments = useBatchUpsertInstallments();
   const deletePaymentPlan = useDeletePaymentPlan();
-  const { isAdmin, isPartner, isDirector, isManager, isSQR } = useUserRole();
+  const { isAdmin, isPartner, isDirector, isManager } = useUserRole();
 
   const [currency, setCurrency] = useState<"USD" | "BOB" | "USDT">("BOB");
   const [seasonMode, setSeasonMode] = useState<"High" | "Low">("High");
@@ -284,11 +284,13 @@ const WorkOrderEdit = () => {
   // Check if user can approve
   const canApprove = staffRecord?.category?.can_approve_wo || false;
   // FEAT 0602-135: el aprobador de Riesgos es el SQR ASIGNADO al encargo (engagement.sqr_id),
-  // con el Admin como respaldo. Se scopea al asignado (no a cualquier SQR) para coincidir con la
-  // RLS scoped por sqr_id (least-privilege, como partner/manager del team). Necesita staff record
-  // porque risk_approved_by referencia staff(staff_id).
+  // con el Admin como respaldo. El selector de SQR admite CUALQUIER staff activo (p. ej. un
+  // partner/director designado como revisor de calidad) y la RLS autoriza por sqr_id SOLO —sin
+  // exigir el rol global `sqr`—, así que el gate se basa en la asignación, no en el rol; de lo
+  // contrario un SQR asignado sin rol `sqr` vería los botones ocultos pese a estar autorizado en BD.
+  // Necesita staff record porque risk_approved_by referencia staff(staff_id).
   const isAssignedSqr =
-    isSQR && !!staffRecord && workOrder?.engagement?.sqr_id === staffRecord.staff_id;
+    !!staffRecord && workOrder?.engagement?.sqr_id === staffRecord.staff_id;
   const canApproveRisk = (isAdmin || isAssignedSqr) && !!staffRecord;
 
   const approvalStatus = workOrder?.approval_status as "Draft" | "Pending_Approval" | "Approved" | "Rejected" || "Draft";
