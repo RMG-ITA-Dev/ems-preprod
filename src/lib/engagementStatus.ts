@@ -127,6 +127,19 @@ export function canLogHours(state: EngagementState): boolean {
   return state === EngagementState.Aprobado || state === EngagementState.AprobadoEmergencia;
 }
 
+/**
+ * Estados terminales/pausados que se ocultan de los selectores "activos" (Matriz de Trabajo,
+ * dashboard): 6 Cancelado, 7 Finalizado, 9 Congelado. Sacan al encargo de la operación aunque su
+ * `status` legacy siga en 'active'. Recibe el override crudo (NULL = no oculto → deriva/activo).
+ */
+export function isHiddenFromActivePickers(override: number | null | undefined): boolean {
+  return (
+    override === EngagementState.Cancelado ||
+    override === EngagementState.Finalizado ||
+    override === EngagementState.Congelado
+  );
+}
+
 /** Clave i18n de la etiqueta del estado (ej. "engagementState.4"). */
 export function engagementStateI18nKey(state: EngagementState): string {
   return `engagementState.${state}`;
