@@ -1137,7 +1137,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                   <FormItem className="flex flex-col">
                     <FormLabel>{t("engagement.closingDate")} *</FormLabel>
                     <Select
-                      disabled={isEdit && (!canEditClosing || (overrideOn && !isAdmin))}
+                      disabled={isEdit && (!canEditClosing || (overrideOn && !isAdmin) || datesLockedByState)}
                       onValueChange={field.onChange}
                       value={field.value ?? ""}
                     >
@@ -1168,7 +1168,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                               <Button
                                 type="button"
                                 variant="outline"
-                                disabled={isEdit && (!canEditClosing || (overrideOn && !isAdmin))}
+                                disabled={isEdit && (!canEditClosing || (overrideOn && !isAdmin) || datesLockedByState)}
                                 className={cn(
                                   "w-full pl-3 text-left font-normal",
                                   !field.value && "text-muted-foreground"

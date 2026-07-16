@@ -164,6 +164,7 @@
     "dbErrorReasonGeneric": "internal error — please retry or contact the administrator",
     "exportBlockedWO": "{{count}} record(s) not exported: Work Order not approved ({{engagements}})",
     "exportBlockedState": "{{count}} record(s) not exported: the engagement's current state doesn't allow logging hours ({{engagements}})",
+    "moreEngagements": "(+{{count}} more)",
     "woNotApproved": "Work Order is not approved for this engagement.",
     "woNotApprovedSave": "Cannot save: the Work Order for this engagement is not approved. Select an approved engagement.",
     "woNotApprovedEdit": "This engagement's Work Order is not approved. Select an approved engagement to save.",

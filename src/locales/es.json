@@ -164,6 +164,7 @@
     "dbErrorReasonGeneric": "error interno — intente nuevamente o contacte al administrador",
     "exportBlockedWO": "{{count}} registro(s) no exportados: la Orden de Trabajo no está aprobada ({{engagements}})",
     "exportBlockedState": "{{count}} registro(s) no exportados: el estado del encargo no permite cargar horas ({{engagements}})",
+    "moreEngagements": "(+{{count}} más)",
     "woNotApproved": "La Orden de Trabajo no está aprobada para este encargo.",
     "woNotApprovedSave": "No se puede guardar: la Orden de Trabajo de este encargo no está aprobada. Seleccione un encargo aprobado.",
     "woNotApprovedEdit": "La Orden de Trabajo de este encargo no está aprobada. Seleccione un encargo aprobado para guardar.",

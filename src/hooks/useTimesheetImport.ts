@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { format, parseISO, getYear } from "date-fns";
 import { getFiscalWeekNumber } from "@/lib/fiscalCalculations";
 import { supabase } from "@/integrations/supabase/client";
+import i18n from "@/i18n";
 import { useMarkTimerEntriesImported, type TimerEntry } from "@/hooks/useTimerEntries";
 import { getWeekMonday, toISODateString } from "@/lib/timesheetUtils";
 import {
@@ -52,6 +53,13 @@ function isWoNotApprovedError(message?: string): boolean {
 function isEngagementStateBlockedError(message?: string): boolean {
   if (!message) return false;
   return message.toLowerCase().includes("does not allow logging");
+}
+
+// Lista acotada de códigos de encargo para el toast (máx 3 + "(+N más)" localizado vía i18n).
+function boundEngagementCodes(codes: Set<string>): string[] {
+  const arr = Array.from(codes);
+  if (arr.length <= 3) return arr;
+  return [...arr.slice(0, 3), i18n.t("tracker.moreEngagements", { count: arr.length - 3 })];
 }
 
 function isApprovedLineLockedError(message?: string): boolean {
@@ -347,14 +355,8 @@ export function useTimesheetImport({ staffId }: { staffId: string }) {
       }
 
       // Bound engagement list for toast readability
-      const woEngArr = Array.from(woBlockedEngagementsSet);
-      const woBlockedEngagements = woEngArr.length > 3
-        ? [...woEngArr.slice(0, 3), `(+${woEngArr.length - 3} más)`]
-        : woEngArr;
-      const stateEngArr = Array.from(stateBlockedEngagementsSet);
-      const stateBlockedEngagements = stateEngArr.length > 3
-        ? [...stateEngArr.slice(0, 3), `(+${stateEngArr.length - 3} más)`]
-        : stateEngArr;
+      const woBlockedEngagements = boundEngagementCodes(woBlockedEngagementsSet);
+      const stateBlockedEngagements = boundEngagementCodes(stateBlockedEngagementsSet);
 
       // Cache invalidation
       queryClient.invalidateQueries({ queryKey: ["time-entries"] });
