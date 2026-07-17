@@ -79,6 +79,7 @@ vi.mock("@/hooks/useEmsData", () => ({
   useAllActivityCodes: () => ({ data: [], isLoading: false }),
   useExpenseTypes: () => ({ data: [], isLoading: false }),
   useSkills: () => ({ data: [], isLoading: false }),
+  useTaxonomies: () => ({ data: [], isLoading: false }),
   useEngagements: () => ({ data: [engagementNoApproval, engagementWithApproval] }),
   useServices: () => ({ data: [], isLoading: false }),
 }));
