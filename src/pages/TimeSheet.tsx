@@ -616,14 +616,15 @@ const TimeSheet = () => {
           </Alert>
         )}
 
-        {/* Holiday week hint — visible before the user hits the submit guard */}
+        {/* Holiday week hint — visible before the user hits the submit guard.
+            Deliberately does NOT gate on entries.length: its purpose is to warn
+            before any hours are logged for a holiday week (BUG 0526-122). */}
         {hasWeekHolidays &&
           holidayHoursRemaining > 0 &&
           !!holidayEngagementId &&
           !isBeforeHireDate &&
           !isAfterTerminationDate &&
           isWithinEditableWindow &&
-          entries.length > 0 &&
           !isSubmitted &&
           !isFullyApproved &&
           !period?.is_period_locked && (
