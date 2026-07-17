@@ -839,9 +839,12 @@
     "generateButton": "Generación de Feriados del año {{year}}",
     "generateConfirmTitle": "Generación de Feriados del año {{year}}",
     "generateConfirmDesc": "Año {{year}}: {{total}} feriados calculados — {{alreadyExist}} ya correctos, {{staleToReplace}} con fechas incorrectas que se reemplazarán, {{toInsert}} se crearán. ¿Desea continuar?",
-    "allNationalAlreadyExist": "Todos los feriados de {{year}} ya existen.",
+    "allHolidaysAlreadyExist": "Todos los feriados de {{year}} ya existen.",
     "previousYear": "Año anterior",
-    "nextYear": "Año siguiente"
+    "nextYear": "Año siguiente",
+    "generatePreviewNew": "Se creará",
+    "generatePreviewExact": "Ya correcto",
+    "generatePreviewUpdate": "Se corregirá"
   },
  "dashboard": {
     "noData": "Sin datos disponibles para el período seleccionado",

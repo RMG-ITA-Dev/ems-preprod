@@ -839,9 +839,12 @@
     "generateButton": "Generate {{year}} Holidays",
     "generateConfirmTitle": "Generate {{year}} Holidays",
     "generateConfirmDesc": "Year {{year}}: {{total}} holidays calculated — {{alreadyExist}} already correct, {{staleToReplace}} with incorrect dates to be replaced, {{toInsert}} will be created. Continue?",
-    "allNationalAlreadyExist": "All holidays for {{year}} already exist.",
+    "allHolidaysAlreadyExist": "All holidays for {{year}} already exist.",
     "previousYear": "Previous year",
-    "nextYear": "Next year"
+    "nextYear": "Next year",
+    "generatePreviewNew": "Will be created",
+    "generatePreviewExact": "Already correct",
+    "generatePreviewUpdate": "Will be corrected"
   },
  "dashboard": {
     "noData": "No data available for the selected period",

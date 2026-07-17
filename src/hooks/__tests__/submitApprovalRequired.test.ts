@@ -65,28 +65,35 @@ describe("submit_timesheet_safe approval_required logic (BUG 0220-61)", () => {
 describe("submit_timesheet_safe holiday-line override (BUG 0526-122)", () => {
   // Mirrors the holiday-specific v_effective_auto branch in the RPC: it is a
   // pure function of "are all logged dates valid holidays for this staff's
-  // office" — approval_required and p_is_auto_approved are never consulted.
-  function effectiveAutoApproveForHolidayLine(allDatesValid: boolean): boolean {
+  // office" — approvalRequired and pIsAutoApproved are accepted (matching the
+  // RPC's actual inputs) but deliberately never read, so the SQL regression
+  // this mirrors is "some code path starts reading them again."
+  function effectiveAutoApproveForHolidayLine(
+    allDatesValid: boolean,
+    _approvalRequired: boolean,
+    _pIsAutoApproved: boolean
+  ): boolean {
     return allDatesValid;
   }
 
-  it("all dates valid → auto-approved, even for a non-auto-approved staff", () => {
-    expect(effectiveAutoApproveForHolidayLine(true)).toBe(true);
-  });
+  const BOOL_COMBOS = [
+    { approvalRequired: true, pIsAutoApproved: true },
+    { approvalRequired: true, pIsAutoApproved: false },
+    { approvalRequired: false, pIsAutoApproved: true },
+    { approvalRequired: false, pIsAutoApproved: false },
+  ];
 
-  it("some date invalid → pending, even for a non-auto-approved staff", () => {
-    expect(effectiveAutoApproveForHolidayLine(false)).toBe(false);
-  });
+  it.each(BOOL_COMBOS)(
+    "all dates valid → auto-approved regardless of approval_required=$approvalRequired / p_is_auto_approved=$pIsAutoApproved",
+    ({ approvalRequired, pIsAutoApproved }) => {
+      expect(effectiveAutoApproveForHolidayLine(true, approvalRequired, pIsAutoApproved)).toBe(true);
+    }
+  );
 
-  it("some date invalid → pending, even when p_is_auto_approved=true (no Partner/Director bypass)", () => {
-    // Unlike effectiveAutoApprove above, p_is_auto_approved never enters this computation.
-    expect(effectiveAutoApproveForHolidayLine(false)).toBe(false);
-  });
-
-  it("approval_required on the holiday engagement is irrelevant to the outcome", () => {
-    // Whether the stored engagements.approval_required is true or false, the
-    // dynamic per-date check is the only input — this is the exact bug being fixed.
-    const allDatesValid = true;
-    expect(effectiveAutoApproveForHolidayLine(allDatesValid)).toBe(true);
-  });
+  it.each(BOOL_COMBOS)(
+    "some date invalid → pending regardless of approval_required=$approvalRequired / p_is_auto_approved=$pIsAutoApproved (no Partner/Director bypass)",
+    ({ approvalRequired, pIsAutoApproved }) => {
+      expect(effectiveAutoApproveForHolidayLine(false, approvalRequired, pIsAutoApproved)).toBe(false);
+    }
+  );
 });

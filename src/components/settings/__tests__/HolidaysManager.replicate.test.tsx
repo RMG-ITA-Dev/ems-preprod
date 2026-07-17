@@ -16,6 +16,17 @@ vi.mock("@/hooks/useHolidays", () => ({
         holiday_id: "h1",
         holiday_date: "2026-01-01",
         holiday_name: "Año Nuevo",
+        oficina: 0,
+        created_by: "staff-1",
+        created_at: null,
+      },
+      // Pre-existing 2027 national holiday matching the generated slot exactly —
+      // used to assert the preview marks it as already correct.
+      {
+        holiday_id: "h2",
+        holiday_date: "2027-01-01",
+        holiday_name: "Año Nuevo",
+        oficina: 0,
         created_by: "staff-1",
         created_at: null,
       },
@@ -37,8 +48,9 @@ vi.mock("@/hooks/mutations/useHolidayMutations", () => ({
 
 vi.mock("@/lib/boliviaHolidays", () => ({
   getBoliviaNationalHolidays: () => [
-    { date: "2027-01-01", name: "Año Nuevo" },
-    { date: "2027-05-01", name: "Día del Trabajo" },
+    { date: "2027-01-01", name: "Año Nuevo", oficina: 0 },
+    { date: "2027-05-01", name: "Día del Trabajo", oficina: 0 },
+    { date: "2027-07-16", name: "Aniversario del Departamento de La Paz", oficina: 1 },
   ],
   NATIONAL_HOLIDAY_NAMES: new Set(["Año Nuevo", "Día del Trabajo"]),
   normalizeHolidayName: (name: string) => name.replace(/^Feriado\s*-\s*/i, "").trim(),
@@ -142,5 +154,26 @@ describe("HolidaysManager — generate national holidays (0513-113)", () => {
       await user.click(nextButton); // 2027 -> 2028 -> 2029 -> 2030 -> 2031 (=currentYear+5)
     }
     expect(nextButton).toBeDisabled();
+  });
+
+  // REVIEW (0526-122 review cycle): the confirmation dialog must preview each
+  // generated date with its office, not just aggregate counts.
+  it("HM7: confirmation dialog previews each generated date with its office and status", async () => {
+    const user = userEvent.setup();
+    render(React.createElement(HolidaysManager));
+
+    await user.click(screen.getByRole("button", { name: /holiday\.generateButton/i }));
+
+    // Año Nuevo 2027-01-01 already exists with the correct name → exact match.
+    expect(screen.getByText("01/01/2027")).toBeInTheDocument();
+    // Día del Trabajo 2027-05-01 has no existing row → will be created.
+    expect(screen.getByText("01/05/2027")).toBeInTheDocument();
+    // La Paz 2027-07-16 (oficina=1) is previewed with its office label, distinct
+    // from the national (oficina=0) entries' "Todas" label.
+    expect(screen.getByText("16/07/2027")).toBeInTheDocument();
+    expect(screen.getAllByText("engagement.oficina_laPaz").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("engagement.oficina_ambos").length).toBeGreaterThan(0);
+    expect(screen.getByText("holiday.generatePreviewExact")).toBeInTheDocument();
+    expect(screen.getAllByText("holiday.generatePreviewNew").length).toBe(2);
   });
 });

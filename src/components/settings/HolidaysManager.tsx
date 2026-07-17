@@ -32,25 +32,48 @@ export function HolidaysManager() {
   const maxTargetYear = currentYear + 5;
   const [targetYear, setTargetYear] = useState(currentYear + 1);
   const generatedList = getBoliviaNationalHolidays(targetYear);
-  const generatedByDate = new Map(generatedList.map((g) => [g.date, g.name]));
+  // Composite key mirrors the mutation's dedup logic (UNIQUE(holiday_date, oficina)) —
+  // a national and a departmental holiday may legitimately share a date.
+  const holidayKey = (date: string, oficina: number) => `${date}:${oficina}`;
+  const generatedByKey = new Map(generatedList.map((g) => [holidayKey(g.date, g.oficina), g.name]));
   const targetYearHolidays = (holidays ?? []).filter((h) =>
     h.holiday_date.startsWith(`${targetYear}-`)
   );
+  const existingByKey = new Map(targetYearHolidays.map((h) => [holidayKey(h.holiday_date, h.oficina), h]));
   const exactMatch = targetYearHolidays.filter(
-    (h) => generatedByDate.get(h.holiday_date) === normalizeHolidayName(h.holiday_name)
+    (h) => generatedByKey.get(holidayKey(h.holiday_date, h.oficina)) === normalizeHolidayName(h.holiday_name)
   ).length;
   const crossedStale = targetYearHolidays.filter((h) => {
     const n = normalizeHolidayName(h.holiday_name);
-    return NATIONAL_HOLIDAY_NAMES.has(n) && generatedByDate.has(h.holiday_date) && generatedByDate.get(h.holiday_date) !== n;
+    const key = holidayKey(h.holiday_date, h.oficina);
+    return NATIONAL_HOLIDAY_NAMES.has(n) && generatedByKey.has(key) && generatedByKey.get(key) !== n;
   });
   const regularStale = targetYearHolidays.filter((h) => {
     const n = normalizeHolidayName(h.holiday_name);
-    return NATIONAL_HOLIDAY_NAMES.has(n) && !generatedByDate.has(h.holiday_date);
+    return NATIONAL_HOLIDAY_NAMES.has(n) && !generatedByKey.has(holidayKey(h.holiday_date, h.oficina));
   });
   const staleToReplace = crossedStale.length + regularStale.length;
-  // Regular stale entries sit at wrong dates; their generated-date slots are free and WILL be inserted.
-  // Only crossed stale (UPDATE in-place) don't produce a new row, so only those reduce toInsertCount.
+  // Regular stale entries sit at wrong (date, oficina) slots; their generated slots are
+  // free and WILL be inserted. Only crossed stale (UPDATE in-place) don't produce a new
+  // row, so only those reduce toInsertCount.
   const toInsertCount = generatedList.length - exactMatch - crossedStale.length;
+
+  // Per-date/office preview shown in the confirmation dialog — mirrors exactly what the
+  // mutation will do with each generated slot (Plan v2 §c: preview must include oficina).
+  type PreviewStatus = "exact" | "update" | "new";
+  const previewRows: { date: string; name: string; oficina: 0 | 1 | 2; status: PreviewStatus }[] =
+    generatedList.map((g) => {
+      const key = holidayKey(g.date, g.oficina);
+      const existing = existingByKey.get(key);
+      const isCrossedStale = crossedStale.some((h) => holidayKey(h.holiday_date, h.oficina) === key);
+      const status: PreviewStatus =
+        existing && normalizeHolidayName(existing.holiday_name) === g.name
+          ? "exact"
+          : isCrossedStale
+            ? "update"
+            : "new";
+      return { date: g.date, name: g.name, oficina: g.oficina, status };
+    });
 
   const getStaffName = (staffId: string) => {
     const s = staffList?.find((st) => st.staff_id === staffId);
@@ -65,6 +88,17 @@ export function HolidaysManager() {
         return t("engagement.oficina_santaCruz");
       default:
         return t("engagement.oficina_ambos");
+    }
+  };
+
+  const getPreviewStatusLabel = (status: "exact" | "update" | "new") => {
+    switch (status) {
+      case "exact":
+        return t("holiday.generatePreviewExact");
+      case "update":
+        return t("holiday.generatePreviewUpdate");
+      case "new":
+        return t("holiday.generatePreviewNew");
     }
   };
 
@@ -181,6 +215,26 @@ export function HolidaysManager() {
               })}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <div className="max-h-64 overflow-y-auto rounded-md border divide-y text-sm">
+            {previewRows.map((row) => (
+              <div
+                key={`${row.date}:${row.oficina}`}
+                className="flex items-center justify-between gap-2 px-3 py-1.5"
+              >
+                <span className="flex items-center gap-2 min-w-0">
+                  <span className="shrink-0 tabular-nums">
+                    {format(new Date(row.date + "T12:00:00"), "dd/MM/yyyy")}
+                  </span>
+                  <span className="truncate">{row.name}</span>
+                </span>
+                <span className="flex items-center gap-2 shrink-0 text-muted-foreground">
+                  <span>{getOficinaLabel(row.oficina)}</span>
+                  <span>·</span>
+                  <span>{getPreviewStatusLabel(row.status)}</span>
+                </span>
+              </div>
+            ))}
+          </div>
           <AlertDialogFooter>
             <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
             <AlertDialogAction

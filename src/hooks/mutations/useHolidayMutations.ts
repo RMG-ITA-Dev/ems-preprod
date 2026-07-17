@@ -92,7 +92,12 @@ export function useGenerateNationalHolidays() {
   return useMutation({
     mutationFn: async ({ created_by, year }: { created_by: string; year: number }) => {
       const generated = getBoliviaNationalHolidays(year);
-      const generatedDates = new Set(generated.map((g) => g.date));
+
+      // Composite key — the DB constraint is UNIQUE(holiday_date, oficina), so a
+      // national (oficina=0) and a departmental (oficina=1|2) row may legitimately
+      // share the same date. Keying by date alone would let one office's existing
+      // row suppress another office's generated row.
+      const holidayKey = (date: string, oficina: number) => `${date}:${oficina}`;
 
       // Query existing holidays for the year — need holiday_id for potential deletion.
       const { data: existing, error: e1 } = await supabase
@@ -105,51 +110,56 @@ export function useGenerateNationalHolidays() {
       const rows = existing ?? [];
 
       // Partition into three groups:
-      // exactMatch  — date already correct; skip insert
+      // exactMatch  — (date, oficina) already correct; skip insert
       // staleByName — wrong date but name matches a national holiday; delete then re-insert correctly
       // custom      — unrelated; leave untouched
-      // Map from generated date → expected name, used to verify both date AND name match.
-      const generatedByDate = new Map(generated.map((g) => [g.date, g.name]));
+      // Map from generated (date, oficina) → expected name, used to verify slot AND name match.
+      const generatedByKey = new Map(generated.map((g) => [holidayKey(g.date, g.oficina), g.name]));
 
-      const exactMatchDates = new Set(
+      const exactMatchKeys = new Set(
         rows
           .filter(
-            (h) => generatedByDate.get(h.holiday_date) === normalizeHolidayName(h.holiday_name)
+            (h) =>
+              generatedByKey.get(holidayKey(h.holiday_date, h.oficina)) ===
+              normalizeHolidayName(h.holiday_name)
           )
-          .map((h) => h.holiday_date)
+          .map((h) => holidayKey(h.holiday_date, h.oficina))
       );
-      // Partition stale into two groups based on whether the occupied date is a generated date.
-      // Crossed stale: national name at a generated date but wrong name for that slot.
+      // Partition stale into two groups based on whether the occupied (date, oficina)
+      // slot is a generated slot. NATIONAL_HOLIDAY_NAMES deliberately excludes
+      // departmental names, so this never reclassifies a La Paz/Santa Cruz row.
+      // Crossed stale: national name at a generated slot but wrong name for that slot.
       //   → Updated in-place (holiday_name only). Date stays occupied at all times — no window
       //     where the holiday disappears. UNIQUE constraint is never at risk.
-      // Regular stale: national name at a non-generated date (old wrong-year copy).
+      // Regular stale: national name at a non-generated slot (old wrong-year copy).
       //   → Deleted AFTER insert (R10 safety: insert first so data is never absent on failure).
-      const staleAtGeneratedDates = rows.filter((h) => {
+      const staleAtGeneratedSlots = rows.filter((h) => {
         const n = normalizeHolidayName(h.holiday_name);
+        const key = holidayKey(h.holiday_date, h.oficina);
         return (
           NATIONAL_HOLIDAY_NAMES.has(n) &&
-          generatedByDate.has(h.holiday_date) &&
-          generatedByDate.get(h.holiday_date) !== n
+          generatedByKey.has(key) &&
+          generatedByKey.get(key) !== n
         );
       });
-      const staleAtOtherDates = rows.filter((h) => {
+      const staleAtOtherSlots = rows.filter((h) => {
         const n = normalizeHolidayName(h.holiday_name);
-        return NATIONAL_HOLIDAY_NAMES.has(n) && !generatedByDate.has(h.holiday_date);
+        return NATIONAL_HOLIDAY_NAMES.has(n) && !generatedByKey.has(holidayKey(h.holiday_date, h.oficina));
       });
-      const staleByName = [...staleAtGeneratedDates, ...staleAtOtherDates];
+      const staleByName = [...staleAtGeneratedSlots, ...staleAtOtherSlots];
 
-      // Crossed-stale dates remain in allExistingDates — they are updated in-place, not re-inserted.
-      const allExistingDates = new Set(rows.map((h) => h.holiday_date));
+      // Crossed-stale slots remain in allExistingKeys — they are updated in-place, not re-inserted.
+      const allExistingKeys = new Set(rows.map((h) => holidayKey(h.holiday_date, h.oficina)));
 
-      // Insert generated holidays that are not already at the correct date.
+      // Insert generated holidays whose (date, oficina) slot isn't already occupied.
       // Includes both nationals (oficina=0) and departmentals (oficina=1|2) —
       // the generator produces both from the same source list.
       const toInsert = generated
-        .filter((g) => !allExistingDates.has(g.date))
+        .filter((g) => !allExistingKeys.has(holidayKey(g.date, g.oficina)))
         .map((g) => ({ holiday_date: g.date, holiday_name: g.name, oficina: g.oficina, created_by }));
 
       if (toInsert.length === 0 && staleByName.length === 0)
-        throw new Error(i18n.t("holiday.allNationalAlreadyExist", { year }));
+        throw new Error(i18n.t("holiday.allHolidaysAlreadyExist", { year }));
 
       // Insert new holidays first (R10 safety: regular stale data never absent on insert failure).
       if (toInsert.length > 0) {
@@ -158,19 +168,19 @@ export function useGenerateNationalHolidays() {
       }
 
       // Delete regular stale AFTER insert (R10 safety).
-      if (staleAtOtherDates.length > 0) {
+      if (staleAtOtherSlots.length > 0) {
         const { error: eDel } = await supabase
           .from("holidays")
           .delete()
-          .in("holiday_id", staleAtOtherDates.map((h) => h.holiday_id));
+          .in("holiday_id", staleAtOtherSlots.map((h) => h.holiday_id));
         if (eDel) throw eDel;
       }
 
       // Update crossed stale in-place — atomic, date never disappears, no constraint risk.
-      for (const stale of staleAtGeneratedDates) {
+      for (const stale of staleAtGeneratedSlots) {
         const { error: eUpd } = await supabase
           .from("holidays")
-          .update({ holiday_name: generatedByDate.get(stale.holiday_date)! })
+          .update({ holiday_name: generatedByKey.get(holidayKey(stale.holiday_date, stale.oficina))! })
           .eq("holiday_id", stale.holiday_id);
         if (eUpd) throw eUpd;
       }
@@ -178,7 +188,7 @@ export function useGenerateNationalHolidays() {
       return {
         created: toInsert.length,
         replaced: staleByName.length,
-        skipped: exactMatchDates.size,
+        skipped: exactMatchKeys.size,
         total: generated.length,
         year,
       };

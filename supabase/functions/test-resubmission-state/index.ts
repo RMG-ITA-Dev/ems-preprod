@@ -88,7 +88,7 @@ Deno.serve(async (req) => {
   }
 
   // ── BUG 0526-122 helpers: holiday office-scope scenarios ────────────────
-  async function setupHolidayTestData(suffix: string, staffCity: string | null) {
+  async function setupHolidayTestData(suffix: string, staffCity: string | null, approvalRequired = true) {
     const { data: client } = await supabase.from("clients").insert({
       client_legal_name: `Test Holiday Client ${suffix}`,
       unique_tax_id: `THC-${suffix}`,
@@ -100,7 +100,7 @@ Deno.serve(async (req) => {
       work_order_required: false,
       activity_required: false,
       fecha_cierre: "2026-09-30",
-      approval_required: true,
+      approval_required: approvalRequired,
     }).select().single();
 
     const { data: otherEng } = await supabase.from("engagements").insert({
@@ -569,6 +569,38 @@ Deno.serve(async (req) => {
         await restoreHolidayEngagementSetting(prevSetting);
         await cleanupHoliday(idsLp, holidayIds);
         await cleanupHoliday(idsSc, []);
+      }
+    }
+
+    // ── S14 (0526-122 review cycle): reproduces the ORIGINAL reported bug —
+    //    holiday engagement with approval_required=false, hours logged on a
+    //    date that is NOT a real holiday, non-auto-approved staff. Before this
+    //    fix, v_effective_auto came straight from engagements.approval_required
+    //    and this line would auto-approve. It must land pending instead. ──────
+    {
+      const ids = await setupHolidayTestData(`s14-${trace_id.slice(0, 8)}`, "La Paz", false);
+      const prevSetting = await setHolidayEngagementSetting(ids.holidayEngId);
+      try {
+        // No row in `holidays` for 2026-01-05 — this date is not a real holiday.
+        await supabase.from("time_entries").insert([
+          { staff_id: ids.staffId, engagement_id: ids.holidayEngId, activity_id: ids.activityId, date_worked: "2026-01-05", hours_logged: 8, period_id: ids.periodId },
+        ]);
+
+        const { data, error } = await supabase.rpc("submit_timesheet_safe", {
+          p_period_id: ids.periodId, p_staff_id: ids.staffId,
+          p_engagement_ids: [ids.holidayEngId],
+          p_activity_ids:   [ids.activityId],
+          p_is_auto_approved: false,
+        });
+        const pass = !error && data.new_pending === 1 && data.new_auto_approved === 0;
+        results.push({
+          scenario: "S14: holiday engagement with approval_required=false + non-holiday date → pending, NOT auto-approved (original bug)",
+          pass,
+          details: JSON.stringify(data),
+        });
+      } finally {
+        await restoreHolidayEngagementSetting(prevSetting);
+        await cleanupHoliday(ids, []);
       }
     }
 
