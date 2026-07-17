@@ -11,15 +11,17 @@ export function useCreateHoliday() {
     mutationFn: async ({
       holiday_date,
       holiday_name,
+      oficina,
       created_by,
     }: {
       holiday_date: string;
       holiday_name: string;
+      oficina: number;
       created_by: string;
     }) => {
       const { data, error } = await supabase
         .from("holidays")
-        .insert({ holiday_date, holiday_name, created_by })
+        .insert({ holiday_date, holiday_name, oficina, created_by })
         .select()
         .single();
       if (error) throw error;
@@ -41,14 +43,16 @@ export function useUpdateHoliday() {
       holiday_id,
       holiday_date,
       holiday_name,
+      oficina,
     }: {
       holiday_id: string;
       holiday_date: string;
       holiday_name: string;
+      oficina: number;
     }) => {
       const { data, error } = await supabase
         .from("holidays")
-        .update({ holiday_date, holiday_name })
+        .update({ holiday_date, holiday_name, oficina })
         .eq("holiday_id", holiday_id)
         .select()
         .single();
@@ -93,7 +97,7 @@ export function useGenerateNationalHolidays() {
       // Query existing holidays for the year — need holiday_id for potential deletion.
       const { data: existing, error: e1 } = await supabase
         .from("holidays")
-        .select("holiday_id, holiday_date, holiday_name")
+        .select("holiday_id, holiday_date, holiday_name, oficina")
         .gte("holiday_date", `${year}-01-01`)
         .lte("holiday_date", `${year}-12-31`);
       if (e1) throw e1;
@@ -138,9 +142,11 @@ export function useGenerateNationalHolidays() {
       const allExistingDates = new Set(rows.map((h) => h.holiday_date));
 
       // Insert generated holidays that are not already at the correct date.
+      // Includes both nationals (oficina=0) and departmentals (oficina=1|2) —
+      // the generator produces both from the same source list.
       const toInsert = generated
         .filter((g) => !allExistingDates.has(g.date))
-        .map((g) => ({ holiday_date: g.date, holiday_name: g.name, created_by }));
+        .map((g) => ({ holiday_date: g.date, holiday_name: g.name, oficina: g.oficina, created_by }));
 
       if (toInsert.length === 0 && staleByName.length === 0)
         throw new Error(i18n.t("holiday.allNationalAlreadyExist", { year }));

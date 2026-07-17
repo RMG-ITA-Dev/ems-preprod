@@ -335,7 +335,8 @@
     "userRoles": "Roles de Usuario",
     "holidayEngagement": "Encargo de Feriados",
     "holidayEngagementHelp": "Seleccione el encargo permitido para registros en dias feriados",
-    "holidayNotConfigured": "El bloqueo de feriados esta inactivo hasta seleccionar un encargo"
+    "holidayNotConfigured": "El bloqueo de feriados esta inactivo hasta seleccionar un encargo",
+    "holidayEngagementApprovalWarning": "Este encargo tiene la aprobación automática activada. La validación de fechas de feriado sigue aplicándose igual, pero considere revisar esta configuración."
   },
   "userRoles": {
     "title": "Gestión de Roles de Usuario",
@@ -785,11 +786,14 @@
     "deleteHoliday": "Eliminar Feriado",
     "date": "Fecha",
     "name": "Nombre",
+    "oficina": "Oficina",
     "createdBy": "Creado Por",
-    "generateButton": "Generar feriados nacionales {{year}}",
-    "generateConfirmTitle": "Generar feriados nacionales {{year}}",
-    "generateConfirmDesc": "Año {{year}}: {{total}} feriados nacionales calculados — {{alreadyExist}} ya correctos, {{staleToReplace}} con fechas incorrectas que se reemplazarán, {{toInsert}} se crearán. ¿Desea continuar?",
-    "allNationalAlreadyExist": "Todos los feriados nacionales de {{year}} ya existen."
+    "generateButton": "Generación de Feriados del año {{year}}",
+    "generateConfirmTitle": "Generación de Feriados del año {{year}}",
+    "generateConfirmDesc": "Año {{year}}: {{total}} feriados calculados — {{alreadyExist}} ya correctos, {{staleToReplace}} con fechas incorrectas que se reemplazarán, {{toInsert}} se crearán. ¿Desea continuar?",
+    "allNationalAlreadyExist": "Todos los feriados de {{year}} ya existen.",
+    "previousYear": "Año anterior",
+    "nextYear": "Año siguiente"
   },
  "dashboard": {
     "noData": "Sin datos disponibles para el período seleccionado",

@@ -25,7 +25,7 @@ const GENERATED = getBoliviaNationalHolidays(TARGET_YEAR);
 // Helper: build a mock supabase chain that returns existingRows for the select query
 // and resolves deleteMock / insertMock for delete / insert operations.
 function mockHolidaysTable(
-  existingRows: { holiday_id: string; holiday_date: string; holiday_name: string }[],
+  existingRows: { holiday_id: string; holiday_date: string; holiday_name: string; oficina?: number }[],
   deleteMock: ReturnType<typeof vi.fn>,
   insertMock: ReturnType<typeof vi.fn>,
 ) {
@@ -50,7 +50,7 @@ describe("useGenerateNationalHolidays", () => {
     vi.clearAllMocks();
   });
 
-  it("GH1 — happy path: empty target year → inserts all 11 holidays", async () => {
+  it("GH1 — happy path: empty target year → inserts all holidays (nationals + departmentals)", async () => {
     const deleteMock = vi.fn().mockResolvedValue({ error: null });
     const insertMock = vi.fn().mockResolvedValue({ error: null });
     mockHolidaysTable([], deleteMock, insertMock);
@@ -66,11 +66,56 @@ describe("useGenerateNationalHolidays", () => {
       total: GENERATED.length,
       year: TARGET_YEAR,
     });
-    const rows: { holiday_date: string; created_by: string }[] = insertMock.mock.calls[0][0];
+    const rows: { holiday_date: string; created_by: string; oficina: number }[] = insertMock.mock.calls[0][0];
     expect(rows).toHaveLength(GENERATED.length);
     expect(rows.every((r) => r.created_by === "staff-1")).toBe(true);
     expect(deleteMock).not.toHaveBeenCalled();
     expect(toast.success).toHaveBeenCalled();
+  });
+
+  it("GH1b — BUG 0526-122: inserted rows propagate oficina from the generated list", async () => {
+    const deleteMock = vi.fn().mockResolvedValue({ error: null });
+    const insertMock = vi.fn().mockResolvedValue({ error: null });
+    mockHolidaysTable([], deleteMock, insertMock);
+
+    const { result } = renderHook(() => useGenerateNationalHolidays(), { wrapper: createWrapper() });
+    result.current.mutate({ created_by: "staff-1", year: TARGET_YEAR });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    const rows: { holiday_date: string; oficina: number }[] = insertMock.mock.calls[0][0];
+    const rowByDate = Object.fromEntries(rows.map((r) => [r.holiday_date, r.oficina]));
+    GENERATED.forEach((g) => {
+      expect(rowByDate[g.date]).toBe(g.oficina);
+    });
+    // Sanity: the departmental holidays are actually present with their office code.
+    const laPaz = GENERATED.find((g) => g.name.includes("La Paz"));
+    const santaCruz = GENERATED.find((g) => g.name.includes("Santa Cruz"));
+    expect(rowByDate[laPaz!.date]).toBe(1);
+    expect(rowByDate[santaCruz!.date]).toBe(2);
+  });
+
+  it("GH9 — BUG 0526-122: stale/replace detection never touches departmental rows", async () => {
+    const laPaz = GENERATED.find((g) => g.oficina === 1)!;
+    // A departmental row that exists at the WRONG date (would look "stale" by
+    // name if departmental names were included in NATIONAL_HOLIDAY_NAMES).
+    const existingRows = [
+      { holiday_id: "dep-wrong-date", holiday_date: "2027-01-10", holiday_name: laPaz.name, oficina: 1 },
+    ];
+    const deleteMock = vi.fn().mockResolvedValue({ error: null });
+    const insertMock = vi.fn().mockResolvedValue({ error: null });
+    mockHolidaysTable(existingRows, deleteMock, insertMock);
+
+    const { result } = renderHook(() => useGenerateNationalHolidays(), { wrapper: createWrapper() });
+    result.current.mutate({ created_by: "staff-1", year: TARGET_YEAR });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    // Never deleted/replaced — departmental rows are out of scope for dedup.
+    expect(deleteMock).not.toHaveBeenCalled();
+    expect(result.current.data?.replaced).toBe(0);
+    // The correct La Paz date is still free (old row occupies a different
+    // date), so it IS inserted as a new row alongside the nationals.
+    const rows: { holiday_date: string }[] = insertMock.mock.calls[0][0];
+    expect(rows.some((r) => r.holiday_date === laPaz.date)).toBe(true);
   });
 
   it("GH2 — all exact matches: throws allNationalAlreadyExist", async () => {
@@ -91,7 +136,7 @@ describe("useGenerateNationalHolidays", () => {
     expect(insertMock).not.toHaveBeenCalled();
   });
 
-  it("GH3 — partial exact: 3 of 11 dates exist → inserts 8", async () => {
+  it("GH3 — partial exact: 3 of N dates exist → inserts the rest", async () => {
     const existingRows = GENERATED.slice(0, 3).map((g, i) => ({
       holiday_id: `h${i}`,
       holiday_date: g.date,
@@ -105,9 +150,10 @@ describe("useGenerateNationalHolidays", () => {
     result.current.mutate({ created_by: "staff-1", year: TARGET_YEAR });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(result.current.data).toMatchObject({ created: 8, replaced: 0, skipped: 3 });
+    const expectedCreated = GENERATED.length - 3;
+    expect(result.current.data).toMatchObject({ created: expectedCreated, replaced: 0, skipped: 3 });
     const rows: { holiday_date: string }[] = insertMock.mock.calls[0][0];
-    expect(rows).toHaveLength(8);
+    expect(rows).toHaveLength(expectedCreated);
     expect(deleteMock).not.toHaveBeenCalled();
   });
 

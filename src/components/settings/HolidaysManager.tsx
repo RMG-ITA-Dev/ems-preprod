@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { format } from "date-fns";
-import { Wand2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Wand2 } from "lucide-react";
 import { DataTable, Column } from "@/components/data-table/DataTable";
 import { useHolidays, type Holiday } from "@/hooks/useHolidays";
 import { useStaff } from "@/hooks/useEmsData";
@@ -28,7 +28,9 @@ export function HolidaysManager() {
   const { staffRecord } = useCurrentStaff();
 
   const currentYear = new Date().getFullYear();
-  const targetYear = currentYear + 1;
+  const minTargetYear = currentYear;
+  const maxTargetYear = currentYear + 5;
+  const [targetYear, setTargetYear] = useState(currentYear + 1);
   const generatedList = getBoliviaNationalHolidays(targetYear);
   const generatedByDate = new Map(generatedList.map((g) => [g.date, g.name]));
   const targetYearHolidays = (holidays ?? []).filter((h) =>
@@ -55,6 +57,17 @@ export function HolidaysManager() {
     return s ? `${s.first_name} ${s.last_name}` : "—";
   };
 
+  const getOficinaLabel = (oficina: number | undefined) => {
+    switch (oficina) {
+      case 1:
+        return t("engagement.oficina_laPaz");
+      case 2:
+        return t("engagement.oficina_santaCruz");
+      default:
+        return t("engagement.oficina_ambos");
+    }
+  };
+
   const columns: Column<Holiday>[] = [
     {
       key: "holiday_date",
@@ -71,6 +84,13 @@ export function HolidaysManager() {
       label: t("holiday.name"),
       sortable: true,
       mobilePriority: "primary" as const,
+    },
+    {
+      key: "oficina",
+      label: t("holiday.oficina"),
+      sortable: true,
+      mobilePriority: "secondary" as const,
+      render: (row) => getOficinaLabel(row.oficina),
     },
     {
       key: "created_by",
@@ -98,14 +118,34 @@ export function HolidaysManager() {
         searchKeys={["holiday_name"]}
         isLoading={isLoading}
         headerActions={
-          <Button
-            variant="outline"
-            disabled={generateMutation.isPending || !staffRecord}
-            onClick={() => setGenerateOpen(true)}
-          >
-            <Wand2 className="h-4 w-4 mr-2" />
-            {t("holiday.generateButton", { year: targetYear })}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="icon"
+              disabled={targetYear <= minTargetYear}
+              onClick={() => setTargetYear((y) => y - 1)}
+              aria-label={t("holiday.previousYear")}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              disabled={generateMutation.isPending || !staffRecord}
+              onClick={() => setGenerateOpen(true)}
+            >
+              <Wand2 className="h-4 w-4 mr-2" />
+              {t("holiday.generateButton", { year: targetYear })}
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              disabled={targetYear >= maxTargetYear}
+              onClick={() => setTargetYear((y) => y + 1)}
+              aria-label={t("holiday.nextYear")}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
         }
         newButtonLabel={t("holiday.addHoliday")}
         onNewClick={() => {

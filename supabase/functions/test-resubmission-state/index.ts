@@ -87,6 +87,88 @@ Deno.serve(async (req) => {
     await supabase.from("clients").delete().eq("client_id", ids.clientId);
   }
 
+  // ── BUG 0526-122 helpers: holiday office-scope scenarios ────────────────
+  async function setupHolidayTestData(suffix: string, staffCity: string | null) {
+    const { data: client } = await supabase.from("clients").insert({
+      client_legal_name: `Test Holiday Client ${suffix}`,
+      unique_tax_id: `THC-${suffix}`,
+    }).select().single();
+
+    const { data: holidayEng } = await supabase.from("engagements").insert({
+      engagement_name: `Holiday Eng ${suffix}`,
+      client_id: client!.client_id,
+      work_order_required: false,
+      activity_required: false,
+      fecha_cierre: "2026-09-30",
+      approval_required: true,
+    }).select().single();
+
+    const { data: otherEng } = await supabase.from("engagements").insert({
+      engagement_name: `Other Eng ${suffix}`,
+      client_id: client!.client_id,
+      work_order_required: false,
+      activity_required: false,
+      fecha_cierre: "2026-09-30",
+      approval_required: true,
+    }).select().single();
+
+    const { data: staff } = await supabase.from("staff").insert({
+      first_name: `Test`, last_name: `HolidayStaff ${suffix}`,
+      email: `test-holiday-${suffix}@test.local`,
+      city: staffCity,
+    }).select().single();
+
+    const { data: activities } = await supabase.from("activity_codes")
+      .select("activity_id").limit(1);
+    const activityId = activities![0].activity_id;
+
+    const { data: period } = await supabase.from("timesheet_periods").insert({
+      staff_id: staff!.staff_id,
+      week_start_date: "2026-01-05",
+      week_number: 2,
+      year: 2026,
+    }).select().single();
+
+    return {
+      clientId: client!.client_id,
+      holidayEngId: holidayEng!.engagement_id,
+      otherEngId: otherEng!.engagement_id,
+      staffId: staff!.staff_id,
+      periodId: period!.period_id,
+      activityId,
+    };
+  }
+
+  async function setHolidayEngagementSetting(engagementId: string): Promise<string> {
+    const { data } = await supabase.from("global_settings")
+      .select("setting_value").eq("setting_key", "HOLIDAY_ENGAGEMENT_ID").maybeSingle();
+    const previous = data?.setting_value ?? "";
+    await supabase.from("global_settings")
+      .update({ setting_value: engagementId }).eq("setting_key", "HOLIDAY_ENGAGEMENT_ID");
+    return previous;
+  }
+
+  async function restoreHolidayEngagementSetting(previous: string) {
+    await supabase.from("global_settings")
+      .update({ setting_value: previous }).eq("setting_key", "HOLIDAY_ENGAGEMENT_ID");
+  }
+
+  async function cleanupHoliday(
+    ids: { clientId: string; staffId: string; periodId: string; holidayEngId: string; otherEngId: string },
+    holidayIds: string[],
+  ) {
+    await supabase.from("timesheet_line_approvals").delete().eq("period_id", ids.periodId);
+    await supabase.from("time_entries").delete().eq("period_id", ids.periodId);
+    await supabase.from("timesheet_periods").delete().eq("period_id", ids.periodId);
+    await supabase.from("engagements").delete().eq("engagement_id", ids.holidayEngId);
+    await supabase.from("engagements").delete().eq("engagement_id", ids.otherEngId);
+    await supabase.from("staff").delete().eq("staff_id", ids.staffId);
+    await supabase.from("clients").delete().eq("client_id", ids.clientId);
+    if (holidayIds.length > 0) {
+      await supabase.from("holidays").delete().in("holiday_id", holidayIds);
+    }
+  }
+
   try {
     // ── S4: Fresh submit baseline ──────────────────────────────
     {
@@ -379,6 +461,115 @@ Deno.serve(async (req) => {
           details: `payload=${JSON.stringify(data)} approvalIdPreserved=${approvalIdPreserved} engBReset=${engBReset} recordsSurvived=${afterUnsubmitCount === 2} engBTimestampUpdated=${engBTimestampUpdated}`,
         });
       } finally { await cleanup(ids); }
+    }
+
+    // ── S11 (0526-122): office=Todas holiday + La Paz staff → auto-approved ──
+    {
+      const ids = await setupHolidayTestData(`s11-${trace_id.slice(0, 8)}`, "La Paz");
+      const prevSetting = await setHolidayEngagementSetting(ids.holidayEngId);
+      const holidayIds: string[] = [];
+      try {
+        const { data: h } = await supabase.from("holidays").insert({
+          holiday_date: "2026-01-05",
+          holiday_name: `Test National Holiday ${ids.staffId}`,
+          oficina: 0,
+          created_by: ids.staffId,
+        }).select().single();
+        holidayIds.push(h!.holiday_id);
+
+        await supabase.from("time_entries").insert([
+          { staff_id: ids.staffId, engagement_id: ids.holidayEngId, activity_id: ids.activityId, date_worked: "2026-01-05", hours_logged: 8, period_id: ids.periodId },
+        ]);
+
+        const { data, error } = await supabase.rpc("submit_timesheet_safe", {
+          p_period_id: ids.periodId, p_staff_id: ids.staffId,
+          p_engagement_ids: [ids.holidayEngId],
+          p_activity_ids:   [ids.activityId],
+          p_is_auto_approved: false,
+        });
+        const pass = !error && data.new_auto_approved === 1 && data.new_pending === 0;
+        results.push({ scenario: "S11: La Paz staff + Todas holiday → auto-approved", pass, details: JSON.stringify(data) });
+      } finally {
+        await restoreHolidayEngagementSetting(prevSetting);
+        await cleanupHoliday(ids, holidayIds);
+      }
+    }
+
+    // ── S12 (0526-122): mixed valid/invalid dates in same line → all pending,
+    //    even with p_is_auto_approved=true (no role can bypass) ─────────────
+    {
+      const ids = await setupHolidayTestData(`s12-${trace_id.slice(0, 8)}`, "La Paz");
+      const prevSetting = await setHolidayEngagementSetting(ids.holidayEngId);
+      const holidayIds: string[] = [];
+      try {
+        const { data: h } = await supabase.from("holidays").insert({
+          holiday_date: "2026-01-05",
+          holiday_name: `Test National Holiday ${ids.staffId}`,
+          oficina: 0,
+          created_by: ids.staffId,
+        }).select().single();
+        holidayIds.push(h!.holiday_id);
+
+        // Same (period, engagement, activity) line: one valid holiday date,
+        // one date that is NOT a holiday.
+        await supabase.from("time_entries").insert([
+          { staff_id: ids.staffId, engagement_id: ids.holidayEngId, activity_id: ids.activityId, date_worked: "2026-01-05", hours_logged: 4, period_id: ids.periodId },
+          { staff_id: ids.staffId, engagement_id: ids.holidayEngId, activity_id: ids.activityId, date_worked: "2026-01-06", hours_logged: 4, period_id: ids.periodId },
+        ]);
+
+        const { data, error } = await supabase.rpc("submit_timesheet_safe", {
+          p_period_id: ids.periodId, p_staff_id: ids.staffId,
+          p_engagement_ids: [ids.holidayEngId],
+          p_activity_ids:   [ids.activityId],
+          p_is_auto_approved: true, // Director/Partner bypass — must NOT apply to this line
+        });
+        const pass = !error && data.new_pending === 1 && data.new_auto_approved === 0;
+        results.push({ scenario: "S12: mixed valid+invalid dates → whole line pending despite p_is_auto_approved=true", pass, details: JSON.stringify(data) });
+      } finally {
+        await restoreHolidayEngagementSetting(prevSetting);
+        await cleanupHoliday(ids, holidayIds);
+      }
+    }
+
+    // ── S13 (0526-122): enforce_holiday_blocking respects staff office ───────
+    {
+      const idsLp = await setupHolidayTestData(`s13lp-${trace_id.slice(0, 8)}`, "La Paz");
+      const idsSc = await setupHolidayTestData(`s13sc-${trace_id.slice(0, 8)}`, "Santa Cruz");
+      const prevSetting = await setHolidayEngagementSetting(idsLp.holidayEngId);
+      const holidayIds: string[] = [];
+      try {
+        // A Santa Cruz-exclusive holiday.
+        const { data: h } = await supabase.from("holidays").insert({
+          holiday_date: "2026-01-06",
+          holiday_name: `Test Santa Cruz Holiday ${idsLp.staffId}`,
+          oficina: 2,
+          created_by: idsLp.staffId,
+        }).select().single();
+        holidayIds.push(h!.holiday_id);
+
+        // La Paz staff logging a non-holiday engagement on that date must NOT be blocked.
+        const { error: lpError } = await supabase.from("time_entries").insert({
+          staff_id: idsLp.staffId, engagement_id: idsLp.otherEngId, activity_id: idsLp.activityId,
+          date_worked: "2026-01-06", hours_logged: 8, period_id: idsLp.periodId,
+        });
+
+        // Santa Cruz staff logging the same non-holiday engagement on that date MUST be blocked.
+        const { error: scError } = await supabase.from("time_entries").insert({
+          staff_id: idsSc.staffId, engagement_id: idsSc.otherEngId, activity_id: idsSc.activityId,
+          date_worked: "2026-01-06", hours_logged: 8, period_id: idsSc.periodId,
+        });
+
+        const pass = !lpError && !!scError && String(scError.message ?? "").includes("HOLIDAY_BLOCKED");
+        results.push({
+          scenario: "S13: enforce_holiday_blocking only applies a departmental holiday to the matching office",
+          pass,
+          details: `lpError=${lpError ? JSON.stringify(lpError.message) : "none"} scError=${scError ? JSON.stringify(scError.message) : "none"}`,
+        });
+      } finally {
+        await restoreHolidayEngagementSetting(prevSetting);
+        await cleanupHoliday(idsLp, holidayIds);
+        await cleanupHoliday(idsSc, []);
+      }
     }
 
   } catch (e) {

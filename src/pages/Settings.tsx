@@ -1023,6 +1023,17 @@ const Settings = () => {
                           <AlertDescription>{t("settings.holidayNotConfigured")}</AlertDescription>
                         </Alert>
                       )}
+                      {/* BUG 0526-122: the RPC always validates holiday dates dynamically for this
+                          engagement regardless of this flag — this is UX feedback only, not a filter,
+                          since the RPC is the real safeguard. */}
+                      {holidayEngagementId &&
+                        engagements?.find((eng) => eng.engagement_id === holidayEngagementId)
+                          ?.approval_required === false && (
+                          <Alert className="mt-2" variant="destructive">
+                            <AlertTriangle className="h-4 w-4" />
+                            <AlertDescription>{t("settings.holidayEngagementApprovalWarning")}</AlertDescription>
+                          </Alert>
+                        )}
                     </div>
 
                     {/* Tax Rate Setting */}

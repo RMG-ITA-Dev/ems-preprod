@@ -193,4 +193,13 @@ describe("TimeSheet holiday week hint (0513-112)", () => {
     renderWithRouter(<TimeSheet />);
     expect(screen.queryByText(/holidayWeekHint/)).not.toBeInTheDocument();
   });
+
+  // HH5 (BUG 0526-122): useHolidaysForWeek already filters by staff office before
+  // TimeSheet ever sees the map, so a holiday exclusive to another office is
+  // equivalent — from TimeSheet's perspective — to "no holidays this week".
+  it("HH5: hides holidayWeekHint when the week's only holiday belongs to another office (already filtered out upstream)", () => {
+    refs.holidayMap = new Map(); // useHolidaysForWeek would have excluded the other office's holiday
+    renderWithRouter(<TimeSheet />);
+    expect(screen.queryByText(/holidayWeekHint/)).not.toBeInTheDocument();
+  });
 });

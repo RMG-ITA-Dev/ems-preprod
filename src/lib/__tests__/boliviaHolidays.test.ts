@@ -42,8 +42,8 @@ describe("getBoliviaNationalHolidays — moveable dates", () => {
 });
 
 describe("getBoliviaNationalHolidays — structure", () => {
-  it("returns 11 national holidays per year", () => {
-    expect(getBoliviaNationalHolidays(2027)).toHaveLength(11);
+  it("returns 13 holidays per year (11 national + 2 departmental)", () => {
+    expect(getBoliviaNationalHolidays(2027)).toHaveLength(13);
   });
 
   it("returns sorted dates", () => {
@@ -63,15 +63,50 @@ describe("getBoliviaNationalHolidays — structure", () => {
     expect(byName["Día de los Difuntos"]).toBe("2027-11-02");
     expect(byName["Navidad"]).toBe("2027-12-25");
   });
+
+  it("BUG 0526-122: the 11 national holidays carry oficina=0", () => {
+    const nationalNames = [
+      "Año Nuevo", "Día del Estado Plurinacional", "Lunes de Carnaval",
+      "Martes de Carnaval", "Viernes Santo", "Día del Trabajo", "Corpus Christi",
+      "Año Nuevo Andino Amazónico", "Día de la Independencia", "Día de los Difuntos", "Navidad",
+    ];
+    const byName = Object.fromEntries(
+      getBoliviaNationalHolidays(2027).map((h) => [h.name, h.oficina])
+    );
+    nationalNames.forEach((name) => expect(byName[name]).toBe(0));
+  });
+
+  it("BUG 0526-122: La Paz (16-jul, oficina=1) and Santa Cruz (24-sep, oficina=2) are generated", () => {
+    const byName = Object.fromEntries(
+      getBoliviaNationalHolidays(2027).map((h) => [h.name, h])
+    );
+    expect(byName["Aniversario del Departamento de La Paz"]).toMatchObject({
+      date: "2027-07-16", oficina: 1,
+    });
+    expect(byName["Aniversario del Departamento de Santa Cruz"]).toMatchObject({
+      date: "2027-09-24", oficina: 2,
+    });
+  });
+
+  it("BUG 0526-122: La Paz/Santa Cruz transfer to Monday when falling on Sunday", () => {
+    // 2028: Jul 16 = Sunday, Sep 24 = Sunday.
+    const byName = Object.fromEntries(
+      getBoliviaNationalHolidays(2028).map((h) => [h.name, h.date])
+    );
+    expect(byName["Aniversario del Departamento de La Paz"]).toBe("2028-07-17");
+    expect(byName["Aniversario del Departamento de Santa Cruz"]).toBe("2028-09-25");
+  });
 });
 
 describe("NATIONAL_HOLIDAY_NAMES", () => {
-  it("contains all 11 canonical names", () => {
+  it("contains all 11 canonical national names, excluding departmentals", () => {
     expect(NATIONAL_HOLIDAY_NAMES.size).toBe(11);
     expect(NATIONAL_HOLIDAY_NAMES.has("Corpus Christi")).toBe(true);
     expect(NATIONAL_HOLIDAY_NAMES.has("Viernes Santo")).toBe(true);
     expect(NATIONAL_HOLIDAY_NAMES.has("Lunes de Carnaval")).toBe(true);
     expect(NATIONAL_HOLIDAY_NAMES.has("Martes de Carnaval")).toBe(true);
+    expect(NATIONAL_HOLIDAY_NAMES.has("Aniversario del Departamento de La Paz")).toBe(false);
+    expect(NATIONAL_HOLIDAY_NAMES.has("Aniversario del Departamento de Santa Cruz")).toBe(false);
   });
 
   it("does NOT contain old-format names from the Replicar feature", () => {

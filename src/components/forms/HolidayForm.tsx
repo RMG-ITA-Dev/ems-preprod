@@ -10,6 +10,13 @@ import { Input } from "@/components/ui/input";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Form,
   FormControl,
   FormField,
@@ -48,6 +55,7 @@ import type { Holiday } from "@/hooks/useHolidays";
 const formSchema = z.object({
   holiday_date: z.string().min(1, "Date is required"),
   holiday_name: z.string().min(1, "Name is required"),
+  oficina: z.number().int().min(0).max(2),
 });
 
 type FormData = z.infer<typeof formSchema>;
@@ -71,6 +79,7 @@ export function HolidayForm({ open, onOpenChange, holiday }: HolidayFormProps) {
     defaultValues: {
       holiday_date: "",
       holiday_name: "",
+      oficina: 0,
     },
   });
 
@@ -79,6 +88,7 @@ export function HolidayForm({ open, onOpenChange, holiday }: HolidayFormProps) {
       form.reset({
         holiday_date: holiday?.holiday_date ?? "",
         holiday_name: holiday?.holiday_name ?? "",
+        oficina: holiday?.oficina ?? 0,
       });
     }
   }, [open, holiday, form]);
@@ -87,6 +97,7 @@ export function HolidayForm({ open, onOpenChange, holiday }: HolidayFormProps) {
     const payload = {
       holiday_date: data.holiday_date,
       holiday_name: data.holiday_name.trim(),
+      oficina: data.oficina,
     };
     if (isEdit && holiday) {
       await updateHoliday.mutateAsync({ holiday_id: holiday.holiday_id, ...payload });
@@ -170,6 +181,32 @@ export function HolidayForm({ open, onOpenChange, holiday }: HolidayFormProps) {
                   <FormControl>
                     <Input placeholder={t("holiday.name")} {...field} />
                   </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="oficina"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t("holiday.oficina")} *</FormLabel>
+                  <Select
+                    onValueChange={(v) => field.onChange(Number(v))}
+                    value={String(field.value)}
+                  >
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder={t("engagement.selectOficina")} />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="0">{t("engagement.oficina_ambos")}</SelectItem>
+                      <SelectItem value="1">{t("engagement.oficina_laPaz")}</SelectItem>
+                      <SelectItem value="2">{t("engagement.oficina_santaCruz")}</SelectItem>
+                    </SelectContent>
+                  </Select>
                   <FormMessage />
                 </FormItem>
               )}

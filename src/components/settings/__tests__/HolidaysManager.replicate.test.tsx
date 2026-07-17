@@ -109,4 +109,38 @@ describe("HolidaysManager — generate national holidays (0513-113)", () => {
 
     expect(mutateMock).toHaveBeenCalledWith({ created_by: "staff-1", year: 2027 });
   });
+
+  // BUG 0526-122: reincorporated year selector (chevron ◀▶), range currentYear..currentYear+5.
+  it("HM4: previous-year chevron is disabled at the minimum year (currentYear)", async () => {
+    const user = userEvent.setup();
+    render(React.createElement(HolidaysManager));
+
+    const prevButton = screen.getByRole("button", { name: /holiday\.previousYear/i });
+    expect(prevButton).toBeEnabled(); // starts at currentYear+1 = 2027
+
+    await user.click(prevButton);
+    expect(prevButton).toBeDisabled(); // now at currentYear = 2026
+  });
+
+  it("HM5: next-year chevron advances the target year used on confirm", async () => {
+    const user = userEvent.setup();
+    render(React.createElement(HolidaysManager));
+
+    await user.click(screen.getByRole("button", { name: /holiday\.nextYear/i }));
+    await user.click(screen.getByRole("button", { name: /holiday\.generateButton/i }));
+    await user.click(screen.getByRole("button", { name: /common\.confirm/i }));
+
+    expect(mutateMock).toHaveBeenCalledWith({ created_by: "staff-1", year: 2028 });
+  });
+
+  it("HM6: next-year chevron is disabled at the maximum year (currentYear+5)", async () => {
+    const user = userEvent.setup();
+    render(React.createElement(HolidaysManager));
+
+    const nextButton = screen.getByRole("button", { name: /holiday\.nextYear/i });
+    for (let i = 0; i < 4; i++) {
+      await user.click(nextButton); // 2027 -> 2028 -> 2029 -> 2030 -> 2031 (=currentYear+5)
+    }
+    expect(nextButton).toBeDisabled();
+  });
 });

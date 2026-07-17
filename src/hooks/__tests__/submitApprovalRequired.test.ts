@@ -53,3 +53,40 @@ describe("submit_timesheet_safe approval_required logic (BUG 0220-61)", () => {
     expect(effective).toBe(false);
   });
 });
+
+/**
+ * BUG 0526-122: For the line whose engagement_id === HOLIDAY_ENGAGEMENT_ID,
+ * submit_timesheet_safe replaces the v_effective_auto computation above with a
+ * dynamic per-date validation — ignoring BOTH engagements.approval_required and
+ * p_is_auto_approved. All dates in the line must correspond to a real holiday
+ * applicable to the staff's office; any invalid date sends the whole line to
+ * pending, with no bypass for auto-approved roles (Partner/Director).
+ */
+describe("submit_timesheet_safe holiday-line override (BUG 0526-122)", () => {
+  // Mirrors the holiday-specific v_effective_auto branch in the RPC: it is a
+  // pure function of "are all logged dates valid holidays for this staff's
+  // office" — approval_required and p_is_auto_approved are never consulted.
+  function effectiveAutoApproveForHolidayLine(allDatesValid: boolean): boolean {
+    return allDatesValid;
+  }
+
+  it("all dates valid → auto-approved, even for a non-auto-approved staff", () => {
+    expect(effectiveAutoApproveForHolidayLine(true)).toBe(true);
+  });
+
+  it("some date invalid → pending, even for a non-auto-approved staff", () => {
+    expect(effectiveAutoApproveForHolidayLine(false)).toBe(false);
+  });
+
+  it("some date invalid → pending, even when p_is_auto_approved=true (no Partner/Director bypass)", () => {
+    // Unlike effectiveAutoApprove above, p_is_auto_approved never enters this computation.
+    expect(effectiveAutoApproveForHolidayLine(false)).toBe(false);
+  });
+
+  it("approval_required on the holiday engagement is irrelevant to the outcome", () => {
+    // Whether the stored engagements.approval_required is true or false, the
+    // dynamic per-date check is the only input — this is the exact bug being fixed.
+    const allDatesValid = true;
+    expect(effectiveAutoApproveForHolidayLine(allDatesValid)).toBe(true);
+  });
+});
