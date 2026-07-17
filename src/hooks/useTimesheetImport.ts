@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { format, parseISO, getYear } from "date-fns";
 import { getFiscalWeekNumber } from "@/lib/fiscalCalculations";
 import { supabase } from "@/integrations/supabase/client";
+import i18n from "@/i18n";
 import { useMarkTimerEntriesImported, type TimerEntry } from "@/hooks/useTimerEntries";
 import { getWeekMonday, toISODateString } from "@/lib/timesheetUtils";
 import {
@@ -19,6 +20,9 @@ export interface ImportResult {
   blockedWeeks: string[];
   woBlockedCount: number;
   woBlockedEngagements: string[];
+  // FEAT 0602-135: bloqueados porque el estado del encargo no admite carga (override ∉ {4,5}).
+  stateBlockedCount: number;
+  stateBlockedEngagements: string[];
   dbErrorCount: number;
   dbErrorWeeks: string[];
   dbErrorMessages: string[];
@@ -44,6 +48,20 @@ function isWoNotApprovedError(message?: string): boolean {
   return lower.includes("work order") && lower.includes("not approved");
 }
 
+// FEAT 0602-135: el trigger check_wo_approved bloquea encargos cuyo estado no admite carga
+// (override manual ∉ {4,5}) con el mensaje "... engagement state (override N) does not allow logging".
+function isEngagementStateBlockedError(message?: string): boolean {
+  if (!message) return false;
+  return message.toLowerCase().includes("does not allow logging");
+}
+
+// Lista acotada de códigos de encargo para el toast (máx 3 + "(+N más)" localizado vía i18n).
+function boundEngagementCodes(codes: Set<string>): string[] {
+  const arr = Array.from(codes);
+  if (arr.length <= 3) return arr;
+  return [...arr.slice(0, 3), i18n.t("tracker.moreEngagements", { count: arr.length - 3 })];
+}
+
 function isApprovedLineLockedError(message?: string): boolean {
   if (!message) return false;
   return message.toUpperCase().includes("APPROVED_LINE_LOCKED");
@@ -64,6 +82,7 @@ export function useTimesheetImport({ staffId }: { staffId: string }) {
       return {
         newCount: 0, mergedCount: 0, blockedCount: 0, blockedWeeks: [],
         woBlockedCount: 0, woBlockedEngagements: [],
+        stateBlockedCount: 0, stateBlockedEngagements: [],
         dbErrorCount: 0, dbErrorWeeks: [], dbErrorMessages: [],
       };
     }
@@ -173,6 +192,8 @@ export function useTimesheetImport({ staffId }: { staffId: string }) {
       const blockedWeeks: string[] = [];
       let woBlockedCount = 0;
       const woBlockedEngagementsSet = new Set<string>();
+      let stateBlockedCount = 0;
+      const stateBlockedEngagementsSet = new Set<string>();
       let dbErrorCount = 0;
       const dbErrorWeeks: string[] = [];
       const dbErrorMessages: string[] = [];
@@ -249,6 +270,11 @@ export function useTimesheetImport({ staffId }: { staffId: string }) {
               const code = engagementCodeMap.get(group.engagement_id)
                 || group.engagement_id.slice(0, 8);
               woBlockedEngagementsSet.add(code);
+            } else if (isEngagementStateBlockedError(updateError.message)) {
+              stateBlockedCount += group.timerIds.length;
+              const code = engagementCodeMap.get(group.engagement_id)
+                || group.engagement_id.slice(0, 8);
+              stateBlockedEngagementsSet.add(code);
             } else {
               dbErrorCount += group.timerIds.length;
               const [wy, wm, wd] = weekStartStr.split("-").map(Number);
@@ -294,6 +320,11 @@ export function useTimesheetImport({ staffId }: { staffId: string }) {
               const code = engagementCodeMap.get(group.engagement_id)
                 || group.engagement_id.slice(0, 8);
               woBlockedEngagementsSet.add(code);
+            } else if (isEngagementStateBlockedError(insertError.message)) {
+              stateBlockedCount += group.timerIds.length;
+              const code = engagementCodeMap.get(group.engagement_id)
+                || group.engagement_id.slice(0, 8);
+              stateBlockedEngagementsSet.add(code);
             } else {
               dbErrorCount += group.timerIds.length;
               const [wy, wm, wd] = weekStartStr.split("-").map(Number);
@@ -324,10 +355,8 @@ export function useTimesheetImport({ staffId }: { staffId: string }) {
       }
 
       // Bound engagement list for toast readability
-      const woEngArr = Array.from(woBlockedEngagementsSet);
-      const woBlockedEngagements = woEngArr.length > 3
-        ? [...woEngArr.slice(0, 3), `(+${woEngArr.length - 3} más)`]
-        : woEngArr;
+      const woBlockedEngagements = boundEngagementCodes(woBlockedEngagementsSet);
+      const stateBlockedEngagements = boundEngagementCodes(stateBlockedEngagementsSet);
 
       // Cache invalidation
       queryClient.invalidateQueries({ queryKey: ["time-entries"] });
@@ -335,7 +364,7 @@ export function useTimesheetImport({ staffId }: { staffId: string }) {
       queryClient.invalidateQueries({ queryKey: ["timer_entries"] });
       queryClient.invalidateQueries({ queryKey: ["timer_entries_unimported"] });
 
-      return { newCount, mergedCount, blockedCount, blockedWeeks, woBlockedCount, woBlockedEngagements, dbErrorCount, dbErrorWeeks, dbErrorMessages };
+      return { newCount, mergedCount, blockedCount, blockedWeeks, woBlockedCount, woBlockedEngagements, stateBlockedCount, stateBlockedEngagements, dbErrorCount, dbErrorWeeks, dbErrorMessages };
     } finally {
       setIsExporting(false);
     }

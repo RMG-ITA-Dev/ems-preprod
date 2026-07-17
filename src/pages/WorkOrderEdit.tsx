@@ -283,9 +283,15 @@ const WorkOrderEdit = () => {
 
   // Check if user can approve
   const canApprove = staffRecord?.category?.can_approve_wo || false;
-  // Riesgos approver = Administrator role (OQ-4). Needs a staff record because
-  // risk_approved_by references staff(staff_id).
-  const canApproveRisk = isAdmin && !!staffRecord;
+  // FEAT 0602-135: el aprobador de Riesgos es el SQR ASIGNADO al encargo (engagement.sqr_id),
+  // con el Admin como respaldo. El selector de SQR admite CUALQUIER staff activo (p. ej. un
+  // partner/director designado como revisor de calidad) y la RLS autoriza por sqr_id SOLO —sin
+  // exigir el rol global `sqr`—, así que el gate se basa en la asignación, no en el rol; de lo
+  // contrario un SQR asignado sin rol `sqr` vería los botones ocultos pese a estar autorizado en BD.
+  // Necesita staff record porque risk_approved_by referencia staff(staff_id).
+  const isAssignedSqr =
+    !!staffRecord && workOrder?.engagement?.sqr_id === staffRecord.staff_id;
+  const canApproveRisk = (isAdmin || isAssignedSqr) && !!staffRecord;
 
   const approvalStatus = workOrder?.approval_status as "Draft" | "Pending_Approval" | "Approved" | "Rejected" || "Draft";
   const isLocked = approvalStatus === "Approved" || approvalStatus === "Pending_Approval" || approvalStatus === "Rejected";
@@ -503,6 +509,11 @@ const WorkOrderEdit = () => {
       sanApprovalId,
       riskLevel,
       emergencyJustification: justification,
+      // FEAT 0602-135: reenvío tras RECHAZO de Riesgos de una OT ya cerrada → bajar el Socio a
+      // Pending_Approval para que NO sea cargable hasta que Riesgos vuelva a aprobar. La
+      // compleción de emergencia (risk no rechazado) no lo activa y sigue cargable.
+      resetSocioToPending:
+        workOrder.approval_status === "Approved" && workOrder.risk_status === "Rejected",
     });
     riskEditedRef.current = false;
   };

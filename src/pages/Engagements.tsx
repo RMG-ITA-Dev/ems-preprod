@@ -9,19 +9,20 @@ import { useCategoryStaff } from "@/hooks/useCategoryStaff";
 import { DataTable, Column } from "@/components/data-table/DataTable";
 import { useNavigate } from "react-router-dom";
 import { useUserRole } from "@/hooks/useUserRole";
+import {
+  effectiveEngagementState,
+  engagementStateI18nKey,
+  engagementStateBadgeClass,
+  ENGAGEMENT_STATES,
+} from "@/lib/engagementStatus";
 
+// FEAT 0602-135: fila con el estado efectivo precalculado (string) para el badge y el filtro.
 interface EngagementRow extends Engagement {
   start_date: string | null;
   end_date: string | null;
   is_internal: boolean;
+  effective_state: string;
 }
-
-const statusColors: Record<string, string> = {
-  active: "bg-accent/10 text-accent border-accent/20",
-  completed: "bg-success/10 text-success border-success/20",
-  pending: "bg-warning/10 text-warning border-warning/20",
-  cancelled: "bg-muted text-muted-foreground border-border",
-};
 
 const Engagements = () => {
   const { t } = useTranslation();
@@ -31,7 +32,12 @@ const Engagements = () => {
   const { isAdmin, isPartner, isDirector, isManager, isSQR } = useUserRole();
   const canCreate = isAdmin || isPartner || isDirector || isManager || isSQR;
 
-  const columns: Column<Engagement>[] = [
+  const rows: EngagementRow[] = (engagements || []).map((e) => ({
+    ...e,
+    effective_state: String(effectiveEngagementState(e, e.work_order)),
+  })) as EngagementRow[];
+
+  const columns: Column<EngagementRow>[] = [
     {
       key: "engagement_code",
       label: t("engagement.code"),
@@ -93,30 +99,33 @@ const Engagements = () => {
       },
     },
     {
-      key: "status",
+      key: "effective_state",
       label: t("engagement.status"),
       sortable: true,
-      filterKey: "status",
+      filterKey: "effective_state",
       mobilePriority: 'primary',
-      render: (row) => (
-        <div className="flex items-center gap-2">
-          <Badge variant="outline" className={statusColors[row.status] || statusColors.pending}>
-            {t(`status.${row.status}`)}
-          </Badge>
-          {(row as EngagementRow).is_internal && (
-            <Badge variant="outline" className="bg-accent/10 text-accent border-accent/20 text-xs">
-              {t("engagement.internal")}
+      render: (row) => {
+        const state = Number(row.effective_state);
+        return (
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className={engagementStateBadgeClass(state)}>
+              {t(engagementStateI18nKey(state))}
             </Badge>
-          )}
-        </div>
-      ),
+            {row.is_internal && (
+              <Badge variant="outline" className="bg-accent/10 text-accent border-accent/20 text-xs">
+                {t("engagement.internal")}
+              </Badge>
+            )}
+          </div>
+        );
+      },
     },
   ];
 
   return (
     <AppLayout title={t("nav.engagements")}>
       <DataTable
-        data={engagements || []}
+        data={rows}
         columns={columns}
         searchPlaceholder={t("engagement.searchPlaceholder")}
         searchKeys={["engagement_code", "engagement_name", "client.client_legal_name"]}
@@ -138,13 +147,11 @@ const Engagements = () => {
           },
         ]}
         statusFilter={{
-          key: "status",
-          options: [
-            { value: "active", label: t("status.active") },
-            { value: "pending", label: t("status.pending") },
-            { value: "completed", label: t("status.completed") },
-            { value: "cancelled", label: t("status.cancelled") },
-          ],
+          key: "effective_state",
+          options: ENGAGEMENT_STATES.map((s) => ({
+            value: String(s),
+            label: t(engagementStateI18nKey(s)),
+          })),
         }}
       />
     </AppLayout>

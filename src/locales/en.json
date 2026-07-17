@@ -163,6 +163,8 @@
     "dbErrorReasonApprovedLine": "approval line is already locked",
     "dbErrorReasonGeneric": "internal error — please retry or contact the administrator",
     "exportBlockedWO": "{{count}} record(s) not exported: Work Order not approved ({{engagements}})",
+    "exportBlockedState": "{{count}} record(s) not exported: the engagement's current state doesn't allow logging hours ({{engagements}})",
+    "moreEngagements": "(+{{count}} more)",
     "woNotApproved": "Work Order is not approved for this engagement.",
     "woNotApprovedSave": "Cannot save: the Work Order for this engagement is not approved. Select an approved engagement.",
     "woNotApprovedEdit": "This engagement's Work Order is not approved. Select an approved engagement to save.",
@@ -282,6 +284,18 @@
     "pending": "Pending",
     "completed": "Completed",
     "cancelled": "Cancelled"
+  },
+  "engagementState": {
+    "1": "Pending",
+    "2": "Partner Approved",
+    "3": "Risk Approved",
+    "4": "Approved",
+    "5": "Emergency Approved",
+    "6": "Cancelled",
+    "7": "Finalized",
+    "8": "Rejected",
+    "9": "Frozen",
+    "auto": "Automatic (from WO)"
   },
   "settings": {
     "title": "Settings",
@@ -649,6 +663,10 @@
     "searchPlaceholder": "Search by code, name, or client...",
     "selectClient": "Select a client",
     "selectStatus": "Select status",
+    "freezeToggle": "Freeze engagement",
+    "freezeHint": "Turning this on blocks logging hours and expense requests; turning it off returns it to Approved.",
+    "freezeUnavailable": "Only available when the engagement is Approved.",
+    "datesLockedByState": "Dates can't be edited in this state (Cancelled, Finalized, or Frozen).",
     "selectPartner": "Select Partner/Director",
     "selectManager": "Select Manager/Supervisor",
     "sqr": "SQR (Quality Review Partner)",

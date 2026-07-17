@@ -326,6 +326,7 @@ const TrackerList = () => {
     newCount: number; mergedCount: number;
     blockedCount: number; blockedWeeks: string[];
     woBlockedCount: number; woBlockedEngagements: string[];
+    stateBlockedCount: number; stateBlockedEngagements: string[];
     dbErrorCount: number; dbErrorWeeks: string[]; dbErrorMessages: string[];
   }) => {
     if (result.mergedCount > 0) {
@@ -340,6 +341,12 @@ const TrackerList = () => {
       toast.error(t("tracker.exportBlockedWO", {
         count: result.woBlockedCount,
         engagements: result.woBlockedEngagements.join(", ")
+      }));
+    }
+    if (result.stateBlockedCount > 0) {
+      toast.error(t("tracker.exportBlockedState", {
+        count: result.stateBlockedCount,
+        engagements: result.stateBlockedEngagements.join(", ")
       }));
     }
     if (result.blockedCount > 0) {

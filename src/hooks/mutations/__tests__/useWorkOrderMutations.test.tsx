@@ -530,6 +530,26 @@ describe("useWorkOrderMutations", () => {
       expect(arg.risk_status).toBe("Pending");
       expect(arg.emergency_justification).toBe("Facturación urgente por cierre fiscal");
     });
+
+    it("FEAT 0602-135: resetSocioToPending=true baja approval_status a Pending_Approval (reenvío tras rechazo)", async () => {
+      const mockData = { wo_id: "wo-1", risk_status: "Pending" };
+      const mockSingle = vi.fn().mockResolvedValue({ data: mockData, error: null });
+      const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
+      const mockEq = vi.fn().mockReturnValue({ select: mockSelect });
+      const mockUpdate = vi.fn().mockReturnValue({ eq: mockEq });
+      vi.mocked(supabase.from).mockReturnValue({ update: mockUpdate } as any);
+
+      const { result } = renderHook(() => useCompleteRiskAssessment(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate({ woId: "wo-1", resetSocioToPending: true });
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      const arg = mockUpdate.mock.calls[0][0];
+      expect(arg.risk_status).toBe("Pending");
+      expect(arg.approval_status).toBe("Pending_Approval");
+    });
   });
 
   // Pseudo-describe que el test original nombra incorrectamente como useCompleteRiskAssessment

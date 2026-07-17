@@ -2,9 +2,15 @@ import { useCallback, useMemo, useState } from "react";
 import { parseDateLocal } from "@/lib/timesheetUtils";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import { useEngagements, useStaff } from "@/hooks/useEmsData";
+import { useEngagements, useStaff, type Engagement } from "@/hooks/useEmsData";
 import { useUserRole } from "@/hooks/useUserRole";
 import { useCategoryStaff } from "@/hooks/useCategoryStaff";
+import {
+  effectiveEngagementState,
+  engagementStateI18nKey,
+  engagementStateBadgeClass,
+  ENGAGEMENT_STATES,
+} from "@/lib/engagementStatus";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -77,9 +83,11 @@ export function ClientEngagementsTable({ clientId }: ClientEngagementsTableProps
       );
     }
 
-    // Status filter
+    // Status filter (FEAT 0602-135: por estado efectivo del encargo)
     if (statusFilter !== "all") {
-      result = result.filter((e) => e.status === statusFilter);
+      result = result.filter(
+        (e) => String(effectiveEngagementState(e, e.work_order)) === statusFilter,
+      );
     }
 
     // Partner filter
@@ -128,8 +136,8 @@ export function ClientEngagementsTable({ clientId }: ClientEngagementsTableProps
             bVal = b.fecha_cierre || "";
             break;
           case "status":
-            aVal = a.status || "";
-            bVal = b.status || "";
+            aVal = String(effectiveEngagementState(a, a.work_order));
+            bVal = String(effectiveEngagementState(b, b.work_order));
             break;
         }
 
@@ -161,15 +169,14 @@ export function ClientEngagementsTable({ clientId }: ClientEngagementsTableProps
     return <ArrowDown className="h-3 w-3 ml-1" />;
   };
 
-  const getStatusBadge = (status: string | null) => {
-    const statusMap: Record<string, { variant: "default" | "secondary" | "destructive" | "outline"; label: string }> = {
-      active: { variant: "default", label: t("status.active") },
-      pending: { variant: "secondary", label: t("status.pending") },
-      completed: { variant: "outline", label: t("status.completed") },
-      cancelled: { variant: "destructive", label: t("status.cancelled") },
-    };
-    const config = statusMap[status || "active"] || statusMap.active;
-    return <Badge variant={config.variant}>{config.label}</Badge>;
+  // FEAT 0602-135: badge por estado efectivo del encargo (9 estados).
+  const getStateBadge = (engagement: Engagement) => {
+    const state = effectiveEngagementState(engagement, engagement.work_order);
+    return (
+      <Badge variant="outline" className={engagementStateBadgeClass(state)}>
+        {t(engagementStateI18nKey(state))}
+      </Badge>
+    );
   };
 
   const formatDate = (dateStr: string | null) => {
@@ -195,10 +202,11 @@ export function ClientEngagementsTable({ clientId }: ClientEngagementsTableProps
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">{t("common.allStatus")}</SelectItem>
-            <SelectItem value="active">{t("status.active")}</SelectItem>
-            <SelectItem value="pending">{t("status.pending")}</SelectItem>
-            <SelectItem value="completed">{t("status.completed")}</SelectItem>
-            <SelectItem value="cancelled">{t("status.cancelled")}</SelectItem>
+            {ENGAGEMENT_STATES.map((s) => (
+              <SelectItem key={s} value={String(s)}>
+                {t(engagementStateI18nKey(s))}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
         <Select value={partnerFilter} onValueChange={setPartnerFilter}>
@@ -347,7 +355,7 @@ export function ClientEngagementsTable({ clientId }: ClientEngagementsTableProps
                   <TableCell className="text-center border-r border-border">{formatDate(engagement.start_date)}</TableCell>
                   <TableCell className="text-center border-r border-border">{formatDate(engagement.end_date)}</TableCell>
                   <TableCell className="text-center border-r border-border">{formatDate(engagement.fecha_cierre)}</TableCell>
-                  <TableCell className="text-center">{getStatusBadge(engagement.status)}</TableCell>
+                  <TableCell className="text-center">{getStateBadge(engagement)}</TableCell>
                 </TableRow>
               ))
             )}
