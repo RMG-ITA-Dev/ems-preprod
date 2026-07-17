@@ -509,6 +509,11 @@ const WorkOrderEdit = () => {
       sanApprovalId,
       riskLevel,
       emergencyJustification: justification,
+      // FEAT 0602-135: reenvío tras RECHAZO de Riesgos de una OT ya cerrada → bajar el Socio a
+      // Pending_Approval para que NO sea cargable hasta que Riesgos vuelva a aprobar. La
+      // compleción de emergencia (risk no rechazado) no lo activa y sigue cargable.
+      resetSocioToPending:
+        workOrder.approval_status === "Approved" && workOrder.risk_status === "Rejected",
     });
     riskEditedRef.current = false;
   };

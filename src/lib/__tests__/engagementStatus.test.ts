@@ -179,6 +179,41 @@ describe("transición Aprobado de emergencia (5) → Aprobado (4) al completar d
   });
 });
 
+describe("reenvío tras RECHAZO de Riesgos (P1) — NO cargable hasta que Riesgos apruebe", () => {
+  // El reenvío tras rechazo baja approval_status a 'Pending_Approval' (approved_at se preserva),
+  // a diferencia de la compleción de emergencia que deja approval_status='Approved'. Así se
+  // distinguen los dos casos que en la BD comparten risk_status='Pending'.
+  it("Socio aprobado + Riesgos rechazado → 8 Rechazado (ventana previa al reenvío)", () => {
+    expect(
+      deriveEngagementState(woRequired, {
+        approval_status: "Approved",
+        approved_at: "2026-07-01T00:00:00Z",
+        risk_status: "Rejected",
+      }),
+    ).toBe(EngagementState.Rechazado);
+  });
+
+  it("reenvío tras rechazo (approval baja a Pending_Approval, risk→Pending, approved_at intacto) → 2 Aprobado Socio", () => {
+    const derived = deriveEngagementState(woRequired, {
+      approval_status: "Pending_Approval",
+      approved_at: "2026-07-01T00:00:00Z",
+      risk_status: "Pending",
+    });
+    expect(derived).toBe(EngagementState.AprobadoSocio);
+    expect(canLogHours(derived)).toBe(false);
+  });
+
+  it("Riesgos vuelve a aprobar → cierra a 4 Aprobado (cargable)", () => {
+    const derived = deriveEngagementState(woRequired, {
+      approval_status: "Approved",
+      approved_at: "2026-07-01T00:00:00Z",
+      risk_status: "Approved",
+    });
+    expect(derived).toBe(EngagementState.Aprobado);
+    expect(canLogHours(derived)).toBe(true);
+  });
+});
+
 describe("etiquetas i18n de los 9 estados", () => {
   ENGAGEMENT_STATES.forEach((state) => {
     const key = engagementStateI18nKey(state);
