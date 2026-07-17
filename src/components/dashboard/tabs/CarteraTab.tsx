@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useDashboard } from '@/contexts/DashboardContext';
 import { useCurrentStaff } from '@/hooks/useCurrentStaff';
+import { isHiddenFromActivePickers } from '@/lib/engagementStatus';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
@@ -65,13 +66,14 @@ export function CarteraTab() {
       if (!staffRecord?.staff_id) return [];
 
       // Get engagements where user is partner or manager
-      const { data: engagements, error: engError } = await supabase
+      const { data: rawEngagements, error: engError } = await supabase
         .from('engagements')
         .select(`
           engagement_id,
           engagement_code,
           engagement_name,
           status,
+          engagement_state_override,
           client:clients(client_legal_name)
         `)
         .or(`partner_id.eq.${staffRecord.staff_id},manager_id.eq.${staffRecord.staff_id}`)
@@ -79,6 +81,10 @@ export function CarteraTab() {
         .abortSignal(signal);
 
       if (engError) throw engError;
+      // FEAT 0602-135: excluir estados terminales/pausados (override 6/7/9) aunque status='active'.
+      const engagements = (rawEngagements ?? []).filter(
+        (e) => !isHiddenFromActivePickers((e as { engagement_state_override?: number | null }).engagement_state_override)
+      );
       if (!hasItems(engagements)) return [];
 
       const engagementIds = engagements.map(e => e.engagement_id);
@@ -238,12 +244,15 @@ export function CarteraTab() {
       // Get engagements where user is partner or manager
       const { data: engagements } = await supabase
         .from('engagements')
-        .select('engagement_id')
+        .select('engagement_id, engagement_state_override')
         .or(`partner_id.eq.${staffRecord.staff_id},manager_id.eq.${staffRecord.staff_id}`)
         .eq('status', 'active')
         .abortSignal(signal);
 
-      const engagementIds = engagements?.map((e) => e.engagement_id) ?? [];
+      // FEAT 0602-135: excluir estados terminales/pausados (override 6/7/9).
+      const engagementIds = (engagements ?? [])
+        .filter((e) => !isHiddenFromActivePickers((e as { engagement_state_override?: number | null }).engagement_state_override))
+        .map((e) => e.engagement_id);
 
       // Empty-array guard: skip the .in() round-trip; render flat 8-bucket sparkline.
       if (!hasItems(engagementIds)) {

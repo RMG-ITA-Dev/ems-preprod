@@ -251,6 +251,36 @@ describe("useTimesheetImport.exportEntries", () => {
     expect(exportResult!.dbErrorMessages).toEqual([""]);
   });
 
+  // E5b (FEAT 0602-135): INSERT blocked by engagement state → stateBlockedCount, not dbError/woBlocked
+  it("INSERT blocked by engagement state (does not allow logging) → stateBlockedCount=1", async () => {
+    mockMaybeSinglePeriod.mockResolvedValueOnce({
+      data: { period_id: "p1", submitted_at: null },
+      error: null,
+    });
+    mockMaybeSingleTimeEntries.mockResolvedValueOnce({ data: null, error: null });
+    mockSingleTimeEntries.mockResolvedValueOnce({
+      data: null,
+      error: { message: "Cannot log time: engagement state (override 9) does not allow logging" },
+    });
+
+    const { result } = renderHook(
+      () => useTimesheetImport({ staffId: "staff-1" }),
+      { wrapper: createWrapper() }
+    );
+
+    let exportResult: Awaited<ReturnType<typeof result.current.exportEntries>>;
+    await act(async () => {
+      exportResult = await result.current.exportEntries([
+        makeEntry({ timer_id: "t1", engagement_id: "e1", activity_id: "a1", started_at: "2026-03-06T08:00:00Z" }),
+      ]);
+    });
+
+    expect(exportResult!.stateBlockedCount).toBe(1);
+    expect(exportResult!.stateBlockedEngagements).toHaveLength(1);
+    expect(exportResult!.dbErrorCount).toBe(0);
+    expect(exportResult!.woBlockedCount).toBe(0);
+  });
+
   // E6: successful export
   it("E6: successful INSERT → newCount=1, dbErrorCount=0, markImported called with timer→time_id", async () => {
     mockMaybeSinglePeriod.mockResolvedValueOnce({

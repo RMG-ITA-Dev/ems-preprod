@@ -33,6 +33,7 @@ export function useCreateEngagement() {
       // client-side update, which was subject to the "Team can update engagements" RLS policy
       // and could silently fail for a creator who isn't the assigned partner/manager/admin.
       contract_file_path?: string | null;
+      taxonomy_id?: string | null;
     }) => {
       const { data: result, error } = await supabase.rpc("create_engagement_with_code", {
         p_engagement_name:     data.engagement_name,
@@ -57,6 +58,7 @@ export function useCreateEngagement() {
         p_specialist_it_id:    data.specialist_it_id ?? null,
         p_specialist_tax_id:   data.specialist_tax_id ?? null,
         p_contract_file_path:  data.contract_file_path ?? null,
+        p_taxonomy_id:         data.taxonomy_id ?? null,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
       }) as unknown as { data: any; error: any };
       if (error) throw error;
@@ -101,11 +103,17 @@ export function useUpdateEngagement() {
         encargado_id: string | null;
         specialist_it_id: string | null;
         specialist_tax_id: string | null;
+        // FEAT 0602-135: override manual del estado (1..9) o null para volver al derivado.
+        engagement_state_override: number | null;
+        taxonomy_id: string | null;
       }>;
     }) => {
       const { data: result, error } = await supabase
         .from("engagements")
-        .update(data)
+        // engagement_state_override lo agrega la migración 20260714000000 y aún no está en los
+        // tipos generados; el cast puentea hasta regenerar types.ts tras el deploy.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .update(data as any)
         .eq("engagement_id", id)
         .select()
         .single();
@@ -114,6 +122,15 @@ export function useUpdateEngagement() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["engagements"] });
+      // FEAT 0602-135: esta mutación puede cambiar engagement_state_override, y los selectores
+      // "activos" filtran por estado efectivo (ocultan 6/7/9). Sin invalidar sus cachés, un encargo
+      // recién congelado/finalizado seguiría seleccionable hasta que el trigger rechace el guardado.
+      // (Prefijo de key: invalida también las variantes con staffId, p. ej. ["approved-engagements", id].)
+      queryClient.invalidateQueries({ queryKey: ["approved-engagements"] });
+      queryClient.invalidateQueries({ queryKey: ["approved-engagements-for-tracker"] });
+      queryClient.invalidateQueries({ queryKey: ["engagements-for-manual-entry"] });
+      queryClient.invalidateQueries({ queryKey: ["engagements-without-worksheet"] });
+      queryClient.invalidateQueries({ queryKey: ["encargo-engagements"] });
       toast.success(i18n.t("messages.updateSuccess", { entity: i18n.t("entities.engagement") }));
     },
     onError: createMutationErrorHandler("updating engagement"),

@@ -59,6 +59,7 @@ vi.mock("@/hooks/useEmsData", () => ({
     { client_id: "c1", client_legal_name: "Acme Corp", is_active: true },
   ] }),
   useServices: () => ({ data: mockServices }),
+  useTaxonomies: () => ({ data: [] }),
 }));
 
 // BUG #0625-151 added useCurrentStaff (→ useAuth) to EngagementForm; mock it so the
@@ -101,6 +102,24 @@ vi.mock("@/hooks/mutations", () => ({
 }));
 
 vi.mock("@/hooks/useUserRole", () => ({ useUserRole: vi.fn() }));
+
+vi.mock("@/hooks/useCurrentStaff", () => ({
+  useCurrentStaff: () => ({ staffRecord: null }),
+}));
+
+// 0625-151: creating a non-internal engagement now requires an uploaded contract file.
+const mockContractUpload = vi.fn().mockResolvedValue({ data: { path: "contracts/1-abc.pdf" }, error: null });
+vi.mock("@/integrations/supabase/client", () => ({
+  supabase: {
+    storage: {
+      from: vi.fn(() => ({ upload: mockContractUpload })),
+    },
+  },
+}));
+
+function makePdfFile(name = "contrato.pdf", sizeBytes = 1024) {
+  return new File([new Uint8Array(sizeBytes)], name, { type: "application/pdf" });
+}
 
 // Mock Calendar with a simple date input so date fields can be set via fireEvent (Review 2)
 vi.mock("@/components/ui/calendar", () => ({
@@ -154,6 +173,7 @@ const mockEngagementInactiveService: Engagement = {
   practica:            0,
   funcion:             1,
   anio_fiscal:         2026,
+  taxonomy_id:         null,
 };
 
 describe("EngagementForm — catalog-driven practica (0625-149)", () => {
@@ -265,11 +285,12 @@ describe("0625-148 — role-based service restriction", () => {
     await waitFor(() => screen.getByRole("option", { name: "engagement.funcion_cli" }));
     await user.click(screen.getByRole("option", { name: "engagement.funcion_cli" }));
 
-    // BUG 0604-143: anio_fiscal derives from the closing date, so pick the first upcoming
-    // close to complete the code (oficina=0, practica=1, funcion=1 → "YYYY.011.---").
-    const closingDateSelect = screen.getByRole("combobox", { name: "engagement.closingDate *" });
-    await user.click(closingDateSelect);
-    await user.click((await screen.findAllByRole("option"))[0]);
+    // 0604-143: the preview also requires a closing date; pick whichever option comes first.
+    // anio_fiscal is auto-defaulted; oficina=0, practica=1, funcion=1 → "YYYY.011.---"
+    const closingDate = screen.getByRole("combobox", { name: "engagement.closingDate *" });
+    await user.click(closingDate);
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBeGreaterThan(0));
+    await user.click(screen.getAllByRole("option")[0]);
 
     const preview = screen.getByTestId("engagement-code-preview");
     await waitFor(() => {
@@ -287,6 +308,8 @@ describe("0625-148 — role-based service restriction", () => {
   });
 
   // Review 2: wire create mutation, submit a valid form, click "crear otro", assert reset state
+  // Extended timeout: drives many sequential Selects (client/partner/manager/oficina/funcion/
+  // closingDate) plus the create-and-reset round trip, which is slow with real timers.
   it("non-admin 'crear otro': after reset, practica shows Auditoría and select is disabled", async () => {
     const user = userEvent.setup();
     mockCreateMutateAsync.mockResolvedValue({ engagement_code: "2026.011.001" });
@@ -325,24 +348,22 @@ describe("0625-148 — role-based service restriction", () => {
     await waitFor(() => screen.getByRole("option", { name: "engagement.oficina_ambos" }));
     await user.click(screen.getByRole("option", { name: "engagement.oficina_ambos" }));
 
-    // Select funcion (funcion_cli = 1)
+    // Select funcion (funcion_adm = 0 — avoids the Cliente-only taxonomy requirement below)
     const funcion = screen.getByLabelText(/engagement\.funcion/);
     await user.click(funcion);
-    await waitFor(() => screen.getByRole("option", { name: "engagement.funcion_cli" }));
-    await user.click(screen.getByRole("option", { name: "engagement.funcion_cli" }));
+    await waitFor(() => screen.getByRole("option", { name: "engagement.funcion_adm" }));
+    await user.click(screen.getByRole("option", { name: "engagement.funcion_adm" }));
 
-    // BUG 0604-143: anio_fiscal derives from the closing date — pick the first upcoming close
-    // so the form passes validation on submit.
-    const closingDateSelect = screen.getByRole("combobox", { name: "engagement.closingDate *" });
-    await user.click(closingDateSelect);
-    await user.click((await screen.findAllByRole("option"))[0]);
+    // 0604-143: closing date is required before the form can be submitted.
+    const closingDate = screen.getByRole("combobox", { name: "engagement.closingDate *" });
+    await user.click(closingDate);
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBeGreaterThan(0));
+    await user.click(screen.getAllByRole("option")[0]);
 
-    // BUG 0625-151: a client (non-internal) engagement requires a scanned contract before submit.
+    // 0625-151: upload the (now mandatory) scanned contract before submitting.
     const contractInput = document.getElementById("engagement-contract-upload") as HTMLInputElement;
-    fireEvent.change(contractInput, {
-      target: { files: [new File([new Uint8Array(1024)], "contrato.pdf", { type: "application/pdf" })] },
-    });
-    await waitFor(() => expect(screen.getByText("contrato.pdf")).toBeInTheDocument());
+    fireEvent.change(contractInput, { target: { files: [makePdfFile()] } });
+    await waitFor(() => expect(mockContractUpload).toHaveBeenCalledTimes(1));
 
     // practica is auto-assigned to Auditoría; submit
     await user.click(screen.getByText("engagement.createEngagement"));
@@ -360,5 +381,5 @@ describe("0625-148 — role-based service restriction", () => {
       expect(practica).toHaveTextContent("Auditoría");
       expect(practica).toBeDisabled();
     });
-  });
+  }, 15000);
 });

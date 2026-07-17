@@ -37,6 +37,7 @@ vi.mock("@/hooks/useEmsData", () => ({
   useSkills: () => ({ data: [], isLoading: false }),
   useEngagements: () => ({ data: [] }),
   useServices: () => ({ data: [], isLoading: false }),
+  useTaxonomies: () => ({ data: [], isLoading: false }),
 }));
 vi.mock("@/hooks/mutations", () => ({ useUpdateGlobalSetting: () => ({ mutateAsync: vi.fn(), isPending: false }), useReorderServiceActivity: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }), useMoveCategory: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }), useCopyCategories: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }) }));
 vi.mock("@/hooks/useUserRole", () => ({ useUserRole: () => ({ isAdmin: true }) }));

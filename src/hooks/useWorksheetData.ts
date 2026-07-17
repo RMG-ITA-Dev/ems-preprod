@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Category, ActivityCode, Engagement } from "./useEmsData";
+import { isHiddenFromActivePickers } from "@/lib/engagementStatus";
 
 export interface Worksheet {
   id: string;
@@ -170,6 +171,7 @@ export function useEngagementsWithoutWorksheet() {
           engagement_name,
           engagement_code,
           status,
+          engagement_state_override,
           client:clients (
             client_id,
             client_legal_name
@@ -200,9 +202,12 @@ export function useEngagementsWithoutWorksheet() {
 
       const worksheetEngagementIds = new Set(worksheets?.map((w) => w.engagement_id) || []);
 
-      // Filter out engagements that already have worksheets
+      // Filter out engagements that already have worksheets, and terminal/frozen states
+      // (FEAT 0602-135: override 6/7/9 no aparecen en la Matriz de Trabajo aunque status='active').
       return (engagements || []).filter(
-        (e) => !worksheetEngagementIds.has(e.engagement_id)
+        (e) =>
+          !worksheetEngagementIds.has(e.engagement_id) &&
+          !isHiddenFromActivePickers((e as { engagement_state_override?: number | null }).engagement_state_override)
       ) as Engagement[];
     },
   });

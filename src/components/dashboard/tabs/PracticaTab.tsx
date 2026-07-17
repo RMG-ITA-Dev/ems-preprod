@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useDashboard } from "@/contexts/DashboardContext";
+import { isHiddenFromActivePickers } from "@/lib/engagementStatus";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
@@ -63,12 +64,36 @@ export function PracticaTab() {
         .from('engagements')
         .select(`
           engagement_id,
-          status
+          status,
+          engagement_state_override
         `)
         .eq('status', 'active')
         .abortSignal(signal);
 
-      const engagementIds = engagements?.map(e => e.engagement_id) || [];
+      // FEAT 0602-135: excluir estados terminales/pausados (override 6/7/9).
+      const engagementIds = (engagements ?? [])
+        .filter((e) => !isHiddenFromActivePickers((e as { engagement_state_override?: number | null }).engagement_state_override))
+        .map((e) => e.engagement_id);
+
+      // Sin encargos operativos: devolver métricas en cero sin emitir `.in('...', [])`.
+      if (!hasItems(engagementIds)) {
+        const { count: emptyPendingCount } = await supabase
+          .from('timesheet_line_approvals')
+          .select('*', { count: 'exact', head: true })
+          .eq('status', 'pending')
+          .abortSignal(signal);
+        return {
+          totalActiveEngagements: 0,
+          totalBudgetHours: 0,
+          totalActualHours: 0,
+          totalStandardFees: 0,
+          totalAdjustedFees: 0,
+          utilizationPercent: 0,
+          atRiskEngagements: 0,
+          overBudgetEngagements: 0,
+          pendingApprovals: emptyPendingCount || 0,
+        };
+      }
 
       // Get work order summaries
       const { data: woSummaries } = await supabase
@@ -181,13 +206,15 @@ export function PracticaTab() {
 
       const { data: engagementRows } = await supabase
         .from('engagements')
-        .select('engagement_id, partner_id')
+        .select('engagement_id, partner_id, engagement_state_override')
         .in('partner_id', partnerIds)
         .eq('status', 'active')
         .abortSignal(signal);
 
+      // FEAT 0602-135: excluir estados terminales/pausados (override 6/7/9).
       const engagements: LeaderboardEngagementRow[] = (engagementRows ?? [])
-        .filter((e): e is { engagement_id: string; partner_id: string } => !!e.partner_id)
+        .filter((e): e is { engagement_id: string; partner_id: string; engagement_state_override?: number | null } =>
+          !!e.partner_id && !isHiddenFromActivePickers((e as { engagement_state_override?: number | null }).engagement_state_override))
         .map((e) => ({ engagement_id: e.engagement_id, partner_id: e.partner_id }));
 
       const engagementIds = engagements.map((e) => e.engagement_id);

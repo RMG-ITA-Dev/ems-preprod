@@ -31,22 +31,25 @@ vi.mock("react-i18next", () => ({
 }));
 
 // Stable references are required: `allServices` (from useServices) is a useEffect dependency
-// in EngagementForm (the auto-assign-practica effect). Returning a new [] on every render
-// makes that effect re-run → setValue → re-render forever (infinite loop). Same pattern as
-// WorkOrderNew.focus-cancel.test.tsx.
+// in EngagementForm (the auto-assign-practica effect), and `allTaxonomies` (from useTaxonomies)
+// feeds a useMemo. Returning a new [] on every render makes these re-run → setValue → re-render
+// forever (infinite loop). Same pattern as WorkOrderNew.focus-cancel.test.tsx.
 const stableClients: never[] = [];
 const stableServices: never[] = [];
+const stableTaxonomies: never[] = [];
 vi.mock("@/hooks/useEmsData", () => ({
   useClients: () => ({ data: stableClients }),
   useServices: () => ({ data: stableServices }),
+  useTaxonomies: () => ({ data: stableTaxonomies }),
 }));
 
+const emptyStaffList: never[] = [];
 vi.mock("@/hooks/useCategoryStaff", () => ({
   useCategoryStaff: () => ({
-    partners: [],
-    partnerOptions: [],
-    managerOptions: [],
-    allActiveStaff: [],
+    partners: emptyStaffList,
+    partnerOptions: emptyStaffList,
+    managerOptions: emptyStaffList,
+    allActiveStaff: emptyStaffList,
     hasPartnerCategory: true,
     hasManagerCategory: true,
   }),
