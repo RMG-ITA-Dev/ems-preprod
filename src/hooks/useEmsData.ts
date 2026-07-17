@@ -108,6 +108,9 @@ export interface Engagement {
   specialist_it_id: string | null;
   specialist_tax_id: string | null;
   contract_file_path: string | null;
+  // FEAT 0602-135: override manual del estado del encargo (1..9). NULL = derivado de la OT.
+  engagement_state_override?: number | null;
+  taxonomy_id: string | null;
   client?: Client;
   partner?: Staff;
   manager?: Staff;
@@ -115,6 +118,13 @@ export interface Engagement {
   encargado?: Staff;
   specialist_it?: Staff;
   specialist_tax?: Staff;
+  // FEAT 0602-135: OT asociada (1:1) para derivar el estado efectivo. Normalizada a objeto o null.
+  work_order?: {
+    approval_status: string | null;
+    approved_at: string | null;
+    risk_status: string | null;
+  } | null;
+  taxonomy?: Taxonomy;
 }
 
 export interface WOPaymentInstallment {
@@ -211,6 +221,15 @@ export interface Service {
   abbreviation?: string | null;
 }
 
+export interface Taxonomy {
+  taxonomy_id: string;
+  code: string;
+  name: string;
+  service_id: string | null;
+  is_active: boolean;
+  created_at: string;
+}
+
 export interface Skill {
   skill_id: string;
   name: string;
@@ -257,6 +276,21 @@ export function useServices() {
         .order('code');
       if (error) throw error;
       return data as Service[];
+    },
+  });
+}
+
+export function useTaxonomies() {
+  return useQuery({
+    queryKey: ['taxonomies'],
+    queryFn: async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any)
+        .from('taxonomies')
+        .select('*')
+        .order('code');
+      if (error) throw error;
+      return data as Taxonomy[];
     },
   });
 }
@@ -424,11 +458,32 @@ export function useEngagements() {
           sqr:staff!engagements_sqr_id_fkey(*),
           encargado:staff!engagements_encargado_id_fkey(*),
           specialist_it:staff!engagements_specialist_it_id_fkey(*),
-          specialist_tax:staff!engagements_specialist_tax_id_fkey(*)
+          specialist_tax:staff!engagements_specialist_tax_id_fkey(*),
+          taxonomy:taxonomies(*)
         `)
         .order('created_at', { ascending: false });
       if (error) throw error;
-      return data as Engagement[];
+      // FEAT 0602-135: el estado de la OT para el badge se lee de la vista RLS-safe
+      // engagement_wo_state (work_orders SELECT es team/admin-only, pero el listado de encargos
+      // es legible por todos; el embed directo devolvía null para no-team → badge Pendiente falso).
+      // La vista expone solo los 3 campos de estado.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: woStates, error: woErr } = await (supabase as any)
+        .from('engagement_wo_state')
+        .select('engagement_id, approval_status, approved_at, risk_status');
+      if (woErr) throw woErr;
+      const woMap = new Map<string, Engagement['work_order']>(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ((woStates ?? []) as any[]).map((w) => [
+          w.engagement_id,
+          { approval_status: w.approval_status, approved_at: w.approved_at, risk_status: w.risk_status },
+        ]),
+      );
+      const rows = (data ?? []).map((row) => ({
+        ...row,
+        work_order: woMap.get((row as { engagement_id: string }).engagement_id) ?? null,
+      }));
+      return rows as unknown as Engagement[];
     },
   });
 }

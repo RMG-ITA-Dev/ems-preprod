@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { useDashboard } from "@/contexts/DashboardContext";
 import { useDashboardAccess } from "@/hooks/useDashboardAccess";
+import { isHiddenFromActivePickers } from "@/lib/engagementStatus";
 import {
   Select,
   SelectContent,
@@ -31,7 +32,7 @@ export function EngagementSelector() {
   // Fetch accessible engagements based on role
   const { data: engagements, isLoading } = useQuery({
     queryKey: ['encargo-engagements', staffRecord?.staff_id, isPartner, isManager, startDateStr, endDateStr],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!staffRecord?.staff_id) return [];
 
       // Partners see all engagements
@@ -43,13 +44,18 @@ export function EngagementSelector() {
             engagement_code,
             engagement_name,
             status,
+            engagement_state_override,
             client:clients(client_legal_name)
           `)
           .eq('status', 'active')
-          .order('engagement_code');
+          .order('engagement_code')
+          .abortSignal(signal);
 
         if (error) throw error;
-        return (data || []) as EngagementWithClient[];
+        // FEAT 0602-135: excluir estados terminales/pausados (override 6/7/9) aunque status='active'.
+        return (data || []).filter(
+          (e) => !isHiddenFromActivePickers((e as { engagement_state_override?: number | null }).engagement_state_override)
+        ) as EngagementWithClient[];
       }
 
       // Managers see engagements where they are partner or manager
@@ -61,14 +67,18 @@ export function EngagementSelector() {
             engagement_code,
             engagement_name,
             status,
+            engagement_state_override,
             client:clients(client_legal_name)
           `)
           .eq('status', 'active')
           .or(`partner_id.eq.${staffRecord.staff_id},manager_id.eq.${staffRecord.staff_id}`)
-          .order('engagement_code');
+          .order('engagement_code')
+          .abortSignal(signal);
 
         if (error) throw error;
-        return (data || []) as EngagementWithClient[];
+        return (data || []).filter(
+          (e) => !isHiddenFromActivePickers((e as { engagement_state_override?: number | null }).engagement_state_override)
+        ) as EngagementWithClient[];
       }
 
       // Staff see engagements where they've logged time in the period
@@ -81,20 +91,23 @@ export function EngagementSelector() {
             engagement_code,
             engagement_name,
             status,
+            engagement_state_override,
             client:clients(client_legal_name)
           )
         `)
         .eq('staff_id', staffRecord.staff_id)
         .gte('date_worked', startDateStr)
-        .lte('date_worked', endDateStr);
+        .lte('date_worked', endDateStr)
+        .abortSignal(signal);
 
       if (timeError) throw timeError;
 
       // Deduplicate engagements
       const uniqueEngagements = new Map<string, EngagementWithClient>();
       timeData?.forEach((entry) => {
-        const eng = entry.engagement as EngagementWithClient | null;
-        if (eng && !uniqueEngagements.has(eng.engagement_id)) {
+        const eng = entry.engagement as (EngagementWithClient & { engagement_state_override?: number | null }) | null;
+        // FEAT 0602-135: excluir estados terminales/pausados (override 6/7/9).
+        if (eng && !uniqueEngagements.has(eng.engagement_id) && !isHiddenFromActivePickers(eng.engagement_state_override)) {
           uniqueEngagements.set(eng.engagement_id, eng);
         }
       });

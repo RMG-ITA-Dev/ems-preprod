@@ -435,6 +435,7 @@ export function useCompleteRiskAssessment() {
       sanApprovalId,
       riskLevel,
       emergencyJustification,
+      resetSocioToPending,
     }: {
       woId: string;
       ceacCompletedAt?: string | null;
@@ -445,6 +446,9 @@ export function useCompleteRiskAssessment() {
       sanApprovalId?: string | null;
       riskLevel?: string | null;
       emergencyJustification?: string | null;
+      // FEAT 0602-135: true cuando se reenvía la pista de Riesgos tras un RECHAZO de una OT que
+      // estaba cerrada (Socio+Riesgos aprobados). Ver más abajo.
+      resetSocioToPending?: boolean;
     }) => {
       // Manager completes risk data on an emergency-approved OT, or re-sends as emergency
       // after rejection. approval_status is left untouched; risk_status returns to Pending.
@@ -462,6 +466,15 @@ export function useCompleteRiskAssessment() {
       // (reenvío de emergencia). Los flujos sin argumento preservan el historial.
       if (emergencyJustification !== undefined) {
         updatePayload.emergency_justification = emergencyJustification;
+      }
+      // FEAT 0602-135: si esto es un reenvío TRAS RECHAZO de Riesgos de una OT que ya estaba
+      // cerrada (approval_status='Approved'), bajar el Socio a 'Pending_Approval' (approved_at se
+      // preserva). Así deriva a 'Aprobado Socio (2)' = NO cargable hasta que Riesgos vuelva a
+      // aprobar (useApproveRisk cierra de nuevo a 'Approved' vía .not('approved_at','is',null)).
+      // La compleción de EMERGENCIA (risk_status previo 'Emergency_Approved', no rechazo) NO pasa
+      // este flag y permanece cargable como Aprobado(4) — decisión de diseño (emergencia 5→4).
+      if (resetSocioToPending) {
+        updatePayload.approval_status = "Pending_Approval";
       }
       const { data: result, error } = await supabase
         .from("work_orders")
