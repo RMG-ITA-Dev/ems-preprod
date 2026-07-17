@@ -62,6 +62,28 @@ vi.mock("@/hooks/useEmsData", () => ({
   useTaxonomies: () => ({ data: [] }),
 }));
 
+// BUG #0625-151 added useCurrentStaff (→ useAuth) to EngagementForm; mock it so the
+// component doesn't require a real AuthProvider.
+vi.mock("@/hooks/useCurrentStaff", () => ({
+  useCurrentStaff: () => ({ staffRecord: null }),
+}));
+
+// BUG #0625-151: creating a client (non-internal) engagement uploads a scanned contract via
+// Supabase Storage before submit. Stub Storage so the upload resolves in tests.
+vi.mock("@/integrations/supabase/client", () => ({
+  supabase: {
+    storage: {
+      from: () => ({
+        upload: vi.fn().mockResolvedValue({ data: { path: "contracts/test.pdf" }, error: null }),
+        remove: vi.fn().mockResolvedValue({ data: null, error: null }),
+        createSignedUrl: vi.fn().mockResolvedValue({ data: { signedUrl: "https://example/x" }, error: null }),
+      }),
+    },
+    from: vi.fn(),
+    rpc: vi.fn(),
+  },
+}));
+
 vi.mock("@/hooks/useCategoryStaff", () => ({
   useCategoryStaff: () => ({
     partners: [{ staff_id: "p1", first_name: "Juan", last_name: "Partner" }],
@@ -264,12 +286,12 @@ describe("0625-148 — role-based service restriction", () => {
     await user.click(screen.getByRole("option", { name: "engagement.funcion_cli" }));
 
     // 0604-143: the preview also requires a closing date; pick whichever option comes first.
+    // anio_fiscal is auto-defaulted; oficina=0, practica=1, funcion=1 → "YYYY.011.---"
     const closingDate = screen.getByRole("combobox", { name: "engagement.closingDate *" });
     await user.click(closingDate);
     await waitFor(() => expect(screen.getAllByRole("option").length).toBeGreaterThan(0));
     await user.click(screen.getAllByRole("option")[0]);
 
-    // anio_fiscal is auto-defaulted; oficina=0, practica=1, funcion=1 → "YYYY.011.---"
     const preview = screen.getByTestId("engagement-code-preview");
     await waitFor(() => {
       expect(preview).toHaveTextContent(/\d{4}\.011\.---/);

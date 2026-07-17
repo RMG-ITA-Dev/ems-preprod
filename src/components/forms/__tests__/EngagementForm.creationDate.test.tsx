@@ -5,9 +5,10 @@ import { render, screen } from "@/test/utils";
 
 /**
  * BUG #0602-134: default "Fecha de Inicio" to today on create.
- * (The separate read-only "Fecha de Creación" field this bug originally added was later
- * removed by hotfix dbed93a — "descartar el campo de fecha de creación inmutable" — so the
- * tests covering it were removed too.)
+ *
+ * NOTE: this bug originally also introduced a read-only "Fecha de Creación" field, but that
+ * field was later removed (hotfix dbed93a — "descartar el campo de fecha de creación inmutable").
+ * The assertions for the removed field were dropped; only the start-date default remains.
  */
 
 vi.mock("react-router-dom", async () => {
@@ -19,16 +20,17 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (k: string) => k, i18n: { language: "en" } }),
 }));
 
-// Stable (module-level) empty arrays — a fresh `[]` literal returned on every call would give
-// EngagementForm's effects a new `allServices`/`allTaxonomies` reference on every render, which
-// never lets their dependency arrays settle and hangs the test in an infinite render loop.
-const emptyClients: never[] = [];
-const emptyServices: never[] = [];
-const emptyTaxonomies: never[] = [];
+// Stable references are required: `allServices` (from useServices) is a useEffect dependency
+// in EngagementForm (the auto-assign-practica effect), and `allTaxonomies` (from useTaxonomies)
+// feeds a useMemo. Returning a new [] on every render makes these re-run → setValue → re-render
+// forever (infinite loop). Same pattern as WorkOrderNew.focus-cancel.test.tsx.
+const stableClients: never[] = [];
+const stableServices: never[] = [];
+const stableTaxonomies: never[] = [];
 vi.mock("@/hooks/useEmsData", () => ({
-  useClients: () => ({ data: emptyClients }),
-  useServices: () => ({ data: emptyServices }),
-  useTaxonomies: () => ({ data: emptyTaxonomies }),
+  useClients: () => ({ data: stableClients }),
+  useServices: () => ({ data: stableServices }),
+  useTaxonomies: () => ({ data: stableTaxonomies }),
 }));
 
 const emptyStaffList: never[] = [];
@@ -57,9 +59,15 @@ vi.mock("@/hooks/useUserRole", () => ({
   useUserRole: () => ({ isAdmin: false }),
 }));
 
+// BUG #0625-151 added useCurrentStaff (→ useAuth) to EngagementForm; mock it so the
+// component doesn't require a real AuthProvider.
+vi.mock("@/hooks/useCurrentStaff", () => ({
+  useCurrentStaff: () => ({ staffRecord: null }),
+}));
+
 import { EngagementForm } from "@/components/forms/EngagementForm";
 
-describe("EngagementForm creation date field (BUG #0602-134)", () => {
+describe("EngagementForm start date default (BUG #0602-134)", () => {
   it("create mode: 'Fecha de Inicio' defaults to today", () => {
     render(<EngagementForm />);
     const today = format(startOfDay(new Date()), "dd/MM/yyyy");

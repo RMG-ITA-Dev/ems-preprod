@@ -112,6 +112,8 @@ vi.mock("@/hooks/mutations", () => ({
   useUpsertPaymentPlan: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useBatchUpsertInstallments: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useDeletePaymentPlan: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useUpdateInstallmentStatus: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useUpdateCollectionDate: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
 vi.mock("@/components/layout/AppLayout", () => ({

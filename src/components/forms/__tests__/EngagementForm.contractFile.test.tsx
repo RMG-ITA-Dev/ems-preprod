@@ -30,16 +30,17 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (k: string) => k, i18n: { language: "en" } }),
 }));
 
-// Stable (module-level) empty arrays — a fresh `[]` literal returned on every call would give
-// EngagementForm's effects a new `allServices`/`allTaxonomies` reference on every render, which
-// never lets their dependency arrays settle and hangs the test in an infinite render loop.
-const emptyClients: never[] = [];
-const emptyServices: never[] = [];
-const emptyTaxonomies: never[] = [];
+// Stable references are required: `allServices` (from useServices) is a useEffect dependency
+// in EngagementForm (the auto-assign-practica effect), and `allTaxonomies` (from useTaxonomies)
+// feeds a useMemo. Returning a new [] on every render makes these re-run → setValue → re-render
+// forever (infinite loop). Same pattern as WorkOrderNew.focus-cancel.test.tsx.
+const stableClients: never[] = [];
+const stableServices: never[] = [];
+const stableTaxonomies: never[] = [];
 vi.mock("@/hooks/useEmsData", () => ({
-  useClients: () => ({ data: emptyClients }),
-  useServices: () => ({ data: emptyServices }),
-  useTaxonomies: () => ({ data: emptyTaxonomies }),
+  useClients: () => ({ data: stableClients }),
+  useServices: () => ({ data: stableServices }),
+  useTaxonomies: () => ({ data: stableTaxonomies }),
 }));
 
 const emptyStaffList: never[] = [];
@@ -117,6 +118,8 @@ const mockEngagement: Engagement = {
   practica: 2,
   funcion: 1,
   anio_fiscal: 2027,
+  anio_fiscal_override: false,
+  fecha_cierre: "2027-09-30",
   sqr_id: null,
   encargado_id: null,
   specialist_it_id: null,

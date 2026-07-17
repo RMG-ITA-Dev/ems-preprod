@@ -116,6 +116,7 @@ const mockEngagement: Engagement = {
   // already-saved Cliente engagement, so it must already have one (unrelated to what any
   // individual test in this file is actually exercising).
   taxonomy_id:         "tx-1",
+  contract_file_path:  null,
 };
 
 // Mirror the helpers from EngagementForm.tsx
@@ -436,11 +437,15 @@ describe("EngagementForm — closing date drives Año Fiscal (BUG 0604-143)", ()
     // falls in FY2027 (Oct 2026 → Sep 2027).
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date(2026, 5, 1));
+    // 0625-148: the practica Select is only enabled (manually selectable) for admins;
+    // non-admins get Auditoría auto-assigned into a disabled control.
+    mockRole = { isAdmin: true };
     const user = userEvent.setup({ delay: null });
     render(<EngagementForm />);
-    // 0625-148: non-admin practica select is disabled and auto-assigned to Auditoría (code=1).
     await user.click(screen.getByRole("combobox", { name: "engagement.oficina *" }));
     await user.click(await screen.findByRole("option", { name: "engagement.oficina_laPaz" }));
+    await user.click(screen.getByRole("combobox", { name: "engagement.practica *" }));
+    await user.click(await screen.findByRole("option", { name: "Auditoría" }));
     await user.click(screen.getByRole("combobox", { name: "engagement.funcion *" }));
     await user.click(await screen.findByRole("option", { name: "engagement.funcion_cli" }));
 
