@@ -110,6 +110,7 @@ export interface Engagement {
   contract_file_path: string | null;
   // FEAT 0602-135: override manual del estado del encargo (1..9). NULL = derivado de la OT.
   engagement_state_override?: number | null;
+  taxonomy_id: string | null;
   client?: Client;
   partner?: Staff;
   manager?: Staff;
@@ -123,6 +124,7 @@ export interface Engagement {
     approved_at: string | null;
     risk_status: string | null;
   } | null;
+  taxonomy?: Taxonomy;
 }
 
 export interface WOPaymentInstallment {
@@ -219,6 +221,15 @@ export interface Service {
   abbreviation?: string | null;
 }
 
+export interface Taxonomy {
+  taxonomy_id: string;
+  code: string;
+  name: string;
+  service_id: string | null;
+  is_active: boolean;
+  created_at: string;
+}
+
 export interface Skill {
   skill_id: string;
   name: string;
@@ -265,6 +276,21 @@ export function useServices() {
         .order('code');
       if (error) throw error;
       return data as Service[];
+    },
+  });
+}
+
+export function useTaxonomies() {
+  return useQuery({
+    queryKey: ['taxonomies'],
+    queryFn: async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any)
+        .from('taxonomies')
+        .select('*')
+        .order('code');
+      if (error) throw error;
+      return data as Taxonomy[];
     },
   });
 }
@@ -432,7 +458,8 @@ export function useEngagements() {
           sqr:staff!engagements_sqr_id_fkey(*),
           encargado:staff!engagements_encargado_id_fkey(*),
           specialist_it:staff!engagements_specialist_it_id_fkey(*),
-          specialist_tax:staff!engagements_specialist_tax_id_fkey(*)
+          specialist_tax:staff!engagements_specialist_tax_id_fkey(*),
+          taxonomy:taxonomies(*)
         `)
         .order('created_at', { ascending: false });
       if (error) throw error;

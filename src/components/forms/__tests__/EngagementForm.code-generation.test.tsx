@@ -54,6 +54,7 @@ vi.mock("@/hooks/useEmsData", () => ({
   // no corresponding item, which otherwise silently clears the field and fails validation).
   useClients: () => ({ data: [{ client_id: "client-1", client_legal_name: "Test Client", is_active: true }] }),
   useServices: () => ({ data: mockServices }),
+  useTaxonomies: () => ({ data: [] }),
 }));
 
 vi.mock("@/hooks/useCategoryStaff", () => ({
@@ -111,6 +112,10 @@ const mockEngagement: Engagement = {
   encargado_id:        null,
   specialist_it_id:    null,
   specialist_tax_id:   null,
+  // 0602-136: funcion=Cliente (1) now requires a real taxonomy — this mock represents an
+  // already-saved Cliente engagement, so it must already have one (unrelated to what any
+  // individual test in this file is actually exercising).
+  taxonomy_id:         "tx-1",
   contract_file_path:  null,
 };
 

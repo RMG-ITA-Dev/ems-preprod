@@ -4,10 +4,10 @@ import { render, screen } from "@/test/utils";
 import userEvent from "@testing-library/user-event";
 
 /**
- * 0625-149: Settings — Servicios tab
+ * 0602-136: Settings — Taxonomías tab
  * - Admin sees the tab trigger
  * - Non-admin does NOT see it
- * - Rows render code/name/active badge
+ * - Rows render code/name/service(Global)/active badge
  */
 
 Object.defineProperty(window, "matchMedia", {
@@ -35,34 +35,41 @@ vi.mock("react-router-dom", async () => {
 });
 
 const mockServices = [
-  { service_id: "s1", name: "Auditoría",  code: 1, allows_rates_activities: true,  is_active: true,  created_at: "" },
-  { service_id: "s2", name: "Tax",        code: 3, allows_rates_activities: true,  is_active: false, created_at: "" },
+  { service_id: "s1", name: "Auditoría", code: 1, allows_rates_activities: true, is_active: true, created_at: "" },
+];
+
+const mockTaxonomies = [
+  { taxonomy_id: "t1", code: "AA1006", name: "New audit", service_id: null, is_active: true, created_at: "" },
+  { taxonomy_id: "t2", code: "AA1007", name: "Continued audit", service_id: null, is_active: false, created_at: "" },
 ];
 
 vi.mock("@/hooks/useEmsData", () => ({
-  useCategories:    () => ({ data: [], isLoading: false }),
-  useIndustries:    () => ({ data: [], isLoading: false }),
-  useGlobalSettings:() => ({ data: [], isLoading: false }),
-  useActivityCodes:    () => ({ data: [], isLoading: false }),
+  useCategories:     () => ({ data: [], isLoading: false }),
+  useIndustries:     () => ({ data: [], isLoading: false }),
+  useGlobalSettings: () => ({ data: [], isLoading: false }),
   useAllActivityCodes: () => ({ data: [], isLoading: false }),
-  useExpenseTypes:     () => ({ data: [], isLoading: false }),
-  useSkills:        () => ({ data: [], isLoading: false }),
-  useEngagements:   () => ({ data: [] }),
-  useServices:      () => ({ data: mockServices, isLoading: false }),
-  useTaxonomies:    () => ({ data: [], isLoading: false }),
+  useExpenseTypes:   () => ({ data: [], isLoading: false }),
+  useSkills:         () => ({ data: [], isLoading: false }),
+  useEngagements:    () => ({ data: [] }),
+  useServices:       () => ({ data: mockServices, isLoading: false }),
+  useTaxonomies:     () => ({ data: mockTaxonomies, isLoading: false }),
 }));
 
+const isAdminMock = vi.hoisted(() => vi.fn(() => true));
+
 vi.mock("@/hooks/useUserRole", () => ({
-  useUserRole: () => ({ isAdmin: true }),
+  useUserRole: () => ({ isAdmin: isAdminMock() }),
 }));
 
 vi.mock("@/hooks/mutations", () => ({
   useUpdateGlobalSetting: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useCreateService: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useUpdateService: () => ({ mutateAsync: vi.fn(), isPending: false }),
-  useReorderServiceActivity: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
-  useMoveCategory: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
-  useCopyCategories: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
+  useCreateTaxonomy: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useUpdateTaxonomy: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useReorderServiceActivity: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useMoveCategory: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useCopyCategories: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
 vi.mock("@/hooks/useLanguage", () => ({
@@ -104,16 +111,24 @@ vi.mock("@/lib/fiscalYearDisplay", () => ({
 
 import Settings from "@/pages/Settings";
 
-describe("Settings — Servicios tab (0625-149)", () => {
-  it("admin sees 'settings.services' tab trigger", () => {
+describe("Settings — Taxonomías tab (0602-136)", () => {
+  it("admin sees 'settings.taxonomies' tab trigger", () => {
     render(<Settings />);
-    expect(screen.getByRole("tab", { name: "settings.services" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "settings.taxonomies" })).toBeInTheDocument();
   });
 
-  it("renders the new service button when tab is active", async () => {
+  it("renders the new taxonomy button and seeded rows when tab is active", async () => {
     const user = userEvent.setup();
     render(<Settings />);
-    await user.click(screen.getByRole("tab", { name: "settings.services" }));
-    expect(screen.getByText("service.newService")).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: "settings.taxonomies" }));
+    expect(screen.getByText("taxonomy.newTaxonomy")).toBeInTheDocument();
+    expect(screen.getByText("AA1006")).toBeInTheDocument();
+    expect(screen.getByText("New audit")).toBeInTheDocument();
+  });
+
+  it("non-admin does not see the tab trigger", () => {
+    isAdminMock.mockReturnValue(false);
+    render(<Settings />);
+    expect(screen.queryByRole("tab", { name: "settings.taxonomies" })).not.toBeInTheDocument();
   });
 });
