@@ -63,6 +63,7 @@ describe("CopyFromEngagementDialog", () => {
           engagement: {
             engagement_code: "ENG-001",
             engagement_name: "Test Engagement",
+            practica: 1,
             client: { client_legal_name: "Test Client" },
             status: "draft",
           },
@@ -76,6 +77,7 @@ describe("CopyFromEngagementDialog", () => {
         open={true}
         onOpenChange={mockOnOpenChange}
         currentWorksheetId="ws-1"
+        practica={1}
         onApply={mockOnApply}
       />
     );
@@ -87,6 +89,7 @@ describe("CopyFromEngagementDialog", () => {
         open={false}
         onOpenChange={mockOnOpenChange}
         currentWorksheetId="ws-1"
+        practica={1}
         onApply={mockOnApply}
       />
     );
@@ -103,6 +106,7 @@ describe("CopyFromEngagementDialog", () => {
           engagement: {
             engagement_code: "ENG-001",
             engagement_name: "Client ABC Project",
+            practica: 1,
             client: { client_legal_name: "ABC Corp" },
             status: "draft",
           },
@@ -116,6 +120,7 @@ describe("CopyFromEngagementDialog", () => {
         open={true}
         onOpenChange={mockOnOpenChange}
         currentWorksheetId="ws-1"
+        practica={1}
         onApply={mockOnApply}
       />
     );
@@ -134,6 +139,7 @@ describe("CopyFromEngagementDialog", () => {
           engagement: {
             engagement_code: "ENG-001",
             engagement_name: "ABC Project",
+            practica: 1,
             client: { client_legal_name: "ABC Corp" },
             status: "draft",
           },
@@ -144,6 +150,7 @@ describe("CopyFromEngagementDialog", () => {
           engagement: {
             engagement_code: "ENG-002",
             engagement_name: "XYZ Project",
+            practica: 1,
             client: { client_legal_name: "XYZ Inc" },
             status: "draft",
           },
@@ -157,6 +164,7 @@ describe("CopyFromEngagementDialog", () => {
         open={true}
         onOpenChange={mockOnOpenChange}
         currentWorksheetId="ws-1"
+        practica={1}
         onApply={mockOnApply}
       />
     );
@@ -179,6 +187,7 @@ describe("CopyFromEngagementDialog", () => {
           engagement: {
             engagement_code: "ENG-CURRENT",
             engagement_name: "Current",
+            practica: 1,
             client: { client_legal_name: "Current" },
             status: "draft",
           },
@@ -189,6 +198,7 @@ describe("CopyFromEngagementDialog", () => {
           engagement: {
             engagement_code: "ENG-OTHER",
             engagement_name: "Other",
+            practica: 1,
             client: { client_legal_name: "Other" },
             status: "draft",
           },
@@ -202,6 +212,7 @@ describe("CopyFromEngagementDialog", () => {
         open={true}
         onOpenChange={mockOnOpenChange}
         currentWorksheetId="ws-1"
+        practica={1}
         onApply={mockOnApply}
       />
     );
@@ -219,6 +230,7 @@ describe("CopyFromEngagementDialog", () => {
           engagement: {
             engagement_code: "ENG-001",
             engagement_name: "Test",
+            practica: 1,
             client: { client_legal_name: "Client" },
             status: "draft",
           },
@@ -232,6 +244,7 @@ describe("CopyFromEngagementDialog", () => {
         open={true}
         onOpenChange={mockOnOpenChange}
         currentWorksheetId="ws-1"
+        practica={1}
         onApply={mockOnApply}
       />
     );
@@ -249,6 +262,7 @@ describe("CopyFromEngagementDialog", () => {
           engagement: {
             engagement_code: "ENG-EMPTY",
             engagement_name: "Empty Matrix",
+            practica: 1,
             client: { client_legal_name: "Empty Client" },
             status: "draft",
           },
@@ -270,6 +284,7 @@ describe("CopyFromEngagementDialog", () => {
         open={true}
         onOpenChange={mockOnOpenChange}
         currentWorksheetId="ws-1"
+        practica={1}
         onApply={mockOnApply}
       />
     );
@@ -289,6 +304,7 @@ describe("CopyFromEngagementDialog", () => {
           engagement: {
             engagement_code: "ENG-001",
             engagement_name: "Test",
+            practica: 1,
             client: { client_legal_name: "Client" },
             status: "draft",
           },
@@ -320,6 +336,7 @@ describe("CopyFromEngagementDialog", () => {
         open={true}
         onOpenChange={mockOnOpenChange}
         currentWorksheetId="ws-1"
+        practica={1}
         onApply={mockOnApply}
       />
     );
@@ -347,6 +364,7 @@ describe("CopyFromEngagementDialog", () => {
         open={true}
         onOpenChange={mockOnOpenChange}
         currentWorksheetId="ws-1"
+        practica={1}
         onApply={mockOnApply}
       />
     );
@@ -365,6 +383,7 @@ describe("CopyFromEngagementDialog", () => {
           engagement: {
             engagement_code: "ENG-001",
             engagement_name: "My Worksheet",
+            practica: 1,
             client: { client_legal_name: "Client A" },
             status: "draft",
           },
@@ -375,6 +394,7 @@ describe("CopyFromEngagementDialog", () => {
           engagement: {
             engagement_code: "ENG-002",
             engagement_name: "Other User Worksheet",
+            practica: 1,
             client: { client_legal_name: "Client B" },
             status: "draft",
           },
@@ -388,6 +408,7 @@ describe("CopyFromEngagementDialog", () => {
         open={true}
         onOpenChange={mockOnOpenChange}
         currentWorksheetId="ws-1"
+        practica={1}
         onApply={mockOnApply}
       />
     );

@@ -16,6 +16,7 @@ import { useBatchUpsertCells, useUpdateWorksheet, useCreateWorkOrderFromWorkshee
 import { useCategories, useActivityCodes, useSetting, useServices } from "@/hooks/useEmsData";
 import { WorksheetGrid } from "@/components/worksheet/WorksheetGrid";
 import { CopyFromEngagementDialog } from "@/components/worksheet/CopyFromEngagementDialog";
+import { filterActivitiesByService } from "@/lib/activityFilters";
 import { WorksheetCell } from "@/hooks/useWorksheetData";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -96,26 +97,24 @@ const WorksheetEdit = () => {
     [activityCodes]
   );
 
-  // Optional service filter (view-only convenience to shorten the matrix).
-  // Default "all" shows every category, so the on-screen total matches the WO.
-  const [filterServiceId, setFilterServiceId] = useState<string>("all");
+  // The matrix is auto-scoped to the engagement's service (engagement.practica
+  // matches services.code — see src/lib/activityFilters.ts). No manual filter.
+  const practica = worksheet?.engagement?.practica ?? null;
 
-  // Services that actually have at least one category, mapped to their name.
-  const serviceFilterOptions = useMemo(() => {
-    const presentIds = new Set((categories ?? []).map((c) => c.service_id));
-    return (services ?? [])
-      .filter((s) => presentIds.has(s.service_id))
-      .map((s) => ({ service_id: s.service_id, name: s.name }));
-  }, [categories, services]);
+  const engagementServiceId = useMemo(
+    () => (services ?? []).find((s) => s.code === practica)?.service_id,
+    [services, practica]
+  );
 
-  // Categories shown in the grid. The filter never touches the `cells` prop, so
-  // hidden rows keep their hours (save merges all DB cells) and the WO — built
-  // server-side from all stored cells — is unaffected.
-  const visibleCategories = useMemo(() => {
+  const scopedCategories = useMemo(() => {
     if (!categories) return categories;
-    if (filterServiceId === "all") return categories;
-    return categories.filter((c) => c.service_id === filterServiceId);
-  }, [categories, filterServiceId]);
+    return categories.filter((c) => c.service_id === engagementServiceId);
+  }, [categories, engagementServiceId]);
+
+  const scopedActivities = useMemo(
+    () => filterActivitiesByService(activeActivities, practica),
+    [activeActivities, practica]
+  );
 
   const handleCellChange = useCallback(
     (categoryId: string, activityId: string, hours: number) => {
@@ -147,9 +146,15 @@ const WorksheetEdit = () => {
       existingCellsMap.set(key, hours);
     });
 
+    // Only persist cells that belong to the engagement's service. This purges
+    // any stray out-of-service cells left over from before this fix.
+    const scopedCategoryIds = new Set((scopedCategories ?? []).map((c) => c.category_id));
+    const scopedActivityIds = new Set(scopedActivities.map((a) => a.activity_id));
+
     // Convert to array
     existingCellsMap.forEach((hours, key) => {
       const [categoryId, activityId] = key.split("|");
+      if (!scopedCategoryIds.has(categoryId) || !scopedActivityIds.has(activityId)) return;
       cellsToSave.push({
         worksheet_id: id,
         category_id: categoryId,
@@ -213,17 +218,6 @@ const WorksheetEdit = () => {
     return Array.from(cellsMap.values());
   }, [worksheet, localCells, id]);
 
-  // Overall hours across ALL categories (independent of the service filter),
-  // surfaced when a filter is active so the filtered subtotal isn't misread.
-  const grandTotalHours = useMemo(
-    () => mergedCells.reduce((sum, c) => sum + c.budget_hours, 0),
-    [mergedCells]
-  );
-  const filteredServiceName = useMemo(
-    () => serviceFilterOptions.find((s) => s.service_id === filterServiceId)?.name ?? "",
-    [serviceFilterOptions, filterServiceId]
-  );
-
   const isLoading = wsLoading || catLoading || actLoading;
   const isSaving = batchUpsertCells.isPending || updateWorksheet.isPending;
 
@@ -252,8 +246,12 @@ const WorksheetEdit = () => {
   const handleApplyCopy = (sourceCells: WorksheetCell[]) => {
     const newLocalCells = new Map<string, number>();
 
-    // Load copied cells
+    // Only load copied cells that belong to the engagement's service.
+    const scopedCategoryIds = new Set((scopedCategories ?? []).map((c) => c.category_id));
+    const scopedActivityIds = new Set(scopedActivities.map((a) => a.activity_id));
+
     sourceCells.forEach((cell) => {
+      if (!scopedCategoryIds.has(cell.category_id) || !scopedActivityIds.has(cell.activity_id)) return;
       newLocalCells.set(`${cell.category_id}|${cell.activity_id}`, cell.budget_hours);
     });
 
@@ -469,39 +467,19 @@ const WorksheetEdit = () => {
 
         {/* Budget Grid */}
         <div className="space-y-2">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-lg font-semibold">{t("workMatrix.budgetGrid")}</h2>
-            {serviceFilterOptions.length > 1 && (
-              <div className="flex items-center gap-2">
-                <Label htmlFor="worksheetServiceFilter" className="text-sm text-muted-foreground">
-                  {t("workMatrix.filterByService")}
-                </Label>
-                <Select value={filterServiceId} onValueChange={setFilterServiceId}>
-                  <SelectTrigger id="worksheetServiceFilter" className="w-56" data-testid="worksheet-service-filter">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">{t("workMatrix.allServices")}</SelectItem>
-                    {serviceFilterOptions.map((s) => (
-                      <SelectItem key={s.service_id} value={s.service_id}>
-                        {s.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-          </div>
-          {filterServiceId !== "all" && (
-            <p className="text-sm text-muted-foreground" data-testid="worksheet-filtered-total-hint">
-              {t("workMatrix.filteredTotalHint", { service: filteredServiceName, hours: grandTotalHours })}
-            </p>
+          <h2 className="text-lg font-semibold">{t("workMatrix.budgetGrid")}</h2>
+          {practica == null && (
+            <Alert variant="default" className="border-warning bg-warning/10">
+              <AlertDescription data-testid="worksheet-no-service-alert">
+                {t("workMatrix.noServiceOnEngagement")}
+              </AlertDescription>
+            </Alert>
           )}
-          {categories && activeActivities.length > 0 ? (
+          {scopedCategories && scopedCategories.length > 0 && scopedActivities.length > 0 ? (
             <WorksheetGrid
               key={gridKey}
-              categories={visibleCategories ?? []}
-              activities={activeActivities}
+              categories={scopedCategories}
+              activities={scopedActivities}
               cells={mergedCells}
               onChange={handleCellChange}
               readOnly={isReadOnly}
@@ -621,6 +599,7 @@ const WorksheetEdit = () => {
           open={showCopyDialog}
           onOpenChange={setShowCopyDialog}
           currentWorksheetId={id}
+          practica={practica}
           onApply={handleApplyCopy}
         />
       )}

@@ -46,6 +46,7 @@ export function useWorksheets(enabled: boolean = true) {
             engagement_name,
             engagement_code,
             status,
+            practica,
             client:clients (
               client_id,
               client_legal_name,
@@ -94,6 +95,7 @@ export function useWorksheetById(id: string | undefined) {
             engagement_name,
             engagement_code,
             status,
+            practica,
             client:clients (
               client_id,
               client_legal_name,

@@ -27,6 +27,7 @@ interface CopyFromEngagementDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   currentWorksheetId: string;
+  practica: number | null;
   onApply: (cells: WorksheetCell[]) => void;
 }
 
@@ -34,6 +35,7 @@ export function CopyFromEngagementDialog({
   open,
   onOpenChange,
   currentWorksheetId,
+  practica,
   onApply,
 }: CopyFromEngagementDialogProps) {
   const { t } = useTranslation();
@@ -52,6 +54,7 @@ export function CopyFromEngagementDialog({
     return worksheets
       .filter((w) => w.id !== currentWorksheetId)
       .filter((w) => w.created_by_staff_id === staffRecord?.staff_id)
+      .filter((w) => (w.engagement?.practica ?? null) === practica)
       .filter((w) => {
         if (!q) return true;
         const name = w.engagement?.engagement_name?.toLowerCase() ?? "";
@@ -65,7 +68,7 @@ export function CopyFromEngagementDialog({
           : "";
         return name.includes(q) || client.includes(q) || code.includes(q) || industry.includes(q) || date.includes(q);
       });
-  }, [worksheets, currentWorksheetId, search, staffRecord?.staff_id]);
+  }, [worksheets, currentWorksheetId, search, staffRecord?.staff_id, practica]);
 
   const totalHours = useMemo(
     () =>
