@@ -5,6 +5,7 @@ import { toISODateString, getPreviousWeek, getWorkDays, getWeekMonday } from "@/
 import { parseDateLocal } from "@/lib/timesheetUtils";
 import { createMutationErrorHandler } from "@/lib/error-handler";
 import { createTimesheetError, isTimesheetError } from "@/lib/timesheetErrors";
+import { holidayAppliesToCity } from "@/hooks/useHolidays";
 import i18n from "@/i18n";
 // Upsert a time entry (create or update)
 export function useUpsertTimeEntry() {
@@ -515,6 +516,7 @@ export function useCopyToCurrentWeek() {
   return useMutation({
     mutationFn: async ({
       staffId,
+      staffCity,
       sourceWeekStart,
       workDays,
       hireDate,
@@ -522,6 +524,7 @@ export function useCopyToCurrentWeek() {
       employeeRetroDays,
     }: {
       staffId: string;
+      staffCity?: string | null;
       sourceWeekStart: Date;
       workDays: number;
       hireDate?: string | null;
@@ -609,11 +612,15 @@ export function useCopyToCurrentWeek() {
       const allEndStr = sourceEndStr > destEndStr ? sourceEndStr : destEndStr;
       const { data: holidayRows, error: holError } = await supabase
         .from("holidays")
-        .select("holiday_date")
+        .select("holiday_date, oficina")
         .gte("holiday_date", allStartStr)
         .lte("holiday_date", allEndStr);
       if (holError) throw holError;
-      const holidaySet = new Set((holidayRows || []).map((h) => h.holiday_date));
+      const holidaySet = new Set(
+        (holidayRows || [])
+          .filter((h) => holidayAppliesToCity(h.oficina, staffCity))
+          .map((h) => h.holiday_date)
+      );
 
       const sourceHolidayDates = new Set<string>();
       const destHolidayDates = new Set<string>();

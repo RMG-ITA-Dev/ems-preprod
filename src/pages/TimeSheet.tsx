@@ -460,6 +460,7 @@ const TimeSheet = () => {
     if (!canCopyToCurrentWeek || !staffRecord?.staff_id) return;
     copyToCurrentWeek.mutate({
       staffId: staffRecord.staff_id,
+      staffCity: staffRecord.city,
       sourceWeekStart: currentWeekStart,
       workDays,
       hireDate: staffRecord.hire_date,

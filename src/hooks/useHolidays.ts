@@ -16,7 +16,7 @@ export interface Holiday {
 
 // oficina=0 (Todas) always applies; 1=La Paz, 2=Santa Cruz apply only to the
 // matching staff city. Staff with no city only ever match oficina=0.
-function holidayAppliesToCity(oficina: number, city: string | null | undefined): boolean {
+export function holidayAppliesToCity(oficina: number, city: string | null | undefined): boolean {
   if (oficina === 0) return true;
   if (!city) return false;
   if (oficina === 1) return city === "La Paz";
