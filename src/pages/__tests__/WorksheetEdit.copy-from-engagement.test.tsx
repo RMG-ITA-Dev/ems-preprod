@@ -87,6 +87,13 @@ vi.mock("@/hooks/useEmsData", () => ({
     ],
     isLoading: false,
   }),
+  useAllActivityCodes: () => ({
+    data: [
+      { activity_id: "act-1", activity_code: "ACT-1", description: "Activity 1", is_active: true, service_id: "svc-1" },
+      { activity_id: "act-2", activity_code: "ACT-2", description: "Activity 2", is_active: true, service_id: "svc-1" },
+    ],
+    isLoading: false,
+  }),
   useSetting: () => "0.13",
   useServices: () => ({
     data: [{ service_id: "svc-1", name: "Auditoría", code: 1, is_active: true, allows_rates_activities: true, created_at: "" }],

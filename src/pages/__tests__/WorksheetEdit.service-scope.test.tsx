@@ -81,6 +81,17 @@ vi.mock("@/hooks/useEmsData", () => ({
     ],
     isLoading: false,
   }),
+  // Same set as useActivityCodes, but keyed by the raw service_id FK (as the
+  // real query returns) instead of the nested service.code — this is what
+  // the save/copy allow-list scopes against.
+  useAllActivityCodes: () => ({
+    data: [
+      { activity_id: "act-global", activity_code: "100-PLA", description: "Planificación", is_active: true, service_id: null },
+      { activity_id: "act-aud-1", activity_code: "AUD-A1", description: "Aud activity", is_active: true, service_id: AUD },
+      { activity_id: "act-con-1", activity_code: "CON-A1", description: "Con activity", is_active: true, service_id: "svc-con" },
+    ],
+    isLoading: false,
+  }),
   useSetting: () => "0.13",
   useServices: () => ({
     data: [

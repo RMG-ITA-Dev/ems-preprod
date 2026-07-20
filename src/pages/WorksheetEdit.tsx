@@ -13,7 +13,7 @@ import { Save, Loader2, FileText, Sun, Snowflake, Lock, Copy } from "lucide-reac
 import { useWorksheetById } from "@/hooks/useWorksheetData";
 import { useUserRole } from "@/hooks/useUserRole";
 import { useBatchUpsertCells, useUpdateWorksheet, useCreateWorkOrderFromWorksheet } from "@/hooks/useWorksheetMutations";
-import { useCategories, useActivityCodes, useSetting, useServices } from "@/hooks/useEmsData";
+import { useCategories, useActivityCodes, useAllActivityCodes, useSetting, useServices } from "@/hooks/useEmsData";
 import { WorksheetGrid } from "@/components/worksheet/WorksheetGrid";
 import { CopyFromEngagementDialog } from "@/components/worksheet/CopyFromEngagementDialog";
 import { filterActivitiesByService } from "@/lib/activityFilters";
@@ -53,6 +53,7 @@ const WorksheetEdit = () => {
   const { data: worksheet, isLoading: wsLoading } = useWorksheetById(id);
   const { data: categories, isLoading: catLoading } = useCategories();
   const { data: activityCodes, isLoading: actLoading } = useActivityCodes();
+  const { data: allActivityCodes } = useAllActivityCodes();
   const { data: services, isLoading: svcLoading } = useServices();
   const globalTaxRate = useSetting("TAX_RATE");
   
@@ -116,13 +117,28 @@ const WorksheetEdit = () => {
     [activeActivities, practica]
   );
 
-  // Same scoping, but over ALL activity codes (not just the active ones shown
-  // in the grid). Used as the destructive allow-list on save/copy so hours
-  // stored against an activity later marked inactive aren't silently dropped.
-  const scopedActivitiesForSave = useMemo(
-    () => filterActivitiesByService(activityCodes ?? [], practica),
-    [activityCodes, practica]
-  );
+  // Destructive allow-lists for save/copy. `undefined` = scoping doesn't apply
+  // (engagement has no resolved service) — callers must keep every existing
+  // cell rather than purge, since the cleanup migration also leaves these
+  // no-service worksheets untouched. When defined, built from ALL activity
+  // codes (not just the active ones shown in the grid via `useActivityCodes()`,
+  // which already excludes inactive rows server-side) so historical hours on
+  // an activity later marked inactive aren't silently dropped by an unrelated
+  // save. Matches on the raw `service_id` FK directly (no `services.code`
+  // round-trip needed).
+  const scopedCategoryIdsForSave = useMemo(() => {
+    if (engagementServiceId === undefined) return undefined;
+    return new Set((scopedCategories ?? []).map((c) => c.category_id));
+  }, [scopedCategories, engagementServiceId]);
+
+  const scopedActivityIdsForSave = useMemo(() => {
+    if (engagementServiceId === undefined) return undefined;
+    return new Set(
+      (allActivityCodes ?? [])
+        .filter((a) => a.service_id == null || a.service_id === engagementServiceId)
+        .map((a) => a.activity_id)
+    );
+  }, [allActivityCodes, engagementServiceId]);
 
   const handleCellChange = useCallback(
     (categoryId: string, activityId: string, hours: number) => {
@@ -155,16 +171,14 @@ const WorksheetEdit = () => {
     });
 
     // Only persist cells that belong to the engagement's service. This purges
-    // any stray out-of-service cells left over from before this fix. Uses the
-    // all-activities scope (not just active ones) so historical hours on a
-    // now-inactive activity aren't wiped by an unrelated save.
-    const scopedCategoryIds = new Set((scopedCategories ?? []).map((c) => c.category_id));
-    const scopedActivityIds = new Set(scopedActivitiesForSave.map((a) => a.activity_id));
-
+    // any stray out-of-service cells left over from before this fix. When the
+    // engagement has no resolved service, the allow-lists are `undefined` and
+    // every existing cell is kept as-is (no scope to purge against).
     // Convert to array
     existingCellsMap.forEach((hours, key) => {
       const [categoryId, activityId] = key.split("|");
-      if (!scopedCategoryIds.has(categoryId) || !scopedActivityIds.has(activityId)) return;
+      if (scopedCategoryIdsForSave && !scopedCategoryIdsForSave.has(categoryId)) return;
+      if (scopedActivityIdsForSave && !scopedActivityIdsForSave.has(activityId)) return;
       cellsToSave.push({
         worksheet_id: id,
         category_id: categoryId,
@@ -256,12 +270,11 @@ const WorksheetEdit = () => {
   const handleApplyCopy = (sourceCells: WorksheetCell[]) => {
     const newLocalCells = new Map<string, number>();
 
-    // Only load copied cells that belong to the engagement's service.
-    const scopedCategoryIds = new Set((scopedCategories ?? []).map((c) => c.category_id));
-    const scopedActivityIds = new Set(scopedActivitiesForSave.map((a) => a.activity_id));
-
+    // Only load copied cells that belong to the engagement's service (no-op
+    // when the engagement has no resolved service — see scopedActivityIdsForSave).
     sourceCells.forEach((cell) => {
-      if (!scopedCategoryIds.has(cell.category_id) || !scopedActivityIds.has(cell.activity_id)) return;
+      if (scopedCategoryIdsForSave && !scopedCategoryIdsForSave.has(cell.category_id)) return;
+      if (scopedActivityIdsForSave && !scopedActivityIdsForSave.has(cell.activity_id)) return;
       newLocalCells.set(`${cell.category_id}|${cell.activity_id}`, cell.budget_hours);
     });
 
