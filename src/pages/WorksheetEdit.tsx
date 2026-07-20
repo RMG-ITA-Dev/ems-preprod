@@ -53,7 +53,7 @@ const WorksheetEdit = () => {
   const { data: worksheet, isLoading: wsLoading } = useWorksheetById(id);
   const { data: categories, isLoading: catLoading } = useCategories();
   const { data: activityCodes, isLoading: actLoading } = useActivityCodes();
-  const { data: allActivityCodes } = useAllActivityCodes();
+  const { data: allActivityCodes, isLoading: allActLoading } = useAllActivityCodes();
   const { data: services, isLoading: svcLoading } = useServices();
   const globalTaxRate = useSetting("TAX_RATE");
   
@@ -242,7 +242,7 @@ const WorksheetEdit = () => {
     return Array.from(cellsMap.values());
   }, [worksheet, localCells, id]);
 
-  const isLoading = wsLoading || catLoading || actLoading || svcLoading;
+  const isLoading = wsLoading || catLoading || actLoading || allActLoading || svcLoading;
   const isSaving = batchUpsertCells.isPending || updateWorksheet.isPending;
 
   const { isAdmin, isPartner, isDirector, isManager } = useUserRole();
