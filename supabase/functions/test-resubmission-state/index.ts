@@ -607,6 +607,33 @@ Deno.serve(async (req) => {
       }
     }
 
+    // ── S15 (0526-122 review cycle): the stale pre-0508-106 4-argument
+    //    overload (p_period_id, p_staff_id, p_engagement_ids, p_is_auto_approved
+    //    -- no p_activity_ids) must be gone. Postgres/PostgREST resolves RPC
+    //    calls by exact argument-name match, so a caller that omits
+    //    p_activity_ids would silently hit that dead overload and bypass both
+    //    per-activity approvals and this ticket's holiday date/office
+    //    validation entirely. Calling with the old 4-arg shape must now fail
+    //    to resolve to any function. ─────────────────────────────────────────
+    {
+      const ids = await setupHolidayTestData(`s15-${trace_id.slice(0, 8)}`, "La Paz", false);
+      try {
+        const { error } = await supabase.rpc("submit_timesheet_safe", {
+          p_period_id: ids.periodId, p_staff_id: ids.staffId,
+          p_engagement_ids: [ids.holidayEngId],
+          p_is_auto_approved: false,
+        });
+        const pass = !!error;
+        results.push({
+          scenario: "S15: stale 4-arg submit_timesheet_safe overload no longer resolves",
+          pass,
+          details: error ? JSON.stringify(error.message) : "unexpected success -- stale overload still exists",
+        });
+      } finally {
+        await cleanupHoliday(ids, []);
+      }
+    }
+
   } catch (e) {
     results.push({ scenario: "SETUP_ERROR", pass: false, details: String(e) });
   }

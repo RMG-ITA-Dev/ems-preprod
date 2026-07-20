@@ -89,6 +89,18 @@ $func$;
 --    engagements.approval_required and p_is_auto_approved: no role, including
 --    an auto-approved Partner/Director, can bypass it (BUG 0526-122
 --    SUGERENCIA §D/§E). Behavior for every other engagement is unchanged.
+--
+--    Drop the pre-0508-106 4-argument overload (p_period_id, p_staff_id,
+--    p_engagement_ids, p_is_auto_approved). CREATE OR REPLACE only replaces a
+--    function with the exact same argument signature -- since the 5-argument
+--    version (with p_activity_ids) is a different overload, Postgres kept
+--    both side by side ever since 20260526120000 introduced it. The stale
+--    4-arg overload predates per-activity approvals AND this ticket's
+--    office/date validation entirely; any caller that invokes it (directly,
+--    or via a not-yet-regenerated client relying on the old shape) would
+--    silently bypass both.
+DROP FUNCTION IF EXISTS public.submit_timesheet_safe(uuid, uuid, uuid[], boolean);
+
 CREATE OR REPLACE FUNCTION public.submit_timesheet_safe(
   p_period_id          uuid,
   p_staff_id           uuid,
