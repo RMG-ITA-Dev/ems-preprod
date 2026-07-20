@@ -236,7 +236,17 @@ export function useSubmitTimesheet() {
       queryClient.invalidateQueries({ queryKey: ["pending-approvals"] });
       queryClient.invalidateQueries({ queryKey: ["pending-approval-summaries"] });
       queryClient.invalidateQueries({ queryKey: ["staff-timesheet-for-approval"] });
-      toast.success(data.isAutoApproved
+      // BUG 0526-122: the holiday-engagement line now validates dynamically per date
+      // inside the RPC, so an auto-approved staff can still end up with a pending
+      // line (invalid holiday date) despite p_is_auto_approved=true. Trust the RPC's
+      // own summary of what actually happened, not the request flag we sent it.
+      const summary = data.summary as
+        | { new_pending?: number; reset_to_pending?: number }
+        | null
+        | undefined;
+      const leftSomethingPending =
+        (summary?.new_pending ?? 0) > 0 || (summary?.reset_to_pending ?? 0) > 0;
+      toast.success(data.isAutoApproved && !leftSomethingPending
         ? i18n.t("timesheet.autoApproved")
         : i18n.t("timesheet.submitted")
       );

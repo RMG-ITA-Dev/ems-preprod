@@ -162,11 +162,14 @@ Deno.serve(async (req) => {
     await supabase.from("timesheet_periods").delete().eq("period_id", ids.periodId);
     await supabase.from("engagements").delete().eq("engagement_id", ids.holidayEngId);
     await supabase.from("engagements").delete().eq("engagement_id", ids.otherEngId);
-    await supabase.from("staff").delete().eq("staff_id", ids.staffId);
-    await supabase.from("clients").delete().eq("client_id", ids.clientId);
+    // holidays.created_by REFERENCES staff.staff_id -- must delete before staff,
+    // or the staff delete fails on the FK (silently, since errors aren't checked
+    // here) and leaks the test staff row.
     if (holidayIds.length > 0) {
       await supabase.from("holidays").delete().in("holiday_id", holidayIds);
     }
+    await supabase.from("staff").delete().eq("staff_id", ids.staffId);
+    await supabase.from("clients").delete().eq("client_id", ids.clientId);
   }
 
   try {

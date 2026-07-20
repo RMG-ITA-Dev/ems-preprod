@@ -141,6 +141,36 @@ describe("useTimesheetMutations (BUG 0220-45)", () => {
       expect(toast.success).toHaveBeenCalledWith("timesheet.autoApproved");
     });
 
+    // REVIEW (0526-122 review cycle): the holiday-engagement line validates dynamically
+    // per date inside submit_timesheet_safe now, so an auto-approved staff can still end
+    // up with a pending line (invalid holiday date). The toast must reflect what the RPC
+    // actually did, not just echo the isAutoApproved flag we sent it.
+    it("T3b: shows submitted (not auto-approved) toast when isAutoApproved=true but the RPC left a holiday line pending", async () => {
+      vi.mocked(supabase.rpc).mockResolvedValue({
+        data: { new_pending: 1, new_auto_approved: 1 },
+        error: null,
+      } as any);
+
+      const { useSubmitTimesheet } = await import("../useTimesheetMutations");
+      const { result } = renderHook(() => useSubmitTimesheet(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate({
+        periodId: "p1",
+        staffId: "s1",
+        engagementActivityPairs: [
+          { engagementId: "e1", activityId: "act-1" },
+          { engagementId: "holiday-eng", activityId: "act-adm" },
+        ],
+        isAutoApproved: true,
+      });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+      expect(toast.success).toHaveBeenCalledWith("timesheet.submitted");
+      expect(toast.success).not.toHaveBeenCalledWith("timesheet.autoApproved");
+    });
+
     it("T4: handles SUBMIT_NO_ENTRIES error", async () => {
       vi.mocked(supabase.rpc).mockResolvedValue({
         data: null,
