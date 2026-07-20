@@ -7,11 +7,10 @@ import { HolidaysManager } from "../HolidaysManager";
 // ---------------------------------------------------------------------------
 // Hoisted mock handles
 // ---------------------------------------------------------------------------
-const { mutateMock } = vi.hoisted(() => ({ mutateMock: vi.fn() }));
-
-vi.mock("@/hooks/useHolidays", () => ({
-  useHolidays: () => ({
-    data: [
+const { mutateMock, holidaysDataRef } = vi.hoisted(() => ({
+  mutateMock: vi.fn(),
+  holidaysDataRef: {
+    current: [
       {
         holiday_id: "h1",
         holiday_date: "2026-01-01",
@@ -30,7 +29,22 @@ vi.mock("@/hooks/useHolidays", () => ({
         created_by: "staff-1",
         created_at: null,
       },
-    ],
+    ] as Array<{
+      holiday_id: string;
+      holiday_date: string;
+      holiday_name: string;
+      oficina: number;
+      created_by: string;
+      created_at: string | null;
+    }>,
+  },
+}));
+
+const DEFAULT_HOLIDAYS_DATA = [...holidaysDataRef.current];
+
+vi.mock("@/hooks/useHolidays", () => ({
+  useHolidays: () => ({
+    data: holidaysDataRef.current,
     isLoading: false,
   }),
 }));
@@ -90,6 +104,7 @@ describe("HolidaysManager — generate national holidays (0513-113)", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-06-01T12:00:00"));
     mutateMock.mockClear();
+    holidaysDataRef.current = [...DEFAULT_HOLIDAYS_DATA];
   });
 
   afterEach(() => {
@@ -175,5 +190,34 @@ describe("HolidaysManager — generate national holidays (0513-113)", () => {
     expect(screen.getAllByText("engagement.oficina_ambos").length).toBeGreaterThan(0);
     expect(screen.getByText("holiday.generatePreviewExact")).toBeInTheDocument();
     expect(screen.getAllByText("holiday.generatePreviewNew").length).toBe(2);
+  });
+
+  // REVIEW (0526-122 review cycle, iteration #5): a custom holiday occupying a
+  // generated (date, oficina) slot under an unrelated name is left untouched by
+  // the mutation (useGenerateNationalHolidays only inserts free slots and only
+  // updates slots that hold a stale *national* name). The preview must say so
+  // instead of promising "will be created" for a slot that won't change.
+  it("HM8: a slot occupied by an unrelated custom holiday is previewed as occupied, not new", async () => {
+    holidaysDataRef.current = [
+      ...DEFAULT_HOLIDAYS_DATA,
+      {
+        holiday_id: "h3",
+        holiday_date: "2027-05-01",
+        holiday_name: "Aniversario de la Empresa (Adicional)",
+        oficina: 0,
+        created_by: "staff-1",
+        created_at: null,
+      },
+    ];
+    const user = userEvent.setup();
+    render(React.createElement(HolidaysManager));
+
+    await user.click(screen.getByRole("button", { name: /holiday\.generateButton/i }));
+
+    // Día del Trabajo 2027-05-01's slot is occupied by the custom row above —
+    // must be previewed as "occupied", not "new".
+    expect(screen.getByText("holiday.generatePreviewOccupied")).toBeInTheDocument();
+    // Only La Paz (07-16) remains a genuinely free/new slot.
+    expect(screen.getAllByText("holiday.generatePreviewNew").length).toBe(1);
   });
 });

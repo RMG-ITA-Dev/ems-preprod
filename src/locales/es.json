@@ -844,7 +844,8 @@
     "nextYear": "Año siguiente",
     "generatePreviewNew": "Se creará",
     "generatePreviewExact": "Ya correcto",
-    "generatePreviewUpdate": "Se corregirá"
+    "generatePreviewUpdate": "Se corregirá",
+    "generatePreviewOccupied": "Fecha ocupada por otro feriado — no se creará"
   },
  "dashboard": {
     "noData": "Sin datos disponibles para el período seleccionado",

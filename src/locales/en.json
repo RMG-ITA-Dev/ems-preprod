@@ -844,7 +844,8 @@
     "nextYear": "Next year",
     "generatePreviewNew": "Will be created",
     "generatePreviewExact": "Already correct",
-    "generatePreviewUpdate": "Will be corrected"
+    "generatePreviewUpdate": "Will be corrected",
+    "generatePreviewOccupied": "Date occupied by another holiday — will not be created"
   },
  "dashboard": {
     "noData": "No data available for the selected period",

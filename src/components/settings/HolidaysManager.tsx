@@ -40,40 +40,38 @@ export function HolidaysManager() {
     h.holiday_date.startsWith(`${targetYear}-`)
   );
   const existingByKey = new Map(targetYearHolidays.map((h) => [holidayKey(h.holiday_date, h.oficina), h]));
-  const exactMatch = targetYearHolidays.filter(
-    (h) => generatedByKey.get(holidayKey(h.holiday_date, h.oficina)) === normalizeHolidayName(h.holiday_name)
-  ).length;
-  const crossedStale = targetYearHolidays.filter((h) => {
-    const n = normalizeHolidayName(h.holiday_name);
-    const key = holidayKey(h.holiday_date, h.oficina);
-    return NATIONAL_HOLIDAY_NAMES.has(n) && generatedByKey.has(key) && generatedByKey.get(key) !== n;
-  });
   const regularStale = targetYearHolidays.filter((h) => {
     const n = normalizeHolidayName(h.holiday_name);
     return NATIONAL_HOLIDAY_NAMES.has(n) && !generatedByKey.has(holidayKey(h.holiday_date, h.oficina));
   });
-  const staleToReplace = crossedStale.length + regularStale.length;
-  // Regular stale entries sit at wrong (date, oficina) slots; their generated slots are
-  // free and WILL be inserted. Only crossed stale (UPDATE in-place) don't produce a new
-  // row, so only those reduce toInsertCount.
-  const toInsertCount = generatedList.length - exactMatch - crossedStale.length;
 
   // Per-date/office preview shown in the confirmation dialog — mirrors exactly what the
-  // mutation will do with each generated slot (Plan v2 §c: preview must include oficina).
-  type PreviewStatus = "exact" | "update" | "new";
+  // mutation (useGenerateNationalHolidays) will do with each generated slot (Plan v2 §c).
+  // Status must match the mutation's own classification 1:1, or the dialog promises an
+  // outcome the mutation won't deliver:
+  //   - "exact"    -> slot occupied, name already matches -> skipped (exactMatchKeys)
+  //   - "update"   -> slot occupied by a stale *national* name -> updated in place (staleAtGeneratedSlots)
+  //   - "occupied" -> slot occupied by an unrelated/custom name -> left untouched, NOT created
+  //   - "new"      -> slot free -> inserted
+  type PreviewStatus = "exact" | "update" | "occupied" | "new";
   const previewRows: { date: string; name: string; oficina: 0 | 1 | 2; status: PreviewStatus }[] =
     generatedList.map((g) => {
       const key = holidayKey(g.date, g.oficina);
       const existing = existingByKey.get(key);
-      const isCrossedStale = crossedStale.some((h) => holidayKey(h.holiday_date, h.oficina) === key);
-      const status: PreviewStatus =
-        existing && normalizeHolidayName(existing.holiday_name) === g.name
-          ? "exact"
-          : isCrossedStale
-            ? "update"
-            : "new";
+      let status: PreviewStatus;
+      if (!existing) {
+        status = "new";
+      } else {
+        const n = normalizeHolidayName(existing.holiday_name);
+        status = n === g.name ? "exact" : NATIONAL_HOLIDAY_NAMES.has(n) ? "update" : "occupied";
+      }
       return { date: g.date, name: g.name, oficina: g.oficina, status };
     });
+
+  const exactMatch = previewRows.filter((r) => r.status === "exact").length;
+  const crossedStaleCount = previewRows.filter((r) => r.status === "update").length;
+  const staleToReplace = crossedStaleCount + regularStale.length;
+  const toInsertCount = previewRows.filter((r) => r.status === "new").length;
 
   const getStaffName = (staffId: string) => {
     const s = staffList?.find((st) => st.staff_id === staffId);
@@ -91,12 +89,14 @@ export function HolidaysManager() {
     }
   };
 
-  const getPreviewStatusLabel = (status: "exact" | "update" | "new") => {
+  const getPreviewStatusLabel = (status: "exact" | "update" | "occupied" | "new") => {
     switch (status) {
       case "exact":
         return t("holiday.generatePreviewExact");
       case "update":
         return t("holiday.generatePreviewUpdate");
+      case "occupied":
+        return t("holiday.generatePreviewOccupied");
       case "new":
         return t("holiday.generatePreviewNew");
     }
