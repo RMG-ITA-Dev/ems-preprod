@@ -53,7 +53,7 @@ const WorksheetEdit = () => {
   const { data: worksheet, isLoading: wsLoading } = useWorksheetById(id);
   const { data: categories, isLoading: catLoading } = useCategories();
   const { data: activityCodes, isLoading: actLoading } = useActivityCodes();
-  const { data: services } = useServices();
+  const { data: services, isLoading: svcLoading } = useServices();
   const globalTaxRate = useSetting("TAX_RATE");
   
   const batchUpsertCells = useBatchUpsertCells();
@@ -116,6 +116,14 @@ const WorksheetEdit = () => {
     [activeActivities, practica]
   );
 
+  // Same scoping, but over ALL activity codes (not just the active ones shown
+  // in the grid). Used as the destructive allow-list on save/copy so hours
+  // stored against an activity later marked inactive aren't silently dropped.
+  const scopedActivitiesForSave = useMemo(
+    () => filterActivitiesByService(activityCodes ?? [], practica),
+    [activityCodes, practica]
+  );
+
   const handleCellChange = useCallback(
     (categoryId: string, activityId: string, hours: number) => {
       const key = `${categoryId}|${activityId}`;
@@ -147,9 +155,11 @@ const WorksheetEdit = () => {
     });
 
     // Only persist cells that belong to the engagement's service. This purges
-    // any stray out-of-service cells left over from before this fix.
+    // any stray out-of-service cells left over from before this fix. Uses the
+    // all-activities scope (not just active ones) so historical hours on a
+    // now-inactive activity aren't wiped by an unrelated save.
     const scopedCategoryIds = new Set((scopedCategories ?? []).map((c) => c.category_id));
-    const scopedActivityIds = new Set(scopedActivities.map((a) => a.activity_id));
+    const scopedActivityIds = new Set(scopedActivitiesForSave.map((a) => a.activity_id));
 
     // Convert to array
     existingCellsMap.forEach((hours, key) => {
@@ -218,7 +228,7 @@ const WorksheetEdit = () => {
     return Array.from(cellsMap.values());
   }, [worksheet, localCells, id]);
 
-  const isLoading = wsLoading || catLoading || actLoading;
+  const isLoading = wsLoading || catLoading || actLoading || svcLoading;
   const isSaving = batchUpsertCells.isPending || updateWorksheet.isPending;
 
   const { isAdmin, isPartner, isDirector, isManager } = useUserRole();
@@ -248,7 +258,7 @@ const WorksheetEdit = () => {
 
     // Only load copied cells that belong to the engagement's service.
     const scopedCategoryIds = new Set((scopedCategories ?? []).map((c) => c.category_id));
-    const scopedActivityIds = new Set(scopedActivities.map((a) => a.activity_id));
+    const scopedActivityIds = new Set(scopedActivitiesForSave.map((a) => a.activity_id));
 
     sourceCells.forEach((cell) => {
       if (!scopedCategoryIds.has(cell.category_id) || !scopedActivityIds.has(cell.activity_id)) return;
