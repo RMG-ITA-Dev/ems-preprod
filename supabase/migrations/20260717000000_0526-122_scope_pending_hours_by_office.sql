@@ -88,7 +88,7 @@ BEGIN
       FROM generate_series(v_eff_start, LEAST(v_eff_end, v_today), '1 day'::interval) d
       WHERE EXTRACT(ISODOW FROM d) <= 5;
 
-      SELECT COUNT(*) INTO v_holiday_count
+      SELECT COUNT(DISTINCT h.holiday_date) INTO v_holiday_count
       FROM public.holidays h
       WHERE h.holiday_date BETWEEN v_eff_start AND LEAST(v_eff_end, v_today)
         AND EXTRACT(ISODOW FROM h.holiday_date) <= 5
@@ -142,7 +142,7 @@ BEGIN
     FROM generate_series(v_eff_start, v_eff_end, '1 day'::interval) d
     WHERE EXTRACT(ISODOW FROM d) <= 5;
 
-    SELECT COUNT(*) INTO v_holiday_count
+    SELECT COUNT(DISTINCT h.holiday_date) INTO v_holiday_count
     FROM public.holidays h
     WHERE h.holiday_date BETWEEN v_eff_start AND v_eff_end
       AND EXTRACT(ISODOW FROM h.holiday_date) <= 5
@@ -266,7 +266,7 @@ BEGIN
     FROM generate_series(v_eff_start, v_eff_end, '1 day'::interval) d
     WHERE EXTRACT(ISODOW FROM d) <= 5;
 
-    SELECT COUNT(*) INTO v_holiday_count
+    SELECT COUNT(DISTINCT h.holiday_date) INTO v_holiday_count
     FROM holidays h
     WHERE h.holiday_date BETWEEN v_eff_start AND v_eff_end
       AND EXTRACT(ISODOW FROM h.holiday_date) <= 5
@@ -360,7 +360,7 @@ BEGIN
     FROM generate_series(v_eff_start, v_eff_end, '1 day'::interval) d
     WHERE EXTRACT(ISODOW FROM d) <= 5;
 
-    SELECT COUNT(*) INTO v_holiday_count
+    SELECT COUNT(DISTINCT h.holiday_date) INTO v_holiday_count
     FROM public.holidays h
     WHERE h.holiday_date BETWEEN v_eff_start AND v_eff_end
       AND EXTRACT(ISODOW FROM h.holiday_date) <= 5
