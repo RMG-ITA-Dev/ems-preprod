@@ -22,6 +22,13 @@
 --    whose category or (service-linked) activity does not match the parent worksheet's
 --    engagement service. This is a backstop: the only writer is the frontend batch-upsert hook,
 --    which after this fix only ever sends in-scope cells.
+-- 4. Add batch_upsert_worksheet_cells(): the frontend used to delete-all-then-reinsert a
+--    worksheet's cells as two separate PostgREST requests (two transactions). If the trigger
+--    above rejected the insert, the prior delete stayed committed, wiping the worksheet's
+--    entire matrix over a single invalid cell. Wrapping both steps in one SECURITY DEFINER
+--    function makes them one transaction, so a rejected insert rolls back its own delete too
+--    (review.md iteración 10). src/hooks/useWorksheetMutations.ts (useBatchUpsertCells) now
+--    calls this RPC instead of issuing the delete/insert directly.
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- 1 + 1b. DATA CLEANUP, then RESYNC DRAFT WORK ORDER BUDGETS for cleaned worksheets only
@@ -127,3 +134,49 @@ CREATE TRIGGER trg_enforce_worksheet_cell_service_scope
   BEFORE INSERT OR UPDATE ON public.activity_worksheet_cells
   FOR EACH ROW
   EXECUTE FUNCTION public.enforce_worksheet_cell_service_scope();
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- 4. ATOMIC BATCH UPSERT: delete + reinsert a worksheet's cells in one transaction
+--    Authorization mirrors the RLS policies this SECURITY DEFINER function bypasses
+--    ("Team can manage worksheet cells" / "Admins can manage worksheet cells",
+--    migration 20260107032620): caller must be an engagement team member or admin.
+-- ────────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.batch_upsert_worksheet_cells(
+  p_worksheet_id uuid,
+  p_cells        jsonb
+) RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_engagement_id uuid;
+BEGIN
+  SELECT engagement_id INTO v_engagement_id
+    FROM public.activity_worksheets
+   WHERE id = p_worksheet_id;
+
+  IF v_engagement_id IS NULL THEN
+    RAISE EXCEPTION 'Worksheet not found: %', p_worksheet_id;
+  END IF;
+
+  IF NOT (public.is_admin() OR public.is_engagement_team_member(v_engagement_id)) THEN
+    RAISE EXCEPTION 'Permission denied: not a team member of this engagement'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  DELETE FROM public.activity_worksheet_cells WHERE worksheet_id = p_worksheet_id;
+
+  INSERT INTO public.activity_worksheet_cells (worksheet_id, category_id, activity_id, budget_hours)
+  SELECT
+    p_worksheet_id,
+    (elem->>'category_id')::uuid,
+    (elem->>'activity_id')::uuid,
+    (elem->>'budget_hours')::numeric
+  FROM jsonb_array_elements(p_cells) AS elem
+  WHERE (elem->>'budget_hours')::numeric > 0;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.batch_upsert_worksheet_cells(uuid, jsonb) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.batch_upsert_worksheet_cells(uuid, jsonb) TO authenticated;

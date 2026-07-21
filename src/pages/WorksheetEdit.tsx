@@ -118,23 +118,31 @@ const WorksheetEdit = () => {
   );
 
   // Destructive allow-lists for save/copy. `undefined` = scoping doesn't apply
-  // (engagement has no resolved service) — callers must keep every existing
-  // cell rather than purge, since the cleanup migration also leaves these
-  // no-service worksheets untouched. When defined, built from ALL activity
-  // codes (not just the active ones shown in the grid via `useActivityCodes()`,
-  // which already excludes inactive rows server-side) so historical hours on
-  // an activity later marked inactive aren't silently dropped by an unrelated
-  // save. Matches on the raw `service_id` FK directly (no `services.code`
-  // round-trip needed).
+  // (engagement has no resolved service, OR the category/activity catalog isn't
+  // actually loaded — which includes a query error, not just the initial
+  // loading window already covered by `isLoading` above) — callers must keep
+  // every existing cell rather than purge, since the cleanup migration also
+  // leaves these no-service worksheets untouched. Guarding on the raw
+  // `categories`/`allActivityCodes` query data (not just `engagementServiceId`)
+  // matters because React Query's `isLoading` only reflects the *first* fetch:
+  // once a query settles into an error state, `isLoading` is false but `data`
+  // stays `undefined` forever, and `(data ?? [])` would otherwise silently read
+  // as "empty catalog" and wipe every cell on the next save (review.md
+  // iteración 10). When defined, built from ALL activity codes (not just the
+  // active ones shown in the grid via `useActivityCodes()`, which already
+  // excludes inactive rows server-side) so historical hours on an activity
+  // later marked inactive aren't silently dropped by an unrelated save.
+  // Matches on the raw `service_id` FK directly (no `services.code` round-trip
+  // needed).
   const scopedCategoryIdsForSave = useMemo(() => {
-    if (engagementServiceId === undefined) return undefined;
-    return new Set((scopedCategories ?? []).map((c) => c.category_id));
+    if (engagementServiceId === undefined || !scopedCategories) return undefined;
+    return new Set(scopedCategories.map((c) => c.category_id));
   }, [scopedCategories, engagementServiceId]);
 
   const scopedActivityIdsForSave = useMemo(() => {
-    if (engagementServiceId === undefined) return undefined;
+    if (engagementServiceId === undefined || !allActivityCodes) return undefined;
     return new Set(
-      (allActivityCodes ?? [])
+      allActivityCodes
         .filter((a) => a.service_id == null || a.service_id === engagementServiceId)
         .map((a) => a.activity_id)
     );
