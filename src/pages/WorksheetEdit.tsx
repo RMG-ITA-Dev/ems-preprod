@@ -358,7 +358,7 @@ const WorksheetEdit = () => {
               {t("common.cancel")}
             </Button>
 
-            {!isReadOnly && (
+            {!isReadOnly && practica != null && (
               <Button
                 variant="secondary"
                 onClick={() => setShowCopyDialog(true)}
