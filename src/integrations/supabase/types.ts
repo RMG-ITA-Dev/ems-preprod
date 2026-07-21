@@ -837,6 +837,7 @@ export type Database = {
           holiday_date: string
           holiday_id: string
           holiday_name: string
+          oficina: number
           updated_at: string | null
         }
         Insert: {
@@ -845,6 +846,7 @@ export type Database = {
           holiday_date: string
           holiday_id?: string
           holiday_name: string
+          oficina?: number
           updated_at?: string | null
         }
         Update: {
@@ -853,6 +855,7 @@ export type Database = {
           holiday_date?: string
           holiday_id?: string
           holiday_name?: string
+          oficina?: number
           updated_at?: string | null
         }
         Relationships: [

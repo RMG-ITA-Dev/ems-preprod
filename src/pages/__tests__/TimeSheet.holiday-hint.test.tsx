@@ -40,6 +40,8 @@ const refs = vi.hoisted(() => ({
   ]),
   holidayEngagementId: "hol-eng-1" as string | null,
   submittedAt: null as string | null,
+  entries: [{ hours_logged: 8, engagement_id: "eng-1", activity_id: "act-1" }] as
+    { hours_logged: number; engagement_id: string; activity_id: string }[],
 }));
 
 // --- Hook mocks ---
@@ -68,7 +70,7 @@ vi.mock("@/hooks/useTimesheetWeek", () => ({
       is_period_locked: false,
       submitted_at: refs.submittedAt,
     },
-    entries: [{ hours_logged: 8, engagement_id: "eng-1", activity_id: "act-1" }],
+    entries: refs.entries,
     engagements: [{ engagement_id: "eng-1", activity_required: true }],
     activities: [],
     isLoading: false,
@@ -165,6 +167,7 @@ describe("TimeSheet holiday week hint (0513-112)", () => {
     ]);
     refs.holidayEngagementId = "hol-eng-1";
     refs.submittedAt = null;
+    refs.entries = [{ hours_logged: 8, engagement_id: "eng-1", activity_id: "act-1" }];
   });
 
   // HH1: week has holidays, engagement configured, sheet editable → hint visible
@@ -192,5 +195,23 @@ describe("TimeSheet holiday week hint (0513-112)", () => {
     refs.submittedAt = "2026-05-14T10:00:00Z";
     renderWithRouter(<TimeSheet />);
     expect(screen.queryByText(/holidayWeekHint/)).not.toBeInTheDocument();
+  });
+
+  // HH5 (BUG 0526-122): useHolidaysForWeek already filters by staff office before
+  // TimeSheet ever sees the map, so a holiday exclusive to another office is
+  // equivalent — from TimeSheet's perspective — to "no holidays this week".
+  it("HH5: hides holidayWeekHint when the week's only holiday belongs to another office (already filtered out upstream)", () => {
+    refs.holidayMap = new Map(); // useHolidaysForWeek would have excluded the other office's holiday
+    renderWithRouter(<TimeSheet />);
+    expect(screen.queryByText(/holidayWeekHint/)).not.toBeInTheDocument();
+  });
+
+  // HH6 (BUG 0526-122): a brand-new week with zero saved entries must still show
+  // the hint — this is precisely when the user needs the proactive warning,
+  // before they've logged any hours for the holiday engagement.
+  it("HH6: shows holidayWeekHint on a blank week with no saved entries yet", () => {
+    refs.entries = [];
+    renderWithRouter(<TimeSheet />);
+    expect(screen.getByText(/holidayWeekHint/)).toBeInTheDocument();
   });
 });

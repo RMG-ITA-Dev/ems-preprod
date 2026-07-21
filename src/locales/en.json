@@ -352,7 +352,8 @@
     "userRoles": "User Roles",
     "holidayEngagement": "Holiday Engagement",
     "holidayEngagementHelp": "Select the engagement allowed for time entries on holiday dates",
-    "holidayNotConfigured": "Holiday blocking is inactive until an engagement is selected"
+    "holidayNotConfigured": "Holiday blocking is inactive until an engagement is selected",
+    "holidayEngagementApprovalWarning": "This engagement has automatic approval enabled. Holiday date validation still applies regardless, but you may want to review this configuration."
   },
   "userRoles": {
     "title": "User Roles Management",
@@ -833,11 +834,18 @@
     "deleteHoliday": "Delete Holiday",
     "date": "Date",
     "name": "Name",
+    "oficina": "Office",
     "createdBy": "Created By",
-    "generateButton": "Generate {{year}} national holidays",
-    "generateConfirmTitle": "Generate {{year}} national holidays",
-    "generateConfirmDesc": "Year {{year}}: {{total}} national holidays calculated — {{alreadyExist}} already correct, {{staleToReplace}} with incorrect dates to be replaced, {{toInsert}} will be created. Continue?",
-    "allNationalAlreadyExist": "All national holidays for {{year}} already exist."
+    "generateButton": "Generate {{year}} Holidays",
+    "generateConfirmTitle": "Generate {{year}} Holidays",
+    "generateConfirmDesc": "Year {{year}}: {{total}} holidays calculated — {{alreadyExist}} already correct, {{staleToReplace}} with incorrect dates to be replaced, {{toInsert}} will be created. Continue?",
+    "allHolidaysAlreadyExist": "All holidays for {{year}} already exist.",
+    "previousYear": "Previous year",
+    "nextYear": "Next year",
+    "generatePreviewNew": "Will be created",
+    "generatePreviewExact": "Already correct",
+    "generatePreviewUpdate": "Will be corrected",
+    "generatePreviewOccupied": "Date occupied by another holiday — will not be created"
   },
  "dashboard": {
     "noData": "No data available for the selected period",

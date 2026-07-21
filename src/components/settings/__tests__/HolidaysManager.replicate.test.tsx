@@ -7,19 +7,44 @@ import { HolidaysManager } from "../HolidaysManager";
 // ---------------------------------------------------------------------------
 // Hoisted mock handles
 // ---------------------------------------------------------------------------
-const { mutateMock } = vi.hoisted(() => ({ mutateMock: vi.fn() }));
-
-vi.mock("@/hooks/useHolidays", () => ({
-  useHolidays: () => ({
-    data: [
+const { mutateMock, holidaysDataRef } = vi.hoisted(() => ({
+  mutateMock: vi.fn(),
+  holidaysDataRef: {
+    current: [
       {
         holiday_id: "h1",
         holiday_date: "2026-01-01",
         holiday_name: "Año Nuevo",
+        oficina: 0,
         created_by: "staff-1",
         created_at: null,
       },
-    ],
+      // Pre-existing 2027 national holiday matching the generated slot exactly —
+      // used to assert the preview marks it as already correct.
+      {
+        holiday_id: "h2",
+        holiday_date: "2027-01-01",
+        holiday_name: "Año Nuevo",
+        oficina: 0,
+        created_by: "staff-1",
+        created_at: null,
+      },
+    ] as Array<{
+      holiday_id: string;
+      holiday_date: string;
+      holiday_name: string;
+      oficina: number;
+      created_by: string;
+      created_at: string | null;
+    }>,
+  },
+}));
+
+const DEFAULT_HOLIDAYS_DATA = [...holidaysDataRef.current];
+
+vi.mock("@/hooks/useHolidays", () => ({
+  useHolidays: () => ({
+    data: holidaysDataRef.current,
     isLoading: false,
   }),
 }));
@@ -37,8 +62,9 @@ vi.mock("@/hooks/mutations/useHolidayMutations", () => ({
 
 vi.mock("@/lib/boliviaHolidays", () => ({
   getBoliviaNationalHolidays: () => [
-    { date: "2027-01-01", name: "Año Nuevo" },
-    { date: "2027-05-01", name: "Día del Trabajo" },
+    { date: "2027-01-01", name: "Año Nuevo", oficina: 0 },
+    { date: "2027-05-01", name: "Día del Trabajo", oficina: 0 },
+    { date: "2027-07-16", name: "Aniversario del Departamento de La Paz", oficina: 1 },
   ],
   NATIONAL_HOLIDAY_NAMES: new Set(["Año Nuevo", "Día del Trabajo"]),
   normalizeHolidayName: (name: string) => name.replace(/^Feriado\s*-\s*/i, "").trim(),
@@ -78,6 +104,7 @@ describe("HolidaysManager — generate national holidays (0513-113)", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-06-01T12:00:00"));
     mutateMock.mockClear();
+    holidaysDataRef.current = [...DEFAULT_HOLIDAYS_DATA];
   });
 
   afterEach(() => {
@@ -108,5 +135,89 @@ describe("HolidaysManager — generate national holidays (0513-113)", () => {
     await user.click(screen.getByRole("button", { name: /common\.confirm/i }));
 
     expect(mutateMock).toHaveBeenCalledWith({ created_by: "staff-1", year: 2027 });
+  });
+
+  // BUG 0526-122: reincorporated year selector (chevron ◀▶), range currentYear..currentYear+5.
+  it("HM4: previous-year chevron is disabled at the minimum year (currentYear)", async () => {
+    const user = userEvent.setup();
+    render(React.createElement(HolidaysManager));
+
+    const prevButton = screen.getByRole("button", { name: /holiday\.previousYear/i });
+    expect(prevButton).toBeEnabled(); // starts at currentYear+1 = 2027
+
+    await user.click(prevButton);
+    expect(prevButton).toBeDisabled(); // now at currentYear = 2026
+  });
+
+  it("HM5: next-year chevron advances the target year used on confirm", async () => {
+    const user = userEvent.setup();
+    render(React.createElement(HolidaysManager));
+
+    await user.click(screen.getByRole("button", { name: /holiday\.nextYear/i }));
+    await user.click(screen.getByRole("button", { name: /holiday\.generateButton/i }));
+    await user.click(screen.getByRole("button", { name: /common\.confirm/i }));
+
+    expect(mutateMock).toHaveBeenCalledWith({ created_by: "staff-1", year: 2028 });
+  });
+
+  it("HM6: next-year chevron is disabled at the maximum year (currentYear+5)", async () => {
+    const user = userEvent.setup();
+    render(React.createElement(HolidaysManager));
+
+    const nextButton = screen.getByRole("button", { name: /holiday\.nextYear/i });
+    for (let i = 0; i < 4; i++) {
+      await user.click(nextButton); // 2027 -> 2028 -> 2029 -> 2030 -> 2031 (=currentYear+5)
+    }
+    expect(nextButton).toBeDisabled();
+  });
+
+  // REVIEW (0526-122 review cycle): the confirmation dialog must preview each
+  // generated date with its office, not just aggregate counts.
+  it("HM7: confirmation dialog previews each generated date with its office and status", async () => {
+    const user = userEvent.setup();
+    render(React.createElement(HolidaysManager));
+
+    await user.click(screen.getByRole("button", { name: /holiday\.generateButton/i }));
+
+    // Año Nuevo 2027-01-01 already exists with the correct name → exact match.
+    expect(screen.getByText("01/01/2027")).toBeInTheDocument();
+    // Día del Trabajo 2027-05-01 has no existing row → will be created.
+    expect(screen.getByText("01/05/2027")).toBeInTheDocument();
+    // La Paz 2027-07-16 (oficina=1) is previewed with its office label, distinct
+    // from the national (oficina=0) entries' "Todas" label.
+    expect(screen.getByText("16/07/2027")).toBeInTheDocument();
+    expect(screen.getAllByText("engagement.oficina_laPaz").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("engagement.oficina_ambos").length).toBeGreaterThan(0);
+    expect(screen.getByText("holiday.generatePreviewExact")).toBeInTheDocument();
+    expect(screen.getAllByText("holiday.generatePreviewNew").length).toBe(2);
+  });
+
+  // REVIEW (0526-122 review cycle, iteration #5): a custom holiday occupying a
+  // generated (date, oficina) slot under an unrelated name is left untouched by
+  // the mutation (useGenerateNationalHolidays only inserts free slots and only
+  // updates slots that hold a stale *national* name). The preview must say so
+  // instead of promising "will be created" for a slot that won't change.
+  it("HM8: a slot occupied by an unrelated custom holiday is previewed as occupied, not new", async () => {
+    holidaysDataRef.current = [
+      ...DEFAULT_HOLIDAYS_DATA,
+      {
+        holiday_id: "h3",
+        holiday_date: "2027-05-01",
+        holiday_name: "Aniversario de la Empresa (Adicional)",
+        oficina: 0,
+        created_by: "staff-1",
+        created_at: null,
+      },
+    ];
+    const user = userEvent.setup();
+    render(React.createElement(HolidaysManager));
+
+    await user.click(screen.getByRole("button", { name: /holiday\.generateButton/i }));
+
+    // Día del Trabajo 2027-05-01's slot is occupied by the custom row above —
+    // must be previewed as "occupied", not "new".
+    expect(screen.getByText("holiday.generatePreviewOccupied")).toBeInTheDocument();
+    // Only La Paz (07-16) remains a genuinely free/new slot.
+    expect(screen.getAllByText("holiday.generatePreviewNew").length).toBe(1);
   });
 });

@@ -5,6 +5,7 @@ import { toISODateString, getPreviousWeek, getWorkDays, getWeekMonday } from "@/
 import { parseDateLocal } from "@/lib/timesheetUtils";
 import { createMutationErrorHandler } from "@/lib/error-handler";
 import { createTimesheetError, isTimesheetError } from "@/lib/timesheetErrors";
+import { holidayAppliesToCity } from "@/hooks/useHolidays";
 import i18n from "@/i18n";
 // Upsert a time entry (create or update)
 export function useUpsertTimeEntry() {
@@ -235,7 +236,17 @@ export function useSubmitTimesheet() {
       queryClient.invalidateQueries({ queryKey: ["pending-approvals"] });
       queryClient.invalidateQueries({ queryKey: ["pending-approval-summaries"] });
       queryClient.invalidateQueries({ queryKey: ["staff-timesheet-for-approval"] });
-      toast.success(data.isAutoApproved
+      // BUG 0526-122: the holiday-engagement line now validates dynamically per date
+      // inside the RPC, so an auto-approved staff can still end up with a pending
+      // line (invalid holiday date) despite p_is_auto_approved=true. Trust the RPC's
+      // own summary of what actually happened, not the request flag we sent it.
+      const summary = data.summary as
+        | { new_pending?: number; reset_to_pending?: number }
+        | null
+        | undefined;
+      const leftSomethingPending =
+        (summary?.new_pending ?? 0) > 0 || (summary?.reset_to_pending ?? 0) > 0;
+      toast.success(data.isAutoApproved && !leftSomethingPending
         ? i18n.t("timesheet.autoApproved")
         : i18n.t("timesheet.submitted")
       );
@@ -515,6 +526,7 @@ export function useCopyToCurrentWeek() {
   return useMutation({
     mutationFn: async ({
       staffId,
+      staffCity,
       sourceWeekStart,
       workDays,
       hireDate,
@@ -522,6 +534,7 @@ export function useCopyToCurrentWeek() {
       employeeRetroDays,
     }: {
       staffId: string;
+      staffCity?: string | null;
       sourceWeekStart: Date;
       workDays: number;
       hireDate?: string | null;
@@ -609,11 +622,15 @@ export function useCopyToCurrentWeek() {
       const allEndStr = sourceEndStr > destEndStr ? sourceEndStr : destEndStr;
       const { data: holidayRows, error: holError } = await supabase
         .from("holidays")
-        .select("holiday_date")
+        .select("holiday_date, oficina")
         .gte("holiday_date", allStartStr)
         .lte("holiday_date", allEndStr);
       if (holError) throw holError;
-      const holidaySet = new Set((holidayRows || []).map((h) => h.holiday_date));
+      const holidaySet = new Set(
+        (holidayRows || [])
+          .filter((h) => holidayAppliesToCity(h.oficina, staffCity))
+          .map((h) => h.holiday_date)
+      );
 
       const sourceHolidayDates = new Set<string>();
       const destHolidayDates = new Set<string>();
