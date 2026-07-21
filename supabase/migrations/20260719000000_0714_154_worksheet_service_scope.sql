@@ -10,7 +10,12 @@
 --    Engagements without a service (practica IS NULL) are left untouched.
 --    Activity codes with service_id IS NULL are global (legacy codes, e.g. 100-PLA, ADM) and are
 --    valid for every service — never deleted on that basis.
--- 2. Add a BEFORE INSERT OR UPDATE trigger on activity_worksheet_cells that rejects any new cell
+-- 2. Resync wo_budget_lines for Draft work orders linked to a worksheet touched by the cleanup
+--    above — sync_worksheet_to_wo_budget() only runs once at WO creation and otherwise only via
+--    the manual "Resync" button (disabled once the WO is Approved/Pending_Approval/Rejected), so
+--    without this the WO would keep stale, inflated hours after cells are deleted. Locked work
+--    orders are intentionally left untouched (open question — see review.md iteración 4).
+-- 3. Add a BEFORE INSERT OR UPDATE trigger on activity_worksheet_cells that rejects any new cell
 --    whose category or (service-linked) activity does not match the parent worksheet's
 --    engagement service. This is a backstop: the only writer is the frontend batch-upsert hook,
 --    which after this fix only ever sends in-scope cells.
@@ -34,6 +39,28 @@ WHERE aw.id = awc.worksheet_id
     c.service_id <> svc.service_id
     OR (a.service_id IS NOT NULL AND a.service_id <> svc.service_id)
   );
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- 1b. RESYNC DRAFT WORK ORDER BUDGETS
+--     Restores wo_budget_lines consistency for worksheets whose cells were just deleted above.
+--     Only Draft work orders are touched — Approved/Pending_Approval/Rejected are left as-is
+--     (mutating already-issued figures is a business decision out of scope for this bug fix).
+-- ────────────────────────────────────────────────────────────────────────────
+DO $$
+DECLARE
+  r RECORD;
+BEGIN
+  FOR r IN
+    SELECT aw.id AS worksheet_id, aw.wo_id
+      FROM public.activity_worksheets aw
+      JOIN public.work_orders wo ON wo.wo_id = aw.wo_id
+     WHERE aw.wo_id IS NOT NULL
+       AND wo.approval_status = 'Draft'
+  LOOP
+    PERFORM public.sync_worksheet_to_wo_budget(r.worksheet_id, r.wo_id);
+  END LOOP;
+END;
+$$;
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- 2. GUARD TRIGGER: reject new/updated cells outside the engagement's service
