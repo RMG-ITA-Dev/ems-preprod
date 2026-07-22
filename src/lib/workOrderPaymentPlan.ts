@@ -6,11 +6,14 @@ import type { PaymentInstallmentInput } from '@/types/workOrderPaymentPlan';
 export function addBusinessDays(start: Date, days: number): Date {
   if (days <= 0) return new Date(start);
 
-  // Pre-fetch holidays for the years we might span
+  // Pre-fetch holidays for the years we might span. This is a global
+  // business-day calendar with no staff/office context, so only oficina=0
+  // (national) holidays apply here -- La Paz/Santa Cruz departmental
+  // holidays (oficina=1|2) must not skip payment dates for every office.
   const startYear = start.getFullYear();
   const holidays = new Set<string>([
-    ...getBoliviaNationalHolidays(startYear).map((h) => h.date),
-    ...getBoliviaNationalHolidays(startYear + 1).map((h) => h.date),
+    ...getBoliviaNationalHolidays(startYear).filter((h) => h.oficina === 0).map((h) => h.date),
+    ...getBoliviaNationalHolidays(startYear + 1).filter((h) => h.oficina === 0).map((h) => h.date),
   ]);
 
   const isHolidayOrWeekend = (d: Date): boolean => {

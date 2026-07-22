@@ -88,6 +88,20 @@ describe("addBusinessDays — Bolivia national holidays", () => {
   });
 });
 
+describe("addBusinessDays — departmental holidays (BUG 0526-122) do not apply globally", () => {
+  it("does NOT skip 16-jul (La Paz-only holiday)", () => {
+    // 2026-07-15 = Wednesday; +1 BD must land on Thu 2026-07-16 -- this is a
+    // global/office-agnostic business-day calendar, so the La Paz-only
+    // holiday must not be treated as a holiday here.
+    expect(isoDate(addBusinessDays(utcDate("2026-07-15"), 1))).toBe("2026-07-16");
+  });
+
+  it("does NOT skip 24-sep (Santa Cruz-only holiday)", () => {
+    // 2026-09-23 = Wednesday; +1 BD must land on Thu 2026-09-24, same reason.
+    expect(isoDate(addBusinessDays(utcDate("2026-09-23"), 1))).toBe("2026-09-24");
+  });
+});
+
 describe("addBusinessDays — Dec→Jan boundary", () => {
   it("crosses New Year correctly, skipping Jan 1 holiday", () => {
     // 2026-12-30 = Wednesday

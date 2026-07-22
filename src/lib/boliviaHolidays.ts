@@ -24,13 +24,17 @@ const ymd = (d: Date) => d.toISOString().slice(0, 10);
 export interface GeneratedHoliday {
   date: string;
   name: string;
+  // Same 3-value enum as engagements.oficina: 0=Todas, 1=La Paz, 2=Santa Cruz.
+  oficina: 0 | 1 | 2;
   // If true, this holiday observes the following Monday when it falls on Sunday.
   // Requires applyMondayTransfer:true in opts. Confirm legal basis per holiday before enabling.
   transfers?: boolean;
 }
 
-// SINGLE SOURCE OF TRUTH — Bolivia national holidays only (no departmental).
-// List and Sun→Mon transfer rule confirmed by user (Ruizmier, 2026-06-25).
+// SINGLE SOURCE OF TRUTH — Bolivia national holidays (oficina=0) plus the two
+// departmental holidays (oficina=1|2) reincorporated in BUG 0526-122.
+// List and Sun→Mon transfer rule confirmed by user (Ruizmier, 2026-06-25);
+// La Paz/Santa Cruz transfer rule confirmed by user (Ruizmier, 2026-07-16).
 // Ref: https://en.wikipedia.org/wiki/Public_holidays_in_Bolivia
 export function getBoliviaNationalHolidays(
   year: number,
@@ -39,17 +43,19 @@ export function getBoliviaNationalHolidays(
   const easter = computeEaster(year);
 
   const list: GeneratedHoliday[] = [
-    { date: `${year}-01-01`, name: "Año Nuevo",                       transfers: true },
-    { date: `${year}-01-22`, name: "Día del Estado Plurinacional",    transfers: true },
-    { date: ymd(addDays(easter, -48)), name: "Lunes de Carnaval" },
-    { date: ymd(addDays(easter, -47)), name: "Martes de Carnaval" },
-    { date: ymd(addDays(easter, -2)),  name: "Viernes Santo" },
-    { date: `${year}-05-01`, name: "Día del Trabajo",                 transfers: true },
-    { date: ymd(addDays(easter, 60)),  name: "Corpus Christi" },
-    { date: `${year}-06-21`, name: "Año Nuevo Andino Amazónico",      transfers: true },
-    { date: `${year}-08-06`, name: "Día de la Independencia",         transfers: true },
-    { date: `${year}-11-02`, name: "Día de los Difuntos",             transfers: true },
-    { date: `${year}-12-25`, name: "Navidad",                         transfers: true },
+    { date: `${year}-01-01`, name: "Año Nuevo",                       oficina: 0, transfers: true },
+    { date: `${year}-01-22`, name: "Día del Estado Plurinacional",    oficina: 0, transfers: true },
+    { date: ymd(addDays(easter, -48)), name: "Lunes de Carnaval",     oficina: 0 },
+    { date: ymd(addDays(easter, -47)), name: "Martes de Carnaval",    oficina: 0 },
+    { date: ymd(addDays(easter, -2)),  name: "Viernes Santo",         oficina: 0 },
+    { date: `${year}-05-01`, name: "Día del Trabajo",                 oficina: 0, transfers: true },
+    { date: ymd(addDays(easter, 60)),  name: "Corpus Christi",        oficina: 0 },
+    { date: `${year}-06-21`, name: "Año Nuevo Andino Amazónico",      oficina: 0, transfers: true },
+    { date: `${year}-07-16`, name: "Aniversario del Departamento de La Paz",       oficina: 1, transfers: true },
+    { date: `${year}-08-06`, name: "Día de la Independencia",         oficina: 0, transfers: true },
+    { date: `${year}-09-24`, name: "Aniversario del Departamento de Santa Cruz",   oficina: 2, transfers: true },
+    { date: `${year}-11-02`, name: "Día de los Difuntos",             oficina: 0, transfers: true },
+    { date: `${year}-12-25`, name: "Navidad",                         oficina: 0, transfers: true },
   ];
 
   const out = list.map((h) => {
@@ -62,10 +68,14 @@ export function getBoliviaNationalHolidays(
   return out.sort((a, b) => a.date.localeCompare(b.date));
 }
 
-// Canonical name set — used for stale detection in the mutation.
+// Canonical NATIONAL (oficina=0) name set — used for stale detection in the
+// mutation. Deliberately excludes the departmental holidays: the generator's
+// dedup/replace logic must never touch La Paz/Santa Cruz rows, only nationals.
 // Built from a fixed year because names are year-independent.
 export const NATIONAL_HOLIDAY_NAMES: ReadonlySet<string> = new Set(
-  getBoliviaNationalHolidays(2000).map((h) => h.name)
+  getBoliviaNationalHolidays(2000)
+    .filter((h) => h.oficina === 0)
+    .map((h) => h.name)
 );
 
 // Strip the "Feriado - " prefix that the old "Replicar" feature used in existing data.
