@@ -154,31 +154,20 @@ export function useBatchUpsertCells() {
 
   return useMutation({
     mutationFn: async ({ worksheetId, cells }: { worksheetId: string; cells: UpsertCellInput[] }) => {
-      // Delete all existing cells for this worksheet
-      const { error: deleteError } = await supabase
-        .from("activity_worksheet_cells")
-        .delete()
-        .eq("worksheet_id", worksheetId);
+      // Delete-all + reinsert run inside one Postgres transaction via this RPC, so a cell
+      // rejected by the service-scope trigger (enforce_worksheet_cell_service_scope) rolls
+      // back the delete too, instead of leaving the worksheet emptied (review.md iteración 10).
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error } = await (supabase as any).rpc("batch_upsert_worksheet_cells", {
+        p_worksheet_id: worksheetId,
+        p_cells: cells.map((c) => ({
+          category_id: c.category_id,
+          activity_id: c.activity_id,
+          budget_hours: c.budget_hours,
+        })),
+      });
 
-      if (deleteError) throw deleteError;
-
-      // Only insert cells with hours > 0
-      const cellsToInsert = cells.filter((c) => c.budget_hours > 0);
-      
-      if (cellsToInsert.length > 0) {
-        const { error: insertError } = await supabase
-          .from("activity_worksheet_cells")
-          .insert(
-            cellsToInsert.map((c) => ({
-              worksheet_id: worksheetId,
-              category_id: c.category_id,
-              activity_id: c.activity_id,
-              budget_hours: c.budget_hours,
-            }))
-          );
-
-        if (insertError) throw insertError;
-      }
+      if (error) throw error;
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["worksheet", variables.worksheetId] });

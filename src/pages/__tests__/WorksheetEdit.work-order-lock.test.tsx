@@ -51,15 +51,22 @@ vi.mock("@/hooks/useWorksheetMutations", () => ({
 
 vi.mock("@/hooks/useEmsData", () => ({
   useCategories: () => ({
-    data: [{ category_id: "cat-1", category_name: "Category 1", display_order: 1 }],
+    data: [{ category_id: "cat-1", category_name: "Category 1", service_id: "svc-1", display_order: 1 }],
     isLoading: false,
   }),
   useActivityCodes: () => ({
-    data: [{ activity_id: "act-1", activity_name: "Activity 1", is_active: true }],
+    data: [{ activity_id: "act-1", activity_code: "AUD-A1", description: "Activity 1", is_active: true, service: { code: 1 } }],
+    isLoading: false,
+  }),
+  useAllActivityCodes: () => ({
+    data: [{ activity_id: "act-1", activity_code: "AUD-A1", description: "Activity 1", is_active: true, service_id: "svc-1" }],
     isLoading: false,
   }),
   useSetting: () => "0.13",
-  useServices: () => ({ data: [] }),
+  useServices: () => ({
+    data: [{ service_id: "svc-1", name: "Auditoría", code: 1, is_active: true, allows_rates_activities: true, created_at: "" }],
+    isLoading: false,
+  }),
 }));
 
 vi.mock("@/hooks/useUserRole", () => ({
@@ -101,6 +108,7 @@ function makeWorksheet(overrides: object = {}) {
     engagement: {
       engagement_code: "TST-001",
       engagement_name: "Test Engagement",
+      practica: 1,
       client: { client_legal_name: "Test Client", industry: null },
       partner: null,
       manager: null,

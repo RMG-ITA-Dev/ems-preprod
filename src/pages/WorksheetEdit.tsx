@@ -13,9 +13,10 @@ import { Save, Loader2, FileText, Sun, Snowflake, Lock, Copy } from "lucide-reac
 import { useWorksheetById } from "@/hooks/useWorksheetData";
 import { useUserRole } from "@/hooks/useUserRole";
 import { useBatchUpsertCells, useUpdateWorksheet, useCreateWorkOrderFromWorksheet } from "@/hooks/useWorksheetMutations";
-import { useCategories, useActivityCodes, useSetting, useServices } from "@/hooks/useEmsData";
+import { useCategories, useActivityCodes, useAllActivityCodes, useSetting, useServices } from "@/hooks/useEmsData";
 import { WorksheetGrid } from "@/components/worksheet/WorksheetGrid";
 import { CopyFromEngagementDialog } from "@/components/worksheet/CopyFromEngagementDialog";
+import { filterActivitiesByService } from "@/lib/activityFilters";
 import { WorksheetCell } from "@/hooks/useWorksheetData";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -52,7 +53,8 @@ const WorksheetEdit = () => {
   const { data: worksheet, isLoading: wsLoading } = useWorksheetById(id);
   const { data: categories, isLoading: catLoading } = useCategories();
   const { data: activityCodes, isLoading: actLoading } = useActivityCodes();
-  const { data: services } = useServices();
+  const { data: allActivityCodes, isLoading: allActLoading } = useAllActivityCodes();
+  const { data: services, isLoading: svcLoading } = useServices();
   const globalTaxRate = useSetting("TAX_RATE");
   
   const batchUpsertCells = useBatchUpsertCells();
@@ -96,26 +98,55 @@ const WorksheetEdit = () => {
     [activityCodes]
   );
 
-  // Optional service filter (view-only convenience to shorten the matrix).
-  // Default "all" shows every category, so the on-screen total matches the WO.
-  const [filterServiceId, setFilterServiceId] = useState<string>("all");
+  // The matrix is auto-scoped to the engagement's service (engagement.practica
+  // matches services.code — see src/lib/activityFilters.ts). No manual filter.
+  const practica = worksheet?.engagement?.practica ?? null;
 
-  // Services that actually have at least one category, mapped to their name.
-  const serviceFilterOptions = useMemo(() => {
-    const presentIds = new Set((categories ?? []).map((c) => c.service_id));
-    return (services ?? [])
-      .filter((s) => presentIds.has(s.service_id))
-      .map((s) => ({ service_id: s.service_id, name: s.name }));
-  }, [categories, services]);
+  const engagementServiceId = useMemo(
+    () => (services ?? []).find((s) => s.code === practica)?.service_id,
+    [services, practica]
+  );
 
-  // Categories shown in the grid. The filter never touches the `cells` prop, so
-  // hidden rows keep their hours (save merges all DB cells) and the WO — built
-  // server-side from all stored cells — is unaffected.
-  const visibleCategories = useMemo(() => {
+  const scopedCategories = useMemo(() => {
     if (!categories) return categories;
-    if (filterServiceId === "all") return categories;
-    return categories.filter((c) => c.service_id === filterServiceId);
-  }, [categories, filterServiceId]);
+    return categories.filter((c) => c.service_id === engagementServiceId);
+  }, [categories, engagementServiceId]);
+
+  const scopedActivities = useMemo(
+    () => filterActivitiesByService(activeActivities, practica),
+    [activeActivities, practica]
+  );
+
+  // Destructive allow-lists for save/copy. `undefined` = scoping doesn't apply
+  // (engagement has no resolved service, OR the category/activity catalog isn't
+  // actually loaded — which includes a query error, not just the initial
+  // loading window already covered by `isLoading` above) — callers must keep
+  // every existing cell rather than purge, since the cleanup migration also
+  // leaves these no-service worksheets untouched. Guarding on the raw
+  // `categories`/`allActivityCodes` query data (not just `engagementServiceId`)
+  // matters because React Query's `isLoading` only reflects the *first* fetch:
+  // once a query settles into an error state, `isLoading` is false but `data`
+  // stays `undefined` forever, and `(data ?? [])` would otherwise silently read
+  // as "empty catalog" and wipe every cell on the next save (review.md
+  // iteración 10). When defined, built from ALL activity codes (not just the
+  // active ones shown in the grid via `useActivityCodes()`, which already
+  // excludes inactive rows server-side) so historical hours on an activity
+  // later marked inactive aren't silently dropped by an unrelated save.
+  // Matches on the raw `service_id` FK directly (no `services.code` round-trip
+  // needed).
+  const scopedCategoryIdsForSave = useMemo(() => {
+    if (engagementServiceId === undefined || !scopedCategories) return undefined;
+    return new Set(scopedCategories.map((c) => c.category_id));
+  }, [scopedCategories, engagementServiceId]);
+
+  const scopedActivityIdsForSave = useMemo(() => {
+    if (engagementServiceId === undefined || !allActivityCodes) return undefined;
+    return new Set(
+      allActivityCodes
+        .filter((a) => a.service_id == null || a.service_id === engagementServiceId)
+        .map((a) => a.activity_id)
+    );
+  }, [allActivityCodes, engagementServiceId]);
 
   const handleCellChange = useCallback(
     (categoryId: string, activityId: string, hours: number) => {
@@ -147,9 +178,15 @@ const WorksheetEdit = () => {
       existingCellsMap.set(key, hours);
     });
 
+    // Only persist cells that belong to the engagement's service. This purges
+    // any stray out-of-service cells left over from before this fix. When the
+    // engagement has no resolved service, the allow-lists are `undefined` and
+    // every existing cell is kept as-is (no scope to purge against).
     // Convert to array
     existingCellsMap.forEach((hours, key) => {
       const [categoryId, activityId] = key.split("|");
+      if (scopedCategoryIdsForSave && !scopedCategoryIdsForSave.has(categoryId)) return;
+      if (scopedActivityIdsForSave && !scopedActivityIdsForSave.has(activityId)) return;
       cellsToSave.push({
         worksheet_id: id,
         category_id: categoryId,
@@ -213,18 +250,7 @@ const WorksheetEdit = () => {
     return Array.from(cellsMap.values());
   }, [worksheet, localCells, id]);
 
-  // Overall hours across ALL categories (independent of the service filter),
-  // surfaced when a filter is active so the filtered subtotal isn't misread.
-  const grandTotalHours = useMemo(
-    () => mergedCells.reduce((sum, c) => sum + c.budget_hours, 0),
-    [mergedCells]
-  );
-  const filteredServiceName = useMemo(
-    () => serviceFilterOptions.find((s) => s.service_id === filterServiceId)?.name ?? "",
-    [serviceFilterOptions, filterServiceId]
-  );
-
-  const isLoading = wsLoading || catLoading || actLoading;
+  const isLoading = wsLoading || catLoading || actLoading || allActLoading || svcLoading;
   const isSaving = batchUpsertCells.isPending || updateWorksheet.isPending;
 
   const { isAdmin, isPartner, isDirector, isManager } = useUserRole();
@@ -243,17 +269,25 @@ const WorksheetEdit = () => {
     Rejected: "workOrders.status.rejected",
   };
 
+  // practica != null: sync_worksheet_to_wo_budget aggregates every stored cell
+  // regardless of service, but the grid is hidden for no-service worksheets —
+  // block WO creation from budget lines the user can't see or validate
+  // (review.md iteración 11).
   const canCreateWorkOrder =
     (isAdmin || isPartner || isDirector || isManager) &&
     !hasWorkOrder &&
     worksheet?.status === "draft" &&
-    !hasUnsavedChanges;
+    !hasUnsavedChanges &&
+    practica != null;
 
   const handleApplyCopy = (sourceCells: WorksheetCell[]) => {
     const newLocalCells = new Map<string, number>();
 
-    // Load copied cells
+    // Only load copied cells that belong to the engagement's service (no-op
+    // when the engagement has no resolved service — see scopedActivityIdsForSave).
     sourceCells.forEach((cell) => {
+      if (scopedCategoryIdsForSave && !scopedCategoryIdsForSave.has(cell.category_id)) return;
+      if (scopedActivityIdsForSave && !scopedActivityIdsForSave.has(cell.activity_id)) return;
       newLocalCells.set(`${cell.category_id}|${cell.activity_id}`, cell.budget_hours);
     });
 
@@ -337,7 +371,7 @@ const WorksheetEdit = () => {
               {t("common.cancel")}
             </Button>
 
-            {!isReadOnly && (
+            {!isReadOnly && practica != null && (
               <Button
                 variant="secondary"
                 onClick={() => setShowCopyDialog(true)}
@@ -469,39 +503,19 @@ const WorksheetEdit = () => {
 
         {/* Budget Grid */}
         <div className="space-y-2">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-lg font-semibold">{t("workMatrix.budgetGrid")}</h2>
-            {serviceFilterOptions.length > 1 && (
-              <div className="flex items-center gap-2">
-                <Label htmlFor="worksheetServiceFilter" className="text-sm text-muted-foreground">
-                  {t("workMatrix.filterByService")}
-                </Label>
-                <Select value={filterServiceId} onValueChange={setFilterServiceId}>
-                  <SelectTrigger id="worksheetServiceFilter" className="w-56" data-testid="worksheet-service-filter">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">{t("workMatrix.allServices")}</SelectItem>
-                    {serviceFilterOptions.map((s) => (
-                      <SelectItem key={s.service_id} value={s.service_id}>
-                        {s.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-          </div>
-          {filterServiceId !== "all" && (
-            <p className="text-sm text-muted-foreground" data-testid="worksheet-filtered-total-hint">
-              {t("workMatrix.filteredTotalHint", { service: filteredServiceName, hours: grandTotalHours })}
-            </p>
+          <h2 className="text-lg font-semibold">{t("workMatrix.budgetGrid")}</h2>
+          {practica == null && (
+            <Alert variant="default" className="border-warning bg-warning/10">
+              <AlertDescription data-testid="worksheet-no-service-alert">
+                {t("workMatrix.noServiceOnEngagement")}
+              </AlertDescription>
+            </Alert>
           )}
-          {categories && activeActivities.length > 0 ? (
+          {scopedCategories && scopedCategories.length > 0 && scopedActivities.length > 0 ? (
             <WorksheetGrid
               key={gridKey}
-              categories={visibleCategories ?? []}
-              activities={activeActivities}
+              categories={scopedCategories}
+              activities={scopedActivities}
               cells={mergedCells}
               onChange={handleCellChange}
               readOnly={isReadOnly}
@@ -621,6 +635,7 @@ const WorksheetEdit = () => {
           open={showCopyDialog}
           onOpenChange={setShowCopyDialog}
           currentWorksheetId={id}
+          practica={practica}
           onApply={handleApplyCopy}
         />
       )}
