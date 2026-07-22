@@ -74,6 +74,7 @@ const mockWorksheet = {
     engagement_id: "eng-1",
     engagement_name: "Test Engagement",
     engagement_code: "ENG-001",
+    practica: 1,
     client: { client_legal_name: "Test Client", industry: null },
     partner: null,
     manager: null,

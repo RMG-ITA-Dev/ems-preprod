@@ -269,11 +269,16 @@ const WorksheetEdit = () => {
     Rejected: "workOrders.status.rejected",
   };
 
+  // practica != null: sync_worksheet_to_wo_budget aggregates every stored cell
+  // regardless of service, but the grid is hidden for no-service worksheets —
+  // block WO creation from budget lines the user can't see or validate
+  // (review.md iteración 11).
   const canCreateWorkOrder =
     (isAdmin || isPartner || isDirector || isManager) &&
     !hasWorkOrder &&
     worksheet?.status === "draft" &&
-    !hasUnsavedChanges;
+    !hasUnsavedChanges &&
+    practica != null;
 
   const handleApplyCopy = (sourceCells: WorksheetCell[]) => {
     const newLocalCells = new Map<string, number>();
