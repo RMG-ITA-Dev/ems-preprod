@@ -1167,6 +1167,7 @@
     "ceacNumberInvalid": "Debe tener exactamente 10 dígitos",
     "sanApprovalIdInvalid": "Debe tener 10 dígitos o el formato 00000-00000",
     "riskLevel": "Nivel de Riesgo",
+    "riskLevelNone": "Ninguno",
     "riskLevelBajo": "Bajo",
     "riskLevelModerado": "Moderado",
     "riskLevelAlto": "Alto",

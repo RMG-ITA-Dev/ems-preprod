@@ -337,6 +337,9 @@ export function WorkOrderForm({
   const CEAC_NUM_RE = /^\d{10}$/;
   const SAN_ID_RE = /^\d{10}$|^\d{5}-\d{5}$/;
   const RISK_LEVELS = ["Bajo", "Moderado", "Alto"] as const;
+  // Sentinel for the "Ninguno" option: Radix Select forbids an empty-string
+  // SelectItem value, so this maps back to `null` in onValueChange.
+  const RISK_LEVEL_NONE = "__none__";
 
   const ceacNumberValid = CEAC_NUM_RE.test(ceacNumber ?? "");
   const sanApprovalValid = SAN_ID_RE.test(sanApprovalId ?? "");
@@ -387,6 +390,10 @@ export function WorkOrderForm({
     (isDraft && !riskApproved && !!onRiskAssessmentChange) ||
     (canCompleteRiskData && addingRiskData) ||
     (isRiskRejected && !!onRiskAssessmentChange);
+  // "Limpiar" en Draft normal (primera carga, sin rechazo aún): scoped al primer
+  // disyunto de riskFieldsEditable para no duplicar el botón del bloque isRiskRejected.
+  const showDraftClearRiskData =
+    isDraft && !riskApproved && !isRiskRejected && !!onRiskAssessmentChange && !!onClearRiskData;
   // Risk section visibility.
   const showRiskSection =
     (isDraft && !!onRiskAssessmentChange) ||
@@ -1041,13 +1048,19 @@ export function WorkOrderForm({
                   <Select
                     value={riskLevel || ""}
                     onValueChange={(value) =>
-                      onRiskAssessmentChange?.("riskLevel", value || null)
+                      onRiskAssessmentChange?.(
+                        "riskLevel",
+                        value === RISK_LEVEL_NONE ? null : value || null,
+                      )
                     }
                   >
                     <SelectTrigger className="w-36">
                       <SelectValue placeholder="—" />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value={RISK_LEVEL_NONE}>
+                        {t("workOrders.riskLevelNone")}
+                      </SelectItem>
                       <SelectItem value="Bajo">
                         {t("workOrders.riskLevelBajo")}
                       </SelectItem>
@@ -1246,6 +1259,21 @@ export function WorkOrderForm({
             </div>
             {/* Notas CEAC/SAN retiradas del formulario (0306-78): las observaciones de
                 rechazo se capturan en el diálogo de rechazo de Riesgos (risk_notes). */}
+            {/* "Limpiar" en Draft normal: permite reiniciar los 5 campos para el envío
+                de emergencia sin tener que borrar cada uno a mano. */}
+            {showDraftClearRiskData && (
+              <div className="flex justify-end">
+                <Button
+                  variant="outline"
+                  onClick={onClearRiskData}
+                  disabled={riskAllEmpty || isSubmitting}
+                  className="btn-action"
+                >
+                  <Eraser className="h-4 w-4 mr-2" />
+                  {t("workOrders.clearRiskData")}
+                </Button>
+              </div>
+            )}
             {/* Manager completes risk data after an emergency approval. Fields stay
                 locked until "Agregar datos de Riesgo" is pressed; then the data is
                 sent back to Riesgos for a single approval. */}
