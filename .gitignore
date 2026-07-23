@@ -28,3 +28,6 @@ bugs/*
 
 # Claude Code session artifacts
 .claude/scheduled_tasks.lock
+
+# Supabase CLI local session/project-ref cache
+supabase/.temp/
