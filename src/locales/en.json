@@ -469,7 +469,7 @@
     "moveDown": "Move down",
     "recommendedMaxHint": "Recommendation: up to 9 active activities per practice. You can add more if you need to.",
     "abbreviationMissing": "The selected practice has no abbreviation. Set one in Practices before adding activities.",
-    "formDescription": "Manage activity code details and service linkage.",
+    "formDescription": "Manage activity code details and practice linkage.",
     "codePlaceholder": "e.g., PLN",
     "descriptionPlaceholder": "e.g., Planning"
   },
@@ -666,7 +666,7 @@
     "codePreviewHelp": "This code will be assigned automatically when you save.",
     "codePreviewIncomplete": "Select fiscal year, office, practice and function to preview the code.",
     "codeCreatedTitle": "Engagement created successfully",
-    "codeCreatedDescription": "The engagement is ready to plan and manage the service. Save its code for reference throughout the engagement lifecycle.",
+    "codeCreatedDescription": "The engagement is ready to plan and manage the practice. Save its code for reference throughout the engagement lifecycle.",
     "codeGeneratedLabel": "Generated code",
     "summaryTitle": "Engagement summary",
     "createAnother": "Create another",

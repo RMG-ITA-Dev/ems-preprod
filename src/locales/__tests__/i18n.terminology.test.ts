@@ -16,6 +16,17 @@ function collectStrings(node: unknown, out: string[] = []): string[] {
   return out;
 }
 
+function collectKeyPaths(node: unknown, prefix = "", out: string[] = []): string[] {
+  if (node && typeof node === "object" && !Array.isArray(node)) {
+    for (const [key, value] of Object.entries(node)) {
+      const path = prefix ? `${prefix}.${key}` : key;
+      out.push(path);
+      collectKeyPaths(value, path, out);
+    }
+  }
+  return out;
+}
+
 describe("i18n terminology rename (BUG 0723-168)", () => {
   it("EN entities.service/services renamed to Practice/Practices", () => {
     expect((en as any).entities.service).toBe("Practice");
@@ -119,6 +130,24 @@ describe("i18n terminology rename (BUG 0723-168)", () => {
     expect((es as any).validation.categoryServiceRequired.toLowerCase()).toContain("práctica");
   });
 
+  it("EN engagement.codeCreatedDescription uses 'practice', not 'service'", () => {
+    const value = (en as any).engagement.codeCreatedDescription as string;
+    expect(value.toLowerCase()).toContain("practice");
+    expect(value.toLowerCase()).not.toContain("service");
+  });
+
+  it("ES engagement.codeCreatedDescription uses 'práctica', not 'servicio'", () => {
+    const value = (es as any).engagement.codeCreatedDescription as string;
+    expect(value.toLowerCase()).toContain("práctica");
+    expect(value.toLowerCase()).not.toContain("servicio");
+  });
+
+  it("EN activity.formDescription uses 'practice linkage', not 'service linkage'", () => {
+    const value = (en as any).activity.formDescription as string;
+    expect(value.toLowerCase()).toContain("practice linkage");
+    expect(value.toLowerCase()).not.toContain("service linkage");
+  });
+
   it("EN dashboard.tabs.practica remains 'Practice' (unchanged)", () => {
     expect((en as any).dashboard.tabs.practica).toBe("Practice");
   });
@@ -137,7 +166,7 @@ describe("i18n terminology rename (BUG 0723-168)", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("EN and ES locale files expose the same key shape", () => {
-    expect(Object.keys(en as any).sort()).toEqual(Object.keys(es as any).sort());
+  it("EN and ES locale files expose the same key shape (recursive)", () => {
+    expect(collectKeyPaths(en).sort()).toEqual(collectKeyPaths(es).sort());
   });
 });

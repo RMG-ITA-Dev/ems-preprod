@@ -666,7 +666,7 @@
     "codePreviewHelp": "Este código se asignará automáticamente al guardar.",
     "codePreviewIncomplete": "Seleccione año fiscal, oficina, práctica y función para previsualizar el código.",
     "codeCreatedTitle": "Encargo creado correctamente",
-    "codeCreatedDescription": "El encargo está listo para planificar y gestionar el servicio. Guarde su código como referencia durante todo el ciclo de vida del encargo.",
+    "codeCreatedDescription": "El encargo está listo para planificar y gestionar la práctica. Guarde su código como referencia durante todo el ciclo de vida del encargo.",
     "codeGeneratedLabel": "Código generado",
     "summaryTitle": "Resumen del encargo",
     "createAnother": "Crear otro",
