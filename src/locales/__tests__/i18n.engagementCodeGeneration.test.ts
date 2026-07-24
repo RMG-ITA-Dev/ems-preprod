@@ -71,12 +71,12 @@ describe("i18n engagement code-generation keys (BUG 0306-82)", () => {
     expect((es as any).engagement.oficina).toBe("Oficina");
   });
 
-  it("EN engagement.practica is 'Service'", () => {
-    expect((en as any).engagement.practica).toBe("Service");
+  it("EN engagement.practica is 'Practice'", () => {
+    expect((en as any).engagement.practica).toBe("Practice");
   });
 
-  it("ES engagement.practica is 'Servicio'", () => {
-    expect((es as any).engagement.practica).toBe("Servicio");
+  it("ES engagement.practica is 'Práctica'", () => {
+    expect((es as any).engagement.practica).toBe("Práctica");
   });
 
   // 0625-149: service names come from the catalog — practica_* keys deleted
