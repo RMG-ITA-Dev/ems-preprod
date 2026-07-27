@@ -77,6 +77,10 @@ vi.mock("@/hooks/useCurrentStaff", () => ({
   }),
 }));
 
+vi.mock("@/hooks/useAuthorization", () => ({
+  useAuthorization: () => ({ can: () => true }),
+}));
+
 // Administrator => Riesgos approver.
 vi.mock("@/hooks/useUserRole", () => ({
   useUserRole: () => ({ isAdmin: true }),
