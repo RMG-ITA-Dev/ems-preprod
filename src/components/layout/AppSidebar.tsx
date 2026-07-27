@@ -16,7 +16,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { NavLink } from "@/components/NavLink";
 import { useAuth } from "@/hooks/useAuth";
-import { useUserRole } from "@/hooks/useUserRole";
+import { useAuthorization } from "@/hooks/useAuthorization";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { useManagesAnyOt } from "@/hooks/useFundRequests";
 import { useNavigate } from "react-router-dom";
@@ -32,138 +32,96 @@ import {
   SidebarFooter,
 } from "@/components/ui/sidebar";
 
+interface NavItem {
+  title: string;
+  url: string;
+  icon: typeof LayoutDashboard;
+  show: boolean;
+}
+
 export function AppSidebar() {
   const { t } = useTranslation();
   const { signOut } = useAuth();
   const navigate = useNavigate();
-  const { isAdmin, isPartner, isDirector, isManager } = useUserRole();
+  const { can, roleKey } = useAuthorization();
+  const isAdmin = roleKey === "admin";
   const { data: staffRecord } = useCurrentStaff();
   const { data: managesAnyOt } = useManagesAnyOt(staffRecord?.staff_id);
-  // El gerente de OT puede ser un Senior (sin rol de app manager): se incluye si
-  // gestiona al menos una OT, para que vea el link de aprobaciones.
-  const canApproveFunds =
-    isAdmin || isPartner || isDirector || isManager || !!managesAnyOt;
 
   const handleSignOut = async () => {
     await signOut();
     navigate("/auth");
   };
 
-  const mainNavItems = [
-    { title: t("nav.dashboard"), url: "/", icon: LayoutDashboard },
-    { title: t("nav.clients"), url: "/clients", icon: Briefcase },
-    { title: t("nav.engagements"), url: "/engagements", icon: FolderKanban },
-    { title: t("nav.workMatrix"), url: "/worksheets", icon: TableProperties },
-    { title: t("nav.workOrders"), url: "/work-orders", icon: FileText },
-  ];
+  // FASE 5: cada ítem se muestra por permiso (has_permission vía useAuthorization).
+  // La aprobación de fondos conserva el acceso relacional (manager de una OT).
+  const mainNavItems: NavItem[] = [
+    { title: t("nav.dashboard"), url: "/", icon: LayoutDashboard, show: true },
+    { title: t("nav.clients"), url: "/clients", icon: Briefcase, show: can("client.read") },
+    { title: t("nav.engagements"), url: "/engagements", icon: FolderKanban, show: can("engagement.read") },
+    { title: t("nav.workMatrix"), url: "/worksheets", icon: TableProperties, show: can("worksheet.read") },
+    { title: t("nav.workOrders"), url: "/work-orders", icon: FileText, show: can("work_order.read") },
+  ].filter((i) => i.show);
 
-  const operationsItems = [
-    { title: t("nav.tracker"), url: "/tracker", icon: Timer },
-    { title: t("nav.timeSheet"), url: "/timesheet", icon: Grid3X3 },
-    { title: t("nav.timesheetApprovals"), url: "/timesheet/approvals", icon: CheckSquare },
-    { title: t("nav.fundRequests"), url: "/fund-requests", icon: Wallet },
-    ...(canApproveFunds
-      ? [
-          {
-            title: t("nav.fundRequestApprovals"),
-            url: "/fund-requests/approvals",
-            icon: CheckSquare,
-          },
-        ]
-      : []),
-    ...(isAdmin
-      ? [
-          {
-            title: t("nav.fundRequestDisbursements"),
-            url: "/fund-requests/disbursements",
-            icon: Banknote,
-          },
-        ]
-      : []),
-  ];
+  const operationsItems: NavItem[] = [
+    { title: t("nav.tracker"), url: "/tracker", icon: Timer, show: can("time_entry.read") },
+    { title: t("nav.timeSheet"), url: "/timesheet", icon: Grid3X3, show: can("timesheet.read") },
+    { title: t("nav.timesheetApprovals"), url: "/timesheet/approvals", icon: CheckSquare, show: can("timesheet_approval.read") },
+    { title: t("nav.fundRequests"), url: "/fund-requests", icon: Wallet, show: can("fund_request.read") },
+    { title: t("nav.fundRequestApprovals"), url: "/fund-requests/approvals", icon: CheckSquare, show: can("fund_approval.read") || !!managesAnyOt },
+    { title: t("nav.fundRequestDisbursements"), url: "/fund-requests/disbursements", icon: Banknote, show: can("fund_disbursement.read") },
+  ].filter((i) => i.show);
 
-  const adminItems = [
-    { title: t("nav.staff"), url: "/staff", icon: Users },
-    { title: t("nav.settings"), url: "/settings", icon: Settings },
-  ];
+  // Settings: visible si puede ver algún tab (admin o funciones departamentales).
+  const canSeeSettings =
+    isAdmin ||
+    can("expense_type.create") || // Contabilidad
+    can("holiday.create") ||      // Talento Humano
+    can("competency.create") ||   // Talento Humano
+    can("user_role.read") ||      // Seguridad TI (+admin)
+    can("global_settings.update");
+  const adminItems: NavItem[] = [
+    { title: t("nav.staff"), url: "/staff", icon: Users, show: can("staff.read") },
+    { title: t("nav.settings"), url: "/settings", icon: Settings, show: canSeeSettings },
+  ].filter((i) => i.show);
+
+  const renderGroup = (label: string, items: NavItem[], mt?: boolean) => {
+    if (items.length === 0) return null;
+    return (
+      <SidebarGroup className={mt ? "mt-6" : undefined}>
+        <SidebarGroupLabel className="text-sidebar-muted text-xs font-medium uppercase tracking-wider px-3 mb-2">
+          {label}
+        </SidebarGroupLabel>
+        <SidebarGroupContent>
+          <SidebarMenu>
+            {items.map((item) => (
+              <SidebarMenuItem key={item.url}>
+                <SidebarMenuButton asChild tooltip={item.title}>
+                  <NavLink
+                    to={item.url}
+                    end={item.url === "/" || item.url === "/timesheet" || item.url === "/fund-requests"}
+                    className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors"
+                    activeClassName="bg-sidebar-accent text-sidebar-foreground font-medium"
+                  >
+                    <item.icon className="h-4 w-4" />
+                    <span>{item.title}</span>
+                  </NavLink>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            ))}
+          </SidebarMenu>
+        </SidebarGroupContent>
+      </SidebarGroup>
+    );
+  };
 
   return (
     <Sidebar className="border-r-0" collapsible="offcanvas">
       <SidebarContent className="px-3 pb-4">
         <div className="h-16" />
-        <SidebarGroup>
-          <SidebarGroupLabel className="text-sidebar-muted text-xs font-medium uppercase tracking-wider px-3 mb-2">
-            {t("nav.main")}
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {mainNavItems.map((item) => (
-                <SidebarMenuItem key={item.url}>
-                  <SidebarMenuButton asChild tooltip={item.title}>
-                    <NavLink 
-                      to={item.url} 
-                      end={item.url === "/"}
-                      className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors"
-                      activeClassName="bg-sidebar-accent text-sidebar-foreground font-medium"
-                    >
-                      <item.icon className="h-4 w-4" />
-                      <span>{item.title}</span>
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        <SidebarGroup className="mt-6">
-          <SidebarGroupLabel className="text-sidebar-muted text-xs font-medium uppercase tracking-wider px-3 mb-2">
-            {t("nav.operations")}
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {operationsItems.map((item) => (
-                <SidebarMenuItem key={item.url}>
-                  <SidebarMenuButton asChild tooltip={item.title}>
-                    <NavLink
-                      to={item.url}
-                      end={item.url === "/timesheet" || item.url === "/fund-requests"}
-                      className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors"
-                      activeClassName="bg-sidebar-accent text-sidebar-foreground font-medium"
-                    >
-                      <item.icon className="h-4 w-4" />
-                      <span>{item.title}</span>
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        <SidebarGroup className="mt-6">
-          <SidebarGroupLabel className="text-sidebar-muted text-xs font-medium uppercase tracking-wider px-3 mb-2">
-            {t("nav.administration")}
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {adminItems.map((item) => (
-                <SidebarMenuItem key={item.url}>
-                  <SidebarMenuButton asChild tooltip={item.title}>
-                    <NavLink 
-                      to={item.url}
-                      className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors"
-                      activeClassName="bg-sidebar-accent text-sidebar-foreground font-medium"
-                    >
-                      <item.icon className="h-4 w-4" />
-                      <span>{item.title}</span>
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {renderGroup(t("nav.main"), mainNavItems)}
+        {renderGroup(t("nav.operations"), operationsItems, true)}
+        {renderGroup(t("nav.administration"), adminItems, true)}
       </SidebarContent>
 
       <SidebarFooter className="p-4 border-t border-sidebar-border">

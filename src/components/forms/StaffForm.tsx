@@ -51,7 +51,7 @@ import { Trash2, AlertTriangle, Plus, Lock, LockOpen } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { useUserRole } from "@/hooks/useUserRole";
+import { useAuthorization } from "@/hooks/useAuthorization";
 import { PROFICIENCY_LEVELS, type ProficiencyLevel } from "@/integrations/supabase/customTypes";
 import { formatFullDate, fromISODateString } from "@/lib/timesheetUtils";
 
@@ -197,7 +197,8 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const isEdit = !!staff;
-  const { isAdmin } = useUserRole();
+  const { can, roleKey } = useAuthorization();
+  const isAdmin = roleKey === "admin";
   const { data: categories } = useCategories();
   const { data: activeSkills } = useActiveSkills();
   const createMutation = useCreateStaff();
@@ -509,7 +510,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
         <h1 className="text-lg font-semibold">
           {isEdit ? t("staff.editStaff") : t("staff.newStaff")}
         </h1>
-        {isEdit && (
+        {isEdit && can("staff.delete") && (
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button variant="destructive">

@@ -43,6 +43,7 @@ import {
 } from "@/components/ui/tooltip";
 import { ClientFull, useIndustries } from "@/hooks/useEmsData";
 import { useCreateClient, useUpdateClient, useDeleteClient } from "@/hooks/mutations";
+import { useAuthorization } from "@/hooks/useAuthorization";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Trash2 } from "lucide-react";
@@ -77,7 +78,10 @@ interface ClientFormProps {
 export function ClientForm({ client, compact = false, onDirtyChange, onCancel, onSaveSuccess }: ClientFormProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const { can } = useAuthorization();
   const isEdit = !!client;
+  // Al editar, el guardado exige client.update; al crear, la ruta ya gatea client.create.
+  const canSave = !isEdit || can("client.update");
   const { data: industries } = useIndustries();
   const createMutation = useCreateClient();
   const updateMutation = useUpdateClient();
@@ -368,14 +372,16 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
               <Button type="button" variant="cancel" size="sm" onClick={() => onCancel ? onCancel() : navigate("/clients")}>
                 {t("common.cancel")}
               </Button>
-              <LoadingButton
-                type="submit"
-                size="sm"
-                variant="default"
-                loading={createMutation.isPending || updateMutation.isPending}
-              >
-                {t("common.saveChanges")}
-              </LoadingButton>
+              {canSave && (
+                <LoadingButton
+                  type="submit"
+                  size="sm"
+                  variant="default"
+                  loading={createMutation.isPending || updateMutation.isPending}
+                >
+                  {t("common.saveChanges")}
+                </LoadingButton>
+              )}
             </div>
           </form>
         </Form>
@@ -595,14 +601,16 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
               <Button type="button" variant="cancel" onClick={() => onCancel ? onCancel() : navigate("/clients")} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
                 {t("common.cancel")}
               </Button>
-              <LoadingButton
-                type="submit"
-                variant="default"
-                className="w-full sm:w-auto min-h-[44px] sm:min-h-0"
-                loading={createMutation.isPending || updateMutation.isPending}
-              >
-                {isEdit ? t("common.saveChanges") : t("client.createClient")}
-              </LoadingButton>
+              {canSave && (
+                <LoadingButton
+                  type="submit"
+                  variant="default"
+                  className="w-full sm:w-auto min-h-[44px] sm:min-h-0"
+                  loading={createMutation.isPending || updateMutation.isPending}
+                >
+                  {isEdit ? t("common.saveChanges") : t("client.createClient")}
+                </LoadingButton>
+              )}
             </div>
           </form>
         </Form>

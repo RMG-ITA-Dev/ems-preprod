@@ -36,7 +36,6 @@ import {
   useDeletePaymentPlan,
 } from "@/hooks/mutations";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
-import { useUserRole } from "@/hooks/useUserRole";
 import type { PaymentPlanInput, PaymentInstallmentInput } from "@/types/workOrderPaymentPlan";
 import { useWorksheetByEngagementId } from "@/hooks/useWorksheetData";
 import { useResyncWorksheetToWorkOrder } from "@/hooks/useWorksheetMutations";
@@ -87,7 +86,6 @@ const WorkOrderEdit = () => {
   const upsertPaymentPlan = useUpsertPaymentPlan();
   const batchUpsertInstallments = useBatchUpsertInstallments();
   const deletePaymentPlan = useDeletePaymentPlan();
-  const { isAdmin, isPartner, isDirector, isManager } = useUserRole();
 
   const [currency, setCurrency] = useState<"USD" | "BOB" | "USDT">("BOB");
   const [seasonMode, setSeasonMode] = useState<"High" | "Low">("High");
@@ -284,7 +282,8 @@ const WorkOrderEdit = () => {
 
   // Check if user can approve — FASE 3b: por permiso (matriz "Enviar Aprobación OT"),
   // ya no por categoría (can_approve_wo).
-  const { can } = useAuthorization();
+  const { can, roleKey } = useAuthorization();
+  const isAdmin = roleKey === "admin";
   const canApprove = can("work_order.submit");
   // FEAT 0602-135: el aprobador de Riesgos es el SQR ASIGNADO al encargo (engagement.sqr_id),
   // con el Admin como respaldo. El selector de SQR admite CUALQUIER staff activo (p. ej. un
@@ -686,8 +685,8 @@ const WorkOrderEdit = () => {
           woId={workOrder.wo_id}
           paymentPlan={paymentPlan}
           paymentInstallments={paymentInstallments}
-          isAdminDateEditable={(approvalStatus === "Draft" || approvalStatus === "Rejected") && (isAdmin || isPartner || isDirector || isManager)}
-          isStatusEditable={isAdmin}
+          isAdminDateEditable={(approvalStatus === "Draft" || approvalStatus === "Rejected") && can("work_order.payment_plan.approve")}
+          isStatusEditable={isAdmin || roleKey === "collections_analyst"}
           isPaymentPlanDirty={
             JSON.stringify(paymentInstallments) !== JSON.stringify(originalInstallments) ||
             JSON.stringify(paymentPlan) !== JSON.stringify(originalPaymentPlan)

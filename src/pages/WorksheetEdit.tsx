@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Save, Loader2, FileText, Sun, Snowflake, Lock, Copy } from "lucide-react";
 import { useWorksheetById } from "@/hooks/useWorksheetData";
-import { useUserRole } from "@/hooks/useUserRole";
+import { useAuthorization } from "@/hooks/useAuthorization";
 import { useBatchUpsertCells, useUpdateWorksheet, useCreateWorkOrderFromWorksheet } from "@/hooks/useWorksheetMutations";
 import { useCategories, useActivityCodes, useAllActivityCodes, useSetting, useServices } from "@/hooks/useEmsData";
 import { WorksheetGrid } from "@/components/worksheet/WorksheetGrid";
@@ -253,7 +253,7 @@ const WorksheetEdit = () => {
   const isLoading = wsLoading || catLoading || actLoading || allActLoading || svcLoading;
   const isSaving = batchUpsertCells.isPending || updateWorksheet.isPending;
 
-  const { isAdmin, isPartner, isDirector, isManager } = useUserRole();
+  const { can } = useAuthorization();
 
   // Determine if the worksheet is locked
   const linkedWOStatus = worksheet?.work_order?.approval_status;
@@ -274,7 +274,7 @@ const WorksheetEdit = () => {
   // block WO creation from budget lines the user can't see or validate
   // (review.md iteración 11).
   const canCreateWorkOrder =
-    (isAdmin || isPartner || isDirector || isManager) &&
+    can("work_order.create") &&
     !hasWorkOrder &&
     worksheet?.status === "draft" &&
     !hasUnsavedChanges &&

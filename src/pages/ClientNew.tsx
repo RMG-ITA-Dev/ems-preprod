@@ -1,29 +1,17 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { ClientForm } from "@/components/forms/ClientForm";
 import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";
 import { LeavePageDialog } from "@/components/ui/leave-page-dialog";
-import { useUserRole } from "@/hooks/useUserRole";
 
 const ClientNew = () => {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const [isDirty, setIsDirty] = useState(false);
   const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty });
-  const { isAdmin, isPartner, isDirector, isLoading: roleLoading } = useUserRole();
-  const canCreate = isAdmin || isPartner || isDirector;
-
-  useEffect(() => {
-    if (!roleLoading && !canCreate) {
-      allowNextNavigation();
-      navigate("/clients", { replace: true });
-    }
-  }, [roleLoading, canCreate, allowNextNavigation, navigate]);
-
-  if (roleLoading || !canCreate) return null;
-
+  // Guard de creación por permiso vía <PermissionRoute permission="client.create"> en App.tsx.
   const handleCancel = () => {
     allowNextNavigation();
     navigate("/clients");

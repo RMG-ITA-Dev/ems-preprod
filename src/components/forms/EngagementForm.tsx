@@ -63,6 +63,7 @@ import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Switch } from "@/components/ui/switch";
 import { useUserRole } from "@/hooks/useUserRole";
+import { useAuthorization } from "@/hooks/useAuthorization";
 import {
   ENGAGEMENT_STATES,
   engagementStateI18nKey,
@@ -214,7 +215,10 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { isAdmin, isManager, isPartner, isLoading: roleLoading, isDirector } = useUserRole();
+  const { can } = useAuthorization();
   const isEdit = !!engagement;
+  // Al editar, el guardado exige engagement.update; al crear, la ruta ya gatea engagement.create.
+  const canSave = !isEdit || can("engagement.update");
   // BUG #0604-143: closing date (and the FY it derives) may be edited by Admin/Gerente/Socio/Director;
   // oficina/practica/funcion/engagement_code remain fully immutable after create.
   const canEditClosing = isAdmin || isManager || isPartner || isDirector;
@@ -1465,15 +1469,17 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
               <Button type="button" variant="cancel" onClick={() => onCancel ? onCancel() : navigate("/engagements")} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
                 {t("common.cancel")}
               </Button>
-              <LoadingButton
-                type="submit"
-                variant="default"
-                className="w-full sm:w-auto min-h-[44px] sm:min-h-0"
-                loading={createMutation.isPending || updateMutation.isPending}
-                disabled={hasMissingCategories && !isEdit}
-              >
-                {isEdit ? t("common.saveChanges") : t("engagement.createEngagement")}
-              </LoadingButton>
+              {canSave && (
+                <LoadingButton
+                  type="submit"
+                  variant="default"
+                  className="w-full sm:w-auto min-h-[44px] sm:min-h-0"
+                  loading={createMutation.isPending || updateMutation.isPending}
+                  disabled={hasMissingCategories && !isEdit}
+                >
+                  {isEdit ? t("common.saveChanges") : t("engagement.createEngagement")}
+                </LoadingButton>
+              )}
             </div>
           </form>
         </Form>

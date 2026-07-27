@@ -8,7 +8,7 @@ import { useEngagements, Engagement } from "@/hooks/useEmsData";
 import { useCategoryStaff } from "@/hooks/useCategoryStaff";
 import { DataTable, Column } from "@/components/data-table/DataTable";
 import { useNavigate } from "react-router-dom";
-import { useUserRole } from "@/hooks/useUserRole";
+import { useAuthorization } from "@/hooks/useAuthorization";
 import {
   effectiveEngagementState,
   engagementStateI18nKey,
@@ -29,8 +29,8 @@ const Engagements = () => {
   const navigate = useNavigate();
   const { data: engagements, isLoading } = useEngagements();
   const { partnerOptions, managerOptions } = useCategoryStaff();
-  const { isAdmin, isPartner, isDirector, isManager, isSQR } = useUserRole();
-  const canCreate = isAdmin || isPartner || isDirector || isManager || isSQR;
+  const { can } = useAuthorization();
+  const canCreate = can("engagement.create");
 
   const rows: EngagementRow[] = (engagements || []).map((e) => ({
     ...e,
