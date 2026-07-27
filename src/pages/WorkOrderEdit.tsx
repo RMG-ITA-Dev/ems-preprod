@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";
+import { useAuthorization } from "@/hooks/useAuthorization";
 import { LeavePageDialog } from "@/components/ui/leave-page-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -281,8 +282,10 @@ const WorkOrderEdit = () => {
 
   const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty });
 
-  // Check if user can approve
-  const canApprove = staffRecord?.category?.can_approve_wo || false;
+  // Check if user can approve — FASE 3b: por permiso (matriz "Enviar Aprobación OT"),
+  // ya no por categoría (can_approve_wo).
+  const { can } = useAuthorization();
+  const canApprove = can("work_order.submit");
   // FEAT 0602-135: el aprobador de Riesgos es el SQR ASIGNADO al encargo (engagement.sqr_id),
   // con el Admin como respaldo. El selector de SQR admite CUALQUIER staff activo (p. ej. un
   // partner/director designado como revisor de calidad) y la RLS autoriza por sqr_id SOLO —sin
