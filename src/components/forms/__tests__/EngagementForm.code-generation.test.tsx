@@ -80,6 +80,10 @@ vi.mock("@/hooks/useUserRole", () => ({
   useUserRole: () => mockRole,
 }));
 
+vi.mock("@/hooks/useAuthorization", () => ({
+  useAuthorization: () => ({ can: () => true, roleKey: "admin" }),
+}));
+
 vi.mock("@/hooks/useCurrentStaff", () => ({
   useCurrentStaff: () => ({ staffRecord: null }),
 }));

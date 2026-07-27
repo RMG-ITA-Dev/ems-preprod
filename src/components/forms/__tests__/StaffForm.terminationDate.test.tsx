@@ -62,6 +62,11 @@ vi.mock("@/hooks/useUserRole", () => ({
   useUserRole: () => ({ isAdmin: false, isLoading: false }),
 }));
 
+// FASE 5: StaffForm deriva isAdmin y el botón eliminar de useAuthorization.
+vi.mock("@/hooks/useAuthorization", () => ({
+  useAuthorization: () => ({ can: () => false, roleKey: "senior" }),
+}));
+
 // Replace Radix Select with native <select>/<option> so JSDOM can resolve values.
 vi.mock("@/components/ui/select", () => ({
   Select: ({

@@ -102,6 +102,7 @@ vi.mock("@/hooks/mutations", () => ({
 }));
 
 vi.mock("@/hooks/useUserRole", () => ({ useUserRole: vi.fn() }));
+vi.mock("@/hooks/useAuthorization", () => ({ useAuthorization: () => ({ can: () => true, roleKey: "admin" }) }));
 
 vi.mock("@/hooks/useCurrentStaff", () => ({
   useCurrentStaff: () => ({ staffRecord: null }),

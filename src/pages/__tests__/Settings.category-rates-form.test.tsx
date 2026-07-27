@@ -127,6 +127,7 @@ vi.mock("@/hooks/mutations", () => ({
 }));
 
 vi.mock("@/hooks/useUserRole", () => ({ useUserRole: () => ({ isAdmin: true }) }));
+vi.mock("@/hooks/useAuthorization", () => ({ useAuthorization: () => ({ can: () => true, roleKey: "admin" }) }));
 vi.mock("@/hooks/useLanguage", () => ({ useLanguage: () => ({ currentLanguage: "en" }) }));
 
 vi.mock("@/components/layout/AppLayout", () => ({

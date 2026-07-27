@@ -59,6 +59,10 @@ vi.mock("@/hooks/useUserRole", () => ({
   useUserRole: () => ({ isAdmin: false }),
 }));
 
+vi.mock("@/hooks/useAuthorization", () => ({
+  useAuthorization: () => ({ can: () => true, roleKey: "admin" }),
+}));
+
 // BUG #0625-151 added useCurrentStaff (→ useAuth) to EngagementForm; mock it so the
 // component doesn't require a real AuthProvider.
 vi.mock("@/hooks/useCurrentStaff", () => ({
