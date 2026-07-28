@@ -75,12 +75,13 @@ serve(async (req) => {
 
     const { data: roleData } = await supabase
       .from("user_roles")
-      .select("role")
+      .select("role, role_key")
       .eq("user_id", userId)
       .single();
 
     const verifiedStaffId = staffData?.staff_id;
     const verifiedRole = roleData?.role || "staff";
+    const verifiedRoleKey = roleData?.role_key || null;
 
     console.log(`Verified staff: ${verifiedStaffId}, role: ${verifiedRole}`);
 
@@ -107,6 +108,41 @@ serve(async (req) => {
       return new Response(
         JSON.stringify({ error: "Invalid or missing action parameter" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // AUTORIZACIÓN por permiso de la matriz (Fase 7 · #12 "endurecer Edge").
+    // El service_role salta la RLS, así que cada action del Panel se gatea por su
+    // permiso dashboard.* (mismo mapeo tab→permiso que el frontend useDashboardAccess).
+    // Sin rol o sin la concesión → 403 (fail-closed). admin la tiene por el catálogo.
+    const ACTION_PERMISSION: Record<string, string> = {
+      "time-value": "dashboard.portfolio.read",
+      "staff-utilization": "dashboard.portfolio.read",
+      "portfolio-risk": "dashboard.portfolio.read",
+      "engagement-kpis": "dashboard.engagement.read",
+      "partner-leaderboard": "dashboard.practice_financials.read",
+      "practice-pulse": "dashboard.practice_financials.read",
+      "my-week": "dashboard.personal.read",
+      "timesheet-status": "dashboard.personal.read",
+    };
+    const requiredPermission = ACTION_PERMISSION[action];
+
+    let hasDashboardPermission = false;
+    if (verifiedRoleKey && requiredPermission) {
+      const { data: grant } = await supabase
+        .from("authorization_role_permissions")
+        .select("permission_key")
+        .eq("role_key", verifiedRoleKey)
+        .eq("permission_key", requiredPermission)
+        .maybeSingle();
+      hasDashboardPermission = !!grant;
+    }
+
+    if (!hasDashboardPermission) {
+      console.warn(`Forbidden dashboard action '${action}' for role_key=${verifiedRoleKey}`);
+      return new Response(
+        JSON.stringify({ error: "Forbidden: missing permission for this dashboard action" }),
+        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
