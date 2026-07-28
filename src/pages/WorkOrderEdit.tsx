@@ -282,18 +282,23 @@ const WorkOrderEdit = () => {
 
   // Check if user can approve — FASE 3b: por permiso (matriz "Enviar Aprobación OT"),
   // ya no por categoría (can_approve_wo).
-  const { can, roleKey } = useAuthorization();
+  const { can, scope, roleKey } = useAuthorization();
   const isAdmin = roleKey === "admin";
   const canApprove = can("work_order.submit");
-  // FEAT 0602-135: el aprobador de Riesgos es el SQR ASIGNADO al encargo (engagement.sqr_id),
-  // con el Admin como respaldo. El selector de SQR admite CUALQUIER staff activo (p. ej. un
-  // partner/director designado como revisor de calidad) y la RLS autoriza por sqr_id SOLO —sin
-  // exigir el rol global `sqr`—, así que el gate se basa en la asignación, no en el rol; de lo
-  // contrario un SQR asignado sin rol `sqr` vería los botones ocultos pese a estar autorizado en BD.
+  // Aprobación de la sección de Riesgos: espeja el guard backend can_approve_wo_risk
+  // (migración Ola E). Requiere el permiso 'work_order.risk.approve' de la matriz:
+  //   - admin                                -> siempre.
+  //   - scope 'assigned_engagements' (gerente/ita/tax) -> SOLO si son el SQR del encargo.
+  //   - scope 'department' (socio/supervisor de Riesgos) -> cualquier encargo.
   // Necesita staff record porque risk_approved_by referencia staff(staff_id).
   const isAssignedSqr =
     !!staffRecord && workOrder?.engagement?.sqr_id === staffRecord.staff_id;
-  const canApproveRisk = (isAdmin || isAssignedSqr) && !!staffRecord;
+  const riskApproveScope = scope("work_order.risk.approve");
+  const canApproveRisk =
+    !!staffRecord &&
+    (isAdmin ||
+      (can("work_order.risk.approve") &&
+        (riskApproveScope !== "assigned_engagements" || isAssignedSqr)));
 
   const approvalStatus = workOrder?.approval_status as "Draft" | "Pending_Approval" | "Approved" | "Rejected" || "Draft";
   const isLocked = approvalStatus === "Approved" || approvalStatus === "Pending_Approval" || approvalStatus === "Rejected";
