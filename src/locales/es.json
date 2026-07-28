@@ -471,7 +471,8 @@
     "abbreviationMissing": "La práctica seleccionada no tiene abreviación. Configúrela en Prácticas antes de agregar actividades.",
     "formDescription": "Administra los detalles y vinculación del código de actividad.",
     "codePlaceholder": "ej., PLN",
-    "descriptionPlaceholder": "ej., Planeación"
+    "descriptionPlaceholder": "ej., Planeación",
+    "global": "Global"
   },
   "skill": {
     "name": "Nombre",

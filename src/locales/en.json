@@ -471,7 +471,8 @@
     "abbreviationMissing": "The selected practice has no abbreviation. Set one in Practices before adding activities.",
     "formDescription": "Manage activity code details and practice linkage.",
     "codePlaceholder": "e.g., PLN",
-    "descriptionPlaceholder": "e.g., Planning"
+    "descriptionPlaceholder": "e.g., Planning",
+    "global": "Global"
   },
   "skill": {
     "name": "Name",

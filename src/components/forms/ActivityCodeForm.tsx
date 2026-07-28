@@ -70,9 +70,11 @@ interface ActivityCodeFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   activityCode?: ActivityCode | null;
+  /** Default práctica for a new activity (the currently filtered práctica). */
+  serviceId?: string;
 }
 
-export function ActivityCodeForm({ open, onOpenChange, activityCode }: ActivityCodeFormProps) {
+export function ActivityCodeForm({ open, onOpenChange, activityCode, serviceId }: ActivityCodeFormProps) {
   const { t } = useTranslation();
   const isEdit = !!activityCode;
   const isServiceLinked = !!activityCode?.service_id;
@@ -124,10 +126,10 @@ export function ActivityCodeForm({ open, onOpenChange, activityCode }: ActivityC
         activity_code: activityCode?.activity_code || "",
         description: activityCode?.description || "",
         is_active: activityCode?.is_active ?? true,
-        service_id: activityCode?.service_id ?? null,
+        service_id: activityCode?.service_id ?? serviceId ?? null,
       });
     }
-  }, [open, activityCode, form]);
+  }, [open, activityCode, serviceId, form]);
 
   const onSubmit = async (data: FormData) => {
     if (isEdit && activityCode) {
@@ -219,7 +221,7 @@ export function ActivityCodeForm({ open, onOpenChange, activityCode }: ActivityC
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="__none__">{t("common.none")}</SelectItem>
+                        <SelectItem value="__none__">{t("activity.global")}</SelectItem>
                         {activeServices.map((s) => (
                           <SelectItem key={s.service_id} value={s.service_id}>
                             {s.name} ({s.abbreviation})
@@ -250,6 +252,19 @@ export function ActivityCodeForm({ open, onOpenChange, activityCode }: ActivityC
                   value={`${activityCode.service.name} (${activityCode.service.abbreviation})`}
                   disabled
                   data-testid="activity-service-readonly"
+                />
+              </FormItem>
+            )}
+
+            {/* Legacy activities: no service to display, but still show the
+                scope read-only so editing acknowledges it's Global (immutable). */}
+            {isEdit && !isServiceLinked && (
+              <FormItem>
+                <FormLabel>{t("activity.service")}</FormLabel>
+                <Input
+                  value={t("activity.global")}
+                  disabled
+                  data-testid="activity-service-global-readonly"
                 />
               </FormItem>
             )}

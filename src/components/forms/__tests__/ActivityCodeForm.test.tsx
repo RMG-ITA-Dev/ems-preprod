@@ -32,13 +32,14 @@ vi.mock("react-i18next", () => ({
 }));
 
 const createMutateAsync = vi.hoisted(() => vi.fn());
+const updateMutateAsync = vi.hoisted(() => vi.fn());
 const deactivateMutateAsync = vi.hoisted(() => vi.fn());
 const reactivateMutateAsync = vi.hoisted(() => vi.fn());
 const deleteMutateAsync = vi.hoisted(() => vi.fn());
 
 vi.mock("@/hooks/mutations", () => ({
   useCreateActivityCode: () => ({ mutateAsync: createMutateAsync, isPending: false }),
-  useUpdateActivityCode: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useUpdateActivityCode: () => ({ mutateAsync: updateMutateAsync, isPending: false }),
   useDeleteActivityCode: () => ({ mutateAsync: deleteMutateAsync, isPending: false }),
   useDeactivateServiceActivity: () => ({ mutateAsync: deactivateMutateAsync, isPending: false }),
   useReactivateServiceActivity: () => ({ mutateAsync: reactivateMutateAsync, isPending: false }),
@@ -200,6 +201,50 @@ describe("ActivityCodeForm — create (0513-114)", () => {
       expect.objectContaining({ activity_code: expect.any(String) })
     );
   });
+
+  it("rendering with a serviceId prop pre-selects that práctica, without touching the selector", async () => {
+    const user = userEvent.setup();
+    createMutateAsync.mockResolvedValue({});
+
+    render(<ActivityCodeForm open={true} onOpenChange={vi.fn()} activityCode={null} serviceId="s1" />);
+
+    // Pre-selected: code is already read-only/auto-generated, no native-select change needed.
+    await waitFor(() => expect(screen.getByTestId("activity-code-readonly")).toBeInTheDocument());
+
+    await user.type(screen.getByPlaceholderText("activity.descriptionPlaceholder"), "Audit Step");
+    await user.click(screen.getByRole("button", { name: "activity.createActivity" }));
+
+    await waitFor(() =>
+      expect(createMutateAsync).toHaveBeenCalledWith(
+        expect.objectContaining({ service_id: "s1", entity_type: "A", description: "Audit Step" })
+      )
+    );
+  });
+
+  it("the unset option in the create selector is labeled 'Global' (not 'None') and still submits service_id: null", async () => {
+    const user = userEvent.setup();
+    createMutateAsync.mockResolvedValue({});
+
+    render(<ActivityCodeForm open={true} onOpenChange={vi.fn()} activityCode={null} />);
+
+    // Radix renders the selected label in both the visible trigger and a hidden
+    // native <option> mirror, so assert presence via count rather than getByText.
+    expect(screen.getAllByText("activity.global").length).toBeGreaterThan(0);
+    expect(screen.queryByText("common.none")).not.toBeInTheDocument();
+
+    await user.type(screen.getByPlaceholderText("activity.descriptionPlaceholder"), "Reunión interna");
+    await user.type(screen.getByPlaceholderText("activity.codePlaceholder"), "003");
+    await user.click(screen.getByRole("button", { name: "activity.createActivity" }));
+
+    await waitFor(() =>
+      expect(createMutateAsync).toHaveBeenCalledWith(
+        expect.objectContaining({ activity_code: "003", description: "Reunión interna", is_active: true })
+      )
+    );
+    expect(createMutateAsync).not.toHaveBeenCalledWith(
+      expect.objectContaining({ service_id: expect.anything() })
+    );
+  });
 });
 
 // ── Soft recommendation (≥ 9 activities) ──────────────────────────────────
@@ -326,5 +371,24 @@ describe("ActivityCodeForm — edit legacy (0513-114)", () => {
   it("shows the is_active toggle for legacy activities", () => {
     render(<ActivityCodeForm open={true} onOpenChange={vi.fn()} activityCode={legacyActivity} />);
     expect(screen.getByRole("switch")).toBeInTheDocument();
+  });
+
+  it("shows a disabled 'Global' indicator and no selector; submit never sends service_id (immutability unchanged)", async () => {
+    const user = userEvent.setup();
+    updateMutateAsync.mockResolvedValue({});
+
+    render(<ActivityCodeForm open={true} onOpenChange={vi.fn()} activityCode={legacyActivity} />);
+
+    const globalReadonly = screen.getByTestId("activity-service-global-readonly") as HTMLInputElement;
+    expect(globalReadonly).toBeDisabled();
+    expect(globalReadonly.value).toBe("activity.global");
+    expect(screen.queryByTestId("activity-service-select")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("activity-service-readonly")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "common.saveChanges" }));
+
+    await waitFor(() => expect(updateMutateAsync).toHaveBeenCalled());
+    const payload = updateMutateAsync.mock.calls[0][0];
+    expect(payload.data).not.toHaveProperty("service_id");
   });
 });
