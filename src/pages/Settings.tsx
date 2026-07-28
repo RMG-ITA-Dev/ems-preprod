@@ -930,10 +930,10 @@ const Settings = () => {
 
         <TabsContent value="activities" className="space-y-6">
           <div className="flex items-center gap-2">
-            <Label htmlFor="activityServiceFilter">{t("category.service")}</Label>
+            <Label htmlFor="activityServiceFilter">{t("activity.service")}</Label>
             <Select value={activityServiceId} onValueChange={setActivityServiceId}>
               <SelectTrigger id="activityServiceFilter" className="w-56" data-testid="activity-service-filter">
-                <SelectValue placeholder={t("category.selectService")} />
+                <SelectValue placeholder={t("activity.selectServiceFilter")} />
               </SelectTrigger>
               <SelectContent>
                 {activityServices.map((s) => (
