@@ -65,7 +65,7 @@ vi.mock("@/hooks/useCurrentStaff", () => ({
 }));
 
 vi.mock("@/hooks/useAuthorization", () => ({
-  useAuthorization: () => ({ can: () => true, roleKey: "admin" }),
+  useAuthorization: () => ({ can: () => true, scope: () => "firm", roleKey: "admin" }),
 }));
 
 vi.mock("@/hooks/useWorksheetData", () => ({
