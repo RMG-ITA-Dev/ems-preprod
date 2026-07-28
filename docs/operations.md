@@ -11,7 +11,7 @@
 | Greptile (PR review) | — | Reads this file directly |
 | GitHub (rendered docs) | — | Reads this file directly |
 
-> **Maintenance rule**: update this file only. The four pointer files above must not duplicate its content. When you add a sixth edge function, a new Lovable prompt, or change a do-not-edit rule, edit `docs/operations.md` — nothing else.
+> **Maintenance rule**: update this file only. The four pointer files above must not duplicate its content. When you add a new edge function, a new Lovable prompt, or change a do-not-edit rule, edit `docs/operations.md` — nothing else.
 
 ---
 
@@ -49,8 +49,8 @@
 ## Backend (Lovable Cloud)
 
 - Supabase project ID: `ugqxfnrxvksiltwxzist`
-- 6 Edge Functions (inventory below)
-- 67+ timestamped migrations in `supabase/migrations/`
+- 7 Edge Functions (inventory below)
+- 139 timestamped migrations in `supabase/migrations/`
 - Key RPC functions: `submit_timesheet_safe()`, `assign_user_role_atomic()`, `update_timesheet_minmax_settings()`
 
 ### Edge Function Inventory
@@ -60,6 +60,7 @@
 | `assign-user-role` | Atomic first-user-admin role assignment during bootstrap |
 | `dashboard-data` | Aggregates dashboard analytics (utilization, hours, budget vs actual) |
 | `manage-auth-user` | Auth user management (create, update, delete) |
+| `secure-signin` | Sole legitimate caller of the account-lockout RPCs (`check_login_allowed`, `record_failed_login`); fronts sign-in so `anon` can no longer trip lockout directly (BUG 0514-115) |
 | `test-minmax-settings` | Backend integration tests for the min/max settings RPC |
 | `test-resubmission-state` | Backend integration tests for timesheet resubmission state |
 | `unlock-account` | Admin manual account unlock — clears `staff.is_blocked` + sends password reset email (BUG 0601-132) |
