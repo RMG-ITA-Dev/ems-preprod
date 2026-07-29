@@ -953,7 +953,7 @@ const Settings = () => {
             searchKeys={["activity_code", "description"]}
             isLoading={activitiesLoading}
             newButtonLabel={isAdmin ? t("activity.newActivity") : undefined}
-            onNewClick={isAdmin ? () => { setSelectedActivity(null); setActivityFormOpen(true); } : undefined}
+            onNewClick={isAdmin && activityServiceId ? () => { setSelectedActivity(null); setActivityFormOpen(true); } : undefined}
             onRowClick={isAdmin ? (row) => { setSelectedActivity(row); setActivityFormOpen(true); } : undefined}
             getRowId={(row) => row.activity_id}
             statusFilter={{
@@ -968,7 +968,7 @@ const Settings = () => {
             open={activityFormOpen}
             onOpenChange={setActivityFormOpen}
             activityCode={selectedActivity}
-            serviceId={activityServiceId !== "__global__" ? activityServiceId : undefined}
+            serviceId={activityServiceId && activityServiceId !== "__global__" ? activityServiceId : undefined}
           />
         </TabsContent>
 
