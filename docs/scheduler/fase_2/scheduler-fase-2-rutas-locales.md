@@ -12,6 +12,14 @@
 > timestamps únicos (ver `scheduler-fase-2-verificacion.md`, sección "Q0 — RESUELTO por renombrado").
 > Las secciones de abajo que hablan de Q0 como pendiente quedan como registro histórico de cómo se
 > llegó a esa decisión; el estado actual es: **sin más bloqueo de Q0** en ninguna de las 3 rutas.
+>
+> Actualizado 2026-07-29 (más tarde, en `EMS_Dev_Local`): **Ruta B cerrada con el CLI real** — 139/139
+> migraciones, `migration list` sin divergencias, `db push --dry-run --include-all` "up to date". Los 3
+> archivos de la candidata (c) que habían quedado copiados de la sesión anterior se borraron y su
+> bookkeeping se revirtió (`migration repair --status reverted`) — ya redundantes. Fingerprint
+> capturado, sin commitear. Detalle en `scheduler-fase-2-verificacion.md`, sección "Ruta B — cierre con
+> el CLI real". Rutas A y C siguen sin ejecutarse; §1.1/§1.2 (gaps de `development`) siguen pendientes
+> y son lo único que falta para correrlas.
 
 ## 0. Estado verificado del entorno
 

@@ -1,4 +1,4 @@
-# Fase 2 — Verificación (ejecución parcial, 2026-07-27 — actualizado 2026-07-28)
+# Fase 2 — Verificación (ejecución parcial, 2026-07-27 — actualizado 2026-07-29)
 
 > Fuente: `bugs/scheduler/fase_2/issue_fase_2.md` + `bugs/scheduler/fase_2/plan_v2.md`.
 > Rama: `dev-scheduler` (por decisión explícita del operador — no se creó `scheduler/phase-2-*`).
@@ -6,6 +6,10 @@
 > bloqueante de versiones de migración duplicadas). Las 4 migraciones de convergencia (C1–C4) **no se
 > escribieron**. El 2026-07-28 se intentó el preflight de Q0 localmente (§ "Ruta B — intento de
 > catch-up local"); ver esa sección para el resultado y sus matices.
+>
+> **Estado al 2026-07-29: Q0 resuelto (renombrado) y Ruta B cerrada con evidencia oficial del CLI real**
+> — ver secciones "Q0 — RESUELTO por renombrado" y "Ruta B — cierre con el CLI real" más abajo. Sigue
+> pendiente: los gaps de `development` (ítem 1 de "Próximo paso"), Q7, y Rutas A/C.
 
 ## Por qué el alcance es parcial
 
@@ -365,16 +369,43 @@ error una primera vez estando parado en `fix/0723-169` (rama de un ticket no rel
 revertido por completo con `git restore --source=HEAD` (confirmado `git status` limpio en
 `fix/0723-169`), y repetido correctamente en `dev-scheduler`.
 
+## Ruta B — cierre con el CLI real (2026-07-29, `EMS_Dev_Local`)
+
+Catch-up completo, esta vez con evidencia oficial (CLI real, no el replay manual de las secciones
+anteriores):
+
+- **Secuencia:** reset limpio → los 3 parches de sandbox conocidos (rename de categorías §1.1, admin +
+  `Junior` §1.2) aplicados en los puntos donde el push los encuentra → `supabase db push --include-all`
+  completó **las 139 migraciones sin ningún bloqueo de duplicados**. Confirma en los hechos que el
+  renombrado de Q0 (arriba) funciona con el mecanismo real, no solo en teoría.
+- **Limpieza atada:** los 3 archivos de la candidata (c) (`draft-migrations/`, ya marcada obsoleta acá)
+  habían quedado copiados en `supabase/migrations/` de una sesión anterior en ese entorno — borrados y
+  su bookkeeping revertido con `supabase migration repair --status reverted`, ya redundantes tras el
+  renombrado.
+- **Verificación de cierre:** `supabase migration list` → 139/139 sin divergencias;
+  `db push --dry-run --include-all` → "up to date". **Cumple el criterio de aceptación central de
+  Plan v2 para Ruta B.**
+- **`test:rls`:** sigue pendiente — bloqueado por infraestructura (sin Postgres nativo en `:5432` en
+  esa máquina), no por contenido. Ya se validó en otra máquina (ver sección "Evidencia de verificación
+  local" arriba).
+- **Fingerprint capturado** (4 archivos: `ruta_b_schema.sql`, `ruta_b_catalog.txt`,
+  `ruta_b_catalog_policies.txt`, `ruta_b_catalog_grants.txt`), en la raíz de `EMS_Dev_Local`, sin
+  commitear — queda ahí como evidencia para diffear contra Ruta A/C cuando existan.
+
+Con esto, **Ruta B está cerrada**. Lo único que sigue abierto de Fase 2 es el ítem 1 de abajo
+(gaps de `development`, sin relación con el scheduler) y Q7.
+
 ## Próximo paso para el operador
 
 1. Decidir cómo resolver los gaps de `development` (rename de categorías + las 2 assertions de
    `20260224065539` — admin y `default_app_role` de `Junior`) — no son parte del alcance de Fase 2 del
-   scheduler, pero bloquean cualquier Ruta A real para `development` por sí solo. **Ojo:** un
+   scheduler, pero bloquean cualquier Ruta A/C real para `development` por sí solo. **Ojo:** un
    `supabase/seed.sql` **no sirve** para esto — se ejecuta después de todas las migraciones, y el
    bloqueo ocurre a mitad de la secuencia. La única vía viable es un paso de siembra que corra *antes*
    del push/reset, scripteado como parte del runner de pruebas (no como migración ni como SQL manual
-   improvisado cada vez).
-2. Con Q0 resuelto, correr el catch-up de Ruta B real (CLI, no el método manual de este documento)
-   contra un stack limpio — debería completar sin ningún bloqueo salvo el ítem 1.
-3. Resolver Q7 (project refs de integración/efímeros + operador autorizado) — sigue pendiente.
-4. Con (1) y Q7 resueltos, retomar Plan v2 desde C1 (RLS y grants canónicos).
+   improvisado cada vez) — ver el patrón de dos pasos (reset → parche → push → parche → push) ya
+   validado en `EMS_Dev_Local`.
+2. Resolver Q7 (project refs de integración/efímeros + operador autorizado) — sigue pendiente.
+3. Con (1) y Q7 resueltos, correr Rutas A y C (§3/§4 de `scheduler-fase-2-rutas-locales.md`) y comparar
+   los 3 fingerprints — gate de paridad de Plan v2.
+4. Recién ahí, retomar Plan v2 desde C1 (RLS y grants canónicos).
