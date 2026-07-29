@@ -7,9 +7,11 @@
 > escribieron**. El 2026-07-28 se intentó el preflight de Q0 localmente (§ "Ruta B — intento de
 > catch-up local"); ver esa sección para el resultado y sus matices.
 >
-> **Estado al 2026-07-29: Q0 resuelto (renombrado) y Ruta B cerrada con evidencia oficial del CLI real**
-> — ver secciones "Q0 — RESUELTO por renombrado" y "Ruta B — cierre con el CLI real" más abajo. Sigue
-> pendiente: los gaps de `development` (ítem 1 de "Próximo paso"), Q7, y Rutas A/C.
+> **Estado al 2026-07-29: Q0 resuelto (renombrado), Ruta B cerrada con evidencia oficial del CLI real,
+> y los dos gaps de `development` resueltos con un script de pre-seed**
+> (`supabase/tests/local/preseed-development-gaps.sh`) — ver secciones "Q0 — RESUELTO por renombrado"
+> y "Ruta B — cierre con el CLI real" más abajo. Sigue pendiente: Q7, y correr Rutas A/C con el script
+> ya listo.
 
 ## Por qué el alcance es parcial
 
@@ -404,17 +406,30 @@ anteriores):
 Con esto, **Ruta B está cerrada**. Lo único que sigue abierto de Fase 2 es el ítem 1 de abajo
 (gaps de `development`, sin relación con el scheduler) y Q7.
 
+## Gaps de `development` — RESUELTOS con script de pre-seed (2026-07-29)
+
+`supabase/tests/local/preseed-development-gaps.sh` — envuelve la secuencia validada a mano en
+`EMS_Dev_Local` (reset → parche de categorías → push → parche de admin/`Junior` → push) en un solo
+comando. Confirmado que ambos bloqueos (`20260224065512`, `20260224065539`) ya están en los 72 base de
+`main`, no solo en las 59 de `development` — el script funciona igual para Ruta A y Ruta C. Ruta B no
+lo necesita (ya resuelto de verdad en el ambiente real). Detalle en
+`scheduler-fase-2-rutas-locales.md` §6.
+
+**Validado con el CLI real, en esta misma máquina, dos veces desde cero:** primer intento reveló dos
+bugs (`supabase db push`/`migration list` necesitan `--local` para no pedir un proyecto vinculado; el
+patrón de columna `default_app_role` solo existe después de que `20260224065512` reaplica con éxito —
+corregidos ambos en el script). Segundo intento, limpio de punta a punta: se detuvo exactamente en
+`20260224065512` ("Expected category \"Socio\" not found"), aplicó el parche de categorías, se detuvo
+exactamente en `20260224065539` ("ASSERTION: No admin users"), aplicó el parche de admin/`Junior`, y
+completó — `supabase migration list --local` con las 139 sincronizadas y
+`supabase db push --dry-run --include-all --local` → "Remote database is up to date." Reproducible:
+mismo resultado en ambas corridas.
+
 ## Próximo paso para el operador
 
-1. Decidir cómo resolver los gaps de `development` (rename de categorías + las 2 assertions de
-   `20260224065539` — admin y `default_app_role` de `Junior`) — no son parte del alcance de Fase 2 del
-   scheduler, pero bloquean cualquier Ruta A/C real para `development` por sí solo. **Ojo:** un
-   `supabase/seed.sql` **no sirve** para esto — se ejecuta después de todas las migraciones, y el
-   bloqueo ocurre a mitad de la secuencia. La única vía viable es un paso de siembra que corra *antes*
-   del push/reset, scripteado como parte del runner de pruebas (no como migración ni como SQL manual
-   improvisado cada vez) — ver el patrón de dos pasos (reset → parche → push → parche → push) ya
-   validado en `EMS_Dev_Local`.
-2. Resolver Q7 (project refs de integración/efímeros + operador autorizado) — sigue pendiente.
-3. Con (1) y Q7 resueltos, correr Rutas A y C (§3/§4 de `scheduler-fase-2-rutas-locales.md`) y comparar
-   los 3 fingerprints — gate de paridad de Plan v2.
-4. Recién ahí, retomar Plan v2 desde C1 (RLS y grants canónicos).
+1. Resolver Q7 (project refs de integración/efímeros + operador autorizado) — es lo único que falta
+   para correr Rutas A y C; el script de pre-seed y el renombrado de Q0 ya están listos.
+2. Correr Rutas A y C (§3/§4 de `scheduler-fase-2-rutas-locales.md`, usando
+   `preseed-development-gaps.sh` en vez de `supabase db reset` solo) y comparar los 3 fingerprints
+   (con `capture-route-fingerprint.sh`) — gate de paridad de Plan v2.
+3. Recién ahí, retomar Plan v2 desde C1 (RLS y grants canónicos).

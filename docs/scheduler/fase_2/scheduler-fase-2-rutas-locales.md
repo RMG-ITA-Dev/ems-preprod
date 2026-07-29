@@ -214,9 +214,13 @@ fue renombrar, no reaplicar contenido en migraciones nuevas.
 ## 3. Ruta C — al cerrar Fase 7 (base + 8 del scheduler, luego las 59 de `development`)
 
 Necesita un punto de partida **distinto** (sin las 59 de `development`) — no se logra reseteando el
-mismo folder de migraciones de este repo. Usar un git worktree desechable. **Va a toparse con §1.1/§1.2
-en cuanto entren las 59 de `development` (paso 4)** — mismo parche que en Ruta B. Q0 ya no debería
-aparecer (resuelto por renombrado, ver §6) — confirmar igual con el chequeo de duplicados.
+mismo folder de migraciones de este repo. Usar un git worktree desechable.
+
+⚠️ **Corrección de timing (2026-07-29):** §1.1/§1.2 **ya están en los 72 base de `main`/
+`sruizmier-scheduler-v3`** (verificado con `git cat-file -e` — ambas migraciones son de febrero 2026,
+antes del último commit de `main` en abril). Van a aparecer en el **paso 2** (el reset inicial de 80
+migraciones), no recién en el paso 4 como se pensaba antes. Q0 ya no debería aparecer en ningún punto
+(resuelto por renombrado, ver §6) — confirmar igual con el chequeo de duplicados.
 
 1. ```bash
    git worktree add ../ems-route-c-scratch origin/sruizmier-scheduler-v3
@@ -224,9 +228,10 @@ aparecer (resuelto por renombrado, ver §6) — confirmar igual con el chequeo d
    (de solo lectura; no se commitea nada ahí; se borra al terminar).
 2. Desde `../ems-route-c-scratch`, resetear el **mismo** stack Docker (mismo `project_id` ⇒ mismos
    contenedores, aunque se invoque desde otro directorio) usando su propia carpeta
-   `supabase/migrations/` (72 base + 8 scheduler = 80, sin las 59 de `development`):
+   `supabase/migrations/` (72 base + 8 scheduler = 80, sin las 59 de `development`). Usar el script de
+   pre-seed en vez de `supabase db reset` solo — acá es donde va a toparse con §1.1/§1.2:
    ```bash
-   supabase db reset
+   bash supabase/tests/local/preseed-development-gaps.sh
    supabase migration list        # 80 aplicadas
    ```
 3. *(Pedido explícito de Plan v2 para Ruta C)* Sembrar datos sintéticos representativos antes del
@@ -236,10 +241,10 @@ aparecer (resuelto por renombrado, ver §6) — confirmar igual con el chequeo d
    ```bash
    supabase db push --include-all
    ```
-   Esperar §1.1/§1.2 aquí también — mismos parches que en Ruta B (Q0 ya resuelto por renombrado).
-   Registrar el comportamiento de las migraciones destructivas/de datos mencionadas en Plan v2
-   (`drop_expense_logs`, `service_scoped_categories`, `estado_encargo_0602-135`) sobre los datos
-   sintéticos del paso 3.
+   §1.1/§1.2 ya deberían estar resueltos desde el paso 2 — este push no debería toparse con ningún
+   bloqueo nuevo de ese tipo. Registrar el comportamiento de las migraciones destructivas/de datos
+   mencionadas en Plan v2 (`drop_expense_logs`, `service_scoped_categories`, `estado_encargo_0602-135`)
+   sobre los datos sintéticos del paso 3.
 5. Confirmar convergencia:
    ```bash
    supabase migration list                    # 139 aplicadas
@@ -254,13 +259,14 @@ aparecer (resuelto por renombrado, ver §6) — confirmar igual con el chequeo d
 También topa con §1.1/§1.2 (son parte de las 131 de `development` que Ruta A también replaya). Q0 ya
 resuelto por renombrado — no debería aparecer.
 
-1. Reset total del stack desde este repo (`dev-scheduler`, con las 139 + C1-C4 ya integradas):
+1. Reset total del stack desde este repo (`dev-scheduler`, con las 139 + C1-C4 ya integradas), usando
+   el script de pre-seed en vez de `supabase db reset` solo:
    ```bash
-   supabase db reset
+   bash supabase/tests/local/preseed-development-gaps.sh
    supabase migration list                    # 139+4 aplicadas, orden cronológico puro
    supabase db push --dry-run --include-all   # 0 pendientes
    ```
-2. Capturar fingerprint de Ruta A.
+2. Capturar fingerprint de Ruta A (`bash supabase/tests/local/capture-route-fingerprint.sh ruta_a`).
 3. Comparar los 3 fingerprints (A/B/C) → diff vacío = gate de paridad cumplido = esquema canónico
    confirmado (criterio de aceptación central de Fase 2).
 
@@ -277,7 +283,7 @@ resuelto por renombrado — no debería aparecer.
   (`engagement_assignments`, `wo_staffing_requirements`), ahí sí se necesita coordinación explícita
   entre ambas iniciativas — no es automatizable con un simple chequeo de timestamps.
 
-## 6. Decisiones — una resuelta, dos pendientes
+## 6. Decisiones — resueltas / con script listo
 
 1. **Q0 — RESUELTO el 2026-07-29 por renombrado.** Se descartaron (a) bookkeeping manual (no escala,
    viola "ningún SQL manual" en instalaciones limpias futuras) y (c) recovery-migrations + reintento
@@ -294,17 +300,19 @@ resuelto por renombrado — no debería aparecer.
      (idéntico byte a byte). Solo cambió el nombre del archivo.
    Detalle completo, tabla de renames y la nota sobre el incidente de rama (detectado y revertido sin
    consecuencias) en `scheduler-fase-2-verificacion.md`, sección "Q0 — RESUELTO por renombrado".
-2. **§1.1 — rename de categorías.** ⚠️ Un `supabase/seed.sql` **no funciona**: se ejecuta después de
-   todas las migraciones, y el bloqueo (`20260224065512`) ocurre a mitad de la secuencia, antes de que
-   `seed.sql` llegue a correr nunca. La única vía viable es un paso de siembra que corra *antes* del
-   push/reset, scripteado dentro del runner oficial de pruebas (`run-scheduler-fase2-routes.sh`) — no
-   una migración (no se puede insertar una migración con timestamp anterior sin re-ordenar historia
-   ya aplicada) ni SQL manual improvisado cada vez.
-3. **§1.2 — assertions de `20260224065539`** (admin **y** `default_app_role` de `Junior`). Mismo tipo
-   de solución que el ítem 2: un paso scripteado antes del push/reset (crear un usuario admin de
-   relleno + backfillear `Junior`), documentado como parte del runner — no una migración nueva, porque
-   el bloqueo también ocurre a mitad de la secuencia histórica.
+2. **§1.1/§1.2 — RESUELTO con script (2026-07-29):**
+   `supabase/tests/local/preseed-development-gaps.sh`. Un `supabase/seed.sql` **no funciona** para
+   esto (corre después de todas las migraciones, y ambos bloqueos ocurren a mitad de la secuencia,
+   antes de que `seed.sql` llegue a correr nunca), y una migración nueva tampoco (solo pueden ir al
+   final del historial, mucho después cronológicamente de donde ocurren estos bloqueos). El script
+   envuelve la secuencia ya validada a mano en `EMS_Dev_Local`: `db reset` (se detiene esperado en
+   `20260224065512`) → parche de categorías → `db push --include-all` (se detiene esperado en
+   `20260224065539`) → parche de admin + `Junior` → `db push --include-all` (completa el resto).
+   Confirmado que ambos bloqueos ya están en los 72 base de `main` (no solo en las 59 de
+   `development`) — el script aplica igual sin importar desde cuál de las 3 rutas se invoque. Ruta B
+   **no** lo necesita (parte de un ambiente que ya tiene esto resuelto de verdad).
 
-Ninguno de los ítems 2/3 es parte del alcance original de Fase 2 del scheduler (son de `development`,
-preexistentes) — pero bloquean completar cualquiera de las 3 rutas con el CLI oficial desde cero, que
-es lo que el criterio de aceptación central de Plan v2 exige.
+Ninguno de estos dos bloqueos es parte del alcance original de Fase 2 del scheduler (son de
+`development`, preexistentes) — pero bloqueaban completar cualquiera de las 3 rutas con el CLI oficial
+desde cero, que es lo que el criterio de aceptación central de Plan v2 exige. Con Q0 y estos dos
+resueltos, lo único que falta para correr Rutas A y C es Q7 (project refs).
