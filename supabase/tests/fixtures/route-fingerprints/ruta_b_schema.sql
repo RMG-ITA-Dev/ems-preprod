@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict EbSgbIVa1Vp1Hnz9Yfva23icHIPUnMg2hy7yxqn6FXSuqfze3OWcVGC7qf65OoO
+\restrict 96L52JDDXAYuK8UHghjjf6GHUPxeCab9gnSDCWrqg88FkpmVRho996KJL7sV25B
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 18.4
@@ -7957,7 +7957,7 @@ CREATE VIEW public.fund_request_selectable_work_orders WITH (security_invoker='f
    FROM ((public.work_orders wo
      JOIN public.engagements e ON ((e.engagement_id = wo.engagement_id)))
      LEFT JOIN public.staff s ON ((s.staff_id = e.manager_id)))
-  WHERE (((wo.approval_status)::text = 'Approved'::text) AND (public.get_my_staff_id() IS NOT NULL));
+  WHERE (((wo.approval_status)::text = 'Approved'::text) AND (public.get_my_staff_id() IS NOT NULL) AND public.engagement_allows_hours_or_requests(e.engagement_id));
 
 
 --
@@ -13526,5 +13526,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict EbSgbIVa1Vp1Hnz9Yfva23icHIPUnMg2hy7yxqn6FXSuqfze3OWcVGC7qf65OoO
+\unrestrict 96L52JDDXAYuK8UHghjjf6GHUPxeCab9gnSDCWrqg88FkpmVRho996KJL7sV25B
 

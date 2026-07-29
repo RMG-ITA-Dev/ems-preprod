@@ -7,7 +7,7 @@
  public     | activity_worksheet_cells                       | table    | postgres       | permanent   | heap          | 0 bytes    | 
  public     | activity_worksheets                            | table    | postgres       | permanent   | heap          | 8192 bytes | 
  public     | auth_login_attempts                            | table    | postgres       | permanent   | heap          | 8192 bytes | 
- public     | categories                                     | table    | postgres       | permanent   | heap          | 40 kB      | 
+ public     | categories                                     | table    | postgres       | permanent   | heap          | 8192 bytes | 
  public     | clients                                        | table    | postgres       | permanent   | heap          | 16 kB      | 
  public     | clients_directory                              | view     | postgres       | permanent   |               | 0 bytes    | 
  public     | engagement_assignments                         | table    | postgres       | permanent   | heap          | 8192 bytes | 
