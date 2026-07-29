@@ -300,6 +300,15 @@ y `engagement_assignments` existen, y las políticas `wo_staffing_req_select` /
 >   valor de la vuelta anterior**. Si no se resetea `$var = ""` al inicio de cada iteración de un
 >   loop, un solo `"1"` exitoso queda pegado para siempre y el loop se saltea en silencio todo lo que
 >   sigue. Aplica a cualquier script similar que use este patrón.
+> - **Redirección de PowerShell corrompe la salida de binarios nativos** (encontrado 2026-07-29,
+>   capturando el fingerprint de Ruta B en `EMS_Dev_Local`): `pg_dump ... > archivo.sql` o
+>   `psql ... -c "..." > archivo.txt` producen un archivo en UTF-16 con cabecera `�` y texto espaciado
+>   con bytes nulos — la redirección `>`/`>>` de PowerShell reinterpreta/re-codifica el stdout de un
+>   proceso nativo en vez de volcarlo tal cual. Fix: usar el flag de salida propio de la herramienta en
+>   vez de la redirección del shell — `pg_dump ... -f archivo.sql` y `psql ... -o archivo.txt -c "..."`
+>   escriben UTF-8 directo a disco sin pasar por el pipeline de PowerShell. `psql -o` sobreescribe (no
+>   concatena) en cada invocación — para varias consultas en un solo fingerprint, usar un archivo por
+>   consulta en vez de intentar acumular con `-o`.
 >
 > Esta corrección **no invalida** la conclusión de la sección anterior de que el contenido de los 5
 > pares no tiene incompatibilidades *entre sí* — sigue siendo cierto. Lo que corrige es la
