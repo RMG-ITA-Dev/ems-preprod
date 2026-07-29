@@ -379,6 +379,8 @@
     "lastAdminBlocked": "No se puede eliminar al último administrador",
     "alreadyDeleted": "La cuenta de usuario ya fue eliminada",
     "notAdmin": "Se requieren privilegios de administrador",
+    "invalidRole": "El rol seleccionado no existe o no está habilitado",
+    "noRoleAssigned": "Sin rol asignado",
     "roles": {
       "admin": "Administrador",
       "partner": "Socio",
@@ -391,6 +393,33 @@
       "sqr": "Calidad-Riesgo (SQR)",
       "specialist_it": "Especialista IT",
       "specialist_tax": "Especialista Tax"
+    }
+  },
+  "authz": {
+    "role": {
+      "admin": "Administrador",
+      "it_security_manager": "Gerente Nacional de Seguridad TI",
+      "senior_partner": "Senior Partner",
+      "partner": "Socio",
+      "sqr": "Calidad-Riesgo (SQR)",
+      "director": "Director",
+      "manager": "Gerente",
+      "senior": "Senior",
+      "semisenior": "Semi Senior",
+      "assistant": "Asistente",
+      "ita_manager": "Gerente Especialista ITA",
+      "ita_senior": "Senior Especialista ITA",
+      "ita_assistant": "Asistente Especialista ITA",
+      "tax_manager": "Gerente Especialista TAX",
+      "tax_senior": "Senior Especialista TAX",
+      "tax_assistant": "Asistente Especialista TAX",
+      "accounting_manager": "Gerente de Contabilidad",
+      "accounting_analyst": "Analista de Contabilidad",
+      "collections_analyst": "Analista de Cobranzas",
+      "risk_partner": "Socio de Riesgos",
+      "risk_supervisor": "Supervisor de Riesgos",
+      "hr_manager": "Gerente de Talento Humano",
+      "hr_analyst": "Analista de Talento Humano"
     }
   },
   "industry": {
