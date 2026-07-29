@@ -946,6 +946,7 @@ const Settings = () => {
             </Select>
           </div>
           <DataTable
+            key={activityServiceId}
             data={filteredActivityCodes}
             columns={activityColumns}
             searchPlaceholder={t("common.search")}
