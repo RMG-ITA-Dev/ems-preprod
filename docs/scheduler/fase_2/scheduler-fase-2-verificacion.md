@@ -425,6 +425,61 @@ completó — `supabase migration list --local` con las 139 sincronizadas y
 `supabase db push --dry-run --include-all --local` → "Remote database is up to date." Reproducible:
 mismo resultado en ambas corridas.
 
+## Ruta A — primera corrida y diff contra Ruta B (2026-07-29, `EMS_Dev_Local`)
+
+`bash supabase/tests/local/preseed-development-gaps.sh` sobre un stack recién reseteado: se detuvo
+exactamente en `20260224065512` y `20260224065539` (mismo comportamiento que la validación del script
+de arriba), sin ningún bloqueo nuevo. Cierre confirmado: `supabase migration list --local` → 139/139,
+sin ninguna fila con la columna "remoto" vacía; `supabase db push --dry-run --include-all --local` →
+"Remote database is up to date." Fingerprint capturado con
+`capture-route-fingerprint.sh ruta_a`.
+
+**Diff contra el fingerprint de Ruta B ya commiteado** (`git show HEAD:.../ruta_b_*`):
+
+- `ruta_a_catalog_policies.txt` vs `ruta_b_catalog_policies.txt`: **diff vacío** — 216 policies
+  idénticas.
+- `ruta_a_catalog_grants.txt` vs `ruta_b_catalog_grants.txt`: **diff vacío** — 1251 grants idénticos.
+- `ruta_a_catalog.txt` vs `ruta_b_catalog.txt`: 1 línea distinta — tamaño físico de la tabla
+  `categories` (`8192 bytes` en A vs `40 kB` en B). No es una diferencia de esquema, es bloat de
+  páginas por el historial de DML distinto de cada stack (B pasó por más ciclos de parche/reset en
+  esta sesión) — no afecta al gate de paridad, que es sobre estructura, no sobre tamaño físico.
+- `ruta_a_schema.sql` vs `ruta_b_schema.sql`: **no vacío**, pero con dos capas de ruido a descontar
+  antes de mirar el contenido real:
+  1. La primera y última línea (`\restrict`/`\unrestrict`) — token aleatorio de `pg_dump 18`, ver nota
+     en `capture-route-fingerprint.sh`.
+  2. Line endings mixtos (`file` reporta "CRLF, LF line terminators" en ambos archivos) — probablemente
+     de cuando `ruta_b_schema.sql` pasó por `git add`/commit (con normalización de línea) mientras
+     `ruta_a_schema.sql` es un archivo nuevo sin tocar por git todavía. Esto por sí solo generaba 5
+     bloques de diff falsos (uno por cada una de las 5 funciones RPC de categorías) — confirmado
+     comparando los mismos rangos de línea normalizados (`sed 's/\r$//'`): esos 5 bloques desaparecen
+     por completo, contenido byte-idéntico.
+
+  **Con ambas capas de ruido descontadas, queda exactamente 1 línea real distinta:** la vista
+  `public.fund_request_selectable_work_orders` en Ruta B le falta la cláusula
+  `AND public.engagement_allows_hours_or_requests(e.engagement_id)` que sí trae
+  `20260714000000_estado_encargo_0602-135.sql` (la migración más reciente que toca esa vista,
+  cronológicamente después de las otras 3 que también la tocan — debería ganar en ambas rutas).
+
+  **Root cause identificado, no es un problema real de paridad A↔B:** el fingerprint de Ruta B ya
+  commiteado (`bf5cb8c`) se capturó sobre un stack que, en una sesión anterior de esta misma
+  conversación, tuvo los 3 archivos de recuperación candidata (c) (`draft-migrations/`,
+  `20260727050000_q0_recover_wo_payment_plan.sql` entre ellos) presentes en `supabase/migrations/`
+  durante un `db reset`, antes de que se identificaran como obsoletos y se borraran. Ese archivo
+  reproduce el contenido *original* de `wo_payment_plan.sql` — incluida una versión **anterior**
+  (pre-0602-135, sin la cláusula) de `fund_request_selectable_work_orders` — pero con timestamp
+  `20260727050000`, **posterior** a `20260714000000`. Al correr durante ese reset, su
+  `DROP VIEW IF EXISTS` + `CREATE OR REPLACE VIEW` pisó la versión más nueva. Cuando después se borró
+  el archivo y se revirtió su bookkeeping (`supabase migration repair --status reverted`), **eso solo
+  corrige la tabla de tracking — no deshace el DDL ya ejecutado.** El efecto sobre la vista quedó
+  grabado en esa base, y es exactamente lo que capturó el fingerprint de Ruta B commiteado.
+
+  **Conclusión:** no es una discrepancia real entre Ruta A y Ruta B con el flujo actual (script de
+  pre-seed + 139 migraciones + rename de Q0) — es un artefacto de cuándo se capturó el fingerprint de
+  Ruta B (antes de que se terminara de limpiar la contaminación de la sesión anterior). Recapturar
+  Ruta B ahora, desde un reset limpio con los archivos obsoletos ya fuera del repo, debería dar diff
+  vacío contra Ruta A — pendiente de que el operador lo confirme y decida si recapturar y volver a
+  commitear el fingerprint de Ruta B.
+
 ## Próximo paso para el operador
 
 1. Resolver Q7 (project refs de integración/efímeros + operador autorizado) — es lo único que falta
