@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict NLx1qAR8IITyEtQdab1iQbBLzlKJr8p9hwEFTEb3kVPkfRVYIVHvaxtpFatGyZe
+\restrict dqCLmod2JFErHJaSGq1P6siWwNsrfHESkMHzo4sJXwt2zSTfeIdfAhdwdPoOQG1
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 18.4
@@ -1420,7 +1420,6 @@ BEGIN
     RAISE EXCEPTION 'same_service';
   END IF;
 
-  -- Validate the source service.
   SELECT is_active, allows_rates_activities
     INTO v_src_active, v_src_allows
     FROM public.services
@@ -1433,7 +1432,6 @@ BEGIN
     RAISE EXCEPTION 'source_invalid';
   END IF;
 
-  -- Validate + lock the target service so a concurrent copy/insert can't race us.
   SELECT is_active, allows_rates_activities
     INTO v_tgt_active, v_tgt_allows
     FROM public.services
@@ -1456,7 +1454,6 @@ BEGIN
       RAISE EXCEPTION 'target_not_empty';
     END IF;
 
-    -- Refuse to delete target categories that are still in use anywhere.
     SELECT COUNT(*) INTO v_referenced
       FROM public.categories c
      WHERE c.service_id = p_target_service_id
@@ -1465,6 +1462,8 @@ BEGIN
          OR EXISTS (SELECT 1 FROM public.wo_budget_lines b WHERE b.category_id = c.category_id)
          OR EXISTS (SELECT 1 FROM public.activity_worksheet_cells w WHERE w.category_id = c.category_id)
          OR EXISTS (SELECT 1 FROM public.activity_codes a WHERE a.default_category_id = c.category_id)
+         OR EXISTS (SELECT 1 FROM public.wo_staffing_requirements r WHERE r.category_id = c.category_id)
+         OR EXISTS (SELECT 1 FROM public.engagement_assignments ea WHERE ea.category_id = c.category_id)
        );
 
     IF v_referenced > 0 THEN
@@ -2070,6 +2069,44 @@ $$;
 
 
 --
+-- Name: enforce_assignment_service_scope(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.enforce_assignment_service_scope() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_practica    smallint;
+  v_service_id  uuid;
+  v_cat_service uuid;
+BEGIN
+  SELECT e.practica INTO v_practica
+    FROM public.engagements e
+   WHERE e.engagement_id = NEW.engagement_id;
+
+  IF v_practica IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT service_id INTO v_service_id
+    FROM public.services
+   WHERE code = v_practica;
+
+  SELECT service_id INTO v_cat_service
+    FROM public.categories
+   WHERE category_id = NEW.category_id;
+
+  IF v_cat_service IS DISTINCT FROM v_service_id THEN
+    RAISE EXCEPTION 'Category % does not belong to the engagement''s service', NEW.category_id;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: enforce_engagement_fiscal_year_invariant(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -2195,6 +2232,46 @@ END; $$;
 
 
 --
+-- Name: enforce_wo_staffing_service_scope(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.enforce_wo_staffing_service_scope() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_practica    smallint;
+  v_service_id  uuid;
+  v_cat_service uuid;
+BEGIN
+  SELECT e.practica INTO v_practica
+    FROM public.work_orders wo
+    JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+   WHERE wo.wo_id = NEW.wo_id;
+
+  -- Engagement sin servicio asignado: sin scope, igual que el precedente.
+  IF v_practica IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT service_id INTO v_service_id
+    FROM public.services
+   WHERE code = v_practica;
+
+  SELECT service_id INTO v_cat_service
+    FROM public.categories
+   WHERE category_id = NEW.category_id;
+
+  IF v_cat_service IS DISTINCT FROM v_service_id THEN
+    RAISE EXCEPTION 'Category % does not belong to the work order''s engagement service', NEW.category_id;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: enforce_worksheet_cell_service_scope(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -2242,6 +2319,22 @@ BEGIN
 
   RETURN NEW;
 END;
+$$;
+
+
+--
+-- Name: engagement_accepts_assignment_writes(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.engagement_accepts_assignment_writes(p_engagement_id uuid) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT COALESCE(
+    (SELECT engagement_state_override NOT IN (6, 7, 9)
+       FROM public.engagements
+      WHERE engagement_id = p_engagement_id),
+    true)  -- override NULL (estado derivado 1..5/8) o engagement inexistente ⇒ escribible
 $$;
 
 
@@ -3789,6 +3882,24 @@ $$;
 
 
 --
+-- Name: is_engagement_responsible(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.is_engagement_responsible(p_engagement_id uuid) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.engagements e
+    WHERE e.engagement_id = p_engagement_id
+      AND public.get_my_staff_id() IN (e.manager_id, e.partner_id,
+                                        e.sqr_id, e.encargado_id,
+                                        e.specialist_it_id, e.specialist_tax_id)
+  )
+$$;
+
+
+--
 -- Name: is_engagement_team_member(uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -4475,6 +4586,360 @@ BEGIN
     NEW.is_imported := false;
   END IF;
   RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: save_engagement_assignments(uuid, jsonb, uuid[]); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.save_engagement_assignments(p_engagement_id uuid, p_upserts jsonb, p_deleted_ids uuid[]) RETURNS jsonb
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_state_override smallint;
+  v_practica        smallint;
+  v_service_id      uuid;
+  v_cat_service     uuid;
+  v_row             jsonb;
+  v_assignment_id   uuid;
+  v_staff_id        uuid;
+  v_category_id     uuid;
+  v_start_date      date;
+  v_end_date        date;
+  v_hours           numeric;
+  v_allocation      numeric;
+  v_result          jsonb;
+BEGIN
+  p_upserts     := COALESCE(p_upserts, '[]'::jsonb);
+  p_deleted_ids := COALESCE(p_deleted_ids, ARRAY[]::uuid[]);
+
+  -- 1-3. Resolver + bloquear el engagement (serializa escrituras concurrentes, hace correcto el
+  --      chequeo de overlaps del paso 6), autorizar, y confirmar que acepta escrituras.
+  SELECT engagement_state_override, practica
+    INTO v_state_override, v_practica
+    FROM public.engagements
+   WHERE engagement_id = p_engagement_id
+   FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'EAS_ENGAGEMENT_NOT_FOUND'
+      USING DETAIL = jsonb_build_object('engagement_id', p_engagement_id)::text;
+  END IF;
+
+  IF NOT (public.is_admin() OR public.is_engagement_responsible(p_engagement_id)) THEN
+    RAISE EXCEPTION 'EAS_DENIED' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  IF NOT public.engagement_accepts_assignment_writes(p_engagement_id) THEN
+    RAISE EXCEPTION 'EAS_ENGAGEMENT_LOCKED'
+      USING DETAIL = jsonb_build_object(
+              'engagement_id', p_engagement_id,
+              'engagement_state_override', v_state_override)::text;
+  END IF;
+
+  IF v_practica IS NOT NULL THEN
+    SELECT service_id INTO v_service_id FROM public.services WHERE code = v_practica;
+  END IF;
+
+  -- 4. Validar TODO el payload antes de escribir nada.
+  FOR v_row IN SELECT * FROM jsonb_array_elements(p_upserts)
+  LOOP
+    v_staff_id    := (v_row->>'staff_id')::uuid;
+    v_category_id := (v_row->>'category_id')::uuid;
+    v_start_date  := (v_row->>'start_date')::date;
+    v_end_date    := (v_row->>'end_date')::date;
+    v_hours       := (v_row->>'hours_per_week')::numeric;
+    v_allocation  := (v_row->>'allocation_percent')::numeric;
+
+    IF v_staff_id IS NULL OR v_category_id IS NULL OR v_start_date IS NULL OR v_end_date IS NULL
+       OR v_hours IS NULL OR v_allocation IS NULL THEN
+      RAISE EXCEPTION 'EAS_MISSING_FIELD'
+        USING DETAIL = jsonb_build_object('row', v_row)::text;
+    END IF;
+
+    -- Mismo día es válido (intersección inclusiva, mismo criterio que el overlap del paso 6).
+    IF v_end_date < v_start_date THEN
+      RAISE EXCEPTION 'EAS_DATE_RANGE'
+        USING DETAIL = jsonb_build_object('start_date', v_start_date, 'end_date', v_end_date)::text;
+    END IF;
+
+    IF v_hours <= 0 OR v_hours > 80 THEN
+      RAISE EXCEPTION 'EAS_HOURS_RANGE'
+        USING DETAIL = jsonb_build_object('hours_per_week', v_hours)::text;
+    END IF;
+
+    IF v_allocation <= 0 OR v_allocation > 100 THEN
+      RAISE EXCEPTION 'EAS_ALLOCATION_RANGE'
+        USING DETAIL = jsonb_build_object('allocation_percent', v_allocation)::text;
+    END IF;
+
+    IF v_service_id IS NOT NULL THEN
+      SELECT service_id INTO v_cat_service FROM public.categories WHERE category_id = v_category_id;
+      IF v_cat_service IS DISTINCT FROM v_service_id THEN
+        RAISE EXCEPTION 'EAS_CATEGORY_FOREIGN_SERVICE'
+          USING DETAIL = jsonb_build_object('category_id', v_category_id)::text;
+      END IF;
+    END IF;
+  END LOOP;
+
+  -- 5. Aplicar el diff explícito: soft-delete -> update -> insert (en ese orden). status nunca se
+  --    escribe (el DEFAULT de la BD gobierna — decisión de negocio Q1, F2 solo verifica PROPOSED
+  --    en C2); created_by tampoco (paridad con el cliente, que igual lo omite hoy).
+  IF cardinality(p_deleted_ids) > 0 THEN
+    UPDATE public.engagement_assignments
+       SET deleted_at = now()
+     WHERE assignment_id = ANY(p_deleted_ids)
+       AND engagement_id = p_engagement_id
+       AND deleted_at IS NULL;
+  END IF;
+
+  FOR v_row IN SELECT * FROM jsonb_array_elements(p_upserts)
+  LOOP
+    v_assignment_id := (v_row->>'assignment_id')::uuid;
+
+    IF v_assignment_id IS NOT NULL THEN
+      UPDATE public.engagement_assignments
+         SET staff_id           = (v_row->>'staff_id')::uuid,
+             category_id        = (v_row->>'category_id')::uuid,
+             start_date         = (v_row->>'start_date')::date,
+             end_date           = (v_row->>'end_date')::date,
+             hours_per_week     = (v_row->>'hours_per_week')::numeric,
+             allocation_percent = (v_row->>'allocation_percent')::numeric,
+             notes              = v_row->>'notes'
+       WHERE assignment_id = v_assignment_id
+         AND engagement_id = p_engagement_id;
+    ELSE
+      INSERT INTO public.engagement_assignments (
+        engagement_id, staff_id, category_id,
+        start_date, end_date, hours_per_week, allocation_percent, notes
+      ) VALUES (
+        p_engagement_id,
+        (v_row->>'staff_id')::uuid,
+        (v_row->>'category_id')::uuid,
+        (v_row->>'start_date')::date,
+        (v_row->>'end_date')::date,
+        (v_row->>'hours_per_week')::numeric,
+        (v_row->>'allocation_percent')::numeric,
+        v_row->>'notes'
+      );
+    END IF;
+  END LOOP;
+
+  -- 6. Overlap detection: contra el estado YA persistido (preexistentes intocados + actualizados +
+  --    nuevos), tras aplicar el diff completo del paso 5 — verifica tanto contra preexistentes como
+  --    dentro del propio payload de una sola pasada. '[]' reproduce la intersección inclusiva del
+  --    cliente. El RAISE revierte TODA la transacción (incluido el paso 5) si dispara.
+  IF EXISTS (
+    SELECT 1 FROM public.engagement_assignments a
+    JOIN public.engagement_assignments b
+      ON b.engagement_id = a.engagement_id
+     AND b.staff_id = a.staff_id
+     AND b.assignment_id <> a.assignment_id
+     AND daterange(a.start_date, a.end_date, '[]') && daterange(b.start_date, b.end_date, '[]')
+    WHERE a.engagement_id = p_engagement_id
+      AND a.deleted_at IS NULL
+      AND b.deleted_at IS NULL
+  ) THEN
+    RAISE EXCEPTION 'EAS_OVERLAP';
+  END IF;
+
+  -- 7. Devolver el estado final persistido, con la forma que lee useEngagementAssignments.
+  --    No renombrar engagement_assignments_staff_id_fkey.
+  SELECT jsonb_agg(
+           jsonb_build_object(
+             'assignment_id', a.assignment_id,
+             'staff_id', a.staff_id,
+             'category_id', a.category_id,
+             'start_date', a.start_date,
+             'end_date', a.end_date,
+             'hours_per_week', a.hours_per_week,
+             'allocation_percent', a.allocation_percent,
+             'status', a.status,
+             'notes', a.notes
+           )
+         )
+    INTO v_result
+    FROM public.engagement_assignments a
+   WHERE a.engagement_id = p_engagement_id
+     AND a.deleted_at IS NULL;
+
+  RETURN COALESCE(v_result, '[]'::jsonb);
+END;
+$$;
+
+
+--
+-- Name: save_wo_staffing(uuid, jsonb); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.save_wo_staffing(p_wo_id uuid, p_requirements jsonb) RETURNS jsonb
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_engagement_id uuid;
+  v_status        text;
+  v_practica      smallint;
+  v_service_id    uuid;
+  v_cat_service   uuid;
+  v_category_id   uuid;
+  v_staff_count   int;
+  v_req           jsonb;
+  v_skill         jsonb;
+  v_result        jsonb;
+BEGIN
+  p_requirements := COALESCE(p_requirements, '[]'::jsonb);
+
+  -- 1-2. Resolver + bloquear el work order (serializa transacciones concurrentes), autorizar,
+  --      y exigir Draft (solo Draft editable — WorkOrderEdit.tsx:296-297 trata Approved/
+  --      Pending_Approval/Rejected como bloqueados; cierra el bloqueo de G8).
+  SELECT wo.engagement_id, wo.approval_status
+    INTO v_engagement_id, v_status
+    FROM public.work_orders wo
+   WHERE wo.wo_id = p_wo_id
+   FOR UPDATE;
+
+  IF v_engagement_id IS NULL THEN
+    RAISE EXCEPTION 'WOS_WO_NOT_FOUND'
+      USING DETAIL = jsonb_build_object('wo_id', p_wo_id)::text;
+  END IF;
+
+  IF NOT (
+    public.is_admin()
+    OR public.is_engagement_team_member(v_engagement_id)
+    OR public.is_engagement_responsible(v_engagement_id)
+  ) THEN
+    RAISE EXCEPTION 'WOS_DENIED' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  IF v_status <> 'Draft' THEN
+    RAISE EXCEPTION 'WOS_WO_LOCKED'
+      USING DETAIL = jsonb_build_object('wo_id', p_wo_id, 'status', v_status)::text;
+  END IF;
+
+  -- 3. practica del engagement, para el chequeo de categoría cruzada (omitido si NULL — engagement
+  --    legado sin servicio asignado, mismo precedente que los triggers de C2).
+  SELECT e.practica INTO v_practica FROM public.engagements e WHERE e.engagement_id = v_engagement_id;
+  IF v_practica IS NOT NULL THEN
+    SELECT service_id INTO v_service_id FROM public.services WHERE code = v_practica;
+  END IF;
+
+  -- 4. Validar TODO el payload antes de tocar ninguna fila (todo-o-nada).
+  IF EXISTS (
+    SELECT 1 FROM (
+      SELECT (elem->>'category_id')::uuid AS category_id
+        FROM jsonb_array_elements(p_requirements) elem
+    ) dup
+    GROUP BY category_id
+   HAVING count(*) > 1
+  ) THEN
+    RAISE EXCEPTION 'WOS_REQUIREMENT_DUPLICATE';
+  END IF;
+
+  FOR v_req IN SELECT * FROM jsonb_array_elements(p_requirements)
+  LOOP
+    v_category_id := (v_req->>'category_id')::uuid;
+    v_staff_count := (v_req->>'staff_count')::int;
+
+    IF v_staff_count IS NULL OR v_staff_count < 1 OR v_staff_count > 999 THEN
+      RAISE EXCEPTION 'WOS_STAFF_COUNT_RANGE'
+        USING DETAIL = jsonb_build_object('category_id', v_category_id, 'staff_count', v_staff_count)::text;
+    END IF;
+
+    IF v_service_id IS NOT NULL THEN
+      SELECT service_id INTO v_cat_service FROM public.categories WHERE category_id = v_category_id;
+      IF v_cat_service IS DISTINCT FROM v_service_id THEN
+        RAISE EXCEPTION 'WOS_CATEGORY_FOREIGN_SERVICE'
+          USING DETAIL = jsonb_build_object('category_id', v_category_id)::text;
+      END IF;
+    END IF;
+
+    IF EXISTS (
+      SELECT 1 FROM (
+        SELECT (s->>'skill_id')::uuid AS skill_id
+          FROM jsonb_array_elements(COALESCE(v_req->'skills', '[]'::jsonb)) s
+      ) dup
+      GROUP BY skill_id
+     HAVING count(*) > 1
+    ) THEN
+      RAISE EXCEPTION 'WOS_SKILL_DUPLICATE'
+        USING DETAIL = jsonb_build_object('category_id', v_category_id)::text;
+    END IF;
+
+    FOR v_skill IN SELECT * FROM jsonb_array_elements(COALESCE(v_req->'skills', '[]'::jsonb))
+    LOOP
+      IF (v_skill->>'min_proficiency_level') NOT IN ('Beginner', 'Intermediate', 'Advanced') THEN
+        RAISE EXCEPTION 'WOS_PROFICIENCY_INVALID'
+          USING DETAIL = jsonb_build_object(
+                  'category_id', v_category_id,
+                  'skill_id', v_skill->>'skill_id',
+                  'min_proficiency_level', v_skill->>'min_proficiency_level')::text;
+      END IF;
+    END LOOP;
+  END LOOP;
+
+  -- 5. Aplicar en el orden del cliente: borrar skills ausentes -> borrar requisitos ausentes
+  --    (CASCADE, redundante con lo anterior pero explícito) -> upsert requisitos -> upsert skills.
+
+  DELETE FROM public.wo_staffing_requirement_skills rs
+   USING public.wo_staffing_requirements r
+   WHERE rs.requirement_id = r.id
+     AND r.wo_id = p_wo_id
+     AND NOT EXISTS (
+       SELECT 1
+         FROM jsonb_array_elements(p_requirements) req
+         JOIN jsonb_array_elements(COALESCE(req->'skills', '[]'::jsonb)) sk ON true
+        WHERE (req->>'category_id')::uuid = r.category_id
+          AND (sk->>'skill_id')::uuid = rs.skill_id
+     );
+
+  DELETE FROM public.wo_staffing_requirements r
+   WHERE r.wo_id = p_wo_id
+     AND NOT EXISTS (
+       SELECT 1 FROM jsonb_array_elements(p_requirements) req
+        WHERE (req->>'category_id')::uuid = r.category_id
+     );
+
+  INSERT INTO public.wo_staffing_requirements (wo_id, category_id, staff_count)
+  SELECT p_wo_id, (req->>'category_id')::uuid, (req->>'staff_count')::int
+    FROM jsonb_array_elements(p_requirements) req
+  ON CONFLICT (wo_id, category_id) DO UPDATE
+    SET staff_count = EXCLUDED.staff_count,
+        updated_at  = now();
+
+  INSERT INTO public.wo_staffing_requirement_skills (requirement_id, skill_id, min_proficiency_level)
+  SELECT r.id, (sk->>'skill_id')::uuid, sk->>'min_proficiency_level'
+    FROM jsonb_array_elements(p_requirements) req
+    JOIN public.wo_staffing_requirements r
+      ON r.wo_id = p_wo_id AND r.category_id = (req->>'category_id')::uuid
+    JOIN jsonb_array_elements(COALESCE(req->'skills', '[]'::jsonb)) sk ON true
+  ON CONFLICT (requirement_id, skill_id) DO UPDATE
+    SET min_proficiency_level = EXCLUDED.min_proficiency_level;
+
+  -- 6. Devolver el estado final persistido.
+  SELECT jsonb_agg(
+           jsonb_build_object(
+             'id', r.id,
+             'category_id', r.category_id,
+             'staff_count', r.staff_count,
+             'skills', COALESCE(sk.skills, '[]'::jsonb)
+           )
+         )
+    INTO v_result
+    FROM public.wo_staffing_requirements r
+    LEFT JOIN LATERAL (
+      SELECT jsonb_agg(
+               jsonb_build_object('skill_id', rs.skill_id, 'min_proficiency_level', rs.min_proficiency_level)
+             ) AS skills
+        FROM public.wo_staffing_requirement_skills rs
+       WHERE rs.requirement_id = r.id
+    ) sk ON true
+   WHERE r.wo_id = p_wo_id;
+
+  RETURN COALESCE(v_result, '[]'::jsonb);
 END;
 $$;
 
@@ -7933,6 +8398,7 @@ CREATE TABLE public.staff (
     weekly_capacity_hours numeric DEFAULT 40 NOT NULL,
     termination_date date,
     is_blocked boolean DEFAULT false NOT NULL,
+    is_schedulable boolean DEFAULT true NOT NULL,
     CONSTRAINT chk_termination_after_hire CHECK (((termination_date IS NULL) OR (hire_date IS NULL) OR (termination_date >= hire_date))),
     CONSTRAINT staff_city_check CHECK (((city)::text = ANY ((ARRAY['La Paz'::character varying, 'Santa Cruz'::character varying])::text[])))
 );
@@ -8378,7 +8844,7 @@ CREATE VIEW public.vw_budget_vs_actual_hours_by_category_activity WITH (security
 -- Name: vw_staffing_alerts; Type: VIEW; Schema: public; Owner: -
 --
 
-CREATE VIEW public.vw_staffing_alerts AS
+CREATE VIEW public.vw_staffing_alerts WITH (security_invoker='true') AS
  SELECT 'timesheet_pending_approval'::text AS alert_type,
     c.category_name,
     (((((s_sub.first_name)::text || ' '::text) || (s_sub.last_name)::text) || ' — '::text) || (e.engagement_name)::text) AS description,
@@ -11133,10 +11599,24 @@ CREATE TRIGGER trg_enforce_activity_default BEFORE INSERT OR UPDATE ON public.ti
 
 
 --
+-- Name: engagement_assignments trg_enforce_assignment_service_scope; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_enforce_assignment_service_scope BEFORE INSERT OR UPDATE ON public.engagement_assignments FOR EACH ROW EXECUTE FUNCTION public.enforce_assignment_service_scope();
+
+
+--
 -- Name: time_entries trg_enforce_termination_date; Type: TRIGGER; Schema: public; Owner: -
 --
 
 CREATE TRIGGER trg_enforce_termination_date BEFORE INSERT OR UPDATE ON public.time_entries FOR EACH ROW EXECUTE FUNCTION public.enforce_termination_date();
+
+
+--
+-- Name: wo_staffing_requirements trg_enforce_wo_staffing_service_scope; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_enforce_wo_staffing_service_scope BEFORE INSERT OR UPDATE ON public.wo_staffing_requirements FOR EACH ROW EXECUTE FUNCTION public.enforce_wo_staffing_service_scope();
 
 
 --
@@ -12991,21 +13471,21 @@ CREATE POLICY ea_select_lead ON public.engagement_assignments FOR SELECT TO auth
 -- Name: engagement_assignments ea_team_delete; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY ea_team_delete ON public.engagement_assignments FOR DELETE TO authenticated USING ((public.is_engagement_team_member(engagement_id) AND public.can_read_engagement_assignments(engagement_id)));
+CREATE POLICY ea_team_delete ON public.engagement_assignments FOR DELETE TO authenticated USING (((public.is_engagement_team_member(engagement_id) OR public.is_engagement_responsible(engagement_id)) AND public.can_read_engagement_assignments(engagement_id)));
 
 
 --
 -- Name: engagement_assignments ea_team_insert; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY ea_team_insert ON public.engagement_assignments FOR INSERT TO authenticated WITH CHECK ((public.is_engagement_team_member(engagement_id) AND public.can_read_engagement_assignments(engagement_id)));
+CREATE POLICY ea_team_insert ON public.engagement_assignments FOR INSERT TO authenticated WITH CHECK (((public.is_engagement_team_member(engagement_id) OR public.is_engagement_responsible(engagement_id)) AND public.can_read_engagement_assignments(engagement_id)));
 
 
 --
 -- Name: engagement_assignments ea_team_update; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY ea_team_update ON public.engagement_assignments FOR UPDATE TO authenticated USING ((public.is_engagement_team_member(engagement_id) AND public.can_read_engagement_assignments(engagement_id))) WITH CHECK ((public.is_engagement_team_member(engagement_id) AND public.can_read_engagement_assignments(engagement_id)));
+CREATE POLICY ea_team_update ON public.engagement_assignments FOR UPDATE TO authenticated USING (((public.is_engagement_team_member(engagement_id) OR public.is_engagement_responsible(engagement_id)) AND public.can_read_engagement_assignments(engagement_id))) WITH CHECK (((public.is_engagement_team_member(engagement_id) OR public.is_engagement_responsible(engagement_id)) AND public.can_read_engagement_assignments(engagement_id)));
 
 
 --
@@ -13286,41 +13766,114 @@ ALTER TABLE public.wo_payment_installments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.wo_payment_plan ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: wo_staffing_requirements wo_staffing_req_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY wo_staffing_req_delete ON public.wo_staffing_requirements FOR DELETE TO authenticated USING ((public.is_admin() OR public.is_engagement_team_member(( SELECT wo.engagement_id
+   FROM public.work_orders wo
+  WHERE (wo.wo_id = wo_staffing_requirements.wo_id))) OR public.is_engagement_responsible(( SELECT wo.engagement_id
+   FROM public.work_orders wo
+  WHERE (wo.wo_id = wo_staffing_requirements.wo_id)))));
+
+
+--
+-- Name: wo_staffing_requirements wo_staffing_req_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY wo_staffing_req_insert ON public.wo_staffing_requirements FOR INSERT TO authenticated WITH CHECK ((public.is_admin() OR public.is_engagement_team_member(( SELECT wo.engagement_id
+   FROM public.work_orders wo
+  WHERE (wo.wo_id = wo_staffing_requirements.wo_id))) OR public.is_engagement_responsible(( SELECT wo.engagement_id
+   FROM public.work_orders wo
+  WHERE (wo.wo_id = wo_staffing_requirements.wo_id)))));
+
+
+--
 -- Name: wo_staffing_requirements wo_staffing_req_select; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY wo_staffing_req_select ON public.wo_staffing_requirements FOR SELECT TO authenticated USING (true);
+CREATE POLICY wo_staffing_req_select ON public.wo_staffing_requirements FOR SELECT TO authenticated USING ((public.is_admin() OR public.has_firmwide_assignment_visibility() OR public.is_engagement_team_member(( SELECT wo.engagement_id
+   FROM public.work_orders wo
+  WHERE (wo.wo_id = wo_staffing_requirements.wo_id))) OR public.is_engagement_responsible(( SELECT wo.engagement_id
+   FROM public.work_orders wo
+  WHERE (wo.wo_id = wo_staffing_requirements.wo_id))) OR public.has_assignment_on_engagement(( SELECT wo.engagement_id
+   FROM public.work_orders wo
+  WHERE (wo.wo_id = wo_staffing_requirements.wo_id)))));
+
+
+--
+-- Name: wo_staffing_requirement_skills wo_staffing_req_skills_delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY wo_staffing_req_skills_delete ON public.wo_staffing_requirement_skills FOR DELETE TO authenticated USING ((public.is_admin() OR public.is_engagement_team_member(( SELECT wo.engagement_id
+   FROM (public.wo_staffing_requirements r
+     JOIN public.work_orders wo ON ((wo.wo_id = r.wo_id)))
+  WHERE (r.id = wo_staffing_requirement_skills.requirement_id))) OR public.is_engagement_responsible(( SELECT wo.engagement_id
+   FROM (public.wo_staffing_requirements r
+     JOIN public.work_orders wo ON ((wo.wo_id = r.wo_id)))
+  WHERE (r.id = wo_staffing_requirement_skills.requirement_id)))));
+
+
+--
+-- Name: wo_staffing_requirement_skills wo_staffing_req_skills_insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY wo_staffing_req_skills_insert ON public.wo_staffing_requirement_skills FOR INSERT TO authenticated WITH CHECK ((public.is_admin() OR public.is_engagement_team_member(( SELECT wo.engagement_id
+   FROM (public.wo_staffing_requirements r
+     JOIN public.work_orders wo ON ((wo.wo_id = r.wo_id)))
+  WHERE (r.id = wo_staffing_requirement_skills.requirement_id))) OR public.is_engagement_responsible(( SELECT wo.engagement_id
+   FROM (public.wo_staffing_requirements r
+     JOIN public.work_orders wo ON ((wo.wo_id = r.wo_id)))
+  WHERE (r.id = wo_staffing_requirement_skills.requirement_id)))));
 
 
 --
 -- Name: wo_staffing_requirement_skills wo_staffing_req_skills_select; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY wo_staffing_req_skills_select ON public.wo_staffing_requirement_skills FOR SELECT TO authenticated USING (true);
-
-
---
--- Name: wo_staffing_requirement_skills wo_staffing_req_skills_write; Type: POLICY; Schema: public; Owner: -
---
-
-CREATE POLICY wo_staffing_req_skills_write ON public.wo_staffing_requirement_skills TO authenticated USING ((public.is_admin() OR public.is_engagement_team_member(( SELECT w.engagement_id
+CREATE POLICY wo_staffing_req_skills_select ON public.wo_staffing_requirement_skills FOR SELECT TO authenticated USING ((public.is_admin() OR public.has_firmwide_assignment_visibility() OR public.is_engagement_team_member(( SELECT wo.engagement_id
    FROM (public.wo_staffing_requirements r
-     JOIN public.work_orders w ON ((w.wo_id = r.wo_id)))
-  WHERE (r.id = wo_staffing_requirement_skills.requirement_id))))) WITH CHECK ((public.is_admin() OR public.is_engagement_team_member(( SELECT w.engagement_id
+     JOIN public.work_orders wo ON ((wo.wo_id = r.wo_id)))
+  WHERE (r.id = wo_staffing_requirement_skills.requirement_id))) OR public.is_engagement_responsible(( SELECT wo.engagement_id
    FROM (public.wo_staffing_requirements r
-     JOIN public.work_orders w ON ((w.wo_id = r.wo_id)))
+     JOIN public.work_orders wo ON ((wo.wo_id = r.wo_id)))
+  WHERE (r.id = wo_staffing_requirement_skills.requirement_id))) OR public.has_assignment_on_engagement(( SELECT wo.engagement_id
+   FROM (public.wo_staffing_requirements r
+     JOIN public.work_orders wo ON ((wo.wo_id = r.wo_id)))
   WHERE (r.id = wo_staffing_requirement_skills.requirement_id)))));
 
 
 --
--- Name: wo_staffing_requirements wo_staffing_req_write; Type: POLICY; Schema: public; Owner: -
+-- Name: wo_staffing_requirement_skills wo_staffing_req_skills_update; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY wo_staffing_req_write ON public.wo_staffing_requirements TO authenticated USING ((public.is_admin() OR public.is_engagement_team_member(( SELECT work_orders.engagement_id
-   FROM public.work_orders
-  WHERE (work_orders.wo_id = wo_staffing_requirements.wo_id))))) WITH CHECK ((public.is_admin() OR public.is_engagement_team_member(( SELECT work_orders.engagement_id
-   FROM public.work_orders
-  WHERE (work_orders.wo_id = wo_staffing_requirements.wo_id)))));
+CREATE POLICY wo_staffing_req_skills_update ON public.wo_staffing_requirement_skills FOR UPDATE TO authenticated USING ((public.is_admin() OR public.is_engagement_team_member(( SELECT wo.engagement_id
+   FROM (public.wo_staffing_requirements r
+     JOIN public.work_orders wo ON ((wo.wo_id = r.wo_id)))
+  WHERE (r.id = wo_staffing_requirement_skills.requirement_id))) OR public.is_engagement_responsible(( SELECT wo.engagement_id
+   FROM (public.wo_staffing_requirements r
+     JOIN public.work_orders wo ON ((wo.wo_id = r.wo_id)))
+  WHERE (r.id = wo_staffing_requirement_skills.requirement_id))))) WITH CHECK ((public.is_admin() OR public.is_engagement_team_member(( SELECT wo.engagement_id
+   FROM (public.wo_staffing_requirements r
+     JOIN public.work_orders wo ON ((wo.wo_id = r.wo_id)))
+  WHERE (r.id = wo_staffing_requirement_skills.requirement_id))) OR public.is_engagement_responsible(( SELECT wo.engagement_id
+   FROM (public.wo_staffing_requirements r
+     JOIN public.work_orders wo ON ((wo.wo_id = r.wo_id)))
+  WHERE (r.id = wo_staffing_requirement_skills.requirement_id)))));
+
+
+--
+-- Name: wo_staffing_requirements wo_staffing_req_update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY wo_staffing_req_update ON public.wo_staffing_requirements FOR UPDATE TO authenticated USING ((public.is_admin() OR public.is_engagement_team_member(( SELECT wo.engagement_id
+   FROM public.work_orders wo
+  WHERE (wo.wo_id = wo_staffing_requirements.wo_id))) OR public.is_engagement_responsible(( SELECT wo.engagement_id
+   FROM public.work_orders wo
+  WHERE (wo.wo_id = wo_staffing_requirements.wo_id))))) WITH CHECK ((public.is_admin() OR public.is_engagement_team_member(( SELECT wo.engagement_id
+   FROM public.work_orders wo
+  WHERE (wo.wo_id = wo_staffing_requirements.wo_id))) OR public.is_engagement_responsible(( SELECT wo.engagement_id
+   FROM public.work_orders wo
+  WHERE (wo.wo_id = wo_staffing_requirements.wo_id)))));
 
 
 --
@@ -13526,5 +14079,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict NLx1qAR8IITyEtQdab1iQbBLzlKJr8p9hwEFTEb3kVPkfRVYIVHvaxtpFatGyZe
+\unrestrict dqCLmod2JFErHJaSGq1P6siWwNsrfHESkMHzo4sJXwt2zSTfeIdfAhdwdPoOQG1
 

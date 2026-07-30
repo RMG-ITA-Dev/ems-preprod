@@ -1,4 +1,4 @@
-# Fase 2 — Verificación (ejecución parcial, 2026-07-27 — actualizado 2026-07-30)
+# Fase 2 — Verificación (ejecución parcial, 2026-07-27 — actualizado 2026-07-30, C1-C4 cerradas)
 
 > Fuente: `bugs/scheduler/fase_2/issue_fase_2.md` + `bugs/scheduler/fase_2/plan_v2.md`.
 > Rama: `dev-scheduler` (por decisión explícita del operador — no se creó `scheduler/phase-2-*`).
@@ -7,15 +7,15 @@
 > escribieron**. El 2026-07-28 se intentó el preflight de Q0 localmente (§ "Ruta B — intento de
 > catch-up local"); ver esa sección para el resultado y sus matices.
 >
-> **Estado al 2026-07-30: Q0 resuelto (renombrado), Ruta B cerrada con evidencia oficial del CLI real,
-> los dos gaps de `development` resueltos con un script de pre-seed, y las 3 rutas (A, B, C) corridas
-> con el CLI real** (schema/catálogo/policies/grants idénticos entre A y B; C diverge únicamente en el
-> punto que G1 ya predecía — `vw_staffing_alerts` — confirmando el hallazgo en vivo) — ver secciones
-> "Q0 — RESUELTO por renombrado", "Ruta B — cierre con el CLI real", "Ruta B recapturada — paridad A↔B
-> confirmada" y "Ruta C — corrida completa con datos sintéticos" más abajo. El gate de paridad de las 3
-> rutas queda cerrado a nivel pre-convergencia (falta repetir con C1-C4 cuando existan). Sigue
-> pendiente: Q7 (verificación oficial contra Supabase real, en paralelo, no bloquea lo local) y escribir
-> C1-C4.
+> **Estado al 2026-07-30 (actualizado, tras escribir y verificar C1-C4): Q0 resuelto, los dos gaps de
+> `development` resueltos, las 3 rutas corridas con el CLI real, y C1-C4 (RLS canónica, convergencia de
+> esquema, RPCs `save_wo_staffing`/`save_engagement_assignments`) escritas, aplicadas y verificadas en
+> Ruta A y Ruta C — el gate de paridad queda cerrado POST-convergencia** (antes solo pre-convergencia).
+> Ver secciones "Q0 — RESUELTO por renombrado", "Ruta B — cierre con el CLI real", "Ruta B recapturada —
+> paridad A↔B confirmada", "Ruta C — corrida completa con datos sintéticos" y, más abajo, "C1-C4 — escritas,
+> corregidas en vivo y gate de paridad cerrado post-convergencia". Sigue pendiente: Q7 (verificación
+> oficial contra Supabase real, en paralelo, no bloquea lo local) y las pruebas SQL/CI/docs finales que
+> dependían de C1-C4 (ahora sí desbloqueadas).
 
 ## Por qué el alcance es parcial
 
@@ -570,12 +570,83 @@ Ruta C seguiría divergiendo después de C1. A incorporar al alcance de C1 cuand
 **Gate de paridad de Plan v2 cumplido pre-convergencia en las 3 rutas: A = B, y C diverge únicamente en
 el punto que G1 ya predecía** (nada inesperado).
 
+## C1-C4 — escritas, corregidas en vivo, y gate de paridad cerrado post-convergencia (2026-07-30)
+
+Las 4 migraciones de convergencia se escribieron siguiendo `plan_v2.md` §"Proposed Implementation",
+incorporando el hallazgo de `security_invoker`/`anon` de la sección anterior:
+
+- `20260727100000_scheduler_fase2_rls_grants.sql` (C1) — `vw_staffing_alerts` (grant + security_invoker
+  + revoke anon/authenticated), `is_engagement_responsible(uuid)`, RLS canónica de
+  `wo_staffing_requirements`/`wo_staffing_requirement_skills` (reemplaza los 2 `USING(true)`), extensión
+  de escritura de `engagement_assignments` con `is_engagement_responsible`, grants mínimos.
+- `20260727110000_scheduler_fase2_convergencia_esquema.sql` (C2) — `staff.is_schedulable`, sonda de
+  default de `status`, `engagement_accepts_assignment_writes(uuid)`, triggers de service-scope
+  (`enforce_wo_staffing_service_scope`/`enforce_assignment_service_scope`), pre-flight de categorías
+  cruzadas, `copy_categories_between_services` extendida a 6 referrers.
+- `20260727120000_scheduler_fase2_rpc_save_wo_staffing.sql` (C3) — RPC completa, 8 tokens de error.
+- `20260727130000_scheduler_fase2_rpc_save_engagement_assignments.sql` (C4) — RPC completa, 9 tokens de
+  error, overlap check post-escritura.
+
+Commit inicial: `77e5ef2 feat(scheduler-fase2): Escribir C1-C4...`.
+
+### Verificación — Ruta A (primera corrida real de C1-C4)
+
+`preseed-development-gaps.sh` sobre las 143 migraciones (`dev-scheduler` ya con C1-C4 integradas)
+corrió de punta a punta **sin ningún error** — primera vez que estas 4 migraciones se ejecutaban.
+Confirmado por contenido en el fingerprint recapturado: `enforce_assignment_service_scope`,
+`enforce_wo_staffing_service_scope`, `engagement_accepts_assignment_writes`, `is_engagement_responsible`,
+`save_wo_staffing`, `save_engagement_assignments`, `staff.is_schedulable`, `vw_staffing_alerts WITH
+(security_invoker='true')`, y las políticas `wo_staffing_req_*`/`ea_team_*` con la matriz canónica
+completa — todos presentes y correctos.
+
+### Verificación — Ruta C (worktree nuevo, 80 → seed sintético → 63 = 59 + C1-C4 → 143)
+
+Mismo procedimiento de siempre (§3 de `scheduler-fase-2-rutas-locales.md`), con el diff de 59→63
+recalculado en vivo (`comm -13` entre el worktree de 80 y `dev-scheduler` de 143). Las 63 corrieron sin
+error. Diff del fingerprint contra Ruta A **encontró 2 bugs reales en C1**, ambos corregidos en el
+archivo (no en un parche aparte — C1 nunca corrió contra nada persistente todavía):
+
+1. **`authenticated` con privilegios de más en `vw_staffing_alerts`** (`DELETE/INSERT/REFERENCES/
+   TRIGGER/TRUNCATE/UPDATE`, no solo `SELECT`) — mismo mecanismo que G1 original, ahora sobre
+   `authenticated` en vez de `anon`: en Ruta C, la migración histórica que revocaba ese exceso corre
+   *antes* de que la vista exista, así que nunca se revoca. Fix: `REVOKE ALL ... FROM authenticated`
+   explícito antes del `GRANT SELECT` en C1, para que el resultado final no dependa del orden de
+   creación de la vista en cada ruta.
+2. **C1 no era idempotente** — a las políticas nuevas `wo_staffing_req_insert/update/delete` y
+   `wo_staffing_req_skills_insert/update/delete` les faltaba el `DROP POLICY IF EXISTS` previo (sí lo
+   tenían `_select` y las de `engagement_assignments`). No afectaba una corrida limpia desde cero (por
+   eso Ruta A y el primer intento de Ruta C pasaron), pero rompía el re-aplicar C1 solo (necesario para
+   probar el fix #1 sin resetear todo el stack). Fix: agregado el `DROP POLICY IF EXISTS` que faltaba en
+   las 6 políticas.
+
+Tras ambos fixes, re-verificado aplicando C1 corregida directo (es idempotente: `DO $$`, `CREATE OR
+REPLACE`, `DROP POLICY IF EXISTS`) sin resetear el stack, y recapturando el fingerprint:
+
+```
+catalog_grants.txt:   diff vacío
+catalog_policies.txt: diff vacío
+schema.sql:           solo \restrict/\unrestrict de pg_dump (ruido conocido)
+catalog.txt:          solo bloat de tamaño físico por el seed sintético (no estructural)
+```
+
+**Ruta A = Ruta C, post-C1-C4, completo.** Con Ruta B ya probada ≡ Ruta A pre-convergencia (y dado que
+C1-C4 siempre corren al final, después de las 139 históricas, en cualquiera de las 3 rutas — no hay
+mecanismo por el que B pueda divergir de A ahora que no divergiera antes), el gate de paridad de
+`plan_v2.md` queda **cerrado post-convergencia en las 3 rutas: criterio de aceptación central de Fase 2
+cumplido.**
+
 ## Próximo paso para el operador
 
-1. Resolver Q7 (project refs de integración/efímeros + operador autorizado) — sigue pendiente para la
+1. Commitear el fix de C1 (`authenticated` + idempotencia) — ya aplicado en el archivo, pendiente de
+   commit/push.
+2. `git pull` en `EMS_Dev_Local` para traer el fix, y actualizar ahí el fingerprint de Ruta A commiteado
+   (el que se recapturó localmente durante esta verificación, con C1-C4 ya integradas).
+3. Limpiar el worktree `../ems-route-c-scratch`.
+4. Resolver Q7 (project refs de integración/efímeros + operador autorizado) — sigue pendiente para la
    verificación oficial contra Supabase real, en paralelo, sin bloquear lo local.
-2. Retomar Plan v2 desde C1 (RLS y grants canónicos) — incorporando el hallazgo nuevo de arriba
-   (`security_invoker` + revoke de `anon` en `vw_staffing_alerts`, no solo el GRANT) — y repetir la
-   captura de fingerprint en las 3 rutas una vez existan C1-C4, para el gate de paridad final.
-3. Limpiar el worktree `../ems-route-c-scratch` cuando ya no haga falta reinspeccionarlo
+5. Con el gate de paridad cerrado, seguir con lo que dependía de C1-C4: pruebas SQL nuevas
+   (`rls-wo-staffing-requirements.sql`, `rpc-save-wo-staffing.sql`, `rpc-save-engagement-assignments.sql`,
+   `schema-convergence-assertions.sql`), CI (`.github/workflows/scheduler-integrity.yml`), y la
+   documentación final (`docs/plans/scheduler-fase-2-esquema-canonico.md`,
+   `docs/plans/scheduler-fase-2-runbook-ruta-c.md`).
    (`git worktree remove`).

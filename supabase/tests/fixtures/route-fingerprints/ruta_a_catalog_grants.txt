@@ -967,6 +967,7 @@
  service_role  | vw_budget_vs_actual_hours_by_category_activity | TRIGGER
  service_role  | vw_budget_vs_actual_hours_by_category_activity | TRUNCATE
  service_role  | vw_budget_vs_actual_hours_by_category_activity | UPDATE
+ authenticated | vw_staffing_alerts                             | SELECT
  postgres      | vw_staffing_alerts                             | DELETE
  postgres      | vw_staffing_alerts                             | INSERT
  postgres      | vw_staffing_alerts                             | REFERENCES
@@ -1135,13 +1136,6 @@
  service_role  | wo_payment_plan                                | TRIGGER
  service_role  | wo_payment_plan                                | TRUNCATE
  service_role  | wo_payment_plan                                | UPDATE
- anon          | wo_staffing_requirement_skills                 | DELETE
- anon          | wo_staffing_requirement_skills                 | INSERT
- anon          | wo_staffing_requirement_skills                 | REFERENCES
- anon          | wo_staffing_requirement_skills                 | SELECT
- anon          | wo_staffing_requirement_skills                 | TRIGGER
- anon          | wo_staffing_requirement_skills                 | TRUNCATE
- anon          | wo_staffing_requirement_skills                 | UPDATE
  authenticated | wo_staffing_requirement_skills                 | DELETE
  authenticated | wo_staffing_requirement_skills                 | INSERT
  authenticated | wo_staffing_requirement_skills                 | REFERENCES
@@ -1163,13 +1157,6 @@
  service_role  | wo_staffing_requirement_skills                 | TRIGGER
  service_role  | wo_staffing_requirement_skills                 | TRUNCATE
  service_role  | wo_staffing_requirement_skills                 | UPDATE
- anon          | wo_staffing_requirements                       | DELETE
- anon          | wo_staffing_requirements                       | INSERT
- anon          | wo_staffing_requirements                       | REFERENCES
- anon          | wo_staffing_requirements                       | SELECT
- anon          | wo_staffing_requirements                       | TRIGGER
- anon          | wo_staffing_requirements                       | TRUNCATE
- anon          | wo_staffing_requirements                       | UPDATE
  authenticated | wo_staffing_requirements                       | DELETE
  authenticated | wo_staffing_requirements                       | INSERT
  authenticated | wo_staffing_requirements                       | REFERENCES
@@ -1247,5 +1234,5 @@
  service_role  | work_orders                                    | TRIGGER
  service_role  | work_orders                                    | TRUNCATE
  service_role  | work_orders                                    | UPDATE
-(1247 rows)
+(1234 rows)
 
