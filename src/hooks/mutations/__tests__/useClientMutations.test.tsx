@@ -29,14 +29,7 @@ describe("useClientMutations", () => {
 
   describe("useCreateClient", () => {
     it("should create a client with required fields", async () => {
-      const mockData = {
-        client_id: "client-1",
-        client_legal_name: "Acme Corp",
-        unique_tax_id: "123456789",
-      };
-      const mockSingle = vi.fn().mockResolvedValue({ data: mockData, error: null });
-      const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
-      const mockInsert = vi.fn().mockReturnValue({ select: mockSelect });
+      const mockInsert = vi.fn().mockResolvedValue({ error: null });
       vi.mocked(supabase.from).mockReturnValue({ insert: mockInsert } as any);
 
       const { result } = renderHook(() => useCreateClient(), {
@@ -51,20 +44,16 @@ describe("useClientMutations", () => {
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
       expect(supabase.from).toHaveBeenCalledWith("clients");
+      // Se envía el payload sin RETURNING: insert() se resuelve solo.
+      expect(mockInsert).toHaveBeenCalledWith({
+        client_legal_name: "Acme Corp",
+        unique_tax_id: "123456789",
+      });
       expect(toast.success).toHaveBeenCalled();
     });
 
     it("should create a client with optional fields", async () => {
-      const mockData = {
-        client_id: "client-1",
-        client_legal_name: "Acme Corp",
-        unique_tax_id: "123456789",
-        contact_name: "John Doe",
-        contact_email: "john@acme.com",
-      };
-      const mockSingle = vi.fn().mockResolvedValue({ data: mockData, error: null });
-      const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
-      const mockInsert = vi.fn().mockReturnValue({ select: mockSelect });
+      const mockInsert = vi.fn().mockResolvedValue({ error: null });
       vi.mocked(supabase.from).mockReturnValue({ insert: mockInsert } as any);
 
       const { result } = renderHook(() => useCreateClient(), {
@@ -134,9 +123,9 @@ describe("useClientMutations", () => {
         message: "duplicate key value violates unique constraint",
         constraint: "clients_client_legal_name_unique",
       };
-      const mockSingle = vi.fn().mockResolvedValue({ data: null, error });
-      const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
-      const mockInsert = vi.fn().mockReturnValue({ select: mockSelect });
+      // El insert ya no encadena .select(): el RETURNING hacía fallar la creación
+      // para los roles con alcance 'assigned_clients'. Resuelve directo.
+      const mockInsert = vi.fn().mockResolvedValue({ error });
       vi.mocked(supabase.from).mockReturnValue({ insert: mockInsert } as any);
 
       const { result } = renderHook(() => useCreateClient(), {
@@ -158,9 +147,9 @@ describe("useClientMutations", () => {
         message: "duplicate key value violates unique constraint",
         constraint: "clients_unique_tax_id_key",
       };
-      const mockSingle = vi.fn().mockResolvedValue({ data: null, error });
-      const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
-      const mockInsert = vi.fn().mockReturnValue({ select: mockSelect });
+      // El insert ya no encadena .select(): el RETURNING hacía fallar la creación
+      // para los roles con alcance 'assigned_clients'. Resuelve directo.
+      const mockInsert = vi.fn().mockResolvedValue({ error });
       vi.mocked(supabase.from).mockReturnValue({ insert: mockInsert } as any);
 
       const { result } = renderHook(() => useCreateClient(), {
@@ -181,9 +170,9 @@ describe("useClientMutations", () => {
         code: "42501",
         message: "permission denied",
       };
-      const mockSingle = vi.fn().mockResolvedValue({ data: null, error });
-      const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
-      const mockInsert = vi.fn().mockReturnValue({ select: mockSelect });
+      // El insert ya no encadena .select(): el RETURNING hacía fallar la creación
+      // para los roles con alcance 'assigned_clients'. Resuelve directo.
+      const mockInsert = vi.fn().mockResolvedValue({ error });
       vi.mocked(supabase.from).mockReturnValue({ insert: mockInsert } as any);
 
       const { result } = renderHook(() => useCreateClient(), {
@@ -207,9 +196,9 @@ describe("useClientMutations", () => {
         message: "duplicate key value violates unique constraint",
         constraint: "some_other_constraint",
       };
-      const mockSingle = vi.fn().mockResolvedValue({ data: null, error });
-      const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
-      const mockInsert = vi.fn().mockReturnValue({ select: mockSelect });
+      // El insert ya no encadena .select(): el RETURNING hacía fallar la creación
+      // para los roles con alcance 'assigned_clients'. Resuelve directo.
+      const mockInsert = vi.fn().mockResolvedValue({ error });
       vi.mocked(supabase.from).mockReturnValue({ insert: mockInsert } as any);
 
       const { result } = renderHook(() => useCreateClient(), {

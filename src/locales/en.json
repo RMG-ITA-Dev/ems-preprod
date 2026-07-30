@@ -797,6 +797,7 @@
     "createSuccess": "{{entity}} created successfully",
     "updateSuccess": "{{entity}} updated successfully",
     "deleteSuccess": "{{entity}} deleted successfully",
+    "deleteBlockedNoPermission": "Not deleted: you do not have permission to delete this record",
     "createError": "Error creating {{entity}}",
     "updateError": "Error updating {{entity}}",
     "deleteError": "Error deleting {{entity}}",

@@ -797,6 +797,7 @@
     "createSuccess": "{{entity}} creado/a exitosamente",
     "updateSuccess": "{{entity}} actualizado/a exitosamente",
     "deleteSuccess": "{{entity}} eliminado/a exitosamente",
+    "deleteBlockedNoPermission": "No se eliminó: no tiene permiso para eliminar este registro",
     "createError": "Error al crear {{entity}}",
     "updateError": "Error al actualizar {{entity}}",
     "deleteError": "Error al eliminar {{entity}}",
