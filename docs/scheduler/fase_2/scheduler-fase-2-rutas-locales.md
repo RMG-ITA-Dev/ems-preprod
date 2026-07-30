@@ -388,6 +388,44 @@ resuelto por renombrado — no debería aparecer.
   `feat/roles-permisos`), no solo `development` (esto ya lo pedía Plan v2 — "re-verificar contra la
   rama de integración inmediatamente antes de crearlas" — pero ahora aplica a dos ramas, no una).
 
+### Catálogo de roles de `feat/roles-permisos` (verificado 2026-07-30, fuente: las migraciones, no una lista externa)
+
+`20260724000000_authz_fase1_catalog.sql` crea `authorization_roles` (reemplazo gradual del enum
+`app_role`, 3 valores: admin/staff/viewer) y `20260724010000_authz_fase2_seed.sql` siembra sus **23**
+`role_key` (comentario de la propia migración: "catálogo de los 23 roles de negocio"):
+
+```
+admin, senior_partner, partner, sqr, director, manager, senior, semisenior, assistant,
+ita_manager, ita_senior, ita_assistant, tax_manager, tax_senior, tax_assistant,
+accounting_manager, accounting_analyst, collections_analyst,
+risk_partner, risk_supervisor, hr_manager, hr_analyst, it_security_manager
+```
+
+`20260729000000_authz_fase8_ui_role_key.sql` agrega `legacy_app_role` — el mapeo explícito de cada
+`role_key` a su nivel jerárquico en el enum viejo (dato revisable, no lógica oculta):
+`ita_manager`/`tax_manager` → nivel `manager`; `ita_senior`/`tax_senior` → nivel `senior`;
+`ita_assistant`/`tax_assistant` → nivel `staff`. Confirma la estructura de 3 niveles por
+especialidad (IT/TAX) que ya se sospechaba.
+
+**Nota sobre el enum `app_role` legacy** (11 valores, para contraste — no confundir con los 23 de
+arriba): `admin, staff, viewer, partner, director, manager, senior, semisenior, sqr, specialist_it,
+specialist_tax` (creado en `20251204051043` + extendido en `20260115000154`/`20260211004322`). Los 23
+`role_key` nuevos reemplazan `specialist_it`/`specialist_tax` (2 valores) por 6 granulares
+(`ita_manager/senior/assistant`, `tax_manager/senior/assistant`).
+
+**🔴 Hallazgo, no resuelto en ninguna rama:** ninguna migración (ni `development` ni
+`feat/roles-permisos`) valida que `engagements.specialist_it_id`/`specialist_tax_id` deba apuntar
+específicamente a un staff con `role_key`/categoría `ita_manager`/`tax_manager` ("Gerente Especialista
+IT/TAX") — verificado con grep sobre las 17 migraciones nuevas (cero menciones de
+`specialist_it_id`/`specialist_tax_id`) y confirmado en el frontend:
+`src/components/forms/EngagementForm.tsx` (combobox de esos 2 campos, `options={allActiveStaff}` — todo
+el staff activo, sin filtrar por categoría). Si se implementa, la regla de negocio es: esos 2 campos
+solo deberían aceptar staff en el nivel "Gerente" de su especialidad respectiva. No bloquea ni afecta
+C1-C4 del scheduler: `is_engagement_responsible()` (C1) autoriza contra quien esté efectivamente
+asignado en esas columnas, sin importar su categoría — la validación de "quién puede ser asignado"
+viviría en `create_engagement_with_code`/`update_engagement` (RPC de `development`) o en el combobox
+del formulario, no en la RLS del scheduler.
+
 ## 6. Decisiones — resueltas / con script listo
 
 1. **Q0 — RESUELTO el 2026-07-29 por renombrado.** Se descartaron (a) bookkeeping manual (no escala,
