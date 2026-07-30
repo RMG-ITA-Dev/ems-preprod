@@ -288,16 +288,36 @@ CREATE POLICY wo_staffing_req_skills_delete
 -- (ea_team_insert/update/delete, 20260717233000) solo permiten is_engagement_team_member()
 -- (manager_id/partner_id) — sqr/encargado/specialist_it/specialist_tax quedarían sin poder
 -- escribir sus propias asignaciones pese a ser "responsables" en el modelo nuevo. Se extiende
--- con OR is_engagement_responsible(...) para cerrar ese hueco; SELECT (ea_select_firmwide/
--- lead/assigned) no se toca — ya cubre correctamente el resto de la matriz.
+-- con OR is_engagement_responsible(...) para cerrar ese hueco.
+--
+-- 🟢 Bug encontrado en vivo (2026-07-30, diseñando la suite RLS de C1) y corregido acá mismo:
+-- la primera versión de este parche dejaba el AND can_read_engagement_assignments(...) sin
+-- tocar, comentando "SELECT no se toca — ya cubre correctamente el resto de la matriz". Falso:
+-- can_read_engagement_assignments() (D5, 20260717233000) no conoce is_engagement_responsible
+-- en absoluto — solo admin/partner/director firmwide, manager+team_member, o senior+assignment
+-- propia. Verificado en vivo: un sqr puro (sin ser también manager/senior calificado) obtenía
+-- is_engagement_responsible = true pero can_read_engagement_assignments = false, y el INSERT
+-- de WITH CHECK fallaba igual — la extensión completa era código muerto. Además la Matriz RLS
+-- canónica exige explícitamente "SELECT engagement_assignments directa: vía
+-- is_engagement_responsible (nuevo)" para esos 4 roles, política que nunca se había escrito.
+-- Fix: (1) nueva política SELECT ea_select_responsible; (2) el conjunto AND de las 3 políticas
+-- de escritura pasa a (can_read_engagement_assignments(...) OR is_engagement_responsible(...)),
+-- sin tocar can_read_engagement_assignments() en sí — sigue siendo exactamente la disyunción de
+-- las 3 políticas de lectura de D5 (invariante del que depende el comentario de Phase 5,
+-- 20260718120000).
 -- =====================================================================
+
+DROP POLICY IF EXISTS ea_select_responsible ON public.engagement_assignments;
+CREATE POLICY ea_select_responsible ON public.engagement_assignments
+  FOR SELECT TO authenticated
+  USING (public.is_engagement_responsible(engagement_id));
 
 DROP POLICY IF EXISTS ea_team_insert ON public.engagement_assignments;
 CREATE POLICY ea_team_insert ON public.engagement_assignments
   FOR INSERT TO authenticated
   WITH CHECK (
     (public.is_engagement_team_member(engagement_id) OR public.is_engagement_responsible(engagement_id))
-    AND public.can_read_engagement_assignments(engagement_id)
+    AND (public.can_read_engagement_assignments(engagement_id) OR public.is_engagement_responsible(engagement_id))
   );
 
 DROP POLICY IF EXISTS ea_team_update ON public.engagement_assignments;
@@ -305,11 +325,11 @@ CREATE POLICY ea_team_update ON public.engagement_assignments
   FOR UPDATE TO authenticated
   USING (
     (public.is_engagement_team_member(engagement_id) OR public.is_engagement_responsible(engagement_id))
-    AND public.can_read_engagement_assignments(engagement_id)
+    AND (public.can_read_engagement_assignments(engagement_id) OR public.is_engagement_responsible(engagement_id))
   )
   WITH CHECK (
     (public.is_engagement_team_member(engagement_id) OR public.is_engagement_responsible(engagement_id))
-    AND public.can_read_engagement_assignments(engagement_id)
+    AND (public.can_read_engagement_assignments(engagement_id) OR public.is_engagement_responsible(engagement_id))
   );
 
 DROP POLICY IF EXISTS ea_team_delete ON public.engagement_assignments;
@@ -317,7 +337,7 @@ CREATE POLICY ea_team_delete ON public.engagement_assignments
   FOR DELETE TO authenticated
   USING (
     (public.is_engagement_team_member(engagement_id) OR public.is_engagement_responsible(engagement_id))
-    AND public.can_read_engagement_assignments(engagement_id)
+    AND (public.can_read_engagement_assignments(engagement_id) OR public.is_engagement_responsible(engagement_id))
   );
 
 -- =====================================================================

@@ -1,4 +1,4 @@
-# Fase 2 — Verificación (ejecución parcial, 2026-07-27 — actualizado 2026-07-30, C1-C4 cerradas)
+# Fase 2 — Verificación (ejecución parcial, 2026-07-27 — actualizado 2026-07-30, C1-C4 cerradas + pruebas SQL nuevas)
 
 > Fuente: `bugs/scheduler/fase_2/issue_fase_2.md` + `bugs/scheduler/fase_2/plan_v2.md`.
 > Rama: `dev-scheduler` (por decisión explícita del operador — no se creó `scheduler/phase-2-*`).
@@ -13,9 +13,11 @@
 > Ruta A y Ruta C — el gate de paridad queda cerrado POST-convergencia** (antes solo pre-convergencia).
 > Ver secciones "Q0 — RESUELTO por renombrado", "Ruta B — cierre con el CLI real", "Ruta B recapturada —
 > paridad A↔B confirmada", "Ruta C — corrida completa con datos sintéticos" y, más abajo, "C1-C4 — escritas,
-> corregidas en vivo y gate de paridad cerrado post-convergencia". Sigue pendiente: Q7 (verificación
-> oficial contra Supabase real, en paralelo, no bloquea lo local) y las pruebas SQL/CI/docs finales que
-> dependían de C1-C4 (ahora sí desbloqueadas).
+> corregidas en vivo y gate de paridad cerrado post-convergencia" y, más abajo, "Pruebas SQL nuevas
+> dependientes de C1-C4 — escritas y verificadas" (las 4 pruebas que dependían de C1-C4 ya están escritas,
+> corridas con el CLI real localmente, y encontraron un tercer bug real en C1 — ya corregido). Sigue
+> pendiente: Q7 (verificación oficial contra Supabase real, en paralelo, no bloquea lo local) y CI/docs
+> finales (ahora sí desbloqueados).
 
 ## Por qué el alcance es parcial
 
@@ -635,18 +637,77 @@ mecanismo por el que B pueda divergir de A ahora que no divergiera antes), el ga
 `plan_v2.md` queda **cerrado post-convergencia en las 3 rutas: criterio de aceptación central de Fase 2
 cumplido.**
 
+## Pruebas SQL nuevas dependientes de C1-C4 — escritas y verificadas (2026-07-30)
+
+Las 4 pruebas que `plan_v2.md` dejaba bloqueadas hasta que C1-C4 existieran ("Files to Change" del plan)
+se escribieron y se corrieron de punta a punta con `psql` real contra el mismo PostgreSQL 18 desechable
+local que ya usa `npm run test:rls` (no Supabase, no Docker — mecanismo ya establecido y documentado en
+"Evidencia de verificación local" más arriba en este mismo archivo).
+
+**Shim nuevo (`supabase/tests/local/30-shim-service-scope.sql`):** el shim existente
+(`00-shim-supabase.sql`) modela un mundo pre-service-scoping (sin `services`, sin
+`categories.service_id`, sin `engagements.practica` — ver G9 de `plan_v2.md`), pero C1-C4 dependen de
+todo eso. El shim nuevo agrega, en forma final (sin replayar el historial de `development`, misma
+convención que el shim original): tabla `services` + seed de 5 filas, `categories.service_id`,
+`engagements.practica` + las 4 columnas de personal responsable (`sqr_id`/`encargado_id`/
+`specialist_it_id`/`specialist_tax_id`) + `engagement_state_override`, tabla `work_orders`
+(con `approval_status`), y `skills`/`staff_skills`. Verificado en vivo que el resto de la cadena
+(las 4 migraciones históricas del scheduler que tocan `wo_staffing_requirements`/D5/corrective + C1-C4)
+aplica sin ningún error sobre este shim extendido.
+
+**Lane 4 nueva en `run-rls-tests.sh`:** `00-shim` → `30-shim-service-scope` → Phase 3 → D5 → corrective
+backfill → las 4 históricas de `wo_staffing_requirements` (`20260506120000`, `20260719044642`,
+`20260720194555`, `20260720194653`) → C1 → C2 → C3 → C4 → las 4 pruebas nuevas. Deliberadamente
+**omite** Phase 5 (`20260718120000`, timesheet) y su shim: esa migración solo agrega una función
+sin relación con staffing/`engagement_assignments`, así que no puede cambiar nada que esta lane
+verifique — se documenta la omisión en el propio script. `vw_staffing_alerts` no existe en este shim
+(esa vista la crea una migración de `development` que esta lane no replaya) — la aserción de
+`security_invoker`/grants correspondiente queda con `SKIP` explícito; esa parte de G1 ya está
+verificada de verdad contra el stack Docker real en la sección "Ruta C" de este documento.
+
+**Resultado:** las 4 lanes (1-3 preexistentes + la 4 nueva) pasan de punta a punta,
+`bash supabase/tests/local/run-rls-tests.sh` exit code 0.
+
+### Bug real de C1 encontrado escribiendo `rls-wo-staffing-requirements.sql`, corregido en vivo
+
+Al diseñar el fixture para probar que sqr/encargado/specialist_it/specialist_tax pueden escribir sus
+propias asignaciones (extensión de C1 §3b), se encontró que **la extensión nunca se activaba**: las
+políticas `ea_team_insert/update/delete` exigen `AND can_read_engagement_assignments(engagement_id)`,
+y ese helper (de D5, `20260717233000`) no conoce `is_engagement_responsible` en absoluto — solo
+reconoce admin/partner/director firmwide, manager+team_member, o senior+assignment propia. Confirmado
+en vivo contra el stack de prueba: un staff con `role='sqr'` y `sqr_id` del engagement obtenía
+`is_engagement_responsible() = true` pero `can_read_engagement_assignments() = false`, y el INSERT
+fallaba con `insufficient_privilege`. Además, la Matriz RLS canónica del propio `plan_v2.md` exige
+explícitamente una política SELECT directa vía `is_engagement_responsible` para esos 4 roles, que
+nunca se había escrito.
+
+**Fix** (propuesto con diff exacto, aprobado por el operador antes de aplicar — sección 3b de
+`20260727100000_scheduler_fase2_rls_grants.sql`):
+1. Nueva política `ea_select_responsible` (`FOR SELECT ... USING (is_engagement_responsible(engagement_id))`).
+2. Los 3 `AND can_read_engagement_assignments(engagement_id)` de escritura pasan a
+   `AND (can_read_engagement_assignments(engagement_id) OR is_engagement_responsible(engagement_id))`.
+
+Deliberadamente **no se tocó** `can_read_engagement_assignments()` en sí — sigue siendo exactamente la
+disyunción de las 3 políticas de lectura de D5, invariante del que depende el comentario de Phase 5
+(`20260718120000`: "can_read_engagement_assignments remains the exact disjunction... and is not called
+here at all"). Reverificado en vivo tras el fix: el mismo staff `sqr` ahora lee y escribe su propia
+asignación en el engagement donde es responsable, y sigue denegado en un engagement ajeno. Este es el
+**tercer bug real** encontrado en C1 en esta fase (los otros dos: `vw_staffing_alerts`/`authenticated` e
+idempotencia, ver sección "C1-C4 — escritas, corregidas en vivo..." más arriba) — ninguno afectaba una
+corrida limpia desde cero salvo en el caso específico que cada prueba fue diseñada para ejercitar.
+
 ## Próximo paso para el operador
 
-1. Commitear el fix de C1 (`authenticated` + idempotencia) — ya aplicado en el archivo, pendiente de
+1. Commitear: el fix de C1 (`authenticated` + idempotencia + la extensión de §3b), las 4 pruebas SQL
+   nuevas, el shim `30-shim-service-scope.sql`, y la Lane 4 de `run-rls-tests.sh` — todo pendiente de
    commit/push.
 2. `git pull` en `EMS_Dev_Local` para traer el fix, y actualizar ahí el fingerprint de Ruta A commiteado
-   (el que se recapturó localmente durante esta verificación, con C1-C4 ya integradas).
+   (el que se recapturó localmente durante esta verificación, con C1-C4 ya integradas) — el fix de §3b
+   no cambia ningún fingerprint de catálogo ya capturado (solo agrega una política y amplía un `AND` a
+   `OR`, ninguna tabla/columna/grant nuevo), pero conviene recapturar para tener evidencia actualizada.
 3. Limpiar el worktree `../ems-route-c-scratch`.
 4. Resolver Q7 (project refs de integración/efímeros + operador autorizado) — sigue pendiente para la
    verificación oficial contra Supabase real, en paralelo, sin bloquear lo local.
-5. Con el gate de paridad cerrado, seguir con lo que dependía de C1-C4: pruebas SQL nuevas
-   (`rls-wo-staffing-requirements.sql`, `rpc-save-wo-staffing.sql`, `rpc-save-engagement-assignments.sql`,
-   `schema-convergence-assertions.sql`), CI (`.github/workflows/scheduler-integrity.yml`), y la
-   documentación final (`docs/plans/scheduler-fase-2-esquema-canonico.md`,
-   `docs/plans/scheduler-fase-2-runbook-ruta-c.md`).
-   (`git worktree remove`).
+5. Con las pruebas SQL ya escritas y verificadas, seguir con CI (`.github/workflows/scheduler-integrity.yml`)
+   y la documentación final (`docs/plans/scheduler-fase-2-esquema-canonico.md`,
+   `docs/plans/scheduler-fase-2-runbook-ruta-c.md`), ambos ya desbloqueados.

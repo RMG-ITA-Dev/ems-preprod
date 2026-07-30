@@ -61,6 +61,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 DB="${RLS_TEST_DB:-ems_rls_test}"
 DRIFT_DB="${DB}_drift"
 FAIL_DB="${DB}_failpath"
+SCHEDULER_DB="${DB}_scheduler"
 
 validate_db_name() {
   local name="$1"
@@ -108,12 +109,14 @@ fi
 validate_db_name "$DB"
 validate_db_name "$DRIFT_DB"
 validate_db_name "$FAIL_DB"
+validate_db_name "$SCHEDULER_DB"
 
 OUT=""
 cleanup() {
   dropdb --if-exists -- "$DB" >/dev/null 2>&1 || true
   dropdb --if-exists -- "$DRIFT_DB" >/dev/null 2>&1 || true
   dropdb --if-exists -- "$FAIL_DB" >/dev/null 2>&1 || true
+  dropdb --if-exists -- "$SCHEDULER_DB" >/dev/null 2>&1 || true
   [[ -n "$OUT" ]] && rm -f "$OUT" 2>/dev/null || true
 }
 trap cleanup EXIT
@@ -349,3 +352,67 @@ grep -q 'engagement_assignments converged' "$OUT" || {
 echo "PASS — [failpath] both pre-flights loud; partial state converged on re-run"
 
 echo "OK: lane 1 (Phase 3 → D5 → Phase 5 → corrective, all idempotent), lane 2 (drift repair by corrective alone + out-of-order Phase 3 re-apply), and lane 3 (loud-abort failure paths, both apply modes) all verified; all leakage/authz checks passed"
+
+# ── Lane 4: Fase 2 del Scheduler — C1-C4 convergence (bugs/scheduler/fase_2/plan_v2.md) ──
+# Service-scoped world: 00-shim + 30-shim-service-scope (services, categories.service_id,
+# engagements.practica/responsible-personnel columns, work_orders, skills, staff_skills) +
+# the D5/corrective migrations already exercised by lane 1 + the 4 historical scheduler
+# migrations that create/RLS wo_staffing_requirements/wo_staffing_requirement_skills +
+# C1-C4 themselves, then the 3 new suites + the schema-convergence assertions. Deliberately
+# skips 20260718120000 (Phase 5 timesheet) and its shim: that migration only adds one
+# function unrelated to staffing/engagement_assignments schema/RLS, so it cannot change any
+# state this lane asserts on — see supabase/tests/local/30-shim-service-scope.sql's header
+# for why this lane exists as a fast CI-friendly companion to the real Docker-based Rutas
+# A/B/C (bugs/scheduler/fase_2/plan_v2.md's canonical gate, already closed against Supabase
+# CLI real — this lane does not replace it).
+run_scheduler() {
+  echo "── [scheduler] $1"
+  psql -v ON_ERROR_STOP=1 -d "$SCHEDULER_DB" -f "${REPO_ROOT}/$1"
+}
+
+dropdb --if-exists -- "$SCHEDULER_DB"
+createdb -- "$SCHEDULER_DB"
+
+run_scheduler supabase/tests/local/00-shim-supabase.sql
+run_scheduler supabase/tests/local/30-shim-service-scope.sql
+run_scheduler supabase/migrations/20260716120000_engagement_assignments_phase3.sql
+run_scheduler supabase/migrations/20260717233000_engagement_assignments_d5_rls.sql
+run_scheduler supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql
+run_scheduler supabase/migrations/20260506120000_wo_staffing_requirements.sql
+run_scheduler supabase/migrations/20260719044642_ee740102-8b5c-4d4b-b8ee-1571ec25840b.sql
+run_scheduler supabase/migrations/20260720194555_4106bdc5-1314-4e04-8a1b-49375f8d87e5.sql
+run_scheduler supabase/migrations/20260720194653_61b4d8eb-86a8-495e-a572-5eeab91ebdb2.sql
+run_scheduler supabase/migrations/20260727100000_scheduler_fase2_rls_grants.sql
+run_scheduler supabase/migrations/20260727110000_scheduler_fase2_convergencia_esquema.sql
+run_scheduler supabase/migrations/20260727120000_scheduler_fase2_rpc_save_wo_staffing.sql
+run_scheduler supabase/migrations/20260727130000_scheduler_fase2_rpc_save_engagement_assignments.sql
+
+rm -f "$OUT"
+OUT="$(mktemp)"
+psql -v ON_ERROR_STOP=1 -d "$SCHEDULER_DB" \
+  -f "${REPO_ROOT}/supabase/tests/rls-wo-staffing-requirements.sql" 2>&1 | tee "${OUT}"
+grep -q 'WO STAFFING RLS: ALL CHECKS PASSED' "${OUT}" \
+  || { echo 'FAIL: [scheduler] wo_staffing_requirements RLS suite did not reach its final PASS marker' >&2; exit 1; }
+
+rm -f "$OUT"
+OUT="$(mktemp)"
+psql -v ON_ERROR_STOP=1 -d "$SCHEDULER_DB" \
+  -f "${REPO_ROOT}/supabase/tests/rpc-save-wo-staffing.sql" 2>&1 | tee "${OUT}"
+grep -q 'SAVE_WO_STAFFING RPC: ALL CHECKS PASSED' "${OUT}" \
+  || { echo 'FAIL: [scheduler] save_wo_staffing RPC suite did not reach its final PASS marker' >&2; exit 1; }
+
+rm -f "$OUT"
+OUT="$(mktemp)"
+psql -v ON_ERROR_STOP=1 -d "$SCHEDULER_DB" \
+  -f "${REPO_ROOT}/supabase/tests/rpc-save-engagement-assignments.sql" 2>&1 | tee "${OUT}"
+grep -q 'SAVE_ENGAGEMENT_ASSIGNMENTS RPC: ALL CHECKS PASSED' "${OUT}" \
+  || { echo 'FAIL: [scheduler] save_engagement_assignments RPC suite did not reach its final PASS marker' >&2; exit 1; }
+
+rm -f "$OUT"
+OUT="$(mktemp)"
+psql -v ON_ERROR_STOP=1 -d "$SCHEDULER_DB" \
+  -f "${REPO_ROOT}/supabase/tests/schema-convergence-assertions.sql" 2>&1 | tee "${OUT}"
+grep -q 'SCHEMA CONVERGENCE: ALL CHECKS PASSED' "${OUT}" \
+  || { echo 'FAIL: [scheduler] schema-convergence-assertions did not reach its final PASS marker' >&2; exit 1; }
+
+echo "OK: lane 4 (Fase 2 del Scheduler — C1-C4 applied over the service-scoped shim; RLS matrix, both RPCs, and schema-convergence assertions all verified)"
