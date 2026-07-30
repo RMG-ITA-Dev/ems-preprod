@@ -1,0 +1,182 @@
+name: Scheduler Integrity
+
+# Fase 2 del Scheduler (bugs/scheduler/fase_2/plan_v2.md). Two independent jobs:
+#
+#   rls-migration-tests — fast, self-contained (postgres:16 service container, no Docker
+#     Compose beyond the container itself). Runs supabase/tests/local/run-rls-tests.sh, the
+#     same harness validated locally throughout Fase 2 (npm run test:rls): 4 lanes —
+#     Phase 3 → D5 → Phase 5 → corrective (idempotent), drift-repair, loud-abort failure
+#     paths, and Fase 2's own C1-C4 convergence lane (RLS matrix + both RPCs + schema
+#     assertions). This job has been run end to end against this exact workflow's steps
+#     before being committed.
+#
+#   route-parity — the plan's central acceptance criterion: Rutas A and C must converge to
+#     an identical schema/RLS/grants fingerprint. Needs the real Supabase CLI + Docker (the
+#     harness above deliberately does NOT need either). Mirrors, step for step, the manual
+#     procedure validated by the operator in EMS_Dev_Local and documented in
+#     docs/scheduler/fase_2/scheduler-fase-2-rutas-locales.md §3-4 and
+#     docs/scheduler/fase_2/scheduler-fase-2-verificacion.md ("Ruta C — corrida completa...",
+#     "C1-C4 — escritas, corregidas en vivo..."). Unlike the job above, this one could NOT be
+#     dry-run before committing (no Docker/Supabase CLI in the authoring environment) — if it
+#     fails on its first real run, compare its steps against those two docs before assuming
+#     the schema itself regressed.
+
+on:
+  push:
+    branches: ['*']
+    paths:
+      - 'supabase/migrations/**'
+      - 'supabase/tests/**'
+      - '.github/workflows/scheduler-integrity.yml'
+  pull_request:
+    branches: ['main']
+    paths:
+      - 'supabase/migrations/**'
+      - 'supabase/tests/**'
+      - '.github/workflows/scheduler-integrity.yml'
+  workflow_dispatch: {}
+
+jobs:
+  rls-migration-tests:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run the RLS/scheduler test harness (4 lanes)
+        run: bash supabase/tests/local/run-rls-tests.sh
+
+  route-parity:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history — origin/sruizmier-scheduler-v3 must be reachable for the Ruta C worktree)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: supabase start (one Docker stack, reused for both routes — same project_id ⇒ same containers)
+        run: supabase start
+
+      # ── Ruta A: pure chronological replay of every migration already on this branch
+      #    (139 historical + C1-C4 = 143), via the same pre-seed script validated locally.
+      - name: Ruta A — apply (pre-seed handles the 2 known development-only gaps)
+        run: bash supabase/tests/local/preseed-development-gaps.sh
+
+      - name: Ruta A — verify convergence (0 pending)
+        run: |
+          supabase migration list --local
+          supabase db push --dry-run --include-all --local
+
+      - name: Ruta A — capture fingerprint
+        run: bash supabase/tests/local/capture-route-fingerprint.sh ruta_a
+
+      # ── Ruta C: base + the 8 historical scheduler migrations FIRST (72+8=80, from
+      #    origin/sruizmier-scheduler-v3, which predates development's 59 migrations and
+      #    C1-C4), synthetic seed, THEN the remaining 63 files copied in and pushed as a
+      #    second batch — reproducing development's migrations landing chronologically
+      #    "late" relative to the scheduler's already-applied migrations (the mechanism
+      #    behind G1 in plan_v2.md). This exact 80-then-+63 split is the one already run
+      #    and verified manually (see scheduler-fase-2-verificacion.md, "Ruta C —
+      #    corrida completa..." and the C1-C4 section); it is NOT equivalent to copying
+      #    all 63 files in from the start, which would collapse into Ruta A.
+      - name: Ruta C — set up worktree (72 base + 8 scheduler)
+        run: |
+          git fetch origin sruizmier-scheduler-v3
+          git worktree add ../route-c-scratch origin/sruizmier-scheduler-v3
+          mkdir -p ../route-c-scratch/supabase/tests/local ../route-c-scratch/supabase/tests/fixtures
+          cp supabase/tests/local/preseed-development-gaps.sh ../route-c-scratch/supabase/tests/local/
+          cp supabase/tests/local/capture-route-fingerprint.sh ../route-c-scratch/supabase/tests/local/
+          cp supabase/tests/fixtures/route-c-synthetic-seed.sql ../route-c-scratch/supabase/tests/fixtures/
+
+      - name: Ruta C — stage 1 apply (80 files; resets the shared stack)
+        working-directory: ../route-c-scratch
+        run: bash supabase/tests/local/preseed-development-gaps.sh
+
+      - name: Ruta C — stage 1 verify (80 applied, 0 pending)
+        working-directory: ../route-c-scratch
+        run: |
+          supabase migration list --local
+          supabase db push --dry-run --include-all --local
+
+      - name: Ruta C — synthetic seed (before development's migrations land)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 -f ../route-c-scratch/supabase/tests/fixtures/route-c-synthetic-seed.sql
+
+      - name: Ruta C — stage 2 (copy the remaining 63 files, push as a second batch)
+        run: |
+          comm -13 \
+            <(ls ../route-c-scratch/supabase/migrations | sort) \
+            <(ls supabase/migrations | sort) \
+            > /tmp/remaining_63.txt
+          while read -r f; do
+            cp "supabase/migrations/$f" "../route-c-scratch/supabase/migrations/$f"
+          done < /tmp/remaining_63.txt
+          cd ../route-c-scratch
+          supabase db push --include-all --local
+
+      - name: Ruta C — verify convergence (143 applied, 0 pending)
+        working-directory: ../route-c-scratch
+        run: |
+          supabase migration list --local
+          supabase db push --dry-run --include-all --local
+
+      - name: Ruta C — capture fingerprint
+        working-directory: ../route-c-scratch
+        run: bash supabase/tests/local/capture-route-fingerprint.sh ruta_c
+
+      - name: Copy Ruta C fingerprint back for diffing (captured relative to the worktree's own repo root)
+        run: cp ../route-c-scratch/supabase/tests/fixtures/route-fingerprints/ruta_c_* supabase/tests/fixtures/route-fingerprints/
+
+      # ── Gate: the plan's central acceptance criterion. catalog.txt (physical relation
+      #    sizes) is deliberately NOT compared — it differs by seed-data bloat alone, not
+      #    schema (see scheduler-fase-2-verificacion.md's Ruta A vs B diff for precedent).
+      - name: Gate — Ruta A and Ruta C must converge (schema, RLS policies, grants)
+        run: |
+          FP=supabase/tests/fixtures/route-fingerprints
+          fail=0
+
+          # pg_dump 18 wraps every dump in a random \restrict/\unrestrict token pair that
+          # differs on every invocation even against an unchanged schema — strip first/last line.
+          if ! diff <(tail -n +2 "$FP/ruta_a_schema.sql" | head -n -1) \
+                    <(tail -n +2 "$FP/ruta_c_schema.sql" | head -n -1); then
+            echo "::error::Ruta A and Ruta C schema fingerprints diverge (see diff above)."
+            fail=1
+          fi
+          if ! diff "$FP/ruta_a_catalog_policies.txt" "$FP/ruta_c_catalog_policies.txt"; then
+            echo "::error::Ruta A and Ruta C RLS policies diverge."
+            fail=1
+          fi
+          if ! diff "$FP/ruta_a_catalog_grants.txt" "$FP/ruta_c_catalog_grants.txt"; then
+            echo "::error::Ruta A and Ruta C grants diverge."
+            fail=1
+          fi
+
+          [[ "$fail" -eq 0 ]] || exit 1
+          echo "Route parity gate passed: Ruta A = Ruta C (schema, RLS policies, grants)."
+
+      - name: Clean up worktree
+        if: always()
+        run: git worktree remove ../route-c-scratch --force || true
