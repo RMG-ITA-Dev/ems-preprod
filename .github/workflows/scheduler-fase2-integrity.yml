@@ -1,5 +1,12 @@
-name: Scheduler Integrity
+name: Scheduler Integrity — Fase 2
 
+# 🔴 No renombrar el archivo a `scheduler-integrity.yml`: ese path ya lo usa un workflow
+# distinto de la Fase 4 (UI/Gantt) en `sruizmier-scheduler-v3` y sus derivadas
+# (app-integrity, rls-migration-tests con --self-test, hermetic-rebuild, browser-contract).
+# GitHub identifica un workflow por su ruta de archivo, no por rama — dos workflows en el
+# mismo path, en ramas distintas, chocan al converger. Ver bugs/scheduler/fase_2/plan_v2.md
+# para el hallazgo completo (2026-07-30).
+#
 # Fase 2 del Scheduler (bugs/scheduler/fase_2/plan_v2.md). Two independent jobs:
 #
 #   rls-migration-tests — fast, self-contained (postgres:16 service container, no Docker
@@ -27,13 +34,13 @@ on:
     paths:
       - 'supabase/migrations/**'
       - 'supabase/tests/**'
-      - '.github/workflows/scheduler-integrity.yml'
+      - '.github/workflows/scheduler-fase2-integrity.yml'
   pull_request:
     branches: ['main']
     paths:
       - 'supabase/migrations/**'
       - 'supabase/tests/**'
-      - '.github/workflows/scheduler-integrity.yml'
+      - '.github/workflows/scheduler-fase2-integrity.yml'
   workflow_dispatch: {}
 
 jobs:
@@ -60,6 +67,9 @@ jobs:
       PGPASSWORD: postgres
     steps:
       - uses: actions/checkout@v4
+
+      - name: Runner db-name validator self-test (hostile names rejected)
+        run: bash supabase/tests/local/run-rls-tests.sh --self-test
 
       - name: Run the RLS/scheduler test harness (4 lanes)
         run: bash supabase/tests/local/run-rls-tests.sh
