@@ -84,7 +84,13 @@ const Settings = () => {
   // Visibilidad de tabs por permiso (Fase 5 · roles/permisos)
   const canSkillsTab = can("competency.read");
   const canSkillsWrite = can("competency.create");
-  const canHolidaysTab = can("holiday.create");
+  // Los tabs se muestran por permiso de LECTURA y las acciones por el de escritura:
+  // la matriz da "Listar/Ver" de estos catálogos a muchos más roles que "Crear".
+  const canHolidaysTab = can("holiday.read");
+  const canIndustryTab = can("industry.read");
+  const canRatesTab = can("category_rate.read");
+  const canActivitiesTab = can("activity_code.read");
+  const canExpenseTab = can("expense_type.read");
   const canRolesTab = can("user_role.read");
   const canGlobalTab = can("global_settings.update");
   const canIndustryWrite = can("industry.create");
@@ -734,13 +740,21 @@ const Settings = () => {
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList className="bg-muted">
           <TabsTrigger value="account">{t("settings.account")}</TabsTrigger>
-          <TabsTrigger value="industries">{t("settings.industries")}</TabsTrigger>
+          {canIndustryTab && (
+            <TabsTrigger value="industries">{t("settings.industries")}</TabsTrigger>
+          )}
           {canSkillsTab && (
             <TabsTrigger value="skills">{t("settings.skills")}</TabsTrigger>
           )}
-          <TabsTrigger value="rates">{t("settings.categoryRates")}</TabsTrigger>
-          <TabsTrigger value="activities">{t("settings.activityCodes")}</TabsTrigger>
-          <TabsTrigger value="expense-types">{t("settings.expenseTypes")}</TabsTrigger>
+          {canRatesTab && (
+            <TabsTrigger value="rates">{t("settings.categoryRates")}</TabsTrigger>
+          )}
+          {canActivitiesTab && (
+            <TabsTrigger value="activities">{t("settings.activityCodes")}</TabsTrigger>
+          )}
+          {canExpenseTab && (
+            <TabsTrigger value="expense-types">{t("settings.expenseTypes")}</TabsTrigger>
+          )}
           {canHolidaysTab && (
             <TabsTrigger value="holidays">{t("settings.holidays")}</TabsTrigger>
           )}

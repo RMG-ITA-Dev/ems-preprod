@@ -72,13 +72,22 @@ export function AppSidebar() {
     { title: t("nav.fundRequestDisbursements"), url: "/fund-requests/disbursements", icon: Banknote, show: can("fund_disbursement.read") },
   ].filter((i) => i.show);
 
-  // Settings: visible si puede ver algún tab (admin o funciones departamentales).
+  // Settings: visible si puede ver algún tab. Se evalúa por permisos de LECTURA,
+  // no de escritura: los roles con acceso de solo consulta a los catálogos (p.ej.
+  // ita_manager / tax_manager con industry.read, category_rate.read, ...) tienen
+  // tabs que mostrar aunque no puedan crear nada. Gatear por *.create dejaba a
+  // esos roles sin entrada al menú y, con ella, sin forma de llegar al tab de
+  // Cuenta para cambiar su contraseña — permiso que la matriz da a los 23 roles.
   const canSeeSettings =
     isAdmin ||
-    can("expense_type.create") || // Contabilidad
-    can("holiday.create") ||      // Talento Humano
-    can("competency.create") ||   // Talento Humano
-    can("user_role.read") ||      // Seguridad TI (+admin)
+    can("account.password.change") ||
+    can("industry.read") ||
+    can("competency.read") ||
+    can("category_rate.read") ||
+    can("activity_code.read") ||
+    can("expense_type.read") ||
+    can("holiday.read") ||
+    can("user_role.read") ||
     can("global_settings.update");
   const adminItems: NavItem[] = [
     { title: t("nav.staff"), url: "/staff", icon: Users, show: can("staff.read") },
