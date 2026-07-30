@@ -26,6 +26,14 @@ ALTER TABLE public.staff
 -- (useEngagementAssignmentMutations.ts omite status a propósito). Esta sonda CONFIRMA el default
 -- en catálogo y aborta si difiere, en vez de asumirlo silenciosamente. No cambia nada — el cambio
 -- a CONFIRMED es una decisión de negocio (Q1), fuera de alcance de F2.
+--
+-- 🟢 Bug encontrado en vivo (2026-07-30, aplicando C2 en el Supabase real "Dev 2.0") y corregido:
+-- la comparación original exigía el literal exacto '''PROPOSED''::text'. En el Lovable real la
+-- columna es character varying, no text (creada así por Lovable, no por esta migración — la
+-- 20260716120000 declara TEXT pero su CREATE TABLE IF NOT EXISTS no-opea si la tabla ya existía),
+-- así que column_default rendereaba '''PROPOSED''::character varying' — mismo valor, tipo
+-- distinto — y la sonda abortaba un default que en realidad es correcto. Fix: comparar solo el
+-- literal (antes del "::"), sin importar el tipo real de la columna en cada ambiente.
 -- =====================================================================
 DO $$
 DECLARE
@@ -37,7 +45,7 @@ BEGIN
      AND table_name   = 'engagement_assignments'
      AND column_name  = 'status';
 
-  IF v_default IS DISTINCT FROM '''PROPOSED''::text' THEN
+  IF split_part(v_default, '::', 1) IS DISTINCT FROM '''PROPOSED''' THEN
     RAISE EXCEPTION
       'engagement_assignments.status default drifted from PROPOSED (found %). Esto es una decisión de negocio pendiente (Q1 de plan_v2.md) — no se auto-corrige.',
       v_default;

@@ -29,23 +29,44 @@ INSERT INTO public.categories (category_id, category_name, service_id) VALUES
 INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id) VALUES
   ('c1000000-0000-4000-8000-0000000000b1', 'RWS Test Client', 'RWS-TAX-001');
 
+-- staff.auth_user_id carries a real FK to auth.users on a live Supabase (the local shim has no
+-- such table/constraint — this block is a no-op there). Guarded so the fixture works in both.
+DO $$
+BEGIN
+  IF to_regclass('auth.users') IS NOT NULL THEN
+    INSERT INTO auth.users (id, instance_id, aud, role, email, encrypted_password,
+                             email_confirmed_at, created_at, updated_at,
+                             raw_app_meta_data, raw_user_meta_data) VALUES
+      ('a0000000-0000-4000-8000-0000000000b1', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rws-test-b1@ruizmier.com', 'x', now(), now(), now(), '{}'::jsonb, '{}'::jsonb),
+      ('a0000000-0000-4000-8000-0000000000b2', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rws-test-b2@ruizmier.com', 'x', now(), now(), now(), '{}'::jsonb, '{}'::jsonb),
+      ('a0000000-0000-4000-8000-0000000000b3', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rws-test-b3@ruizmier.com', 'x', now(), now(), now(), '{}'::jsonb, '{}'::jsonb)
+    ON CONFLICT (id) DO NOTHING;
+  END IF;
+END $$;
+
 INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, category_id) VALUES
   ('50000000-0000-4000-8000-0000000000b1', 'a0000000-0000-4000-8000-0000000000b1', 'Mel',  'ManagerLead', 'c0000000-0000-4000-8000-0000000000b1'),
   ('50000000-0000-4000-8000-0000000000b2', 'a0000000-0000-4000-8000-0000000000b2', 'Sam',  'SQR',         'c0000000-0000-4000-8000-0000000000b1'),
   ('50000000-0000-4000-8000-0000000000b3', 'a0000000-0000-4000-8000-0000000000b3', 'Nora', 'Unrelated',   'c0000000-0000-4000-8000-0000000000b1');
 
+-- ON CONFLICT DO UPDATE: on a live Supabase, handle_new_user() (20251204051043) already
+-- auto-created a 'staff' user_roles row for each new auth.users id above.
 INSERT INTO public.user_roles (user_id, role) VALUES
   ('a0000000-0000-4000-8000-0000000000b1', 'manager'),
   ('a0000000-0000-4000-8000-0000000000b2', 'sqr'),
-  ('a0000000-0000-4000-8000-0000000000b3', 'staff');
+  ('a0000000-0000-4000-8000-0000000000b3', 'staff')
+ON CONFLICT (user_id) DO UPDATE SET role = EXCLUDED.role;
 
-INSERT INTO public.engagements (engagement_id, client_id, engagement_name, manager_id, sqr_id, practica) VALUES
-  ('e0000000-0000-4000-8000-0000000000b1', 'c1000000-0000-4000-8000-0000000000b1', 'RWS E1', '50000000-0000-4000-8000-0000000000b1', '50000000-0000-4000-8000-0000000000b2', 1),
-  ('e0000000-0000-4000-8000-0000000000b2', 'c1000000-0000-4000-8000-0000000000b1', 'RWS E2 (locked)', '50000000-0000-4000-8000-0000000000b1', NULL, 1);
+-- fecha_cierre is NOT NULL with no DEFAULT on a live Supabase (20260702000000) — the local shim
+-- has no such column at all, so this must be supplied explicitly to work in both environments.
+INSERT INTO public.engagements (engagement_id, client_id, engagement_name, manager_id, sqr_id, practica, fecha_cierre) VALUES
+  ('e0000000-0000-4000-8000-0000000000b1', 'c1000000-0000-4000-8000-0000000000b1', 'RWS E1', '50000000-0000-4000-8000-0000000000b1', '50000000-0000-4000-8000-0000000000b2', 1, '2026-09-30'),
+  ('e0000000-0000-4000-8000-0000000000b2', 'c1000000-0000-4000-8000-0000000000b1', 'RWS E2 (locked)', '50000000-0000-4000-8000-0000000000b1', NULL, 1, '2026-09-30');
 
-INSERT INTO public.work_orders (wo_id, engagement_id, approval_status) VALUES
-  ('40000000-0000-4000-8000-0000000000b1', 'e0000000-0000-4000-8000-0000000000b1', 'Draft'),
-  ('40000000-0000-4000-8000-0000000000b2', 'e0000000-0000-4000-8000-0000000000b2', 'Approved');
+-- currency/season_mode are NOT NULL with no DEFAULT (20251204045534) — must be supplied explicitly.
+INSERT INTO public.work_orders (wo_id, engagement_id, currency, season_mode, approval_status) VALUES
+  ('40000000-0000-4000-8000-0000000000b1', 'e0000000-0000-4000-8000-0000000000b1', 'BOB', 'High', 'Draft'),
+  ('40000000-0000-4000-8000-0000000000b2', 'e0000000-0000-4000-8000-0000000000b2', 'BOB', 'High', 'Approved');
 
 INSERT INTO public.skills (skill_id, name, category) VALUES
   ('20000000-0000-4000-8000-0000000000b1', 'RWS Skill', 'framework');

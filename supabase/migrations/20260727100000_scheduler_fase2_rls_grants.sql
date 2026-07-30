@@ -95,14 +95,69 @@ END $$;
 GRANT EXECUTE ON FUNCTION public.is_engagement_responsible(uuid) TO authenticated;
 
 -- =====================================================================
+-- 2b. Helpers de resolución de engagement_id vía work_orders — SECURITY DEFINER
+--
+-- 🟢 Bug encontrado en vivo (2026-07-30, corriendo la suite RLS de C1 contra "Dev 2.0", un
+-- Supabase real con development + feat/roles-permisos ya aplicados): la sección 3 resolvía el
+-- engagement_id de un work order con una subconsulta escrita DIRECTO dentro del USING/WITH CHECK
+-- de cada política. Esa subconsulta corre con los permisos del rol que consulta — sujeta a la RLS
+-- PROPIA de work_orders, no a la de wo_staffing_requirements. En Dev 2.0, la Fase 4 de
+-- feat/roles-permisos ya reescribió la RLS de work_orders con un modelo que no reconoce
+-- "responsable vía sqr_id/encargado_id/specialist_it_id/specialist_tax_id": un sqr sin ningún otro
+-- rol calificante no podía leer su propia fila de work_orders, la subconsulta devolvía NULL, y
+-- is_engagement_responsible(NULL) daba false — la matriz de C1 quedaba rota para exactamente los
+-- roles que el issue pedía cubrir. Mismo patrón que is_engagement_team_member/
+-- is_engagement_responsible/has_assignment_on_engagement: SECURITY DEFINER, para que la pregunta
+-- estructural "¿qué engagement es este work order?" no dependa de si el caller puede leer
+-- work_orders directamente (ni de qué RLS tenga esa tabla en cada rama/entorno).
+-- =====================================================================
+CREATE OR REPLACE FUNCTION public.resolve_wo_engagement_id(p_wo_id uuid)
+RETURNS uuid
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+  SELECT wo.engagement_id FROM public.work_orders wo WHERE wo.wo_id = p_wo_id
+$$;
+
+CREATE OR REPLACE FUNCTION public.resolve_wo_req_skill_engagement_id(p_requirement_id uuid)
+RETURNS uuid
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+  SELECT wo.engagement_id
+    FROM public.wo_staffing_requirements r
+    JOIN public.work_orders wo ON wo.wo_id = r.wo_id
+   WHERE r.id = p_requirement_id
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.resolve_wo_engagement_id(uuid) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.resolve_wo_req_skill_engagement_id(uuid) FROM PUBLIC;
+DO $$
+DECLARE
+  r text;
+BEGIN
+  FOREACH r IN ARRAY ARRAY['anon', 'service_role'] LOOP
+    IF to_regrole(r) IS NOT NULL THEN
+      EXECUTE format('REVOKE EXECUTE ON FUNCTION public.resolve_wo_engagement_id(uuid) FROM %I', r);
+      EXECUTE format('REVOKE EXECUTE ON FUNCTION public.resolve_wo_req_skill_engagement_id(uuid) FROM %I', r);
+    END IF;
+  END LOOP;
+END $$;
+GRANT EXECUTE ON FUNCTION public.resolve_wo_engagement_id(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.resolve_wo_req_skill_engagement_id(uuid) TO authenticated;
+
+-- =====================================================================
 -- 3. wo_staffing_requirements / wo_staffing_requirement_skills — cierra G2
 --
 -- Las históricas #1/#5 dejan wo_staffing_req_select / wo_staffing_req_skills_select como
 -- FOR SELECT TO authenticated USING (true) — lectura firmwide para cualquier autenticado,
 -- violando el issue §9 ("no existe una política final de lectura global"). Se reemplazan por
--- la matriz canónica (docs: Matriz RLS canónica de plan_v2.md), resuelta vía el join a
--- work_orders (1 salto para wo_staffing_requirements, 2 saltos —
--- wo_staffing_requirement_skills → wo_staffing_requirements → work_orders — para las skills).
+-- la matriz canónica (docs: Matriz RLS canónica de plan_v2.md), resuelta vía resolve_wo_engagement_id
+-- / resolve_wo_req_skill_engagement_id (§2b) — nunca con un join inline a work_orders.
 --
 -- Las políticas de escritura FOR ALL históricas (#1/#5) se dividen en INSERT/UPDATE/DELETE
 -- explícitas (issue §9: un FOR ALL concede también SELECT, ocultando el alcance real de
@@ -119,15 +174,9 @@ CREATE POLICY wo_staffing_req_select
   USING (
     public.is_admin()
     OR public.has_firmwide_assignment_visibility()
-    OR public.is_engagement_team_member(
-         (SELECT wo.engagement_id FROM public.work_orders wo
-           WHERE wo.wo_id = wo_staffing_requirements.wo_id))
-    OR public.is_engagement_responsible(
-         (SELECT wo.engagement_id FROM public.work_orders wo
-           WHERE wo.wo_id = wo_staffing_requirements.wo_id))
-    OR public.has_assignment_on_engagement(
-         (SELECT wo.engagement_id FROM public.work_orders wo
-           WHERE wo.wo_id = wo_staffing_requirements.wo_id))
+    OR public.is_engagement_team_member(public.resolve_wo_engagement_id(wo_staffing_requirements.wo_id))
+    OR public.is_engagement_responsible(public.resolve_wo_engagement_id(wo_staffing_requirements.wo_id))
+    OR public.has_assignment_on_engagement(public.resolve_wo_engagement_id(wo_staffing_requirements.wo_id))
   );
 
 DROP POLICY IF EXISTS wo_staffing_req_write ON public.wo_staffing_requirements;
@@ -138,12 +187,8 @@ CREATE POLICY wo_staffing_req_insert
   FOR INSERT TO authenticated
   WITH CHECK (
     public.is_admin()
-    OR public.is_engagement_team_member(
-         (SELECT wo.engagement_id FROM public.work_orders wo
-           WHERE wo.wo_id = wo_staffing_requirements.wo_id))
-    OR public.is_engagement_responsible(
-         (SELECT wo.engagement_id FROM public.work_orders wo
-           WHERE wo.wo_id = wo_staffing_requirements.wo_id))
+    OR public.is_engagement_team_member(public.resolve_wo_engagement_id(wo_staffing_requirements.wo_id))
+    OR public.is_engagement_responsible(public.resolve_wo_engagement_id(wo_staffing_requirements.wo_id))
   );
 
 DROP POLICY IF EXISTS wo_staffing_req_update ON public.wo_staffing_requirements;
@@ -152,21 +197,13 @@ CREATE POLICY wo_staffing_req_update
   FOR UPDATE TO authenticated
   USING (
     public.is_admin()
-    OR public.is_engagement_team_member(
-         (SELECT wo.engagement_id FROM public.work_orders wo
-           WHERE wo.wo_id = wo_staffing_requirements.wo_id))
-    OR public.is_engagement_responsible(
-         (SELECT wo.engagement_id FROM public.work_orders wo
-           WHERE wo.wo_id = wo_staffing_requirements.wo_id))
+    OR public.is_engagement_team_member(public.resolve_wo_engagement_id(wo_staffing_requirements.wo_id))
+    OR public.is_engagement_responsible(public.resolve_wo_engagement_id(wo_staffing_requirements.wo_id))
   )
   WITH CHECK (
     public.is_admin()
-    OR public.is_engagement_team_member(
-         (SELECT wo.engagement_id FROM public.work_orders wo
-           WHERE wo.wo_id = wo_staffing_requirements.wo_id))
-    OR public.is_engagement_responsible(
-         (SELECT wo.engagement_id FROM public.work_orders wo
-           WHERE wo.wo_id = wo_staffing_requirements.wo_id))
+    OR public.is_engagement_team_member(public.resolve_wo_engagement_id(wo_staffing_requirements.wo_id))
+    OR public.is_engagement_responsible(public.resolve_wo_engagement_id(wo_staffing_requirements.wo_id))
   );
 
 DROP POLICY IF EXISTS wo_staffing_req_delete ON public.wo_staffing_requirements;
@@ -175,16 +212,12 @@ CREATE POLICY wo_staffing_req_delete
   FOR DELETE TO authenticated
   USING (
     public.is_admin()
-    OR public.is_engagement_team_member(
-         (SELECT wo.engagement_id FROM public.work_orders wo
-           WHERE wo.wo_id = wo_staffing_requirements.wo_id))
-    OR public.is_engagement_responsible(
-         (SELECT wo.engagement_id FROM public.work_orders wo
-           WHERE wo.wo_id = wo_staffing_requirements.wo_id))
+    OR public.is_engagement_team_member(public.resolve_wo_engagement_id(wo_staffing_requirements.wo_id))
+    OR public.is_engagement_responsible(public.resolve_wo_engagement_id(wo_staffing_requirements.wo_id))
   );
 
 -- --- wo_staffing_requirement_skills (2 saltos: requirement_id → wo_staffing_requirements
---     → work_orders → engagement_id) ------------------------------------------------------
+--     → work_orders → engagement_id, resuelto por resolve_wo_req_skill_engagement_id) ------
 
 DROP POLICY IF EXISTS wo_staffing_req_skills_select ON public.wo_staffing_requirement_skills;
 CREATE POLICY wo_staffing_req_skills_select
@@ -193,21 +226,9 @@ CREATE POLICY wo_staffing_req_skills_select
   USING (
     public.is_admin()
     OR public.has_firmwide_assignment_visibility()
-    OR public.is_engagement_team_member(
-         (SELECT wo.engagement_id
-            FROM public.wo_staffing_requirements r
-            JOIN public.work_orders wo ON wo.wo_id = r.wo_id
-           WHERE r.id = wo_staffing_requirement_skills.requirement_id))
-    OR public.is_engagement_responsible(
-         (SELECT wo.engagement_id
-            FROM public.wo_staffing_requirements r
-            JOIN public.work_orders wo ON wo.wo_id = r.wo_id
-           WHERE r.id = wo_staffing_requirement_skills.requirement_id))
-    OR public.has_assignment_on_engagement(
-         (SELECT wo.engagement_id
-            FROM public.wo_staffing_requirements r
-            JOIN public.work_orders wo ON wo.wo_id = r.wo_id
-           WHERE r.id = wo_staffing_requirement_skills.requirement_id))
+    OR public.is_engagement_team_member(public.resolve_wo_req_skill_engagement_id(wo_staffing_requirement_skills.requirement_id))
+    OR public.is_engagement_responsible(public.resolve_wo_req_skill_engagement_id(wo_staffing_requirement_skills.requirement_id))
+    OR public.has_assignment_on_engagement(public.resolve_wo_req_skill_engagement_id(wo_staffing_requirement_skills.requirement_id))
   );
 
 DROP POLICY IF EXISTS wo_staffing_req_skills_write ON public.wo_staffing_requirement_skills;
@@ -218,16 +239,8 @@ CREATE POLICY wo_staffing_req_skills_insert
   FOR INSERT TO authenticated
   WITH CHECK (
     public.is_admin()
-    OR public.is_engagement_team_member(
-         (SELECT wo.engagement_id
-            FROM public.wo_staffing_requirements r
-            JOIN public.work_orders wo ON wo.wo_id = r.wo_id
-           WHERE r.id = wo_staffing_requirement_skills.requirement_id))
-    OR public.is_engagement_responsible(
-         (SELECT wo.engagement_id
-            FROM public.wo_staffing_requirements r
-            JOIN public.work_orders wo ON wo.wo_id = r.wo_id
-           WHERE r.id = wo_staffing_requirement_skills.requirement_id))
+    OR public.is_engagement_team_member(public.resolve_wo_req_skill_engagement_id(wo_staffing_requirement_skills.requirement_id))
+    OR public.is_engagement_responsible(public.resolve_wo_req_skill_engagement_id(wo_staffing_requirement_skills.requirement_id))
   );
 
 DROP POLICY IF EXISTS wo_staffing_req_skills_update ON public.wo_staffing_requirement_skills;
@@ -236,29 +249,13 @@ CREATE POLICY wo_staffing_req_skills_update
   FOR UPDATE TO authenticated
   USING (
     public.is_admin()
-    OR public.is_engagement_team_member(
-         (SELECT wo.engagement_id
-            FROM public.wo_staffing_requirements r
-            JOIN public.work_orders wo ON wo.wo_id = r.wo_id
-           WHERE r.id = wo_staffing_requirement_skills.requirement_id))
-    OR public.is_engagement_responsible(
-         (SELECT wo.engagement_id
-            FROM public.wo_staffing_requirements r
-            JOIN public.work_orders wo ON wo.wo_id = r.wo_id
-           WHERE r.id = wo_staffing_requirement_skills.requirement_id))
+    OR public.is_engagement_team_member(public.resolve_wo_req_skill_engagement_id(wo_staffing_requirement_skills.requirement_id))
+    OR public.is_engagement_responsible(public.resolve_wo_req_skill_engagement_id(wo_staffing_requirement_skills.requirement_id))
   )
   WITH CHECK (
     public.is_admin()
-    OR public.is_engagement_team_member(
-         (SELECT wo.engagement_id
-            FROM public.wo_staffing_requirements r
-            JOIN public.work_orders wo ON wo.wo_id = r.wo_id
-           WHERE r.id = wo_staffing_requirement_skills.requirement_id))
-    OR public.is_engagement_responsible(
-         (SELECT wo.engagement_id
-            FROM public.wo_staffing_requirements r
-            JOIN public.work_orders wo ON wo.wo_id = r.wo_id
-           WHERE r.id = wo_staffing_requirement_skills.requirement_id))
+    OR public.is_engagement_team_member(public.resolve_wo_req_skill_engagement_id(wo_staffing_requirement_skills.requirement_id))
+    OR public.is_engagement_responsible(public.resolve_wo_req_skill_engagement_id(wo_staffing_requirement_skills.requirement_id))
   );
 
 DROP POLICY IF EXISTS wo_staffing_req_skills_delete ON public.wo_staffing_requirement_skills;
@@ -267,16 +264,8 @@ CREATE POLICY wo_staffing_req_skills_delete
   FOR DELETE TO authenticated
   USING (
     public.is_admin()
-    OR public.is_engagement_team_member(
-         (SELECT wo.engagement_id
-            FROM public.wo_staffing_requirements r
-            JOIN public.work_orders wo ON wo.wo_id = r.wo_id
-           WHERE r.id = wo_staffing_requirement_skills.requirement_id))
-    OR public.is_engagement_responsible(
-         (SELECT wo.engagement_id
-            FROM public.wo_staffing_requirements r
-            JOIN public.work_orders wo ON wo.wo_id = r.wo_id
-           WHERE r.id = wo_staffing_requirement_skills.requirement_id))
+    OR public.is_engagement_team_member(public.resolve_wo_req_skill_engagement_id(wo_staffing_requirement_skills.requirement_id))
+    OR public.is_engagement_responsible(public.resolve_wo_req_skill_engagement_id(wo_staffing_requirement_skills.requirement_id))
   );
 
 -- =====================================================================

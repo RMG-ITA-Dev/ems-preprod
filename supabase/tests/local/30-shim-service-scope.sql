@@ -39,7 +39,10 @@ ALTER TABLE public.categories
 -- =====================================================================
 -- 2. engagements: practica (service link) + engagement_state_override
 --    (estado_encargo_0602-135) + the 4 responsible-personnel columns
---    (0602-137, add_engagement_responsible_personnel).
+--    (0602-137, add_engagement_responsible_personnel) + fecha_cierre
+--    (0702-152's sibling migration, 20260702000000_add_closing_date_to_engagements —
+--    NOT NULL with no DEFAULT on a live Supabase; nullable here since the shim's
+--    fixtures always supply it explicitly, but the column must exist for that to work).
 -- =====================================================================
 ALTER TABLE public.engagements
   ADD COLUMN practica                  smallint,
@@ -48,7 +51,8 @@ ALTER TABLE public.engagements
   ADD COLUMN sqr_id                    uuid REFERENCES public.staff (staff_id),
   ADD COLUMN encargado_id              uuid REFERENCES public.staff (staff_id),
   ADD COLUMN specialist_it_id          uuid REFERENCES public.staff (staff_id),
-  ADD COLUMN specialist_tax_id         uuid REFERENCES public.staff (staff_id);
+  ADD COLUMN specialist_tax_id         uuid REFERENCES public.staff (staff_id),
+  ADD COLUMN fecha_cierre              date;
 
 -- =====================================================================
 -- 3. work_orders (base schema, 20251204045534) + approval_status
@@ -56,11 +60,13 @@ ALTER TABLE public.engagements
 --    (one work order per engagement) — kept here for fidelity since C3's
 --    save_wo_staffing resolves the engagement through this FK.
 -- =====================================================================
+-- currency/season_mode deliberately carry NO default, matching 20251204045534 exactly (a shim
+-- DEFAULT here previously masked a live NOT NULL violation the fixtures needed to supply).
 CREATE TABLE public.work_orders (
   wo_id           uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
   engagement_id   uuid NOT NULL UNIQUE REFERENCES public.engagements (engagement_id) ON DELETE CASCADE,
-  currency        varchar(3) NOT NULL DEFAULT 'BOB' CHECK (currency IN ('USD', 'BOB')),
-  season_mode     varchar(4) NOT NULL DEFAULT 'High' CHECK (season_mode IN ('High', 'Low')),
+  currency        varchar(3) NOT NULL CHECK (currency IN ('USD', 'BOB')),
+  season_mode     varchar(4) NOT NULL CHECK (season_mode IN ('High', 'Low')),
   approval_status varchar(20) NOT NULL DEFAULT 'Draft'
     CHECK (approval_status IN ('Draft', 'Pending_Approval', 'Approved', 'Rejected'))
 );

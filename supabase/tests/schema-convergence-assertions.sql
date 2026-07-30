@@ -56,9 +56,12 @@ BEGIN
 
   -- 2. engagement_assignments.status default (G5) — same sonda C2 itself
   --    runs at apply time; re-asserted here as a standing regression guard.
+  --    Compares only the literal (before "::"), not the type suffix — the live
+  --    column can be character varying instead of text depending on how it was
+  --    originally created (Lovable vs. this repo's migrations), same value either way.
   SELECT column_default INTO v_default FROM information_schema.columns
    WHERE table_schema = 'public' AND table_name = 'engagement_assignments' AND column_name = 'status';
-  IF v_default IS DISTINCT FROM '''PROPOSED''::text' THEN
+  IF split_part(v_default, '::', 1) IS DISTINCT FROM '''PROPOSED''' THEN
     RAISE EXCEPTION 'CONVERGENCE FAIL — engagement_assignments.status default drifted from PROPOSED (found %)', v_default;
   END IF;
   RAISE NOTICE 'PASS — engagement_assignments.status default is PROPOSED';
@@ -195,10 +198,12 @@ BEGIN
     (v_cat, 'Convergence Behavior Category', (SELECT service_id FROM public.services WHERE code = 1));
   INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id) VALUES
     (v_client, 'Convergence Behavior Client', 'CONV-TAX-001');
-  INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engagement_state_override) VALUES
-    (v_e_open, v_client, 'Convergence E-open', 1),   -- derived state 1..5/8 -> writable
-    (v_e_term, v_client, 'Convergence E-terminal', 7), -- Finalizado -> locked
-    (v_e_null, v_client, 'Convergence E-null', NULL);  -- no override -> writable
+  -- fecha_cierre is NOT NULL with no DEFAULT on a live Supabase (20260702000000) — the local shim
+  -- has no such column at all, so this must be supplied explicitly to work in both environments.
+  INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engagement_state_override, fecha_cierre) VALUES
+    (v_e_open, v_client, 'Convergence E-open', 1, '2026-09-30'),   -- derived state 1..5/8 -> writable
+    (v_e_term, v_client, 'Convergence E-terminal', 7, '2026-09-30'), -- Finalizado -> locked
+    (v_e_null, v_client, 'Convergence E-null', NULL, '2026-09-30');  -- no override -> writable
 
   -- engagement_accepts_assignment_writes: true for 1..5/8/NULL, false for 6/7/9.
   IF NOT public.engagement_accepts_assignment_writes(v_e_open) THEN
@@ -232,6 +237,17 @@ BEGIN
     v_bystander_auth uuid := 'a0000000-0000-4000-8000-0000000000d2';
     col          text;
   BEGIN
+    -- staff.auth_user_id carries a real FK to auth.users on a live Supabase (the local shim has
+    -- no such table/constraint — this block is a no-op there). Guarded so this works in both.
+    IF to_regclass('auth.users') IS NOT NULL THEN
+      INSERT INTO auth.users (id, instance_id, aud, role, email, encrypted_password,
+                               email_confirmed_at, created_at, updated_at,
+                               raw_app_meta_data, raw_user_meta_data) VALUES
+        (v_auth, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'conv-test-d1@ruizmier.com', 'x', now(), now(), now(), '{}'::jsonb, '{}'::jsonb),
+        (v_bystander_auth, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'conv-test-d2@ruizmier.com', 'x', now(), now(), now(), '{}'::jsonb, '{}'::jsonb)
+      ON CONFLICT (id) DO NOTHING;
+    END IF;
+
     INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, category_id) VALUES
       (v_staff, v_auth, 'Resp', 'Probe', v_cat),
       (v_bystander, v_bystander_auth, 'NotResp', 'Probe', v_cat);

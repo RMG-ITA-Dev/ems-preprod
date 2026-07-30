@@ -33,6 +33,19 @@ Columnas de convergencia agregadas por C2:
 | `can_read_engagement_assignments(uuid)` | D5 | disyunción exacta de las 3 políticas SELECT de `engagement_assignments` (firmwide / manager+team / senior+assignment) — invariante que Phase 5 depende de no romper |
 | **`is_engagement_responsible(uuid)`** | **C1** | `get_my_staff_id()` ∈ {`manager_id`, `partner_id`, `sqr_id`, `encargado_id`, `specialist_it_id`, `specialist_tax_id`} del engagement |
 | **`engagement_accepts_assignment_writes(uuid)`** | **C2** | `engagement_state_override NOT IN (6,7,9)` (o `true` si el override es NULL o el engagement no existe) — 6 Cancelado, 7 Finalizado, 9 Congelado son los únicos estados terminales; 1-5/8 son derivados de la OT y siempre aceptan escritura |
+| **`resolve_wo_engagement_id(uuid)`** | **C1** | `work_orders.engagement_id` dado un `wo_id` — nunca inline en una política (ver nota abajo) |
+| **`resolve_wo_req_skill_engagement_id(uuid)`** | **C1** | igual, resolviendo el join de 2 saltos `wo_staffing_requirement_skills → wo_staffing_requirements → work_orders` dado un `requirement_id` |
+
+> 🔴 **Regla de diseño, no opcional:** cualquier política RLS que necesite resolver un dato estructural
+> a través de OTRA tabla (p. ej. "¿qué engagement es este work order?") debe hacerlo vía un helper
+> `SECURITY DEFINER`, nunca con una subconsulta escrita directo en el `USING`/`WITH CHECK`. Una
+> subconsulta inline corre con los permisos del rol que consulta — sujeta a la RLS de esa OTRA tabla,
+> no a la de la tabla que la política protege. `resolve_wo_engagement_id`/
+> `resolve_wo_req_skill_engagement_id` existen porque la primera versión de C1 violaba esta regla:
+> funcionaba en cualquier entorno donde `work_orders` no tuviera RLS restrictiva (el shim de pruebas, y
+> aparentemente Ruta A/B/C contra Docker), pero se rompía en un Supabase real donde otra rama
+> (`feat/roles-permisos`, Fase 4) ya había reescrito la RLS de `work_orders` con un modelo que no conoce
+> "responsable". Ver `scheduler-fase-2-verificacion.md`, sección "Ejecución en Dev 2.0".
 
 ## 3. Matriz RLS canónica
 

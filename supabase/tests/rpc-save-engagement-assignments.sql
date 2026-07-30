@@ -28,6 +28,22 @@ INSERT INTO public.categories (category_id, category_name, service_id) VALUES
 INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id) VALUES
   ('c1000000-0000-4000-8000-0000000000c1', 'REAS Test Client', 'REAS-TAX-001');
 
+-- staff.auth_user_id carries a real FK to auth.users on a live Supabase (the local shim has no
+-- such table/constraint — this block is a no-op there). Guarded so the fixture works in both.
+-- Tania/Rita are assignment SUBJECTS, never callers, so they stay auth_user_id NULL — no row needed.
+DO $$
+BEGIN
+  IF to_regclass('auth.users') IS NOT NULL THEN
+    INSERT INTO auth.users (id, instance_id, aud, role, email, encrypted_password,
+                             email_confirmed_at, created_at, updated_at,
+                             raw_app_meta_data, raw_user_meta_data) VALUES
+      ('a0000000-0000-4000-8000-0000000000c1', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'reas-test-c1@ruizmier.com', 'x', now(), now(), now(), '{}'::jsonb, '{}'::jsonb),
+      ('a0000000-0000-4000-8000-0000000000c2', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'reas-test-c2@ruizmier.com', 'x', now(), now(), now(), '{}'::jsonb, '{}'::jsonb),
+      ('a0000000-0000-4000-8000-0000000000c3', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'reas-test-c3@ruizmier.com', 'x', now(), now(), now(), '{}'::jsonb, '{}'::jsonb)
+    ON CONFLICT (id) DO NOTHING;
+  END IF;
+END $$;
+
 INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, category_id) VALUES
   ('50000000-0000-4000-8000-0000000000c1', 'a0000000-0000-4000-8000-0000000000c1', 'Mel',   'ManagerLead', 'c0000000-0000-4000-8000-0000000000c1'),
   ('50000000-0000-4000-8000-0000000000c2', 'a0000000-0000-4000-8000-0000000000c2', 'Sam',   'SQR',         'c0000000-0000-4000-8000-0000000000c1'),
@@ -35,14 +51,19 @@ INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, categor
   ('50000000-0000-4000-8000-0000000000c4', NULL,                                    'Tania', 'Target',      'c0000000-0000-4000-8000-0000000000c1'),
   ('50000000-0000-4000-8000-0000000000c5', NULL,                                    'Rita',  'Target2',     'c0000000-0000-4000-8000-0000000000c1');
 
+-- ON CONFLICT DO UPDATE: on a live Supabase, handle_new_user() (20251204051043) already
+-- auto-created a 'staff' user_roles row for each new auth.users id above.
 INSERT INTO public.user_roles (user_id, role) VALUES
   ('a0000000-0000-4000-8000-0000000000c1', 'manager'),
   ('a0000000-0000-4000-8000-0000000000c2', 'sqr'),
-  ('a0000000-0000-4000-8000-0000000000c3', 'staff');
+  ('a0000000-0000-4000-8000-0000000000c3', 'staff')
+ON CONFLICT (user_id) DO UPDATE SET role = EXCLUDED.role;
 
-INSERT INTO public.engagements (engagement_id, client_id, engagement_name, manager_id, sqr_id, practica, engagement_state_override) VALUES
-  ('e0000000-0000-4000-8000-0000000000c1', 'c1000000-0000-4000-8000-0000000000c1', 'REAS E1', '50000000-0000-4000-8000-0000000000c1', '50000000-0000-4000-8000-0000000000c2', 1, NULL),
-  ('e0000000-0000-4000-8000-0000000000c2', 'c1000000-0000-4000-8000-0000000000c1', 'REAS E2 (cancelled)', '50000000-0000-4000-8000-0000000000c1', NULL, 1, 6);
+-- fecha_cierre is NOT NULL with no DEFAULT on a live Supabase (20260702000000) — the local shim
+-- has no such column at all, so this must be supplied explicitly to work in both environments.
+INSERT INTO public.engagements (engagement_id, client_id, engagement_name, manager_id, sqr_id, practica, engagement_state_override, fecha_cierre) VALUES
+  ('e0000000-0000-4000-8000-0000000000c1', 'c1000000-0000-4000-8000-0000000000c1', 'REAS E1', '50000000-0000-4000-8000-0000000000c1', '50000000-0000-4000-8000-0000000000c2', 1, NULL, '2026-09-30'),
+  ('e0000000-0000-4000-8000-0000000000c2', 'c1000000-0000-4000-8000-0000000000c1', 'REAS E2 (cancelled)', '50000000-0000-4000-8000-0000000000c1', NULL, 1, 6, '2026-09-30');
 
 CREATE FUNCTION pg_temp.impersonate(p_sub text) RETURNS void
 LANGUAGE sql AS $$

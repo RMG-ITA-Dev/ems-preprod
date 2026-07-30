@@ -696,15 +696,83 @@ asignación en el engagement donde es responsable, y sigue denegado en un engage
 idempotencia, ver sección "C1-C4 — escritas, corregidas en vivo..." más arriba) — ninguno afectaba una
 corrida limpia desde cero salvo en el caso específico que cada prueba fue diseñada para ejercitar.
 
+## Ejecución en Dev 2.0 (Supabase real, `development` + `feat/roles-permisos`) — 2026-07-30
+
+Tras verificar localmente (shim + Postgres desechable), el operador aplicó las 8 históricas + C1-C4 +
+las 4 pruebas SQL nuevas a mano, por SQL Editor, contra **"Dev 2.0"** — un tercer proyecto Supabase en
+la nube (distinto de Lovable y de `EMS_Dev_Supabase`/"Test"), compartido en vivo con el compañero
+responsable de `feat/roles-permisos`, que ya tiene `development` + esas 17 migraciones aplicadas. Esta
+corrida encontró **4 diferencias reales entre el shim local y el Lovable/`development` real** — ninguna
+relacionada con Q0/versiones duplicadas, todas del tipo que G6/G8 de `plan_v2.md` ya anticipaban
+("fantasmas" de esquema real no capturados por ninguna migración replayable).
+
+### 1-3. Tres columnas con forma distinta a la asumida por el shim — fixtures corregidos
+
+| # | Columna | Diferencia real vs. shim | Fix |
+|---|---|---|---|
+| 1 | `engagement_assignments.status` | Lovable la creó `character varying`, no `text` (la migración `20260716120000` declara `TEXT`, pero su `CREATE TABLE IF NOT EXISTS` no-opeó porque la tabla ya existía) — mismo valor de default, tipo distinto, y la sonda de C2 comparaba el literal completo incl. el cast | Sonda de C2 y de `schema-convergence-assertions.sql` comparan solo `split_part(v_default, '::', 1)`, ignorando el tipo |
+| 2 | `engagements.fecha_cierre` | `NOT NULL` sin `DEFAULT` (`20260702000000`) — el shim no tenía la columna en absoluto | Columna agregada a `30-shim-service-scope.sql`; los 4 archivos de prueba la agregan explícita a cada `INSERT INTO engagements` |
+| 3 | `work_orders.currency` / `season_mode` | `NOT NULL` **sin** `DEFAULT` (`20251204045534`) — el shim tenía `DEFAULT 'BOB'`/`DEFAULT 'High'` por comodidad, enmascarando el problema | Quitado el `DEFAULT` del shim (para que coincida exacto con lo real); los 2 archivos que insertan `work_orders` los agregan explícitos |
+
+Además, `staff.auth_user_id` tiene un FK real a `auth.users` en Lovable/`development` (el shim no tiene
+`auth.users` en absoluto) — los 4 archivos de prueba ahora insertan filas de `auth.users` guardadas con
+`IF to_regclass('auth.users') IS NOT NULL`, y los `INSERT INTO user_roles` pasaron a
+`ON CONFLICT (user_id) DO UPDATE` porque el trigger real `on_auth_user_created`
+(`20251204051043`) auto-crea una fila `user_roles` con rol `'staff'` por cada usuario nuevo.
+Los 4 fixes se reverificaron localmente simulando cada constraint real por separado (y las 3 juntas)
+antes de pedirle al operador que reintentara — cero corridas "a ciegas" contra Dev 2.0.
+
+### 4. Bug real de C1: la RLS de `wo_staffing_requirements` dependía de la RLS de `work_orders`
+
+Al correr `rls-wo-staffing-requirements.sql` en Dev 2.0 (ya con los 3 fixes de arriba), Sam (`sqr_id`
+de E1, sin ningún otro rol calificante) no veía R1 — la aserción "sqr Sam: expected to see R1" falló
+con 0 filas, algo que nunca había fallado en ninguna simulación local.
+
+**Causa raíz:** las políticas de C1 resolvían el `engagement_id` de un work order con una subconsulta
+escrita **directo dentro del `USING`/`WITH CHECK`** de cada política:
+`(SELECT wo.engagement_id FROM public.work_orders wo WHERE wo.wo_id = ...)`. Esa subconsulta corre con
+los permisos del rol que consulta (Sam) — sujeta a la **RLS propia de `work_orders`**, no a la de
+`wo_staffing_requirements`. El shim local nunca tuvo RLS en `work_orders` (tabla sin `ENABLE ROW LEVEL
+SECURITY`), así que el bug era invisible ahí. En Dev 2.0, la **Fase 4 de `feat/roles-permisos`** ya
+reescribió la RLS de `work_orders` con su propio modelo de permisos (`has_permission()`/
+`current_role_key()`), que no reconoce "responsable vía sqr_id/encargado_id/specialist_it_id/
+specialist_tax_id" — exactamente la superficie de coordinación que
+`scheduler-fase-2-rutas-locales.md` §5 marcaba como "ya no hipotética" cuando se revisó esa rama. Sam
+no podía leer su propia fila de `work_orders`, la subconsulta devolvía `NULL`, e
+`is_engagement_responsible(NULL)` daba `false`.
+
+**Fix** (sección 2b de `20260727100000_scheduler_fase2_rls_grants.sql`): 2 funciones nuevas
+`SECURITY DEFINER` — `resolve_wo_engagement_id(uuid)` y `resolve_wo_req_skill_engagement_id(uuid)` (para
+el join de 2 saltos de `wo_staffing_requirement_skills`) — que reemplazan **todas** las subconsultas
+inline contra `work_orders` en las 8 políticas de C1 (select/insert/update/delete × las 2 tablas). Mismo
+patrón que `is_engagement_team_member`/`is_engagement_responsible`/`has_assignment_on_engagement`:
+la pregunta estructural "¿qué engagement es este work order?" no debe depender de si el caller puede
+leer `work_orders` directamente, ni de qué RLS tenga esa tabla en cada rama/entorno.
+
+**Verificación del fix:** además de la corrida local completa (4 lanes, exit 0), se simuló el escenario
+exacto — `work_orders` con RLS habilitada y una política que solo permite `is_admin()` (el mismo
+resultado práctico que la Fase 4 de `feat/roles-permisos` produce para un `sqr` puro) — y se confirmó
+que, con el fix, Sam vuelve a ver y escribir R1 correctamente. Sin el fix, esa misma simulación
+reproduce el fallo exacto reportado desde Dev 2.0.
+
+Este es el **cuarto bug real** encontrado en C1 en esta fase (los 3 anteriores: `vw_staffing_alerts`/
+`authenticated`, idempotencia, y la extensión §3b de responsables — ver secciones previas). Ninguno de
+los 4 afectaba una corrida limpia desde cero en el shim local; los 4 solo aparecieron corriendo contra
+un esquema/entorno más fiel a la realidad (Ruta C con datos sintéticos, o directamente Dev 2.0) —
+confirma que valió la pena escribir las pruebas y correrlas en más de un entorno antes de dar C1-C4 por
+definitivamente cerradas.
+
 ## Próximo paso para el operador
 
-1. Commitear: el fix de C1 (`authenticated` + idempotencia + la extensión de §3b), las 4 pruebas SQL
-   nuevas, el shim `30-shim-service-scope.sql`, y la Lane 4 de `run-rls-tests.sh` — todo pendiente de
-   commit/push.
-2. `git pull` en `EMS_Dev_Local` para traer el fix, y actualizar ahí el fingerprint de Ruta A commiteado
-   (el que se recapturó localmente durante esta verificación, con C1-C4 ya integradas) — el fix de §3b
-   no cambia ningún fingerprint de catálogo ya capturado (solo agrega una política y amplía un `AND` a
-   `OR`, ninguna tabla/columna/grant nuevo), pero conviene recapturar para tener evidencia actualizada.
+1. Commitear: los 4 fixes de C1 (`authenticated`/idempotencia, la extensión de §3b, y el nuevo §2b —
+   `resolve_wo_engagement_id`/`resolve_wo_req_skill_engagement_id`), las 4 pruebas SQL nuevas (con los
+   fixes de fixture para `auth.users`/`fecha_cierre`/`work_orders`), el shim `30-shim-service-scope.sql`,
+   y la Lane 4 de `run-rls-tests.sh` — todo pendiente de commit/push.
+2. `git pull` en `EMS_Dev_Local` para traer los fixes, y actualizar ahí el fingerprint de Ruta A
+   commiteado (el que se recapturó localmente durante esta verificación, con C1-C4 ya integradas) — el
+   fix de §2b agrega 2 funciones nuevas (cambia el fingerprint de catálogo: 2 filas más en `pg_proc`/ACLs
+   de funciones); el de §3b solo agrega una política y amplía un `AND` a `OR` — recapturar para tener
+   evidencia actualizada de ambos.
 3. Limpiar el worktree `../ems-route-c-scratch`.
 4. Resolver Q7 (project refs de integración/efímeros + operador autorizado) — sigue pendiente para la
    verificación oficial contra Supabase real, en paralelo, sin bloquear lo local.
