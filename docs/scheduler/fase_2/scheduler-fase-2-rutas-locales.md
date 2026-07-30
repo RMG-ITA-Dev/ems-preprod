@@ -20,6 +20,13 @@
 > capturado, sin commitear. Detalle en `scheduler-fase-2-verificacion.md`, sección "Ruta B — cierre con
 > el CLI real". Rutas A y C siguen sin ejecutarse; §1.1/§1.2 (gaps de `development`) siguen pendientes
 > y son lo único que falta para correrlas.
+>
+> Actualizado 2026-07-30: **Rutas A y C corridas con el CLI real** (además de B) — gate de paridad
+> pre-convergencia cumplido: A=B idénticos, C diverge solo en `vw_staffing_alerts` (G1, esperado). §3
+> (Ruta C) reescrita con los pasos reales — copia manual de scripts al worktree, `route-c-synthetic-seed.sql`
+> ya escrito, método exacto para derivar las 59 de `development` por diff de nombres — y se agregó §1.0
+> con los gotchas de entorno (Windows/PowerShell) encontrados en el camino. Detalle completo en
+> `scheduler-fase-2-verificacion.md`, sección "Ruta C — corrida completa con datos sintéticos".
 
 ## 0. Estado verificado del entorno
 
@@ -58,6 +65,35 @@
 - **Dos bloqueos conocidos, presentes en TODAS las rutas** porque viven dentro de las 131 migraciones
   de `development` (no son del scheduler): ver §1.1 y §1.2. Cualquier remedio que se decida para ellos
   aplica igual a Ruta A, B y C.
+
+### 1.0. Gotchas de entorno (Windows / PowerShell) — aplican a las 3 rutas
+
+Encontrados ejecutando Ruta C de punta a punta el 2026-07-30; ninguno es de contenido SQL, todos son de
+tooling, y los 3 se repitieron o hubieran repetido en cualquier ruta corrida desde PowerShell:
+
+- **`bash` en PowerShell resuelve al WSL relay roto** (`C:\Windows\system32\bash.exe` /
+  `...\WindowsApps\bash.exe`), no al Git Bash real — falla con
+  `WSL (Relay) ERROR: CreateProcessCommon:800: execvpe(/bin/bash) failed`. Invocar siempre la ruta
+  completa del Git Bash real: `& "C:\Program Files\Git\bin\bash.exe" <script o comando>` (confirmar con
+  `Get-Command bash -All | Select-Object Source` — Git Bash no siempre aparece ahí si no está en el
+  `PATH`; buscarlo con `where.exe bash.exe` o asumir `C:\Program Files\Git\bin\bash.exe` /
+  `...\Git\usr\bin\bash.exe`, ambos suelen existir si Git for Windows está instalado).
+- **Un `cd` salteado no da ningún error — corre silenciosamente contra el directorio/stack equivocado.**
+  Pasó dos veces seguidas armando Ruta C: el operador quedó parado en `EMS_Dev_Local` (139 migraciones,
+  rama `dev-scheduler`) en vez de `../ems-route-c-scratch` (80 migraciones) y el script de pre-seed
+  corrió igual, sin fallar, pero reprodujo Ruta A en vez de Ruta C. **Confirmar el directorio con
+  `Get-Location` (o mirar el prompt) antes de correr cualquier script**, no asumir que el `cd` anterior
+  "pegó".
+- **`supabase migration list` y `supabase db push --include-all` (con o sin `--dry-run`) necesitan
+  `--local`** o el CLI intenta usar un proyecto vinculado (`--project-ref`) en vez del stack Docker
+  local — puede fallar o pedir credenciales que no aplican a un stack efímero. Todos los comandos
+  sueltos de este documento (fuera de los que ya vienen embebidos en
+  `preseed-development-gaps.sh`/`capture-route-fingerprint.sh`, que ya incluyen `--local`) deben
+  llevarlo explícito.
+- **Un worktree de `git worktree add` no trae los scripts de Fase 2.** `sruizmier-scheduler-v3` (la
+  rama que usa Ruta C) no tiene `supabase/tests/local/preseed-development-gaps.sh`,
+  `capture-route-fingerprint.sh`, ni `supabase/tests/fixtures/route-c-synthetic-seed.sql` — hay que
+  copiarlos manualmente al worktree antes de correr nada (ver §3, paso 2).
 
 ### 1.1. Bloqueo — rename de categorías nunca capturado
 
@@ -201,11 +237,12 @@ fue renombrar, no reaplicar contenido en migraciones nuevas.
 ### Pasos para reproducir/continuar desde cero
 
 1. Confirmar que no hay datos en el stack que quieras conservar (sandbox local, pero confirmar antes).
-2. `supabase db reset` (139 migraciones, ya sin timestamps duplicados desde el 2026-07-29).
+2. `supabase db reset --local` (139 migraciones, ya sin timestamps duplicados desde el 2026-07-29).
 3. Aplicar migraciones con el CLI real — vas a topar con §1.1/§1.2 (parchear como se indica ahí);
    **Q0 ya no debería aparecer** (verificar: `ls supabase/migrations/ | sed -E 's/^([0-9]{14})_.*/\1/'
    | sort | uniq -d` debe salir vacío).
-4. `supabase migration list` + `supabase db push --dry-run --include-all` deben dar 0 pendientes.
+4. `supabase migration list --local` + `supabase db push --dry-run --include-all --local` deben dar 0
+   pendientes (el `--local` es obligatorio — ver §1.0 — o el CLI intenta usar un proyecto vinculado).
 5. Harness RLS ya portado (`npm run test:rls`): usa su propia `createdb`/`dropdb` efímera, no
    interfiere con este stack; ya se verificó que pasa (ver `scheduler-fase-2-verificacion.md`).
 6. Capturar fingerprint de Ruta B (aclarar "B sin C1-C4", pre-convergencia).
@@ -222,36 +259,72 @@ antes del último commit de `main` en abril). Van a aparecer en el **paso 2** (e
 migraciones), no recién en el paso 4 como se pensaba antes. Q0 ya no debería aparecer en ningún punto
 (resuelto por renombrado, ver §6) — confirmar igual con el chequeo de duplicados.
 
+**Corrida completa el 2026-07-30** (ver `scheduler-fase-2-verificacion.md`, sección "Ruta C — corrida
+completa con datos sintéticos y CLI real", para el resultado y el diff contra A/B). Pasos reales,
+reproducibles:
+
 1. ```bash
+   git fetch origin sruizmier-scheduler-v3
    git worktree add ../ems-route-c-scratch origin/sruizmier-scheduler-v3
    ```
-   (de solo lectura; no se commitea nada ahí; se borra al terminar).
-2. Desde `../ems-route-c-scratch`, resetear el **mismo** stack Docker (mismo `project_id` ⇒ mismos
-   contenedores, aunque se invoque desde otro directorio) usando su propia carpeta
-   `supabase/migrations/` (72 base + 8 scheduler = 80, sin las 59 de `development`). Usar el script de
-   pre-seed en vez de `supabase db reset` solo — acá es donde va a toparse con §1.1/§1.2:
+   (de solo lectura; no se commitea nada ahí; se borra al terminar). Confirmar el conteo:
+   `ls supabase/migrations | wc -l` → **80** (72 base + 8 scheduler).
+2. **El worktree no trae los scripts/fixture de Fase 2** (viven en `dev-scheduler`, no en
+   `sruizmier-scheduler-v3`) — copiarlos antes de correr nada, parado dentro de `../ems-route-c-scratch`
+   (confirmar con `Get-Location` — ver §1.0):
+   ```powershell
+   New-Item -ItemType Directory -Force supabase\tests\local, supabase\tests\fixtures | Out-Null
+   Copy-Item ..\<repo-dev-scheduler>\supabase\tests\local\preseed-development-gaps.sh    supabase\tests\local\
+   Copy-Item ..\<repo-dev-scheduler>\supabase\tests\local\capture-route-fingerprint.sh   supabase\tests\local\
+   Copy-Item ..\<repo-dev-scheduler>\supabase\tests\fixtures\route-c-synthetic-seed.sql  supabase\tests\fixtures\
+   ```
+   Resetear el **mismo** stack Docker (mismo `project_id` ⇒ mismos contenedores, aunque se invoque desde
+   otro directorio) usando la carpeta `supabase/migrations/` propia del worktree (80 archivos). Usar el
+   script de pre-seed en vez de `supabase db reset` solo — acá es donde va a toparse con §1.1/§1.2 (ya
+   presentes en los 72 base — confirmado 2026-07-29/30, no hace falta esperar al paso 4):
    ```bash
    bash supabase/tests/local/preseed-development-gaps.sh
-   supabase migration list        # 80 aplicadas
+   supabase migration list --local                              # 80 aplicadas
+   supabase db push --dry-run --include-all --local              # up to date
    ```
 3. *(Pedido explícito de Plan v2 para Ruta C)* Sembrar datos sintéticos representativos antes del
    paso 4, para ejercitar backfills/`NOT NULL`/conversión de estados sobre datos "reales-equivalentes".
-4. Traer las 59 de `development` que faltan: copiar (no commitear) esos 59 archivos desde
-   `dev-scheduler` a `../ems-route-c-scratch/supabase/migrations/`, luego:
+   Script ya escrito y validado — `supabase/tests/fixtures/route-c-synthetic-seed.sql` (puebla `skills`,
+   `staff_skills`, `wo_staffing_requirements`, `wo_staffing_requirement_skills` y
+   `engagement_assignments` sobre la semilla base ya existente, usando email/`engagement_code` como
+   identificadores estables en vez de UUIDs hardcodeados):
    ```bash
-   supabase db push --include-all
+   PGCLIENTENCODING=UTF8 psql postgresql://postgres:postgres@127.0.0.1:54322/postgres \
+     -v ON_ERROR_STOP=1 -f supabase/tests/fixtures/route-c-synthetic-seed.sql
+   ```
+4. Traer las 59 de `development` que faltan. Para derivarlas de forma exacta (no a mano — el listado
+   cambia si `development` gana migraciones) diffear los nombres de archivo entre el worktree (80) y
+   `dev-scheduler` (139):
+   ```bash
+   ls supabase/migrations | sort > /tmp/c_80.txt
+   ls ../<repo-dev-scheduler>/supabase/migrations | sort > /tmp/devscheduler_139.txt
+   comm -13 /tmp/c_80.txt /tmp/devscheduler_139.txt > /tmp/dev_only_59.txt   # 59 líneas esperadas
+   ```
+   Copiar (no commitear) esos 59 archivos a `../ems-route-c-scratch/supabase/migrations/`, confirmar
+   `(Get-ChildItem supabase\migrations).Count` → **139**, luego:
+   ```bash
+   supabase db push --include-all --local
    ```
    §1.1/§1.2 ya deberían estar resueltos desde el paso 2 — este push no debería toparse con ningún
-   bloqueo nuevo de ese tipo. Registrar el comportamiento de las migraciones destructivas/de datos
+   bloqueo nuevo de ese tipo (confirmado 2026-07-30: las 59 corrieron sin ningún bloqueo, incluidas
+   `service_scoped_categories.sql` y `worksheet_service_scope.sql`, que tocan directamente las tablas
+   sembradas en el paso 3). Registrar el comportamiento de las migraciones destructivas/de datos
    mencionadas en Plan v2 (`drop_expense_logs`, `service_scoped_categories`, `estado_encargo_0602-135`)
    sobre los datos sintéticos del paso 3.
 5. Confirmar convergencia:
    ```bash
-   supabase migration list                    # 139 aplicadas
-   supabase db push --dry-run --include-all   # 0 pendientes
+   supabase migration list --local                    # 139 aplicadas
+   supabase db push --dry-run --include-all --local   # 0 pendientes
    ```
 6. Aplicar las migraciones de convergencia (C1-C4, ya escritas para entonces).
-7. Capturar fingerprint de Ruta C.
+7. Capturar fingerprint de Ruta C: `bash supabase/tests/local/capture-route-fingerprint.sh ruta_c`,
+   copiar los 4 archivos resultantes a `<repo-dev-scheduler>/supabase/tests/fixtures/route-fingerprints/`
+   para diffear contra A/B (sin commitear hasta confirmar con el operador).
 8. Limpiar: `git worktree remove ../ems-route-c-scratch`.
 
 ## 4. Ruta A — al cerrar Fase 7 (instalación limpia completa)
@@ -263,12 +336,14 @@ resuelto por renombrado — no debería aparecer.
    el script de pre-seed en vez de `supabase db reset` solo:
    ```bash
    bash supabase/tests/local/preseed-development-gaps.sh
-   supabase migration list                    # 139+4 aplicadas, orden cronológico puro
-   supabase db push --dry-run --include-all   # 0 pendientes
+   supabase migration list --local                    # 139+4 aplicadas, orden cronológico puro
+   supabase db push --dry-run --include-all --local   # 0 pendientes
    ```
 2. Capturar fingerprint de Ruta A (`bash supabase/tests/local/capture-route-fingerprint.sh ruta_a`).
 3. Comparar los 3 fingerprints (A/B/C) → diff vacío = gate de paridad cumplido = esquema canónico
-   confirmado (criterio de aceptación central de Fase 2).
+   confirmado (criterio de aceptación central de Fase 2). Confirmado 2026-07-30 (pre-convergencia, sin
+   C1-C4 todavía): A=B idénticos; C diverge únicamente en `vw_staffing_alerts` (G1, esperado) — ver
+   `scheduler-fase-2-verificacion.md`.
 
 ## 5. `feat/roles-permisos` — dónde encaja
 

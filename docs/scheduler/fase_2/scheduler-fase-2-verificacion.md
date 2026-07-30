@@ -1,4 +1,4 @@
-# Fase 2 — Verificación (ejecución parcial, 2026-07-27 — actualizado 2026-07-29)
+# Fase 2 — Verificación (ejecución parcial, 2026-07-27 — actualizado 2026-07-30)
 
 > Fuente: `bugs/scheduler/fase_2/issue_fase_2.md` + `bugs/scheduler/fase_2/plan_v2.md`.
 > Rama: `dev-scheduler` (por decisión explícita del operador — no se creó `scheduler/phase-2-*`).
@@ -7,11 +7,15 @@
 > escribieron**. El 2026-07-28 se intentó el preflight de Q0 localmente (§ "Ruta B — intento de
 > catch-up local"); ver esa sección para el resultado y sus matices.
 >
-> **Estado al 2026-07-29: Q0 resuelto (renombrado), Ruta B cerrada con evidencia oficial del CLI real,
-> y los dos gaps de `development` resueltos con un script de pre-seed**
-> (`supabase/tests/local/preseed-development-gaps.sh`) — ver secciones "Q0 — RESUELTO por renombrado"
-> y "Ruta B — cierre con el CLI real" más abajo. Sigue pendiente: Q7, y correr Rutas A/C con el script
-> ya listo.
+> **Estado al 2026-07-30: Q0 resuelto (renombrado), Ruta B cerrada con evidencia oficial del CLI real,
+> los dos gaps de `development` resueltos con un script de pre-seed, y las 3 rutas (A, B, C) corridas
+> con el CLI real** (schema/catálogo/policies/grants idénticos entre A y B; C diverge únicamente en el
+> punto que G1 ya predecía — `vw_staffing_alerts` — confirmando el hallazgo en vivo) — ver secciones
+> "Q0 — RESUELTO por renombrado", "Ruta B — cierre con el CLI real", "Ruta B recapturada — paridad A↔B
+> confirmada" y "Ruta C — corrida completa con datos sintéticos" más abajo. El gate de paridad de las 3
+> rutas queda cerrado a nivel pre-convergencia (falta repetir con C1-C4 cuando existan). Sigue
+> pendiente: Q7 (verificación oficial contra Supabase real, en paralelo, no bloquea lo local) y escribir
+> C1-C4.
 
 ## Por qué el alcance es parcial
 
@@ -473,18 +477,105 @@ sin ninguna fila con la columna "remoto" vacía; `supabase db push --dry-run --i
   corrige la tabla de tracking — no deshace el DDL ya ejecutado.** El efecto sobre la vista quedó
   grabado en esa base, y es exactamente lo que capturó el fingerprint de Ruta B commiteado.
 
-  **Conclusión:** no es una discrepancia real entre Ruta A y Ruta B con el flujo actual (script de
-  pre-seed + 139 migraciones + rename de Q0) — es un artefacto de cuándo se capturó el fingerprint de
-  Ruta B (antes de que se terminara de limpiar la contaminación de la sesión anterior). Recapturar
-  Ruta B ahora, desde un reset limpio con los archivos obsoletos ya fuera del repo, debería dar diff
-  vacío contra Ruta A — pendiente de que el operador lo confirme y decida si recapturar y volver a
-  commitear el fingerprint de Ruta B.
+  **Conclusión:** no era una discrepancia real entre Ruta A y Ruta B con el flujo actual (script de
+  pre-seed + 139 migraciones + rename de Q0) — era un artefacto de cuándo se capturó el fingerprint de
+  Ruta B (antes de que se terminara de limpiar la contaminación de la sesión anterior).
+
+### Ruta B recapturada — paridad A↔B confirmada (2026-07-29)
+
+Recapturado el fingerprint de Ruta B desde un reset limpio (script de pre-seed, sin ningún archivo de
+`draft-migrations/` presente). Diff final contra Ruta A, **verificado de forma independiente en este
+repo** (no solo relayado):
+
+```
+$ diff ruta_a_schema.sql ruta_b_schema.sql
+5c5 / 13529c13529   ← solo \restrict/\unrestrict (token aleatorio de sesión de pg_dump 18, ruido conocido)
+$ diff ruta_a_catalog.txt ruta_a_catalog_policies.txt ruta_a_catalog_grants.txt  (vs. ruta_b_*)
+(vacío en los 3)
+```
+
+**Ruta A y Ruta B son idénticas** (schema, catálogo, policies y grants) descontando el ruido de
+`pg_dump`. Confirma `fund_request_selectable_work_orders` con la cláusula correcta de
+`estado_encargo_0602-135` en ambas rutas. **Gate de paridad de Plan v2 cumplido entre A y B**
+(pre-convergencia — falta repetir con C1-C4 cuando existan, y agregar Ruta C).
+
+## Ruta C — corrida completa con datos sintéticos y CLI real (2026-07-30, worktree `../ems-route-c-scratch`)
+
+Ejecutada siguiendo §3 de `scheduler-fase-2-rutas-locales.md`, con Claude Code operando el worktree
+paso a paso (el operador ejecutó cada comando; Claude Code preparó los scripts/seed y verificó los
+resultados) — mismo patrón que Ruta B.
+
+1. **Worktree:** `git worktree add ../ems-route-c-scratch origin/sruizmier-scheduler-v3` (detached HEAD
+   en `c1cb303`) — 80 migraciones (72 base + 8 scheduler), confirmado por conteo y por diff de nombres
+   contra las 139 de `dev-scheduler`. Los scripts de Fase 2 (`preseed-development-gaps.sh`,
+   `capture-route-fingerprint.sh`) no existen en `sruizmier-scheduler-v3` — se copiaron manualmente al
+   worktree antes de correr nada.
+2. **`preseed-development-gaps.sh` sobre las 80:** se detuvo exactamente en `20260224065512` y
+   `20260224065539` (los mismos 2 bloqueos de siempre, ya presentes en los 72 base — confirmado antes
+   en §3 de `rutas-locales.md`), aplicó los 2 parches conocidos, y cerró con `supabase migration list`
+   → 80/80 y `db push --dry-run --include-all --local` → "up to date".
+3. **Datos sintéticos (`supabase/tests/fixtures/route-c-synthetic-seed.sql`, nuevo):** pedido explícito
+   de Plan v2 para Ruta C, antes ausente (marcado "aún inexistente" en la sesión anterior). Puebla,
+   sobre la semilla base ya existente (`staff`, `clients`, `engagements`, `work_orders` de
+   `20251204045534`), las tablas propias del scheduler: 2 `skills`, 2 `staff_skills`, 2
+   `wo_staffing_requirements` + 2 `wo_staffing_requirement_skills` (sobre el work order base
+   `MSC-2024-AUD`), y 4 `engagement_assignments` repartidas entre los 2 engagements base. Usa
+   identificadores estables (email, `engagement_code`) en vez de UUIDs hardcodeados, ya que las FKs se
+   generan en el insert de la semilla base. Dos bugs de autoría corregidos en el camino (ambos de forma
+   del SQL, no de datos): `CROSS JOIN LATERAL` debe preceder a cualquier JOIN que referencie su alias
+   (Postgres no permite adelante-referencias entre JOINs); `skills.category` no es texto libre — una
+   migración posterior (`20260412140000`) la restringe a un code-set fijo
+   (`framework`/`industry`/`tool`/`language`/`certification`/`other`). Verificado con
+   `service_scoped_categories.sql`/`_fixes.sql` (backfill incondicional de `categories.service_id`,
+   sin depender de los datos del scheduler) que el seed no arriesgaba romper esa migración.
+4. **Copiar las 59 de `development` + `db push --include-all --local`:** las 59 (identificadas por diff
+   exacto de nombres entre las 80 del worktree y las 139 de `dev-scheduler`) se aplicaron **sin ningún
+   bloqueo nuevo** — incluidas `service_scoped_categories.sql` y `worksheet_service_scope.sql`, que son
+   justo las que tocan las tablas donde se sembraron los datos sintéticos.
+5. **Convergencia:** `supabase migration list --local` → 139/139 con Local = Remote en todas las filas;
+   `db push --dry-run --include-all --local` → "up to date".
+6. **Fingerprint:** `capture-route-fingerprint.sh ruta_c`, copiado (sin commitear) a
+   `supabase/tests/fixtures/route-fingerprints/` junto a los de A y B.
+
+### Diff Ruta C vs Ruta A/B — confirma G1 en vivo, en las 3 rutas reales
+
+- `catalog_policies.txt`: diff vacío contra A y contra B — 216 policies idénticas.
+- `catalog.txt`: solo diferencias de tamaño físico (`8192 bytes` vs `16 kB` en 4 tablas) — bloat
+  esperado por los datos del seed sintético, no una diferencia de esquema.
+- `catalog_grants.txt`: **1 diferencia real** — Ruta C tiene 14 filas de más: `vw_staffing_alerts` con
+  todos los privilegios (`SELECT/INSERT/UPDATE/DELETE/REFERENCES/TRIGGER/TRUNCATE`) concedidos a `anon`
+  y a `authenticated` (1261 filas vs 1247 en A/B).
+- `schema.sql`: descontando el ruido conocido (`\restrict`/`\unrestrict` de `pg_dump`, y las particiones
+  diarias `realtime.messages_2026_MM_DD` que Supabase Realtime rota automáticamente por fecha —
+  irrelevante al esquema, solo refleja que Ruta C se capturó un día después de Ruta A), **una sola línea
+  real distinta:**
+  ```
+  Ruta C:  CREATE VIEW public.vw_staffing_alerts AS
+  Ruta A:  CREATE VIEW public.vw_staffing_alerts WITH (security_invoker='true') AS
+  ```
+
+**Es exactamente G1 de `plan_v2.md`, confirmado empíricamente por primera vez en las 3 rutas reales**
+(antes solo A↔B). Causa: en C las 8 migraciones del scheduler corren *antes* de que `vw_staffing_alerts`
+exista (development aún no se aplicó), así que el paso que hace
+`ALTER VIEW ... SET (security_invoker = true)` se saltea (`to_regclass` da NULL, ver
+`20260720194555`/`20260720194653` sección B); cuando development crea la vista después, nadie vuelve a
+poner `security_invoker`. Resultado: en C la vista queda sin `security_invoker` y con grants abiertos a
+`anon` — un bypass de RLS más serio que el simple GRANT que ya documentaba G1 originalmente.
+
+**Hallazgo nuevo para cuando se escriba C1:** el borrador de C1 en `plan_v2.md` solo dice "restaurar el
+`GRANT SELECT ... TO authenticated`" — pero esta corrida muestra que C1 también necesita reafirmar
+`ALTER VIEW public.vw_staffing_alerts SET (security_invoker = true)` y revocar el acceso de `anon`, o
+Ruta C seguiría divergiendo después de C1. A incorporar al alcance de C1 cuando se escriba.
+
+**Gate de paridad de Plan v2 cumplido pre-convergencia en las 3 rutas: A = B, y C diverge únicamente en
+el punto que G1 ya predecía** (nada inesperado).
 
 ## Próximo paso para el operador
 
-1. Resolver Q7 (project refs de integración/efímeros + operador autorizado) — es lo único que falta
-   para correr Rutas A y C; el script de pre-seed y el renombrado de Q0 ya están listos.
-2. Correr Rutas A y C (§3/§4 de `scheduler-fase-2-rutas-locales.md`, usando
-   `preseed-development-gaps.sh` en vez de `supabase db reset` solo) y comparar los 3 fingerprints
-   (con `capture-route-fingerprint.sh`) — gate de paridad de Plan v2.
-3. Recién ahí, retomar Plan v2 desde C1 (RLS y grants canónicos).
+1. Resolver Q7 (project refs de integración/efímeros + operador autorizado) — sigue pendiente para la
+   verificación oficial contra Supabase real, en paralelo, sin bloquear lo local.
+2. Retomar Plan v2 desde C1 (RLS y grants canónicos) — incorporando el hallazgo nuevo de arriba
+   (`security_invoker` + revoke de `anon` en `vw_staffing_alerts`, no solo el GRANT) — y repetir la
+   captura de fingerprint en las 3 rutas una vez existan C1-C4, para el gate de paridad final.
+3. Limpiar el worktree `../ems-route-c-scratch` cuando ya no haga falta reinspeccionarlo
+   (`git worktree remove`).
