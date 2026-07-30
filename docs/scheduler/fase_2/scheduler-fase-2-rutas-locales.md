@@ -347,16 +347,46 @@ resuelto por renombrado — no debería aparecer.
 
 ## 5. `feat/roles-permisos` — dónde encaja
 
-- Se puede mergear a `development` en cualquier momento sin afectar los timestamps ni el contenido
-  de las migraciones del scheduler **hoy**. Si se mergea antes de correr Ruta B/C, sus 3 migraciones
-  simplemente se suman al lote de `development` que cada ruta aplica.
-- **Antes de escribir C1** (RLS canónica del scheduler), volver a revisar el estado de esa rama por si
-  ya avanzó a su "Fase 3/4" (RLS real consumiendo `has_permission()`) — eso sería un frente de drift
-  nuevo sobre los mismos helpers que C1 toca (mismo tipo de riesgo que G7, pero por reemplazo total
-  del modelo de autorización en vez de solo cobertura incompleta).
-- Si en algún punto esa iniciativa reescribe RLS de tablas que el scheduler también gobierna
-  (`engagement_assignments`, `wo_staffing_requirements`), ahí sí se necesita coordinación explícita
-  entre ambas iniciativas — no es automatizable con un simple chequeo de timestamps.
+> Revisión original (2026-07-28): 3 commits, 100% aditiva, "Fase 4" (RLS real) todavía no hecha.
+> **Revisado de nuevo el 2026-07-30** — la rama avanzó mucho más de lo que decía esta sección; ver
+> hallazgos abajo, verificados por contenido (no solo por nombre de archivo).
+
+### Estado verificado 2026-07-30
+
+- **20 commits** sobre el mismo punto de partida que `dev-scheduler` (`faa3d6b`), con migraciones hasta
+  `20260724000000_authz_fase1_catalog.sql` … `20260729010000_restore_storage_object_policies.sql` (17
+  migraciones nuevas, no 3). Sí llegó a su "Fase 4" (RLS real) — ver abajo.
+- **🟢 Sin colisión con las tablas propias del scheduler, confirmado por contenido:** ninguna de las 17
+  migraciones nuevas menciona `engagement_assignments` ni `wo_staffing_requirement*` (grep sobre cada
+  archivo, cero coincidencias). Tampoco redefinen `is_engagement_team_member()`, `is_admin()` ni
+  `has_role()` — solo agregan funciones nuevas (`has_permission()`, `current_role_key()`,
+  `permission_scope()`, `get_my_authorization_context()`). El helper nuevo que va a crear C1
+  (`is_engagement_responsible`) y las políticas que C1/C2 escriban sobre `wo_staffing_requirements` /
+  `engagement_assignments` no tienen ningún frente de drift con esta rama.
+- **🟡 La "Fase 4" (RLS real) ya pasó — reescribe políticas en tablas que el scheduler sí toca
+  indirectamente:** `work_orders`, `engagements`, `clients`, `activity_worksheets`, `wo_budget_lines`,
+  `wo_expense_budget`, `wo_payment_plan`, `wo_payment_installments` (olas B1/B2a/B2b/C/D/E/F). No choca
+  con C3 (`save_wo_staffing`, `SECURITY DEFINER`, autorización propia que no depende de la RLS de
+  `work_orders`), pero si en algún momento se unifican ambos modelos de autorización, esta es la
+  superficie real de coordinación — ya no es hipotético.
+- **🔴 `feat/roles-permisos` todavía tiene los 5 pares de Q0 sin renombrar, activos** (verificado con
+  `git ls-tree` + el mismo chequeo de duplicados de §1.0: `20260521000000`, `20260527000000`,
+  `20260626000000`, `20260702000000`, `20260703000000` siguen duplicados). La rama se creó antes del
+  rename de Q0 en `dev-scheduler` (2026-07-29) y nunca lo recibió. **Cualquiera que corra
+  `supabase db reset`/`db push --include-all` sobre esa rama (o sobre `development` después de
+  mergearla, antes de que llegue el rename) va a pegar el mismo error de PK duplicada de Q0** — no es
+  teórico, ya se reprodujo una vez en `dev-scheduler`. Acción recomendada (no bloquea Fase 2 del
+  scheduler; avisar al responsable de esa rama): mergear/cherry-pickear el commit del rename de Q0 hacia
+  `feat/roles-permisos` antes de que alguien la reconstruya desde cero.
+- **🟢 Detalle menor, inofensivo:** `20260729010000_restore_storage_object_policies.sql` recrea (con
+  `DROP POLICY IF EXISTS` + `CREATE POLICY`) las mismas 4 políticas de `storage.objects` para
+  `engagement-contracts` que ya crea `20260702000001_add_engagement_contract_file.sql` (de
+  `development`) — contenido idéntico, orden cronológico correcto, no-op redundante.
+- **Piso de timestamps de C1-C4:** el plan fija `20260727100000-130000` asumiendo que nada más nuevo
+  existía. `feat/roles-permisos` ya llega hasta `20260729010000` — sin colisión exacta hoy, pero cuando
+  se escriban C1-C4 hay que re-verificar el piso contra **ambas** ramas (`development` y
+  `feat/roles-permisos`), no solo `development` (esto ya lo pedía Plan v2 — "re-verificar contra la
+  rama de integración inmediatamente antes de crearlas" — pero ahora aplica a dos ramas, no una).
 
 ## 6. Decisiones — resueltas / con script listo
 
