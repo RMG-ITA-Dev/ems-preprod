@@ -120,3 +120,67 @@ repositorio.
 **Ninguna migración nueva en esta fase.** El contrato de lectura ya existe desde Fase 2
 (hasta `supabase/migrations/20260727130000_...sql`). El piso de timestamp citado en el prompt original
 (`20260720194653`) estaba desactualizado; el real, verificado en el working tree, es `20260727130000`.
+
+## 7. Despliegue de las Edge Functions en un proyecto de prueba
+
+`scheduler-data` y `scheduler-gaps` **no están registradas en `supabase/config.toml`** (a propósito — su
+registro/deploy queda fuera de alcance de Fase 3, ver Open Question §5 del plan). Para probar el Scheduler
+end-to-end en un proyecto de Supabase de integración (nunca en el proyecto de Lovable), hay que desplegarlas
+manualmente desde el repo que tenga el CLI vinculado a ese proyecto (`EMS_Dev_Supabase`, **no** este repo):
+
+```powershell
+supabase functions deploy scheduler-data
+supabase functions deploy scheduler-gaps
+```
+
+El CLI pregunta interactivamente a qué proyecto apuntar (lista todos los proyectos de la cuenta) — elegir
+siempre el de integración/prueba (p. ej. "Supabase-Dev 2.0"), nunca el proyecto conectado a Lovable. El
+warning `Docker is not running` es inofensivo (solo afecta emulación local, no el deploy remoto).
+
+**Verificación rápida tras el deploy:** recargar `/scheduler` y `/scheduler/gaps` en la app — si el mensaje
+`scheduler.errors.unavailable` ("El servicio del Planificador aún no está disponible") desaparece y se ve
+contenido real (Gantt o KPIs de Brechas) o un estado vacío, el deploy fue exitoso. Ese mensaje específico
+indica función no alcanzable (deploy pendiente o CORS), a diferencia de `scheduler.errors.loadFailed`
+("No se pudo cargar la programación" + botón Reintentar), que indica que la función respondió pero con un
+error — ver §8.
+
+## 8. Comportamiento fail-closed de integridad de datos en `scheduler-gaps` (hallazgo de verificación manual)
+
+Durante la verificación manual en un proyecto de prueba real (datos no curados, a diferencia de los fixtures
+de test), la página de Brechas mostró `scheduler.errors.loadFailed` en las tres acciones con ventana de
+fechas (`category-headcount-gap`, `category-hours-gap`, `competency-shortage`) mientras que el Planificador
+GANTT (`scheduler-data`) cargaba sin problema con el mismo rango de fechas.
+
+**Causa:** `readWindowEngagements()` (compartida por las tres acciones) valida estrictamente
+`start_date`/`end_date` de **cada** engagement dentro de la ventana consultada (D-P6-18, fail-closed) y
+aborta la acción completa con `500 data_integrity` si encuentra una sola fila con fechas invertidas o mal
+formateadas — nombrando el `engagement_id` afectado en el mensaje. `scheduler-data` no aplica esta misma
+validación estricta sobre `engagements`, por eso el Planificador GANTT no lo detecta.
+
+En este caso puntual, el encargo de prueba "Prueba-fondo-7" (`2027.121.006`) tenía `end_date` (2026-07-13)
+anterior a `start_date` (2026-07-15) — dato cargado al revés, no un bug de código. Al corregir las fechas,
+Brechas cargó normalmente.
+
+**Diagnóstico (cuando aparezca `scheduler.errors.loadFailed`):**
+1. Supabase Dashboard → Edge Functions → `scheduler-gaps` → pestaña **Logs**: buscar líneas
+   `{"fn":"scheduler-gaps","action":...,"status":500,...}` para identificar qué acción(es) fallan y con qué
+   frecuencia.
+2. Para el mensaje de error exacto (`error.code`/`error.message`), el Dashboard no lo expone directo en
+   "Invocations" — es más rápido abrir el navegador (F12) → pestaña **Network** → filtrar por
+   `scheduler-gaps` → clic en una petición `POST` en rojo (500) → pestaña **Response**: ahí aparece el JSON
+   `{"error":{"code":"data_integrity","message":"..."}}` (u otro código: `query_failed`,
+   `schema_not_ready`).
+3. Si el código es `data_integrity` y el mensaje nombra una tabla/fila de `engagements`, correr en el SQL
+   Editor del proyecto (solo lectura, no modifica nada):
+   ```sql
+   SELECT engagement_id, engagement_code, engagement_name, start_date, end_date
+   FROM engagements
+   WHERE end_date < start_date;
+   ```
+   para encontrar de una vez **todos** los encargos con fechas invertidas (puede haber más de uno) en vez de
+   corregirlos uno por uno por prueba y error. Corregir desde la UI (editar Encargo) o con un `UPDATE`
+   puntual.
+
+Este comportamiento es **intencional** (D-P6-18, probado en `scheduler-gaps.handler.test.ts`), no un defecto
+a corregir: la alternativa de omitir la fila corrupta y seguir calculando produciría una brecha basada en
+datos parcialmente inválidos, sin aviso.
