@@ -406,6 +406,50 @@ describe("scheduler-l1 error semantics (errors are errors)", () => {
     expect(res.status).toBe(500);
     expect(res.payload).toMatchObject({ error: { code: "query_failed" } });
   });
+
+  it("effective-state query failures yield the 500 envelope instead of derived fallback states", async () => {
+    const c = ctx("admin", null);
+    c.failTable("engagement_wo_state", { code: "XX000", message: "boom" });
+    const res = await handleAction(c, L1_BODY);
+    expect(res.status).toBe(500);
+    expect(res.payload).toMatchObject({ error: { code: "query_failed" } });
+  });
+});
+
+describe("scheduler-l1 senior assignment pagination", () => {
+  it("keeps an engagement visible when its assignment is on the second PostgREST page", async () => {
+    const fixtures = baseFixtures();
+    fixtures.engagement_assignments = fixtures.engagement_assignments.filter(
+      (a) => a.assignment_id !== "a3"
+    );
+    for (let i = 0; i < 1000; i++) {
+      fixtures.engagement_assignments.push({
+        assignment_id: `noise-${String(i).padStart(4, "0")}`,
+        engagement_id: E5,
+        staff_id: SEN,
+        start_date: "2024-01-01",
+        end_date: "2024-12-31",
+        deleted_at: null,
+      });
+    }
+    fixtures.engagement_assignments.push({
+      assignment_id: "zz-visible",
+      engagement_id: E3,
+      staff_id: SEN,
+      start_date: "2026-01-15",
+      end_date: "2026-12-15",
+      deleted_at: null,
+    });
+
+    const res = await handleAction(
+      ctx("senior", SEN, fixtures, { serverRowCap: 1000 }),
+      L1_BODY
+    );
+    expect(res.status).toBe(200);
+    expect((res.payload as { rows: { engagement_id: string }[] }).rows).toEqual(
+      expect.arrayContaining([expect.objectContaining({ engagement_id: E3 })])
+    );
+  });
 });
 
 describe("scheduler-l1 truncation at the 500 cap (tests at 499/500/501)", () => {

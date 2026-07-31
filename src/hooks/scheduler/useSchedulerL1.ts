@@ -8,6 +8,7 @@
 // legacy `engagements.status`.
 
 import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/useAuth";
 import { SCHEDULER_L1_KEY } from "./keys";
 import {
   invokeSchedulerData,
@@ -34,10 +35,13 @@ export interface SchedulerL1Input {
 }
 
 export function useSchedulerL1Rows(input: SchedulerL1Input) {
+  const { user } = useAuth();
+  const viewerId = user?.id;
   const statusFilter = input.statusFilter ?? "all";
   return useQuery<SchedulerL1Result, Error>({
     queryKey: [
       SCHEDULER_L1_KEY,
+      viewerId,
       input.from,
       input.to,
       statusFilter,
@@ -55,7 +59,7 @@ export function useSchedulerL1Rows(input: SchedulerL1Input) {
         managerId: input.managerFilter || undefined,
         clientId: input.clientFilter || undefined,
       }),
-    enabled: Boolean(input.from && input.to),
+    enabled: Boolean(viewerId && input.from && input.to),
     staleTime: 60_000, // operational list
     // A missing deployment will not fix itself between retries; neither
     // will a revoked session (the session-recovery boundary resolves it).

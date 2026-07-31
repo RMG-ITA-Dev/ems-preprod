@@ -295,14 +295,15 @@ async function resolveEffectiveStates(
     EngagementRow,
     "engagement_id" | "work_order_required" | "engagement_state_override"
   >[]
-): Promise<Map<string, EngagementState>> {
+): Promise<{ states: Map<string, EngagementState>; error: DbError | null }> {
   const ids = engagements.map((e) => e.engagement_id);
-  const { rows } = await chunkedIn(ids, (chunk) =>
+  const { rows, error } = await chunkedIn(ids, (chunk) =>
     ctx.db
       .from("engagement_wo_state")
       .select("engagement_id, approval_status, approved_at, risk_status")
       .in("engagement_id", chunk)
   );
+  if (error) return { states: new Map(), error };
   const woByEngagement = new Map<string, WorkOrderStateRow>(
     (rows as WorkOrderStateRow[]).map((r) => [r.engagement_id, r])
   );
@@ -320,7 +321,7 @@ async function resolveEffectiveStates(
       )
     );
   }
-  return result;
+  return { states: result, error: null };
 }
 
 export type StaffingHealth = "unknown" | "under" | "on_target" | "over";
@@ -392,17 +393,20 @@ async function schedulerL1(
   // the main query is then constrained to exactly that set.
   let assignedIds: string[] | null = null;
   if (rule.kind === "assigned") {
-    const { data, error } = await ctx.db
-      .from("engagement_assignments")
-      .select("engagement_id")
-      .eq("staff_id", rule.staffId)
-      .is("deleted_at", null)
-      .then((r) => r);
+    const { rows, error } = await pagedSelect(
+      () =>
+        ctx.db
+          .from("engagement_assignments")
+          .select("assignment_id, engagement_id")
+          .eq("staff_id", rule.staffId)
+          .is("deleted_at", null),
+      "assignment_id"
+    );
     if (error && !SCHEMA_NOT_READY_CODES.has(error.code ?? "")) {
       return err(500, "query_failed", "Could not resolve assignment visibility");
     }
     assignedIds = [
-      ...new Set(((data ?? []) as { engagement_id: string }[]).map((r) => r.engagement_id)),
+      ...new Set((rows as { engagement_id: string }[]).map((r) => r.engagement_id)),
     ];
     if (assignedIds.length === 0) {
       return { status: 200, payload: { rows: [], truncated: false } };
@@ -452,7 +456,11 @@ async function schedulerL1(
   }
 
   // Derivar el estado efectivo y filtrar por bucket ANTES de ordenar/truncar.
-  const effectiveStates = await resolveEffectiveStates(ctx, engagements);
+  const { states: effectiveStates, error: effectiveStatesError } =
+    await resolveEffectiveStates(ctx, engagements);
+  if (effectiveStatesError) {
+    return err(500, "query_failed", "Could not resolve effective engagement states");
+  }
   if (statusFilter !== "all") {
     engagements = engagements.filter(
       (e) =>
@@ -900,7 +908,11 @@ async function schedulerStaffTimeline(
   }
 
   // Fase 3: estado efectivo numérico por engagement del segmento.
-  const effectiveStates = await resolveEffectiveStates(ctx, engagements);
+  const { states: effectiveStates, error: effectiveStatesError } =
+    await resolveEffectiveStates(ctx, engagements);
+  if (effectiveStatesError) {
+    return err(500, "query_failed", "Could not resolve effective engagement states");
+  }
 
   // (4) Viewer scope. For SENIORS the segments of hidden engagements are
   // dropped here — only their distinct count survives. For MANAGERS the

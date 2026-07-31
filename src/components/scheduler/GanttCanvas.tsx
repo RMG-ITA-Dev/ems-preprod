@@ -78,11 +78,12 @@ export interface GanttCanvasProps {
 }
 
 // All EMS bar types known to gantt-theme.css.
-const EMS_TASK_TYPES = [
+export const EMS_TASK_TYPES = [
   "ems-status-active",
   "ems-status-pending",
   "ems-status-completed",
   "ems-status-cancelled",
+  "ems-status-frozen",
   "ems-load-1",
   "ems-load-2",
   "ems-load-4",

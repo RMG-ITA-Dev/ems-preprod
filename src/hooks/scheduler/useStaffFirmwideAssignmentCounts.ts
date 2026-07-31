@@ -4,6 +4,7 @@
 // clients can never probe arbitrary staff workloads.
 
 import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/useAuth";
 import { SCHEDULER_STAFF_LOAD_KEY } from "./keys";
 import {
   invokeSchedulerData,
@@ -15,14 +16,16 @@ import {
 export function useStaffFirmwideAssignmentCounts(
   engagementId: string | undefined
 ) {
+  const { user } = useAuth();
+  const viewerId = user?.id;
   return useQuery<{ rows: StaffLoadRow[] }, Error>({
-    queryKey: [SCHEDULER_STAFF_LOAD_KEY, engagementId],
+    queryKey: [SCHEDULER_STAFF_LOAD_KEY, viewerId, engagementId],
     queryFn: () =>
       invokeSchedulerData<{ rows: StaffLoadRow[] }>({
         action: "scheduler-staff-load",
         engagementId,
       }),
-    enabled: Boolean(engagementId),
+    enabled: Boolean(viewerId && engagementId),
     staleTime: 60_000,
     // Neither a missing deployment nor a revoked session (the
     // session-recovery boundary resolves the latter) heals between retries.

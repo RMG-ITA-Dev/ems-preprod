@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { logger } from "@/lib/logger";
 import {
@@ -505,9 +506,11 @@ export function useWorkOrderStaffingRequirements(workOrderId: string | undefined
 // Asignaciones activas (no soft-deleted) de un engagement, con staff y
 // categoría embebidos para mostrar. Ordenadas por start_date.
 export function useEngagementAssignments(engagementId: string | undefined) {
+  const { user } = useAuth();
+  const viewerId = user?.id;
   return useQuery({
-    queryKey: ["engagementAssignments", engagementId],
-    enabled: !!engagementId,
+    queryKey: ["engagementAssignments", viewerId, engagementId],
+    enabled: Boolean(viewerId && engagementId),
     queryFn: async () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data, error } = await (supabase as any)
@@ -535,9 +538,11 @@ export function useEngagementAssignments(engagementId: string | undefined) {
 // aggregateRequirements() — el min_proficiency_level más estricto gana por
 // (categoría, skill).
 export function useEngagementAggregatedRequirements(engagementId: string | undefined) {
+  const { user } = useAuth();
+  const viewerId = user?.id;
   return useQuery({
-    queryKey: ["engagementAggregatedReqs", engagementId],
-    enabled: !!engagementId,
+    queryKey: ["engagementAggregatedReqs", viewerId, engagementId],
+    enabled: Boolean(viewerId && engagementId),
     queryFn: async (): Promise<AggregatedRequirement[]> => {
       const { data: wos, error: woError } = await supabase
         .from("work_orders")
