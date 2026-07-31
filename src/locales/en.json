@@ -1576,6 +1576,7 @@
       "cancel": "Cancel Request"
     },
     "approvalsQueue": "Fund Request Approvals",
+    "accessByOtManager": "You see this screen because you are listed as manager of at least one work order with pending funds, not because of your role. Only the requests for those work orders are shown.",
     "disbursementsQueue": "Fund Disbursements",
     "submittedAt": "Submitted at",
     "managerDecidedAt": "Decided at",

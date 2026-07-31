@@ -6,9 +6,12 @@ import { DataTable, Column } from "@/components/data-table/DataTable";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FundRequestStatusBadge } from "@/components/fund-requests/FundRequestStatusBadge";
 import { ExpenseActionBadge } from "@/components/fund-requests/ExpenseActionBadge";
-import { useFundRequests, type FundRequest } from "@/hooks/useFundRequests";
+import { useFundRequests, useManagesAnyOt, type FundRequest } from "@/hooks/useFundRequests";
 import { useFundRequestExpenseCounts } from "@/hooks/useFundRequestExpenseCounts";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
+import { useAuthorization } from "@/hooks/useAuthorization";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Info } from "lucide-react";
 
 const formatCurrency = (n: number, currency: "BOB" | "USD") =>
   Math.round(n).toLocaleString(currency === "BOB" ? "es-BO" : "en-US", {
@@ -33,6 +36,17 @@ const FundRequestApprovals = () => {
   const { data, isLoading } = useFundRequests();
   const { data: expenseCounts } = useFundRequestExpenseCounts();
   const { staffRecord } = useCurrentStaff();
+  // Acceso a esta pantalla: por permiso de rol O por relación (gerente de una OT
+  // de la solicitud). La vía relacional es deliberada — la aprobación de fondos
+  // es POR OT, así que quien quedó designado gerente de una OT debe poder
+  // resolverla aunque su rol cambie después; si no, la solicitud se queda sin
+  // aprobador. La ruta no tenía ningún guard, así que cualquier autenticado
+  // podía abrirla por URL (sin ver datos ajenos, que los filtra RLS).
+  const { can, isLoading: authzLoading } = useAuthorization();
+  const { data: managesAnyOt, isLoading: managesLoading } = useManagesAnyOt(staffRecord?.staff_id);
+  const hasRolePermission = can("fund_approval.read");
+  const accessByRelationOnly = !hasRolePermission && !!managesAnyOt;
+  const gatesLoading = authzLoading || managesLoading;
   const [tab, setTab] = useState<Tab>("pending");
 
   // Solicitudes donde gestiono al menos una OT (modelo de aprobación por OT).
@@ -171,9 +185,23 @@ const FundRequestApprovals = () => {
     },
   ];
 
+  if (!gatesLoading && !hasRolePermission && !managesAnyOt) {
+    return (
+      <AppLayout title={t("fundRequest.approvalsQueue")}>
+        <div className="text-muted-foreground">{t("common.noAccess")}</div>
+      </AppLayout>
+    );
+  }
+
   return (
     <AppLayout title={t("fundRequest.approvalsQueue")}>
       <div className="space-y-4">
+        {accessByRelationOnly && (
+          <Alert>
+            <Info className="h-4 w-4" />
+            <AlertDescription>{t("fundRequest.accessByOtManager")}</AlertDescription>
+          </Alert>
+        )}
         <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)}>
           <TabsList>
             <TabsTrigger value="pending">

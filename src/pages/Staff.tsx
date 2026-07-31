@@ -6,7 +6,7 @@ import { useStaffFull, useEngagements, useCategories, StaffFull } from "@/hooks/
 import { DataTable, Column } from "@/components/data-table/DataTable";
 import { useNavigate } from "react-router-dom";
 import { Check, Lock } from "lucide-react";
-import { useUserRole } from "@/hooks/useUserRole";
+import { useAuthorization } from "@/hooks/useAuthorization";
 
 interface StaffRow extends StaffFull {
   auth_user_id: string | null;
@@ -16,7 +16,12 @@ const Staff = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   // Use full staff data (admin-only) for admin view with PII fields
-  const { isAdmin } = useUserRole();
+  // Acciones por permiso, no por el enum legacy. Hoy staff.create/update son
+  // solo de admin en la matriz, así que el comportamiento no cambia; el
+  // mecanismo sí, y deja de romperse si la matriz suma otro rol.
+  const { can } = useAuthorization();
+  const canCreateStaff = can("staff.create");
+  const canEditStaff = can("staff.update");
   const { data: staff, isLoading } = useStaffFull();
   const { data: engagements } = useEngagements();
   const { data: categories } = useCategories();
@@ -150,9 +155,9 @@ const Staff = () => {
         searchPlaceholder={t("staff.searchPlaceholder")}
         searchKeys={["first_name", "last_name", "email", "short_name"]}
         isLoading={isLoading}
-        newButtonLabel={isAdmin ? t("staff.newStaff") : undefined}
-        onNewClick={isAdmin ? () => navigate("/staff/new") : undefined}
-        onRowClick={isAdmin ? (row) => navigate(`/staff/${row.staff_id}`) : undefined}
+        newButtonLabel={canCreateStaff ? t("staff.newStaff") : undefined}
+        onNewClick={canCreateStaff ? () => navigate("/staff/new") : undefined}
+        onRowClick={canEditStaff ? (row) => navigate(`/staff/${row.staff_id}`) : undefined}
         getRowId={(row) => row.staff_id}
         filters={[
           {

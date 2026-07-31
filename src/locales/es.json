@@ -1576,6 +1576,7 @@
       "cancel": "Cancelar Solicitud"
     },
     "approvalsQueue": "Aprobaciones de Solicitudes",
+    "accessByOtManager": "Ve esta pantalla porque figura como gerente de al menos una orden de trabajo con fondos pendientes, no por su rol. Solo aparecen las solicitudes de esas órdenes.",
     "disbursementsQueue": "Desembolsos de Fondos",
     "submittedAt": "Enviada el",
     "managerDecidedAt": "Decidida el",
