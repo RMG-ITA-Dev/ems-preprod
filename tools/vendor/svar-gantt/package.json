@@ -1,0 +1,13 @@
+{
+  "name": "ems-vendor-svar-gantt",
+  "private": true,
+  "description": "Isolated, reproducible build pipeline for the vendored SVAR React Gantt bundle (EMS Scheduler Phase 4). Never merged into the EMS root package.json — see README.md.",
+  "dependencies": {
+    "@svar-ui/react-gantt": "2.7.1",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.1"
+  }
+}

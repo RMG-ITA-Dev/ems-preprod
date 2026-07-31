@@ -84,7 +84,10 @@
     "staff": "Staff",
     "settings": "Settings",
     "signOut": "Sign out",
-    "timeEntries": "Time Entries"
+    "timeEntries": "Time Entries",
+    "planning": "Planning",
+    "scheduler": "Scheduler",
+    "schedulerGaps": "Gap Reporting"
   },
   "tracker": {
     "title": "Time Records",
@@ -285,7 +288,8 @@
     "inactive": "Inactive",
     "pending": "Pending",
     "completed": "Completed",
-    "cancelled": "Cancelled"
+    "cancelled": "Cancelled",
+    "frozen": "Frozen"
   },
   "engagementState": {
     "1": "Pending",
@@ -762,7 +766,22 @@
     "searchTaxonomy":     "Search service...",
     "noMatchingTaxonomies": "No matching services.",
     "noAplicaTaxonomy":   "Not applicable",
-    "requiredTaxonomyCliente": "Service is required for Client engagements"
+    "requiredTaxonomyCliente": "Service is required for Client engagements",
+    "assignments": {
+      "category": "Category",
+      "searchStaff": "Search staff...",
+      "empty": "No staff assigned yet.",
+      "match": {
+        "full": "Full match",
+        "partial": "Partial match",
+        "categoryOnly": "Category only",
+        "none": "No match",
+        "categoryMismatch": "Staff category differs from the assignment category",
+        "noRequirement": "No staffing requirement defined for this category",
+        "missingSkills": "Missing competencies: {{list}}",
+        "belowLevel": "Below required level: {{list}}"
+      }
+    }
   },
   "messages": {
     "createSuccess": "{{entity}} created successfully",
@@ -1776,6 +1795,109 @@
       "observationNotesRequired": "You must describe the invoice observation",
       "noInvoiceNotesRequired": "Indicate which receipt is missing before returning",
       "attachmentRequired": "Attach the receipt before resending"
+    }
+  },
+  "scheduler": {
+    "title": "Scheduler",
+    "readOnly": "Read-only mode",
+    "gaps": {
+      "title": "Staffing & Competency Gaps",
+      "kpi": {
+        "headcountGap": "Headcount gap",
+        "hoursGap": "Hours gap",
+        "skillsUnderSupplied": "Skills under-supplied",
+        "bench": "Available staff"
+      },
+      "tabs": {
+        "byCategory": "By Category",
+        "bySkill": "By Skill",
+        "bench": "Bench"
+      },
+      "table": {
+        "category": "Category",
+        "skill": "Skill",
+        "minLevel": "Min level",
+        "demand": "Demand",
+        "supply": "Supply",
+        "deficit": "Deficit",
+        "staff": "Staff",
+        "allocation": "Allocation %",
+        "topSkills": "Top skills"
+      },
+      "minLevelThresholdTooltip": "Cumulative: demand and supply count seats and staff at or above this level.",
+      "empty": "No gaps in this window.",
+      "invalidRange": "The start date must be on or before the end date.",
+      "rangeTooLong": "The date range cannot exceed 730 days. Narrow the window.",
+      "forbidden": "This view is for firm leadership only.",
+      "hoursProjectionTooltip": "Window pro-rata — demand: budget × share of the engagement inside the window; supply: hours/week × overlap days ÷ 7.",
+      "headcountBasisTooltip": "Average unfilled seats: person-day gap ÷ days in the window.",
+      "truncated": "Showing the top 500 rows. Narrow the date range to refine.",
+      "benchAsOfToday": "As of today",
+      "benchRowAria": "{{name}} — {{allocation}}% allocated"
+    },
+    "filters": {
+      "status": "Status",
+      "partner": "Partner",
+      "manager": "Manager",
+      "client": "Client",
+      "clear": "Clear filters"
+    },
+    "l1": {
+      "empty": "No engagements in this window.",
+      "truncated": "Showing the first 500 engagements — narrow the filters.",
+      "healthUnder": "Understaffed",
+      "healthOnTarget": "On target",
+      "healthOver": "Overstaffed",
+      "healthUnknown": "No demand recorded",
+      "healthAsOfToday": "Staffing as of today"
+    },
+    "l2": {
+      "title": "Engagement staffing",
+      "workload": "Active engagements: {{n}}"
+    },
+    "gantt": {
+      "zoom": {
+        "weeks": "Weeks",
+        "months": "Months",
+        "quarters": "Quarters"
+      },
+      "today": "Today",
+      "tooltip": {
+        "hours": "{{n}} hrs/wk",
+        "allocation": "{{n}}% allocation"
+      }
+    },
+    "staff": {
+      "title": "Employee GANTT",
+      "engagements": "Engagements",
+      "timeline": "Timeline",
+      "total": "Total",
+      "managedBy": "Manager: {{name}}",
+      "outOfScope": "Outside your engagement scope — shown for scheduling context.",
+      "utilization": {
+        "under": "Underbooked",
+        "ok": "Properly booked",
+        "over": "Overbooked",
+        "tooltip": "Total allocation: {{n}}%",
+        "hours": "{{n}} hrs/wk booked",
+        "capacity": "{{n}} hrs/wk capacity"
+      },
+      "empty": "No engagements for this employee in this window.",
+      "hidden": "Engagements not shown (outside your visibility): {{n}}",
+      "truncated": "Showing the first 500 segments — narrow the window.",
+      "forbidden": "You don't have access to this employee's schedule.",
+      "notFound": "Staff member not found."
+    },
+    "actions": {
+      "openEngagement": "Open engagement",
+      "openStaffGantt": "Employee GANTT",
+      "rowMenu": "Row actions"
+    },
+    "errors": {
+      "loadFailed": "Could not load the schedule.",
+      "retry": "Retry",
+      "unavailable": "The Scheduler service is not available yet. Contact your administrator.",
+      "forbidden": "You don't have access to this engagement's schedule."
     }
   }
 }

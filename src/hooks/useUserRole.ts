@@ -32,12 +32,15 @@ interface UseUserRoleResult {
   error: AppError | null;
   /** True if user has no role assigned (not an error, just missing data) */
   isRoleMissing: boolean;
+  /** Fase 3 — Scheduler: reintentar la resolución de rol tras un error
+   *  (p.ej. desde el estado "loadFailed" de SchedulerStaff/SchedulerGaps). */
+  refetch: () => void;
 }
 
 export function useUserRole(): UseUserRoleResult {
   const { user } = useAuth();
 
-  const { data: userRole, isLoading, error, isError } = useQuery({
+  const { data: userRole, isLoading, error, isError, refetch } = useQuery({
     queryKey: ["user_role", user?.id],
     queryFn: async () => {
       if (!user?.id) {
@@ -115,5 +118,8 @@ export function useUserRole(): UseUserRoleResult {
     hasError: isError,
     error: appError,
     isRoleMissing,
+    refetch: () => {
+      void refetch();
+    },
   };
 }

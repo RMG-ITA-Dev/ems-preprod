@@ -59,5 +59,11 @@ vi.mock("@/integrations/supabase/client", () => ({
       upsert: vi.fn(),
     })),
     rpc: vi.fn(),
+    // Fase 3 — Scheduler: src/hooks/scheduler/{schedulerData,schedulerGapsData}.ts
+    // call supabase.functions.invoke("scheduler-data" | "scheduler-gaps", ...).
+    // Individual tests override this with mockResolvedValueOnce/mockImplementation.
+    functions: {
+      invoke: vi.fn(() => Promise.resolve({ data: null, error: null })),
+    },
   },
 }));

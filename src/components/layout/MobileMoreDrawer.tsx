@@ -13,6 +13,8 @@ import {
   UserX,
   Wallet,
   Banknote,
+  CalendarRange,
+  ChartColumnDecreasing,
 } from "lucide-react";
 import {
   Drawer,
@@ -25,6 +27,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { useUserRole } from "@/hooks/useUserRole";
 import { useManagesAnyOt } from "@/hooks/useFundRequests";
+import { canSeeGaps, canSeePlanning } from "@/lib/schedulerAccess";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
 
 interface MobileMoreDrawerProps {
@@ -37,12 +40,16 @@ export function MobileMoreDrawer({ open, onOpenChange }: MobileMoreDrawerProps) 
   const { t } = useTranslation();
   const { user, signOut } = useAuth();
   const { data: staffRecord } = useCurrentStaff();
-  const { isAdmin, isPartner, isDirector, isManager } = useUserRole();
+  const { isAdmin, isPartner, isDirector, isManager, isSenior } = useUserRole();
   const { data: managesAnyOt } = useManagesAnyOt(staffRecord?.staff_id);
   // El gerente de OT puede ser un Senior (sin rol de app manager): se incluye si
   // gestiona al menos una OT, para que vea el link de aprobaciones.
   const canApproveFunds =
     isAdmin || isPartner || isDirector || isManager || !!managesAnyOt;
+  // Fase 3 — Scheduler: mismos predicados que AppSidebar/App.tsx
+  // (src/lib/schedulerAccess.ts).
+  const canSeeSchedulerPlanning = canSeePlanning({ isAdmin, isPartner, isDirector, isManager, isSenior });
+  const canSeeSchedulerGaps = canSeeGaps({ isAdmin, isPartner, isDirector, isManager, isSenior });
 
   const userInitials = staffRecord?.initials
     ? staffRecord.initials
@@ -101,6 +108,14 @@ export function MobileMoreDrawer({ open, onOpenChange }: MobileMoreDrawerProps) 
   const adminItems = [
     { path: "/staff", icon: UserCog, labelKey: "nav.staff" },
     { path: "/settings", icon: Settings, labelKey: "nav.settings" },
+  ];
+
+  // Fase 3 — Scheduler: Gap Reporting solo para roles firmwide.
+  const planningItems = [
+    { path: "/scheduler", icon: CalendarRange, labelKey: "nav.scheduler" },
+    ...(canSeeSchedulerGaps
+      ? [{ path: "/scheduler/gaps", icon: ChartColumnDecreasing, labelKey: "nav.schedulerGaps" }]
+      : []),
   ];
 
   return (
@@ -162,6 +177,25 @@ export function MobileMoreDrawer({ open, onOpenChange }: MobileMoreDrawerProps) 
               </button>
             ))}
           </div>
+
+          {/* Planning (Scheduler) — Fase 3 */}
+          {canSeeSchedulerPlanning && (
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider px-3 mb-2">
+                {t("nav.planning")}
+              </p>
+              {planningItems.map((item) => (
+                <button
+                  key={item.path}
+                  onClick={() => handleNavigate(item.path)}
+                  className="flex items-center gap-3 w-full px-3 py-3 rounded-lg text-foreground hover:bg-muted transition-colors"
+                >
+                  <item.icon className="h-5 w-5 text-muted-foreground" />
+                  <span className="text-sm font-medium">{t(item.labelKey)}</span>
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* Operations */}
           <div className="space-y-1">

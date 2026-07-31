@@ -47,6 +47,14 @@ const WorksheetNew = lazy(() => import("./pages/WorksheetNew"));
 const WorksheetEdit = lazy(() => import("./pages/WorksheetEdit"));
 const Bootstrap = lazy(() => import("./pages/Bootstrap"));
 
+// Fase 3 — Scheduler (consultivo). Cada página queda en su propio chunk
+// lazy; el bundle SVAR vendorizado solo se descarga cuando se entra a
+// estas rutas (nunca en el chunk inicial de la app).
+const SchedulerL1 = lazy(() => import("./pages/SchedulerL1"));
+const SchedulerL2 = lazy(() => import("./pages/SchedulerL2"));
+const SchedulerStaff = lazy(() => import("./pages/SchedulerStaff"));
+const SchedulerGaps = lazy(() => import("./pages/SchedulerGaps"));
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -114,6 +122,13 @@ const router = createBrowserRouter([
       { path: "/staff/new", element: <ProtectedRoute><StaffNew /></ProtectedRoute> },
       { path: "/staff/:id", element: <ProtectedRoute><StaffEdit /></ProtectedRoute> },
       { path: "/settings", element: <ProtectedRoute><Settings /></ProtectedRoute> },
+      // Fase 3 — Scheduler (consultivo). El gate de rol es en componente
+      // (canSeePlanning/canSeeGaps) + el 403 del servidor; no hay guard de
+      // rol a nivel de ruta en development.
+      { path: "/scheduler", element: <ProtectedRoute><SchedulerL1 /></ProtectedRoute> },
+      { path: "/scheduler/engagement/:id", element: <ProtectedRoute><SchedulerL2 /></ProtectedRoute> },
+      { path: "/scheduler/gaps", element: <ProtectedRoute><SchedulerGaps /></ProtectedRoute> },
+      { path: "/scheduler/staff/:id", element: <ProtectedRoute><SchedulerStaff /></ProtectedRoute> },
       { path: "*", element: <NotFound /> },
     ],
   },

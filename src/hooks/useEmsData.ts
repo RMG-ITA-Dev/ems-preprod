@@ -1,5 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { logger } from "@/lib/logger";
+import {
+  aggregateRequirements,
+  type AggregatedRequirement,
+  type WorkOrderRequirementInput,
+} from "@/lib/staffingMatch";
+
+// Fase 3 — Work Order Staffing Requirements (esquema canónico de Fase 2).
+export type StaffingProficiencyLevel = "Beginner" | "Intermediate" | "Advanced";
 
 export interface Category {
   category_id: string;
@@ -394,6 +403,207 @@ export function useActiveSkills() {
         .order('name');
       if (error) throw error;
       return data as { skill_id: string; name: string; category: string }[];
+    },
+  });
+}
+
+// Fase 3 — hooks de lectura de Scheduler L2 (esquema canónico de Fase 2).
+// wo_staffing_requirements / wo_staffing_requirement_skills todavía no están
+// en src/integrations/supabase/types.ts (se regenera en una fase posterior
+// desde el Supabase real) — se consultan con el mismo escape (supabase as
+// any) que development ya usa para tablas/vistas aún no tipadas (ver
+// useServices/useTaxonomies arriba). engagement_assignments SÍ está tipada
+// pero su columna category_id (Fase 2/3) todavía no aparece en ese archivo,
+// así que también usa el escape hasta que se regenere.
+
+export interface WorkOrderStaffingRequirementSkill {
+  id: string;
+  skill_id: string;
+  min_proficiency_level: StaffingProficiencyLevel;
+  skill: {
+    skill_id: string;
+    name: string;
+    category: string;
+    is_active: boolean | null;
+  };
+}
+
+export interface WorkOrderStaffingRequirementWithSkills {
+  id: string;
+  wo_id: string;
+  category_id: string;
+  staff_count: number;
+  category: Category;
+  requirement_skills: WorkOrderStaffingRequirementSkill[];
+}
+
+// Una asignación de staff a un engagement, acotada en el tiempo. Se
+// permiten varios segmentos no solapados por (engagement, staff)
+// (re-asignación tras un vacío); el Gantt de L2 los renderiza apilados.
+export interface EngagementAssignmentRow {
+  assignment_id: string;
+  engagement_id: string;
+  staff_id: string;
+  category_id: string;
+  start_date: string;
+  end_date: string;
+  hours_per_week: number;
+  allocation_percent: number;
+  notes: string | null;
+  status: string;
+  staff: {
+    staff_id: string;
+    first_name: string;
+    last_name: string;
+    short_name: string | null;
+    category_id: string | null;
+  };
+  category: Category;
+}
+
+// Guarda defensiva de esquema: entre el merge del PR y la aplicación de la
+// migración en Lovable, la tabla/columna puede no existir todavía (42P01
+// tabla, 42703 columna, PGRST200 no puede resolver el embed). Cualquiera de
+// estos casos renderiza estado vacío en vez de romper la página; se loguea
+// como error para no enmascarar un rollout de esquema fallido como "sin datos".
+const SCHEMA_NOT_READY_CODES = new Set(["42P01", "42703", "PGRST200"]);
+
+function isSchedulerSchemaNotReady(error: unknown): boolean {
+  const code = (error as { code?: string } | null)?.code;
+  const notReady = !!code && SCHEMA_NOT_READY_CODES.has(code);
+  if (notReady) {
+    logger.error(
+      `Schema not ready (${code}): rendering empty state instead of data. ` +
+        "A migration is likely missing or partially applied for the Scheduler tables.",
+      error
+    );
+  }
+  return notReady;
+}
+
+export function useWorkOrderStaffingRequirements(workOrderId: string | undefined) {
+  return useQuery({
+    queryKey: ["workOrderStaffingRequirements", workOrderId],
+    enabled: !!workOrderId,
+    queryFn: async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any)
+        .from("wo_staffing_requirements")
+        .select(
+          "*, category:categories(*), requirement_skills:wo_staffing_requirement_skills(*, skill:skills(*))"
+        )
+        .eq("wo_id", workOrderId);
+      if (error) {
+        if (isSchedulerSchemaNotReady(error)) return [];
+        throw error;
+      }
+      return (data ?? []) as WorkOrderStaffingRequirementWithSkills[];
+    },
+  });
+}
+
+// Asignaciones activas (no soft-deleted) de un engagement, con staff y
+// categoría embebidos para mostrar. Ordenadas por start_date.
+export function useEngagementAssignments(engagementId: string | undefined) {
+  return useQuery({
+    queryKey: ["engagementAssignments", engagementId],
+    enabled: !!engagementId,
+    queryFn: async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any)
+        .from("engagement_assignments")
+        .select(
+          "assignment_id, engagement_id, staff_id, category_id, start_date, end_date, hours_per_week, allocation_percent, notes, status, " +
+            // Dos FKs apuntan a staff (staff_id, created_by) — desambiguar.
+            "staff:staff!engagement_assignments_staff_id_fkey(staff_id, first_name, last_name, short_name, category_id), " +
+            "category:categories(*)"
+        )
+        .eq("engagement_id", engagementId)
+        .is("deleted_at", null)
+        .order("start_date");
+      if (error) {
+        if (isSchedulerSchemaNotReady(error)) return [];
+        throw error;
+      }
+      return (data ?? []) as EngagementAssignmentRow[];
+    },
+  });
+}
+
+// Requerimientos de staffing agregados de un engagement: unión de los
+// requerimientos de sus work orders, colapsados a uno por categoría vía
+// aggregateRequirements() — el min_proficiency_level más estricto gana por
+// (categoría, skill).
+export function useEngagementAggregatedRequirements(engagementId: string | undefined) {
+  return useQuery({
+    queryKey: ["engagementAggregatedReqs", engagementId],
+    enabled: !!engagementId,
+    queryFn: async (): Promise<AggregatedRequirement[]> => {
+      const { data: wos, error: woError } = await supabase
+        .from("work_orders")
+        .select("wo_id")
+        .eq("engagement_id", engagementId!);
+      if (woError) throw woError;
+      const woIds = (wos ?? []).map((w) => w.wo_id);
+      if (woIds.length === 0) return [];
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any)
+        .from("wo_staffing_requirements")
+        .select(
+          "category_id, requirement_skills:wo_staffing_requirement_skills(skill_id, min_proficiency_level, skill:skills(name))"
+        )
+        .in("wo_id", woIds);
+      if (error) {
+        if (isSchedulerSchemaNotReady(error)) return [];
+        throw error;
+      }
+      return aggregateRequirements((data ?? []) as WorkOrderRequirementInput[]);
+    },
+  });
+}
+
+// Staff activo con sus competencias embebidas, para el selector de
+// candidatos (solo lectura en Fase 3 — la escritura es Fase 5). Cliente
+// tipado: staff, staff_skills e is_schedulable ya están en types.ts.
+export interface StaffWithSkills extends Staff {
+  staff_skills: StaffSkillWithSkill[];
+  /** El selector de staff del Scheduler solo ofrece staff "schedulable". */
+  is_schedulable?: boolean | null;
+}
+
+export function useActiveStaffWithSkills() {
+  return useQuery({
+    queryKey: ["staff", "activeWithSkills"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("staff")
+        .select(
+          `
+          staff_id,
+          first_name,
+          last_name,
+          short_name,
+          initials,
+          category_id,
+          city,
+          is_active,
+          is_schedulable,
+          category:categories(*),
+          staff_skills (
+            staff_skill_id,
+            skill_id,
+            proficiency_level,
+            last_evaluated_date,
+            skill:skills ( skill_id, name, category, is_active )
+          )
+        `
+        )
+        .eq("is_active", true)
+        .is("deleted_at", null)
+        .order("last_name");
+      if (error) throw error;
+      return data as unknown as StaffWithSkills[];
     },
   });
 }

@@ -49,7 +49,7 @@
 ## Backend (Lovable Cloud)
 
 - Supabase project ID: `ugqxfnrxvksiltwxzist`
-- 7 Edge Functions (inventory below)
+- 9 Edge Functions (inventory below)
 - 139 timestamped migrations in `supabase/migrations/`
 - Key RPC functions: `submit_timesheet_safe()`, `assign_user_role_atomic()`, `update_timesheet_minmax_settings()`
 
@@ -61,6 +61,8 @@
 | `dashboard-data` | Aggregates dashboard analytics (utilization, hours, budget vs actual) |
 | `manage-auth-user` | Auth user management (create, update, delete) |
 | `secure-signin` | Sole legitimate caller of the account-lockout RPCs (`check_login_allowed`, `record_failed_login`); fronts sign-in so `anon` can no longer trip lockout directly (BUG 0514-115) |
+| `scheduler-data` | Scheduler L1/staff-load/staff-timeline read-only queries, scoped by role visibility and effective engagement state (Fase 3) |
+| `scheduler-gaps` | Firmwide Gap Reporting aggregates (headcount/hours/competency/bench), firmwide roles only (Fase 3) |
 | `test-minmax-settings` | Backend integration tests for the min/max settings RPC |
 | `test-resubmission-state` | Backend integration tests for timesheet resubmission state |
 | `unlock-account` | Admin manual account unlock — clears `staff.is_blocked` + sends password reset email (BUG 0601-132) |

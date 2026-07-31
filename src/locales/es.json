@@ -84,7 +84,10 @@
     "staff": "Personal",
     "settings": "Configuración",
     "signOut": "Cerrar sesión",
-    "timeEntries": "Entradas de Tiempo"
+    "timeEntries": "Entradas de Tiempo",
+    "planning": "Planificación",
+    "scheduler": "Planificador GANTT",
+    "schedulerGaps": "Brechas"
   },
   "tracker": {
     "title": "Registros de Tiempo",
@@ -285,7 +288,8 @@
     "inactive": "Inactivo",
     "pending": "Pendiente",
     "completed": "Completado",
-    "cancelled": "Cancelado"
+    "cancelled": "Cancelado",
+    "frozen": "Congelado"
   },
   "engagementState": {
     "1": "Pendiente",
@@ -762,7 +766,22 @@
     "searchTaxonomy":     "Buscar servicio...",
     "noMatchingTaxonomies": "No se encontraron servicios.",
     "noAplicaTaxonomy":   "No aplica",
-    "requiredTaxonomyCliente": "El servicio es requerido para encargos de tipo Cliente"
+    "requiredTaxonomyCliente": "El servicio es requerido para encargos de tipo Cliente",
+    "assignments": {
+      "category": "Categoría",
+      "searchStaff": "Buscar personal...",
+      "empty": "Aún no hay personal asignado.",
+      "match": {
+        "full": "Coincidencia completa",
+        "partial": "Coincidencia parcial",
+        "categoryOnly": "Solo categoría",
+        "none": "Sin coincidencia",
+        "categoryMismatch": "La categoría del personal difiere de la categoría de la asignación",
+        "noRequirement": "No hay requisitos de personal definidos para esta categoría",
+        "missingSkills": "Competencias faltantes: {{list}}",
+        "belowLevel": "Por debajo del nivel: {{list}}"
+      }
+    }
   },
   "messages": {
     "createSuccess": "{{entity}} creado/a exitosamente",
@@ -1776,6 +1795,109 @@
       "observationNotesRequired": "Debe describir la observación de la factura",
       "noInvoiceNotesRequired": "Indique qué respaldo falta antes de devolver",
       "attachmentRequired": "Adjunte el respaldo antes de reenviar"
+    }
+  },
+  "scheduler": {
+    "title": "Planificador",
+    "readOnly": "Modo solo lectura",
+    "gaps": {
+      "title": "Brechas de personal y competencias",
+      "kpi": {
+        "headcountGap": "Brecha de personal",
+        "hoursGap": "Brecha de horas",
+        "skillsUnderSupplied": "Competencias deficitarias",
+        "bench": "Personal disponible"
+      },
+      "tabs": {
+        "byCategory": "Por categoría",
+        "bySkill": "Por competencia",
+        "bench": "Disponibles"
+      },
+      "table": {
+        "category": "Categoría",
+        "skill": "Competencia",
+        "minLevel": "Nivel mínimo",
+        "demand": "Demanda",
+        "supply": "Oferta",
+        "deficit": "Déficit",
+        "staff": "Personal",
+        "allocation": "Asignación %",
+        "topSkills": "Competencias destacadas"
+      },
+      "minLevelThresholdTooltip": "Acumulativo: la demanda y la oferta cuentan puestos y personal en este nivel o superior.",
+      "empty": "Sin brechas en este rango.",
+      "invalidRange": "La fecha de inicio debe ser igual o anterior a la fecha de fin.",
+      "rangeTooLong": "El rango de fechas no puede exceder los 730 días. Ajuste el rango.",
+      "forbidden": "Esta vista es solo para el liderazgo de la firma.",
+      "hoursProjectionTooltip": "Prorrateo según el rango — demanda: presupuesto × proporción del encargo dentro del rango; oferta: horas/semana × días superpuestos ÷ 7.",
+      "headcountBasisTooltip": "Puestos vacantes promedio: brecha en días-persona ÷ días del rango.",
+      "truncated": "Mostrando las primeras 500 filas. Ajuste el rango de fechas.",
+      "benchAsOfToday": "A la fecha de hoy",
+      "benchRowAria": "{{name}} — {{allocation}} % de asignación"
+    },
+    "filters": {
+      "status": "Estado",
+      "partner": "Socio",
+      "manager": "Gerente",
+      "client": "Cliente",
+      "clear": "Limpiar filtros"
+    },
+    "l1": {
+      "empty": "Sin encargos en este rango.",
+      "truncated": "Mostrando los primeros 500 encargos — restrinja los filtros.",
+      "healthUnder": "Personal insuficiente",
+      "healthOnTarget": "En objetivo",
+      "healthOver": "Personal excedente",
+      "healthUnknown": "Sin demanda registrada",
+      "healthAsOfToday": "Dotación al día de hoy"
+    },
+    "l2": {
+      "title": "Personal del encargo",
+      "workload": "Encargos activos: {{n}}"
+    },
+    "gantt": {
+      "zoom": {
+        "weeks": "Semanas",
+        "months": "Meses",
+        "quarters": "Trimestres"
+      },
+      "today": "Hoy",
+      "tooltip": {
+        "hours": "{{n}} hrs/sem",
+        "allocation": "{{n}}% asignación"
+      }
+    },
+    "staff": {
+      "title": "GANTT Empleado",
+      "engagements": "Encargos",
+      "timeline": "Cronograma",
+      "total": "Total",
+      "managedBy": "Gerente: {{name}}",
+      "outOfScope": "Fuera de su alcance de encargos — se muestra para planificación.",
+      "utilization": {
+        "under": "Subasignado",
+        "ok": "Asignación adecuada",
+        "over": "Sobreasignado",
+        "tooltip": "Asignación total: {{n}}%",
+        "hours": "{{n}} hrs/sem asignadas",
+        "capacity": "{{n}} hrs/sem de capacidad"
+      },
+      "empty": "Sin encargos para este empleado en este rango.",
+      "hidden": "Encargos no mostrados (fuera de su visibilidad): {{n}}",
+      "truncated": "Mostrando los primeros 500 segmentos — ajuste el rango.",
+      "forbidden": "No tiene acceso a la programación de este empleado.",
+      "notFound": "Miembro del personal no encontrado."
+    },
+    "actions": {
+      "openEngagement": "Abrir encargo",
+      "openStaffGantt": "GANTT Empleado",
+      "rowMenu": "Acciones de la fila"
+    },
+    "errors": {
+      "loadFailed": "No se pudo cargar la programación.",
+      "retry": "Reintentar",
+      "unavailable": "El servicio del Planificador aún no está disponible. Contacte a su administrador.",
+      "forbidden": "No tiene acceso a la programación de este encargo."
     }
   }
 }
