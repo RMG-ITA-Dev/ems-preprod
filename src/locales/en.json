@@ -1285,6 +1285,39 @@
       "confirmCollectionDateTitle": "Update Collection Invoice Date",
       "confirmCollectionDateDesc": "The collection invoice date will be set to {{date}}. The collection payment date will be recalculated automatically.",
       "confirmCollectionDateAction": "Save date"
+    },
+    "staffingRequirements": {
+      "title": "Staffing Requirements",
+      "description": "Define required categories, headcount and skills for this work order.",
+      "empty": "No staffing requirements yet.",
+      "loading": "Loading staffing requirements...",
+      "errorLoading": "Could not load staffing requirements.",
+      "addCategory": "Add Category",
+      "removeCategory": "Remove category",
+      "selectCategory": "Select category",
+      "staffCount": "Staff Count",
+      "addSkill": "Add Skill",
+      "removeSkill": "Remove skill",
+      "selectSkill": "Select skill",
+      "selectProficiency": "Select proficiency",
+      "inactiveSkillBadge": "Inactive",
+      "availableAfterCreate": "Staffing requirements will be available after you save this work order.",
+      "noCategoriesForService": "No categories available for this engagement's service.",
+      "serviceNotResolved": "This work order's engagement has no service assigned; staffing categories cannot be scoped.",
+      "saveSuccess": "Staffing requirements saved successfully.",
+      "errors": {
+        "categoryMissing": "Select a category for every staffing requirement.",
+        "categoryDuplicate": "A category cannot be used more than once.",
+        "skillDuplicate": "A skill cannot be used more than once within the same requirement.",
+        "categoryForeignService": "This category does not belong to the engagement's service.",
+        "skillIncomplete": "Select both a skill and a proficiency level for every skill row.",
+        "staffCountRange": "Staff count must be a whole number between 1 and 999.",
+        "proficiencyInvalid": "Select a valid proficiency level.",
+        "workOrderNotFound": "This work order could not be found.",
+        "denied": "You don't have permission to modify staffing requirements for this work order.",
+        "locked": "This work order is locked and cannot be modified.",
+        "persistFailed": "Could not save staffing requirements. Please try again."
+      }
     }
   },
   "adminTimeEntries": {

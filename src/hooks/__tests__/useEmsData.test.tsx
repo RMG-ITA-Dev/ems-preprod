@@ -13,7 +13,14 @@ import {
   useAllActivityCodes,
   useExpenseTypes,
   useGlobalSettings,
+  useWorkOrderStaffingRequirements,
 } from "../useEmsData";
+
+// Controllable auth identity for the viewer-keyed cache isolation tests below
+// (Fase 4 — useWorkOrderStaffingRequirements). Declared before vi.mock so the
+// hoisted factory can close over it.
+const auth: { user: { id: string } | null } = { user: { id: "viewer-a" } };
+vi.mock("@/hooks/useAuth", () => ({ useAuth: () => auth }));
 
 function createWrapper() {
   const queryClient = new QueryClient({
@@ -324,5 +331,126 @@ describe("useEmsData hooks", () => {
       expect(supabase.from).toHaveBeenCalledWith("global_settings");
       expect(result.current.data).toHaveLength(2);
     });
+  });
+});
+
+// Fase 4 — hardening del hook de lectura de staffing: key viewer-scoped, columnas
+// explícitas, abort signal, orden estable, errores propagados, aislamiento de caché.
+describe("useWorkOrderStaffingRequirements (Fase 4)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    auth.user = { id: "viewer-a" };
+  });
+
+  function mockSupabaseResolvedTo(data: unknown, error: unknown = null) {
+    const mockAbortSignal = vi.fn().mockResolvedValue({ data, error });
+    const mockEq = vi.fn().mockReturnValue({ abortSignal: mockAbortSignal });
+    const mockSelect = vi.fn().mockReturnValue({ eq: mockEq });
+    vi.mocked(supabase.from).mockReturnValue({ select: mockSelect } as any);
+    return { mockAbortSignal, mockEq, mockSelect };
+  }
+
+  it("is disabled (idle, no fetch) when there is no authenticated viewer", () => {
+    auth.user = null;
+    const { result } = renderHook(() => useWorkOrderStaffingRequirements("wo-1"), {
+      wrapper: createWrapper(),
+    });
+    expect(result.current.fetchStatus).toBe("idle");
+    expect(supabase.from).not.toHaveBeenCalled();
+  });
+
+  it("is disabled (idle, no fetch) when there is no workOrderId", () => {
+    const { result } = renderHook(() => useWorkOrderStaffingRequirements(undefined), {
+      wrapper: createWrapper(),
+    });
+    expect(result.current.fetchStatus).toBe("idle");
+    expect(supabase.from).not.toHaveBeenCalled();
+  });
+
+  it("selects explicit columns (never '*') and scopes by wo_id, with an abort signal", async () => {
+    const { mockSelect, mockEq, mockAbortSignal } = mockSupabaseResolvedTo([]);
+    const { result } = renderHook(() => useWorkOrderStaffingRequirements("wo-1"), {
+      wrapper: createWrapper(),
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(supabase.from).toHaveBeenCalledWith("wo_staffing_requirements");
+    const selectArg = mockSelect.mock.calls[0][0] as string;
+    expect(selectArg).not.toBe("*");
+    expect(selectArg).toContain("category_id");
+    expect(selectArg).toContain("staff_count");
+    expect(selectArg).toContain("requirement_skills");
+    expect(mockEq).toHaveBeenCalledWith("wo_id", "wo-1");
+    expect(mockAbortSignal).toHaveBeenCalledTimes(1);
+  });
+
+  it("orders categories by display_order and skills by name, regardless of fetch order", async () => {
+    mockSupabaseResolvedTo([
+      {
+        id: "req-2",
+        wo_id: "wo-1",
+        category_id: "cat-2",
+        staff_count: 1,
+        category: { category_id: "cat-2", category_name: "Manager", service_id: "svc-1", display_order: 2 },
+        requirement_skills: [
+          { id: "rs-2", skill_id: "s2", min_proficiency_level: "Beginner", skill: { skill_id: "s2", name: "Zebra", is_active: true } },
+          { id: "rs-1", skill_id: "s1", min_proficiency_level: "Advanced", skill: { skill_id: "s1", name: "Alpha", is_active: true } },
+        ],
+      },
+      {
+        id: "req-1",
+        wo_id: "wo-1",
+        category_id: "cat-1",
+        staff_count: 2,
+        category: { category_id: "cat-1", category_name: "Senior", service_id: "svc-1", display_order: 1 },
+        requirement_skills: [],
+      },
+    ]);
+    const { result } = renderHook(() => useWorkOrderStaffingRequirements("wo-1"), {
+      wrapper: createWrapper(),
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(result.current.data?.map((r) => r.id)).toEqual(["req-1", "req-2"]);
+    expect(result.current.data?.[1].requirement_skills.map((s) => s.skill_id)).toEqual(["s1", "s2"]);
+  });
+
+  it("propagates a non-schema error (isError, empty data untouched)", async () => {
+    mockSupabaseResolvedTo(null, { code: "42501", message: "insufficient_privilege" });
+    const { result } = renderHook(() => useWorkOrderStaffingRequirements("wo-1"), {
+      wrapper: createWrapper(),
+    });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+  });
+
+  it("renders an empty list (not an error) for a schema-not-ready error code", async () => {
+    mockSupabaseResolvedTo(null, { code: "42P01", message: "relation does not exist" });
+    const { result } = renderHook(() => useWorkOrderStaffingRequirements("wo-1"), {
+      wrapper: createWrapper(),
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toEqual([]);
+  });
+
+  it("a viewer switch (same QueryClient) never reuses another viewer's cached staffing rows", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+
+    mockSupabaseResolvedTo([{ id: "req-a", wo_id: "wo-1", category_id: "cat-1", staff_count: 1, category: {}, requirement_skills: [] }]);
+    const first = renderHook(() => useWorkOrderStaffingRequirements("wo-1"), { wrapper });
+    await waitFor(() => expect(first.result.current.isSuccess).toBe(true));
+    first.unmount();
+
+    auth.user = { id: "viewer-b" };
+    mockSupabaseResolvedTo([{ id: "req-b", wo_id: "wo-1", category_id: "cat-2", staff_count: 2, category: {}, requirement_skills: [] }]);
+    const second = renderHook(() => useWorkOrderStaffingRequirements("wo-1"), { wrapper });
+
+    // Not served from viewer-a's cache — must show nothing until viewer-b's own fetch resolves.
+    expect(second.result.current.data).toBeUndefined();
+    await waitFor(() => expect(second.result.current.isSuccess).toBe(true));
+    expect(second.result.current.data?.[0].id).toBe("req-b");
+    expect(supabase.from).toHaveBeenCalledTimes(2);
   });
 });

@@ -64,12 +64,21 @@ const mockWorkOrder = {
   },
 };
 
-vi.mock("@/hooks/useEmsData", () => ({
-  useWorkOrderById: () => ({ data: mockWorkOrder, isLoading: false }),
-  useSetting: () => "0.13",
-  useCategories: () => ({ data: [] }),
-  useExpenseTypes: () => ({ data: [] }),
-}));
+vi.mock("@/hooks/useEmsData", () => {
+  // Stable (not a fresh [] per call) so the WorkOrderEdit staffing-hydration
+  // useEffect (dep: staffingRows) doesn't see a new reference on every render
+  // and loop forever re-hydrating an "empty" array.
+  const emptyStaffingRows: unknown[] = [];
+  return {
+    useWorkOrderById: () => ({ data: mockWorkOrder, isLoading: false }),
+    useSetting: () => "0.13",
+    useCategories: () => ({ data: [] }),
+    useExpenseTypes: () => ({ data: [] }),
+    useServices: () => ({ data: [] }),
+    useActiveSkills: () => ({ data: [] }),
+    useWorkOrderStaffingRequirements: () => ({ data: emptyStaffingRows, isLoading: false, isError: false }),
+  };
+});
 
 vi.mock("@/hooks/useCurrentStaff", () => ({
   useCurrentStaff: () => ({
@@ -114,6 +123,7 @@ vi.mock("@/hooks/mutations", () => ({
   useDeletePaymentPlan: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useUpdateInstallmentStatus: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useUpdateCollectionDate: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useSaveWorkOrderStaffing: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
 vi.mock("@/components/layout/AppLayout", () => ({

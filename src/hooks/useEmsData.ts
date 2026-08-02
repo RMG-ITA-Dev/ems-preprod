@@ -482,23 +482,40 @@ function isSchedulerSchemaNotReady(error: unknown): boolean {
   return notReady;
 }
 
+// Viewer-keyed (precedente useEngagementAssignments) para que un cambio de
+// cuenta en la misma SPA no reutilice la caché del viewer anterior. Columnas
+// explícitas (no "*") y orden estable (categoría por display_order, skills
+// por nombre) para que el estado sea comparable en el dirty-check de Fase 4.
 export function useWorkOrderStaffingRequirements(workOrderId: string | undefined) {
+  const { user } = useAuth();
+  const viewerId = user?.id;
   return useQuery({
-    queryKey: ["workOrderStaffingRequirements", workOrderId],
-    enabled: !!workOrderId,
-    queryFn: async () => {
+    queryKey: ["workOrderStaffingRequirements", viewerId, workOrderId],
+    enabled: Boolean(viewerId && workOrderId),
+    queryFn: async ({ signal }) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data, error } = await (supabase as any)
         .from("wo_staffing_requirements")
         .select(
-          "*, category:categories(*), requirement_skills:wo_staffing_requirement_skills(*, skill:skills(*))"
+          "id, wo_id, category_id, staff_count, " +
+            "category:categories(category_id, category_name, service_id, display_order), " +
+            "requirement_skills:wo_staffing_requirement_skills(id, skill_id, min_proficiency_level, skill:skills(skill_id, name, category, is_active))"
         )
-        .eq("wo_id", workOrderId);
+        .eq("wo_id", workOrderId)
+        .abortSignal(signal);
       if (error) {
         if (isSchedulerSchemaNotReady(error)) return [];
         throw error;
       }
-      return (data ?? []) as WorkOrderStaffingRequirementWithSkills[];
+      const rows = (data ?? []) as WorkOrderStaffingRequirementWithSkills[];
+      return [...rows]
+        .sort((a, b) => (a.category?.display_order ?? 999) - (b.category?.display_order ?? 999))
+        .map((row) => ({
+          ...row,
+          requirement_skills: [...row.requirement_skills].sort((a, b) =>
+            (a.skill?.name ?? "").localeCompare(b.skill?.name ?? "")
+          ),
+        }));
     },
   });
 }

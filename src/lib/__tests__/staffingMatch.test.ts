@@ -293,3 +293,68 @@ describe("TIER_SORT_ORDER", () => {
     expect(TIER_SORT_ORDER.category_only).toBeLessThan(TIER_SORT_ORDER.none);
   });
 });
+
+// Fase 4 — categorías homónimas de servicios distintos y skills inactivas persistidas.
+describe("category_id is the sole boundary — homonymous categories across services never mix", () => {
+  // Two different services can each have a category literally named "Senior" — only
+  // category_id (globally unique) distinguishes them, never the name.
+  const CAT_SENIOR_AUDIT = "cat-senior-audit-service";
+  const CAT_SENIOR_TAX = "cat-senior-tax-service";
+
+  it("aggregateRequirements keeps homonymous categories from different services as separate entries", () => {
+    const result = aggregateRequirements([
+      {
+        category_id: CAT_SENIOR_AUDIT,
+        requirement_skills: [{ skill_id: SKILL_IFRS, min_proficiency_level: "Intermediate", skill: { name: "IFRS" } }],
+      },
+      {
+        category_id: CAT_SENIOR_TAX,
+        requirement_skills: [{ skill_id: SKILL_TAX, min_proficiency_level: "Advanced", skill: { name: "Tax Law" } }],
+      },
+    ]);
+    expect(result).toHaveLength(2);
+    const byCategory = new Map(result.map((r) => [r.category_id, r]));
+    expect(byCategory.get(CAT_SENIOR_AUDIT)?.required_skills.map((s) => s.skill_id)).toEqual([SKILL_IFRS]);
+    expect(byCategory.get(CAT_SENIOR_TAX)?.required_skills.map((s) => s.skill_id)).toEqual([SKILL_TAX]);
+  });
+
+  it("rankCandidate: staff scoped to one service's 'Senior' never matches the other service's homonymous 'Senior'", () => {
+    const auditReq: AggregatedRequirement = req(CAT_SENIOR_AUDIT, [[SKILL_IFRS, "Beginner"]]);
+    const staffInTaxSenior = staff(CAT_SENIOR_TAX, [[SKILL_IFRS, "Advanced"]]);
+    const result = rankCandidate(staffInTaxSenior, auditReq);
+    expect(result.tier).toBe("none");
+  });
+
+  it("rankCandidateForCategory resolves each homonymous category to its own independent requirement", () => {
+    const requirements = [
+      req(CAT_SENIOR_AUDIT, [[SKILL_IFRS, "Intermediate"]]),
+      req(CAT_SENIOR_TAX, [[SKILL_TAX, "Advanced"]]),
+    ];
+    const auditStaff = staff(CAT_SENIOR_AUDIT, [[SKILL_IFRS, "Advanced"]]);
+    expect(rankCandidateForCategory(auditStaff, requirements, CAT_SENIOR_AUDIT)?.tier).toBe("full");
+    // Same staff evaluated against the homonymous-but-different Tax category: category mismatch.
+    expect(rankCandidateForCategory(auditStaff, requirements, CAT_SENIOR_TAX)?.tier).toBe("none");
+  });
+});
+
+describe("inactive persisted skills still count as demand (matching has no is_active concept)", () => {
+  it("a requirement skill sourced from an inactive skill still aggregates and ranks normally", () => {
+    // WorkOrderRequirementInput has no is_active field — a skill that later became
+    // inactive in the catalog must keep counting as demand for OTs that already
+    // required it (removing it silently would shrink scope without a save).
+    const aggregated = aggregateRequirements([
+      {
+        category_id: CAT_SENIOR,
+        requirement_skills: [
+          { skill_id: SKILL_AUDIT, min_proficiency_level: "Advanced", skill: { name: "Legacy Audit Skill" } },
+        ],
+      },
+    ]);
+    expect(aggregated[0].required_skills).toEqual([
+      { skill_id: SKILL_AUDIT, skill_name: "Legacy Audit Skill", min_level: "Advanced" },
+    ]);
+
+    const result = rankCandidate(staff(CAT_SENIOR, [[SKILL_AUDIT, "Advanced"]]), aggregated[0]);
+    expect(result.tier).toBe("full");
+  });
+});

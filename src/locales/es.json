@@ -1285,6 +1285,39 @@
       "confirmCollectionDateTitle": "Actualizar Fecha de Facturación de Cobranza",
       "confirmCollectionDateDesc": "La fecha de facturación de cobranza se actualizará a {{date}}. La fecha de pago de cobranza se recalculará automáticamente.",
       "confirmCollectionDateAction": "Guardar fecha"
+    },
+    "staffingRequirements": {
+      "title": "Requisitos de Staffing",
+      "description": "Define las categorías, la cantidad de personal y las skills requeridas para esta orden de trabajo.",
+      "empty": "Aún no hay requisitos de staffing.",
+      "loading": "Cargando requisitos de staffing...",
+      "errorLoading": "No se pudieron cargar los requisitos de staffing.",
+      "addCategory": "Agregar categoría",
+      "removeCategory": "Eliminar categoría",
+      "selectCategory": "Seleccionar categoría",
+      "staffCount": "Cantidad de personal",
+      "addSkill": "Agregar skill",
+      "removeSkill": "Eliminar skill",
+      "selectSkill": "Seleccionar skill",
+      "selectProficiency": "Seleccionar nivel",
+      "inactiveSkillBadge": "Inactiva",
+      "availableAfterCreate": "Los requisitos de staffing estarán disponibles después de guardar esta orden de trabajo.",
+      "noCategoriesForService": "No hay categorías disponibles para el servicio de este encargo.",
+      "serviceNotResolved": "El encargo de esta orden de trabajo no tiene un servicio asignado; no se pueden acotar las categorías de staffing.",
+      "saveSuccess": "Requisitos de staffing guardados correctamente.",
+      "errors": {
+        "categoryMissing": "Selecciona una categoría para cada requisito de staffing.",
+        "categoryDuplicate": "Una categoría no puede utilizarse más de una vez.",
+        "skillDuplicate": "Una skill no puede utilizarse más de una vez dentro del mismo requisito.",
+        "categoryForeignService": "Esta categoría no pertenece al servicio del encargo.",
+        "skillIncomplete": "Selecciona una skill y un nivel de proficiency en cada fila de skill.",
+        "staffCountRange": "La cantidad de personal debe ser un número entero entre 1 y 999.",
+        "proficiencyInvalid": "Selecciona un nivel de proficiency válido.",
+        "workOrderNotFound": "No se encontró esta orden de trabajo.",
+        "denied": "No tienes permiso para modificar los requisitos de staffing de esta orden de trabajo.",
+        "locked": "Esta orden de trabajo está bloqueada y no se puede modificar.",
+        "persistFailed": "No se pudieron guardar los requisitos de staffing. Intenta nuevamente."
+      }
     }
   },
   "adminTimeEntries": {

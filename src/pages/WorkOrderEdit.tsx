@@ -10,7 +10,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { FileSpreadsheet, RefreshCw } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { WorkOrderForm, BudgetLineInput, ExpenseBudgetInput } from "@/components/forms/WorkOrderForm";
-import { useWorkOrderById, useSetting, useCategories } from "@/hooks/useEmsData";
+import {
+  useWorkOrderById,
+  useSetting,
+  useCategories,
+  useServices,
+  useActiveSkills,
+  useWorkOrderStaffingRequirements,
+} from "@/hooks/useEmsData";
 import {
   useUpdateWorkOrder,
   useCreateBudgetLine,
@@ -33,7 +40,15 @@ import {
   useUpsertPaymentPlan,
   useBatchUpsertInstallments,
   useDeletePaymentPlan,
+  useSaveWorkOrderStaffing,
 } from "@/hooks/mutations";
+import {
+  hydrateFromPersisted,
+  isStaffingDirty,
+  validateStaffing,
+  STAFFING_VALIDATION_ERROR_I18N_KEY,
+  type StaffingRequirementInput,
+} from "@/lib/workOrderStaffing";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { useUserRole } from "@/hooks/useUserRole";
 import type { PaymentPlanInput, PaymentInstallmentInput } from "@/types/workOrderPaymentPlan";
@@ -60,9 +75,18 @@ const WorkOrderEdit = () => {
   const { data: categories } = useCategories();
   const { staffRecord } = useCurrentStaff();
   const globalTaxRate = useSetting("TAX_RATE");
-  
+
   // Check if this WO has a linked worksheet
   const { data: linkedWorksheet } = useWorksheetByEngagementId(workOrder?.engagement_id);
+
+  // Staffing Requirements (Fase 4) — data sources
+  const { data: services } = useServices();
+  const { data: activeSkills } = useActiveSkills();
+  const {
+    data: staffingRows,
+    isLoading: staffingLoading,
+    isError: staffingIsError,
+  } = useWorkOrderStaffingRequirements(workOrder?.wo_id);
 
   const updateWorkOrder = useUpdateWorkOrder();
   const createBudgetLine = useCreateBudgetLine();
@@ -86,6 +110,7 @@ const WorkOrderEdit = () => {
   const upsertPaymentPlan = useUpsertPaymentPlan();
   const batchUpsertInstallments = useBatchUpsertInstallments();
   const deletePaymentPlan = useDeletePaymentPlan();
+  const saveWorkOrderStaffing = useSaveWorkOrderStaffing();
   const { isAdmin, isPartner, isDirector, isManager } = useUserRole();
 
   const [currency, setCurrency] = useState<"USD" | "BOB" | "USDT">("BOB");
@@ -121,6 +146,15 @@ const WorkOrderEdit = () => {
   // Prevents the useEffect from clobbering in-progress risk edits when a non-risk save triggers a refetch.
   // Set to true on any user edit; reset to false after risk data is persisted to DB.
   const riskEditedRef = useRef(false);
+
+  // Staffing Requirements (Fase 4)
+  const [staffing, setStaffing] = useState<StaffingRequirementInput[]>([]);
+  const [originalStaffing, setOriginalStaffing] = useState<StaffingRequirementInput[]>([]);
+  // Same guard as riskEditedRef: a refetch (e.g. after a non-staffing save) must not
+  // clobber in-progress staffing edits. Reset to false only after a successful save,
+  // right before the invalidated query re-hydrates the fresh persisted baseline.
+  const staffingEditedRef = useRef(false);
+  const [staffingFocusSignal, setStaffingFocusSignal] = useState(0);
 
   // Track original values for dirty check
   const [originalAdjustment, setOriginalAdjustment] = useState(0);
@@ -221,6 +255,54 @@ const WorkOrderEdit = () => {
     }
   }, [workOrder]);
 
+  // Load staffing requirements once the query resolves. Skipped while the user has
+  // in-progress edits (staffingEditedRef) so a non-staffing save's refetch doesn't
+  // clobber them; the ref is reset to false only after a successful staffing save,
+  // so the invalidated refetch below re-hydrates both `staffing` and `originalStaffing`
+  // from the freshly persisted state.
+  useEffect(() => {
+    if (staffingRows && !staffingEditedRef.current) {
+      const hydrated = hydrateFromPersisted(staffingRows);
+      setStaffing(hydrated);
+      setOriginalStaffing(hydrated);
+    }
+  }, [staffingRows]);
+
+  // Engagement's service, resolved the same way as WorksheetEdit.tsx: practica ->
+  // services.code -> service_id. practica === null (legacy engagement, no service
+  // assigned) intentionally leaves staffing unscoped (matches save_wo_staffing,
+  // which skips the cross-service check when the engagement has no practica).
+  const practica = workOrder?.engagement?.practica ?? null;
+  const engagementService = useMemo(
+    () => (services ?? []).find((s) => s.code === practica),
+    [services, practica],
+  );
+  // False only when practica IS set but doesn't resolve to any service — a genuine
+  // data issue that must block staffing saves with a translated error.
+  const staffingServiceResolved = practica === null || !!engagementService;
+  const staffingCategories = useMemo(() => {
+    if (!categories) return [];
+    if (practica === null) return categories;
+    return categories.filter((c) => c.service_id === engagementService?.service_id);
+  }, [categories, practica, engagementService]);
+  // null = no cross-service check (practica === null, see above). Otherwise the
+  // exact allow-list validateStaffing enforces, including for historical rows
+  // whose category no longer belongs to the engagement's current service.
+  const staffingServiceCategoryIds = useMemo(
+    () => (practica === null ? null : new Set(staffingCategories.map((c) => c.category_id))),
+    [practica, staffingCategories],
+  );
+
+  const staffingDirty = useMemo(
+    () => isStaffingDirty(originalStaffing, staffing),
+    [originalStaffing, staffing],
+  );
+
+  const handleStaffingRequirementsChange = (reqs: StaffingRequirementInput[]) => {
+    staffingEditedRef.current = true;
+    setStaffing(reqs);
+  };
+
   // Compute dirty state - only for expenses and adjustment (budget lines are read-only)
   const isDirty = useMemo(() => {
     if (!workOrder) return false;
@@ -256,8 +338,11 @@ const WorkOrderEdit = () => {
     if (JSON.stringify(paymentPlan) !== JSON.stringify(originalPaymentPlan)) return true;
     if (JSON.stringify(paymentInstallments) !== JSON.stringify(originalInstallments)) return true;
 
+    // Staffing Requirements (Fase 4)
+    if (staffingDirty) return true;
+
     return false;
-  }, [workOrder, adjustmentAmount, originalAdjustment, expenseBudget, originalExpenseData, ceacCompletedAt, originalCeacCompletedAt, sanCompletedAt, originalSanCompletedAt, ceacNotes, originalCeacNotes, sanNotes, originalSanNotes, ceacNumber, originalCeacNumber, sanApprovalId, originalSanApprovalId, riskLevel, originalRiskLevel, paymentPlan, originalPaymentPlan, paymentInstallments, originalInstallments]);
+  }, [workOrder, adjustmentAmount, originalAdjustment, expenseBudget, originalExpenseData, ceacCompletedAt, originalCeacCompletedAt, sanCompletedAt, originalSanCompletedAt, ceacNotes, originalCeacNotes, sanNotes, originalSanNotes, ceacNumber, originalCeacNumber, sanApprovalId, originalSanApprovalId, riskLevel, originalRiskLevel, paymentPlan, originalPaymentPlan, paymentInstallments, originalInstallments, staffingDirty]);
 
   // Tracks only fields that handleSubmit persists (not risk fields — those are saved atomically by submitWorkOrder)
   const hasNonRiskDirty = useMemo(() => {
@@ -276,8 +361,10 @@ const WorkOrderEdit = () => {
     // Payment plan
     if (JSON.stringify(paymentPlan) !== JSON.stringify(originalPaymentPlan)) return true;
     if (JSON.stringify(paymentInstallments) !== JSON.stringify(originalInstallments)) return true;
+    // Staffing Requirements (Fase 4) — persisted by handleSubmit, like expenses/payment plan.
+    if (staffingDirty) return true;
     return false;
-  }, [workOrder, adjustmentAmount, originalAdjustment, expenseBudget, originalExpenseData, paymentPlan, originalPaymentPlan, paymentInstallments, originalInstallments]);
+  }, [workOrder, adjustmentAmount, originalAdjustment, expenseBudget, originalExpenseData, paymentPlan, originalPaymentPlan, paymentInstallments, originalInstallments, staffingDirty]);
 
   const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty });
 
@@ -308,6 +395,24 @@ const WorkOrderEdit = () => {
       const pctSum = paymentInstallments.reduce((s, i) => s + i.percentage, 0);
       if (Math.abs(pctSum - 100) > 0.01) {
         toast.error(t("workOrders.paymentPlan.validationPercentageSum"));
+        return;
+      }
+    }
+
+    // Staffing must validate before ANY mutation runs (todo-o-nada) — including the
+    // read query having actually loaded OK, so a schema/network error is never
+    // mistaken for "no staffing" and saved as a silent wipe.
+    if (staffingDirty) {
+      if (staffingLoading || staffingIsError) {
+        toast.error(t("workOrders.staffingRequirements.errorLoading"));
+        return;
+      }
+      const staffingValidationError = validateStaffing(staffing, {
+        serviceCategoryIds: staffingServiceCategoryIds,
+      });
+      if (staffingValidationError) {
+        toast.error(t(STAFFING_VALIDATION_ERROR_I18N_KEY[staffingValidationError.code]));
+        setStaffingFocusSignal((n) => n + 1);
         return;
       }
     }
@@ -387,6 +492,17 @@ const WorkOrderEdit = () => {
       setOriginalAdjustment(adjustmentAmount);
       setOriginalExpenses(expenseBudget.map((e) => e.id));
       setOriginalExpenseData(JSON.parse(JSON.stringify(expenseBudget)));
+
+      // Staffing: invoked last, only when dirty, in a single RPC call. A failure here
+      // must not be reported as a full save (toast.success below is not reached), and
+      // must leave staffing dirty + the form open so the user can retry (the RPC is
+      // transactional — retrying never creates duplicates).
+      if (staffingDirty) {
+        await saveWorkOrderStaffing.mutateAsync({ woId: workOrder.wo_id, requirements: staffing });
+        // Reset BEFORE the query-invalidation refetch lands, so the hydration effect
+        // re-hydrates staffing/originalStaffing from the freshly persisted state.
+        staffingEditedRef.current = false;
+      }
 
       toast.success(t("messages.updateSuccess", { entity: t("entities.workOrder") }));
     } catch (error) {
@@ -691,6 +807,14 @@ const WorkOrderEdit = () => {
           }
           onPaymentPlanChange={setPaymentPlan}
           onPaymentInstallmentsChange={setPaymentInstallments}
+          staffingRequirements={staffing}
+          onStaffingRequirementsChange={handleStaffingRequirementsChange}
+          staffingCategories={staffingCategories}
+          activeSkills={activeSkills ?? []}
+          staffingLoading={staffingLoading}
+          staffingError={staffingIsError}
+          staffingServiceResolved={staffingServiceResolved}
+          staffingFocusSignal={staffingFocusSignal}
           isSubmitting={
             updateWorkOrder.isPending ||
             submitWorkOrder.isPending ||
@@ -703,7 +827,8 @@ const WorkOrderEdit = () => {
             revertRiskApproval.isPending ||
             completeRiskAssessment.isPending ||
             rejectWorkOrder.isPending ||
-            unsubmitWorkOrder.isPending
+            unsubmitWorkOrder.isPending ||
+            saveWorkOrderStaffing.isPending
           }
         />
       </div>

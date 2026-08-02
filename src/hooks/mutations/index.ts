@@ -72,3 +72,6 @@ export { useCreateService, useUpdateService } from "./useServiceMutations";
 
 // Taxonomies
 export { useCreateTaxonomy, useUpdateTaxonomy } from "./useTaxonomyMutations";
+
+// Work Order Staffing Requirements (Fase 4 — thin wrapper de save_wo_staffing)
+export { useSaveWorkOrderStaffing } from "./useWorkOrderStaffingMutations";
