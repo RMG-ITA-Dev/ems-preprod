@@ -66,13 +66,26 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
+function cloneStaffingRequirements(
+  requirements: readonly StaffingRequirementInput[],
+): StaffingRequirementInput[] {
+  return requirements.map((requirement) => ({
+    ...requirement,
+    skills: requirement.skills.map((skill) => ({ ...skill })),
+  }));
+}
+
 const WorkOrderEdit = () => {
   const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
   const { data: workOrder, isLoading } = useWorkOrderById(id || "");
-  const { data: categories } = useCategories();
+  const {
+    data: categories,
+    isLoading: categoriesLoading,
+    isError: categoriesIsError,
+  } = useCategories();
   const { staffRecord } = useCurrentStaff();
   const globalTaxRate = useSetting("TAX_RATE");
 
@@ -80,13 +93,25 @@ const WorkOrderEdit = () => {
   const { data: linkedWorksheet } = useWorksheetByEngagementId(workOrder?.engagement_id);
 
   // Staffing Requirements (Fase 4) — data sources
-  const { data: services } = useServices();
-  const { data: activeSkills } = useActiveSkills();
+  const {
+    data: services,
+    isLoading: servicesLoading,
+    isError: servicesIsError,
+  } = useServices();
+  const {
+    data: activeSkills,
+    isLoading: activeSkillsLoading,
+    isError: activeSkillsIsError,
+  } = useActiveSkills();
   const {
     data: staffingRows,
-    isLoading: staffingLoading,
-    isError: staffingIsError,
+    isLoading: staffingRequirementsLoading,
+    isError: staffingRequirementsIsError,
   } = useWorkOrderStaffingRequirements(workOrder?.wo_id);
+  const staffingLoading =
+    staffingRequirementsLoading || categoriesLoading || servicesLoading || activeSkillsLoading;
+  const staffingIsError =
+    staffingRequirementsIsError || categoriesIsError || servicesIsError || activeSkillsIsError;
 
   const updateWorkOrder = useUpdateWorkOrder();
   const createBudgetLine = useCreateBudgetLine();
@@ -264,7 +289,7 @@ const WorkOrderEdit = () => {
     if (staffingRows && !staffingEditedRef.current) {
       const hydrated = hydrateFromPersisted(staffingRows);
       setStaffing(hydrated);
-      setOriginalStaffing(hydrated);
+      setOriginalStaffing(cloneStaffingRequirements(hydrated));
     }
   }, [staffingRows]);
 
@@ -504,8 +529,10 @@ const WorkOrderEdit = () => {
     // creates duplicates).
     if (staffingDirty) {
       await saveWorkOrderStaffing.mutateAsync({ woId: workOrder.wo_id, requirements: staffing });
-      // Reset BEFORE the query-invalidation refetch lands, so the hydration effect
-      // re-hydrates staffing/originalStaffing from the freshly persisted state.
+      // The submission was validated before the RPC and the RPC confirmed it. Set the
+      // baseline immediately instead of depending on an asynchronous cache refetch;
+      // the invalidation still refreshes DB IDs/catalog metadata in the background.
+      setOriginalStaffing(cloneStaffingRequirements(staffing));
       staffingEditedRef.current = false;
     }
 
@@ -529,12 +556,14 @@ const WorkOrderEdit = () => {
     // de pagos/staffing) first, in the same click — no separate "Guardar" required.
     // A validation failure or a mutation failure here must cancel the submission
     // entirely (no partial "saved but not submitted, or submitted but not saved").
-    try {
-      const persisted = await persistNonRiskChanges();
-      if (!persisted) return;
-    } catch (error) {
-      // Error already toasted by the failing mutation's own onError; abort the submit.
-      return;
+    if (hasNonRiskDirty) {
+      try {
+        const persisted = await persistNonRiskChanges();
+        if (!persisted) return;
+      } catch (error) {
+        // Error already toasted by the failing mutation's own onError; abort the submit.
+        return;
+      }
     }
 
     // Reenvío de la pista Socio en corrección (estado Rejected): no se re-evalúa ni se
@@ -839,6 +868,7 @@ const WorkOrderEdit = () => {
           staffingLoading={staffingLoading}
           staffingError={staffingIsError}
           staffingServiceResolved={staffingServiceResolved}
+          staffingServiceId={engagementService?.service_id ?? null}
           staffingFocusSignal={staffingFocusSignal}
           isSubmitting={
             updateWorkOrder.isPending ||

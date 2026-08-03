@@ -44,7 +44,11 @@ const WOS_ERROR_I18N_KEY: Record<string, string> = {
 };
 
 function findWosErrorCode(error: unknown): string | undefined {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = error instanceof Error
+    ? error.message
+    : typeof error === "object" && error !== null && typeof (error as { message?: unknown }).message === "string"
+      ? (error as { message: string }).message
+      : String(error);
   return Object.keys(WOS_ERROR_I18N_KEY).find((code) => message.includes(code));
 }
 

@@ -128,6 +128,7 @@ interface WorkOrderFormProps {
   staffingLoading?: boolean;
   staffingError?: boolean;
   staffingServiceResolved?: boolean;
+  staffingServiceId?: string | null;
   /** Incremented by the parent to scroll the Staffing section into view after a validation error. */
   staffingFocusSignal?: number;
   onSeasonChange: (season: "High" | "Low") => void;
@@ -242,6 +243,7 @@ export function WorkOrderForm({
   staffingLoading = false,
   staffingError = false,
   staffingServiceResolved = true,
+  staffingServiceId = null,
   staffingFocusSignal = 0,
 }: WorkOrderFormProps) {
   const { t } = useTranslation();
@@ -367,6 +369,10 @@ export function WorkOrderForm({
   // gastos/ajuste editables (la matriz/grid sigue siempre read-only). La pista Socio
   // aprobada (approved_at) NUNCA es editable; en Draft o en corrección tras rechazo sí.
   const isEditable = ((isDraft && !isLocked) || socioCorrecting) && !socioApproved;
+  // Staffing is persisted by save_wo_staffing, whose state contract is Draft-only.
+  // This deliberately does not inherit the Socio correction exception used by gastos.
+  const isStaffingEditable = isDraft && !isLocked && !socioApproved &&
+    !staffingLoading && !staffingError && staffingServiceResolved;
 
   const CEAC_NUM_RE = /^\d{10}$/;
   const SAN_ID_RE = /^\d{10}$|^\d{5}-\d{5}$/;
@@ -1181,7 +1187,12 @@ export function WorkOrderForm({
                       {t("workOrders.staffingRequirements.serviceNotResolved")}
                     </div>
                   )}
-                  {staffingRequirements.length === 0 && (
+                  {staffingServiceResolved && staffingCategories.length === 0 && (
+                    <p className="text-sm text-muted-foreground">
+                      {t("workOrders.staffingRequirements.noCategoriesForService")}
+                    </p>
+                  )}
+                  {staffingRequirements.length === 0 && staffingCategories.length > 0 && (
                     <p className="text-sm text-muted-foreground">
                       {t("workOrders.staffingRequirements.empty")}
                     </p>
@@ -1193,7 +1204,23 @@ export function WorkOrderForm({
                           .filter((r) => r.clientKey !== req.clientKey)
                           .map((r) => r.categoryId),
                       );
-                      const categoryOptions = staffingCategories.filter(
+                      const isHistoricalIncompatible = Boolean(
+                        staffingServiceId &&
+                        req.categoryServiceId &&
+                        req.categoryServiceId !== staffingServiceId,
+                      );
+                      const currentCategoryIsMissing = Boolean(
+                        req.categoryId && !staffingCategories.some((c) => c.category_id === req.categoryId),
+                      );
+                      const historicalCurrentCategory = currentCategoryIsMissing
+                        ? {
+                            category_id: req.categoryId as string,
+                            category_name: req.categoryName ?? req.categoryId ?? "",
+                            service_id: req.categoryServiceId ?? "",
+                            display_order: Number.MAX_SAFE_INTEGER,
+                          } as Category
+                        : null;
+                      const categoryOptions = [...staffingCategories, ...(historicalCurrentCategory ? [historicalCurrentCategory] : [])].filter(
                         (c) => c.category_id === req.categoryId || !usedByOthers.has(c.category_id),
                       );
                       return (
@@ -1202,19 +1229,29 @@ export function WorkOrderForm({
                           data-testid={`staffing-requirement-${req.clientKey}`}
                           className="rounded-md border border-border p-3 space-y-3"
                         >
-                          <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+                          {isHistoricalIncompatible && (
+                            <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning">
+                              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                              {t("workOrders.staffingRequirements.historicalCategoryIncompatible")}
+                            </div>
+                          )}
+                          <div className="flex flex-col md:flex-row gap-2 md:items-center">
                             <div className="flex-1">
                               <Select
                                 value={req.categoryId ?? ""}
                                 onValueChange={(v) => updateStaffingCategory(req.clientKey, v)}
-                                disabled={!isEditable}
+                                disabled={!isStaffingEditable}
                               >
                                 <SelectTrigger className="h-9">
                                   <SelectValue placeholder={t("workOrders.staffingRequirements.selectCategory")} />
                                 </SelectTrigger>
                                 <SelectContent>
                                   {categoryOptions.map((c) => (
-                                    <SelectItem key={c.category_id} value={c.category_id}>
+                                  <SelectItem
+                                    key={c.category_id}
+                                    value={c.category_id}
+                                    disabled={isHistoricalIncompatible && c.category_id === req.categoryId}
+                                  >
                                       {c.category_name}
                                     </SelectItem>
                                   ))}
@@ -1231,12 +1268,12 @@ export function WorkOrderForm({
                                 max={999}
                                 value={req.staffCount ?? ""}
                                 onChange={(val) => updateStaffingCount(req.clientKey, val)}
-                                disabled={!isEditable}
+                                disabled={!isStaffingEditable}
                                 className="w-20 h-9"
                                 data-testid={`staffing-count-${req.clientKey}`}
                               />
                             </div>
-                            {isEditable && (
+                            {isStaffingEditable && (
                               <Button
                                 variant="ghost"
                                 size="icon"
@@ -1250,27 +1287,36 @@ export function WorkOrderForm({
                             )}
                           </div>
 
-                          <div className="space-y-2 sm:pl-2">
+                          <div className="space-y-2 md:pl-2">
                             {req.skills.map((skill) => {
                               const isKnownActive = activeSkills.some((s) => s.skill_id === skill.skillId);
-                              const skillOptions =
+                              const availableSkillOptions =
                                 isKnownActive || !skill.skillId
                                   ? activeSkills
                                   : [
                                       ...activeSkills,
                                       { skill_id: skill.skillId, name: skill.skillName ?? skill.skillId, category: "" },
                                     ];
+                              const usedSkillIds = new Set(
+                                req.skills
+                                  .filter((s) => s.clientKey !== skill.clientKey)
+                                  .map((s) => s.skillId)
+                                  .filter(Boolean),
+                              );
+                              const skillOptions = availableSkillOptions.filter(
+                                (option) => option.skill_id === skill.skillId || !usedSkillIds.has(option.skill_id),
+                              );
                               return (
                                 <div
                                   key={skill.clientKey}
                                   data-testid={`staffing-skill-${skill.clientKey}`}
-                                  className="flex flex-col sm:flex-row gap-2 sm:items-center"
+                                  className="flex flex-col md:flex-row gap-2 md:items-center"
                                 >
                                   <div className="flex-1 flex items-center gap-2">
                                     <Select
                                       value={skill.skillId || ""}
                                       onValueChange={(v) => updateStaffingSkillId(req.clientKey, skill.clientKey, v)}
-                                      disabled={!isEditable}
+                                      disabled={!isStaffingEditable}
                                     >
                                       <SelectTrigger className="h-8 text-sm">
                                         <SelectValue placeholder={t("workOrders.staffingRequirements.selectSkill")} />
@@ -1301,9 +1347,9 @@ export function WorkOrderForm({
                                         v as StaffingProficiencyLevel,
                                       )
                                     }
-                                    disabled={!isEditable}
+                                    disabled={!isStaffingEditable}
                                   >
-                                    <SelectTrigger className="h-8 text-sm w-full sm:w-40">
+                                    <SelectTrigger className="h-8 text-sm w-full md:w-40">
                                       <SelectValue placeholder={t("workOrders.staffingRequirements.selectProficiency")} />
                                     </SelectTrigger>
                                     <SelectContent>
@@ -1314,7 +1360,7 @@ export function WorkOrderForm({
                                       ))}
                                     </SelectContent>
                                   </Select>
-                                  {isEditable && (
+                                  {isStaffingEditable && (
                                     <Button
                                       variant="ghost"
                                       size="icon"
@@ -1329,7 +1375,7 @@ export function WorkOrderForm({
                                 </div>
                               );
                             })}
-                            {isEditable && (
+                            {isStaffingEditable && (
                               <Button
                                 variant="outline"
                                 size="sm"
@@ -1346,7 +1392,7 @@ export function WorkOrderForm({
                       );
                     })}
                   </div>
-                  {isEditable && (
+                  {isStaffingEditable && (
                     <Button
                       variant="outline"
                       onClick={addStaffingRequirement}

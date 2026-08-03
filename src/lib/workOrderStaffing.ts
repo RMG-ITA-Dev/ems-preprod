@@ -45,6 +45,9 @@ export interface StaffingRequirementInput {
   categoryId: string | null;
   /** null = fila incompleta (aún no editada). */
   staffCount: number | null;
+  /** Metadatos históricos para explicar una categoría que ya no pertenece al servicio actual. */
+  categoryName?: string | null;
+  categoryServiceId?: string | null;
   skills: StaffingRequirementSkillInput[];
 }
 
@@ -64,6 +67,10 @@ export interface PersistedStaffingRequirement {
   id: string;
   category_id: string;
   staff_count: number;
+  category?: {
+    category_name?: string | null;
+    service_id?: string | null;
+  } | null;
   requirement_skills: PersistedStaffingRequirementSkill[];
 }
 
@@ -84,6 +91,8 @@ export function createEmptyRequirement(): StaffingRequirementInput {
     persistedId: null,
     categoryId: null,
     staffCount: 1,
+    categoryName: null,
+    categoryServiceId: null,
     skills: [],
   };
 }
@@ -97,6 +106,8 @@ export function hydrateFromPersisted(
     persistedId: row.id,
     categoryId: row.category_id,
     staffCount: row.staff_count,
+    categoryName: row.category?.category_name ?? null,
+    categoryServiceId: row.category?.service_id ?? null,
     skills: row.requirement_skills.map((rs) => ({
       clientKey: rs.id,
       persistedId: rs.id,

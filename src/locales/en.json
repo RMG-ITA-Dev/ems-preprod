@@ -1300,6 +1300,7 @@
       "selectSkill": "Select skill",
       "selectProficiency": "Select proficiency",
       "inactiveSkillBadge": "Inactive",
+      "historicalCategoryIncompatible": "This historical category no longer belongs to the engagement's current service. Select a valid category or remove this requirement.",
       "availableAfterCreate": "Staffing requirements will be available after you save this work order.",
       "noCategoriesForService": "No categories available for this engagement's service.",
       "serviceNotResolved": "This work order's engagement has no service assigned; staffing categories cannot be scoped.",

@@ -423,13 +423,13 @@ describe("useWorkOrderStaffingRequirements (Fase 4)", () => {
     await waitFor(() => expect(result.current.isError).toBe(true));
   });
 
-  it("renders an empty list (not an error) for a schema-not-ready error code", async () => {
-    mockSupabaseResolvedTo(null, { code: "42P01", message: "relation does not exist" });
+  it.each(["42P01", "42703", "PGRST200"])("propagates schema-not-ready error %s instead of fabricating an empty list", async (code) => {
+    mockSupabaseResolvedTo(null, { code, message: "schema not ready" });
     const { result } = renderHook(() => useWorkOrderStaffingRequirements("wo-1"), {
       wrapper: createWrapper(),
     });
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(result.current.data).toEqual([]);
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.data).toBeUndefined();
   });
 
   it("a viewer switch (same QueryClient) never reuses another viewer's cached staffing rows", async () => {

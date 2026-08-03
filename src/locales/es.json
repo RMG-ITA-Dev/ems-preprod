@@ -1300,6 +1300,7 @@
       "selectSkill": "Seleccionar skill",
       "selectProficiency": "Seleccionar nivel",
       "inactiveSkillBadge": "Inactiva",
+      "historicalCategoryIncompatible": "Esta categoría histórica ya no pertenece al servicio actual del encargo. Selecciona una categoría válida o elimina este requisito.",
       "availableAfterCreate": "Los requisitos de staffing estarán disponibles después de guardar esta orden de trabajo.",
       "noCategoriesForService": "No hay categorías disponibles para el servicio de este encargo.",
       "serviceNotResolved": "El encargo de esta orden de trabajo no tiene un servicio asignado; no se pueden acotar las categorías de staffing.",

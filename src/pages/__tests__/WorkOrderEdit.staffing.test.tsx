@@ -8,6 +8,9 @@ const mockUpdateAsync = vi.hoisted(() => vi.fn());
 const mockSaveStaffingAsync = vi.hoisted(() => vi.fn());
 const mockSubmitAsync = vi.hoisted(() => vi.fn());
 const mockUseWorkOrderStaffingRequirements = vi.hoisted(() => vi.fn());
+const mockUseCategories = vi.hoisted(() => vi.fn());
+const mockUseServices = vi.hoisted(() => vi.fn());
+const mockUseActiveSkills = vi.hoisted(() => vi.fn());
 const mockUsePageLeaveLock = vi.hoisted(() =>
   vi.fn(() => ({
     blocker: { state: "unblocked" as const, reset: vi.fn(), proceed: vi.fn() },
@@ -68,10 +71,10 @@ const mockWorkOrder = {
 vi.mock("@/hooks/useEmsData", () => ({
   useWorkOrderById: () => ({ data: mockWorkOrder, isLoading: false }),
   useSetting: () => "0.13",
-  useCategories: () => ({ data: [CAT_AUDIT, CAT_TAX] }),
+  useCategories: () => mockUseCategories(),
   useExpenseTypes: () => ({ data: [] }),
-  useServices: () => ({ data: [SERVICE_AUDIT] }),
-  useActiveSkills: () => ({ data: [SKILL_IFRS] }),
+  useServices: () => mockUseServices(),
+  useActiveSkills: () => mockUseActiveSkills(),
   useWorkOrderStaffingRequirements: (...args: unknown[]) => mockUseWorkOrderStaffingRequirements(...args),
 }));
 
@@ -158,6 +161,9 @@ describe("WorkOrderEdit — Staffing Requirements (Fase 4)", () => {
     mockUpdateAsync.mockResolvedValue({});
     mockSaveStaffingAsync.mockResolvedValue([]);
     mockSubmitAsync.mockResolvedValue({});
+    mockUseCategories.mockReturnValue({ data: [CAT_AUDIT, CAT_TAX], isLoading: false, isError: false });
+    mockUseServices.mockReturnValue({ data: [SERVICE_AUDIT], isLoading: false, isError: false });
+    mockUseActiveSkills.mockReturnValue({ data: [SKILL_IFRS], isLoading: false, isError: false });
     mockUseWorkOrderStaffingRequirements.mockReturnValue({ data: EMPTY_ROWS, isLoading: false, isError: false });
     mockUsePageLeaveLock.mockReturnValue({
       blocker: { state: "unblocked" as const, reset: vi.fn(), proceed: vi.fn() },
@@ -243,6 +249,35 @@ describe("WorkOrderEdit — Staffing Requirements (Fase 4)", () => {
     expect(capturedFormProps.staffingFocusSignal).toBe(1);
   });
 
+  it("WES4b: a schema/read error blocks staffing save before every mutation", async () => {
+    mockUseWorkOrderStaffingRequirements.mockReturnValue({ data: undefined, isLoading: false, isError: true });
+    renderPage();
+    act(() => {
+      capturedFormProps.onStaffingRequirementsChange([
+        { clientKey: "new-1", persistedId: null, categoryId: "cat-audit", staffCount: 2, skills: [] },
+      ]);
+    });
+
+    await act(async () => {
+      await capturedFormProps.onSubmit();
+    });
+
+    expect(toast.error).toHaveBeenCalledWith("workOrders.staffingRequirements.errorLoading");
+    expect(mockUpdateAsync).not.toHaveBeenCalled();
+    expect(mockSaveStaffingAsync).not.toHaveBeenCalled();
+  });
+
+  it("WES4c: category, service or skill catalog loading/error is surfaced as a staffing gate", () => {
+    mockUseCategories.mockReturnValue({ data: undefined, isLoading: true, isError: false });
+    renderPage();
+    expect(capturedFormProps.staffingLoading).toBe(true);
+
+    mockUseCategories.mockReturnValue({ data: undefined, isLoading: false, isError: true });
+    const { rerenderPage } = renderPage();
+    act(() => rerenderPage());
+    expect(capturedFormProps.staffingError).toBe(true);
+  });
+
   it("WES5: the main Work Order mutation runs before the staffing RPC", async () => {
     const callOrder: string[] = [];
     mockUpdateAsync.mockImplementation(async () => {
@@ -308,6 +343,21 @@ describe("WorkOrderEdit — Staffing Requirements (Fase 4)", () => {
 
     expect(capturedFormProps.isDirty).toBe(false);
     expect(toast.success).toHaveBeenCalled();
+  });
+
+  it("WES7b: a successful save clears dirty even if the refresh does not provide new rows", async () => {
+    renderPage();
+    act(() => {
+      capturedFormProps.onStaffingRequirementsChange([
+        { clientKey: "new-1", persistedId: null, categoryId: "cat-audit", staffCount: 2, skills: [] },
+      ]);
+    });
+
+    await act(async () => {
+      await capturedFormProps.onSubmit();
+    });
+
+    expect(capturedFormProps.isDirty).toBe(false);
   });
 
   it("WES8: a failed staffing save keeps staffing dirty, keeps the form open, and never reports full success", async () => {
@@ -414,5 +464,18 @@ describe("WorkOrderEdit — Staffing Requirements (Fase 4)", () => {
     expect(toast.error).toHaveBeenCalledWith("workOrders.staffingRequirements.errors.categoryDuplicate");
     expect(mockSaveStaffingAsync).not.toHaveBeenCalled();
     expect(mockSubmitAsync).not.toHaveBeenCalled();
+  });
+
+  it("WES13: a risk-only approval submission skips non-risk persistence", async () => {
+    renderPage();
+    act(() => {
+      capturedFormProps.onRiskAssessmentChange("riskLevel", "Bajo");
+    });
+
+    await act(async () => {
+      await capturedFormProps.onSubmitForApproval();
+    });
+
+    expect(mockUpdateAsync).not.toHaveBeenCalled();
   });
 });

@@ -133,6 +133,22 @@ describe("useSaveWorkOrderStaffing", () => {
     });
   });
 
+  it("maps a plain PostgREST error object by its message", async () => {
+    vi.mocked(supabase.rpc).mockResolvedValue({
+      data: null,
+      error: { message: "WOS_DENIED", code: "42501", details: "", hint: "" },
+    } as never);
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useSaveWorkOrderStaffing(), { wrapper });
+
+    await expect(
+      result.current.mutateAsync({ woId: "wo-1", requirements: REQUIREMENTS }),
+    ).rejects.toMatchObject({ message: "WOS_DENIED", code: "42501" });
+
+    expect(toast.error).toHaveBeenCalledTimes(1);
+    expect(toast.error).toHaveBeenCalledWith("workOrders.staffingRequirements.errors.denied");
+  });
+
   it("an unmapped/unknown error falls back to the centralized handler with a single toast (no payload logged)", async () => {
     vi.mocked(supabase.rpc).mockResolvedValue({ data: null, error: new Error("some_unmapped_db_error") } as never);
     const { wrapper } = createWrapper();

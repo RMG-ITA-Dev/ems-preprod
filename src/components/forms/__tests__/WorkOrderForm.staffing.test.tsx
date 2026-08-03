@@ -31,41 +31,27 @@ vi.mock("react-i18next", () => ({
 // Radix Select requires PointerEvent APIs not available in jsdom — replace with
 // native elements so JSDOM can render/inspect without polyfills.
 vi.mock("@/components/ui/select", () => ({
-  Select: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
-  SelectTrigger: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+  Select: ({ children, value, onValueChange, disabled }: {
+    children?: React.ReactNode;
+    value?: string;
+    onValueChange?: (value: string) => void;
+    disabled?: boolean;
+  }) => (
+    <select value={value} onChange={(event) => onValueChange?.(event.target.value)} disabled={disabled}>
+      {children}
+    </select>
+  ),
+  SelectTrigger: () => null,
   SelectValue: () => null,
   SelectContent: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
-  SelectItem: ({ value, children }: { value: string; children?: React.ReactNode }) => (
-    <option value={value}>{children}</option>
+  SelectItem: ({ value, children, disabled }: { value: string; children?: React.ReactNode; disabled?: boolean }) => (
+    <option value={value} disabled={disabled}>{children}</option>
   ),
   SelectGroup: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
   SelectLabel: () => null,
   SelectScrollUpButton: () => null,
   SelectScrollDownButton: () => null,
   SelectSeparator: () => null,
-}));
-
-// Expose value/onChange/disabled directly so staff_count can be driven via fireEvent.
-vi.mock("@/components/ui/numeric-input", () => ({
-  NumericInput: ({
-    value,
-    onChange,
-    disabled,
-    ...rest
-  }: {
-    value?: number | string;
-    onChange?: (val: number) => void;
-    disabled?: boolean;
-    [key: string]: unknown;
-  }) => (
-    <input
-      type="text"
-      value={value as string}
-      onChange={(e) => onChange?.(Number(e.target.value))}
-      disabled={disabled}
-      {...rest}
-    />
-  ),
 }));
 
 beforeAll(() => {
@@ -232,6 +218,55 @@ describe("WorkOrderForm — Staffing Requirements (Fase 4)", () => {
     expect(next[0].staffCount).toBe(7);
   });
 
+  it("SF11a: numeric input rejects decimals/overflow and normalizes non-positive values on blur", () => {
+    const onChange = vi.fn();
+    const initial: StaffingRequirementInput[] = [{ ...createEmptyRequirement(), clientKey: "r1", categoryId: CAT_AUDIT, staffCount: 1 }];
+    const ControlledForm = () => {
+      const [requirements, setRequirements] = React.useState(initial);
+      return (
+        <QueryClientProvider client={makeQC()}>
+          <WorkOrderForm
+            {...(baseProps as any)}
+            staffingRequirements={requirements}
+            staffingCategories={staffingCategories}
+            onStaffingRequirementsChange={(next) => { setRequirements(next); onChange(next); }}
+          />
+        </QueryClientProvider>
+      );
+    };
+    render(<ControlledForm />);
+    const input = screen.getByTestId("staffing-count-r1");
+
+    fireEvent.change(input, { target: { value: "1000" } });
+    fireEvent.change(input, { target: { value: "2.5" } });
+    expect(onChange).not.toHaveBeenCalled();
+
+    fireEvent.change(input, { target: { value: "0" } });
+    fireEvent.blur(input);
+    expect((onChange.mock.calls.at(-1)?.[0] as StaffingRequirementInput[])[0].staffCount).toBe(1);
+  });
+
+  it("SF11b: category, skill and proficiency selections drive their controlled callbacks", () => {
+    const onChange = vi.fn();
+    const reqs: StaffingRequirementInput[] = [{
+      ...createEmptyRequirement(),
+      clientKey: "r1",
+      skills: [{ ...createEmptySkill(), clientKey: "s1" }],
+    }];
+    renderForm({ onStaffingRequirementsChange: onChange, staffingRequirements: reqs, staffingCategories, activeSkills });
+
+    const requirement = screen.getByTestId("staffing-requirement-r1");
+    const selects = within(requirement).getAllByRole("combobox");
+    fireEvent.change(selects[0], { target: { value: CAT_AUDIT } });
+    expect((onChange.mock.calls[0][0] as StaffingRequirementInput[])[0].categoryId).toBe(CAT_AUDIT);
+
+    fireEvent.change(selects[1], { target: { value: SKILL_IFRS } });
+    expect((onChange.mock.calls[1][0] as StaffingRequirementInput[])[0].skills[0].skillId).toBe(SKILL_IFRS);
+
+    fireEvent.change(selects[2], { target: { value: "Advanced" } });
+    expect((onChange.mock.calls[2][0] as StaffingRequirementInput[])[0].skills[0].minProficiencyLevel).toBe("Advanced");
+  });
+
   it("SF12: adding a skill row appends an empty skill to that requirement only", () => {
     const onChange = vi.fn();
     const reqs: StaffingRequirementInput[] = [
@@ -291,7 +326,21 @@ describe("WorkOrderForm — Staffing Requirements (Fase 4)", () => {
     expect(screen.queryByText("workOrders.staffingRequirements.inactiveSkillBadge")).not.toBeInTheDocument();
   });
 
-  it("SF16: locked/not-editable Work Orders show data but no Add/Remove controls", () => {
+  it("SF15b: a skill already used by a sibling row is not offered again", () => {
+    const reqs: StaffingRequirementInput[] = [{
+      ...createEmptyRequirement(),
+      clientKey: "r1",
+      categoryId: CAT_AUDIT,
+      skills: [
+        { ...createEmptySkill(), clientKey: "s1", skillId: SKILL_IFRS, minProficiencyLevel: "Advanced" },
+        { ...createEmptySkill(), clientKey: "s2" },
+      ],
+    }];
+    renderForm({ onStaffingRequirementsChange: vi.fn(), staffingRequirements: reqs, staffingCategories, activeSkills });
+    expect(within(screen.getByTestId("staffing-skill-s2")).queryByText("IFRS")).not.toBeInTheDocument();
+  });
+
+  it.each(["Pending_Approval", "Approved", "Rejected"] as const)("SF16: %s Work Orders show data but no editable staffing controls", (approvalStatus) => {
     const reqs: StaffingRequirementInput[] = [
       {
         ...createEmptyRequirement(),
@@ -305,7 +354,7 @@ describe("WorkOrderForm — Staffing Requirements (Fase 4)", () => {
       staffingRequirements: reqs,
       staffingCategories,
       activeSkills,
-      approvalStatus: "Approved",
+      approvalStatus,
       isLocked: true,
     });
     expect(screen.getByText("Auditor Senior")).toBeInTheDocument();
@@ -313,6 +362,29 @@ describe("WorkOrderForm — Staffing Requirements (Fase 4)", () => {
     expect(screen.queryByTestId("staffing-remove-requirement-r1")).not.toBeInTheDocument();
     expect(screen.queryByTestId("staffing-add-skill-r1")).not.toBeInTheDocument();
     expect(screen.queryByTestId("staffing-remove-skill-s1")).not.toBeInTheDocument();
+  });
+
+  it("SF16b: an incompatible historical category remains visible with a translated warning", () => {
+    const reqs: StaffingRequirementInput[] = [{
+      ...createEmptyRequirement(),
+      clientKey: "r1",
+      categoryId: "cat-historical-tax",
+      categoryName: "Tax histórico",
+      categoryServiceId: "svc-tax",
+    }];
+    renderForm({
+      onStaffingRequirementsChange: vi.fn(),
+      staffingRequirements: reqs,
+      staffingCategories: [staffingCategories[0]],
+      staffingServiceId: "svc-audit",
+    });
+    expect(screen.getByText("Tax histórico")).toBeInTheDocument();
+    expect(screen.getByText("workOrders.staffingRequirements.historicalCategoryIncompatible")).toBeInTheDocument();
+  });
+
+  it("SF16c: a resolved service with no categories explains why adding is unavailable", () => {
+    renderForm({ onStaffingRequirementsChange: vi.fn(), staffingRequirements: [], staffingCategories: [] });
+    expect(screen.getByText("workOrders.staffingRequirements.noCategoriesForService")).toBeInTheDocument();
   });
 
   it("SF17: staffingFocusSignal scrolls the section into view (best-effort focus on validation error)", () => {
@@ -326,11 +398,11 @@ describe("WorkOrderForm — Staffing Requirements (Fase 4)", () => {
     expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
   });
 
-  it("SF18: the requirement row layout stacks on mobile and lays out inline from the sm breakpoint up", () => {
+  it("SF18: the requirement row layout stacks on mobile and lays out inline from the md breakpoint up", () => {
     const reqs: StaffingRequirementInput[] = [{ ...createEmptyRequirement(), clientKey: "r1", categoryId: CAT_AUDIT }];
     renderForm({ onStaffingRequirementsChange: vi.fn(), staffingRequirements: reqs, staffingCategories });
     const row = screen.getByTestId("staffing-requirement-r1").querySelector(":scope > div");
     expect(row?.className).toContain("flex-col");
-    expect(row?.className).toContain("sm:flex-row");
+    expect(row?.className).toContain("md:flex-row");
   });
 });

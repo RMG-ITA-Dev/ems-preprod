@@ -464,9 +464,9 @@ export interface EngagementAssignmentRow {
 
 // Guarda defensiva de esquema: entre el merge del PR y la aplicación de la
 // migración en Lovable, la tabla/columna puede no existir todavía (42P01
-// tabla, 42703 columna, PGRST200 no puede resolver el embed). Cualquiera de
-// estos casos renderiza estado vacío en vez de romper la página; se loguea
-// como error para no enmascarar un rollout de esquema fallido como "sin datos".
+// tabla, 42703 columna, PGRST200 no puede resolver el embed). Se loguean para
+// diagnosticar rollout, pero cada consumidor decide si puede degradar a vacío;
+// Work Order staffing debe propagarlos para no guardar un estado incompleto.
 const SCHEMA_NOT_READY_CODES = new Set(["42P01", "42703", "PGRST200"]);
 
 function isSchedulerSchemaNotReady(error: unknown): boolean {
@@ -474,7 +474,7 @@ function isSchedulerSchemaNotReady(error: unknown): boolean {
   const notReady = !!code && SCHEMA_NOT_READY_CODES.has(code);
   if (notReady) {
     logger.error(
-      `Schema not ready (${code}): rendering empty state instead of data. ` +
+      `Schema not ready (${code}): propagating read failure instead of fabricating empty data. ` +
         "A migration is likely missing or partially applied for the Scheduler tables.",
       error
     );
@@ -504,7 +504,7 @@ export function useWorkOrderStaffingRequirements(workOrderId: string | undefined
         .eq("wo_id", workOrderId)
         .abortSignal(signal);
       if (error) {
-        if (isSchedulerSchemaNotReady(error)) return [];
+        isSchedulerSchemaNotReady(error);
         throw error;
       }
       const rows = (data ?? []) as WorkOrderStaffingRequirementWithSkills[];
