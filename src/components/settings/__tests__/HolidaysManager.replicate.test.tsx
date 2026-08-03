@@ -53,6 +53,13 @@ vi.mock("@/hooks/useCurrentStaff", () => ({
   useCurrentStaff: () => ({ staffRecord: { staff_id: "staff-1" } }),
 }));
 
+// El tab de Feriados se muestra por holiday.read (los 23 roles) y las acciones de
+// escritura por holiday.create, así que el componente consulta useAuthorization.
+// Estos tests ejercitan la replicación, que es camino de escritura: can() => true.
+vi.mock("@/hooks/useAuthorization", () => ({
+  useAuthorization: () => ({ can: () => true, scope: () => null, isLoading: false }),
+}));
+
 vi.mock("@/hooks/mutations/useHolidayMutations", () => ({
   useGenerateNationalHolidays: () => ({ mutate: mutateMock, isPending: false }),
   useCreateHoliday: () => ({ mutate: vi.fn(), isPending: false }),

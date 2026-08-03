@@ -72,6 +72,13 @@ vi.mock("@/hooks/useEmsData", () => ({
 vi.mock("@/hooks/useUserRole", () => ({
   useUserRole: () => ({ isAdmin: false, isPartner: false, isDirector: false, isManager: false }),
 }));
+// Fase 5 migró canCreateWorkOrder de (isAdmin||isPartner||isDirector||isManager)
+// a can("work_order.create"). useAuthorization llama a useAuth por dentro, así que
+// sin este mock el render falla con "useAuth must be used within an AuthProvider".
+// Con los cuatro flags en false el gate anterior daba false: can() => false lo replica.
+vi.mock("@/hooks/useAuthorization", () => ({
+  useAuthorization: () => ({ can: () => false, scope: () => null, isLoading: false }),
+}));
 
 vi.mock("@/components/worksheet/WorksheetGrid", () => ({
   WorksheetGrid: ({

@@ -136,10 +136,18 @@ describe("useEngagementMutations", () => {
   });
 
   describe("useDeleteEngagement", () => {
-    it("should delete an engagement by id", async () => {
-      const mockEq = vi.fn().mockResolvedValue({ error: null });
+    // El delete lleva `.select()` para saber si RLS lo bloqueó: cuando lo hace,
+    // Postgres NO devuelve error, simplemente afecta 0 filas.
+    const mockDeleteChain = (result: { data: unknown; error: unknown }) => {
+      const mockSelect = vi.fn().mockResolvedValue(result);
+      const mockEq = vi.fn().mockReturnValue({ select: mockSelect });
       const mockDelete = vi.fn().mockReturnValue({ eq: mockEq });
       vi.mocked(supabase.from).mockReturnValue({ delete: mockDelete } as any);
+      return { mockEq, mockSelect };
+    };
+
+    it("should delete an engagement by id", async () => {
+      const { mockEq } = mockDeleteChain({ data: [{ engagement_id: "eng-123" }], error: null });
 
       const { result } = renderHook(() => useDeleteEngagement(), {
         wrapper: createWrapper(),
@@ -152,6 +160,21 @@ describe("useEngagementMutations", () => {
       expect(supabase.from).toHaveBeenCalledWith("engagements");
       expect(mockEq).toHaveBeenCalledWith("engagement_id", "eng-123");
       expect(toast.success).toHaveBeenCalled();
+    });
+
+    it("fails instead of reporting success when RLS blocks the delete (0 rows, no error)", async () => {
+      mockDeleteChain({ data: [], error: null });
+
+      const { result } = renderHook(() => useDeleteEngagement(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate("eng-123");
+
+      await waitFor(() => expect(result.current.isError).toBe(true));
+
+      // El bug original: mostraba "eliminado exitosamente" con el encargo intacto.
+      expect(toast.success).not.toHaveBeenCalled();
     });
   });
 });

@@ -104,6 +104,13 @@ vi.mock("@/hooks/useEmsData", () => ({
 vi.mock("@/hooks/useUserRole", () => ({
   useUserRole: () => ({ isAdmin: true, isPartner: false, isDirector: false, isManager: false }),
 }));
+// Fase 5 migró canCreateWorkOrder de (isAdmin||isPartner||isDirector||isManager)
+// a can("work_order.create"). useAuthorization llama a useAuth por dentro, así que
+// sin este mock el render falla con "useAuth must be used within an AuthProvider".
+// Con isAdmin: true el gate anterior daba true, así que can() => true lo replica.
+vi.mock("@/hooks/useAuthorization", () => ({
+  useAuthorization: () => ({ can: () => true, scope: () => null, isLoading: false }),
+}));
 
 // Grid mock exposes the received `categories`/`activities` (as rows) and the
 // `cells` count, plus a button to trigger a cell change.
