@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 // ── Stable spies ──────────────────────────────────────────────────────────────
 const mockUpdateAsync = vi.hoisted(() => vi.fn());
 const mockSaveStaffingAsync = vi.hoisted(() => vi.fn());
+const mockSubmitAsync = vi.hoisted(() => vi.fn());
 const mockUseWorkOrderStaffingRequirements = vi.hoisted(() => vi.fn());
 const mockUsePageLeaveLock = vi.hoisted(() =>
   vi.fn(() => ({
@@ -94,7 +95,7 @@ vi.mock("@/hooks/mutations", () => ({
   useCreateExpenseBudget: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useUpdateExpenseBudget: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useDeleteExpenseBudget: () => ({ mutateAsync: vi.fn(), isPending: false }),
-  useSubmitWorkOrder: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useSubmitWorkOrder: () => ({ mutateAsync: mockSubmitAsync, isPending: false }),
   useApproveWorkOrder: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useApproveRisk: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useApproveEmergencyReview: () => ({ mutateAsync: vi.fn(), isPending: false }),
@@ -156,6 +157,7 @@ describe("WorkOrderEdit — Staffing Requirements (Fase 4)", () => {
     capturedFormProps = {};
     mockUpdateAsync.mockResolvedValue({});
     mockSaveStaffingAsync.mockResolvedValue([]);
+    mockSubmitAsync.mockResolvedValue({});
     mockUseWorkOrderStaffingRequirements.mockReturnValue({ data: EMPTY_ROWS, isLoading: false, isError: false });
     mockUsePageLeaveLock.mockReturnValue({
       blocker: { state: "unblocked" as const, reset: vi.fn(), proceed: vi.fn() },
@@ -348,5 +350,69 @@ describe("WorkOrderEdit — Staffing Requirements (Fase 4)", () => {
     const [firstCall] = mockSaveStaffingAsync.mock.calls[0] as [{ requirements: unknown }];
     const [secondCall] = mockSaveStaffingAsync.mock.calls[1] as [{ requirements: unknown }];
     expect(firstCall.requirements).toEqual(secondCall.requirements);
+  });
+
+  it("WES10: 'Enviar para Aprobación' with dirty staffing saves it first (single click), then submits", async () => {
+    const callOrder: string[] = [];
+    mockSaveStaffingAsync.mockImplementation(async () => {
+      callOrder.push("staffing-save");
+      return [];
+    });
+    mockSubmitAsync.mockImplementation(async () => {
+      callOrder.push("submit");
+      return {};
+    });
+    renderPage();
+    act(() => {
+      capturedFormProps.onStaffingRequirementsChange([
+        { clientKey: "new-1", persistedId: null, categoryId: "cat-audit", staffCount: 2, skills: [] },
+      ]);
+    });
+    expect(capturedFormProps.isDirty).toBe(true);
+
+    await act(async () => {
+      await capturedFormProps.onSubmitForApproval();
+    });
+
+    // Staffing was persisted (no separate "Guardar" click needed) BEFORE the submit call.
+    expect(mockSaveStaffingAsync).toHaveBeenCalledTimes(1);
+    expect(callOrder).toEqual(["staffing-save", "submit"]);
+    expect(mockSubmitAsync).toHaveBeenCalledTimes(1);
+  });
+
+  it("WES11: a failed auto-save during 'Enviar para Aprobación' aborts the submission entirely — nothing is sent", async () => {
+    renderPage();
+    act(() => {
+      capturedFormProps.onStaffingRequirementsChange([
+        { clientKey: "new-1", persistedId: null, categoryId: "cat-audit", staffCount: 2, skills: [] },
+      ]);
+    });
+    mockSaveStaffingAsync.mockRejectedValueOnce(new Error("WOS_WO_LOCKED"));
+
+    await act(async () => {
+      await capturedFormProps.onSubmitForApproval();
+    });
+
+    expect(mockSaveStaffingAsync).toHaveBeenCalledTimes(1);
+    expect(mockSubmitAsync).not.toHaveBeenCalled();
+    expect(capturedFormProps.isDirty).toBe(true);
+  });
+
+  it("WES12: submitting with invalid dirty staffing (duplicate category) blocks the submit too, without ever calling the staffing RPC", async () => {
+    renderPage();
+    act(() => {
+      capturedFormProps.onStaffingRequirementsChange([
+        { clientKey: "r1", persistedId: null, categoryId: "cat-audit", staffCount: 3, skills: [] },
+        { clientKey: "r2", persistedId: null, categoryId: "cat-audit", staffCount: 5, skills: [] },
+      ]);
+    });
+
+    await act(async () => {
+      await capturedFormProps.onSubmitForApproval();
+    });
+
+    expect(toast.error).toHaveBeenCalledWith("workOrders.staffingRequirements.errors.categoryDuplicate");
+    expect(mockSaveStaffingAsync).not.toHaveBeenCalled();
+    expect(mockSubmitAsync).not.toHaveBeenCalled();
   });
 });

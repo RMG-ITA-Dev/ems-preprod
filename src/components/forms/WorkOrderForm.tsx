@@ -1784,14 +1784,8 @@ export function WorkOrderForm({
                   }}
                   className="bg-info hover:bg-info/90 btn-action"
                   loading={isSubmitting}
-                  disabled={hasNonRiskDirty || !canSubmitForApproval}
-                  title={
-                    hasNonRiskDirty
-                      ? t("workOrders.saveBeforeSubmit")
-                      : !canSubmitForApproval
-                        ? t("workOrders.riskAssessmentRequired")
-                        : undefined
-                  }
+                  disabled={!canSubmitForApproval}
+                  title={!canSubmitForApproval ? t("workOrders.riskAssessmentRequired") : undefined}
                 >
                   <Send className="h-4 w-4 mr-2" />
                   {t("workOrders.submitForApproval")}
@@ -1800,9 +1794,10 @@ export function WorkOrderForm({
             </>
           )}
           {/* Corrección de la pista Socio en sitio (Rechazado): gastos/ajuste editables;
-              Guardar persiste los cambios y "Enviar para Aprobación" reenvía SOLO la pista
-              Socio (el riesgo decidido permanece bloqueado y visible). No usa el flujo de
-              emergencia (riesgo ya resuelto), por eso el guard es solo hasNonRiskDirty. */}
+              "Enviar para Aprobación" guarda esos cambios pendientes (si los hay) y luego
+              reenvía SOLO la pista Socio (el riesgo decidido permanece bloqueado y visible).
+              No usa el flujo de emergencia (riesgo ya resuelto). "Guardar" sigue disponible
+              para quien prefiera guardar sin reenviar todavía. */}
           {socioCorrecting && (
             <>
               <LoadingButton
@@ -1817,12 +1812,6 @@ export function WorkOrderForm({
                   onClick={() => onSubmitForApproval()}
                   className="bg-info hover:bg-info/90 btn-action"
                   loading={isSubmitting}
-                  disabled={hasNonRiskDirty}
-                  title={
-                    hasNonRiskDirty
-                      ? t("workOrders.saveBeforeSubmit")
-                      : undefined
-                  }
                 >
                   <Send className="h-4 w-4 mr-2" />
                   {t("workOrders.sendForPartnerApproval")}

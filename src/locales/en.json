@@ -1241,7 +1241,6 @@
     "withdrawRejected": "Withdraw",
     "unsubmit": "Withdraw from Approval",
     "unsubmitted": "Work order returned to draft",
-    "saveBeforeSubmit": "Save changes before submitting for approval",
     "riskSavedOnSubmit": "Risk data will be saved when submitting for approval",
     "confirmParametersTitle": "Confirm Work Order Parameters",
     "confirmParametersDescription": "Currency and Season cannot be changed after creation. Please verify these settings are correct.",

@@ -383,19 +383,25 @@ const WorkOrderEdit = () => {
   const approvalStatus = workOrder?.approval_status as "Draft" | "Pending_Approval" | "Approved" | "Rejected" || "Draft";
   const isLocked = approvalStatus === "Approved" || approvalStatus === "Pending_Approval" || approvalStatus === "Rejected";
 
-  const handleSubmit = async () => {
-    if (!workOrder) return;
+  // Persists everything "Enviar para Aprobación" doesn't otherwise touch (adjustment,
+  // expenses, payment plan, staffing) — the same steps handleSubmit ("Guardar") runs.
+  // Shared so a single click on either button can both save and proceed, instead of
+  // forcing a separate Guardar first. Returns false (already toasted) on a validation
+  // failure; lets a mutation failure propagate (its own onError already toasted) so
+  // the caller aborts without marking anything as submitted.
+  const persistNonRiskChanges = async (): Promise<boolean> => {
+    if (!workOrder) return false;
 
     // Validate before any mutations to avoid partial saves
     if (paymentInstallments.length > 0) {
       if (paymentInstallments.some((i) => i.percentage < 0 || i.percentage > 100)) {
         toast.error(t("workOrders.paymentPlan.validationPercentageRange"));
-        return;
+        return false;
       }
       const pctSum = paymentInstallments.reduce((s, i) => s + i.percentage, 0);
       if (Math.abs(pctSum - 100) > 0.01) {
         toast.error(t("workOrders.paymentPlan.validationPercentageSum"));
-        return;
+        return false;
       }
     }
 
@@ -405,7 +411,7 @@ const WorkOrderEdit = () => {
     if (staffingDirty) {
       if (staffingLoading || staffingIsError) {
         toast.error(t("workOrders.staffingRequirements.errorLoading"));
-        return;
+        return false;
       }
       const staffingValidationError = validateStaffing(staffing, {
         serviceCategoryIds: staffingServiceCategoryIds,
@@ -413,97 +419,103 @@ const WorkOrderEdit = () => {
       if (staffingValidationError) {
         toast.error(t(STAFFING_VALIDATION_ERROR_I18N_KEY[staffingValidationError.code]));
         setStaffingFocusSignal((n) => n + 1);
-        return;
+        return false;
       }
     }
 
-    try {
-      // Update work order
-      await updateWorkOrder.mutateAsync({
-        id: workOrder.wo_id,
-        data: {
-          adjustment_amount: adjustmentAmount,
-        },
-      });
+    // Update work order
+    await updateWorkOrder.mutateAsync({
+      id: workOrder.wo_id,
+      data: {
+        adjustment_amount: adjustmentAmount,
+      },
+    });
 
-      // Handle budget lines - now read-only, so skip budget line updates
-      // Budget lines are only modified via Resync from Work Matrix
+    // Handle budget lines - now read-only, so skip budget line updates
+    // Budget lines are only modified via Resync from Work Matrix
 
-      // Handle expense budgets
-      const currentExpIds = expenseBudget.map((e) => e.id);
-      const deletedExpIds = originalExpenses.filter((id) => !currentExpIds.includes(id));
+    // Handle expense budgets
+    const currentExpIds = expenseBudget.map((e) => e.id);
+    const deletedExpIds = originalExpenses.filter((id) => !currentExpIds.includes(id));
 
-      for (const expId of deletedExpIds) {
-        await deleteExpenseBudget.mutateAsync(expId);
-      }
+    for (const expId of deletedExpIds) {
+      await deleteExpenseBudget.mutateAsync(expId);
+    }
 
-      for (const exp of expenseBudget) {
-        if (exp.expense_type_id && exp.budgeted_amount > 0) {
-          if (originalExpenses.includes(exp.id)) {
-            await updateExpenseBudget.mutateAsync({
-              id: exp.id,
-              data: {
-                expense_type_id: exp.expense_type_id,
-                budgeted_amount: exp.budgeted_amount,
-              },
-            });
-          } else {
-            await createExpenseBudget.mutateAsync({
-              wo_id: workOrder.wo_id,
+    for (const exp of expenseBudget) {
+      if (exp.expense_type_id && exp.budgeted_amount > 0) {
+        if (originalExpenses.includes(exp.id)) {
+          await updateExpenseBudget.mutateAsync({
+            id: exp.id,
+            data: {
               expense_type_id: exp.expense_type_id,
               budgeted_amount: exp.budgeted_amount,
-            });
-          }
+            },
+          });
+        } else {
+          await createExpenseBudget.mutateAsync({
+            wo_id: workOrder.wo_id,
+            expense_type_id: exp.expense_type_id,
+            budgeted_amount: exp.budgeted_amount,
+          });
         }
       }
+    }
 
-      // Persist payment plan
-      if (paymentInstallments.length > 0) {
-        const savedPlan = await upsertPaymentPlan.mutateAsync({
-          plan_id: paymentPlan?.plan_id,
-          wo_id: workOrder.wo_id,
-          exchange_rate: paymentPlan?.exchange_rate ?? null,
-          payment_days: paymentPlan?.payment_days ?? 30,
-        });
-        await batchUpsertInstallments.mutateAsync({
-          planId: savedPlan.plan_id,
-          woId: workOrder.wo_id,
-          installments: paymentInstallments,
-        });
-        const updatedPlan: PaymentPlanInput = {
-          plan_id: savedPlan.plan_id,
-          wo_id: savedPlan.wo_id,
-          exchange_rate: savedPlan.exchange_rate,
-          payment_days: savedPlan.payment_days,
-        };
-        setOriginalPaymentPlan(updatedPlan);
-        setOriginalInstallments(JSON.parse(JSON.stringify(paymentInstallments)));
-      } else if (paymentPlan?.plan_id) {
-        // All installments removed → delete the plan (cascades to installments)
-        await deletePaymentPlan.mutateAsync({
-          planId: paymentPlan.plan_id,
-          woId: workOrder.wo_id,
-        });
-        setOriginalPaymentPlan(null);
-        setOriginalInstallments([]);
-      }
+    // Persist payment plan
+    if (paymentInstallments.length > 0) {
+      const savedPlan = await upsertPaymentPlan.mutateAsync({
+        plan_id: paymentPlan?.plan_id,
+        wo_id: workOrder.wo_id,
+        exchange_rate: paymentPlan?.exchange_rate ?? null,
+        payment_days: paymentPlan?.payment_days ?? 30,
+      });
+      await batchUpsertInstallments.mutateAsync({
+        planId: savedPlan.plan_id,
+        woId: workOrder.wo_id,
+        installments: paymentInstallments,
+      });
+      const updatedPlan: PaymentPlanInput = {
+        plan_id: savedPlan.plan_id,
+        wo_id: savedPlan.wo_id,
+        exchange_rate: savedPlan.exchange_rate,
+        payment_days: savedPlan.payment_days,
+      };
+      setOriginalPaymentPlan(updatedPlan);
+      setOriginalInstallments(JSON.parse(JSON.stringify(paymentInstallments)));
+    } else if (paymentPlan?.plan_id) {
+      // All installments removed → delete the plan (cascades to installments)
+      await deletePaymentPlan.mutateAsync({
+        planId: paymentPlan.plan_id,
+        woId: workOrder.wo_id,
+      });
+      setOriginalPaymentPlan(null);
+      setOriginalInstallments([]);
+    }
 
-      // Reset dirty state tracking after successful save
-      setOriginalAdjustment(adjustmentAmount);
-      setOriginalExpenses(expenseBudget.map((e) => e.id));
-      setOriginalExpenseData(JSON.parse(JSON.stringify(expenseBudget)));
+    // Reset dirty state tracking after successful save
+    setOriginalAdjustment(adjustmentAmount);
+    setOriginalExpenses(expenseBudget.map((e) => e.id));
+    setOriginalExpenseData(JSON.parse(JSON.stringify(expenseBudget)));
 
-      // Staffing: invoked last, only when dirty, in a single RPC call. A failure here
-      // must not be reported as a full save (toast.success below is not reached), and
-      // must leave staffing dirty + the form open so the user can retry (the RPC is
-      // transactional — retrying never creates duplicates).
-      if (staffingDirty) {
-        await saveWorkOrderStaffing.mutateAsync({ woId: workOrder.wo_id, requirements: staffing });
-        // Reset BEFORE the query-invalidation refetch lands, so the hydration effect
-        // re-hydrates staffing/originalStaffing from the freshly persisted state.
-        staffingEditedRef.current = false;
-      }
+    // Staffing: invoked last, only when dirty, in a single RPC call. A failure here
+    // propagates (the caller's try/catch aborts) and must leave staffing dirty + the
+    // form open so the user can retry (the RPC is transactional — retrying never
+    // creates duplicates).
+    if (staffingDirty) {
+      await saveWorkOrderStaffing.mutateAsync({ woId: workOrder.wo_id, requirements: staffing });
+      // Reset BEFORE the query-invalidation refetch lands, so the hydration effect
+      // re-hydrates staffing/originalStaffing from the freshly persisted state.
+      staffingEditedRef.current = false;
+    }
 
+    return true;
+  };
+
+  const handleSubmit = async () => {
+    try {
+      const persisted = await persistNonRiskChanges();
+      if (!persisted) return;
       toast.success(t("messages.updateSuccess", { entity: t("entities.workOrder") }));
     } catch (error) {
       // Error handled by mutations
@@ -512,6 +524,19 @@ const WorkOrderEdit = () => {
 
   const handleSubmitForApproval = async (emergencyJustification?: string) => {
     if (!workOrder) return;
+
+    // Enviar para Aprobación now saves any pending non-risk edits (ajuste/gastos/plan
+    // de pagos/staffing) first, in the same click — no separate "Guardar" required.
+    // A validation failure or a mutation failure here must cancel the submission
+    // entirely (no partial "saved but not submitted, or submitted but not saved").
+    try {
+      const persisted = await persistNonRiskChanges();
+      if (!persisted) return;
+    } catch (error) {
+      // Error already toasted by the failing mutation's own onError; abort the submit.
+      return;
+    }
+
     // Reenvío de la pista Socio en corrección (estado Rejected): no se re-evalúa ni se
     // reescribe Riesgos; solo se reabre la pista Socio a Pending_Approval. La pista de
     // Riesgos conserva su estado (aprobada, o rechazada y corregida por separado).
