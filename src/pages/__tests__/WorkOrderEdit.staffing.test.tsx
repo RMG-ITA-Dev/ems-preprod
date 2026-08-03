@@ -448,6 +448,33 @@ describe("WorkOrderEdit — Staffing Requirements (Fase 4)", () => {
     expect(capturedFormProps.isDirty).toBe(true);
   });
 
+  it("WES11b: a submit failure after persistence leaves the saved Draft available for retry", async () => {
+    const callOrder: string[] = [];
+    mockSaveStaffingAsync.mockImplementation(async () => {
+      callOrder.push("staffing-save");
+      return [];
+    });
+    mockSubmitAsync.mockImplementation(async () => {
+      callOrder.push("submit");
+      throw new Error("submit failed");
+    });
+    renderPage();
+    act(() => {
+      capturedFormProps.onStaffingRequirementsChange([
+        { clientKey: "new-1", persistedId: null, categoryId: "cat-audit", staffCount: 2, skills: [] },
+      ]);
+    });
+
+    await act(async () => {
+      await expect(capturedFormProps.onSubmitForApproval()).rejects.toThrow("submit failed");
+    });
+
+    expect(callOrder).toEqual(["staffing-save", "submit"]);
+    expect(mockSaveStaffingAsync).toHaveBeenCalledTimes(1);
+    expect(mockSubmitAsync).toHaveBeenCalledTimes(1);
+    expect(capturedFormProps.isDirty).toBe(false);
+  });
+
   it("WES12: submitting with invalid dirty staffing (duplicate category) blocks the submit too, without ever calling the staffing RPC", async () => {
     renderPage();
     act(() => {

@@ -617,8 +617,18 @@ export function WorkOrderForm({
   };
 
   const updateStaffingCategory = (clientKey: string, categoryId: string) => {
+    const category = staffingCategories.find((item) => item.category_id === categoryId);
     updateStaffingRequirements((reqs) =>
-      reqs.map((r) => (r.clientKey === clientKey ? { ...r, categoryId } : r)),
+      reqs.map((r) => (
+        r.clientKey === clientKey
+          ? {
+              ...r,
+              categoryId,
+              categoryName: category?.category_name ?? null,
+              categoryServiceId: category?.service_id ?? null,
+            }
+          : r
+      )),
     );
   };
 

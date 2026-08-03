@@ -364,22 +364,37 @@ describe("WorkOrderForm — Staffing Requirements (Fase 4)", () => {
     expect(screen.queryByTestId("staffing-remove-skill-s1")).not.toBeInTheDocument();
   });
 
-  it("SF16b: an incompatible historical category remains visible with a translated warning", () => {
-    const reqs: StaffingRequirementInput[] = [{
+  it("SF16b: replacing an incompatible historical category refreshes metadata and clears its warning", () => {
+    const initialRequirements: StaffingRequirementInput[] = [{
       ...createEmptyRequirement(),
       clientKey: "r1",
       categoryId: "cat-historical-tax",
       categoryName: "Tax histórico",
       categoryServiceId: "svc-tax",
     }];
-    renderForm({
-      onStaffingRequirementsChange: vi.fn(),
-      staffingRequirements: reqs,
-      staffingCategories: [staffingCategories[0]],
-      staffingServiceId: "svc-audit",
-    });
+    const ControlledForm = () => {
+      const [requirements, setRequirements] = React.useState(initialRequirements);
+      return (
+        <QueryClientProvider client={makeQC()}>
+          <WorkOrderForm
+            {...(baseProps as any)}
+            staffingRequirements={requirements}
+            staffingCategories={[staffingCategories[0]]}
+            staffingServiceId="svc-audit"
+            onStaffingRequirementsChange={setRequirements}
+          />
+        </QueryClientProvider>
+      );
+    };
+    render(<ControlledForm />);
     expect(screen.getByText("Tax histórico")).toBeInTheDocument();
     expect(screen.getByText("workOrders.staffingRequirements.historicalCategoryIncompatible")).toBeInTheDocument();
+
+    fireEvent.change(within(screen.getByTestId("staffing-requirement-r1")).getByRole("combobox"), {
+      target: { value: CAT_AUDIT },
+    });
+
+    expect(screen.queryByText("workOrders.staffingRequirements.historicalCategoryIncompatible")).not.toBeInTheDocument();
   });
 
   it("SF16c: a resolved service with no categories explains why adding is unavailable", () => {
