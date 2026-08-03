@@ -31,6 +31,7 @@ import { useEngagements, useSetting, useCategories, useWorkOrders } from "@/hook
 import { useWorksheetByEngagementId } from "@/hooks/useWorksheetData";
 import { useCreateWorkOrder, useCreateBudgetLine, useCreateExpenseBudget, useUpsertPaymentPlan, useBatchUpsertInstallments } from "@/hooks/mutations";
 import { toast } from "sonner";
+import { useAuthorization } from "@/hooks/useAuthorization";
 import type { PaymentPlanInput, PaymentInstallmentInput } from "@/types/workOrderPaymentPlan";
 
 const WorkOrderNew = () => {
@@ -39,6 +40,12 @@ const WorkOrderNew = () => {
   const [searchParams] = useSearchParams();
   const engagementIdParam = searchParams.get("engagement");
   // Guard de creación por permiso vía <PermissionRoute permission="work_order.create"> en App.tsx.
+  // El estado del plan de pagos lo edita Admin o Cobranzas, igual que en
+  // WorkOrderEdit. La Fase 5 quitó el `useUserRole()` de este componente pero
+  // dejó la prop apuntando a un `isAdmin` que ya no existía, así que la pantalla
+  // reventaba con "isAdmin is not defined" al elegir el encargo.
+  const { roleKey } = useAuthorization();
+  const isAdmin = roleKey === "admin";
 
   const { data: engagements } = useEngagements();
   const { data: categories } = useCategories();
@@ -307,7 +314,7 @@ const WorkOrderNew = () => {
             paymentPlan={paymentPlan}
             paymentInstallments={paymentInstallments}
             isAdminDateEditable={false}
-            isStatusEditable={isAdmin}
+            isStatusEditable={isAdmin || roleKey === "collections_analyst"}
             onPaymentPlanChange={setPaymentPlan}
             onPaymentInstallmentsChange={setPaymentInstallments}
           />
