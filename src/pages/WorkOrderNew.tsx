@@ -44,7 +44,7 @@ const WorkOrderNew = () => {
   // WorkOrderEdit. La Fase 5 quitó el `useUserRole()` de este componente pero
   // dejó la prop apuntando a un `isAdmin` que ya no existía, así que la pantalla
   // reventaba con "isAdmin is not defined" al elegir el encargo.
-  const { roleKey } = useAuthorization();
+  const { can, scope, roleKey } = useAuthorization();
   const isAdmin = roleKey === "admin";
 
   const { data: engagements } = useEngagements();
@@ -203,10 +203,22 @@ const WorkOrderNew = () => {
               {availableEngagements?.length === 0 ? (
                 <Alert>
                   <AlertDescription className="flex flex-col gap-2">
-                    <span>{t("workOrders.allEngagementsHaveWorkOrders")}</span>
-                    <Link to="/engagements/new" className="text-primary hover:underline font-medium">
-                      {t("workOrders.createEngagementFirst")}
-                    </Link>
+                    {/* La lista viene filtrada por RLS: work_order.create con alcance
+                        assigned_engagements (Socio, Gerente, ITA/TAX) solo ve SUS encargos.
+                        Decir "todos los encargos activos" afirma algo de toda la firma que
+                        ese usuario no puede saber, así que el mensaje se ajusta al alcance. */}
+                    <span>
+                      {scope("work_order.create") === "firm"
+                        ? t("workOrders.allEngagementsHaveWorkOrders")
+                        : t("workOrders.noAssignedEngagementsAvailable")}
+                    </span>
+                    {/* El enlace solo si puede crear encargos: el Socio NO tiene
+                        engagement.create, así que antes lo mandaba al 403 de PermissionRoute. */}
+                    {can("engagement.create") && (
+                      <Link to="/engagements/new" className="text-primary hover:underline font-medium">
+                        {t("workOrders.createEngagementFirst")}
+                      </Link>
+                    )}
                   </AlertDescription>
                 </Alert>
               ) : (

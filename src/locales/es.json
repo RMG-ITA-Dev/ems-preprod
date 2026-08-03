@@ -1240,6 +1240,7 @@
     "rejectRiskDialogTitle": "Rechazar Evaluación de Riesgo",
     "allStatuses": "Todos los Estados",
     "allEngagementsHaveWorkOrders": "Todos los encargos activos ya tienen una orden de trabajo.",
+    "noAssignedEngagementsAvailable": "No tiene encargos activos asignados sin orden de trabajo. Solo puede crear órdenes de trabajo para los encargos donde figura como Socio, Gerente, SQR o Encargado.",
     "createEngagementFirst": "Crear un nuevo encargo",
     "submittedForApproval": "Orden de trabajo enviada para aprobación",
     "approved": "Orden de trabajo aprobada",
