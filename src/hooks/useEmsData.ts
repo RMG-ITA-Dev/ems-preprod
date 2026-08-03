@@ -357,27 +357,25 @@ export function useStaff() {
 }
 
 // useStaffFull returns all staff data including PII (admin-only, from base staff table)
-// This will fail for non-admin users due to RLS policies
+// Va por RPC, no por `select *`: el SELECT de `staff.id_number` y
+// `staff.aud_reg_number` está revocado a `authenticated` (20260730080000), así que
+// un `select *` desde el cliente ahora falla con 42501. `get_staff_full()` es
+// SECURITY DEFINER y está gateada por has_permission('staff.read'), y devuelve la
+// MISMA forma que traía el select (fila + category + staff_skills.skill anidado).
+//
+// Antes esto sí "fallaba para no-admin" como decía el comentario original, pero
+// dejó de ser cierto en junio: la policy de directorio (20260610050000) habilitó
+// la lectura de filas del personal activo a cualquier usuario con ficha, y RLS no
+// filtra columnas — o sea que el PII venía incluido.
 export function useStaffFull() {
   return useQuery({
     queryKey: ['staff_full'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('staff')
-        .select(`
-          *,
-          category:categories(*),
-          staff_skills (
-            staff_skill_id,
-            skill_id,
-            proficiency_level,
-            last_evaluated_date,
-            skill:skills ( skill_id, name, category, is_active )
-          )
-        `)
-        .order('last_name');
+      // NOTA: get_staff_full aún no está en types.ts (se regenera tras aplicar
+      // la migración). Hasta entonces casteamos el nombre.
+      const { data, error } = await supabase.rpc('get_staff_full' as never);
       if (error) throw error;
-      return data as StaffFull[];
+      return (data ?? []) as unknown as StaffFull[];
     },
   });
 }

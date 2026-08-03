@@ -356,17 +356,25 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
       }
     }
 
-    // Pre-save duplicate id_number check
+    // Pre-save duplicate id_number check.
+    // Va por RPC: el SELECT de `staff.id_number` está revocado a `authenticated`
+    // (20260730080000) y los privilegios de columna aplican también al WHERE, así
+    // que el `.eq('id_number', ...)` anterior ya no puede correr desde el cliente.
+    // El RPC responde solo si hay conflicto y de quién — nunca el documento ajeno.
     if (data.id_number) {
-      const { data: existingIdNum } = await supabase
-        .from('staff')
-        .select('staff_id, first_name, last_name')
-        .eq('id_number', data.id_number)
-        .is('deleted_at', null)
-        .neq('staff_id', staff?.staff_id || '')
-        .limit(1);
+      const { data: conflict, error: conflictError } = await supabase.rpc(
+        'staff_id_number_conflict' as never,
+        {
+          p_id_number: data.id_number,
+          p_exclude_staff_id: staff?.staff_id ?? null,
+        } as never
+      );
 
-      if (existingIdNum && existingIdNum.length > 0) {
+      if (conflictError) {
+        toast.error(t('errors.duplicateCheckFailed'));
+        return;
+      }
+      if ((conflict as unknown as { conflict?: boolean } | null)?.conflict) {
         toast.error(t('errors.duplicateIdNumber'));
         return;
       }
