@@ -48,13 +48,26 @@ const mockServices = [
   { service_id: "s3", name: "Firmwide",   code: 0, allows_rates_activities: false, is_active: false, created_at: "" },
 ];
 
+// Stable references: a fresh [] literal on every call gives StaffAssignmentsCard's
+// reseed-while-clean effect a new `assignments` identity on every render (its dep array
+// includes it), triggering setDrafts/setBaseline in an infinite render loop.
+const stableClientList = [{ client_id: "client-1", client_legal_name: "Test Client", is_active: true }];
+const stableAssignments: never[] = [];
+const stableAggregatedReqs: never[] = [];
+const stableActiveStaff: never[] = [];
+const stableCategories: never[] = [];
 vi.mock("@/hooks/useEmsData", () => ({
   // Includes the client referenced by mockEngagement so the client Select can resolve a
   // matching SelectItem for full-submit tests (Radix Select can't retain a `value` that has
   // no corresponding item, which otherwise silently clears the field and fails validation).
-  useClients: () => ({ data: [{ client_id: "client-1", client_legal_name: "Test Client", is_active: true }] }),
+  useClients: () => ({ data: stableClientList }),
   useServices: () => ({ data: mockServices }),
   useTaxonomies: () => ({ data: [] }),
+  // Fase 5: EngagementForm now mounts StaffAssignmentsCard in edit mode, which pulls these.
+  useEngagementAssignments: () => ({ data: stableAssignments, isLoading: false, isError: false }),
+  useEngagementAggregatedRequirements: () => ({ data: stableAggregatedReqs }),
+  useActiveStaffWithSkills: () => ({ data: stableActiveStaff }),
+  useCategories: () => ({ data: stableCategories }),
 }));
 
 vi.mock("@/hooks/useCategoryStaff", () => ({
@@ -73,6 +86,7 @@ vi.mock("@/hooks/mutations", () => ({
   useCreateEngagement: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useUpdateEngagement: () => ({ mutateAsync: mockUpdateMutateAsync, isPending: false }),
   useDeleteEngagement: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useSaveEngagementAssignments: () => ({ saveAssignments: vi.fn(), isSaving: false }),
 }));
 
 let mockRole: { isAdmin: boolean; isManager?: boolean; isPartner?: boolean } = { isAdmin: false };

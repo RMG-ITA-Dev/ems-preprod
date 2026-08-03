@@ -1,15 +1,14 @@
 // Level-2 composition layer: staff-assignment rows around GanttCanvas for
 // ONE engagement.
 //
-// Fase 3 (plan v2 §2 — Decisión #1, L2 solo lectura): variante READ-ONLY.
-// Se retiraron drag/resize commit, el menú "Edit"/"Delete", el hook de
-// mutación `useSaveEngagementAssignments` y los validadores de escritura
-// (`validateAssignmentDrafts`/`findStaffSegmentOverlap`, src/lib/
-// engagementAssignments.ts) — todo eso es Fase 5 (ver contrato de handoff
-// en docs/scheduler/scheduler-fase-3-integracion.md). Se conserva la
-// composición de filas (una fila por assignment agrupada por staff),
-// MatchDot (indicador de matching, solo lectura) y el menú de fila con
-// "Open engagement"/"Employee Gantt".
+// Fase 5 (bugs/scheduler/fase_5/plan_v2.md §5, Decisión #1): superficie de
+// escritura vía Sheet/menú. El canvas del Gantt permanece SIEMPRE
+// `readonly` (drag/resize deshabilitado) — la guardia de la Decisión #1 se
+// aplica: sin una prueba de rollback seguro del drag, la edición se hace
+// exclusivamente por AssignmentSheet (click en la barra abre el Sheet;
+// menú de fila con "Edit"/"Delete", ambos gated por `canWrite`, también
+// abren el Sheet — el borrado vive en el footer del Sheet, no se duplica
+// lógica de soft-delete aquí).
 //
 // Row model: ONE ROW PER ASSIGNMENT, grouped by staff. Groups ordered
 // leaders-first (categories.display_order ascending), then staff last
@@ -91,6 +90,12 @@ interface L2StaffGanttProps {
   /** The page's captured Cancel chain, threaded through the Employee-Gantt
    *  hop so its Cancel restores this L2's own caller. */
   returnNav: ReturnNavState | null;
+  /** Fase 5 — mirror del D5 write rule (is_engagement_responsible). Gates the row menu's
+   *  Edit/Delete items; RLS/RPC remain the real authority. */
+  canWrite: boolean;
+  /** Fase 5 — clicking a bar (or the row menu) opens the Sheet. null row would mean "add", but
+   *  this component only ever opens existing rows — "+ Agregar staff" lives on the page. */
+  onOpenSheet: (row: EngagementAssignmentRow) => void;
 }
 
 export function L2StaffGantt({
@@ -104,6 +109,8 @@ export function L2StaffGantt({
   to,
   zoom,
   returnNav,
+  canWrite,
+  onOpenSheet,
 }: L2StaffGanttProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -256,8 +263,19 @@ export function L2StaffGantt({
                     <MoreVertical className="h-3.5 w-3.5" />
                   </Button>
                 </DropdownMenuTrigger>
-                {/* Solo navegación en esta fase — sin Edit/Delete (Fase 5). */}
                 <DropdownMenuContent align="end">
+                  {canWrite && (
+                    <>
+                      <DropdownMenuItem onClick={() => onOpenSheet(row)}>
+                        {t("scheduler.actions.edit")}
+                      </DropdownMenuItem>
+                      {/* Delete lives in the Sheet's own confirmed footer action — no
+                          duplicated soft-delete logic here (issue: "evitar lógica duplicada"). */}
+                      <DropdownMenuItem onClick={() => onOpenSheet(row)}>
+                        {t("scheduler.actions.delete")}
+                      </DropdownMenuItem>
+                    </>
+                  )}
                   <DropdownMenuItem
                     onClick={() => navigate(`/engagements/${engagement.engagement_id}`)}
                   >
@@ -273,7 +291,7 @@ export function L2StaffGantt({
         },
       },
     ],
-    [rowById, firstOfGroup, loadByStaff, matchFor, openStaffGantt, navigate, engagement.engagement_id, t]
+    [rowById, firstOfGroup, loadByStaff, matchFor, openStaffGantt, navigate, engagement.engagement_id, t, canWrite, onOpenSheet]
   );
 
   const barTitle = useCallback(
@@ -313,6 +331,14 @@ export function L2StaffGantt({
     [rowById, matchFor, loadByStaff, t]
   );
 
+  const handleBarOpen = useCallback(
+    (id: string) => {
+      const row = rowById.get(id);
+      if (row) onOpenSheet(row);
+    },
+    [rowById, onOpenSheet]
+  );
+
   return (
     <GanttCanvas
       rows={ganttRows}
@@ -320,9 +346,13 @@ export function L2StaffGantt({
       from={from}
       to={to}
       zoom={zoom}
+      // Fase 5 Decisión #1 (guardia): drag/resize se mantiene deshabilitado — sin una prueba de
+      // rollback seguro, la edición es exclusivamente por Sheet/menú (click en la barra u
+      // "Edit" del menú de fila, ambos abren el mismo AssignmentSheet).
       readonly
       cellHeight={34}
       barTitle={barTitle}
+      onBarOpen={handleBarOpen}
     />
   );
 }

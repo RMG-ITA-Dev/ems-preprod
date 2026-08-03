@@ -6,12 +6,18 @@
 -- (engagementAssignments.ts:57-64) — por eso p_deleted_ids es un argumento separado, no derivado
 -- de "lo que falta en p_upserts".
 --
--- Contrato del payload p_upserts (jsonb array; asumido — no existe todavía useEngagementAssignments
--- en este repo para espejar; F4 debe confirmar/ajustar la forma exacta, ver Regression Risks de
--- plan_v2.md):
+-- Contrato del payload p_upserts (jsonb array; enmendado en Fase 5 — bugs/scheduler/fase_5/
+-- plan_v2.md, Open Questions O1/O4/O7 — ANTES de la primera ejecución en Supabase, sin migración
+-- nueva porque C4 todavía no corrió en ningún ambiente real):
 --   [
 --     {
---       "assignment_id": uuid | null,   -- null/ausente = INSERT nuevo; presente = UPDATE existente
+--       "assignment_id": uuid,          -- SIEMPRE requerido. El cliente lo genera una sola vez
+--                                        -- (crypto.randomUUID()) y lo conserva entre reintentos:
+--                                        -- si la fila YA existe en este engagement -> UPDATE; si
+--                                        -- no existe -> INSERT con ese id. Repetir el mismo insert
+--                                        -- tras un commit no-acusado es entonces idempotente (la
+--                                        -- segunda llamada encuentra la fila y sólo la actualiza
+--                                        -- con los mismos valores) en vez de duplicar.
 --       "staff_id": uuid,
 --       "category_id": uuid,
 --       "start_date": "yyyy-mm-dd",
@@ -28,6 +34,13 @@
 -- Autorización: is_admin() OR is_engagement_responsible() — sin is_engagement_team_member()
 -- explícito porque is_engagement_responsible() ya incluye manager_id/partner_id en su IN(...)
 -- (creado en C1); listarlo también sería redundante, no un permiso adicional.
+--
+-- Fase 5 O4: cada segmento del payload debe caer dentro del rango inclusivo start_date..end_date
+-- del engagement (si el engagement tiene fechas — un legado sin fechas queda sin cota, igual que
+-- el precedente de practica IS NULL). Fase 5 O7: un INSERT nuevo (fila que no existe todavía) sólo
+-- se acepta si el staff está activo y is_schedulable=true — el historial ya persistido (UPDATE de
+-- una fila existente) no se re-valida, para no bloquear a un staff que se volvió inactivo después
+-- de ser asignado.
 CREATE OR REPLACE FUNCTION public.save_engagement_assignments(
   p_engagement_id uuid,
   p_upserts       jsonb,
@@ -40,6 +53,8 @@ AS $$
 DECLARE
   v_state_override smallint;
   v_practica        smallint;
+  v_eng_start       date;
+  v_eng_end         date;
   v_service_id      uuid;
   v_cat_service     uuid;
   v_row             jsonb;
@@ -50,6 +65,9 @@ DECLARE
   v_end_date        date;
   v_hours           numeric;
   v_allocation      numeric;
+  v_exists          boolean;
+  v_staff_active    boolean;
+  v_staff_schedulable boolean;
   v_result          jsonb;
 BEGIN
   p_upserts     := COALESCE(p_upserts, '[]'::jsonb);
@@ -57,8 +75,8 @@ BEGIN
 
   -- 1-3. Resolver + bloquear el engagement (serializa escrituras concurrentes, hace correcto el
   --      chequeo de overlaps del paso 6), autorizar, y confirmar que acepta escrituras.
-  SELECT engagement_state_override, practica
-    INTO v_state_override, v_practica
+  SELECT engagement_state_override, practica, start_date, end_date
+    INTO v_state_override, v_practica, v_eng_start, v_eng_end
     FROM public.engagements
    WHERE engagement_id = p_engagement_id
    FOR UPDATE;
@@ -86,6 +104,7 @@ BEGIN
   -- 4. Validar TODO el payload antes de escribir nada.
   FOR v_row IN SELECT * FROM jsonb_array_elements(p_upserts)
   LOOP
+    v_assignment_id := (v_row->>'assignment_id')::uuid;
     v_staff_id    := (v_row->>'staff_id')::uuid;
     v_category_id := (v_row->>'category_id')::uuid;
     v_start_date  := (v_row->>'start_date')::date;
@@ -93,8 +112,10 @@ BEGIN
     v_hours       := (v_row->>'hours_per_week')::numeric;
     v_allocation  := (v_row->>'allocation_percent')::numeric;
 
-    IF v_staff_id IS NULL OR v_category_id IS NULL OR v_start_date IS NULL OR v_end_date IS NULL
-       OR v_hours IS NULL OR v_allocation IS NULL THEN
+    -- Fase 5 O1: assignment_id ahora es SIEMPRE requerido — lo genera el cliente una sola vez
+    -- (insert idempotente) y lo conserva para updates.
+    IF v_assignment_id IS NULL OR v_staff_id IS NULL OR v_category_id IS NULL
+       OR v_start_date IS NULL OR v_end_date IS NULL OR v_hours IS NULL OR v_allocation IS NULL THEN
       RAISE EXCEPTION 'EAS_MISSING_FIELD'
         USING DETAIL = jsonb_build_object('row', v_row)::text;
     END IF;
@@ -103,6 +124,16 @@ BEGIN
     IF v_end_date < v_start_date THEN
       RAISE EXCEPTION 'EAS_DATE_RANGE'
         USING DETAIL = jsonb_build_object('start_date', v_start_date, 'end_date', v_end_date)::text;
+    END IF;
+
+    -- Fase 5 O4: el segmento debe caer dentro del rango inclusivo del engagement (si el
+    -- engagement tiene fechas — un legado sin fechas queda sin cota).
+    IF (v_eng_start IS NOT NULL AND v_start_date < v_eng_start)
+       OR (v_eng_end IS NOT NULL AND v_end_date > v_eng_end) THEN
+      RAISE EXCEPTION 'EAS_ENGAGEMENT_RANGE'
+        USING DETAIL = jsonb_build_object(
+                'start_date', v_start_date, 'end_date', v_end_date,
+                'engagement_start_date', v_eng_start, 'engagement_end_date', v_eng_end)::text;
     END IF;
 
     IF v_hours <= 0 OR v_hours > 80 THEN
@@ -122,6 +153,23 @@ BEGIN
           USING DETAIL = jsonb_build_object('category_id', v_category_id)::text;
       END IF;
     END IF;
+
+    -- Fase 5 O7: elegibilidad de staff SOLO para inserts nuevos (la fila todavía no existe en
+    -- este engagement) — el historial ya persistido no se re-valida en cada update.
+    SELECT EXISTS (
+      SELECT 1 FROM public.engagement_assignments
+       WHERE assignment_id = v_assignment_id AND engagement_id = p_engagement_id
+    ) INTO v_exists;
+
+    IF NOT v_exists THEN
+      SELECT is_active, is_schedulable INTO v_staff_active, v_staff_schedulable
+        FROM public.staff
+       WHERE staff_id = v_staff_id;
+      IF v_staff_active IS NOT TRUE OR v_staff_schedulable IS NOT TRUE THEN
+        RAISE EXCEPTION 'EAS_STAFF_INELIGIBLE'
+          USING DETAIL = jsonb_build_object('staff_id', v_staff_id)::text;
+      END IF;
+    END IF;
   END LOOP;
 
   -- 5. Aplicar el diff explícito: soft-delete -> update -> insert (en ese orden). status nunca se
@@ -139,7 +187,15 @@ BEGIN
   LOOP
     v_assignment_id := (v_row->>'assignment_id')::uuid;
 
-    IF v_assignment_id IS NOT NULL THEN
+    -- Fase 5 O1: idempotencia por UUID cliente — la fila YA existe en este engagement -> UPDATE;
+    -- si no -> INSERT con ese mismo id (un reintento tras un commit no-acusado encuentra la fila
+    -- en la segunda llamada y actualiza en vez de duplicar).
+    SELECT EXISTS (
+      SELECT 1 FROM public.engagement_assignments
+       WHERE assignment_id = v_assignment_id AND engagement_id = p_engagement_id
+    ) INTO v_exists;
+
+    IF v_exists THEN
       UPDATE public.engagement_assignments
          SET staff_id           = (v_row->>'staff_id')::uuid,
              category_id        = (v_row->>'category_id')::uuid,
@@ -152,9 +208,10 @@ BEGIN
          AND engagement_id = p_engagement_id;
     ELSE
       INSERT INTO public.engagement_assignments (
-        engagement_id, staff_id, category_id,
+        assignment_id, engagement_id, staff_id, category_id,
         start_date, end_date, hours_per_week, allocation_percent, notes
       ) VALUES (
+        v_assignment_id,
         p_engagement_id,
         (v_row->>'staff_id')::uuid,
         (v_row->>'category_id')::uuid,

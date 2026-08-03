@@ -4,104 +4,66 @@ import {
   type AssignmentWriteAuthzInput,
 } from "@/lib/schedulerAssignmentAuthz";
 
+const RESPONSIBLE_IDS = [
+  "manager-1",
+  "partner-1",
+  "sqr-1",
+  "encargado-1",
+  "specialist-it-1",
+  "specialist-tax-1",
+];
+
 const base: AssignmentWriteAuthzInput = {
   isAdmin: false,
-  isPartner: false,
-  isDirector: false,
-  isManager: false,
-  isSenior: false,
-  isStructuralLead: false,
-  hasOwnAssignment: false,
+  myStaffId: null,
+  responsibleStaffIds: RESPONSIBLE_IDS,
 };
 
 const input = (o: Partial<AssignmentWriteAuthzInput>) => ({ ...base, ...o });
 
-describe("canWriteEngagementAssignments (D5 write matrix, client mirror)", () => {
-  it("admin can write regardless of structural membership", () => {
-    expect(canWriteEngagementAssignments(input({ isAdmin: true }))).toBe(true);
+describe("canWriteEngagementAssignments (is_engagement_responsible mirror, Fase 5)", () => {
+  it("admin can write regardless of responsibility", () => {
+    expect(canWriteEngagementAssignments(input({ isAdmin: true, myStaffId: null }))).toBe(true);
     expect(
       canWriteEngagementAssignments(
-        input({ isAdmin: true, isStructuralLead: false })
+        input({ isAdmin: true, myStaffId: "bystander", responsibleStaffIds: [] })
       )
     ).toBe(true);
   });
 
-  it("structural partner lead can write", () => {
+  it.each([
+    ["manager_id", "manager-1"],
+    ["partner_id", "partner-1"],
+    ["sqr_id", "sqr-1"],
+    ["encargado_id", "encargado-1"],
+    ["specialist_it_id", "specialist-it-1"],
+    ["specialist_tax_id", "specialist-tax-1"],
+  ])("staff matching %s can write", (_field, staffId) => {
+    expect(canWriteEngagementAssignments(input({ myStaffId: staffId }))).toBe(true);
+  });
+
+  it("REGRESSION: a senior with an own assignment but no responsible column cannot write (D5 anti-escalation, Fase 5 Decisión #2)", () => {
     expect(
       canWriteEngagementAssignments(
-        input({ isPartner: true, isStructuralLead: true })
+        input({ myStaffId: "senior-with-assignment", responsibleStaffIds: RESPONSIBLE_IDS })
+      )
+    ).toBe(false);
+  });
+
+  it("a bystander staff member (not in any of the 6 columns) cannot write", () => {
+    expect(canWriteEngagementAssignments(input({ myStaffId: "bystander-1" }))).toBe(false);
+  });
+
+  it("myStaffId null/undefined cannot write, even if somehow listed", () => {
+    expect(canWriteEngagementAssignments(input({ myStaffId: null }))).toBe(false);
+    expect(canWriteEngagementAssignments(input({ myStaffId: undefined }))).toBe(false);
+  });
+
+  it("tolerates null/undefined entries in responsibleStaffIds (unassigned columns)", () => {
+    expect(
+      canWriteEngagementAssignments(
+        input({ myStaffId: "manager-1", responsibleStaffIds: [null, undefined, "manager-1"] })
       )
     ).toBe(true);
-  });
-
-  it("structural director lead can write", () => {
-    expect(
-      canWriteEngagementAssignments(
-        input({ isDirector: true, isStructuralLead: true })
-      )
-    ).toBe(true);
-  });
-
-  it("structural manager lead can write", () => {
-    expect(
-      canWriteEngagementAssignments(
-        input({ isManager: true, isStructuralLead: true })
-      )
-    ).toBe(true);
-  });
-
-  it("structural senior lead WITH an own assignment can write (In-Charge Senior)", () => {
-    expect(
-      canWriteEngagementAssignments(
-        input({ isSenior: true, isStructuralLead: true, hasOwnAssignment: true })
-      )
-    ).toBe(true);
-  });
-
-  it("structural senior lead WITHOUT an assignment cannot write (anti-escalation)", () => {
-    expect(
-      canWriteEngagementAssignments(
-        input({
-          isSenior: true,
-          isStructuralLead: true,
-          hasOwnAssignment: false,
-        })
-      )
-    ).toBe(false);
-  });
-
-  it("assigned senior who is NOT a structural lead cannot write", () => {
-    expect(
-      canWriteEngagementAssignments(
-        input({
-          isSenior: true,
-          isStructuralLead: false,
-          hasOwnAssignment: true,
-        })
-      )
-    ).toBe(false);
-  });
-
-  it("partner/director/manager who is NOT a structural lead cannot write", () => {
-    expect(
-      canWriteEngagementAssignments(input({ isPartner: true }))
-    ).toBe(false);
-    expect(
-      canWriteEngagementAssignments(input({ isDirector: true }))
-    ).toBe(false);
-    expect(
-      canWriteEngagementAssignments(input({ isManager: true }))
-    ).toBe(false);
-  });
-
-  it("structural semisenior/other lead cannot write (role outside the D5 matrix)", () => {
-    // no role flag set, but structurally a lead
-    expect(
-      canWriteEngagementAssignments(input({ isStructuralLead: true }))
-    ).toBe(false);
-  });
-
-  it("no role / no staff record (role-fetch failure default) cannot write", () => {
-    expect(canWriteEngagementAssignments(base)).toBe(false);
   });
 });

@@ -42,6 +42,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { EngagementCreatedDialog } from "@/components/forms/EngagementCreatedDialog";
+import { StaffAssignmentsCard } from "@/components/engagements/StaffAssignmentsCard";
 import { TaxonomyCombobox, NO_APLICA_VALUE } from "@/components/forms/TaxonomyCombobox";
 import { Engagement, useClients, useServices, useTaxonomies } from "@/hooks/useEmsData";
 import { useCategoryStaff } from "@/hooks/useCategoryStaff";
@@ -409,10 +410,41 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     }
   }, [engagement, clients, form, isDirty, closingDateOptions]);
 
-  // Report dirty state to parent
+  // Fase 5 (bugs/scheduler/fase_5/plan_v2.md §6): StaffAssignmentsCard tiene su propio ciclo de
+  // guardado (RPC directa) — el submit principal NUNCA lo ejecuta. Su dirty state SÍ participa
+  // del page-leave lock combinado que ya consume EngagementEdit vía onDirtyChange.
+  const [assignmentsDirty, setAssignmentsDirty] = useState(false);
+
+  // Report combined dirty state to parent
   useEffect(() => {
-    onDirtyChange?.(isDirty);
-  }, [isDirty, onDirtyChange]);
+    onDirtyChange?.(isDirty || assignmentsDirty);
+  }, [isDirty, assignmentsDirty, onDirtyChange]);
+
+  // Fase 5 O9: con assignments pendientes de guardar, cambiar servicio/fechas/partner/manager
+  // puede invalidar segmentos existentes o revocar el permiso de escritura del usuario. `practica`
+  // es inmutable en edición (omitida del payload de update) — sin advertencia de servicio.
+  // Fuera de Borrador (Pendiente)/Rechazado el Admin cambia sin advertencia; cualquier otro
+  // usuario recibe una advertencia (no bloqueante) al tocar fecha/partner/manager.
+  const [wPartnerId, wManagerId, wStartDate, wEndDate] = form.watch([
+    "partner_id",
+    "manager_id",
+    "start_date",
+    "end_date",
+  ]);
+  const structuralFieldsChanged =
+    isEdit &&
+    !!engagement &&
+    ((wPartnerId || "") !== (engagement.partner_id || "") ||
+      (wManagerId || "") !== (engagement.manager_id || "") ||
+      (!!wStartDate && !!engagement.start_date && format(wStartDate, "yyyy-MM-dd") !== engagement.start_date) ||
+      (!!wEndDate && !!engagement.end_date && format(wEndDate, "yyyy-MM-dd") !== engagement.end_date));
+  const showAssignmentsHeaderWarning =
+    isEdit &&
+    assignmentsDirty &&
+    structuralFieldsChanged &&
+    !isAdmin &&
+    savedEffectiveState !== EngagementState.Pendiente &&
+    savedEffectiveState !== EngagementState.Rechazado;
 
   // BUG #0604-143: derive Año Fiscal from the closing date in real time. Standard options
   // carry their full "yyyy-MM-dd" value; "Otro" carries its own picked date.
@@ -623,6 +655,15 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
             : {}),
         },
       });
+      // Fase 5 (plan_v2.md §6): con assignments sin guardar, el header nunca navega — el
+      // Engagement y los assignments no se presentan como una única transacción. Solo se
+      // resetea el baseline del FORM (limpia su propio isDirty); assignmentsDirty sigue
+      // gobernando el page-leave lock combinado hasta que el usuario guarde/descarte la card.
+      if (assignmentsDirty) {
+        form.reset(data);
+        toast.info(t("engagement.assignments.pendingChanges"));
+        return;
+      }
       if (onSaveSuccess) {
         onSaveSuccess();
       } else {
@@ -1419,7 +1460,30 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
               </div>
             </div>
 
-           
+            {/* Fase 5 (plan_v2.md §6): la administración de assignments SOLO se muestra para un
+                Engagement ya persistido — EngagementNew nunca renderiza esta sección. Guardado
+                independiente: la card tiene sus propios botones, el submit de arriba nunca la
+                toca. */}
+            {isEdit && engagement ? (
+              <div className="border border-border bg-background/50 rounded-xl p-8 space-y-4">
+                <StaffAssignmentsCard engagement={engagement} onDirtyChange={setAssignmentsDirty} />
+                {showAssignmentsHeaderWarning && (
+                  <Alert>
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>
+                      {t("engagement.assignments.warnings.headerChangeWithPending")}
+                    </AlertDescription>
+                  </Alert>
+                )}
+              </div>
+            ) : (
+              <div className="border border-border bg-background/50 rounded-xl p-8">
+                <h3 className="font-medium text-lg">{t("engagement.assignments.title")}</h3>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {t("engagement.assignments.availableAfterSave")}
+                </p>
+              </div>
+            )}
 
             {isAdmin && (
               <div className="border border-border bg-background/50 rounded-xl p-8">

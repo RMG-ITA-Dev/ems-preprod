@@ -1,24 +1,24 @@
 // Scheduler Level 2: engagement staffing Gantt. Thin wrapper: role gate +
-// URL state + the four data hooks; L2StaffGantt composes the grouped
-// rows.
+// URL state + the six data hooks; L2StaffGantt composes the grouped rows.
 //
-// Fase 3 (plan v2 §2 — Decisión #1, L2 solo lectura): NO se monta
-// AssignmentSheet, no hay atajo de teclado "n", no hay bloqueo de salida
-// de página ni botón "+ Agregar staff" — todo eso es Fase 5 (ver contrato
-// de handoff en docs/scheduler/scheduler-fase-3-integracion.md). `canWrite`
-// se sigue calculando con el mismo mirror puro (`canWriteEngagementAssignments`)
-// únicamente para mostrar la nota "solo lectura"; en esta fase la
-// escritura está deshabilitada para todos los roles.
+// Fase 5 (bugs/scheduler/fase_5/plan_v2.md §5): superficie de escritura
+// completa vía AssignmentSheet — botón "+ Agregar staff", atajo de teclado
+// "n" (ignorado con foco en un control de formulario), y
+// usePageLeaveLock/LeavePageDialog para no perder ediciones del Sheet al
+// navegar fuera. `canWrite` ahora GATEA controles reales (antes solo
+// informaba la nota "solo lectura"): espeja `is_engagement_responsible`
+// exacto (admin OR responsable estructural), sin el caso "senior con
+// assignment propio" (Decisión #2 del operador — RLS/RPC no lo autoriza).
 //
 // Fase 3 (plan v2 §3, issue §11): las categorías se resuelven por el
 // SERVICIO del engagement (services.code === engagement.practica), nunca
 // como lista global sin contexto — practica IS NULL se trata como "sin
 // scope" (todas las categorías), igual que el resto de development.
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Plus } from "lucide-react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -42,6 +42,7 @@ import {
   useEngagementAssignments,
   useEngagements,
   useServices,
+  type EngagementAssignmentRow,
 } from "@/hooks/useEmsData";
 import { useStaffFirmwideAssignmentCounts } from "@/hooks/scheduler/useStaffFirmwideAssignmentCounts";
 import {
@@ -51,8 +52,19 @@ import {
 import { isSchedulerZoom, type SchedulerZoom } from "@/lib/schedulerGantt";
 import { captureReturnNav } from "@/lib/returnNav";
 import { L2StaffGantt } from "@/components/scheduler/L2StaffGantt";
+import { AssignmentSheet } from "@/components/scheduler/AssignmentSheet";
+import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";
+import { LeavePageDialog } from "@/components/ui/leave-page-dialog";
 import { format, addYears, subYears } from "date-fns";
 import { parseDateLocal } from "@/lib/timesheetUtils";
+
+// Foco en un control de formulario -> el atajo "n" no debe interceptar la tecla (issue: no
+// robarle "n" a un campo de texto/búsqueda).
+function isTypingTarget(el: Element | null): boolean {
+  if (!el) return false;
+  const tag = el.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (el as HTMLElement).isContentEditable;
+}
 
 const ALL_CATEGORIES = "__all__"; // Radix Select sentinel
 
@@ -154,23 +166,57 @@ const SchedulerL2 = () => {
     [loadQuery.data]
   );
 
-  // Fase 5 preview only (mirror del D5 write rule) — no gatea ningún
-  // control de escritura en esta fase; solo informa la nota "solo
-  // lectura" del encabezado.
-  const me = staffRecord?.staff_id;
-  const isStructuralLead =
-    !!me && (engagement?.manager_id === me || engagement?.partner_id === me);
-  const hasOwnAssignment = !!me && (assignments ?? []).some((a) => a.staff_id === me);
+  // Fase 5 — mirror EXACTO de is_engagement_responsible: admin OR el caller es manager/partner/
+  // sqr/encargado/specialist_it/specialist_tax del engagement. Gatea controles reales; RLS/RPC
+  // siguen siendo la autoridad (un EAS_DENIED se maneja si la responsabilidad cambió entre el
+  // render y el guardado).
+  const myStaffId = staffRecord?.staff_id ?? null;
   const canWrite = canWriteEngagementAssignments({
     isAdmin,
-    isPartner,
-    isDirector,
-    isManager,
-    isSenior,
-    isStructuralLead,
-    hasOwnAssignment,
+    myStaffId,
+    responsibleStaffIds: engagement
+      ? [
+          engagement.manager_id,
+          engagement.partner_id,
+          engagement.sqr_id,
+          engagement.encargado_id,
+          engagement.specialist_it_id,
+          engagement.specialist_tax_id,
+        ]
+      : [],
   });
-  void canWrite; // reservado para Fase 5; ver docs/scheduler/scheduler-fase-3-integracion.md
+
+  // Snapshot COMPLETO (no la vista filtrada por categoría/búsqueda) — el Sheet valida overlap
+  // contra esto, nunca contra `filteredAssignments`.
+  const allAssignments = assignments ?? [];
+
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [sheetRow, setSheetRow] = useState<EngagementAssignmentRow | null>(null);
+  const [sheetDirty, setSheetDirty] = useState(false);
+  const { blocker } = usePageLeaveLock({ locked: sheetDirty, isDirty: sheetDirty });
+
+  const openAddSheet = useCallback(() => {
+    if (!canWrite) return;
+    setSheetRow(null);
+    setSheetOpen(true);
+  }, [canWrite]);
+  const openEditSheet = useCallback((row: EngagementAssignmentRow) => {
+    setSheetRow(row);
+    setSheetOpen(true);
+  }, []);
+
+  // Atajo "n": abre "+ Agregar staff" — ignorado con foco en un control de formulario.
+  useEffect(() => {
+    if (!canWrite) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() !== "n" || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (isTypingTarget(document.activeElement)) return;
+      e.preventDefault();
+      openAddSheet();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [canWrite, openAddSheet]);
 
   const filteredAssignments = useMemo(() => {
     let rows = assignments ?? [];
@@ -293,11 +339,17 @@ const SchedulerL2 = () => {
                     engagement.end_date &&
                     // dd/MM/yyyy per the repository-wide rule.
                     ` · ${format(parseDateLocal(engagement.start_date), "dd/MM/yyyy")} → ${format(parseDateLocal(engagement.end_date), "dd/MM/yyyy")}`}
-                  {/* Fase 3: la escritura está deshabilitada para todos los
-                      roles — Fase 5 la habilita según canWrite. */}
-                  {` · ${t("scheduler.readOnly")}`}
+                  {/* Fase 5: la nota "solo lectura" ahora refleja el mirror real — RLS/RPC
+                      siguen siendo la autoridad final. */}
+                  {!canWrite && ` · ${t("scheduler.readOnly")}`}
                 </p>
               </div>
+              {canWrite && (
+                <Button size="sm" onClick={openAddSheet}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  {t("scheduler.l2.addStaff")}
+                </Button>
+              )}
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
@@ -353,12 +405,28 @@ const SchedulerL2 = () => {
                   to={window_.to}
                   zoom={zoom}
                   returnNav={returnNav}
+                  canWrite={canWrite}
+                  onOpenSheet={openEditSheet}
                 />
               </div>
             )}
+
+            <AssignmentSheet
+              engagement={engagement}
+              open={sheetOpen}
+              onOpenChange={setSheetOpen}
+              row={sheetRow}
+              canWrite={canWrite}
+              requirements={requirements ?? []}
+              staffOptions={staffOptions ?? []}
+              categories={categories ?? []}
+              assignments={allAssignments}
+              onDirtyChange={setSheetDirty}
+            />
           </>
         )}
       </div>
+      <LeavePageDialog blocker={blocker} isDirty={sheetDirty} />
     </AppLayout>
   );
 };

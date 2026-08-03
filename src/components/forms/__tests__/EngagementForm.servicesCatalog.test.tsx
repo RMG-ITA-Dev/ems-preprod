@@ -54,12 +54,24 @@ const mockServices = [
 // Module-level controllable create mock (Review 2 — test #5)
 const mockCreateMutateAsync = vi.fn();
 
+// Stable references: a fresh [] literal returned on every call gives StaffAssignmentsCard's
+// reseed-while-clean effect a new `assignments` identity on every render (its dep array
+// includes it), triggering setDrafts/setBaseline in a loop — same "infinite loop" lesson already
+// documented above for allServices/allTaxonomies, now applying to the Fase 5 read hooks too.
+const stableClientList = [{ client_id: "c1", client_legal_name: "Acme Corp", is_active: true }];
+const stableAssignments: never[] = [];
+const stableAggregatedReqs: never[] = [];
+const stableActiveStaff: never[] = [];
+const stableCategories: never[] = [];
 vi.mock("@/hooks/useEmsData", () => ({
-  useClients:  () => ({ data: [
-    { client_id: "c1", client_legal_name: "Acme Corp", is_active: true },
-  ] }),
+  useClients:  () => ({ data: stableClientList }),
   useServices: () => ({ data: mockServices }),
   useTaxonomies: () => ({ data: [] }),
+  // Fase 5: EngagementForm now mounts StaffAssignmentsCard in edit mode, which pulls these.
+  useEngagementAssignments: () => ({ data: stableAssignments, isLoading: false, isError: false }),
+  useEngagementAggregatedRequirements: () => ({ data: stableAggregatedReqs }),
+  useActiveStaffWithSkills: () => ({ data: stableActiveStaff }),
+  useCategories: () => ({ data: stableCategories }),
 }));
 
 // BUG #0625-151 added useCurrentStaff (→ useAuth) to EngagementForm; mock it so the
@@ -99,6 +111,7 @@ vi.mock("@/hooks/mutations", () => ({
   useCreateEngagement: () => ({ mutateAsync: mockCreateMutateAsync, isPending: false }),
   useUpdateEngagement: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useDeleteEngagement: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useSaveEngagementAssignments: () => ({ saveAssignments: vi.fn(), isSaving: false }),
 }));
 
 vi.mock("@/hooks/useUserRole", () => ({ useUserRole: vi.fn() }));

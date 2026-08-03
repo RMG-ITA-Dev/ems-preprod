@@ -88,6 +88,19 @@ END $$;
 GRANT EXECUTE ON FUNCTION public.engagement_accepts_assignment_writes(uuid) TO authenticated;
 
 -- =====================================================================
+-- 3b. Normalización de práctica legada a Auditoría (Fase 5 O6) —
+--
+-- bugs/scheduler/fase_5/plan_v2.md, Open Question O6: los engagements legados sin práctica ya no
+-- se tratan como "sin scope / todas las categorías" — reciben por defecto Auditoría (code=1), ANTES
+-- de que los triggers de service-scope de abajo empiecen a validar. Enmienda en sitio del SQL
+-- pendiente de Fase 2 (todavía no se ejecutó en ningún ambiente real), no una migración de
+-- convergencia nueva.
+-- =====================================================================
+UPDATE public.engagements
+   SET practica = 1
+ WHERE practica IS NULL;
+
+-- =====================================================================
 -- 4. Triggers de service-scope (cierra G3) — calcados de
 --    enforce_worksheet_cell_service_scope (20260719000000_0714_154_worksheet_service_scope.sql):
 --    RETURN NEW si practica IS NULL (engagement legado sin servicio, sin scope); RAISE si la

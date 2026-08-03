@@ -1,61 +1,34 @@
 /**
- * D5 write-authorization matrix for engagement assignments — the client
- * mirror of the RLS write policies (`ea_team_insert` / `ea_team_update` /
- * `ea_team_delete` in
- * `supabase/migrations/20260717233000_engagement_assignments_d5_rls.sql`).
+ * Fase 5 write-authorization mirror for engagement assignments — el espejo cliente EXACTO de
+ * `is_engagement_responsible(engagement_id)`
+ * (`supabase/migrations/20260727100000_scheduler_fase2_rls_grants.sql`), la única regla de
+ * autorización que la RPC `save_engagement_assignments` aplica:
  *
- * The server rule for a write is:
+ *   is_admin() OR is_engagement_responsible(engagement_id)
  *
- *   is_admin()
- *   OR ( is_engagement_team_member(engagement)         -- structural lead
- *        AND can_read_engagement_assignments(engagement) )
+ * donde is_engagement_responsible() es:
  *
- * where the D5 read matrix (can_read_...) is:
+ *   get_my_staff_id() IN (manager_id, partner_id, sqr_id, encargado_id,
+ *                         specialist_it_id, specialist_tax_id)
  *
- *   firmwide (admin / partner / director)
- *   OR ( manager role AND structural lead )
- *   OR ( senior role AND holds a non-deleted assignment on the engagement )
+ * Fase 5 — Decisión del operador (bugs/scheduler/fase_5/plan_v2.md, "Decisiones del operador" #2):
+ * se ELIMINA el caso "senior con assignment propio" del mirror de `sruizmier-scheduler-v3`. La
+ * RPC no lo autoriza — conservarlo mostraría botones de escritura que fallarían con `EAS_DENIED`.
+ * El caso "Senior a Cargo" requeriría modificar la RPC (fuera del alcance que Fase 5 decide sola).
  *
- * Composing the two, a NON-admin can write iff they are a structural
- * lead (engagement manager_id / partner_id) AND their app_role admits a
- * read of that engagement:
- *
- *   - partner / director : always read (firmwide) → may write when lead
- *   - manager            : reads its led engagements → may write when lead
- *   - senior             : reads only engagements it is assigned to →
- *                          may write when lead AND has an own assignment
- *
- * The senior-with-assignment case is the documented In-Charge Senior
- * workflow (docs/scheduler-objective.md, "Who does what in the UI"). The
- * assignment precondition is also the anti-escalation property: a
- * structural-lead senior with no assignment cannot write (they could
- * otherwise self-assign and self-grant visibility — the PR #222 finding).
- *
- * This is a client convenience mirror only; PostgREST + RLS remain the
- * real boundary. Kept pure and shared so StaffAssignmentsCard and
- * SchedulerL2 can never drift from each other or from the server rule.
+ * Este es solo un mirror de conveniencia para la UI; RLS + la RPC (SECURITY DEFINER) siguen
+ * siendo la autoridad real. Un cambio de responsabilidad entre el render y el guardado se
+ * manifiesta como `EAS_DENIED`, manejado por el caller.
  */
 export interface AssignmentWriteAuthzInput {
   isAdmin: boolean;
-  isPartner: boolean;
-  isDirector: boolean;
-  isManager: boolean;
-  isSenior: boolean;
-  /** caller's staff_id equals the engagement's manager_id or partner_id */
-  isStructuralLead: boolean;
-  /** caller holds a non-deleted assignment on this engagement */
-  hasOwnAssignment: boolean;
+  myStaffId: string | null | undefined;
+  /** [manager_id, partner_id, sqr_id, encargado_id, specialist_it_id, specialist_tax_id] del Engagement. */
+  responsibleStaffIds: Array<string | null | undefined>;
 }
 
-export function canWriteEngagementAssignments(
-  a: AssignmentWriteAuthzInput
-): boolean {
+export function canWriteEngagementAssignments(a: AssignmentWriteAuthzInput): boolean {
   if (a.isAdmin) return true;
-  if (!a.isStructuralLead) return false;
-  return (
-    a.isPartner ||
-    a.isDirector ||
-    a.isManager ||
-    (a.isSenior && a.hasOwnAssignment)
-  );
+  if (!a.myStaffId) return false;
+  return a.responsibleStaffIds.includes(a.myStaffId);
 }

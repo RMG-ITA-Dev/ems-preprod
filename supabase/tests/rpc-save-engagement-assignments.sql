@@ -13,11 +13,17 @@
 -- Fixture world (all ids carry recognizable reas-test prefixes):
 --   CAT_AUD  category, service Auditoría (code 1)
 --   CAT_TAX  category, service Tax (code 3) — foreign-service case
---   E1  practica=1, manager_id=Mel, sqr_id=Sam, engagement_state_override=NULL
---       (derived state, accepts writes)
+--   E1  practica=1, manager_id=Mel, sqr_id=Sam, engagement_state_override=NULL,
+--       start_date=2026-01-01, end_date=2026-12-31 (derived state, accepts writes)
 --   E2  practica=1, manager_id=Mel, engagement_state_override=6 (Cancelado)
 --       -> EAS_ENGAGEMENT_LOCKED
 --   Tania, Rita: staff subjects to be assigned (not callers)
+--   Ivy: staff subject with is_schedulable=false -> EAS_STAFF_INELIGIBLE probe
+--
+-- Fase 5 amendment (bugs/scheduler/fase_5/plan_v2.md, O1/O4/O7): assignment_id is now
+-- ALWAYS required in p_upserts — the client generates it once (crypto.randomUUID()) and it
+-- doubles as the idempotency key for inserts (row not found under this engagement -> INSERT
+-- with that id; found -> UPDATE). Every payload below carries an explicit assignment_id.
 
 BEGIN;
 
@@ -51,6 +57,10 @@ INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, categor
   ('50000000-0000-4000-8000-0000000000c4', NULL,                                    'Tania', 'Target',      'c0000000-0000-4000-8000-0000000000c1'),
   ('50000000-0000-4000-8000-0000000000c5', NULL,                                    'Rita',  'Target2',     'c0000000-0000-4000-8000-0000000000c1');
 
+-- Fase 5 O7 fixture: is_schedulable=false -> a NEW assignment for Ivy must be rejected.
+INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, category_id, is_schedulable) VALUES
+  ('50000000-0000-4000-8000-0000000000c6', NULL, 'Ivy', 'NotSchedulable', 'c0000000-0000-4000-8000-0000000000c1', false);
+
 -- ON CONFLICT DO UPDATE: on a live Supabase, handle_new_user() (20251204051043) already
 -- auto-created a 'staff' user_roles row for each new auth.users id above.
 INSERT INTO public.user_roles (user_id, role) VALUES
@@ -61,9 +71,9 @@ ON CONFLICT (user_id) DO UPDATE SET role = EXCLUDED.role;
 
 -- fecha_cierre is NOT NULL with no DEFAULT on a live Supabase (20260702000000) — the local shim
 -- has no such column at all, so this must be supplied explicitly to work in both environments.
-INSERT INTO public.engagements (engagement_id, client_id, engagement_name, manager_id, sqr_id, practica, engagement_state_override, fecha_cierre) VALUES
-  ('e0000000-0000-4000-8000-0000000000c1', 'c1000000-0000-4000-8000-0000000000c1', 'REAS E1', '50000000-0000-4000-8000-0000000000c1', '50000000-0000-4000-8000-0000000000c2', 1, NULL, '2026-09-30'),
-  ('e0000000-0000-4000-8000-0000000000c2', 'c1000000-0000-4000-8000-0000000000c1', 'REAS E2 (cancelled)', '50000000-0000-4000-8000-0000000000c1', NULL, 1, 6, '2026-09-30');
+INSERT INTO public.engagements (engagement_id, client_id, engagement_name, manager_id, sqr_id, practica, engagement_state_override, fecha_cierre, start_date, end_date) VALUES
+  ('e0000000-0000-4000-8000-0000000000c1', 'c1000000-0000-4000-8000-0000000000c1', 'REAS E1', '50000000-0000-4000-8000-0000000000c1', '50000000-0000-4000-8000-0000000000c2', 1, NULL, '2026-09-30', '2026-01-01', '2026-12-31'),
+  ('e0000000-0000-4000-8000-0000000000c2', 'c1000000-0000-4000-8000-0000000000c1', 'REAS E2 (cancelled)', '50000000-0000-4000-8000-0000000000c1', NULL, 1, 6, '2026-09-30', '2026-01-01', '2026-12-31');
 
 CREATE FUNCTION pg_temp.impersonate(p_sub text) RETURNS void
 LANGUAGE sql AS $$
@@ -78,6 +88,8 @@ DECLARE
   v_missing       uuid := '9999999a-0000-4000-8000-000000000001';
   v_ok            boolean;
   v_assignment_id uuid;
+  v_new_id        uuid;
+  v_new_id2       uuid;
   v_n             int;
 BEGIN
   -- ── 1. EAS_ENGAGEMENT_NOT_FOUND ──────────────────────────────────────
@@ -106,9 +118,11 @@ BEGIN
 
   -- ── 3. Happy path insert: manager Mel assigns Tania on E1 ───────────
   PERFORM pg_temp.impersonate('a0000000-0000-4000-8000-0000000000c1');
+  v_new_id := gen_random_uuid();
   v_result := public.save_engagement_assignments(
     'e0000000-0000-4000-8000-0000000000c1'::uuid,
     jsonb_build_array(jsonb_build_object(
+      'assignment_id', v_new_id,
       'staff_id', '50000000-0000-4000-8000-0000000000c4',
       'category_id', 'c0000000-0000-4000-8000-0000000000c1',
       'start_date', '2026-01-01', 'end_date', '2026-06-30',
@@ -119,14 +133,37 @@ BEGIN
   IF jsonb_array_length(v_result) <> 1 THEN
     RAISE EXCEPTION 'TEST FAIL — happy path: expected 1 assignment in the result, got %', v_result;
   END IF;
-  IF (v_result->0->>'staff_id')::uuid <> '50000000-0000-4000-8000-0000000000c4'::uuid
+  IF (v_result->0->>'assignment_id')::uuid <> v_new_id
+     OR (v_result->0->>'staff_id')::uuid <> '50000000-0000-4000-8000-0000000000c4'::uuid
      OR (v_result->0->>'hours_per_week')::numeric <> 30
      OR (v_result->0->>'allocation_percent')::numeric <> 75
      OR (v_result->0->>'status') <> 'PROPOSED' THEN
     RAISE EXCEPTION 'TEST FAIL — happy path: unexpected result shape %', v_result;
   END IF;
   v_assignment_id := (v_result->0->>'assignment_id')::uuid;
-  RAISE NOTICE 'PASS — manager Mel inserts an assignment, result mirrors the client contract (status defaults to PROPOSED, never written explicitly)';
+  RAISE NOTICE 'PASS — manager Mel inserts an assignment with a client-generated id, result mirrors the client contract (status defaults to PROPOSED, never written explicitly)';
+
+  -- ── 3b. Retry idempotency: the SAME client id re-sent does not duplicate ─
+  v_result := public.save_engagement_assignments(
+    'e0000000-0000-4000-8000-0000000000c1'::uuid,
+    jsonb_build_array(jsonb_build_object(
+      'assignment_id', v_new_id, -- identical client id as step 3
+      'staff_id', '50000000-0000-4000-8000-0000000000c4',
+      'category_id', 'c0000000-0000-4000-8000-0000000000c1',
+      'start_date', '2026-01-01', 'end_date', '2026-06-30',
+      'hours_per_week', 30, 'allocation_percent', 75, 'notes', 'first'
+    )),
+    ARRAY[]::uuid[]
+  );
+  SELECT count(*) INTO v_n FROM public.engagement_assignments
+   WHERE assignment_id = v_new_id AND engagement_id = 'e0000000-0000-4000-8000-0000000000c1' AND deleted_at IS NULL;
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL — retrying the same client assignment_id duplicated the row (expected 1, got %)', v_n;
+  END IF;
+  IF jsonb_array_length(v_result) <> 1 OR (v_result->0->>'assignment_id')::uuid <> v_new_id THEN
+    RAISE EXCEPTION 'TEST FAIL — retry with the same client id did not resolve to the same row, got %', v_result;
+  END IF;
+  RAISE NOTICE 'PASS — retrying an insert with the same client-generated assignment_id updates the existing row instead of duplicating it';
 
   -- ── 4. EAS_MISSING_FIELD ──────────────────────────────────────────────
   v_ok := false;
@@ -134,6 +171,7 @@ BEGIN
     PERFORM public.save_engagement_assignments(
       'e0000000-0000-4000-8000-0000000000c1'::uuid,
       jsonb_build_array(jsonb_build_object(
+        'assignment_id', gen_random_uuid(),
         'staff_id', '50000000-0000-4000-8000-0000000000c5',
         'category_id', 'c0000000-0000-4000-8000-0000000000c1',
         'start_date', '2026-02-01', 'end_date', '2026-03-01',
@@ -148,7 +186,28 @@ BEGIN
     END IF;
   END;
   IF NOT v_ok THEN RAISE EXCEPTION 'TEST FAIL — a row missing hours_per_week unexpectedly succeeded'; END IF;
-  RAISE NOTICE 'PASS — a missing required field raises EAS_MISSING_FIELD';
+
+  -- assignment_id itself is now a required field too.
+  v_ok := false;
+  BEGIN
+    PERFORM public.save_engagement_assignments(
+      'e0000000-0000-4000-8000-0000000000c1'::uuid,
+      jsonb_build_array(jsonb_build_object(
+        'staff_id', '50000000-0000-4000-8000-0000000000c5',
+        'category_id', 'c0000000-0000-4000-8000-0000000000c1',
+        'start_date', '2026-02-01', 'end_date', '2026-03-01',
+        'hours_per_week', 20, 'allocation_percent', 50
+        -- assignment_id omitted
+      )),
+      ARRAY[]::uuid[]
+    );
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM = 'EAS_MISSING_FIELD' THEN v_ok := true;
+    ELSE RAISE EXCEPTION 'TEST FAIL — expected EAS_MISSING_FIELD (missing assignment_id), got %', SQLERRM;
+    END IF;
+  END;
+  IF NOT v_ok THEN RAISE EXCEPTION 'TEST FAIL — a row missing assignment_id unexpectedly succeeded'; END IF;
+  RAISE NOTICE 'PASS — a missing required field (incl. the now-mandatory client assignment_id) raises EAS_MISSING_FIELD';
 
   -- ── 5. EAS_DATE_RANGE ─────────────────────────────────────────────────
   v_ok := false;
@@ -156,6 +215,7 @@ BEGIN
     PERFORM public.save_engagement_assignments(
       'e0000000-0000-4000-8000-0000000000c1'::uuid,
       jsonb_build_array(jsonb_build_object(
+        'assignment_id', gen_random_uuid(),
         'staff_id', '50000000-0000-4000-8000-0000000000c5',
         'category_id', 'c0000000-0000-4000-8000-0000000000c1',
         'start_date', '2026-06-30', 'end_date', '2026-01-01',
@@ -171,12 +231,57 @@ BEGIN
   IF NOT v_ok THEN RAISE EXCEPTION 'TEST FAIL — end_date < start_date unexpectedly succeeded'; END IF;
   RAISE NOTICE 'PASS — end_date < start_date raises EAS_DATE_RANGE (same-day remains valid, exercised implicitly by the range check)';
 
+  -- ── 5b. EAS_ENGAGEMENT_RANGE (segment outside E1's 2026-01-01..2026-12-31) ─
+  v_ok := false;
+  BEGIN
+    PERFORM public.save_engagement_assignments(
+      'e0000000-0000-4000-8000-0000000000c1'::uuid,
+      jsonb_build_array(jsonb_build_object(
+        'assignment_id', gen_random_uuid(),
+        'staff_id', '50000000-0000-4000-8000-0000000000c5',
+        'category_id', 'c0000000-0000-4000-8000-0000000000c1',
+        'start_date', '2027-01-01', 'end_date', '2027-02-01',
+        'hours_per_week', 20, 'allocation_percent', 50
+      )),
+      ARRAY[]::uuid[]
+    );
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM = 'EAS_ENGAGEMENT_RANGE' THEN v_ok := true;
+    ELSE RAISE EXCEPTION 'TEST FAIL — expected EAS_ENGAGEMENT_RANGE, got %', SQLERRM;
+    END IF;
+  END;
+  IF NOT v_ok THEN RAISE EXCEPTION 'TEST FAIL — a segment outside the engagement''s date range unexpectedly succeeded'; END IF;
+  RAISE NOTICE 'PASS — a segment outside the engagement''s inclusive start_date..end_date raises EAS_ENGAGEMENT_RANGE (Fase 5 O4)';
+
+  -- ── 5c. EAS_STAFF_INELIGIBLE (Ivy: is_schedulable=false, NEW insert) ──
+  v_ok := false;
+  BEGIN
+    PERFORM public.save_engagement_assignments(
+      'e0000000-0000-4000-8000-0000000000c1'::uuid,
+      jsonb_build_array(jsonb_build_object(
+        'assignment_id', gen_random_uuid(),
+        'staff_id', '50000000-0000-4000-8000-0000000000c6',
+        'category_id', 'c0000000-0000-4000-8000-0000000000c1',
+        'start_date', '2026-02-01', 'end_date', '2026-03-01',
+        'hours_per_week', 20, 'allocation_percent', 50
+      )),
+      ARRAY[]::uuid[]
+    );
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM = 'EAS_STAFF_INELIGIBLE' THEN v_ok := true;
+    ELSE RAISE EXCEPTION 'TEST FAIL — expected EAS_STAFF_INELIGIBLE, got %', SQLERRM;
+    END IF;
+  END;
+  IF NOT v_ok THEN RAISE EXCEPTION 'TEST FAIL — a NEW assignment for a non-schedulable staff unexpectedly succeeded'; END IF;
+  RAISE NOTICE 'PASS — a NEW assignment for an inactive/non-schedulable staff raises EAS_STAFF_INELIGIBLE (Fase 5 O7; historical rows are not re-validated, see step 15)';
+
   -- ── 6. EAS_HOURS_RANGE (0 and 81) ─────────────────────────────────────
   v_ok := false;
   BEGIN
     PERFORM public.save_engagement_assignments(
       'e0000000-0000-4000-8000-0000000000c1'::uuid,
       jsonb_build_array(jsonb_build_object(
+        'assignment_id', gen_random_uuid(),
         'staff_id', '50000000-0000-4000-8000-0000000000c5', 'category_id', 'c0000000-0000-4000-8000-0000000000c1',
         'start_date', '2026-02-01', 'end_date', '2026-03-01', 'hours_per_week', 0, 'allocation_percent', 50
       )),
@@ -194,6 +299,7 @@ BEGIN
     PERFORM public.save_engagement_assignments(
       'e0000000-0000-4000-8000-0000000000c1'::uuid,
       jsonb_build_array(jsonb_build_object(
+        'assignment_id', gen_random_uuid(),
         'staff_id', '50000000-0000-4000-8000-0000000000c5', 'category_id', 'c0000000-0000-4000-8000-0000000000c1',
         'start_date', '2026-02-01', 'end_date', '2026-03-01', 'hours_per_week', 81, 'allocation_percent', 50
       )),
@@ -213,6 +319,7 @@ BEGIN
     PERFORM public.save_engagement_assignments(
       'e0000000-0000-4000-8000-0000000000c1'::uuid,
       jsonb_build_array(jsonb_build_object(
+        'assignment_id', gen_random_uuid(),
         'staff_id', '50000000-0000-4000-8000-0000000000c5', 'category_id', 'c0000000-0000-4000-8000-0000000000c1',
         'start_date', '2026-02-01', 'end_date', '2026-03-01', 'hours_per_week', 20, 'allocation_percent', 0
       )),
@@ -230,6 +337,7 @@ BEGIN
     PERFORM public.save_engagement_assignments(
       'e0000000-0000-4000-8000-0000000000c1'::uuid,
       jsonb_build_array(jsonb_build_object(
+        'assignment_id', gen_random_uuid(),
         'staff_id', '50000000-0000-4000-8000-0000000000c5', 'category_id', 'c0000000-0000-4000-8000-0000000000c1',
         'start_date', '2026-02-01', 'end_date', '2026-03-01', 'hours_per_week', 20, 'allocation_percent', 101
       )),
@@ -249,6 +357,7 @@ BEGIN
     PERFORM public.save_engagement_assignments(
       'e0000000-0000-4000-8000-0000000000c1'::uuid,
       jsonb_build_array(jsonb_build_object(
+        'assignment_id', gen_random_uuid(),
         'staff_id', '50000000-0000-4000-8000-0000000000c5', 'category_id', 'c0000000-0000-4000-8000-0000000000c2',
         'start_date', '2026-02-01', 'end_date', '2026-03-01', 'hours_per_week', 20, 'allocation_percent', 50
       )),
@@ -273,12 +382,14 @@ BEGIN
       'e0000000-0000-4000-8000-0000000000c1'::uuid,
       jsonb_build_array(
         jsonb_build_object(
+          'assignment_id', gen_random_uuid(),
           'staff_id', '50000000-0000-4000-8000-0000000000c4', -- same staff as the step-3 assignment
           'category_id', 'c0000000-0000-4000-8000-0000000000c1',
           'start_date', '2026-06-01', 'end_date', '2026-12-31', -- overlaps 2026-01-01..2026-06-30
           'hours_per_week', 10, 'allocation_percent', 25
         ),
         jsonb_build_object(
+          'assignment_id', gen_random_uuid(),
           'staff_id', '50000000-0000-4000-8000-0000000000c5', -- unrelated row in the SAME payload
           'category_id', 'c0000000-0000-4000-8000-0000000000c1',
           'start_date', '2026-02-01', 'end_date', '2026-03-01',
@@ -341,6 +452,7 @@ BEGIN
     PERFORM public.save_engagement_assignments(
       'e0000000-0000-4000-8000-0000000000c2'::uuid,
       jsonb_build_array(jsonb_build_object(
+        'assignment_id', gen_random_uuid(),
         'staff_id', '50000000-0000-4000-8000-0000000000c4', 'category_id', 'c0000000-0000-4000-8000-0000000000c1',
         'start_date', '2026-02-01', 'end_date', '2026-03-01', 'hours_per_week', 20, 'allocation_percent', 50
       )),
@@ -359,6 +471,7 @@ BEGIN
   v_result := public.save_engagement_assignments(
     'e0000000-0000-4000-8000-0000000000c1'::uuid,
     jsonb_build_array(jsonb_build_object(
+      'assignment_id', gen_random_uuid(),
       'staff_id', '50000000-0000-4000-8000-0000000000c5', 'category_id', 'c0000000-0000-4000-8000-0000000000c1',
       'start_date', '2026-04-01', 'end_date', '2026-05-01', 'hours_per_week', 15, 'allocation_percent', 40
     )),
@@ -367,9 +480,31 @@ BEGIN
   IF jsonb_array_length(v_result) <> 1 THEN
     RAISE EXCEPTION 'TEST FAIL — sqr Sam (is_engagement_responsible) call did not persist, got %', v_result;
   END IF;
+  v_new_id2 := (v_result->0->>'assignment_id')::uuid;
   RAISE NOTICE 'PASS — is_engagement_responsible caller (sqr Sam, not a team member) authorized to write';
 
-  -- ── 14. anon cannot EXECUTE the function at all ──────────────────────
+  -- ── 15. UPDATE path does not re-validate staff eligibility (historical
+  --        staff who later became inactive/non-schedulable stays editable).
+  --        Rita (c5) is the only live row left on E1 at this point — the
+  --        step-3 row (Tania) was soft-deleted at step 11.
+  UPDATE public.staff SET is_active = false WHERE staff_id = '50000000-0000-4000-8000-0000000000c5';
+  v_result := public.save_engagement_assignments(
+    'e0000000-0000-4000-8000-0000000000c1'::uuid,
+    jsonb_build_array(jsonb_build_object(
+      'assignment_id', v_new_id2, -- Rita's step-13 row; Rita is now inactive
+      'staff_id', '50000000-0000-4000-8000-0000000000c5',
+      'category_id', 'c0000000-0000-4000-8000-0000000000c1',
+      'start_date', '2026-04-01', 'end_date', '2026-05-01',
+      'hours_per_week', 16, 'allocation_percent', 42, 'notes', 'updated again'
+    )),
+    ARRAY[]::uuid[]
+  );
+  IF jsonb_array_length(v_result) <> 1 OR (v_result->0->>'hours_per_week')::numeric <> 16 THEN
+    RAISE EXCEPTION 'TEST FAIL — updating an existing row for now-inactive staff unexpectedly failed, got %', v_result;
+  END IF;
+  RAISE NOTICE 'PASS — UPDATE of an existing row does not re-run the staff eligibility check (historical inactive staff stays editable, Fase 5 O7)';
+
+  -- ── 16. anon cannot EXECUTE the function at all ──────────────────────
   IF to_regrole('anon') IS NULL THEN
     RAISE NOTICE 'SKIP — role anon not present in this environment';
   ELSE

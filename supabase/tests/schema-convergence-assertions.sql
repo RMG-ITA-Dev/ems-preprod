@@ -173,6 +173,14 @@ BEGIN
     RAISE EXCEPTION 'CONVERGENCE FAIL — copy_categories_between_services guard does not reference both new referrers';
   END IF;
   RAISE NOTICE 'PASS — copy_categories_between_services references both new referrer tables (structural check)';
+
+  -- 9. Fase 5 O6: la normalización de práctica legada corrió — cero engagements
+  --    con practica IS NULL sobreviven a la migración de convergencia.
+  SELECT count(*) INTO n FROM public.engagements WHERE practica IS NULL;
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'CONVERGENCE FAIL — % engagement(s) still have practica IS NULL after the Auditoría backfill (Fase 5 O6)', n;
+  END IF;
+  RAISE NOTICE 'PASS — no engagements remain with practica IS NULL (Fase 5 O6 backfill to Auditoría applied)';
 END $$;
 
 -- =====================================================================

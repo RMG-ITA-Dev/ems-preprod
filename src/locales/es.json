@@ -60,6 +60,7 @@
     "leaveAnyway": "Salir de todas formas",
     "stay": "Quedarme",
     "leave": "Salir",
+    "undo": "Deshacer",
     "saveError": "Error al guardar los cambios. Intente nuevamente.",
     "status": "Estado",
     "back": "Volver",
@@ -780,6 +781,40 @@
         "noRequirement": "No hay requisitos de personal definidos para esta categoría",
         "missingSkills": "Competencias faltantes: {{list}}",
         "belowLevel": "Por debajo del nivel: {{list}}"
+      },
+      "title": "Asignaciones de personal",
+      "addRow": "Agregar asignación",
+      "save": "Guardar asignaciones",
+      "discard": "Descartar cambios",
+      "saveSuccess": "Asignaciones guardadas",
+      "staff": "Personal",
+      "startDate": "Fecha inicial",
+      "endDate": "Fecha final",
+      "hoursPerWeek": "Horas/semana",
+      "allocationPct": "Allocation %",
+      "notes": "Notas",
+      "selectStaff": "Seleccionar personal...",
+      "selectCategory": "Seleccionar categoría...",
+      "remove": "Eliminar",
+      "readOnly": "Solo lectura",
+      "inactiveStaff": "Inactivo",
+      "pendingChanges": "Cambios sin guardar — haga clic en Deshacer para restaurar, o Guardar para confirmar.",
+      "availableAfterSave": "Las asignaciones de personal estarán disponibles después de guardar este encargo.",
+      "warnings": {
+        "headerChangeWithPending": "Tiene asignaciones de personal sin guardar. Cambiar las fechas, el socio o el gerente aquí puede invalidarlas o revocar su permiso para guardarlas."
+      },
+      "errors": {
+        "requiredFields": "Personal, categoría y ambas fechas son obligatorios.",
+        "dateRange": "La fecha final debe ser igual o posterior a la fecha inicial.",
+        "numericRange": "Las horas y el allocation deben ser mayores a 0 y estar dentro del rango permitido.",
+        "outOfEngagementRange": "El segmento debe estar dentro de las fechas del encargo.",
+        "categoryForeignService": "Esta categoría no pertenece al servicio del encargo.",
+        "staffIneligible": "Este miembro del personal está inactivo o no es asignable.",
+        "engagementNotFound": "No se encontró este encargo.",
+        "denied": "No tiene permiso para editar estas asignaciones.",
+        "locked": "Las asignaciones de este encargo no se pueden editar en su estado actual.",
+        "loadFailed": "No se pudieron cargar las asignaciones.",
+        "persistFailed": "No se pudieron guardar las asignaciones."
       }
     }
   },
@@ -1886,7 +1921,8 @@
     },
     "l2": {
       "title": "Personal del encargo",
-      "workload": "Encargos activos: {{n}}"
+      "workload": "Encargos activos: {{n}}",
+      "addStaff": "+ Agregar personal"
     },
     "gantt": {
       "zoom": {
@@ -1924,13 +1960,23 @@
     "actions": {
       "openEngagement": "Abrir encargo",
       "openStaffGantt": "GANTT Empleado",
-      "rowMenu": "Acciones de la fila"
+      "rowMenu": "Acciones de la fila",
+      "edit": "Editar",
+      "delete": "Eliminar"
     },
     "errors": {
       "loadFailed": "No se pudo cargar la programación.",
       "retry": "Reintentar",
       "unavailable": "El servicio del Planificador aún no está disponible. Contacte a su administrador.",
-      "forbidden": "No tiene acceso a la programación de este encargo."
+      "forbidden": "No tiene acceso a la programación de este encargo.",
+      "overlap": "Este miembro del personal ya tiene una asignación que se superpone en este rango de fechas.",
+      "partialSave": "No se pudo guardar el cambio. No se persistió nada.",
+      "conflict": "Esta asignación fue modificada en otro lugar. Recargue para ver el estado más reciente."
+    },
+    "assignmentSheet": {
+      "title": "Detalle de la asignación",
+      "save": "Guardar",
+      "delete": "Eliminar asignación"
     }
   }
 }

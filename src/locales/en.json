@@ -60,6 +60,7 @@
     "leaveAnyway": "Leave anyway",
     "stay": "Stay",
     "leave": "Leave",
+    "undo": "Undo",
     "saveError": "Error saving changes. Please try again.",
     "status": "Status",
     "back": "Back",
@@ -780,6 +781,40 @@
         "noRequirement": "No staffing requirement defined for this category",
         "missingSkills": "Missing competencies: {{list}}",
         "belowLevel": "Below required level: {{list}}"
+      },
+      "title": "Staff assignments",
+      "addRow": "Add assignment",
+      "save": "Save assignments",
+      "discard": "Discard changes",
+      "saveSuccess": "Assignments saved",
+      "staff": "Staff",
+      "startDate": "Start date",
+      "endDate": "End date",
+      "hoursPerWeek": "Hours/week",
+      "allocationPct": "Allocation %",
+      "notes": "Notes",
+      "selectStaff": "Select staff...",
+      "selectCategory": "Select category...",
+      "remove": "Remove",
+      "readOnly": "Read-only",
+      "inactiveStaff": "Inactive",
+      "pendingChanges": "Unsaved changes — click Undo to restore, or Save to confirm.",
+      "availableAfterSave": "Staff assignments will be available after you save this engagement.",
+      "warnings": {
+        "headerChangeWithPending": "You have unsaved staff assignments. Changing the dates, partner, or manager here may invalidate them or revoke your permission to save them."
+      },
+      "errors": {
+        "requiredFields": "Staff, category, and both dates are required.",
+        "dateRange": "End date must be on or after the start date.",
+        "numericRange": "Hours and allocation must be greater than 0 and within the allowed range.",
+        "outOfEngagementRange": "The segment must fall within the engagement's dates.",
+        "categoryForeignService": "This category does not belong to the engagement's service.",
+        "staffIneligible": "This staff member is inactive or not schedulable.",
+        "engagementNotFound": "This engagement could not be found.",
+        "denied": "You don't have permission to edit these assignments.",
+        "locked": "This engagement's assignments cannot be edited in its current state.",
+        "loadFailed": "Could not load assignments.",
+        "persistFailed": "Could not save assignments."
       }
     }
   },
@@ -1886,7 +1921,8 @@
     },
     "l2": {
       "title": "Engagement staffing",
-      "workload": "Active engagements: {{n}}"
+      "workload": "Active engagements: {{n}}",
+      "addStaff": "+ Add staff"
     },
     "gantt": {
       "zoom": {
@@ -1924,13 +1960,23 @@
     "actions": {
       "openEngagement": "Open engagement",
       "openStaffGantt": "Employee GANTT",
-      "rowMenu": "Row actions"
+      "rowMenu": "Row actions",
+      "edit": "Edit",
+      "delete": "Delete"
     },
     "errors": {
       "loadFailed": "Could not load the schedule.",
       "retry": "Retry",
       "unavailable": "The Scheduler service is not available yet. Contact your administrator.",
-      "forbidden": "You don't have access to this engagement's schedule."
+      "forbidden": "You don't have access to this engagement's schedule.",
+      "overlap": "This staff member already has an overlapping assignment in this date range.",
+      "partialSave": "The change could not be saved. Nothing was persisted.",
+      "conflict": "This assignment was changed elsewhere. Reload to see the latest state."
+    },
+    "assignmentSheet": {
+      "title": "Assignment details",
+      "save": "Save",
+      "delete": "Delete assignment"
     }
   }
 }

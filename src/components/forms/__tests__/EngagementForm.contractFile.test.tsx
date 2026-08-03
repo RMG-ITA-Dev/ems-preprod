@@ -37,10 +37,21 @@ vi.mock("react-i18next", () => ({
 const stableClients: never[] = [];
 const stableServices: never[] = [];
 const stableTaxonomies: never[] = [];
+// Fase 5: same lesson applies to StaffAssignmentsCard's reseed-while-clean effect (its dep
+// array includes `assignments`) — a fresh [] each call is a new identity every render.
+const stableAssignments: never[] = [];
+const stableAggregatedReqs: never[] = [];
+const stableActiveStaff: never[] = [];
+const stableCategories: never[] = [];
 vi.mock("@/hooks/useEmsData", () => ({
   useClients: () => ({ data: stableClients }),
   useServices: () => ({ data: stableServices }),
   useTaxonomies: () => ({ data: stableTaxonomies }),
+  // Fase 5: EngagementForm now mounts StaffAssignmentsCard in edit mode, which pulls these.
+  useEngagementAssignments: () => ({ data: stableAssignments, isLoading: false, isError: false }),
+  useEngagementAggregatedRequirements: () => ({ data: stableAggregatedReqs }),
+  useActiveStaffWithSkills: () => ({ data: stableActiveStaff }),
+  useCategories: () => ({ data: stableCategories }),
 }));
 
 const emptyStaffList: never[] = [];
@@ -60,6 +71,7 @@ vi.mock("@/hooks/mutations", () => ({
   useCreateEngagement: () => ({ mutateAsync: mockCreateMutateAsync, isPending: false }),
   useUpdateEngagement: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useDeleteEngagement: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useSaveEngagementAssignments: () => ({ saveAssignments: vi.fn(), isSaving: false }),
 }));
 
 const mockUseUserRole = vi.fn();

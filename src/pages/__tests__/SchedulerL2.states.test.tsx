@@ -3,17 +3,19 @@
 // pending requirements query would otherwise paint fake-neutral match
 // dots, and a failed assignments query would read as "no assignments".
 //
-// Fase 3 (plan v2 §2 — Decisión #1, L2 solo lectura): no hay
-// AssignmentSheet, ni usePageLeaveLock/LeavePageDialog, ni atajo `n`, ni
-// onEdit/canWrite/allAssignments en L2StaffGantt — todo eso es Fase 5.
-// Se agregó useServices() (issue §11, resolver categorías por servicio),
-// así que el gate de carga ahora cubre SEIS queries, no cinco.
+// Fase 5 (bugs/scheduler/fase_5/plan_v2.md §5): la superficie de escritura
+// ahora se monta de verdad (AssignmentSheet, botón "+ Agregar staff",
+// usePageLeaveLock/LeavePageDialog) — `canWrite` gatea controles reales, no
+// solo la nota "solo lectura". Se agregó useServices() (issue §11, resolver
+// categorías por servicio) desde Fase 3, así que el gate de carga sigue
+// cubriendo SEIS queries.
 
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import type { EngagementAssignmentRow } from "@/hooks/useEmsData";
 
 vi.mock("react-i18next", () => ({
@@ -27,18 +29,36 @@ vi.mock("@/components/layout/AppLayout", () => ({
   AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 
+let mockRole: { isAdmin: boolean; isPartner?: boolean; isDirector?: boolean; isManager?: boolean; isSenior?: boolean } = {
+  isAdmin: true,
+  isPartner: false,
+  isDirector: false,
+  isManager: false,
+  isSenior: false,
+};
 vi.mock("@/hooks/useUserRole", () => ({
-  useUserRole: () => ({
-    isAdmin: true,
-    isPartner: false,
-    isDirector: false,
-    isManager: false,
-    isSenior: false,
+  useUserRole: () => mockRole,
+}));
+
+let mockStaffRecord: { staff_id: string } | null = null;
+vi.mock("@/hooks/useCurrentStaff", () => ({
+  useCurrentStaff: () => ({ staffRecord: mockStaffRecord }),
+}));
+
+// usePageLeaveLock's useBlocker requires a data router — this file's declarative
+// MemoryRouter/Routes doesn't provide one. Same convention as WorkOrderEdit.*.test.tsx: mock it
+// out for state-gating tests that don't exercise the leave-lock itself.
+vi.mock("@/hooks/usePageLeaveLock", () => ({
+  usePageLeaveLock: () => ({
+    blocker: { state: "unblocked" as const, reset: vi.fn(), proceed: vi.fn() },
+    allowNextNavigation: vi.fn(),
   }),
 }));
 
-vi.mock("@/hooks/useCurrentStaff", () => ({
-  useCurrentStaff: () => ({ staffRecord: null }),
+// AssignmentSheet now mounts unconditionally (closed by default) — its mutation hook must not
+// hit a real RPC in these state-gating tests.
+vi.mock("@/hooks/mutations", () => ({
+  useSaveEngagementAssignments: () => ({ saveAssignments: vi.fn(), isSaving: false }),
 }));
 
 // Controllable query states — each test overrides what it needs.
@@ -131,14 +151,16 @@ function renderPage(
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={[entry]}>
-        <Routes>
-          <Route path="/scheduler/engagement/:id" element={<SchedulerL2 />} />
-          {/* Cancel destinations. */}
-          <Route path="/scheduler/staff/:id" element={<div data-testid="staff-probe" />} />
-          <Route path="/scheduler" element={<div data-testid="l1-probe" />} />
-        </Routes>
-      </MemoryRouter>
+      <TooltipProvider>
+        <MemoryRouter initialEntries={[entry]}>
+          <Routes>
+            <Route path="/scheduler/engagement/:id" element={<SchedulerL2 />} />
+            {/* Cancel destinations. */}
+            <Route path="/scheduler/staff/:id" element={<div data-testid="staff-probe" />} />
+            <Route path="/scheduler" element={<div data-testid="l1-probe" />} />
+          </Routes>
+        </MemoryRouter>
+      </TooltipProvider>
     </QueryClientProvider>
   );
 }
@@ -154,6 +176,8 @@ beforeEach(() => {
   mocks.services = queryState([]);
   mocks.categories = queryState([]);
   mocks.load = { ...queryState({ rows: [] }), isSuccess: true, error: null };
+  mockRole = { isAdmin: true, isPartner: false, isDirector: false, isManager: false, isSenior: false };
+  mockStaffRecord = null;
 });
 
 describe("SchedulerL2 loading gate covers ALL SIX queries", () => {
@@ -222,9 +246,53 @@ describe("read-only display filtering", () => {
       (props.assignments as EngagementAssignmentRow[]).map((r) => r.assignment_id)
     ).toEqual(["a1"]);
   });
+});
 
-  it("always shows the read-only note in the header (write is disabled for every role in this phase)", () => {
+// Fase 5: `canWrite` now gates real controls (the "+ Agregar staff" button, L2StaffGantt's
+// canWrite prop) — it mirrors is_engagement_responsible exactly (admin OR manager/partner/sqr/
+// encargado/specialist_it/specialist_tax of THIS engagement).
+describe("write authorization (Fase 5 — is_engagement_responsible mirror)", () => {
+  it("admin: sees '+ Agregar staff' and no read-only note; L2StaffGantt receives canWrite=true", () => {
+    mockRole = { isAdmin: true };
+    renderPage();
+    expect(screen.getByText("scheduler.l2.addStaff")).toBeInTheDocument();
+    expect(screen.queryByText(/scheduler\.readOnly/)).not.toBeInTheDocument();
+    expect(lastGantt().canWrite).toBe(true);
+  });
+
+  it("the engagement's manager (structural responsible) can write", () => {
+    // canView (L2 entry, O8) still gates on the ORG role name "manager" — being the
+    // is_engagement_responsible manager_id of this engagement implies holding that role.
+    mockRole = { isAdmin: false, isManager: true };
+    mockStaffRecord = { staff_id: "m-1" }; // ENGAGEMENT.manager_id
+    renderPage();
+    expect(screen.getByText("scheduler.l2.addStaff")).toBeInTheDocument();
+    expect(lastGantt().canWrite).toBe(true);
+  });
+
+  it("a bystander role (not responsible, not admin) sees the read-only note and no add button", () => {
+    mockRole = { isAdmin: false, isPartner: false, isDirector: false, isManager: true, isSenior: false };
+    mockStaffRecord = { staff_id: "unrelated-staff" };
     renderPage();
     expect(screen.getByText(/scheduler\.readOnly/)).toBeInTheDocument();
+    expect(screen.queryByText("scheduler.l2.addStaff")).not.toBeInTheDocument();
+    expect(lastGantt().canWrite).toBe(false);
+  });
+
+  it("clicking '+ Agregar staff' opens the AssignmentSheet in add mode", () => {
+    mockRole = { isAdmin: true };
+    renderPage();
+    fireEvent.click(screen.getByText("scheduler.l2.addStaff"));
+    expect(screen.getByText("scheduler.assignmentSheet.title")).toBeInTheDocument();
+    expect(screen.getByText("engagement.assignments.selectStaff")).toBeInTheDocument();
+  });
+
+  it("L2StaffGantt receives the full (unfiltered) assignments snapshot separately via onOpenSheet wiring — canWrite propagates even when the category filter narrows the display", () => {
+    mockRole = { isAdmin: true };
+    renderPage("/scheduler/engagement/e-1?category=cat-1");
+    const props = lastGantt();
+    expect((props.assignments as EngagementAssignmentRow[]).map((r) => r.assignment_id)).toEqual(["a1"]);
+    expect(props.canWrite).toBe(true);
+    expect(typeof props.onOpenSheet).toBe("function");
   });
 });
