@@ -1240,7 +1240,7 @@
     "rejectRiskDialogTitle": "Reject Risk Assessment",
     "allStatuses": "All Statuses",
     "allEngagementsHaveWorkOrders": "All active engagements already have a work order.",
-    "noAssignedEngagementsAvailable": "You have no assigned active engagements without a work order. You can only create work orders for engagements where you are the Partner, Manager, SQR or Lead.",
+    "noAssignedEngagementsAvailable": "You have no assigned active engagements without a work order.",
     "createEngagementFirst": "Create a new engagement",
     "submittedForApproval": "Work order submitted for approval",
     "approved": "Work order approved",
