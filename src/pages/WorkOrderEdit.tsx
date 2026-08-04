@@ -301,7 +301,29 @@ const WorkOrderEdit = () => {
         (riskApproveScope !== "assigned_engagements" || isAssignedSqr)));
 
   const approvalStatus = workOrder?.approval_status as "Draft" | "Pending_Approval" | "Approved" | "Rejected" || "Draft";
-  const isLocked = approvalStatus === "Approved" || approvalStatus === "Pending_Approval" || approvalStatus === "Rejected";
+  // Escribir la OT exige ser Socio o Gerente DEL encargo, o admin: es el predicado
+  // de la policy "wo_team_update" (Ola F) -> is_engagement_team_member(), que mira
+  // solo partner_id y manager_id, más "Admins can manage work orders".
+  //
+  // Hace falta distinguirlo desde 20260730010000: esa migración dio lectura de la OT
+  // a SQR y Encargado (decisión de negocio: solo lectura). Sin este gate veían los
+  // campos de presupuesto editables y el guardado fallaba por RLS.
+  //
+  // La aprobación de RIESGOS del SQR NO se ve afectada: va por `canApproveRisk`,
+  // que WorkOrderForm recibe como prop independiente de `isLocked` (líneas 402/408).
+  const isEngagementTeamMember =
+    !!staffRecord &&
+    (workOrder?.engagement?.partner_id === staffRecord.staff_id ||
+      workOrder?.engagement?.manager_id === staffRecord.staff_id);
+  const canWriteWorkOrder = isAdmin || isEngagementTeamMember;
+
+  const isLocked =
+    approvalStatus === "Approved" ||
+    approvalStatus === "Pending_Approval" ||
+    approvalStatus === "Rejected" ||
+    // Fail-closed mientras carga el staff: mejor un instante sin editar que
+    // ofrecer un guardado que RLS va a rechazar.
+    !canWriteWorkOrder;
 
   const handleSubmit = async () => {
     if (!workOrder) return;

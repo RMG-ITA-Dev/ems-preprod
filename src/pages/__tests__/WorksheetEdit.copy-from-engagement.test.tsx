@@ -108,7 +108,17 @@ vi.mock("@/hooks/useUserRole", () => ({
 // sin este mock el render falla con "useAuth must be used within an AuthProvider".
 // Con los cuatro flags en false el gate anterior daba false: can() => false lo replica.
 vi.mock("@/hooks/useAuthorization", () => ({
-  useAuthorization: () => ({ can: () => false, scope: () => null, isLoading: false }),
+  useAuthorization: () => ({
+    // WorksheetEdit ahora exige poder ESCRIBIR la matriz para habilitar el grid:
+    // roleKey admin o ser Socio/Gerente del encargo (espejo de is_admin() OR
+    // is_engagement_team_member() del backend). Los fixtures de estos tests traen
+    // partner/manager en null, asi que se usa la rama admin. `can()` se deja como
+    // lo tenia cada test, que gatea otra cosa (crear OT desde la matriz).
+    roleKey: "admin",
+    can: () => false,
+    scope: () => null,
+    isLoading: false,
+  }),
 }));
 
 vi.mock("@/hooks/useCurrentStaff", () => ({
