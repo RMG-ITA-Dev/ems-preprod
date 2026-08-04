@@ -1711,6 +1711,7 @@
     "searchPlaceholder": "Search by description, invoice or supplier...",
     "workOrder": "Work Order",
     "selectWorkOrder": "Select WO",
+    "workOrderNoAccess": "(WO — engagement details not accessible)",
     "expenseType": "Expense Type",
     "selectExpenseType": "Select type",
     "expenseDate": "Expense Date",

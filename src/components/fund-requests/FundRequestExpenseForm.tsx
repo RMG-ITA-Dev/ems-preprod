@@ -140,12 +140,24 @@ export function FundRequestExpenseForm({
                 <SelectValue placeholder={t("fundRequestExpense.selectWorkOrder")} />
               </SelectTrigger>
               <SelectContent>
-                {workOrders.map((frwo) => (
-                  <SelectItem key={frwo.wo_id} value={frwo.wo_id}>
-                    {frwo.work_order?.engagement?.engagement_code} —{" "}
-                    {frwo.work_order?.engagement?.engagement_name}
-                  </SelectItem>
-                ))}
+                {workOrders.map((frwo) => {
+                  // El encargo llega por un embed anidado
+                  // (fund_request_work_orders → work_orders → engagements) y RLS
+                  // puede devolverlo vacío. Antes se concatenaba directo, así que la
+                  // etiqueta colapsaba al separador literal y la opción se veía como
+                  // un simple "—" (reportado 2026-07-31; la causa de fondo la
+                  // corrige 20260731000000). El fallback deja la opción usable e
+                  // identificable en vez de mostrar un guion suelto.
+                  const eng = frwo.work_order?.engagement;
+                  const label = [eng?.engagement_code, eng?.engagement_name]
+                    .filter(Boolean)
+                    .join(" — ");
+                  return (
+                    <SelectItem key={frwo.wo_id} value={frwo.wo_id}>
+                      {label || t("fundRequestExpense.workOrderNoAccess")}
+                    </SelectItem>
+                  );
+                })}
               </SelectContent>
             </Select>
           </div>

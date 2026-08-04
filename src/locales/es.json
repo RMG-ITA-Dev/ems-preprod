@@ -1711,6 +1711,7 @@
     "searchPlaceholder": "Buscar por descripción, factura o proveedor...",
     "workOrder": "Orden de Trabajo",
     "selectWorkOrder": "Seleccionar OT",
+    "workOrderNoAccess": "(OT sin acceso al detalle del encargo)",
     "expenseType": "Tipo de Gasto",
     "selectExpenseType": "Seleccionar tipo",
     "expenseDate": "Fecha del Gasto",
