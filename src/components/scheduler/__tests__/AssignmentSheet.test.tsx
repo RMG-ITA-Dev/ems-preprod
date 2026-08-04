@@ -251,4 +251,81 @@ describe("AssignmentSheet", () => {
     expect(screen.getByText("common.leavePageDirtyTitle")).toBeInTheDocument();
     expect(onOpenChange).not.toHaveBeenCalled();
   });
+
+  it("REGRESSION (review #3): a seeded row whose category is outside the service-scoped list blocks save", async () => {
+    const user = userEvent.setup();
+    const foreignRow: EngagementAssignmentRow = { ...EXISTING_ROW, category_id: "cat-foreign" };
+    render(
+      <AssignmentSheet
+        engagement={ENGAGEMENT}
+        open
+        onOpenChange={vi.fn()}
+        row={foreignRow}
+        canWrite
+        requirements={[]}
+        staffOptions={[STAFF_1, STAFF_2]}
+        categories={CATEGORIES}
+        assignments={[foreignRow]}
+      />
+    );
+
+    await user.click(screen.getByText("scheduler.assignmentSheet.save"));
+
+    expect(mockSaveAssignments).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledWith("engagement.assignments.errors.categoryForeignService");
+  });
+
+  it("REGRESSION (review #1): a seeded row outside the Engagement's own date range blocks save", async () => {
+    const user = userEvent.setup();
+    const outOfRangeRow: EngagementAssignmentRow = {
+      ...EXISTING_ROW,
+      start_date: "2025-11-01",
+      end_date: "2025-12-01",
+    };
+    render(
+      <AssignmentSheet
+        engagement={ENGAGEMENT}
+        open
+        onOpenChange={vi.fn()}
+        row={outOfRangeRow}
+        canWrite
+        requirements={[]}
+        staffOptions={[STAFF_1, STAFF_2]}
+        categories={CATEGORIES}
+        assignments={[outOfRangeRow]}
+      />
+    );
+
+    await user.click(screen.getByText("scheduler.assignmentSheet.save"));
+
+    expect(mockSaveAssignments).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledWith("engagement.assignments.errors.outOfEngagementRange");
+  });
+
+  it("REGRESSION (review #3): picking a staff never autofills a category outside the service-scoped list", async () => {
+    const user = userEvent.setup();
+    const staffForeignCategory = { ...STAFF_2, category_id: "cat-foreign" };
+    render(
+      <AssignmentSheet
+        engagement={ENGAGEMENT}
+        open
+        onOpenChange={vi.fn()}
+        row={null}
+        canWrite
+        requirements={[]}
+        staffOptions={[staffForeignCategory]}
+        categories={CATEGORIES}
+        assignments={[EXISTING_ROW]}
+      />
+    );
+
+    await user.click(screen.getByText("engagement.assignments.selectStaff"));
+    await user.click(await screen.findByText("Beto Bravo"));
+
+    // Required-field validation still fires (category left blank) — never a silently-accepted
+    // foreign category.
+    await user.click(screen.getByText("scheduler.assignmentSheet.save"));
+    expect(mockSaveAssignments).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledWith("engagement.assignments.errors.requiredFields");
+  });
 });

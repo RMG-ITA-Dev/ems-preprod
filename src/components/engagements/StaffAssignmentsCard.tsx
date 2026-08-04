@@ -40,6 +40,7 @@ import { useSaveEngagementAssignments, type AssignmentDraft } from "@/hooks/muta
 import {
   ALLOCATION_PERCENT_MAX,
   findForeignCategoryKeys,
+  findOutOfEngagementRangeKeys,
   findStaffSegmentOverlap,
   HOURS_PER_WEEK_MAX,
   resolveStaffLabel,
@@ -277,13 +278,18 @@ export function StaffAssignmentsCard({ engagement, onDirtyChange }: StaffAssignm
   const { data: aggregatedReqs } = useEngagementAggregatedRequirements(engagementId);
   const { data: staffOptions } = useActiveStaffWithSkills();
   const { data: services } = useServices();
-  // Categorías por SERVICIO del engagement (issue §6/§11) — practica IS NULL (o sin match) se
-  // trata como "sin scope": todas las categorías (useCategories(undefined)).
+  // Categorías por SERVICIO del engagement (issue §6/§11) — practica IS NULL (o sin match, tras
+  // la normalización a Auditoría de O6) se trata como "sin scope": todas las categorías
+  // (useCategories(undefined)). `servicesLoaded` evita exponer ese catálogo global durante la
+  // breve ventana en la que `services` todavía no cargó (review de Fase 5 #3) — antes de eso no
+  // hay manera de saber si `engagementServiceId` va a resolver a un match real o al "sin scope".
+  const servicesLoaded = services !== undefined;
   const engagementServiceId = useMemo(
     () => services?.find((s) => s.code === engagement.practica)?.service_id,
     [services, engagement.practica]
   );
-  const { data: categories } = useCategories(engagementServiceId);
+  const { data: categoriesData } = useCategories(engagementServiceId);
+  const categories = servicesLoaded ? categoriesData : undefined;
   const { saveAssignments, isSaving } = useSaveEngagementAssignments();
 
   const { isAdmin } = useUserRole();
@@ -320,8 +326,12 @@ export function StaffAssignmentsCard({ engagement, onDirtyChange }: StaffAssignm
     [categories]
   );
   const foreignCategoryKeys = useMemo(
-    () => findForeignCategoryKeys(drafts, validCategoryIds),
-    [drafts, validCategoryIds]
+    () => findForeignCategoryKeys(drafts, validCategoryIds, servicesLoaded),
+    [drafts, validCategoryIds, servicesLoaded]
+  );
+  const outOfRangeKeys = useMemo(
+    () => findOutOfEngagementRangeKeys(drafts, engagement.start_date, engagement.end_date),
+    [drafts, engagement.start_date, engagement.end_date]
   );
 
   const dirty = useMemo(() => {
@@ -385,6 +395,10 @@ export function StaffAssignmentsCard({ engagement, onDirtyChange }: StaffAssignm
     [staffOptions]
   );
 
+  // Fila existente: se permite reasignar a CUALQUIER staff activo (no solo schedulable) sin
+  // ocultar candidatos — la RPC es la autoridad final: reasignar a un staff no-schedulable ahora
+  // sí re-valida elegibilidad server-side y rechaza con EAS_STAFF_INELIGIBLE si corresponde
+  // (review de Fase 5 #4; antes esa validación se saltaba por completo en cualquier UPDATE).
   const candidateOptionsFor = (draft: AssignmentDraft) => {
     const pool = draft.assignment_id ? staffOptions ?? [] : newRowCandidates;
     return pool.map((staff) => ({
@@ -490,6 +504,11 @@ export function StaffAssignmentsCard({ engagement, onDirtyChange }: StaffAssignm
 
     if (foreignCategoryKeys.size > 0) {
       toast.error(t("engagement.assignments.errors.categoryForeignService"));
+      return;
+    }
+
+    if (outOfRangeKeys.size > 0) {
+      toast.error(t("engagement.assignments.errors.outOfEngagementRange"));
       return;
     }
 
@@ -619,13 +638,14 @@ export function StaffAssignmentsCard({ engagement, onDirtyChange }: StaffAssignm
                 const hasDateError =
                   dateErrorKeys.has(draft.key) ||
                   (!!draft.start_date && !!draft.end_date && draft.end_date < draft.start_date);
+                const hasRangeError = outOfRangeKeys.has(draft.key);
 
                 return (
                   <tr
                     key={draft.key}
                     className={cn(
                       "border-b border-border hover:bg-muted/30",
-                      (isInvalid || hasForeignCategory || hasOverlap) && "bg-destructive/5"
+                      (isInvalid || hasForeignCategory || hasOverlap || hasRangeError) && "bg-destructive/5"
                     )}
                   >
                     <td className="p-1 border-r border-border align-top">
@@ -673,7 +693,7 @@ export function StaffAssignmentsCard({ engagement, onDirtyChange }: StaffAssignm
                         value={draft.start_date}
                         onChange={(v) => updateDraft(draft.key, { start_date: v })}
                         disabled={!canEdit}
-                        invalid={isInvalid && !draft.start_date}
+                        invalid={(isInvalid && !draft.start_date) || hasRangeError}
                       />
                     </td>
 
@@ -682,12 +702,17 @@ export function StaffAssignmentsCard({ engagement, onDirtyChange }: StaffAssignm
                         value={draft.end_date}
                         onChange={(v) => updateDraft(draft.key, { end_date: v })}
                         disabled={!canEdit}
-                        invalid={(isInvalid && !draft.end_date) || hasDateError}
+                        invalid={(isInvalid && !draft.end_date) || hasDateError || hasRangeError}
                         minDate={draft.start_date || undefined}
                       />
                       {hasDateError && (
                         <p className="px-2 pb-1 text-xs text-destructive">
                           {t("engagement.assignments.errors.dateRange")}
+                        </p>
+                      )}
+                      {!hasDateError && hasRangeError && (
+                        <p className="px-2 pb-1 text-xs text-destructive">
+                          {t("engagement.assignments.errors.outOfEngagementRange")}
                         </p>
                       )}
                       {hasOverlap && (
@@ -713,9 +738,9 @@ export function StaffAssignmentsCard({ engagement, onDirtyChange }: StaffAssignm
 
                     <td className="p-1 border-r border-border align-top">
                       <NumericInput
-                        decimals={0}
+                        decimals={1}
                         locale={numericLocale}
-                        min={1}
+                        min={0.1}
                         max={ALLOCATION_PERCENT_MAX}
                         value={draft.allocation_percent}
                         onChange={(v) => updateDraft(draft.key, { allocation_percent: v })}
@@ -799,9 +824,10 @@ export function StaffAssignmentsCard({ engagement, onDirtyChange }: StaffAssignm
           const hasDateError =
             dateErrorKeys.has(draft.key) ||
             (!!draft.start_date && !!draft.end_date && draft.end_date < draft.start_date);
+          const hasRangeError = outOfRangeKeys.has(draft.key);
 
           return (
-            <Card key={draft.key} className={cn("p-3 space-y-2", (isInvalid || hasForeignCategory || hasOverlap) && "border-destructive/40")}>
+            <Card key={draft.key} className={cn("p-3 space-y-2", (isInvalid || hasForeignCategory || hasOverlap || hasRangeError) && "border-destructive/40")}>
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs font-medium text-muted-foreground">{t("engagement.assignments.staff")} *</span>
                 <MatchDot result={rowMatch} />
@@ -843,7 +869,7 @@ export function StaffAssignmentsCard({ engagement, onDirtyChange }: StaffAssignm
                     value={draft.start_date}
                     onChange={(v) => updateDraft(draft.key, { start_date: v })}
                     disabled={!canEdit}
-                    invalid={isInvalid && !draft.start_date}
+                    invalid={(isInvalid && !draft.start_date) || hasRangeError}
                   />
                 </div>
                 <div>
@@ -852,12 +878,15 @@ export function StaffAssignmentsCard({ engagement, onDirtyChange }: StaffAssignm
                     value={draft.end_date}
                     onChange={(v) => updateDraft(draft.key, { end_date: v })}
                     disabled={!canEdit}
-                    invalid={(isInvalid && !draft.end_date) || hasDateError}
+                    invalid={(isInvalid && !draft.end_date) || hasDateError || hasRangeError}
                     minDate={draft.start_date || undefined}
                   />
                 </div>
               </div>
               {hasDateError && <p className="text-xs text-destructive">{t("engagement.assignments.errors.dateRange")}</p>}
+              {!hasDateError && hasRangeError && (
+                <p className="text-xs text-destructive">{t("engagement.assignments.errors.outOfEngagementRange")}</p>
+              )}
               {hasOverlap && <p className="text-xs text-destructive">{t("scheduler.errors.overlap")}</p>}
 
               <div className="grid grid-cols-2 gap-2">
@@ -877,9 +906,9 @@ export function StaffAssignmentsCard({ engagement, onDirtyChange }: StaffAssignm
                 <div>
                   <span className="text-xs font-medium text-muted-foreground">{t("engagement.assignments.allocationPct")}</span>
                   <NumericInput
-                    decimals={0}
+                    decimals={1}
                     locale={numericLocale}
-                    min={1}
+                    min={0.1}
                     max={ALLOCATION_PERCENT_MAX}
                     value={draft.allocation_percent}
                     onChange={(v) => updateDraft(draft.key, { allocation_percent: v })}

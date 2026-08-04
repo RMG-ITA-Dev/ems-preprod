@@ -37,6 +37,33 @@ vi.mock("@/components/ui/popover", () => ({
   PopoverContent: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
+// Same convention as WorkOrderForm.staffing.test.tsx: Radix Select only portals its content when
+// open, which would make the category options unqueryable without simulating a real click —
+// render as a native <select> instead so `<option>` text is always in the DOM.
+vi.mock("@/components/ui/select", () => ({
+  Select: ({
+    children,
+    value,
+    onValueChange,
+    disabled,
+  }: {
+    children?: React.ReactNode;
+    value?: string;
+    onValueChange?: (value: string) => void;
+    disabled?: boolean;
+  }) => (
+    <select value={value} onChange={(event) => onValueChange?.(event.target.value)} disabled={disabled}>
+      {children}
+    </select>
+  ),
+  SelectTrigger: () => null,
+  SelectValue: () => null,
+  SelectContent: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+  SelectItem: ({ value, children }: { value: string; children?: React.ReactNode }) => (
+    <option value={value}>{children}</option>
+  ),
+}));
+
 const ENGAGEMENT: Engagement = {
   engagement_id: "eng-1",
   client_id: "client-1",
@@ -91,12 +118,14 @@ let assignmentsState: { data: unknown[]; isLoading: boolean; isError: boolean } 
   isError: false,
 };
 let staffOptionsState: unknown[] = [STAFF_ACTIVE, STAFF_NOT_SCHEDULABLE];
+// undefined = "aún no cargó" (para probar el gate de la ventana de carga, review de Fase 5 #3).
+let servicesState: unknown[] | undefined = SERVICES;
 
 vi.mock("@/hooks/useEmsData", () => ({
   useEngagementAssignments: () => assignmentsState,
   useEngagementAggregatedRequirements: () => ({ data: [] }),
   useActiveStaffWithSkills: () => ({ data: staffOptionsState }),
-  useServices: () => ({ data: SERVICES }),
+  useServices: () => ({ data: servicesState }),
   useCategories: () => ({ data: CATEGORIES }),
 }));
 
@@ -119,6 +148,7 @@ describe("StaffAssignmentsCard", () => {
     vi.clearAllMocks();
     assignmentsState = { data: [PERSISTED_ROW], isLoading: false, isError: false };
     staffOptionsState = [STAFF_ACTIVE, STAFF_NOT_SCHEDULABLE];
+    servicesState = SERVICES;
     mockRole = { isAdmin: false };
     mockStaffRecord = { staff_id: "mgr-1" }; // matches engagement.manager_id -> canEdit
     isSavingState = false;
@@ -281,7 +311,71 @@ describe("StaffAssignmentsCard", () => {
     }
 
     // The PERSISTED row (Ana already assigned) still offers Ivy as a candidate — the
-    // is_schedulable gate only applies to brand-new rows, never hides historical staff.
+    // is_schedulable gate only applies to brand-new rows, never hides historical staff. The RPC
+    // (not the picker) is the authority that rejects an actual reassignment to Ivy (review #4).
     expect(screen.getAllByText("Ivy NotSched").length).toBeGreaterThan(0);
+  });
+
+  it("REGRESSION (review #3): while `services` has not loaded yet, the category select offers NO options — never the unscoped global catalog", () => {
+    servicesState = undefined;
+    const { container } = render(<StaffAssignmentsCard engagement={ENGAGEMENT} />);
+    // Native <option> tags specifically: the mocked category <select> is the only place that
+    // renders them. `getAllByRole("option")` would ALSO match cmdk's CommandItem (the
+    // StaffCombobox candidate list uses role="option" on a <div>), which is unrelated to whether
+    // the category catalog is scoped or global.
+    expect(container.querySelectorAll("option")).toHaveLength(0);
+  });
+
+  it("REGRESSION (review #1): a row with dates outside the Engagement's range is blocked from saving", async () => {
+    assignmentsState = {
+      data: [{ ...PERSISTED_ROW, start_date: "2025-11-01", end_date: "2025-12-01" }],
+      isLoading: false,
+      isError: false,
+    };
+    const user = userEvent.setup();
+    render(<StaffAssignmentsCard engagement={ENGAGEMENT} />);
+
+    // Force dirty via add-row so Save is enabled, then verify the pre-existing out-of-range row
+    // still blocks the RPC call.
+    await user.click(screen.getAllByText("engagement.assignments.addRow")[0]);
+    await waitFor(() => {
+      expect(screen.getAllByText("engagement.assignments.save")[0].closest("button")).not.toBeDisabled();
+    });
+    await user.click(screen.getAllByText("engagement.assignments.save")[0]);
+
+    expect(mockSaveAssignments).not.toHaveBeenCalled();
+  });
+
+  it("REGRESSION (review #2): allocation accepts a fractional value (0.5), matching the (0,100] decimal contract", async () => {
+    const user = userEvent.setup();
+    render(<StaffAssignmentsCard engagement={ENGAGEMENT} />);
+    const allocationInputs = screen.getAllByDisplayValue("50");
+    await user.clear(allocationInputs[0]);
+    await user.type(allocationInputs[0], "0.5");
+    expect((allocationInputs[0] as HTMLInputElement).value).toBe("0.5");
+  });
+
+  it("REGRESSION (plan v2 'Tests to Add or Update'): a background refetch never overwrites in-progress (dirty) drafts", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<StaffAssignmentsCard engagement={ENGAGEMENT} />);
+
+    await user.click(screen.getAllByText("engagement.assignments.addRow")[0]);
+    await waitFor(() => {
+      expect(screen.getAllByText("engagement.assignments.save")[0].closest("button")).not.toBeDisabled();
+    });
+
+    // Simulate a background refetch resolving with a NEW array reference for the same server
+    // rows (React Query always hands the query function's consumer a fresh object on refetch) —
+    // the effect that seeds `drafts` from `assignments` must skip re-seeding while dirty.
+    assignmentsState = { data: [{ ...PERSISTED_ROW }], isLoading: false, isError: false };
+    rerender(
+      <TooltipProvider>
+        <StaffAssignmentsCard engagement={ENGAGEMENT} />
+      </TooltipProvider>
+    );
+
+    // The newly-added row survives the "refetch" — Save stays enabled (still dirty), it was
+    // never silently reset back to the server snapshot.
+    expect(screen.getAllByText("engagement.assignments.save")[0].closest("button")).not.toBeDisabled();
   });
 });

@@ -229,16 +229,43 @@ export function resolveStaffLabel(
  * Categoría histórica incompatible (issue §6 / plan_v2.md §3): una fila persistida cuya
  * categoría no pertenece al conjunto de categorías válidas del servicio del Engagement. Se usa
  * para marcar error inline y bloquear el guardado hasta corregir — nunca para eliminar la fila
- * automáticamente. Un `validCategoryIds` vacío (servicio sin resolver aún) no marca nada.
+ * automáticamente.
+ *
+ * `categoriesResolved` es explícito (review de Fase 5 #10) porque un `validCategoryIds` vacío es
+ * ambiguo: puede significar "todavía cargando" (no marcar nada) o "servicio resuelto sin
+ * categorías configuradas" (SÍ marcar cualquier categoría como foránea). El caller es quien sabe
+ * cuál de los dos casos aplica.
  */
 export function findForeignCategoryKeys(
   drafts: AssignmentDraft[],
-  validCategoryIds: ReadonlySet<string>
+  validCategoryIds: ReadonlySet<string>,
+  categoriesResolved: boolean
 ): Set<string> {
   const result = new Set<string>();
-  if (validCategoryIds.size === 0) return result;
+  if (!categoriesResolved) return result;
   for (const d of drafts) {
     if (d.category_id && !validCategoryIds.has(d.category_id)) {
+      result.add(d.key);
+    }
+  }
+  return result;
+}
+
+/**
+ * Fechas del assignment fuera del rango inclusivo del Engagement (O4 / issue: "primera barrera"
+ * en la UI, antes de invocar la RPC — que también lo valida como `EAS_ENGAGEMENT_RANGE`). Un
+ * Engagement sin fechas (legado) no acota nada, igual que el precedente de `practica IS NULL`.
+ */
+export function findOutOfEngagementRangeKeys(
+  drafts: AssignmentDraft[],
+  engagementStartDate: string | null | undefined,
+  engagementEndDate: string | null | undefined
+): Set<string> {
+  const result = new Set<string>();
+  if (!engagementStartDate || !engagementEndDate) return result;
+  for (const d of drafts) {
+    if (!d.start_date || !d.end_date) continue;
+    if (d.start_date < engagementStartDate || d.end_date > engagementEndDate) {
       result.add(d.key);
     }
   }

@@ -37,10 +37,10 @@
 --
 -- Fase 5 O4: cada segmento del payload debe caer dentro del rango inclusivo start_date..end_date
 -- del engagement (si el engagement tiene fechas — un legado sin fechas queda sin cota, igual que
--- el precedente de practica IS NULL). Fase 5 O7: un INSERT nuevo (fila que no existe todavía) sólo
--- se acepta si el staff está activo y is_schedulable=true — el historial ya persistido (UPDATE de
--- una fila existente) no se re-valida, para no bloquear a un staff que se volvió inactivo después
--- de ser asignado.
+-- el precedente de practica IS NULL). Fase 5 O7 (enmendado tras review): un INSERT nuevo, o un
+-- UPDATE que CAMBIA el staff_id de una fila existente, sólo se acepta si el staff está activo y
+-- is_schedulable=true; una fila que conserva su staff_id histórico está exenta, para no bloquear
+-- a un staff que se volvió inactivo después de ser asignado.
 CREATE OR REPLACE FUNCTION public.save_engagement_assignments(
   p_engagement_id uuid,
   p_upserts       jsonb,
@@ -66,6 +66,7 @@ DECLARE
   v_hours           numeric;
   v_allocation      numeric;
   v_exists          boolean;
+  v_persisted_staff_id uuid;
   v_staff_active    boolean;
   v_staff_schedulable boolean;
   v_result          jsonb;
@@ -154,14 +155,24 @@ BEGIN
       END IF;
     END IF;
 
-    -- Fase 5 O7: elegibilidad de staff SOLO para inserts nuevos (la fila todavía no existe en
-    -- este engagement) — el historial ya persistido no se re-valida en cada update.
+    -- Fase 5 O7 (enmienda del review #4): elegibilidad de staff para inserts nuevos Y para
+    -- updates que CAMBIAN el staff_id de una fila existente — una fila que conserva su staff_id
+    -- histórico está exenta (permite staff inactivo/no-schedulable ya asignado sin re-validar en
+    -- cada guardado no relacionado), pero reasignar la fila a un staff DISTINTO exige la misma
+    -- elegibilidad que un insert nuevo.
     SELECT EXISTS (
       SELECT 1 FROM public.engagement_assignments
        WHERE assignment_id = v_assignment_id AND engagement_id = p_engagement_id
     ) INTO v_exists;
 
-    IF NOT v_exists THEN
+    v_persisted_staff_id := NULL;
+    IF v_exists THEN
+      SELECT staff_id INTO v_persisted_staff_id
+        FROM public.engagement_assignments
+       WHERE assignment_id = v_assignment_id AND engagement_id = p_engagement_id;
+    END IF;
+
+    IF NOT v_exists OR v_persisted_staff_id IS DISTINCT FROM v_staff_id THEN
       SELECT is_active, is_schedulable INTO v_staff_active, v_staff_schedulable
         FROM public.staff
        WHERE staff_id = v_staff_id;

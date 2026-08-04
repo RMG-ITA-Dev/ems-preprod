@@ -504,6 +504,32 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS — UPDATE of an existing row does not re-run the staff eligibility check (historical inactive staff stays editable, Fase 5 O7)';
 
+  -- ── 15b. UPDATE path DOES re-validate eligibility when staff_id CHANGES
+  --         (review de Fase 5 #4 — swapping the staff on an existing row is
+  --         not exempt; Ivy (c6) is is_schedulable=false).
+  v_ok := false;
+  BEGIN
+    PERFORM public.save_engagement_assignments(
+      'e0000000-0000-4000-8000-0000000000c1'::uuid,
+      jsonb_build_array(jsonb_build_object(
+        'assignment_id', v_new_id2, -- Rita's existing row, now reassigned to Ivy
+        'staff_id', '50000000-0000-4000-8000-0000000000c6',
+        'category_id', 'c0000000-0000-4000-8000-0000000000c1',
+        'start_date', '2026-04-01', 'end_date', '2026-05-01',
+        'hours_per_week', 16, 'allocation_percent', 42
+      )),
+      ARRAY[]::uuid[]
+    );
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM = 'EAS_STAFF_INELIGIBLE' THEN v_ok := true;
+    ELSE RAISE EXCEPTION 'TEST FAIL — expected EAS_STAFF_INELIGIBLE (staff_id changed on existing row), got %', SQLERRM;
+    END IF;
+  END;
+  IF NOT v_ok THEN
+    RAISE EXCEPTION 'TEST FAIL — reassigning an existing row to a non-schedulable staff unexpectedly succeeded';
+  END IF;
+  RAISE NOTICE 'PASS — UPDATE that CHANGES staff_id on an existing row re-runs eligibility, rejecting a non-schedulable staff (Fase 5 O7, review #4)';
+
   -- ── 16. anon cannot EXECUTE the function at all ──────────────────────
   IF to_regrole('anon') IS NULL THEN
     RAISE NOTICE 'SKIP — role anon not present in this environment';

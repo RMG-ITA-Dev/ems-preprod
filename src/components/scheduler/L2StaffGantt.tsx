@@ -7,12 +7,11 @@
 // (el borrado vive en el footer del Sheet, no se duplica lógica de
 // soft-delete aquí).
 //
-// Fase 7 (bugs/scheduler/fase_7/gantt_drag_resize_plan.md): drag/resize del
-// canvas se habilitó tras demostrar el rollback transaccional completo
-// (ver L2StaffGantt.dragResize.test.tsx) — handleBarCommit valida contra
-// `allAssignments` (nunca la vista filtrada), aplica el cambio optimista
-// SOLO sobre la key exacta viewer-scoped, y en fallo restaura la caché y
-// remonta el canvas (resetNonce). `readonly` ahora refleja
+// Fase 5 (bugs/scheduler/fase_5/plan_v2.md §5, Decisión #1 — guardia de drag/resize): el canvas
+// se habilitó tras demostrar el rollback transaccional completo (ver
+// L2StaffGantt.dragResize.test.tsx) — handleBarCommit valida contra `allAssignments` (nunca la
+// vista filtrada), aplica el cambio optimista SOLO sobre la key exacta viewer-scoped, y en fallo
+// restaura la caché y remonta el canvas (resetNonce). `readonly` ahora refleja
 // `!canWrite || isSaving`; RLS/RPC siguen siendo la autoridad final.
 //
 // Row model: ONE ROW PER ASSIGNMENT, grouped by staff. Groups ordered
@@ -45,6 +44,7 @@ import { useSaveEngagementAssignments } from "@/hooks/mutations";
 import { onwardReturnState, type ReturnNavState } from "@/lib/returnNav";
 import { parseDateLocal } from "@/lib/timesheetUtils";
 import {
+  findOutOfEngagementRangeKeys,
   findStaffSegmentOverlap,
   validateAssignmentDrafts,
   type AssignmentDraft,
@@ -143,7 +143,7 @@ export function L2StaffGantt({
     [navigate, location.pathname, location.search, returnNav]
   );
 
-  // Fase 7 — drag/resize commit: key EXACTA viewer-scoped (igual a
+  // Fase 5 — drag/resize commit: key EXACTA viewer-scoped (igual a
   // useEngagementAssignments) para que el optimismo/rollback nunca toque la
   // caché de otro viewer.
   const { user } = useAuth();
@@ -199,6 +199,13 @@ export function L2StaffGantt({
         setResetNonce((n) => n + 1);
         return;
       }
+      // O4 — el drag/resize tampoco puede dejar el segmento fuera del rango del Engagement (la
+      // RPC lo re-valida como EAS_ENGAGEMENT_RANGE de todas formas).
+      if (findOutOfEngagementRangeKeys([draft], engagement.start_date, engagement.end_date).size > 0) {
+        toast.error(t("engagement.assignments.errors.outOfEngagementRange"));
+        setResetNonce((n) => n + 1);
+        return;
+      }
       // Overlap contra el snapshot COMPLETO — una fila oculta por el filtro de la página igual
       // cuenta (issue/plan §9).
       if (findStaffSegmentOverlap(draft, allAssignments)) {
@@ -244,6 +251,8 @@ export function L2StaffGantt({
       allAssignments,
       saveAssignments,
       engagement.engagement_id,
+      engagement.start_date,
+      engagement.end_date,
       t,
     ]
   );
@@ -465,7 +474,7 @@ export function L2StaffGantt({
 
   return (
     <GanttCanvas
-      // Fase 7: remonta SOLO en aborto/rollback (resetNonce) — descarta la posición interna de
+      // Fase 5: remonta SOLO en aborto/rollback (resetNonce) — descarta la posición interna de
       // SVAR tras un commit rechazado, nunca en un guardado exitoso.
       key={`gantt-${resetNonce}`}
       rows={ganttRows}

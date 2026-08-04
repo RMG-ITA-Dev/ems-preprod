@@ -57,6 +57,12 @@ vi.mock("@/hooks/useUserRole", () => ({
   }),
 }));
 vi.mock("@/hooks/useCurrentStaff", () => ({ useCurrentStaff: () => ({ staffRecord: null }) }));
+// L2StaffGantt uses the authenticated viewer id to address its optimistic
+// assignment cache. Keep this integration test focused on navigation instead
+// of requiring the full AuthProvider/Supabase bootstrap.
+vi.mock("@/hooks/useAuth", () => ({
+  useAuth: () => ({ user: { id: "viewer-1" } }),
+}));
 // Wide host — the loop is a desktop flow; compact composition is covered
 // by the component suite and the browser fixture.
 vi.mock("@/hooks/useContainerWidth", () => ({

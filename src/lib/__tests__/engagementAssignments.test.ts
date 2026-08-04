@@ -4,6 +4,7 @@ import {
   validateAssignmentDrafts,
   resolveStaffLabel,
   findForeignCategoryKeys,
+  findOutOfEngagementRangeKeys,
   rpcRowToDraft,
   HOURS_PER_WEEK_MAX,
   ALLOCATION_PERCENT_MAX,
@@ -226,21 +227,70 @@ describe("findForeignCategoryKeys — historical category outside the engagement
   it("flags a persisted row whose category is outside the valid set", () => {
     const keys = findForeignCategoryKeys(
       [draft({ key: "k1", category_id: "cat-tax-1" }), draft({ key: "k2", category_id: "cat-aud-1" })],
-      validIds
+      validIds,
+      true
     );
     expect(keys).toEqual(new Set(["k1"]));
   });
 
-  it("does not flag anything when the valid set is not resolved yet (empty)", () => {
+  it("does not flag anything while categories are not resolved yet, even if the set happens to be empty", () => {
     const keys = findForeignCategoryKeys(
       [draft({ key: "k1", category_id: "cat-tax-1" })],
-      new Set()
+      new Set(),
+      false
     );
     expect(keys.size).toBe(0);
   });
 
+  it("REGRESSION (review #10): DOES flag once resolved, even if the resolved service has zero categories", () => {
+    const keys = findForeignCategoryKeys(
+      [draft({ key: "k1", category_id: "cat-tax-1" })],
+      new Set(),
+      true
+    );
+    expect(keys).toEqual(new Set(["k1"]));
+  });
+
   it("does not flag a row without a category yet (handled by validateAssignmentDrafts)", () => {
-    const keys = findForeignCategoryKeys([draft({ key: "k1", category_id: "" })], validIds);
+    const keys = findForeignCategoryKeys([draft({ key: "k1", category_id: "" })], validIds, true);
+    expect(keys.size).toBe(0);
+  });
+});
+
+describe("findOutOfEngagementRangeKeys — assignment dates vs the Engagement's own range (O4)", () => {
+  it("flags a draft that starts before the engagement's start_date", () => {
+    const keys = findOutOfEngagementRangeKeys(
+      [draft({ key: "k1", start_date: "2025-12-01", end_date: "2026-01-15" })],
+      "2026-01-01",
+      "2026-06-30"
+    );
+    expect(keys).toEqual(new Set(["k1"]));
+  });
+
+  it("flags a draft that ends after the engagement's end_date", () => {
+    const keys = findOutOfEngagementRangeKeys(
+      [draft({ key: "k1", start_date: "2026-06-01", end_date: "2026-07-15" })],
+      "2026-01-01",
+      "2026-06-30"
+    );
+    expect(keys).toEqual(new Set(["k1"]));
+  });
+
+  it("does not flag a draft on the inclusive boundary", () => {
+    const keys = findOutOfEngagementRangeKeys(
+      [draft({ key: "k1", start_date: "2026-01-01", end_date: "2026-06-30" })],
+      "2026-01-01",
+      "2026-06-30"
+    );
+    expect(keys.size).toBe(0);
+  });
+
+  it("does not flag anything when the Engagement has no dates (legacy)", () => {
+    const keys = findOutOfEngagementRangeKeys(
+      [draft({ key: "k1", start_date: "2020-01-01", end_date: "2099-12-31" })],
+      null,
+      null
+    );
     expect(keys.size).toBe(0);
   });
 });
