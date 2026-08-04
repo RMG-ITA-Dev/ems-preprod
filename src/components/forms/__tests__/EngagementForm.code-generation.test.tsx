@@ -80,8 +80,19 @@ vi.mock("@/hooks/useUserRole", () => ({
   useUserRole: () => mockRole,
 }));
 
+// EngagementForm deriva `isAdmin` de role_key (no del enum legacy), asi que el
+// roleKey de este mock es el que decide admin vs no-admin. Se ata al mismo
+// isAdmin que ya usaban estos tests para no cambiar lo que ejercitan.
 vi.mock("@/hooks/useAuthorization", () => ({
-  useAuthorization: () => ({ can: () => true, roleKey: "admin" }),
+  useAuthorization: () => ({
+    // `engagement.update` es lo que ahora gatea la fecha de cierre (y el guardado),
+    // así que se ata a la misma banda que estos tests ya modelaban con
+    // isAdmin/isManager. El resto de permisos se deja en true para no alterar
+    // lo que cada caso ejercita.
+    can: (key: string) =>
+      key === "engagement.update" ? !!(mockRole.isAdmin || mockRole.isManager) : true,
+    roleKey: mockRole.isAdmin ? "admin" : "manager",
+  }),
 }));
 
 vi.mock("@/hooks/useCurrentStaff", () => ({

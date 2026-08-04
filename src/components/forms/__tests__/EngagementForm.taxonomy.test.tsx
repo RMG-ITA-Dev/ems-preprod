@@ -82,7 +82,9 @@ vi.mock("@/hooks/useUserRole", () => ({
 }));
 
 vi.mock("@/hooks/useAuthorization", () => ({
-  useAuthorization: () => ({ can: () => true, roleKey: "admin" }),
+  // Estos tests mockean isAdmin: false; con isAdmin derivado de role_key,
+  // roleKey debe ser NO-admin para seguir ejercitando el mismo caso.
+  useAuthorization: () => ({ can: () => true, roleKey: "manager" }),
 }));
 
 vi.mock("@/hooks/useCurrentStaff", () => ({

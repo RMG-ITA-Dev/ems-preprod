@@ -41,6 +41,13 @@ vi.mock("react-i18next", () => ({
 }));
 
 // Auto-mock all hooks — use importOriginal for modules with many exports
+// TimeSheet decide el retiro de una hoja aprobada por can('timesheet.self_approve')
+// (antes: isPartner || isAdmin del enum legacy). Sin este mock, useAuthorization
+// corre de verdad y cae fail-closed.
+vi.mock("@/hooks/useAuthorization", () => ({
+  useAuthorization: () => ({ can: () => false, scope: () => null, isLoading: false }),
+}));
+
 vi.mock("@/hooks/useAuth", () => ({
   useAuth: () => ({ session: { user: { id: "user-1" } }, user: { id: "user-1" } })
 }));
