@@ -47,7 +47,7 @@ const WorkOrderNew = () => {
   const { can, scope, roleKey } = useAuthorization();
   const isAdmin = roleKey === "admin";
 
-  const { data: engagements } = useEngagements();
+  const { data: engagements, isLoading: engagementsLoading } = useEngagements();
   const { data: categories } = useCategories();
   const { data: workOrders } = useWorkOrders();
   const globalTaxRate = useSetting("TAX_RATE");
@@ -200,7 +200,14 @@ const WorkOrderNew = () => {
               <CardTitle>{t("workOrders.selectEngagement")}</CardTitle>
             </CardHeader>
             <CardContent>
-              {availableEngagements?.length === 0 ? (
+              {/* Tres estados distintos, antes colapsados en dos: `engagements`
+                  viene `undefined` mientras carga, y `undefined?.length === 0` es
+                  FALSE, así que se caía al select con el desplegable vacío y sin
+                  explicación (reportado 2026-07-31 por un Socio sin encargos
+                  asignados). Ahora: cargando / sin encargos disponibles / lista. */}
+              {engagementsLoading ? (
+                <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
+              ) : !availableEngagements?.length ? (
                 <Alert>
                   <AlertDescription className="flex flex-col gap-2">
                     {/* La lista viene filtrada por RLS: work_order.create con alcance
