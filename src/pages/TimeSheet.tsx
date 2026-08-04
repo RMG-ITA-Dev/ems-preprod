@@ -14,7 +14,7 @@ import { useAdminActivityId } from "@/hooks/useAdminActivity";
 import { useTimesheetPolicies } from "@/hooks/useTimesheetPolicies";
 import { useTimesheetWeek } from "@/hooks/useTimesheetWeek";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
-import { useUserRole } from "@/hooks/useUserRole";
+import { useAuthorization } from "@/hooks/useAuthorization";
 import { useAuth } from "@/hooks/useAuth";
 import { usePeriodLineApprovals } from "@/hooks/useTimesheetApprovals";
 import { useSubmitTimesheet, useUnsubmitTimesheet, useCopyPreviousWeek, useCopyToCurrentWeek } from "@/hooks/useTimesheetMutations";
@@ -87,7 +87,19 @@ const TimeSheet = () => {
 
 
   const { staffRecord, isLoading: staffLoading } = useCurrentStaff();
-  const { isPartner, isAdmin } = useUserRole();
+  // Retirar una hoja YA APROBADA es la contracara de la auto-aprobación: si tus
+  // horas se aprueban solas al enviar, retirar es la única forma de editarlas.
+  // Ese concepto ya está modelado como `timesheet.self_approve` (admin,
+  // senior_partner, director, partner) y la base lo consume en
+  // is_auto_approved_category (redefinida en 20260724040000 — conserva el nombre
+  // viejo pero ya no mira display_order).
+  //
+  // El `(isPartner || isAdmin)` del enum legacy no coincidía con ese conjunto:
+  // dejaba afuera a `director`, que SÍ auto-aprueba y quedaba con una hoja
+  // aprobada que no podía retirar ni editar; y en cambio incluía a `risk_partner`,
+  // que mapea al enum `partner` sin ser auto-aprobador.
+  const { can } = useAuthorization();
+  const canSelfApprove = can("timesheet.self_approve");
 
   // Get policies
   const { data: policies } = useTimesheetPolicies();
@@ -368,7 +380,7 @@ const TimeSheet = () => {
   const canUnsubmit = isSubmitted
     && !period?.is_period_locked
     && (
-      (isFullyApproved && isCurrentWeek && isWithinEditableWindow && (isPartner || isAdmin))
+      (isFullyApproved && isCurrentWeek && isWithinEditableWindow && canSelfApprove)
       || (!isFullyApproved && ((isCurrentWeek && isWithinEditableWindow) || hasRejectedLines))
     );
 
