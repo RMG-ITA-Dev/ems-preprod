@@ -451,12 +451,12 @@ export function useEngagements() {
         .select(`
           *,
           client:clients(*),
-          partner:staff!engagements_partner_id_fkey(*),
-          manager:staff!engagements_manager_id_fkey(*),
-          sqr:staff!engagements_sqr_id_fkey(*),
-          encargado:staff!engagements_encargado_id_fkey(*),
-          specialist_it:staff!engagements_specialist_it_id_fkey(*),
-          specialist_tax:staff!engagements_specialist_tax_id_fkey(*),
+          partner:staff!engagements_partner_id_fkey(staff_id, first_name, last_name, short_name, initials, category_id, city, is_active),
+          manager:staff!engagements_manager_id_fkey(staff_id, first_name, last_name, short_name, initials, category_id, city, is_active),
+          sqr:staff!engagements_sqr_id_fkey(staff_id, first_name, last_name, short_name, initials, category_id, city, is_active),
+          encargado:staff!engagements_encargado_id_fkey(staff_id, first_name, last_name, short_name, initials, category_id, city, is_active),
+          specialist_it:staff!engagements_specialist_it_id_fkey(staff_id, first_name, last_name, short_name, initials, category_id, city, is_active),
+          specialist_tax:staff!engagements_specialist_tax_id_fkey(staff_id, first_name, last_name, short_name, initials, category_id, city, is_active),
           taxonomy:taxonomies(*)
         `)
         .order('created_at', { ascending: false });
@@ -497,12 +497,12 @@ export function useWorkOrders() {
           engagement:engagements(
             *,
             client:clients(*),
-            partner:staff!engagements_partner_id_fkey(*),
-            manager:staff!engagements_manager_id_fkey(*),
-            sqr:staff!engagements_sqr_id_fkey(*),
-            encargado:staff!engagements_encargado_id_fkey(*),
-            specialist_it:staff!engagements_specialist_it_id_fkey(*),
-            specialist_tax:staff!engagements_specialist_tax_id_fkey(*)
+            partner:staff!engagements_partner_id_fkey(staff_id, first_name, last_name, short_name, initials, category_id, city, is_active),
+            manager:staff!engagements_manager_id_fkey(staff_id, first_name, last_name, short_name, initials, category_id, city, is_active),
+            sqr:staff!engagements_sqr_id_fkey(staff_id, first_name, last_name, short_name, initials, category_id, city, is_active),
+            encargado:staff!engagements_encargado_id_fkey(staff_id, first_name, last_name, short_name, initials, category_id, city, is_active),
+            specialist_it:staff!engagements_specialist_it_id_fkey(staff_id, first_name, last_name, short_name, initials, category_id, city, is_active),
+            specialist_tax:staff!engagements_specialist_tax_id_fkey(staff_id, first_name, last_name, short_name, initials, category_id, city, is_active)
           ),
           budget_lines:wo_budget_lines(
             *,
@@ -618,7 +618,7 @@ export function useTimeEntries() {
         .from('time_entries')
         .select(`
           *,
-          staff:staff(*),
+          staff:staff(staff_id, first_name, last_name, short_name, initials, category_id, city, is_active),
           engagement:engagements(*, client:clients(*)),
           activity:activity_codes(*)
         `)

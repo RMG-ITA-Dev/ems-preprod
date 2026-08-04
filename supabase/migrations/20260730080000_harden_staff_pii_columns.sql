@@ -40,6 +40,30 @@
 -- DEFINER, que corren con los privilegios de su dueño e ignoran los privilegios
 -- de columna del invocador.
 --
+-- ⚠️ INCOMPATIBLE CON `select=*` SOBRE staff — ORDEN DE DESPLIEGUE OBLIGATORIO
+--
+-- Revocar el SELECT de tabla rompe CUALQUIER consulta que pida `*` de staff,
+-- incluidos los embeds anidados: `partner:staff!engagements_partner_id_fkey(*)`
+-- expande a las 19 columnas, toca las dos revocadas y PostgREST devuelve **403**
+-- sobre la consulta COMPLETA. No degrada: falla entera.
+--
+-- Pasó en pruebas (2026-08-04): un admin abría /engagements y recibía 403. Había
+-- 21 embeds con `(*)` en useEmsData.ts, useApprovedEngagements.ts y
+-- useManualEntryEngagements.ts. Ya están corregidos a columnas explícitas en el
+-- mismo commit, pero el orden importa:
+--
+--   1) Desplegar PRIMERO el frontend sin `select=*` sobre staff.
+--   2) Aplicar DESPUÉS esta migración.
+--
+-- Al revés, la app queda con 403 en Encargos, Registros de Tiempo y todo lo que
+-- embeba staff, hasta que el frontend llegue.
+--
+-- Si aparece un 403 nuevo tras aplicar, la causa es siempre la misma: alguien
+-- agregó un `*` sobre staff. Para localizarlo:
+--   grep -rn ':staff!\?\w*(\*)' src/
+-- Y para desbloquear en caliente mientras se corrige:
+--   grant select on public.staff to authenticated;   -- deshace el hardening
+--
 -- Idempotente. Tras aplicar hay que regenerar types.ts (2 RPC nuevos).
 -- =====================================================================
 
