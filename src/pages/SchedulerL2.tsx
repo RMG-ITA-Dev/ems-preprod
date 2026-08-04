@@ -397,6 +397,7 @@ const SchedulerL2 = () => {
                 <L2StaffGantt
                   engagement={engagement}
                   assignments={filteredAssignments}
+                  allAssignments={allAssignments}
                   staffOptions={staffOptions ?? []}
                   categories={categories ?? []}
                   requirements={requirements ?? []}

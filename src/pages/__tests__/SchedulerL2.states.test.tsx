@@ -287,11 +287,17 @@ describe("write authorization (Fase 5 — is_engagement_responsible mirror)", ()
     expect(screen.getByText("engagement.assignments.selectStaff")).toBeInTheDocument();
   });
 
-  it("L2StaffGantt receives the full (unfiltered) assignments snapshot separately via onOpenSheet wiring — canWrite propagates even when the category filter narrows the display", () => {
+  it("L2StaffGantt receives the full (unfiltered) assignments snapshot separately via allAssignments — canWrite propagates even when the category filter narrows the display", () => {
     mockRole = { isAdmin: true };
     renderPage("/scheduler/engagement/e-1?category=cat-1");
     const props = lastGantt();
     expect((props.assignments as EngagementAssignmentRow[]).map((r) => r.assignment_id)).toEqual(["a1"]);
+    // Fase 7 (gantt_drag_resize_plan.md): allAssignments es el snapshot COMPLETO — el commit de
+    // drag/resize valida overlap contra esto, nunca contra la vista filtrada.
+    expect((props.allAssignments as EngagementAssignmentRow[]).map((r) => r.assignment_id)).toEqual([
+      "a1",
+      "a2",
+    ]);
     expect(props.canWrite).toBe(true);
     expect(typeof props.onOpenSheet).toBe("function");
   });
