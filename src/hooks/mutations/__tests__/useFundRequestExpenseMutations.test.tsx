@@ -20,20 +20,27 @@ function createWrapper() {
   );
 }
 
-// Mock for `supabase.from(...).update(...).eq(...)` → returns { error }
-function mockUpdateEq() {
-  const eq = vi.fn().mockResolvedValue({ error: null });
+// Las mutaciones cierran con `.select("fre_id")` y verifican filas afectadas
+// (assertAffected): RLS no lanza error al bloquear un UPDATE, así que sin esa
+// verificación la mutación resolvía y la UI cantaba éxito sin cambio alguno.
+// Los mocks devuelven filas para representar el camino permitido.
+
+// `supabase.from(...).update(...).eq(...).select(...)` → { data, error }
+function mockUpdateEq(rows: { fre_id: string }[] = [{ fre_id: "e1" }]) {
+  const select = vi.fn().mockResolvedValue({ data: rows, error: null });
+  const eq = vi.fn().mockReturnValue({ select });
   const update = vi.fn().mockReturnValue({ eq });
   vi.mocked(supabase.from).mockReturnValue({ update } as never);
-  return { update, eq };
+  return { update, eq, select };
 }
 
-// Mock for `supabase.from(...).update(...).in(...)` → returns { error }
-function mockUpdateIn() {
-  const inFn = vi.fn().mockResolvedValue({ error: null });
+// `supabase.from(...).update(...).in(...).select(...)` → { data, error }
+function mockUpdateIn(rows: { fre_id: string }[] = [{ fre_id: "e1" }, { fre_id: "e2" }]) {
+  const select = vi.fn().mockResolvedValue({ data: rows, error: null });
+  const inFn = vi.fn().mockReturnValue({ select });
   const update = vi.fn().mockReturnValue({ in: inFn });
   vi.mocked(supabase.from).mockReturnValue({ update } as never);
-  return { update, in: inFn };
+  return { update, in: inFn, select };
 }
 
 describe("useFundRequestExpenseMutations", () => {

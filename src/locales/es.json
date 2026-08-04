@@ -1808,7 +1808,8 @@
       "invalidDateRange": "La fecha 'Al' no puede ser anterior a la fecha 'Del'",
       "observationNotesRequired": "Debe describir la observación de la factura",
       "noInvoiceNotesRequired": "Indique qué respaldo falta antes de devolver",
-      "attachmentRequired": "Adjunte el respaldo antes de reenviar"
+      "attachmentRequired": "Adjunte el respaldo antes de reenviar",
+      "notPermittedOrChanged": "No se aplicó el cambio: no tiene permiso o el gasto ya cambió de estado"
     }
   }
 }

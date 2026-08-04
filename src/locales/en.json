@@ -1808,7 +1808,8 @@
       "invalidDateRange": "The 'To' date cannot be earlier than the 'From' date",
       "observationNotesRequired": "You must describe the invoice observation",
       "noInvoiceNotesRequired": "Indicate which receipt is missing before returning",
-      "attachmentRequired": "Attach the receipt before resending"
+      "attachmentRequired": "Attach the receipt before resending",
+      "notPermittedOrChanged": "Change not applied: you lack permission or the expense already changed state"
     }
   }
 }
