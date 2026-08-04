@@ -2,24 +2,31 @@
 // ONE engagement.
 //
 // Fase 5 (bugs/scheduler/fase_5/plan_v2.md §5, Decisión #1): superficie de
-// escritura vía Sheet/menú. El canvas del Gantt permanece SIEMPRE
-// `readonly` (drag/resize deshabilitado) — la guardia de la Decisión #1 se
-// aplica: sin una prueba de rollback seguro del drag, la edición se hace
-// exclusivamente por AssignmentSheet (click en la barra abre el Sheet;
-// menú de fila con "Edit"/"Delete", ambos gated por `canWrite`, también
-// abren el Sheet — el borrado vive en el footer del Sheet, no se duplica
-// lógica de soft-delete aquí).
+// escritura vía Sheet/menú — click en la barra abre el Sheet; menú de fila
+// con "Edit"/"Delete", ambos gated por `canWrite`, también abren el Sheet
+// (el borrado vive en el footer del Sheet, no se duplica lógica de
+// soft-delete aquí).
+//
+// Fase 7 (bugs/scheduler/fase_7/gantt_drag_resize_plan.md): drag/resize del
+// canvas se habilitó tras demostrar el rollback transaccional completo
+// (ver L2StaffGantt.dragResize.test.tsx) — handleBarCommit valida contra
+// `allAssignments` (nunca la vista filtrada), aplica el cambio optimista
+// SOLO sobre la key exacta viewer-scoped, y en fallo restaura la caché y
+// remonta el canvas (resetNonce). `readonly` ahora refleja
+// `!canWrite || isSaving`; RLS/RPC siguen siendo la autoridad final.
 //
 // Row model: ONE ROW PER ASSIGNMENT, grouped by staff. Groups ordered
 // leaders-first (categories.display_order ascending), then staff last
 // name; the staff label (name, category, load dot) renders on the
 // group's first row only; continuation rows show an indent tick.
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { CornerDownRight, MoreVertical } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -33,8 +40,15 @@ import type {
   EngagementAssignmentRow,
   StaffWithSkills,
 } from "@/hooks/useEmsData";
+import { useAuth } from "@/hooks/useAuth";
+import { useSaveEngagementAssignments } from "@/hooks/mutations";
 import { onwardReturnState, type ReturnNavState } from "@/lib/returnNav";
 import { parseDateLocal } from "@/lib/timesheetUtils";
+import {
+  findStaffSegmentOverlap,
+  validateAssignmentDrafts,
+  type AssignmentDraft,
+} from "@/lib/engagementAssignments";
 import {
   rankCandidateForCategory,
   type AggregatedRequirement,
@@ -45,6 +59,7 @@ import {
 import { staffTaskType, type SchedulerZoom } from "@/lib/schedulerGantt";
 import {
   GanttCanvas,
+  type GanttBarChange,
   type GanttCanvasRow,
   type GanttColumn,
 } from "./GanttCanvas";
@@ -79,6 +94,9 @@ interface L2StaffGanttProps {
   engagement: Engagement;
   /** Rows to DISPLAY (may be narrowed by the page's category/search filters). */
   assignments: EngagementAssignmentRow[];
+  /** Snapshot COMPLETO (no la vista filtrada) — el commit de drag/resize valida overlap contra
+   *  esto, igual que AssignmentSheet (issue/plan §9). */
+  allAssignments: EngagementAssignmentRow[];
   staffOptions: StaffWithSkills[];
   categories: Category[];
   requirements: AggregatedRequirement[];
@@ -101,6 +119,7 @@ interface L2StaffGanttProps {
 export function L2StaffGantt({
   engagement,
   assignments,
+  allAssignments,
   staffOptions,
   categories,
   requirements,
@@ -122,6 +141,111 @@ export function L2StaffGantt({
       });
     },
     [navigate, location.pathname, location.search, returnNav]
+  );
+
+  // Fase 7 — drag/resize commit: key EXACTA viewer-scoped (igual a
+  // useEngagementAssignments) para que el optimismo/rollback nunca toque la
+  // caché de otro viewer.
+  const { user } = useAuth();
+  const viewerId = user?.id;
+  const queryClient = useQueryClient();
+  const { saveAssignments, isSaving } = useSaveEngagementAssignments();
+  const assignmentsKey = useMemo(
+    () => ["engagementAssignments", viewerId, engagement.engagement_id] as const,
+    [viewerId, engagement.engagement_id]
+  );
+  // Incrementa en cada aborto/rollback para remontar el canvas (nueva key) y
+  // descartar la posición interna de SVAR — nunca en éxito.
+  const [resetNonce, setResetNonce] = useState(0);
+  // Cierra la ventana entre un commit y el próximo render con isSaving=true.
+  const commitInFlightRef = useRef(false);
+  const allAssignmentsById = useMemo(
+    () => new Map(allAssignments.map((r) => [r.assignment_id, r])),
+    [allAssignments]
+  );
+
+  const handleBarCommit = useCallback(
+    async ({ id, start, end }: GanttBarChange) => {
+      if (!canWrite || isSaving || commitInFlightRef.current) return;
+      const row = allAssignmentsById.get(id);
+      const snapshot = queryClient.getQueryData<EngagementAssignmentRow[]>(assignmentsKey);
+      if (!viewerId || !row || !snapshot) {
+        setResetNonce((n) => n + 1);
+        toast.error(t("scheduler.errors.partialSave"));
+        return;
+      }
+
+      const draft: AssignmentDraft = {
+        key: row.assignment_id,
+        assignment_id: row.assignment_id,
+        staff_id: row.staff_id,
+        category_id: row.category_id,
+        start_date: start,
+        end_date: end,
+        hours_per_week: row.hours_per_week,
+        allocation_percent: row.allocation_percent,
+        notes: row.notes ?? "",
+      };
+
+      const validation = validateAssignmentDrafts([draft]);
+      if (!validation.valid) {
+        toast.error(
+          t(
+            validation.badDates.size > 0
+              ? "engagement.assignments.errors.dateRange"
+              : "scheduler.errors.partialSave"
+          )
+        );
+        setResetNonce((n) => n + 1);
+        return;
+      }
+      // Overlap contra el snapshot COMPLETO — una fila oculta por el filtro de la página igual
+      // cuenta (issue/plan §9).
+      if (findStaffSegmentOverlap(draft, allAssignments)) {
+        toast.error(t("scheduler.errors.overlap"));
+        setResetNonce((n) => n + 1);
+        return;
+      }
+
+      commitInFlightRef.current = true;
+      queryClient.setQueryData<EngagementAssignmentRow[]>(assignmentsKey, (prev) =>
+        (prev ?? snapshot).map((r) =>
+          r.assignment_id === row.assignment_id
+            ? { ...r, start_date: start, end_date: end }
+            : r
+        )
+      );
+      try {
+        await saveAssignments({
+          engagementId: engagement.engagement_id,
+          current: [draft],
+          original: allAssignments,
+          deletedIds: [],
+        });
+        // Éxito: las fechas optimistas se mantienen; la invalidación central (onSettled del hook)
+        // reconcilia con la respuesta del servidor. Sin resetNonce — el canvas no remonta.
+      } catch {
+        // El hook central ya mostró su propio toast (mapeo EAS_* o el manejador centralizado) —
+        // acá solo se restaura la caché exacta y se remonta el canvas para descartar la posición
+        // interna de SVAR.
+        queryClient.setQueryData(assignmentsKey, snapshot);
+        setResetNonce((n) => n + 1);
+      } finally {
+        commitInFlightRef.current = false;
+      }
+    },
+    [
+      canWrite,
+      isSaving,
+      allAssignmentsById,
+      queryClient,
+      assignmentsKey,
+      viewerId,
+      allAssignments,
+      saveAssignments,
+      engagement.engagement_id,
+      t,
+    ]
   );
 
   const displayOrderByCategory = useMemo(
@@ -341,18 +465,21 @@ export function L2StaffGantt({
 
   return (
     <GanttCanvas
+      // Fase 7: remonta SOLO en aborto/rollback (resetNonce) — descarta la posición interna de
+      // SVAR tras un commit rechazado, nunca en un guardado exitoso.
+      key={`gantt-${resetNonce}`}
       rows={ganttRows}
       columns={columns}
       from={from}
       to={to}
       zoom={zoom}
-      // Fase 5 Decisión #1 (guardia): drag/resize se mantiene deshabilitado — sin una prueba de
-      // rollback seguro, la edición es exclusivamente por Sheet/menú (click en la barra u
-      // "Edit" del menú de fila, ambos abren el mismo AssignmentSheet).
-      readonly
+      // canWrite gatea el permiso; isSaving bloquea nuevos movimientos mientras un commit está en
+      // curso. RLS/RPC siguen siendo la autoridad final (un EAS_DENIED revierte igual).
+      readonly={!canWrite || isSaving}
       cellHeight={34}
       barTitle={barTitle}
       onBarOpen={handleBarOpen}
+      onBarCommit={handleBarCommit}
     />
   );
 }

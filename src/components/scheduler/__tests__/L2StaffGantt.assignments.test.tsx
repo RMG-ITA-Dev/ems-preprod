@@ -1,15 +1,20 @@
-// Fase 5 (bugs/scheduler/fase_5/plan_v2.md §5, Decisión #1 con guardia): L2StaffGantt's canvas
-// stays `readonly` (no drag/resize — no rollback test backs that path), so all editing routes
-// through AssignmentSheet via either a bar click (onBarOpen) or the row menu's Edit/Delete
-// (both gated by canWrite). Same GanttCanvas-mocking convention as StaffEngagementGantt.test.tsx.
+// Fase 5 (bugs/scheduler/fase_5/plan_v2.md §5, Decisión #1): AssignmentSheet/menu write surface
+// — click en la barra (onBarOpen) o el menú de fila's Edit/Delete (gated por canWrite) abren el
+// Sheet. Fase 7 (bugs/scheduler/fase_7/gantt_drag_resize_plan.md) supera la guardia del canvas
+// SIEMPRE readonly: ahora refleja `!canWrite || isSaving` — el rollback transaccional del drag se
+// prueba por separado en L2StaffGantt.dragResize.test.tsx (el gate que habilitó este cambio). Same
+// GanttCanvas-mocking convention as StaffEngagementGantt.test.tsx.
 
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { EngagementAssignmentRow, StaffWithSkills } from "@/hooks/useEmsData";
+
+vi.mock("@/hooks/useAuth", () => ({ useAuth: () => ({ user: { id: "viewer-1" } }) }));
 
 if (typeof window !== "undefined") {
   if (!Element.prototype.hasPointerCapture) Element.prototype.hasPointerCapture = () => false;
@@ -72,27 +77,33 @@ const ROW: EngagementAssignmentRow = {
 };
 
 function renderGantt(canWrite: boolean, onOpenSheet = vi.fn()) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
   return {
     onOpenSheet,
     ...render(
-      <TooltipProvider>
-        <MemoryRouter>
-          <L2StaffGantt
-            engagement={ENGAGEMENT}
-            assignments={[ROW]}
-            staffOptions={[] as StaffWithSkills[]}
-            categories={[]}
-            requirements={[]}
-            loadByStaff={new Map()}
-            from="2026-01-01"
-            to="2026-12-31"
-            zoom="months"
-            returnNav={null}
-            canWrite={canWrite}
-            onOpenSheet={onOpenSheet}
-          />
-        </MemoryRouter>
-      </TooltipProvider>
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <MemoryRouter>
+            <L2StaffGantt
+              engagement={ENGAGEMENT}
+              assignments={[ROW]}
+              allAssignments={[ROW]}
+              staffOptions={[] as StaffWithSkills[]}
+              categories={[]}
+              requirements={[]}
+              loadByStaff={new Map()}
+              from="2026-01-01"
+              to="2026-12-31"
+              zoom="months"
+              returnNav={null}
+              canWrite={canWrite}
+              onOpenSheet={onOpenSheet}
+            />
+          </MemoryRouter>
+        </TooltipProvider>
+      </QueryClientProvider>
     ),
   };
 }
@@ -102,8 +113,13 @@ describe("L2StaffGantt — Fase 5 write surface (Sheet/menu only, drag stays dis
     captured.length = 0;
   });
 
-  it("the canvas is always readonly — no drag/resize commit path is wired", async () => {
+  it("readonly reflects canWrite — drag/resize is enabled now that the rollback gate is proven (L2StaffGantt.dragResize.test.tsx)", async () => {
     renderGantt(true);
+    expect(await screen.findByTestId("canvas")).toHaveAttribute("data-readonly", "false");
+  });
+
+  it("canWrite=false keeps the canvas readonly", async () => {
+    renderGantt(false);
     expect(await screen.findByTestId("canvas")).toHaveAttribute("data-readonly", "true");
   });
 

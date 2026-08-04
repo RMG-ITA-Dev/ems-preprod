@@ -34,6 +34,16 @@ vi.mock("@/components/layout/AppLayout", () => ({
   AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 
+// usePageLeaveLock relies on useBlocker, which is only available inside a
+// data router. This integration test exercises the navigation chain with the
+// declarative MemoryRouter, not the leave-lock behavior itself.
+vi.mock("@/hooks/usePageLeaveLock", () => ({
+  usePageLeaveLock: () => ({
+    blocker: { state: "unblocked" as const, reset: vi.fn(), proceed: vi.fn() },
+    allowNextNavigation: vi.fn(),
+  }),
+}));
+
 vi.mock("@/hooks/useUserRole", () => ({
   useUserRole: () => ({
     isAdmin: true,
