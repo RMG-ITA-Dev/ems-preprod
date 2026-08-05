@@ -51,6 +51,7 @@ import {
 } from "@/hooks/scheduler/schedulerData";
 import { isSchedulerZoom, type SchedulerZoom } from "@/lib/schedulerGantt";
 import { captureReturnNav } from "@/lib/returnNav";
+import { AUDITORIA_SERVICE_CODE } from "@/lib/engagementAssignments";
 import { L2StaffGantt } from "@/components/scheduler/L2StaffGantt";
 import { AssignmentSheet } from "@/components/scheduler/AssignmentSheet";
 import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";
@@ -129,14 +130,20 @@ const SchedulerL2 = () => {
   const staffOptions = staffQuery.data;
   const servicesQuery = useServices();
   const services = servicesQuery.data;
-  // Categorías por SERVICIO del engagement (issue §11) — practica IS NULL
-  // (o sin match) se trata como "sin scope": todas las categorías.
-  const engagementServiceId = useMemo(
-    () => services?.find((s) => s.code === engagement?.practica)?.service_id,
-    [services, engagement?.practica]
-  );
+  // Categorías por SERVICIO del engagement (issue §11). O6 (CERRADA) prohíbe el fallback "sin
+  // scope: todas las categorías": practica nula o sin match resuelve a Auditoría, igual que el
+  // backfill de la migración de convergencia — nunca al catálogo global (review de Fase 5 #M1).
+  const engagementServiceId = useMemo(() => {
+    if (!services) return undefined;
+    return (
+      services.find((s) => s.code === engagement?.practica)?.service_id ??
+      services.find((s) => s.code === AUDITORIA_SERVICE_CODE)?.service_id
+    );
+  }, [services, engagement?.practica]);
   const categoriesQuery = useCategories(engagementServiceId);
-  const categories = categoriesQuery.data;
+  // "Resuelto" solo si además se encontró un service_id real (match directo o Auditoría) — nunca
+  // se cae al resultado sin filtrar de useCategories(undefined) como catálogo mostrado.
+  const categories = engagementServiceId !== undefined ? categoriesQuery.data : undefined;
 
   const dataQueries = [
     engagementsQuery,

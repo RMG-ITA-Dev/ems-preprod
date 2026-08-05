@@ -39,6 +39,7 @@ import {
 import { useSaveEngagementAssignments, type AssignmentDraft } from "@/hooks/mutations";
 import {
   ALLOCATION_PERCENT_MAX,
+  AUDITORIA_SERVICE_CODE,
   findForeignCategoryKeys,
   findOutOfEngagementRangeKeys,
   findStaffSegmentOverlap,
@@ -278,18 +279,26 @@ export function StaffAssignmentsCard({ engagement, onDirtyChange }: StaffAssignm
   const { data: aggregatedReqs } = useEngagementAggregatedRequirements(engagementId);
   const { data: staffOptions } = useActiveStaffWithSkills();
   const { data: services } = useServices();
-  // Categorías por SERVICIO del engagement (issue §6/§11) — practica IS NULL (o sin match, tras
-  // la normalización a Auditoría de O6) se trata como "sin scope": todas las categorías
-  // (useCategories(undefined)). `servicesLoaded` evita exponer ese catálogo global durante la
-  // breve ventana en la que `services` todavía no cargó (review de Fase 5 #3) — antes de eso no
-  // hay manera de saber si `engagementServiceId` va a resolver a un match real o al "sin scope".
+  // Categorías por SERVICIO del engagement (issue §6/§11). O6 (CERRADA) prohíbe expresamente el
+  // fallback histórico "sin scope: todas las categorías": practica nula o sin match en `services`
+  // resuelve a Auditoría, igual que el backfill de la migración de convergencia — nunca al
+  // catálogo global (review de Fase 5 #M1). `servicesLoaded` además evita exponer cualquier
+  // catálogo mientras `services` todavía no cargó (review #3): antes de eso no hay manera de saber
+  // si `engagementServiceId` va a resolver a un match real o a Auditoría.
   const servicesLoaded = services !== undefined;
-  const engagementServiceId = useMemo(
-    () => services?.find((s) => s.code === engagement.practica)?.service_id,
-    [services, engagement.practica]
-  );
+  const engagementServiceId = useMemo(() => {
+    if (!services) return undefined;
+    return (
+      services.find((s) => s.code === engagement.practica)?.service_id ??
+      services.find((s) => s.code === AUDITORIA_SERVICE_CODE)?.service_id
+    );
+  }, [services, engagement.practica]);
+  // Solo "resuelto" si services cargó Y el servicio (match directo o Auditoría) se encontró — un
+  // ambiente sin Auditoría en el catálogo (no debería ocurrir) queda sin categorías en vez de
+  // exponer el catálogo global como fallback silencioso.
+  const categoriesResolved = servicesLoaded && engagementServiceId !== undefined;
   const { data: categoriesData } = useCategories(engagementServiceId);
-  const categories = servicesLoaded ? categoriesData : undefined;
+  const categories = categoriesResolved ? categoriesData : undefined;
   const { saveAssignments, isSaving } = useSaveEngagementAssignments();
 
   const { isAdmin } = useUserRole();
@@ -326,8 +335,8 @@ export function StaffAssignmentsCard({ engagement, onDirtyChange }: StaffAssignm
     [categories]
   );
   const foreignCategoryKeys = useMemo(
-    () => findForeignCategoryKeys(drafts, validCategoryIds, servicesLoaded),
-    [drafts, validCategoryIds, servicesLoaded]
+    () => findForeignCategoryKeys(drafts, validCategoryIds, categoriesResolved),
+    [drafts, validCategoryIds, categoriesResolved]
   );
   const outOfRangeKeys = useMemo(
     () => findOutOfEngagementRangeKeys(drafts, engagement.start_date, engagement.end_date),

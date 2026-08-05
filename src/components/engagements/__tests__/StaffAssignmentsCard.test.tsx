@@ -93,8 +93,15 @@ const ENGAGEMENT: Engagement = {
   contract_file_path: null,
 } as Engagement;
 
-const SERVICES = [{ service_id: "svc-aud", name: "Auditoría", code: 1, allows_rates_activities: true, is_active: true, created_at: "" }];
+const SERVICES = [
+  { service_id: "svc-aud", name: "Auditoría", code: 1, allows_rates_activities: true, is_active: true, created_at: "" },
+  { service_id: "svc-tax", name: "Tax", code: 3, allows_rates_activities: true, is_active: true, created_at: "" },
+];
 const CATEGORIES = [{ category_id: "cat-1", category_name: "Cat One", service_id: "svc-aud", rate_high_bob: 0, rate_low_bob: 0, rate_high_usd: 0, rate_low_usd: 0, display_order: 1, can_approve_wo: false, can_approve_timesheets: false, default_app_role: null }];
+// Solo para el test M1 (fallback a Auditoría vs. catálogo global): una categoría que SOLO
+// existe en otro servicio — nunca debe aparecer si la resolución cae correctamente en Auditoría.
+const CATEGORIES_TAX = [{ category_id: "cat-tax-1", category_name: "Tax Category", service_id: "svc-tax", rate_high_bob: 0, rate_low_bob: 0, rate_high_usd: 0, rate_low_usd: 0, display_order: 1, can_approve_wo: false, can_approve_timesheets: false, default_app_role: null }];
+const CATEGORIES_GLOBAL = [...CATEGORIES, ...CATEGORIES_TAX];
 const STAFF_ACTIVE = { staff_id: "staff-1", first_name: "Ana", last_name: "Alvarez", short_name: null, initials: "AA", category_id: "cat-1", city: null, is_active: true, is_schedulable: true, category: CATEGORIES[0], staff_skills: [] };
 const STAFF_NOT_SCHEDULABLE = { staff_id: "staff-2", first_name: "Ivy", last_name: "NotSched", short_name: null, initials: "IN", category_id: "cat-1", city: null, is_active: true, is_schedulable: false, category: CATEGORIES[0], staff_skills: [] };
 const PERSISTED_ROW = {
@@ -126,7 +133,12 @@ vi.mock("@/hooks/useEmsData", () => ({
   useEngagementAggregatedRequirements: () => ({ data: [] }),
   useActiveStaffWithSkills: () => ({ data: staffOptionsState }),
   useServices: () => ({ data: servicesState }),
-  useCategories: () => ({ data: CATEGORIES }),
+  // Argumento-consciente (review #M1): distingue el fetch scoped por servicio del fetch global
+  // sin filtro (serviceId undefined) para poder probar que la Card nunca usa este último.
+  useCategories: (serviceId?: string) => ({
+    data:
+      serviceId === "svc-aud" ? CATEGORIES : serviceId === "svc-tax" ? CATEGORIES_TAX : CATEGORIES_GLOBAL,
+  }),
 }));
 
 const mockSaveAssignments = vi.fn();
@@ -324,6 +336,24 @@ describe("StaffAssignmentsCard", () => {
     // StaffCombobox candidate list uses role="option" on a <div>), which is unrelated to whether
     // the category catalog is scoped or global.
     expect(container.querySelectorAll("option")).toHaveLength(0);
+  });
+
+  it("REGRESSION (review #M1): null practica resolves categories to Auditoría — never the unscoped global catalog", () => {
+    const { container } = render(
+      <StaffAssignmentsCard engagement={{ ...ENGAGEMENT, practica: null }} />
+    );
+    const optionTexts = Array.from(container.querySelectorAll("option")).map((o) => o.textContent);
+    expect(optionTexts).toContain("Cat One"); // Auditoría's own category is offered
+    expect(optionTexts).not.toContain("Tax Category"); // a foreign-service category never leaks in
+  });
+
+  it("REGRESSION (review #M1): an unmatched practica (no service has that code) also resolves to Auditoría", () => {
+    const { container } = render(
+      <StaffAssignmentsCard engagement={{ ...ENGAGEMENT, practica: 999 }} />
+    );
+    const optionTexts = Array.from(container.querySelectorAll("option")).map((o) => o.textContent);
+    expect(optionTexts).toContain("Cat One");
+    expect(optionTexts).not.toContain("Tax Category");
   });
 
   it("REGRESSION (review #1): a row with dates outside the Engagement's range is blocked from saving", async () => {

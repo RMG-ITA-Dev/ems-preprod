@@ -34,6 +34,7 @@ import {
 import {
   Sheet,
   SheetContent,
+  SheetDescription,
   SheetFooter,
   SheetHeader,
   SheetTitle,
@@ -397,6 +398,7 @@ export function AssignmentSheet({
             {t("scheduler.assignmentSheet.title")}
             <MatchDot result={liveMatch} />
           </SheetTitle>
+          <SheetDescription>{t("scheduler.assignmentSheet.description")}</SheetDescription>
           {!canWrite && <p className="text-xs text-muted-foreground">{t("scheduler.readOnly")}</p>}
         </SheetHeader>
 
@@ -491,7 +493,9 @@ export function AssignmentSheet({
             <label className="text-xs font-medium text-muted-foreground">
               {t("engagement.assignments.category")} *
             </label>
-            <Select value={draft.category_id || undefined} onValueChange={(v) => update({ category_id: v })} disabled={!canWrite}>
+            {/* value SIEMPRE string (nunca `undefined`) para no alternar entre no-controlado y
+                controlado — ese cambio de modo es lo que React advertía (review de Fase 5 #S4). */}
+            <Select value={draft.category_id} onValueChange={(v) => update({ category_id: v })} disabled={!canWrite}>
               <SelectTrigger
                 className={cn(
                   ((errors.missing && !draft.category_id) || errors.category) && "ring-1 ring-destructive"

@@ -293,6 +293,42 @@ describe("findOutOfEngagementRangeKeys — assignment dates vs the Engagement's 
     );
     expect(keys.size).toBe(0);
   });
+
+  it("REGRESSION (review #S2): a start_date-only Engagement still flags a draft that starts too early", () => {
+    const keys = findOutOfEngagementRangeKeys(
+      [draft({ key: "k1", start_date: "2025-12-01", end_date: "2026-01-15" })],
+      "2026-01-01",
+      null
+    );
+    expect(keys).toEqual(new Set(["k1"]));
+  });
+
+  it("REGRESSION (review #S2): a start_date-only Engagement does not flag a draft within/after it", () => {
+    const keys = findOutOfEngagementRangeKeys(
+      [draft({ key: "k1", start_date: "2026-01-01", end_date: "2099-12-31" })],
+      "2026-01-01",
+      null
+    );
+    expect(keys.size).toBe(0);
+  });
+
+  it("REGRESSION (review #S2): an end_date-only Engagement still flags a draft that ends too late", () => {
+    const keys = findOutOfEngagementRangeKeys(
+      [draft({ key: "k1", start_date: "2026-06-01", end_date: "2026-07-15" })],
+      null,
+      "2026-06-30"
+    );
+    expect(keys).toEqual(new Set(["k1"]));
+  });
+
+  it("REGRESSION (review #S2): an end_date-only Engagement does not flag a draft within/before it", () => {
+    const keys = findOutOfEngagementRangeKeys(
+      [draft({ key: "k1", start_date: "2020-01-01", end_date: "2026-06-30" })],
+      null,
+      "2026-06-30"
+    );
+    expect(keys.size).toBe(0);
+  });
 });
 
 describe("rpcRowToDraft — adopts the RPC's authoritative row as a draft/baseline", () => {

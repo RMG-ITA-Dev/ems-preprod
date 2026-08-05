@@ -136,6 +136,13 @@ export function computeAssignmentDiff({
 export const HOURS_PER_WEEK_MAX = 80;
 export const ALLOCATION_PERCENT_MAX = 100;
 
+// O6 (CERRADA): `services.code` de Auditoría — mismo valor que el backfill de la migración de
+// convergencia (`UPDATE public.engagements SET practica = 1 WHERE practica IS NULL`). El cliente
+// espeja esa normalización: practica nula o sin match en `services` resuelve a Auditoría, NUNCA
+// al catálogo global sin scope (review de Fase 5 #M1 — la Fase 3 usaba "sin scope" antes de que
+// O6 lo prohibiera explícitamente).
+export const AUDITORIA_SERVICE_CODE = 1;
+
 export interface AssignmentValidation {
   /** Draft keys sin staff, categoría, o alguna de las dos fechas. */
   missing: Set<string>;
@@ -253,8 +260,11 @@ export function findForeignCategoryKeys(
 
 /**
  * Fechas del assignment fuera del rango inclusivo del Engagement (O4 / issue: "primera barrera"
- * en la UI, antes de invocar la RPC — que también lo valida como `EAS_ENGAGEMENT_RANGE`). Un
- * Engagement sin fechas (legado) no acota nada, igual que el precedente de `practica IS NULL`.
+ * en la UI, antes de invocar la RPC — que también lo valida como `EAS_ENGAGEMENT_RANGE`). Cada
+ * límite se evalúa de forma INDEPENDIENTE (review de Fase 5 #S2): un Engagement legado con solo
+ * `start_date` (sin `end_date`, o viceversa) sigue acotando el límite que sí tiene — igual que la
+ * RPC, que chequea `v_eng_start`/`v_eng_end` por separado. Solo un Engagement sin fechas en
+ * absoluto queda completamente sin cota.
  */
 export function findOutOfEngagementRangeKeys(
   drafts: AssignmentDraft[],
@@ -262,10 +272,13 @@ export function findOutOfEngagementRangeKeys(
   engagementEndDate: string | null | undefined
 ): Set<string> {
   const result = new Set<string>();
-  if (!engagementStartDate || !engagementEndDate) return result;
   for (const d of drafts) {
     if (!d.start_date || !d.end_date) continue;
-    if (d.start_date < engagementStartDate || d.end_date > engagementEndDate) {
+    if (engagementStartDate && d.start_date < engagementStartDate) {
+      result.add(d.key);
+      continue;
+    }
+    if (engagementEndDate && d.end_date > engagementEndDate) {
       result.add(d.key);
     }
   }

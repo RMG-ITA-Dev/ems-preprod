@@ -1,6 +1,6 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@/test/utils";
+import { render, screen, fireEvent, waitFor, within } from "@/test/utils";
 
 /**
  * Fase 5 (bugs/scheduler/fase_5/plan_v2.md §6): EngagementForm integrates
@@ -17,6 +17,15 @@ beforeAll(() => {
     disconnect = vi.fn();
   }
   (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = MockResizeObserver;
+
+  // Mocking Popover below (M5/O9 date-field tests) makes every StaffCombobox's cmdk CommandList
+  // mount immediately instead of staying unrendered until opened — cmdk's mount effect calls
+  // scrollIntoView/pointer-capture APIs jsdom doesn't implement. Same polyfill convention as the
+  // other Fase 5 test files (StaffAssignmentsCard.test.tsx, AssignmentSheet.test.tsx).
+  if (!Element.prototype.hasPointerCapture) Element.prototype.hasPointerCapture = () => false;
+  if (!Element.prototype.setPointerCapture) Element.prototype.setPointerCapture = () => undefined;
+  if (!Element.prototype.releasePointerCapture) Element.prototype.releasePointerCapture = () => undefined;
+  if (!Element.prototype.scrollIntoView) Element.prototype.scrollIntoView = () => undefined;
 });
 
 vi.mock("react-router-dom", async () => {
@@ -60,8 +69,29 @@ vi.mock("@/hooks/mutations", () => ({
   useDeleteEngagement: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
+// Mutable (not a static object) so the O9 header-warning tests can flip Admin vs. non-Admin
+// without a separate module registration per case.
+let mockIsAdmin = false;
 vi.mock("@/hooks/useUserRole", () => ({
-  useUserRole: () => ({ isAdmin: false }),
+  useUserRole: () => ({ isAdmin: mockIsAdmin }),
+}));
+
+// Same convention as EngagementForm.servicesCatalog.test.tsx (review #2 there): Calendar as a
+// native date input, Popover always rendering its content — needed to reach start_date/end_date
+// without fighting react-day-picker's DOM in jsdom.
+vi.mock("@/components/ui/calendar", () => ({
+  Calendar: ({ onSelect }: { onSelect?: (date: Date) => void }) => (
+    <input
+      data-testid="calendar-mock"
+      type="date"
+      onChange={(e) => e.target.value && onSelect?.(new Date(`${e.target.value}T12:00:00`))}
+    />
+  ),
+}));
+vi.mock("@/components/ui/popover", () => ({
+  Popover: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  PopoverTrigger: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  PopoverContent: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
 vi.mock("@/hooks/useCurrentStaff", () => ({
@@ -131,6 +161,7 @@ describe("EngagementForm — Fase 5 assignments integration", () => {
     vi.clearAllMocks();
     capturedOnDirtyChange = null;
     mockUpdateMutateAsync.mockResolvedValue(undefined);
+    mockIsAdmin = false;
   });
 
   it("does NOT render StaffAssignmentsCard in creation — shows an 'available after save' note instead", () => {
@@ -190,5 +221,47 @@ describe("EngagementForm — Fase 5 assignments integration", () => {
     fireEvent.click(screen.getByText("stub-save"));
     expect(mockSaveAssignmentsFromCard).toHaveBeenCalledTimes(1);
     expect(mockUpdateMutateAsync).not.toHaveBeenCalled();
+  });
+
+  // O9 (bugs/scheduler/fase_5/plan_v2.md §6): outside Borrador/Rechazado, a non-Admin changing
+  // partner/manager/dates while assignments are pending gets a non-blocking warning; the Admin
+  // does not. `work_order_required: false` makes savedEffectiveState Aprobado (4) — outside the
+  // two excluded states — without needing to thread a work_order fixture through the test.
+  const engagementOutsideBorradorRechazado = { ...mockEngagement, work_order_required: false };
+
+  it("REGRESSION (review #M5/O9): shows the header warning when a non-admin changes start_date with assignments dirty", async () => {
+    render(<EngagementForm engagement={engagementOutsideBorradorRechazado} />);
+    fireEvent.click(screen.getByText("stub-make-dirty"));
+
+    const startDateFormItem = screen.getByText(/engagement.startDate/).closest("div")!;
+    const calendarInput = within(startDateFormItem).getByTestId("calendar-mock");
+    fireEvent.change(calendarInput, { target: { value: "2027-01-01" } });
+
+    await waitFor(() => {
+      expect(screen.getByText("engagement.assignments.warnings.headerChangeWithPending")).toBeInTheDocument();
+    });
+  });
+
+  it("REGRESSION (review #M5/O9): does NOT show the header warning for the same change when the caller is Admin", async () => {
+    mockIsAdmin = true;
+    render(<EngagementForm engagement={engagementOutsideBorradorRechazado} />);
+    fireEvent.click(screen.getByText("stub-make-dirty"));
+
+    const startDateFormItem = screen.getByText(/engagement.startDate/).closest("div")!;
+    const calendarInput = within(startDateFormItem).getByTestId("calendar-mock");
+    fireEvent.change(calendarInput, { target: { value: "2027-01-01" } });
+
+    expect(
+      screen.queryByText("engagement.assignments.warnings.headerChangeWithPending")
+    ).not.toBeInTheDocument();
+  });
+
+  it("REGRESSION (review #M5/O9): does NOT show the header warning without a structural field change (assignments dirty alone is not enough)", () => {
+    render(<EngagementForm engagement={engagementOutsideBorradorRechazado} />);
+    fireEvent.click(screen.getByText("stub-make-dirty"));
+
+    expect(
+      screen.queryByText("engagement.assignments.warnings.headerChangeWithPending")
+    ).not.toBeInTheDocument();
   });
 });
