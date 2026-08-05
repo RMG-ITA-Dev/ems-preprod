@@ -39,6 +39,15 @@ vi.mock("@/hooks/useTimesheetApprovals", () => ({
 
 vi.mock("@/hooks/useCurrentStaff", () => ({ useCurrentStaff: () => ({ staffRecord: { staff_id: "s1" } }) }));
 vi.mock("@/hooks/useLanguage", () => ({ useLanguage: () => ({ currentLanguage: "en" }) }));
+// Fase 6: TimesheetApprovalDetail now also resolves the assignment advisory for the staff being
+// viewed. Neither hook is under test here — stub them to no-op/unavailable so this suite keeps
+// exercising only the leave-page lock behavior it was written for.
+vi.mock("@/hooks/useTimesheetPolicies", () => ({
+  useTimesheetPolicies: () => ({ data: { workDays: 5 }, isPending: false }),
+}));
+vi.mock("@/hooks/scheduler/useStaffAssignmentSegments", () => ({
+  useStaffAssignmentSegments: () => ({ data: null, isSuccess: true, isError: false }),
+}));
 vi.mock("@/components/layout/AppLayout", () => ({
   AppLayout: ({ children, focusMode }: any) => <div data-testid="app-layout" data-focus-mode={focusMode}>{children}</div>,
 }));

@@ -26,10 +26,12 @@ import { ApprovalTimesheetGrid } from "@/components/timesheet/ApprovalTimesheetG
 import type { ApprovalDecision } from "@/components/ui/approval-toggle";
 import { format, addDays } from "date-fns";
 import { useLanguage } from "@/hooks/useLanguage";
-import { parseDateLocal } from "@/lib/timesheetUtils";
+import { parseDateLocal, getWorkDays, toISODateString } from "@/lib/timesheetUtils";
 import { getWeekDisplayInfo } from "@/lib/timesheetWeekDisplay";
 import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";
 import { LeavePageDialog } from "@/components/ui/leave-page-dialog";
+import { useTimesheetPolicies } from "@/hooks/useTimesheetPolicies";
+import { useStaffAssignmentSegments } from "@/hooks/scheduler/useStaffAssignmentSegments";
 
 const TimesheetApprovalDetail = () => {
   const { periodId } = useParams<{ periodId: string }>();
@@ -87,6 +89,25 @@ const TimesheetApprovalDetail = () => {
 
   // Navigation lock - must be after hasDecisions
   const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: hasDecisions, isDirty: hasDecisions });
+
+  // Fase 6: advisory no bloqueante de asignaciones (bugs/scheduler/fase_6). Declarado antes de
+  // cualquier return condicional (reglas de hooks) — timesheetData puede ser undefined aquí.
+  const { data: policies, isPending: policiesPending } = useTimesheetPolicies();
+  const workDays = policies?.workDays ?? 5;
+
+  // Fechas civiles vía parseDateLocal/getWorkDays — nunca new Date("yyyy-MM-dd").
+  const approvalWeekStartStr = timesheetData?.period?.week_start_date;
+  const approvalWeekEndStr = useMemo(() => {
+    if (!approvalWeekStartStr) return undefined;
+    const days = getWorkDays(parseDateLocal(approvalWeekStartStr), workDays);
+    return toISODateString(days[days.length - 1]);
+  }, [approvalWeekStartStr, workDays]);
+
+  const assignmentSegments = useStaffAssignmentSegments(
+    timesheetData?.period?.staff_id,                  // staff VISTO, no el aprobador
+    approvalWeekStartStr,                              // week_start_date del período, sin normalizar:
+    policiesPending ? undefined : approvalWeekEndStr,  // si no fuera lunes, la RPC rechaza y el advisory se apaga.
+  );
 
   const handleBack = () => {
     allowNextNavigation();
@@ -187,7 +208,7 @@ const TimesheetApprovalDetail = () => {
 
   const formatWeekRange = (weekStartDate: string) => {
     const startDate = parseDateLocal(weekStartDate);
-    const endDate = addDays(startDate, 4);
+    const endDate = addDays(startDate, workDays - 1);
     return `${format(startDate, "dd/MM/yyyy")} - ${format(endDate, "dd/MM/yyyy")}`;
   };
 
@@ -285,6 +306,8 @@ const TimesheetApprovalDetail = () => {
           onDecisionChange={handleDecisionChange}
           lang={currentLanguage}
           engagementBudgets={timesheetData.engagementBudgets}
+          assignmentWindows={assignmentSegments.data ?? undefined}
+          workDays={workDays}
         />
 
         {/* Reject Dialog */}

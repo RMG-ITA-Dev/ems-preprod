@@ -1150,6 +1150,17 @@
     "deleteRowDescription": "This will permanently delete all hours logged in this row for the current week. This action cannot be undone.",
     "deleteRowError": "Failed to delete row. It has been restored.",
     "activityChangeError": "Failed to update activity. Change has been reverted.",
+    "submitPairMismatch": "Submit failed: engagement and activity lists do not match. Please reload and try again.",
+    "assignmentAdvisory": {
+      "banner_one": "1 entry has hours logged outside the assignment period. This is informational only and does not block saving or submitting.",
+      "banner_other": "{{count}} entries have hours logged outside the assignment period. This is informational only and does not block saving or submitting.",
+      "cellTooltip": "Hours logged outside the assignment period",
+      "cellAriaLabel": "Warning: hours logged outside the assignment period",
+      "badge": "Outside assignment",
+      "submittedWithWarnings_one": "Submitted. 1 entry has hours logged outside the assignment period.",
+      "submittedWithWarnings_other": "Submitted. {{count}} entries have hours logged outside the assignment period.",
+      "unavailable": "Assignment period information is temporarily unavailable. This does not affect saving or submitting hours."
+    },
     "legend": {
       "approved": "Approved",
       "pending": "Pending",

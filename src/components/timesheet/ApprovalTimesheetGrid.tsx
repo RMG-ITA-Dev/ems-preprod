@@ -9,9 +9,10 @@ import {
 import { ApprovalToggle, type ApprovalDecision } from "@/components/ui/approval-toggle";
 import { getDayName, formatDayMonth, toISODateString, getWorkDays, parseDateLocal } from "@/lib/timesheetUtils";
 import { cn } from "@/lib/utils";
-import { Check, Clock, X } from "lucide-react";
+import { Check, Clock, X, AlertTriangle } from "lucide-react";
 import type { LineApproval, TimeEntryForApproval } from "@/hooks/useTimesheetApprovals";
 import { compareActivityCodes } from "@/lib/activityFilters";
+import { isDateInAnyWindow, type SegmentsByEngagement } from "@/lib/timesheetAssignmentAdvisory";
 
 interface ApprovalTimesheetGridProps {
   weekStartDate: string;
@@ -22,6 +23,11 @@ interface ApprovalTimesheetGridProps {
   onDecisionChange: (approvalId: string, decision: ApprovalDecision) => void;
   lang: string;
   engagementBudgets?: Record<string, { budgetedHours: number | null }>;
+  // Fase 6: ventanas de asignación del staff VISTO. undefined = no disponible -> advisory OFF.
+  // Señal de solo lectura: nunca condiciona la aprobación.
+  assignmentWindows?: SegmentsByEngagement;
+  // Días laborables configurados (5, o 6 con seguimiento de sábado). Default 5 = comportamiento actual.
+  workDays?: number;
 }
 
 interface EngagementGroup {
@@ -58,13 +64,16 @@ export function ApprovalTimesheetGrid({
   onDecisionChange,
   lang,
   engagementBudgets = {},
+  assignmentWindows,
+  workDays = 5,
 }: ApprovalTimesheetGridProps) {
   const { t } = useTranslation();
 
-  // Generate week dates (5 work days)
+  // Generate week dates (5 or 6 work days — Fase 6 wires workDays through; default 5
+  // preserves the previous hardcoded behavior byte for byte).
   const weekDates = useMemo(() => {
-    return getWorkDays(parseDateLocal(weekStartDate), 5);
-  }, [weekStartDate]);
+    return getWorkDays(parseDateLocal(weekStartDate), workDays);
+  }, [weekStartDate, workDays]);
 
   // Build engagement groups with activity sub-rows
   const engagementGroups = useMemo(() => {
@@ -177,6 +186,16 @@ export function ApprovalTimesheetGrid({
     );
   };
 
+  // Fase 6: advisory no bloqueante, por engagement × fecha (la RPC no devuelve activity_id
+  // -> nunca se marca por actividad). Señal de solo lectura: nunca condiciona canApprove.
+  const isUnauthorizedDay = (group: EngagementGroup, dateStr: string) =>
+    !!assignmentWindows &&
+    (group.hoursByDate[dateStr] || 0) > 0 &&
+    !isDateInAnyWindow(assignmentWindows.get(group.engagementId), dateStr);
+
+  const groupHasUnauthorized = (group: EngagementGroup) =>
+    weekDates.some((d) => isUnauthorizedDay(group, toISODateString(d)));
+
   const renderActivityStatusBadge = (activity: ActivityRow) => {
     if (!activity.approvalStatus || activity.approvalStatus === "pending") return null;
     const configs = {
@@ -269,16 +288,34 @@ export function ApprovalTimesheetGrid({
                     {weekDates.map((date) => {
                       const dateStr = toISODateString(date);
                       const hours = group.hoursByDate[dateStr] || 0;
+                      const flagged = isUnauthorizedDay(group, dateStr);
 
                       return (
                         <td
                           key={dateStr}
                           className={cn(
                             "p-3 text-right font-mono font-medium border-r border-border",
-                            !isApprovable && "text-muted-foreground"
+                            !isApprovable && "text-muted-foreground",
+                            flagged && "bg-warning/5"
                           )}
                         >
-                          {hours > 0 ? hours : "-"}
+                          {flagged ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span
+                                  tabIndex={0}
+                                  aria-label={`${hours} — ${t("timesheet.assignmentAdvisory.cellTooltip")}`}
+                                  className="inline-flex items-center gap-1 justify-end rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring text-warning"
+                                >
+                                  <AlertTriangle aria-hidden="true" className="h-3 w-3" />
+                                  {hours}
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent><p>{t("timesheet.assignmentAdvisory.cellTooltip")}</p></TooltipContent>
+                            </Tooltip>
+                          ) : (
+                            hours > 0 ? hours : "-"
+                          )}
                         </td>
                       );
                     })}
@@ -306,7 +343,15 @@ export function ApprovalTimesheetGrid({
                       </div>
                     </td>
                     <td className="p-3 text-center">
-                      {renderAggregateBadge(group.aggregateStatus)}
+                      <div className="flex items-center justify-center gap-1 flex-wrap">
+                        {renderAggregateBadge(group.aggregateStatus)}
+                        {groupHasUnauthorized(group) && (
+                          <Badge variant="outline" className="bg-warning/10 text-warning border-warning/30 text-xs py-0">
+                            <AlertTriangle aria-hidden="true" className="h-3 w-3 mr-1" />
+                            {t("timesheet.assignmentAdvisory.badge")}
+                          </Badge>
+                        )}
+                      </div>
                     </td>
                   </tr>
 

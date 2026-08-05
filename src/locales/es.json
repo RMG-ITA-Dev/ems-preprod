@@ -1150,6 +1150,17 @@
     "deleteRowDescription": "Esto eliminará permanentemente todas las horas registradas en esta fila para la semana actual. Esta acción no se puede deshacer.",
     "deleteRowError": "Error al eliminar la fila. Se ha restaurado.",
     "activityChangeError": "Error al actualizar la actividad. El cambio fue revertido.",
+    "submitPairMismatch": "Error al enviar: las listas de encargos y actividades no coinciden. Por favor recargue e intente nuevamente.",
+    "assignmentAdvisory": {
+      "banner_one": "1 registro tiene horas registradas fuera del período de asignación. Es solo informativo y no impide guardar ni enviar.",
+      "banner_other": "{{count}} registros tienen horas registradas fuera del período de asignación. Es solo informativo y no impide guardar ni enviar.",
+      "cellTooltip": "Horas registradas fuera del período de asignación",
+      "cellAriaLabel": "Advertencia: horas registradas fuera del período de asignación",
+      "badge": "Fuera de asignación",
+      "submittedWithWarnings_one": "Enviado. 1 registro tiene horas registradas fuera del período de asignación.",
+      "submittedWithWarnings_other": "Enviado. {{count}} registros tienen horas registradas fuera del período de asignación.",
+      "unavailable": "La información de los períodos de asignación no está disponible en este momento. Esto no afecta el registro ni el envío de horas."
+    },
     "legend": {
       "approved": "Aprobado",
       "pending": "Pendiente",

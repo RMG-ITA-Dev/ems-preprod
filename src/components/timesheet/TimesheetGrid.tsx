@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/tooltip";
 import { getDayName, formatDayMonth, toISODateString } from "@/lib/timesheetUtils";
 import { sortEngagements } from "@/lib/timesheetEngagementOptions";
+import { isDateInAnyWindow, type SegmentsByEngagement } from "@/lib/timesheetAssignmentAdvisory";
 import type { TimeEntry, ApprovedEngagement, ActivityCode } from "@/hooks/useTimesheetWeek";
 import { TimesheetEngagementCombobox } from "./TimesheetEngagementCombobox";
 import { useUpsertTimeEntry, useDeleteRowEntries, useUpdateEntryActivity } from "@/hooks/useTimesheetMutations";
@@ -79,6 +80,10 @@ interface TimesheetGridProps {
   adminActivityId?: string | null;
   // Approved-week empty state
   isFullyApproved?: boolean;
+  // Fase 6: ventanas de asignación activas del staff, por engagement_id.
+  // undefined = datos no disponibles -> advisory OFF. Mapa presente (incluso vacío) =
+  // autoritativo -> las celdas con horas positivas no cubiertas se marcan.
+  assignmentWindows?: SegmentsByEngagement;
 }
 
 export function TimesheetGrid({
@@ -105,6 +110,7 @@ export function TimesheetGrid({
   activityNotRequiredIds,
   adminActivityId,
   isFullyApproved = false,
+  assignmentWindows,
 }: TimesheetGridProps) {
   const { t } = useTranslation();
   const upsertEntry = useUpsertTimeEntry();
@@ -875,8 +881,25 @@ export function TimesheetGrid({
                   const isDisabled =
                     isRowLocked || isDayLockedByHire || isDayLockedByTermination || isHolidayBlocked || isAdmMissing || isOutOfEngagementRange || !row.engagementId || (!row.activityId && !isActivityNotRequired);
 
+                  // Fase 6: advisory no bloqueante (bugs/scheduler/fase_6). INVARIANTE: nunca
+                  // entra en isDisabled ni en ningún guard de guardado. Se excluyen las ramas
+                  // con tooltip propio (fuera de rango de engagement, hire/termination): son
+                  // estados mutuamente excluyentes -> sin conflicto de precedencia en cn(), sin
+                  // doble tooltip. NO se excluye isRowLocked/isRowApproved/isHolidayBlocked: la
+                  // marca debe seguir visible en semanas submitted/approved/locked (§6 del issue,
+                  // "No depender solamente de color"; el objetivo exige el advisory en modo
+                  // bloqueado).
+                  const isStaffUnauthorized =
+                    !!assignmentWindows &&
+                    !!row.engagementId &&
+                    !isOutOfEngagementRange &&
+                    !isDayLockedByHire &&
+                    !isDayLockedByTermination &&
+                    (row.hours[dateStr] ?? 0) > 0 &&
+                    !isDateInAnyWindow(assignmentWindows.get(row.engagementId), dateStr);
+
                   return (
-                    <td key={dateStr} className={cn("p-2 relative text-center border-r border-border", isDayLockedByHire && "bg-muted/40", isOutOfEngagementRange && "bg-muted/40", isHolidayBlocked && "bg-warning/5")}>
+                    <td key={dateStr} className={cn("p-2 relative text-center border-r border-border", isDayLockedByHire && "bg-muted/40", isOutOfEngagementRange && "bg-muted/40", isHolidayBlocked && "bg-warning/5", isStaffUnauthorized && "bg-warning/5")}>
                       {isOutOfEngagementRange ? (
                         <Tooltip>
                           <TooltipTrigger asChild>
@@ -945,6 +968,20 @@ export function TimesheetGrid({
                         )}
                         {isSaved && (
                           <Check className="absolute right-0 top-1/2 -translate-y-1/2 h-3 w-3 text-success" />
+                        )}
+                        {isStaffUnauthorized && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                type="button"
+                                aria-label={t("timesheet.assignmentAdvisory.cellAriaLabel")}
+                                className="absolute right-0 top-0 inline-flex items-center justify-center rounded-sm p-1 text-warning focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              >
+                                <AlertTriangle aria-hidden="true" className="h-3 w-3" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent><p>{t("timesheet.assignmentAdvisory.cellTooltip")}</p></TooltipContent>
+                          </Tooltip>
                         )}
                       </div>
                       )}

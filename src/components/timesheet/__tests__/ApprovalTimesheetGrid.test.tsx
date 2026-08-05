@@ -126,3 +126,126 @@ describe("ApprovalTimesheetGrid budget summary", () => {
     expect(screen.getByText(/\/ 0h/)).toBeInTheDocument();
   });
 });
+
+describe("ApprovalTimesheetGrid assignment advisory (Fase 6)", () => {
+  it("shows the advisory badge when an authoritative map has no window covering a positive-hour day", () => {
+    renderGrid({
+      timeEntries: [makeEntry({ hours_logged: 6 })],
+      lineApprovals: [makeApproval()],
+      approvableEngagementIds: ["eng-a"],
+      assignmentWindows: new Map(),
+    });
+    expect(screen.getByText("timesheet.assignmentAdvisory.badge")).toBeInTheDocument();
+  });
+
+  it("does not show the badge when the day is covered by a window", () => {
+    renderGrid({
+      timeEntries: [makeEntry({ hours_logged: 6, date_worked: "2026-02-16" })],
+      lineApprovals: [makeApproval()],
+      approvableEngagementIds: ["eng-a"],
+      assignmentWindows: new Map([
+        ["eng-a", [{ start_date: "2026-02-16", end_date: "2026-02-20" }]],
+      ]),
+    });
+    expect(screen.queryByText("timesheet.assignmentAdvisory.badge")).not.toBeInTheDocument();
+  });
+
+  it("does not show the badge when assignmentWindows is undefined (data unavailable)", () => {
+    renderGrid({
+      timeEntries: [makeEntry({ hours_logged: 6 })],
+      lineApprovals: [makeApproval()],
+      approvableEngagementIds: ["eng-a"],
+    });
+    expect(screen.queryByText("timesheet.assignmentAdvisory.badge")).not.toBeInTheDocument();
+  });
+
+  it("a valid empty map is authoritative — shows the badge", () => {
+    renderGrid({
+      timeEntries: [makeEntry({ hours_logged: 6 })],
+      lineApprovals: [makeApproval()],
+      approvableEngagementIds: ["eng-a"],
+      assignmentWindows: new Map(),
+    });
+    expect(screen.getByText("timesheet.assignmentAdvisory.badge")).toBeInTheDocument();
+  });
+
+  it("aggregateStatus badge keeps rendering alongside the advisory badge", () => {
+    renderGrid({
+      timeEntries: [makeEntry({ hours_logged: 6 })],
+      lineApprovals: [makeApproval({ status: "approved" })],
+      approvableEngagementIds: ["eng-a"],
+      assignmentWindows: new Map(),
+    });
+    expect(screen.getByText("timesheet.assignmentAdvisory.badge")).toBeInTheDocument();
+    expect(screen.getAllByText("approval.status.approved").length).toBeGreaterThan(0);
+  });
+
+  it("per-activity approval toggle for pending activities is unaffected by the advisory", () => {
+    renderGrid({
+      timeEntries: [makeEntry({ hours_logged: 6 })],
+      lineApprovals: [makeApproval({ status: "pending" })],
+      approvableEngagementIds: ["eng-a"],
+      assignmentWindows: new Map(),
+    });
+    expect(screen.getByText("approval.decision.approve")).toBeInTheDocument();
+    expect(screen.getByText("approval.decision.reject")).toBeInTheDocument();
+  });
+
+  it("a viewer without canApprove still sees the advisory badge (read-only signal)", () => {
+    renderGrid({
+      timeEntries: [makeEntry({ hours_logged: 6 })],
+      lineApprovals: [makeApproval({ status: "pending" })],
+      approvableEngagementIds: [], // eng-a not approvable by this viewer
+      assignmentWindows: new Map(),
+    });
+    expect(screen.getByText("timesheet.assignmentAdvisory.badge")).toBeInTheDocument();
+    expect(screen.queryByText("approval.decision.approve")).not.toBeInTheDocument();
+  });
+
+  it("marks the flagged day cell with an accessible label that preserves the hours value", () => {
+    renderGrid({
+      timeEntries: [makeEntry({ hours_logged: 6, date_worked: "2026-02-16" })],
+      lineApprovals: [makeApproval()],
+      approvableEngagementIds: ["eng-a"],
+      assignmentWindows: new Map(),
+    });
+    expect(screen.getByLabelText(/^6 —/)).toBeInTheDocument();
+  });
+
+  it("without a workDays prop, renders the default 5 columns", () => {
+    renderGrid({
+      timeEntries: [makeEntry()],
+      lineApprovals: [makeApproval()],
+      approvableEngagementIds: ["eng-a"],
+    });
+    // header row: 1 engagement/activity col + 5 day cols + total + decision = 8
+    const headerCells = document.querySelectorAll("thead th");
+    expect(headerCells.length).toBe(8);
+  });
+
+  it("workDays=6 renders 6 day columns and the 6th day participates in the advisory predicate", () => {
+    renderGrid({
+      timeEntries: [makeEntry({ hours_logged: 6, date_worked: "2026-02-21" })], // Sat, day 6
+      lineApprovals: [makeApproval()],
+      approvableEngagementIds: ["eng-a"],
+      assignmentWindows: new Map(),
+      workDays: 6,
+    });
+    const headerCells = document.querySelectorAll("thead th");
+    expect(headerCells.length).toBe(9); // 1 + 6 + total + decision
+    expect(screen.getByText("timesheet.assignmentAdvisory.badge")).toBeInTheDocument();
+  });
+
+  it("does not duplicate the advisory mark on activity sub-rows", () => {
+    renderGrid({
+      timeEntries: [makeEntry({ hours_logged: 6, date_worked: "2026-02-16" })],
+      lineApprovals: [makeApproval()],
+      approvableEngagementIds: ["eng-a"],
+      assignmentWindows: new Map(),
+    });
+    // Only the engagement header row carries the badge; only one flagged-cell aria-label exists
+    // for this single entry (the activity sub-row renders a plain, unmarked hour cell).
+    expect(screen.getAllByText("timesheet.assignmentAdvisory.badge")).toHaveLength(1);
+    expect(screen.getAllByLabelText(/^6 —/)).toHaveLength(1);
+  });
+});
