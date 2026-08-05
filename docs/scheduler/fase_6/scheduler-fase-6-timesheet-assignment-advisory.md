@@ -98,6 +98,23 @@ regresión.
 **Cómo verificarlo**: comparar, en un período con entradas `is_forecast = true`, el total
 mostrado en `/timesheet/approvals` antes y después de esta fase para el mismo período.
 
+## Verificación de tipos (`tsc`) — deuda preexistente, no introducida por esta fase
+
+`npx tsc -p tsconfig.app.json --noEmit` falla con **183 errores** tanto en `dev-scheduler` (base)
+como en `dev-scheduler-fase_6`. Se comparó el conteo exacto entre ambas ramas: es el mismo número
+en las dos, y ninguno de los errores proviene de un archivo tocado por esta fase. La causa es
+`src/integrations/supabase/types.ts` desactualizado (no declara `get_staff_assignment_segments` ni
+la firma de 5 args de `submit_timesheet_safe`; ver "Cero cambios de backend" arriba) más otro deuda
+de tipos preexistente y no relacionada (columnas de `timesheet_line_approvals`, fixtures de tests
+de otras features, etc.).
+
+**Acción diferida a propósito:** no se corrige aquí — `types.ts` es un artefacto de Lovable y se
+regenera al integrar esta rama a `main` (ver Open Question 2 de `plan_v2.md`). Al hacer esa
+integración, re-correr `npx tsc -p tsconfig.app.json --noEmit` y confirmar que el conteo baja
+respecto a este baseline de 183; si `get_staff_assignment_segments` y la firma de 5 args aparecen
+ya tipadas, borrar la fachada local (`segmentsClient` en `useStaffAssignmentSegments.ts`, marcada
+con `TODO(types)`).
+
 ## Fuera de alcance
 
 Ver `bugs/scheduler/fase_6/issue_fase_6.md` §"Fuera de alcance" y `plan_v2.md` §"Out of Scope".

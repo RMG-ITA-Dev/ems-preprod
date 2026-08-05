@@ -155,24 +155,29 @@ describe("TimesheetGrid assignment advisory (Fase 6)", () => {
     render(
       <TimesheetGrid
         {...baseProps}
-        entries={[]}
+        entries={[makeEntry({ hours_logged: 0 })]}
         assignmentWindows={new Map()}
       />
     );
     expect(screen.queryByLabelText("timesheet.assignmentAdvisory.cellAriaLabel")).not.toBeInTheDocument();
   });
 
-  it("forecast entries never reach the grid rows built from real entries (advisory never sees them)", () => {
-    // TimesheetGrid rows are built exclusively from the `entries` prop; forecast is filtered
-    // upstream (useTimesheetWeek). Passing none here documents that forecast never participates.
+  it("a forecast entry with positive hours is still marked — TimesheetGrid has no is_forecast branch of its own", () => {
+    // Corrected during review (Fase 6, iteration 1): the previous version passed entries={[]}
+    // and asserted "no mark", which passed vacuously no matter how forecast was handled.
+    // `initialRows` (TimesheetGrid.tsx) does `row.hours[dateStr] = entry.hours_logged` and drops
+    // `is_forecast` entirely — this component has no way to know an entry was forecast. The real
+    // guarantee lives upstream: useTimesheetWeek.ts already filters `.eq("is_forecast", false)`
+    // before entries ever reach this component (Plan v2 Gap Analysis). This test documents that
+    // boundary instead of asserting something TimesheetGrid cannot actually enforce.
     render(
       <TimesheetGrid
         {...baseProps}
-        entries={[]}
+        entries={[makeEntry({ is_forecast: true, hours_logged: 8 })]}
         assignmentWindows={new Map()}
       />
     );
-    expect(screen.queryByLabelText("timesheet.assignmentAdvisory.cellAriaLabel")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("timesheet.assignmentAdvisory.cellAriaLabel")).toBeInTheDocument();
   });
 
   it("control positive: an engagement out of range is disabled and its own tooltip suppresses the advisory mark", () => {

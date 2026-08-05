@@ -168,7 +168,6 @@ describe("useStaffAssignmentSegments", () => {
 
   describe.each([
     ["RPC denied", { message: "permission denied", code: "EA_SEGMENTS_DENIED" }],
-    ["non-canonical week (not Monday)", { message: "EA_SEGMENTS_INVALID_RANGE: week_start is not Monday", code: "P0001" }],
     ["span > 6 days", { message: "EA_SEGMENTS_INVALID_RANGE: span exceeds 6 days", code: "P0001" }],
     ["function not deployed (PGRST202)", { message: "function not found", code: "PGRST202" }],
     ["undefined function (42883)", { message: "function does not exist", code: "42883" }],
@@ -184,6 +183,30 @@ describe("useStaffAssignmentSegments", () => {
       expect(result.current.data).toBeNull();
       expect(result.current.isError).toBe(false);
     });
+  });
+
+  it("a non-Monday week_start is forwarded verbatim (never normalized) and fails open via the RPC's own rejection", async () => {
+    // Corrected during review (Fase 6, iteration 1): the previous "non-canonical week (not Monday)"
+    // case lived inside the describe.each above and reused 2026-01-05, which IS a Monday — so it
+    // never actually exercised a non-canonical input. The hook does no client-side day/span
+    // validation by design (Plan v2 decision #12: "sin prevalidación cliente de lunes / span" —
+    // the RPC is the gate), so this asserts the exact args sent to the RPC to prove the hook
+    // never mutates the caller-provided date before sending it.
+    mockRpcResolves(null, { message: "EA_SEGMENTS_INVALID_RANGE: week_start is not Monday", code: "P0001" });
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(
+      // 2026-01-06 is a Tuesday.
+      () => useStaffAssignmentSegments("staff-1", "2026-01-06", "2026-01-10"),
+      { wrapper },
+    );
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(supabase.rpc).toHaveBeenCalledWith("get_staff_assignment_segments", {
+      p_staff_id: "staff-1",
+      p_week_start: "2026-01-06",
+      p_week_end: "2026-01-10",
+    });
+    expect(result.current.data).toBeNull();
+    expect(result.current.isError).toBe(false);
   });
 
   it("a rejected promise (network error) fails open to null without throwing", async () => {
@@ -284,6 +307,44 @@ describe("useStaffAssignmentSegments", () => {
     // Resolve after unmount to simulate the in-flight request settling post-cancellation.
     resolveFn({ data: [], error: null });
     await new Promise((r) => setTimeout(r, 0));
+
+    const cached = queryClient.getQueryData([
+      SCHEDULER_TIMESHEET_AUTHZ_KEY,
+      "viewer-1",
+      "staff-1",
+      "2026-01-05",
+      "2026-01-09",
+    ]);
+    expect(cached).toBeUndefined();
+  });
+
+  it("a cancellation that rejects with AbortError (the real supabase-js behavior) is re-thrown and never cached as null", async () => {
+    // Added during review (Fase 6, iteration 1): the test above only covers a mock that resolves
+    // successfully after unmount, which React Query discards on its own regardless of whether the
+    // hook's own `if (signal.aborted) throw e;` branch (useStaffAssignmentSegments.ts) ever runs.
+    // This test drives the abort signal itself, rejecting the way the real transport does, so that
+    // branch is actually exercised — proving a genuine cancellation is never mistaken for a real
+    // failure and cached as `null` (advisory permanently off).
+    let capturedSignal: AbortSignal | undefined;
+    vi.mocked(supabase.rpc).mockReturnValue({
+      abortSignal: (signal: AbortSignal) =>
+        new Promise((_resolve, reject) => {
+          capturedSignal = signal;
+          signal.addEventListener("abort", () => {
+            const abortError = new Error("The operation was aborted");
+            abortError.name = "AbortError";
+            reject(abortError);
+          });
+        }),
+    } as never);
+    const { wrapper, queryClient } = createWrapper();
+    const { unmount } = renderHook(
+      () => useStaffAssignmentSegments("staff-1", "2026-01-05", "2026-01-09"),
+      { wrapper },
+    );
+    // React Query aborts the in-flight signal on unmount once no observers remain.
+    unmount();
+    await waitFor(() => expect(capturedSignal?.aborted).toBe(true));
 
     const cached = queryClient.getQueryData([
       SCHEDULER_TIMESHEET_AUTHZ_KEY,
