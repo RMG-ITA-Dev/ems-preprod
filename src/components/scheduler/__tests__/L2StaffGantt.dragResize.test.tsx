@@ -1,7 +1,8 @@
-// Fase 5 (bugs/scheduler/fase_5/plan_v2.md §5, Decisión #1 — guardia de drag/resize) — gate de
-// seguridad: prueba que handleBarCommit hace rollback COMPLETO (caché exacta, fechas
-// renderizadas, remount del canvas) cuando la RPC transaccional rechaza el commit. Este archivo
-// debe estar verde ANTES de que L2StaffGantt.tsx habilite `readonly={!canWrite || isSaving}`.
+// Fase 7 (bugs/scheduler/fase_7/gantt_drag_resize_plan.md) — gate de seguridad: prueba que
+// handleBarCommit hace rollback COMPLETO (caché exacta, fechas renderizadas, remount del canvas)
+// cuando la RPC transaccional rechaza el commit. Este archivo debe estar verde ANTES de que
+// L2StaffGantt.tsx habilite `readonly={!canWrite || isSaving}` (Decisión de la Fase 5 con
+// guardia, ahora superada por el plan de la Fase 7).
 //
 // Límite de jsdom: SVAR (vendor/svar-gantt) no monta su store completo en jsdom, así que
 // GanttCanvas se mockea igual que en L2StaffGantt.assignments.test.tsx — el mock expone
@@ -165,7 +166,7 @@ function pendingRpc() {
 const latestCommit = () => captured[captured.length - 1]?.onBarCommit;
 const latestMountId = () => screen.getByTestId("canvas").getAttribute("data-mount-id");
 
-describe("L2StaffGantt — Fase 5 drag/resize commit gate (rollback transaccional)", () => {
+describe("L2StaffGantt — Fase 7 drag/resize commit gate (rollback transaccional)", () => {
   beforeEach(() => {
     captured.length = 0;
     mountCounter = 0;

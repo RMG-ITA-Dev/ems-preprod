@@ -7,8 +7,8 @@
 // (el borrado vive en el footer del Sheet, no se duplica lógica de
 // soft-delete aquí).
 //
-// Fase 5 (bugs/scheduler/fase_5/plan_v2.md §5, Decisión #1 — guardia de drag/resize): el canvas
-// se habilitó tras demostrar el rollback transaccional completo (ver
+// Fase 7 (bugs/scheduler/fase_7/gantt_drag_resize_plan.md; guardia introducida en Fase 5):
+// drag/resize del canvas se habilitó tras demostrar el rollback transaccional completo (ver
 // L2StaffGantt.dragResize.test.tsx) — handleBarCommit valida contra `allAssignments` (nunca la
 // vista filtrada), aplica el cambio optimista SOLO sobre la key exacta viewer-scoped, y en fallo
 // restaura la caché y remonta el canvas (resetNonce). `readonly` ahora refleja
@@ -143,7 +143,7 @@ export function L2StaffGantt({
     [navigate, location.pathname, location.search, returnNav]
   );
 
-  // Fase 5 — drag/resize commit: key EXACTA viewer-scoped (igual a
+  // Fase 7 — drag/resize commit: key EXACTA viewer-scoped (igual a
   // useEngagementAssignments) para que el optimismo/rollback nunca toque la
   // caché de otro viewer.
   const { user } = useAuth();
@@ -474,7 +474,7 @@ export function L2StaffGantt({
 
   return (
     <GanttCanvas
-      // Fase 5: remonta SOLO en aborto/rollback (resetNonce) — descarta la posición interna de
+      // Fase 7: remonta SOLO en aborto/rollback (resetNonce) — descarta la posición interna de
       // SVAR tras un commit rechazado, nunca en un guardado exitoso.
       key={`gantt-${resetNonce}`}
       rows={ganttRows}
