@@ -278,7 +278,8 @@ export function StaffAssignmentsCard({ engagement, onDirtyChange }: StaffAssignm
   const { data: assignments, isLoading, isError } = useEngagementAssignments(engagementId);
   const { data: aggregatedReqs } = useEngagementAggregatedRequirements(engagementId);
   const { data: staffOptions } = useActiveStaffWithSkills();
-  const { data: services } = useServices();
+  const servicesQuery = useServices();
+  const services = servicesQuery.data;
   // Categorías por SERVICIO del engagement (issue §6/§11). O6 (CERRADA) prohíbe expresamente el
   // fallback histórico "sin scope: todas las categorías": practica nula o sin match en `services`
   // resuelve a Auditoría, igual que el backfill de la migración de convergencia — nunca al
@@ -293,12 +294,20 @@ export function StaffAssignmentsCard({ engagement, onDirtyChange }: StaffAssignm
       services.find((s) => s.code === AUDITORIA_SERVICE_CODE)?.service_id
     );
   }, [services, engagement.practica]);
-  // Solo "resuelto" si services cargó Y el servicio (match directo o Auditoría) se encontró — un
-  // ambiente sin Auditoría en el catálogo (no debería ocurrir) queda sin categorías en vez de
-  // exponer el catálogo global como fallback silencioso.
-  const categoriesResolved = servicesLoaded && engagementServiceId !== undefined;
-  const { data: categoriesData } = useCategories(engagementServiceId);
-  const categories = categoriesResolved ? categoriesData : undefined;
+  const categoriesQuery = useCategories(engagementServiceId);
+  // "Resuelto" exige además que la query scoped haya TERMINADO con éxito (review de Fase 5,
+  // Iteración 3) — no alcanza con que el service_id ya esté disponible: mientras
+  // `categoriesQuery` sigue en vuelo (o si falla), `categoriesResolved` se quedaba en `true` con
+  // datos vacíos, marcando cualquier fila persistida como "categoría ajena" por error. Un
+  // ambiente sin Auditoría en el catálogo (engagementServiceId nunca resuelve, no debería
+  // ocurrir) queda sin categorías, no en catalogError — services sí cargó correctamente.
+  const categoriesResolved = servicesLoaded && engagementServiceId !== undefined && categoriesQuery.isSuccess;
+  const categories = categoriesResolved ? categoriesQuery.data : undefined;
+  // El catálogo (servicio + categorías) participa de los mismos estados loading/error que
+  // `useEngagementAssignments` — antes solo se mostraba loading/error de assignments, dejando a
+  // la grilla renderizar con datos de categoría a medio cargar o rotos.
+  const catalogLoading = !servicesLoaded || (engagementServiceId !== undefined && categoriesQuery.isLoading);
+  const catalogError = servicesQuery.isError || (engagementServiceId !== undefined && categoriesQuery.isError);
   const { saveAssignments, isSaving } = useSaveEngagementAssignments();
 
   const { isAdmin } = useUserRole();
@@ -551,7 +560,7 @@ export function StaffAssignmentsCard({ engagement, onDirtyChange }: StaffAssignm
     }
   };
 
-  if (isLoading) {
+  if (isLoading || catalogLoading) {
     return (
       <div className="space-y-3">
         <h3 className="font-medium text-lg">{t("engagement.assignments.title")}</h3>
@@ -560,7 +569,7 @@ export function StaffAssignmentsCard({ engagement, onDirtyChange }: StaffAssignm
     );
   }
 
-  if (isError) {
+  if (isError || catalogError) {
     return (
       <div className="space-y-3">
         <h3 className="font-medium text-lg">{t("engagement.assignments.title")}</h3>

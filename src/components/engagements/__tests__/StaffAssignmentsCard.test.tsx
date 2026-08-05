@@ -127,17 +127,24 @@ let assignmentsState: { data: unknown[]; isLoading: boolean; isError: boolean } 
 let staffOptionsState: unknown[] = [STAFF_ACTIVE, STAFF_NOT_SCHEDULABLE];
 // undefined = "aún no cargó" (para probar el gate de la ventana de carga, review de Fase 5 #3).
 let servicesState: unknown[] | undefined = SERVICES;
+let servicesErrorState = false;
+// Por defecto la query de categorías ya "terminó con éxito" (isSuccess=true) para no romper los
+// tests existentes; los tests de Iteración 3 (loading/error de categorías) la sobreescriben.
+let categoriesQueryOverride: { isLoading?: boolean; isError?: boolean; isSuccess?: boolean } | null = null;
 
 vi.mock("@/hooks/useEmsData", () => ({
   useEngagementAssignments: () => assignmentsState,
   useEngagementAggregatedRequirements: () => ({ data: [] }),
   useActiveStaffWithSkills: () => ({ data: staffOptionsState }),
-  useServices: () => ({ data: servicesState }),
+  useServices: () => ({ data: servicesState, isLoading: servicesState === undefined, isError: servicesErrorState }),
   // Argumento-consciente (review #M1): distingue el fetch scoped por servicio del fetch global
   // sin filtro (serviceId undefined) para poder probar que la Card nunca usa este último.
   useCategories: (serviceId?: string) => ({
     data:
       serviceId === "svc-aud" ? CATEGORIES : serviceId === "svc-tax" ? CATEGORIES_TAX : CATEGORIES_GLOBAL,
+    isLoading: categoriesQueryOverride?.isLoading ?? false,
+    isError: categoriesQueryOverride?.isError ?? false,
+    isSuccess: categoriesQueryOverride?.isSuccess ?? true,
   }),
 }));
 
@@ -161,6 +168,8 @@ describe("StaffAssignmentsCard", () => {
     assignmentsState = { data: [PERSISTED_ROW], isLoading: false, isError: false };
     staffOptionsState = [STAFF_ACTIVE, STAFF_NOT_SCHEDULABLE];
     servicesState = SERVICES;
+    servicesErrorState = false;
+    categoriesQueryOverride = null;
     mockRole = { isAdmin: false };
     mockStaffRecord = { staff_id: "mgr-1" }; // matches engagement.manager_id -> canEdit
     isSavingState = false;
@@ -354,6 +363,22 @@ describe("StaffAssignmentsCard", () => {
     const optionTexts = Array.from(container.querySelectorAll("option")).map((o) => o.textContent);
     expect(optionTexts).toContain("Cat One");
     expect(optionTexts).not.toContain("Tax Category");
+  });
+
+  it("REGRESSION (Iteración 3): shows the loading skeleton while the service resolved but the categories query is still in flight", () => {
+    categoriesQueryOverride = { isLoading: true, isSuccess: false };
+    render(<StaffAssignmentsCard engagement={ENGAGEMENT} />);
+    expect(screen.getByText("engagement.assignments.title")).toBeInTheDocument();
+    expect(screen.queryByText("engagement.assignments.addRow")).not.toBeInTheDocument();
+  });
+
+  it("REGRESSION (Iteración 3): shows the error state (not a false 'foreign category') when the categories query fails", () => {
+    categoriesQueryOverride = { isError: true, isSuccess: false };
+    render(<StaffAssignmentsCard engagement={ENGAGEMENT} />);
+    expect(screen.getByText("engagement.assignments.errors.loadFailed")).toBeInTheDocument();
+    expect(
+      screen.queryByText("engagement.assignments.errors.categoryForeignService")
+    ).not.toBeInTheDocument();
   });
 
   it("REGRESSION (review #1): a row with dates outside the Engagement's range is blocked from saving", async () => {
