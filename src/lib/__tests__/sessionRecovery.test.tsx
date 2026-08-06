@@ -6,8 +6,15 @@ import { SchedulerDataError, SchedulerUnavailableError } from "@/hooks/scheduler
 // "@/integrations/supabase/client" has no `auth` surface — this local vi.mock
 // supplies it for this file only, alongside the same functions/rpc shape the
 // global mock provides so other modules importing the client stay happy.
-const getUser = vi.fn();
-const signOut = vi.fn();
+//
+// vi.mock() calls are hoisted above the rest of the module (including plain
+// `const` declarations), so referencing plain top-level consts from inside
+// the factory is a TDZ violation waiting to happen — vi.hoisted() is the
+// documented, guaranteed-safe way to share values with a hoisted factory.
+const { getUser, signOut } = vi.hoisted(() => ({
+  getUser: vi.fn(),
+  signOut: vi.fn(),
+}));
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
     auth: { getUser, signOut },
