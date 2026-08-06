@@ -89,8 +89,21 @@ jobs:
         with:
           version: latest
 
+      # 🟢 Bug preexistente encontrado en vivo (2026-08-06, dev-scheduler-fase_7): sobre un
+      # volumen Docker recién creado (siempre el caso en un runner de GitHub Actions),
+      # `supabase start` aplica automáticamente todas las migraciones pendientes al arrancar,
+      # incluida la fail-fast de categorías en español de 20260224065512 — antes de que el
+      # paso "Ruta A — apply" (que sabe cachear ese fallo esperado y aplicar el parche de
+      # preseed-development-gaps.sh) llegue a ejecutarse. Nunca se vio localmente porque el
+      # Docker del operador reutiliza un volumen ya inicializado entre corridas. Se sortea
+      # ocultando `supabase/migrations/` durante el `start`, para que el CLI arranque con una
+      # base vacía y el control de cuándo se aplican las migraciones vuelva a ser 100% del
+      # script, como asume su diseño original (ver su propio header).
       - name: supabase start (one Docker stack, reused for both routes — same project_id ⇒ same containers)
-        run: supabase start
+        run: |
+          mv supabase/migrations supabase/migrations.bak
+          supabase start
+          mv supabase/migrations.bak supabase/migrations
 
       # ── Ruta A: pure chronological replay of every migration already on this branch
       #    (139 historical + C1-C4 = 143), via the same pre-seed script validated locally.

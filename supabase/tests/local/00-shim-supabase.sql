@@ -49,6 +49,13 @@ CREATE TABLE public.staff (
   last_name VARCHAR NOT NULL,
   category_id UUID REFERENCES public.categories(category_id),
   weekly_capacity_hours NUMERIC NOT NULL DEFAULT 40,
+  -- is_active: real column since before the scheduler shim existed (guarded by the
+  -- reactivation trigger in 20260520000000). is_schedulable: added for real by
+  -- 20260727110000_scheduler_fase2_convergencia_esquema.sql. Both were missing from this
+  -- shim, and save_engagement_assignments()'s own staff-eligibility check (Fase 5 O7) reads
+  -- both — 🟢 bug found live 2026-08-06 running the CI harness for dev-scheduler-fase_7.
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  is_schedulable BOOLEAN NOT NULL DEFAULT true,
   deleted_at TIMESTAMPTZ
 );
 
