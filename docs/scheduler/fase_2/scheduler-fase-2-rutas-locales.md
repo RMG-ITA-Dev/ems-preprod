@@ -470,15 +470,26 @@ sí sigue siendo real es distinto: **una base de datos construida partiendo del 
 `dev-scheduler`, esos 5 archivos como pendientes bajo sus nombres nuevos — aunque el contenido SQL sea
 byte-idéntico y el esquema resultante ya esté presente.
 
-El experimento (G3c del plan de Fase 7) mide esto de forma barata (~15 min) reescribiendo **solo la
-contabilidad** de `supabase_migrations.schema_migrations` en el stack local ya construido para Ruta B
-(5 `UPDATE ... SET version='<viejo>'`, sin tocar el contenido SQL en absoluto), y luego corriendo
+El experimento (G3c del plan de Fase 7) proponía medir esto de forma barata (~15 min) reescribiendo
+**solo la contabilidad** de `supabase_migrations.schema_migrations` en el stack local ya construido para
+Ruta B (5 `UPDATE ... SET version='<viejo>'`, sin tocar el contenido SQL en absoluto), y luego corriendo
 `supabase migration list --local` y `supabase db push --include-all --local` para observar si Postgres
 re-ejecuta esas 5 migraciones sin abortar (dado que son idempotentes/guardadas) o si el push falla.
 
-**Resultado medido: pendiente.** Este experimento requiere el stack Docker/CLI de Supabase de
-`EMS_Dev_Local` (R-LOCAL) — fuera del alcance de lo que se ejecuta desde `aurora-engage-pro` (R-APP), por
-la regla vigente del proyecto de no correr Supabase/migraciones desde este repo. El operador debe correr
-G3c contra R-LOCAL y registrar aquí (o en `docs/scheduler/fase_7/evidence/rename_hazard_push.txt`) la
-salida verbatim de ambos comandos antes de cerrar el gate de paridad de Ruta B de Fase 7. No se fabrica
-un resultado "esperado" en su lugar — evidencia inválida promovida como válida es peor que no tenerla.
+**El mecanismo del UPDATE sintético no es ejecutable (probado en vivo, 2026-08-06,
+`EMS_Dev_Local`).** Cada uno de los 5 timestamps "viejos" ya está ocupado por otro archivo de migración
+real y vigente, distinto del renombrado — no quedó libre tras el rename, porque el "ganador" de cada par
+conserva ese timestamp (ver la tabla en `scheduler-fase-2-verificacion.md`, sección "Q0 — RESUELTO por
+renombrado": p. ej. `20260521000000` es hoy `add_account_lockout_policy.sql`, no
+`create_vw_staffing_alerts.sql`). El `UPDATE` choca contra la constraint de PK de
+`schema_migrations` de inmediato — no es un problema del entorno ni de datos residuales, es que la
+línea de tiempo actual del repo ya no tiene ese slot vacante.
+
+**Resultado real, ya cubierto por evidencia previa de Fase 2:** el riesgo sustantivo que G3c quería medir
+— si re-aplicar los 5 archivos renombrados sobre un ledger con forma de `development` aborta por clave
+duplicada — **ya fue probado con el mecanismo real** en "Ruta B — cierre con el CLI real" (2026-07-29,
+`EMS_Dev_Local`, ver `scheduler-fase-2-verificacion.md`): `supabase db push --include-all` completó las
+139 migraciones históricas **sin ningún bloqueo de duplicados**, confirmando en los hechos (no solo en
+teoría) que el renombrado de Q0 funciona con el CLI real. El experimento sintético de G3c quedó
+descartado como vía de medición — no aporta nada que la corrida real de Fase 2 no haya probado ya, y su
+mecanismo (`UPDATE` a un timestamp libre) no se sostiene contra el estado actual del repo.

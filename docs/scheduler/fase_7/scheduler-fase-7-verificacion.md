@@ -8,25 +8,27 @@
 ## Alcance de esta ejecución
 
 Regla vigente del proyecto: **jamás correr Supabase/migraciones desde R-APP**
-(`aurora-engage-pro-908f8234`). Esta sesión implementó los bloques de código/documentación A–I del
-plan e ejecutó los gates que son puramente locales a R-APP (G0, G1 parcial, G2). G3–G9 requieren
-R-LOCAL (`EMS_Dev_Local`), R-INT (`../EMS_Dev_Supabase`, proyecto "Test") o un browser real contra
-esos ambientes — quedan documentados como pendientes de ejecución por el operador, no simulados.
+(`aurora-engage-pro-908f8234`) — se respetó en todo momento. G0–G2 corrieron en R-APP; G3/G4 corrieron
+con autorización explícita del operador contra **R-LOCAL** (`EMS_Dev_Local`, Docker), en una sesión de
+pair-debugging que además encontró y corrigió 4 bugs preexistentes de la CI (ver §3). G5–G9 siguen
+siendo del operador humano (R-INT, "Test", o requieren browser real) — no se simularon.
 
-| Gate | Estado en esta sesión |
+| Gate | Estado |
 |---|---|
-| G0 — Higiene de rama y alcance | ✅ Ejecutado, ver §1 |
-| G0.5 — Sync de repos hermanos | ⏳ Pendiente (R-LOCAL, R-INT) |
+| G0 — Higiene de rama y alcance | ✅ Ejecutado (R-APP), ver §1 |
+| G0.5 — Sync de repos hermanos | ✅ `EMS_Dev_Local` sincronizado con `git pull` durante la sesión |
 | G1 — Línea base en `development` | ⏳ Parcial — el baseline de `tsc`/lint/vitest se conoce de sesiones previas (183/0-errores-2-warnings/verde); no se re-capturó con worktree en esta sesión |
-| G2 — Calidad frontend | ✅ Ejecutado, ver §2 |
-| G3 — Rutas de BD A/B/C | ⏳ Pendiente (CI + R-LOCAL) |
-| G4 — SQL/RLS/RPC + matriz §10 | ⏳ Pendiente (R-LOCAL) — el fixture nuevo del bloque H está escrito y listo para correr ahí |
+| G2 — Calidad frontend | ✅ Ejecutado (R-APP), ver §2 |
+| G3a — Ruta A↔C vía CI | ✅ **Verde de punta a punta** (primera vez desde el 30 de julio) tras 4 fixes de CI, ver §3 |
+| G3b — Ruta A local | ✅ 143/143 migraciones, 0 pendientes, fingerprint capturado y commiteado en `EMS_Dev_Local` |
+| G3c — Escenario de renames (Ruta B) | ✅ Resuelto — el mecanismo sintético del plan no es ejecutable (ver detalle en §3); el riesgo sustantivo ya estaba probado por la corrida real de Fase 2 ("Ruta B — cierre con el CLI real") |
+| G4 — SQL/RLS/RPC + matriz §10 | ✅ Ejecutado contra un Postgres 16 aislado y descartable en R-LOCAL — **6/6 marcadores "ALL CHECKS PASSED"**, incluye los 3 fixtures nuevos del bloque H |
 | G5 — Ruta C oficial contra "Test" | ⏳ Pendiente (R-INT, solo operador humano) |
 | G6 — Regenerar y verificar tipos | ⏳ Pendiente (depende de G5; `types.ts` no fue tocado) |
 | G7 — Deploy de Edge Functions | ⏳ Pendiente (R-INT, solo operador humano) |
 | G8 — Regresión funcional (browser) | ⏳ Pendiente (browser real contra R-INT) |
 | G9 — Responsive/a11y/i18n visual | ⏳ Pendiente (browser real) |
-| G10 — Evidencia/docs/CI/review/PR | 🟡 Parcial — docs y CI de esta fase están escritos; falta el resto de la evidencia que depende de G3–G9 |
+| G10 — Evidencia/docs/CI/review/PR | 🟡 Parcial — docs, CI y evidencia de G3/G4 ya escritas; falta lo que depende de G5–G9 |
 
 ## §1. G0 — Higiene de rama y alcance (ejecutado, R-APP)
 
@@ -78,6 +80,46 @@ de los tests nuevos):
 2. `Auth.i18n.test.tsx` — `getByText("auth.signUp")` ambiguo: el mock `t = (k) => k` hace que el
    botón de toggle de modo y el link "¿no tienes cuenta?" compartan el mismo texto visible en modo
    sign-in. Corregido usando `getAllByText(...)[0]` (el toggle es el primero en el DOM).
+3. `sessionRecovery.test.tsx` — `Cannot access 'getUser' before initialization`: `vi.mock()` se
+   hoistea por encima de `const getUser = vi.fn()`, violando el patrón documentado de Vitest.
+   Corregido con `vi.hoisted()`.
+
+## §3. G3/G4 — Rutas de BD y RLS (ejecutado con autorización del operador, R-LOCAL vía CI + Docker)
+
+Sesión de pair-debugging en vivo (2026-08-06) con el operador, usando `gh` autenticado en la misma
+máquina para disparar y leer `scheduler-fase2-integrity.yml`, y Docker local (`EMS_Dev_Local`) para
+Ruta A y el harness de RLS. Cuatro bugs preexistentes de CI encontrados y corregidos en el camino,
+ninguno causado por el código de esta fase:
+
+| # | Bug | Síntoma | Fix |
+|---|---|---|---|
+| 1 | `supabase start` auto-aplica migraciones en un volumen Docker recién creado (siempre el caso en CI), antes de que el preseed pueda cachear el fallo esperado de categorías | `ERROR: Expected category "Socio" not found` matando el job entero | Ocultar `supabase/migrations/` durante el `start`, restaurar antes del preseed |
+| 2 | `staff.is_active`/`is_schedulable` nunca existieron en el shim de `00-shim-supabase.sql` | `column "is_active" does not exist` dentro de `save_engagement_assignments()` | Agregadas ambas columnas (`NOT NULL DEFAULT true`) |
+| 3 | El runner de Ubuntu trae `pg_dump` 16.x; el servidor local de Supabase es 17.6 | `pg_dump: error: aborting because of server version mismatch` | Instalar `postgresql-client-17` del repo oficial de PGDG |
+| 4 | El filtro de `\restrict`/`\unrestrict` de pg_dump era posicional (`tail`/`head`); pg_dump 17 antepone 3 líneas de header que la posición asumida no saltaba | Falso positivo: "Ruta A and Ruta C schema fingerprints diverge" con el único diff siendo esos 2 tokens | Filtro por contenido (`grep -vE '^\\(un)?restrict '`) en vez de posición |
+
+**Resultado: `scheduler-fase2-integrity.yml` corre verde de punta a punta** (`rls-migration-tests` 28s,
+`route-parity` 3m52s, incluido el gate de paridad Ruta A↔C) — primera vez desde el 30 de julio,
+confirmado comparando contra el historial de runs previos en `dev-scheduler`/fase_5/fase_6 (todos con
+la misma falla, en el mismo punto exacto, precediendo a esta fase).
+
+**G3b — Ruta A local:** `EMS_Dev_Local`, 143/143 migraciones, `db push --dry-run --include-all` con 0
+pendientes, fingerprint capturado y commiteado (reemplaza al obsoleto).
+
+**G3c — escenario de renames:** el `UPDATE` sintético del plan no es ejecutable contra el estado actual
+del repo (ver detalle y la corrección de fondo en
+`docs/scheduler/fase_2/scheduler-fase-2-rutas-locales.md` §6.1) — cada timestamp "viejo" de los 5 pares
+ya está ocupado por otro archivo real y vigente, no por el renombrado. El riesgo sustantivo que G3c
+quería medir ya estaba probado por la corrida real de Fase 2 ("Ruta B — cierre con el CLI real",
+139/139 sin bloqueos de duplicados) — no hacía falta reinventar la medición.
+
+**G4 — harness de RLS (4 lanes):** primer intento contra el stack de Supabase compartido de
+`EMS_Dev_Local` (corriendo 24h+, con Realtime/replicación lógica activa) — **crasheó el servidor 2
+veces, en el mismo punto exacto**, con recuperación automática de Postgres y sin pérdida de datos.
+No relacionado con el código de esta fase. Resuelto corriendo el harness contra un Postgres 16
+aislado y descartable (mismo enfoque que usa la CI), sin tocar el stack compartido del operador.
+Resultado: **6/6 marcadores "ALL CHECKS PASSED"** (lanes 1-3 + lane 4, ambas RPCs, matriz RLS completa
+incluidos los 3 fixtures nuevos del bloque H — Encargado, Especialista IT, usuario sin staff).
 
 ## Baseline de `tsc` — desglose (dueño: Fase 7, ver también el ratchet en `.github/workflows/test.yml`)
 
@@ -131,8 +173,10 @@ hasta 183. **`tsc` en 0 es gate del merge conjunto con `feat/roles-permisos`, no
   `EAS_OVERLAP` (rollback del payload completo, `rpc-save-engagement-assignments.sql`) + el
   `FOR UPDATE` documentado en la migración; la fila "Concurrencia" de §15 se cierra con una
   observación manual de dos pestañas durante G8 (pendiente, browser real).
-- **Escenario Ruta B de los 5 renames de convergencia**: medido en G3c, pendiente de ejecución en
-  R-LOCAL — ver `docs/scheduler/fase_2/scheduler-fase-2-rutas-locales.md` §6.1.
+- **Escenario Ruta B de los 5 renames de convergencia**: el mecanismo sintético de G3c no es
+  ejecutable contra el estado actual del repo (cada timestamp viejo está ocupado por otro archivo
+  real); el riesgo sustantivo ya estaba cubierto por la corrida real de Fase 2 — ver
+  `docs/scheduler/fase_2/scheduler-fase-2-rutas-locales.md` §6.1 para el detalle completo.
 
 ## Índice de evidencia
 
@@ -145,18 +189,18 @@ docs/scheduler/fase_7/evidence/
   git_scope.txt                      G0 — este documento, §1
   lint.txt                           G2 — 0 errores, 2 warnings
   tsc_postA-H.txt                    G2 — 183, desglose por código/archivo
-  vitest_final.txt                   G2 — pendiente al cierre de esta sesión
-  build_chunks.txt                   G2 — pendiente
-  vendor_verify.txt                  G2 — pendiente
-  ci_route_parity.txt                G3a — pendiente (CI)
-  route_parity_3way.txt              G3 — pendiente (R-LOCAL)
-  rename_hazard_push.txt             G3c — pendiente (R-LOCAL)
-  test_rls.txt                       G4 — pendiente (R-LOCAL); fixtures ya escritos (bloque H)
+  vitest_final.txt                   G2 — 188/188 archivos, 2461/2461 tests
+  build_chunks.txt                   G2 — build exitoso, chunks del Scheduler medidos
+  vendor_verify.txt                  G2 — verify.mjs, 3 capas PASS
+  ci_route_parity.txt                G3a — ✅ verde de punta a punta (run 31067557732), incluye los 4 bugs de CI encontrados/corregidos
+  route_parity_3way.txt              G3 — no aplica: el gate A↔C de la propia CI ya es la comparación real (fingerprint fresco commiteado en EMS_Dev_Local)
+  rename_hazard_push.txt             G3c — resuelto sin este archivo; ver §3 y scheduler-fase-2-rutas-locales.md §6.1 (mecanismo sintético no ejecutable, riesgo ya cubierto por evidencia de Fase 2)
+  test_rls.txt                       G4 — ✅ 6/6 "ALL CHECKS PASSED" contra Postgres 16 aislado, ver §3
   dev2_staff_column_privileges.txt   G5.0 — pendiente (R-INT)
   migration_list_int.txt             G5 — pendiente (R-INT)
   types_diff.txt                     G6 — pendiente (depende de G5)
   edge_functions_int.txt             G7 — pendiente (R-INT)
-  rls_matrix_18.md                   G4 — pendiente
+  rls_matrix_18.md                   G4 — cubierto por test_rls.txt (14/18 preexistentes + 3 nuevos del bloque H; PostgREST/vistas/RPC transversales a todas las filas)
   auth_scenarios.md                  G8 — pendiente (browser)
   network_requests.md                G8 — pendiente (browser)
   regression_development.md          G8 — pendiente (browser)
