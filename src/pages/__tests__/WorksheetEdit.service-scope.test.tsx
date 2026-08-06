@@ -104,6 +104,30 @@ vi.mock("@/hooks/useEmsData", () => ({
 vi.mock("@/hooks/useUserRole", () => ({
   useUserRole: () => ({ isAdmin: true, isPartner: false, isDirector: false, isManager: false }),
 }));
+// Fase 5 migró canCreateWorkOrder de (isAdmin||isPartner||isDirector||isManager)
+// a can("work_order.create"). useAuthorization llama a useAuth por dentro, así que
+// sin este mock el render falla con "useAuth must be used within an AuthProvider".
+// Con isAdmin: true el gate anterior daba true, así que can() => true lo replica.
+vi.mock("@/hooks/useAuthorization", () => ({
+  useAuthorization: () => ({
+    // WorksheetEdit ahora exige poder ESCRIBIR la matriz para habilitar el grid:
+    // roleKey admin o ser Socio/Gerente del encargo (espejo de is_admin() OR
+    // is_engagement_team_member() del backend). Los fixtures de estos tests traen
+    // partner/manager en null, asi que se usa la rama admin. `can()` se deja como
+    // lo tenia cada test, que gatea otra cosa (crear OT desde la matriz).
+    roleKey: "admin",
+    can: () => true,
+    scope: () => null,
+    isLoading: false,
+  }),
+}));
+// WorksheetEdit usa useCurrentStaff para resolver "soy Socio/Gerente de este
+// encargo". useCurrentStaff llama a useAuth por dentro, asi que sin mock el render
+// falla con "useAuth must be used within an AuthProvider".
+vi.mock("@/hooks/useCurrentStaff", () => ({
+  useCurrentStaff: () => ({ staffRecord: { staff_id: "staff-1" }, isLoading: false }),
+}));
+
 
 // Grid mock exposes the received `categories`/`activities` (as rows) and the
 // `cells` count, plus a button to trigger a cell change.

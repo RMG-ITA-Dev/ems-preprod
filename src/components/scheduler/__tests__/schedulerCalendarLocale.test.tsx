@@ -26,14 +26,8 @@ vi.mock("@/hooks/useEmsData", async () => {
   };
 });
 
-vi.mock("@/hooks/useUserRole", () => ({
-  useUserRole: () => ({
-    isAdmin: true,
-    isPartner: false,
-    isDirector: false,
-    isManager: false,
-    isSenior: false,
-  }),
+vi.mock("@/hooks/useAuthorization", () => ({
+  useAuthorization: () => ({ roleKey: "admin" }),
 }));
 
 vi.mock("@/hooks/useCategoryStaff", () => ({

@@ -32,7 +32,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { useUserRole } from "@/hooks/useUserRole";
+import { useAuthorization } from "@/hooks/useAuthorization";
 import { useCategoryStaff } from "@/hooks/useCategoryStaff";
 import { useClients } from "@/hooks/useEmsData";
 import { useSchedulerL1Rows, type SchedulerL1StatusFilter } from "@/hooks/scheduler/useSchedulerL1";
@@ -169,8 +169,8 @@ function WindowDatePicker({
 
 const SchedulerL1 = () => {
   const { t } = useTranslation();
-  const { isAdmin, isPartner, isDirector, isManager, isSenior } = useUserRole();
-  const canView = canSeePlanning({ isAdmin, isPartner, isDirector, isManager, isSenior });
+  const { roleKey } = useAuthorization();
+  const canView = canSeePlanning(roleKey);
 
   const [searchParams, setSearchParams] = useSearchParams();
   const fallback = useMemo(defaultWindow, []);

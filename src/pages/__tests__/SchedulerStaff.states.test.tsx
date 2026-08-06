@@ -29,18 +29,14 @@ vi.mock("@/components/layout/AppLayout", () => ({
   AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 
-const role = {
-  isAdmin: true,
-  isPartner: false,
-  isDirector: false,
-  isManager: false,
-  isSenior: false,
+const role: { roleKey: string | null; isLoading: boolean; isError: boolean; refetch: () => void } = {
+  roleKey: "admin",
   isLoading: false,
-  hasError: false,
+  isError: false,
   refetch: vi.fn(),
 };
-vi.mock("@/hooks/useUserRole", () => ({
-  useUserRole: () => role,
+vi.mock("@/hooks/useAuthorization", () => ({
+  useAuthorization: () => role,
 }));
 
 const timeline: {
@@ -131,13 +127,9 @@ function renderPage(
 beforeEach(() => {
   ganttProps.length = 0;
   Object.assign(role, {
-    isAdmin: true,
-    isPartner: false,
-    isDirector: false,
-    isManager: false,
-    isSenior: false,
+    roleKey: "admin",
     isLoading: false,
-    hasError: false,
+    isError: false,
   });
   Object.assign(timeline, {
     data: result(),
@@ -155,14 +147,14 @@ describe("SchedulerStaff role ladder", () => {
   });
 
   it("a resolved non-scheduler role is Forbidden — never the schedule", () => {
-    role.isAdmin = false; // every flag false → canView false
+    role.roleKey = null; // no role_key → canView false
     renderPage();
     expect(screen.getByText("scheduler.staff.forbidden")).toBeInTheDocument();
     expect(screen.queryByTestId("staff-gantt")).not.toBeInTheDocument();
   });
 
   it("waits for role resolution — no Forbidden flash while loading", () => {
-    role.isAdmin = false;
+    role.roleKey = null;
     role.isLoading = true;
     renderPage();
     expect(screen.queryByText("scheduler.staff.forbidden")).not.toBeInTheDocument();
@@ -170,8 +162,8 @@ describe("SchedulerStaff role ladder", () => {
   });
 
   it("a role-query error is an ERROR with Retry, not a silent Forbidden", () => {
-    role.isAdmin = false;
-    role.hasError = true;
+    role.roleKey = null;
+    role.isError = true;
     renderPage();
     expect(screen.getByText("scheduler.errors.loadFailed")).toBeInTheDocument();
     expect(screen.getByText("scheduler.errors.retry")).toBeInTheDocument();
@@ -254,7 +246,7 @@ describe("Cancel keeps the caller after URL-canonical control changes", () => {
 
 describe("SchedulerStaff escape hatch", () => {
   it.each([
-    ["forbidden", () => { role.isAdmin = false; }],
+    ["forbidden", () => { role.roleKey = null; }],
     ["role loading", () => { role.isLoading = true; }],
     [
       "unavailable",

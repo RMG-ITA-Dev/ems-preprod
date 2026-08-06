@@ -383,6 +383,8 @@
     "lastAdminBlocked": "Cannot remove the last administrator",
     "alreadyDeleted": "User account was already deleted",
     "notAdmin": "Administrator privileges required",
+    "invalidRole": "The selected role does not exist or is not enabled",
+    "noRoleAssigned": "No role assigned",
     "roles": {
       "admin": "Administrator",
       "partner": "Partner (Socio)",
@@ -395,6 +397,33 @@
       "sqr": "Quality-Risk (SQR)",
       "specialist_it": "IT Specialist",
       "specialist_tax": "Tax Specialist"
+    }
+  },
+  "authz": {
+    "role": {
+      "admin": "Administrator",
+      "it_security_manager": "National IT Security Manager",
+      "senior_partner": "Senior Partner",
+      "partner": "Partner (Socio)",
+      "sqr": "Quality-Risk (SQR)",
+      "director": "Director",
+      "manager": "Manager (Gerente)",
+      "senior": "Senior",
+      "semisenior": "Semi-Senior",
+      "assistant": "Assistant (Asistente)",
+      "ita_manager": "ITA Specialist Manager",
+      "ita_senior": "ITA Specialist Senior",
+      "ita_assistant": "ITA Specialist Assistant",
+      "tax_manager": "TAX Specialist Manager",
+      "tax_senior": "TAX Specialist Senior",
+      "tax_assistant": "TAX Specialist Assistant",
+      "accounting_manager": "Accounting Manager",
+      "accounting_analyst": "Accounting Analyst",
+      "collections_analyst": "Collections Analyst",
+      "risk_partner": "Risk Partner",
+      "risk_supervisor": "Risk Supervisor",
+      "hr_manager": "HR Manager",
+      "hr_analyst": "HR Analyst"
     }
   },
   "industry": {
@@ -821,6 +850,7 @@
     "createSuccess": "{{entity}} created successfully",
     "updateSuccess": "{{entity}} updated successfully",
     "deleteSuccess": "{{entity}} deleted successfully",
+    "deleteBlockedNoPermission": "Not deleted: you do not have permission to delete this record",
     "createError": "Error creating {{entity}}",
     "updateError": "Error updating {{entity}}",
     "deleteError": "Error deleting {{entity}}",
@@ -1274,6 +1304,7 @@
     "rejectRiskDialogTitle": "Reject Risk Assessment",
     "allStatuses": "All Statuses",
     "allEngagementsHaveWorkOrders": "All active engagements already have a work order.",
+    "noAssignedEngagementsAvailable": "You have no assigned active engagements without a work order.",
     "createEngagementFirst": "Create a new engagement",
     "submittedForApproval": "Work order submitted for approval",
     "approved": "Work order approved",
@@ -1656,6 +1687,7 @@
       "cancel": "Cancel Request"
     },
     "approvalsQueue": "Fund Request Approvals",
+    "accessByOtManager": "You see this screen because you are listed as manager of at least one work order with pending funds, not because of your role. Only the requests for those work orders are shown.",
     "disbursementsQueue": "Fund Disbursements",
     "submittedAt": "Submitted at",
     "managerDecidedAt": "Decided at",
@@ -1789,6 +1821,7 @@
     "searchPlaceholder": "Search by description, invoice or supplier...",
     "workOrder": "Work Order",
     "selectWorkOrder": "Select WO",
+    "workOrderNoAccess": "(WO — engagement details not accessible)",
     "expenseType": "Expense Type",
     "selectExpenseType": "Select type",
     "expenseDate": "Expense Date",
@@ -1885,7 +1918,8 @@
       "invalidDateRange": "The 'To' date cannot be earlier than the 'From' date",
       "observationNotesRequired": "You must describe the invoice observation",
       "noInvoiceNotesRequired": "Indicate which receipt is missing before returning",
-      "attachmentRequired": "Attach the receipt before resending"
+      "attachmentRequired": "Attach the receipt before resending",
+      "notPermittedOrChanged": "Change not applied: you lack permission or the expense already changed state"
     }
   },
   "scheduler": {

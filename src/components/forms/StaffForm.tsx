@@ -47,13 +47,11 @@ import {
 } from "@/components/ui/dialog";
 import { StaffFull, useCategories, useActiveSkills } from "@/hooks/useEmsData";
 import { useCreateStaff, useUpdateStaff, useDeleteStaff, useCreateStaffCompetency, useUpdateStaffCompetency, useDeleteStaffCompetency } from "@/hooks/mutations";
-import { Trash2, AlertTriangle, RefreshCw, Plus, Lock, LockOpen } from "lucide-react";
+import { Trash2, AlertTriangle, Plus, Lock, LockOpen } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { useUpdateUserRole } from "@/hooks/useUserRoles";
-import { useUserRole } from "@/hooks/useUserRole";
-import { Database } from "@/integrations/supabase/types";
+import { useAuthorization } from "@/hooks/useAuthorization";
 import { PROFICIENCY_LEVELS, type ProficiencyLevel } from "@/integrations/supabase/customTypes";
 import { formatFullDate, fromISODateString } from "@/lib/timesheetUtils";
 
@@ -76,7 +74,6 @@ const findFirstErrorMessage = (errors: unknown): string | undefined => {
   return undefined;
 };
 
-type AppRole = Database["public"]["Enums"]["app_role"];
 
 const createFormSchema = (t: TFunction, isEdit: boolean = false, previousIsActive?: boolean) =>
   z.object({
@@ -200,13 +197,13 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const isEdit = !!staff;
-  const { isAdmin } = useUserRole();
+  const { can, roleKey } = useAuthorization();
+  const isAdmin = roleKey === "admin";
   const { data: categories } = useCategories();
   const { data: activeSkills } = useActiveSkills();
   const createMutation = useCreateStaff();
   const updateMutation = useUpdateStaff();
   const deleteMutation = useDeleteStaff();
-  const updateRoleMutation = useUpdateUserRole();
   const createCompetency = useCreateStaffCompetency();
   const updateCompetency = useUpdateStaffCompetency();
   const deleteCompetency = useDeleteStaffCompetency();
@@ -217,10 +214,6 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
   // Pending hours dialog state
   const [pendingWeeks, setPendingWeeks] = useState<PendingWeek[]>([]);
   const [showPendingDialog, setShowPendingDialog] = useState(false);
-
-  // Role sync dialog state
-  const [showSyncDialog, setShowSyncDialog] = useState(false);
-  const [syncData, setSyncData] = useState<{ userId: string; newRole: AppRole } | null>(null);
 
   // Reactivation confirmation dialog state (BUG 0526-123).
   // Opens when an admin toggles is_active OFF->ON on a row that still has a
@@ -310,36 +303,6 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
   }, [firstName, lastName, isEdit, currentShortName, currentInitials, form]);
 
 
-  const onConfirmSync = async () => {
-    if (syncData) {
-      try {
-        await updateRoleMutation.mutateAsync({ 
-          userId: syncData.userId, 
-          newRole: syncData.newRole,
-          reason: "Category change sync"
-        });
-        toast.success(t("staff.roleSynced"));
-      } catch (error) {
-        toast.error(t("staff.roleSyncError"));
-      }
-    }
-    setShowSyncDialog(false);
-    if (onSaveSuccess) {
-      onSaveSuccess();
-    } else {
-      navigate("/staff");
-    }
-  };
-
-  const onSkipSync = () => {
-    setShowSyncDialog(false);
-    if (onSaveSuccess) {
-      onSaveSuccess();
-    } else {
-      navigate("/staff");
-    }
-  };
-
   const handleUnblock = async () => {
     if (!staff) return;
     setIsUnblocking(true);
@@ -393,17 +356,25 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
       }
     }
 
-    // Pre-save duplicate id_number check
+    // Pre-save duplicate id_number check.
+    // Va por RPC: el SELECT de `staff.id_number` está revocado a `authenticated`
+    // (20260730080000) y los privilegios de columna aplican también al WHERE, así
+    // que el `.eq('id_number', ...)` anterior ya no puede correr desde el cliente.
+    // El RPC responde solo si hay conflicto y de quién — nunca el documento ajeno.
     if (data.id_number) {
-      const { data: existingIdNum } = await supabase
-        .from('staff')
-        .select('staff_id, first_name, last_name')
-        .eq('id_number', data.id_number)
-        .is('deleted_at', null)
-        .neq('staff_id', staff?.staff_id || '')
-        .limit(1);
+      const { data: conflict, error: conflictError } = await supabase.rpc(
+        'staff_id_number_conflict' as never,
+        {
+          p_id_number: data.id_number,
+          p_exclude_staff_id: staff?.staff_id ?? null,
+        } as never
+      );
 
-      if (existingIdNum && existingIdNum.length > 0) {
+      if (conflictError) {
+        toast.error(t('errors.duplicateCheckFailed'));
+        return;
+      }
+      if ((conflict as unknown as { conflict?: boolean } | null)?.conflict) {
         toast.error(t('errors.duplicateIdNumber'));
         return;
       }
@@ -489,31 +460,10 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
       } catch (err) {
         console.error("[StaffForm] Competency save failed:", err);
         toast.error(t("staff.competencies.errors.partialSave"));
-        return; // Stay on form; do NOT open role-sync dialog
+        return; // Stay on form; do NOT proceed on partial competency save
       }
-
-      // Check for category change sync if staff is auth-linked
-      if (staff.auth_user_id && staff.category_id !== data.category_id) {
-        const newCategory = categories?.find(c => c.category_id === data.category_id);
-        const targetRole = newCategory?.default_app_role as AppRole | null;
-
-        if (targetRole) {
-          // Check current role
-          const { data: roleData } = await supabase
-            .from("user_roles")
-            .select("role")
-            .eq("user_id", staff.auth_user_id)
-            .single();
-
-          if (roleData?.role === 'admin' && targetRole !== 'admin') {
-            toast.info(t("staff.adminRoleProtected"));
-          } else if (roleData?.role !== targetRole) {
-            setSyncData({ userId: staff.auth_user_id, newRole: targetRole });
-            setShowSyncDialog(true);
-            return; // Stop navigation until dialog resolved
-          }
-        }
-      }
+      // FASE 3c: se eliminó el sync categoría→rol. La categoría ya no cambia el
+      // rol del usuario (Opción C: el rol directo manda; la categoría es negocio).
     } else {
       // Create staff first, then insert competencies with rollback on failure
       const newStaff = await createMutation.mutateAsync(payload);
@@ -568,7 +518,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
         <h1 className="text-lg font-semibold">
           {isEdit ? t("staff.editStaff") : t("staff.newStaff")}
         </h1>
-        {isEdit && (
+        {isEdit && can("staff.delete") && (
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button variant="destructive">
@@ -1166,29 +1116,6 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
               }}
             >
               {t("staff.reactivateConfirm")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Role Sync Dialog */}
-      <Dialog open={showSyncDialog} onOpenChange={(open) => !open && onSkipSync()}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <RefreshCw className="h-5 w-5 text-primary" />
-              {t("staff.syncRoleTitle")}
-            </DialogTitle>
-            <DialogDescription>
-              {t("staff.syncRoleMessage", { role: syncData ? t(`userRoles.roles.${syncData.newRole}`) : '' })}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="flex-col sm:flex-row gap-2">
-            <Button variant="cancel" onClick={onSkipSync}>
-              {t("staff.syncRoleSkip")}
-            </Button>
-            <Button onClick={onConfirmSync}>
-              {t("staff.syncRoleConfirm")}
             </Button>
           </DialogFooter>
         </DialogContent>

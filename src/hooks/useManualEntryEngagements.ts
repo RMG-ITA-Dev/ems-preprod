@@ -33,8 +33,8 @@ export function useManualEntryEngagements() {
           .select(`
             *,
             client:clients(*),
-            partner:staff!engagements_partner_id_fkey(*),
-            manager:staff!engagements_manager_id_fkey(*)
+            partner:staff!engagements_partner_id_fkey(staff_id, first_name, last_name, short_name, initials, category_id, city, is_active),
+            manager:staff!engagements_manager_id_fkey(staff_id, first_name, last_name, short_name, initials, category_id, city, is_active)
           `)
           .in("engagement_id", approvedIds)
           .eq("status", "active")
@@ -54,8 +54,8 @@ export function useManualEntryEngagements() {
         .select(`
           *,
           client:clients(*),
-          partner:staff!engagements_partner_id_fkey(*),
-          manager:staff!engagements_manager_id_fkey(*)
+          partner:staff!engagements_partner_id_fkey(staff_id, first_name, last_name, short_name, initials, category_id, city, is_active),
+          manager:staff!engagements_manager_id_fkey(staff_id, first_name, last_name, short_name, initials, category_id, city, is_active)
         `)
         // FEAT 0602-135: administrativos (sin OT) O con override manual Aprobado/Emergencia (4/5).
         .or("work_order_required.eq.false,engagement_state_override.in.(4,5)")

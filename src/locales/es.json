@@ -383,6 +383,8 @@
     "lastAdminBlocked": "No se puede eliminar al último administrador",
     "alreadyDeleted": "La cuenta de usuario ya fue eliminada",
     "notAdmin": "Se requieren privilegios de administrador",
+    "invalidRole": "El rol seleccionado no existe o no está habilitado",
+    "noRoleAssigned": "Sin rol asignado",
     "roles": {
       "admin": "Administrador",
       "partner": "Socio",
@@ -395,6 +397,33 @@
       "sqr": "Calidad-Riesgo (SQR)",
       "specialist_it": "Especialista IT",
       "specialist_tax": "Especialista Tax"
+    }
+  },
+  "authz": {
+    "role": {
+      "admin": "Administrador",
+      "it_security_manager": "Gerente Nacional de Seguridad TI",
+      "senior_partner": "Senior Partner",
+      "partner": "Socio",
+      "sqr": "Calidad-Riesgo (SQR)",
+      "director": "Director",
+      "manager": "Gerente",
+      "senior": "Senior",
+      "semisenior": "Semi Senior",
+      "assistant": "Asistente",
+      "ita_manager": "Gerente Especialista ITA",
+      "ita_senior": "Senior Especialista ITA",
+      "ita_assistant": "Asistente Especialista ITA",
+      "tax_manager": "Gerente Especialista TAX",
+      "tax_senior": "Senior Especialista TAX",
+      "tax_assistant": "Asistente Especialista TAX",
+      "accounting_manager": "Gerente de Contabilidad",
+      "accounting_analyst": "Analista de Contabilidad",
+      "collections_analyst": "Analista de Cobranzas",
+      "risk_partner": "Socio de Riesgos",
+      "risk_supervisor": "Supervisor de Riesgos",
+      "hr_manager": "Gerente de Talento Humano",
+      "hr_analyst": "Analista de Talento Humano"
     }
   },
   "industry": {
@@ -821,6 +850,7 @@
     "createSuccess": "{{entity}} creado/a exitosamente",
     "updateSuccess": "{{entity}} actualizado/a exitosamente",
     "deleteSuccess": "{{entity}} eliminado/a exitosamente",
+    "deleteBlockedNoPermission": "No se eliminó: no tiene permiso para eliminar este registro",
     "createError": "Error al crear {{entity}}",
     "updateError": "Error al actualizar {{entity}}",
     "deleteError": "Error al eliminar {{entity}}",
@@ -1274,6 +1304,7 @@
     "rejectRiskDialogTitle": "Rechazar Evaluación de Riesgo",
     "allStatuses": "Todos los Estados",
     "allEngagementsHaveWorkOrders": "Todos los encargos activos ya tienen una orden de trabajo.",
+    "noAssignedEngagementsAvailable": "No tiene encargos activos asignados sin orden de trabajo.",
     "createEngagementFirst": "Crear un nuevo encargo",
     "submittedForApproval": "Orden de trabajo enviada para aprobación",
     "approved": "Orden de trabajo aprobada",
@@ -1656,6 +1687,7 @@
       "cancel": "Cancelar Solicitud"
     },
     "approvalsQueue": "Aprobaciones de Solicitudes",
+    "accessByOtManager": "Ve esta pantalla porque figura como gerente de al menos una orden de trabajo con fondos pendientes, no por su rol. Solo aparecen las solicitudes de esas órdenes.",
     "disbursementsQueue": "Desembolsos de Fondos",
     "submittedAt": "Enviada el",
     "managerDecidedAt": "Decidida el",
@@ -1789,6 +1821,7 @@
     "searchPlaceholder": "Buscar por descripción, factura o proveedor...",
     "workOrder": "Orden de Trabajo",
     "selectWorkOrder": "Seleccionar OT",
+    "workOrderNoAccess": "(OT sin acceso al detalle del encargo)",
     "expenseType": "Tipo de Gasto",
     "selectExpenseType": "Seleccionar tipo",
     "expenseDate": "Fecha del Gasto",
@@ -1885,7 +1918,8 @@
       "invalidDateRange": "La fecha 'Al' no puede ser anterior a la fecha 'Del'",
       "observationNotesRequired": "Debe describir la observación de la factura",
       "noInvoiceNotesRequired": "Indique qué respaldo falta antes de devolver",
-      "attachmentRequired": "Adjunte el respaldo antes de reenviar"
+      "attachmentRequired": "Adjunte el respaldo antes de reenviar",
+      "notPermittedOrChanged": "No se aplicó el cambio: no tiene permiso o el gasto ya cambió de estado"
     }
   },
   "scheduler": {

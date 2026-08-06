@@ -40,7 +40,7 @@ import {
   useCancelFundRequest,
 } from "@/hooks/mutations/useFundRequestMutations";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
-import { useUserRole } from "@/hooks/useUserRole";
+import { useAuthorization } from "@/hooks/useAuthorization";
 import { toast } from "sonner";
 
 const staffName = (s?: { first_name?: string; last_name?: string; short_name?: string | null }) =>
@@ -57,7 +57,8 @@ const FundRequestEdit = () => {
   // liquidación dan 0 y no se debe permitir liquidar (condición de carrera).
   const expensesLoaded = expenses !== undefined;
   const { staffRecord } = useCurrentStaff();
-  const { isAdmin } = useUserRole();
+  const { can, roleKey } = useAuthorization();
+  const isAdmin = roleKey === "admin";
   const updateFr = useUpdateFundRequest();
   const submitFr = useSubmitFundRequest();
   const deleteFr = useDeleteFundRequest();
@@ -130,14 +131,14 @@ const FundRequestEdit = () => {
   );
 
   // Contabilidad / Asistente lo hace admin por ahora
-  const canDisburse = isAdmin && fr?.status === "aprobado_gerente";
+  const canDisburse = can("fund_disbursement.update") && fr?.status === "aprobado_gerente";
   const settlementBlocked = unfinishedExpenses.length > 0;
   // Asistente liquida (calcula + resuelve) cuando hay fondos entregados y no
   // quedan gastos a medio camino → envía al encargado (en_liquidacion).
   const canLiquidate =
-    isAdmin && fr?.status === "fondos_entregados" && expensesLoaded && !settlementBlocked;
+    can("expense_settlement.update") && fr?.status === "fondos_entregados" && expensesLoaded && !settlementBlocked;
   // Encargado cierra (o cancela) una vez recibida la liquidación.
-  const canCloseSettlement = isAdmin && fr?.status === "en_liquidacion";
+  const canCloseSettlement = can("fund_disbursement.update") && fr?.status === "en_liquidacion";
   const canCancel =
     isAdmin &&
     !!fr &&

@@ -38,14 +38,8 @@ vi.mock("@/hooks/useAuth", () => ({
   useAuth: () => ({ signOut: vi.fn() }),
 }));
 
-vi.mock("@/hooks/useUserRole", () => ({
-  useUserRole: () => ({
-    isAdmin: true,
-    isPartner: false,
-    isDirector: false,
-    isManager: false,
-    isSenior: false,
-  }),
+vi.mock("@/hooks/useAuthorization", () => ({
+  useAuthorization: () => ({ can: () => true, roleKey: "admin" }),
 }));
 
 vi.mock("@/hooks/useCurrentStaff", () => ({

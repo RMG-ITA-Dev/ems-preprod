@@ -14,11 +14,13 @@ vi.mock("react-router-dom", async () => {
   return { ...actual, useNavigate: () => mockNavigate };
 });
 
-let mockRole = {
-  isAdmin: false, isPartner: false, isDirector: false,
-  isManager: false, isLoading: false,
-};
-vi.mock("@/hooks/useUserRole", () => ({ useUserRole: () => mockRole }));
+// FASE 5: el botón "Nuevo" se gatea por permiso (useAuthorization.can), y la
+// creación por ruta (<PermissionRoute permission="client.create">). Ya no hay
+// redirect in-page en ClientNew.
+let mockCan: (perm: string) => boolean = () => false;
+vi.mock("@/hooks/useAuthorization", () => ({
+  useAuthorization: () => ({ can: mockCan, roleKey: null }),
+}));
 
 vi.mock("@/hooks/useEmsData", () => ({
   useClients: () => ({ data: [], isLoading: false }),
@@ -53,46 +55,27 @@ function wrap(ui: React.ReactElement) {
   );
 }
 
-describe("Clients — create permissions (0306-75)", () => {
-  beforeEach(() => { vi.clearAllMocks(); });
+describe("Clients — create permissions (FASE 5)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCan = () => false;
+  });
 
-  it.each([
-    ["admin",    { isAdmin: true,  isPartner: false, isDirector: false, isManager: false, isLoading: false }],
-    ["partner",  { isAdmin: false, isPartner: true,  isDirector: false, isManager: false, isLoading: false }],
-    ["director", { isAdmin: false, isPartner: false, isDirector: true,  isManager: false, isLoading: false }],
-  ])("shows 'Nuevo Cliente' button for %s", (_name, role) => {
-    mockRole = role;
+  it("shows 'Nuevo Cliente' button when user has client.create", () => {
+    mockCan = (perm) => perm === "client.create";
     wrap(<Clients />);
     expect(screen.getByText("client.newClient")).toBeInTheDocument();
   });
 
-  it.each([
-    ["manager",     { isAdmin: false, isPartner: false, isDirector: false, isManager: true,  isLoading: false }],
-    ["senior",      { isAdmin: false, isPartner: false, isDirector: false, isManager: false, isLoading: false }],
-    ["semisenior",  { isAdmin: false, isPartner: false, isDirector: false, isManager: false, isLoading: false }],
-    ["staff",       { isAdmin: false, isPartner: false, isDirector: false, isManager: false, isLoading: false }],
-    ["viewer",      { isAdmin: false, isPartner: false, isDirector: false, isManager: false, isLoading: false }],
-  ])("hides 'Nuevo Cliente' button for %s", (_name, role) => {
-    mockRole = role;
+  it("hides 'Nuevo Cliente' button when user lacks client.create", () => {
+    mockCan = () => false;
     wrap(<Clients />);
     expect(screen.queryByText("client.newClient")).not.toBeInTheDocument();
   });
 
-  it("redirects staff away from /clients/new after role loads", () => {
-    mockRole = { isAdmin: false, isPartner: false, isDirector: false, isManager: false, isLoading: false };
+  it("ClientNew renders the form without in-page redirect (route guard handles access)", () => {
     wrap(<ClientNew />);
-    expect(mockNavigate).toHaveBeenCalledWith("/clients", { replace: true });
-  });
-
-  it("does not redirect admin away from /clients/new", () => {
-    mockRole = { isAdmin: true, isPartner: false, isDirector: false, isManager: false, isLoading: false };
-    wrap(<ClientNew />);
+    expect(screen.getByTestId("client-form")).toBeInTheDocument();
     expect(mockNavigate).not.toHaveBeenCalledWith("/clients", { replace: true });
-  });
-
-  it("does not redirect while role is still loading", () => {
-    mockRole = { isAdmin: false, isPartner: false, isDirector: false, isManager: false, isLoading: true };
-    wrap(<ClientNew />);
-    expect(mockNavigate).not.toHaveBeenCalled();
   });
 });

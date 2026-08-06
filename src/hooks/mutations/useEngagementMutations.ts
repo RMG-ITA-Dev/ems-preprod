@@ -141,8 +141,20 @@ export function useDeleteEngagement() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from("engagements").delete().eq("engagement_id", id);
+      // `.select()` devuelve las filas realmente borradas. Es imprescindible:
+      // cuando RLS bloquea un DELETE, Postgres NO lanza error — la sentencia
+      // afecta 0 filas y PostgREST responde 204 sin `error`. Sin esta
+      // verificación la UI mostraba "eliminado exitosamente" con el encargo
+      // intacto (reportado con el rol ita_manager, que no tiene engagement.delete).
+      const { data, error } = await supabase
+        .from("engagements")
+        .delete()
+        .eq("engagement_id", id)
+        .select("engagement_id");
       if (error) throw error;
+      if (!data || data.length === 0) {
+        throw new Error(i18n.t("messages.deleteBlockedNoPermission"));
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["engagements"] });

@@ -5,8 +5,8 @@
 // that opened this page via location.state.returnTo, falling back to
 // /scheduler for bookmarked URLs (D-P7-8, AGENTS.md rule 2).
 //
-// Role ladder follows the Phase 6 refinement (D-P6-19): useUserRole
-// defaults its role to "staff" while loading and after an error, so the
+// Role ladder follows the Phase 6 refinement (D-P6-19): useAuthorization's
+// roleKey is null while loading and after an error (fail-closed), so the
 // Forbidden verdict waits for authoritative resolution. The server 403 is
 // the real control (D-P7-2) — this gate is presentation only.
 
@@ -33,7 +33,8 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { useUserRole } from "@/hooks/useUserRole";
+import { useAuthorization } from "@/hooks/useAuthorization";
+import { canSeePlanning } from "@/lib/schedulerAccess";
 import { useSchedulerStaffTimeline } from "@/hooks/scheduler/useSchedulerStaffTimeline";
 import {
   SchedulerDataError,
@@ -116,16 +117,12 @@ const SchedulerStaff = () => {
   const [returnNav] = useState(() => captureReturnNav(location.state));
 
   const {
-    isAdmin,
-    isPartner,
-    isDirector,
-    isManager,
-    isSenior,
+    roleKey,
     isLoading: roleLoading,
-    hasError: roleError,
+    isError: roleError,
     refetch: refetchRole,
-  } = useUserRole();
-  const canView = isAdmin || isPartner || isDirector || isManager || isSenior;
+  } = useAuthorization();
+  const canView = canSeePlanning(roleKey);
   const roleResolved = !roleLoading && !roleError;
 
   const [searchParams, setSearchParams] = useSearchParams();

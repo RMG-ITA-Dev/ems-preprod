@@ -40,7 +40,7 @@ import {
   useDecideAllFundRequestExpenses,
 } from "@/hooks/mutations/useFundRequestExpenseMutations";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
-import { useUserRole } from "@/hooks/useUserRole";
+import { useAuthorization } from "@/hooks/useAuthorization";
 import { parseDateLocal } from "@/lib/timesheetUtils";
 
 const formatCurrency = (n: number, currency: "BOB" | "USD") =>
@@ -68,7 +68,12 @@ const FundRequestExpenses = () => {
   const { data: fr, isLoading: frLoading } = useFundRequestById(id);
   const { data: expenses, isLoading: expLoading } = useFundRequestExpenses(id);
   const { staffRecord } = useCurrentStaff();
-  const { isAdmin } = useUserRole();
+  // "Ve todo el pedido" es el rol de Contabilidad (liquidación), no admin. El
+  // comentario original decía "admin (contabilidad por ahora)": ahora se decide
+  // por el permiso real, así que el Gerente y el Analista de Contabilidad
+  // también lo ven, como manda la matriz.
+  const { can } = useAuthorization();
+  const canSettleExpenses = can("expense_settlement.read");
 
   const submitAll = useSubmitAllFundRequestExpenses();
   const decideAll = useDecideAllFundRequestExpenses();
@@ -89,7 +94,7 @@ const FundRequestExpenses = () => {
   // Solo los actores del flujo pueden descargar el reporte: solicitante, gerente
   // de OT, o admin (contabilidad por ahora). Y solo si hay gastos que reportar.
   const canExport =
-    (isRequester || isManagerOfThisFr || isAdmin) && (expenses?.length ?? 0) > 0;
+    (isRequester || isManagerOfThisFr || canSettleExpenses) && (expenses?.length ?? 0) > 0;
   // Vista "acotada al gerente": por RLS, un gerente puro (no solicitante ni admin)
   // solo ve SUS OTs y los gastos de esas OTs.
   // Excepción: si gestiona TODAS las OTs (su asignado == lo solicitado), ve la
@@ -104,7 +109,7 @@ const FundRequestExpenses = () => {
   const seesWholeRequest =
     Math.abs(myAllocatedTotal - Number(fr?.total_requested_amount ?? 0)) < 0.01;
   const isManagerScoped =
-    isManagerOfThisFr && !isRequester && !isAdmin && !seesWholeRequest;
+    isManagerOfThisFr && !isRequester && !canSettleExpenses && !seesWholeRequest;
   // Hay gastos "bloqueados": enviados (pendiente), aprobados por el gerente o
   // revisados por contabilidad. Mientras exista alguno, el solicitante no puede
   // registrar/enviar nuevos gastos.
@@ -158,7 +163,7 @@ const FundRequestExpenses = () => {
   // Gastos pendientes que ESTE gerente debe decidir (sus OTs). El admin ve todos.
   const myPendingExpenses = useMemo(() => {
     const list = (expenses ?? []).filter((e) => e.status === "pendiente_aprobacion");
-    if (isAdmin) return list;
+    if (canSettleExpenses) return list;
     if (!staffRecord || !fr) return [];
     const myWoIds = new Set(
       (fr.fund_request_work_orders ?? [])
@@ -166,7 +171,7 @@ const FundRequestExpenses = () => {
         .map((o) => o.wo_id),
     );
     return list.filter((e) => myWoIds.has(e.wo_id));
-  }, [expenses, fr, staffRecord, isAdmin]);
+  }, [expenses, fr, staffRecord, canSettleExpenses]);
 
   const canDecideAll = myPendingExpenses.length > 0;
 

@@ -9,7 +9,7 @@ import { ExpenseActionBadge } from "@/components/fund-requests/ExpenseActionBadg
 import { useFundRequests, type FundRequest, type FundRequestStatus } from "@/hooks/useFundRequests";
 import { useFundRequestExpenseCounts } from "@/hooks/useFundRequestExpenseCounts";
 import { expensePhase } from "@/lib/fundRequest";
-import { useUserRole } from "@/hooks/useUserRole";
+import { useAuthorization } from "@/hooks/useAuthorization";
 
 const formatCurrency = (n: number, currency: "BOB" | "USD") =>
   Math.round(n).toLocaleString(currency === "BOB" ? "es-BO" : "en-US", {
@@ -38,7 +38,13 @@ const FundRequestDisbursements = () => {
   const navigate = useNavigate();
   const { data, isLoading } = useFundRequests();
   const { data: expenseCounts } = useFundRequestExpenseCounts();
-  const { isAdmin, isLoading: roleLoading } = useUserRole();
+  // Se decide por permiso, no por el enum legacy. Con `isAdmin` esta pantalla
+  // era solo para admin, mientras el sidebar la ofrecía a todo el que tuviera
+  // fund_disbursement.read — o sea el Gerente de Contabilidad veía la pestaña y
+  // al entrar recibía "sin acceso". Según la matriz, Desembolso de Fondos es de
+  // admin y accounting_manager.
+  const { can, isLoading: authzLoading } = useAuthorization();
+  const canSeeDisbursements = can("fund_disbursement.read");
   const [tab, setTab] = useState<Tab>("to_disburse");
 
   const tabOf = useCallback(
@@ -80,7 +86,7 @@ const FundRequestDisbursements = () => {
     return c;
   }, [data, tabOf]);
 
-  if (!roleLoading && !isAdmin) {
+  if (!authzLoading && !canSeeDisbursements) {
     return (
       <AppLayout title={t("fundRequest.disbursementsQueue")}>
         <div className="text-muted-foreground">{t("common.noAccess")}</div>

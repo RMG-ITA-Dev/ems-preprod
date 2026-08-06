@@ -44,15 +44,11 @@ vi.mock("@/hooks/usePageLeaveLock", () => ({
   }),
 }));
 
-vi.mock("@/hooks/useUserRole", () => ({
-  useUserRole: () => ({
-    isAdmin: true,
-    isPartner: false,
-    isDirector: false,
-    isManager: false,
-    isSenior: false,
+vi.mock("@/hooks/useAuthorization", () => ({
+  useAuthorization: () => ({
+    roleKey: "admin",
     isLoading: false,
-    hasError: false,
+    isError: false,
     refetch: vi.fn(),
   }),
 }));

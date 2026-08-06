@@ -7,14 +7,37 @@ import { UserRolesManager } from "../UserRolesManager";
 // ---------------------------------------------------------------------------
 // Hoisted mock handles — must be hoisted so the vi.mock factory can capture them
 // ---------------------------------------------------------------------------
-const { mockUseAllUserRoles } = vi.hoisted(() => ({
+const { mockUseAllUserRoles, mockUpdateRoleKey, CATALOG_ROLE_KEYS } = vi.hoisted(() => ({
   mockUseAllUserRoles: vi.fn(),
+  mockUpdateRoleKey: vi.fn(),
+  // Los 23 roles de authorization_roles (Fase 1 seed), en display_order.
+  CATALOG_ROLE_KEYS: [
+    "admin", "it_security_manager", "senior_partner", "partner", "sqr",
+    "director", "manager", "senior", "semisenior", "assistant",
+    "ita_manager", "ita_senior", "ita_assistant",
+    "tax_manager", "tax_senior", "tax_assistant",
+    "accounting_manager", "accounting_analyst", "collections_analyst",
+    "risk_partner", "risk_supervisor", "hr_manager", "hr_analyst",
+  ],
 }));
 
 vi.mock("@/hooks/useUserRoles", () => ({
   useAllUserRoles: () => mockUseAllUserRoles(),
-  useUpdateUserRole: () => ({ mutate: vi.fn(), isPending: false }),
+  useUpdateUserRoleKey: () => ({ mutate: mockUpdateRoleKey, isPending: false }),
   useDeleteAuthUser: () => ({ mutate: vi.fn() }),
+}));
+
+vi.mock("@/hooks/useAuthorizationRoles", () => ({
+  useAuthorizationRoles: () => ({
+    data: CATALOG_ROLE_KEYS.map((role_key, i) => ({
+      role_key,
+      label_key: `authz.role.${role_key}`,
+      description: null,
+      is_system: role_key === "admin",
+      display_order: i,
+    })),
+    isLoading: false,
+  }),
 }));
 
 vi.mock("@/hooks/useAuth", () => ({
@@ -89,7 +112,10 @@ interface MockRow {
   role_id: string;
   user_id: string;
   email: string;
+  /** Enum legacy (espejo). */
   role: string;
+  /** Autoridad del motor: es lo que la tabla muestra, ordena y filtra. */
+  role_key: string | null;
   staff_name: string | null;
   created_at: string;
 }
@@ -99,16 +125,18 @@ const makeRow = (i: number, overrides: Partial<MockRow> = {}): MockRow => ({
   user_id: `user-${i}`,
   email: `user${i}@example.com`,
   role: "staff",
+  role_key: "assistant",
   staff_name: `Staff Member ${i}`,
   created_at: "2024-01-01T00:00:00Z",
   ...overrides,
 });
 
 const baseRows: MockRow[] = [
-  makeRow(1, { email: "susy@example.com", staff_name: "Susy Test", role: "admin" }),
-  makeRow(2, { email: "bob@example.com", staff_name: "Bob Smith", role: "staff" }),
-  makeRow(3, { email: "orphan@example.com", staff_name: null, role: "viewer" }),
-  makeRow(4, { user_id: "self-user-id", email: "self@example.com", staff_name: "Current User", role: "admin" }),
+  makeRow(1, { email: "susy@example.com", staff_name: "Susy Test", role: "admin", role_key: "admin" }),
+  makeRow(2, { email: "bob@example.com", staff_name: "Bob Smith", role: "staff", role_key: "assistant" }),
+  // `viewer` no está en el catálogo: ejercita el fallback de label al enum legacy.
+  makeRow(3, { email: "orphan@example.com", staff_name: null, role: "viewer", role_key: "viewer" }),
+  makeRow(4, { user_id: "self-user-id", email: "self@example.com", staff_name: "Current User", role: "admin", role_key: "admin" }),
 ];
 
 // ---------------------------------------------------------------------------
@@ -170,7 +198,7 @@ describe("UserRolesManager", () => {
   });
 
   // UR4 -----------------------------------------------------------------------
-  it("UR4: clicking role column sort once renders rows sorted ascending by role enum string", async () => {
+  it("UR4: clicking role column sort once renders rows sorted ascending by role_key string", async () => {
     const user = userEvent.setup();
     render(<UserRolesManager />);
 
@@ -178,7 +206,7 @@ describe("UserRolesManager", () => {
     const roleLabel = screen.getByText("userRoles.currentRole");
     await user.click(roleLabel);
 
-    // After ascending sort: admin < staff < viewer (alphabetical enum)
+    // After ascending sort: admin < assistant < viewer (alphabetical role_key)
     const dataRows = screen
       .getAllByRole("row")
       .filter((row) => row.querySelectorAll("td").length > 0);
@@ -192,16 +220,16 @@ describe("UserRolesManager", () => {
   });
 
   // UR5 -----------------------------------------------------------------------
-  it("UR5: role filter popover lists 11 role options; selecting one leaves only rows with that role", () => {
+  it("UR5: role filter popover lists every catalog role; selecting one leaves only rows with that role", () => {
     render(<UserRolesManager />);
 
     // The filter Select is inside the always-visible PopoverContent mock.
     // Scope to data-testid to avoid ambiguity with change_role column Selects.
     const filterSelect = within(screen.getByTestId("popover-content")).getByRole("combobox");
 
-    // 11 role options + 1 "all" option = 12 total
+    // 23 catalog roles + 1 "all" option
     const options = within(filterSelect).getAllByRole("option");
-    expect(options.length).toBe(12);
+    expect(options.length).toBe(CATALOG_ROLE_KEYS.length + 1);
 
     // Select "admin" — triggers onValueChange which updates DataTable filterValues
     fireEvent.change(filterSelect, { target: { value: "admin" } });
@@ -287,5 +315,54 @@ describe("UserRolesManager", () => {
     // DataTable renders 5 skeleton rows in desktop mode when isLoading=true
     const skeletons = document.querySelectorAll("[class*='animate-pulse']");
     expect(skeletons.length).toBeGreaterThan(0);
+  });
+
+  // UR11 ----------------------------------------------------------------------
+  it("UR11: the change-role select offers the specialized catalog roles absent from the legacy enum", () => {
+    render(<UserRolesManager />);
+
+    // Any non-self row's change_role select (skip the filter select in the popover)
+    const selects = screen
+      .getAllByRole("combobox")
+      .filter((el) => !screen.getByTestId("popover-content").contains(el));
+    const values = within(selects[0])
+      .getAllByRole("option")
+      .map((o) => (o as HTMLOptionElement).value);
+
+    // These 4 have no app_role counterpart, so the old hardcoded list could not show them
+    expect(values).toContain("ita_manager");
+    expect(values).toContain("collections_analyst");
+    expect(values).toContain("hr_analyst");
+    expect(values).toContain("senior_partner");
+    expect(values).toHaveLength(CATALOG_ROLE_KEYS.length);
+  });
+
+  // UR12 ----------------------------------------------------------------------
+  it("UR12: selecting a specialized role calls the mutation with that role_key", () => {
+    render(<UserRolesManager />);
+
+    const selects = screen
+      .getAllByRole("combobox")
+      .filter((el) => !screen.getByTestId("popover-content").contains(el));
+
+    fireEvent.change(selects[0], { target: { value: "tax_manager" } });
+
+    expect(mockUpdateRoleKey).toHaveBeenCalledTimes(1);
+    expect(mockUpdateRoleKey).toHaveBeenCalledWith({
+      userId: expect.any(String),
+      newRoleKey: "tax_manager",
+    });
+  });
+
+  // UR13 ----------------------------------------------------------------------
+  it("UR13: a user without role_key renders the no-role label instead of a blank badge", () => {
+    mockUseAllUserRoles.mockReturnValue({
+      data: [makeRow(9, { email: "norole@example.com", role_key: null })],
+      isLoading: false,
+    });
+    render(<UserRolesManager />);
+
+    expect(screen.getByText("norole@example.com")).toBeInTheDocument();
+    expect(screen.getAllByText("userRoles.noRoleAssigned").length).toBeGreaterThan(0);
   });
 });

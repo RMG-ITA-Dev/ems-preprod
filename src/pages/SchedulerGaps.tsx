@@ -5,10 +5,10 @@
 // would edit shipped Phase 4 code).
 //
 // Role gate is presentation-layer only; the server 403 is the control.
-// useUserRole defaults its role to "staff" while loading and after a
-// query error, so canView is MEANINGLESS until the role query settles —
-// the Forbidden verdict waits for authoritative resolution, and all four
-// gaps hooks take enabled = roleResolved && canView.
+// useAuthorization's roleKey is null while loading and after a query
+// error (fail-closed), so canView is MEANINGLESS until the role query
+// settles — the Forbidden verdict waits for authoritative resolution, and
+// all four gaps hooks take enabled = roleResolved && canView.
 //
 // Fase 3 (plan v2 §3, §4): `canView` usa el predicado compartido
 // `canSeeGaps` (firmwide-only); las categorías de los gráficos incluyen
@@ -31,7 +31,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { useUserRole } from "@/hooks/useUserRole";
+import { useAuthorization } from "@/hooks/useAuthorization";
 import {
   useBenchVsPipeline,
   useCategoryHeadcountGap,
@@ -121,16 +121,13 @@ function WindowDatePicker({
 const SchedulerGaps = () => {
   const { t } = useTranslation();
   const {
-    isAdmin,
-    isPartner,
-    isDirector,
-    isManager,
-    isSenior,
+    roleKey,
     isLoading: roleLoading,
-    hasError: roleError,
+    isError: roleError,
     refetch: refetchRole,
-  } = useUserRole();
-  const canView = canSeeGaps({ isAdmin, isPartner, isDirector, isManager, isSenior });
+  } = useAuthorization();
+  const isAdmin = roleKey === "admin";
+  const canView = canSeeGaps(roleKey);
   const roleResolved = !roleLoading && !roleError;
 
   const [searchParams, setSearchParams] = useSearchParams();

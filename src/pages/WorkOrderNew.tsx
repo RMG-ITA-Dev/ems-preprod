@@ -28,10 +28,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import { WorkOrderForm, BudgetLineInput, ExpenseBudgetInput } from "@/components/forms/WorkOrderForm";
 import { useEngagements, useSetting, useCategories, useWorkOrders } from "@/hooks/useEmsData";
-import { useUserRole } from "@/hooks/useUserRole";
 import { useWorksheetByEngagementId } from "@/hooks/useWorksheetData";
 import { useCreateWorkOrder, useCreateBudgetLine, useCreateExpenseBudget, useUpsertPaymentPlan, useBatchUpsertInstallments } from "@/hooks/mutations";
 import { toast } from "sonner";
+import { useAuthorization } from "@/hooks/useAuthorization";
 import type { PaymentPlanInput, PaymentInstallmentInput } from "@/types/workOrderPaymentPlan";
 
 const WorkOrderNew = () => {
@@ -39,10 +39,15 @@ const WorkOrderNew = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const engagementIdParam = searchParams.get("engagement");
-  const { isAdmin, isPartner, isDirector, isManager, isLoading: roleLoading } = useUserRole();
-  const canCreate = isAdmin || isPartner || isDirector || isManager;
+  // Guard de creación por permiso vía <PermissionRoute permission="work_order.create"> en App.tsx.
+  // El estado del plan de pagos lo edita Admin o Cobranzas, igual que en
+  // WorkOrderEdit. La Fase 5 quitó el `useUserRole()` de este componente pero
+  // dejó la prop apuntando a un `isAdmin` que ya no existía, así que la pantalla
+  // reventaba con "isAdmin is not defined" al elegir el encargo.
+  const { can, scope, roleKey } = useAuthorization();
+  const isAdmin = roleKey === "admin";
 
-  const { data: engagements } = useEngagements();
+  const { data: engagements, isLoading: engagementsLoading } = useEngagements();
   const { data: categories } = useCategories();
   const { data: workOrders } = useWorkOrders();
   const globalTaxRate = useSetting("TAX_RATE");
@@ -66,13 +71,6 @@ const WorkOrderNew = () => {
   const woIsDirty = !!(selectedEngagementId || budgetLines.length > 0 || expenseBudget.length > 0);
   const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty: woIsDirty });
   const taxRate = parseFloat(globalTaxRate || "0.13");
-
-  useEffect(() => {
-    if (!roleLoading && !canCreate) {
-      allowNextNavigation();
-      navigate("/work-orders", { replace: true });
-    }
-  }, [roleLoading, canCreate, allowNextNavigation, navigate]);
 
   // Get list of engagement IDs that already have work orders
   const engagementsWithWorkOrders = workOrders?.map((wo) => wo.engagement_id) || [];
@@ -110,8 +108,6 @@ const WorkOrderNew = () => {
       })
     );
   }, [currency, seasonMode, categories]);
-
-  if (roleLoading || !canCreate) return null;
 
   const handleSubmitClick = () => {
     if (!selectedEngagementId) {
@@ -204,13 +200,32 @@ const WorkOrderNew = () => {
               <CardTitle>{t("workOrders.selectEngagement")}</CardTitle>
             </CardHeader>
             <CardContent>
-              {availableEngagements?.length === 0 ? (
+              {/* Tres estados distintos, antes colapsados en dos: `engagements`
+                  viene `undefined` mientras carga, y `undefined?.length === 0` es
+                  FALSE, así que se caía al select con el desplegable vacío y sin
+                  explicación (reportado 2026-07-31 por un Socio sin encargos
+                  asignados). Ahora: cargando / sin encargos disponibles / lista. */}
+              {engagementsLoading ? (
+                <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
+              ) : !availableEngagements?.length ? (
                 <Alert>
                   <AlertDescription className="flex flex-col gap-2">
-                    <span>{t("workOrders.allEngagementsHaveWorkOrders")}</span>
-                    <Link to="/engagements/new" className="text-primary hover:underline font-medium">
-                      {t("workOrders.createEngagementFirst")}
-                    </Link>
+                    {/* La lista viene filtrada por RLS: work_order.create con alcance
+                        assigned_engagements (Socio, Gerente, ITA/TAX) solo ve SUS encargos.
+                        Decir "todos los encargos activos" afirma algo de toda la firma que
+                        ese usuario no puede saber, así que el mensaje se ajusta al alcance. */}
+                    <span>
+                      {scope("work_order.create") === "firm"
+                        ? t("workOrders.allEngagementsHaveWorkOrders")
+                        : t("workOrders.noAssignedEngagementsAvailable")}
+                    </span>
+                    {/* El enlace solo si puede crear encargos: el Socio NO tiene
+                        engagement.create, así que antes lo mandaba al 403 de PermissionRoute. */}
+                    {can("engagement.create") && (
+                      <Link to="/engagements/new" className="text-primary hover:underline font-medium">
+                        {t("workOrders.createEngagementFirst")}
+                      </Link>
+                    )}
                   </AlertDescription>
                 </Alert>
               ) : (
@@ -318,7 +333,7 @@ const WorkOrderNew = () => {
             paymentPlan={paymentPlan}
             paymentInstallments={paymentInstallments}
             isAdminDateEditable={false}
-            isStatusEditable={isAdmin}
+            isStatusEditable={isAdmin || roleKey === "collections_analyst"}
             onPaymentPlanChange={setPaymentPlan}
             onPaymentInstallmentsChange={setPaymentInstallments}
           />

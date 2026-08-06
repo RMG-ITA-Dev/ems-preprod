@@ -64,7 +64,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Switch } from "@/components/ui/switch";
-import { useUserRole } from "@/hooks/useUserRole";
+import { useAuthorization } from "@/hooks/useAuthorization";
 import {
   ENGAGEMENT_STATES,
   engagementStateI18nKey,
@@ -215,16 +215,35 @@ const AUDITORIA_SERVICE_CODE = 1;
 export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSuccess, onGoToWorkMatrix }: EngagementFormProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { isAdmin, isManager, isPartner, isLoading: roleLoading, isDirector } = useUserRole();
+  // `isAdmin` ya NO sale del enum legacy: se deriva de `role_key`, que es la
+  // autoridad del motor de autorización. Los 12 gates de solo-admin de este
+  // archivo (selección de servicio, override de año fiscal, piso de fecha de
+  // inicio, práctica por defecto, bloques de UI) quedan cubiertos con este único
+  // cambio, sin tocar cada sitio.
+  //
+  // Este archivo ya NO usa el enum legacy: todo sale de `role_key` y de los
+  // permisos. El último resto era `isManager` para el toggle de congelamiento, que
+  // ahora se resuelve por asignación (ver `canFreezeAsManager` más abajo).
+  const { can, roleKey, isLoading: roleLoading } = useAuthorization();
+  const isAdmin = roleKey === "admin";
   const isEdit = !!engagement;
+  // Al editar, el guardado exige engagement.update; al crear, la ruta ya gatea engagement.create.
+  const canSave = !isEdit || can("engagement.update");
   // BUG #0604-143: closing date (and the FY it derives) may be edited by Admin/Gerente/Socio/Director;
   // oficina/practica/funcion/engagement_code remain fully immutable after create.
-  const canEditClosing = isAdmin || isManager || isPartner || isDirector;
+  // Editar la fecha de cierre es parte de editar el encargo, así que se decide por
+  // el mismo permiso que habilita el guardado (`canSave`, más abajo). Antes era una
+  // banda del enum legacy (admin||manager||partner||director), que habilitaba el
+  // campo a roles sin `engagement.update`: veían el campo editable y después no
+  // tenían botón de guardar. No cambia lo que nadie PUEDE hacer — solo deja de
+  // ofrecer una edición que no se puede persistir.
+  const canEditClosing = can("engagement.update");
   // FEAT 0602-135: control del estado del encargo.
   // - Admin: control total (los 9 estados + "Automático").
   // - Gerente: solo congelar/descongelar (Aprobado ↔ Congelado), y solo cuando el encargo
   //   ya está Aprobado o Congelado. El resto de estados los gobierna la OT / el Admin.
-  const canManageEngagementState = isAdmin || isManager;
+  // (canManageEngagementState se define más abajo: necesita `staffRecord` para
+  //  resolver "el gerente DE ESTE encargo").
   const savedEffectiveState = engagement
     ? effectiveEngagementState(engagement, engagement.work_order)
     : null;
@@ -253,6 +272,17 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   const { data: allTaxonomies } = useTaxonomies();
   const { partnerOptions, managerOptions, hasPartnerCategory, hasManagerCategory, allActiveStaff } = useCategoryStaff();
   const { staffRecord } = useCurrentStaff();
+
+  // FEAT 0602-135 — congelar/descongelar. Decisión de negocio (2026-07-30): además
+  // del Admin, puede el GERENTE DE ESTE encargo, no cualquier usuario con rol
+  // Gerente. Antes era `isAdmin || isManager` sobre el enum legacy, que habilitaba
+  // el toggle a todo rol mapeado a `manager` (con el espejo de Fase 8 son siete:
+  // manager, ita/tax_manager, it_security_manager, accounting_manager, hr_manager
+  // y risk_supervisor) y sobre CUALQUIER encargo, no solo los suyos.
+  const isEngagementManager =
+    !!staffRecord?.staff_id && staffRecord.staff_id === engagement?.manager_id;
+  const canFreezeAsManager = can("engagement.update") && isEngagementManager;
+  const canManageEngagementState = isAdmin || canFreezeAsManager;
 
   const activeServiceOptions = useMemo(
     () => (allServices ?? []).filter((s) => s.is_active || s.code === engagement?.practica),
@@ -1069,7 +1099,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                       </FormItem>
                     )}
                   />
-                ) : isEdit && isManager ? (
+                ) : isEdit && canFreezeAsManager ? (
                   // Gerente: solo congelar/descongelar, habilitado únicamente cuando el encargo
                   // está Aprobado o Congelado. ON => override 9 (Congelado); OFF => Automático (vuelve a Aprobado).
                   <FormField
@@ -1533,15 +1563,17 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
               <Button type="button" variant="cancel" onClick={() => onCancel ? onCancel() : navigate("/engagements")} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
                 {t("common.cancel")}
               </Button>
-              <LoadingButton
-                type="submit"
-                variant="default"
-                className="w-full sm:w-auto min-h-[44px] sm:min-h-0"
-                loading={createMutation.isPending || updateMutation.isPending}
-                disabled={hasMissingCategories && !isEdit}
-              >
-                {isEdit ? t("common.saveChanges") : t("engagement.createEngagement")}
-              </LoadingButton>
+              {canSave && (
+                <LoadingButton
+                  type="submit"
+                  variant="default"
+                  className="w-full sm:w-auto min-h-[44px] sm:min-h-0"
+                  loading={createMutation.isPending || updateMutation.isPending}
+                  disabled={hasMissingCategories && !isEdit}
+                >
+                  {isEdit ? t("common.saveChanges") : t("engagement.createEngagement")}
+                </LoadingButton>
+              )}
             </div>
           </form>
         </Form>

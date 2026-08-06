@@ -14,10 +14,16 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useGenerateNationalHolidays } from "@/hooks/mutations/useHolidayMutations";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
+import { useAuthorization } from "@/hooks/useAuthorization";
 import { getBoliviaNationalHolidays, NATIONAL_HOLIDAY_NAMES, normalizeHolidayName } from "@/lib/boliviaHolidays";
 
 export function HolidaysManager() {
   const { t } = useTranslation();
+  // La matriz da "Listar/Ver Feriados" a los 23 roles pero "Crear/Editar/Eliminar"
+  // solo a admin y Talento Humano: el listado es visible para todos y las acciones
+  // de escritura se ocultan a quien no las tiene (RLS igual las rechazaría).
+  const { can } = useAuthorization();
+  const canWrite = can("holiday.create");
   const { data: holidays, isLoading } = useHolidays();
   const { data: staffList } = useStaff();
 
@@ -152,44 +158,46 @@ export function HolidaysManager() {
         searchKeys={["holiday_name"]}
         isLoading={isLoading}
         headerActions={
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="icon"
-              disabled={targetYear <= minTargetYear}
-              onClick={() => setTargetYear((y) => y - 1)}
-              aria-label={t("holiday.previousYear")}
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="outline"
-              disabled={generateMutation.isPending || !staffRecord}
-              onClick={() => setGenerateOpen(true)}
-            >
-              <Wand2 className="h-4 w-4 mr-2" />
-              {t("holiday.generateButton", { year: targetYear })}
-            </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              disabled={targetYear >= maxTargetYear}
-              onClick={() => setTargetYear((y) => y + 1)}
-              aria-label={t("holiday.nextYear")}
-            >
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
+          canWrite ? (
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="icon"
+                disabled={targetYear <= minTargetYear}
+                onClick={() => setTargetYear((y) => y - 1)}
+                aria-label={t("holiday.previousYear")}
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="outline"
+                disabled={generateMutation.isPending || !staffRecord}
+                onClick={() => setGenerateOpen(true)}
+              >
+                <Wand2 className="h-4 w-4 mr-2" />
+                {t("holiday.generateButton", { year: targetYear })}
+              </Button>
+              <Button
+                variant="outline"
+                size="icon"
+                disabled={targetYear >= maxTargetYear}
+                onClick={() => setTargetYear((y) => y + 1)}
+                aria-label={t("holiday.nextYear")}
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          ) : undefined
         }
-        newButtonLabel={t("holiday.addHoliday")}
-        onNewClick={() => {
+        newButtonLabel={canWrite ? t("holiday.addHoliday") : undefined}
+        onNewClick={canWrite ? () => {
           setSelectedHoliday(null);
           setFormOpen(true);
-        }}
-        onRowClick={(row) => {
+        } : undefined}
+        onRowClick={canWrite ? (row) => {
           setSelectedHoliday(row);
           setFormOpen(true);
-        }}
+        } : undefined}
         getRowId={(row) => row.holiday_id}
       />
 

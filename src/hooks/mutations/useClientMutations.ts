@@ -43,13 +43,15 @@ export function useCreateClient() {
       address?: string;
       is_active?: boolean;
     }) => {
-      const { data: result, error } = await supabase
-        .from("clients")
-        .insert(data)
-        .select()
-        .single();
+      // Sin `.select()` a propósito: el RETURNING obliga a que la fila nueva pase
+      // la política de LECTURA de clients, que para los roles con alcance
+      // 'assigned_clients' exige is_assigned_to_client() — imposible de cumplir
+      // para un cliente que acaba de nacer y todavía no tiene ningún encargo.
+      // Con RETURNING, la creación fallaba para Socio, SQR, Director, Gerente y
+      // los Gerentes Especialistas ITA/TAX. Nadie consume la fila devuelta:
+      // ClientForm descarta el resultado y ClientNew navega a /clients.
+      const { error } = await supabase.from("clients").insert(data);
       if (error) throw error;
-      return result;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["clients"] });

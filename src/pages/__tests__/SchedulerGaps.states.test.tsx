@@ -1,12 +1,13 @@
 // SchedulerGaps eight-state ladder, modeled on SchedulerL2.states.test.tsx.
 // The ladder's order is the contract: role-loading renders a skeleton and
 // NEVER a Forbidden flash for an eventually-admin viewer; a role-read
-// failure is an ERROR with a retry wired to useUserRole().refetch, never
-// a permission verdict; Forbidden and Unavailable are terminal; and a
+// failure is an ERROR with a retry wired to useAuthorization().refetch,
+// never a permission verdict; Forbidden and Unavailable are terminal; and a
 // rendered report never appears alongside an error.
 //
-// Fase 3 (plan v2 §4): canView usa canSeeGaps({isAdmin,isPartner,
-// isDirector,isManager,isSenior}) — el fixture de rol incluye los 5 flags.
+// Fase 3 (plan v2 §4): canView usa canSeeGaps(roleKey) — el fixture de rol
+// es un role_key (23 valores), no los 5 flags legacy de antes del merge
+// con feat/roles-permisos (2026-08, H3).
 
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -31,18 +32,14 @@ vi.mock("@/components/layout/AppLayout", () => ({
 }));
 
 // Role state — mutable per test (default: resolved admin).
-const roleState = {
-  isAdmin: true,
-  isPartner: false,
-  isDirector: false,
-  isManager: false,
-  isSenior: false,
+const roleState: { roleKey: string | null; isLoading: boolean; isError: boolean; refetch: () => void } = {
+  roleKey: "admin",
   isLoading: false,
-  hasError: false,
+  isError: false,
   refetch: vi.fn(),
 };
-vi.mock("@/hooks/useUserRole", () => ({
-  useUserRole: () => roleState,
+vi.mock("@/hooks/useAuthorization", () => ({
+  useAuthorization: () => roleState,
 }));
 
 // Controllable gaps-hook states + captured `enabled` inputs.
@@ -142,20 +139,16 @@ beforeEach(() => {
   enabledInputs.length = 0;
   mocks = dataState();
   Object.assign(roleState, {
-    isAdmin: true,
-    isPartner: false,
-    isDirector: false,
-    isManager: false,
-    isSenior: false,
+    roleKey: "admin",
     isLoading: false,
-    hasError: false,
+    isError: false,
     refetch: vi.fn(),
   });
 });
 
 describe("state 1 — role loading (never a Forbidden flash)", () => {
   it("renders skeletons, no forbidden text, and disables every gaps hook", () => {
-    Object.assign(roleState, { isLoading: true, isAdmin: false });
+    Object.assign(roleState, { isLoading: true, roleKey: null });
     renderPage();
     expect(screen.queryByText("scheduler.gaps.forbidden")).not.toBeInTheDocument();
     expectNoReport();
@@ -167,8 +160,8 @@ describe("state 1 — role loading (never a Forbidden flash)", () => {
 });
 
 describe("state 2 — role error is an ERROR, not a permission verdict", () => {
-  it("renders the destructive alert with a Retry wired to useUserRole().refetch", () => {
-    Object.assign(roleState, { hasError: true, isAdmin: false });
+  it("renders the destructive alert with a Retry wired to useAuthorization().refetch", () => {
+    Object.assign(roleState, { isError: true, roleKey: null });
     renderPage();
     expect(screen.getByText("scheduler.errors.loadFailed")).toBeInTheDocument();
     expect(screen.queryByText("scheduler.gaps.forbidden")).not.toBeInTheDocument();
@@ -182,7 +175,7 @@ describe("state 2 — role error is an ERROR, not a permission verdict", () => {
 
 describe("state 3 — forbidden is terminal after role resolution", () => {
   it("client-gate variant: a resolved manager-shaped role sees forbidden with all hooks disabled", () => {
-    Object.assign(roleState, { isAdmin: false });
+    Object.assign(roleState, { roleKey: "manager" });
     renderPage();
     expect(screen.getByText("scheduler.gaps.forbidden")).toBeInTheDocument();
     expect(screen.queryByText("scheduler.errors.retry")).not.toBeInTheDocument();

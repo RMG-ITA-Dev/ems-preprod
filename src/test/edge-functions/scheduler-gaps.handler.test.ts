@@ -158,25 +158,44 @@ const hoursBody = { action: "category-hours-gap", ...W };
 const shortageBody = { action: "competency-shortage", ...W };
 const benchBody = { action: "bench-vs-pipeline" };
 
-// ── Role matrix (I-P6-2): all 11 app_role values, per action ───────────
+// ── Role matrix (I-P6-2): all 23 role_key values, per action ───────────
+// Merge con feat/roles-permisos (2026-08, H3): role pasó de user_roles.role
+// (11 valores legacy) a user_roles.role_key (23 valores). Incluye los 12
+// que el enum legacy espejado filtraría de más si el gate leyera el enum
+// en vez de role_key (risk_partner/it_security_manager/risk_supervisor →
+// "partner"/"manager"; accounting_manager/hr_manager/ita_manager/
+// tax_manager → "manager"; accounting_analyst/collections_analyst/
+// hr_analyst/ita_senior/tax_senior → "senior").
 
 describe("role gate (I-P6-2): the firmwide-only slice of the D5 matrix", () => {
   const ALL_ROLES = [
     "admin",
+    "senior_partner",
     "partner",
+    "sqr",
     "director",
     "manager",
     "senior",
     "semisenior",
-    "staff",
-    "viewer",
-    "sqr",
-    "specialist_it",
-    "specialist_tax",
+    "assistant",
+    "ita_manager",
+    "ita_senior",
+    "ita_assistant",
+    "tax_manager",
+    "tax_senior",
+    "tax_assistant",
+    "accounting_manager",
+    "accounting_analyst",
+    "collections_analyst",
+    "risk_partner",
+    "risk_supervisor",
+    "hr_manager",
+    "hr_analyst",
+    "it_security_manager",
   ];
-  const ALLOWED = new Set(["admin", "partner", "director"]);
+  const ALLOWED = new Set(["admin", "senior_partner", "partner", "director"]);
 
-  it("gapsVisibility grants exactly admin/partner/director", () => {
+  it("gapsVisibility grants exactly admin/senior_partner/partner/director", () => {
     for (const role of ALL_ROLES) {
       expect(gapsVisibility(role)).toBe(ALLOWED.has(role) ? "all" : "denied");
     }

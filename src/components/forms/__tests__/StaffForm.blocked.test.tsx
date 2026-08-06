@@ -66,6 +66,14 @@ vi.mock("@/hooks/useUserRole", () => ({
   }),
 }));
 
+// FASE 5: StaffForm ahora deriva isAdmin y el botón eliminar de useAuthorization.
+vi.mock("@/hooks/useAuthorization", () => ({
+  useAuthorization: () => ({
+    can: () => adminOverride,
+    roleKey: adminOverride ? "admin" : "staff",
+  }),
+}));
+
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
     auth: {

@@ -29,15 +29,9 @@ vi.mock("@/components/layout/AppLayout", () => ({
   AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 
-let mockRole: { isAdmin: boolean; isPartner?: boolean; isDirector?: boolean; isManager?: boolean; isSenior?: boolean } = {
-  isAdmin: true,
-  isPartner: false,
-  isDirector: false,
-  isManager: false,
-  isSenior: false,
-};
-vi.mock("@/hooks/useUserRole", () => ({
-  useUserRole: () => mockRole,
+let mockRoleKey: string | null = "admin";
+vi.mock("@/hooks/useAuthorization", () => ({
+  useAuthorization: () => ({ roleKey: mockRoleKey }),
 }));
 
 let mockStaffRecord: { staff_id: string } | null = null;
@@ -176,7 +170,7 @@ beforeEach(() => {
   mocks.services = queryState([]);
   mocks.categories = queryState([]);
   mocks.load = { ...queryState({ rows: [] }), isSuccess: true, error: null };
-  mockRole = { isAdmin: true, isPartner: false, isDirector: false, isManager: false, isSenior: false };
+  mockRoleKey = "admin";
   mockStaffRecord = null;
 });
 
@@ -253,7 +247,7 @@ describe("read-only display filtering", () => {
 // encargado/specialist_it/specialist_tax of THIS engagement).
 describe("write authorization (Fase 5 — is_engagement_responsible mirror)", () => {
   it("admin: sees '+ Agregar staff' and no read-only note; L2StaffGantt receives canWrite=true", () => {
-    mockRole = { isAdmin: true };
+    mockRoleKey = "admin";
     renderPage();
     expect(screen.getByText("scheduler.l2.addStaff")).toBeInTheDocument();
     expect(screen.queryByText(/scheduler\.readOnly/)).not.toBeInTheDocument();
@@ -263,7 +257,7 @@ describe("write authorization (Fase 5 — is_engagement_responsible mirror)", ()
   it("the engagement's manager (structural responsible) can write", () => {
     // canView (L2 entry, O8) still gates on the ORG role name "manager" — being the
     // is_engagement_responsible manager_id of this engagement implies holding that role.
-    mockRole = { isAdmin: false, isManager: true };
+    mockRoleKey = "manager";
     mockStaffRecord = { staff_id: "m-1" }; // ENGAGEMENT.manager_id
     renderPage();
     expect(screen.getByText("scheduler.l2.addStaff")).toBeInTheDocument();
@@ -271,7 +265,7 @@ describe("write authorization (Fase 5 — is_engagement_responsible mirror)", ()
   });
 
   it("a bystander role (not responsible, not admin) sees the read-only note and no add button", () => {
-    mockRole = { isAdmin: false, isPartner: false, isDirector: false, isManager: true, isSenior: false };
+    mockRoleKey = "manager";
     mockStaffRecord = { staff_id: "unrelated-staff" };
     renderPage();
     expect(screen.getByText(/scheduler\.readOnly/)).toBeInTheDocument();
@@ -280,7 +274,7 @@ describe("write authorization (Fase 5 — is_engagement_responsible mirror)", ()
   });
 
   it("clicking '+ Agregar staff' opens the AssignmentSheet in add mode", () => {
-    mockRole = { isAdmin: true };
+    mockRoleKey = "admin";
     renderPage();
     fireEvent.click(screen.getByText("scheduler.l2.addStaff"));
     expect(screen.getByText("scheduler.assignmentSheet.title")).toBeInTheDocument();
@@ -288,7 +282,7 @@ describe("write authorization (Fase 5 — is_engagement_responsible mirror)", ()
   });
 
   it("L2StaffGantt receives the full (unfiltered) assignments snapshot separately via allAssignments — canWrite propagates even when the category filter narrows the display", () => {
-    mockRole = { isAdmin: true };
+    mockRoleKey = "admin";
     renderPage("/scheduler/engagement/e-1?category=cat-1");
     const props = lastGantt();
     expect((props.assignments as EngagementAssignmentRow[]).map((r) => r.assignment_id)).toEqual(["a1"]);

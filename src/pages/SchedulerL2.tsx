@@ -32,7 +32,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useUserRole } from "@/hooks/useUserRole";
+import { useAuthorization } from "@/hooks/useAuthorization";
+import { canSeePlanning } from "@/lib/schedulerAccess";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { canWriteEngagementAssignments } from "@/lib/schedulerAssignmentAuthz";
 import {
@@ -80,8 +81,9 @@ const SchedulerL2 = () => {
   // Employee-Gantt caller after any of them.
   const [returnNav] = useState(() => captureReturnNav(location.state));
 
-  const { isAdmin, isPartner, isDirector, isManager, isSenior } = useUserRole();
-  const canView = isAdmin || isPartner || isDirector || isManager || isSenior;
+  const { roleKey } = useAuthorization();
+  const isAdmin = roleKey === "admin";
+  const canView = canSeePlanning(roleKey);
   const { staffRecord } = useCurrentStaff();
 
   const [searchParams, setSearchParams] = useSearchParams();

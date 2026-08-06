@@ -2,21 +2,25 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { LayoutDashboard, Grid3X3, Timer, Menu } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
+import { useAuthorization } from "@/hooks/useAuthorization";
 
 interface MobileBottomNavProps {
   onMoreClick: () => void;
 }
 
-const navItems = [
-  { path: "/", icon: LayoutDashboard, labelKey: "nav.dashboard" },
-  { path: "/timesheet", icon: Grid3X3, labelKey: "nav.timeSheet" },
-  { path: "/tracker", icon: Timer, labelKey: "nav.tracker" },
-];
-
 export function MobileBottomNav({ onMoreClick }: MobileBottomNavProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const { t } = useTranslation();
+  const { can } = useAuthorization();
+
+  // FASE 5: Dashboard siempre; Hoja de Tiempo / Cronómetro por permiso
+  // (roles sin Registros de Tiempo — Contabilidad/TH/Cobranzas — no los ven).
+  const navItems = [
+    { path: "/", icon: LayoutDashboard, labelKey: "nav.dashboard", show: true },
+    { path: "/timesheet", icon: Grid3X3, labelKey: "nav.timeSheet", show: can("timesheet.read") },
+    { path: "/tracker", icon: Timer, labelKey: "nav.tracker", show: can("time_entry.read") },
+  ].filter((i) => i.show);
 
   const isActive = (path: string) => {
     if (path === "/") return location.pathname === "/";

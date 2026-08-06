@@ -14,11 +14,12 @@ vi.mock("react-router-dom", async () => {
   return { ...actual, useNavigate: () => mockNavigate };
 });
 
-let mockRole = {
-  isAdmin: false, isPartner: false, isDirector: false,
-  isManager: false, isLoading: false,
-};
-vi.mock("@/hooks/useUserRole", () => ({ useUserRole: () => mockRole }));
+// FASE 5: crear Matriz -> can("worksheet.create"); crear OT desde la matriz ->
+// can("work_order.create"). WorksheetNew ya no redirige in-page (route guard).
+let mockCan: (perm: string) => boolean = () => false;
+vi.mock("@/hooks/useAuthorization", () => ({
+  useAuthorization: () => ({ can: mockCan, roleKey: null }),
+}));
 
 vi.mock("@/hooks/useWorksheetData", () => ({
   useWorksheets: () => ({ data: [], isLoading: false }),
@@ -59,7 +60,7 @@ vi.mock("@/components/ui/leave-page-dialog", () => ({ LeavePageDialog: () => nul
 vi.mock("@/lib/logger", () => ({ logger: { error: vi.fn(), debug: vi.fn(), warn: vi.fn(), info: vi.fn() } }));
 vi.mock("@/lib/timesheetUtils", () => ({ parseDateLocal: (d: string) => new Date(d) }));
 
-// Worksheet in draft state, no linked work order — maximum opportunity to show the Create WO button
+// Worksheet in draft state, no linked work order — máxima oportunidad de mostrar Crear OT
 const mockWorksheet = {
   id: "ws-1",
   engagement_id: "eng-1",
@@ -94,69 +95,42 @@ function wrap(ui: React.ReactElement) {
   );
 }
 
-describe("WorksheetList — create permissions (0306-75)", () => {
-  beforeEach(() => { vi.clearAllMocks(); });
+describe("WorksheetList — create permissions (FASE 5)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCan = () => false;
+  });
 
-  // --- WorksheetList page ---
-  it.each([
-    ["admin",    { isAdmin: true,  isPartner: false, isDirector: false, isManager: false, isLoading: false }],
-    ["partner",  { isAdmin: false, isPartner: true,  isDirector: false, isManager: false, isLoading: false }],
-    ["director", { isAdmin: false, isPartner: false, isDirector: true,  isManager: false, isLoading: false }],
-    ["manager",  { isAdmin: false, isPartner: false, isDirector: false, isManager: true,  isLoading: false }],
-  ])("shows 'Nueva Matriz' button for %s", (_name, role) => {
-    mockRole = role;
+  it("shows 'Nueva Matriz' when user has worksheet.create", () => {
+    mockCan = (perm) => perm === "worksheet.create";
     wrap(<WorksheetList />);
     expect(screen.getByText("workMatrix.newWorksheet")).toBeInTheDocument();
   });
 
-  it.each([
-    ["senior",     { isAdmin: false, isPartner: false, isDirector: false, isManager: false, isLoading: false }],
-    ["semisenior", { isAdmin: false, isPartner: false, isDirector: false, isManager: false, isLoading: false }],
-    ["staff",      { isAdmin: false, isPartner: false, isDirector: false, isManager: false, isLoading: false }],
-    ["viewer",     { isAdmin: false, isPartner: false, isDirector: false, isManager: false, isLoading: false }],
-  ])("hides 'Nueva Matriz' button for %s", (_name, role) => {
-    mockRole = role;
+  it("hides 'Nueva Matriz' when user lacks worksheet.create", () => {
+    mockCan = () => false;
     wrap(<WorksheetList />);
     expect(screen.queryByText("workMatrix.newWorksheet")).not.toBeInTheDocument();
   });
 
-  // --- WorksheetEdit: canCreateWorkOrder hidden for low-rank roles ---
-  it.each([
-    ["senior", { isAdmin: false, isPartner: false, isDirector: false, isManager: false, isLoading: false }],
-    ["staff",  { isAdmin: false, isPartner: false, isDirector: false, isManager: false, isLoading: false }],
-  ])("WorksheetEdit hides Create Work Order button for %s on draft worksheet", (_name, role) => {
-    mockRole = role;
-    wrap(<WorksheetEdit />);
-    expect(screen.queryByText("workMatrix.createWorkOrder")).not.toBeInTheDocument();
-  });
-
-  it("WorksheetEdit shows Create Work Order button for manager on draft worksheet", () => {
-    mockRole = { isAdmin: false, isPartner: false, isDirector: false, isManager: true, isLoading: false };
+  it("WorksheetEdit shows Create Work Order button when user has work_order.create (draft worksheet)", () => {
+    mockCan = (perm) => perm === "work_order.create";
     wrap(<WorksheetEdit />);
     expect(screen.getByText("workMatrix.createWorkOrder")).toBeInTheDocument();
   });
 
-  // --- WorksheetNew redirect ---
-  it("redirects staff away from /worksheets/new after role loads", () => {
-    mockRole = { isAdmin: false, isPartner: false, isDirector: false, isManager: false, isLoading: false };
-    wrap(<WorksheetNew />);
-    expect(mockNavigate).toHaveBeenCalledWith("/worksheets", { replace: true });
+  it("WorksheetEdit hides Create Work Order button when user lacks work_order.create", () => {
+    mockCan = () => false;
+    wrap(<WorksheetEdit />);
+    expect(screen.queryByText("workMatrix.createWorkOrder")).not.toBeInTheDocument();
   });
 
-  it("does not redirect manager away from /worksheets/new", () => {
-    mockRole = { isAdmin: false, isPartner: false, isDirector: false, isManager: true, isLoading: false };
+  it("WorksheetNew renders without in-page redirect (route guard handles access)", () => {
     wrap(<WorksheetNew />);
     expect(mockNavigate).not.toHaveBeenCalledWith("/worksheets", { replace: true });
   });
 
-  it("does not redirect while role is still loading", () => {
-    mockRole = { isAdmin: false, isPartner: false, isDirector: false, isManager: false, isLoading: true };
-    wrap(<WorksheetNew />);
-    expect(mockNavigate).not.toHaveBeenCalled();
-  });
-
   it("passes workMatrix.title as the page title (0525-125)", () => {
-    mockRole = { isAdmin: false, isPartner: false, isDirector: false, isManager: false, isLoading: false };
     wrap(<WorksheetList />);
     expect(screen.getByTestId("page-title")).toHaveTextContent("workMatrix.title");
   });

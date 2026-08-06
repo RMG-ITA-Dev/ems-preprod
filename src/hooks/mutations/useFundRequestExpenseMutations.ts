@@ -9,6 +9,29 @@ import i18n from "@/i18n";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const sb = supabase as any;
 
+/**
+ * Verifica que un UPDATE/DELETE haya afectado filas.
+ *
+ * Imprescindible en este archivo: cuando RLS bloquea un UPDATE o un DELETE,
+ * Postgres NO lanza error — la sentencia afecta 0 filas y PostgREST responde 204
+ * limpio, así que `error` viene null, la mutación resuelve y `onSuccess` canta
+ * éxito sin que nada haya cambiado.
+ *
+ * Reportado 2026-07-31: el Gerente de Contabilidad revisaba una factura, veía
+ * "Factura revisada" y el gasto seguía en "Aprobado Gerente" (le faltaba la policy
+ * de UPDATE, que agrega 20260731010000). Las 11 mutaciones de este archivo tenían
+ * el mismo patrón, así que la verificación se centraliza acá en vez de repetirse.
+ *
+ * @param affected filas devueltas por `.select(...)` tras el update/delete
+ * @param expected cantidad esperada; si se omite, basta con que haya al menos una
+ */
+function assertAffected(affected: unknown, expected?: number): void {
+  const rows = Array.isArray(affected) ? affected.length : 0;
+  if (rows === 0 || (expected !== undefined && rows < expected)) {
+    throw new Error(i18n.t("fundRequestExpense.errors.notPermittedOrChanged"));
+  }
+}
+
 export interface FundRequestExpenseInput {
   fund_request_id: string;
   wo_id: string;
@@ -66,11 +89,13 @@ export function useUpdateFundRequestExpense() {
       id: string;
       data: Partial<FundRequestExpenseInput>;
     }) => {
-      const { error } = await sb
+      const { data: affected, error } = await sb
         .from("fund_request_expenses")
         .update(data)
-        .eq("fre_id", id);
+        .eq("fre_id", id)
+        .select("fre_id");
       if (error) throw error;
+      assertAffected(affected);
       return { fre_id: id };
     },
     onSuccess: (_, { id }) => {
@@ -86,11 +111,13 @@ export function useSubmitFundRequestExpense() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await sb
+      const { data: affected, error } = await sb
         .from("fund_request_expenses")
         .update({ status: "pendiente_aprobacion", submitted_at: new Date().toISOString() })
-        .eq("fre_id", id);
+        .eq("fre_id", id)
+        .select("fre_id");
       if (error) throw error;
+      assertAffected(affected);
       return { fre_id: id };
     },
     onSuccess: (_, id) => {
@@ -117,7 +144,7 @@ export function useSubmitAllFundRequestExpenses() {
       ids: string[];
     }) => {
       if (ids.length === 0) return { fundRequestId, count: 0 };
-      const { error } = await sb
+      const { data: affected, error } = await sb
         .from("fund_request_expenses")
         .update({
           status: "pendiente_aprobacion",
@@ -128,8 +155,10 @@ export function useSubmitAllFundRequestExpenses() {
           rejection_reason: null,
           manager_decided_at: null,
         })
-        .in("fre_id", ids);
+        .in("fre_id", ids)
+        .select("fre_id");
       if (error) throw error;
+      assertAffected(affected, ids.length);
       return { fundRequestId, count: ids.length };
     },
     onSuccess: ({ fundRequestId, count }) => {
@@ -150,15 +179,17 @@ export function useResendReturnedExpense() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, attachmentUrl }: { id: string; attachmentUrl: string | null }) => {
-      const { error } = await sb
+      const { data: affected, error } = await sb
         .from("fund_request_expenses")
         .update({
           attachment_url: attachmentUrl,
           status: "aprobado_gerente",
           returned_by_assistant: false,
         })
-        .eq("fre_id", id);
+        .eq("fre_id", id)
+        .select("fre_id");
       if (error) throw error;
+      assertAffected(affected);
       return { fre_id: id };
     },
     onSuccess: (_, { id }) => {
@@ -178,7 +209,7 @@ export function useReturnFundRequestExpense() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, notes }: { id: string; notes: string }) => {
-      const { error } = await sb
+      const { data: affected, error } = await sb
         .from("fund_request_expenses")
         .update({
           status: "observado",
@@ -187,8 +218,10 @@ export function useReturnFundRequestExpense() {
           has_invoice_observation: false,
           iva_penalty_amount: 0,
         })
-        .eq("fre_id", id);
+        .eq("fre_id", id)
+        .select("fre_id");
       if (error) throw error;
+      assertAffected(affected);
       return { fre_id: id };
     },
     onSuccess: (_, { id }) => {
@@ -234,11 +267,13 @@ export function useDecideAllFundRequestExpenses() {
               manager_notes: notes?.trim() || null,
               rejection_reason: null,
             };
-      const { error } = await sb
+      const { data: affected, error } = await sb
         .from("fund_request_expenses")
         .update(update)
-        .in("fre_id", ids);
+        .in("fre_id", ids)
+        .select("fre_id");
       if (error) throw error;
+      assertAffected(affected, ids.length);
       return { fundRequestId, decision, count: ids.length };
     },
     onSuccess: ({ fundRequestId, decision, count }) => {
@@ -260,7 +295,7 @@ export function useApproveFundRequestExpense() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, notes }: { id: string; notes?: string }) => {
-      const { error } = await sb
+      const { data: affected, error } = await sb
         .from("fund_request_expenses")
         .update({
           status: "aprobado_gerente",
@@ -268,8 +303,10 @@ export function useApproveFundRequestExpense() {
           manager_notes: notes?.trim() || null,
           rejection_reason: null,
         })
-        .eq("fre_id", id);
+        .eq("fre_id", id)
+        .select("fre_id");
       if (error) throw error;
+      assertAffected(affected);
       return { fre_id: id };
     },
     onSuccess: (_, { id }) => {
@@ -285,7 +322,7 @@ export function useObserveFundRequestExpense() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, notes }: { id: string; notes: string }) => {
-      const { error } = await sb
+      const { data: affected, error } = await sb
         .from("fund_request_expenses")
         .update({
           status: "observado",
@@ -293,8 +330,10 @@ export function useObserveFundRequestExpense() {
           manager_notes: notes.trim(),
           rejection_reason: null,
         })
-        .eq("fre_id", id);
+        .eq("fre_id", id)
+        .select("fre_id");
       if (error) throw error;
+      assertAffected(affected);
       return { fre_id: id };
     },
     onSuccess: (_, { id }) => {
@@ -310,7 +349,7 @@ export function useRejectFundRequestExpense() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, reason }: { id: string; reason: string }) => {
-      const { error } = await sb
+      const { data: affected, error } = await sb
         .from("fund_request_expenses")
         .update({
           status: "rechazado",
@@ -318,8 +357,10 @@ export function useRejectFundRequestExpense() {
           rejection_reason: reason.trim(),
           manager_notes: null,
         })
-        .eq("fre_id", id);
+        .eq("fre_id", id)
+        .select("fre_id");
       if (error) throw error;
+      assertAffected(affected);
       return { fre_id: id };
     },
     onSuccess: (_, { id }) => {
@@ -350,7 +391,7 @@ export function useReviewFundRequestExpense() {
       reviewedByStaffId?: string | null;
     }) => {
       const ivaPenalty = hasObservation ? Math.round(amount * 0.13 * 100) / 100 : 0;
-      const { error } = await sb
+      const { data: affected, error } = await sb
         .from("fund_request_expenses")
         .update({
           status: "revisado_asistente",
@@ -360,8 +401,10 @@ export function useReviewFundRequestExpense() {
           invoice_observation_notes: hasObservation ? observationNotes?.trim() || null : null,
           iva_penalty_amount: ivaPenalty,
         })
-        .eq("fre_id", id);
+        .eq("fre_id", id)
+        .select("fre_id");
       if (error) throw error;
+      assertAffected(affected);
       return { fre_id: id };
     },
     onSuccess: (_, { id }) => {
@@ -377,8 +420,10 @@ export function useDeleteFundRequestExpense() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await sb.from("fund_request_expenses").delete().eq("fre_id", id);
+      const { data: affected, error } = await sb.from("fund_request_expenses").delete().eq("fre_id", id)
+        .select("fre_id");
       if (error) throw error;
+      assertAffected(affected);
       return { fre_id: id };
     },
     onSuccess: () => {

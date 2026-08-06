@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";
+import { useAuthorization } from "@/hooks/useAuthorization";
 import { LeavePageDialog } from "@/components/ui/leave-page-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -50,7 +51,6 @@ import {
   type StaffingRequirementInput,
 } from "@/lib/workOrderStaffing";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
-import { useUserRole } from "@/hooks/useUserRole";
 import { isSchedulerEnabled } from "@/lib/schedulerFeature";
 import type { PaymentPlanInput, PaymentInstallmentInput } from "@/types/workOrderPaymentPlan";
 import { useWorksheetByEngagementId } from "@/hooks/useWorksheetData";
@@ -137,7 +137,6 @@ const WorkOrderEdit = () => {
   const batchUpsertInstallments = useBatchUpsertInstallments();
   const deletePaymentPlan = useDeletePaymentPlan();
   const saveWorkOrderStaffing = useSaveWorkOrderStaffing();
-  const { isAdmin, isPartner, isDirector, isManager } = useUserRole();
 
   const [currency, setCurrency] = useState<"USD" | "BOB" | "USDT">("BOB");
   const [seasonMode, setSeasonMode] = useState<"High" | "Low">("High");
@@ -394,20 +393,50 @@ const WorkOrderEdit = () => {
 
   const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty });
 
-  // Check if user can approve
-  const canApprove = staffRecord?.category?.can_approve_wo || false;
-  // FEAT 0602-135: el aprobador de Riesgos es el SQR ASIGNADO al encargo (engagement.sqr_id),
-  // con el Admin como respaldo. El selector de SQR admite CUALQUIER staff activo (p. ej. un
-  // partner/director designado como revisor de calidad) y la RLS autoriza por sqr_id SOLO —sin
-  // exigir el rol global `sqr`—, así que el gate se basa en la asignación, no en el rol; de lo
-  // contrario un SQR asignado sin rol `sqr` vería los botones ocultos pese a estar autorizado en BD.
+  // Check if user can approve — FASE 3b: por permiso (matriz "Enviar Aprobación OT"),
+  // ya no por categoría (can_approve_wo).
+  const { can, scope, roleKey } = useAuthorization();
+  const isAdmin = roleKey === "admin";
+  const canApprove = can("work_order.submit");
+  // Aprobación de la sección de Riesgos: espeja el guard backend can_approve_wo_risk
+  // (migración Ola E). Requiere el permiso 'work_order.risk.approve' de la matriz:
+  //   - admin                                -> siempre.
+  //   - scope 'assigned_engagements' (gerente/ita/tax) -> SOLO si son el SQR del encargo.
+  //   - scope 'department' (socio/supervisor de Riesgos) -> cualquier encargo.
   // Necesita staff record porque risk_approved_by referencia staff(staff_id).
   const isAssignedSqr =
     !!staffRecord && workOrder?.engagement?.sqr_id === staffRecord.staff_id;
-  const canApproveRisk = (isAdmin || isAssignedSqr) && !!staffRecord;
+  const riskApproveScope = scope("work_order.risk.approve");
+  const canApproveRisk =
+    !!staffRecord &&
+    (isAdmin ||
+      (can("work_order.risk.approve") &&
+        (riskApproveScope !== "assigned_engagements" || isAssignedSqr)));
 
   const approvalStatus = workOrder?.approval_status as "Draft" | "Pending_Approval" | "Approved" | "Rejected" || "Draft";
-  const isLocked = approvalStatus === "Approved" || approvalStatus === "Pending_Approval" || approvalStatus === "Rejected";
+  // Escribir la OT exige ser Socio o Gerente DEL encargo, o admin: es el predicado
+  // de la policy "wo_team_update" (Ola F) -> is_engagement_team_member(), que mira
+  // solo partner_id y manager_id, más "Admins can manage work orders".
+  //
+  // Hace falta distinguirlo desde 20260730010000: esa migración dio lectura de la OT
+  // a SQR y Encargado (decisión de negocio: solo lectura). Sin este gate veían los
+  // campos de presupuesto editables y el guardado fallaba por RLS.
+  //
+  // La aprobación de RIESGOS del SQR NO se ve afectada: va por `canApproveRisk`,
+  // que WorkOrderForm recibe como prop independiente de `isLocked` (líneas 402/408).
+  const isEngagementTeamMember =
+    !!staffRecord &&
+    (workOrder?.engagement?.partner_id === staffRecord.staff_id ||
+      workOrder?.engagement?.manager_id === staffRecord.staff_id);
+  const canWriteWorkOrder = isAdmin || isEngagementTeamMember;
+
+  const isLocked =
+    approvalStatus === "Approved" ||
+    approvalStatus === "Pending_Approval" ||
+    approvalStatus === "Rejected" ||
+    // Fail-closed mientras carga el staff: mejor un instante sin editar que
+    // ofrecer un guardado que RLS va a rechazar.
+    !canWriteWorkOrder;
 
   // Persists everything "Enviar para Aprobación" doesn't otherwise touch (adjustment,
   // expenses, payment plan, staffing) — the same steps handleSubmit ("Guardar") runs.
@@ -858,8 +887,8 @@ const WorkOrderEdit = () => {
           woId={workOrder.wo_id}
           paymentPlan={paymentPlan}
           paymentInstallments={paymentInstallments}
-          isAdminDateEditable={(approvalStatus === "Draft" || approvalStatus === "Rejected") && (isAdmin || isPartner || isDirector || isManager)}
-          isStatusEditable={isAdmin}
+          isAdminDateEditable={(approvalStatus === "Draft" || approvalStatus === "Rejected") && can("work_order.payment_plan.approve")}
+          isStatusEditable={isAdmin || roleKey === "collections_analyst"}
           isPaymentPlanDirty={
             JSON.stringify(paymentInstallments) !== JSON.stringify(originalInstallments) ||
             JSON.stringify(paymentPlan) !== JSON.stringify(originalPaymentPlan)

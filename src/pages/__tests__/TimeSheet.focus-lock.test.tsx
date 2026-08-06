@@ -9,6 +9,13 @@ vi.mock("react-router-dom", async () => {
   return { ...actual, useNavigate: () => mockNavigate };
 });
 
+// TimeSheet decide el retiro de una hoja aprobada por can('timesheet.self_approve')
+// (antes: isPartner || isAdmin del enum legacy). Sin este mock, useAuthorization
+// corre de verdad y cae fail-closed.
+vi.mock("@/hooks/useAuthorization", () => ({
+  useAuthorization: () => ({ can: () => false, scope: () => null, isLoading: false }),
+}));
+
 vi.mock("@/hooks/useAuth", () => ({ useAuth: () => ({ user: { email: "test@test.com" }, session: {} }) }));
 vi.mock("@/hooks/useCurrentStaff", () => ({ useCurrentStaff: () => ({ staffRecord: null, isLoading: true }) }));
 vi.mock("@/hooks/useTimesheetPolicies", () => ({ useTimesheetPolicies: () => ({ data: null }) }));

@@ -134,7 +134,7 @@ describe("resolveIdentity", () => {
   const AUTH_USER = uuid(50, "s");
   const fixtures = (): Fixtures => ({
     staff: [{ staff_id: MGR, auth_user_id: AUTH_USER }],
-    user_roles: [{ user_id: AUTH_USER, role: "manager" }],
+    user_roles: [{ user_id: AUTH_USER, role_key: "manager" }],
   });
 
   it("resolves staff id and role for a linked user", async () => {
@@ -144,11 +144,11 @@ describe("resolveIdentity", () => {
     expect(identity).toEqual({ staffId: MGR, role: "manager" });
   });
 
-  it("no staff row → null staffId; no role row → default role", async () => {
+  it("no staff row → null staffId; no role row → denied default", async () => {
     const db = createFakeDb({ staff: [], user_roles: [] });
     const { identity, error } = await resolveIdentity(db, AUTH_USER);
     expect(error).toBeNull();
-    expect(identity).toEqual({ staffId: null, role: "staff" });
+    expect(identity).toEqual({ staffId: null, role: "" });
   });
 
   it("a staff-table DB error propagates instead of defaulting", async () => {
@@ -161,7 +161,7 @@ describe("resolveIdentity", () => {
 
   it("a user_roles DB error propagates instead of defaulting to denied", async () => {
     // A transient error must become a 500 upstream — never a silent
-    // role="staff" → 403 for an admin.
+    // role="" → 403 for an admin.
     const db = createFakeDb(fixtures());
     db.failTable("user_roles", { code: "08006", message: "connection failure" });
     const { identity, error } = await resolveIdentity(db, AUTH_USER);
@@ -172,9 +172,9 @@ describe("resolveIdentity", () => {
 
 // ── Pure helpers ────────────────────────────────────────────────────────
 
-describe("visibilityRuleFor (pure, per role)", () => {
-  it("admin / partner / director → all", () => {
-    for (const role of ["admin", "partner", "director"]) {
+describe("visibilityRuleFor (pure, per role_key)", () => {
+  it("admin / senior_partner / partner / director → all", () => {
+    for (const role of ["admin", "senior_partner", "partner", "director"]) {
       expect(visibilityRuleFor(role, SEN)).toEqual({ kind: "all" });
       // firmwide roles do not require a staff row
       expect(visibilityRuleFor(role, null)).toEqual({ kind: "all" });
@@ -191,6 +191,29 @@ describe("visibilityRuleFor (pure, per role)", () => {
   it("other roles → denied", () => {
     for (const role of ["staff", "semisenior", "assistant", ""]) {
       expect(visibilityRuleFor(role, SEN)).toEqual({ kind: "denied" });
+    }
+  });
+  // Merge con feat/roles-permisos (H3): estos 12 role_key heredarían acceso
+  // bajo el enum legacy espejado (mapean a "partner"/"manager"/"senior")
+  // pero deben quedar denegados bajo el catálogo de 23 roles.
+  it("los 12 role_key filtrados por el enum legacy → denied (H3)", () => {
+    const filtered = [
+      "risk_partner",
+      "it_security_manager",
+      "risk_supervisor",
+      "accounting_manager",
+      "hr_manager",
+      "ita_manager",
+      "tax_manager",
+      "accounting_analyst",
+      "collections_analyst",
+      "hr_analyst",
+      "ita_senior",
+      "tax_senior",
+    ];
+    for (const role of filtered) {
+      expect(visibilityRuleFor(role, SEN)).toEqual({ kind: "denied" });
+      expect(visibilityRuleFor(role, null)).toEqual({ kind: "denied" });
     }
   });
 });
