@@ -50,6 +50,7 @@ import {
   type WOBudgetLine,
 } from "@/hooks/useEmsData";
 import { cn } from "@/lib/utils";
+import { isSchedulerEnabled } from "@/lib/schedulerFeature";
 import { useLanguage } from "@/hooks/useLanguage";
 import { WorkOrderPaymentPlanSection } from "./WorkOrderPaymentPlanSection";
 import {
@@ -1152,8 +1153,10 @@ export function WorkOrderForm({
 
       {/* Staffing Requirements Section (Fase 4). During creation (no wo_id yet) the
           section is shown disabled with an explanatory message — staffing is only
-          configurable from the edit page, once the Work Order has a wo_id. */}
-      {isNew ? (
+          configurable from the edit page, once the Work Order has a wo_id.
+          Fase 7 (plan v2 §B.4#5): con el flag apagado se omite toda la sección —
+          el chokepoint gemelo es WorkOrderEdit.tsx (§B.4#6, validateStaffing). */}
+      {isSchedulerEnabled() && (isNew ? (
         <Card className="border-dashed">
           <CardHeader className="py-3">
             <CardTitle className="text-base flex items-center gap-2 text-muted-foreground">
@@ -1420,7 +1423,7 @@ export function WorkOrderForm({
             </CardContent>
           </Card>
         )
-      )}
+      ))}
 
       {/* Risk Assessment Section - editable by creator/Manager in Draft (or emergency
           completion); read-only for the Riesgos approver in Pending/Approved */}

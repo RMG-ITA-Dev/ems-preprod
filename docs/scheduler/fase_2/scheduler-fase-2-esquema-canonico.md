@@ -139,10 +139,14 @@ DEFAULT `'PROPOSED'` de la BD); `created_by` tampoco.
 | `EAS_ENGAGEMENT_LOCKED` | `engagement_state_override ∈ {6,7,9}` |
 | `EAS_MISSING_FIELD` | falta un campo obligatorio en una fila del payload |
 | `EAS_DATE_RANGE` | `end_date < start_date` (mismo día es válido) |
+| `EAS_ENGAGEMENT_RANGE` | el segmento cae fuera del rango inclusivo del engagement (Fase 5 O4; sin cota si el engagement no tiene fechas) |
 | `EAS_HOURS_RANGE` | `hours_per_week` fuera de `(0, 80]` |
 | `EAS_ALLOCATION_RANGE` | `allocation_percent` fuera de `(0, 100]` |
 | `EAS_CATEGORY_FOREIGN_SERVICE` | la categoría no pertenece al servicio del engagement |
+| `EAS_STAFF_INELIGIBLE` | staff inactivo/no-schedulable en un insert nuevo o al reasignar la fila a un staff distinto del histórico (Fase 5 O7); una fila que conserva su staff_id histórico está exenta |
 | `EAS_OVERLAP` | dos asignaciones del mismo staff en el mismo engagement con rango de fechas superpuesto (inclusivo), contra lo ya persistido o dentro del propio payload |
+
+*(11 tokens en total — corregido en Fase 7 tras verificar contra la migración; el contrato previo listaba 9.)*
 
 Overlap: verificado **después** de aplicar soft-delete → update → insert, sobre el estado final
 persistido — si dispara, revierte toda la transacción (incluidas las filas que sí eran válidas).

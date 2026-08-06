@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { logger } from "@/lib/logger";
+import { isSchedulerEnabled } from "@/lib/schedulerFeature";
 import { SCHEDULER_TIMESHEET_AUTHZ_KEY } from "./keys";
 import type { AssignmentWindow, SegmentsByEngagement } from "@/lib/timesheetAssignmentAdvisory";
 
@@ -76,15 +77,20 @@ export function useStaffAssignmentSegments(
   weekEndStr: string | undefined,   // último día MOSTRADO (span <= 6 respecto de weekStart)
 ) {
   // El resultado es ESPECÍFICO DEL VIEWER (arms self / firmwide / approver devuelven filas
-  // distintas y un viewer ajeno es denegado). El QueryClient es de módulo (App.tsx:58) y
-  // sobrevive a un sign-out in-SPA (useAuth.tsx:185-186, sin recarga ni limpieza de cache),
-  // así que una key agnóstica del viewer serviría el mapa privilegiado de una cuenta a otra.
+  // distintas y un viewer ajeno es denegado). El QueryClient es de módulo (App.tsx) y ya no
+  // sobrevive intacto a un cambio de identidad in-SPA: SessionCacheGuard (Fase 7, plan v2 §A.4)
+  // lo limpia globalmente en cada cambio de cuenta o sign-out. La key con `viewerId` sigue
+  // siendo la defensa LOCAL — evita que una respuesta en vuelo de la cuenta anterior se
+  // escriba bajo la key de la nueva antes de que el guard global termine de limpiar.
   const { user } = useAuth();
   const viewerId = user?.id;
 
   return useQuery<SegmentsByEngagement | null>({
     queryKey: [SCHEDULER_TIMESHEET_AUTHZ_KEY, viewerId, staffId, weekStartStr, weekEndStr],
-    enabled: !!viewerId && !!staffId && !!weekStartStr && !!weekEndStr,
+    // Fase 7 (plan v2 §B.4#7): con el flag apagado la RPC no existe — sin
+    // este guard, la query dispararía en cada carga de /timesheet y
+    // /timesheet/approvals/:id contra un endpoint inexistente.
+    enabled: isSchedulerEnabled() && !!viewerId && !!staffId && !!weekStartStr && !!weekEndStr,
     // Tier de autorización: advisory, tolerante a staleness. La invalidación al guardar
     // assignments (useEngagementAssignmentMutations.ts:128) es lo que fuerza el refetch.
     staleTime: 300_000,

@@ -3,6 +3,15 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { AuthProvider, useAuth } from "../useAuth";
 import { supabase } from "@/integrations/supabase/client";
+import { rearmSessionRecovery } from "@/lib/sessionRecovery";
+
+// Fase 7 (plan v2 §A.3, "Tests to Update"): useAuth's only change this phase
+// is re-arming session recovery inside the existing onAuthStateChange
+// callback. Mocked so this file asserts the wiring, not sessionRecovery's own
+// behavior (covered by src/lib/__tests__/sessionRecovery.test.tsx).
+vi.mock("@/lib/sessionRecovery", () => ({
+  rearmSessionRecovery: vi.fn(),
+}));
 
 // Mock supabase
 vi.mock("@/integrations/supabase/client", () => ({
@@ -556,5 +565,114 @@ describe("signIn account lockout (BUG 0514-115)", () => {
 
     // Session must not be installed when credentials are invalid.
     expect(supabase.auth.setSession).not.toHaveBeenCalled();
+  });
+});
+
+// Fase 7 (plan v2 §A.3, "Tests to Update"): re-arm wiring inside the existing
+// onAuthStateChange callback, plus a regression pin that signIn/signOut/
+// lockout/setSession/staff+role lookups and the absence of any cache
+// clearing in signOut are all byte-identical to before this phase.
+describe("useAuth — session recovery re-arm (Fase 7, plan v2 §A.3)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+
+    vi.mocked(supabase.auth.getSession).mockResolvedValue({
+      data: { session: null },
+      error: null,
+    });
+    vi.mocked(supabase.auth.setSession).mockResolvedValue({
+      data: {
+        session: { access_token: "token", refresh_token: "refresh" } as any,
+        user: { id: "user-123" } as any,
+      },
+      error: null,
+    });
+    vi.mocked(supabase.rpc).mockResolvedValue({ data: null, error: null } as any);
+  });
+
+  function captureAuthStateCallback() {
+    let captured: ((event: string, session: unknown) => void) | undefined;
+    vi.mocked(supabase.auth.onAuthStateChange).mockImplementation((callback) => {
+      captured = callback as (event: string, session: unknown) => void;
+      return {
+        data: { subscription: { id: "test", callback, unsubscribe: vi.fn() } },
+      };
+    });
+    renderHook(() => useAuth(), { wrapper: createWrapper() });
+    return () => captured!;
+  }
+
+  const rearmCases: Array<[string, unknown, boolean]> = [
+    ["SIGNED_IN", { user: { id: "u1" } }, true],
+    ["TOKEN_REFRESHED", { user: { id: "u1" } }, true],
+    ["INITIAL_SESSION", { user: { id: "u1" } }, true],
+    ["SIGNED_OUT", null, false],
+    ["INITIAL_SESSION", null, false],
+  ];
+
+  for (const [event, session, shouldRearm] of rearmCases) {
+    it(`${event} with session=${session ? "present" : "null"} ${shouldRearm ? "re-arms" : "does not re-arm"}`, () => {
+      const getCallback = captureAuthStateCallback();
+      act(() => {
+        getCallback()(event, session);
+      });
+      if (shouldRearm) {
+        expect(rearmSessionRecovery).toHaveBeenCalled();
+      } else {
+        expect(rearmSessionRecovery).not.toHaveBeenCalled();
+      }
+    });
+  }
+
+  it("regression: signIn still invokes secure-signin and installs the session via setSession", async () => {
+    vi.mocked(supabase.functions.invoke).mockImplementation((name: string) => {
+      if (name === "secure-signin") {
+        return Promise.resolve({
+          data: { ok: true, session: { access_token: "token", refresh_token: "refresh" } },
+          error: null,
+        }) as any;
+      }
+      return Promise.resolve({ data: null, error: null }) as any;
+    });
+
+    const { result } = renderHook(() => useAuth(), { wrapper: createWrapper() });
+    await act(async () => {
+      const response = await result.current.signIn("user@example.com", "password123");
+      expect(response.error).toBe(null);
+    });
+
+    expect(supabase.functions.invoke).toHaveBeenCalledWith("secure-signin", expect.any(Object));
+    expect(supabase.auth.setSession).toHaveBeenCalledWith({
+      access_token: "token",
+      refresh_token: "refresh",
+    });
+  });
+
+  it("regression: signOut still calls supabase.auth.signOut() and does nothing else (no cache clearing here)", async () => {
+    vi.mocked(supabase.auth.signOut).mockResolvedValue({ error: null });
+
+    const { result } = renderHook(() => useAuth(), { wrapper: createWrapper() });
+    await act(async () => {
+      await result.current.signOut();
+    });
+
+    expect(supabase.auth.signOut).toHaveBeenCalledTimes(1);
+    expect(supabase.auth.signOut).toHaveBeenCalledWith();
+  });
+
+  it("regression: updatePassword still clears lockout via reset_login_attempts on success", async () => {
+    vi.mocked(supabase.auth.updateUser).mockResolvedValue({
+      data: { user: { id: "user-123", email: "user@example.com" } as any },
+      error: null,
+    });
+
+    const { result } = renderHook(() => useAuth(), { wrapper: createWrapper() });
+    await act(async () => {
+      await result.current.updatePassword("newPassword123");
+    });
+
+    expect(supabase.rpc).toHaveBeenCalledWith("reset_login_attempts", {
+      p_email: "user@example.com",
+    });
   });
 });

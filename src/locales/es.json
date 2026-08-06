@@ -273,7 +273,6 @@
     "expenseTypes": "Tipos de Gasto",
     "workOrder": "Orden de Trabajo",
     "workOrders": "Órdenes de Trabajo",
-    "expenseLog": "Registro de Gasto",
     "expense": "Gasto",
     "fundRequest": "Solicitud de Fondos",
     "fundRequests": "Solicitudes de Fondos",
@@ -1479,7 +1478,20 @@
     "verifyYourEmail": "Revisa tu Correo Electrónico",
     "confirmationSent": "Hemos enviado un enlace de confirmación a {{email}}. Por favor abre tu correo y haz clic en el enlace para activar tu cuenta.",
     "sessionExpiredInactivity": "Su sesión ha expirado por inactividad. Por favor, inicie sesión nuevamente.",
-    "sessionWarningInactivity": "Su sesión expirará en 2 minutos por inactividad."
+    "sessionWarningInactivity": "Su sesión expirará en 2 minutos por inactividad.",
+    "sessionExpiredRevoked": "Su sesión ha expirado. Por favor, inicie sesión nuevamente.",
+    "brandTagline": "Engagement Management System",
+    "firstNamePlaceholder": "Juan",
+    "lastNamePlaceholder": "Pérez",
+    "emailPlaceholderWithDomain": "tu.nombre@{{domain}}",
+    "validation": {
+      "emailMax": "El correo debe tener menos de 255 caracteres",
+      "passwordMinSignin": "La contraseña debe tener al menos 6 caracteres",
+      "passwordMinSignup": "La contraseña debe tener al menos 8 caracteres",
+      "passwordMax": "La contraseña debe tener menos de 100 caracteres",
+      "nameMax": "Debe tener menos de 100 caracteres",
+      "emailDomainOnly": "Solo se permiten correos @{{domain}}"
+    }
   },
   "workMatrix": {
     "title": "Matriz de Trabajo",

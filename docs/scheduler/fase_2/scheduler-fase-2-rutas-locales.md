@@ -459,3 +459,26 @@ Ninguno de estos dos bloqueos es parte del alcance original de Fase 2 del schedu
 `development`, preexistentes) — pero bloqueaban completar cualquiera de las 3 rutas con el CLI oficial
 desde cero, que es lo que el criterio de aceptación central de Plan v2 exige. Con Q0 y estos dos
 resueltos, lo único que falta para correr Rutas A y C es Q7 (project refs).
+
+### 6.1 Escenario Ruta B post-convergencia — riesgo de los 5 renames (Fase 7, G3c)
+
+**Contexto de la decisión (OQ2/OQ3 del operador, Fase 7):** en el destino real del día D (Lovable y el
+proyecto "Test"), los 5 renames de convergencia de Fase 2 (§Q0 arriba) **no están ejecutados todavía** —
+correrán ahí con sus nombres **nuevos**, tal como existen en `dev-scheduler`. El escenario de riesgo que
+sí sigue siendo real es distinto: **una base de datos construida partiendo del ledger exacto de
+`development`** (es decir, que ya registra los 5 timestamps **viejos** como aplicados) vería, al aplicar
+`dev-scheduler`, esos 5 archivos como pendientes bajo sus nombres nuevos — aunque el contenido SQL sea
+byte-idéntico y el esquema resultante ya esté presente.
+
+El experimento (G3c del plan de Fase 7) mide esto de forma barata (~15 min) reescribiendo **solo la
+contabilidad** de `supabase_migrations.schema_migrations` en el stack local ya construido para Ruta B
+(5 `UPDATE ... SET version='<viejo>'`, sin tocar el contenido SQL en absoluto), y luego corriendo
+`supabase migration list --local` y `supabase db push --include-all --local` para observar si Postgres
+re-ejecuta esas 5 migraciones sin abortar (dado que son idempotentes/guardadas) o si el push falla.
+
+**Resultado medido: pendiente.** Este experimento requiere el stack Docker/CLI de Supabase de
+`EMS_Dev_Local` (R-LOCAL) — fuera del alcance de lo que se ejecuta desde `aurora-engage-pro` (R-APP), por
+la regla vigente del proyecto de no correr Supabase/migraciones desde este repo. El operador debe correr
+G3c contra R-LOCAL y registrar aquí (o en `docs/scheduler/fase_7/evidence/rename_hazard_push.txt`) la
+salida verbatim de ambos comandos antes de cerrar el gate de paridad de Ruta B de Fase 7. No se fabrica
+un resultado "esperado" en su lugar — evidencia inválida promovida como válida es peor que no tenerla.

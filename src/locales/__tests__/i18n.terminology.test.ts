@@ -1,31 +1,12 @@
 import { describe, it, expect } from "vitest";
 import en from "@/locales/en.json";
 import es from "@/locales/es.json";
+import { collectStrings } from "./localeKeyHelpers";
 
 /**
  * BUG 0723-168: Renombrar "Servicio" -> "Práctica" y "Taxonomía" -> "Servicio" (solo i18n).
  * Guards the terminology swap: keys are unchanged, only the visible ES/EN values move.
  */
-
-function collectStrings(node: unknown, out: string[] = []): string[] {
-  if (typeof node === "string") {
-    out.push(node);
-  } else if (node && typeof node === "object") {
-    for (const value of Object.values(node)) collectStrings(value, out);
-  }
-  return out;
-}
-
-function collectKeyPaths(node: unknown, prefix = "", out: string[] = []): string[] {
-  if (node && typeof node === "object" && !Array.isArray(node)) {
-    for (const [key, value] of Object.entries(node)) {
-      const path = prefix ? `${prefix}.${key}` : key;
-      out.push(path);
-      collectKeyPaths(value, path, out);
-    }
-  }
-  return out;
-}
 
 describe("i18n terminology rename (BUG 0723-168)", () => {
   it("EN entities.service/services renamed to Practice/Practices", () => {
@@ -166,7 +147,6 @@ describe("i18n terminology rename (BUG 0723-168)", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("EN and ES locale files expose the same key shape (recursive)", () => {
-    expect(collectKeyPaths(en).sort()).toEqual(collectKeyPaths(es).sort());
-  });
+  // EN/ES key-shape parity moved to src/locales/__tests__/i18n.parity.test.ts
+  // (Fase 7, plan v2 §D.2) — that suite owns the full structural contract.
 });

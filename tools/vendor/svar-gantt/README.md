@@ -17,8 +17,19 @@ SVAR hosted infrastructure (Phase 4 plan §1, decision D1 rev. 2).
    GitHub, no registry, starting from **no node_modules and an empty npm
    cache with network blocked**, producing byte-identical hashes. Proven by
    the hermetic gate (below) on every vendor change.
-3. **Application-wide external-origin policy** — broader than SVAR; enforced
-   by `tools/verify-external-origins.mjs` on every PR.
+3. **Application-wide external-origin policy** — broader than SVAR. Fase 7
+   (plan v2 §E.4, closes G17): `tools/verify-external-origins.mjs` does
+   **not exist** in this repo and is not run anywhere — this bullet
+   previously claimed otherwise. It cannot be ported as-is either: `index.html`
+   (inherited from `development`) already references external origins
+   (Google Fonts CDN, `cdn.gpteng.co`, a Lovable-hosted OG image) that such a
+   script would flag, and there is no CSP or self-hosted-fonts strategy in
+   this branch to satisfy it. The SVAR-specific slice of this policy IS
+   enforced: `verify.mjs` layer 1 below scans the vendored bundle for
+   forbidden origins, and `.github/workflows/test.yml` runs a grep-based
+   substitute scoped to `src/components/scheduler/**` on every PR. See
+   `docs/scheduler/fase_7/scheduler-fase-7-verificacion.md` for the full
+   reasoning.
 
 ## Canonical rebuild environment (pinned)
 

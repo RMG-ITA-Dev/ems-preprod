@@ -115,6 +115,24 @@ respecto a este baseline de 183; si `get_staff_assignment_segments` y la firma d
 ya tipadas, borrar la fachada local (`segmentsClient` en `useStaffAssignmentSegments.ts`, marcada
 con `TODO(types)`).
 
+**Fase 7 — desglose medido de los 183 (reemplaza la nota anterior de "confirmar que el conteo
+baja"):** la composición real no es "todo por `get_staff_assignment_segments`" —
+
+- Solo **7** errores referencian la unión de nombres de RPC del contrato canónico.
+- `get_staff_assignment_segments` en sí contribuye **cero**: la fachada `segmentsClient` (el
+  `TODO(types)` de arriba) ya la enmascara por completo.
+- **~35** son `TS2582`/`TS2304` — `describe`/`expect` sin import en suites de test legado, no
+  relacionadas con el Scheduler.
+- El grueso, **67×** `TS2322`, es deuda preexistente de varianza de genéricos en `Column<T>` del
+  `DataTable` compartido, repartida entre `Settings.tsx` (28 de esos 67), `Staff.tsx`, `Clients.tsx`,
+  `Engagements.tsx` y `FundRequests*.tsx` — ninguno tocado por el Scheduler.
+
+Expectativa post-regeneración de tipos: **~183 → ~174**, no → 0. Llevarlo a 0 queda fuera del
+alcance de cualquier fase individual del Scheduler — es gate del merge conjunto con
+`feat/roles-permisos` (ver `docs/scheduler/fase_7/scheduler-fase-7-verificacion.md`). Fase 7 cierra
+esto con un ratchet de línea base en CI (`BASELINE=183`, no puede crecer) en vez de silenciar el
+check o exigir 0.
+
 ## Fuera de alcance
 
 Ver `bugs/scheduler/fase_6/issue_fase_6.md` §"Fuera de alcance" y `plan_v2.md` §"Out of Scope".

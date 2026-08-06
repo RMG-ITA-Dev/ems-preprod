@@ -28,6 +28,7 @@ import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { useUserRole } from "@/hooks/useUserRole";
 import { useManagesAnyOt } from "@/hooks/useFundRequests";
 import { canSeeGaps, canSeePlanning } from "@/lib/schedulerAccess";
+import { isSchedulerEnabled } from "@/lib/schedulerFeature";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
 
 interface MobileMoreDrawerProps {
@@ -48,8 +49,9 @@ export function MobileMoreDrawer({ open, onOpenChange }: MobileMoreDrawerProps) 
     isAdmin || isPartner || isDirector || isManager || !!managesAnyOt;
   // Fase 3 — Scheduler: mismos predicados que AppSidebar/App.tsx
   // (src/lib/schedulerAccess.ts).
-  const canSeeSchedulerPlanning = canSeePlanning({ isAdmin, isPartner, isDirector, isManager, isSenior });
-  const canSeeSchedulerGaps = canSeeGaps({ isAdmin, isPartner, isDirector, isManager, isSenior });
+  const schedulerEnabled = isSchedulerEnabled();
+  const canSeeSchedulerPlanning = schedulerEnabled && canSeePlanning({ isAdmin, isPartner, isDirector, isManager, isSenior });
+  const canSeeSchedulerGaps = schedulerEnabled && canSeeGaps({ isAdmin, isPartner, isDirector, isManager, isSenior });
 
   const userInitials = staffRecord?.initials
     ? staffRecord.initials

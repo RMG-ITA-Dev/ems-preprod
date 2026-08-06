@@ -10,6 +10,33 @@
 > `../EMS_Dev_Supabase/`** — nunca un agente, y nunca desde `aurora-engage-pro`. Ver "División de
 > repositorios y responsabilidades de ejecución" en `bugs/scheduler/fase_2/plan_v2.md`.
 
+## 0.1 Fase 7 — actualización: R-INT es el proyecto "Test", no `EMS_Dev_Supabase/` "Dev 2.0"
+
+> Decisión del operador (Fase 7, OQ1): el Supabase de integración oficial para Ruta C, `gen types` y
+> el fingerprint canónico es el proyecto **"Test"**, no "Dev 2.0". Razón adicional verificada en Fase 7:
+> "Dev 2.0" ya tiene `development` **más** `feat/roles-permisos` aplicado, incluyendo
+> `20260730080000_harden_staff_pii_columns.sql` (revoca el SELECT de tabla en `public.staff` y lo
+> reemplaza por SELECT de 17 columnas) — generar tipos o el fingerprint canónico ahí hornearía cambios
+> de `feat/roles-permisos` dentro del entregable de Fase 7. "Dev 2.0" queda descartado como fuente de
+> esquema y solo se usa para lecturas históricas de solo lectura. Este documento sigue describiendo
+> `EMS_Dev_Supabase/` de forma genérica — al ejecutar, sustituir por el project ref de "Test" en
+> `supabase/config.toml` de ese repo hermano, nunca el de Lovable ni el de "Dev 2.0".
+
+### Decisión de `migration repair` (OQ2 — siempre con los nombres de `dev-scheduler`)
+
+Los 5 renames de convergencia de Fase 2 **no están ejecutados** en "Test": van a correr ahí con sus
+nombres **nuevos**, tal como existen en `dev-scheduler`. Nunca generar la lista de repair desde los
+nombres de `development` — es el error que dejaría esos 5 renames como pendientes indefinidamente.
+
+| Estado observado en "Test" | Acción |
+|---|---|
+| `schema_migrations` existe y coincide con los nombres de `dev-scheduler` | Nada que reparar; `db push --dry-run --include-all` debe listar solo lo realmente pendiente |
+| `schema_migrations` existe pero registra alguno de los 5 timestamps **viejos** | `migration repair --status applied` sobre el **nombre nuevo** correspondiente; registrar el par viejo→nuevo en la evidencia |
+| `schema_migrations` no existe/vacío pero el esquema ya está aplicado a mano | `migration repair --status applied` sobre **todos** los nombres ya presentes en el esquema, usando los nombres de `dev-scheduler`; verificar con `comm -13` que los pendientes reales sean solo los que de verdad faltan |
+
+`migration repair` en el proyecto de integración está **en alcance**; en el Supabase de Lovable del
+administrador sigue **explícitamente fuera de alcance**.
+
 ## 0. Por qué Ruta C es la que importa para el día D
 
 `EMS_Dev_Supabase/` (el Supabase de prueba oficial) no tiene ningún historial de migraciones

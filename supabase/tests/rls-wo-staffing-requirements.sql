@@ -57,7 +57,15 @@ BEGIN
       ('a0000000-0000-4000-8000-0000000000a3', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'wr-test-a3@ruizmier.com', 'x', now(), now(), now(), '{}'::jsonb, '{}'::jsonb),
       ('a0000000-0000-4000-8000-0000000000a4', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'wr-test-a4@ruizmier.com', 'x', now(), now(), now(), '{}'::jsonb, '{}'::jsonb),
       ('a0000000-0000-4000-8000-0000000000a5', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'wr-test-a5@ruizmier.com', 'x', now(), now(), now(), '{}'::jsonb, '{}'::jsonb),
-      ('a0000000-0000-4000-8000-0000000000a6', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'wr-test-a6@ruizmier.com', 'x', now(), now(), now(), '{}'::jsonb, '{}'::jsonb)
+      ('a0000000-0000-4000-8000-0000000000a6', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'wr-test-a6@ruizmier.com', 'x', now(), now(), now(), '{}'::jsonb, '{}'::jsonb),
+      -- Fase 7 (plan v2 §H, closes G16): is_engagement_responsible() is a 6-column
+      -- disjunction (manager_id/partner_id/sqr_id/encargado_id/specialist_it_id/
+      -- specialist_tax_id) but the suite above only ever exercised sqr_id (Sam).
+      -- a8/a9 back the encargado_id/specialist_it_id personas; a10 backs "usuario
+      -- auth sin fila en staff" (has auth.users + user_roles, no staff row at all).
+      ('a0000000-0000-4000-8000-0000000000a8', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'wr-test-a8@ruizmier.com', 'x', now(), now(), now(), '{}'::jsonb, '{}'::jsonb),
+      ('a0000000-0000-4000-8000-0000000000a9', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'wr-test-a9@ruizmier.com', 'x', now(), now(), now(), '{}'::jsonb, '{}'::jsonb),
+      ('a0000000-0000-4000-8000-0000000000b0', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'wr-test-b0@ruizmier.com', 'x', now(), now(), now(), '{}'::jsonb, '{}'::jsonb)
     ON CONFLICT (id) DO NOTHING;
   END IF;
 END $$;
@@ -69,7 +77,11 @@ INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, categor
   ('50000000-0000-4000-8000-0000000000a4', 'a0000000-0000-4000-8000-0000000000a4', 'Sam',  'SQR',        'c0000000-0000-4000-8000-0000000000a1'),
   ('50000000-0000-4000-8000-0000000000a5', 'a0000000-0000-4000-8000-0000000000a5', 'Val',  'AssignedOnly','c0000000-0000-4000-8000-0000000000a1'),
   ('50000000-0000-4000-8000-0000000000a6', 'a0000000-0000-4000-8000-0000000000a6', 'Nora', 'Unrelated',  'c0000000-0000-4000-8000-0000000000a1'),
-  ('50000000-0000-4000-8000-0000000000a7', NULL,                                    'Otto', 'ForeignLead','c0000000-0000-4000-8000-0000000000a1');
+  ('50000000-0000-4000-8000-0000000000a7', NULL,                                    'Otto', 'ForeignLead','c0000000-0000-4000-8000-0000000000a1'),
+  -- Fase 7 §H: encargado_id / specialist_it_id personas. a10 deliberately gets
+  -- NO staff row here — it backs "usuario auth sin fila en staff".
+  ('50000000-0000-4000-8000-0000000000a8', 'a0000000-0000-4000-8000-0000000000a8', 'Eddy', 'Encargado',  'c0000000-0000-4000-8000-0000000000a1'),
+  ('50000000-0000-4000-8000-0000000000a9', 'a0000000-0000-4000-8000-0000000000a9', 'Ivy',  'SpecialistIT','c0000000-0000-4000-8000-0000000000a1');
 
 -- ON CONFLICT DO UPDATE (not a plain INSERT): on a live Supabase, the auth.users insert above
 -- fires handle_new_user() (20251204051043), which already auto-creates a 'staff' user_roles row
@@ -80,16 +92,22 @@ INSERT INTO public.user_roles (user_id, role) VALUES
   ('a0000000-0000-4000-8000-0000000000a3', 'manager'),
   ('a0000000-0000-4000-8000-0000000000a4', 'sqr'),
   ('a0000000-0000-4000-8000-0000000000a5', 'senior'),
-  ('a0000000-0000-4000-8000-0000000000a6', 'staff')
+  ('a0000000-0000-4000-8000-0000000000a6', 'staff'),
+  ('a0000000-0000-4000-8000-0000000000a8', 'staff'),
+  ('a0000000-0000-4000-8000-0000000000a9', 'staff'),
+  ('a0000000-0000-4000-8000-0000000000b0', 'staff')
 ON CONFLICT (user_id) DO UPDATE SET role = EXCLUDED.role;
 
 -- fecha_cierre is NOT NULL with no DEFAULT on a live Supabase (20260702000000) — the local shim
 -- has no such column at all, so this must be supplied explicitly to work in both environments.
-INSERT INTO public.engagements (engagement_id, client_id, engagement_name, manager_id, sqr_id, practica, fecha_cierre) VALUES
+-- Fase 7 §H: encargado_id/specialist_it_id on E1 back the Eddy/Ivy personas
+-- below (30-shim-service-scope.sql adds these columns to the local harness).
+INSERT INTO public.engagements (engagement_id, client_id, engagement_name, manager_id, sqr_id, encargado_id, specialist_it_id, practica, fecha_cierre) VALUES
   ('e0000000-0000-4000-8000-0000000000a1', 'c1000000-0000-4000-8000-0000000000a1', 'WR E1',
-   '50000000-0000-4000-8000-0000000000a3', '50000000-0000-4000-8000-0000000000a4', 1, '2026-09-30'),
+   '50000000-0000-4000-8000-0000000000a3', '50000000-0000-4000-8000-0000000000a4',
+   '50000000-0000-4000-8000-0000000000a8', '50000000-0000-4000-8000-0000000000a9', 1, '2026-09-30'),
   ('e0000000-0000-4000-8000-0000000000a2', 'c1000000-0000-4000-8000-0000000000a1', 'WR E2 (foreign)',
-   '50000000-0000-4000-8000-0000000000a7', NULL, 1, '2026-09-30');
+   '50000000-0000-4000-8000-0000000000a7', NULL, NULL, NULL, 1, '2026-09-30');
 
 -- currency/season_mode are NOT NULL with no DEFAULT (20251204045534) — must be supplied explicitly.
 INSERT INTO public.work_orders (wo_id, engagement_id, currency, season_mode) VALUES
@@ -182,6 +200,46 @@ BEGIN
   GET DIAGNOSTICS n = ROW_COUNT;
   IF n <> 1 THEN RAISE EXCEPTION 'WR RLS FAIL — sqr Sam could not write R1 (is_engagement_responsible)'; END IF;
   RAISE NOTICE 'PASS — sqr Sam (is_engagement_responsible on E1) reads/writes E1 only';
+
+  -- ── encargado Eddy: is_engagement_responsible via encargado_id — same
+  --    read/write shape as Sam, different column of the 6-way disjunction
+  --    (Fase 7 §H, closes G16 gap "Encargado según matriz aprobada"). ────
+  PERFORM pg_temp.impersonate('a0000000-0000-4000-8000-0000000000a8');
+  SELECT count(*) INTO n FROM public.wo_staffing_requirements WHERE id = '30000000-0000-4000-8000-0000000000a1';
+  IF n <> 1 THEN RAISE EXCEPTION 'WR RLS FAIL — encargado Eddy: expected to see R1 (E1, responsible), got %', n; END IF;
+  SELECT count(*) INTO n FROM public.wo_staffing_requirements WHERE id = '30000000-0000-4000-8000-0000000000a2';
+  IF n <> 0 THEN RAISE EXCEPTION 'WR RLS FAIL — encargado Eddy cross-engagement leakage: sees R2 (E2)'; END IF;
+  UPDATE public.wo_staffing_requirements SET staff_count = 6 WHERE id = '30000000-0000-4000-8000-0000000000a1';
+  GET DIAGNOSTICS n = ROW_COUNT;
+  IF n <> 1 THEN RAISE EXCEPTION 'WR RLS FAIL — encargado Eddy could not write R1 (is_engagement_responsible via encargado_id)'; END IF;
+  RAISE NOTICE 'PASS — encargado Eddy (is_engagement_responsible via encargado_id on E1) reads/writes E1 only';
+
+  -- ── especialista IT Ivy: is_engagement_responsible via specialist_it_id
+  --    (Fase 7 §H, closes G16 gap "Especialista según matriz aprobada"). ──
+  PERFORM pg_temp.impersonate('a0000000-0000-4000-8000-0000000000a9');
+  SELECT count(*) INTO n FROM public.wo_staffing_requirements WHERE id = '30000000-0000-4000-8000-0000000000a1';
+  IF n <> 1 THEN RAISE EXCEPTION 'WR RLS FAIL — specialist Ivy: expected to see R1 (E1, responsible), got %', n; END IF;
+  SELECT count(*) INTO n FROM public.wo_staffing_requirements WHERE id = '30000000-0000-4000-8000-0000000000a2';
+  IF n <> 0 THEN RAISE EXCEPTION 'WR RLS FAIL — specialist Ivy cross-engagement leakage: sees R2 (E2)'; END IF;
+  UPDATE public.wo_staffing_requirements SET staff_count = 8 WHERE id = '30000000-0000-4000-8000-0000000000a1';
+  GET DIAGNOSTICS n = ROW_COUNT;
+  IF n <> 1 THEN RAISE EXCEPTION 'WR RLS FAIL — specialist Ivy could not write R1 (is_engagement_responsible via specialist_it_id)'; END IF;
+  RAISE NOTICE 'PASS — specialist IT Ivy (is_engagement_responsible via specialist_it_id on E1) reads/writes E1 only';
+
+  -- ── usuario auth sin fila en staff: has auth.users + user_roles, but no
+  --    staff row at all — get_my_staff_id() resolves to NULL, so every
+  --    disjunct of is_engagement_responsible/is_engagement_team_member/
+  --    has_assignment_on_engagement is NULL/false. Denied entirely, same
+  --    shape as unrelated Nora but via a different failure path (Fase 7 §H,
+  --    closes G16 gap "usuario sin staff asociado"). ─────────────────────
+  PERFORM pg_temp.impersonate('a0000000-0000-4000-8000-0000000000b0');
+  SELECT count(*) INTO n FROM public.wo_staffing_requirements
+   WHERE wo_id IN ('40000000-0000-4000-8000-0000000000a1','40000000-0000-4000-8000-0000000000a2');
+  IF n <> 0 THEN RAISE EXCEPTION 'WR RLS FAIL — staffless auth user: expected 0 rows, got %', n; END IF;
+  UPDATE public.wo_staffing_requirements SET staff_count = 1 WHERE id = '30000000-0000-4000-8000-0000000000a1';
+  GET DIAGNOSTICS n = ROW_COUNT;
+  IF n <> 0 THEN RAISE EXCEPTION 'WR RLS FAIL — staffless auth user wrote a requirement'; END IF;
+  RAISE NOTICE 'PASS — auth user with no staff row denied read and write';
 
   -- ── senior Val: has_assignment_on_engagement ONLY — SELECT yes, write NO.
   --    This is the deliberate read/write asymmetry the C1 matrix carries:

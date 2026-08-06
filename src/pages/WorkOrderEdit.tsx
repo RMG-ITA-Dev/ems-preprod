@@ -51,6 +51,7 @@ import {
 } from "@/lib/workOrderStaffing";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { useUserRole } from "@/hooks/useUserRole";
+import { isSchedulerEnabled } from "@/lib/schedulerFeature";
 import type { PaymentPlanInput, PaymentInstallmentInput } from "@/types/workOrderPaymentPlan";
 import { useWorksheetByEngagementId } from "@/hooks/useWorksheetData";
 import { useResyncWorksheetToWorkOrder } from "@/hooks/useWorksheetMutations";
@@ -433,7 +434,10 @@ const WorkOrderEdit = () => {
     // Staffing must validate before ANY mutation runs (todo-o-nada) — including the
     // read query having actually loaded OK, so a schema/network error is never
     // mistaken for "no staffing" and saved as a silent wipe.
-    if (staffingDirty) {
+    // Fase 7 (plan v2 §B.4#6): con el flag apagado, la sección de staffing está
+    // oculta (WorkOrderForm.tsx §B.4#5) — validar filas persistidas que el usuario
+    // no puede ver bloquearía el guardado de la OT con un toast sin dónde apuntar.
+    if (isSchedulerEnabled() && staffingDirty) {
       if (staffingLoading || staffingIsError) {
         toast.error(t("workOrders.staffingRequirements.errorLoading"));
         return false;
@@ -527,7 +531,8 @@ const WorkOrderEdit = () => {
     // propagates (the caller's try/catch aborts) and must leave staffing dirty + the
     // form open so the user can retry (the RPC is transactional — retrying never
     // creates duplicates).
-    if (staffingDirty) {
+    // Fase 7 (plan v2 §B.4#6): mismo gate que la validación de arriba.
+    if (isSchedulerEnabled() && staffingDirty) {
       await saveWorkOrderStaffing.mutateAsync({ woId: workOrder.wo_id, requirements: staffing });
       // The submission was validated before the RPC and the RPC confirmed it. Set the
       // baseline immediately instead of depending on an asynchronous cache refetch;

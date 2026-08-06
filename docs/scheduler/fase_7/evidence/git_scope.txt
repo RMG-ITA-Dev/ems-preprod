@@ -1,0 +1,72 @@
+=== git status --porcelain ===
+ M .github/workflows/scheduler-fase2-integrity.yml
+ M .github/workflows/test.yml
+ M docs/operations.md
+ M docs/scheduler/fase_2/scheduler-fase-2-esquema-canonico.md
+ M docs/scheduler/fase_2/scheduler-fase-2-runbook-ruta-c.md
+ M docs/scheduler/fase_2/scheduler-fase-2-rutas-locales.md
+ M docs/scheduler/fase_2/scheduler-phase-2-staffing-requirements.md
+ M docs/scheduler/fase_6/scheduler-fase-6-timesheet-assignment-advisory.md
+ M package.json
+ M src/App.tsx
+ M src/components/ProtectedRoute.tsx
+ M src/components/forms/EngagementForm.tsx
+ M src/components/forms/WorkOrderForm.tsx
+ M src/components/layout/AppSidebar.tsx
+ M src/components/layout/MobileMoreDrawer.tsx
+ M src/hooks/__tests__/useAuth.test.tsx
+ M src/hooks/scheduler/useStaffAssignmentSegments.ts
+ M src/hooks/useAuth.tsx
+ M src/locales/__tests__/i18n.terminology.test.ts
+ M src/locales/en.json
+ M src/locales/es.json
+ M src/pages/Auth.tsx
+ M src/pages/WorkOrderEdit.tsx
+ M src/vite-env.d.ts
+ M supabase/tests/local/20-shim-timesheet.sql
+ M supabase/tests/rls-wo-staffing-requirements.sql
+ M tools/vendor/svar-gantt/README.md
+ M vitest.config.ts
+?? docs/scheduler/fase_7/
+?? src/components/SessionCacheGuard.tsx
+?? src/components/__tests__/SessionCacheGuard.test.tsx
+?? src/components/layout/__tests__/
+?? src/lib/__tests__/schedulerFeature.test.ts
+?? src/lib/__tests__/sessionRecovery.test.tsx
+?? src/lib/schedulerFeature.ts
+?? src/lib/sessionRecovery.ts
+?? src/locales/__tests__/i18n.auth.test.ts
+?? src/locales/__tests__/i18n.parity.test.ts
+?? src/locales/__tests__/localeKeyHelpers.ts
+?? src/pages/__tests__/Auth.i18n.test.tsx
+
+=== rev-list development..HEAD (ahead) ===
+34
+
+=== rev-list HEAD..development (behind) ===
+0
+
+=== duplicate migration timestamps (uniq -d, empty = clean) ===
+
+=== migration count ===
+143
+
+=== conflict markers (empty = clean) ===
+
+=== supabaseUntyped hits in diff (expected: only the denial comment) ===
++// tipadas (ver useEmsData.ts). No existe un export `supabaseUntyped` en
+
+=== the 10 files that must remain deleted (git-aware: `git ls-files --error-unmatch`, not a raw
+    filesystem check — a filesystem check would false-positive on
+    .claude/scheduled_tasks.lock, a gitignored runtime lock the agent's own scheduling tool
+    creates transiently on disk; it was never git-tracked and was removed before finishing) ===
+(none tracked — all correctly absent from the repository)
+
+=== Expenses references outside fund-requests (empty = clean) ===
+
+=== coverage/dist in diff (empty = clean) ===
+
+=== wip/temp/fixup commits (empty = clean) ===
+
+=== whitespace check on the one file fixed this session (working tree only, exit 0 = clean) ===
+exit: 0

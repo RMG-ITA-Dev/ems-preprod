@@ -43,6 +43,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { EngagementCreatedDialog } from "@/components/forms/EngagementCreatedDialog";
 import { StaffAssignmentsCard } from "@/components/engagements/StaffAssignmentsCard";
+import { isSchedulerEnabled } from "@/lib/schedulerFeature";
 import { TaxonomyCombobox, NO_APLICA_VALUE } from "@/components/forms/TaxonomyCombobox";
 import { Engagement, useClients, useServices, useTaxonomies } from "@/hooks/useEmsData";
 import { useCategoryStaff } from "@/hooks/useCategoryStaff";
@@ -1464,7 +1465,10 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                 Engagement ya persistido — EngagementNew nunca renderiza esta sección. Guardado
                 independiente: la card tiene sus propios botones, el submit de arriba nunca la
                 toca. */}
-            {isEdit && engagement ? (
+            {/* Fase 7 (plan v2 §B.4#4): con el flag apagado se omite la sección completa —
+                ambas ramas dependen del Scheduler, dejar solo el placeholder sería un
+                huérfano sin sentido. */}
+            {isSchedulerEnabled() && (isEdit && engagement ? (
               <div className="border border-border bg-background/50 rounded-xl p-8 space-y-4">
                 <StaffAssignmentsCard engagement={engagement} onDirtyChange={setAssignmentsDirty} />
                 {showAssignmentsHeaderWarning && (
@@ -1483,7 +1487,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                   {t("engagement.assignments.availableAfterSave")}
                 </p>
               </div>
-            )}
+            ))}
 
             {isAdmin && (
               <div className="border border-border bg-background/50 rounded-xl p-8">

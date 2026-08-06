@@ -22,6 +22,7 @@ import { useUserRole } from "@/hooks/useUserRole";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { useManagesAnyOt } from "@/hooks/useFundRequests";
 import { canSeeGaps, canSeePlanning } from "@/lib/schedulerAccess";
+import { isSchedulerEnabled } from "@/lib/schedulerFeature";
 import { useNavigate } from "react-router-dom";
 import {
   Sidebar,
@@ -48,8 +49,9 @@ export function AppSidebar() {
     isAdmin || isPartner || isDirector || isManager || !!managesAnyOt;
   // Fase 3 — Scheduler: predicados compartidos con rutas/mobile drawer
   // (src/lib/schedulerAccess.ts) para que la matriz de roles nunca diverja.
-  const canSeeSchedulerPlanning = canSeePlanning({ isAdmin, isPartner, isDirector, isManager, isSenior });
-  const canSeeSchedulerGaps = canSeeGaps({ isAdmin, isPartner, isDirector, isManager, isSenior });
+  const schedulerEnabled = isSchedulerEnabled();
+  const canSeeSchedulerPlanning = schedulerEnabled && canSeePlanning({ isAdmin, isPartner, isDirector, isManager, isSenior });
+  const canSeeSchedulerGaps = schedulerEnabled && canSeeGaps({ isAdmin, isPartner, isDirector, isManager, isSenior });
 
   const handleSignOut = async () => {
     await signOut();

@@ -36,7 +36,10 @@ on:
       - 'supabase/tests/**'
       - '.github/workflows/scheduler-fase2-integrity.yml'
   pull_request:
-    branches: ['main']
+    # Fase 7 (plan v2 §E.3): the final dev-scheduler -> development PR must
+    # trigger this workflow too — it's path-filtered to migrations/tests and
+    # the PR touches both.
+    branches: ['main', 'development']
     paths:
       - 'supabase/migrations/**'
       - 'supabase/tests/**'

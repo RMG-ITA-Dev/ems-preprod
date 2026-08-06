@@ -1,29 +1,63 @@
 name: Tests
 
+# Fase 7 (plan v2 §E, plan A position #20): checks are consolidated here
+# rather than in a new `scheduler-fase3-integrity.yml`. Fase 3 already left
+# written instruction not to reuse the `scheduler-integrity.yml` path (see
+# scheduler-fase2-integrity.yml's own header) — a second file would only
+# duplicate this job's `npm ci` (60-90s) for zero isolation benefit, since
+# §20 asks for the *checks* to run, not a particular file layout.
+
 on:
   push:
     branches: ['*']
   pull_request:
-    branches: ['main']
+    # Fase 7 (plan v2 §E.2): the final dev-scheduler -> development PR must
+    # actually run CI — as 'main' only, it wouldn't have.
+    branches: ['main', 'development']
 
 jobs:
   test:
     runs-on: ubuntu-latest
-    
+
     steps:
       - uses: actions/checkout@v4
-      
+        with:
+          fetch-depth: 0
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-      
+
       - name: Install dependencies
         run: npm ci
-      
+
+      - name: Lint
+        run: npm run lint
+
+      - name: TypeScript baseline ratchet (deuda preexistente pinneada; no debe crecer)
+        run: |
+          set -o pipefail
+          npx tsc -p tsconfig.app.json --noEmit > "$RUNNER_TEMP/tsc.log" 2>&1 || true
+          COUNT=$(grep -c "error TS" "$RUNNER_TEMP/tsc.log" || true)
+          # Dueño y procedimiento de actualizacion: docs/scheduler/fase_7/scheduler-fase-7-verificacion.md
+          BASELINE=183
+          echo "tsc errors: $COUNT (baseline $BASELINE)"
+          if [ "$COUNT" -gt "$BASELINE" ]; then
+            echo "::error::tsc errors increased ($COUNT > $BASELINE)"
+            head -n 100 "$RUNNER_TEMP/tsc.log"
+            exit 1
+          fi
+
+      - name: Verify vendored SVAR gantt bundle
+        run: npm run verify:vendor
+
       - name: Run tests with coverage
         run: npx vitest run --coverage
+
+      - name: Build
+        run: npm run build
 
       - name: Guard against old limit settings in runtime code
         run: |
@@ -46,5 +80,48 @@ jobs:
             | grep -v '__tests__' \
             | grep -v 'parseDateLocal'; then
             echo "ERROR: Use parseDateLocal() for date-only fields (BUG 0220-59)"
+            exit 1
+          fi
+
+      - name: Guard against merge conflict markers
+        run: |
+          if git grep -n -E '^(<{7}|={7}|>{7})( |$)' -- src/ supabase/ docs/ .github/; then
+            echo "ERROR: Merge conflict markers found"
+            exit 1
+          fi
+
+      - name: Guard against whitespace errors (git diff --check)
+        # OFL-verbatim licenses, generated psql catalog fixtures and the vendored
+        # SVAR bundle are excluded — verified legitimate, see
+        # docs/scheduler/fase_7/evidence/git_scope.txt.
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch origin "${{ github.base_ref }}" --depth=1
+            BASE=$(git merge-base "origin/${{ github.base_ref }}" HEAD)
+          else
+            BASE=$(git rev-parse HEAD^ 2>/dev/null || git hash-object -t tree /dev/null)
+          fi
+          git diff --check "$BASE"...HEAD -- \
+            ':!LICENSES/' \
+            ':!supabase/tests/fixtures/route-fingerprints/' \
+            ':!src/components/scheduler/vendor/' \
+            ':!tools/vendor/svar-gantt/tarballs/'
+
+      - name: Guard against external origins in Scheduler components
+        # Substitute for tools/verify-external-origins.mjs, which does NOT exist
+        # in this repo (see tools/vendor/svar-gantt/README.md) — that script's
+        # "zero external origins" contract is already violated by index.html,
+        # inherited from `development` (Google Fonts CDN, Lovable OG image), so
+        # porting it would require rewriting index.html/adding a CSP — out of
+        # scope for Fase 7 stabilization. This grep is scoped to the Scheduler's
+        # own component tree only, excluding the vendored (and already
+        # sha256-verified) SVAR bundle.
+        run: |
+          if grep -rnE 'https?://' \
+            --include='*.ts' --include='*.tsx' --include='*.css' \
+            src/components/scheduler/ \
+            | grep -v '/vendor/' \
+            | grep -v 'w3.org'; then
+            echo "ERROR: External origin referenced from Scheduler components"
             exit 1
           fi

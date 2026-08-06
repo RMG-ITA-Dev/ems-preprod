@@ -80,9 +80,9 @@ BEGIN
       AND te.date_worked >= p_week_start
       AND te.date_worked < p_week_start + INTERVAL '7 days'
       AND e.manager_id IS NOT NULL
-    
+
     UNION
-    
+
     -- Get partner_id from engagements where staff logged time
     SELECT e.partner_id AS staff_id
     FROM time_entries te
@@ -91,7 +91,7 @@ BEGIN
       AND te.date_worked >= p_week_start
       AND te.date_worked < p_week_start + INTERVAL '7 days'
       AND e.partner_id IS NOT NULL
-    
+
     -- NOTE: supervisor_id fallback removed - approvers now come ONLY from engagement team
   ) potential_approver
   JOIN staff approver_s ON potential_approver.staff_id = approver_s.staff_id

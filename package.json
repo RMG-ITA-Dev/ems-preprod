@@ -10,6 +10,9 @@
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.app.json --noEmit",
+    "verify:vendor": "node tools/vendor/svar-gantt/verify.mjs",
     "test:rls": "bash supabase/tests/local/run-rls-tests.sh"
   },
   "dependencies": {
