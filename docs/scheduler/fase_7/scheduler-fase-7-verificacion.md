@@ -23,8 +23,8 @@ siendo del operador humano (R-INT, "Test", o requieren browser real) — no se s
 | G3b — Ruta A local | ✅ 143/143 migraciones, 0 pendientes, fingerprint capturado y commiteado en `EMS_Dev_Local` |
 | G3c — Escenario de renames (Ruta B) | ✅ Resuelto — el mecanismo sintético del plan no es ejecutable (ver detalle en §3); el riesgo sustantivo ya estaba probado por la corrida real de Fase 2 ("Ruta B — cierre con el CLI real") |
 | G4 — SQL/RLS/RPC + matriz §10 | ✅ Ejecutado contra un Postgres 16 aislado y descartable en R-LOCAL — **6/6 marcadores "ALL CHECKS PASSED"**, incluye los 3 fixtures nuevos del bloque H |
-| G5 — Ruta C oficial contra "Test" | ⏳ Pendiente (R-INT, solo operador humano) |
-| G6 — Regenerar y verificar tipos | ⏳ Pendiente (depende de G5; `types.ts` no fue tocado) |
+| G5 — Ruta C oficial contra "Test" | 🟡 **Re-etiquetado, no cerrado en aislamiento** — el ledger quedó reparado (143/143, 0 pendientes) con autorización explícita del operador, pero "Test" resultó tener contenido de `feat/roles-permisos` + 3 tablas de origen desconocido. Ver el hallazgo completo en `scheduler-fase-2-runbook-ruta-c.md` §0.1 y §5 abajo — la evidencia de hoy alimenta el merge conjunto, no un G5 aislado |
+| G6 — Regenerar y verificar tipos | ⏳ Diferido — no tiene sentido regenerar tipos "limpios de dev-scheduler" desde un proyecto que ya no lo está; se retoma en el merge conjunto |
 | G7 — Deploy de Edge Functions | ⏳ Pendiente (R-INT, solo operador humano) |
 | G8 — Regresión funcional (browser) | ⏳ Pendiente (browser real contra R-INT) |
 | G9 — Responsive/a11y/i18n visual | ⏳ Pendiente (browser real) |
@@ -121,6 +121,53 @@ aislado y descartable (mismo enfoque que usa la CI), sin tocar el stack comparti
 Resultado: **6/6 marcadores "ALL CHECKS PASSED"** (lanes 1-3 + lane 4, ambas RPCs, matriz RLS completa
 incluidos los 3 fixtures nuevos del bloque H — Encargado, Especialista IT, usuario sin staff).
 
+## §5. G5 — Ruta C oficial contra "Test" (re-etiquetado, no cerrado en aislamiento)
+
+Ejecutado con autorización explícita del operador, en vivo, contra el proyecto real "Test"
+(`slkqdcwwvmjtcbakajib`). Detalle completo del hallazgo en
+`docs/scheduler/fase_2/scheduler-fase-2-runbook-ruta-c.md` §0.1 — resumen aquí:
+
+**G5.1 (preflight de datos, solo lectura):** limpio salvo **1 fila** en `engagements` con
+`end_date < start_date` — el mismo caso que dispara el fail-closed de `scheduler-gaps` (G7). Anotado
+como limitación conocida (ver más abajo), no bloqueante para el repair.
+
+**G5.2/G5.3 (estado del ledger y repair):** `supabase_migrations.schema_migrations` no existía (igual
+que en Fase 2 — todo aplicado a mano). El esquema del scheduler ya estaba presente completo (`save_engagement_assignments`, `wo_staffing_requirements`, `encargado_id`/`specialist_it_id`/`specialist_tax_id`,
+etc.). Se corrió `migration repair --status applied` sobre los 143 nombres de `dev-scheduler-fase_7`
+(vía `--db-url`, sin usar `--linked` para no arriesgar el `config.toml` de `EMS_Dev_Supabase`, que
+todavía declara el `project_id` de Lovable). Verificado después: `migration list` sin divergencias,
+`db push --dry-run --include-all` → "Remote database is up to date" (0 pendientes).
+
+**El gate de paridad (fingerprint "Test" vs `ruta_a`) reveló que "Test" no es el ambiente limpio que
+la decisión OQ1 asumía.** El diff de esquema completo (`--schema-only`) mostró mucho ruido esperado de
+plataforma (extensiones `pg_net`/`pg_graphql`, schemas `_realtime`/`supabase_functions` — difieren
+entre el stack Docker local y un proyecto cloud real, nada que ver con nuestro esquema). Pero el diff
+de **políticas RLS y grants, acotado a `public` y recapturado en formato sin alinear** (el formato
+tabular default de `psql` reformatea el ancho de columna completo ante cualquier cambio de contenido,
+dando falsos positivos con `diff` línea a línea) mostró divergencia **estructural real**:
+
+- Funciones de permisos de `feat/roles-permisos` activas y en uso: `can_manage_skills()`,
+  `can_view_personnel()`, `can_manage_holidays()`, `has_permission()` — confirmado que existen en las
+  migraciones de esa rama.
+- Políticas reemplazadas en `categories`, `expense_types`, `global_settings`, `holidays`, `industries`,
+  `skills`, `staff`, `user_roles` con esa lógica granular, no los `is_admin()` simples de
+  `dev-scheduler`.
+- **3 tablas de origen no identificado** (buscado en `dev-scheduler-fase_7` y `feat/roles-permisos`,
+  ninguna las tiene): `engagement_staffing_requirements`, `resource_planning_audit_log`,
+  `staff_unavailability`.
+- Drift adicional sin relación aparente con roles-permisos (`fund_request_work_orders.fr_wo_select`,
+  `fund_requests.fr_select_manager`).
+
+El operador confirmó no tener registro de haber aplicado `feat/roles-permisos` (ni nada más) en
+"Test". **Decisión del operador:** no investigar más ni revertir nada — el `migration repair` ya
+corrido es inofensivo y se deja. Se re-etiqueta el alcance: "Test" se trata de ahora en más como un
+preview de facto del estado combinado, y la evidencia de hoy pasa a alimentar el merge conjunto
+(`scheduler-fase-7-lovable-convergencia-runbook.md`) en vez de cerrar un G5 aislado. Si en el futuro se
+necesita un ambiente realmente limpio de un solo branch, hace falta un proyecto Supabase nuevo.
+
+**G6 (regenerar tipos) queda diferido** por la misma razón — no corresponde generar "los tipos de
+`dev-scheduler` limpios" desde un proyecto que ya no lo está.
+
 ## Baseline de `tsc` — desglose (dueño: Fase 7, ver también el ratchet en `.github/workflows/test.yml`)
 
 De los 183 errores preexistentes:
@@ -142,6 +189,18 @@ hasta 183. **`tsc` en 0 es gate del merge conjunto con `feat/roles-permisos`, no
 
 ## Limitaciones conocidas y riesgos aceptados (para el PR)
 
+- 🔴 **"Test" ya no es un ambiente limpio de un solo branch** — tiene contenido de
+  `feat/roles-permisos` (confirmado) más 3 tablas de origen no identificado
+  (`engagement_staffing_requirements`, `resource_planning_audit_log`, `staff_unavailability`). Origen
+  desconocido incluso para el operador. Decisión: no investigar más ni revertir; re-etiquetado como
+  evidencia para el merge conjunto, no como cierre aislado de G5/G6. Ver §5 arriba y
+  `scheduler-fase-2-runbook-ruta-c.md` §0.1 para el detalle completo. **Esto invalida la premisa de la
+  decisión OQ1** ("Test" se eligió sobre "Dev 2.0" precisamente por creerse libre de
+  `feat/roles-permisos`) — cualquier trabajo futuro que necesite un ambiente aislado de un solo branch
+  requiere un proyecto Supabase nuevo.
+- **1 fila en `engagements` con `end_date < start_date`** en "Test" (detectada en el preflight de
+  G5.1) — dispara el fail-closed de `scheduler-gaps`; documentado, no corregido (fuera de alcance
+  arreglar datos de producción/prueba ajenos desde esta fase).
 - **Inventario de workflows**: solo existen `test.yml` y `scheduler-fase2-integrity.yml`; no se creó
   `scheduler-integrity.yml` ni `scheduler-fase3-integrity.yml` (ese path ya lo usa un workflow
   distinto en `sruizmier-scheduler-v3` — colisionaría al converger).
@@ -196,9 +255,9 @@ docs/scheduler/fase_7/evidence/
   route_parity_3way.txt              G3 — no aplica: el gate A↔C de la propia CI ya es la comparación real (fingerprint fresco commiteado en EMS_Dev_Local)
   rename_hazard_push.txt             G3c — resuelto sin este archivo; ver §3 y scheduler-fase-2-rutas-locales.md §6.1 (mecanismo sintético no ejecutable, riesgo ya cubierto por evidencia de Fase 2)
   test_rls.txt                       G4 — ✅ 6/6 "ALL CHECKS PASSED" contra Postgres 16 aislado, ver §3
-  dev2_staff_column_privileges.txt   G5.0 — pendiente (R-INT)
-  migration_list_int.txt             G5 — pendiente (R-INT)
-  types_diff.txt                     G6 — pendiente (depende de G5)
+  test_rls_policy_divergence.txt     G5 — ✅ diff real (formato sin alinear) que reveló el hallazgo de §5: feat/roles-permisos + 3 tablas no identificadas en "Test"
+  migration_list_int.txt             G5 — ✅ repair de 143 nombres + migration list + dry-run, "up to date"
+  types_diff.txt                     G6 — diferido (ver §5, no aplica regenerar tipos "limpios" desde un proyecto que ya no lo está)
   edge_functions_int.txt             G7 — pendiente (R-INT)
   rls_matrix_18.md                   G4 — cubierto por test_rls.txt (14/18 preexistentes + 3 nuevos del bloque H; PostgREST/vistas/RPC transversales a todas las filas)
   auth_scenarios.md                  G8 — pendiente (browser)

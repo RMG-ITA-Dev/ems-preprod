@@ -37,6 +37,37 @@ nombres de `development` — es el error que dejaría esos 5 renames como pendie
 `migration repair` en el proyecto de integración está **en alcance**; en el Supabase de Lovable del
 administrador sigue **explícitamente fuera de alcance**.
 
+### 🔴 Hallazgo en vivo (2026-08-06): "Test" no es un ambiente limpio de un solo branch
+
+**La premisa de la decisión OQ1 (arriba) ya no es válida.** Al correr G5 de verdad contra "Test", el
+diff de políticas RLS (acotado a `public`, formato sin alinear para evitar falsos positivos de ancho de
+columna) mostró divergencias estructurales reales, no ruido:
+
+- Funciones de permisos de **`feat/roles-permisos`** presentes y activas: `can_manage_skills()`,
+  `can_view_personnel()`, `can_manage_holidays()`, `has_permission()` — confirmado que existen
+  literalmente en las migraciones de esa rama (`authz_fase2_engine.sql`, `authz_fase4_*.sql`,
+  `harden_staff_pii_columns.sql`).
+- Políticas RLS reemplazadas en `categories`, `expense_types`, `global_settings`, `holidays`,
+  `industries`, `skills`, `staff`, `user_roles` con esa lógica de permisos granular, no los `is_admin()`
+  simples de `dev-scheduler`.
+- **3 tablas sin origen identificado** (ni en `dev-scheduler-fase_7` ni en `feat/roles-permisos`, ni en
+  ningún otro branch buscado): `engagement_staffing_requirements`, `resource_planning_audit_log`,
+  `staff_unavailability`.
+- Divergencias adicionales sin relación con roles-permisos ni con el scheduler (`fund_request_work_orders.fr_wo_select`, `fund_requests.fr_select_manager`) — drift independiente, causa desconocida.
+
+El operador confirmó que **no tiene registro de haber aplicado `feat/roles-permisos` (ni nada más) en
+"Test"** — el origen de este contenido queda sin explicación por ahora.
+
+**Decisión tomada (operador, 2026-08-06):** no se investiga más ni se revierte nada — el
+`migration repair --status applied` de las 143 migraciones de `dev-scheduler-fase_7` ya corrido contra
+"Test" es inofensivo (solo bookkeeping, no tocó esquema ni datos) y se deja tal cual. Se **re-etiqueta
+el alcance**: "Test" pasa a tratarse como un preview de facto del estado combinado
+(`dev-scheduler` + `feat/roles-permisos` + contenido no identificado), no como el ambiente aislado de
+un solo branch que el plan de Fase 7 asumía. El resultado de hoy se registra como evidencia útil **para
+el merge conjunto** (ver `scheduler-fase-7-lovable-convergencia-runbook.md`), no como cierre limpio de
+G5 en aislamiento. Si se necesita en el futuro un ambiente realmente limpio de un solo branch, hay que
+pedir un proyecto Supabase nuevo — "Test" ya no lo es.
+
 ## 0. Por qué Ruta C es la que importa para el día D
 
 `EMS_Dev_Supabase/` (el Supabase de prueba oficial) no tiene ningún historial de migraciones
