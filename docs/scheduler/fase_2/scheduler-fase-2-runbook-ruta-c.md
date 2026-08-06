@@ -58,6 +58,14 @@ columna) mostró divergencias estructurales reales, no ruido:
 El operador confirmó que **no tiene registro de haber aplicado `feat/roles-permisos` (ni nada más) en
 "Test"** — el origen de este contenido queda sin explicación por ahora.
 
+🟢 **Origen de las 3 tablas — RESUELTO** durante el merge conjunto (2026-08-06). No es contenido de
+`feat/roles-permisos` ni drift de "Test": es el prototipo Scheduler v1 (commit `1f07bc5b`,
+`origin/sruizmier-scheduler-v1`, 2026-04-05), aplicado al Supabase real vía Lovable y nunca
+revertido — nunca llegó al ledger de ninguna rama viva. Detalle completo, inventario de tablas/
+funciones/columnas y lista de exclusión para diffs de fingerprint en
+`docs/scheduler/deuda-esquema-scheduler-v1.md`. El **mecanismo** de despliegue a "Test" sigue sin
+explicación (el operador no tiene registro de haberlo aplicado ahí directamente) — no bloqueante.
+
 **Decisión tomada (operador, 2026-08-06):** no se investiga más ni se revierte nada — el
 `migration repair --status applied` de las 143 migraciones de `dev-scheduler-fase_7` ya corrido contra
 "Test" es inofensivo (solo bookkeeping, no tocó esquema ni datos) y se deja tal cual. Se **re-etiqueta

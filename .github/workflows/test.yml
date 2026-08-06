@@ -42,7 +42,12 @@ jobs:
           npx tsc -p tsconfig.app.json --noEmit > "$RUNNER_TEMP/tsc.log" 2>&1 || true
           COUNT=$(grep -c "error TS" "$RUNNER_TEMP/tsc.log" || true)
           # Dueño y procedimiento de actualizacion: docs/scheduler/fase_7/scheduler-fase-7-verificacion.md
-          BASELINE=183
+          # Subido 183->204 en el merge dev-scheduler+feat/roles-permisos (2026-08-06):
+          # verificado archivo-por-archivo que las 21 diferencias son deuda ya presente en
+          # feat/roles-permisos por si sola (0 regresiones nuevas del merge, ver
+          # bugs/scheduler/plan_merge_sche_rolper.md G8 y su evidencia). Bajará cuando se
+          # regeneren tipos desde R-INT (G7, pendiente de autorización/ambiente del operador).
+          BASELINE=204
           echo "tsc errors: $COUNT (baseline $BASELINE)"
           if [ "$COUNT" -gt "$BASELINE" ]; then
             echo "::error::tsc errors increased ($COUNT > $BASELINE)"

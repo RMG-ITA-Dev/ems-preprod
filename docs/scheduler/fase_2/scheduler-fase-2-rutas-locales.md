@@ -493,3 +493,14 @@ duplicada — **ya fue probado con el mecanismo real** en "Ruta B — cierre con
 teoría) que el renombrado de Q0 funciona con el CLI real. El experimento sintético de G3c quedó
 descartado como vía de medición — no aporta nada que la corrida real de Fase 2 no haya probado ya, y su
 mecanismo (`UPDATE` a un timestamp libre) no se sostiene contra el estado actual del repo.
+
+### 6.2 Cierre real del merge conjunto (2026-08-06)
+
+`feat/roles-permisos` avanzó de las 17 migraciones relevadas en §5 (2026-07-30) a **30** (hasta
+`20260731030000`), y **nunca recibió el rename de Q0** — sigue con los 5 pares duplicados el día del
+merge. No hizo falta ninguna acción manual: `git merge` (verificado primero en dry-run con
+`git merge-tree --write-tree`) resuelve los 5 pares solo, por el mismo mecanismo que §6.1 ya
+diagnosticó — el "ganador" de cada par (con su nombre nuevo) es un delete+add en `dev-scheduler` que
+`feat/roles-permisos` nunca tocó, así que git no ve conflicto. Verificado con `git hash-object`:
+contenido idéntico byte a byte entre el merge-base y el resultado del merge para los 5 archivos.
+Detalle completo, gates y evidencia en `bugs/scheduler/plan_merge_sche_rolper.md`.

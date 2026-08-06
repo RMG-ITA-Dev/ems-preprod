@@ -227,15 +227,20 @@ hasta 183. **`tsc` en 0 es gate del merge conjunto con `feat/roles-permisos`, no
 - **Bug nuevo, no de esta fase**: "Semana de seis días" no operativo en Timesheets, detectado
   durante el recorrido de las 16 filas de §14. Ningún archivo de Fase 7 toca esa lógica — se
   archiva como issue independiente, no bloquea el cierre de G8.
-- 🔴 **"Test" ya no es un ambiente limpio de un solo branch** — tiene contenido de
-  `feat/roles-permisos` (confirmado) más 3 tablas de origen no identificado
-  (`engagement_staffing_requirements`, `resource_planning_audit_log`, `staff_unavailability`). Origen
-  desconocido incluso para el operador. Decisión: no investigar más ni revertir; re-etiquetado como
-  evidencia para el merge conjunto, no como cierre aislado de G5/G6. Ver §5 arriba y
-  `scheduler-fase-2-runbook-ruta-c.md` §0.1 para el detalle completo. **Esto invalida la premisa de la
-  decisión OQ1** ("Test" se eligió sobre "Dev 2.0" precisamente por creerse libre de
-  `feat/roles-permisos`) — cualquier trabajo futuro que necesite un ambiente aislado de un solo branch
-  requiere un proyecto Supabase nuevo.
+- 🟡 **"Test" ya no es un ambiente limpio de un solo branch** — tiene contenido de
+  `feat/roles-permisos` (confirmado) más 3 tablas cuyo origen **ya está resuelto**
+  (`engagement_staffing_requirements`, `resource_planning_audit_log`, `staff_unavailability`):
+  prototipo Scheduler v1, commit `1f07bc5b` de `origin/sruizmier-scheduler-v1` (2026-04-05), aplicado
+  al Supabase real vía Lovable y nunca revertido — nunca llegó al ledger de ninguna rama viva.
+  Inventario completo, funciones y columnas fantasma asociadas, y lista de exclusión para diffs de
+  fingerprint en `docs/scheduler/deuda-esquema-scheduler-v1.md`. El **mecanismo** de despliegue a
+  "Test" (más allá de Lovable) sigue sin explicación, no bloqueante. Decisión del operador: no
+  investigar más ni revertir; documentar, no adoptar al ledger, no borrar. Ver §5 arriba y
+  `scheduler-fase-2-runbook-ruta-c.md` §0.1. **La premisa original de la decisión OQ1** ("Test" se
+  eligió sobre "Dev 2.0" precisamente por creerse libre de `feat/roles-permisos`) sigue invalidada
+  para Fase 7 — pero para el merge conjunto la propiedad se invierte: el operador eligió **Dev 2.0**
+  como R-INT precisamente porque ya tiene el estado combinado aplicado (ver
+  `bugs/scheduler/plan_merge_sche_rolper.md` §4, OQ1).
 - **1 fila en `engagements` con `end_date < start_date`** en "Test" (detectada en el preflight de
   G5.1) — dispara el fail-closed de `scheduler-gaps`; documentado, no corregido (fuera de alcance
   arreglar datos de producción/prueba ajenos desde esta fase).

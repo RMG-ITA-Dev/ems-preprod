@@ -90,3 +90,41 @@ Por decisión explícita del operador: el alcance de Fase 7 es únicamente lo qu
 `development`, no de esta fase — pero sin este registro, el conocimiento reunido durante el diseño
 de Fase 7 (los 3 archivos consumidores exactos, la regla de prioridad, el orden de las 6 tareas) se
 perdería.
+
+### Estado real de ejecución (merge conjunto, 2026-08-06)
+
+Plan completo y evidencia en `bugs/scheduler/plan_merge_sche_rolper.md` (gitignored). Las 6 tareas
+de arriba, tal como se ejecutaron de verdad:
+
+1. **Resolver las 5 colisiones de timestamp — no hizo falta tocar nada a mano.** El `git merge`
+   real (`git merge-tree --write-tree` en dry-run, confirmado en la ejecución) resuelve los 5 pares
+   solo: en la base común los 5 archivos existían con su nombre viejo, `dev-scheduler` los renombró
+   (delete + add) y `feat/roles-permisos` no los tocó — git resuelve delete-vs-sin-cambios sin
+   conflicto. Verificado con hash de contenido (`git hash-object`) idéntico byte a byte entre el
+   merge-base y el resultado del merge para los 5 archivos.
+2. **Piso de timestamps de C1–C4** — sin colisión por construcción: el árbol mergeado queda
+   `20260724… (authz 1–7) → 20260727100000–130000 (C1–C4) → 20260729…–20260731030000 (authz
+   8–resto) → 20260806000000 (grant nuevo, ver tarea 3)`.
+3. **Hardening de PII — ya estaba hecho**, en el commit tip de `feat/roles-permisos` (`6855c639`,
+   2026-08-04): los 21 embeds `staff!fk(*)`/`staff:staff(*)` en exactamente los 3 archivos
+   listados arriba ya están reemplazados por listas explícitas de columnas. **Hallazgo nuevo, no
+   cubierto por esta tarea:** el grant de 17 columnas no incluye `staff.is_schedulable`, que el
+   Scheduler sí selecciona (`useActiveStaffWithSkills`) — 403 garantizado en Encargos y Scheduler
+   L2. Cerrado con una migración nueva, aditiva:
+   `supabase/migrations/20260806000000_grant_staff_is_schedulable.sql`.
+4. **`tsc` en 0 — no se exigió** (decisión del operador, revisando OQ6): medido que 102 de los 183
+   errores originales (56%) son deuda ajena — 48 de varianza de `Column<T>` del DataTable
+   compartido y 35 de globals de Vitest faltantes — que ninguna de las dos ramas mueve. El gate real
+   fue "cero errores nuevos atribuibles a `dev-scheduler` o a `feat/roles-permisos`", verificado
+   contra baselines medidos por separado de cada rama. El ratchet de `test.yml` se conserva, no se
+   reemplaza por gate duro; `tsc → 0` queda como sub-fase futura.
+5. **Re-correr G0/G3** — hecho en R-APP (higiene, `uniq -d`, marcadores de conflicto); las rutas de
+   BD (Ruta A/C, `test:rls`) requieren R-LOCAL con autorización del operador y no se ejecutaron
+   desde esta sesión (regla del proyecto: nunca Supabase/migraciones desde R-APP).
+6. **Matriz RLS / `has_permission()`** — el gate de rol del Scheduler se resolvió sin tocar el
+   catálogo de permisos: en vez de reescribir las 4 capas de acceso (sidebar, drawer, `scheduler-data`,
+   `scheduler-gaps`) para usar `has_permission()`, se cambió la **fuente del rol** de
+   `user_roles.role` (enum legacy, espejado desde `role_key` y que colapsaba 23 roles en 11 —
+   filtraba 12 role_key de más hacia el Scheduler) a `user_roles.role_key` directamente, con un
+   único allowlist en `src/lib/schedulerAccess.ts`. Sin migraciones nuevas de catálogo. La matriz de
+   18 filas de Fase 7 se reconcilia por separado (ver evidencia del merge).
