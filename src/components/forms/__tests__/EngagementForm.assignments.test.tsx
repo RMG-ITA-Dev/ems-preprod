@@ -71,9 +71,19 @@ vi.mock("@/hooks/mutations", () => ({
 
 // Mutable (not a static object) so the O9 header-warning tests can flip Admin vs. non-Admin
 // without a separate module registration per case.
+//
+// Merge con feat/roles-permisos (2026-08): EngagementForm ya no usa useUserRole —
+// isAdmin sale de roleKey === "admin" via useAuthorization. can() siempre true acá:
+// este archivo no prueba gating por permiso, solo el toggle admin/no-admin del
+// aviso de assignments (O9); can()=false ocultaría el botón Save (canSave,
+// EngagementForm.tsx) y rompería tests que no son de esta suite.
 let mockIsAdmin = false;
-vi.mock("@/hooks/useUserRole", () => ({
-  useUserRole: () => ({ isAdmin: mockIsAdmin }),
+vi.mock("@/hooks/useAuthorization", () => ({
+  useAuthorization: () => ({
+    roleKey: mockIsAdmin ? "admin" : "manager",
+    can: () => true,
+    scope: () => "firm",
+  }),
 }));
 
 // Same convention as EngagementForm.servicesCatalog.test.tsx (review #2 there): Calendar as a

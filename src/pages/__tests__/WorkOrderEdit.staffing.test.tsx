@@ -82,7 +82,13 @@ vi.mock("@/hooks/useCurrentStaff", () => ({
   useCurrentStaff: () => ({ staffRecord: { staff_id: "staff-1", category: { can_approve_wo: true } } }),
 }));
 
-vi.mock("@/hooks/useUserRole", () => ({ useUserRole: () => ({ isAdmin: true }) }));
+// Merge con feat/roles-permisos (2026-08): WorkOrderEdit ya no usa useUserRole
+// para el gate de escritura — usa useAuthorization (can/scope/roleKey), que a
+// su vez llama useAuth() internamente. Sin este mock, useAuth() revienta por
+// faltar el AuthProvider. admin: true equivalente a roleKey admin + can() true.
+vi.mock("@/hooks/useAuthorization", () => ({
+  useAuthorization: () => ({ roleKey: "admin", can: () => true, scope: () => "firm" }),
+}));
 
 vi.mock("@/hooks/useWorksheetData", () => ({ useWorksheetByEngagementId: () => ({ data: undefined }) }));
 
