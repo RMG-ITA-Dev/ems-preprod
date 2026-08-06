@@ -25,10 +25,10 @@ siendo del operador humano (R-INT, "Test", o requieren browser real) — no se s
 | G4 — SQL/RLS/RPC + matriz §10 | ✅ Ejecutado contra un Postgres 16 aislado y descartable en R-LOCAL — **6/6 marcadores "ALL CHECKS PASSED"**, incluye los 3 fixtures nuevos del bloque H |
 | G5 — Ruta C oficial contra "Test" | 🟡 **Re-etiquetado, no cerrado en aislamiento** — el ledger quedó reparado (143/143, 0 pendientes) con autorización explícita del operador, pero "Test" resultó tener contenido de `feat/roles-permisos` + 3 tablas de origen desconocido. Ver el hallazgo completo en `scheduler-fase-2-runbook-ruta-c.md` §0.1 y §5 abajo — la evidencia de hoy alimenta el merge conjunto, no un G5 aislado |
 | G6 — Regenerar y verificar tipos | ⏳ Diferido — no tiene sentido regenerar tipos "limpios de dev-scheduler" desde un proyecto que ya no lo está; se retoma en el merge conjunto |
-| G7 — Deploy de Edge Functions | ⏳ Pendiente (R-INT, solo operador humano) |
-| G8 — Regresión funcional (browser) | ⏳ Pendiente (browser real contra R-INT) |
-| G9 — Responsive/a11y/i18n visual | ⏳ Pendiente (browser real) |
-| G10 — Evidencia/docs/CI/review/PR | 🟡 Parcial — docs, CI y evidencia de G3/G4 ya escritas; falta lo que depende de G5–G9 |
+| G7 — Deploy de Edge Functions | ✅ Ejecutado (R-INT, operador), ver §6 |
+| G8 — Regresión funcional (browser) | 🟡 Parcial — §14 (`development`, flag ON) cerrado, ver `evidence/regression_development.md`; faltan §15 (Scheduler), flag OFF (7 chokepoints), §4/§12/§13 |
+| G9 — Responsive/a11y/i18n visual | ✅ Ejecutado (R-INT, operador), ver `evidence/responsive_a11y_g9.md` — 20/20 capturas, §17, aislamiento de CSS |
+| G10 — Evidencia/docs/CI/review/PR | 🟡 Parcial — evidencia consolidada en `evidence/riesgos_limitaciones.md`; falta §22 (segunda opinión automatizada), §23 (PR real, operador) |
 
 ## §1. G0 — Higiene de rama y alcance (ejecutado, R-APP)
 
@@ -168,6 +168,29 @@ necesita un ambiente realmente limpio de un solo branch, hace falta un proyecto 
 **G6 (regenerar tipos) queda diferido** por la misma razón — no corresponde generar "los tipos de
 `dev-scheduler` limpios" desde un proyecto que ya no lo está.
 
+## §6. G7 — Deploy de Edge Functions a "Test" (ejecutado, R-INT, operador)
+
+Antes de desplegar se confirmó que Fase 7 no modificó código de Edge Functions: `diff -rq` entre
+`supabase/functions/{scheduler-data,scheduler-gaps}` de `EMS_Dev_Supabase` (`dev-scheduler-fase_6`) y
+de esta rama (`dev-scheduler-fase_7`) no mostró ninguna diferencia — el único trabajo de esta fase fue
+frontend (flag, i18n, session recovery), no Edge Functions.
+
+`supabase functions list --project-ref slkqdcwwvmjtcbakajib` (preflight) mostró que
+**`scheduler-data` y `scheduler-gaps` nunca se habían desplegado a "Test"** — ausentes de la lista
+por completo, mientras las otras 7 funciones (`assign-user-role`, `manage-auth-user`,
+`test-minmax-settings`, `dashboard-data`, `test-resubmission-state`, `secure-signin`,
+`unlock-account`) ya estaban `ACTIVE` desde mayo/junio.
+
+El operador ejecutó el deploy desde `EMS_Dev_Supabase`:
+
+```
+supabase functions deploy scheduler-data --project-ref slkqdcwwvmjtcbakajib
+supabase functions deploy scheduler-gaps --project-ref slkqdcwwvmjtcbakajib
+```
+
+Verificado post-deploy: ambas `ACTIVE`, `version 1`, `2026-08-06`. Evidencia completa en
+`evidence/edge_functions_int.txt`. **G7 cerrado.**
+
 ## Baseline de `tsc` — desglose (dueño: Fase 7, ver también el ratchet en `.github/workflows/test.yml`)
 
 De los 183 errores preexistentes:
@@ -189,6 +212,21 @@ hasta 183. **`tsc` en 0 es gate del merge conjunto con `feat/roles-permisos`, no
 
 ## Limitaciones conocidas y riesgos aceptados (para el PR)
 
+> Ver `evidence/riesgos_limitaciones.md` para la versión consolidada (G10). Esta lista se conserva
+> aquí con el detalle gate-por-gate.
+
+- **G8/§13 (red/consultas) diferido** — el checklist de `evidence/network_requests.md` quedó
+  armado pero no ejecutado (tabla de DevTools + 3 aserciones sin N+1/filtrado backend/sin descarga
+  firmwide). Decisión del operador: pasar a G10 sin cerrarlo.
+- **G8/§4 (escenarios de autenticación) diferido** — `evidence/auth_scenarios.md` quedó armado, no
+  ejecutado contra "Test" en esta sesión.
+- **Hallazgo sin verificar**: `/scheduler` con el usuario "Neil G" mostró `scheduler.errors.unavailable`
+  (mensaje genérico que colapsa cualquier throw de `scheduler-data`: red, 401, 403 o 500). No se
+  confirmó el status code real antes de pasar a otros puntos — puede ser un 403 esperado o un bug
+  real de la función recién desplegada en G7.
+- **Bug nuevo, no de esta fase**: "Semana de seis días" no operativo en Timesheets, detectado
+  durante el recorrido de las 16 filas de §14. Ningún archivo de Fase 7 toca esa lógica — se
+  archiva como issue independiente, no bloquea el cierre de G8.
 - 🔴 **"Test" ya no es un ambiente limpio de un solo branch** — tiene contenido de
   `feat/roles-permisos` (confirmado) más 3 tablas de origen no identificado
   (`engagement_staffing_requirements`, `resource_planning_audit_log`, `staff_unavailability`). Origen
@@ -258,13 +296,14 @@ docs/scheduler/fase_7/evidence/
   test_rls_policy_divergence.txt     G5 — ✅ diff real (formato sin alinear) que reveló el hallazgo de §5: feat/roles-permisos + 3 tablas no identificadas en "Test"
   migration_list_int.txt             G5 — ✅ repair de 143 nombres + migration list + dry-run, "up to date"
   types_diff.txt                     G6 — diferido (ver §5, no aplica regenerar tipos "limpios" desde un proyecto que ya no lo está)
-  edge_functions_int.txt             G7 — pendiente (R-INT)
+  edge_functions_int.txt             G7 — ✅ deploy real de scheduler-data/scheduler-gaps a "Test" (nunca desplegadas antes), ver §6
   rls_matrix_18.md                   G4 — cubierto por test_rls.txt (14/18 preexistentes + 3 nuevos del bloque H; PostgREST/vistas/RPC transversales a todas las filas)
-  auth_scenarios.md                  G8 — pendiente (browser)
-  network_requests.md                G8 — pendiente (browser)
-  regression_development.md          G8 — pendiente (browser)
-  regression_scheduler.md            G8 — pendiente (browser)
-  flag_off_verification.md           G8 — pendiente (browser)
-  responsive/                        G9 — pendiente (browser)
-  riesgos_limitaciones.md            consolida los riesgos de esta sección
+  auth_scenarios.md                  G8/§4 — diferido, checklist armado, no ejecutado (ver riesgos_limitaciones.md)
+  network_requests.md                G8/§13 — diferido, checklist armado + hallazgo abierto sin verificar
+  regression_development.md          G8/§14 — ✅ 15/16 Timesheets, 9/9 estados, spot-checks OK
+  regression_scheduler.md            G8/§15 — ✅ confirmado por el operador (sin detalle fila-por-fila, ver riesgos_limitaciones.md)
+  flag_off_verification.md           G8/§18 — ✅ 7/7 chokepoints
+  bundle_chunks_g12.txt              G8/§12 — ✅ SVAR aislado, 0 en bundle inicial, sin sourcemaps
+  responsive_a11y_g9.md              G9 — ✅ 20/20 capturas, §17, aislamiento de CSS
+  riesgos_limitaciones.md            ✅ consolida cerrado vs. diferido, decisiones del operador
 ```
