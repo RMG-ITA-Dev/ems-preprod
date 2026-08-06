@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict rabhSGjd4ddDswGqZi7PCG0vIcfws2rSDdAqaHq2fylgpfkZcdUPD11U3oFddeD
+\restrict sEj9xyzWiqn7VJUUqJ1EEChPWXzWg7o4xXN1EJuOjstujoVNa2gGzxgks0kaxAw
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 18.4
@@ -4591,6 +4591,33 @@ $$;
 
 
 --
+-- Name: resolve_wo_engagement_id(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.resolve_wo_engagement_id(p_wo_id uuid) RETURNS uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT wo.engagement_id FROM public.work_orders wo WHERE wo.wo_id = p_wo_id
+$$;
+
+
+--
+-- Name: resolve_wo_req_skill_engagement_id(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.resolve_wo_req_skill_engagement_id(p_requirement_id uuid) RETURNS uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT wo.engagement_id
+    FROM public.wo_staffing_requirements r
+    JOIN public.work_orders wo ON wo.wo_id = r.wo_id
+   WHERE r.id = p_requirement_id
+$$;
+
+
+--
 -- Name: save_engagement_assignments(uuid, jsonb, uuid[]); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -4601,6 +4628,8 @@ CREATE FUNCTION public.save_engagement_assignments(p_engagement_id uuid, p_upser
 DECLARE
   v_state_override smallint;
   v_practica        smallint;
+  v_eng_start       date;
+  v_eng_end         date;
   v_service_id      uuid;
   v_cat_service     uuid;
   v_row             jsonb;
@@ -4611,6 +4640,10 @@ DECLARE
   v_end_date        date;
   v_hours           numeric;
   v_allocation      numeric;
+  v_exists          boolean;
+  v_persisted_staff_id uuid;
+  v_staff_active    boolean;
+  v_staff_schedulable boolean;
   v_result          jsonb;
 BEGIN
   p_upserts     := COALESCE(p_upserts, '[]'::jsonb);
@@ -4618,8 +4651,8 @@ BEGIN
 
   -- 1-3. Resolver + bloquear el engagement (serializa escrituras concurrentes, hace correcto el
   --      chequeo de overlaps del paso 6), autorizar, y confirmar que acepta escrituras.
-  SELECT engagement_state_override, practica
-    INTO v_state_override, v_practica
+  SELECT engagement_state_override, practica, start_date, end_date
+    INTO v_state_override, v_practica, v_eng_start, v_eng_end
     FROM public.engagements
    WHERE engagement_id = p_engagement_id
    FOR UPDATE;
@@ -4647,6 +4680,7 @@ BEGIN
   -- 4. Validar TODO el payload antes de escribir nada.
   FOR v_row IN SELECT * FROM jsonb_array_elements(p_upserts)
   LOOP
+    v_assignment_id := (v_row->>'assignment_id')::uuid;
     v_staff_id    := (v_row->>'staff_id')::uuid;
     v_category_id := (v_row->>'category_id')::uuid;
     v_start_date  := (v_row->>'start_date')::date;
@@ -4654,8 +4688,10 @@ BEGIN
     v_hours       := (v_row->>'hours_per_week')::numeric;
     v_allocation  := (v_row->>'allocation_percent')::numeric;
 
-    IF v_staff_id IS NULL OR v_category_id IS NULL OR v_start_date IS NULL OR v_end_date IS NULL
-       OR v_hours IS NULL OR v_allocation IS NULL THEN
+    -- Fase 5 O1: assignment_id ahora es SIEMPRE requerido — lo genera el cliente una sola vez
+    -- (insert idempotente) y lo conserva para updates.
+    IF v_assignment_id IS NULL OR v_staff_id IS NULL OR v_category_id IS NULL
+       OR v_start_date IS NULL OR v_end_date IS NULL OR v_hours IS NULL OR v_allocation IS NULL THEN
       RAISE EXCEPTION 'EAS_MISSING_FIELD'
         USING DETAIL = jsonb_build_object('row', v_row)::text;
     END IF;
@@ -4664,6 +4700,16 @@ BEGIN
     IF v_end_date < v_start_date THEN
       RAISE EXCEPTION 'EAS_DATE_RANGE'
         USING DETAIL = jsonb_build_object('start_date', v_start_date, 'end_date', v_end_date)::text;
+    END IF;
+
+    -- Fase 5 O4: el segmento debe caer dentro del rango inclusivo del engagement (si el
+    -- engagement tiene fechas — un legado sin fechas queda sin cota).
+    IF (v_eng_start IS NOT NULL AND v_start_date < v_eng_start)
+       OR (v_eng_end IS NOT NULL AND v_end_date > v_eng_end) THEN
+      RAISE EXCEPTION 'EAS_ENGAGEMENT_RANGE'
+        USING DETAIL = jsonb_build_object(
+                'start_date', v_start_date, 'end_date', v_end_date,
+                'engagement_start_date', v_eng_start, 'engagement_end_date', v_eng_end)::text;
     END IF;
 
     IF v_hours <= 0 OR v_hours > 80 THEN
@@ -4683,6 +4729,33 @@ BEGIN
           USING DETAIL = jsonb_build_object('category_id', v_category_id)::text;
       END IF;
     END IF;
+
+    -- Fase 5 O7 (enmienda del review #4): elegibilidad de staff para inserts nuevos Y para
+    -- updates que CAMBIAN el staff_id de una fila existente — una fila que conserva su staff_id
+    -- histórico está exenta (permite staff inactivo/no-schedulable ya asignado sin re-validar en
+    -- cada guardado no relacionado), pero reasignar la fila a un staff DISTINTO exige la misma
+    -- elegibilidad que un insert nuevo.
+    SELECT EXISTS (
+      SELECT 1 FROM public.engagement_assignments
+       WHERE assignment_id = v_assignment_id AND engagement_id = p_engagement_id
+    ) INTO v_exists;
+
+    v_persisted_staff_id := NULL;
+    IF v_exists THEN
+      SELECT staff_id INTO v_persisted_staff_id
+        FROM public.engagement_assignments
+       WHERE assignment_id = v_assignment_id AND engagement_id = p_engagement_id;
+    END IF;
+
+    IF NOT v_exists OR v_persisted_staff_id IS DISTINCT FROM v_staff_id THEN
+      SELECT is_active, is_schedulable INTO v_staff_active, v_staff_schedulable
+        FROM public.staff
+       WHERE staff_id = v_staff_id;
+      IF v_staff_active IS NOT TRUE OR v_staff_schedulable IS NOT TRUE THEN
+        RAISE EXCEPTION 'EAS_STAFF_INELIGIBLE'
+          USING DETAIL = jsonb_build_object('staff_id', v_staff_id)::text;
+      END IF;
+    END IF;
   END LOOP;
 
   -- 5. Aplicar el diff explícito: soft-delete -> update -> insert (en ese orden). status nunca se
@@ -4700,7 +4773,15 @@ BEGIN
   LOOP
     v_assignment_id := (v_row->>'assignment_id')::uuid;
 
-    IF v_assignment_id IS NOT NULL THEN
+    -- Fase 5 O1: idempotencia por UUID cliente — la fila YA existe en este engagement -> UPDATE;
+    -- si no -> INSERT con ese mismo id (un reintento tras un commit no-acusado encuentra la fila
+    -- en la segunda llamada y actualiza en vez de duplicar).
+    SELECT EXISTS (
+      SELECT 1 FROM public.engagement_assignments
+       WHERE assignment_id = v_assignment_id AND engagement_id = p_engagement_id
+    ) INTO v_exists;
+
+    IF v_exists THEN
       UPDATE public.engagement_assignments
          SET staff_id           = (v_row->>'staff_id')::uuid,
              category_id        = (v_row->>'category_id')::uuid,
@@ -4713,9 +4794,10 @@ BEGIN
          AND engagement_id = p_engagement_id;
     ELSE
       INSERT INTO public.engagement_assignments (
-        engagement_id, staff_id, category_id,
+        assignment_id, engagement_id, staff_id, category_id,
         start_date, end_date, hours_per_week, allocation_percent, notes
       ) VALUES (
+        v_assignment_id,
         p_engagement_id,
         (v_row->>'staff_id')::uuid,
         (v_row->>'category_id')::uuid,
@@ -9105,10 +9187,10 @@ PARTITION BY RANGE (inserted_at);
 
 
 --
--- Name: messages_2026_07_29; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_2026_08_05; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_07_29 (
+CREATE TABLE realtime.messages_2026_08_05 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -9121,10 +9203,10 @@ CREATE TABLE realtime.messages_2026_07_29 (
 
 
 --
--- Name: messages_2026_07_30; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_2026_08_06; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_07_30 (
+CREATE TABLE realtime.messages_2026_08_06 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -9137,10 +9219,10 @@ CREATE TABLE realtime.messages_2026_07_30 (
 
 
 --
--- Name: messages_2026_07_31; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_2026_08_07; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_07_31 (
+CREATE TABLE realtime.messages_2026_08_07 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -9153,10 +9235,10 @@ CREATE TABLE realtime.messages_2026_07_31 (
 
 
 --
--- Name: messages_2026_08_01; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_2026_08_08; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_08_01 (
+CREATE TABLE realtime.messages_2026_08_08 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -9169,10 +9251,10 @@ CREATE TABLE realtime.messages_2026_08_01 (
 
 
 --
--- Name: messages_2026_08_02; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_2026_08_09; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_08_02 (
+CREATE TABLE realtime.messages_2026_08_09 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -9465,38 +9547,38 @@ CREATE TABLE supabase_migrations.schema_migrations (
 
 
 --
--- Name: messages_2026_07_29; Type: TABLE ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_08_05; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_07_29 FOR VALUES FROM ('2026-07-29 00:00:00') TO ('2026-07-30 00:00:00');
-
-
---
--- Name: messages_2026_07_30; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_07_30 FOR VALUES FROM ('2026-07-30 00:00:00') TO ('2026-07-31 00:00:00');
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_08_05 FOR VALUES FROM ('2026-08-05 00:00:00') TO ('2026-08-06 00:00:00');
 
 
 --
--- Name: messages_2026_07_31; Type: TABLE ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_08_06; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_07_31 FOR VALUES FROM ('2026-07-31 00:00:00') TO ('2026-08-01 00:00:00');
-
-
---
--- Name: messages_2026_08_01; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_08_01 FOR VALUES FROM ('2026-08-01 00:00:00') TO ('2026-08-02 00:00:00');
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_08_06 FOR VALUES FROM ('2026-08-06 00:00:00') TO ('2026-08-07 00:00:00');
 
 
 --
--- Name: messages_2026_08_02; Type: TABLE ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_08_07; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_08_02 FOR VALUES FROM ('2026-08-02 00:00:00') TO ('2026-08-03 00:00:00');
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_08_07 FOR VALUES FROM ('2026-08-07 00:00:00') TO ('2026-08-08 00:00:00');
+
+
+--
+-- Name: messages_2026_08_08; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_08_08 FOR VALUES FROM ('2026-08-08 00:00:00') TO ('2026-08-09 00:00:00');
+
+
+--
+-- Name: messages_2026_08_09; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_08_09 FOR VALUES FROM ('2026-08-09 00:00:00') TO ('2026-08-10 00:00:00');
 
 
 --
@@ -10290,43 +10372,43 @@ ALTER TABLE ONLY realtime.messages
 
 
 --
--- Name: messages_2026_07_29 messages_2026_07_29_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+-- Name: messages_2026_08_05 messages_2026_08_05_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages_2026_07_29
-    ADD CONSTRAINT messages_2026_07_29_pkey PRIMARY KEY (id, inserted_at);
-
-
---
--- Name: messages_2026_07_30 messages_2026_07_30_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_07_30
-    ADD CONSTRAINT messages_2026_07_30_pkey PRIMARY KEY (id, inserted_at);
+ALTER TABLE ONLY realtime.messages_2026_08_05
+    ADD CONSTRAINT messages_2026_08_05_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
--- Name: messages_2026_07_31 messages_2026_07_31_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+-- Name: messages_2026_08_06 messages_2026_08_06_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages_2026_07_31
-    ADD CONSTRAINT messages_2026_07_31_pkey PRIMARY KEY (id, inserted_at);
-
-
---
--- Name: messages_2026_08_01 messages_2026_08_01_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_08_01
-    ADD CONSTRAINT messages_2026_08_01_pkey PRIMARY KEY (id, inserted_at);
+ALTER TABLE ONLY realtime.messages_2026_08_06
+    ADD CONSTRAINT messages_2026_08_06_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
--- Name: messages_2026_08_02 messages_2026_08_02_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+-- Name: messages_2026_08_07 messages_2026_08_07_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages_2026_08_02
-    ADD CONSTRAINT messages_2026_08_02_pkey PRIMARY KEY (id, inserted_at);
+ALTER TABLE ONLY realtime.messages_2026_08_07
+    ADD CONSTRAINT messages_2026_08_07_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_08_08 messages_2026_08_08_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_08_08
+    ADD CONSTRAINT messages_2026_08_08_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_08_09 messages_2026_08_09_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_08_09
+    ADD CONSTRAINT messages_2026_08_09_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
@@ -11228,38 +11310,38 @@ CREATE INDEX messages_inserted_at_topic_index ON ONLY realtime.messages USING bt
 
 
 --
--- Name: messages_2026_07_29_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+-- Name: messages_2026_08_05_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
-CREATE INDEX messages_2026_07_29_inserted_at_topic_idx ON realtime.messages_2026_07_29 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
--- Name: messages_2026_07_30_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_07_30_inserted_at_topic_idx ON realtime.messages_2026_07_30 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+CREATE INDEX messages_2026_08_05_inserted_at_topic_idx ON realtime.messages_2026_08_05 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
--- Name: messages_2026_07_31_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+-- Name: messages_2026_08_06_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
-CREATE INDEX messages_2026_07_31_inserted_at_topic_idx ON realtime.messages_2026_07_31 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
--- Name: messages_2026_08_01_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_08_01_inserted_at_topic_idx ON realtime.messages_2026_08_01 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+CREATE INDEX messages_2026_08_06_inserted_at_topic_idx ON realtime.messages_2026_08_06 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
--- Name: messages_2026_08_02_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+-- Name: messages_2026_08_07_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
-CREATE INDEX messages_2026_08_02_inserted_at_topic_idx ON realtime.messages_2026_08_02 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+CREATE INDEX messages_2026_08_07_inserted_at_topic_idx ON realtime.messages_2026_08_07 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_08_08_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_08_08_inserted_at_topic_idx ON realtime.messages_2026_08_08 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_08_09_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_08_09_inserted_at_topic_idx ON realtime.messages_2026_08_09 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
@@ -11361,73 +11443,73 @@ CREATE INDEX supabase_functions_hooks_request_id_idx ON supabase_functions.hooks
 
 
 --
--- Name: messages_2026_07_29_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_08_05_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_07_29_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_07_29_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_07_29_pkey;
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_08_05_inserted_at_topic_idx;
 
 
 --
--- Name: messages_2026_07_30_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_08_05_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_07_30_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_07_30_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_07_30_pkey;
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_08_05_pkey;
 
 
 --
--- Name: messages_2026_07_31_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_08_06_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_07_31_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_07_31_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_07_31_pkey;
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_08_06_inserted_at_topic_idx;
 
 
 --
--- Name: messages_2026_08_01_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_08_06_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_08_01_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_08_01_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_08_01_pkey;
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_08_06_pkey;
 
 
 --
--- Name: messages_2026_08_02_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_08_07_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_08_02_inserted_at_topic_idx;
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_08_07_inserted_at_topic_idx;
 
 
 --
--- Name: messages_2026_08_02_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_08_07_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_08_02_pkey;
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_08_07_pkey;
+
+
+--
+-- Name: messages_2026_08_08_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_08_08_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_08_08_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_08_08_pkey;
+
+
+--
+-- Name: messages_2026_08_09_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_08_09_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_08_09_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_08_09_pkey;
 
 
 --
@@ -13468,24 +13550,31 @@ CREATE POLICY ea_select_lead ON public.engagement_assignments FOR SELECT TO auth
 
 
 --
+-- Name: engagement_assignments ea_select_responsible; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY ea_select_responsible ON public.engagement_assignments FOR SELECT TO authenticated USING (public.is_engagement_responsible(engagement_id));
+
+
+--
 -- Name: engagement_assignments ea_team_delete; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY ea_team_delete ON public.engagement_assignments FOR DELETE TO authenticated USING (((public.is_engagement_team_member(engagement_id) OR public.is_engagement_responsible(engagement_id)) AND public.can_read_engagement_assignments(engagement_id)));
+CREATE POLICY ea_team_delete ON public.engagement_assignments FOR DELETE TO authenticated USING (((public.is_engagement_team_member(engagement_id) OR public.is_engagement_responsible(engagement_id)) AND (public.can_read_engagement_assignments(engagement_id) OR public.is_engagement_responsible(engagement_id))));
 
 
 --
 -- Name: engagement_assignments ea_team_insert; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY ea_team_insert ON public.engagement_assignments FOR INSERT TO authenticated WITH CHECK (((public.is_engagement_team_member(engagement_id) OR public.is_engagement_responsible(engagement_id)) AND public.can_read_engagement_assignments(engagement_id)));
+CREATE POLICY ea_team_insert ON public.engagement_assignments FOR INSERT TO authenticated WITH CHECK (((public.is_engagement_team_member(engagement_id) OR public.is_engagement_responsible(engagement_id)) AND (public.can_read_engagement_assignments(engagement_id) OR public.is_engagement_responsible(engagement_id))));
 
 
 --
 -- Name: engagement_assignments ea_team_update; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY ea_team_update ON public.engagement_assignments FOR UPDATE TO authenticated USING (((public.is_engagement_team_member(engagement_id) OR public.is_engagement_responsible(engagement_id)) AND public.can_read_engagement_assignments(engagement_id))) WITH CHECK (((public.is_engagement_team_member(engagement_id) OR public.is_engagement_responsible(engagement_id)) AND public.can_read_engagement_assignments(engagement_id)));
+CREATE POLICY ea_team_update ON public.engagement_assignments FOR UPDATE TO authenticated USING (((public.is_engagement_team_member(engagement_id) OR public.is_engagement_responsible(engagement_id)) AND (public.can_read_engagement_assignments(engagement_id) OR public.is_engagement_responsible(engagement_id)))) WITH CHECK (((public.is_engagement_team_member(engagement_id) OR public.is_engagement_responsible(engagement_id)) AND (public.can_read_engagement_assignments(engagement_id) OR public.is_engagement_responsible(engagement_id))));
 
 
 --
@@ -13769,111 +13858,56 @@ ALTER TABLE public.wo_payment_plan ENABLE ROW LEVEL SECURITY;
 -- Name: wo_staffing_requirements wo_staffing_req_delete; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY wo_staffing_req_delete ON public.wo_staffing_requirements FOR DELETE TO authenticated USING ((public.is_admin() OR public.is_engagement_team_member(( SELECT wo.engagement_id
-   FROM public.work_orders wo
-  WHERE (wo.wo_id = wo_staffing_requirements.wo_id))) OR public.is_engagement_responsible(( SELECT wo.engagement_id
-   FROM public.work_orders wo
-  WHERE (wo.wo_id = wo_staffing_requirements.wo_id)))));
+CREATE POLICY wo_staffing_req_delete ON public.wo_staffing_requirements FOR DELETE TO authenticated USING ((public.is_admin() OR public.is_engagement_team_member(public.resolve_wo_engagement_id(wo_id)) OR public.is_engagement_responsible(public.resolve_wo_engagement_id(wo_id))));
 
 
 --
 -- Name: wo_staffing_requirements wo_staffing_req_insert; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY wo_staffing_req_insert ON public.wo_staffing_requirements FOR INSERT TO authenticated WITH CHECK ((public.is_admin() OR public.is_engagement_team_member(( SELECT wo.engagement_id
-   FROM public.work_orders wo
-  WHERE (wo.wo_id = wo_staffing_requirements.wo_id))) OR public.is_engagement_responsible(( SELECT wo.engagement_id
-   FROM public.work_orders wo
-  WHERE (wo.wo_id = wo_staffing_requirements.wo_id)))));
+CREATE POLICY wo_staffing_req_insert ON public.wo_staffing_requirements FOR INSERT TO authenticated WITH CHECK ((public.is_admin() OR public.is_engagement_team_member(public.resolve_wo_engagement_id(wo_id)) OR public.is_engagement_responsible(public.resolve_wo_engagement_id(wo_id))));
 
 
 --
 -- Name: wo_staffing_requirements wo_staffing_req_select; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY wo_staffing_req_select ON public.wo_staffing_requirements FOR SELECT TO authenticated USING ((public.is_admin() OR public.has_firmwide_assignment_visibility() OR public.is_engagement_team_member(( SELECT wo.engagement_id
-   FROM public.work_orders wo
-  WHERE (wo.wo_id = wo_staffing_requirements.wo_id))) OR public.is_engagement_responsible(( SELECT wo.engagement_id
-   FROM public.work_orders wo
-  WHERE (wo.wo_id = wo_staffing_requirements.wo_id))) OR public.has_assignment_on_engagement(( SELECT wo.engagement_id
-   FROM public.work_orders wo
-  WHERE (wo.wo_id = wo_staffing_requirements.wo_id)))));
+CREATE POLICY wo_staffing_req_select ON public.wo_staffing_requirements FOR SELECT TO authenticated USING ((public.is_admin() OR public.has_firmwide_assignment_visibility() OR public.is_engagement_team_member(public.resolve_wo_engagement_id(wo_id)) OR public.is_engagement_responsible(public.resolve_wo_engagement_id(wo_id)) OR public.has_assignment_on_engagement(public.resolve_wo_engagement_id(wo_id))));
 
 
 --
 -- Name: wo_staffing_requirement_skills wo_staffing_req_skills_delete; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY wo_staffing_req_skills_delete ON public.wo_staffing_requirement_skills FOR DELETE TO authenticated USING ((public.is_admin() OR public.is_engagement_team_member(( SELECT wo.engagement_id
-   FROM (public.wo_staffing_requirements r
-     JOIN public.work_orders wo ON ((wo.wo_id = r.wo_id)))
-  WHERE (r.id = wo_staffing_requirement_skills.requirement_id))) OR public.is_engagement_responsible(( SELECT wo.engagement_id
-   FROM (public.wo_staffing_requirements r
-     JOIN public.work_orders wo ON ((wo.wo_id = r.wo_id)))
-  WHERE (r.id = wo_staffing_requirement_skills.requirement_id)))));
+CREATE POLICY wo_staffing_req_skills_delete ON public.wo_staffing_requirement_skills FOR DELETE TO authenticated USING ((public.is_admin() OR public.is_engagement_team_member(public.resolve_wo_req_skill_engagement_id(requirement_id)) OR public.is_engagement_responsible(public.resolve_wo_req_skill_engagement_id(requirement_id))));
 
 
 --
 -- Name: wo_staffing_requirement_skills wo_staffing_req_skills_insert; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY wo_staffing_req_skills_insert ON public.wo_staffing_requirement_skills FOR INSERT TO authenticated WITH CHECK ((public.is_admin() OR public.is_engagement_team_member(( SELECT wo.engagement_id
-   FROM (public.wo_staffing_requirements r
-     JOIN public.work_orders wo ON ((wo.wo_id = r.wo_id)))
-  WHERE (r.id = wo_staffing_requirement_skills.requirement_id))) OR public.is_engagement_responsible(( SELECT wo.engagement_id
-   FROM (public.wo_staffing_requirements r
-     JOIN public.work_orders wo ON ((wo.wo_id = r.wo_id)))
-  WHERE (r.id = wo_staffing_requirement_skills.requirement_id)))));
+CREATE POLICY wo_staffing_req_skills_insert ON public.wo_staffing_requirement_skills FOR INSERT TO authenticated WITH CHECK ((public.is_admin() OR public.is_engagement_team_member(public.resolve_wo_req_skill_engagement_id(requirement_id)) OR public.is_engagement_responsible(public.resolve_wo_req_skill_engagement_id(requirement_id))));
 
 
 --
 -- Name: wo_staffing_requirement_skills wo_staffing_req_skills_select; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY wo_staffing_req_skills_select ON public.wo_staffing_requirement_skills FOR SELECT TO authenticated USING ((public.is_admin() OR public.has_firmwide_assignment_visibility() OR public.is_engagement_team_member(( SELECT wo.engagement_id
-   FROM (public.wo_staffing_requirements r
-     JOIN public.work_orders wo ON ((wo.wo_id = r.wo_id)))
-  WHERE (r.id = wo_staffing_requirement_skills.requirement_id))) OR public.is_engagement_responsible(( SELECT wo.engagement_id
-   FROM (public.wo_staffing_requirements r
-     JOIN public.work_orders wo ON ((wo.wo_id = r.wo_id)))
-  WHERE (r.id = wo_staffing_requirement_skills.requirement_id))) OR public.has_assignment_on_engagement(( SELECT wo.engagement_id
-   FROM (public.wo_staffing_requirements r
-     JOIN public.work_orders wo ON ((wo.wo_id = r.wo_id)))
-  WHERE (r.id = wo_staffing_requirement_skills.requirement_id)))));
+CREATE POLICY wo_staffing_req_skills_select ON public.wo_staffing_requirement_skills FOR SELECT TO authenticated USING ((public.is_admin() OR public.has_firmwide_assignment_visibility() OR public.is_engagement_team_member(public.resolve_wo_req_skill_engagement_id(requirement_id)) OR public.is_engagement_responsible(public.resolve_wo_req_skill_engagement_id(requirement_id)) OR public.has_assignment_on_engagement(public.resolve_wo_req_skill_engagement_id(requirement_id))));
 
 
 --
 -- Name: wo_staffing_requirement_skills wo_staffing_req_skills_update; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY wo_staffing_req_skills_update ON public.wo_staffing_requirement_skills FOR UPDATE TO authenticated USING ((public.is_admin() OR public.is_engagement_team_member(( SELECT wo.engagement_id
-   FROM (public.wo_staffing_requirements r
-     JOIN public.work_orders wo ON ((wo.wo_id = r.wo_id)))
-  WHERE (r.id = wo_staffing_requirement_skills.requirement_id))) OR public.is_engagement_responsible(( SELECT wo.engagement_id
-   FROM (public.wo_staffing_requirements r
-     JOIN public.work_orders wo ON ((wo.wo_id = r.wo_id)))
-  WHERE (r.id = wo_staffing_requirement_skills.requirement_id))))) WITH CHECK ((public.is_admin() OR public.is_engagement_team_member(( SELECT wo.engagement_id
-   FROM (public.wo_staffing_requirements r
-     JOIN public.work_orders wo ON ((wo.wo_id = r.wo_id)))
-  WHERE (r.id = wo_staffing_requirement_skills.requirement_id))) OR public.is_engagement_responsible(( SELECT wo.engagement_id
-   FROM (public.wo_staffing_requirements r
-     JOIN public.work_orders wo ON ((wo.wo_id = r.wo_id)))
-  WHERE (r.id = wo_staffing_requirement_skills.requirement_id)))));
+CREATE POLICY wo_staffing_req_skills_update ON public.wo_staffing_requirement_skills FOR UPDATE TO authenticated USING ((public.is_admin() OR public.is_engagement_team_member(public.resolve_wo_req_skill_engagement_id(requirement_id)) OR public.is_engagement_responsible(public.resolve_wo_req_skill_engagement_id(requirement_id)))) WITH CHECK ((public.is_admin() OR public.is_engagement_team_member(public.resolve_wo_req_skill_engagement_id(requirement_id)) OR public.is_engagement_responsible(public.resolve_wo_req_skill_engagement_id(requirement_id))));
 
 
 --
 -- Name: wo_staffing_requirements wo_staffing_req_update; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY wo_staffing_req_update ON public.wo_staffing_requirements FOR UPDATE TO authenticated USING ((public.is_admin() OR public.is_engagement_team_member(( SELECT wo.engagement_id
-   FROM public.work_orders wo
-  WHERE (wo.wo_id = wo_staffing_requirements.wo_id))) OR public.is_engagement_responsible(( SELECT wo.engagement_id
-   FROM public.work_orders wo
-  WHERE (wo.wo_id = wo_staffing_requirements.wo_id))))) WITH CHECK ((public.is_admin() OR public.is_engagement_team_member(( SELECT wo.engagement_id
-   FROM public.work_orders wo
-  WHERE (wo.wo_id = wo_staffing_requirements.wo_id))) OR public.is_engagement_responsible(( SELECT wo.engagement_id
-   FROM public.work_orders wo
-  WHERE (wo.wo_id = wo_staffing_requirements.wo_id)))));
+CREATE POLICY wo_staffing_req_update ON public.wo_staffing_requirements FOR UPDATE TO authenticated USING ((public.is_admin() OR public.is_engagement_team_member(public.resolve_wo_engagement_id(wo_id)) OR public.is_engagement_responsible(public.resolve_wo_engagement_id(wo_id)))) WITH CHECK ((public.is_admin() OR public.is_engagement_team_member(public.resolve_wo_engagement_id(wo_id)) OR public.is_engagement_responsible(public.resolve_wo_engagement_id(wo_id))));
 
 
 --
@@ -14079,5 +14113,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict rabhSGjd4ddDswGqZi7PCG0vIcfws2rSDdAqaHq2fylgpfkZcdUPD11U3oFddeD
+\unrestrict sEj9xyzWiqn7VJUUqJ1EEChPWXzWg7o4xXN1EJuOjstujoVNa2gGzxgks0kaxAw
 
