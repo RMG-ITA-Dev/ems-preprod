@@ -1,0 +1,9 @@
+=== CI run 31092667024, merge/dev-scheduler-roles-permisos, workflow_dispatch, 2026-08-06 ===
+rls-migration-tests: PASS (25s) - 6/6 'ALL CHECKS PASSED' (D5 RLS, P5 Timesheet Authz, WO Staffing RLS,
+  SAVE_WO_STAFFING RPC, SAVE_ENGAGEMENT_ASSIGNMENTS RPC, SCHEMA CONVERGENCE) -- cierra G4c
+route-parity: PASS (4m2s)
+  Ruta A: 174 aplicadas, 0 pendientes
+  Ruta C: 174 aplicadas, 0 pendientes
+  Gate final: 'Route parity gate passed: Ruta A = Ruta C (schema, RLS policies, grants).'
+  -- cierra G4b y G4d
+Log completo: ci_route_parity_merge.txt (este directorio)

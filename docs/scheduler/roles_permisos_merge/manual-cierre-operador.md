@@ -13,26 +13,30 @@
 - Rama `merge/dev-scheduler-roles-permisos` pusheada a `origin`, 6 commits sobre `dev-scheduler`.
 - G0, G2, G3, G4a (conteos), G8 (lint/tsc/build/vitest/verify:vendor) — todos verdes, evidencia en
   `docs/scheduler/roles_permisos_merge/evidence/`.
-- CI disparada sobre la rama vía `gh workflow run "Scheduler Integrity — Fase 2" --ref
-  merge/dev-scheduler-roles-permisos` (el trigger automático de `push` no se disparó solo — algo a
-  revisar en la configuración del repo si vuelve a pasar, pero el dispatch manual funciona). Cubre
-  G4b (Ruta A), G4c (`test:rls`, 4 lanes) y G4d (paridad A↔C) — corre contra Postgres aislado en el
-  runner, no contra el stack compartido de R-LOCAL, así que es seguro y no requiere el Docker local.
-  Resultado: ver `gh run view --log <run-id>` o la pestaña Actions de GitHub. Si dio verde, **G4b/c/d
-  quedan cerrados sin que tengas que tocar Docker local** — confirmalo antes de re-ejecutarlos a mano.
+- **G4b/c/d — CERRADOS.** CI disparada vía `gh workflow run "Scheduler Integrity — Fase 2" --ref
+  merge/dev-scheduler-roles-permisos` (run `31092667024`; el trigger automático de `push` no se
+  disparó solo — algo a revisar en la configuración del repo si vuelve a pasar, pero el dispatch
+  manual funcionó). Corrió contra Postgres aislado en el runner, no contra el stack compartido de
+  R-LOCAL — seguro, no hizo falta Docker local. Resultado real (no solo "job verde"):
+  - `rls-migration-tests`: **6/6 "ALL CHECKS PASSED"** (D5 RLS, P5 Timesheet Authz, WO Staffing RLS,
+    ambas RPCs, SCHEMA CONVERGENCE) — cierra **G4c**.
+  - `route-parity`: Ruta A 174/174 aplicadas, 0 pendientes; Ruta C 174/174, 0 pendientes; gate final
+    **"Route parity gate passed: Ruta A = Ruta C (schema, RLS policies, grants)."** — cierra **G4b**
+    y **G4d**.
+  Evidencia completa en `evidence/ci_route_parity_merge.txt` y `evidence/g4_ci_summary.txt`.
+  **No hace falta repetir estos 2 pasos** — arrancá directo por G1 (abajo) y G4e.
 - 3 issues de seguimiento abiertos: #275 (bug "semana de seis días", independiente), #276 (subfase
   catálogo `scheduler.*`), #277 (subfase `tsc → 0`).
 - `docs/operations.md` actualizado a 174 migraciones.
 
-## Paso 1 — R-LOCAL: confirmar CI y correr G1 (diff de RLS/grants)
+## Paso 1 — R-LOCAL: G1 (diff de RLS/grants rama por rama)
 
-1. Revisar el resultado de la corrida de CI disparada (link en el resumen de esta sesión, o
-   `gh run list --branch merge/dev-scheduler-roles-permisos`). Si **route-parity** o
-   **rls-migration-tests** dieron rojo, parar acá y avisar — no sigas a Dev 2.0 con eso sin resolver.
+G4b/c/d ya cerraron por CI (ver arriba) — no hace falta Docker local para eso. Lo que sigue es **G1**,
+que la CI no cubre porque compara Ruta A vs Ruta C del estado ya combinado, no `dev-scheduler` contra
+`feat/roles-permisos` por separado:
 
-2. Si necesitás repetir algo a mano en `EMS_Dev_Local` (Docker), o correr el diff de políticas/grants
-   entre `dev-scheduler` y `feat/roles-permisos` (G1, que la CI no cubre porque compara contra el
-   estado combinado, no rama por rama):
+1. Correr el diff de políticas/grants entre `dev-scheduler` y `feat/roles-permisos` en
+   `EMS_Dev_Local` (Docker):
 
    ```bash
    # Base 1: tip de dev-scheduler
@@ -77,7 +81,7 @@
    redefinir; `revoke select on staff` visible del lado de roles. Cualquier otra cosa, clasificarla
    como intencional de roles / del Scheduler / PII / drift no explicado — no cerrar sin clasificar.
 
-3. **G4e — matriz RLS.** Reconciliar la matriz de 18 filas de Fase 7 contra el modelo
+2. **G4e — matriz RLS.** Reconciliar la matriz de 18 filas de Fase 7 contra el modelo
    `has_permission()`, y agregar los 23 `role_key` (con los 12 de H3 —`risk_partner`,
    `it_security_manager`, `risk_supervisor`, `accounting_manager`, `hr_manager`, `ita_manager`,
    `tax_manager`, `accounting_analyst`, `collections_analyst`, `hr_analyst`, `ita_senior`,
