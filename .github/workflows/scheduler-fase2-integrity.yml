@@ -200,10 +200,16 @@ jobs:
           FP=supabase/tests/fixtures/route-fingerprints
           fail=0
 
-          # pg_dump 18 wraps every dump in a random \restrict/\unrestrict token pair that
-          # differs on every invocation even against an unchanged schema — strip first/last line.
-          if ! diff <(tail -n +2 "$FP/ruta_a_schema.sql" | head -n -1) \
-                    <(tail -n +2 "$FP/ruta_c_schema.sql" | head -n -1); then
+          # 🟢 Bug preexistente encontrado en vivo (2026-08-06, dev-scheduler-fase_7): pg_dump
+          # wraps every dump in a random \restrict/\unrestrict token pair that differs on every
+          # invocation even against an unchanged schema. `tail -n +2 | head -n -1` assumed the
+          # pair sits on line 1 and the true last line — pg_dump 17 actually precedes \restrict
+          # with 3 header comment lines ("--" / "-- PostgreSQL database dump" / "--"), and a
+          # trailing line follows \unrestrict, so positional stripping missed both. Filtering by
+          # content instead of position is robust to that regardless of pg_dump's exact header
+          # shape in whatever version ends up installed.
+          if ! diff <(grep -vE '^\\(un)?restrict ' "$FP/ruta_a_schema.sql") \
+                    <(grep -vE '^\\(un)?restrict ' "$FP/ruta_c_schema.sql"); then
             echo "::error::Ruta A and Ruta C schema fingerprints diverge (see diff above)."
             fail=1
           fi
