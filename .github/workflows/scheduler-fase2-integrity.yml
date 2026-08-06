@@ -89,6 +89,22 @@ jobs:
         with:
           version: latest
 
+      # 🟢 Bug preexistente encontrado en vivo (2026-08-06, dev-scheduler-fase_7): el runner de
+      # Ubuntu trae `pg_dump` 16.x por defecto, pero el stack local de Supabase corre Postgres
+      # 17.6 — pg_dump se niega a volcar un servidor con una versión mayor que la suya
+      # ("aborting because of server version mismatch"). capture-route-fingerprint.sh nunca lo
+      # vio localmente porque el Docker del operador tenía un pg_dump más nuevo instalado.
+      # Se instala el cliente 17 del repositorio oficial de PGDG y se lo prioriza en el PATH
+      # para el resto del job — cubre tanto la captura de Ruta A como la de Ruta C (mismo
+      # runner, mismo pg_dump, el script se copia sin cambios al worktree).
+      - name: Install postgresql-client-17 (pg_dump must match the local Supabase server, 17.6)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y postgresql-client-17
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+
       # 🟢 Bug preexistente encontrado en vivo (2026-08-06, dev-scheduler-fase_7): sobre un
       # volumen Docker recién creado (siempre el caso en un runner de GitHub Actions),
       # `supabase start` aplica automáticamente todas las migraciones pendientes al arrancar,
