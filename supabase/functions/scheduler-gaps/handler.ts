@@ -63,7 +63,7 @@ export interface GapsContext {
   db: DbClient;
   /** Verified via JWT → staff.auth_user_id; null when no staff row. */
   staffId: string | null;
-  /** Verified via user_roles; "staff" when no row. */
+  /** Verified via user_roles.role_key (23-role catalog); "" when no row. */
   role: string;
   /** Server UTC today, yyyy-MM-dd (bench is computed "as of today"). */
   todayUtc: string;
@@ -103,8 +103,12 @@ export const SCHEMA_NOT_READY_CODES = new Set(["42P01", "42703", "PGRST200"]);
 // Stricter than scheduler-data's visibilityRuleFor: manager/senior get
 // lead/assigned there, but this is a firmwide readout — they are DENIED
 // here.
+//
+// Merge with feat/roles-permisos (2026-08): role is user_roles.role_key
+// (23-role catalog), not the legacy enum — see the matching comment in
+// scheduler-data/handler.ts and src/lib/schedulerAccess.ts.
 export function gapsVisibility(role: string): "all" | "denied" {
-  return role === "admin" || role === "partner" || role === "director"
+  return role === "admin" || role === "senior_partner" || role === "partner" || role === "director"
     ? "all"
     : "denied";
 }
@@ -112,7 +116,7 @@ export function gapsVisibility(role: string): "all" | "denied" {
 // ── Identity resolution ────────────────────────────────────────────────
 // Byte-synced copy from scheduler-data/handler.ts — copy, don't re-derive:
 // a DB failure here must surface as a 500 — NEVER silently default the
-// role to "staff", which gapsVisibility maps to denied: during a
+// role to "" (denied), which gapsVisibility maps to denied: during a
 // connectivity hiccup admins would otherwise receive 403s
 // indistinguishable from genuine permission failures. Plain list queries
 // (no .single()) keep "zero rows" — a legitimate state for both tables —
@@ -140,18 +144,18 @@ export async function resolveIdentity(
 
   const roleRes = await db
     .from("user_roles")
-    .select("role")
+    .select("role_key")
     .eq("user_id", userId)
     .limit(1)
     .then((r) => r);
   if (roleRes.error) return { identity: null, error: roleRes.error };
 
   const staffRow = (staffRes.data ?? [])[0] as { staff_id: string } | undefined;
-  const roleRow = (roleRes.data ?? [])[0] as { role: string } | undefined;
+  const roleRow = (roleRes.data ?? [])[0] as { role_key: string | null } | undefined;
   return {
     identity: {
       staffId: staffRow?.staff_id ?? null,
-      role: roleRow?.role ?? "staff",
+      role: roleRow?.role_key ?? "",
     },
     error: null,
   };

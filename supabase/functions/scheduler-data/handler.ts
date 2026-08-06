@@ -59,7 +59,7 @@ export interface SchedulerContext {
   db: DbClient;
   /** Verified via JWT → staff.auth_user_id; null when no staff row. */
   staffId: string | null;
-  /** Verified via user_roles; "staff" when no row. */
+  /** Verified via user_roles.role_key (23-role catalog); "" when no row. */
   role: string;
   /** Server UTC today, yyyy-MM-dd (health is computed "as of today"). */
   todayUtc: string;
@@ -83,12 +83,22 @@ const SCHEMA_NOT_READY_CODES = new Set(["42P01", "42703", "PGRST200"]);
 
 // ── Identity resolution (exported for unit tests) ─────────────────────
 // A DB failure here must surface as a 500 — NEVER silently default the
-// role to "staff", which visibilityRuleFor maps to denied: during a
+// role to "" (denied), which visibilityRuleFor maps to denied: during a
 // connectivity hiccup admins would otherwise receive 403s
 // indistinguishable from genuine permission failures. Plain list queries
 // (no .single()) keep "zero rows" — a legitimate state for both tables —
 // distinct from transport errors without PGRST116 special-casing;
 // user_roles has UNIQUE (user_id), so at most one row exists.
+//
+// Merge with feat/roles-permisos (2026-08): reads user_roles.role_key
+// (23-role catalog), not the legacy user_roles.role enum. The enum is
+// espejado 1:1 from role_key by admin_set_user_role_key(), collapsing 12
+// roles that must NOT see the Scheduler (risk_partner, it_security_manager,
+// risk_supervisor, accounting_manager, hr_manager, ita_manager, tax_manager,
+// accounting_analyst, collections_analyst, hr_analyst, ita_senior,
+// tax_senior) into "manager"/"senior" — see src/lib/schedulerAccess.ts for
+// the equivalent frontend-nav predicate, which must stay in sync with the
+// switch below.
 
 export interface VerifiedIdentity {
   staffId: string | null;
@@ -109,18 +119,18 @@ export async function resolveIdentity(
 
   const roleRes = await db
     .from("user_roles")
-    .select("role")
+    .select("role_key")
     .eq("user_id", userId)
     .limit(1)
     .then((r) => r);
   if (roleRes.error) return { identity: null, error: roleRes.error };
 
   const staffRow = (staffRes.data ?? [])[0] as { staff_id: string } | undefined;
-  const roleRow = (roleRes.data ?? [])[0] as { role: string } | undefined;
+  const roleRow = (roleRes.data ?? [])[0] as { role_key: string | null } | undefined;
   return {
     identity: {
       staffId: staffRow?.staff_id ?? null,
-      role: roleRow?.role ?? "staff",
+      role: roleRow?.role_key ?? "",
     },
     error: null,
   };
@@ -139,6 +149,7 @@ export function visibilityRuleFor(
 ): VisibilityRule {
   switch (role) {
     case "admin":
+    case "senior_partner":
     case "partner":
     case "director":
       return { kind: "all" };
