@@ -14,7 +14,8 @@
 | G3a | ✅ Migración `20260806000000_grant_staff_is_schedulable.sql` |
 | G3b | ✅ Las 4 capas de acceso del Scheduler migradas de `user_roles.role` a `role_key` (sidebar, drawer, `scheduler-data`, `scheduler-gaps`), allowlist único en `schedulerAccess.ts`. Corregido en commit de seguimiento `232f306` — el commit de merge había perdido `supabase/functions/*/handler.ts` por un pathspec de `git add` demasiado estrecho |
 | G4a | ✅ Conteos hardcodeados del workflow de integridad actualizados (143→174, 63→94) |
-| G4 (resto) | ⛔ Diferido — Ruta A/C y `test:rls` requieren R-LOCAL con autorización |
+| G4b/c/d | ✅ **Actualizado tras esta sesión** — cerrados por CI real (`gh workflow run`, run `31092667024`) contra Postgres aislado en el runner, no R-LOCAL. Ver `manual-cierre-operador.md` §"Ya hecho" para el detalle y `evidence/ci_route_parity_merge.txt` / `evidence/g4_ci_summary.txt` |
+| G4e | ⛔ Diferido — matriz RLS de 23 `role_key` requiere R-LOCAL con autorización (análisis manual sobre las políticas ya capturadas, no un comando nuevo) |
 | G5/G6 | ⛔ Diferido — requieren Dev 2.0 (R-INT), project ref y autorización del operador |
 | G7 | ⛔ Diferido — regeneración de tipos requiere R-INT |
 | G8 (lint/tsc/build/verify:vendor) | ✅ Todo verde. Ver desglose abajo |
@@ -68,6 +69,9 @@ sin que ningún conflicto lo señale.
 
 ## Qué falta para el PR (fuera de esta sesión)
 
-Ver `bugs/scheduler/plan_merge_sche_rolper.md` §7 (G1, G4b-f, G5, G6, G7, G9) y §11 (criterio de
+**Nota (sesión posterior):** G4b/c/d se cerraron por CI real después de escrito este documento —
+ver la tabla arriba y `manual-cierre-operador.md`. Lo que sigue pendiente es G1, G4e, G5, G6, G7, G9.
+
+Ver `bugs/scheduler/plan_merge_sche_rolper.md` §7 (G1, G4e, G5, G6, G7, G9) y §11 (criterio de
 cierre completo). Todo lo que sigue requiere R-LOCAL o R-INT con autorización explícita del
 operador — regla del proyecto, nunca Supabase/migraciones desde R-APP.

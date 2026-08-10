@@ -10,7 +10,8 @@
 
 ## Ya hecho (no repetir)
 
-- Rama `merge/dev-scheduler-roles-permisos` pusheada a `origin`, 6 commits sobre `dev-scheduler`.
+- Rama `merge/dev-scheduler-roles-permisos` pusheada a `origin`, 8 commits sobre `dev-scheduler`
+  (`git log --first-parent --oneline origin/dev-scheduler..HEAD`).
 - G0, G2, G3, G4a (conteos), G8 (lint/tsc/build/vitest/verify:vendor) — todos verdes, evidencia en
   `docs/scheduler/roles_permisos_merge/evidence/`.
 - **G4b/c/d — CERRADOS.** CI disparada vía `gh workflow run "Scheduler Integrity — Fase 2" --ref
@@ -119,11 +120,15 @@ compartido en vivo.
    4. Recapturar policies/grants (mismo formato del Paso 1) y diffear contra `ruta_a`, con la lista
       de exclusión del punto 2 aplicada. Cualquier diff fuera de esa lista se investiga antes de
       seguir.
-   5. Desplegar Edge Functions — **las 4 que cambiaron**, no solo las 2 del Scheduler:
+   5. Desplegar Edge Functions — **las 3 que cambiaron**, no solo las 2 del Scheduler:
       `scheduler-data`, `scheduler-gaps` (ambas migradas a `role_key` en esta rama) y
-      `assign-user-role` (modificada por `feat/roles-permisos`, commit `c0653c33`).
+      `dashboard-data` (modificada por `feat/roles-permisos`, commit `c0653c33` — agrega el gate de
+      permisos de `index.ts:114-147`). `assign-user-role` está byte-idéntica a `development`
+      (verificado: `git diff origin/development...HEAD -- supabase/functions/assign-user-role` da 0
+      líneas) — **no** requiere redeploy.
    6. Probes: sin JWT → 401; `role_key` sin acceso (ej. `hr_manager`) → 403; `role_key` permitido →
-      200. Repetir para `scheduler-data` y `scheduler-gaps`.
+      200. Repetir para `scheduler-data` y `scheduler-gaps`. Para `dashboard-data`, agregar un probe
+      de humo del gate de autorización (`index.ts:114-147`) con un rol sin permiso de dashboard.
    7. **Recién ahí**, `VITE_SCHEDULER_ENABLED=true`.
 
    Rollback funcional: apagar el flag. Nunca revertir migraciones. Si PII rompe algo,

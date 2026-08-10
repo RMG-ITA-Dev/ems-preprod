@@ -96,9 +96,12 @@ jobs:
           fi
 
       - name: Guard against whitespace errors (git diff --check)
-        # OFL-verbatim licenses, generated psql catalog fixtures and the vendored
-        # SVAR bundle are excluded — verified legitimate, see
-        # docs/scheduler/fase_7/evidence/git_scope.txt.
+        # OFL-verbatim licenses, generated psql catalog fixtures, the vendored
+        # SVAR bundle, and raw CI/psql evidence transcripts are excluded —
+        # verified legitimate, see docs/scheduler/fase_7/evidence/git_scope.txt.
+        # Evidence dirs carry byte-exact captures (psql -At -F'|' output, CI
+        # logs) that must stay verbatim per the merge plan's own rule against
+        # reformatting captured evidence.
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             git fetch origin "${{ github.base_ref }}" --depth=1
@@ -110,7 +113,9 @@ jobs:
             ':!LICENSES/' \
             ':!supabase/tests/fixtures/route-fingerprints/' \
             ':!src/components/scheduler/vendor/' \
-            ':!tools/vendor/svar-gantt/tarballs/'
+            ':!tools/vendor/svar-gantt/tarballs/' \
+            ':!docs/scheduler/fase_7/evidence/' \
+            ':!docs/scheduler/roles_permisos_merge/evidence/'
 
       - name: Guard against external origins in Scheduler components
         # Substitute for tools/verify-external-origins.mjs, which does NOT exist

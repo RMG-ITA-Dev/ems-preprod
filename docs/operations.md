@@ -62,7 +62,7 @@ Activation order: migrate the target Supabase → verify schema/RLS contract →
 
 - Supabase project ID: `ugqxfnrxvksiltwxzist`
 - 9 Edge Functions (inventory below)
-- 174 timestamped migrations in `supabase/migrations/` (post-convergence: `dev-scheduler` + `feat/roles-permisos`, `merge/dev-scheduler-roles-permisos`; 143 on `development` before this merge lands — see `bugs/scheduler/plan_merge_sche_rolper.md`)
+- 174 timestamped migrations in `supabase/migrations/` (post-convergence: `dev-scheduler` + `feat/roles-permisos`, `merge/dev-scheduler-roles-permisos`; 131 on `development` before this merge lands, 143 on `dev-scheduler` alone — see `bugs/scheduler/plan_merge_sche_rolper.md`)
 - Key RPC functions: `submit_timesheet_safe(p_period_id uuid, p_staff_id uuid, p_engagement_ids uuid[], p_activity_ids uuid[], p_is_auto_approved boolean) returns jsonb` (5-arg signature; the old 4-arg overload was dropped in `20260716000000`; errors include `EMPTY_ENGAGEMENTS` and `ARRAY_LENGTH_MISMATCH`), `get_staff_assignment_segments(p_staff_id uuid, p_week_start date, p_week_end date) returns table(engagement_id uuid, start_date date, end_date date)` (Scheduler Fase 2/5/6 — canonical Monday `week_start`, span ≤ 6 days, `SECURITY DEFINER`), `assign_user_role_atomic()`, `update_timesheet_minmax_settings()`
 
 ### Edge Function Inventory
