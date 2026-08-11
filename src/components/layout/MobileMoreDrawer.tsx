@@ -97,11 +97,19 @@ export function MobileMoreDrawer({ open, onOpenChange }: MobileMoreDrawerProps) 
     { path: "/fund-requests/disbursements", icon: Banknote, labelKey: "nav.fundRequestDisbursements", show: can("fund_disbursement.read") },
   ].filter((i) => i.show);
 
+  // Mismo predicado que AppSidebar.tsx — la matriz no puede divergir entre sidebar y drawer
+  // (plan_merge_sche_rolper.md §G2). `account.password.change` es el permiso que la matriz da a
+  // los 23 roles: sin él, cualquier rol de solo-lectura pierde su única forma de llegar al tab de
+  // Cuenta para cambiar su contraseña.
   const canSeeSettings =
     isAdmin ||
-    can("expense_type.create") ||
-    can("holiday.create") ||
-    can("competency.create") ||
+    can("account.password.change") ||
+    can("industry.read") ||
+    can("competency.read") ||
+    can("category_rate.read") ||
+    can("activity_code.read") ||
+    can("expense_type.read") ||
+    can("holiday.read") ||
     can("user_role.read") ||
     can("global_settings.update");
   const adminItems: DrawerNavItem[] = [

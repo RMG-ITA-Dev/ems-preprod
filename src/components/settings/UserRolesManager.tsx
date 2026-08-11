@@ -64,6 +64,13 @@ const roleIcons: Record<string, React.ReactNode> = {
 const DEFAULT_ROLE_ICON = <ScrollText className="h-3 w-3" />;
 const DEFAULT_ROLE_COLOR = "bg-muted text-muted-foreground border-muted";
 
+// Deliberate exception, not a design-system bypass: the Ruizmier design system's semantic
+// tokens (bg-success/warning/destructive/info/muted) encode SEVERITY, not IDENTITY — there is no
+// categorical token set for a 23-way role palette (confirmed against docs/skills/design-system.md).
+// Semantic tokens are used wherever they fit (admin→destructive, assistant→primary, default→muted);
+// the rest use curated Tailwind palette colors, one per role, with dark-mode variants hand-picked
+// per entry. Expanding the design system with a categorical token set is a separate decision, not
+// something to do unilaterally in this component.
 const roleColors: Record<string, string> = {
   admin: "bg-destructive/10 text-destructive border-destructive/20",
   it_security_manager: "bg-slate-500/10 text-slate-600 dark:text-slate-300 border-slate-500/20",

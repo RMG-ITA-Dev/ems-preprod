@@ -169,8 +169,17 @@ function WindowDatePicker({
 
 const SchedulerL1 = () => {
   const { t } = useTranslation();
-  const { roleKey } = useAuthorization();
+  const {
+    roleKey,
+    isLoading: roleLoading,
+    isError: roleError,
+    refetch: refetchRole,
+  } = useAuthorization();
   const canView = canSeePlanning(roleKey);
+  // roleKey is null while useAuthorization is loading and after a query error
+  // (fail-closed) — canView is meaningless until the role query resolves, same
+  // gotcha documented in SchedulerGaps.tsx. Don't fold either into `unavailable`.
+  const roleResolved = !roleLoading && !roleError;
 
   const [searchParams, setSearchParams] = useSearchParams();
   const fallback = useMemo(defaultWindow, []);
@@ -260,8 +269,9 @@ const SchedulerL1 = () => {
     clientFilter: client || undefined,
   });
 
-  const unavailable =
-    !canView || query.error instanceof SchedulerUnavailableError;
+  const backendUnavailable = query.error instanceof SchedulerUnavailableError;
+  const unavailable = roleResolved && (!canView || backendUnavailable);
+  const showFilters = roleResolved && canView && !backendUnavailable;
 
   return (
     <AppLayout>
@@ -300,7 +310,7 @@ const SchedulerL1 = () => {
           </div>
         </div>
 
-        {!unavailable && (
+        {showFilters && (
           <div className="flex flex-wrap items-center gap-2">
             <ToggleGroup
               type="single"
@@ -343,8 +353,24 @@ const SchedulerL1 = () => {
           </div>
         )}
 
-        {/* States: Unavailable ≠ Empty ≠ Error. */}
-        {unavailable ? (
+        {/* States: role loading/error ≠ Unavailable ≠ Empty ≠ Error. */}
+        {roleLoading ? (
+          <div className="space-y-2">
+            {Array.from({ length: 8 }, (_, i) => (
+              <Skeleton key={i} className="h-9 w-full" />
+            ))}
+          </div>
+        ) : roleError ? (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription className="flex items-center justify-between gap-2">
+              {t("scheduler.errors.loadFailed")}
+              <Button variant="outline" size="sm" onClick={() => refetchRole()}>
+                {t("scheduler.errors.retry")}
+              </Button>
+            </AlertDescription>
+          </Alert>
+        ) : unavailable ? (
           <Alert>
             <AlertTriangle className="h-4 w-4" />
             <AlertDescription>{t("scheduler.errors.unavailable")}</AlertDescription>

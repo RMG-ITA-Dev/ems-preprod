@@ -223,7 +223,7 @@ serve(async (req) => {
         result = await getEngagementKpis(supabase, startDate, endDate, staffId, isFirmwideGrant);
         break;
       case "staff-utilization":
-        result = await getStaffUtilization(supabase, startDate, endDate, staffId, role);
+        result = await getStaffUtilization(supabase, startDate, endDate, staffId, isFirmwideGrant);
         break;
       case "portfolio-risk":
         result = await getPortfolioRisk(supabase, startDate, endDate, staffId, isFirmwideGrant);
@@ -621,7 +621,7 @@ async function getStaffUtilization(
   startDate: string,
   endDate: string,
   staffId?: string,
-  role?: string
+  isFirmwideGrant?: boolean
 ) {
   // Get time entries grouped by staff and week
   const { data: entries } = await supabase
@@ -639,7 +639,10 @@ async function getStaffUtilization(
     .select("staff_id, first_name, last_name, short_name, category_id, weekly_capacity_hours, categories(category_name, display_order)")
     .eq("is_active", true);
 
-  if (staffId && role !== "partner") {
+  // Alcance por permiso — ver nota en getTimeValue(). A diferencia de esa función, acá no hay un
+  // encargo que acotar: la única narrowing disponible es "tu propia fila". `firm`/`department`
+  // ven la utilización de todo el staff; cualquier otro alcance ve solo la suya.
+  if (staffId && isFirmwideGrant === false) {
     staffQuery = staffQuery.eq("staff_id", staffId);
   }
 
