@@ -74,8 +74,25 @@ describe("sessionRecovery (Fase 7, plan v2 §A.1)", () => {
       });
     }
 
-    it("starts recovery for a confirmed revoked-session 401", async () => {
+    it("starts recovery for a confirmed revoked-session 401 (AuthSessionMissingError: no local session at all)", async () => {
       getUser.mockResolvedValue({ data: { user: null }, error: { name: "AuthSessionMissingError" } });
+      signOut.mockResolvedValue({ error: null });
+
+      maybeStartSessionRecovery(revokedSessionError());
+      await flush();
+
+      expect(getUser).toHaveBeenCalledTimes(1);
+      expect(signOut).toHaveBeenCalledWith({ scope: "local" });
+      expect(toast.info).toHaveBeenCalledWith("auth.sessionExpiredRevoked");
+    });
+
+    it("starts recovery for the primary real-world case: a local session exists but the auth server rejects it (AuthApiError)", async () => {
+      // This is what getUser() actually returns when a token was revoked
+      // server-side but is still present locally — the Scheduler request that
+      // triggered this coordinator sent exactly that token. Distinct from
+      // AuthSessionMissingError, which only fires when there is no local
+      // session to send in the first place.
+      getUser.mockResolvedValue({ data: { user: null }, error: { name: "AuthApiError", message: "invalid JWT" } });
       signOut.mockResolvedValue({ error: null });
 
       maybeStartSessionRecovery(revokedSessionError());
@@ -121,7 +138,7 @@ describe("sessionRecovery (Fase 7, plan v2 §A.1)", () => {
     expect(signOut).toHaveBeenCalledTimes(1);
   });
 
-  it("an ambiguous (non-retryable, non-session-missing) getUser error fails closed too", async () => {
+  it("an unrecognized getUser error name (not AuthSessionMissingError/AuthApiError/retryable) fails closed too", async () => {
     getUser.mockResolvedValue({ data: { user: null }, error: { name: "SomeOtherAuthError" } });
 
     maybeStartSessionRecovery(revokedSessionError());

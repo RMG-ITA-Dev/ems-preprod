@@ -122,9 +122,12 @@ jobs:
           mv supabase/migrations.bak supabase/migrations
 
       # ── Ruta A: pure chronological replay of every migration already on this branch
-      #    (170 historical + C1-C4 = 174 — updated for the dev-scheduler + feat/roles-permisos
-      #    convergence merge, see bugs/scheduler/plan_merge_sche_rolper.md G4a), via the same
-      #    pre-seed script validated locally.
+      #    (170 historical + C1-C4 + 1 (is_schedulable grant) = 174, +2 more RLS-drift fixes
+      #    found during the convergence review (role_key on has_firmwide_assignment_visibility(),
+      #    stale permissive policy on skills) = 176 — see
+      #    bugs/scheduler/plan_merge_sche_rolper.md G4a and
+      #    docs/scheduler/roles_permisos_merge/review.md iteración 2), via the same pre-seed
+      #    script validated locally.
       - name: Ruta A — apply (pre-seed handles the 2 known development-only gaps)
         run: bash supabase/tests/local/preseed-development-gaps.sh
 
@@ -147,7 +150,7 @@ jobs:
       #    all remaining files in from the start, which would collapse into Ruta A.
       #    Post-merge (dev-scheduler + feat/roles-permisos, plan_merge_sche_rolper.md G4a):
       #    stage 1 is still 80 (unchanged, sruizmier-scheduler-v3 didn't move); stage 2 now
-      #    copies 94 files (174 total − 80), not 63.
+      #    copies 96 files (176 total − 80), not 63.
       - name: Ruta C — set up worktree (72 base + 8 scheduler)
         run: |
           git fetch origin sruizmier-scheduler-v3
@@ -184,7 +187,7 @@ jobs:
           cd ../route-c-scratch
           supabase db push --include-all --local
 
-      - name: Ruta C — verify convergence (174 applied, 0 pending)
+      - name: Ruta C — verify convergence (176 applied, 0 pending)
         working-directory: ../route-c-scratch
         run: |
           supabase migration list --local

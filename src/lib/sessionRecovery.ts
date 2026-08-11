@@ -69,11 +69,17 @@ async function recoverFromRevokedSession(): Promise<void> {
       armed = true;
       return;
     }
-    if (error?.name === "AuthSessionMissingError") {
+    if (error?.name === "AuthSessionMissingError" || error?.name === "AuthApiError") {
+      // AuthSessionMissingError: no local session at all (already cleared).
+      // AuthApiError: a local session/token exists and the auth server itself
+      // rejected it (invalid/expired/revoked JWT) — this is the primary real-world
+      // case this coordinator exists for (see module header): the Scheduler backend
+      // rejected the token, and getUser() reaching the auth server confirms it's
+      // actually gone, not just a dead-epoch race.
       sessionConfirmedGone = true;
     }
-    // Any other auth-server error is ambiguous — fall through to fail-closed
-    // below rather than treating it as a confirmed revocation.
+    // Any other auth-server error (unrecognized error name) is ambiguous — fall
+    // through to fail-closed below rather than treating it as a confirmed revocation.
   } catch {
     // Network-level failure reaching the auth server (e.g.
     // AuthRetryableFetchError). Can't confirm anything — fail-closed.
