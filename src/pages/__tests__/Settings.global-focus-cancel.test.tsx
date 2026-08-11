@@ -41,6 +41,7 @@ vi.mock("@/hooks/useEmsData", () => ({
 }));
 vi.mock("@/hooks/mutations", () => ({ useUpdateGlobalSetting: () => ({ mutateAsync: vi.fn(), isPending: false }), useReorderServiceActivity: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }), useMoveCategory: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }), useCopyCategories: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }) }));
 vi.mock("@/hooks/useUserRole", () => ({ useUserRole: () => ({ isAdmin: true }) }));
+vi.mock("@/hooks/useAuthorization", () => ({ useAuthorization: () => ({ can: () => true, roleKey: "admin" }) }));
 vi.mock("@/hooks/useLanguage", () => ({ useLanguage: () => ({ currentLanguage: "en" }) }));
 vi.mock("@/components/layout/AppLayout", () => ({
   AppLayout: ({ children, focusMode }: any) => <div data-testid="app-layout" data-focus-mode={focusMode}>{children}</div>,

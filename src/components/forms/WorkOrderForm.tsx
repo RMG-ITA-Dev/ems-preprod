@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { LoadingButton } from "@/components/ui/loading-button";
@@ -23,8 +23,10 @@ import {
   ShieldCheck,
   ShieldAlert,
   AlertTriangle,
+  AlertCircle,
   Undo2,
   Eraser,
+  Users,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -48,8 +50,22 @@ import {
   type WOBudgetLine,
 } from "@/hooks/useEmsData";
 import { cn } from "@/lib/utils";
+import { isSchedulerEnabled } from "@/lib/schedulerFeature";
 import { useLanguage } from "@/hooks/useLanguage";
 import { WorkOrderPaymentPlanSection } from "./WorkOrderPaymentPlanSection";
+import {
+  STAFFING_PROFICIENCY_LEVELS,
+  createEmptyRequirement,
+  createEmptySkill,
+  type StaffingProficiencyLevel,
+  type StaffingRequirementInput,
+} from "@/lib/workOrderStaffing";
+
+export interface StaffingActiveSkillOption {
+  skill_id: string;
+  name: string;
+  category: string;
+}
 
 export interface BudgetLineInput {
   id: string;
@@ -104,6 +120,18 @@ interface WorkOrderFormProps {
   isPaymentPlanDirty?: boolean;
   onPaymentPlanChange?: (plan: import("@/types/workOrderPaymentPlan").PaymentPlanInput) => void;
   onPaymentInstallmentsChange?: (rows: import("@/types/workOrderPaymentPlan").PaymentInstallmentInput[]) => void;
+  // Staffing Requirements (Fase 4). Undefined onStaffingRequirementsChange (e.g. WorkOrderNew)
+  // renders nothing for !isNew callers; isNew always shows the disabled "available after create" card.
+  staffingRequirements?: StaffingRequirementInput[];
+  onStaffingRequirementsChange?: (reqs: StaffingRequirementInput[]) => void;
+  staffingCategories?: Category[];
+  activeSkills?: StaffingActiveSkillOption[];
+  staffingLoading?: boolean;
+  staffingError?: boolean;
+  staffingServiceResolved?: boolean;
+  staffingServiceId?: string | null;
+  /** Incremented by the parent to scroll the Staffing section into view after a validation error. */
+  staffingFocusSignal?: number;
   onSeasonChange: (season: "High" | "Low") => void;
   onAdjustmentChange: (amount: number) => void;
   onBudgetLinesChange: (lines: BudgetLineInput[]) => void;
@@ -209,6 +237,15 @@ export function WorkOrderForm({
   isPaymentPlanDirty = false,
   onPaymentPlanChange,
   onPaymentInstallmentsChange,
+  staffingRequirements = [],
+  onStaffingRequirementsChange,
+  staffingCategories = [],
+  activeSkills = [],
+  staffingLoading = false,
+  staffingError = false,
+  staffingServiceResolved = true,
+  staffingServiceId = null,
+  staffingFocusSignal = 0,
 }: WorkOrderFormProps) {
   const { t } = useTranslation();
   // Emergency confirmation now lives at submit time (Manager), capturing a mandatory
@@ -333,6 +370,10 @@ export function WorkOrderForm({
   // gastos/ajuste editables (la matriz/grid sigue siempre read-only). La pista Socio
   // aprobada (approved_at) NUNCA es editable; en Draft o en corrección tras rechazo sí.
   const isEditable = ((isDraft && !isLocked) || socioCorrecting) && !socioApproved;
+  // Staffing is persisted by save_wo_staffing, whose state contract is Draft-only.
+  // This deliberately does not inherit the Socio correction exception used by gastos.
+  const isStaffingEditable = isDraft && !isLocked && !socioApproved &&
+    !staffingLoading && !staffingError && staffingServiceResolved;
 
   const CEAC_NUM_RE = /^\d{10}$/;
   const SAN_ID_RE = /^\d{10}$|^\d{5}-\d{5}$/;
@@ -544,6 +585,111 @@ export function WorkOrderForm({
   const getCategoryName = (categoryId: string) => {
     const category = categories?.find((c) => c.category_id === categoryId);
     return category?.category_name || "-";
+  };
+
+  // ── Staffing Requirements (Fase 4) ───────────────────────────────────────
+  const staffingSectionRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (staffingFocusSignal > 0) {
+      staffingSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [staffingFocusSignal]);
+
+  // Categories already selected by OTHER requirement rows are excluded from
+  // every row's options (a category cannot repeat within the same OT), but a
+  // row's own current selection always stays in its own options list.
+  const availableCategoriesForNewStaffingRequirement = useMemo(() => {
+    const used = new Set(staffingRequirements.map((r) => r.categoryId).filter(Boolean));
+    return staffingCategories.filter((c) => !used.has(c.category_id));
+  }, [staffingCategories, staffingRequirements]);
+
+  const updateStaffingRequirements = (
+    updater: (reqs: StaffingRequirementInput[]) => StaffingRequirementInput[],
+  ) => {
+    onStaffingRequirementsChange?.(updater(staffingRequirements));
+  };
+
+  const addStaffingRequirement = () => {
+    updateStaffingRequirements((reqs) => [...reqs, createEmptyRequirement()]);
+  };
+
+  const removeStaffingRequirement = (clientKey: string) => {
+    updateStaffingRequirements((reqs) => reqs.filter((r) => r.clientKey !== clientKey));
+  };
+
+  const updateStaffingCategory = (clientKey: string, categoryId: string) => {
+    const category = staffingCategories.find((item) => item.category_id === categoryId);
+    updateStaffingRequirements((reqs) =>
+      reqs.map((r) => (
+        r.clientKey === clientKey
+          ? {
+              ...r,
+              categoryId,
+              categoryName: category?.category_name ?? null,
+              categoryServiceId: category?.service_id ?? null,
+            }
+          : r
+      )),
+    );
+  };
+
+  const updateStaffingCount = (clientKey: string, staffCount: number) => {
+    updateStaffingRequirements((reqs) =>
+      reqs.map((r) => (r.clientKey === clientKey ? { ...r, staffCount } : r)),
+    );
+  };
+
+  const addStaffingSkill = (reqClientKey: string) => {
+    updateStaffingRequirements((reqs) =>
+      reqs.map((r) =>
+        r.clientKey === reqClientKey ? { ...r, skills: [...r.skills, createEmptySkill()] } : r,
+      ),
+    );
+  };
+
+  const removeStaffingSkill = (reqClientKey: string, skillClientKey: string) => {
+    updateStaffingRequirements((reqs) =>
+      reqs.map((r) =>
+        r.clientKey === reqClientKey
+          ? { ...r, skills: r.skills.filter((s) => s.clientKey !== skillClientKey) }
+          : r,
+      ),
+    );
+  };
+
+  const updateStaffingSkillId = (reqClientKey: string, skillClientKey: string, skillId: string) => {
+    const known = activeSkills.find((s) => s.skill_id === skillId);
+    updateStaffingRequirements((reqs) =>
+      reqs.map((r) => {
+        if (r.clientKey !== reqClientKey) return r;
+        return {
+          ...r,
+          skills: r.skills.map((s) =>
+            s.clientKey === skillClientKey
+              ? { ...s, skillId, skillName: known?.name ?? s.skillName, isActive: known ? true : s.isActive }
+              : s,
+          ),
+        };
+      }),
+    );
+  };
+
+  const updateStaffingSkillProficiency = (
+    reqClientKey: string,
+    skillClientKey: string,
+    minProficiencyLevel: StaffingProficiencyLevel,
+  ) => {
+    updateStaffingRequirements((reqs) =>
+      reqs.map((r) => {
+        if (r.clientKey !== reqClientKey) return r;
+        return {
+          ...r,
+          skills: r.skills.map((s) =>
+            s.clientKey === skillClientKey ? { ...s, minProficiencyLevel } : s,
+          ),
+        };
+      }),
+    );
   };
 
   return (
@@ -1005,6 +1151,280 @@ export function WorkOrderForm({
         />
       )}
 
+      {/* Staffing Requirements Section (Fase 4). During creation (no wo_id yet) the
+          section is shown disabled with an explanatory message — staffing is only
+          configurable from the edit page, once the Work Order has a wo_id.
+          Fase 7 (plan v2 §B.4#5): con el flag apagado se omite toda la sección —
+          el chokepoint gemelo es WorkOrderEdit.tsx (§B.4#6, validateStaffing). */}
+      {isSchedulerEnabled() && (isNew ? (
+        <Card className="border-dashed">
+          <CardHeader className="py-3">
+            <CardTitle className="text-base flex items-center gap-2 text-muted-foreground">
+              <Users className="h-4 w-4" />
+              {t("workOrders.staffingRequirements.title")}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <p className="text-sm text-muted-foreground">
+              {t("workOrders.staffingRequirements.availableAfterCreate")}
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        onStaffingRequirementsChange && (
+          <Card ref={staffingSectionRef}>
+            <CardHeader className="py-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Users className="h-4 w-4 text-info" />
+                {t("workOrders.staffingRequirements.title")}
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                {t("workOrders.staffingRequirements.description")}
+              </p>
+            </CardHeader>
+            <CardContent className="pt-0 space-y-3">
+              {staffingLoading ? (
+                <p className="text-sm text-muted-foreground">
+                  {t("workOrders.staffingRequirements.loading")}
+                </p>
+              ) : staffingError ? (
+                <p className="text-sm text-destructive flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4" />
+                  {t("workOrders.staffingRequirements.errorLoading")}
+                </p>
+              ) : (
+                <>
+                  {!staffingServiceResolved && (
+                    <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                      <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                      {t("workOrders.staffingRequirements.serviceNotResolved")}
+                    </div>
+                  )}
+                  {staffingServiceResolved && staffingCategories.length === 0 && (
+                    <p className="text-sm text-muted-foreground">
+                      {t("workOrders.staffingRequirements.noCategoriesForService")}
+                    </p>
+                  )}
+                  {staffingRequirements.length === 0 && staffingCategories.length > 0 && (
+                    <p className="text-sm text-muted-foreground">
+                      {t("workOrders.staffingRequirements.empty")}
+                    </p>
+                  )}
+                  <div className="space-y-3">
+                    {staffingRequirements.map((req) => {
+                      const usedByOthers = new Set(
+                        staffingRequirements
+                          .filter((r) => r.clientKey !== req.clientKey)
+                          .map((r) => r.categoryId),
+                      );
+                      const isHistoricalIncompatible = Boolean(
+                        staffingServiceId &&
+                        req.categoryServiceId &&
+                        req.categoryServiceId !== staffingServiceId,
+                      );
+                      const currentCategoryIsMissing = Boolean(
+                        req.categoryId && !staffingCategories.some((c) => c.category_id === req.categoryId),
+                      );
+                      const historicalCurrentCategory = currentCategoryIsMissing
+                        ? {
+                            category_id: req.categoryId as string,
+                            category_name: req.categoryName ?? req.categoryId ?? "",
+                            service_id: req.categoryServiceId ?? "",
+                            display_order: Number.MAX_SAFE_INTEGER,
+                          } as Category
+                        : null;
+                      const categoryOptions = [...staffingCategories, ...(historicalCurrentCategory ? [historicalCurrentCategory] : [])].filter(
+                        (c) => c.category_id === req.categoryId || !usedByOthers.has(c.category_id),
+                      );
+                      return (
+                        <div
+                          key={req.clientKey}
+                          data-testid={`staffing-requirement-${req.clientKey}`}
+                          className="rounded-md border border-border p-3 space-y-3"
+                        >
+                          {isHistoricalIncompatible && (
+                            <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning">
+                              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                              {t("workOrders.staffingRequirements.historicalCategoryIncompatible")}
+                            </div>
+                          )}
+                          <div className="flex flex-col md:flex-row gap-2 md:items-center">
+                            <div className="flex-1">
+                              <Select
+                                value={req.categoryId ?? ""}
+                                onValueChange={(v) => updateStaffingCategory(req.clientKey, v)}
+                                disabled={!isStaffingEditable}
+                              >
+                                <SelectTrigger className="h-9">
+                                  <SelectValue placeholder={t("workOrders.staffingRequirements.selectCategory")} />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {categoryOptions.map((c) => (
+                                  <SelectItem
+                                    key={c.category_id}
+                                    value={c.category_id}
+                                    disabled={isHistoricalIncompatible && c.category_id === req.categoryId}
+                                  >
+                                      {c.category_name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Label className="text-xs text-muted-foreground whitespace-nowrap">
+                                {t("workOrders.staffingRequirements.staffCount")}
+                              </Label>
+                              <NumericInput
+                                decimals={0}
+                                min={1}
+                                max={999}
+                                value={req.staffCount ?? ""}
+                                onChange={(val) => updateStaffingCount(req.clientKey, val)}
+                                disabled={!isStaffingEditable}
+                                className="w-20 h-9"
+                                data-testid={`staffing-count-${req.clientKey}`}
+                              />
+                            </div>
+                            {isStaffingEditable && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => removeStaffingRequirement(req.clientKey)}
+                                className="h-8 w-8 text-destructive shrink-0"
+                                title={t("workOrders.staffingRequirements.removeCategory")}
+                                data-testid={`staffing-remove-requirement-${req.clientKey}`}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
+
+                          <div className="space-y-2 md:pl-2">
+                            {req.skills.map((skill) => {
+                              const isKnownActive = activeSkills.some((s) => s.skill_id === skill.skillId);
+                              const availableSkillOptions =
+                                isKnownActive || !skill.skillId
+                                  ? activeSkills
+                                  : [
+                                      ...activeSkills,
+                                      { skill_id: skill.skillId, name: skill.skillName ?? skill.skillId, category: "" },
+                                    ];
+                              const usedSkillIds = new Set(
+                                req.skills
+                                  .filter((s) => s.clientKey !== skill.clientKey)
+                                  .map((s) => s.skillId)
+                                  .filter(Boolean),
+                              );
+                              const skillOptions = availableSkillOptions.filter(
+                                (option) => option.skill_id === skill.skillId || !usedSkillIds.has(option.skill_id),
+                              );
+                              return (
+                                <div
+                                  key={skill.clientKey}
+                                  data-testid={`staffing-skill-${skill.clientKey}`}
+                                  className="flex flex-col md:flex-row gap-2 md:items-center"
+                                >
+                                  <div className="flex-1 flex items-center gap-2">
+                                    <Select
+                                      value={skill.skillId || ""}
+                                      onValueChange={(v) => updateStaffingSkillId(req.clientKey, skill.clientKey, v)}
+                                      disabled={!isStaffingEditable}
+                                    >
+                                      <SelectTrigger className="h-8 text-sm">
+                                        <SelectValue placeholder={t("workOrders.staffingRequirements.selectSkill")} />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {skillOptions.map((s) => (
+                                          <SelectItem key={s.skill_id} value={s.skill_id}>
+                                            {s.name}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                    {!isKnownActive && skill.skillId && (
+                                      <Badge
+                                        variant="outline"
+                                        className="text-xs px-1.5 py-0 shrink-0 bg-muted text-muted-foreground"
+                                      >
+                                        {t("workOrders.staffingRequirements.inactiveSkillBadge")}
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  <Select
+                                    value={skill.minProficiencyLevel ?? ""}
+                                    onValueChange={(v) =>
+                                      updateStaffingSkillProficiency(
+                                        req.clientKey,
+                                        skill.clientKey,
+                                        v as StaffingProficiencyLevel,
+                                      )
+                                    }
+                                    disabled={!isStaffingEditable}
+                                  >
+                                    <SelectTrigger className="h-8 text-sm w-full md:w-40">
+                                      <SelectValue placeholder={t("workOrders.staffingRequirements.selectProficiency")} />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {STAFFING_PROFICIENCY_LEVELS.map((level) => (
+                                        <SelectItem key={level} value={level}>
+                                          {t(`staff.competencies.levels.${level.toLowerCase()}`)}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                  {isStaffingEditable && (
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      onClick={() => removeStaffingSkill(req.clientKey, skill.clientKey)}
+                                      className="h-7 w-7 text-destructive shrink-0"
+                                      title={t("workOrders.staffingRequirements.removeSkill")}
+                                      data-testid={`staffing-remove-skill-${skill.clientKey}`}
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </Button>
+                                  )}
+                                </div>
+                              );
+                            })}
+                            {isStaffingEditable && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => addStaffingSkill(req.clientKey)}
+                                className="h-7 text-xs"
+                                data-testid={`staffing-add-skill-${req.clientKey}`}
+                              >
+                                <Plus className="h-3.5 w-3.5 mr-1" />
+                                {t("workOrders.staffingRequirements.addSkill")}
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {isStaffingEditable && (
+                    <Button
+                      variant="outline"
+                      onClick={addStaffingRequirement}
+                      size="sm"
+                      disabled={availableCategoriesForNewStaffingRequirement.length === 0}
+                      className="bg-primary/10 hover:bg-primary/20 text-primary border-primary/30"
+                      data-testid="staffing-add-category"
+                    >
+                      <Plus className="h-4 w-4 mr-2" />
+                      {t("workOrders.staffingRequirements.addCategory")}
+                    </Button>
+                  )}
+                </>
+              )}
+            </CardContent>
+          </Card>
+        )
+      ))}
+
       {/* Risk Assessment Section - editable by creator/Manager in Draft (or emergency
           completion); read-only for the Riesgos approver in Pending/Approved */}
       {showRiskSection && (
@@ -1423,14 +1843,8 @@ export function WorkOrderForm({
                   }}
                   className="bg-info hover:bg-info/90 btn-action"
                   loading={isSubmitting}
-                  disabled={hasNonRiskDirty || !canSubmitForApproval}
-                  title={
-                    hasNonRiskDirty
-                      ? t("workOrders.saveBeforeSubmit")
-                      : !canSubmitForApproval
-                        ? t("workOrders.riskAssessmentRequired")
-                        : undefined
-                  }
+                  disabled={!canSubmitForApproval}
+                  title={!canSubmitForApproval ? t("workOrders.riskAssessmentRequired") : undefined}
                 >
                   <Send className="h-4 w-4 mr-2" />
                   {t("workOrders.submitForApproval")}
@@ -1439,9 +1853,10 @@ export function WorkOrderForm({
             </>
           )}
           {/* Corrección de la pista Socio en sitio (Rechazado): gastos/ajuste editables;
-              Guardar persiste los cambios y "Enviar para Aprobación" reenvía SOLO la pista
-              Socio (el riesgo decidido permanece bloqueado y visible). No usa el flujo de
-              emergencia (riesgo ya resuelto), por eso el guard es solo hasNonRiskDirty. */}
+              "Enviar para Aprobación" guarda esos cambios pendientes (si los hay) y luego
+              reenvía SOLO la pista Socio (el riesgo decidido permanece bloqueado y visible).
+              No usa el flujo de emergencia (riesgo ya resuelto). "Guardar" sigue disponible
+              para quien prefiera guardar sin reenviar todavía. */}
           {socioCorrecting && (
             <>
               <LoadingButton
@@ -1456,12 +1871,6 @@ export function WorkOrderForm({
                   onClick={() => onSubmitForApproval()}
                   className="bg-info hover:bg-info/90 btn-action"
                   loading={isSubmitting}
-                  disabled={hasNonRiskDirty}
-                  title={
-                    hasNonRiskDirty
-                      ? t("workOrders.saveBeforeSubmit")
-                      : undefined
-                  }
                 >
                   <Send className="h-4 w-4 mr-2" />
                   {t("workOrders.sendForPartnerApproval")}

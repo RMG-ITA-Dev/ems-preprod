@@ -5,6 +5,15 @@
 > of work on top of Phase 1 (`skills` + `staff_skills`, shipped 2026-04-12 /
 > 04-19).
 
+> **Fase 7 reconciliation note.** This is the original design record, written
+> before implementation. As applied, the FK columns were named `wo_id` and
+> `category_id` (not `work_order_id`/`staff_category` as originally proposed
+> below) — `category_id` is a real FK into `public.categories`, not a text
+> CHECK enum. The tables and columns below have been corrected to match the
+> applied schema (`docs/scheduler/fase_2/scheduler-fase-2-esquema-canonico.md`
+> is the canonical contract; this file is history, not a second source of
+> truth).
+
 ## Goal
 
 Let whoever creates or edits a work order capture, per staff category, **how
@@ -36,14 +45,14 @@ across the EMS for staff levels.
 | Column | Type | Notes |
 |---|---|---|
 | `id` | `uuid` PK, `default gen_random_uuid()` | |
-| `work_order_id` | `uuid NOT NULL` | FK → `work_orders(id)` ON DELETE CASCADE |
-| `staff_category` | `text NOT NULL` | CHECK against the staff-category code set already used by `staff.category` (Senior, Manager, Director, Partner, Semisenior, SQR, Specialist IT, Specialist Tax — confirm the exact codes against the existing column before writing the CHECK) |
+| `wo_id` | `uuid NOT NULL` | FK → `work_orders(wo_id)` ON DELETE CASCADE (as applied — see Fase 7 note above) |
+| `category_id` | `uuid NOT NULL` | FK → `categories(category_id)` (as applied: a real FK, not a text CHECK enum) |
 | `staff_count` | `int NOT NULL` | CHECK `staff_count > 0` |
 | `created_at` | `timestamptz NOT NULL DEFAULT now()` | |
 | `updated_at` | `timestamptz NOT NULL DEFAULT now()` | trigger to bump on update |
 
-- **Indexes:** `(work_order_id)` for the per-WO fetch.
-- **Unique:** `UNIQUE (work_order_id, staff_category)` — one row per
+- **Indexes:** `(wo_id)` for the per-WO fetch.
+- **Unique:** `UNIQUE (wo_id, category_id)` — one row per
   category per work order. Frontend pre-selection of categories already
   present prevents duplicate insert; the constraint is the safety net.
 - **RLS:** mirror `work_orders`:

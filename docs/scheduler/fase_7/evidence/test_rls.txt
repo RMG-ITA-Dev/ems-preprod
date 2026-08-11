@@ -1,0 +1,1135 @@
+NOTICE:  database "ems_rls_test" does not exist, skipping
+── supabase/tests/local/00-shim-supabase.sql
+CREATE SCHEMA
+CREATE FUNCTION
+DO
+CREATE TYPE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+GRANT
+GRANT
+GRANT
+ALTER DEFAULT PRIVILEGES
+ALTER DEFAULT PRIVILEGES
+ALTER DEFAULT PRIVILEGES
+── supabase/migrations/20260716120000_engagement_assignments_phase3.sql
+CREATE TABLE
+ALTER TABLE
+UPDATE 0
+DO
+ALTER TABLE
+DO
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260716120000_engagement_assignments_phase3.sql:108: NOTICE:  constraint "chk_assignment_dates" of relation "engagement_assignments" does not exist, skipping
+ALTER TABLE
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260716120000_engagement_assignments_phase3.sql:110: NOTICE:  constraint "engagement_assignments_dates_chk" of relation "engagement_assignments" does not exist, skipping
+ALTER TABLE
+ALTER TABLE
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260716120000_engagement_assignments_phase3.sql:139: NOTICE:  column "updated_at" of relation "engagement_assignments" already exists, skipping
+ALTER TABLE
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260716120000_engagement_assignments_phase3.sql:142: NOTICE:  trigger "trg_engagement_assignments_updated_at" for relation "public.engagement_assignments" does not exist, skipping
+DROP TRIGGER
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260716120000_engagement_assignments_phase3.sql:144: NOTICE:  trigger "update_engagement_assignments_updated_at" for relation "public.engagement_assignments" does not exist, skipping
+DROP TRIGGER
+CREATE TRIGGER
+ALTER TABLE
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260716120000_engagement_assignments_phase3.sql:155: NOTICE:  policy "Authenticated can read assignments" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260716120000_engagement_assignments_phase3.sql:156: NOTICE:  policy "Leadership can insert assignments" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260716120000_engagement_assignments_phase3.sql:157: NOTICE:  policy "Leadership can update assignments" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260716120000_engagement_assignments_phase3.sql:158: NOTICE:  policy "Leadership can delete assignments" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260716120000_engagement_assignments_phase3.sql:159: NOTICE:  policy "Leadership manages assignments" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260716120000_engagement_assignments_phase3.sql:160: NOTICE:  policy "ea_select" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260716120000_engagement_assignments_phase3.sql:161: NOTICE:  policy "ea_admin_manage" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260716120000_engagement_assignments_phase3.sql:162: NOTICE:  policy "ea_team_manage" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+CREATE POLICY
+DO
+── supabase/tests/local/10-shim-scheduler-v2-views.sql
+CREATE VIEW
+CREATE VIEW
+CREATE VIEW
+GRANT
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 2
+BEGIN
+SET
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/local/10-shim-scheduler-v2-views.sql:96: NOTICE:  harness: anon reads 1 staffing-summary rows PRE-hardening (leak reproduced; D5 must close it)
+DO
+ROLLBACK
+── supabase/migrations/20260717233000_engagement_assignments_d5_rls.sql
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+REVOKE
+REVOKE
+REVOKE
+DO
+GRANT
+GRANT
+GRANT
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260717233000_engagement_assignments_d5_rls.sql:158: NOTICE:  policy "ea_select_firmwide" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260717233000_engagement_assignments_d5_rls.sql:159: NOTICE:  policy "ea_select_lead" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260717233000_engagement_assignments_d5_rls.sql:160: NOTICE:  policy "ea_select_assigned" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260717233000_engagement_assignments_d5_rls.sql:201: NOTICE:  policy "ea_team_insert" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260717233000_engagement_assignments_d5_rls.sql:202: NOTICE:  policy "ea_team_update" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260717233000_engagement_assignments_d5_rls.sql:203: NOTICE:  policy "ea_team_delete" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+DO
+DO
+── D5 migration re-run (idempotency)
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+REVOKE
+REVOKE
+REVOKE
+DO
+GRANT
+GRANT
+GRANT
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260717233000_engagement_assignments_d5_rls.sql:157: NOTICE:  policy "ea_select" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+DROP POLICY
+DROP POLICY
+DROP POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260717233000_engagement_assignments_d5_rls.sql:200: NOTICE:  policy "ea_team_manage" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+DROP POLICY
+DROP POLICY
+DROP POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+DO
+DO
+── supabase/tests/local/20-shim-timesheet.sql
+ALTER TABLE
+CREATE TABLE
+GRANT
+CREATE TABLE
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/local/20-shim-timesheet.sql:39: NOTICE:  column "period_id" of relation "time_entries" already exists, skipping
+ALTER TABLE
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/local/20-shim-timesheet.sql:40: NOTICE:  column "is_forecast" of relation "time_entries" already exists, skipping
+ALTER TABLE
+GRANT
+CREATE FUNCTION
+── supabase/migrations/20260718120000_scheduler_phase5_timesheet_authorization.sql
+CREATE FUNCTION
+COMMENT
+REVOKE
+DO
+GRANT
+── Phase 5 migration re-run (idempotency)
+CREATE FUNCTION
+COMMENT
+REVOKE
+DO
+GRANT
+── supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql
+ALTER TABLE
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+REVOKE
+REVOKE
+REVOKE
+DO
+GRANT
+GRANT
+GRANT
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:181: NOTICE:  policy "Authenticated can read assignments" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:182: NOTICE:  policy "Leadership can insert assignments" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:183: NOTICE:  policy "Leadership can update assignments" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:184: NOTICE:  policy "Leadership can delete assignments" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:185: NOTICE:  policy "Leadership manages assignments" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:186: NOTICE:  policy "ea_select" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:187: NOTICE:  policy "ea_team_manage" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+DROP POLICY
+DROP POLICY
+DROP POLICY
+DROP POLICY
+DROP POLICY
+DROP POLICY
+DROP POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+DO
+DO
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:301: NOTICE:  column "category_id" of relation "engagement_assignments" already exists, skipping
+ALTER TABLE
+UPDATE 0
+DO
+DO
+DO
+DO
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:398: NOTICE:  constraint "chk_assignment_dates" of relation "engagement_assignments" does not exist, skipping
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:411: NOTICE:  relation "idx_eng_assign_engagement_active" already exists, skipping
+CREATE INDEX
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:413: NOTICE:  relation "idx_eng_assign_staff_dates_active" already exists, skipping
+CREATE INDEX
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:415: NOTICE:  relation "idx_eng_assign_category_active" already exists, skipping
+CREATE INDEX
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:423: NOTICE:  column "updated_at" of relation "engagement_assignments" already exists, skipping
+ALTER TABLE
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:426: NOTICE:  trigger "trg_engagement_assignments_updated_at" for relation "public.engagement_assignments" does not exist, skipping
+DROP TRIGGER
+DROP TRIGGER
+CREATE TRIGGER
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:570: NOTICE:  engagement_assignments converged: category_id NOT NULL + FK, date CHECK, 3 partial indexes, updated_at trigger, D5 RLS matrix (7 policies), helpers hardened
+DO
+── Corrective backfill migration re-run (idempotency)
+ALTER TABLE
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+REVOKE
+REVOKE
+REVOKE
+DO
+GRANT
+GRANT
+GRANT
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:181: NOTICE:  policy "Authenticated can read assignments" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:182: NOTICE:  policy "Leadership can insert assignments" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:183: NOTICE:  policy "Leadership can update assignments" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:184: NOTICE:  policy "Leadership can delete assignments" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:185: NOTICE:  policy "Leadership manages assignments" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:186: NOTICE:  policy "ea_select" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:187: NOTICE:  policy "ea_team_manage" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+DROP POLICY
+DROP POLICY
+DROP POLICY
+DROP POLICY
+DROP POLICY
+DROP POLICY
+DROP POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+DO
+DO
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:301: NOTICE:  column "category_id" of relation "engagement_assignments" already exists, skipping
+ALTER TABLE
+UPDATE 0
+DO
+DO
+DO
+DO
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:398: NOTICE:  constraint "chk_assignment_dates" of relation "engagement_assignments" does not exist, skipping
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:411: NOTICE:  relation "idx_eng_assign_engagement_active" already exists, skipping
+CREATE INDEX
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:413: NOTICE:  relation "idx_eng_assign_staff_dates_active" already exists, skipping
+CREATE INDEX
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:415: NOTICE:  relation "idx_eng_assign_category_active" already exists, skipping
+CREATE INDEX
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:423: NOTICE:  column "updated_at" of relation "engagement_assignments" already exists, skipping
+ALTER TABLE
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:426: NOTICE:  trigger "trg_engagement_assignments_updated_at" for relation "public.engagement_assignments" does not exist, skipping
+DROP TRIGGER
+DROP TRIGGER
+CREATE TRIGGER
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:570: NOTICE:  engagement_assignments converged: category_id NOT NULL + FK, date CHECK, 3 partial indexes, updated_at trigger, D5 RLS matrix (7 policies), helpers hardened
+DO
+BEGIN
+INSERT 0 1
+INSERT 0 1
+INSERT 0 8
+INSERT 0 8
+INSERT 0 3
+INSERT 0 6
+CREATE FUNCTION
+SET
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — admin sees all fixture rows (6)
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — partner sees all fixture rows (6)
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — director sees all fixture rows (6)
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — manager (lead of E1) sees E1 only, E2/E3 hidden
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — manager staffed-but-not-lead sees nothing
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — senior sees assigned engagement (E1) only, deleted E2 assignment grants nothing
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — senior-role structural lead of E3 sees nothing
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — semisenior (assigned to E1) denied
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — user without user_roles row denied
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — lead manager write on own engagement still works
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — manager write on foreign engagement matches zero rows
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — self-assignment INSERT rejected for read-denied structural lead
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — self-assignment upsert (client shape) rejected
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — out-of-matrix structural lead cannot INSERT at all
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — escalation closed: SELECT/UPDATE/soft-delete/DELETE all denied after attempts
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — manager-lead client-shape upsert works (insert + conflict-update)
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — view vw_engagement_staffing_summary denied to authenticated
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — view vw_staffing_alerts denied to authenticated
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — view vw_staff_weekly_capacity denied to authenticated
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — anon hard-denied on engagement_assignments
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — view vw_engagement_staffing_summary denied to anon
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — view vw_staffing_alerts denied to anon
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — view vw_staff_weekly_capacity denied to anon
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — anon cannot invoke D5 helper functions
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — has_firmwide_assignment_visibility() ACL: anon=false authenticated=true service_role=false
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — has_assignment_on_engagement(uuid) ACL: anon=false authenticated=true service_role=false
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — can_read_engagement_assignments(uuid) ACL: anon=false authenticated=true service_role=false
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  D5 RLS: ALL CHECKS PASSED (rolled back)
+DO
+ROLLBACK
+BEGIN
+INSERT 0 3
+INSERT 0 1
+INSERT 0 7
+INSERT 0 6
+INSERT 0 10
+INSERT 0 3
+INSERT 0 12
+INSERT 0 9
+CREATE FUNCTION
+SET
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-timesheet-authorization-phase5.sql:457: NOTICE:  PASS — check 1: semisenior self-call returns own segments (6), endpoints clamped to the probed week
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-timesheet-authorization-phase5.sql:457: NOTICE:  PASS — check 2: staff-app_role self-call returns own segments
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-timesheet-authorization-phase5.sql:457: NOTICE:  PASS — check 3: manager-not-lead self-call returns rows via RPC despite 0 direct-SELECT rows
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-timesheet-authorization-phase5.sql:457: NOTICE:  PASS — check 4: firmwide partner gets the exact fixture segment count (6)
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-timesheet-authorization-phase5.sql:457: NOTICE:  PASS — check 5: structural approver with 'staff' app_role gets rows (D5-3 heal)
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-timesheet-authorization-phase5.sql:457: NOTICE:  PASS — check 6: approver return scoped to led + positive in-interval engagements (E1 in; E2/E3/E4/E5 out)
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-timesheet-authorization-phase5.sql:457: NOTICE:  PASS — check 6(f)/(g): forecast-only and wrong-period entries disclose no segment (actuals-in-period evidence bound)
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-timesheet-authorization-phase5.sql:457: NOTICE:  PASS — check 7: approver-arm endpoints clamped to the probed week
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-timesheet-authorization-phase5.sql:457: NOTICE:  PASS — check 8: firmwide-arm endpoints clamped to the probed week
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-timesheet-authorization-phase5.sql:457: NOTICE:  PASS — check 9: admitted approver gets success+empty on a led-but-unassigned week
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-timesheet-authorization-phase5.sql:457: NOTICE:  PASS — check 10: unrelated staff denied with EA_SEGMENTS_DENIED
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-timesheet-authorization-phase5.sql:457: NOTICE:  PASS — check 11: approver arm is week-scoped (entry-less W3 denied)
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-timesheet-authorization-phase5.sql:457: NOTICE:  PASS — check 12: disqualified structural lead of a shared, entry-bearing engagement is denied entirely
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-timesheet-authorization-phase5.sql:457: NOTICE:  PASS — check 13: 8-day span rejected (EA_SEGMENTS_INVALID_RANGE)
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-timesheet-authorization-phase5.sql:457: NOTICE:  PASS — check 14: non-Monday p_week_start rejected (EA_SEGMENTS_INVALID_RANGE)
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-timesheet-authorization-phase5.sql:457: NOTICE:  PASS — check 15: soft-deleted-only assignment returns zero rows (would warn)
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-timesheet-authorization-phase5.sql:457: NOTICE:  PASS — check 16: assignment fully outside the probed week not returned
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-timesheet-authorization-phase5.sql:457: NOTICE:  PASS — check 17a: anon runtime invocation rejected
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-timesheet-authorization-phase5.sql:457: NOTICE:  PASS — check 17b: ACL static: anon=false authenticated=true service_role=false
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-timesheet-authorization-phase5.sql:457: NOTICE:  PASS — check 18: return shape pinned to (engagement_id, start_date, end_date)
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-timesheet-authorization-phase5.sql:457: NOTICE:  P5 TIMESHEET AUTHZ: ALL CHECKS PASSED (rolled back)
+DO
+ROLLBACK
+NOTICE:  database "ems_rls_test_drift" does not exist, skipping
+── [drift] supabase/tests/local/00-shim-supabase.sql
+CREATE SCHEMA
+CREATE FUNCTION
+DO
+CREATE TYPE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+GRANT
+GRANT
+GRANT
+ALTER DEFAULT PRIVILEGES
+ALTER DEFAULT PRIVILEGES
+ALTER DEFAULT PRIVILEGES
+── [drift] supabase/tests/local/05-shim-v2-drift-table.sql
+CREATE TABLE
+CREATE INDEX
+CREATE TRIGGER
+ALTER TABLE
+CREATE POLICY
+CREATE POLICY
+INSERT 0 1
+INSERT 0 1
+INSERT 0 2
+INSERT 0 1
+INSERT 0 2
+BEGIN
+SET
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/local/05-shim-v2-drift-table.sql:92: NOTICE:  harness: authenticated reads 2 assignment rows under legacy USING(true) PRE-repair (leak reproduced; corrective migration must close it)
+DO
+ROLLBACK
+DO
+── [drift] supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql
+ALTER TABLE
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+REVOKE
+REVOKE
+REVOKE
+DO
+GRANT
+GRANT
+GRANT
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:182: NOTICE:  policy "Leadership can insert assignments" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:183: NOTICE:  policy "Leadership can update assignments" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:184: NOTICE:  policy "Leadership can delete assignments" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:186: NOTICE:  policy "ea_select" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:187: NOTICE:  policy "ea_team_manage" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:188: NOTICE:  policy "ea_admin_manage" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:189: NOTICE:  policy "ea_select_firmwide" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:190: NOTICE:  policy "ea_select_lead" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:191: NOTICE:  policy "ea_select_assigned" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:192: NOTICE:  policy "ea_team_insert" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:193: NOTICE:  policy "ea_team_update" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:194: NOTICE:  policy "ea_team_delete" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+DO
+DO
+ALTER TABLE
+UPDATE 2
+DO
+DO
+DO
+DO
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:398: NOTICE:  constraint "chk_assignment_dates" of relation "engagement_assignments" does not exist, skipping
+ALTER TABLE
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:400: NOTICE:  constraint "engagement_assignments_dates_chk" of relation "engagement_assignments" does not exist, skipping
+ALTER TABLE
+ALTER TABLE
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:423: NOTICE:  column "updated_at" of relation "engagement_assignments" already exists, skipping
+ALTER TABLE
+DROP TRIGGER
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:428: NOTICE:  trigger "update_engagement_assignments_updated_at" for relation "public.engagement_assignments" does not exist, skipping
+DROP TRIGGER
+CREATE TRIGGER
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:570: NOTICE:  engagement_assignments converged: category_id NOT NULL + FK, date CHECK, 3 partial indexes, updated_at trigger, D5 RLS matrix (7 policies), helpers hardened
+DO
+── [drift] supabase/tests/local/10-shim-scheduler-v2-views.sql
+CREATE VIEW
+CREATE VIEW
+CREATE VIEW
+GRANT
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 2
+BEGIN
+SET
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/local/10-shim-scheduler-v2-views.sql:96: NOTICE:  harness: anon reads 2 staffing-summary rows PRE-hardening (leak reproduced; D5 must close it)
+DO
+ROLLBACK
+── [drift] corrective migration re-run (idempotency + view hardening)
+ALTER TABLE
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+REVOKE
+REVOKE
+REVOKE
+DO
+GRANT
+GRANT
+GRANT
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:181: NOTICE:  policy "Authenticated can read assignments" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:182: NOTICE:  policy "Leadership can insert assignments" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:183: NOTICE:  policy "Leadership can update assignments" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:184: NOTICE:  policy "Leadership can delete assignments" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:185: NOTICE:  policy "Leadership manages assignments" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:186: NOTICE:  policy "ea_select" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:187: NOTICE:  policy "ea_team_manage" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+DROP POLICY
+DROP POLICY
+DROP POLICY
+DROP POLICY
+DROP POLICY
+DROP POLICY
+DROP POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+DO
+DO
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:301: NOTICE:  column "category_id" of relation "engagement_assignments" already exists, skipping
+ALTER TABLE
+UPDATE 0
+DO
+DO
+DO
+DO
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:398: NOTICE:  constraint "chk_assignment_dates" of relation "engagement_assignments" does not exist, skipping
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:411: NOTICE:  relation "idx_eng_assign_engagement_active" already exists, skipping
+CREATE INDEX
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:413: NOTICE:  relation "idx_eng_assign_staff_dates_active" already exists, skipping
+CREATE INDEX
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:415: NOTICE:  relation "idx_eng_assign_category_active" already exists, skipping
+CREATE INDEX
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:423: NOTICE:  column "updated_at" of relation "engagement_assignments" already exists, skipping
+ALTER TABLE
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:426: NOTICE:  trigger "trg_engagement_assignments_updated_at" for relation "public.engagement_assignments" does not exist, skipping
+DROP TRIGGER
+DROP TRIGGER
+CREATE TRIGGER
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:570: NOTICE:  engagement_assignments converged: category_id NOT NULL + FK, date CHECK, 3 partial indexes, updated_at trigger, D5 RLS matrix (7 policies), helpers hardened
+DO
+NOTICE:  PASS — [drift] all assignment rows backfilled from staff.category_id
+DO
+── [drift] out-of-order Phase 3 re-apply (must NOT resurrect permissive RLS)
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260716120000_engagement_assignments_phase3.sql:44: NOTICE:  relation "engagement_assignments" already exists, skipping
+CREATE TABLE
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260716120000_engagement_assignments_phase3.sql:50: NOTICE:  column "category_id" of relation "engagement_assignments" already exists, skipping
+ALTER TABLE
+UPDATE 0
+DO
+ALTER TABLE
+DO
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260716120000_engagement_assignments_phase3.sql:108: NOTICE:  constraint "chk_assignment_dates" of relation "engagement_assignments" does not exist, skipping
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260716120000_engagement_assignments_phase3.sql:124: NOTICE:  relation "idx_eng_assign_engagement_active" already exists, skipping
+CREATE INDEX
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260716120000_engagement_assignments_phase3.sql:126: NOTICE:  relation "idx_eng_assign_staff_dates_active" already exists, skipping
+CREATE INDEX
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260716120000_engagement_assignments_phase3.sql:128: NOTICE:  relation "idx_eng_assign_category_active" already exists, skipping
+CREATE INDEX
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260716120000_engagement_assignments_phase3.sql:139: NOTICE:  column "updated_at" of relation "engagement_assignments" already exists, skipping
+ALTER TABLE
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260716120000_engagement_assignments_phase3.sql:142: NOTICE:  trigger "trg_engagement_assignments_updated_at" for relation "public.engagement_assignments" does not exist, skipping
+DROP TRIGGER
+DROP TRIGGER
+CREATE TRIGGER
+ALTER TABLE
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260716120000_engagement_assignments_phase3.sql:155: NOTICE:  policy "Authenticated can read assignments" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260716120000_engagement_assignments_phase3.sql:156: NOTICE:  policy "Leadership can insert assignments" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260716120000_engagement_assignments_phase3.sql:157: NOTICE:  policy "Leadership can update assignments" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260716120000_engagement_assignments_phase3.sql:158: NOTICE:  policy "Leadership can delete assignments" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260716120000_engagement_assignments_phase3.sql:159: NOTICE:  policy "Leadership manages assignments" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260716120000_engagement_assignments_phase3.sql:160: NOTICE:  policy "ea_select" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260716120000_engagement_assignments_phase3.sql:162: NOTICE:  policy "ea_team_manage" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+CREATE POLICY
+DO
+NOTICE:  PASS — [drift] out-of-order Phase 3 re-apply left the D5 matrix intact (all 7 canonical, no strays)
+DO
+BEGIN
+INSERT 0 1
+INSERT 0 1
+INSERT 0 8
+INSERT 0 8
+INSERT 0 3
+INSERT 0 6
+CREATE FUNCTION
+SET
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — admin sees all fixture rows (6)
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — partner sees all fixture rows (6)
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — director sees all fixture rows (6)
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — manager (lead of E1) sees E1 only, E2/E3 hidden
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — manager staffed-but-not-lead sees nothing
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — senior sees assigned engagement (E1) only, deleted E2 assignment grants nothing
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — senior-role structural lead of E3 sees nothing
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — semisenior (assigned to E1) denied
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — user without user_roles row denied
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — lead manager write on own engagement still works
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — manager write on foreign engagement matches zero rows
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — self-assignment INSERT rejected for read-denied structural lead
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — self-assignment upsert (client shape) rejected
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — out-of-matrix structural lead cannot INSERT at all
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — escalation closed: SELECT/UPDATE/soft-delete/DELETE all denied after attempts
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — manager-lead client-shape upsert works (insert + conflict-update)
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — view vw_engagement_staffing_summary denied to authenticated
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — view vw_staffing_alerts denied to authenticated
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — view vw_staff_weekly_capacity denied to authenticated
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — anon hard-denied on engagement_assignments
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — view vw_engagement_staffing_summary denied to anon
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — view vw_staffing_alerts denied to anon
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — view vw_staff_weekly_capacity denied to anon
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — anon cannot invoke D5 helper functions
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — has_firmwide_assignment_visibility() ACL: anon=false authenticated=true service_role=false
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — has_assignment_on_engagement(uuid) ACL: anon=false authenticated=true service_role=false
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  PASS — can_read_engagement_assignments(uuid) ACL: anon=false authenticated=true service_role=false
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-engagement-assignments-d5.sql:396: NOTICE:  D5 RLS: ALL CHECKS PASSED (rolled back)
+DO
+ROLLBACK
+NOTICE:  database "ems_rls_test_failpath" does not exist, skipping
+── [failpath] shims + drift fixture
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/local/05-shim-v2-drift-table.sql:92: NOTICE:  harness: authenticated reads 2 assignment rows under legacy USING(true) PRE-repair (leak reproduced; corrective migration must close it)
+── [failpath] case A: NULL-category row, single-transaction apply must abort + roll back completely
+NOTICE:  PASS — [failpath] NULL-category abort was loud and rolled back completely
+DO
+── [failpath] case B: bad-dates row, statement-by-statement apply must abort at the date pre-flight; data fix + re-run must converge
+NOTICE:  PASS — [failpath] leak already closed when the data abort halted the apply
+DO
+PASS — [failpath] both pre-flights loud; partial state converged on re-run
+OK: lane 1 (Phase 3 → D5 → Phase 5 → corrective, all idempotent), lane 2 (drift repair by corrective alone + out-of-order Phase 3 re-apply), and lane 3 (loud-abort failure paths, both apply modes) all verified; all leakage/authz checks passed
+NOTICE:  database "ems_rls_test_scheduler" does not exist, skipping
+── [scheduler] supabase/tests/local/00-shim-supabase.sql
+CREATE SCHEMA
+CREATE FUNCTION
+DO
+CREATE TYPE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+GRANT
+GRANT
+GRANT
+ALTER DEFAULT PRIVILEGES
+ALTER DEFAULT PRIVILEGES
+ALTER DEFAULT PRIVILEGES
+── [scheduler] supabase/tests/local/30-shim-service-scope.sql
+CREATE TABLE
+INSERT 0 5
+ALTER TABLE
+ALTER TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+── [scheduler] supabase/migrations/20260716120000_engagement_assignments_phase3.sql
+CREATE TABLE
+ALTER TABLE
+UPDATE 0
+DO
+ALTER TABLE
+DO
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260716120000_engagement_assignments_phase3.sql:108: NOTICE:  constraint "chk_assignment_dates" of relation "engagement_assignments" does not exist, skipping
+ALTER TABLE
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260716120000_engagement_assignments_phase3.sql:110: NOTICE:  constraint "engagement_assignments_dates_chk" of relation "engagement_assignments" does not exist, skipping
+ALTER TABLE
+ALTER TABLE
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260716120000_engagement_assignments_phase3.sql:139: NOTICE:  column "updated_at" of relation "engagement_assignments" already exists, skipping
+ALTER TABLE
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260716120000_engagement_assignments_phase3.sql:142: NOTICE:  trigger "trg_engagement_assignments_updated_at" for relation "public.engagement_assignments" does not exist, skipping
+DROP TRIGGER
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260716120000_engagement_assignments_phase3.sql:144: NOTICE:  trigger "update_engagement_assignments_updated_at" for relation "public.engagement_assignments" does not exist, skipping
+DROP TRIGGER
+CREATE TRIGGER
+ALTER TABLE
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260716120000_engagement_assignments_phase3.sql:155: NOTICE:  policy "Authenticated can read assignments" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260716120000_engagement_assignments_phase3.sql:156: NOTICE:  policy "Leadership can insert assignments" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260716120000_engagement_assignments_phase3.sql:157: NOTICE:  policy "Leadership can update assignments" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260716120000_engagement_assignments_phase3.sql:158: NOTICE:  policy "Leadership can delete assignments" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260716120000_engagement_assignments_phase3.sql:159: NOTICE:  policy "Leadership manages assignments" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260716120000_engagement_assignments_phase3.sql:160: NOTICE:  policy "ea_select" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260716120000_engagement_assignments_phase3.sql:161: NOTICE:  policy "ea_admin_manage" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260716120000_engagement_assignments_phase3.sql:162: NOTICE:  policy "ea_team_manage" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+CREATE POLICY
+DO
+── [scheduler] supabase/migrations/20260717233000_engagement_assignments_d5_rls.sql
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+REVOKE
+REVOKE
+REVOKE
+DO
+GRANT
+GRANT
+GRANT
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260717233000_engagement_assignments_d5_rls.sql:158: NOTICE:  policy "ea_select_firmwide" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260717233000_engagement_assignments_d5_rls.sql:159: NOTICE:  policy "ea_select_lead" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260717233000_engagement_assignments_d5_rls.sql:160: NOTICE:  policy "ea_select_assigned" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260717233000_engagement_assignments_d5_rls.sql:201: NOTICE:  policy "ea_team_insert" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260717233000_engagement_assignments_d5_rls.sql:202: NOTICE:  policy "ea_team_update" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260717233000_engagement_assignments_d5_rls.sql:203: NOTICE:  policy "ea_team_delete" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+DO
+DO
+── [scheduler] supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql
+ALTER TABLE
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+REVOKE
+REVOKE
+REVOKE
+DO
+GRANT
+GRANT
+GRANT
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:181: NOTICE:  policy "Authenticated can read assignments" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:182: NOTICE:  policy "Leadership can insert assignments" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:183: NOTICE:  policy "Leadership can update assignments" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:184: NOTICE:  policy "Leadership can delete assignments" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:185: NOTICE:  policy "Leadership manages assignments" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:186: NOTICE:  policy "ea_select" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:187: NOTICE:  policy "ea_team_manage" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+DROP POLICY
+DROP POLICY
+DROP POLICY
+DROP POLICY
+DROP POLICY
+DROP POLICY
+DROP POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+DO
+DO
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:301: NOTICE:  column "category_id" of relation "engagement_assignments" already exists, skipping
+ALTER TABLE
+UPDATE 0
+DO
+DO
+DO
+DO
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:398: NOTICE:  constraint "chk_assignment_dates" of relation "engagement_assignments" does not exist, skipping
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:411: NOTICE:  relation "idx_eng_assign_engagement_active" already exists, skipping
+CREATE INDEX
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:413: NOTICE:  relation "idx_eng_assign_staff_dates_active" already exists, skipping
+CREATE INDEX
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:415: NOTICE:  relation "idx_eng_assign_category_active" already exists, skipping
+CREATE INDEX
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:423: NOTICE:  column "updated_at" of relation "engagement_assignments" already exists, skipping
+ALTER TABLE
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:426: NOTICE:  trigger "trg_engagement_assignments_updated_at" for relation "public.engagement_assignments" does not exist, skipping
+DROP TRIGGER
+DROP TRIGGER
+CREATE TRIGGER
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql:570: NOTICE:  engagement_assignments converged: category_id NOT NULL + FK, date CHECK, 3 partial indexes, updated_at trigger, D5 RLS matrix (7 policies), helpers hardened
+DO
+── [scheduler] supabase/migrations/20260506120000_wo_staffing_requirements.sql
+CREATE TABLE
+CREATE INDEX
+CREATE INDEX
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260506120000_wo_staffing_requirements.sql:30: NOTICE:  trigger "update_wo_staffing_requirements_updated_at" for relation "public.wo_staffing_requirements" does not exist, skipping
+DROP TRIGGER
+CREATE TRIGGER
+CREATE TABLE
+CREATE INDEX
+CREATE INDEX
+ALTER TABLE
+ALTER TABLE
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260506120000_wo_staffing_requirements.sql:59: NOTICE:  policy "wo_staffing_req_select" for relation "public.wo_staffing_requirements" does not exist, skipping
+DROP POLICY
+CREATE POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260506120000_wo_staffing_requirements.sql:65: NOTICE:  policy "wo_staffing_req_write" for relation "public.wo_staffing_requirements" does not exist, skipping
+DROP POLICY
+CREATE POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260506120000_wo_staffing_requirements.sql:82: NOTICE:  policy "wo_staffing_req_skills_select" for relation "public.wo_staffing_requirement_skills" does not exist, skipping
+DROP POLICY
+CREATE POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260506120000_wo_staffing_requirements.sql:88: NOTICE:  policy "wo_staffing_req_skills_write" for relation "public.wo_staffing_requirement_skills" does not exist, skipping
+DROP POLICY
+CREATE POLICY
+── [scheduler] supabase/migrations/20260719044642_ee740102-8b5c-4d4b-b8ee-1571ec25840b.sql
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260719044642_ee740102-8b5c-4d4b-b8ee-1571ec25840b.sql:10: NOTICE:  relation "wo_staffing_requirements" already exists, skipping
+CREATE TABLE
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260719044642_ee740102-8b5c-4d4b-b8ee-1571ec25840b.sql:13: NOTICE:  relation "idx_wo_staffing_requirements_wo" already exists, skipping
+CREATE INDEX
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260719044642_ee740102-8b5c-4d4b-b8ee-1571ec25840b.sql:15: NOTICE:  relation "idx_wo_staffing_requirements_cat" already exists, skipping
+CREATE INDEX
+GRANT
+GRANT
+DROP TRIGGER
+CREATE TRIGGER
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260719044642_ee740102-8b5c-4d4b-b8ee-1571ec25840b.sql:33: NOTICE:  relation "wo_staffing_requirement_skills" already exists, skipping
+CREATE TABLE
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260719044642_ee740102-8b5c-4d4b-b8ee-1571ec25840b.sql:36: NOTICE:  relation "idx_wo_req_skills_req" already exists, skipping
+CREATE INDEX
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260719044642_ee740102-8b5c-4d4b-b8ee-1571ec25840b.sql:38: NOTICE:  relation "idx_wo_req_skills_skill" already exists, skipping
+CREATE INDEX
+GRANT
+GRANT
+ALTER TABLE
+ALTER TABLE
+DROP POLICY
+CREATE POLICY
+DROP POLICY
+CREATE POLICY
+DROP POLICY
+CREATE POLICY
+DROP POLICY
+CREATE POLICY
+── [scheduler] supabase/migrations/20260720194555_4106bdc5-1314-4e04-8a1b-49375f8d87e5.sql
+── [scheduler] supabase/migrations/20260720194653_61b4d8eb-86a8-495e-a572-5eeab91ebdb2.sql
+ALTER TABLE
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+REVOKE
+REVOKE
+REVOKE
+DO
+GRANT
+GRANT
+GRANT
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720194653_61b4d8eb-86a8-495e-a572-5eeab91ebdb2.sql:38: NOTICE:  policy "Authenticated can read assignments" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720194653_61b4d8eb-86a8-495e-a572-5eeab91ebdb2.sql:39: NOTICE:  policy "Leadership can insert assignments" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720194653_61b4d8eb-86a8-495e-a572-5eeab91ebdb2.sql:40: NOTICE:  policy "Leadership can update assignments" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720194653_61b4d8eb-86a8-495e-a572-5eeab91ebdb2.sql:41: NOTICE:  policy "Leadership can delete assignments" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720194653_61b4d8eb-86a8-495e-a572-5eeab91ebdb2.sql:42: NOTICE:  policy "Leadership manages assignments" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720194653_61b4d8eb-86a8-495e-a572-5eeab91ebdb2.sql:43: NOTICE:  policy "ea_select" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720194653_61b4d8eb-86a8-495e-a572-5eeab91ebdb2.sql:44: NOTICE:  policy "ea_team_manage" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+DROP POLICY
+DROP POLICY
+DROP POLICY
+DROP POLICY
+DROP POLICY
+DROP POLICY
+DROP POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+CREATE POLICY
+DO
+DO
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720194653_61b4d8eb-86a8-495e-a572-5eeab91ebdb2.sql:91: NOTICE:  column "category_id" of relation "engagement_assignments" already exists, skipping
+ALTER TABLE
+UPDATE 0
+DO
+DO
+DO
+DO
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720194653_61b4d8eb-86a8-495e-a572-5eeab91ebdb2.sql:134: NOTICE:  constraint "chk_assignment_dates" of relation "engagement_assignments" does not exist, skipping
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720194653_61b4d8eb-86a8-495e-a572-5eeab91ebdb2.sql:139: NOTICE:  relation "idx_eng_assign_engagement_active" already exists, skipping
+CREATE INDEX
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720194653_61b4d8eb-86a8-495e-a572-5eeab91ebdb2.sql:141: NOTICE:  relation "idx_eng_assign_staff_dates_active" already exists, skipping
+CREATE INDEX
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720194653_61b4d8eb-86a8-495e-a572-5eeab91ebdb2.sql:143: NOTICE:  relation "idx_eng_assign_category_active" already exists, skipping
+CREATE INDEX
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720194653_61b4d8eb-86a8-495e-a572-5eeab91ebdb2.sql:146: NOTICE:  column "updated_at" of relation "engagement_assignments" already exists, skipping
+ALTER TABLE
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260720194653_61b4d8eb-86a8-495e-a572-5eeab91ebdb2.sql:148: NOTICE:  trigger "trg_engagement_assignments_updated_at" for relation "public.engagement_assignments" does not exist, skipping
+DROP TRIGGER
+DROP TRIGGER
+CREATE TRIGGER
+── [scheduler] supabase/migrations/20260727100000_scheduler_fase2_rls_grants.sql
+DO
+CREATE FUNCTION
+REVOKE
+DO
+GRANT
+CREATE FUNCTION
+CREATE FUNCTION
+REVOKE
+REVOKE
+DO
+GRANT
+GRANT
+DROP POLICY
+CREATE POLICY
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260727100000_scheduler_fase2_rls_grants.sql:184: NOTICE:  policy "wo_staffing_req_insert" for relation "public.wo_staffing_requirements" does not exist, skipping
+DROP POLICY
+CREATE POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260727100000_scheduler_fase2_rls_grants.sql:194: NOTICE:  policy "wo_staffing_req_update" for relation "public.wo_staffing_requirements" does not exist, skipping
+DROP POLICY
+CREATE POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260727100000_scheduler_fase2_rls_grants.sql:209: NOTICE:  policy "wo_staffing_req_delete" for relation "public.wo_staffing_requirements" does not exist, skipping
+DROP POLICY
+CREATE POLICY
+DROP POLICY
+CREATE POLICY
+DROP POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260727100000_scheduler_fase2_rls_grants.sql:236: NOTICE:  policy "wo_staffing_req_skills_insert" for relation "public.wo_staffing_requirement_skills" does not exist, skipping
+DROP POLICY
+CREATE POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260727100000_scheduler_fase2_rls_grants.sql:246: NOTICE:  policy "wo_staffing_req_skills_update" for relation "public.wo_staffing_requirement_skills" does not exist, skipping
+DROP POLICY
+CREATE POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260727100000_scheduler_fase2_rls_grants.sql:261: NOTICE:  policy "wo_staffing_req_skills_delete" for relation "public.wo_staffing_requirement_skills" does not exist, skipping
+DROP POLICY
+CREATE POLICY
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260727100000_scheduler_fase2_rls_grants.sql:299: NOTICE:  policy "ea_select_responsible" for relation "public.engagement_assignments" does not exist, skipping
+DROP POLICY
+CREATE POLICY
+DROP POLICY
+CREATE POLICY
+DROP POLICY
+CREATE POLICY
+DROP POLICY
+CREATE POLICY
+GRANT
+GRANT
+GRANT
+DO
+── [scheduler] supabase/migrations/20260727110000_scheduler_fase2_convergencia_esquema.sql
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260727110000_scheduler_fase2_convergencia_esquema.sql:20: NOTICE:  column "is_schedulable" of relation "staff" already exists, skipping
+ALTER TABLE
+DO
+CREATE FUNCTION
+REVOKE
+DO
+GRANT
+UPDATE 0
+CREATE FUNCTION
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260727110000_scheduler_fase2_convergencia_esquema.sql:149: NOTICE:  trigger "trg_enforce_wo_staffing_service_scope" for relation "public.wo_staffing_requirements" does not exist, skipping
+DROP TRIGGER
+CREATE TRIGGER
+CREATE FUNCTION
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/migrations/20260727110000_scheduler_fase2_convergencia_esquema.sql:191: NOTICE:  trigger "trg_enforce_assignment_service_scope" for relation "public.engagement_assignments" does not exist, skipping
+DROP TRIGGER
+CREATE TRIGGER
+DO
+CREATE FUNCTION
+REVOKE
+GRANT
+── [scheduler] supabase/migrations/20260727120000_scheduler_fase2_rpc_save_wo_staffing.sql
+CREATE FUNCTION
+REVOKE
+DO
+GRANT
+── [scheduler] supabase/migrations/20260727130000_scheduler_fase2_rpc_save_engagement_assignments.sql
+CREATE FUNCTION
+REVOKE
+DO
+GRANT
+BEGIN
+INSERT 0 1
+INSERT 0 1
+DO
+INSERT 0 9
+INSERT 0 9
+INSERT 0 2
+INSERT 0 2
+INSERT 0 2
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+CREATE FUNCTION
+SET
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-wo-staffing-requirements.sql:337: NOTICE:  PASS — admin reads all fixture rows and writes across engagements
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-wo-staffing-requirements.sql:337: NOTICE:  PASS — partner reads firmwide but cannot write without admin/team/responsible
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-wo-staffing-requirements.sql:337: NOTICE:  PASS — manager Mel (team member of E1) reads/writes E1 only
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-wo-staffing-requirements.sql:337: NOTICE:  PASS — sqr Sam (is_engagement_responsible on E1) reads/writes E1 only
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-wo-staffing-requirements.sql:337: NOTICE:  PASS — encargado Eddy (is_engagement_responsible via encargado_id on E1) reads/writes E1 only
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-wo-staffing-requirements.sql:337: NOTICE:  PASS — specialist IT Ivy (is_engagement_responsible via specialist_it_id on E1) reads/writes E1 only
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-wo-staffing-requirements.sql:337: NOTICE:  PASS — auth user with no staff row denied read and write
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-wo-staffing-requirements.sql:337: NOTICE:  PASS — assigned-only Val reads via has_assignment_on_engagement but cannot write
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-wo-staffing-requirements.sql:337: NOTICE:  PASS — unrelated staff denied read and write
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-wo-staffing-requirements.sql:337: NOTICE:  PASS — wo_staffing_requirement_skills 2-hop join mirrors the parent matrix
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-wo-staffing-requirements.sql:337: NOTICE:  PASS — anon hard-denied on both staffing tables
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-wo-staffing-requirements.sql:337: NOTICE:  PASS — G2 closed: zero USING(true) policies on wo_staffing_requirements/_skills
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-wo-staffing-requirements.sql:337: NOTICE:  WO STAFFING RLS: ALL CHECKS PASSED (rolled back)
+DO
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rls-wo-staffing-requirements.sql:368: NOTICE:  PASS — sqr-only responsible (Sam) reads and writes engagement_assignments on E1 via C1 §3b fix, denied on foreign E2
+DO
+ROLLBACK
+BEGIN
+INSERT 0 2
+INSERT 0 1
+DO
+INSERT 0 3
+INSERT 0 3
+INSERT 0 2
+INSERT 0 2
+INSERT 0 1
+CREATE FUNCTION
+SET
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rpc-save-wo-staffing.sql:295: NOTICE:  PASS — unknown wo_id raises WOS_WO_NOT_FOUND
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rpc-save-wo-staffing.sql:295: NOTICE:  PASS — unrelated caller raises WOS_DENIED (insufficient_privilege)
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rpc-save-wo-staffing.sql:295: NOTICE:  PASS — manager Mel persists a requirement + skill, result mirrors the client contract
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rpc-save-wo-staffing.sql:295: NOTICE:  PASS — is_engagement_responsible caller (sqr Sam) authorized, state-complete payload clears omitted skill
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rpc-save-wo-staffing.sql:295: NOTICE:  PASS — duplicate category_id in the payload raises WOS_REQUIREMENT_DUPLICATE
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rpc-save-wo-staffing.sql:295: NOTICE:  PASS — staff_count outside [1,999] raises WOS_STAFF_COUNT_RANGE (0 and 1000 probed)
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rpc-save-wo-staffing.sql:295: NOTICE:  PASS — a category outside the engagement's service raises WOS_CATEGORY_FOREIGN_SERVICE
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rpc-save-wo-staffing.sql:295: NOTICE:  PASS — duplicate skill_id within a requirement raises WOS_SKILL_DUPLICATE
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rpc-save-wo-staffing.sql:295: NOTICE:  PASS — an out-of-enum min_proficiency_level raises WOS_PROFICIENCY_INVALID
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rpc-save-wo-staffing.sql:295: NOTICE:  PASS — a non-Draft work order (Approved) raises WOS_WO_LOCKED
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rpc-save-wo-staffing.sql:295: NOTICE:  PASS — an empty payload deletes every previously-persisted requirement (state-complete contract)
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rpc-save-wo-staffing.sql:295: NOTICE:  PASS — anon cannot invoke save_wo_staffing at all (EXECUTE revoked)
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rpc-save-wo-staffing.sql:295: NOTICE:  SAVE_WO_STAFFING RPC: ALL CHECKS PASSED (rolled back)
+DO
+ROLLBACK
+BEGIN
+INSERT 0 2
+INSERT 0 1
+DO
+INSERT 0 5
+INSERT 0 1
+INSERT 0 3
+INSERT 0 2
+CREATE FUNCTION
+SET
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rpc-save-engagement-assignments.sql:552: NOTICE:  PASS — unknown engagement_id raises EAS_ENGAGEMENT_NOT_FOUND
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rpc-save-engagement-assignments.sql:552: NOTICE:  PASS — unrelated caller raises EAS_DENIED (insufficient_privilege)
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rpc-save-engagement-assignments.sql:552: NOTICE:  PASS — manager Mel inserts an assignment with a client-generated id, result mirrors the client contract (status defaults to PROPOSED, never written explicitly)
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rpc-save-engagement-assignments.sql:552: NOTICE:  PASS — retrying an insert with the same client-generated assignment_id updates the existing row instead of duplicating it
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rpc-save-engagement-assignments.sql:552: NOTICE:  PASS — a missing required field (incl. the now-mandatory client assignment_id) raises EAS_MISSING_FIELD
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rpc-save-engagement-assignments.sql:552: NOTICE:  PASS — end_date < start_date raises EAS_DATE_RANGE (same-day remains valid, exercised implicitly by the range check)
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rpc-save-engagement-assignments.sql:552: NOTICE:  PASS — a segment outside the engagement's inclusive start_date..end_date raises EAS_ENGAGEMENT_RANGE (Fase 5 O4)
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rpc-save-engagement-assignments.sql:552: NOTICE:  PASS — a NEW assignment for an inactive/non-schedulable staff raises EAS_STAFF_INELIGIBLE (Fase 5 O7; historical rows are not re-validated, see step 15)
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rpc-save-engagement-assignments.sql:552: NOTICE:  PASS — hours_per_week outside (0,80] raises EAS_HOURS_RANGE (0 and 81 probed)
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rpc-save-engagement-assignments.sql:552: NOTICE:  PASS — allocation_percent outside (0,100] raises EAS_ALLOCATION_RANGE (0 and 101 probed)
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rpc-save-engagement-assignments.sql:552: NOTICE:  PASS — a category outside the engagement's service raises EAS_CATEGORY_FOREIGN_SERVICE
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rpc-save-engagement-assignments.sql:552: NOTICE:  PASS — an overlapping date range for the same staff raises EAS_OVERLAP, and the whole payload (incl. the unrelated row) rolls back
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rpc-save-engagement-assignments.sql:552: NOTICE:  PASS — an upsert row carrying assignment_id updates the existing row in place
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rpc-save-engagement-assignments.sql:552: NOTICE:  PASS — p_deleted_ids soft-deletes the row (deleted_at set) and the result excludes it
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rpc-save-engagement-assignments.sql:552: NOTICE:  PASS — a terminal-state engagement (override=6 Cancelado) raises EAS_ENGAGEMENT_LOCKED
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rpc-save-engagement-assignments.sql:552: NOTICE:  PASS — is_engagement_responsible caller (sqr Sam, not a team member) authorized to write
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rpc-save-engagement-assignments.sql:552: NOTICE:  PASS — UPDATE of an existing row does not re-run the staff eligibility check (historical inactive staff stays editable, Fase 5 O7)
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rpc-save-engagement-assignments.sql:552: NOTICE:  PASS — UPDATE that CHANGES staff_id on an existing row re-runs eligibility, rejecting a non-schedulable staff (Fase 5 O7, review #4)
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rpc-save-engagement-assignments.sql:552: NOTICE:  PASS — anon cannot invoke save_engagement_assignments at all (EXECUTE revoked)
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/rpc-save-engagement-assignments.sql:552: NOTICE:  SAVE_ENGAGEMENT_ASSIGNMENTS RPC: ALL CHECKS PASSED (rolled back)
+DO
+ROLLBACK
+BEGIN
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/schema-convergence-assertions.sql:184: NOTICE:  PASS — staff.is_schedulable is boolean NOT NULL DEFAULT true
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/schema-convergence-assertions.sql:184: NOTICE:  PASS — engagement_assignments.status default is PROPOSED
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/schema-convergence-assertions.sql:184: NOTICE:  PASS — G2 closed: zero USING(true) policies on wo_staffing_requirements/_skills
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/schema-convergence-assertions.sql:184: NOTICE:  PASS — table grants: authenticated has SELECT/INSERT/UPDATE/DELETE, anon has none, on all 3 scheduler tables
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/schema-convergence-assertions.sql:184: NOTICE:  PASS — C1-C4 function ACLs: anon=false authenticated=true service_role=false on all 4 new functions
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/schema-convergence-assertions.sql:184: NOTICE:  SKIP — vw_staffing_alerts not present in this environment
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/schema-convergence-assertions.sql:184: NOTICE:  PASS — service-scope backstop triggers present on both tables (G3)
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/schema-convergence-assertions.sql:184: NOTICE:  PASS — copy_categories_between_services references both new referrer tables (structural check)
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/schema-convergence-assertions.sql:184: NOTICE:  PASS — no engagements remain with practica IS NULL (Fase 5 O6 backfill to Auditoría applied)
+DO
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/schema-convergence-assertions.sql:293: NOTICE:  PASS — engagement_accepts_assignment_writes: true for {1,5,8,NULL,missing}, false for {6,7,9} (G4)
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/schema-convergence-assertions.sql:293: NOTICE:  PASS — is_engagement_responsible() covers all 6 responsible-personnel columns (manager_id/partner_id/sqr_id/encargado_id/specialist_it_id/specialist_tax_id, G7) and denies a bystander
+psql:C:/Users/MarceloOvando/Desktop/Marcelo/Desarrollo/EMS_2.0/EMS_Dev_Local/supabase/tests/schema-convergence-assertions.sql:293: NOTICE:  SCHEMA CONVERGENCE: ALL CHECKS PASSED (rolled back)
+DO
+ROLLBACK
+OK: lane 4 (Fase 2 del Scheduler — C1-C4 applied over the service-scoped shim; RLS matrix, both RPCs, and schema-convergence assertions all verified)

@@ -11,21 +11,25 @@ import { Briefcase, TrendingUp, Users, Shield, Loader2, Mail, Eye, EyeOff } from
 import { z } from "zod";
 import { ForgotPasswordDialog } from "@/components/auth/ForgotPasswordDialog";
 
-const emailSchema = z.string().trim().email({ message: "Invalid email address" }).max(255, { message: "Email must be less than 255 characters" });
+// Fase 7 (plan v2 §C): schema `message`s are i18n KEYS, not prose — the single
+// catch block below (handleSubmit) resolves whichever key survives via
+// t(key, { domain: allowedDomain }). Passing `domain` unconditionally is
+// inert for keys that don't interpolate it.
+const emailSchema = z.string().trim().email({ message: "validation.emailInvalid" }).max(255, { message: "auth.validation.emailMax" });
 // Sign-in: allow existing users with 6-char passwords
-const signinPasswordSchema = z.string().min(6, { message: "Password must be at least 6 characters" }).max(100, { message: "Password must be less than 100 characters" });
+const signinPasswordSchema = z.string().min(6, { message: "auth.validation.passwordMinSignin" }).max(100, { message: "auth.validation.passwordMax" });
 // Sign-up: enforce stronger passwords for new accounts
-const signupPasswordSchema = z.string().min(8, { message: "Password must be at least 8 characters" }).max(100, { message: "Password must be less than 100 characters" });
-const nameSchema = z.string().trim().min(1, { message: "Required" }).max(100, { message: "Must be less than 100 characters" });
+const signupPasswordSchema = z.string().min(8, { message: "auth.validation.passwordMinSignup" }).max(100, { message: "auth.validation.passwordMax" });
+const nameSchema = z.string().trim().min(1, { message: "form.required" }).max(100, { message: "auth.validation.nameMax" });
 
 // Company email validation function - domain loaded from settings
 const createCompanyEmailSchema = (allowedDomain: string) => z.string()
   .trim()
-  .email({ message: "Invalid email address" })
-  .max(255, { message: "Email must be less than 255 characters" })
+  .email({ message: "validation.emailInvalid" })
+  .max(255, { message: "auth.validation.emailMax" })
   .refine(
     (email) => !allowedDomain || email.toLowerCase().endsWith(`@${allowedDomain.toLowerCase()}`),
-    { message: allowedDomain ? `Solo se permiten correos @${allowedDomain}` : "Invalid domain" }
+    { message: allowedDomain ? "auth.validation.emailDomainOnly" : "auth.invalidDomain" }
   );
 
 const Auth = () => {
@@ -106,7 +110,7 @@ const Auth = () => {
       }
     } catch (err) {
       if (err instanceof z.ZodError) {
-        toast.error(err.errors[0].message);
+        toast.error(t(err.errors[0].message, { domain: allowedDomain }));
       }
     } finally {
       setLoading(false);
@@ -143,8 +147,12 @@ const Auth = () => {
       <div className="hidden lg:flex lg:w-1/2 bg-primary p-12 flex-col justify-between">
         <div>
           <div className="mb-16">
+            {/* Brand name — identical across Auth.tsx, AppHeader.tsx, NotFound.tsx,
+                ResetPassword.tsx and index.html. Deliberately not i18n. */}
             <h1 className="text-2xl font-bold text-primary-foreground">RuizmierGroup - EMS 2.0</h1>
-            <p className="text-primary-foreground/70 text-sm">Engagement Management System</p>
+            {/* "EMS" IS the English acronym the product is named after — translating
+                it would rename the product, so EN and ES share the same value. */}
+            <p className="text-primary-foreground/70 text-sm">{t("auth.brandTagline")}</p>
           </div>
 
           <div className="space-y-8">
@@ -237,7 +245,7 @@ const Auth = () => {
                     <Input
                       id="firstName"
                       type="text"
-                      placeholder="John"
+                      placeholder={t("auth.firstNamePlaceholder")}
                       value={firstName}
                       onChange={(e) => setFirstName(e.target.value)}
                       required
@@ -248,7 +256,7 @@ const Auth = () => {
                     <Input
                       id="lastName"
                       type="text"
-                      placeholder="Doe"
+                      placeholder={t("auth.lastNamePlaceholder")}
                       value={lastName}
                       onChange={(e) => setLastName(e.target.value)}
                       required
@@ -262,7 +270,7 @@ const Auth = () => {
                 <Input
                   id="email"
                   type="email"
-                  placeholder={mode === "signup" && allowedDomain ? `tu.nombre@${allowedDomain}` : "tu.correo@ejemplo.com"}
+                  placeholder={mode === "signup" && allowedDomain ? t("auth.emailPlaceholderWithDomain", { domain: allowedDomain }) : t("auth.emailPlaceholder")}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
@@ -292,6 +300,7 @@ const Auth = () => {
                   <Input
                     id="password"
                     type={showPassword ? "text" : "password"}
+                    // Glyph, not language — deliberately not i18n.
                     placeholder="••••••••"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}

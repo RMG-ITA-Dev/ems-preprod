@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -20,7 +20,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { logger } from "@/lib/logger";
 import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";
 import { LeavePageDialog } from "@/components/ui/leave-page-dialog";
-import { useUserRole } from "@/hooks/useUserRole";
 
 const WorksheetNew = () => {
   const { t } = useTranslation();
@@ -29,15 +28,7 @@ const WorksheetNew = () => {
   const { data: currentStaff } = useCurrentStaff();
   const createWorksheet = useCreateWorksheet();
   const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty: false });
-  const { isAdmin, isPartner, isDirector, isManager, isLoading: roleLoading } = useUserRole();
-  const canCreate = isAdmin || isPartner || isDirector || isManager;
-
-  useEffect(() => {
-    if (!roleLoading && !canCreate) {
-      allowNextNavigation();
-      navigate("/worksheets", { replace: true });
-    }
-  }, [roleLoading, canCreate, allowNextNavigation, navigate]);
+  // Guard de creación por permiso vía <PermissionRoute permission="worksheet.create"> en App.tsx.
 
   const [selectedEngagementId, setSelectedEngagementId] = useState<string>("");
 
@@ -61,8 +52,6 @@ const WorksheetNew = () => {
   const selectedEngagement = engagements?.find(
     (e) => e.engagement_id === selectedEngagementId
   );
-
-  if (roleLoading || !canCreate) return null;
 
   return (
     <AppLayout title={t("workMatrix.title")} focusMode>

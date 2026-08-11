@@ -209,6 +209,10 @@ export function useSubmitTimesheet() {
       staffId: string;
       engagementActivityPairs: Array<{ engagementId: string; activityId: string }>;
       isAutoApproved: boolean;
+      // Fase 6: solo informativo para el toast de onSuccess. La RPC recibe argumentos
+      // NOMBRADOS (p_period_id, p_staff_id, p_engagement_ids, p_activity_ids,
+      // p_is_auto_approved) -> estructuralmente imposible que este campo llegue a Supabase.
+      unauthorizedCount?: number;
     }) => {
       // Deduplicate by (engagement, activity) and filter nulls
       const uniquePairs = [
@@ -230,7 +234,7 @@ export function useSubmitTimesheet() {
       if (error) throw error;
       return { periodId, isAutoApproved, summary: data };
     },
-    onSuccess: (data) => {
+    onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["timesheet-period"] });
       queryClient.invalidateQueries({ queryKey: ["period-line-approvals"] });
       queryClient.invalidateQueries({ queryKey: ["pending-approvals"] });
@@ -250,6 +254,13 @@ export function useSubmitTimesheet() {
         ? i18n.t("timesheet.autoApproved")
         : i18n.t("timesheet.submitted")
       );
+      // Fase 6: solo advisory, informativo, nunca bloquea. Nunca se emite si el submit falla
+      // (este bloque solo corre en onSuccess).
+      if (variables.unauthorizedCount && variables.unauthorizedCount > 0) {
+        toast.info(i18n.t("timesheet.assignmentAdvisory.submittedWithWarnings", {
+          count: variables.unauthorizedCount,
+        }));
+      }
     },
     onError: (error: Error) => {
       const msg = error.message || '';
@@ -268,6 +279,17 @@ export function useSubmitTimesheet() {
       // BUG 0220-63: Submit-time engagement date range violation (check _VIOLATION first to avoid false match)
       if (msg.includes('ENGAGEMENT_DATE_RANGE_VIOLATION')) {
         toast.error(i18n.t("timesheet.submitDateRangeViolation"));
+        return;
+      }
+      // Fase 6: la RPC vigente de 5 args rechaza pares vacíos o arrays desparejados.
+      if (msg.includes('EMPTY_ENGAGEMENTS')) {
+        toast.error(i18n.t("timesheet.submitNoEntries"));
+        return;
+      }
+      // Ambos arrays derivan del mismo uniquePairs (arriba) -> mismatch estructuralmente
+      // imposible hoy; se mapea por trazabilidad si la RPC cambiara de contrato.
+      if (msg.includes('ARRAY_LENGTH_MISMATCH')) {
+        toast.error(i18n.t("timesheet.submitPairMismatch"));
         return;
       }
       createMutationErrorHandler("submitting timesheet")(error);

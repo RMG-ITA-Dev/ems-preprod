@@ -1,0 +1,60 @@
+ [32m✓[39m src/lib/__tests__/validation.test.ts [2m([22m[2m75 tests[22m[2m)[22m[32m 141[2mms[22m[39m
+[90mstderr[2m | src/hooks/__tests__/useTimesheetImport.exportEntries.test.ts[2m > [22m[2museTimesheetImport.exportEntries[2m > [22m[2mE7: submitted week-A and APPROVED_LINE_LOCKED week-B → both counters populated
+[22m[39mInsert error: { message: [32m'APPROVED_LINE_LOCKED'[39m }
+
+ [32m✓[39m src/hooks/__tests__/useTimesheetImport.exportEntries.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 160[2mms[22m[39m
+ [32m✓[39m src/components/forms/__tests__/ClientForm.schema.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+ [32m✓[39m src/hooks/__tests__/useLanguage.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[32m 60[2mms[22m[39m
+ [32m✓[39m src/pages/__tests__/TrackerRecord.start-guard.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[32m 108[2mms[22m[39m
+ [32m✓[39m src/lib/__tests__/fiscalCalculations.test.ts [2m([22m[2m52 tests[22m[2m)[22m[32m 65[2mms[22m[39m
+ [32m✓[39m src/hooks/__tests__/useTimeTracker.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[32m 42[2mms[22m[39m
+ [32m✓[39m src/lib/__tests__/utils.test.ts [2m([22m[2m16 tests[22m[2m)[22m[32m 44[2mms[22m[39m
+ [32m✓[39m src/lib/__tests__/accountBlockedAdminSql.test.ts [2m([22m[2m12 tests[22m[2m)[22m[32m 34[2mms[22m[39m
+ [32m✓[39m src/lib/__tests__/error-handler.test.ts [2m([22m[2m27 tests[22m[2m)[22m[32m 25[2mms[22m[39m
+ [32m✓[39m src/components/dashboard/tabs/__tests__/practicaLeaderboard.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 26[2mms[22m[39m
+ [32m✓[39m src/lib/__tests__/timesheetEngagementOptions.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 23[2mms[22m[39m
+ [32m✓[39m src/lib/__tests__/timerExportUtils.test.ts [2m([22m[2m14 tests[22m[2m)[22m[32m 40[2mms[22m[39m
+ [32m✓[39m src/locales/__tests__/i18n.engagementCodeGeneration.test.ts [2m([22m[2m89 tests[22m[2m)[22m[32m 15[2mms[22m[39m
+ [32m✓[39m src/lib/__tests__/boliviaHolidays.test.ts [2m([22m[2m21 tests[22m[2m)[22m[32m 18[2mms[22m[39m
+ [32m✓[39m src/pages/__tests__/Engagements.date-render.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 25[2mms[22m[39m
+ [32m✓[39m src/lib/__tests__/encargoHoursDetailExport.test.ts [2m([22m[2m13 tests[22m[2m)[22m[32m 19[2mms[22m[39m
+ [32m✓[39m src/lib/__tests__/timesheetUtils.test.ts [2m([22m[2m55 tests[22m[2m)[22m[32m 35[2mms[22m[39m
+ [32m✓[39m src/hooks/__tests__/useTimesheetImport.analyzeExport.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 55[2mms[22m[39m
+ [32m✓[39m src/components/dashboard/__tests__/encargoActualByCategory.test.ts [2m([22m[2m15 tests[22m[2m)[22m[32m 17[2mms[22m[39m
+ [32m✓[39m src/lib/__tests__/queryPerfLogger.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 13[2mms[22m[39m
+ [32m✓[39m src/locales/__tests__/i18n.keys.test.ts [2m([22m[2m62 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+ [32m✓[39m src/locales/__tests__/i18n.terminology.test.ts [2m([22m[2m34 tests[22m[2m)[22m[32m 22[2mms[22m[39m
+ [32m✓[39m src/components/dashboard/__tests__/weeklyHoursBucket.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 14[2mms[22m[39m
+ [32m✓[39m src/lib/__tests__/accountLockoutPolicySql.test.ts [2m([22m[2m17 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+ [32m✓[39m src/lib/__tests__/engagementStatus.test.ts [2m([22m[2m48 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+ [32m✓[39m src/hooks/mutations/__tests__/useServiceMutations.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+ [32m✓[39m src/hooks/mutations/__tests__/useTaxonomyMutations.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+ [32m✓[39m src/lib/__tests__/staffReactivationGuardSql.test.ts [2m([22m[2m13 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+ [32m✓[39m src/lib/__tests__/fundRequestExpenseReportExport.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 35[2mms[22m[39m
+ [32m✓[39m src/lib/__tests__/fundRequest.test.ts [2m([22m[2m14 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+ [32m✓[39m src/components/dashboard/__tests__/pendingApprovalsAggregation.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+ [32m✓[39m src/lib/__tests__/taxonomiesCatalogSql.test.ts [2m([22m[2m14 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+ [32m✓[39m src/lib/__tests__/serviceScopedCategoriesSql.test.ts [2m([22m[2m16 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+ [32m✓[39m src/lib/__tests__/activityFilters.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+ [32m✓[39m src/lib/__tests__/queryHelpers.test.ts [2m([22m[2m14 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+ [32m✓[39m src/lib/__tests__/timesheetWeekDisplay.test.ts [2m([22m[2m12 tests[22m[2m)[22m[32m 22[2mms[22m[39m
+ [32m✓[39m src/components/clients/__tests__/ClientEngagementsTable.date-render.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+ [32m✓[39m src/components/forms/__tests__/EngagementForm.date-hydration.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+ [32m✓[39m src/components/forms/__tests__/EngagementForm.test.tsx [2m([22m[2m8 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+ [32m✓[39m src/hooks/__tests__/submitApprovalRequired.test.ts [2m([22m[2m16 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+ [32m✓[39m src/components/timesheet/__tests__/TimesheetGrid.activity-transition.test.tsx [2m([22m[2m11 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+ [32m✓[39m src/lib/__tests__/servicesCatalogSql.test.ts [2m([22m[2m10 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+ [32m✓[39m src/components/timesheet/__tests__/timesheetEngagementWeekOverlap.test.ts [2m([22m[2m10 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+ [32m✓[39m src/components/forms/__tests__/EngagementForm.approvalRequired.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+ [32m✓[39m src/components/timesheet/__tests__/timesheetCellDateLock.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+ [32m✓[39m src/lib/__tests__/timesheetActivityRules.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+ [32m✓[39m src/hooks/__tests__/useTimesheetMutations.dateRange.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+ [32m✓[39m src/locales/__tests__/i18n.approvalRequired.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+ [32m✓[39m src/locales/__tests__/i18n.timesheetDayLock.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+ [32m✓[39m src/locales/__tests__/i18n.engagementDateRange.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m141 passed[39m[22m[90m (141)[39m
+[2m      Tests [22m [1m[32m1628 passed[39m[22m[90m (1628)[39m
+[2m   Start at [22m 05:08:40
+[2m   Duration [22m 202.87s[2m (transform 18.47s, setup 80.35s, collect 579.92s, tests 188.01s, environment 1175.78s, prepare 70.42s)[22m
+

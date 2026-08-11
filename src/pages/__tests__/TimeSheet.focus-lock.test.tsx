@@ -9,6 +9,13 @@ vi.mock("react-router-dom", async () => {
   return { ...actual, useNavigate: () => mockNavigate };
 });
 
+// TimeSheet decide el retiro de una hoja aprobada por roleKey directo (admin/partner/
+// senior_partner — no por permiso, ver iteración 6 de review.md). Sin este mock,
+// useAuthorization corre de verdad y cae fail-closed (roleKey null).
+vi.mock("@/hooks/useAuthorization", () => ({
+  useAuthorization: () => ({ can: () => false, scope: () => null, isLoading: false, roleKey: null }),
+}));
+
 vi.mock("@/hooks/useAuth", () => ({ useAuth: () => ({ user: { email: "test@test.com" }, session: {} }) }));
 vi.mock("@/hooks/useCurrentStaff", () => ({ useCurrentStaff: () => ({ staffRecord: null, isLoading: true }) }));
 vi.mock("@/hooks/useTimesheetPolicies", () => ({ useTimesheetPolicies: () => ({ data: null }) }));

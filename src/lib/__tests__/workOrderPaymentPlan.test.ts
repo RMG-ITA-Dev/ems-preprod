@@ -21,9 +21,20 @@ function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
+// BUG preexistente (M6, bugs/scheduler/fase_5/review.md), corregido acá: esta helper
+// anclaba "hoy" a la hora local del SISTEMA que corre el test (`new Date()` +
+// `setDate`/`getDate`, reloj de pared) y lo serializaba vía `toISOString()` (UTC) — dos
+// conversiones de zona horaria que isAlertDue()/detectOverdue() nunca hacen, porque ambas
+// anclan "hoy" explícitamente a America/La_Paz vía Intl.DateTimeFormat. Cuando el sistema
+// que corre el test no está en America/La_Paz (typicamente UTC en GitHub Actions), o incluso
+// estando en esa zona según la hora del día, el "hoy" del test y el de producción podían
+// ser calendarios distintos, dando falsos negativos/positivos dependientes de a qué hora del
+// día corría la suite. Ahora ancla "hoy" exactamente como producción y hace toda la
+// aritmética en UTC puro (setUTCDate), sin pasar nunca por reloj-de-pared local.
 function dayOffset(offsetDays: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + offsetDays);
+  const todayStr = new Intl.DateTimeFormat("en-CA", { timeZone: "America/La_Paz" }).format(new Date());
+  const d = new Date(`${todayStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + offsetDays);
   return d.toISOString().slice(0, 10);
 }
 

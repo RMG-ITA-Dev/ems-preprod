@@ -10,7 +10,10 @@ export interface UserRoleData {
   role_id: string;
   user_id: string;
   email: string;
+  /** Enum legacy: espejo de role_key, aún lo leen políticas RLS vía has_role(). */
   role: AppRole;
+  /** Autoridad del motor de autorización. null = usuario sin rol (fail-closed). */
+  role_key: string | null;
   staff_name: string | null;
   created_at: string;
 }
@@ -27,6 +30,11 @@ export function useAllUserRoles() {
   });
 }
 
+/**
+ * @deprecated Escribe SOLO el enum legacy `user_roles.role`; NO toca `role_key`,
+ * que es lo que lee el motor de autorización. Es decir: cambia la insignia pero
+ * no los permisos efectivos. Usar `useUpdateUserRoleKey` para asignar roles.
+ */
 export function useUpdateUserRole() {
   const queryClient = useQueryClient();
   const { t } = useTranslation();
@@ -58,6 +66,63 @@ export function useUpdateUserRole() {
         toast.error(t("userRoles.cannotChangeSelf"));
       } else if (code === "NOT_ADMIN") {
         toast.error(t("userRoles.notAdmin"));
+      } else {
+        toast.error(t("userRoles.updateError"), { description: error.message });
+      }
+    },
+  });
+}
+
+/**
+ * Asigna cualquiera de los 23 roles del catálogo escribiendo `user_roles.role_key`
+ * (Fase 8). El RPC espeja además el enum legacy, así que las políticas RLS que
+ * aún usan `has_role()` siguen coherentes.
+ */
+export function useUpdateUserRoleKey() {
+  const queryClient = useQueryClient();
+  const { t } = useTranslation();
+
+  return useMutation({
+    mutationFn: async ({
+      userId,
+      newRoleKey,
+      reason,
+    }: { userId: string; newRoleKey: string; reason?: string }) => {
+      // NOTA: admin_set_user_role_key aún no está en types.ts (se regenera vía
+      // Lovable tras aplicar la migración). Hasta entonces casteamos el nombre.
+      const { data, error } = await supabase.rpc(
+        "admin_set_user_role_key" as never,
+        {
+          p_target_user_id: userId,
+          p_new_role_key: newRoleKey,
+          p_reason: reason || null,
+        } as never
+      );
+
+      if (error) throw error;
+      const result = data as unknown as { success: boolean; code: string; message: string };
+      if (!result.success) {
+        throw new Error(result.code);
+      }
+      return result;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["all_user_roles"] });
+      // El usuario afectado debe recargar sus permisos en su próxima sesión;
+      // invalidamos por si el admin cambió su propio contexto indirectamente.
+      queryClient.invalidateQueries({ queryKey: ["authz_context"] });
+      toast.success(t("userRoles.roleUpdated"));
+    },
+    onError: (error) => {
+      const code = error.message;
+      if (code === "LAST_ADMIN") {
+        toast.error(t("userRoles.lastAdminBlocked"));
+      } else if (code === "SELF_CHANGE") {
+        toast.error(t("userRoles.cannotChangeSelf"));
+      } else if (code === "NOT_ADMIN") {
+        toast.error(t("userRoles.notAdmin"));
+      } else if (code === "INVALID_ROLE" || code === "ROLE_NOT_MAPPED") {
+        toast.error(t("userRoles.invalidRole"));
       } else {
         toast.error(t("userRoles.updateError"), { description: error.message });
       }

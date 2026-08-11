@@ -75,12 +75,13 @@ serve(async (req) => {
 
     const { data: roleData } = await supabase
       .from("user_roles")
-      .select("role")
+      .select("role, role_key")
       .eq("user_id", userId)
       .single();
 
     const verifiedStaffId = staffData?.staff_id;
     const verifiedRole = roleData?.role || "staff";
+    const verifiedRoleKey = roleData?.role_key || null;
 
     console.log(`Verified staff: ${verifiedStaffId}, role: ${verifiedRole}`);
 
@@ -109,6 +110,50 @@ serve(async (req) => {
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+
+    // AUTORIZACIÓN por permiso de la matriz (Fase 7 · #12 "endurecer Edge").
+    // El service_role salta la RLS, así que cada action del Panel se gatea por su
+    // permiso dashboard.* (mismo mapeo tab→permiso que el frontend useDashboardAccess).
+    // Sin rol o sin la concesión → 403 (fail-closed). admin la tiene por el catálogo.
+    const ACTION_PERMISSION: Record<string, string> = {
+      "time-value": "dashboard.portfolio.read",
+      "staff-utilization": "dashboard.portfolio.read",
+      "portfolio-risk": "dashboard.portfolio.read",
+      "engagement-kpis": "dashboard.engagement.read",
+      "partner-leaderboard": "dashboard.practice_financials.read",
+      "practice-pulse": "dashboard.practice_financials.read",
+      "my-week": "dashboard.personal.read",
+      "timesheet-status": "dashboard.personal.read",
+    };
+    const requiredPermission = ACTION_PERMISSION[action];
+
+    let hasDashboardPermission = false;
+    let grantScope: string | null = null;
+    if (verifiedRoleKey && requiredPermission) {
+      const { data: grant } = await supabase
+        .from("authorization_role_permissions")
+        .select("permission_key, scope_key")
+        .eq("role_key", verifiedRoleKey)
+        .eq("permission_key", requiredPermission)
+        .maybeSingle();
+      hasDashboardPermission = !!grant;
+      grantScope = grant?.scope_key ?? null;
+    }
+
+    if (!hasDashboardPermission) {
+      console.warn(`Forbidden dashboard action '${action}' for role_key=${verifiedRoleKey}`);
+      return new Response(
+        JSON.stringify({ error: "Forbidden: missing permission for this dashboard action" }),
+        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Solo `firm`/`department` habilitan datos sin acotar por encargo — `department` sigue el
+    // mismo criterio ya usado por la política RLS de `engagements`/`clients`
+    // (authz_fase4_olaB2a_client_engagement_reads.sql: cualquier scope <> 'assigned_engagements'
+    // se trata como sin restricción adicional). Cualquier otro valor (incl. `assigned_engagements`
+    // y cualquier scope no reconocido) se acota — fail-closed por defecto.
+    const isFirmwideGrant = grantScope === "firm" || grantScope === "department";
 
     // Validate dates for actions that require them
     const actionsRequiringDates = [
@@ -172,16 +217,16 @@ serve(async (req) => {
 
     switch (action) {
       case "time-value":
-        result = await getTimeValue(supabase, startDate, endDate, staffId, role);
+        result = await getTimeValue(supabase, startDate, endDate, staffId, isFirmwideGrant);
         break;
       case "engagement-kpis":
-        result = await getEngagementKpis(supabase, startDate, endDate, staffId, role);
+        result = await getEngagementKpis(supabase, startDate, endDate, staffId, isFirmwideGrant);
         break;
       case "staff-utilization":
-        result = await getStaffUtilization(supabase, startDate, endDate, staffId, role);
+        result = await getStaffUtilization(supabase, startDate, endDate, staffId, isFirmwideGrant);
         break;
       case "portfolio-risk":
-        result = await getPortfolioRisk(supabase, startDate, endDate, staffId, role);
+        result = await getPortfolioRisk(supabase, startDate, endDate, staffId, isFirmwideGrant);
         break;
       case "partner-leaderboard":
         result = await getPartnerLeaderboard(supabase, startDate, endDate);
@@ -349,7 +394,7 @@ async function getTimeValue(
   startDate: string,
   endDate: string,
   staffId?: string,
-  role?: string
+  isFirmwideGrant?: boolean
 ) {
   // Get time entries with engagement and work order info
   let query = supabase
@@ -371,9 +416,19 @@ async function getTimeValue(
     .gte("date_worked", startDate)
     .lte("date_worked", endDate);
 
-  // Role-based filtering
-  if (role === "manager" && staffId) {
-    query = query.or(`engagements.manager_id.eq.${staffId},engagements.partner_id.eq.${staffId}`);
+  // Alcance por permiso (no por el enum legacy de rol): `firm`/`department` ven todo; cualquier
+  // otro alcance (incl. `assigned_engagements`) se acota a los encargos donde el staff es
+  // responsable — mismas 4 columnas que `is_assigned_to_engagement()`
+  // (authz_fase4_olaB2a_client_engagement_reads.sql), para no divergir del criterio ya usado por
+  // la RLS de `engagements`.
+  if (isFirmwideGrant === false) {
+    if (!staffId) {
+      // Sin identidad resoluble para acotar — fail-closed, no hay encargos que mostrar.
+      return { entries: [], summary: { totalHours: 0, totalValue: 0, entryCount: 0 } };
+    }
+    query = query.or(
+      `engagements.manager_id.eq.${staffId},engagements.partner_id.eq.${staffId},engagements.sqr_id.eq.${staffId},engagements.encargado_id.eq.${staffId}`
+    );
   }
 
   const { data: entries, error } = await query;
@@ -425,7 +480,7 @@ async function getEngagementKpis(
   startDate: string,
   endDate: string,
   staffId?: string,
-  role?: string
+  isFirmwideGrant?: boolean
 ) {
   // Get engagements with work order summary
   let query = supabase
@@ -452,9 +507,12 @@ async function getEngagementKpis(
     `)
     .eq("status", "active");
 
-  // Role-based filtering
-  if (role === "manager" && staffId) {
-    query = query.or(`manager_id.eq.${staffId},partner_id.eq.${staffId}`);
+  // Alcance por permiso — ver nota en getTimeValue().
+  if (isFirmwideGrant === false) {
+    if (!staffId) {
+      return { engagements: [], summary: { activeCount: 0, totalAgreedFees: 0, totalActualHours: 0, totalBudgetHours: 0, totalMargin: 0, avgRealization: 0 } };
+    }
+    query = query.or(`manager_id.eq.${staffId},partner_id.eq.${staffId},sqr_id.eq.${staffId},encargado_id.eq.${staffId}`);
   }
 
   const { data: engagements, error } = await query;
@@ -563,7 +621,7 @@ async function getStaffUtilization(
   startDate: string,
   endDate: string,
   staffId?: string,
-  role?: string
+  isFirmwideGrant?: boolean
 ) {
   // Get time entries grouped by staff and week
   const { data: entries } = await supabase
@@ -581,7 +639,10 @@ async function getStaffUtilization(
     .select("staff_id, first_name, last_name, short_name, category_id, weekly_capacity_hours, categories(category_name, display_order)")
     .eq("is_active", true);
 
-  if (staffId && role !== "partner") {
+  // Alcance por permiso — ver nota en getTimeValue(). A diferencia de esa función, acá no hay un
+  // encargo que acotar: la única narrowing disponible es "tu propia fila". `firm`/`department`
+  // ven la utilización de todo el staff; cualquier otro alcance ve solo la suya.
+  if (staffId && isFirmwideGrant === false) {
     staffQuery = staffQuery.eq("staff_id", staffId);
   }
 
@@ -657,10 +718,10 @@ async function getPortfolioRisk(
   startDate: string,
   endDate: string,
   staffId?: string,
-  role?: string
+  isFirmwideGrant?: boolean
 ) {
   // Get engagement KPIs first
-  const kpisResult = await getEngagementKpis(supabase, startDate, endDate, staffId, role);
+  const kpisResult = await getEngagementKpis(supabase, startDate, endDate, staffId, isFirmwideGrant);
   
   // Filter for at-risk engagements
   const riskThreshold = 10; // Margin % threshold

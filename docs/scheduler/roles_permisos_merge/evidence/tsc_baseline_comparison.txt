@@ -1,0 +1,24 @@
+=== Comparacion tsc por archivo+codigo, development vs feat/roles-permisos ===
+(diff exacto por linea es ruido — los numeros de linea cambian por edits no relacionados)
+
+development: 180 errores | feat/roles-permisos: 201 errores
+
+Diferencias reales (por archivo+codigo, ignorando numero de linea):
+4,5c4,5
+<      12 src/components/forms/__tests__/ClientForm.schema.test.ts error TS2304
+<      10 src/components/forms/__tests__/ClientForm.schema.test.ts error TS2582
+---
+>      24 src/components/forms/__tests__/ClientForm.schema.test.ts error TS2304
+>      20 src/components/forms/__tests__/ClientForm.schema.test.ts error TS2582
+30c30
+<       7 src/hooks/useEmsData.ts error TS2352
+---
+>       6 src/hooks/useEmsData.ts error TS2352
+
+Conclusion: la unica diferencia real es que ClientForm.schema.test.ts duplica su cantidad
+de errores TS2304/TS2582 (12->24, 10->20) - mismo bug preexistente (globals de vitest sin
+importar), en mas casos de test dentro del mismo archivo. useEmsData.ts mejora en 1 (7->6
+TS2352), consistente con el fix de columnas explicitas de staff (H2).
+
+Ninguna categoria nueva de error. El aumento de 180->201 no es deuda nueva introducida por
+el motor de autorizacion; es la misma deuda de vitest-globals contada mas veces.

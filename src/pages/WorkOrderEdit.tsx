@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";
+import { useAuthorization } from "@/hooks/useAuthorization";
 import { LeavePageDialog } from "@/components/ui/leave-page-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -10,7 +11,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { FileSpreadsheet, RefreshCw } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { WorkOrderForm, BudgetLineInput, ExpenseBudgetInput } from "@/components/forms/WorkOrderForm";
-import { useWorkOrderById, useSetting, useCategories } from "@/hooks/useEmsData";
+import {
+  useWorkOrderById,
+  useSetting,
+  useCategories,
+  useServices,
+  useActiveSkills,
+  useWorkOrderStaffingRequirements,
+} from "@/hooks/useEmsData";
 import {
   useUpdateWorkOrder,
   useCreateBudgetLine,
@@ -33,9 +41,17 @@ import {
   useUpsertPaymentPlan,
   useBatchUpsertInstallments,
   useDeletePaymentPlan,
+  useSaveWorkOrderStaffing,
 } from "@/hooks/mutations";
+import {
+  hydrateFromPersisted,
+  isStaffingDirty,
+  validateStaffing,
+  STAFFING_VALIDATION_ERROR_I18N_KEY,
+  type StaffingRequirementInput,
+} from "@/lib/workOrderStaffing";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
-import { useUserRole } from "@/hooks/useUserRole";
+import { isSchedulerEnabled } from "@/lib/schedulerFeature";
 import type { PaymentPlanInput, PaymentInstallmentInput } from "@/types/workOrderPaymentPlan";
 import { useWorksheetByEngagementId } from "@/hooks/useWorksheetData";
 import { useResyncWorksheetToWorkOrder } from "@/hooks/useWorksheetMutations";
@@ -51,18 +67,52 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
+function cloneStaffingRequirements(
+  requirements: readonly StaffingRequirementInput[],
+): StaffingRequirementInput[] {
+  return requirements.map((requirement) => ({
+    ...requirement,
+    skills: requirement.skills.map((skill) => ({ ...skill })),
+  }));
+}
+
 const WorkOrderEdit = () => {
   const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
   const { data: workOrder, isLoading } = useWorkOrderById(id || "");
-  const { data: categories } = useCategories();
+  const {
+    data: categories,
+    isLoading: categoriesLoading,
+    isError: categoriesIsError,
+  } = useCategories();
   const { staffRecord } = useCurrentStaff();
   const globalTaxRate = useSetting("TAX_RATE");
-  
+
   // Check if this WO has a linked worksheet
   const { data: linkedWorksheet } = useWorksheetByEngagementId(workOrder?.engagement_id);
+
+  // Staffing Requirements (Fase 4) — data sources
+  const {
+    data: services,
+    isLoading: servicesLoading,
+    isError: servicesIsError,
+  } = useServices();
+  const {
+    data: activeSkills,
+    isLoading: activeSkillsLoading,
+    isError: activeSkillsIsError,
+  } = useActiveSkills();
+  const {
+    data: staffingRows,
+    isLoading: staffingRequirementsLoading,
+    isError: staffingRequirementsIsError,
+  } = useWorkOrderStaffingRequirements(workOrder?.wo_id);
+  const staffingLoading =
+    staffingRequirementsLoading || categoriesLoading || servicesLoading || activeSkillsLoading;
+  const staffingIsError =
+    staffingRequirementsIsError || categoriesIsError || servicesIsError || activeSkillsIsError;
 
   const updateWorkOrder = useUpdateWorkOrder();
   const createBudgetLine = useCreateBudgetLine();
@@ -86,7 +136,7 @@ const WorkOrderEdit = () => {
   const upsertPaymentPlan = useUpsertPaymentPlan();
   const batchUpsertInstallments = useBatchUpsertInstallments();
   const deletePaymentPlan = useDeletePaymentPlan();
-  const { isAdmin, isPartner, isDirector, isManager } = useUserRole();
+  const saveWorkOrderStaffing = useSaveWorkOrderStaffing();
 
   const [currency, setCurrency] = useState<"USD" | "BOB" | "USDT">("BOB");
   const [seasonMode, setSeasonMode] = useState<"High" | "Low">("High");
@@ -121,6 +171,15 @@ const WorkOrderEdit = () => {
   // Prevents the useEffect from clobbering in-progress risk edits when a non-risk save triggers a refetch.
   // Set to true on any user edit; reset to false after risk data is persisted to DB.
   const riskEditedRef = useRef(false);
+
+  // Staffing Requirements (Fase 4)
+  const [staffing, setStaffing] = useState<StaffingRequirementInput[]>([]);
+  const [originalStaffing, setOriginalStaffing] = useState<StaffingRequirementInput[]>([]);
+  // Same guard as riskEditedRef: a refetch (e.g. after a non-staffing save) must not
+  // clobber in-progress staffing edits. Reset to false only after a successful save,
+  // right before the invalidated query re-hydrates the fresh persisted baseline.
+  const staffingEditedRef = useRef(false);
+  const [staffingFocusSignal, setStaffingFocusSignal] = useState(0);
 
   // Track original values for dirty check
   const [originalAdjustment, setOriginalAdjustment] = useState(0);
@@ -221,6 +280,54 @@ const WorkOrderEdit = () => {
     }
   }, [workOrder]);
 
+  // Load staffing requirements once the query resolves. Skipped while the user has
+  // in-progress edits (staffingEditedRef) so a non-staffing save's refetch doesn't
+  // clobber them; the ref is reset to false only after a successful staffing save,
+  // so the invalidated refetch below re-hydrates both `staffing` and `originalStaffing`
+  // from the freshly persisted state.
+  useEffect(() => {
+    if (staffingRows && !staffingEditedRef.current) {
+      const hydrated = hydrateFromPersisted(staffingRows);
+      setStaffing(hydrated);
+      setOriginalStaffing(cloneStaffingRequirements(hydrated));
+    }
+  }, [staffingRows]);
+
+  // Engagement's service, resolved the same way as WorksheetEdit.tsx: practica ->
+  // services.code -> service_id. practica === null (legacy engagement, no service
+  // assigned) intentionally leaves staffing unscoped (matches save_wo_staffing,
+  // which skips the cross-service check when the engagement has no practica).
+  const practica = workOrder?.engagement?.practica ?? null;
+  const engagementService = useMemo(
+    () => (services ?? []).find((s) => s.code === practica),
+    [services, practica],
+  );
+  // False only when practica IS set but doesn't resolve to any service — a genuine
+  // data issue that must block staffing saves with a translated error.
+  const staffingServiceResolved = practica === null || !!engagementService;
+  const staffingCategories = useMemo(() => {
+    if (!categories) return [];
+    if (practica === null) return categories;
+    return categories.filter((c) => c.service_id === engagementService?.service_id);
+  }, [categories, practica, engagementService]);
+  // null = no cross-service check (practica === null, see above). Otherwise the
+  // exact allow-list validateStaffing enforces, including for historical rows
+  // whose category no longer belongs to the engagement's current service.
+  const staffingServiceCategoryIds = useMemo(
+    () => (practica === null ? null : new Set(staffingCategories.map((c) => c.category_id))),
+    [practica, staffingCategories],
+  );
+
+  const staffingDirty = useMemo(
+    () => isStaffingDirty(originalStaffing, staffing),
+    [originalStaffing, staffing],
+  );
+
+  const handleStaffingRequirementsChange = (reqs: StaffingRequirementInput[]) => {
+    staffingEditedRef.current = true;
+    setStaffing(reqs);
+  };
+
   // Compute dirty state - only for expenses and adjustment (budget lines are read-only)
   const isDirty = useMemo(() => {
     if (!workOrder) return false;
@@ -256,8 +363,11 @@ const WorkOrderEdit = () => {
     if (JSON.stringify(paymentPlan) !== JSON.stringify(originalPaymentPlan)) return true;
     if (JSON.stringify(paymentInstallments) !== JSON.stringify(originalInstallments)) return true;
 
+    // Staffing Requirements (Fase 4)
+    if (staffingDirty) return true;
+
     return false;
-  }, [workOrder, adjustmentAmount, originalAdjustment, expenseBudget, originalExpenseData, ceacCompletedAt, originalCeacCompletedAt, sanCompletedAt, originalSanCompletedAt, ceacNotes, originalCeacNotes, sanNotes, originalSanNotes, ceacNumber, originalCeacNumber, sanApprovalId, originalSanApprovalId, riskLevel, originalRiskLevel, paymentPlan, originalPaymentPlan, paymentInstallments, originalInstallments]);
+  }, [workOrder, adjustmentAmount, originalAdjustment, expenseBudget, originalExpenseData, ceacCompletedAt, originalCeacCompletedAt, sanCompletedAt, originalSanCompletedAt, ceacNotes, originalCeacNotes, sanNotes, originalSanNotes, ceacNumber, originalCeacNumber, sanApprovalId, originalSanApprovalId, riskLevel, originalRiskLevel, paymentPlan, originalPaymentPlan, paymentInstallments, originalInstallments, staffingDirty]);
 
   // Tracks only fields that handleSubmit persists (not risk fields — those are saved atomically by submitWorkOrder)
   const hasNonRiskDirty = useMemo(() => {
@@ -276,118 +386,205 @@ const WorkOrderEdit = () => {
     // Payment plan
     if (JSON.stringify(paymentPlan) !== JSON.stringify(originalPaymentPlan)) return true;
     if (JSON.stringify(paymentInstallments) !== JSON.stringify(originalInstallments)) return true;
+    // Staffing Requirements (Fase 4) — persisted by handleSubmit, like expenses/payment plan.
+    if (staffingDirty) return true;
     return false;
-  }, [workOrder, adjustmentAmount, originalAdjustment, expenseBudget, originalExpenseData, paymentPlan, originalPaymentPlan, paymentInstallments, originalInstallments]);
+  }, [workOrder, adjustmentAmount, originalAdjustment, expenseBudget, originalExpenseData, paymentPlan, originalPaymentPlan, paymentInstallments, originalInstallments, staffingDirty]);
 
   const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty });
 
-  // Check if user can approve
-  const canApprove = staffRecord?.category?.can_approve_wo || false;
-  // FEAT 0602-135: el aprobador de Riesgos es el SQR ASIGNADO al encargo (engagement.sqr_id),
-  // con el Admin como respaldo. El selector de SQR admite CUALQUIER staff activo (p. ej. un
-  // partner/director designado como revisor de calidad) y la RLS autoriza por sqr_id SOLO —sin
-  // exigir el rol global `sqr`—, así que el gate se basa en la asignación, no en el rol; de lo
-  // contrario un SQR asignado sin rol `sqr` vería los botones ocultos pese a estar autorizado en BD.
+  // Check if user can approve — FASE 3b: por permiso (matriz "Enviar Aprobación OT"),
+  // ya no por categoría (can_approve_wo).
+  const { can, scope, roleKey } = useAuthorization();
+  const isAdmin = roleKey === "admin";
+  // Escribir la OT (incluida la aprobación, que es un UPDATE más) exige ser Socio o
+  // Gerente DEL encargo, o admin: es el predicado real de la policy "wo_team_update"
+  // (Ola F) -> is_engagement_team_member(), que mira solo partner_id y manager_id, más
+  // "Admins can manage work orders". Se calcula ANTES de canApprove para poder acotarlo.
+  //
+  // Hace falta distinguirlo desde 20260730010000: esa migración dio lectura de la OT
+  // a SQR y Encargado (decisión de negocio: solo lectura). Sin este gate veían los
+  // campos de presupuesto editables y el guardado fallaba por RLS.
+  //
+  // La aprobación de RIESGOS del SQR NO se ve afectada: va por `canApproveRisk`,
+  // que WorkOrderForm recibe como prop independiente de `isLocked` (líneas 402/408).
+  const isEngagementTeamMember =
+    !!staffRecord &&
+    (workOrder?.engagement?.partner_id === staffRecord.staff_id ||
+      workOrder?.engagement?.manager_id === staffRecord.staff_id);
+  const canWriteWorkOrder = isAdmin || isEngagementTeamMember;
+  // work_order.submit da scope 'firm' a senior_partner pero 'assigned_engagements' a
+  // partner/director (authz_fase2_seed.sql:431-434) — sin acotar, un senior_partner veía
+  // el botón habilitado en cualquier OT (y la RLS lo rechazaba salvo que además fuera
+  // manager/partner del encargo), y un director lo veía siempre sin poder completarlo
+  // nunca (is_engagement_team_member() no lo contempla). Se acota al mismo predicado
+  // real de escritura (`canWriteWorkOrder`) — igual que `canApproveRisk` ya hace con su
+  // propio scope — en vez de solo chequear el permiso (iteración 6, review.md).
+  const canApprove = can("work_order.submit") && canWriteWorkOrder;
+  // Aprobación de la sección de Riesgos: espeja el guard backend can_approve_wo_risk
+  // (migración Ola E). Requiere el permiso 'work_order.risk.approve' de la matriz:
+  //   - admin                                -> siempre.
+  //   - scope 'assigned_engagements' (gerente/ita/tax) -> SOLO si son el SQR del encargo.
+  //   - scope 'department' (socio/supervisor de Riesgos) -> cualquier encargo.
   // Necesita staff record porque risk_approved_by referencia staff(staff_id).
   const isAssignedSqr =
     !!staffRecord && workOrder?.engagement?.sqr_id === staffRecord.staff_id;
-  const canApproveRisk = (isAdmin || isAssignedSqr) && !!staffRecord;
+  const riskApproveScope = scope("work_order.risk.approve");
+  const canApproveRisk =
+    !!staffRecord &&
+    (isAdmin ||
+      (can("work_order.risk.approve") &&
+        (riskApproveScope !== "assigned_engagements" || isAssignedSqr)));
 
   const approvalStatus = workOrder?.approval_status as "Draft" | "Pending_Approval" | "Approved" | "Rejected" || "Draft";
-  const isLocked = approvalStatus === "Approved" || approvalStatus === "Pending_Approval" || approvalStatus === "Rejected";
 
-  const handleSubmit = async () => {
-    if (!workOrder) return;
+  const isLocked =
+    approvalStatus === "Approved" ||
+    approvalStatus === "Pending_Approval" ||
+    approvalStatus === "Rejected" ||
+    // Fail-closed mientras carga el staff: mejor un instante sin editar que
+    // ofrecer un guardado que RLS va a rechazar.
+    !canWriteWorkOrder;
+
+  // Persists everything "Enviar para Aprobación" doesn't otherwise touch (adjustment,
+  // expenses, payment plan, staffing) — the same steps handleSubmit ("Guardar") runs.
+  // Shared so a single click on either button can both save and proceed, instead of
+  // forcing a separate Guardar first. Returns false (already toasted) on a validation
+  // failure; lets a mutation failure propagate (its own onError already toasted) so
+  // the caller aborts without marking anything as submitted.
+  const persistNonRiskChanges = async (): Promise<boolean> => {
+    if (!workOrder) return false;
 
     // Validate before any mutations to avoid partial saves
     if (paymentInstallments.length > 0) {
       if (paymentInstallments.some((i) => i.percentage < 0 || i.percentage > 100)) {
         toast.error(t("workOrders.paymentPlan.validationPercentageRange"));
-        return;
+        return false;
       }
       const pctSum = paymentInstallments.reduce((s, i) => s + i.percentage, 0);
       if (Math.abs(pctSum - 100) > 0.01) {
         toast.error(t("workOrders.paymentPlan.validationPercentageSum"));
-        return;
+        return false;
       }
     }
 
-    try {
-      // Update work order
-      await updateWorkOrder.mutateAsync({
-        id: workOrder.wo_id,
-        data: {
-          adjustment_amount: adjustmentAmount,
-        },
-      });
-
-      // Handle budget lines - now read-only, so skip budget line updates
-      // Budget lines are only modified via Resync from Work Matrix
-
-      // Handle expense budgets
-      const currentExpIds = expenseBudget.map((e) => e.id);
-      const deletedExpIds = originalExpenses.filter((id) => !currentExpIds.includes(id));
-
-      for (const expId of deletedExpIds) {
-        await deleteExpenseBudget.mutateAsync(expId);
+    // Staffing must validate before ANY mutation runs (todo-o-nada) — including the
+    // read query having actually loaded OK, so a schema/network error is never
+    // mistaken for "no staffing" and saved as a silent wipe.
+    // Fase 7 (plan v2 §B.4#6): con el flag apagado, la sección de staffing está
+    // oculta (WorkOrderForm.tsx §B.4#5) — validar filas persistidas que el usuario
+    // no puede ver bloquearía el guardado de la OT con un toast sin dónde apuntar.
+    if (isSchedulerEnabled() && staffingDirty) {
+      if (staffingLoading || staffingIsError) {
+        toast.error(t("workOrders.staffingRequirements.errorLoading"));
+        return false;
       }
+      const staffingValidationError = validateStaffing(staffing, {
+        serviceCategoryIds: staffingServiceCategoryIds,
+      });
+      if (staffingValidationError) {
+        toast.error(t(STAFFING_VALIDATION_ERROR_I18N_KEY[staffingValidationError.code]));
+        setStaffingFocusSignal((n) => n + 1);
+        return false;
+      }
+    }
 
-      for (const exp of expenseBudget) {
-        if (exp.expense_type_id && exp.budgeted_amount > 0) {
-          if (originalExpenses.includes(exp.id)) {
-            await updateExpenseBudget.mutateAsync({
-              id: exp.id,
-              data: {
-                expense_type_id: exp.expense_type_id,
-                budgeted_amount: exp.budgeted_amount,
-              },
-            });
-          } else {
-            await createExpenseBudget.mutateAsync({
-              wo_id: workOrder.wo_id,
+    // Update work order
+    await updateWorkOrder.mutateAsync({
+      id: workOrder.wo_id,
+      data: {
+        adjustment_amount: adjustmentAmount,
+      },
+    });
+
+    // Handle budget lines - now read-only, so skip budget line updates
+    // Budget lines are only modified via Resync from Work Matrix
+
+    // Handle expense budgets
+    const currentExpIds = expenseBudget.map((e) => e.id);
+    const deletedExpIds = originalExpenses.filter((id) => !currentExpIds.includes(id));
+
+    for (const expId of deletedExpIds) {
+      await deleteExpenseBudget.mutateAsync(expId);
+    }
+
+    for (const exp of expenseBudget) {
+      if (exp.expense_type_id && exp.budgeted_amount > 0) {
+        if (originalExpenses.includes(exp.id)) {
+          await updateExpenseBudget.mutateAsync({
+            id: exp.id,
+            data: {
               expense_type_id: exp.expense_type_id,
               budgeted_amount: exp.budgeted_amount,
-            });
-          }
+            },
+          });
+        } else {
+          await createExpenseBudget.mutateAsync({
+            wo_id: workOrder.wo_id,
+            expense_type_id: exp.expense_type_id,
+            budgeted_amount: exp.budgeted_amount,
+          });
         }
       }
+    }
 
-      // Persist payment plan
-      if (paymentInstallments.length > 0) {
-        const savedPlan = await upsertPaymentPlan.mutateAsync({
-          plan_id: paymentPlan?.plan_id,
-          wo_id: workOrder.wo_id,
-          exchange_rate: paymentPlan?.exchange_rate ?? null,
-          payment_days: paymentPlan?.payment_days ?? 30,
-        });
-        await batchUpsertInstallments.mutateAsync({
-          planId: savedPlan.plan_id,
-          woId: workOrder.wo_id,
-          installments: paymentInstallments,
-        });
-        const updatedPlan: PaymentPlanInput = {
-          plan_id: savedPlan.plan_id,
-          wo_id: savedPlan.wo_id,
-          exchange_rate: savedPlan.exchange_rate,
-          payment_days: savedPlan.payment_days,
-        };
-        setOriginalPaymentPlan(updatedPlan);
-        setOriginalInstallments(JSON.parse(JSON.stringify(paymentInstallments)));
-      } else if (paymentPlan?.plan_id) {
-        // All installments removed → delete the plan (cascades to installments)
-        await deletePaymentPlan.mutateAsync({
-          planId: paymentPlan.plan_id,
-          woId: workOrder.wo_id,
-        });
-        setOriginalPaymentPlan(null);
-        setOriginalInstallments([]);
-      }
+    // Persist payment plan
+    if (paymentInstallments.length > 0) {
+      const savedPlan = await upsertPaymentPlan.mutateAsync({
+        plan_id: paymentPlan?.plan_id,
+        wo_id: workOrder.wo_id,
+        exchange_rate: paymentPlan?.exchange_rate ?? null,
+        payment_days: paymentPlan?.payment_days ?? 30,
+      });
+      await batchUpsertInstallments.mutateAsync({
+        planId: savedPlan.plan_id,
+        woId: workOrder.wo_id,
+        installments: paymentInstallments,
+      });
+      const updatedPlan: PaymentPlanInput = {
+        plan_id: savedPlan.plan_id,
+        wo_id: savedPlan.wo_id,
+        exchange_rate: savedPlan.exchange_rate,
+        payment_days: savedPlan.payment_days,
+      };
+      setOriginalPaymentPlan(updatedPlan);
+      setOriginalInstallments(JSON.parse(JSON.stringify(paymentInstallments)));
+    } else if (paymentPlan?.plan_id) {
+      // All installments removed → delete the plan (cascades to installments)
+      await deletePaymentPlan.mutateAsync({
+        planId: paymentPlan.plan_id,
+        woId: workOrder.wo_id,
+      });
+      setOriginalPaymentPlan(null);
+      setOriginalInstallments([]);
+    }
 
-      // Reset dirty state tracking after successful save
-      setOriginalAdjustment(adjustmentAmount);
-      setOriginalExpenses(expenseBudget.map((e) => e.id));
-      setOriginalExpenseData(JSON.parse(JSON.stringify(expenseBudget)));
+    // Reset dirty state tracking after successful save
+    setOriginalAdjustment(adjustmentAmount);
+    setOriginalExpenses(expenseBudget.map((e) => e.id));
+    setOriginalExpenseData(JSON.parse(JSON.stringify(expenseBudget)));
 
+    // Staffing: invoked last, only when dirty, in a single RPC call. A failure here
+    // propagates (the caller's try/catch aborts) and must leave staffing dirty + the
+    // form open so the user can retry (the RPC is transactional — retrying never
+    // creates duplicates).
+    // Fase 7 (plan v2 §B.4#6): mismo gate que la validación de arriba.
+    if (isSchedulerEnabled() && staffingDirty) {
+      await saveWorkOrderStaffing.mutateAsync({ woId: workOrder.wo_id, requirements: staffing });
+      // The submission was validated before the RPC and the RPC confirmed it. Set the
+      // baseline immediately instead of depending on an asynchronous cache refetch;
+      // the invalidation still refreshes DB IDs/catalog metadata in the background.
+      setOriginalStaffing(cloneStaffingRequirements(staffing));
+      staffingEditedRef.current = false;
+    }
+
+    return true;
+  };
+
+  const handleSubmit = async () => {
+    try {
+      const persisted = await persistNonRiskChanges();
+      if (!persisted) return;
       toast.success(t("messages.updateSuccess", { entity: t("entities.workOrder") }));
     } catch (error) {
       // Error handled by mutations
@@ -396,6 +593,21 @@ const WorkOrderEdit = () => {
 
   const handleSubmitForApproval = async (emergencyJustification?: string) => {
     if (!workOrder) return;
+
+    // Enviar para Aprobación now saves any pending non-risk edits (ajuste/gastos/plan
+    // de pagos/staffing) first, in the same click — no separate "Guardar" required.
+    // A validation failure or a mutation failure here must cancel the submission
+    // entirely (no partial "saved but not submitted, or submitted but not saved").
+    if (hasNonRiskDirty) {
+      try {
+        const persisted = await persistNonRiskChanges();
+        if (!persisted) return;
+      } catch (error) {
+        // Error already toasted by the failing mutation's own onError; abort the submit.
+        return;
+      }
+    }
+
     // Reenvío de la pista Socio en corrección (estado Rejected): no se re-evalúa ni se
     // reescribe Riesgos; solo se reabre la pista Socio a Pending_Approval. La pista de
     // Riesgos conserva su estado (aprobada, o rechazada y corregida por separado).
@@ -683,14 +895,23 @@ const WorkOrderEdit = () => {
           woId={workOrder.wo_id}
           paymentPlan={paymentPlan}
           paymentInstallments={paymentInstallments}
-          isAdminDateEditable={(approvalStatus === "Draft" || approvalStatus === "Rejected") && (isAdmin || isPartner || isDirector || isManager)}
-          isStatusEditable={isAdmin}
+          isAdminDateEditable={(approvalStatus === "Draft" || approvalStatus === "Rejected") && can("work_order.payment_plan.approve")}
+          isStatusEditable={isAdmin || roleKey === "collections_analyst"}
           isPaymentPlanDirty={
             JSON.stringify(paymentInstallments) !== JSON.stringify(originalInstallments) ||
             JSON.stringify(paymentPlan) !== JSON.stringify(originalPaymentPlan)
           }
           onPaymentPlanChange={setPaymentPlan}
           onPaymentInstallmentsChange={setPaymentInstallments}
+          staffingRequirements={staffing}
+          onStaffingRequirementsChange={handleStaffingRequirementsChange}
+          staffingCategories={staffingCategories}
+          activeSkills={activeSkills ?? []}
+          staffingLoading={staffingLoading}
+          staffingError={staffingIsError}
+          staffingServiceResolved={staffingServiceResolved}
+          staffingServiceId={engagementService?.service_id ?? null}
+          staffingFocusSignal={staffingFocusSignal}
           isSubmitting={
             updateWorkOrder.isPending ||
             submitWorkOrder.isPending ||
@@ -703,7 +924,8 @@ const WorkOrderEdit = () => {
             revertRiskApproval.isPending ||
             completeRiskAssessment.isPending ||
             rejectWorkOrder.isPending ||
-            unsubmitWorkOrder.isPending
+            unsubmitWorkOrder.isPending ||
+            saveWorkOrderStaffing.isPending
           }
         />
       </div>

@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/popover";
 import { Plus, Search, ArrowUpDown, ArrowUp, ArrowDown, Filter } from "lucide-react";
 import { useWorksheets } from "@/hooks/useWorksheetData";
-import { useUserRole } from "@/hooks/useUserRole";
+import { useAuthorization } from "@/hooks/useAuthorization";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -45,8 +45,8 @@ const WorksheetList = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { data: worksheets, isLoading } = useWorksheets();
-  const { isAdmin, isPartner, isDirector, isManager } = useUserRole();
-  const canCreate = isAdmin || isPartner || isDirector || isManager;
+  const { can } = useAuthorization();
+  const canCreate = can("worksheet.create");
 
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");

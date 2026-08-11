@@ -1,0 +1,55 @@
+                                                                List of relations
+   Schema   |                      Name                      |   Type   |     Owner      | Persistence | Access method |    Size    | Description 
+------------+------------------------------------------------+----------+----------------+-------------+---------------+------------+-------------
+ extensions | pg_stat_statements                             | view     | supabase_admin | permanent   |               | 0 bytes    | 
+ extensions | pg_stat_statements_info                        | view     | supabase_admin | permanent   |               | 0 bytes    | 
+ public     | activity_codes                                 | table    | postgres       | permanent   | heap          | 16 kB      | 
+ public     | activity_worksheet_cells                       | table    | postgres       | permanent   | heap          | 0 bytes    | 
+ public     | activity_worksheets                            | table    | postgres       | permanent   | heap          | 8192 bytes | 
+ public     | auth_login_attempts                            | table    | postgres       | permanent   | heap          | 8192 bytes | 
+ public     | categories                                     | table    | postgres       | permanent   | heap          | 8192 bytes | 
+ public     | clients                                        | table    | postgres       | permanent   | heap          | 16 kB      | 
+ public     | clients_directory                              | view     | postgres       | permanent   |               | 0 bytes    | 
+ public     | engagement_assignments                         | table    | postgres       | permanent   | heap          | 8192 bytes | 
+ public     | engagement_wo_state                            | view     | postgres       | permanent   |               | 0 bytes    | 
+ public     | engagements                                    | table    | postgres       | permanent   | heap          | 16 kB      | 
+ public     | expense_types                                  | table    | postgres       | permanent   | heap          | 8192 bytes | 
+ public     | fund_request_expenses                          | table    | postgres       | permanent   | heap          | 8192 bytes | 
+ public     | fund_request_number_seq                        | sequence | postgres       | permanent   |               | 8192 bytes | 
+ public     | fund_request_selectable_work_orders            | view     | postgres       | permanent   |               | 0 bytes    | 
+ public     | fund_request_work_orders                       | table    | postgres       | permanent   | heap          | 8192 bytes | 
+ public     | fund_requests                                  | table    | postgres       | permanent   | heap          | 8192 bytes | 
+ public     | global_settings                                | table    | postgres       | permanent   | heap          | 16 kB      | 
+ public     | holidays                                       | table    | postgres       | permanent   | heap          | 8192 bytes | 
+ public     | industries                                     | table    | postgres       | permanent   | heap          | 8192 bytes | 
+ public     | migration_run_log                              | table    | postgres       | permanent   | heap          | 16 kB      | 
+ public     | parametro                                      | table    | postgres       | permanent   | heap          | 8192 bytes | 
+ public     | services                                       | table    | postgres       | permanent   | heap          | 16 kB      | 
+ public     | skills                                         | table    | postgres       | permanent   | heap          | 8192 bytes | 
+ public     | staff                                          | table    | postgres       | permanent   | heap          | 16 kB      | 
+ public     | staff_alert_seen                               | table    | postgres       | permanent   | heap          | 8192 bytes | 
+ public     | staff_directory                                | view     | postgres       | permanent   |               | 0 bytes    | 
+ public     | staff_skills                                   | table    | postgres       | permanent   | heap          | 8192 bytes | 
+ public     | taxonomies                                     | table    | postgres       | permanent   | heap          | 16 kB      | 
+ public     | time_entries                                   | table    | postgres       | permanent   | heap          | 16 kB      | 
+ public     | timer_entries                                  | table    | postgres       | permanent   | heap          | 8192 bytes | 
+ public     | timesheet_line_approvals                       | table    | postgres       | permanent   | heap          | 8192 bytes | 
+ public     | timesheet_periods                              | table    | postgres       | permanent   | heap          | 8192 bytes | 
+ public     | user_lifecycle_audit_log                       | table    | postgres       | permanent   | heap          | 8192 bytes | 
+ public     | user_roles                                     | table    | postgres       | permanent   | heap          | 8192 bytes | 
+ public     | user_roles_backup_0220_56_20260224             | table    | postgres       | permanent   | heap          | 0 bytes    | 
+ public     | vw_actual_hours_by_category_activity           | view     | postgres       | permanent   |               | 0 bytes    | 
+ public     | vw_budget_vs_actual_hours_by_category_activity | view     | postgres       | permanent   |               | 0 bytes    | 
+ public     | vw_staffing_alerts                             | view     | postgres       | permanent   |               | 0 bytes    | 
+ public     | vw_wo_budget_hours_by_category                 | view     | postgres       | permanent   |               | 0 bytes    | 
+ public     | vw_wo_budget_hours_by_category_activity        | view     | postgres       | permanent   |               | 0 bytes    | 
+ public     | wo_budget_lines                                | table    | postgres       | permanent   | heap          | 8192 bytes | 
+ public     | wo_expense_budget                              | table    | postgres       | permanent   | heap          | 0 bytes    | 
+ public     | wo_payment_installments                        | table    | postgres       | permanent   | heap          | 8192 bytes | 
+ public     | wo_payment_plan                                | table    | postgres       | permanent   | heap          | 8192 bytes | 
+ public     | wo_staffing_requirement_skills                 | table    | postgres       | permanent   | heap          | 8192 bytes | 
+ public     | wo_staffing_requirements                       | table    | postgres       | permanent   | heap          | 0 bytes    | 
+ public     | work_order_summary                             | view     | postgres       | permanent   |               | 0 bytes    | 
+ public     | work_orders                                    | table    | postgres       | permanent   | heap          | 16 kB      | 
+(50 rows)
+

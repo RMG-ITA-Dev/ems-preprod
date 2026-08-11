@@ -1,0 +1,36 @@
+G7 — Deploy de Edge Functions a "Test" (slkqdcwwvmjtcbakajib)
+Ejecutado por el operador desde EMS_Dev_Supabase (dev-scheduler-fase_6, código idéntico
+a dev-scheduler-fase_7 para estos 2 archivos — confirmado con diff -rq antes del deploy).
+Fecha: 2026-08-06.
+
+Hallazgo previo al deploy (supabase functions list --project-ref slkqdcwwvmjtcbakajib):
+scheduler-data y scheduler-gaps NO aparecían en la lista — nunca se habían desplegado a
+"Test". Las otras 7 funciones (assign-user-role, manage-auth-user, test-minmax-settings,
+dashboard-data, test-resubmission-state, secure-signin, unlock-account) ya estaban ACTIVE
+desde mayo/junio.
+
+$ supabase functions deploy scheduler-data --project-ref slkqdcwwvmjtcbakajib
+Bundling Function: scheduler-data
+Deploying Function: scheduler-data (script size: 103.5kB)
+Deployed Functions on project slkqdcwwvmjtcbakajib: scheduler-data
+
+$ supabase functions deploy scheduler-gaps --project-ref slkqdcwwvmjtcbakajib
+Bundling Function: scheduler-gaps
+Deploying Function: scheduler-gaps (script size: 108.1kB)
+Deployed Functions on project slkqdcwwvmjtcbakajib: scheduler-gaps
+
+Verificación post-deploy (supabase functions list --project-ref slkqdcwwvmjtcbakajib):
+
+   ID                                   | NAME                    | SLUG                    | STATUS | VERSION | UPDATED_AT (UTC)
+  --------------------------------------|-------------------------|-------------------------|--------|---------|---------------------
+   8c57fcd8-0ae5-4369-a396-1063a0ebd13e | assign-user-role        | assign-user-role        | ACTIVE | 2       | 2026-05-19 19:42:52
+   26f6c915-133f-45c0-9d61-3f4ce4bda153 | manage-auth-user        | manage-auth-user        | ACTIVE | 2       | 2026-05-19 19:45:33
+   2c2e9eab-93de-440f-90dd-dd0b9ed651f5 | test-minmax-settings    | test-minmax-settings    | ACTIVE | 2       | 2026-05-19 19:47:33
+   eae62897-e9fc-4665-a527-0345c39946c8 | dashboard-data          | dashboard-data          | ACTIVE | 2       | 2026-05-19 19:48:26
+   6663cf49-5eaa-4694-b7cb-1d29d37c25c3 | test-resubmission-state | test-resubmission-state | ACTIVE | 2       | 2026-05-19 19:48:46
+   2a9515fc-d91f-47f9-9b12-58071312f8dc | secure-signin           | secure-signin           | ACTIVE | 2       | 2026-05-27 23:00:51
+   c03e7f87-8601-464c-8200-c27e56e5b6e5 | unlock-account          | unlock-account          | ACTIVE | 4       | 2026-06-02 19:17:36
+   a4f5e5ac-f25c-41b9-8a97-c4299834d31f | scheduler-data          | scheduler-data          | ACTIVE | 1       | 2026-08-06 05:45:23
+   c75e97a6-d826-442c-acf7-db30db017401 | scheduler-gaps          | scheduler-gaps          | ACTIVE | 1       | 2026-08-06 05:48:07
+
+Resultado: ambas funciones ACTIVE, version 1, desplegadas hoy. G7 cerrado.

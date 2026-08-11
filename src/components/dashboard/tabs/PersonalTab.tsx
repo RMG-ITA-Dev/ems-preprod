@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
+import { useAuthorization } from "@/hooks/useAuthorization";
 import { PendingHoursAlert } from "@/components/dashboard/PendingHoursAlert";
 import { useDashboard } from "@/contexts/DashboardContext";
 import { RecentTimeEntries } from "@/components/dashboard/RecentTimeEntries";
@@ -43,6 +44,7 @@ export function PersonalTab() {
   const { t, i18n } = useTranslation();
   const { staffRecord, isLoading: staffLoading } = useCurrentStaff();
   const { startDateStr, endDateStr } = useDashboard();
+  const { can } = useAuthorization();
   const dateLocale = i18n.language === 'es' ? es : enUS;
 
   const today = new Date();
@@ -225,8 +227,8 @@ export function PersonalTab() {
     : new Date(weekEnd.getTime() + 24 * 60 * 60 * 1000);
   const daysUntilDeadline = differenceInDays(deadline, today);
 
-  // Check if user can approve timesheets
-  const canApprove = (staffRecord?.category as StaffCategory | undefined)?.can_approve_timesheets === true;
+  // Check if user can approve timesheets — FASE 3b: por permiso, no por categoría.
+  const canApprove = can("timesheet_approval.approve");
 
   // Transform entries for RecentTimeEntries component
   const recentEntriesFormatted = ((weekTimeEntries || []) as TimesheetEntryWithRelations[]).slice(0, 6).map((entry) => ({

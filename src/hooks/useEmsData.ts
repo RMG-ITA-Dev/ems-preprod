@@ -1,5 +1,15 @@
 import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
+import { logger } from "@/lib/logger";
+import {
+  aggregateRequirements,
+  type AggregatedRequirement,
+  type WorkOrderRequirementInput,
+} from "@/lib/staffingMatch";
+
+// Fase 3 — Work Order Staffing Requirements (esquema canónico de Fase 2).
+export type StaffingProficiencyLevel = "Beginner" | "Intermediate" | "Advanced";
 
 export interface Category {
   category_id: string;
@@ -357,27 +367,25 @@ export function useStaff() {
 }
 
 // useStaffFull returns all staff data including PII (admin-only, from base staff table)
-// This will fail for non-admin users due to RLS policies
+// Va por RPC, no por `select *`: el SELECT de `staff.id_number` y
+// `staff.aud_reg_number` está revocado a `authenticated` (20260730080000), así que
+// un `select *` desde el cliente ahora falla con 42501. `get_staff_full()` es
+// SECURITY DEFINER y está gateada por has_permission('staff.read'), y devuelve la
+// MISMA forma que traía el select (fila + category + staff_skills.skill anidado).
+//
+// Antes esto sí "fallaba para no-admin" como decía el comentario original, pero
+// dejó de ser cierto en junio: la policy de directorio (20260610050000) habilitó
+// la lectura de filas del personal activo a cualquier usuario con ficha, y RLS no
+// filtra columnas — o sea que el PII venía incluido.
 export function useStaffFull() {
   return useQuery({
     queryKey: ['staff_full'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('staff')
-        .select(`
-          *,
-          category:categories(*),
-          staff_skills (
-            staff_skill_id,
-            skill_id,
-            proficiency_level,
-            last_evaluated_date,
-            skill:skills ( skill_id, name, category, is_active )
-          )
-        `)
-        .order('last_name');
+      // NOTA: get_staff_full aún no está en types.ts (se regenera tras aplicar
+      // la migración). Hasta entonces casteamos el nombre.
+      const { data, error } = await supabase.rpc('get_staff_full' as never);
       if (error) throw error;
-      return data as StaffFull[];
+      return (data ?? []) as unknown as StaffFull[];
     },
   });
 }
@@ -394,6 +402,228 @@ export function useActiveSkills() {
         .order('name');
       if (error) throw error;
       return data as { skill_id: string; name: string; category: string }[];
+    },
+  });
+}
+
+// Fase 3 — hooks de lectura de Scheduler L2 (esquema canónico de Fase 2).
+// wo_staffing_requirements / wo_staffing_requirement_skills todavía no están
+// en src/integrations/supabase/types.ts (se regenera en una fase posterior
+// desde el Supabase real) — se consultan con el mismo escape (supabase as
+// any) que development ya usa para tablas/vistas aún no tipadas (ver
+// useServices/useTaxonomies arriba). engagement_assignments SÍ está tipada
+// pero su columna category_id (Fase 2/3) todavía no aparece en ese archivo,
+// así que también usa el escape hasta que se regenere.
+
+export interface WorkOrderStaffingRequirementSkill {
+  id: string;
+  skill_id: string;
+  min_proficiency_level: StaffingProficiencyLevel;
+  skill: {
+    skill_id: string;
+    name: string;
+    category: string;
+    is_active: boolean | null;
+  };
+}
+
+export interface WorkOrderStaffingRequirementWithSkills {
+  id: string;
+  wo_id: string;
+  category_id: string;
+  staff_count: number;
+  category: Category;
+  requirement_skills: WorkOrderStaffingRequirementSkill[];
+}
+
+// Una asignación de staff a un engagement, acotada en el tiempo. Se
+// permiten varios segmentos no solapados por (engagement, staff)
+// (re-asignación tras un vacío); el Gantt de L2 los renderiza apilados.
+export interface EngagementAssignmentRow {
+  assignment_id: string;
+  engagement_id: string;
+  staff_id: string;
+  category_id: string;
+  start_date: string;
+  end_date: string;
+  hours_per_week: number;
+  allocation_percent: number;
+  notes: string | null;
+  status: string;
+  staff: {
+    staff_id: string;
+    first_name: string;
+    last_name: string;
+    short_name: string | null;
+    category_id: string | null;
+  };
+  category: Category;
+}
+
+// Guarda defensiva de esquema: entre el merge del PR y la aplicación de la
+// migración en Lovable, la tabla/columna puede no existir todavía (42P01
+// tabla, 42703 columna, PGRST200 no puede resolver el embed). Se loguean para
+// diagnosticar rollout, pero cada consumidor decide si puede degradar a vacío;
+// Work Order staffing debe propagarlos para no guardar un estado incompleto.
+const SCHEMA_NOT_READY_CODES = new Set(["42P01", "42703", "PGRST200"]);
+
+function isSchedulerSchemaNotReady(error: unknown): boolean {
+  const code = (error as { code?: string } | null)?.code;
+  const notReady = !!code && SCHEMA_NOT_READY_CODES.has(code);
+  if (notReady) {
+    logger.error(
+      `Schema not ready (${code}): propagating read failure instead of fabricating empty data. ` +
+        "A migration is likely missing or partially applied for the Scheduler tables.",
+      error
+    );
+  }
+  return notReady;
+}
+
+// Viewer-keyed (precedente useEngagementAssignments) para que un cambio de
+// cuenta en la misma SPA no reutilice la caché del viewer anterior. Columnas
+// explícitas (no "*") y orden estable (categoría por display_order, skills
+// por nombre) para que el estado sea comparable en el dirty-check de Fase 4.
+export function useWorkOrderStaffingRequirements(workOrderId: string | undefined) {
+  const { user } = useAuth();
+  const viewerId = user?.id;
+  return useQuery({
+    queryKey: ["workOrderStaffingRequirements", viewerId, workOrderId],
+    enabled: Boolean(viewerId && workOrderId),
+    queryFn: async ({ signal }) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any)
+        .from("wo_staffing_requirements")
+        .select(
+          "id, wo_id, category_id, staff_count, " +
+            "category:categories(category_id, category_name, service_id, display_order), " +
+            "requirement_skills:wo_staffing_requirement_skills(id, skill_id, min_proficiency_level, skill:skills(skill_id, name, category, is_active))"
+        )
+        .eq("wo_id", workOrderId)
+        .abortSignal(signal);
+      if (error) {
+        isSchedulerSchemaNotReady(error);
+        throw error;
+      }
+      const rows = (data ?? []) as WorkOrderStaffingRequirementWithSkills[];
+      return [...rows]
+        .sort((a, b) => (a.category?.display_order ?? 999) - (b.category?.display_order ?? 999))
+        .map((row) => ({
+          ...row,
+          requirement_skills: [...row.requirement_skills].sort((a, b) =>
+            (a.skill?.name ?? "").localeCompare(b.skill?.name ?? "")
+          ),
+        }));
+    },
+  });
+}
+
+// Asignaciones activas (no soft-deleted) de un engagement, con staff y
+// categoría embebidos para mostrar. Ordenadas por start_date.
+export function useEngagementAssignments(engagementId: string | undefined) {
+  const { user } = useAuth();
+  const viewerId = user?.id;
+  return useQuery({
+    queryKey: ["engagementAssignments", viewerId, engagementId],
+    enabled: Boolean(viewerId && engagementId),
+    queryFn: async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any)
+        .from("engagement_assignments")
+        .select(
+          "assignment_id, engagement_id, staff_id, category_id, start_date, end_date, hours_per_week, allocation_percent, notes, status, " +
+            // Dos FKs apuntan a staff (staff_id, created_by) — desambiguar.
+            "staff:staff!engagement_assignments_staff_id_fkey(staff_id, first_name, last_name, short_name, category_id), " +
+            "category:categories(*)"
+        )
+        .eq("engagement_id", engagementId)
+        .is("deleted_at", null)
+        .order("start_date");
+      if (error) {
+        if (isSchedulerSchemaNotReady(error)) return [];
+        throw error;
+      }
+      return (data ?? []) as EngagementAssignmentRow[];
+    },
+  });
+}
+
+// Requerimientos de staffing agregados de un engagement: unión de los
+// requerimientos de sus work orders, colapsados a uno por categoría vía
+// aggregateRequirements() — el min_proficiency_level más estricto gana por
+// (categoría, skill).
+export function useEngagementAggregatedRequirements(engagementId: string | undefined) {
+  const { user } = useAuth();
+  const viewerId = user?.id;
+  return useQuery({
+    queryKey: ["engagementAggregatedReqs", viewerId, engagementId],
+    enabled: Boolean(viewerId && engagementId),
+    queryFn: async (): Promise<AggregatedRequirement[]> => {
+      const { data: wos, error: woError } = await supabase
+        .from("work_orders")
+        .select("wo_id")
+        .eq("engagement_id", engagementId!);
+      if (woError) throw woError;
+      const woIds = (wos ?? []).map((w) => w.wo_id);
+      if (woIds.length === 0) return [];
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any)
+        .from("wo_staffing_requirements")
+        .select(
+          "category_id, requirement_skills:wo_staffing_requirement_skills(skill_id, min_proficiency_level, skill:skills(name))"
+        )
+        .in("wo_id", woIds);
+      if (error) {
+        if (isSchedulerSchemaNotReady(error)) return [];
+        throw error;
+      }
+      return aggregateRequirements((data ?? []) as WorkOrderRequirementInput[]);
+    },
+  });
+}
+
+// Staff activo con sus competencias embebidas, para el selector de
+// candidatos (solo lectura en Fase 3 — la escritura es Fase 5). Cliente
+// tipado: staff, staff_skills e is_schedulable ya están en types.ts.
+export interface StaffWithSkills extends Staff {
+  staff_skills: StaffSkillWithSkill[];
+  /** El selector de staff del Scheduler solo ofrece staff "schedulable". */
+  is_schedulable?: boolean | null;
+}
+
+export function useActiveStaffWithSkills() {
+  return useQuery({
+    queryKey: ["staff", "activeWithSkills"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("staff")
+        .select(
+          `
+          staff_id,
+          first_name,
+          last_name,
+          short_name,
+          initials,
+          category_id,
+          city,
+          is_active,
+          is_schedulable,
+          category:categories(*),
+          staff_skills (
+            staff_skill_id,
+            skill_id,
+            proficiency_level,
+            last_evaluated_date,
+            skill:skills ( skill_id, name, category, is_active )
+          )
+        `
+        )
+        .eq("is_active", true)
+        .is("deleted_at", null)
+        .order("last_name");
+      if (error) throw error;
+      return data as unknown as StaffWithSkills[];
     },
   });
 }
@@ -453,12 +683,12 @@ export function useEngagements() {
         .select(`
           *,
           client:clients(*),
-          partner:staff!engagements_partner_id_fkey(*),
-          manager:staff!engagements_manager_id_fkey(*),
-          sqr:staff!engagements_sqr_id_fkey(*),
-          encargado:staff!engagements_encargado_id_fkey(*),
-          specialist_it:staff!engagements_specialist_it_id_fkey(*),
-          specialist_tax:staff!engagements_specialist_tax_id_fkey(*),
+          partner:staff!engagements_partner_id_fkey(staff_id, first_name, last_name, short_name, initials, category_id, city, is_active),
+          manager:staff!engagements_manager_id_fkey(staff_id, first_name, last_name, short_name, initials, category_id, city, is_active),
+          sqr:staff!engagements_sqr_id_fkey(staff_id, first_name, last_name, short_name, initials, category_id, city, is_active),
+          encargado:staff!engagements_encargado_id_fkey(staff_id, first_name, last_name, short_name, initials, category_id, city, is_active),
+          specialist_it:staff!engagements_specialist_it_id_fkey(staff_id, first_name, last_name, short_name, initials, category_id, city, is_active),
+          specialist_tax:staff!engagements_specialist_tax_id_fkey(staff_id, first_name, last_name, short_name, initials, category_id, city, is_active),
           taxonomy:taxonomies(*)
         `)
         .order('created_at', { ascending: false });
@@ -499,12 +729,12 @@ export function useWorkOrders() {
           engagement:engagements(
             *,
             client:clients(*),
-            partner:staff!engagements_partner_id_fkey(*),
-            manager:staff!engagements_manager_id_fkey(*),
-            sqr:staff!engagements_sqr_id_fkey(*),
-            encargado:staff!engagements_encargado_id_fkey(*),
-            specialist_it:staff!engagements_specialist_it_id_fkey(*),
-            specialist_tax:staff!engagements_specialist_tax_id_fkey(*)
+            partner:staff!engagements_partner_id_fkey(staff_id, first_name, last_name, short_name, initials, category_id, city, is_active),
+            manager:staff!engagements_manager_id_fkey(staff_id, first_name, last_name, short_name, initials, category_id, city, is_active),
+            sqr:staff!engagements_sqr_id_fkey(staff_id, first_name, last_name, short_name, initials, category_id, city, is_active),
+            encargado:staff!engagements_encargado_id_fkey(staff_id, first_name, last_name, short_name, initials, category_id, city, is_active),
+            specialist_it:staff!engagements_specialist_it_id_fkey(staff_id, first_name, last_name, short_name, initials, category_id, city, is_active),
+            specialist_tax:staff!engagements_specialist_tax_id_fkey(staff_id, first_name, last_name, short_name, initials, category_id, city, is_active)
           ),
           budget_lines:wo_budget_lines(
             *,
@@ -620,7 +850,7 @@ export function useTimeEntries() {
         .from('time_entries')
         .select(`
           *,
-          staff:staff(*),
+          staff:staff(staff_id, first_name, last_name, short_name, initials, category_id, city, is_active),
           engagement:engagements(*, client:clients(*)),
           activity:activity_codes(*)
         `)

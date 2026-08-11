@@ -29,7 +29,7 @@ import {
   useDeleteFundRequestExpense,
 } from "@/hooks/mutations/useFundRequestExpenseMutations";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
-import { useUserRole } from "@/hooks/useUserRole";
+import { useAuthorization } from "@/hooks/useAuthorization";
 import { toast } from "sonner";
 
 const emptyValues: FundRequestExpenseFormValues = {
@@ -69,7 +69,11 @@ export function FundRequestExpenseDialog({
 }: Props) {
   const { t } = useTranslation();
   const { staffRecord } = useCurrentStaff();
-  const { isAdmin } = useUserRole();
+  // La revisión por factura es tarea de Contabilidad (13% IVA), no de admin.
+  // Con `isAdmin` del enum legacy, el Gerente y el Analista de Contabilidad no
+  // podían revisar aunque la matriz les da Liquidación de Gastos.
+  const { can } = useAuthorization();
+  const canSettleExpenses = can("expense_settlement.update");
 
   const createExpense = useCreateFundRequestExpense();
   const updateExpense = useUpdateFundRequestExpense();
@@ -113,7 +117,7 @@ export function FundRequestExpenseDialog({
   // La decisión del gerente sobre los gastos se hace EN LOTE desde la página
   // (FundRequestExpenses), no por gasto individual: si uno está mal, se rechazan
   // todos juntos. Por eso aquí no hay botones de aprobar/observar/rechazar.
-  const canReview = !isCreate && isAdmin && expense!.status === "aprobado_gerente";
+  const canReview = !isCreate && canSettleExpenses && expense!.status === "aprobado_gerente";
 
   // Resetear estado al abrir / cambiar de gasto
   useEffect(() => {

@@ -9,7 +9,7 @@ import { resolve } from "path";
 
 const migrationPath = resolve(
   __dirname,
-  "../../../supabase/migrations/20260702000000_service_scoped_categories.sql"
+  "../../../supabase/migrations/20260702000002_service_scoped_categories.sql"
 );
 const sql = readFileSync(migrationPath, "utf-8");
 
@@ -77,7 +77,7 @@ describe("service-scoped categories migration (0702-152)", () => {
 // ── Review fixes migration (iterations 1, 2 and 4 — consolidated) ───────────
 const fixesPath = resolve(
   __dirname,
-  "../../../supabase/migrations/20260703000000_service_scoped_categories_fixes.sql"
+  "../../../supabase/migrations/20260703000001_service_scoped_categories_fixes.sql"
 );
 const fixesSql = readFileSync(fixesPath, "utf-8");
 

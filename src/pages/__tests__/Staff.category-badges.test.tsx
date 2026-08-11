@@ -44,8 +44,8 @@ vi.mock("@/components/layout/AppLayout", () => ({
   AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 
-vi.mock("@/hooks/useUserRole", () => ({
-  useUserRole: () => ({ isAdmin: true }),
+vi.mock("@/hooks/useAuthorization", () => ({
+  useAuthorization: () => ({ can: () => true, scope: () => null, isLoading: false }),
 }));
 
 // Defined via vi.hoisted so the fixture is initialized before the hoisted

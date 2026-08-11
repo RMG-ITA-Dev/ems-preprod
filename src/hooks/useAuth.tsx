@@ -1,6 +1,12 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { User, Session } from '@supabase/supabase-js';
+import { User, Session, AuthChangeEvent } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
+import { rearmSessionRecovery } from '@/lib/sessionRecovery';
+
+// Fase 7 (plan v2 §A.3): events that carry a genuinely authenticated session.
+// A 401-triggered recovery cycle stays disarmed until one of these fires
+// with a session — this is what stops it from re-triggering in a loop.
+const REARM_EVENTS = new Set<AuthChangeEvent>(['SIGNED_IN', 'TOKEN_REFRESHED', 'INITIAL_SESSION']);
 
 interface RoleAssignmentResult {
   role: string;
@@ -54,6 +60,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSession(session);
         setUser(session?.user ?? null);
         setLoading(false);
+        if (session && REARM_EVENTS.has(event)) {
+          rearmSessionRecovery();
+        }
       }
     );
 

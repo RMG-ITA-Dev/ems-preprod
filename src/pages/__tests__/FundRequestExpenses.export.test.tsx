@@ -15,15 +15,21 @@ vi.mock("react-router-dom", async () => {
 
 const STAFF_ID = "staff-1";
 let mockStaff: { staff_id: string } | null = { staff_id: STAFF_ID };
-let mockIsAdmin = false;
+let mockCanSettle = false;
 let mockFr: unknown = null;
 let mockExpenses: unknown[] = [];
 
 vi.mock("@/hooks/useCurrentStaff", () => ({
   useCurrentStaff: () => ({ staffRecord: mockStaff }),
 }));
-vi.mock("@/hooks/useUserRole", () => ({
-  useUserRole: () => ({ isAdmin: mockIsAdmin }),
+// La pantalla decide por permiso (expense_settlement.read = Contabilidad),
+// ya no por el enum legacy isAdmin.
+vi.mock("@/hooks/useAuthorization", () => ({
+  useAuthorization: () => ({
+    can: (k: string) => k === "expense_settlement.read" && mockCanSettle,
+    scope: () => null,
+    isLoading: false,
+  }),
 }));
 vi.mock("@/hooks/useFundRequests", () => ({
   useFundRequestById: () => ({ data: mockFr, isLoading: false }),
@@ -88,7 +94,7 @@ describe("FundRequestExpenses — export report (0319-91)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockStaff = { staff_id: STAFF_ID };
-    mockIsAdmin = false;
+    mockCanSettle = false;
     // Por defecto hay un gasto (el botón requiere al menos uno).
     mockExpenses = [
       { fre_id: "e1", amount: 40, currency: "BOB", iva_penalty_amount: 0, status: "revisado_asistente" },
@@ -107,8 +113,8 @@ describe("FundRequestExpenses — export report (0319-91)", () => {
     expect(screen.getByText(EXPORT_LABEL)).toBeInTheDocument();
   });
 
-  it("shows the export button to admin (accounting)", () => {
-    mockIsAdmin = true;
+  it("shows the export button to accounting (expense_settlement.read)", () => {
+    mockCanSettle = true;
     mockFr = makeFr();
     wrap();
     expect(screen.getByText(EXPORT_LABEL)).toBeInTheDocument();

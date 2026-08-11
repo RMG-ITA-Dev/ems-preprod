@@ -55,6 +55,14 @@ vi.mock("@/hooks/useCategoryStaff", () => ({
 vi.mock("@/hooks/useUserRole", () => ({
   useUserRole: () => ({ isAdmin: false, isPartner: false, isDirector: false }),
 }));
+// Fase 5 migró el gate del componente de flags de rol a can("engagement.create").
+// useAuthorization llama a useAuth por dentro, así que sin este mock el render
+// falla con "useAuth must be used within an AuthProvider".
+// El gate anterior era isAdmin||isPartner||isDirector||isManager||isSQR: con el
+// mock de arriba (todos false) daba false, así que can() => false lo replica.
+vi.mock("@/hooks/useAuthorization", () => ({
+  useAuthorization: () => ({ can: () => false, scope: () => null, isLoading: false }),
+}));
 
 import { ClientEngagementsTable } from "@/components/clients/ClientEngagementsTable";
 

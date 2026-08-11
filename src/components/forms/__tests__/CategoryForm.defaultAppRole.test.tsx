@@ -4,14 +4,15 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 
-// Stable spy referenced by the vi.mock factory below — must be hoisted so it
-// exists before module-level mock factories are evaluated.
+// FASE 3c (Opción C): el control de `default_app_role` se ELIMINÓ del formulario
+// — la categoría ya no dicta el rol del usuario. Este archivo (antes BUG 0306-73,
+// que probaba el select) ahora verifica: (1) que el control ya no se renderiza, y
+// (2) que el valor existente de default_app_role se CONSERVA en el payload al
+// editar (no se nulifica), evitando efectos colaterales en datos.
+
 const updateMutateAsync = vi.hoisted(() => vi.fn().mockResolvedValue({}));
 
-// Replace the Radix Select family with native <select>/<option> elements so
-// JSDOM can interact with the dropdown without PointerEvent polyfills.
-// The real Radix SelectItem path is exercised by Settings integration tests
-// (Tests 5–6 in Settings.category-rates-form).
+// Se conserva el mock de Select (inofensivo aunque el control se haya quitado).
 vi.mock("@/components/ui/select", () => ({
   Select: ({
     value,
@@ -54,14 +55,9 @@ beforeAll(() => {
   (globalThis as any).ResizeObserver = MockResizeObserver;
 });
 
-const TRANSLATIONS: Record<string, string> = {
-  "common.none": "None",
-  "userRoles.roles.senior": "Senior",
-};
-
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
-    t: (k: string) => TRANSLATIONS[k] ?? k,
+    t: (k: string) => k,
     i18n: { language: "en" },
   }),
 }));
@@ -97,63 +93,45 @@ const renderForm = (props: Parameters<typeof CategoryForm>[0]) =>
     </QueryClientProvider>
   );
 
-describe("CategoryForm default_app_role (BUG 0306-73)", () => {
+describe("CategoryForm — default_app_role sin control (FASE 3c, Opción C)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("Test 1: Nueva Categoría renders without crashing (create mode)", () => {
+  it("Test 1: renderiza sin romperse (modo crear)", () => {
     expect(() =>
       renderForm({ open: true, onOpenChange: vi.fn(), category: null })
     ).not.toThrow();
     expect(screen.getByText("category.newCategory")).toBeInTheDocument();
   });
 
-  it("Test 2: Edit mode with default_app_role null shows 'None' in the select", () => {
-    renderForm({
-      open: true,
-      onOpenChange: vi.fn(),
-      category: { ...baseCategory, default_app_role: null },
-    });
-    expect(screen.getByText("category.editCategory")).toBeInTheDocument();
-    const select = screen.getByTestId("role-select") as HTMLSelectElement;
-    expect(select.value).toBe("__none__");
-    const noneOption = screen.getByRole("option", { name: "None" }) as HTMLOptionElement;
-    expect(noneOption.selected).toBe(true);
-  });
-
-  it("Test 3: Edit mode with default_app_role 'senior' shows 'Senior' in the select", () => {
+  it("Test 2: el control de rol por defecto YA NO se renderiza", () => {
     renderForm({
       open: true,
       onOpenChange: vi.fn(),
       category: { ...baseCategory, default_app_role: "senior" },
     });
     expect(screen.getByText("category.editCategory")).toBeInTheDocument();
-    const select = screen.getByTestId("role-select") as HTMLSelectElement;
-    expect(select.value).toBe("senior");
-    const seniorOption = screen.getByRole("option", { name: "Senior" }) as HTMLOptionElement;
-    expect(seniorOption.selected).toBe(true);
+    // El select de default_app_role fue removido en Fase 3c.
+    expect(screen.queryByTestId("role-select")).toBeNull();
+    expect(screen.queryByText("category.defaultAppRole")).toBeNull();
   });
 
-  it("Test 4: Selecting 'None' maps the sentinel to null in the submitted payload", async () => {
+  it("Test 3: al editar, se CONSERVA el default_app_role existente en el payload", async () => {
     const user = userEvent.setup();
     renderForm({
       open: true,
       onOpenChange: vi.fn(),
-      // Start with a real role so the Select has a non-None value to change from
       category: { ...baseCategory, default_app_role: "senior" },
     });
 
-    // Select the "__none__" sentinel via the native select
-    await user.selectOptions(screen.getByTestId("role-select"), "__none__");
-
-    // Submit — all required rate fields are pre-filled from baseCategory
     await user.click(screen.getByText("common.saveChanges"));
 
     await waitFor(() => expect(updateMutateAsync).toHaveBeenCalled());
 
-    // onSubmit converts "__none__" → null; sentinel must not leak into the DB
+    // El formulario ya no edita el campo, pero lo arrastra sin cambios:
+    // "senior" debe preservarse (no nulificarse) al guardar.
     const [callArg] = updateMutateAsync.mock.calls[0];
-    expect(callArg.data.default_app_role).toBeNull();
+    expect(callArg.data.default_app_role).toBe("senior");
   });
 });

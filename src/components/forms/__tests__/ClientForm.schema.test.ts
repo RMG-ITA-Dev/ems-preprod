@@ -43,3 +43,44 @@ describe("ClientForm — unique_tax_id validation (BUG 0306-76)", () => {
     expect(result.error?.issues[0].message).toBe("NIT is required");
   });
 });
+
+describe("ClientForm — contact_phone validation", () => {
+  const phone = (contact_phone: string) =>
+    formSchema.safeParse({ ...validBase, contact_phone });
+
+  it("accepts the placeholder format with country code", () => {
+    expect(phone("+591 12345678").success).toBe(true);
+  });
+  it("accepts plain digits", () => {
+    expect(phone("77712345").success).toBe(true);
+  });
+  it("accepts parentheses and dashes as separators", () => {
+    expect(phone("(591) 2-771234").success).toBe(true);
+  });
+  it("accepts empty string — the phone is optional", () => {
+    expect(phone("").success).toBe(true);
+  });
+  it("accepts the field being absent entirely", () => {
+    expect(formSchema.safeParse(validBase).success).toBe(true);
+  });
+  it("rejects letters (the reported bug: any text was accepted)", () => {
+    const result = phone("no tengo");
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0].message).toBe(
+      "Phone can only contain digits and + - ( ) or spaces",
+    );
+  });
+  it("rejects separators with no digits at all", () => {
+    expect(phone("(( ))").success).toBe(false);
+  });
+  it("rejects a number that is too short to be a phone", () => {
+    const result = phone("12345");
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0].message).toBe("Phone must contain at least 7 digits");
+  });
+  it("rejects a phone longer than 20 characters", () => {
+    const result = phone("+591 1234567890123456789");
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0].message).toBe("Phone cannot exceed 20 characters");
+  });
+});

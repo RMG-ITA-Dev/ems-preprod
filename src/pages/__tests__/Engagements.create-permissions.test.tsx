@@ -14,11 +14,12 @@ vi.mock("react-router-dom", async () => {
   return { ...actual, useNavigate: () => mockNavigate };
 });
 
-let mockRole = {
-  isAdmin: false, isPartner: false, isDirector: false,
-  isManager: false, isSQR: false, isLoading: false,
-};
-vi.mock("@/hooks/useUserRole", () => ({ useUserRole: () => mockRole }));
+// FASE 5: crear encargo se gatea por can("engagement.create") (lista y CTA anidado);
+// la creación por ruta (<PermissionRoute>). EngagementNew ya no redirige in-page.
+let mockCan: (perm: string) => boolean = () => false;
+vi.mock("@/hooks/useAuthorization", () => ({
+  useAuthorization: () => ({ can: mockCan, roleKey: null }),
+}));
 
 vi.mock("@/hooks/useEmsData", () => ({
   useEngagements: () => ({ data: [], isLoading: false }),
@@ -59,72 +60,39 @@ function wrap(ui: React.ReactElement) {
   );
 }
 
-describe("Engagements — create permissions (0306-75)", () => {
-  beforeEach(() => { vi.clearAllMocks(); });
+describe("Engagements — create permissions (FASE 5)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCan = () => false;
+  });
 
-  // --- Engagements list page ---
-  it.each([
-    ["admin",    { isAdmin: true,  isPartner: false, isDirector: false, isManager: false, isSQR: false, isLoading: false }],
-    ["partner",  { isAdmin: false, isPartner: true,  isDirector: false, isManager: false, isSQR: false, isLoading: false }],
-    ["director", { isAdmin: false, isPartner: false, isDirector: true,  isManager: false, isSQR: false, isLoading: false }],
-    ["manager",  { isAdmin: false, isPartner: false, isDirector: false, isManager: true,  isSQR: false, isLoading: false }],
-    ["sqr",      { isAdmin: false, isPartner: false, isDirector: false, isManager: false, isSQR: true,  isLoading: false }],
-  ])("shows 'Nuevo Encargo' button on list for %s", (_name, role) => {
-    mockRole = role;
+  it("shows 'Nuevo Encargo' on list when user has engagement.create", () => {
+    mockCan = (perm) => perm === "engagement.create";
     wrap(<Engagements />);
     expect(screen.getByText("engagement.newEngagement")).toBeInTheDocument();
   });
 
-  it.each([
-    ["senior",     { isAdmin: false, isPartner: false, isDirector: false, isManager: false, isSQR: false, isLoading: false }],
-    ["semisenior", { isAdmin: false, isPartner: false, isDirector: false, isManager: false, isSQR: false, isLoading: false }],
-    ["staff",      { isAdmin: false, isPartner: false, isDirector: false, isManager: false, isSQR: false, isLoading: false }],
-  ])("hides 'Nuevo Encargo' button on list for %s", (_name, role) => {
-    mockRole = role;
+  it("hides 'Nuevo Encargo' on list when user lacks engagement.create", () => {
+    mockCan = () => false;
     wrap(<Engagements />);
     expect(screen.queryByText("engagement.newEngagement")).not.toBeInTheDocument();
   });
 
-  // --- ClientEngagementsTable nested CTA ---
-  it.each([
-    ["admin",   { isAdmin: true,  isPartner: false, isDirector: false, isManager: false, isSQR: false, isLoading: false }],
-    ["manager", { isAdmin: false, isPartner: false, isDirector: false, isManager: true,  isSQR: false, isLoading: false }],
-    ["sqr",     { isAdmin: false, isPartner: false, isDirector: false, isManager: false, isSQR: true,  isLoading: false }],
-  ])("ClientEngagementsTable shows create button for %s", (_name, role) => {
-    mockRole = role;
+  it("ClientEngagementsTable shows create button when user has engagement.create", () => {
+    mockCan = (perm) => perm === "engagement.create";
     wrap(<ClientEngagementsTable clientId="client-1" />);
     expect(screen.getByText("engagement.newEngagement")).toBeInTheDocument();
   });
 
-  it.each([
-    ["senior", { isAdmin: false, isPartner: false, isDirector: false, isManager: false, isSQR: false, isLoading: false }],
-    ["staff",  { isAdmin: false, isPartner: false, isDirector: false, isManager: false, isSQR: false, isLoading: false }],
-  ])("ClientEngagementsTable hides create button for %s", (_name, role) => {
-    mockRole = role;
+  it("ClientEngagementsTable hides create button when user lacks engagement.create", () => {
+    mockCan = () => false;
     wrap(<ClientEngagementsTable clientId="client-1" />);
     expect(screen.queryByText("engagement.newEngagement")).not.toBeInTheDocument();
   });
 
-  // --- EngagementNew redirect ---
-  it("redirects staff away from /engagements/new after role loads", () => {
-    mockRole = { isAdmin: false, isPartner: false, isDirector: false, isManager: false, isSQR: false, isLoading: false };
+  it("EngagementNew renders the form without in-page redirect (route guard handles access)", () => {
     wrap(<EngagementNew />);
-    expect(mockNavigate).toHaveBeenCalledWith("/engagements", { replace: true });
-  });
-
-  it.each([
-    ["partner", { isAdmin: false, isPartner: true,  isDirector: false, isManager: false, isSQR: false, isLoading: false }],
-    ["manager", { isAdmin: false, isPartner: false, isDirector: false, isManager: true,  isSQR: false, isLoading: false }],
-    ["sqr",     { isAdmin: false, isPartner: false, isDirector: false, isManager: false, isSQR: true,  isLoading: false }],
-  ])("does not redirect %s away from /engagements/new", (_name, role) => {
-    mockRole = role;
-    wrap(<EngagementNew />);
+    expect(screen.getByTestId("engagement-form")).toBeInTheDocument();
     expect(mockNavigate).not.toHaveBeenCalledWith("/engagements", { replace: true });
-  });
-
-  it("does not redirect while role is still loading", () => {
-    mockRole = { isAdmin: false, isPartner: false, isDirector: false, isManager: false, isSQR: false, isLoading: true };
-    wrap(<EngagementNew />);
-    expect(mockNavigate).not.toHaveBeenCalled();
   });
 });

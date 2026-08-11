@@ -1,5 +1,6 @@
 import { useEffect, useRef, useMemo } from "react";
 import { Navigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { useAuth } from "@/hooks/useAuth";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { useUserRole } from "@/hooks/useUserRole";
@@ -12,6 +13,7 @@ interface ProtectedRouteProps {
 }
 
 export function ProtectedRoute({ children }: ProtectedRouteProps) {
+  const { t } = useTranslation();
   const { user, loading, signOut } = useAuth();
   const { staffRecord, isLoading: staffLoading } = useCurrentStaff();
   const { isAdmin, isLoading: roleLoading } = useUserRole();
@@ -70,7 +72,7 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
           <Loader2 className="h-8 w-8 animate-spin text-accent" />
-          <p className="text-muted-foreground">Loading...</p>
+          <p className="text-muted-foreground">{t("common.loading")}</p>
         </div>
       </div>
     );

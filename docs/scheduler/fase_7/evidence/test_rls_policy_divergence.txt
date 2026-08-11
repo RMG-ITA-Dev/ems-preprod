@@ -1,0 +1,125 @@
+=== POLICY NAME SET DIFF (tablename.policyname only) ===
+	  WHERE (s.auth_user_id = auth.uid()))) OR is_admin())
+	categories|Admin can manage categories
+categories|Admins can manage categories
+	categories|Authenticated can read categories
+categories|Authenticated users can read categories
+	engagement_staffing_requirements|Authenticated can read requirements
+	engagement_staffing_requirements|Leadership can delete requirements
+	engagement_staffing_requirements|Leadership can manage requirements
+	engagement_staffing_requirements|Leadership can update requirements
+	expense_types|Admin can manage expense types
+expense_types|Admins can manage expense types
+	expense_types|Authenticated can read expense types
+expense_types|Authenticated users can read expense types
+	global_settings|Admin can manage global settings
+global_settings|Admins can manage settings
+	global_settings|Authenticated can read global settings
+global_settings|Authenticated users can read settings
+holidays|Admins can delete holidays
+holidays|Admins can insert holidays
+holidays|Admins can update holidays
+	holidays|Authenticated can read holidays
+holidays|Authenticated users can read holidays
+	holidays|Holiday managers can manage holidays
+	industries|Admin can manage industries
+industries|Admins can manage industries
+	industries|Authenticated can read industries
+industries|Authenticated users can read industries
+	resource_planning_audit_log|Admins can view scheduling audit log
+	resource_planning_audit_log|System can insert audit log
+skills|Admins can manage skills
+skills|Authenticated users can read skills
+	skills|Skill managers can manage skills
+	skills|Skill viewers can read skills
+	staff_unavailability|Authenticated can read unavailability
+	staff_unavailability|Staff can delete own unavailability
+	staff_unavailability|Staff can insert own unavailability
+	staff_unavailability|Staff can update own unavailability
+	staff|Admin can manage staff
+staff|Authenticated users can read staff
+	staff|Personnel viewers can read all staff
+staff|Users can update their linked staff record
+	staff|Users can view their linked staff record
+	user_roles|Admin can manage user roles
+user_roles|Admins can manage all roles
+	user_roles|Users can view their own role
+user_roles|Users can view their own roles
+POLICY_NAME_DIFF_EXIT:0
+
+=== FULL POLICY ROW DIFF ===
+46a47,49
+>    FROM staff s
+>    FROM staff s
+>    FROM staff s
+93a97,99
+>   WHERE (s.auth_user_id = auth.uid()))) OR is_admin())
+>   WHERE (s.auth_user_id = auth.uid()))) OR is_admin())|
+>   WHERE (s.auth_user_id = auth.uid()))) OR is_admin())|
+111,112c117,118
+< public|categories|Admins can manage categories|ALL|is_admin()|is_admin()
+< public|categories|Authenticated users can read categories|SELECT|true|
+---
+> public|categories|Admin can manage categories|ALL|is_admin()|is_admin()
+> public|categories|Authenticated can read categories|SELECT|true|
+122a129,132
+> public|engagement_staffing_requirements|Authenticated can read requirements|SELECT|true|
+> public|engagement_staffing_requirements|Leadership can delete requirements|DELETE|(is_admin() OR has_role(auth.uid(), 'partner'::app_role) OR has_role(auth.uid(), 'director'::app_role) OR has_role(auth.uid(), 'manager'::app_role))|
+> public|engagement_staffing_requirements|Leadership can manage requirements|INSERT||(is_admin() OR has_role(auth.uid(), 'partner'::app_role) OR has_role(auth.uid(), 'director'::app_role) OR has_role(auth.uid(), 'manager'::app_role))
+> public|engagement_staffing_requirements|Leadership can update requirements|UPDATE|(is_admin() OR has_role(auth.uid(), 'partner'::app_role) OR has_role(auth.uid(), 'director'::app_role) OR has_role(auth.uid(), 'manager'::app_role))|
+126,127c136,137
+< public|expense_types|Admins can manage expense types|ALL|is_admin()|is_admin()
+< public|expense_types|Authenticated users can read expense types|SELECT|true|
+---
+> public|expense_types|Admin can manage expense types|ALL|is_admin()|is_admin()
+> public|expense_types|Authenticated can read expense types|SELECT|true|
+139c149
+< public|fund_request_work_orders|fr_wo_select|SELECT|(((manager_staff_id = get_my_staff_id()) AND fr_is_submitted(fund_request_id)) OR fr_is_requester(fund_request_id) OR is_admin())|
+---
+> public|fund_request_work_orders|fr_wo_select|SELECT|((manager_staff_id = get_my_staff_id()) OR fr_is_requester(fund_request_id) OR is_admin())|
+145c155
+< public|fund_requests|fr_select_manager|SELECT|((status <> 'borrador'::fund_request_status) AND fr_is_ot_manager(fund_request_id))|
+---
+> public|fund_requests|fr_select_manager|SELECT|fr_is_ot_manager(fund_request_id)|
+149,156c159,166
+< public|global_settings|Admins can manage settings|ALL|is_admin()|is_admin()
+< public|global_settings|Authenticated users can read settings|SELECT|true|
+< public|holidays|Admins can delete holidays|DELETE|is_admin()|
+< public|holidays|Admins can insert holidays|INSERT||is_admin()
+< public|holidays|Admins can update holidays|UPDATE|is_admin()|
+< public|holidays|Authenticated users can read holidays|SELECT|true|
+< public|industries|Admins can manage industries|ALL|is_admin()|is_admin()
+< public|industries|Authenticated users can read industries|SELECT|true|
+---
+> public|global_settings|Admin can manage global settings|ALL|is_admin()|is_admin()
+> public|global_settings|Authenticated can read global settings|SELECT|true|
+> public|holidays|Authenticated can read holidays|SELECT|true|
+> public|holidays|Holiday managers can manage holidays|ALL|can_manage_holidays()|can_manage_holidays()
+> public|industries|Admin can manage industries|ALL|is_admin()|is_admin()
+> public|industries|Authenticated can read industries|SELECT|true|
+> public|resource_planning_audit_log|Admins can view scheduling audit log|SELECT|is_admin()|
+> public|resource_planning_audit_log|System can insert audit log|INSERT||true
+160,161c170,171
+< public|skills|Admins can manage skills|ALL|is_admin()|is_admin()
+< public|skills|Authenticated users can read skills|SELECT|true|
+---
+> public|skills|Skill managers can manage skills|ALL|can_manage_skills()|can_manage_skills()
+> public|skills|Skill viewers can read skills|SELECT|can_view_skills()|
+165a176,180
+> public|staff_unavailability|Authenticated can read unavailability|SELECT|true|
+> public|staff_unavailability|Staff can delete own unavailability|DELETE|((staff_id = ( SELECT s.staff_id
+> public|staff_unavailability|Staff can insert own unavailability|INSERT||((staff_id = ( SELECT s.staff_id
+> public|staff_unavailability|Staff can update own unavailability|UPDATE|((staff_id = ( SELECT s.staff_id
+> public|staff|Admin can manage staff|ALL|is_admin()|is_admin()
+168,169c183,184
+< public|staff|Authenticated users can read staff|SELECT|true|
+< public|staff|Users can update their linked staff record|UPDATE|(auth_user_id = auth.uid())|(auth_user_id = auth.uid())
+---
+> public|staff|Personnel viewers can read all staff|SELECT|can_view_personnel()|
+> public|staff|Users can view their linked staff record|SELECT|(auth_user_id = auth.uid())|
+198,199c213,214
+< public|user_roles|Admins can manage all roles|ALL|has_role(auth.uid(), 'admin'::app_role)|has_role(auth.uid(), 'admin'::app_role)
+< public|user_roles|Users can view their own roles|SELECT|(auth.uid() = user_id)|
+---
+> public|user_roles|Admin can manage user roles|ALL|is_admin()|is_admin()
+> public|user_roles|Users can view their own role|SELECT|(user_id = auth.uid())|

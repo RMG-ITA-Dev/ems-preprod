@@ -50,7 +50,9 @@ import { Database } from "@/integrations/supabase/types";
 
 type AppRole = Database["public"]["Enums"]["app_role"];
 
-const NO_DEFAULT_ROLE = "__none__";
+// FASE 3c: el control de default_app_role se quitó del formulario (la categoría
+// ya no dicta el rol — Opción C). La columna y el valor se conservan intactos
+// (el payload sigue enviando el valor existente sin cambios).
 
 const formSchema = z.object({
   service_id: z.string().min(1, "validation.categoryServiceRequired"),
@@ -75,19 +77,6 @@ interface CategoryFormProps {
   serviceId?: string;
 }
 
-const ROLES: AppRole[] = [
-  "admin",
-  "partner",
-  "director",
-  "manager",
-  "senior",
-  "semisenior",
-  "staff",
-  "viewer",
-  "sqr",
-  "specialist_it",
-  "specialist_tax",
-];
 
 export function CategoryForm({ open, onOpenChange, category, serviceId }: CategoryFormProps) {
   const { t, i18n } = useTranslation();
@@ -353,37 +342,6 @@ export function CategoryForm({ open, onOpenChange, category, serviceId }: Catego
             <div className="space-y-4 pt-4 border-t border-border">
               <h4 className="font-medium text-sm text-muted-foreground">{t("category.permissions")}</h4>
               
-              <FormField
-                control={form.control}
-                name="default_app_role"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t("category.defaultAppRole")}</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value || NO_DEFAULT_ROLE}>
-
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder={t("form.selectOption")} />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value={NO_DEFAULT_ROLE}>{t("common.none")}</SelectItem>
-
-                        {ROLES.map((role) => (
-                          <SelectItem key={role} value={role}>
-                            {t(`userRoles.roles.${role}`)}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormDescription>
-                      {t("category.defaultAppRoleHelp")}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
               <FormField
                 control={form.control}
                 name="can_approve_wo"

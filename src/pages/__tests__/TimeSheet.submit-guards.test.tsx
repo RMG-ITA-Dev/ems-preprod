@@ -41,6 +41,13 @@ vi.mock("react-i18next", () => ({
 }));
 
 // Auto-mock all hooks — use importOriginal for modules with many exports
+// TimeSheet decide el retiro de una hoja aprobada por roleKey directo (admin/partner/
+// senior_partner — no por permiso, ver iteración 6 de review.md). Sin este mock,
+// useAuthorization corre de verdad y cae fail-closed (roleKey null).
+vi.mock("@/hooks/useAuthorization", () => ({
+  useAuthorization: () => ({ can: () => false, scope: () => null, isLoading: false, roleKey: null }),
+}));
+
 vi.mock("@/hooks/useAuth", () => ({
   useAuth: () => ({ session: { user: { id: "user-1" } }, user: { id: "user-1" } })
 }));
