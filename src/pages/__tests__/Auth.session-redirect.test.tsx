@@ -26,9 +26,9 @@ vi.mock("@/components/auth/ForgotPasswordDialog", () => ({
 
 import Auth from "../Auth";
 
-function renderAtAuth() {
+function renderAtAuth(state?: { signingOut?: boolean }) {
   return render(
-    <MemoryRouter initialEntries={["/auth"]}>
+    <MemoryRouter initialEntries={[{ pathname: "/auth", state }]}>
       <Routes>
         <Route path="/auth" element={<Auth />} />
         <Route path="/" element={<div>home-screen</div>} />
@@ -64,6 +64,20 @@ describe("Auth — session redirect from /auth (0723-170)", () => {
     mockUseAuth.mockReturnValue({ signIn: vi.fn(), signUp: vi.fn(), user: null, loading: false });
 
     const { container } = renderAtAuth();
+
+    expect(container.querySelector("#email")).not.toBeNull();
+    expect(screen.queryByText("home-screen")).toBeNull();
+  });
+
+  // Review R1-01: ProtectedRoute redirects rejected sessions (no staff record /
+  // inactive staff) to /auth with `state.signingOut` while its signOut() is
+  // still in flight, so `user` is still populated here. The guard must stand
+  // down in that window — otherwise the two routes ping-pong, permanently if
+  // the sign-out request fails.
+  it("keeps a rejected session on the form while sign-out is still in flight", () => {
+    mockUseAuth.mockReturnValue({ signIn: vi.fn(), signUp: vi.fn(), user: { id: "u1" }, loading: false });
+
+    const { container } = renderAtAuth({ signingOut: true });
 
     expect(container.querySelector("#email")).not.toBeNull();
     expect(screen.queryByText("home-screen")).toBeNull();

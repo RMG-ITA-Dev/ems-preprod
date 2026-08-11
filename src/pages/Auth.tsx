@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate, Navigate } from "react-router-dom";
+import { useNavigate, Navigate, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,6 +41,13 @@ const Auth = () => {
   const [sentToEmail, setSentToEmail] = useState("");
   const { signIn, signUp, user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  // BUG 0723-170: ProtectedRoute sets this when it redirects a rejected session
+  // (no staff record / inactive staff) while its signOut() is still resolving.
+  // Without it the guard below would bounce that still-populated `user` back to
+  // "/" and loop. A successful re-login navigates explicitly (handleSubmit), so
+  // the stale flag on this history entry never traps a fresh session.
+  const isSigningOut = (location.state as { signingOut?: boolean } | null)?.signingOut === true;
   const { data: settings } = useGlobalSettings();
 
   // Get allowed domain from settings
@@ -147,7 +154,7 @@ const Auth = () => {
     );
   }
 
-  if (user) {
+  if (user && !isSigningOut) {
     return <Navigate to="/" replace />;
   }
 
