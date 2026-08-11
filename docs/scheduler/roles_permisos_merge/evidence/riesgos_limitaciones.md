@@ -72,13 +72,13 @@ sin que ningún conflicto lo señale.
 **Nota (sesión posterior):** G4b/c/d se cerraron por CI real después de escrito este documento —
 ver la tabla arriba y `manual-cierre-operador.md`. Lo que sigue pendiente es G1, G4e, G5, G6, G7, G9.
 
-🔴 **Nota (iteración 2 de reviews, 2026-08-11): esa evidencia de G4b/c/d volvió a quedar stale.**
-El review de esta iteración (`bugs/scheduler/roles_permisos_merge/review.md`) encontró 2 problemas
-reales de RLS que requirieron 2 migraciones nuevas de cola (`20260806010000`,
-`20260806020000`) — el conteo pasó de **174 a 176**. La corrida de CI que cerró G4b/c/d
-(`run 31092667024`) verificó 174 migraciones, no 176. **G4b/c/d deben volver a dispararse contra
-el nuevo estado antes del PR** — los conteos hardcodeados del workflow ya se actualizaron
-(174→176, 94→96) para esa corrida siguiente.
+🔴 **Nota (iteraciones 2 y 4 de reviews, 2026-08-11): esa evidencia de G4b/c/d volvió a quedar
+stale.** Los reviews de esas iteraciones (`bugs/scheduler/roles_permisos_merge/review.md`)
+encontraron 3 problemas reales de RLS/RPC que requirieron 3 migraciones nuevas de cola
+(`20260806010000`, `20260806020000`, `20260806030000`) — el conteo pasó de **174 a 177**. La
+corrida de CI que cerró G4b/c/d (`run 31092667024`) verificó 174 migraciones, no 177. **G4b/c/d
+deben volver a dispararse contra el nuevo estado antes del PR** — los conteos hardcodeados del
+workflow ya se actualizaron (174→177, 94→97) para esa corrida siguiente.
 
 Ver `bugs/scheduler/plan_merge_sche_rolper.md` §7 (G1, G4e, G5, G6, G7, G9) y §11 (criterio de
 cierre completo). Todo lo que sigue requiere R-LOCAL o R-INT con autorización explícita del
