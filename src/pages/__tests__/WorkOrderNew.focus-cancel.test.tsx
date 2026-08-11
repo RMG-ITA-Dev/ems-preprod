@@ -75,6 +75,20 @@ vi.mock("@/hooks/useUserRole", () => ({
   useUserRole: () => ({ isAdmin: false, isPartner: false, isDirector: false, isManager: true, isLoading: false }),
 }));
 
+// WorkOrderNew usa useAuthorization para `isStatusEditable` del plan de pagos y
+// para el estado vacío del selector de encargo. useAuthorization llama a useAuth
+// por dentro, así que sin este mock el render falla con
+// "useAuth must be used within an AuthProvider".
+// roleKey "manager" mantiene isAdmin en false, igual que el mock de arriba.
+vi.mock("@/hooks/useAuthorization", () => ({
+  useAuthorization: () => ({
+    can: () => true,
+    scope: () => "assigned_engagements",
+    roleKey: "manager",
+    isLoading: false,
+  }),
+}));
+
 import WorkOrderNew from "../WorkOrderNew";
 
 describe("WorkOrderNew focus-cancel (BUG 0319-86)", () => {

@@ -129,7 +129,7 @@ export function usePendingApprovalSummaries() {
 
   return useQuery({
     queryKey: ["pending-approval-summaries", staffRecord?.staff_id],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!staffRecord) return [];
 
       // First get all pending line approvals — server-side filter on submitted_at IS NOT NULL
@@ -166,11 +166,15 @@ export function usePendingApprovalSummaries() {
       const periodIds = [...new Set((approvals || []).map((a) => a.period_id))];
       if (periodIds.length === 0) return [];
 
-      // Fetch time entries for these periods to calculate hours
+      // Fetch time entries for these periods to calculate hours.
+      // Fase 6 (§9): submit_timesheet_safe y get_staff_assignment_segments excluyen forecast;
+      // sin este filtro, totalPendingHours se desincroniza contra la evidencia del servidor.
       const { data: timeEntries, error: entriesError } = await supabase
         .from("time_entries")
         .select("period_id, engagement_id, activity_id, hours_logged")
-        .in("period_id", periodIds);
+        .in("period_id", periodIds)
+        .eq("is_forecast", false)
+        .abortSignal(signal);
 
       if (entriesError) throw entriesError;
 
@@ -259,7 +263,7 @@ export function useStaffTimesheetForApproval(periodId: string | null) {
 
   return useQuery({
     queryKey: ["staff-timesheet-for-approval", periodId, staffRecord?.staff_id],
-    queryFn: async (): Promise<StaffTimesheetForApproval | null> => {
+    queryFn: async ({ signal }): Promise<StaffTimesheetForApproval | null> => {
       if (!periodId || !staffRecord) return null;
 
       // Fetch period with staff info
@@ -283,7 +287,9 @@ export function useStaffTimesheetForApproval(periodId: string | null) {
 
       if (periodError) throw periodError;
 
-      // Fetch all time entries for this period
+      // Fetch all time entries for this period.
+      // Fase 6 (§9): excluir forecast — es el único lector de time_entries del app que aún no
+      // lo filtraba; sin esto el badge advisory queda desincronizado contra el servidor.
       const { data: timeEntries, error: entriesError } = await supabase
         .from("time_entries")
         .select(`
@@ -306,7 +312,9 @@ export function useStaffTimesheetForApproval(periodId: string | null) {
           )
         `)
         .eq("period_id", periodId)
-        .order("date_worked");
+        .eq("is_forecast", false)
+        .order("date_worked")
+        .abortSignal(signal);
 
       if (entriesError) throw entriesError;
 

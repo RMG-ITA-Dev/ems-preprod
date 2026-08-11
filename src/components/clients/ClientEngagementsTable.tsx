@@ -3,7 +3,7 @@ import { parseDateLocal } from "@/lib/timesheetUtils";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { useEngagements, useStaff, type Engagement } from "@/hooks/useEmsData";
-import { useUserRole } from "@/hooks/useUserRole";
+import { useAuthorization } from "@/hooks/useAuthorization";
 import { useCategoryStaff } from "@/hooks/useCategoryStaff";
 import {
   effectiveEngagementState,
@@ -46,8 +46,8 @@ export function ClientEngagementsTable({ clientId }: ClientEngagementsTableProps
   const { data: engagements, isLoading } = useEngagements();
   const { data: staff } = useStaff();
   const { partners, managers } = useCategoryStaff();
-  const { isAdmin, isPartner, isDirector, isManager, isSQR } = useUserRole();
-  const canCreateEngagement = isAdmin || isPartner || isDirector || isManager || isSQR;
+  const { can } = useAuthorization();
+  const canCreateEngagement = can("engagement.create");
 
   const [search, setSearch] = useState("");
   const [sortField, setSortField] = useState<SortField | null>(null);

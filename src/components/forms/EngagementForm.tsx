@@ -42,6 +42,8 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { EngagementCreatedDialog } from "@/components/forms/EngagementCreatedDialog";
+import { StaffAssignmentsCard } from "@/components/engagements/StaffAssignmentsCard";
+import { isSchedulerEnabled } from "@/lib/schedulerFeature";
 import { TaxonomyCombobox, NO_APLICA_VALUE } from "@/components/forms/TaxonomyCombobox";
 import { Engagement, useClients, useServices, useTaxonomies } from "@/hooks/useEmsData";
 import { useCategoryStaff } from "@/hooks/useCategoryStaff";
@@ -62,7 +64,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Switch } from "@/components/ui/switch";
-import { useUserRole } from "@/hooks/useUserRole";
+import { useAuthorization } from "@/hooks/useAuthorization";
 import {
   ENGAGEMENT_STATES,
   engagementStateI18nKey,
@@ -213,16 +215,35 @@ const AUDITORIA_SERVICE_CODE = 1;
 export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSuccess, onGoToWorkMatrix }: EngagementFormProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { isAdmin, isManager, isPartner, isLoading: roleLoading, isDirector } = useUserRole();
+  // `isAdmin` ya NO sale del enum legacy: se deriva de `role_key`, que es la
+  // autoridad del motor de autorización. Los 12 gates de solo-admin de este
+  // archivo (selección de servicio, override de año fiscal, piso de fecha de
+  // inicio, práctica por defecto, bloques de UI) quedan cubiertos con este único
+  // cambio, sin tocar cada sitio.
+  //
+  // Este archivo ya NO usa el enum legacy: todo sale de `role_key` y de los
+  // permisos. El último resto era `isManager` para el toggle de congelamiento, que
+  // ahora se resuelve por asignación (ver `canFreezeAsManager` más abajo).
+  const { can, roleKey, isLoading: roleLoading } = useAuthorization();
+  const isAdmin = roleKey === "admin";
   const isEdit = !!engagement;
+  // Al editar, el guardado exige engagement.update; al crear, la ruta ya gatea engagement.create.
+  const canSave = !isEdit || can("engagement.update");
   // BUG #0604-143: closing date (and the FY it derives) may be edited by Admin/Gerente/Socio/Director;
   // oficina/practica/funcion/engagement_code remain fully immutable after create.
-  const canEditClosing = isAdmin || isManager || isPartner || isDirector;
+  // Editar la fecha de cierre es parte de editar el encargo, así que se decide por
+  // el mismo permiso que habilita el guardado (`canSave`, más abajo). Antes era una
+  // banda del enum legacy (admin||manager||partner||director), que habilitaba el
+  // campo a roles sin `engagement.update`: veían el campo editable y después no
+  // tenían botón de guardar. No cambia lo que nadie PUEDE hacer — solo deja de
+  // ofrecer una edición que no se puede persistir.
+  const canEditClosing = can("engagement.update");
   // FEAT 0602-135: control del estado del encargo.
   // - Admin: control total (los 9 estados + "Automático").
   // - Gerente: solo congelar/descongelar (Aprobado ↔ Congelado), y solo cuando el encargo
   //   ya está Aprobado o Congelado. El resto de estados los gobierna la OT / el Admin.
-  const canManageEngagementState = isAdmin || isManager;
+  // (canManageEngagementState se define más abajo: necesita `staffRecord` para
+  //  resolver "el gerente DE ESTE encargo").
   const savedEffectiveState = engagement
     ? effectiveEngagementState(engagement, engagement.work_order)
     : null;
@@ -251,6 +272,17 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   const { data: allTaxonomies } = useTaxonomies();
   const { partnerOptions, managerOptions, hasPartnerCategory, hasManagerCategory, allActiveStaff } = useCategoryStaff();
   const { staffRecord } = useCurrentStaff();
+
+  // FEAT 0602-135 — congelar/descongelar. Decisión de negocio (2026-07-30): además
+  // del Admin, puede el GERENTE DE ESTE encargo, no cualquier usuario con rol
+  // Gerente. Antes era `isAdmin || isManager` sobre el enum legacy, que habilitaba
+  // el toggle a todo rol mapeado a `manager` (con el espejo de Fase 8 son siete:
+  // manager, ita/tax_manager, it_security_manager, accounting_manager, hr_manager
+  // y risk_supervisor) y sobre CUALQUIER encargo, no solo los suyos.
+  const isEngagementManager =
+    !!staffRecord?.staff_id && staffRecord.staff_id === engagement?.manager_id;
+  const canFreezeAsManager = can("engagement.update") && isEngagementManager;
+  const canManageEngagementState = isAdmin || canFreezeAsManager;
 
   const activeServiceOptions = useMemo(
     () => (allServices ?? []).filter((s) => s.is_active || s.code === engagement?.practica),
@@ -409,10 +441,41 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     }
   }, [engagement, clients, form, isDirty, closingDateOptions]);
 
-  // Report dirty state to parent
+  // Fase 5 (bugs/scheduler/fase_5/plan_v2.md §6): StaffAssignmentsCard tiene su propio ciclo de
+  // guardado (RPC directa) — el submit principal NUNCA lo ejecuta. Su dirty state SÍ participa
+  // del page-leave lock combinado que ya consume EngagementEdit vía onDirtyChange.
+  const [assignmentsDirty, setAssignmentsDirty] = useState(false);
+
+  // Report combined dirty state to parent
   useEffect(() => {
-    onDirtyChange?.(isDirty);
-  }, [isDirty, onDirtyChange]);
+    onDirtyChange?.(isDirty || assignmentsDirty);
+  }, [isDirty, assignmentsDirty, onDirtyChange]);
+
+  // Fase 5 O9: con assignments pendientes de guardar, cambiar servicio/fechas/partner/manager
+  // puede invalidar segmentos existentes o revocar el permiso de escritura del usuario. `practica`
+  // es inmutable en edición (omitida del payload de update) — sin advertencia de servicio.
+  // Fuera de Borrador (Pendiente)/Rechazado el Admin cambia sin advertencia; cualquier otro
+  // usuario recibe una advertencia (no bloqueante) al tocar fecha/partner/manager.
+  const [wPartnerId, wManagerId, wStartDate, wEndDate] = form.watch([
+    "partner_id",
+    "manager_id",
+    "start_date",
+    "end_date",
+  ]);
+  const structuralFieldsChanged =
+    isEdit &&
+    !!engagement &&
+    ((wPartnerId || "") !== (engagement.partner_id || "") ||
+      (wManagerId || "") !== (engagement.manager_id || "") ||
+      (!!wStartDate && !!engagement.start_date && format(wStartDate, "yyyy-MM-dd") !== engagement.start_date) ||
+      (!!wEndDate && !!engagement.end_date && format(wEndDate, "yyyy-MM-dd") !== engagement.end_date));
+  const showAssignmentsHeaderWarning =
+    isEdit &&
+    assignmentsDirty &&
+    structuralFieldsChanged &&
+    !isAdmin &&
+    savedEffectiveState !== EngagementState.Pendiente &&
+    savedEffectiveState !== EngagementState.Rechazado;
 
   // BUG #0604-143: derive Año Fiscal from the closing date in real time. Standard options
   // carry their full "yyyy-MM-dd" value; "Otro" carries its own picked date.
@@ -623,6 +686,15 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
             : {}),
         },
       });
+      // Fase 5 (plan_v2.md §6): con assignments sin guardar, el header nunca navega — el
+      // Engagement y los assignments no se presentan como una única transacción. Solo se
+      // resetea el baseline del FORM (limpia su propio isDirty); assignmentsDirty sigue
+      // gobernando el page-leave lock combinado hasta que el usuario guarde/descarte la card.
+      if (assignmentsDirty) {
+        form.reset(data);
+        toast.info(t("engagement.assignments.pendingChanges"));
+        return;
+      }
       if (onSaveSuccess) {
         onSaveSuccess();
       } else {
@@ -1027,7 +1099,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                       </FormItem>
                     )}
                   />
-                ) : isEdit && isManager ? (
+                ) : isEdit && canFreezeAsManager ? (
                   // Gerente: solo congelar/descongelar, habilitado únicamente cuando el encargo
                   // está Aprobado o Congelado. ON => override 9 (Congelado); OFF => Automático (vuelve a Aprobado).
                   <FormField
@@ -1419,7 +1491,33 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
               </div>
             </div>
 
-           
+            {/* Fase 5 (plan_v2.md §6): la administración de assignments SOLO se muestra para un
+                Engagement ya persistido — EngagementNew nunca renderiza esta sección. Guardado
+                independiente: la card tiene sus propios botones, el submit de arriba nunca la
+                toca. */}
+            {/* Fase 7 (plan v2 §B.4#4): con el flag apagado se omite la sección completa —
+                ambas ramas dependen del Scheduler, dejar solo el placeholder sería un
+                huérfano sin sentido. */}
+            {isSchedulerEnabled() && (isEdit && engagement ? (
+              <div className="border border-border bg-background/50 rounded-xl p-8 space-y-4">
+                <StaffAssignmentsCard engagement={engagement} onDirtyChange={setAssignmentsDirty} />
+                {showAssignmentsHeaderWarning && (
+                  <Alert>
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>
+                      {t("engagement.assignments.warnings.headerChangeWithPending")}
+                    </AlertDescription>
+                  </Alert>
+                )}
+              </div>
+            ) : (
+              <div className="border border-border bg-background/50 rounded-xl p-8">
+                <h3 className="font-medium text-lg">{t("engagement.assignments.title")}</h3>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {t("engagement.assignments.availableAfterSave")}
+                </p>
+              </div>
+            ))}
 
             {isAdmin && (
               <div className="border border-border bg-background/50 rounded-xl p-8">
@@ -1465,15 +1563,17 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
               <Button type="button" variant="cancel" onClick={() => onCancel ? onCancel() : navigate("/engagements")} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
                 {t("common.cancel")}
               </Button>
-              <LoadingButton
-                type="submit"
-                variant="default"
-                className="w-full sm:w-auto min-h-[44px] sm:min-h-0"
-                loading={createMutation.isPending || updateMutation.isPending}
-                disabled={hasMissingCategories && !isEdit}
-              >
-                {isEdit ? t("common.saveChanges") : t("engagement.createEngagement")}
-              </LoadingButton>
+              {canSave && (
+                <LoadingButton
+                  type="submit"
+                  variant="default"
+                  className="w-full sm:w-auto min-h-[44px] sm:min-h-0"
+                  loading={createMutation.isPending || updateMutation.isPending}
+                  disabled={hasMissingCategories && !isEdit}
+                >
+                  {isEdit ? t("common.saveChanges") : t("engagement.createEngagement")}
+                </LoadingButton>
+              )}
             </div>
           </form>
         </Form>

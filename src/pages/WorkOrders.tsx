@@ -25,7 +25,7 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Plus, Search, Sun, Snowflake, ArrowUpDown, ArrowUp, ArrowDown, Filter, ChevronDown } from "lucide-react";
 import { useWorkOrders, WorkOrder } from "@/hooks/useEmsData";
-import { useUserRole } from "@/hooks/useUserRole";
+import { useAuthorization } from "@/hooks/useAuthorization";
 import { useCategoryStaff } from "@/hooks/useCategoryStaff";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -63,8 +63,8 @@ const WorkOrders = () => {
   const navigate = useNavigate();
   const { data: workOrders, isLoading } = useWorkOrders();
   const { partnerOptions, managerOptions } = useCategoryStaff();
-  const { isAdmin, isPartner, isDirector, isManager } = useUserRole();
-  const canCreate = isAdmin || isPartner || isDirector || isManager;
+  const { can } = useAuthorization();
+  const canCreate = can("work_order.create");
   
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");

@@ -48,13 +48,26 @@ const mockServices = [
   { service_id: "s3", name: "Firmwide",   code: 0, allows_rates_activities: false, is_active: false, created_at: "" },
 ];
 
+// Stable references: a fresh [] literal on every call gives StaffAssignmentsCard's
+// reseed-while-clean effect a new `assignments` identity on every render (its dep array
+// includes it), triggering setDrafts/setBaseline in an infinite render loop.
+const stableClientList = [{ client_id: "client-1", client_legal_name: "Test Client", is_active: true }];
+const stableAssignments: never[] = [];
+const stableAggregatedReqs: never[] = [];
+const stableActiveStaff: never[] = [];
+const stableCategories: never[] = [];
 vi.mock("@/hooks/useEmsData", () => ({
   // Includes the client referenced by mockEngagement so the client Select can resolve a
   // matching SelectItem for full-submit tests (Radix Select can't retain a `value` that has
   // no corresponding item, which otherwise silently clears the field and fails validation).
-  useClients: () => ({ data: [{ client_id: "client-1", client_legal_name: "Test Client", is_active: true }] }),
+  useClients: () => ({ data: stableClientList }),
   useServices: () => ({ data: mockServices }),
   useTaxonomies: () => ({ data: [] }),
+  // Fase 5: EngagementForm now mounts StaffAssignmentsCard in edit mode, which pulls these.
+  useEngagementAssignments: () => ({ data: stableAssignments, isLoading: false, isError: false }),
+  useEngagementAggregatedRequirements: () => ({ data: stableAggregatedReqs }),
+  useActiveStaffWithSkills: () => ({ data: stableActiveStaff }),
+  useCategories: () => ({ data: stableCategories }),
 }));
 
 vi.mock("@/hooks/useCategoryStaff", () => ({
@@ -73,11 +86,27 @@ vi.mock("@/hooks/mutations", () => ({
   useCreateEngagement: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useUpdateEngagement: () => ({ mutateAsync: mockUpdateMutateAsync, isPending: false }),
   useDeleteEngagement: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useSaveEngagementAssignments: () => ({ saveAssignments: vi.fn(), isSaving: false }),
 }));
 
 let mockRole: { isAdmin: boolean; isManager?: boolean; isPartner?: boolean } = { isAdmin: false };
 vi.mock("@/hooks/useUserRole", () => ({
   useUserRole: () => mockRole,
+}));
+
+// EngagementForm deriva `isAdmin` de role_key (no del enum legacy), asi que el
+// roleKey de este mock es el que decide admin vs no-admin. Se ata al mismo
+// isAdmin que ya usaban estos tests para no cambiar lo que ejercitan.
+vi.mock("@/hooks/useAuthorization", () => ({
+  useAuthorization: () => ({
+    // `engagement.update` es lo que ahora gatea la fecha de cierre (y el guardado),
+    // así que se ata a la misma banda que estos tests ya modelaban con
+    // isAdmin/isManager. El resto de permisos se deja en true para no alterar
+    // lo que cada caso ejercita.
+    can: (key: string) =>
+      key === "engagement.update" ? !!(mockRole.isAdmin || mockRole.isManager) : true,
+    roleKey: mockRole.isAdmin ? "admin" : "manager",
+  }),
 }));
 
 vi.mock("@/hooks/useCurrentStaff", () => ({

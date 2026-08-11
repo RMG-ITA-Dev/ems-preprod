@@ -47,7 +47,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { supabase } from "@/integrations/supabase/client";
-import { useUserRole } from "@/hooks/useUserRole";
+import { useAuthorization } from "@/hooks/useAuthorization";
 import { useLanguage } from "@/hooks/useLanguage";
 import { DataTable, Column } from "@/components/data-table/DataTable";
 import { IndustryForm } from "@/components/forms/IndustryForm";
@@ -79,7 +79,24 @@ interface RpcUpdateResult {
 const Settings = () => {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
-  const { isAdmin } = useUserRole();
+  const { can, roleKey } = useAuthorization();
+  const isAdmin = roleKey === "admin";
+  // Visibilidad de tabs por permiso (Fase 5 · roles/permisos)
+  const canSkillsTab = can("competency.read");
+  const canSkillsWrite = can("competency.create");
+  // Los tabs se muestran por permiso de LECTURA y las acciones por el de escritura:
+  // la matriz da "Listar/Ver" de estos catálogos a muchos más roles que "Crear".
+  const canHolidaysTab = can("holiday.read");
+  const canIndustryTab = can("industry.read");
+  const canRatesTab = can("category_rate.read");
+  const canActivitiesTab = can("activity_code.read");
+  const canExpenseTab = can("expense_type.read");
+  const canRolesTab = can("user_role.read");
+  const canGlobalTab = can("global_settings.update");
+  const canIndustryWrite = can("industry.create");
+  const canRatesWrite = can("category_rate.create");
+  const canActivitiesWrite = can("activity_code.create");
+  const canExpenseWrite = can("expense_type.create");
   const { currentLanguage } = useLanguage();
   
   const { data: industries, isLoading: industriesLoading } = useIndustries();
@@ -745,17 +762,25 @@ const Settings = () => {
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList className="bg-muted">
           <TabsTrigger value="account">{t("settings.account")}</TabsTrigger>
-          <TabsTrigger value="industries">{t("settings.industries")}</TabsTrigger>
-          {isAdmin && (
+          {canIndustryTab && (
+            <TabsTrigger value="industries">{t("settings.industries")}</TabsTrigger>
+          )}
+          {canSkillsTab && (
             <TabsTrigger value="skills">{t("settings.skills")}</TabsTrigger>
           )}
-          <TabsTrigger value="rates">{t("settings.categoryRates")}</TabsTrigger>
-          <TabsTrigger value="activities">{t("settings.activityCodes")}</TabsTrigger>
-          <TabsTrigger value="expense-types">{t("settings.expenseTypes")}</TabsTrigger>
-          {isAdmin && (
+          {canRatesTab && (
+            <TabsTrigger value="rates">{t("settings.categoryRates")}</TabsTrigger>
+          )}
+          {canActivitiesTab && (
+            <TabsTrigger value="activities">{t("settings.activityCodes")}</TabsTrigger>
+          )}
+          {canExpenseTab && (
+            <TabsTrigger value="expense-types">{t("settings.expenseTypes")}</TabsTrigger>
+          )}
+          {canHolidaysTab && (
             <TabsTrigger value="holidays">{t("settings.holidays")}</TabsTrigger>
           )}
-          {isAdmin && (
+          {canRolesTab && (
             <TabsTrigger value="roles">{t("settings.userRoles")}</TabsTrigger>
           )}
           {isAdmin && (
@@ -764,7 +789,7 @@ const Settings = () => {
           {isAdmin && (
             <TabsTrigger value="taxonomies">{t("settings.taxonomies")}</TabsTrigger>
           )}
-          {isAdmin && (
+          {canGlobalTab && (
             <TabsTrigger value="global">{t("settings.globalSettings")}</TabsTrigger>
           )}
         </TabsList>
@@ -780,9 +805,9 @@ const Settings = () => {
             searchPlaceholder={t("common.search")}
             searchKeys={["industry_name"]}
             isLoading={industriesLoading}
-            newButtonLabel={isAdmin ? t("industry.newIndustry") : undefined}
-            onNewClick={isAdmin ? () => { setSelectedIndustry(null); setIndustryFormOpen(true); } : undefined}
-            onRowClick={isAdmin ? (row) => { setSelectedIndustry(row); setIndustryFormOpen(true); } : undefined}
+            newButtonLabel={canIndustryWrite ? t("industry.newIndustry") : undefined}
+            onNewClick={canIndustryWrite ? () => { setSelectedIndustry(null); setIndustryFormOpen(true); } : undefined}
+            onRowClick={canIndustryWrite ? (row) => { setSelectedIndustry(row); setIndustryFormOpen(true); } : undefined}
             getRowId={(row) => row.industry_id}
           />
           <IndustryForm
@@ -792,7 +817,7 @@ const Settings = () => {
           />
         </TabsContent>
 
-        {isAdmin && (
+        {canSkillsTab && (
           <TabsContent value="skills" className="space-y-6">
             <DataTable
               data={skills || []}
@@ -800,9 +825,9 @@ const Settings = () => {
               searchPlaceholder={t("common.search")}
               searchKeys={["name", "category"]}
               isLoading={skillsLoading}
-              newButtonLabel={t("skill.newSkill")}
-              onNewClick={() => { setSelectedSkill(null); setSkillFormOpen(true); }}
-              onRowClick={(row) => { setSelectedSkill(row); setSkillFormOpen(true); }}
+              newButtonLabel={canSkillsWrite ? t("skill.newSkill") : undefined}
+              onNewClick={canSkillsWrite ? () => { setSelectedSkill(null); setSkillFormOpen(true); } : undefined}
+              onRowClick={canSkillsWrite ? (row) => { setSelectedSkill(row); setSkillFormOpen(true); } : undefined}
               getRowId={(row) => row.skill_id}
               statusFilter={{
                 key: "is_active",
@@ -837,7 +862,7 @@ const Settings = () => {
                 </SelectContent>
               </Select>
             </div>
-            {isAdmin && (
+            {canRatesWrite && (
               <Button
                 type="button"
                 variant="outline"
@@ -855,9 +880,9 @@ const Settings = () => {
             searchPlaceholder={t("common.search")}
             searchKeys={["category_name"]}
             isLoading={categoriesLoading}
-            newButtonLabel={isAdmin ? t("category.newCategory") : undefined}
-            onNewClick={isAdmin ? () => { setSelectedCategory(null); setCategoryFormOpen(true); } : undefined}
-            onRowClick={isAdmin ? (row) => { setSelectedCategory(row); setCategoryFormOpen(true); } : undefined}
+            newButtonLabel={canRatesWrite ? t("category.newCategory") : undefined}
+            onNewClick={canRatesWrite ? () => { setSelectedCategory(null); setCategoryFormOpen(true); } : undefined}
+            onRowClick={canRatesWrite ? (row) => { setSelectedCategory(row); setCategoryFormOpen(true); } : undefined}
             getRowId={(row) => row.category_id}
           />
           <CategoryForm
@@ -952,9 +977,9 @@ const Settings = () => {
             searchPlaceholder={t("common.search")}
             searchKeys={["activity_code", "description"]}
             isLoading={activitiesLoading}
-            newButtonLabel={isAdmin ? t("activity.newActivity") : undefined}
-            onNewClick={isAdmin && activityServiceId ? () => { setSelectedActivity(null); setActivityFormOpen(true); } : undefined}
-            onRowClick={isAdmin ? (row) => { setSelectedActivity(row); setActivityFormOpen(true); } : undefined}
+            newButtonLabel={canActivitiesWrite ? t("activity.newActivity") : undefined}
+            onNewClick={canActivitiesWrite && activityServiceId ? () => { setSelectedActivity(null); setActivityFormOpen(true); } : undefined}
+            onRowClick={canActivitiesWrite ? (row) => { setSelectedActivity(row); setActivityFormOpen(true); } : undefined}
             getRowId={(row) => row.activity_id}
             statusFilter={{
               key: "is_active",
@@ -979,9 +1004,9 @@ const Settings = () => {
             searchPlaceholder={t("common.search")}
             searchKeys={["expense_name"]}
             isLoading={expenseTypesLoading}
-            newButtonLabel={isAdmin ? t("expense.newExpenseType") : undefined}
-            onNewClick={isAdmin ? () => { setSelectedExpenseType(null); setExpenseTypeFormOpen(true); } : undefined}
-            onRowClick={isAdmin ? (row) => { setSelectedExpenseType(row); setExpenseTypeFormOpen(true); } : undefined}
+            newButtonLabel={canExpenseWrite ? t("expense.newExpenseType") : undefined}
+            onNewClick={canExpenseWrite ? () => { setSelectedExpenseType(null); setExpenseTypeFormOpen(true); } : undefined}
+            onRowClick={canExpenseWrite ? (row) => { setSelectedExpenseType(row); setExpenseTypeFormOpen(true); } : undefined}
             getRowId={(row) => row.expense_type_id}
           />
           <ExpenseTypeForm
@@ -991,13 +1016,13 @@ const Settings = () => {
           />
         </TabsContent>
 
-        {isAdmin && (
+        {canRolesTab && (
           <TabsContent value="roles" className="space-y-6">
             <UserRolesManager />
           </TabsContent>
         )}
 
-        {isAdmin && (
+        {canGlobalTab && (
           <TabsContent value="global" className="space-y-6">
             <Card>
               <CardHeader>
@@ -1299,7 +1324,7 @@ const Settings = () => {
           </TabsContent>
         )}
 
-        {isAdmin && (
+        {canHolidaysTab && (
           <TabsContent value="holidays" className="space-y-6">
             <HolidaysManager />
           </TabsContent>

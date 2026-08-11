@@ -1,0 +1,16 @@
+=== CI run 31067557732 — Scheduler Integrity — Fase 2 — dev-scheduler-fase_7 ===
+Estado final: TODOS los jobs pasaron
+
+rls-migration-tests: PASS (28s)
+route-parity: PASS (3m52s), incluye el Gate Ruta A <-> Ruta C
+
+URL: https://github.com/sruizmier/aurora-engage-pro-908f8234/actions/runs/31067557732
+
+=== 4 bugs preexistentes de CI encontrados y corregidos en el camino (runs previos) ===
+1. run 31064253621 / 31066798093 - supabase start auto-aplica migraciones: ERROR: Expected category "Socio" not found
+2. run 31066798093 - columna is_active faltante en el shim: ERROR: column "is_active" does not exist
+3. run 31067143037 - pg_dump 16 vs server 17.6: pg_dump: error: aborting because of server version mismatch
+4. run 31067143037 - filtro restrict/unrestrict posicional, falso positivo de divergencia de esquema
+
+Ninguno de los 4 fue causado por el codigo de Fase 7 - confirmado comparando contra runs anteriores
+en dev-scheduler/fase_5/fase_6 (misma falla, mismo punto exacto, antes de que existiera esta fase).

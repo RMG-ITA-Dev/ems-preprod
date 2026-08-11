@@ -1,40 +1,50 @@
 import { useMemo } from 'react';
-import { useCurrentStaff } from '@/hooks/useCurrentStaff';
+import { useAuthorization } from '@/hooks/useAuthorization';
 import { DashboardTab } from '@/contexts/DashboardContext';
 
+/**
+ * Acceso a los tabs del Panel de Control.
+ *
+ * FASE 3 (Opción C): ahora se decide por ROL/PERMISO (vía `useAuthorization`),
+ * NO por la categoría del staff (`category.display_order`). Cada tab se gobierna
+ * por su permiso `dashboard.*`. Esto elimina la divergencia rol vs categoría
+ * documentada en `docs/explicacion-permisos.md`.
+ *
+ * La forma del retorno se mantiene para no romper a los consumidores
+ * (`Index.tsx`, `EngagementSelector.tsx`).
+ */
+
+const TAB_PERMISSION: Record<DashboardTab, string> = {
+  practica: 'dashboard.practice_financials.read',
+  cartera: 'dashboard.portfolio.read',
+  encargo: 'dashboard.engagement.read',
+  personal: 'dashboard.personal.read',
+};
+
+// Orden de privilegio (más amplio primero) para elegir el tab por defecto.
+const TAB_ORDER: DashboardTab[] = ['practica', 'cartera', 'encargo', 'personal'];
+
 interface DashboardAccess {
-  // Which tabs the user can see
   allowedTabs: DashboardTab[];
-  
-  // Default tab for this user
   defaultTab: DashboardTab;
-  
-  // Role indicators
-  isPartner: boolean;      // display_order <= 2 (Partner/Director)
-  isManager: boolean;      // display_order <= 4 (Manager/Supervisor)
-  isStaff: boolean;        // display_order > 4 (Staff/Senior/Junior)
-  
-  // Helper to check if a tab is allowed
+
+  /** Ve TODOS los encargos (alcance `firm` en el dashboard de encargo). */
+  isPartner: boolean;
+  /** Ve el dashboard de encargo (por asignación o firm). */
+  isManager: boolean;
+  /** No ve el dashboard de encargo. */
+  isStaff: boolean;
+
   canAccessTab: (tab: DashboardTab) => boolean;
-  
-  // Loading state
   isLoading: boolean;
 }
 
-/**
- * Hook to determine dashboard tab access based on user's staff category
- * 
- * Access rules:
- * - Partner/Director (display_order ≤ 2): All tabs [Práctica, Cartera, Encargo, Personal]
- * - Manager/Supervisor (display_order ≤ 4): [Cartera, Encargo, Personal]
- * - Staff/Senior/Junior (display_order > 4): [Encargo, Personal]
- */
 export function useDashboardAccess(): DashboardAccess {
-  const { staffRecord, isLoading } = useCurrentStaff();
-  
+  const { can, scope, isLoading } = useAuthorization();
+
   return useMemo(() => {
-    // Default to most restrictive access while loading
-    if (isLoading || !staffRecord) {
+    // Mientras carga, acceso mínimo (fail-closed).
+    if (isLoading) {
       return {
         allowedTabs: ['personal'] as DashboardTab[],
         defaultTab: 'personal' as DashboardTab,
@@ -42,49 +52,27 @@ export function useDashboardAccess(): DashboardAccess {
         isManager: false,
         isStaff: true,
         canAccessTab: (tab: DashboardTab) => tab === 'personal',
-        isLoading,
+        isLoading: true,
       };
     }
-    
-    const displayOrder = staffRecord.category?.display_order ?? 999;
-    
-    // Partner/Director: display_order ≤ 2
-    const isPartner = displayOrder <= 2;
-    
-    // Manager/Supervisor: display_order ≤ 4 (includes partners)
-    const isManager = displayOrder <= 4;
-    
-    // Staff level: display_order > 4
-    const isStaff = displayOrder > 4;
-    
-    // Determine allowed tabs based on role
-    let allowedTabs: DashboardTab[];
-    let defaultTab: DashboardTab;
-    
-    if (isPartner) {
-      // Partners see all tabs, default to firm-wide view
-      allowedTabs = ['practica', 'cartera', 'encargo', 'personal'];
-      defaultTab = 'practica';
-    } else if (isManager) {
-      // Managers see portfolio and below, default to portfolio
-      allowedTabs = ['cartera', 'encargo', 'personal'];
-      defaultTab = 'cartera';
-    } else {
-      // Staff see engagement and personal, default to personal
-      allowedTabs = ['encargo', 'personal'];
-      defaultTab = 'personal';
-    }
-    
-    const canAccessTab = (tab: DashboardTab) => allowedTabs.includes(tab);
-    
+
+    const allowedTabs = TAB_ORDER.filter((tab) => can(TAB_PERMISSION[tab]));
+    // Piso de seguridad: si no hay ninguno resoluble, dejamos "personal".
+    const effectiveTabs = allowedTabs.length ? allowedTabs : (['personal'] as DashboardTab[]);
+    const defaultTab = effectiveTabs[0];
+
+    const isPartner = scope('dashboard.engagement.read') === 'firm';
+    const isManager = can('dashboard.engagement.read');
+    const isStaff = !isManager;
+
     return {
-      allowedTabs,
+      allowedTabs: effectiveTabs,
       defaultTab,
       isPartner,
       isManager,
       isStaff,
-      canAccessTab,
-      isLoading,
+      canAccessTab: (tab: DashboardTab) => effectiveTabs.includes(tab),
+      isLoading: false,
     };
-  }, [staffRecord, isLoading]);
+  }, [can, scope, isLoading]);
 }

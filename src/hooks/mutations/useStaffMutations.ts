@@ -60,10 +60,14 @@ export function useCreateStaff() {
       hire_date?: string | null;
       termination_date?: string | null;
     }) => {
+      // `.select()` devolvía * e incluía columnas cuyo SELECT está revocado a
+      // `authenticated` (id_number, aud_reg_number — ver 20260730080000), así que
+      // el RETURNING fallaba con 42501. Solo se necesita el id para vincular las
+      // competencias, no la fila completa.
       const { data: result, error } = await supabase
         .from("staff")
         .insert(data)
-        .select()
+        .select("staff_id")
         .single();
       if (error) throw error;
       return result;
@@ -100,11 +104,12 @@ export function useUpdateStaff() {
         termination_date: string | null;
       }>;
     }) => {
+      // Idem insert: se acota el RETURNING a una columna legible.
       const { data: result, error } = await supabase
         .from("staff")
         .update(data)
         .eq("staff_id", id)
-        .select()
+        .select("staff_id")
         .single();
       if (error) throw error;
       return result;

@@ -56,6 +56,10 @@ vi.mock("@/hooks/useUserRole", () => ({
   useUserRole: () => ({ isAdmin: true }),
 }));
 
+vi.mock("@/hooks/useAuthorization", () => ({
+  useAuthorization: () => ({ can: () => true, roleKey: "admin" }),
+}));
+
 vi.mock("@/hooks/mutations", () => ({
   useUpdateGlobalSetting: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useCreateService: () => ({ mutateAsync: vi.fn(), isPending: false }),

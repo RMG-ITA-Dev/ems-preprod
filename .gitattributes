@@ -1,0 +1,6 @@
+# Scheduler SVAR vendor bundle (Fase 3): committed byte-exact, hash-verified by
+# tools/vendor/svar-gantt/verify.mjs. core.autocrlf=true corrupts these on checkout
+# (LF -> CRLF), breaking the integrity hashes. Force "as-is" for these paths only.
+src/components/scheduler/vendor/svar-gantt/** -text
+tools/vendor/svar-gantt/** -text
+tools/scheduler-fixture/** -text

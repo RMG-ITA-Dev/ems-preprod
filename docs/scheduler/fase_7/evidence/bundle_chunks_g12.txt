@@ -1,0 +1,45 @@
+G12 — Bundle/chunks (npm run build), capturado contra .env.local -> "Test" (VITE_SCHEDULER_ENABLED=true)
+Fecha: 2026-08-06. Build reproducido 2 veces, mismos números ambas veces (no hay
+no-determinismo de Rollup en este caso).
+
+Chunks del Scheduler:
+  SchedulerL1-D5rbYB1U.js     9.62 kB  | gzip  3.57 kB
+  SchedulerL2-CtcJxQEX.js    25.12 kB  | gzip  8.08 kB
+  SchedulerStaff-DxGGDgfE.js 13.27 kB  | gzip  4.58 kB
+  SchedulerGaps-Ds-3XIfX.js  23.45 kB  | gzip  6.87 kB
+
+Chunk portador de SVAR (Gantt):
+  GanttCanvas-CK0SyoRn.js   264.32 kB  | gzip 87.57 kB
+
+Bundle principal:
+  index-htcIvfJY.js       1,034.37 kB  | gzip 303.14 kB
+
+Comparación contra la tabla de G2 (docs/scheduler/fase_7/scheduler-fase-7-verificacion.md §2,
+capturada contra el .env trackeado -> proyecto Lovable):
+  SchedulerL1:    9.67 kB -> 9.62 kB  (-0.05, ruido)
+  SchedulerL2:   30.92 kB -> 25.12 kB (-5.80, ver nota)
+  SchedulerStaff:13.27 kB -> 13.27 kB (idéntico)
+  SchedulerGaps: 23.50 kB -> 23.45 kB (-0.05, ruido)
+  index-*.js: 1,032.13 kB -> 1,034.37 kB (+2.24, ruido; gzip 303.03 -> 303.14, +0.11)
+
+Nota sobre SchedulerL2: única diferencia fuera de ruido. Explicación más probable: la anon key
+inlineada en build time cambió de formato JWT largo (~200+ caracteres, proyecto Lovable) a
+formato corto `sb_publishable_...` (~40 caracteres, proyecto "Test") -- mismo código fuente en
+ambos builds, ningún archivo de src/ cambió entre una captura y la otra. No se investigó más a
+fondo porque (a) es una reducción, no un crecimiento, y (b) el código fuente es idéntico -- no
+hay riesgo de regresión que este número pueda estar ocultando.
+
+Verificaciones estáticas (§12):
+- `grep -l 'wx-aaad' dist/assets/*.js` -> solo GanttCanvas-CK0SyoRn.js (SVAR aislado a un único
+  chunk, no está duplicado en ningún otro).
+- Chunk de entrada (`assets/index-htcIvfJY.js`, resuelto desde dist/index.html): 0 ocurrencias de
+  'wx-aaad' -> SVAR no está en el bundle inicial.
+- `ls dist/assets/*.map`: vacío -> sourcemaps off en build de producción, como se esperaba.
+- `du -sh dist/assets`: 3.3M total.
+- Chunk de FundRequest (`FundRequestExpenses-B8JPquyy.js`, el más pesado del grupo): 34.12 kB |
+  gzip 8.97 kB -- sin cambios de comportamiento esperados (Fase 7 no tocó FundRequests).
+
+Pendiente (requiere browser real, no automatizable desde build):
+- DevTools -> Network -> filtro JS: cargar `/`, `/engagements`, `/timesheet` y confirmar que el
+  hash de GanttCanvas-CK0SyoRn.js NO se solicita; cargar `/scheduler` y confirmar que se solicita
+  exactamente una vez.

@@ -1,0 +1,249 @@
+/* Phase 4 — EMS ↔ SVAR theme bridge (plan §1.4).
+ *
+ * Imported by GanttCanvas.tsx AFTER the vendored svar-gantt.es.css so EMS
+ * wins ties. Targets ONLY stable `.wx-*` semantic classes and `--wx-*`
+ * variables — never build-scoped hash classes (wx-aad…), which change on
+ * every vendor rebuild.
+ *
+ * The vendored bundle ships the gantt-level Willow variables but NOT the
+ * react-core base tokens (react-core's CSS carries remote @font-face rules
+ * and is deliberately excluded — style.css baseline, §1.5). This bridge
+ * therefore DEFINES the base tokens for both themes, mapped to Ruizmier
+ * tokens from src/index.css. No raw HEX anywhere.
+ *
+ * Icons: with fonts={false} + transform T1 the SVAR icon font (wxi) never
+ * loads. The handful of glyphs the exported core can render are overridden
+ * with local inline-SVG data URIs drawn from Lucide (ISC — see
+ * LICENSES/lucide.txt) via currentColor masks.
+ */
+
+/* ── Base tokens (react-core contract) — light + dark ─────────────────── */
+
+.wx-willow-theme,
+.wx-willow-dark-theme {
+  --wx-font-family: var(--app-font), ui-sans-serif, system-ui, sans-serif;
+  --wx-font-size: 0.8125rem;
+  --wx-font-size-sm: 0.75rem;
+  --wx-font-weight: 400;
+  --wx-font-weight-md: 500;
+  --wx-header-font-weight: 500;
+  --wx-icon-size: 18px;
+  --wx-scrollbar-width: 12px;
+  --wx-body-offset: 0px;
+
+  --wx-background: hsl(var(--card));
+  --wx-background-alt: hsl(var(--muted));
+  --wx-color-font: hsl(var(--foreground));
+  --wx-color-font-disabled: hsl(var(--muted-foreground));
+  --wx-color-secondary-font: hsl(var(--muted-foreground));
+  --wx-color-primary: hsl(var(--primary));
+  --wx-color-link: hsl(var(--primary));
+  --wx-color-danger: hsl(var(--destructive));
+  --wx-border: 1px solid hsl(var(--border));
+  --wx-icon-color: hsl(var(--muted-foreground));
+  --wx-slider-primary: hsl(var(--primary));
+  --wx-slider-background: hsl(var(--muted));
+
+  /* ── Gantt-level overrides (Ruizmier, both themes) ── */
+  --wx-gantt-border-color: hsl(var(--border));
+  --wx-gantt-border: 1px solid hsl(var(--border));
+  --wx-gantt-icon-color: hsl(var(--muted-foreground));
+  --wx-gantt-bar-border-radius: calc(var(--radius) - 2px);
+  --wx-gantt-bar-shadow: none;
+  --wx-gantt-select-color: hsl(var(--muted) / 0.5);
+  --wx-gantt-holiday-background: hsl(var(--muted) / 0.3);
+  --wx-gantt-holiday-color: hsl(var(--muted-foreground));
+  --wx-gantt-task-color: hsl(var(--muted));
+  --wx-gantt-task-font-color: hsl(var(--foreground));
+  --wx-gantt-task-fill-color: hsl(var(--muted-foreground) / 0.35);
+  --wx-gantt-task-border-color: hsl(var(--border));
+  --wx-gantt-link-color: hsl(var(--muted-foreground));
+  --wx-gantt-link-color-hovered: hsl(var(--foreground));
+  --wx-gantt-link-marker-background: hsl(var(--muted));
+  --wx-gantt-link-marker-color: hsl(var(--muted-foreground));
+  --wx-gantt-progress-border-color: hsl(var(--border));
+  --wx-grid-body-row-border: 1px solid hsl(var(--border));
+  --wx-timescale-border: 1px solid hsl(var(--border));
+  --wx-timescale-font-color: hsl(var(--muted-foreground));
+  --wx-grid-header-font-color: hsl(var(--muted-foreground));
+  --wx-grid-header-text-transform: none;
+}
+
+/* ── EMS bar types: engagement status (L1, §1.4 bridge table) ─────────── */
+
+.sch-gantt .wx-bar.ems-status-active {
+  background: hsl(var(--success) / 0.15);
+  border: 1px solid hsl(var(--success));
+  color: hsl(var(--foreground));
+}
+.sch-gantt .wx-bar.ems-status-pending {
+  background: hsl(var(--warning) / 0.15);
+  border: 1px solid hsl(var(--warning));
+  color: hsl(var(--foreground));
+}
+.sch-gantt .wx-bar.ems-status-completed {
+  background: hsl(var(--muted) / 0.4);
+  border: 1px solid hsl(var(--border));
+  color: hsl(var(--muted-foreground));
+}
+.sch-gantt .wx-bar.ems-status-cancelled {
+  background: hsl(var(--muted) / 0.25);
+  border: 1px dashed hsl(var(--border));
+  color: hsl(var(--muted-foreground));
+}
+/* Fase 3 (plan v2 §1): estado efectivo 9 Congelado — bucket nuevo, sin
+   equivalente en el enum legacy de 4 valores. Mismo token que el badge de
+   texto (engagementStateBadgeClass en engagementStatus.ts: bg-info/…). */
+.sch-gantt .wx-bar.ems-status-frozen {
+  background: hsl(var(--info) / 0.15);
+  border: 1px dashed hsl(var(--info));
+  color: hsl(var(--foreground));
+}
+
+/* ── EMS bar types: L2 staff load + leadership identity (D2) ──────────── */
+
+.sch-gantt .wx-bar.ems-load-1 {
+  background: hsl(var(--success) / 0.15);
+  border: 1px solid hsl(var(--success));
+  color: hsl(var(--foreground));
+}
+.sch-gantt .wx-bar.ems-load-2 {
+  background: hsl(var(--warning) / 0.15);
+  border: 1px solid hsl(var(--warning));
+  color: hsl(var(--foreground));
+}
+.sch-gantt .wx-bar.ems-load-4 {
+  background: hsl(var(--destructive) / 0.15);
+  border: 1px solid hsl(var(--destructive));
+  color: hsl(var(--foreground));
+}
+.sch-gantt .wx-bar.ems-leader-manager {
+  background: hsl(var(--brand-purple) / 0.15);
+  border: 1px solid hsl(var(--brand-purple));
+  color: hsl(var(--foreground));
+}
+/* Phase 7b (D-P7-19): out-of-scope engagement on the Employee Gantt —
+   purple context row, informational only (no navigation). */
+.sch-gantt .wx-bar.ems-out-of-scope {
+  background: hsl(var(--brand-purple) / 0.15);
+  border: 1px dashed hsl(var(--brand-purple));
+  color: hsl(var(--foreground));
+}
+.sch-gantt .wx-bar.ems-leader-firm {
+  background: hsl(var(--brand-teal) / 0.15);
+  border: 1px solid hsl(var(--brand-teal));
+  color: hsl(var(--foreground));
+}
+.sch-gantt .wx-bar.ems-neutral {
+  background: hsl(var(--muted));
+  border: 1px solid hsl(var(--border));
+  color: hsl(var(--foreground));
+}
+
+/* Keyboard a11y floor (§7): visible focus on bars. */
+.sch-gantt .wx-bar:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 1px;
+}
+
+/* ── Weekend cells (weeks zoom; highlightTime → sch-weekend) ──────────── */
+
+.sch-gantt .sch-weekend {
+  background: hsl(var(--muted) / 0.3);
+}
+
+/* ── EMS Today line (I-9; SVAR markers are PRO-gated) ─────────────────── */
+
+.sch-gantt .sch-today-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: hsl(var(--brand-teal));
+  pointer-events: none;
+  z-index: 5;
+}
+
+/* ── wxi icon-font overrides → local Lucide SVG masks (ISC) ───────────── */
+
+.sch-gantt [class*="wxi-"]::before {
+  content: "";
+  display: inline-block;
+  width: var(--wx-icon-size, 18px);
+  height: var(--wx-icon-size, 18px);
+  background-color: currentColor;
+  vertical-align: middle;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
+/* Lucide chevron-down */
+.sch-gantt .wxi-angle-down::before {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+}
+/* Lucide chevron-right */
+.sch-gantt .wxi-angle-right::before {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E");
+}
+/* Lucide chevrons-left (grid collapse toggle) */
+.sch-gantt .wxi-menu-left::before {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m11 17-5-5 5-5'/%3E%3Cpath d='m18 17-5-5 5-5'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m11 17-5-5 5-5'/%3E%3Cpath d='m18 17-5-5 5-5'/%3E%3C/svg%3E");
+}
+/* Lucide chevrons-right (grid expand toggle) */
+.sch-gantt .wxi-menu-right::before {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 17 5-5-5-5'/%3E%3Cpath d='m13 17 5-5-5-5'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 17 5-5-5-5'/%3E%3Cpath d='m13 17 5-5-5-5'/%3E%3C/svg%3E");
+}
+/* Lucide chevron-left */
+.sch-gantt .wxi-angle-left::before {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m15 18-6-6 6-6'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m15 18-6-6 6-6'/%3E%3C/svg%3E");
+}
+/* Lucide x */
+.sch-gantt .wxi-close::before {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M18 6 6 18'/%3E%3Cpath d='m6 6 12 12'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M18 6 6 18'/%3E%3Cpath d='m6 6 12 12'/%3E%3C/svg%3E");
+}
+/* Lucide grip-vertical */
+.sch-gantt .wxi-drag::before {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black' stroke='none'%3E%3Ccircle cx='9' cy='5' r='1.5'/%3E%3Ccircle cx='9' cy='12' r='1.5'/%3E%3Ccircle cx='9' cy='19' r='1.5'/%3E%3Ccircle cx='15' cy='5' r='1.5'/%3E%3Ccircle cx='15' cy='12' r='1.5'/%3E%3Ccircle cx='15' cy='19' r='1.5'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black' stroke='none'%3E%3Ccircle cx='9' cy='5' r='1.5'/%3E%3Ccircle cx='9' cy='12' r='1.5'/%3E%3Ccircle cx='9' cy='19' r='1.5'/%3E%3Ccircle cx='15' cy='5' r='1.5'/%3E%3Ccircle cx='15' cy='12' r='1.5'/%3E%3Ccircle cx='15' cy='19' r='1.5'/%3E%3C/svg%3E");
+}
+/* Lucide arrow-up-down (sort) */
+.sch-gantt .wxi-swap-vertical::before {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m21 16-4 4-4-4'/%3E%3Cpath d='M17 20V4'/%3E%3Cpath d='m3 8 4-4 4 4'/%3E%3Cpath d='M7 4v16'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m21 16-4 4-4-4'/%3E%3Cpath d='M17 20V4'/%3E%3Cpath d='m3 8 4-4 4 4'/%3E%3Cpath d='M7 4v16'/%3E%3C/svg%3E");
+}
+/* Lucide plus */
+.sch-gantt .wxi-plus::before {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12h14'/%3E%3Cpath d='M12 5v14'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12h14'/%3E%3Cpath d='M12 5v14'/%3E%3C/svg%3E");
+}
+
+/* ── Container ─────────────────────────────────────────────────────────── */
+
+.sch-gantt-host {
+  height: 100%;
+  min-height: 320px;
+}
+.sch-gantt-host > .wx-theme {
+  height: 100%;
+}
+.sch-gantt {
+  position: relative;
+  height: 100%;
+  min-height: 320px;
+}
+.sch-gantt .wx-gantt {
+  font-family: var(--wx-font-family);
+}
+/* Positioning context for the portaled Today line (scrolls with content). */
+.sch-gantt .wx-area {
+  position: relative;
+}

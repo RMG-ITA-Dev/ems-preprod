@@ -13,6 +13,8 @@ import {
   UserX,
   Wallet,
   Banknote,
+  CalendarRange,
+  ChartColumnDecreasing,
 } from "lucide-react";
 import {
   Drawer,
@@ -23,8 +25,10 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/useAuth";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
-import { useUserRole } from "@/hooks/useUserRole";
+import { useAuthorization } from "@/hooks/useAuthorization";
 import { useManagesAnyOt } from "@/hooks/useFundRequests";
+import { canSeeGaps, canSeePlanning } from "@/lib/schedulerAccess";
+import { isSchedulerEnabled } from "@/lib/schedulerFeature";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
 
 interface MobileMoreDrawerProps {
@@ -32,17 +36,27 @@ interface MobileMoreDrawerProps {
   onOpenChange: (open: boolean) => void;
 }
 
+interface DrawerNavItem {
+  path: string;
+  icon: typeof Users;
+  labelKey: string;
+  show: boolean;
+}
+
 export function MobileMoreDrawer({ open, onOpenChange }: MobileMoreDrawerProps) {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const { user, signOut } = useAuth();
   const { data: staffRecord } = useCurrentStaff();
-  const { isAdmin, isPartner, isDirector, isManager } = useUserRole();
+  const { can, roleKey } = useAuthorization();
+  const isAdmin = roleKey === "admin";
   const { data: managesAnyOt } = useManagesAnyOt(staffRecord?.staff_id);
-  // El gerente de OT puede ser un Senior (sin rol de app manager): se incluye si
-  // gestiona al menos una OT, para que vea el link de aprobaciones.
-  const canApproveFunds =
-    isAdmin || isPartner || isDirector || isManager || !!managesAnyOt;
+  // Fase 3 — Scheduler: mismos predicados que AppSidebar/App.tsx
+  // (src/lib/schedulerAccess.ts). Fuente del rol: role_key (no el enum
+  // legacy) — ver el comentario de cabecera de schedulerAccess.ts.
+  const schedulerEnabled = isSchedulerEnabled();
+  const canSeeSchedulerPlanning = schedulerEnabled && canSeePlanning(roleKey);
+  const canSeeSchedulerGaps = schedulerEnabled && canSeeGaps(roleKey);
 
   const userInitials = staffRecord?.initials
     ? staffRecord.initials
@@ -68,40 +82,67 @@ export function MobileMoreDrawer({ open, onOpenChange }: MobileMoreDrawerProps) 
     onOpenChange(false);
   };
 
-  const mainItems = [
-    { path: "/clients", icon: Users, labelKey: "nav.clients" },
-    { path: "/engagements", icon: Briefcase, labelKey: "nav.engagements" },
-    { path: "/worksheets", icon: FileSpreadsheet, labelKey: "nav.worksheets" },
-    { path: "/work-orders", icon: ClipboardList, labelKey: "nav.workOrders" },
-  ];
+  // FASE 5: cada ítem por permiso; aprobación de fondos conserva acceso relacional.
+  const mainItems: DrawerNavItem[] = [
+    { path: "/clients", icon: Users, labelKey: "nav.clients", show: can("client.read") },
+    { path: "/engagements", icon: Briefcase, labelKey: "nav.engagements", show: can("engagement.read") },
+    { path: "/worksheets", icon: FileSpreadsheet, labelKey: "nav.worksheets", show: can("worksheet.read") },
+    { path: "/work-orders", icon: ClipboardList, labelKey: "nav.workOrders", show: can("work_order.read") },
+  ].filter((i) => i.show);
 
-  const operationsItems = [
-    { path: "/timesheet/approvals", icon: CheckSquare, labelKey: "nav.timesheetApprovals" },
-    { path: "/fund-requests", icon: Wallet, labelKey: "nav.fundRequests" },
-    ...(canApproveFunds
-      ? [
-          {
-            path: "/fund-requests/approvals",
-            icon: CheckSquare,
-            labelKey: "nav.fundRequestApprovals",
-          },
-        ]
-      : []),
-    ...(isAdmin
-      ? [
-          {
-            path: "/fund-requests/disbursements",
-            icon: Banknote,
-            labelKey: "nav.fundRequestDisbursements",
-          },
-        ]
-      : []),
-  ];
+  const operationsItems: DrawerNavItem[] = [
+    { path: "/timesheet/approvals", icon: CheckSquare, labelKey: "nav.timesheetApprovals", show: can("timesheet_approval.read") },
+    { path: "/fund-requests", icon: Wallet, labelKey: "nav.fundRequests", show: can("fund_request.read") },
+    { path: "/fund-requests/approvals", icon: CheckSquare, labelKey: "nav.fundRequestApprovals", show: can("fund_approval.read") || !!managesAnyOt },
+    { path: "/fund-requests/disbursements", icon: Banknote, labelKey: "nav.fundRequestDisbursements", show: can("fund_disbursement.read") },
+  ].filter((i) => i.show);
 
-  const adminItems = [
-    { path: "/staff", icon: UserCog, labelKey: "nav.staff" },
-    { path: "/settings", icon: Settings, labelKey: "nav.settings" },
-  ];
+  // Mismo predicado que AppSidebar.tsx — la matriz no puede divergir entre sidebar y drawer
+  // (plan_merge_sche_rolper.md §G2). `account.password.change` es el permiso que la matriz da a
+  // los 23 roles: sin él, cualquier rol de solo-lectura pierde su única forma de llegar al tab de
+  // Cuenta para cambiar su contraseña.
+  const canSeeSettings =
+    isAdmin ||
+    can("account.password.change") ||
+    can("industry.read") ||
+    can("competency.read") ||
+    can("category_rate.read") ||
+    can("activity_code.read") ||
+    can("expense_type.read") ||
+    can("holiday.read") ||
+    can("user_role.read") ||
+    can("global_settings.update");
+  const adminItems: DrawerNavItem[] = [
+    { path: "/staff", icon: UserCog, labelKey: "nav.staff", show: can("staff.read") },
+    { path: "/settings", icon: Settings, labelKey: "nav.settings", show: canSeeSettings },
+  ].filter((i) => i.show);
+
+  const renderGroup = (label: string, items: DrawerNavItem[]) => {
+    if (items.length === 0) return null;
+    return (
+      <div className="space-y-1">
+        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider px-3 mb-2">
+          {label}
+        </p>
+        {items.map((item) => (
+          <button
+            key={item.path}
+            onClick={() => handleNavigate(item.path)}
+            className="flex items-center gap-3 w-full px-3 py-3 rounded-lg text-foreground hover:bg-muted transition-colors"
+          >
+            <item.icon className="h-5 w-5 text-muted-foreground" />
+            <span className="text-sm font-medium">{t(item.labelKey)}</span>
+          </button>
+        ))}
+      </div>
+    );
+  };
+
+  // Fase 3 — Scheduler: Gap Reporting solo para roles firmwide.
+  const planningItems: DrawerNavItem[] = [
+    { path: "/scheduler", icon: CalendarRange, labelKey: "nav.scheduler", show: true },
+    { path: "/scheduler/gaps", icon: ChartColumnDecreasing, labelKey: "nav.schedulerGaps", show: canSeeSchedulerGaps },
+  ].filter((i) => i.show);
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
@@ -146,58 +187,10 @@ export function MobileMoreDrawer({ open, onOpenChange }: MobileMoreDrawerProps) 
         </div>
 
         <div className="px-4 pb-8 space-y-6 overflow-y-auto">
-          {/* Main Navigation */}
-          <div className="space-y-1">
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider px-3 mb-2">
-              {t("nav.main")}
-            </p>
-            {mainItems.map((item) => (
-              <button
-                key={item.path}
-                onClick={() => handleNavigate(item.path)}
-                className="flex items-center gap-3 w-full px-3 py-3 rounded-lg text-foreground hover:bg-muted transition-colors"
-              >
-                <item.icon className="h-5 w-5 text-muted-foreground" />
-                <span className="text-sm font-medium">{t(item.labelKey)}</span>
-              </button>
-            ))}
-          </div>
-
-          {/* Operations */}
-          <div className="space-y-1">
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider px-3 mb-2">
-              {t("nav.operations")}
-            </p>
-            {operationsItems.map((item) => (
-              <button
-                key={item.path}
-                onClick={() => handleNavigate(item.path)}
-                className="flex items-center gap-3 w-full px-3 py-3 rounded-lg text-foreground hover:bg-muted transition-colors"
-              >
-                <item.icon className="h-5 w-5 text-muted-foreground" />
-                <span className="text-sm font-medium">{t(item.labelKey)}</span>
-              </button>
-            ))}
-          </div>
-
-          {/* Administration (Admin only) */}
-          {isAdmin && (
-            <div className="space-y-1">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider px-3 mb-2">
-                {t("nav.administration")}
-              </p>
-              {adminItems.map((item) => (
-                <button
-                  key={item.path}
-                  onClick={() => handleNavigate(item.path)}
-                  className="flex items-center gap-3 w-full px-3 py-3 rounded-lg text-foreground hover:bg-muted transition-colors"
-                >
-                  <item.icon className="h-5 w-5 text-muted-foreground" />
-                  <span className="text-sm font-medium">{t(item.labelKey)}</span>
-                </button>
-              ))}
-            </div>
-          )}
+          {renderGroup(t("nav.main"), mainItems)}
+          {canSeeSchedulerPlanning && renderGroup(t("nav.planning"), planningItems)}
+          {renderGroup(t("nav.operations"), operationsItems)}
+          {renderGroup(t("nav.administration"), adminItems)}
 
           {/* Sign Out */}
           <div className="pt-2 border-t border-border">

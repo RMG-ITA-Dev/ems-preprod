@@ -43,6 +43,7 @@ import {
 } from "@/components/ui/tooltip";
 import { ClientFull, useIndustries } from "@/hooks/useEmsData";
 import { useCreateClient, useUpdateClient, useDeleteClient } from "@/hooks/mutations";
+import { useAuthorization } from "@/hooks/useAuthorization";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Trash2 } from "lucide-react";
@@ -59,7 +60,21 @@ export const formSchema = z.object({
   industry_id: z.string().optional(),
   contact_name: z.string().optional(),
   contact_email: z.string().email("Invalid email").optional().or(z.literal("")),
-  contact_phone: z.string().optional(),
+  // Antes era z.string() sin validar: aceptaba cualquier texto. Se permiten
+  // dígitos y los separadores de uso corriente (+ espacio guion paréntesis) y se
+  // exigen al menos 7 dígitos reales, para que ni "abc" ni "(( ))" pasen. Vacío
+  // sigue siendo válido porque el teléfono es opcional.
+  contact_phone: z
+    .string()
+    .trim()
+    .max(20, "Phone cannot exceed 20 characters")
+    .refine((v) => v === "" || /^\+?[\d\s()-]+$/.test(v), {
+      message: "Phone can only contain digits and + - ( ) or spaces",
+    })
+    .refine((v) => v === "" || (v.match(/\d/g)?.length ?? 0) >= 7, {
+      message: "Phone must contain at least 7 digits",
+    })
+    .optional(),
   address: z.string().optional(),
   is_active: z.boolean(),
 });
@@ -77,7 +92,10 @@ interface ClientFormProps {
 export function ClientForm({ client, compact = false, onDirtyChange, onCancel, onSaveSuccess }: ClientFormProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const { can } = useAuthorization();
   const isEdit = !!client;
+  // Al editar, el guardado exige client.update; al crear, la ruta ya gatea client.create.
+  const canSave = !isEdit || can("client.update");
   const { data: industries } = useIndustries();
   const createMutation = useCreateClient();
   const updateMutation = useUpdateClient();
@@ -343,7 +361,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
                   <FormItem>
                     <FormLabel className="text-xs">{t("client.contactPhone")}</FormLabel>
                     <FormControl>
-                      <Input className="h-8 text-sm" placeholder="+591 12345678" {...field} />
+                      <Input className="h-8 text-sm" inputMode="tel" placeholder="+591 12345678" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -368,14 +386,16 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
               <Button type="button" variant="cancel" size="sm" onClick={() => onCancel ? onCancel() : navigate("/clients")}>
                 {t("common.cancel")}
               </Button>
-              <LoadingButton
-                type="submit"
-                size="sm"
-                variant="default"
-                loading={createMutation.isPending || updateMutation.isPending}
-              >
-                {t("common.saveChanges")}
-              </LoadingButton>
+              {canSave && (
+                <LoadingButton
+                  type="submit"
+                  size="sm"
+                  variant="default"
+                  loading={createMutation.isPending || updateMutation.isPending}
+                >
+                  {t("common.saveChanges")}
+                </LoadingButton>
+              )}
             </div>
           </form>
         </Form>
@@ -568,7 +588,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
                     <FormItem>
                       <FormLabel>{t("client.contactPhone")}</FormLabel>
                       <FormControl>
-                        <Input placeholder="+591 12345678" {...field} />
+                        <Input inputMode="tel" placeholder="+591 12345678" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -595,14 +615,16 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
               <Button type="button" variant="cancel" onClick={() => onCancel ? onCancel() : navigate("/clients")} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
                 {t("common.cancel")}
               </Button>
-              <LoadingButton
-                type="submit"
-                variant="default"
-                className="w-full sm:w-auto min-h-[44px] sm:min-h-0"
-                loading={createMutation.isPending || updateMutation.isPending}
-              >
-                {isEdit ? t("common.saveChanges") : t("client.createClient")}
-              </LoadingButton>
+              {canSave && (
+                <LoadingButton
+                  type="submit"
+                  variant="default"
+                  className="w-full sm:w-auto min-h-[44px] sm:min-h-0"
+                  loading={createMutation.isPending || updateMutation.isPending}
+                >
+                  {isEdit ? t("common.saveChanges") : t("client.createClient")}
+                </LoadingButton>
+              )}
             </div>
           </form>
         </Form>

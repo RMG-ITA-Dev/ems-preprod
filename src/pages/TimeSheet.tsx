@@ -14,11 +14,13 @@ import { useAdminActivityId } from "@/hooks/useAdminActivity";
 import { useTimesheetPolicies } from "@/hooks/useTimesheetPolicies";
 import { useTimesheetWeek } from "@/hooks/useTimesheetWeek";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
-import { useUserRole } from "@/hooks/useUserRole";
+import { useAuthorization } from "@/hooks/useAuthorization";
 import { useAuth } from "@/hooks/useAuth";
 import { usePeriodLineApprovals } from "@/hooks/useTimesheetApprovals";
 import { useSubmitTimesheet, useUnsubmitTimesheet, useCopyPreviousWeek, useCopyToCurrentWeek } from "@/hooks/useTimesheetMutations";
 import { isTimesheetError } from "@/lib/timesheetErrors";
+import { useStaffAssignmentSegments } from "@/hooks/scheduler/useStaffAssignmentSegments";
+import { countUnauthorizedEntries } from "@/lib/timesheetAssignmentAdvisory";
 import {
   AlertDialog,
   AlertDialogContent,
@@ -87,10 +89,23 @@ const TimeSheet = () => {
 
 
   const { staffRecord, isLoading: staffLoading } = useCurrentStaff();
-  const { isPartner, isAdmin } = useUserRole();
+  // Retirar una hoja YA APROBADA no es lo mismo que auto-aprobarla al enviar:
+  // `timesheet.self_approve` (admin, senior_partner, director, partner) modela quién
+  // auto-aprueba al enviar (is_auto_approved_category, 20260724040000) — director SÍ
+  // auto-aprueba, pero retirar una hoja ya aprobada es una acción de socios/admin, no
+  // el espejo exacto de ese conjunto (decisión del operador, 2026-08-11:
+  // bugs/scheduler/roles_permisos_merge/review.md iteración 6 — un director no debe
+  // poder revertir su propia aprobación sin pasar por un socio). No hay un permiso
+  // dedicado en la matriz para esto, así que se gatea por `role_key` directo en vez
+  // de por permiso. `unsubmit_timesheet_safe` (RPC, `role IN ('partner','admin')`) ya
+  // exige lo mismo del lado del servidor.
+  const { roleKey } = useAuthorization();
+  const isAdmin = roleKey === "admin";
+  const canRecallApprovedSheet =
+    isAdmin || roleKey === "partner" || roleKey === "senior_partner";
 
   // Get policies
-  const { data: policies } = useTimesheetPolicies();
+  const { data: policies, isPending: policiesPending } = useTimesheetPolicies();
   const { data: globalSettings } = useGlobalSettings();
   const workDays = policies?.workDays ?? 5;
   const monthEndRule = policies?.monthEndRule ?? "COMPLETE_SPANNING_WEEK";
@@ -198,6 +213,29 @@ const TimeSheet = () => {
   const isBelowWeeklyMin = weeklyGrandTotal < effectiveWeeklyMin;
   const isAboveWeeklyMax = weeklyGrandTotal > effectiveWeeklyMax;
   const isWeeklyOutOfBounds = isBelowWeeklyMin || isAboveWeeklyMax;
+
+  // Fase 6: advisory no bloqueante de asignaciones (bugs/scheduler/fase_6).
+  // weekDates[0] es lunes canónico por construcción (getWeekMonday, arriba) -> satisface el
+  // gate ISODOW=1 de la RPC. weekEnd = último día MOSTRADO (5 o 6) -> span <= 6.
+  // Se retiene la query mientras policies esté pending: workDays decide el weekEnd, y disparar
+  // antes provocaría una consulta con fin en viernes seguida de otra con fin en sábado.
+  const weekStartStr = toISODateString(weekInfo.weekDates[0]);
+  const weekEndStr = toISODateString(weekInfo.weekDates[weekInfo.weekDates.length - 1]);
+  const assignmentSegments = useStaffAssignmentSegments(
+    staffRecord?.staff_id,
+    weekStartStr,
+    policiesPending ? undefined : weekEndStr,
+  );
+
+  // entries ya excluye forecast en origen (useTimesheetWeek.ts).
+  const unauthorizedCount = useMemo(
+    () => countUnauthorizedEntries(entries, assignmentSegments.data),
+    [entries, assignmentSegments.data],
+  );
+  // data === null solo ocurre tras un fetch resuelto en fail-open (denegado, no desplegado,
+  // error, forma inesperada); undefined = aún no se consultó. Señal mínima y visible, sin
+  // detalle técnico (decisión de producto, Open Question 3 de plan_v2.md).
+  const isAssignmentAdvisoryUnavailable = assignmentSegments.data === null;
 
   const hasWeekHolidays = holidayMap.size > 0;
 
@@ -368,7 +406,7 @@ const TimeSheet = () => {
   const canUnsubmit = isSubmitted
     && !period?.is_period_locked
     && (
-      (isFullyApproved && isCurrentWeek && isWithinEditableWindow && (isPartner || isAdmin))
+      (isFullyApproved && isCurrentWeek && isWithinEditableWindow && canRecallApprovedSheet)
       || (!isFullyApproved && ((isCurrentWeek && isWithinEditableWindow) || hasRejectedLines))
     );
 
@@ -431,6 +469,7 @@ const TimeSheet = () => {
       staffId:                staffRecord.staff_id,
       engagementActivityPairs,
       isAutoApproved:         isAutoApproved || false,
+      unauthorizedCount,
     });
   };
 
@@ -708,6 +747,29 @@ const TimeSheet = () => {
             </Alert>
         )}
 
+        {/* Fase 6: assignment advisory banner — informational only, never gates Submit.
+            Sin gate isEditable a propósito: visible también en semanas submitted/locked. */}
+        {unauthorizedCount > 0 && (
+          <Alert>
+            <AlertTriangle className="h-4 w-4 text-warning" />
+            <AlertDescription>
+              {t("timesheet.assignmentAdvisory.banner", { count: unauthorizedCount })}
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* Fase 6: minimal, non-technical indicator when advisory data is unavailable
+            (denied / not deployed / error / malformed) — the advisory itself stays silent
+            everywhere else per the fail-open design. */}
+        {isAssignmentAdvisoryUnavailable && (
+          <Alert>
+            <Info className="h-4 w-4" />
+            <AlertDescription>
+              {t("timesheet.assignmentAdvisory.unavailable")}
+            </AlertDescription>
+          </Alert>
+        )}
+
         {/* Time Entry Grid */}
         <TimesheetGrid
           weekDates={weekInfo.weekDates}
@@ -733,6 +795,7 @@ const TimeSheet = () => {
           activityNotRequiredIds={activityNotRequiredIds}
           adminActivityId={adminActivityId}
           isFullyApproved={isFullyApproved}
+          assignmentWindows={assignmentSegments.data ?? undefined}
         />
 
         {/* Actions */}

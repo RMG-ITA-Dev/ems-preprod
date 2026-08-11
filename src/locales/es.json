@@ -60,6 +60,7 @@
     "leaveAnyway": "Salir de todas formas",
     "stay": "Quedarme",
     "leave": "Salir",
+    "undo": "Deshacer",
     "saveError": "Error al guardar los cambios. Intente nuevamente.",
     "status": "Estado",
     "back": "Volver",
@@ -84,7 +85,10 @@
     "staff": "Personal",
     "settings": "Configuración",
     "signOut": "Cerrar sesión",
-    "timeEntries": "Entradas de Tiempo"
+    "timeEntries": "Entradas de Tiempo",
+    "planning": "Planificación",
+    "scheduler": "Planificador GANTT",
+    "schedulerGaps": "Brechas"
   },
   "tracker": {
     "title": "Registros de Tiempo",
@@ -269,7 +273,6 @@
     "expenseTypes": "Tipos de Gasto",
     "workOrder": "Orden de Trabajo",
     "workOrders": "Órdenes de Trabajo",
-    "expenseLog": "Registro de Gasto",
     "expense": "Gasto",
     "fundRequest": "Solicitud de Fondos",
     "fundRequests": "Solicitudes de Fondos",
@@ -285,7 +288,8 @@
     "inactive": "Inactivo",
     "pending": "Pendiente",
     "completed": "Completado",
-    "cancelled": "Cancelado"
+    "cancelled": "Cancelado",
+    "frozen": "Congelado"
   },
   "engagementState": {
     "1": "Pendiente",
@@ -364,6 +368,7 @@
     "changeRole": "Cambiar Rol",
     "noUsers": "No se encontraron usuarios.",
     "cannotChangeSelf": "No puede cambiar su propio rol",
+    "noPermissionToChangeRoles": "No tenés permiso para cambiar roles",
     "roleUpdated": "Rol de usuario actualizado exitosamente",
     "updateError": "Error al actualizar el rol de usuario",
     "orphan": "Huérfano",
@@ -379,6 +384,8 @@
     "lastAdminBlocked": "No se puede eliminar al último administrador",
     "alreadyDeleted": "La cuenta de usuario ya fue eliminada",
     "notAdmin": "Se requieren privilegios de administrador",
+    "invalidRole": "El rol seleccionado no existe o no está habilitado",
+    "noRoleAssigned": "Sin rol asignado",
     "roles": {
       "admin": "Administrador",
       "partner": "Socio",
@@ -391,6 +398,39 @@
       "sqr": "Calidad-Riesgo (SQR)",
       "specialist_it": "Especialista IT",
       "specialist_tax": "Especialista Tax"
+    }
+  },
+  "authz": {
+    "role": {
+      "admin": "Administrador",
+      "it_security_manager": "Gerente Nacional de Seguridad TI",
+      "senior_partner": "Senior Partner",
+      "partner": "Socio",
+      "sqr": "Calidad-Riesgo (SQR)",
+      "director": "Director",
+      "manager": "Gerente",
+      "senior": "Senior",
+      "semisenior": "Semi Senior",
+      "assistant": "Asistente",
+      "ita_manager": "Gerente Especialista ITA",
+      "ita_senior": "Senior Especialista ITA",
+      "ita_assistant": "Asistente Especialista ITA",
+      "tax_manager": "Gerente Especialista TAX",
+      "tax_senior": "Senior Especialista TAX",
+      "tax_assistant": "Asistente Especialista TAX",
+      "accounting_manager": "Gerente de Contabilidad",
+      "accounting_analyst": "Analista de Contabilidad",
+      "collections_analyst": "Analista de Cobranzas",
+      "risk_partner": "Socio de Riesgos",
+      "risk_supervisor": "Supervisor de Riesgos",
+      "hr_manager": "Gerente de Talento Humano",
+      "hr_analyst": "Analista de Talento Humano"
+    },
+    "loadFailed": "No se pudo verificar tus permisos. Intenta de nuevo.",
+    "retry": "Reintentar",
+    "accessDenied": {
+      "title": "Sin acceso",
+      "description": "No tenés permiso para ver esta sección. Si crees que es un error, contactá a un administrador."
     }
   },
   "industry": {
@@ -563,6 +603,7 @@
     "audRegNumber": "Nro. Reg. Auditor",
     "newStaff": "Nuevo Miembro del Personal",
     "editStaff": "Editar Miembro del Personal",
+    "readOnlyNoUpdatePermission": "Tenés acceso de solo lectura a este registro — no tenés permiso para guardar cambios.",
     "createStaff": "Crear Miembro del Personal",
     "deleteStaff": "Eliminar Miembro del Personal",
     "searchPlaceholder": "Buscar por nombre o correo...",
@@ -764,12 +805,62 @@
     "searchTaxonomy":     "Buscar servicio...",
     "noMatchingTaxonomies": "No se encontraron servicios.",
     "noAplicaTaxonomy":   "No aplica",
-    "requiredTaxonomyCliente": "El servicio es requerido para encargos de tipo Cliente"
+    "requiredTaxonomyCliente": "El servicio es requerido para encargos de tipo Cliente",
+    "assignments": {
+      "category": "Categoría",
+      "searchStaff": "Buscar personal...",
+      "empty": "Aún no hay personal asignado.",
+      "match": {
+        "full": "Coincidencia completa",
+        "partial": "Coincidencia parcial",
+        "categoryOnly": "Solo categoría",
+        "none": "Sin coincidencia",
+        "categoryMismatch": "La categoría del personal difiere de la categoría de la asignación",
+        "noRequirement": "No hay requisitos de personal definidos para esta categoría",
+        "missingSkills": "Competencias faltantes: {{list}}",
+        "belowLevel": "Por debajo del nivel: {{list}}"
+      },
+      "title": "Asignaciones de personal",
+      "addRow": "Agregar asignación",
+      "save": "Guardar asignaciones",
+      "discard": "Descartar cambios",
+      "saveSuccess": "Asignaciones guardadas",
+      "staff": "Personal",
+      "startDate": "Fecha inicial",
+      "endDate": "Fecha final",
+      "hoursPerWeek": "Horas/semana",
+      "allocationPct": "Allocation %",
+      "notes": "Notas",
+      "selectStaff": "Seleccionar personal...",
+      "selectCategory": "Seleccionar categoría...",
+      "remove": "Eliminar",
+      "readOnly": "Solo lectura",
+      "inactiveStaff": "Inactivo",
+      "pendingChanges": "Cambios sin guardar — haga clic en Deshacer para restaurar, o Guardar para confirmar.",
+      "availableAfterSave": "Las asignaciones de personal estarán disponibles después de guardar este encargo.",
+      "warnings": {
+        "headerChangeWithPending": "Tiene asignaciones de personal sin guardar. Cambiar las fechas, el socio o el gerente aquí puede invalidarlas o revocar su permiso para guardarlas."
+      },
+      "errors": {
+        "requiredFields": "Personal, categoría y ambas fechas son obligatorios.",
+        "dateRange": "La fecha final debe ser igual o posterior a la fecha inicial.",
+        "numericRange": "Las horas y el allocation deben ser mayores a 0 y estar dentro del rango permitido.",
+        "outOfEngagementRange": "El segmento debe estar dentro de las fechas del encargo.",
+        "categoryForeignService": "Esta categoría no pertenece al servicio del encargo.",
+        "staffIneligible": "Este miembro del personal está inactivo o no es asignable.",
+        "engagementNotFound": "No se encontró este encargo.",
+        "denied": "No tiene permiso para editar estas asignaciones.",
+        "locked": "Las asignaciones de este encargo no se pueden editar en su estado actual.",
+        "loadFailed": "No se pudieron cargar las asignaciones.",
+        "persistFailed": "No se pudieron guardar las asignaciones."
+      }
+    }
   },
   "messages": {
     "createSuccess": "{{entity}} creado/a exitosamente",
     "updateSuccess": "{{entity}} actualizado/a exitosamente",
     "deleteSuccess": "{{entity}} eliminado/a exitosamente",
+    "deleteBlockedNoPermission": "No se eliminó: no tiene permiso para eliminar este registro",
     "createError": "Error al crear {{entity}}",
     "updateError": "Error al actualizar {{entity}}",
     "deleteError": "Error al eliminar {{entity}}",
@@ -1098,6 +1189,17 @@
     "deleteRowDescription": "Esto eliminará permanentemente todas las horas registradas en esta fila para la semana actual. Esta acción no se puede deshacer.",
     "deleteRowError": "Error al eliminar la fila. Se ha restaurado.",
     "activityChangeError": "Error al actualizar la actividad. El cambio fue revertido.",
+    "submitPairMismatch": "Error al enviar: las listas de encargos y actividades no coinciden. Por favor recargue e intente nuevamente.",
+    "assignmentAdvisory": {
+      "banner_one": "1 registro tiene horas registradas fuera del período de asignación. Es solo informativo y no impide guardar ni enviar.",
+      "banner_other": "{{count}} registros tienen horas registradas fuera del período de asignación. Es solo informativo y no impide guardar ni enviar.",
+      "cellTooltip": "Horas registradas fuera del período de asignación",
+      "cellAriaLabel": "Advertencia: horas registradas fuera del período de asignación",
+      "badge": "Fuera de asignación",
+      "submittedWithWarnings_one": "Enviado. 1 registro tiene horas registradas fuera del período de asignación.",
+      "submittedWithWarnings_other": "Enviado. {{count}} registros tienen horas registradas fuera del período de asignación.",
+      "unavailable": "La información de los períodos de asignación no está disponible en este momento. Esto no afecta el registro ni el envío de horas."
+    },
     "legend": {
       "approved": "Aprobado",
       "pending": "Pendiente",
@@ -1212,6 +1314,7 @@
     "rejectRiskDialogTitle": "Rechazar Evaluación de Riesgo",
     "allStatuses": "Todos los Estados",
     "allEngagementsHaveWorkOrders": "Todos los encargos activos ya tienen una orden de trabajo.",
+    "noAssignedEngagementsAvailable": "No tiene encargos activos asignados sin orden de trabajo.",
     "createEngagementFirst": "Crear un nuevo encargo",
     "submittedForApproval": "Orden de trabajo enviada para aprobación",
     "approved": "Orden de trabajo aprobada",
@@ -1224,7 +1327,6 @@
     "withdrawRejected": "Retirar",
     "unsubmit": "Retirar de Aprobación",
     "unsubmitted": "Orden de trabajo devuelta a borrador",
-    "saveBeforeSubmit": "Guarde los cambios antes de enviar para aprobación",
     "riskSavedOnSubmit": "Los datos de Riesgo se guardarán al enviar para aprobación",
     "confirmParametersTitle": "Confirmar Parámetros de Orden de Trabajo",
     "confirmParametersDescription": "La Moneda y Temporada no se pueden cambiar después de la creación. Por favor verifique que estos parámetros sean correctos.",
@@ -1268,6 +1370,40 @@
       "confirmCollectionDateTitle": "Actualizar Fecha de Facturación de Cobranza",
       "confirmCollectionDateDesc": "La fecha de facturación de cobranza se actualizará a {{date}}. La fecha de pago de cobranza se recalculará automáticamente.",
       "confirmCollectionDateAction": "Guardar fecha"
+    },
+    "staffingRequirements": {
+      "title": "Requisitos de Staffing",
+      "description": "Define las categorías, la cantidad de personal y las skills requeridas para esta orden de trabajo.",
+      "empty": "Aún no hay requisitos de staffing.",
+      "loading": "Cargando requisitos de staffing...",
+      "errorLoading": "No se pudieron cargar los requisitos de staffing.",
+      "addCategory": "Agregar categoría",
+      "removeCategory": "Eliminar categoría",
+      "selectCategory": "Seleccionar categoría",
+      "staffCount": "Cantidad de personal",
+      "addSkill": "Agregar skill",
+      "removeSkill": "Eliminar skill",
+      "selectSkill": "Seleccionar skill",
+      "selectProficiency": "Seleccionar nivel",
+      "inactiveSkillBadge": "Inactiva",
+      "historicalCategoryIncompatible": "Esta categoría histórica ya no pertenece al servicio actual del encargo. Selecciona una categoría válida o elimina este requisito.",
+      "availableAfterCreate": "Los requisitos de staffing estarán disponibles después de guardar esta orden de trabajo.",
+      "noCategoriesForService": "No hay categorías disponibles para el servicio de este encargo.",
+      "serviceNotResolved": "El encargo de esta orden de trabajo no tiene un servicio asignado; no se pueden acotar las categorías de staffing.",
+      "saveSuccess": "Requisitos de staffing guardados correctamente.",
+      "errors": {
+        "categoryMissing": "Selecciona una categoría para cada requisito de staffing.",
+        "categoryDuplicate": "Una categoría no puede utilizarse más de una vez.",
+        "skillDuplicate": "Una skill no puede utilizarse más de una vez dentro del mismo requisito.",
+        "categoryForeignService": "Esta categoría no pertenece al servicio del encargo.",
+        "skillIncomplete": "Selecciona una skill y un nivel de proficiency en cada fila de skill.",
+        "staffCountRange": "La cantidad de personal debe ser un número entero entre 1 y 999.",
+        "proficiencyInvalid": "Selecciona un nivel de proficiency válido.",
+        "workOrderNotFound": "No se encontró esta orden de trabajo.",
+        "denied": "No tienes permiso para modificar los requisitos de staffing de esta orden de trabajo.",
+        "locked": "Esta orden de trabajo está bloqueada y no se puede modificar.",
+        "persistFailed": "No se pudieron guardar los requisitos de staffing. Intenta nuevamente."
+      }
     }
   },
   "adminTimeEntries": {
@@ -1383,7 +1519,20 @@
     "verifyYourEmail": "Revisa tu Correo Electrónico",
     "confirmationSent": "Hemos enviado un enlace de confirmación a {{email}}. Por favor abre tu correo y haz clic en el enlace para activar tu cuenta.",
     "sessionExpiredInactivity": "Su sesión ha expirado por inactividad. Por favor, inicie sesión nuevamente.",
-    "sessionWarningInactivity": "Su sesión expirará en 2 minutos por inactividad."
+    "sessionWarningInactivity": "Su sesión expirará en 2 minutos por inactividad.",
+    "sessionExpiredRevoked": "Su sesión ha expirado. Por favor, inicie sesión nuevamente.",
+    "brandTagline": "Engagement Management System",
+    "firstNamePlaceholder": "Juan",
+    "lastNamePlaceholder": "Pérez",
+    "emailPlaceholderWithDomain": "tu.nombre@{{domain}}",
+    "validation": {
+      "emailMax": "El correo debe tener menos de 255 caracteres",
+      "passwordMinSignin": "La contraseña debe tener al menos 6 caracteres",
+      "passwordMinSignup": "La contraseña debe tener al menos 8 caracteres",
+      "passwordMax": "La contraseña debe tener menos de 100 caracteres",
+      "nameMax": "Debe tener menos de 100 caracteres",
+      "emailDomainOnly": "Solo se permiten correos @{{domain}}"
+    }
   },
   "workMatrix": {
     "title": "Matriz de Trabajo",
@@ -1548,6 +1697,7 @@
       "cancel": "Cancelar Solicitud"
     },
     "approvalsQueue": "Aprobaciones de Solicitudes",
+    "accessByOtManager": "Ve esta pantalla porque figura como gerente de al menos una orden de trabajo con fondos pendientes, no por su rol. Solo aparecen las solicitudes de esas órdenes.",
     "disbursementsQueue": "Desembolsos de Fondos",
     "submittedAt": "Enviada el",
     "managerDecidedAt": "Decidida el",
@@ -1681,6 +1831,7 @@
     "searchPlaceholder": "Buscar por descripción, factura o proveedor...",
     "workOrder": "Orden de Trabajo",
     "selectWorkOrder": "Seleccionar OT",
+    "workOrderNoAccess": "(OT sin acceso al detalle del encargo)",
     "expenseType": "Tipo de Gasto",
     "selectExpenseType": "Seleccionar tipo",
     "expenseDate": "Fecha del Gasto",
@@ -1777,7 +1928,123 @@
       "invalidDateRange": "La fecha 'Al' no puede ser anterior a la fecha 'Del'",
       "observationNotesRequired": "Debe describir la observación de la factura",
       "noInvoiceNotesRequired": "Indique qué respaldo falta antes de devolver",
-      "attachmentRequired": "Adjunte el respaldo antes de reenviar"
+      "attachmentRequired": "Adjunte el respaldo antes de reenviar",
+      "notPermittedOrChanged": "No se aplicó el cambio: no tiene permiso o el gasto ya cambió de estado"
+    }
+  },
+  "scheduler": {
+    "title": "Planificador",
+    "readOnly": "Modo solo lectura",
+    "gaps": {
+      "title": "Brechas de personal y competencias",
+      "kpi": {
+        "headcountGap": "Brecha de personal",
+        "hoursGap": "Brecha de horas",
+        "skillsUnderSupplied": "Competencias deficitarias",
+        "bench": "Personal disponible"
+      },
+      "tabs": {
+        "byCategory": "Por categoría",
+        "bySkill": "Por competencia",
+        "bench": "Disponibles"
+      },
+      "table": {
+        "category": "Categoría",
+        "skill": "Competencia",
+        "minLevel": "Nivel mínimo",
+        "demand": "Demanda",
+        "supply": "Oferta",
+        "deficit": "Déficit",
+        "staff": "Personal",
+        "allocation": "Asignación %",
+        "topSkills": "Competencias destacadas"
+      },
+      "minLevelThresholdTooltip": "Acumulativo: la demanda y la oferta cuentan puestos y personal en este nivel o superior.",
+      "empty": "Sin brechas en este rango.",
+      "invalidRange": "La fecha de inicio debe ser igual o anterior a la fecha de fin.",
+      "rangeTooLong": "El rango de fechas no puede exceder los 730 días. Ajuste el rango.",
+      "forbidden": "Esta vista es solo para el liderazgo de la firma.",
+      "hoursProjectionTooltip": "Prorrateo según el rango — demanda: presupuesto × proporción del encargo dentro del rango; oferta: horas/semana × días superpuestos ÷ 7.",
+      "headcountBasisTooltip": "Puestos vacantes promedio: brecha en días-persona ÷ días del rango.",
+      "truncated": "Mostrando las primeras 500 filas. Ajuste el rango de fechas.",
+      "benchAsOfToday": "A la fecha de hoy",
+      "benchRowAria": "{{name}} — {{allocation}} % de asignación"
+    },
+    "filters": {
+      "status": "Estado",
+      "partner": "Socio",
+      "manager": "Gerente",
+      "client": "Cliente",
+      "clear": "Limpiar filtros"
+    },
+    "l1": {
+      "empty": "Sin encargos en este rango.",
+      "truncated": "Mostrando los primeros 500 encargos — restrinja los filtros.",
+      "healthUnder": "Personal insuficiente",
+      "healthOnTarget": "En objetivo",
+      "healthOver": "Personal excedente",
+      "healthUnknown": "Sin demanda registrada",
+      "healthAsOfToday": "Dotación al día de hoy"
+    },
+    "l2": {
+      "title": "Personal del encargo",
+      "workload": "Encargos activos: {{n}}",
+      "addStaff": "+ Agregar personal"
+    },
+    "gantt": {
+      "zoom": {
+        "weeks": "Semanas",
+        "months": "Meses",
+        "quarters": "Trimestres"
+      },
+      "today": "Hoy",
+      "tooltip": {
+        "hours": "{{n}} hrs/sem",
+        "allocation": "{{n}}% asignación"
+      }
+    },
+    "staff": {
+      "title": "GANTT Empleado",
+      "engagements": "Encargos",
+      "timeline": "Cronograma",
+      "total": "Total",
+      "managedBy": "Gerente: {{name}}",
+      "outOfScope": "Fuera de su alcance de encargos — se muestra para planificación.",
+      "utilization": {
+        "under": "Subasignado",
+        "ok": "Asignación adecuada",
+        "over": "Sobreasignado",
+        "tooltip": "Asignación total: {{n}}%",
+        "hours": "{{n}} hrs/sem asignadas",
+        "capacity": "{{n}} hrs/sem de capacidad"
+      },
+      "empty": "Sin encargos para este empleado en este rango.",
+      "hidden": "Encargos no mostrados (fuera de su visibilidad): {{n}}",
+      "truncated": "Mostrando los primeros 500 segmentos — ajuste el rango.",
+      "forbidden": "No tiene acceso a la programación de este empleado.",
+      "notFound": "Miembro del personal no encontrado."
+    },
+    "actions": {
+      "openEngagement": "Abrir encargo",
+      "openStaffGantt": "GANTT Empleado",
+      "rowMenu": "Acciones de la fila",
+      "edit": "Editar",
+      "delete": "Eliminar"
+    },
+    "errors": {
+      "loadFailed": "No se pudo cargar la programación.",
+      "retry": "Reintentar",
+      "unavailable": "El servicio del Planificador aún no está disponible. Contacte a su administrador.",
+      "forbidden": "No tiene acceso a la programación de este encargo.",
+      "overlap": "Este miembro del personal ya tiene una asignación que se superpone en este rango de fechas.",
+      "partialSave": "No se pudo guardar el cambio. No se persistió nada.",
+      "conflict": "Esta asignación fue modificada en otro lugar. Recargue para ver el estado más reciente."
+    },
+    "assignmentSheet": {
+      "title": "Detalle de la asignación",
+      "description": "Crear, editar o eliminar un segmento de asignación de personal para este encargo.",
+      "save": "Guardar",
+      "delete": "Eliminar asignación"
     }
   }
 }

@@ -1,0 +1,12 @@
+=== G0 inventory, captured 2026-08-06T08:55:43Z ===
+development: cee734891df3e365d131e6700b491582ce1b1122
+dev-scheduler: a2004aa0d5290f1aab31253f37f7f8f1635e196b
+feat/roles-permisos: 6855c6399ff9fed895d49e8f934df6bb973370f3
+ds vs dev: 43 ahead / 0 behind
+rp vs dev: 38 ahead / 3 behind
+merge-tree write-tree: f57e1e376c370b9eac1e42fe1abb87e5ec009a55
+conflicts: AppSidebar.tsx, MobileMoreDrawer.tsx, WorkOrderEdit.tsx
+dev-scheduler dup timestamps: none
+feat/roles-permisos dup timestamps: 20260521000000 20260527000000 20260626000000 20260702000000 20260703000000
+20260806000000 free: yes
+development baseline: lint 0 errores, tsc 180 errores, vitest 141/141 archivos 1628/1628 tests (0 fallos, hoy)

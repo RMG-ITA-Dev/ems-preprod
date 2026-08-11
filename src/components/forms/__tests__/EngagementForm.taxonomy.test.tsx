@@ -56,10 +56,23 @@ const mockTaxonomies = [
   { taxonomy_id: "tx-inactive", code: "AA1501", name: "Old audit", service_id: null, is_active: false, created_at: "" },
 ];
 
+// Stable references: a fresh [] literal on every call gives StaffAssignmentsCard's
+// reseed-while-clean effect a new `assignments` identity on every render (its dep array
+// includes it), triggering setDrafts/setBaseline in an infinite render loop.
+const stableClients: never[] = [];
+const stableAssignments: never[] = [];
+const stableAggregatedReqs: never[] = [];
+const stableActiveStaff: never[] = [];
+const stableCategories: never[] = [];
 vi.mock("@/hooks/useEmsData", () => ({
-  useClients:    () => ({ data: [] }),
+  useClients:    () => ({ data: stableClients }),
   useServices:   () => ({ data: mockServices }),
   useTaxonomies: () => ({ data: mockTaxonomies }),
+  // Fase 5: EngagementForm now mounts StaffAssignmentsCard in edit mode, which pulls these.
+  useEngagementAssignments: () => ({ data: stableAssignments, isLoading: false, isError: false }),
+  useEngagementAggregatedRequirements: () => ({ data: stableAggregatedReqs }),
+  useActiveStaffWithSkills: () => ({ data: stableActiveStaff }),
+  useCategories: () => ({ data: stableCategories }),
 }));
 
 vi.mock("@/hooks/useCategoryStaff", () => ({
@@ -75,10 +88,17 @@ vi.mock("@/hooks/mutations", () => ({
   useCreateEngagement: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useUpdateEngagement: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useDeleteEngagement: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useSaveEngagementAssignments: () => ({ saveAssignments: vi.fn(), isSaving: false }),
 }));
 
 vi.mock("@/hooks/useUserRole", () => ({
   useUserRole: () => ({ isAdmin: false }),
+}));
+
+vi.mock("@/hooks/useAuthorization", () => ({
+  // Estos tests mockean isAdmin: false; con isAdmin derivado de role_key,
+  // roleKey debe ser NO-admin para seguir ejercitando el mismo caso.
+  useAuthorization: () => ({ can: () => true, roleKey: "manager" }),
 }));
 
 vi.mock("@/hooks/useCurrentStaff", () => ({

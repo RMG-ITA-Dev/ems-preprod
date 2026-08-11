@@ -1,0 +1,8 @@
+=== G8 tsc: analisis de regresion real (2026-08-06) ===
+development: 180 | dev-scheduler: 183 | feat/roles-permisos: 201 | merge: 204
+
+Comparacion por (archivo, codigo TS), tomando el MAXIMO de las 3 baselines vs el merge:
+0 regresiones reales (ningun archivo+codigo del merge supera el maximo visto en alguna baseline).
+
+El aumento de 183 (dev-scheduler) a 204 (merge) se explica enteramente por heredar la
+deuda propia de feat/roles-permisos (201 en su baseline aislada) — no por el merge en si.

@@ -82,9 +82,14 @@ import type { PaymentInstallmentInput, PaymentInstallmentStatus } from "@/types/
 
 let idSeq = 0;
 
+// BUG preexistente (M6, bugs/scheduler/fase_5/review.md), corregido acá: anclaba "hoy" al
+// reloj de pared del sistema que corre el test en vez de a America/La_Paz, la misma zona que
+// getEffectiveStatus()/isAlertDue() usan explícitamente (WorkOrderPaymentPlanSection.tsx:109).
+// Ver el comentario completo en src/lib/__tests__/workOrderPaymentPlan.test.ts.
 function dayOffset(n: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + n);
+  const todayStr = new Intl.DateTimeFormat("en-CA", { timeZone: "America/La_Paz" }).format(new Date());
+  const d = new Date(`${todayStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);
 }
 

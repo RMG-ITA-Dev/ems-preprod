@@ -1,0 +1,436 @@
+import React from "react";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { render as rtlRender, screen, waitFor, within } from "@/test/utils";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import type { Engagement } from "@/hooks/useEmsData";
+
+// MatchDot renders a Radix Tooltip per row — needs a TooltipProvider ancestor.
+function render(ui: React.ReactElement) {
+  return rtlRender(<TooltipProvider>{ui}</TooltipProvider>);
+}
+
+if (typeof window !== "undefined") {
+  if (!Element.prototype.hasPointerCapture) Element.prototype.hasPointerCapture = () => false;
+  if (!Element.prototype.setPointerCapture) Element.prototype.setPointerCapture = () => undefined;
+  if (!Element.prototype.releasePointerCapture) Element.prototype.releasePointerCapture = () => undefined;
+  if (!Element.prototype.scrollIntoView) Element.prototype.scrollIntoView = () => undefined;
+}
+if (typeof global.ResizeObserver === "undefined") {
+  global.ResizeObserver = class ResizeObserver {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+}
+
+vi.mock("react-i18next", () => ({
+  useTranslation: () => ({ t: (k: string) => k, i18n: { language: "en" } }),
+}));
+
+// Radix Popover positioning/portals are unreliable in jsdom — same convention as
+// EngagementForm's own combobox tests (EngagementForm.servicesCatalog.test.tsx): render the
+// content unconditionally so CommandItem options are always queryable.
+vi.mock("@/components/ui/popover", () => ({
+  Popover: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  PopoverTrigger: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  PopoverContent: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+
+// Same convention as WorkOrderForm.staffing.test.tsx: Radix Select only portals its content when
+// open, which would make the category options unqueryable without simulating a real click —
+// render as a native <select> instead so `<option>` text is always in the DOM.
+vi.mock("@/components/ui/select", () => ({
+  Select: ({
+    children,
+    value,
+    onValueChange,
+    disabled,
+  }: {
+    children?: React.ReactNode;
+    value?: string;
+    onValueChange?: (value: string) => void;
+    disabled?: boolean;
+  }) => (
+    <select value={value} onChange={(event) => onValueChange?.(event.target.value)} disabled={disabled}>
+      {children}
+    </select>
+  ),
+  SelectTrigger: () => null,
+  SelectValue: () => null,
+  SelectContent: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+  SelectItem: ({ value, children }: { value: string; children?: React.ReactNode }) => (
+    <option value={value}>{children}</option>
+  ),
+}));
+
+const ENGAGEMENT: Engagement = {
+  engagement_id: "eng-1",
+  client_id: "client-1",
+  engagement_name: "Audit FY2027",
+  engagement_code: "2027.111.001",
+  partner_id: null,
+  manager_id: "mgr-1",
+  status: "active",
+  start_date: "2026-01-01",
+  end_date: "2026-12-31",
+  created_at: "2026-01-01T00:00:00Z",
+  work_order_required: true,
+  activity_required: true,
+  is_internal: false,
+  approval_required: true,
+  oficina: 1,
+  practica: 1,
+  anio_fiscal: 2027,
+  funcion: 0,
+  fecha_cierre: "2026-09-30",
+  anio_fiscal_override: false,
+  sqr_id: null,
+  encargado_id: null,
+  specialist_it_id: null,
+  specialist_tax_id: null,
+  taxonomy_id: null,
+  contract_file_path: null,
+} as Engagement;
+
+const SERVICES = [
+  { service_id: "svc-aud", name: "Auditoría", code: 1, allows_rates_activities: true, is_active: true, created_at: "" },
+  { service_id: "svc-tax", name: "Tax", code: 3, allows_rates_activities: true, is_active: true, created_at: "" },
+];
+const CATEGORIES = [{ category_id: "cat-1", category_name: "Cat One", service_id: "svc-aud", rate_high_bob: 0, rate_low_bob: 0, rate_high_usd: 0, rate_low_usd: 0, display_order: 1, can_approve_wo: false, can_approve_timesheets: false, default_app_role: null }];
+// Solo para el test M1 (fallback a Auditoría vs. catálogo global): una categoría que SOLO
+// existe en otro servicio — nunca debe aparecer si la resolución cae correctamente en Auditoría.
+const CATEGORIES_TAX = [{ category_id: "cat-tax-1", category_name: "Tax Category", service_id: "svc-tax", rate_high_bob: 0, rate_low_bob: 0, rate_high_usd: 0, rate_low_usd: 0, display_order: 1, can_approve_wo: false, can_approve_timesheets: false, default_app_role: null }];
+const CATEGORIES_GLOBAL = [...CATEGORIES, ...CATEGORIES_TAX];
+const STAFF_ACTIVE = { staff_id: "staff-1", first_name: "Ana", last_name: "Alvarez", short_name: null, initials: "AA", category_id: "cat-1", city: null, is_active: true, is_schedulable: true, category: CATEGORIES[0], staff_skills: [] };
+const STAFF_NOT_SCHEDULABLE = { staff_id: "staff-2", first_name: "Ivy", last_name: "NotSched", short_name: null, initials: "IN", category_id: "cat-1", city: null, is_active: true, is_schedulable: false, category: CATEGORIES[0], staff_skills: [] };
+const PERSISTED_ROW = {
+  assignment_id: "a-1",
+  engagement_id: "eng-1",
+  staff_id: "staff-1",
+  category_id: "cat-1",
+  start_date: "2026-02-01",
+  end_date: "2026-03-01",
+  hours_per_week: 20,
+  allocation_percent: 50,
+  notes: null,
+  status: "PROPOSED",
+  staff: { staff_id: "staff-1", first_name: "Ana", last_name: "Alvarez", short_name: null, category_id: "cat-1" },
+  category: CATEGORIES[0],
+};
+
+let assignmentsState: { data: unknown[]; isLoading: boolean; isError: boolean } = {
+  data: [PERSISTED_ROW],
+  isLoading: false,
+  isError: false,
+};
+let staffOptionsState: unknown[] = [STAFF_ACTIVE, STAFF_NOT_SCHEDULABLE];
+// undefined = "aún no cargó" (para probar el gate de la ventana de carga, review de Fase 5 #3).
+let servicesState: unknown[] | undefined = SERVICES;
+let servicesErrorState = false;
+// Por defecto la query de categorías ya "terminó con éxito" (isSuccess=true) para no romper los
+// tests existentes; los tests de Iteración 3 (loading/error de categorías) la sobreescriben.
+let categoriesQueryOverride: { isLoading?: boolean; isError?: boolean; isSuccess?: boolean } | null = null;
+
+vi.mock("@/hooks/useEmsData", () => ({
+  useEngagementAssignments: () => assignmentsState,
+  useEngagementAggregatedRequirements: () => ({ data: [] }),
+  useActiveStaffWithSkills: () => ({ data: staffOptionsState }),
+  useServices: () => ({ data: servicesState, isLoading: servicesState === undefined, isError: servicesErrorState }),
+  // Argumento-consciente (review #M1): distingue el fetch scoped por servicio del fetch global
+  // sin filtro (serviceId undefined) para poder probar que la Card nunca usa este último.
+  useCategories: (serviceId?: string) => ({
+    data:
+      serviceId === "svc-aud" ? CATEGORIES : serviceId === "svc-tax" ? CATEGORIES_TAX : CATEGORIES_GLOBAL,
+    isLoading: categoriesQueryOverride?.isLoading ?? false,
+    isError: categoriesQueryOverride?.isError ?? false,
+    isSuccess: categoriesQueryOverride?.isSuccess ?? true,
+  }),
+}));
+
+const mockSaveAssignments = vi.fn();
+let isSavingState = false;
+vi.mock("@/hooks/mutations", () => ({
+  useSaveEngagementAssignments: () => ({ saveAssignments: mockSaveAssignments, isSaving: isSavingState }),
+}));
+
+let mockRole: { isAdmin: boolean } = { isAdmin: false };
+vi.mock("@/hooks/useUserRole", () => ({ useUserRole: () => mockRole }));
+
+let mockStaffRecord: { staff_id: string } | null = { staff_id: "mgr-1" };
+vi.mock("@/hooks/useCurrentStaff", () => ({ useCurrentStaff: () => ({ staffRecord: mockStaffRecord }) }));
+
+import { StaffAssignmentsCard } from "../StaffAssignmentsCard";
+
+describe("StaffAssignmentsCard", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    assignmentsState = { data: [PERSISTED_ROW], isLoading: false, isError: false };
+    staffOptionsState = [STAFF_ACTIVE, STAFF_NOT_SCHEDULABLE];
+    servicesState = SERVICES;
+    servicesErrorState = false;
+    categoriesQueryOverride = null;
+    mockRole = { isAdmin: false };
+    mockStaffRecord = { staff_id: "mgr-1" }; // matches engagement.manager_id -> canEdit
+    isSavingState = false;
+    mockSaveAssignments.mockResolvedValue([]);
+  });
+
+  it("shows a loading skeleton while the query is pending", () => {
+    assignmentsState = { data: [], isLoading: true, isError: false };
+    render(<StaffAssignmentsCard engagement={ENGAGEMENT} />);
+    expect(screen.getByText("engagement.assignments.title")).toBeInTheDocument();
+    expect(screen.queryByText("engagement.assignments.addRow")).not.toBeInTheDocument();
+  });
+
+  it("shows an error state when the query fails", () => {
+    assignmentsState = { data: [], isLoading: false, isError: true };
+    render(<StaffAssignmentsCard engagement={ENGAGEMENT} />);
+    expect(screen.getByText("engagement.assignments.errors.loadFailed")).toBeInTheDocument();
+  });
+
+  it("shows the empty state when there are no assignments", () => {
+    assignmentsState = { data: [], isLoading: false, isError: false };
+    render(<StaffAssignmentsCard engagement={ENGAGEMENT} />);
+    expect(screen.getAllByText("engagement.assignments.empty").length).toBeGreaterThan(0);
+  });
+
+  it("read-only mode: no Add/Save/Discard controls when the caller cannot write", () => {
+    mockStaffRecord = { staff_id: "someone-else" };
+    render(<StaffAssignmentsCard engagement={ENGAGEMENT} />);
+    expect(screen.getByText("engagement.assignments.readOnly")).toBeInTheDocument();
+    expect(screen.queryByText("engagement.assignments.addRow")).not.toBeInTheDocument();
+    expect(screen.queryByText("engagement.assignments.save")).not.toBeInTheDocument();
+  });
+
+  it("admin can always write, regardless of responsibility", () => {
+    mockRole = { isAdmin: true };
+    mockStaffRecord = { staff_id: "bystander" };
+    render(<StaffAssignmentsCard engagement={ENGAGEMENT} />);
+    expect(screen.queryByText("engagement.assignments.readOnly")).not.toBeInTheDocument();
+    expect(screen.getAllByText("engagement.assignments.addRow").length).toBeGreaterThan(0);
+  });
+
+  it("adding a row makes Save/Discard active (dirty)", async () => {
+    const user = userEvent.setup();
+    render(<StaffAssignmentsCard engagement={ENGAGEMENT} />);
+    const saveButtons = screen.getAllByText("engagement.assignments.save");
+    expect(saveButtons[0].closest("button")).toBeDisabled();
+
+    await user.click(screen.getAllByText("engagement.assignments.addRow")[0]);
+
+    await waitFor(() => {
+      expect(screen.getAllByText("engagement.assignments.save")[0].closest("button")).not.toBeDisabled();
+    });
+  });
+
+  it("discard restores the baseline (removes the newly added row)", async () => {
+    const user = userEvent.setup();
+    render(<StaffAssignmentsCard engagement={ENGAGEMENT} />);
+    await user.click(screen.getAllByText("engagement.assignments.addRow")[0]);
+    await waitFor(() => {
+      expect(screen.getAllByText("engagement.assignments.save")[0].closest("button")).not.toBeDisabled();
+    });
+
+    await user.click(screen.getAllByText("engagement.assignments.discard")[0]);
+
+    await waitFor(() => {
+      expect(screen.getAllByText("engagement.assignments.save")[0].closest("button")).toBeDisabled();
+    });
+  });
+
+  it("removing a persisted row stages a soft-delete and offers Undo", async () => {
+    const user = userEvent.setup();
+    render(<StaffAssignmentsCard engagement={ENGAGEMENT} />);
+    const removeButtons = screen.getAllByLabelText("engagement.assignments.remove");
+    await user.click(removeButtons[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText("engagement.assignments.pendingChanges")).toBeInTheDocument();
+    });
+    expect(screen.getAllByText("engagement.assignments.save")[0].closest("button")).not.toBeDisabled();
+  });
+
+  it("save invokes the RPC wrapper with the engagement id and the current diff, then adopts the returned rows", async () => {
+    mockSaveAssignments.mockResolvedValue([
+      {
+        assignment_id: "a-1",
+        staff_id: "staff-1",
+        category_id: "cat-1",
+        start_date: "2026-02-01",
+        end_date: "2026-03-01",
+        hours_per_week: 25,
+        allocation_percent: 60,
+        status: "PROPOSED",
+        notes: "changed",
+      },
+    ]);
+    const user = userEvent.setup();
+    render(<StaffAssignmentsCard engagement={ENGAGEMENT} />);
+
+    // Query by accessible name, not display value: with the Popover mock rendering its content
+    // unconditionally, every StaffCombobox's CommandInput ALSO has an empty display value, so
+    // getAllByDisplayValue("") would grab the wrong (unrelated) element.
+    const notesInputs = screen.getAllByLabelText("engagement.assignments.notes");
+    await user.type(notesInputs[0], "changed");
+
+    await waitFor(() => {
+      expect(screen.getAllByText("engagement.assignments.save")[0].closest("button")).not.toBeDisabled();
+    });
+    await user.click(screen.getAllByText("engagement.assignments.save")[0]);
+
+    await waitFor(() => {
+      expect(mockSaveAssignments).toHaveBeenCalledTimes(1);
+    });
+    const call = mockSaveAssignments.mock.calls[0][0];
+    expect(call.engagementId).toBe("eng-1");
+    expect(call.deletedIds).toEqual([]);
+
+    // After a successful save, dirty settles (Save disables again) without waiting on a refetch.
+    await waitFor(() => {
+      expect(screen.getAllByText("engagement.assignments.save")[0].closest("button")).toBeDisabled();
+    });
+  });
+
+  it("a historical row whose category is outside the resolved service is blocked from saving", async () => {
+    assignmentsState = {
+      data: [{ ...PERSISTED_ROW, category_id: "cat-foreign", category: { ...CATEGORIES[0], category_id: "cat-foreign" } }],
+      isLoading: false,
+      isError: false,
+    };
+    const user = userEvent.setup();
+    render(<StaffAssignmentsCard engagement={ENGAGEMENT} />);
+
+    // Rendered once per layout copy (desktop + mobile, both always in the DOM — visibility is
+    // CSS-only), so assert presence via count rather than a single unique match.
+    expect(screen.getAllByText("engagement.assignments.errors.categoryForeignService").length).toBeGreaterThan(0);
+
+    // Force dirty via add-row (no need to fill it in) so Save is enabled, then verify it still
+    // refuses to call the RPC because of the pre-existing foreign-category row.
+    await user.click(screen.getAllByText("engagement.assignments.addRow")[0]);
+    await waitFor(() => {
+      expect(screen.getAllByText("engagement.assignments.save")[0].closest("button")).not.toBeDisabled();
+    });
+    await user.click(screen.getAllByText("engagement.assignments.save")[0]);
+
+    expect(mockSaveAssignments).not.toHaveBeenCalled();
+  });
+
+  it("a non-schedulable staff member is not offered as a candidate for a NEW row (but is not hidden from a persisted row)", async () => {
+    const user = userEvent.setup();
+    const { container } = render(<StaffAssignmentsCard engagement={ENGAGEMENT} />);
+    await user.click(screen.getAllByText("engagement.assignments.addRow")[0]);
+
+    // Two placeholder triggers exist for the new row (desktop table + mobile card copies);
+    // neither's candidate list includes the non-schedulable Ivy.
+    const newRowTriggers = screen.getAllByText("engagement.assignments.selectStaff");
+    expect(newRowTriggers.length).toBeGreaterThan(0);
+    for (const trigger of newRowTriggers) {
+      const scope = trigger.closest("td") ?? trigger.closest(".space-y-2") ?? container;
+      expect(within(scope as HTMLElement).queryByText("Ivy NotSched")).not.toBeInTheDocument();
+      expect(within(scope as HTMLElement).getByText("Ana Alvarez")).toBeInTheDocument();
+    }
+
+    // The PERSISTED row (Ana already assigned) still offers Ivy as a candidate — the
+    // is_schedulable gate only applies to brand-new rows, never hides historical staff. The RPC
+    // (not the picker) is the authority that rejects an actual reassignment to Ivy (review #4).
+    expect(screen.getAllByText("Ivy NotSched").length).toBeGreaterThan(0);
+  });
+
+  it("REGRESSION (review #3): while `services` has not loaded yet, the category select offers NO options — never the unscoped global catalog", () => {
+    servicesState = undefined;
+    const { container } = render(<StaffAssignmentsCard engagement={ENGAGEMENT} />);
+    // Native <option> tags specifically: the mocked category <select> is the only place that
+    // renders them. `getAllByRole("option")` would ALSO match cmdk's CommandItem (the
+    // StaffCombobox candidate list uses role="option" on a <div>), which is unrelated to whether
+    // the category catalog is scoped or global.
+    expect(container.querySelectorAll("option")).toHaveLength(0);
+  });
+
+  it("REGRESSION (review #M1): null practica resolves categories to Auditoría — never the unscoped global catalog", () => {
+    const { container } = render(
+      <StaffAssignmentsCard engagement={{ ...ENGAGEMENT, practica: null }} />
+    );
+    const optionTexts = Array.from(container.querySelectorAll("option")).map((o) => o.textContent);
+    expect(optionTexts).toContain("Cat One"); // Auditoría's own category is offered
+    expect(optionTexts).not.toContain("Tax Category"); // a foreign-service category never leaks in
+  });
+
+  it("REGRESSION (review #M1): an unmatched practica (no service has that code) also resolves to Auditoría", () => {
+    const { container } = render(
+      <StaffAssignmentsCard engagement={{ ...ENGAGEMENT, practica: 999 }} />
+    );
+    const optionTexts = Array.from(container.querySelectorAll("option")).map((o) => o.textContent);
+    expect(optionTexts).toContain("Cat One");
+    expect(optionTexts).not.toContain("Tax Category");
+  });
+
+  it("REGRESSION (Iteración 3): shows the loading skeleton while the service resolved but the categories query is still in flight", () => {
+    categoriesQueryOverride = { isLoading: true, isSuccess: false };
+    render(<StaffAssignmentsCard engagement={ENGAGEMENT} />);
+    expect(screen.getByText("engagement.assignments.title")).toBeInTheDocument();
+    expect(screen.queryByText("engagement.assignments.addRow")).not.toBeInTheDocument();
+  });
+
+  it("REGRESSION (Iteración 3): shows the error state (not a false 'foreign category') when the categories query fails", () => {
+    categoriesQueryOverride = { isError: true, isSuccess: false };
+    render(<StaffAssignmentsCard engagement={ENGAGEMENT} />);
+    expect(screen.getByText("engagement.assignments.errors.loadFailed")).toBeInTheDocument();
+    expect(
+      screen.queryByText("engagement.assignments.errors.categoryForeignService")
+    ).not.toBeInTheDocument();
+  });
+
+  it("REGRESSION (review #1): a row with dates outside the Engagement's range is blocked from saving", async () => {
+    assignmentsState = {
+      data: [{ ...PERSISTED_ROW, start_date: "2025-11-01", end_date: "2025-12-01" }],
+      isLoading: false,
+      isError: false,
+    };
+    const user = userEvent.setup();
+    render(<StaffAssignmentsCard engagement={ENGAGEMENT} />);
+
+    // Force dirty via add-row so Save is enabled, then verify the pre-existing out-of-range row
+    // still blocks the RPC call.
+    await user.click(screen.getAllByText("engagement.assignments.addRow")[0]);
+    await waitFor(() => {
+      expect(screen.getAllByText("engagement.assignments.save")[0].closest("button")).not.toBeDisabled();
+    });
+    await user.click(screen.getAllByText("engagement.assignments.save")[0]);
+
+    expect(mockSaveAssignments).not.toHaveBeenCalled();
+  });
+
+  it("REGRESSION (review #2): allocation accepts a fractional value (0.5), matching the (0,100] decimal contract", async () => {
+    const user = userEvent.setup();
+    render(<StaffAssignmentsCard engagement={ENGAGEMENT} />);
+    const allocationInputs = screen.getAllByDisplayValue("50");
+    await user.clear(allocationInputs[0]);
+    await user.type(allocationInputs[0], "0.5");
+    expect((allocationInputs[0] as HTMLInputElement).value).toBe("0.5");
+  });
+
+  it("REGRESSION (plan v2 'Tests to Add or Update'): a background refetch never overwrites in-progress (dirty) drafts", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<StaffAssignmentsCard engagement={ENGAGEMENT} />);
+
+    await user.click(screen.getAllByText("engagement.assignments.addRow")[0]);
+    await waitFor(() => {
+      expect(screen.getAllByText("engagement.assignments.save")[0].closest("button")).not.toBeDisabled();
+    });
+
+    // Simulate a background refetch resolving with a NEW array reference for the same server
+    // rows (React Query always hands the query function's consumer a fresh object on refetch) —
+    // the effect that seeds `drafts` from `assignments` must skip re-seeding while dirty.
+    assignmentsState = { data: [{ ...PERSISTED_ROW }], isLoading: false, isError: false };
+    rerender(
+      <TooltipProvider>
+        <StaffAssignmentsCard engagement={ENGAGEMENT} />
+      </TooltipProvider>
+    );
+
+    // The newly-added row survives the "refetch" — Save stays enabled (still dirty), it was
+    // never silently reset back to the server snapshot.
+    expect(screen.getAllByText("engagement.assignments.save")[0].closest("button")).not.toBeDisabled();
+  });
+});

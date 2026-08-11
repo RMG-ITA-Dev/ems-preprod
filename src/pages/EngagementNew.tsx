@@ -1,29 +1,17 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { EngagementForm } from "@/components/forms/EngagementForm";
 import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";
 import { LeavePageDialog } from "@/components/ui/leave-page-dialog";
-import { useUserRole } from "@/hooks/useUserRole";
 
 const EngagementNew = () => {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const [isDirty, setIsDirty] = useState(false);
   const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty });
-  const { isAdmin, isPartner, isDirector, isManager, isSQR, isLoading: roleLoading } = useUserRole();
-  const canCreate = isAdmin || isPartner || isDirector || isManager || isSQR;
-
-  useEffect(() => {
-    if (!roleLoading && !canCreate) {
-      allowNextNavigation();
-      navigate("/engagements", { replace: true });
-    }
-  }, [roleLoading, canCreate, allowNextNavigation, navigate]);
-
-  if (roleLoading || !canCreate) return null;
-
+  // Guard de creación por permiso vía <PermissionRoute permission="engagement.create"> en App.tsx.
   const handleCancel = () => {
     allowNextNavigation();
     navigate("/engagements");

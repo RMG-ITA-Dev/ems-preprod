@@ -6,13 +6,13 @@ import { useClients, useEngagements, useIndustries, Client } from "@/hooks/useEm
 import { DataTable, Column } from "@/components/data-table/DataTable";
 import { useNavigate } from "react-router-dom";
 import { formatFiscalYearEnd } from "@/lib/fiscalYearDisplay";
-import { useUserRole } from "@/hooks/useUserRole";
+import { useAuthorization } from "@/hooks/useAuthorization";
 
 const Clients = () => {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
-  const { isAdmin, isPartner, isDirector } = useUserRole();
-  const canCreate = isAdmin || isPartner || isDirector;
+  const { can } = useAuthorization();
+  const canCreate = can("client.create");
   const { data: clients, isLoading } = useClients();
   const { data: engagements } = useEngagements();
   const { data: industries } = useIndustries();

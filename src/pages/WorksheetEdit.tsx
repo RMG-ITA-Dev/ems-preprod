@@ -11,7 +11,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Save, Loader2, FileText, Sun, Snowflake, Lock, Copy } from "lucide-react";
 import { useWorksheetById } from "@/hooks/useWorksheetData";
-import { useUserRole } from "@/hooks/useUserRole";
+import { useAuthorization } from "@/hooks/useAuthorization";
+import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { useBatchUpsertCells, useUpdateWorksheet, useCreateWorkOrderFromWorksheet } from "@/hooks/useWorksheetMutations";
 import { useCategories, useActivityCodes, useAllActivityCodes, useSetting, useServices } from "@/hooks/useEmsData";
 import { WorksheetGrid } from "@/components/worksheet/WorksheetGrid";
@@ -253,12 +254,38 @@ const WorksheetEdit = () => {
   const isLoading = wsLoading || catLoading || actLoading || allActLoading || svcLoading;
   const isSaving = batchUpsertCells.isPending || updateWorksheet.isPending;
 
-  const { isAdmin, isPartner, isDirector, isManager } = useUserRole();
+  const { can, roleKey } = useAuthorization();
+  const { staffRecord } = useCurrentStaff();
+
+  // Escribir la matriz exige ser Socio o Gerente DEL encargo, o admin. Es el
+  // predicado del backend, en sus dos caminos de guardado:
+  //   - las celdas: batch_upsert_worksheet_cells -> is_admin() OR
+  //     is_engagement_team_member()
+  //   - la fila:    policy "worksheet_team_update" -> is_engagement_team_member()
+  //                 (+ "Admins can manage worksheets")
+  // y `is_engagement_team_member` mira SOLO partner_id y manager_id.
+  //
+  // Hace falta distinguirlo en el frontend desde 20260730010000: esa migración dio
+  // lectura de la matriz a SQR y Encargado (decisión de negocio: solo lectura). Sin
+  // este gate veían el grid editable y el botón Guardar, cargaban horas y perdían
+  // el trabajo con "Permission denied: not a team member of this engagement".
+  const myStaffId = staffRecord?.staff_id;
+  const isEngagementTeamMember =
+    !!myStaffId &&
+    (myStaffId === worksheet?.engagement?.partner?.staff_id ||
+      myStaffId === worksheet?.engagement?.manager?.staff_id);
+  const canWriteWorksheet = roleKey === "admin" || isEngagementTeamMember;
 
   // Determine if the worksheet is locked
   const linkedWOStatus = worksheet?.work_order?.approval_status;
   const isWOLocked = linkedWOStatus === "Pending_Approval" || linkedWOStatus === "Approved";
-  const isReadOnly = worksheet?.status === "approved" || worksheet?.status === "archived" || isWOLocked;
+  const isReadOnly =
+    worksheet?.status === "approved" ||
+    worksheet?.status === "archived" ||
+    isWOLocked ||
+    // Mientras carga el staff, se asume solo lectura (fail-closed): mejor un
+    // instante sin poder editar que ofrecer un guardado que va a fallar.
+    !canWriteWorksheet;
 
   const hasWorkOrder = !!worksheet?.wo_id;
 
@@ -274,7 +301,7 @@ const WorksheetEdit = () => {
   // block WO creation from budget lines the user can't see or validate
   // (review.md iteración 11).
   const canCreateWorkOrder =
-    (isAdmin || isPartner || isDirector || isManager) &&
+    can("work_order.create") &&
     !hasWorkOrder &&
     worksheet?.status === "draft" &&
     !hasUnsavedChanges &&

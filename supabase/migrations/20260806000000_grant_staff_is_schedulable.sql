@@ -1,0 +1,31 @@
+-- =====================================================================
+-- Convergencia dev-scheduler + feat/roles-permisos: cierra un agujero de
+-- privilegio de columna que ninguna de las dos ramas podía ver por
+-- separado.
+--
+-- `20260730080000_harden_staff_pii_columns.sql` (feat/roles-permisos)
+-- revocó el SELECT de tabla en public.staff para `authenticated` y lo
+-- reemplazó por SELECT de 17 columnas explícitas — sin `is_schedulable`,
+-- porque esa rama nunca tuvo motivo para saber que esa columna existe.
+--
+-- `is_schedulable` es una columna fantasma (origen: prototipo Scheduler v1,
+-- commit 1f07bc5b de origin/sruizmier-scheduler-v1, 2026-04-05, aplicado al
+-- Supabase real vía Lovable y nunca revertido). Ninguna migración de
+-- `development` la crea; `20260727110000_scheduler_fase2_convergencia_esquema.sql`
+-- (C2 del Scheduler) la agrega con `ADD COLUMN IF NOT EXISTS` precisamente
+-- porque ya existe ahí. dev-scheduler la selecciona en
+-- `useActiveStaffWithSkills` (src/hooks/useEmsData.ts) para el selector de
+-- personal "schedulable" de Encargos (StaffAssignmentsCard, fuera del
+-- feature flag) y de Scheduler L2 — pero nunca tuvo motivo para saber que
+-- esa migración de PII existe.
+--
+-- Sin este grant: privilegio de columna, no RLS — cualquier SELECT que
+-- incluya `is_schedulable` recibe 403 sobre la consulta COMPLETA, para
+-- todos, admin incluido. Mismo modo de falla que el que
+-- `20260730080000` ya documentó y corrigió para los 21 embeds `staff!fk(*)`.
+--
+-- Idempotente y aditiva — no toca el contenido de `20260730080000` (regla
+-- de inmutabilidad de migraciones, decisión OQ3 de Fase 7).
+-- =====================================================================
+
+grant select (is_schedulable) on public.staff to authenticated;

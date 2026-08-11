@@ -60,6 +60,7 @@
     "leaveAnyway": "Leave anyway",
     "stay": "Stay",
     "leave": "Leave",
+    "undo": "Undo",
     "saveError": "Error saving changes. Please try again.",
     "status": "Status",
     "back": "Back",
@@ -84,7 +85,10 @@
     "staff": "Staff",
     "settings": "Settings",
     "signOut": "Sign out",
-    "timeEntries": "Time Entries"
+    "timeEntries": "Time Entries",
+    "planning": "Planning",
+    "scheduler": "Scheduler",
+    "schedulerGaps": "Gap Reporting"
   },
   "tracker": {
     "title": "Time Records",
@@ -269,7 +273,6 @@
     "expenseTypes": "Expense Types",
     "workOrder": "Work Order",
     "workOrders": "Work Orders",
-    "expenseLog": "Expense Log",
     "expense": "Expense",
     "fundRequest": "Fund Request",
     "fundRequests": "Fund Requests",
@@ -285,7 +288,8 @@
     "inactive": "Inactive",
     "pending": "Pending",
     "completed": "Completed",
-    "cancelled": "Cancelled"
+    "cancelled": "Cancelled",
+    "frozen": "Frozen"
   },
   "engagementState": {
     "1": "Pending",
@@ -364,6 +368,7 @@
     "changeRole": "Change Role",
     "noUsers": "No users found.",
     "cannotChangeSelf": "Cannot change own role",
+    "noPermissionToChangeRoles": "You don't have permission to change roles",
     "roleUpdated": "User role updated successfully",
     "updateError": "Error updating user role",
     "orphan": "Orphan",
@@ -379,6 +384,8 @@
     "lastAdminBlocked": "Cannot remove the last administrator",
     "alreadyDeleted": "User account was already deleted",
     "notAdmin": "Administrator privileges required",
+    "invalidRole": "The selected role does not exist or is not enabled",
+    "noRoleAssigned": "No role assigned",
     "roles": {
       "admin": "Administrator",
       "partner": "Partner (Socio)",
@@ -391,6 +398,39 @@
       "sqr": "Quality-Risk (SQR)",
       "specialist_it": "IT Specialist",
       "specialist_tax": "Tax Specialist"
+    }
+  },
+  "authz": {
+    "role": {
+      "admin": "Administrator",
+      "it_security_manager": "National IT Security Manager",
+      "senior_partner": "Senior Partner",
+      "partner": "Partner (Socio)",
+      "sqr": "Quality-Risk (SQR)",
+      "director": "Director",
+      "manager": "Manager (Gerente)",
+      "senior": "Senior",
+      "semisenior": "Semi-Senior",
+      "assistant": "Assistant (Asistente)",
+      "ita_manager": "ITA Specialist Manager",
+      "ita_senior": "ITA Specialist Senior",
+      "ita_assistant": "ITA Specialist Assistant",
+      "tax_manager": "TAX Specialist Manager",
+      "tax_senior": "TAX Specialist Senior",
+      "tax_assistant": "TAX Specialist Assistant",
+      "accounting_manager": "Accounting Manager",
+      "accounting_analyst": "Accounting Analyst",
+      "collections_analyst": "Collections Analyst",
+      "risk_partner": "Risk Partner",
+      "risk_supervisor": "Risk Supervisor",
+      "hr_manager": "HR Manager",
+      "hr_analyst": "HR Analyst"
+    },
+    "loadFailed": "Could not verify your permissions. Please try again.",
+    "retry": "Retry",
+    "accessDenied": {
+      "title": "No access",
+      "description": "You don't have permission to view this section. If you think this is a mistake, contact an administrator."
     }
   },
   "industry": {
@@ -563,6 +603,7 @@
     "audRegNumber": "Aud. Reg. Number",
     "newStaff": "New Staff Member",
     "editStaff": "Edit Staff Member",
+    "readOnlyNoUpdatePermission": "You have read-only access to this record — you lack permission to save changes.",
     "createStaff": "Create Staff Member",
     "deleteStaff": "Delete Staff Member",
     "searchPlaceholder": "Search by name or email...",
@@ -764,12 +805,62 @@
     "searchTaxonomy":     "Search service...",
     "noMatchingTaxonomies": "No matching services.",
     "noAplicaTaxonomy":   "Not applicable",
-    "requiredTaxonomyCliente": "Service is required for Client engagements"
+    "requiredTaxonomyCliente": "Service is required for Client engagements",
+    "assignments": {
+      "category": "Category",
+      "searchStaff": "Search staff...",
+      "empty": "No staff assigned yet.",
+      "match": {
+        "full": "Full match",
+        "partial": "Partial match",
+        "categoryOnly": "Category only",
+        "none": "No match",
+        "categoryMismatch": "Staff category differs from the assignment category",
+        "noRequirement": "No staffing requirement defined for this category",
+        "missingSkills": "Missing competencies: {{list}}",
+        "belowLevel": "Below required level: {{list}}"
+      },
+      "title": "Staff assignments",
+      "addRow": "Add assignment",
+      "save": "Save assignments",
+      "discard": "Discard changes",
+      "saveSuccess": "Assignments saved",
+      "staff": "Staff",
+      "startDate": "Start date",
+      "endDate": "End date",
+      "hoursPerWeek": "Hours/week",
+      "allocationPct": "Allocation %",
+      "notes": "Notes",
+      "selectStaff": "Select staff...",
+      "selectCategory": "Select category...",
+      "remove": "Remove",
+      "readOnly": "Read-only",
+      "inactiveStaff": "Inactive",
+      "pendingChanges": "Unsaved changes — click Undo to restore, or Save to confirm.",
+      "availableAfterSave": "Staff assignments will be available after you save this engagement.",
+      "warnings": {
+        "headerChangeWithPending": "You have unsaved staff assignments. Changing the dates, partner, or manager here may invalidate them or revoke your permission to save them."
+      },
+      "errors": {
+        "requiredFields": "Staff, category, and both dates are required.",
+        "dateRange": "End date must be on or after the start date.",
+        "numericRange": "Hours and allocation must be greater than 0 and within the allowed range.",
+        "outOfEngagementRange": "The segment must fall within the engagement's dates.",
+        "categoryForeignService": "This category does not belong to the engagement's service.",
+        "staffIneligible": "This staff member is inactive or not schedulable.",
+        "engagementNotFound": "This engagement could not be found.",
+        "denied": "You don't have permission to edit these assignments.",
+        "locked": "This engagement's assignments cannot be edited in its current state.",
+        "loadFailed": "Could not load assignments.",
+        "persistFailed": "Could not save assignments."
+      }
+    }
   },
   "messages": {
     "createSuccess": "{{entity}} created successfully",
     "updateSuccess": "{{entity}} updated successfully",
     "deleteSuccess": "{{entity}} deleted successfully",
+    "deleteBlockedNoPermission": "Not deleted: you do not have permission to delete this record",
     "createError": "Error creating {{entity}}",
     "updateError": "Error updating {{entity}}",
     "deleteError": "Error deleting {{entity}}",
@@ -1098,6 +1189,17 @@
     "deleteRowDescription": "This will permanently delete all hours logged in this row for the current week. This action cannot be undone.",
     "deleteRowError": "Failed to delete row. It has been restored.",
     "activityChangeError": "Failed to update activity. Change has been reverted.",
+    "submitPairMismatch": "Submit failed: engagement and activity lists do not match. Please reload and try again.",
+    "assignmentAdvisory": {
+      "banner_one": "1 entry has hours logged outside the assignment period. This is informational only and does not block saving or submitting.",
+      "banner_other": "{{count}} entries have hours logged outside the assignment period. This is informational only and does not block saving or submitting.",
+      "cellTooltip": "Hours logged outside the assignment period",
+      "cellAriaLabel": "Warning: hours logged outside the assignment period",
+      "badge": "Outside assignment",
+      "submittedWithWarnings_one": "Submitted. 1 entry has hours logged outside the assignment period.",
+      "submittedWithWarnings_other": "Submitted. {{count}} entries have hours logged outside the assignment period.",
+      "unavailable": "Assignment period information is temporarily unavailable. This does not affect saving or submitting hours."
+    },
     "legend": {
       "approved": "Approved",
       "pending": "Pending",
@@ -1212,6 +1314,7 @@
     "rejectRiskDialogTitle": "Reject Risk Assessment",
     "allStatuses": "All Statuses",
     "allEngagementsHaveWorkOrders": "All active engagements already have a work order.",
+    "noAssignedEngagementsAvailable": "You have no assigned active engagements without a work order.",
     "createEngagementFirst": "Create a new engagement",
     "submittedForApproval": "Work order submitted for approval",
     "approved": "Work order approved",
@@ -1224,7 +1327,6 @@
     "withdrawRejected": "Withdraw",
     "unsubmit": "Withdraw from Approval",
     "unsubmitted": "Work order returned to draft",
-    "saveBeforeSubmit": "Save changes before submitting for approval",
     "riskSavedOnSubmit": "Risk data will be saved when submitting for approval",
     "confirmParametersTitle": "Confirm Work Order Parameters",
     "confirmParametersDescription": "Currency and Season cannot be changed after creation. Please verify these settings are correct.",
@@ -1268,6 +1370,40 @@
       "confirmCollectionDateTitle": "Update Collection Invoice Date",
       "confirmCollectionDateDesc": "The collection invoice date will be set to {{date}}. The collection payment date will be recalculated automatically.",
       "confirmCollectionDateAction": "Save date"
+    },
+    "staffingRequirements": {
+      "title": "Staffing Requirements",
+      "description": "Define required categories, headcount and skills for this work order.",
+      "empty": "No staffing requirements yet.",
+      "loading": "Loading staffing requirements...",
+      "errorLoading": "Could not load staffing requirements.",
+      "addCategory": "Add Category",
+      "removeCategory": "Remove category",
+      "selectCategory": "Select category",
+      "staffCount": "Staff Count",
+      "addSkill": "Add Skill",
+      "removeSkill": "Remove skill",
+      "selectSkill": "Select skill",
+      "selectProficiency": "Select proficiency",
+      "inactiveSkillBadge": "Inactive",
+      "historicalCategoryIncompatible": "This historical category no longer belongs to the engagement's current service. Select a valid category or remove this requirement.",
+      "availableAfterCreate": "Staffing requirements will be available after you save this work order.",
+      "noCategoriesForService": "No categories available for this engagement's service.",
+      "serviceNotResolved": "This work order's engagement has no service assigned; staffing categories cannot be scoped.",
+      "saveSuccess": "Staffing requirements saved successfully.",
+      "errors": {
+        "categoryMissing": "Select a category for every staffing requirement.",
+        "categoryDuplicate": "A category cannot be used more than once.",
+        "skillDuplicate": "A skill cannot be used more than once within the same requirement.",
+        "categoryForeignService": "This category does not belong to the engagement's service.",
+        "skillIncomplete": "Select both a skill and a proficiency level for every skill row.",
+        "staffCountRange": "Staff count must be a whole number between 1 and 999.",
+        "proficiencyInvalid": "Select a valid proficiency level.",
+        "workOrderNotFound": "This work order could not be found.",
+        "denied": "You don't have permission to modify staffing requirements for this work order.",
+        "locked": "This work order is locked and cannot be modified.",
+        "persistFailed": "Could not save staffing requirements. Please try again."
+      }
     }
   },
   "adminTimeEntries": {
@@ -1383,7 +1519,20 @@
     "verifyYourEmail": "Check Your Email",
     "confirmationSent": "We've sent a confirmation link to {{email}}. Please open your email and click the link to activate your account.",
     "sessionExpiredInactivity": "Your session has expired due to inactivity. Please sign in again.",
-    "sessionWarningInactivity": "Your session will expire in 2 minutes due to inactivity."
+    "sessionWarningInactivity": "Your session will expire in 2 minutes due to inactivity.",
+    "sessionExpiredRevoked": "Your session has expired. Please sign in again.",
+    "brandTagline": "Engagement Management System",
+    "firstNamePlaceholder": "John",
+    "lastNamePlaceholder": "Doe",
+    "emailPlaceholderWithDomain": "your.name@{{domain}}",
+    "validation": {
+      "emailMax": "Email must be less than 255 characters",
+      "passwordMinSignin": "Password must be at least 6 characters",
+      "passwordMinSignup": "Password must be at least 8 characters",
+      "passwordMax": "Password must be less than 100 characters",
+      "nameMax": "Must be less than 100 characters",
+      "emailDomainOnly": "Only @{{domain}} emails are allowed"
+    }
   },
   "workMatrix": {
     "title": "Work Matrix",
@@ -1548,6 +1697,7 @@
       "cancel": "Cancel Request"
     },
     "approvalsQueue": "Fund Request Approvals",
+    "accessByOtManager": "You see this screen because you are listed as manager of at least one work order with pending funds, not because of your role. Only the requests for those work orders are shown.",
     "disbursementsQueue": "Fund Disbursements",
     "submittedAt": "Submitted at",
     "managerDecidedAt": "Decided at",
@@ -1681,6 +1831,7 @@
     "searchPlaceholder": "Search by description, invoice or supplier...",
     "workOrder": "Work Order",
     "selectWorkOrder": "Select WO",
+    "workOrderNoAccess": "(WO — engagement details not accessible)",
     "expenseType": "Expense Type",
     "selectExpenseType": "Select type",
     "expenseDate": "Expense Date",
@@ -1777,7 +1928,123 @@
       "invalidDateRange": "The 'To' date cannot be earlier than the 'From' date",
       "observationNotesRequired": "You must describe the invoice observation",
       "noInvoiceNotesRequired": "Indicate which receipt is missing before returning",
-      "attachmentRequired": "Attach the receipt before resending"
+      "attachmentRequired": "Attach the receipt before resending",
+      "notPermittedOrChanged": "Change not applied: you lack permission or the expense already changed state"
+    }
+  },
+  "scheduler": {
+    "title": "Scheduler",
+    "readOnly": "Read-only mode",
+    "gaps": {
+      "title": "Staffing & Competency Gaps",
+      "kpi": {
+        "headcountGap": "Headcount gap",
+        "hoursGap": "Hours gap",
+        "skillsUnderSupplied": "Skills under-supplied",
+        "bench": "Available staff"
+      },
+      "tabs": {
+        "byCategory": "By Category",
+        "bySkill": "By Skill",
+        "bench": "Bench"
+      },
+      "table": {
+        "category": "Category",
+        "skill": "Skill",
+        "minLevel": "Min level",
+        "demand": "Demand",
+        "supply": "Supply",
+        "deficit": "Deficit",
+        "staff": "Staff",
+        "allocation": "Allocation %",
+        "topSkills": "Top skills"
+      },
+      "minLevelThresholdTooltip": "Cumulative: demand and supply count seats and staff at or above this level.",
+      "empty": "No gaps in this window.",
+      "invalidRange": "The start date must be on or before the end date.",
+      "rangeTooLong": "The date range cannot exceed 730 days. Narrow the window.",
+      "forbidden": "This view is for firm leadership only.",
+      "hoursProjectionTooltip": "Window pro-rata — demand: budget × share of the engagement inside the window; supply: hours/week × overlap days ÷ 7.",
+      "headcountBasisTooltip": "Average unfilled seats: person-day gap ÷ days in the window.",
+      "truncated": "Showing the top 500 rows. Narrow the date range to refine.",
+      "benchAsOfToday": "As of today",
+      "benchRowAria": "{{name}} — {{allocation}}% allocated"
+    },
+    "filters": {
+      "status": "Status",
+      "partner": "Partner",
+      "manager": "Manager",
+      "client": "Client",
+      "clear": "Clear filters"
+    },
+    "l1": {
+      "empty": "No engagements in this window.",
+      "truncated": "Showing the first 500 engagements — narrow the filters.",
+      "healthUnder": "Understaffed",
+      "healthOnTarget": "On target",
+      "healthOver": "Overstaffed",
+      "healthUnknown": "No demand recorded",
+      "healthAsOfToday": "Staffing as of today"
+    },
+    "l2": {
+      "title": "Engagement staffing",
+      "workload": "Active engagements: {{n}}",
+      "addStaff": "+ Add staff"
+    },
+    "gantt": {
+      "zoom": {
+        "weeks": "Weeks",
+        "months": "Months",
+        "quarters": "Quarters"
+      },
+      "today": "Today",
+      "tooltip": {
+        "hours": "{{n}} hrs/wk",
+        "allocation": "{{n}}% allocation"
+      }
+    },
+    "staff": {
+      "title": "Employee GANTT",
+      "engagements": "Engagements",
+      "timeline": "Timeline",
+      "total": "Total",
+      "managedBy": "Manager: {{name}}",
+      "outOfScope": "Outside your engagement scope — shown for scheduling context.",
+      "utilization": {
+        "under": "Underbooked",
+        "ok": "Properly booked",
+        "over": "Overbooked",
+        "tooltip": "Total allocation: {{n}}%",
+        "hours": "{{n}} hrs/wk booked",
+        "capacity": "{{n}} hrs/wk capacity"
+      },
+      "empty": "No engagements for this employee in this window.",
+      "hidden": "Engagements not shown (outside your visibility): {{n}}",
+      "truncated": "Showing the first 500 segments — narrow the window.",
+      "forbidden": "You don't have access to this employee's schedule.",
+      "notFound": "Staff member not found."
+    },
+    "actions": {
+      "openEngagement": "Open engagement",
+      "openStaffGantt": "Employee GANTT",
+      "rowMenu": "Row actions",
+      "edit": "Edit",
+      "delete": "Delete"
+    },
+    "errors": {
+      "loadFailed": "Could not load the schedule.",
+      "retry": "Retry",
+      "unavailable": "The Scheduler service is not available yet. Contact your administrator.",
+      "forbidden": "You don't have access to this engagement's schedule.",
+      "overlap": "This staff member already has an overlapping assignment in this date range.",
+      "partialSave": "The change could not be saved. Nothing was persisted.",
+      "conflict": "This assignment was changed elsewhere. Reload to see the latest state."
+    },
+    "assignmentSheet": {
+      "title": "Assignment details",
+      "description": "Create, edit, or delete a single staff assignment segment for this engagement.",
+      "save": "Save",
+      "delete": "Delete assignment"
     }
   }
 }

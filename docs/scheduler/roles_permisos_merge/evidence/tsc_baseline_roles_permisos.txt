@@ -1,0 +1,378 @@
+src/components/dashboard/__tests__/StaffHoursDetailDialog.test.tsx(57,44): error TS2556: A spread argument must either have a tuple type or be passed to a rest parameter.
+src/components/dashboard/tabs/EncargoTab.tsx(216,52): error TS2339: Property 'period_id' does not exist on type 'SelectQueryError<"column 'activity_id' does not exist on 'timesheet_line_approvals'.">'.
+src/components/dashboard/tabs/EncargoTab.tsx(216,67): error TS2339: Property 'activity_id' does not exist on type 'SelectQueryError<"column 'activity_id' does not exist on 'timesheet_line_approvals'.">'.
+src/components/dashboard/tabs/EncargoTab.tsx(216,84): error TS2339: Property 'status' does not exist on type 'SelectQueryError<"column 'activity_id' does not exist on 'timesheet_line_approvals'.">'.
+src/components/dashboard/tabs/PracticaTab.tsx(216,27): error TS2677: A type predicate's type must be assignable to its parameter's type.
+  Type '{ engagement_id: string; partner_id: string; engagement_state_override?: number; }' is not assignable to type '{ engagement_id: string; partner_id: string; engagement_state_override: number; }'.
+    Property 'engagement_state_override' is optional in type '{ engagement_id: string; partner_id: string; engagement_state_override?: number; }' but required in type '{ engagement_id: string; partner_id: string; engagement_state_override: number; }'.
+src/components/forms/__tests__/ClientForm.schema.test.ts(9,1): error TS2582: Cannot find name 'describe'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha`.
+src/components/forms/__tests__/ClientForm.schema.test.ts(10,3): error TS2582: Cannot find name 'it'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha`.
+src/components/forms/__tests__/ClientForm.schema.test.ts(11,5): error TS2304: Cannot find name 'expect'.
+src/components/forms/__tests__/ClientForm.schema.test.ts(13,3): error TS2582: Cannot find name 'it'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha`.
+src/components/forms/__tests__/ClientForm.schema.test.ts(14,5): error TS2304: Cannot find name 'expect'.
+src/components/forms/__tests__/ClientForm.schema.test.ts(16,3): error TS2582: Cannot find name 'it'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha`.
+src/components/forms/__tests__/ClientForm.schema.test.ts(17,5): error TS2304: Cannot find name 'expect'.
+src/components/forms/__tests__/ClientForm.schema.test.ts(19,3): error TS2582: Cannot find name 'it'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha`.
+src/components/forms/__tests__/ClientForm.schema.test.ts(20,5): error TS2304: Cannot find name 'expect'.
+src/components/forms/__tests__/ClientForm.schema.test.ts(22,3): error TS2582: Cannot find name 'it'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha`.
+src/components/forms/__tests__/ClientForm.schema.test.ts(24,5): error TS2304: Cannot find name 'expect'.
+src/components/forms/__tests__/ClientForm.schema.test.ts(25,5): error TS2304: Cannot find name 'expect'.
+src/components/forms/__tests__/ClientForm.schema.test.ts(27,3): error TS2582: Cannot find name 'it'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha`.
+src/components/forms/__tests__/ClientForm.schema.test.ts(29,5): error TS2304: Cannot find name 'expect'.
+src/components/forms/__tests__/ClientForm.schema.test.ts(30,5): error TS2304: Cannot find name 'expect'.
+src/components/forms/__tests__/ClientForm.schema.test.ts(32,3): error TS2582: Cannot find name 'it'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha`.
+src/components/forms/__tests__/ClientForm.schema.test.ts(34,5): error TS2304: Cannot find name 'expect'.
+src/components/forms/__tests__/ClientForm.schema.test.ts(36,3): error TS2582: Cannot find name 'it'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha`.
+src/components/forms/__tests__/ClientForm.schema.test.ts(38,5): error TS2304: Cannot find name 'expect'.
+src/components/forms/__tests__/ClientForm.schema.test.ts(40,3): error TS2582: Cannot find name 'it'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha`.
+src/components/forms/__tests__/ClientForm.schema.test.ts(42,5): error TS2304: Cannot find name 'expect'.
+src/components/forms/__tests__/ClientForm.schema.test.ts(43,5): error TS2304: Cannot find name 'expect'.
+src/components/forms/__tests__/ClientForm.schema.test.ts(47,1): error TS2582: Cannot find name 'describe'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha`.
+src/components/forms/__tests__/ClientForm.schema.test.ts(51,3): error TS2582: Cannot find name 'it'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha`.
+src/components/forms/__tests__/ClientForm.schema.test.ts(52,5): error TS2304: Cannot find name 'expect'.
+src/components/forms/__tests__/ClientForm.schema.test.ts(54,3): error TS2582: Cannot find name 'it'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha`.
+src/components/forms/__tests__/ClientForm.schema.test.ts(55,5): error TS2304: Cannot find name 'expect'.
+src/components/forms/__tests__/ClientForm.schema.test.ts(57,3): error TS2582: Cannot find name 'it'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha`.
+src/components/forms/__tests__/ClientForm.schema.test.ts(58,5): error TS2304: Cannot find name 'expect'.
+src/components/forms/__tests__/ClientForm.schema.test.ts(60,3): error TS2582: Cannot find name 'it'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha`.
+src/components/forms/__tests__/ClientForm.schema.test.ts(61,5): error TS2304: Cannot find name 'expect'.
+src/components/forms/__tests__/ClientForm.schema.test.ts(63,3): error TS2582: Cannot find name 'it'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha`.
+src/components/forms/__tests__/ClientForm.schema.test.ts(64,5): error TS2304: Cannot find name 'expect'.
+src/components/forms/__tests__/ClientForm.schema.test.ts(66,3): error TS2582: Cannot find name 'it'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha`.
+src/components/forms/__tests__/ClientForm.schema.test.ts(68,5): error TS2304: Cannot find name 'expect'.
+src/components/forms/__tests__/ClientForm.schema.test.ts(69,5): error TS2304: Cannot find name 'expect'.
+src/components/forms/__tests__/ClientForm.schema.test.ts(73,3): error TS2582: Cannot find name 'it'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha`.
+src/components/forms/__tests__/ClientForm.schema.test.ts(74,5): error TS2304: Cannot find name 'expect'.
+src/components/forms/__tests__/ClientForm.schema.test.ts(76,3): error TS2582: Cannot find name 'it'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha`.
+src/components/forms/__tests__/ClientForm.schema.test.ts(78,5): error TS2304: Cannot find name 'expect'.
+src/components/forms/__tests__/ClientForm.schema.test.ts(79,5): error TS2304: Cannot find name 'expect'.
+src/components/forms/__tests__/ClientForm.schema.test.ts(81,3): error TS2582: Cannot find name 'it'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha`.
+src/components/forms/__tests__/ClientForm.schema.test.ts(83,5): error TS2304: Cannot find name 'expect'.
+src/components/forms/__tests__/ClientForm.schema.test.ts(84,5): error TS2304: Cannot find name 'expect'.
+src/components/forms/__tests__/EngagementForm.contractFile.test.tsx(114,7): error TS2741: Property 'taxonomy_id' is missing in type '{ engagement_id: string; client_id: string; engagement_name: string; engagement_code: string; partner_id: string; manager_id: string; status: string; start_date: string; end_date: string; created_at: string; ... 14 more ...; contract_file_path: string; }' but required in type 'Engagement'.
+src/components/forms/__tests__/EngagementForm.servicesCatalog.test.tsx(171,7): error TS2740: Type '{ engagement_id: string; client_id: string; engagement_name: string; engagement_code: string; partner_id: null; manager_id: null; status: string; start_date: string; end_date: string; created_at: string; ... 8 more ...; taxonomy_id: null; }' is missing the following properties from type 'Engagement': fecha_cierre, anio_fiscal_override, sqr_id, encargado_id, and 3 more.
+src/components/forms/__tests__/EngagementForm.taxonomy.test.tsx(98,7): error TS2740: Type '{ engagement_id: string; client_id: string; engagement_name: string; engagement_code: string; partner_id: null; manager_id: null; status: string; start_date: string; end_date: string; created_at: string; ... 8 more ...; taxonomy_id: string; }' is missing the following properties from type 'Engagement': fecha_cierre, anio_fiscal_override, sqr_id, encargado_id, and 3 more.
+src/components/forms/__tests__/StaffForm.terminationDate.test.tsx(233,7): error TS2741: Property 'is_blocked' is missing in type '{ staff_id: string; first_name: string; last_name: string; short_name: string; initials: string; email: string; id_number: string; aud_reg_number: null; category_id: string; city: string; is_active: true; hire_date: string; termination_date: null; auth_user_id: null; staff_skills: undefined[]; }' but required in type 'StaffFull'.
+src/components/forms/__tests__/WorkOrderForm.risk-assessment.test.tsx(142,7): error TS2322: Type '"Pending_Approval"' is not assignable to type '"Draft"'.
+src/components/forms/__tests__/WorkOrderForm.risk-assessment.test.tsx(152,7): error TS2322: Type '"Pending_Approval"' is not assignable to type '"Draft"'.
+src/components/forms/__tests__/WorkOrderForm.risk-assessment.test.tsx(164,7): error TS2322: Type '"Pending_Approval"' is not assignable to type '"Draft"'.
+src/components/forms/__tests__/WorkOrderForm.risk-assessment.test.tsx(173,7): error TS2322: Type '"Pending_Approval"' is not assignable to type '"Draft"'.
+src/components/forms/__tests__/WorkOrderForm.risk-assessment.test.tsx(199,7): error TS2322: Type '"Approved"' is not assignable to type '"Draft"'.
+src/components/forms/__tests__/WorkOrderForm.risk-assessment.test.tsx(209,18): error TS2322: Type '"Approved"' is not assignable to type '"Draft"'.
+src/components/forms/__tests__/WorkOrderForm.risk-assessment.test.tsx(216,7): error TS2322: Type '"Pending_Approval"' is not assignable to type '"Draft"'.
+src/components/forms/__tests__/WorkOrderForm.risk-assessment.test.tsx(232,7): error TS2322: Type '"Pending_Approval"' is not assignable to type '"Draft"'.
+src/components/forms/__tests__/WorkOrderForm.risk-assessment.test.tsx(247,7): error TS2322: Type '"Pending_Approval"' is not assignable to type '"Draft"'.
+src/components/forms/__tests__/WorkOrderForm.risk-assessment.test.tsx(265,7): error TS2322: Type '"Pending_Approval"' is not assignable to type '"Draft"'.
+src/components/forms/__tests__/WorkOrderForm.risk-assessment.test.tsx(278,7): error TS2322: Type '"Pending_Approval"' is not assignable to type '"Draft"'.
+src/components/forms/__tests__/WorkOrderForm.risk-assessment.test.tsx(289,7): error TS2322: Type '"Pending_Approval"' is not assignable to type '"Draft"'.
+src/components/forms/__tests__/WorkOrderForm.risk-assessment.test.tsx(344,7): error TS2322: Type '"Approved"' is not assignable to type '"Draft"'.
+src/components/forms/__tests__/WorkOrderForm.risk-assessment.test.tsx(367,7): error TS2322: Type '"Approved"' is not assignable to type '"Draft"'.
+src/components/forms/__tests__/WorkOrderForm.risk-assessment.test.tsx(379,7): error TS2322: Type '"Pending_Approval"' is not assignable to type '"Draft"'.
+src/components/forms/__tests__/WorkOrderForm.risk-assessment.test.tsx(392,7): error TS2322: Type '"Approved"' is not assignable to type '"Draft"'.
+src/components/forms/__tests__/WorkOrderForm.risk-assessment.test.tsx(401,7): error TS2322: Type '"Rejected"' is not assignable to type '"Draft"'.
+src/components/forms/__tests__/WorkOrderForm.risk-assessment.test.tsx(413,7): error TS2322: Type '"Pending_Approval"' is not assignable to type '"Draft"'.
+src/components/forms/__tests__/WorkOrderForm.risk-assessment.test.tsx(470,7): error TS2322: Type '"Approved"' is not assignable to type '"Draft"'.
+src/components/layout/NotificationsPanel.tsx(47,49): error TS2339: Property 'seen_at' does not exist on type '{ alert_type: string; category_name: string; description: string; detected_at: string; end_date: string; engagement_code: string; engagement_id: string; engagement_name: string; entity_id: string; ... 4 more ...; start_date: string; }'.
+src/components/layout/NotificationsPanel.tsx(52,25): error TS2339: Property 'seen_at' does not exist on type '{ alert_type: string; category_name: string; description: string; detected_at: string; end_date: string; engagement_code: string; engagement_id: string; engagement_name: string; entity_id: string; ... 4 more ...; start_date: string; }'.
+src/components/settings/__tests__/UserRolesManager.test.tsx(71,41): error TS2503: Cannot find namespace 'R'.
+src/components/settings/__tests__/UserRolesManager.test.tsx(73,57): error TS2503: Cannot find namespace 'R'.
+src/components/settings/__tests__/UserRolesManager.test.tsx(74,30): error TS2503: Cannot find namespace 'R'.
+src/components/settings/__tests__/UserRolesManager.test.tsx(75,59): error TS2503: Cannot find namespace 'R'.
+src/components/settings/__tests__/UserRolesManager.test.tsx(86,17): error TS2503: Cannot find namespace 'R'.
+src/components/settings/__tests__/UserRolesManager.test.tsx(94,25): error TS2503: Cannot find namespace 'R'.
+src/components/settings/__tests__/UserRolesManager.test.tsx(98,47): error TS2503: Cannot find namespace 'R'.
+src/components/settings/__tests__/UserRolesManager.test.tsx(99,46): error TS2503: Cannot find namespace 'R'.
+src/components/settings/__tests__/UserRolesManager.test.tsx(100,47): error TS2503: Cannot find namespace 'R'.
+src/components/settings/__tests__/UserRolesManager.test.tsx(101,66): error TS2503: Cannot find namespace 'R'.
+src/components/settings/__tests__/UserRolesManager.test.tsx(103,45): error TS2503: Cannot find namespace 'R'.
+src/components/settings/__tests__/UserRolesManager.test.tsx(104,45): error TS2503: Cannot find namespace 'R'.
+src/components/settings/HolidaysManager.tsx(155,9): error TS2322: Type 'Holiday[]' is not assignable to type 'Record<string, unknown>[]'.
+  Type 'Holiday' is not assignable to type 'Record<string, unknown>'.
+    Index signature for type 'string' is missing in type 'Holiday'.
+src/components/settings/HolidaysManager.tsx(156,9): error TS2322: Type 'Column<Holiday>[]' is not assignable to type 'Column<Record<string, unknown>>[]'.
+  Type 'Column<Holiday>' is not assignable to type 'Column<Record<string, unknown>>'.
+    Type 'Holiday' is not assignable to type 'Record<string, unknown>'.
+      Index signature for type 'string' is missing in type 'Holiday'.
+src/components/settings/HolidaysManager.tsx(198,30): error TS2345: Argument of type 'Record<string, unknown>' is not assignable to parameter of type 'SetStateAction<Holiday>'.
+  Type 'Record<string, unknown>' is missing the following properties from type 'Holiday': holiday_id, holiday_date, holiday_name, oficina, and 3 more.
+src/components/settings/HolidaysManager.tsx(201,28): error TS2322: Type 'unknown' is not assignable to type 'string'.
+src/components/settings/UserRolesManager.tsx(286,11): error TS2322: Type 'UserRoleData[]' is not assignable to type 'Record<string, unknown>[]'.
+  Type 'UserRoleData' is not assignable to type 'Record<string, unknown>'.
+    Index signature for type 'string' is missing in type 'UserRoleData'.
+src/components/settings/UserRolesManager.tsx(287,11): error TS2322: Type 'Column<UserRoleData>[]' is not assignable to type 'Column<Record<string, unknown>>[]'.
+  Type 'Column<UserRoleData>' is not assignable to type 'Column<Record<string, unknown>>'.
+    Type 'UserRoleData' is not assignable to type 'Record<string, unknown>'.
+      Index signature for type 'string' is missing in type 'UserRoleData'.
+src/components/settings/UserRolesManager.tsx(291,30): error TS2322: Type 'unknown' is not assignable to type 'string'.
+src/components/timesheet/__tests__/TimesheetEngagementCombobox.test.tsx(29,3): error TS2741: Property 'practica' is missing in type '{ engagement_id: string; engagement_code: string; engagement_name: string; activity_required: false; work_order_required: false; is_internal: false; start_date: null; end_date: null; client: { ...; }; }' but required in type 'ApprovedEngagement'.
+src/components/timesheet/__tests__/TimesheetGrid.day-lock-tooltip.test.tsx(57,7): error TS2741: Property 'practica' is missing in type '{ engagement_id: string; engagement_code: string; engagement_name: string; activity_required: true; work_order_required: false; is_internal: false; start_date: null; end_date: null; client: null; }' but required in type 'ApprovedEngagement'.
+src/hooks/mutations/__tests__/useEngagementMutations.approvalRequired.test.tsx(38,27): error TS2345: Argument of type '{ engagement_name: string; client_id: string; oficina: number; practica: number; funcion: number; anio_fiscal: number; is_internal: true; approval_required: false; }' is not assignable to parameter of type '{ engagement_name: string; client_id: string; oficina: number; practica: number; funcion: number; anio_fiscal: number; partner_id?: string; manager_id?: string; start_date?: string; end_date?: string; ... 12 more ...; taxonomy_id?: string; }'.
+  Property 'fecha_cierre' is missing in type '{ engagement_name: string; client_id: string; oficina: number; practica: number; funcion: number; anio_fiscal: number; is_internal: true; approval_required: false; }' but required in type '{ engagement_name: string; client_id: string; oficina: number; practica: number; funcion: number; anio_fiscal: number; partner_id?: string; manager_id?: string; start_date?: string; end_date?: string; ... 12 more ...; taxonomy_id?: string; }'.
+src/hooks/mutations/__tests__/useEngagementMutations.approvalRequired.test.tsx(67,27): error TS2345: Argument of type '{ engagement_name: string; client_id: string; oficina: number; practica: number; funcion: number; anio_fiscal: number; }' is not assignable to parameter of type '{ engagement_name: string; client_id: string; oficina: number; practica: number; funcion: number; anio_fiscal: number; partner_id?: string; manager_id?: string; start_date?: string; end_date?: string; ... 12 more ...; taxonomy_id?: string; }'.
+  Property 'fecha_cierre' is missing in type '{ engagement_name: string; client_id: string; oficina: number; practica: number; funcion: number; anio_fiscal: number; }' but required in type '{ engagement_name: string; client_id: string; oficina: number; practica: number; funcion: number; anio_fiscal: number; partner_id?: string; manager_id?: string; start_date?: string; end_date?: string; ... 12 more ...; taxonomy_id?: string; }'.
+src/hooks/mutations/__tests__/useEngagementMutations.codeGeneration.test.tsx(111,13): error TS2352: Conversion of type '{ p_new_role: "staff" | "admin" | "viewer" | "partner" | "director" | "manager" | "senior" | "semisenior" | "sqr" | "specialist_it" | "specialist_tax"; p_reason?: string; p_target_user_id: string; } | ... 19 more ... | { ...; }' to type '{ p_contract_file_path: unknown; }' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Property 'p_contract_file_path' is missing in type '{ p_daily_max: number; p_daily_min: number; p_weekly_max: number; p_weekly_min: number; p_work_days?: number; }' but required in type '{ p_contract_file_path: unknown; }'.
+src/hooks/mutations/__tests__/useEngagementMutations.test.tsx(43,29): error TS2345: Argument of type '{ engagement_name: string; client_id: string; oficina: number; practica: number; funcion: number; anio_fiscal: number; }' is not assignable to parameter of type '{ engagement_name: string; client_id: string; oficina: number; practica: number; funcion: number; anio_fiscal: number; partner_id?: string; manager_id?: string; start_date?: string; end_date?: string; ... 12 more ...; taxonomy_id?: string; }'.
+  Property 'fecha_cierre' is missing in type '{ engagement_name: string; client_id: string; oficina: number; practica: number; funcion: number; anio_fiscal: number; }' but required in type '{ engagement_name: string; client_id: string; oficina: number; practica: number; funcion: number; anio_fiscal: number; partner_id?: string; manager_id?: string; start_date?: string; end_date?: string; ... 12 more ...; taxonomy_id?: string; }'.
+src/hooks/mutations/__tests__/useEngagementMutations.test.tsx(85,29): error TS2345: Argument of type '{ engagement_name: string; client_id: string; oficina: number; practica: number; funcion: number; anio_fiscal: number; partner_id: string; manager_id: string; status: string; taxonomy_id: string; }' is not assignable to parameter of type '{ engagement_name: string; client_id: string; oficina: number; practica: number; funcion: number; anio_fiscal: number; partner_id?: string; manager_id?: string; start_date?: string; end_date?: string; ... 12 more ...; taxonomy_id?: string; }'.
+  Property 'fecha_cierre' is missing in type '{ engagement_name: string; client_id: string; oficina: number; practica: number; funcion: number; anio_fiscal: number; partner_id: string; manager_id: string; status: string; taxonomy_id: string; }' but required in type '{ engagement_name: string; client_id: string; oficina: number; practica: number; funcion: number; anio_fiscal: number; partner_id?: string; manager_id?: string; start_date?: string; end_date?: string; ... 12 more ...; taxonomy_id?: string; }'.
+src/hooks/mutations/useActivityCodeMutations.ts(26,11): error TS2345: Argument of type '"create_service_activity"' is not assignable to parameter of type '"admin_set_user_role" | "assign_user_role_atomic" | "can_approve_timesheet" | "can_approve_timesheet_line" | "check_pending_hours_before_termination" | "finalize_all_stale_timers" | ... 19 more ... | "update_timesheet_minmax_settings"'.
+src/hooks/mutations/useActivityCodeMutations.ts(103,44): error TS2345: Argument of type '"deactivate_service_activity"' is not assignable to parameter of type '"admin_set_user_role" | "assign_user_role_atomic" | "can_approve_timesheet" | "can_approve_timesheet_line" | "check_pending_hours_before_termination" | "finalize_all_stale_timers" | ... 19 more ... | "update_timesheet_minmax_settings"'.
+src/hooks/mutations/useActivityCodeMutations.ts(120,44): error TS2345: Argument of type '"reactivate_service_activity"' is not assignable to parameter of type '"admin_set_user_role" | "assign_user_role_atomic" | "can_approve_timesheet" | "can_approve_timesheet_line" | "check_pending_hours_before_termination" | "finalize_all_stale_timers" | ... 19 more ... | "update_timesheet_minmax_settings"'.
+src/hooks/mutations/useActivityCodeMutations.ts(143,44): error TS2345: Argument of type '"reorder_service_activity"' is not assignable to parameter of type '"admin_set_user_role" | "assign_user_role_atomic" | "can_approve_timesheet" | "can_approve_timesheet_line" | "check_pending_hours_before_termination" | "finalize_all_stale_timers" | ... 19 more ... | "update_timesheet_minmax_settings"'.
+src/hooks/mutations/useEngagementMutations.ts(38,58): error TS2345: Argument of type '"create_engagement_with_code"' is not assignable to parameter of type '"admin_set_user_role" | "assign_user_role_atomic" | "can_approve_timesheet" | "can_approve_timesheet_line" | "check_pending_hours_before_termination" | "finalize_all_stale_timers" | ... 19 more ... | "update_timesheet_minmax_settings"'.
+src/hooks/mutations/useWorkOrderPaymentPlanMutations.ts(13,15): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(relation: "categories" | "activity_codes" | "activity_worksheets" | "staff" | "engagements" | "work_orders" | "industries" | "engagement_staffing_requirements" | "clients" | "expense_types" | ... 20 more ... | "wo_expense_budget"): PostgrestQueryBuilder<...>', gave the following error.
+    Argument of type '"wo_payment_plan"' is not assignable to parameter of type '"categories" | "activity_codes" | "activity_worksheets" | "staff" | "engagements" | "work_orders" | "industries" | "engagement_staffing_requirements" | "clients" | "expense_types" | ... 20 more ... | "wo_expense_budget"'.
+  Overload 2 of 2, '(relation: "vw_wo_budget_hours_by_category_activity" | "staff_directory" | "vw_staff_weekly_capacity" | "vw_engagement_staffing_summary" | "vw_wo_budget_hours_by_category" | ... 4 more ... | "vw_staffing_alerts"): PostgrestQueryBuilder<...>', gave the following error.
+    Argument of type '"wo_payment_plan"' is not assignable to parameter of type '"vw_wo_budget_hours_by_category_activity" | "staff_directory" | "vw_staff_weekly_capacity" | "vw_engagement_staffing_summary" | "vw_wo_budget_hours_by_category" | "work_order_summary" | "clients_directory" | "vw_actual_hours_by_category_activity" | "vw_budget_vs_actual_hours_by_category_activity" | "vw_staffing_aler...'.
+src/hooks/mutations/useWorkOrderPaymentPlanMutations.ts(14,10): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(values: { approval_id?: string; approved_at?: string; approved_by?: string; created_at?: string; engagement_id?: string; period_id?: string; review_notes?: string; status?: string; updated_at?: string; } | ... 29 more ... | { ...; }, options?: { ...; }): PostgrestFilterBuilder<...>', gave the following error.
+    Object literal may only specify known properties, and 'exchange_rate' does not exist in type '{ approval_id?: string; approved_at?: string; approved_by?: string; created_at?: string; engagement_id?: string; period_id?: string; review_notes?: string; status?: string; updated_at?: string; } | { ...; } | ... 28 more ... | { ...; }'.
+  Overload 2 of 2, '(values: ({ approval_id?: string; approved_at?: string; approved_by?: string; created_at?: string; engagement_id?: string; period_id?: string; review_notes?: string; status?: string; updated_at?: string; } | ... 29 more ... | { ...; })[], options?: { ...; }): PostgrestFilterBuilder<...>', gave the following error.
+    Object literal may only specify known properties, and 'wo_id' does not exist in type '({ approval_id?: string; approved_at?: string; approved_by?: string; created_at?: string; engagement_id?: string; period_id?: string; review_notes?: string; status?: string; updated_at?: string; } | { ...; } | ... 28 more ... | { ...; })[]'.
+src/hooks/mutations/useWorkOrderPaymentPlanMutations.ts(26,14): error TS2352: Conversion of type '{ can_approve_timesheets: boolean; can_approve_wo: boolean; category_id: string; category_name: string; created_at: string; default_app_role: "staff" | "admin" | "viewer" | "partner" | ... 6 more ... | "specialist_tax"; ... 5 more ...; updated_at: string; } | ... 29 more ... | { ...; }' to type '{ plan_id: string; wo_id: string; exchange_rate: number; payment_days: number; }' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Type '{ created_at: string; id: string; role: "staff" | "admin" | "viewer" | "partner" | "director" | "manager" | "senior" | "semisenior" | "sqr" | "specialist_it" | "specialist_tax"; user_id: string; }' is missing the following properties from type '{ plan_id: string; wo_id: string; exchange_rate: number; payment_days: number; }': plan_id, wo_id, exchange_rate, payment_days
+src/hooks/mutations/useWorkOrderPaymentPlanMutations.ts(77,46): error TS2589: Type instantiation is excessively deep and possibly infinite.
+src/hooks/mutations/useWorkOrderPaymentPlanMutations.ts(78,17): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(relation: "categories" | "activity_codes" | "activity_worksheets" | "staff" | "engagements" | "work_orders" | "industries" | "engagement_staffing_requirements" | "clients" | "expense_types" | ... 20 more ... | "wo_expense_budget"): PostgrestQueryBuilder<...>', gave the following error.
+    Argument of type '"wo_payment_installments"' is not assignable to parameter of type '"categories" | "activity_codes" | "activity_worksheets" | "staff" | "engagements" | "work_orders" | "industries" | "engagement_staffing_requirements" | "clients" | "expense_types" | ... 20 more ... | "wo_expense_budget"'.
+  Overload 2 of 2, '(relation: "vw_wo_budget_hours_by_category_activity" | "staff_directory" | "vw_staff_weekly_capacity" | "vw_engagement_staffing_summary" | "vw_wo_budget_hours_by_category" | ... 4 more ... | "vw_staffing_alerts"): PostgrestQueryBuilder<...>', gave the following error.
+    Argument of type '"wo_payment_installments"' is not assignable to parameter of type '"vw_wo_budget_hours_by_category_activity" | "staff_directory" | "vw_staff_weekly_capacity" | "vw_engagement_staffing_summary" | "vw_wo_budget_hours_by_category" | "work_order_summary" | "clients_directory" | "vw_actual_hours_by_category_activity" | "vw_budget_vs_actual_hours_by_category_activity" | "vw_staffing_aler...'.
+src/hooks/mutations/useWorkOrderPaymentPlanMutations.ts(85,17): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(relation: "categories" | "activity_codes" | "activity_worksheets" | "staff" | "engagements" | "work_orders" | "industries" | "engagement_staffing_requirements" | "clients" | "expense_types" | ... 20 more ... | "wo_expense_budget"): PostgrestQueryBuilder<...>', gave the following error.
+    Argument of type '"wo_payment_installments"' is not assignable to parameter of type '"categories" | "activity_codes" | "activity_worksheets" | "staff" | "engagements" | "work_orders" | "industries" | "engagement_staffing_requirements" | "clients" | "expense_types" | ... 20 more ... | "wo_expense_budget"'.
+  Overload 2 of 2, '(relation: "vw_wo_budget_hours_by_category_activity" | "staff_directory" | "vw_staff_weekly_capacity" | "vw_engagement_staffing_summary" | "vw_wo_budget_hours_by_category" | ... 4 more ... | "vw_staffing_alerts"): PostgrestQueryBuilder<...>', gave the following error.
+    Argument of type '"wo_payment_installments"' is not assignable to parameter of type '"vw_wo_budget_hours_by_category_activity" | "staff_directory" | "vw_staff_weekly_capacity" | "vw_engagement_staffing_summary" | "vw_wo_budget_hours_by_category" | "work_order_summary" | "clients_directory" | "vw_actual_hours_by_category_activity" | "vw_budget_vs_actual_hours_by_category_activity" | "vw_staffing_aler...'.
+src/hooks/mutations/useWorkOrderPaymentPlanMutations.ts(93,17): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(relation: "categories" | "activity_codes" | "activity_worksheets" | "staff" | "engagements" | "work_orders" | "industries" | "engagement_staffing_requirements" | "clients" | "expense_types" | ... 20 more ... | "wo_expense_budget"): PostgrestQueryBuilder<...>', gave the following error.
+    Argument of type '"wo_payment_installments"' is not assignable to parameter of type '"categories" | "activity_codes" | "activity_worksheets" | "staff" | "engagements" | "work_orders" | "industries" | "engagement_staffing_requirements" | "clients" | "expense_types" | ... 20 more ... | "wo_expense_budget"'.
+  Overload 2 of 2, '(relation: "vw_wo_budget_hours_by_category_activity" | "staff_directory" | "vw_staff_weekly_capacity" | "vw_engagement_staffing_summary" | "vw_wo_budget_hours_by_category" | ... 4 more ... | "vw_staffing_alerts"): PostgrestQueryBuilder<...>', gave the following error.
+    Argument of type '"wo_payment_installments"' is not assignable to parameter of type '"vw_wo_budget_hours_by_category_activity" | "staff_directory" | "vw_staff_weekly_capacity" | "vw_engagement_staffing_summary" | "vw_wo_budget_hours_by_category" | "work_order_summary" | "clients_directory" | "vw_actual_hours_by_category_activity" | "vw_budget_vs_actual_hours_by_category_activity" | "vw_staffing_aler...'.
+src/hooks/mutations/useWorkOrderPaymentPlanMutations.ts(100,17): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(relation: "categories" | "activity_codes" | "activity_worksheets" | "staff" | "engagements" | "work_orders" | "industries" | "engagement_staffing_requirements" | "clients" | "expense_types" | ... 20 more ... | "wo_expense_budget"): PostgrestQueryBuilder<...>', gave the following error.
+    Argument of type '"wo_payment_installments"' is not assignable to parameter of type '"categories" | "activity_codes" | "activity_worksheets" | "staff" | "engagements" | "work_orders" | "industries" | "engagement_staffing_requirements" | "clients" | "expense_types" | ... 20 more ... | "wo_expense_budget"'.
+  Overload 2 of 2, '(relation: "vw_wo_budget_hours_by_category_activity" | "staff_directory" | "vw_staff_weekly_capacity" | "vw_engagement_staffing_summary" | "vw_wo_budget_hours_by_category" | ... 4 more ... | "vw_staffing_alerts"): PostgrestQueryBuilder<...>', gave the following error.
+    Argument of type '"wo_payment_installments"' is not assignable to parameter of type '"vw_wo_budget_hours_by_category_activity" | "staff_directory" | "vw_staff_weekly_capacity" | "vw_engagement_staffing_summary" | "vw_wo_budget_hours_by_category" | "work_order_summary" | "clients_directory" | "vw_actual_hours_by_category_activity" | "vw_budget_vs_actual_hours_by_category_activity" | "vw_staffing_aler...'.
+src/hooks/mutations/useWorkOrderPaymentPlanMutations.ts(157,31): error TS2589: Type instantiation is excessively deep and possibly infinite.
+src/hooks/mutations/useWorkOrderPaymentPlanMutations.ts(158,15): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(relation: "categories" | "activity_codes" | "activity_worksheets" | "staff" | "engagements" | "work_orders" | "industries" | "engagement_staffing_requirements" | "clients" | "expense_types" | ... 20 more ... | "wo_expense_budget"): PostgrestQueryBuilder<...>', gave the following error.
+    Argument of type '"wo_payment_installments"' is not assignable to parameter of type '"categories" | "activity_codes" | "activity_worksheets" | "staff" | "engagements" | "work_orders" | "industries" | "engagement_staffing_requirements" | "clients" | "expense_types" | ... 20 more ... | "wo_expense_budget"'.
+  Overload 2 of 2, '(relation: "vw_wo_budget_hours_by_category_activity" | "staff_directory" | "vw_staff_weekly_capacity" | "vw_engagement_staffing_summary" | "vw_wo_budget_hours_by_category" | ... 4 more ... | "vw_staffing_alerts"): PostgrestQueryBuilder<...>', gave the following error.
+    Argument of type '"wo_payment_installments"' is not assignable to parameter of type '"vw_wo_budget_hours_by_category_activity" | "staff_directory" | "vw_staff_weekly_capacity" | "vw_engagement_staffing_summary" | "vw_wo_budget_hours_by_category" | "work_order_summary" | "clients_directory" | "vw_actual_hours_by_category_activity" | "vw_budget_vs_actual_hours_by_category_activity" | "vw_staffing_aler...'.
+src/hooks/mutations/useWorkOrderPaymentPlanMutations.ts(176,15): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(relation: "categories" | "activity_codes" | "activity_worksheets" | "staff" | "engagements" | "work_orders" | "industries" | "engagement_staffing_requirements" | "clients" | "expense_types" | ... 20 more ... | "wo_expense_budget"): PostgrestQueryBuilder<...>', gave the following error.
+    Argument of type '"wo_payment_plan"' is not assignable to parameter of type '"categories" | "activity_codes" | "activity_worksheets" | "staff" | "engagements" | "work_orders" | "industries" | "engagement_staffing_requirements" | "clients" | "expense_types" | ... 20 more ... | "wo_expense_budget"'.
+  Overload 2 of 2, '(relation: "vw_wo_budget_hours_by_category_activity" | "staff_directory" | "vw_staff_weekly_capacity" | "vw_engagement_staffing_summary" | "vw_wo_budget_hours_by_category" | ... 4 more ... | "vw_staffing_alerts"): PostgrestQueryBuilder<...>', gave the following error.
+    Argument of type '"wo_payment_plan"' is not assignable to parameter of type '"vw_wo_budget_hours_by_category_activity" | "staff_directory" | "vw_staff_weekly_capacity" | "vw_engagement_staffing_summary" | "vw_wo_budget_hours_by_category" | "work_order_summary" | "clients_directory" | "vw_actual_hours_by_category_activity" | "vw_budget_vs_actual_hours_by_category_activity" | "vw_staffing_aler...'.
+src/hooks/mutations/useWorkOrderPaymentPlanMutations.ts(206,15): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(relation: "categories" | "activity_codes" | "activity_worksheets" | "staff" | "engagements" | "work_orders" | "industries" | "engagement_staffing_requirements" | "clients" | "expense_types" | ... 20 more ... | "wo_expense_budget"): PostgrestQueryBuilder<...>', gave the following error.
+    Argument of type '"wo_payment_installments"' is not assignable to parameter of type '"categories" | "activity_codes" | "activity_worksheets" | "staff" | "engagements" | "work_orders" | "industries" | "engagement_staffing_requirements" | "clients" | "expense_types" | ... 20 more ... | "wo_expense_budget"'.
+  Overload 2 of 2, '(relation: "vw_wo_budget_hours_by_category_activity" | "staff_directory" | "vw_staff_weekly_capacity" | "vw_engagement_staffing_summary" | "vw_wo_budget_hours_by_category" | ... 4 more ... | "vw_staffing_alerts"): PostgrestQueryBuilder<...>', gave the following error.
+    Argument of type '"wo_payment_installments"' is not assignable to parameter of type '"vw_wo_budget_hours_by_category_activity" | "staff_directory" | "vw_staff_weekly_capacity" | "vw_engagement_staffing_summary" | "vw_wo_budget_hours_by_category" | "work_order_summary" | "clients_directory" | "vw_actual_hours_by_category_activity" | "vw_budget_vs_actual_hours_by_category_activity" | "vw_staffing_aler...'.
+src/hooks/mutations/useWorkOrderPaymentPlanMutations.ts(207,19): error TS2353: Object literal may only specify known properties, and 'collection_invoice_date' does not exist in type '{ approval_id?: string; approved_at?: string; approved_by?: string; created_at?: string; engagement_id?: string; period_id?: string; review_notes?: string; status?: string; updated_at?: string; } | { ...; } | ... 28 more ... | { ...; }'.
+src/hooks/mutations/useWorkOrderPaymentPlanMutations.ts(224,15): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(relation: "categories" | "activity_codes" | "activity_worksheets" | "staff" | "engagements" | "work_orders" | "industries" | "engagement_staffing_requirements" | "clients" | "expense_types" | ... 20 more ... | "wo_expense_budget"): PostgrestQueryBuilder<...>', gave the following error.
+    Argument of type '"wo_payment_installments"' is not assignable to parameter of type '"categories" | "activity_codes" | "activity_worksheets" | "staff" | "engagements" | "work_orders" | "industries" | "engagement_staffing_requirements" | "clients" | "expense_types" | ... 20 more ... | "wo_expense_budget"'.
+  Overload 2 of 2, '(relation: "vw_wo_budget_hours_by_category_activity" | "staff_directory" | "vw_staff_weekly_capacity" | "vw_engagement_staffing_summary" | "vw_wo_budget_hours_by_category" | ... 4 more ... | "vw_staffing_alerts"): PostgrestQueryBuilder<...>', gave the following error.
+    Argument of type '"wo_payment_installments"' is not assignable to parameter of type '"vw_wo_budget_hours_by_category_activity" | "staff_directory" | "vw_staff_weekly_capacity" | "vw_engagement_staffing_summary" | "vw_wo_budget_hours_by_category" | "work_order_summary" | "clients_directory" | "vw_actual_hours_by_category_activity" | "vw_budget_vs_actual_hours_by_category_activity" | "vw_staffing_aler...'.
+src/hooks/useApprovedEngagements.ts(51,18): error TS2352: Conversion of type '{ activity_required: boolean; approval_required: boolean; client_id: string; created_at: string; end_date: string; engagement_code: string; engagement_id: string; engagement_name: string; ... 15 more ...; manager: { ...; }; }[]' to type 'Engagement[]' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Type '{ activity_required: boolean; approval_required: boolean; client_id: string; created_at: string; end_date: string; engagement_code: string; engagement_id: string; engagement_name: string; ... 15 more ...; manager: { ...; }; }' is missing the following properties from type 'Engagement': oficina, practica, anio_fiscal, funcion, and 8 more.
+src/hooks/useApprovedEngagements.ts(86,22): error TS2352: Conversion of type '{ activity_required: boolean; approval_required: boolean; client_id: string; created_at: string; end_date: string; engagement_code: string; engagement_id: string; engagement_name: string; ... 15 more ...; manager: { ...; }; }[]' to type 'Engagement[]' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Type '{ activity_required: boolean; approval_required: boolean; client_id: string; created_at: string; end_date: string; engagement_code: string; engagement_id: string; engagement_name: string; ... 15 more ...; manager: { ...; }; }' is missing the following properties from type 'Engagement': oficina, practica, anio_fiscal, funcion, and 8 more.
+src/hooks/useAuth.tsx(197,54): error TS2345: Argument of type '"reset_login_attempts"' is not assignable to parameter of type '"admin_set_user_role" | "assign_user_role_atomic" | "can_approve_timesheet" | "can_approve_timesheet_line" | "check_pending_hours_before_termination" | "finalize_all_stale_timers" | ... 19 more ... | "update_timesheet_minmax_settings"'.
+src/hooks/useCurrentStaff.ts(40,24): error TS2352: Conversion of type '{ staff_id: string; first_name: string; last_name: string; short_name: string; initials: string; category_id: string; city: string; is_active: boolean; hire_date: string; termination_date: string; category: { ...; }; }' to type 'StaffWithHireDate' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Types of property 'category' are incompatible.
+    Property 'service_id' is missing in type '{ can_approve_timesheets: boolean; can_approve_wo: boolean; category_id: string; category_name: string; created_at: string; default_app_role: "staff" | "admin" | "viewer" | "partner" | ... 6 more ... | "specialist_tax"; ... 5 more ...; updated_at: string; }' but required in type 'Category'.
+src/hooks/useCurrentStaff.ts(76,18): error TS2352: Conversion of type '{ staff_id: string; first_name: string; last_name: string; short_name: string; initials: string; category_id: string; city: string; is_active: boolean; hire_date: string; termination_date: string; category: { ...; }; }' to type 'StaffWithHireDate' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Types of property 'category' are incompatible.
+    Property 'service_id' is missing in type '{ can_approve_timesheets: boolean; can_approve_wo: boolean; category_id: string; category_name: string; created_at: string; default_app_role: "staff" | "admin" | "viewer" | "partner" | ... 6 more ... | "specialist_tax"; ... 5 more ...; updated_at: string; }' but required in type 'Category'.
+src/hooks/useEmsData.ts(307,17): error TS2589: Type instantiation is excessively deep and possibly infinite.
+src/hooks/useEmsData.ts(311,14): error TS2352: Conversion of type '{ can_approve_timesheets: boolean; can_approve_wo: boolean; category_id: string; category_name: string; created_at: string; default_app_role: "staff" | "admin" | "viewer" | "partner" | ... 6 more ... | "specialist_tax"; ... 5 more ...; updated_at: string; }[]' to type 'Category[]' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Property 'service_id' is missing in type '{ can_approve_timesheets: boolean; can_approve_wo: boolean; category_id: string; category_name: string; created_at: string; default_app_role: "staff" | "admin" | "viewer" | "partner" | ... 6 more ... | "specialist_tax"; ... 5 more ...; updated_at: string; }' but required in type 'Category'.
+src/hooks/useEmsData.ts(354,14): error TS2352: Conversion of type '{ staff_id: string; first_name: string; last_name: string; short_name: string; initials: string; category_id: string; city: string; is_active: boolean; category: { can_approve_timesheets: boolean; ... 10 more ...; updated_at: string; }; }[]' to type 'Staff[]' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Type '{ staff_id: string; first_name: string; last_name: string; short_name: string; initials: string; category_id: string; city: string; is_active: boolean; category: { can_approve_timesheets: boolean; ... 10 more ...; updated_at: string; }; }' is not comparable to type 'Staff'.
+    Types of property 'category' are incompatible.
+      Property 'service_id' is missing in type '{ can_approve_timesheets: boolean; can_approve_wo: boolean; category_id: string; category_name: string; created_at: string; default_app_role: "staff" | "admin" | "viewer" | "partner" | ... 6 more ... | "specialist_tax"; ... 5 more ...; updated_at: string; }' but required in type 'Category'.
+src/hooks/useEmsData.ts(449,37): error TS2589: Type instantiation is excessively deep and possibly infinite.
+src/hooks/useEmsData.ts(493,37): error TS2589: Type instantiation is excessively deep and possibly infinite.
+src/hooks/useEmsData.ts(554,14): error TS2352: Conversion of type '{ adjustment_amount: number; approval_status: string; approved_at: string; approved_by: string; ceac_completed_at: string; ceac_notes: string; created_at: string; currency: string; engagement_id: string; ... 23 more ...; payment_plan: SelectQueryError<...>; }' to type 'WorkOrder' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Types of property 'engagement' are incompatible.
+    Type '{ activity_required: boolean; approval_required: boolean; client_id: string; created_at: string; end_date: string; engagement_code: string; engagement_id: string; engagement_name: string; ... 13 more ...; client: { ...; }; }' is missing the following properties from type 'Engagement': oficina, practica, anio_fiscal, funcion, and 8 more.
+src/hooks/useEmsData.ts(571,19): error TS2352: Conversion of type '{ activity_code: string; activity_id: string; created_at: string; default_category_id: string; description: string; is_active: boolean; service: SelectQueryError<"could not find the relation between activity_codes and services">; }[]' to type 'ActivityCode[]' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Type '{ activity_code: string; activity_id: string; created_at: string; default_category_id: string; description: string; is_active: boolean; service: SelectQueryError<"could not find the relation between activity_codes and services">; }' is missing the following properties from type 'ActivityCode': service_id, entity_type
+src/hooks/useEmsData.ts(590,19): error TS2352: Conversion of type '{ activity_code: string; activity_id: string; created_at: string; default_category_id: string; description: string; is_active: boolean; service: SelectQueryError<"could not find the relation between activity_codes and services">; }[]' to type 'ActivityCode[]' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Type '{ activity_code: string; activity_id: string; created_at: string; default_category_id: string; description: string; is_active: boolean; service: SelectQueryError<"could not find the relation between activity_codes and services">; }' is missing the following properties from type 'ActivityCode': service_id, entity_type
+src/hooks/useEmsData.ts(628,14): error TS2352: Conversion of type '{ activity_id: string; created_at: string; date_worked: string; description: string; engagement_id: string; hours_logged: number; is_forecast: boolean; period_id: string; staff_id: string; time_id: string; updated_at: string; staff: { ...; }; engagement: { ...; }; activity: { ...; }; }[]' to type 'TimeEntry[]' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Type '{ activity_id: string; created_at: string; date_worked: string; description: string; engagement_id: string; hours_logged: number; is_forecast: boolean; period_id: string; staff_id: string; time_id: string; updated_at: string; staff: { ...; }; engagement: { ...; }; activity: { ...; }; }' is not comparable to type 'TimeEntry'.
+    Types of property 'engagement' are incompatible.
+      Type '{ activity_required: boolean; approval_required: boolean; client_id: string; created_at: string; end_date: string; engagement_code: string; engagement_id: string; engagement_name: string; ... 13 more ...; client: { ...; }; }' is missing the following properties from type 'Engagement': oficina, practica, anio_fiscal, funcion, and 8 more.
+src/hooks/useManualEntryEngagements.ts(44,18): error TS2352: Conversion of type '{ activity_required: boolean; approval_required: boolean; client_id: string; created_at: string; end_date: string; engagement_code: string; engagement_id: string; engagement_name: string; ... 15 more ...; manager: { ...; }; }[]' to type 'Engagement[]' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Type '{ activity_required: boolean; approval_required: boolean; client_id: string; created_at: string; end_date: string; engagement_code: string; engagement_id: string; engagement_name: string; ... 15 more ...; manager: { ...; }; }' is missing the following properties from type 'Engagement': oficina, practica, anio_fiscal, funcion, and 8 more.
+src/hooks/useManualEntryEngagements.ts(75,22): error TS2352: Conversion of type '{ activity_required: boolean; approval_required: boolean; client_id: string; created_at: string; end_date: string; engagement_code: string; engagement_id: string; engagement_name: string; ... 15 more ...; manager: { ...; }; }[]' to type 'Engagement[]' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Type '{ activity_required: boolean; approval_required: boolean; client_id: string; created_at: string; end_date: string; engagement_code: string; engagement_id: string; engagement_name: string; ... 15 more ...; manager: { ...; }; }' is missing the following properties from type 'Engagement': oficina, practica, anio_fiscal, funcion, and 8 more.
+src/hooks/useMarkAlertsSeen.ts(16,15): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(relation: "categories" | "activity_codes" | "activity_worksheets" | "staff" | "engagements" | "work_orders" | "industries" | "engagement_staffing_requirements" | "clients" | "expense_types" | ... 20 more ... | "wo_expense_budget"): PostgrestQueryBuilder<...>', gave the following error.
+    Argument of type '"staff_alert_seen"' is not assignable to parameter of type '"categories" | "activity_codes" | "activity_worksheets" | "staff" | "engagements" | "work_orders" | "industries" | "engagement_staffing_requirements" | "clients" | "expense_types" | ... 20 more ... | "wo_expense_budget"'.
+  Overload 2 of 2, '(relation: "vw_wo_budget_hours_by_category_activity" | "staff_directory" | "vw_staff_weekly_capacity" | "vw_engagement_staffing_summary" | "vw_wo_budget_hours_by_category" | ... 4 more ... | "vw_staffing_alerts"): PostgrestQueryBuilder<...>', gave the following error.
+    Argument of type '"staff_alert_seen"' is not assignable to parameter of type '"vw_wo_budget_hours_by_category_activity" | "staff_directory" | "vw_staff_weekly_capacity" | "vw_engagement_staffing_summary" | "vw_wo_budget_hours_by_category" | "work_order_summary" | "clients_directory" | "vw_actual_hours_by_category_activity" | "vw_budget_vs_actual_hours_by_category_activity" | "vw_staffing_aler...'.
+src/hooks/useTimesheetApprovals.ts(166,68): error TS2339: Property 'period_id' does not exist on type 'SelectQueryError<"column 'activity_id' does not exist on 'timesheet_line_approvals'.">'.
+src/hooks/useTimesheetApprovals.ts(180,43): error TS2339: Property 'period_id' does not exist on type 'SelectQueryError<"column 'activity_id' does not exist on 'timesheet_line_approvals'.">'.
+src/hooks/useTimesheetApprovals.ts(180,58): error TS2339: Property 'engagement_id' does not exist on type 'SelectQueryError<"column 'activity_id' does not exist on 'timesheet_line_approvals'.">'.
+src/hooks/useTimesheetApprovals.ts(207,8): error TS2352: Conversion of type 'SelectQueryError<"column 'activity_id' does not exist on 'timesheet_line_approvals'.">[]' to type 'ApprovalWithPeriod[]' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Type '{ error: true; } & String' is missing the following properties from type 'ApprovalWithPeriod': period_id, engagement_id, activity_id
+src/hooks/useTimesheetApprovals.ts(407,24): error TS2352: Conversion of type 'SelectQueryError<"column 'activity_id' does not exist on 'timesheet_line_approvals'.">[]' to type 'LineApproval[]' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Type '{ error: true; } & String' is missing the following properties from type 'LineApproval': approval_id, period_id, engagement_id, activity_id, and 6 more.
+src/hooks/useTimesheetApprovals.ts(490,14): error TS2352: Conversion of type '{ approval_id: string; approved_at: string; approved_by: string; created_at: string; engagement_id: string; period_id: string; review_notes: string; status: string; updated_at: string; engagement: { ...; }; approver: { ...; }; }[]' to type 'LineApproval[]' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Property 'activity_id' is missing in type '{ approval_id: string; approved_at: string; approved_by: string; created_at: string; engagement_id: string; period_id: string; review_notes: string; status: string; updated_at: string; engagement: { ...; }; approver: { ...; }; }' but required in type 'LineApproval'.
+src/hooks/useTimesheetMutations.ts(284,44): error TS2345: Argument of type '"unsubmit_timesheet_safe"' is not assignable to parameter of type '"admin_set_user_role" | "assign_user_role_atomic" | "can_approve_timesheet" | "can_approve_timesheet_line" | "check_pending_hours_before_termination" | "finalize_all_stale_timers" | ... 19 more ... | "update_timesheet_minmax_settings"'.
+src/hooks/useTimesheetWeek.ts(170,18): error TS2352: Conversion of type 'SelectQueryError<"column 'practica' does not exist on 'engagements'.">[]' to type 'ApprovedEngagement[]' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Type '{ error: true; } & String' is missing the following properties from type 'ApprovedEngagement': engagement_id, engagement_code, engagement_name, activity_required, and 6 more.
+src/hooks/useTimesheetWeek.ts(199,22): error TS2352: Conversion of type 'SelectQueryError<"column 'practica' does not exist on 'engagements'.">[]' to type 'ApprovedEngagement[]' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Type '{ error: true; } & String' is missing the following properties from type 'ApprovedEngagement': engagement_id, engagement_code, engagement_name, activity_required, and 6 more.
+src/hooks/useTimesheetWeek.ts(228,18): error TS2352: Conversion of type '{ activity_code: string; activity_id: string; created_at: string; default_category_id: string; description: string; is_active: boolean; service: SelectQueryError<"could not find the relation between activity_codes and services">; }[]' to type 'ActivityCode[]' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Type '{ activity_code: string; activity_id: string; created_at: string; default_category_id: string; description: string; is_active: boolean; service: SelectQueryError<"could not find the relation between activity_codes and services">; }' is not comparable to type 'ActivityCode'.
+    Types of property 'service' are incompatible.
+      Property 'code' is missing in type '{ error: true; } & String' but required in type '{ code: number; }'.
+src/hooks/useWorksheetData.ts(76,14): error TS2352: Conversion of type '{ created_at: string; created_by_staff_id: string; engagement_id: string; id: string; notes: string; status: string; updated_at: string; version: number; wo_id: string; engagement: SelectQueryError<"column 'practica' does not exist on 'engagements'.">; }[]' to type 'Worksheet[]' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Type '{ created_at: string; created_by_staff_id: string; engagement_id: string; id: string; notes: string; status: string; updated_at: string; version: number; wo_id: string; engagement: SelectQueryError<"column 'practica' does not exist on 'engagements'.">; }' is not comparable to type 'Worksheet'.
+    Types of property 'engagement' are incompatible.
+      Type '{ error: true; } & String' is missing the following properties from type 'Engagement': engagement_id, client_id, engagement_name, engagement_code, and 22 more.
+src/hooks/useWorksheetData.ts(152,14): error TS2352: Conversion of type '{ cells: { activity_id: string; budget_hours: number; category_id: string; created_at: string; id: string; updated_at: string; worksheet_id: string; category: { category_id: string; category_name: string; display_order: number; }; activity: { ...; }; }[]; ... 10 more ...; work_order: { ...; }; }' to type 'WorksheetWithCells & { work_order: { wo_id: string; approval_status: string; }; }' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Type '{ cells: { activity_id: string; budget_hours: number; category_id: string; created_at: string; id: string; updated_at: string; worksheet_id: string; category: { category_id: string; category_name: string; display_order: number; }; activity: { ...; }; }[]; ... 10 more ...; work_order: { ...; }; }' is not comparable to type 'WorksheetWithCells'.
+    Types of property 'cells' are incompatible.
+      Type '{ activity_id: string; budget_hours: number; category_id: string; created_at: string; id: string; updated_at: string; worksheet_id: string; category: { category_id: string; category_name: string; display_order: number; }; activity: { ...; }; }[]' is not comparable to type 'WorksheetCell[]'.
+        Type '{ activity_id: string; budget_hours: number; category_id: string; created_at: string; id: string; updated_at: string; worksheet_id: string; category: { category_id: string; category_name: string; display_order: number; }; activity: { ...; }; }' is not comparable to type 'WorksheetCell'.
+          Types of property 'category' are incompatible.
+            Type '{ category_id: string; category_name: string; display_order: number; }' is missing the following properties from type 'Category': service_id, rate_high_bob, rate_low_bob, rate_high_usd, and 4 more.
+src/lib/__tests__/timesheetEngagementOptions.test.ts(11,3): error TS2741: Property 'practica' is missing in type '{ engagement_id: string; engagement_code: string; engagement_name: string; activity_required: false; work_order_required: false; is_internal: false; start_date: null; end_date: null; client: { ...; }; }' but required in type 'ApprovedEngagement'.
+src/pages/__tests__/TimeSheet.submit-guards.test.tsx(221,3): error TS2304: Cannot find name 'afterEach'.
+src/pages/Clients.tsx(100,9): error TS2322: Type 'Client[]' is not assignable to type 'Record<string, unknown>[]'.
+  Type 'Client' is not assignable to type 'Record<string, unknown>'.
+    Index signature for type 'string' is missing in type 'Client'.
+src/pages/Clients.tsx(101,9): error TS2322: Type 'Column<Client>[]' is not assignable to type 'Column<Record<string, unknown>>[]'.
+  Type 'Column<Client>' is not assignable to type 'Column<Record<string, unknown>>'.
+    Type 'Client' is not assignable to type 'Record<string, unknown>'.
+      Index signature for type 'string' is missing in type 'Client'.
+src/pages/Clients.tsx(108,28): error TS2322: Type 'unknown' is not assignable to type 'string'.
+src/pages/Engagements.tsx(128,9): error TS2322: Type 'EngagementRow[]' is not assignable to type 'Record<string, unknown>[]'.
+  Type 'EngagementRow' is not assignable to type 'Record<string, unknown>'.
+    Index signature for type 'string' is missing in type 'EngagementRow'.
+src/pages/Engagements.tsx(129,9): error TS2322: Type 'Column<EngagementRow>[]' is not assignable to type 'Column<Record<string, unknown>>[]'.
+  Type 'Column<EngagementRow>' is not assignable to type 'Column<Record<string, unknown>>'.
+    Type 'EngagementRow' is not assignable to type 'Record<string, unknown>'.
+      Index signature for type 'string' is missing in type 'EngagementRow'.
+src/pages/Engagements.tsx(136,28): error TS2322: Type 'unknown' is not assignable to type 'string'.
+src/pages/FundRequestApprovals.tsx(223,11): error TS2322: Type 'FundRequest[]' is not assignable to type 'Record<string, unknown>[]'.
+  Type 'FundRequest' is not assignable to type 'Record<string, unknown>'.
+    Index signature for type 'string' is missing in type 'FundRequest'.
+src/pages/FundRequestApprovals.tsx(224,11): error TS2322: Type 'Column<FundRequest>[]' is not assignable to type 'Column<Record<string, unknown>>[]'.
+  Type 'Column<FundRequest>' is not assignable to type 'Column<Record<string, unknown>>'.
+    Type 'FundRequest' is not assignable to type 'Record<string, unknown>'.
+      Index signature for type 'string' is missing in type 'FundRequest'.
+src/pages/FundRequestApprovals.tsx(235,30): error TS2322: Type 'unknown' is not assignable to type 'string'.
+src/pages/FundRequestDisbursements.tsx(211,11): error TS2322: Type 'FundRequest[]' is not assignable to type 'Record<string, unknown>[]'.
+  Type 'FundRequest' is not assignable to type 'Record<string, unknown>'.
+    Index signature for type 'string' is missing in type 'FundRequest'.
+src/pages/FundRequestDisbursements.tsx(212,11): error TS2322: Type 'Column<FundRequest>[]' is not assignable to type 'Column<Record<string, unknown>>[]'.
+  Type 'Column<FundRequest>' is not assignable to type 'Column<Record<string, unknown>>'.
+    Type 'FundRequest' is not assignable to type 'Record<string, unknown>'.
+      Index signature for type 'string' is missing in type 'FundRequest'.
+src/pages/FundRequestDisbursements.tsx(223,30): error TS2322: Type 'unknown' is not assignable to type 'string'.
+src/pages/FundRequestExpenses.tsx(462,11): error TS2322: Type 'FundRequestExpense[]' is not assignable to type 'Record<string, unknown>[]'.
+  Type 'FundRequestExpense' is not assignable to type 'Record<string, unknown>'.
+    Index signature for type 'string' is missing in type 'FundRequestExpense'.
+src/pages/FundRequestExpenses.tsx(463,11): error TS2322: Type 'Column<FundRequestExpense>[]' is not assignable to type 'Column<Record<string, unknown>>[]'.
+  Type 'Column<FundRequestExpense>' is not assignable to type 'Column<Record<string, unknown>>'.
+    Type 'FundRequestExpense' is not assignable to type 'Record<string, unknown>'.
+      Index signature for type 'string' is missing in type 'FundRequestExpense'.
+src/pages/FundRequestExpenses.tsx(467,49): error TS2345: Argument of type 'Record<string, unknown>' is not assignable to parameter of type 'SetStateAction<FundRequestExpense>'.
+  Type 'Record<string, unknown>' is missing the following properties from type 'FundRequestExpense': fre_id, fund_request_id, wo_id, expense_type_id, and 23 more.
+src/pages/FundRequestExpenses.tsx(468,30): error TS2322: Type 'unknown' is not assignable to type 'string'.
+src/pages/FundRequests.tsx(140,9): error TS2322: Type 'FundRequest[]' is not assignable to type 'Record<string, unknown>[]'.
+  Type 'FundRequest' is not assignable to type 'Record<string, unknown>'.
+    Index signature for type 'string' is missing in type 'FundRequest'.
+src/pages/FundRequests.tsx(141,9): error TS2322: Type 'Column<FundRequest>[]' is not assignable to type 'Column<Record<string, unknown>>[]'.
+  Type 'Column<FundRequest>' is not assignable to type 'Column<Record<string, unknown>>'.
+    Type 'FundRequest' is not assignable to type 'Record<string, unknown>'.
+      Index signature for type 'string' is missing in type 'FundRequest'.
+src/pages/FundRequests.tsx(149,62): error TS2345: Argument of type 'unknown' is not assignable to parameter of type 'string'.
+src/pages/FundRequests.tsx(154,28): error TS2322: Type 'unknown' is not assignable to type 'string'.
+src/pages/Settings.tsx(781,13): error TS2322: Type 'Industry[]' is not assignable to type 'Record<string, unknown>[]'.
+  Type 'Industry' is not assignable to type 'Record<string, unknown>'.
+    Index signature for type 'string' is missing in type 'Industry'.
+src/pages/Settings.tsx(782,13): error TS2322: Type 'Column<Industry>[]' is not assignable to type 'Column<Record<string, unknown>>[]'.
+  Type 'Column<Industry>' is not assignable to type 'Column<Record<string, unknown>>'.
+    Type 'Industry' is not assignable to type 'Record<string, unknown>'.
+      Index signature for type 'string' is missing in type 'Industry'.
+src/pages/Settings.tsx(788,75): error TS2345: Argument of type 'Record<string, unknown>' is not assignable to parameter of type 'SetStateAction<Industry>'.
+  Type 'Record<string, unknown>' is missing the following properties from type 'Industry': industry_id, industry_name, fiscal_year_end
+src/pages/Settings.tsx(789,32): error TS2322: Type 'unknown' is not assignable to type 'string'.
+src/pages/Settings.tsx(801,15): error TS2322: Type 'Skill[]' is not assignable to type 'Record<string, unknown>[]'.
+  Type 'Skill' is not assignable to type 'Record<string, unknown>'.
+    Index signature for type 'string' is missing in type 'Skill'.
+src/pages/Settings.tsx(802,15): error TS2322: Type 'Column<Skill>[]' is not assignable to type 'Column<Record<string, unknown>>[]'.
+  Type 'Column<Skill>' is not assignable to type 'Column<Record<string, unknown>>'.
+    Type 'Skill' is not assignable to type 'Record<string, unknown>'.
+      Index signature for type 'string' is missing in type 'Skill'.
+src/pages/Settings.tsx(808,72): error TS2345: Argument of type 'Record<string, unknown>' is not assignable to parameter of type 'SetStateAction<Skill>'.
+  Type 'Record<string, unknown>' is missing the following properties from type 'Skill': skill_id, name, category, is_active, and 2 more.
+src/pages/Settings.tsx(809,34): error TS2322: Type 'unknown' is not assignable to type 'string'.
+src/pages/Settings.tsx(856,13): error TS2322: Type 'Category[]' is not assignable to type 'Record<string, unknown>[]'.
+  Type 'Category' is not assignable to type 'Record<string, unknown>'.
+    Index signature for type 'string' is missing in type 'Category'.
+src/pages/Settings.tsx(857,13): error TS2322: Type 'Column<Category>[]' is not assignable to type 'Column<Record<string, unknown>>[]'.
+  Type 'Column<Category>' is not assignable to type 'Column<Record<string, unknown>>'.
+    Type 'Category' is not assignable to type 'Record<string, unknown>'.
+      Index signature for type 'string' is missing in type 'Category'.
+src/pages/Settings.tsx(863,72): error TS2345: Argument of type 'Record<string, unknown>' is not assignable to parameter of type 'SetStateAction<Category>'.
+  Type 'Record<string, unknown>' is missing the following properties from type 'Category': category_id, category_name, service_id, rate_high_bob, and 7 more.
+src/pages/Settings.tsx(864,32): error TS2322: Type 'unknown' is not assignable to type 'string'.
+src/pages/Settings.tsx(936,13): error TS2322: Type 'ActivityCode[]' is not assignable to type 'Record<string, unknown>[]'.
+  Type 'ActivityCode' is not assignable to type 'Record<string, unknown>'.
+    Index signature for type 'string' is missing in type 'ActivityCode'.
+src/pages/Settings.tsx(937,13): error TS2322: Type 'Column<ActivityCode>[]' is not assignable to type 'Column<Record<string, unknown>>[]'.
+  Type 'Column<ActivityCode>' is not assignable to type 'Column<Record<string, unknown>>'.
+    Type 'ActivityCode' is not assignable to type 'Record<string, unknown>'.
+      Index signature for type 'string' is missing in type 'ActivityCode'.
+src/pages/Settings.tsx(943,77): error TS2345: Argument of type 'Record<string, unknown>' is not assignable to parameter of type 'SetStateAction<ActivityCode>'.
+  Type 'Record<string, unknown>' is missing the following properties from type 'ActivityCode': activity_id, activity_code, description, is_active, and 2 more.
+src/pages/Settings.tsx(944,32): error TS2322: Type 'unknown' is not assignable to type 'string'.
+src/pages/Settings.tsx(962,13): error TS2322: Type 'ExpenseType[]' is not assignable to type 'Record<string, unknown>[]'.
+  Type 'ExpenseType' is not assignable to type 'Record<string, unknown>'.
+    Index signature for type 'string' is missing in type 'ExpenseType'.
+src/pages/Settings.tsx(963,13): error TS2322: Type 'Column<ExpenseType>[]' is not assignable to type 'Column<Record<string, unknown>>[]'.
+  Type 'Column<ExpenseType>' is not assignable to type 'Column<Record<string, unknown>>'.
+    Type 'ExpenseType' is not assignable to type 'Record<string, unknown>'.
+      Index signature for type 'string' is missing in type 'ExpenseType'.
+src/pages/Settings.tsx(969,77): error TS2345: Argument of type 'Record<string, unknown>' is not assignable to parameter of type 'SetStateAction<ExpenseType>'.
+  Type 'Record<string, unknown>' is missing the following properties from type 'ExpenseType': expense_type_id, expense_name, default_unit_cost
+src/pages/Settings.tsx(970,32): error TS2322: Type 'unknown' is not assignable to type 'string'.
+src/pages/Settings.tsx(1232,15): error TS2322: Type 'Service[]' is not assignable to type 'Record<string, unknown>[]'.
+  Type 'Service' is not assignable to type 'Record<string, unknown>'.
+    Index signature for type 'string' is missing in type 'Service'.
+src/pages/Settings.tsx(1233,15): error TS2322: Type 'Column<Service>[]' is not assignable to type 'Column<Record<string, unknown>>[]'.
+  Type 'Column<Service>' is not assignable to type 'Column<Record<string, unknown>>'.
+    Type 'Service' is not assignable to type 'Record<string, unknown>'.
+      Index signature for type 'string' is missing in type 'Service'.
+src/pages/Settings.tsx(1239,57): error TS2345: Argument of type 'Record<string, unknown>' is not assignable to parameter of type 'SetStateAction<Service>'.
+  Type 'Record<string, unknown>' is missing the following properties from type 'Service': service_id, name, code, allows_rates_activities, and 2 more.
+src/pages/Settings.tsx(1240,34): error TS2322: Type 'unknown' is not assignable to type 'string'.
+src/pages/Settings.tsx(1261,15): error TS2322: Type 'Taxonomy[]' is not assignable to type 'Record<string, unknown>[]'.
+  Type 'Taxonomy' is not assignable to type 'Record<string, unknown>'.
+    Index signature for type 'string' is missing in type 'Taxonomy'.
+src/pages/Settings.tsx(1262,15): error TS2322: Type 'Column<Taxonomy>[]' is not assignable to type 'Column<Record<string, unknown>>[]'.
+  Type 'Column<Taxonomy>' is not assignable to type 'Column<Record<string, unknown>>'.
+    Type 'Taxonomy' is not assignable to type 'Record<string, unknown>'.
+      Index signature for type 'string' is missing in type 'Taxonomy'.
+src/pages/Settings.tsx(1268,58): error TS2345: Argument of type 'Record<string, unknown>' is not assignable to parameter of type 'SetStateAction<Taxonomy>'.
+  Type 'Record<string, unknown>' is missing the following properties from type 'Taxonomy': taxonomy_id, code, name, service_id, and 2 more.
+src/pages/Settings.tsx(1269,34): error TS2322: Type 'unknown' is not assignable to type 'string'.
+src/pages/Staff.tsx(153,9): error TS2322: Type 'StaffFull[]' is not assignable to type 'Record<string, unknown>[]'.
+  Type 'StaffFull' is not assignable to type 'Record<string, unknown>'.
+    Index signature for type 'string' is missing in type 'StaffFull'.
+src/pages/Staff.tsx(154,9): error TS2322: Type 'Column<StaffFull>[]' is not assignable to type 'Column<Record<string, unknown>>[]'.
+  Type 'Column<StaffFull>' is not assignable to type 'Column<Record<string, unknown>>'.
+    Type 'StaffFull' is not assignable to type 'Record<string, unknown>'.
+      Index signature for type 'string' is missing in type 'StaffFull'.
+src/pages/Staff.tsx(161,28): error TS2322: Type 'unknown' is not assignable to type 'string'.
