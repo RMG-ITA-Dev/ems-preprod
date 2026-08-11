@@ -29,6 +29,8 @@ Object.defineProperty(window, "matchMedia", {
 const refs = vi.hoisted(() => ({
   realGetWeekMonday: undefined as ((date: Date) => Date) | undefined,
   unsubmitMutate: vi.fn(),
+  // Mutable per-test so UA4 can represent a director instead of a partner.
+  roleKey: "partner" as string | null,
 }));
 
 // Partially mock timesheetUtils so getWeekMonday is a vi.fn() we can override per-test.
@@ -45,11 +47,14 @@ vi.mock("@/lib/timesheetUtils", async (importOriginal) => {
 
 // --- Hook mocks ---
 
-// TimeSheet decide el retiro de una hoja aprobada por can('timesheet.self_approve')
-// (antes: isPartner || isAdmin del enum legacy). Sin este mock, useAuthorization
-// corre de verdad y cae fail-closed.
+// TimeSheet decide el retiro de una hoja aprobada por roleKey directo (admin/partner/
+// senior_partner — no por permiso: es una acción de socios/admin, distinta de quién
+// auto-aprueba al enviar; un director auto-aprueba pero no puede revertirse a sí mismo,
+// ver iteración 6 de review.md). refs.roleKey es "partner" por defecto (UA1-UA3); UA4 lo
+// cambia a "director" para probar el negativo. Sin este mock, useAuthorization corre de
+// verdad y cae fail-closed (roleKey null).
 vi.mock("@/hooks/useAuthorization", () => ({
-  useAuthorization: () => ({ can: () => true, scope: () => null, isLoading: false }),
+  useAuthorization: () => ({ can: () => true, scope: () => null, isLoading: false, roleKey: refs.roleKey }),
 }));
 
 vi.mock("@/hooks/useAuth", () => ({
@@ -190,6 +195,7 @@ afterAll(() => {
 describe("TimeSheet unsubmit-approved (BUG 0508-105)", () => {
   beforeEach(() => {
     refs.unsubmitMutate = vi.fn();
+    refs.roleKey = "partner";
     vi.clearAllMocks();
     // Restore real getWeekMonday for UA1 and UA3.
     // UA2 overrides this before rendering.
@@ -225,5 +231,15 @@ describe("TimeSheet unsubmit-approved (BUG 0508-105)", () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
     await user.click(screen.getByText("timesheet.unsubmit"));
     expect(refs.unsubmitMutate).toHaveBeenCalledWith({ periodId: "p1" });
+  });
+
+  // UA4 (iteración 6, decisión del operador): a director auto-aprueba al enviar
+  // (timesheet.self_approve) pero NO puede retirar su propia hoja ya aprobada — eso es
+  // una acción de socios/admin. Mismo estado (fully approved, current week) que UA1,
+  // pero con roleKey "director" en vez de "partner": el botón debe estar ausente.
+  it("UA4: hides Retirar Envío for a director even when fully approved and current week", () => {
+    refs.roleKey = "director";
+    renderWithRouter(<TimeSheet />);
+    expect(screen.queryByText("timesheet.unsubmit")).not.toBeInTheDocument();
   });
 });

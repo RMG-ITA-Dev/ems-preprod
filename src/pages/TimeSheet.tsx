@@ -89,19 +89,20 @@ const TimeSheet = () => {
 
 
   const { staffRecord, isLoading: staffLoading } = useCurrentStaff();
-  // Retirar una hoja YA APROBADA es la contracara de la auto-aprobación: si tus
-  // horas se aprueban solas al enviar, retirar es la única forma de editarlas.
-  // Ese concepto ya está modelado como `timesheet.self_approve` (admin,
-  // senior_partner, director, partner) y la base lo consume en
-  // is_auto_approved_category (redefinida en 20260724040000 — conserva el nombre
-  // viejo pero ya no mira display_order).
-  //
-  // El `(isPartner || isAdmin)` del enum legacy no coincidía con ese conjunto:
-  // dejaba afuera a `director`, que SÍ auto-aprueba y quedaba con una hoja
-  // aprobada que no podía retirar ni editar; y en cambio incluía a `risk_partner`,
-  // que mapea al enum `partner` sin ser auto-aprobador.
-  const { can } = useAuthorization();
-  const canSelfApprove = can("timesheet.self_approve");
+  // Retirar una hoja YA APROBADA no es lo mismo que auto-aprobarla al enviar:
+  // `timesheet.self_approve` (admin, senior_partner, director, partner) modela quién
+  // auto-aprueba al enviar (is_auto_approved_category, 20260724040000) — director SÍ
+  // auto-aprueba, pero retirar una hoja ya aprobada es una acción de socios/admin, no
+  // el espejo exacto de ese conjunto (decisión del operador, 2026-08-11:
+  // bugs/scheduler/roles_permisos_merge/review.md iteración 6 — un director no debe
+  // poder revertir su propia aprobación sin pasar por un socio). No hay un permiso
+  // dedicado en la matriz para esto, así que se gatea por `role_key` directo en vez
+  // de por permiso. `unsubmit_timesheet_safe` (RPC, `role IN ('partner','admin')`) ya
+  // exige lo mismo del lado del servidor.
+  const { roleKey } = useAuthorization();
+  const isAdmin = roleKey === "admin";
+  const canRecallApprovedSheet =
+    isAdmin || roleKey === "partner" || roleKey === "senior_partner";
 
   // Get policies
   const { data: policies, isPending: policiesPending } = useTimesheetPolicies();
@@ -405,7 +406,7 @@ const TimeSheet = () => {
   const canUnsubmit = isSubmitted
     && !period?.is_period_locked
     && (
-      (isFullyApproved && isCurrentWeek && isWithinEditableWindow && canSelfApprove)
+      (isFullyApproved && isCurrentWeek && isWithinEditableWindow && canRecallApprovedSheet)
       || (!isFullyApproved && ((isCurrentWeek && isWithinEditableWindow) || hasRejectedLines))
     );
 

@@ -397,7 +397,30 @@ const WorkOrderEdit = () => {
   // ya no por categoría (can_approve_wo).
   const { can, scope, roleKey } = useAuthorization();
   const isAdmin = roleKey === "admin";
-  const canApprove = can("work_order.submit");
+  // Escribir la OT (incluida la aprobación, que es un UPDATE más) exige ser Socio o
+  // Gerente DEL encargo, o admin: es el predicado real de la policy "wo_team_update"
+  // (Ola F) -> is_engagement_team_member(), que mira solo partner_id y manager_id, más
+  // "Admins can manage work orders". Se calcula ANTES de canApprove para poder acotarlo.
+  //
+  // Hace falta distinguirlo desde 20260730010000: esa migración dio lectura de la OT
+  // a SQR y Encargado (decisión de negocio: solo lectura). Sin este gate veían los
+  // campos de presupuesto editables y el guardado fallaba por RLS.
+  //
+  // La aprobación de RIESGOS del SQR NO se ve afectada: va por `canApproveRisk`,
+  // que WorkOrderForm recibe como prop independiente de `isLocked` (líneas 402/408).
+  const isEngagementTeamMember =
+    !!staffRecord &&
+    (workOrder?.engagement?.partner_id === staffRecord.staff_id ||
+      workOrder?.engagement?.manager_id === staffRecord.staff_id);
+  const canWriteWorkOrder = isAdmin || isEngagementTeamMember;
+  // work_order.submit da scope 'firm' a senior_partner pero 'assigned_engagements' a
+  // partner/director (authz_fase2_seed.sql:431-434) — sin acotar, un senior_partner veía
+  // el botón habilitado en cualquier OT (y la RLS lo rechazaba salvo que además fuera
+  // manager/partner del encargo), y un director lo veía siempre sin poder completarlo
+  // nunca (is_engagement_team_member() no lo contempla). Se acota al mismo predicado
+  // real de escritura (`canWriteWorkOrder`) — igual que `canApproveRisk` ya hace con su
+  // propio scope — en vez de solo chequear el permiso (iteración 6, review.md).
+  const canApprove = can("work_order.submit") && canWriteWorkOrder;
   // Aprobación de la sección de Riesgos: espeja el guard backend can_approve_wo_risk
   // (migración Ola E). Requiere el permiso 'work_order.risk.approve' de la matriz:
   //   - admin                                -> siempre.
@@ -414,21 +437,6 @@ const WorkOrderEdit = () => {
         (riskApproveScope !== "assigned_engagements" || isAssignedSqr)));
 
   const approvalStatus = workOrder?.approval_status as "Draft" | "Pending_Approval" | "Approved" | "Rejected" || "Draft";
-  // Escribir la OT exige ser Socio o Gerente DEL encargo, o admin: es el predicado
-  // de la policy "wo_team_update" (Ola F) -> is_engagement_team_member(), que mira
-  // solo partner_id y manager_id, más "Admins can manage work orders".
-  //
-  // Hace falta distinguirlo desde 20260730010000: esa migración dio lectura de la OT
-  // a SQR y Encargado (decisión de negocio: solo lectura). Sin este gate veían los
-  // campos de presupuesto editables y el guardado fallaba por RLS.
-  //
-  // La aprobación de RIESGOS del SQR NO se ve afectada: va por `canApproveRisk`,
-  // que WorkOrderForm recibe como prop independiente de `isLocked` (líneas 402/408).
-  const isEngagementTeamMember =
-    !!staffRecord &&
-    (workOrder?.engagement?.partner_id === staffRecord.staff_id ||
-      workOrder?.engagement?.manager_id === staffRecord.staff_id);
-  const canWriteWorkOrder = isAdmin || isEngagementTeamMember;
 
   const isLocked =
     approvalStatus === "Approved" ||
