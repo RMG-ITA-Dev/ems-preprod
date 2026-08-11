@@ -1,7 +1,9 @@
 import { ReactNode } from "react";
 import { Navigate } from "react-router-dom";
-import { Loader2 } from "lucide-react";
+import { AlertTriangle, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { useAuthorization } from "@/hooks/useAuthorization";
 
 interface PermissionRouteProps {
@@ -27,7 +29,7 @@ export function PermissionRoute({
   redirectTo,
 }: PermissionRouteProps) {
   const { t } = useTranslation();
-  const { can, isLoading } = useAuthorization();
+  const { can, isLoading, isError, refetch } = useAuthorization();
 
   if (isLoading) {
     return (
@@ -36,6 +38,26 @@ export function PermissionRoute({
           <Loader2 className="h-8 w-8 animate-spin text-accent" />
           <p className="text-muted-foreground">{t("common.loading", "Cargando...")}</p>
         </div>
+      </div>
+    );
+  }
+
+  // isError es DISTINTO de "no tiene el permiso": can() es fail-closed también ante un error de
+  // get_my_authorization_context() (red, PostgREST caído, etc.), así que sin este chequeo un
+  // fallo transitorio se veía igual que un 403 real, en cualquier ruta protegida de la app, sin
+  // forma de reintentar salvo recargar. Mismo gotcha que SchedulerGaps.tsx/SchedulerL1.tsx.
+  if (isError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background p-6">
+        <Alert variant="destructive" className="max-w-md">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription className="flex flex-col items-start gap-3">
+            {t("authz.loadFailed", "No se pudo verificar tus permisos. Intenta de nuevo.")}
+            <Button variant="outline" size="sm" onClick={() => refetch()}>
+              {t("authz.retry", "Reintentar")}
+            </Button>
+          </AlertDescription>
+        </Alert>
       </div>
     );
   }

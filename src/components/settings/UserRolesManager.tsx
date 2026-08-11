@@ -12,6 +12,7 @@ import { DataTable, Column, FilterConfig } from "@/components/data-table/DataTab
 import { Shield, User, Eye, Lock, Crown, Briefcase, Users, Star, StarHalf, ShieldCheck, Monitor, Calculator, AlertTriangle, UserPlus, Trash2, Landmark, Wallet, HeartHandshake, Siren, ScrollText } from "lucide-react";
 import { useAllUserRoles, useUpdateUserRoleKey, useDeleteAuthUser, UserRoleData } from "@/hooks/useUserRoles";
 import { useAuthorizationRoles } from "@/hooks/useAuthorizationRoles";
+import { useAuthorization } from "@/hooks/useAuthorization";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
@@ -105,6 +106,11 @@ const roleColors: Record<string, string> = {
 export function UserRolesManager() {
   const { t } = useTranslation();
   const { user } = useAuth();
+  // user_role.read (lo que gatea este tab en Settings.tsx) y user_role.update son permisos
+  // distintos: solo admin tiene el segundo. Sin este chequeo, un lector (ej. it_security_manager)
+  // ve el selector de rol activo para cada usuario y cada intento de cambio falla con NOT_ADMIN.
+  const { can: canAuthz } = useAuthorization();
+  const canChangeRoles = canAuthz("user_role.update");
   const { data: userRoles, isLoading } = useAllUserRoles();
   const { data: catalogRoles, isLoading: isLoadingRoles } = useAuthorizationRoles();
   const updateRoleMutation = useUpdateUserRoleKey();
@@ -195,6 +201,13 @@ export function UserRolesManager() {
       mobilePriority: "secondary",
       render: (row) => {
         const isSelf = user?.id === row.user_id;
+        if (!canChangeRoles) {
+          return (
+            <span className="text-xs text-muted-foreground italic">
+              {t("userRoles.noPermissionToChangeRoles")}
+            </span>
+          );
+        }
         return isSelf ? (
           <span className="text-xs text-muted-foreground italic">
             {t("userRoles.cannotChangeSelf")}

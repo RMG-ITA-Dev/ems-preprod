@@ -368,6 +368,7 @@
     "changeRole": "Change Role",
     "noUsers": "No users found.",
     "cannotChangeSelf": "Cannot change own role",
+    "noPermissionToChangeRoles": "You don't have permission to change roles",
     "roleUpdated": "User role updated successfully",
     "updateError": "Error updating user role",
     "orphan": "Orphan",
@@ -424,6 +425,12 @@
       "risk_supervisor": "Risk Supervisor",
       "hr_manager": "HR Manager",
       "hr_analyst": "HR Analyst"
+    },
+    "loadFailed": "Could not verify your permissions. Please try again.",
+    "retry": "Retry",
+    "accessDenied": {
+      "title": "No access",
+      "description": "You don't have permission to view this section. If you think this is a mistake, contact an administrator."
     }
   },
   "industry": {
@@ -594,6 +601,7 @@
     "audRegNumber": "Aud. Reg. Number",
     "newStaff": "New Staff Member",
     "editStaff": "Edit Staff Member",
+    "readOnlyNoUpdatePermission": "You have read-only access to this record — you lack permission to save changes.",
     "createStaff": "Create Staff Member",
     "deleteStaff": "Delete Staff Member",
     "searchPlaceholder": "Search by name or email...",

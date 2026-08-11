@@ -368,6 +368,7 @@
     "changeRole": "Cambiar Rol",
     "noUsers": "No se encontraron usuarios.",
     "cannotChangeSelf": "No puede cambiar su propio rol",
+    "noPermissionToChangeRoles": "No tenés permiso para cambiar roles",
     "roleUpdated": "Rol de usuario actualizado exitosamente",
     "updateError": "Error al actualizar el rol de usuario",
     "orphan": "Huérfano",
@@ -424,6 +425,12 @@
       "risk_supervisor": "Supervisor de Riesgos",
       "hr_manager": "Gerente de Talento Humano",
       "hr_analyst": "Analista de Talento Humano"
+    },
+    "loadFailed": "No se pudo verificar tus permisos. Intenta de nuevo.",
+    "retry": "Reintentar",
+    "accessDenied": {
+      "title": "Sin acceso",
+      "description": "No tenés permiso para ver esta sección. Si crees que es un error, contactá a un administrador."
     }
   },
   "industry": {
@@ -594,6 +601,7 @@
     "audRegNumber": "Nro. Reg. Auditor",
     "newStaff": "Nuevo Miembro del Personal",
     "editStaff": "Editar Miembro del Personal",
+    "readOnlyNoUpdatePermission": "Tenés acceso de solo lectura a este registro — no tenés permiso para guardar cambios.",
     "createStaff": "Crear Miembro del Personal",
     "deleteStaff": "Eliminar Miembro del Personal",
     "searchPlaceholder": "Buscar por nombre o correo...",

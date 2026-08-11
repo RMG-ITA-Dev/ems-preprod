@@ -7,6 +7,7 @@ import * as z from "zod";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { LoadingButton } from "@/components/ui/loading-button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -199,6 +200,11 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
   const isEdit = !!staff;
   const { can, roleKey } = useAuthorization();
   const isAdmin = roleKey === "admin";
+  // La ruta /staff/:id solo exige staff.read (PermissionRoute); staff.update lo tiene únicamente
+  // admin. Sin este chequeo, cualquiera de los 10 roles restantes con staff.read llena el
+  // formulario completo y recién al guardar la RLS lo rechaza. /staff/new ya está gateada por
+  // staff.create, así que en modo alta no hace falta el chequeo adicional.
+  const canEdit = !isEdit || can("staff.update");
   const { data: categories } = useCategories();
   const { data: activeSkills } = useActiveSkills();
   const createMutation = useCreateStaff();
@@ -549,12 +555,19 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
       </div>
 
       <div className="bg-card rounded-xl border border-border p-6">
+        {!canEdit && (
+          <Alert className="mb-6">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>{t("staff.readOnlyNoUpdatePermission")}</AlertDescription>
+          </Alert>
+        )}
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit, (errors) => {
             console.error("[StaffForm] Validation failed:", errors);
             const firstMessage = findFirstErrorMessage(errors);
             toast.error(firstMessage ?? t("validation.formInvalid"));
           })} className="space-y-6">
+            <fieldset disabled={!canEdit} className="contents m-0 border-0 p-0">
             <div className="space-y-4">
               <h3 className="font-medium text-lg">{t("common.personalInfo")}</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1005,6 +1018,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
                 </div>
               </div>
             </div>
+            </fieldset>
 
             <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 sm:gap-4 pt-4">
               <Button type="button" variant="cancel" onClick={() => onCancel ? onCancel() : navigate("/staff")} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
@@ -1015,6 +1029,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
                 variant="default"
                 className="w-full sm:w-auto min-h-[44px] sm:min-h-0"
                 loading={createMutation.isPending || updateMutation.isPending || createCompetency.isPending || updateCompetency.isPending || deleteCompetency.isPending}
+                disabled={!canEdit}
               >
                 {isEdit ? t("common.saveChanges") : t("staff.createStaff")}
               </LoadingButton>

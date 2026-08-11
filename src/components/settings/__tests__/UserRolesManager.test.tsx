@@ -44,6 +44,13 @@ vi.mock("@/hooks/useAuth", () => ({
   useAuth: () => ({ user: { id: "self-user-id" } }),
 }));
 
+// This suite exercises the role-change Select as an admin (user_role.update) would see it —
+// distinct from user_role.read, which is what gates the tab itself (see the dedicated
+// canChangeRoles.test.tsx for the read-only-viewer case, iteración 5 P2).
+vi.mock("@/hooks/useAuthorization", () => ({
+  useAuthorization: () => ({ can: () => true }),
+}));
+
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (k: string) => k }),
 }));
