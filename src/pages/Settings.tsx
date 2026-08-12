@@ -152,6 +152,28 @@ const Settings = () => {
     return map;
   }, [activityCodes]);
 
+  // ── Activity codes: práctica-scoped filter (default Auditoría), mirrors the
+  // rates tab's selector, plus a "Global" bucket for unlinked codes ─────────
+  const activityServices = useMemo(
+    () => (services ?? []).filter((s) => s.is_active && s.abbreviation && s.allows_rates_activities),
+    [services]
+  );
+  const [activityServiceId, setActivityServiceId] = useState<string>("");
+  useEffect(() => {
+    if (!activityServiceId && activityServices.length > 0) {
+      const auditoria = activityServices.find((s) => s.code === 1) ?? activityServices[0];
+      setActivityServiceId(auditoria.service_id);
+    }
+  }, [activityServices, activityServiceId]);
+
+  const filteredActivityCodes = useMemo(() => {
+    if (!activityServiceId) return [];
+    if (activityServiceId === "__global__") {
+      return (activityCodes ?? []).filter((a) => !a.service_id);
+    }
+    return (activityCodes ?? []).filter((a) => a.service_id === activityServiceId);
+  }, [activityCodes, activityServiceId]);
+
   // Controlled tab state
   const [activeTab, setActiveTab] = useState("account");
   const isGlobalTabActive = activeTab === "global";
@@ -465,7 +487,7 @@ const Settings = () => {
       render: (row) => row.service ? (
         <span className="text-sm">{row.service.name}</span>
       ) : (
-        <span className="text-muted-foreground text-sm">—</span>
+        <span className="text-muted-foreground text-sm">{t("activity.global")}</span>
       ),
     },
     {
@@ -932,14 +954,31 @@ const Settings = () => {
         </TabsContent>
 
         <TabsContent value="activities" className="space-y-6">
+          <div className="flex items-center gap-2">
+            <Label htmlFor="activityServiceFilter">{t("activity.service")}</Label>
+            <Select value={activityServiceId} onValueChange={setActivityServiceId}>
+              <SelectTrigger id="activityServiceFilter" className="w-56" data-testid="activity-service-filter">
+                <SelectValue placeholder={t("activity.selectServiceFilter")} />
+              </SelectTrigger>
+              <SelectContent>
+                {activityServices.map((s) => (
+                  <SelectItem key={s.service_id} value={s.service_id}>
+                    {s.name}
+                  </SelectItem>
+                ))}
+                <SelectItem value="__global__">{t("activity.global")}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           <DataTable
-            data={activityCodes || []}
+            key={activityServiceId}
+            data={filteredActivityCodes}
             columns={activityColumns}
             searchPlaceholder={t("common.search")}
             searchKeys={["activity_code", "description"]}
             isLoading={activitiesLoading}
             newButtonLabel={canActivitiesWrite ? t("activity.newActivity") : undefined}
-            onNewClick={canActivitiesWrite ? () => { setSelectedActivity(null); setActivityFormOpen(true); } : undefined}
+            onNewClick={canActivitiesWrite && activityServiceId ? () => { setSelectedActivity(null); setActivityFormOpen(true); } : undefined}
             onRowClick={canActivitiesWrite ? (row) => { setSelectedActivity(row); setActivityFormOpen(true); } : undefined}
             getRowId={(row) => row.activity_id}
             statusFilter={{
@@ -954,6 +993,7 @@ const Settings = () => {
             open={activityFormOpen}
             onOpenChange={setActivityFormOpen}
             activityCode={selectedActivity}
+            serviceId={activityServiceId && activityServiceId !== "__global__" ? activityServiceId : undefined}
           />
         </TabsContent>
 
