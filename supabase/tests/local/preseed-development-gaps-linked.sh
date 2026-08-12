@@ -32,9 +32,12 @@ if [[ -z "$DB_URL" ]]; then
   echo "ERROR: SUPABASE_DB_URL no está seteado. Exporta la cadena de conexión del mirror." >&2
   exit 1
 fi
-if [[ "$DB_URL" != *"$EXPECTED_REF"* ]]; then
-  echo "ERROR: SUPABASE_DB_URL no contiene el ref esperado ($EXPECTED_REF)." >&2
-  echo "       Apunta a otra base. Aborta por seguridad." >&2
+# El ref debe estar en el HOST (db.<ref>.supabase.co) o el USUARIO (postgres.<ref>),
+# NO un substring en cualquier parte: un ref dentro del password/db-name/params
+# apuntando a otra base pasaría el chequeo y los psql irían al destino equivocado.
+if [[ "$DB_URL" != *"db.${EXPECTED_REF}.supabase.co"* && "$DB_URL" != *"postgres.${EXPECTED_REF}"* ]]; then
+  echo "ERROR: SUPABASE_DB_URL no apunta al host/usuario de Test ($EXPECTED_REF)." >&2
+  echo "       El ref debe estar en el host (db.<ref>.supabase.co) o el usuario (postgres.<ref>)." >&2
   exit 1
 fi
 # Verificar que el proyecto ENLAZADO del CLI sea Test — ABORTA si no se puede
