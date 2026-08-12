@@ -41,10 +41,21 @@ export interface Staff {
   short_name: string | null;
   initials: string | null;
   category_id: string | null;
+  society_id: string;
+  service_id: string;
   is_active: boolean;
   city: string | null;
   hire_date?: string | null;
   category?: Category;
+}
+
+// FEAT 0810-173: catálogo interno de sociedades (Ruizmier Pelaez / Ruizmier
+// Juaregui), sin ABM — solo lectura.
+export interface Society {
+  society_id: string;
+  name: string;
+  is_active: boolean;
+  created_at: string;
 }
 
 // Competency assignment row joined with its skill master row
@@ -290,6 +301,24 @@ export function useServices() {
   });
 }
 
+// FEAT 0810-173: sociedades activas para el selector de StaffForm. Catálogo
+// interno sin ABM — solo lectura (RLS: SELECT-only para authenticated).
+export function useSocieties() {
+  return useQuery({
+    queryKey: ['societies'],
+    queryFn: async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any)
+        .from('society')
+        .select('*')
+        .eq('is_active', true)
+        .order('name');
+      if (error) throw error;
+      return data as Society[];
+    },
+  });
+}
+
 export function useTaxonomies() {
   return useQuery({
     queryKey: ['taxonomies'],
@@ -354,6 +383,8 @@ export function useStaff() {
           short_name,
           initials,
           category_id,
+          society_id,
+          service_id,
           city,
           is_active,
           category:categories(*)

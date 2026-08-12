@@ -53,6 +53,8 @@ export function useCreateStaff() {
       initials?: string;
       email?: string;
       category_id?: string;
+      society_id?: string;
+      service_id?: string;
       city?: string;
       id_number?: string;
       aud_reg_number?: string;
@@ -96,6 +98,8 @@ export function useUpdateStaff() {
         initials: string;
         email: string;
         category_id: string;
+        society_id: string;
+        service_id: string;
         city: string;
         id_number: string;
         aud_reg_number: string;

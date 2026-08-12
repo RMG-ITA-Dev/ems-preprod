@@ -46,7 +46,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { StaffFull, useCategories, useActiveSkills } from "@/hooks/useEmsData";
+import { StaffFull, useCategories, useActiveSkills, useSocieties, useServices } from "@/hooks/useEmsData";
 import { useCreateStaff, useUpdateStaff, useDeleteStaff, useCreateStaffCompetency, useUpdateStaffCompetency, useDeleteStaffCompetency } from "@/hooks/mutations";
 import { Trash2, AlertTriangle, Plus, Lock, LockOpen } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -83,6 +83,8 @@ const createFormSchema = (t: TFunction, isEdit: boolean = false, previousIsActiv
     short_name: z.string().optional(),
     initials: z.string().max(4, t("validation.initialsMax4")).optional(),
     email: z.string().min(1, t("validation.emailRequired")).email(t("validation.emailInvalid")),
+    society_id: z.string().min(1, t("validation.societyRequired")),
+    service_id: z.string().min(1, t("validation.practiceRequired")),
     category_id: z.string().min(1, t("validation.categoryRequired")),
     city: z.string().min(1, t("validation.cityRequired")),
     id_number: z.string().min(1, t("validation.idNumberRequired")),
@@ -205,7 +207,8 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
   // formulario completo y recién al guardar la RLS lo rechaza. /staff/new ya está gateada por
   // staff.create, así que en modo alta no hace falta el chequeo adicional.
   const canEdit = !isEdit || can("staff.update");
-  const { data: categories } = useCategories();
+  const { data: societies } = useSocieties();
+  const { data: services } = useServices();
   const { data: activeSkills } = useActiveSkills();
   const createMutation = useCreateStaff();
   const updateMutation = useUpdateStaff();
@@ -240,6 +243,8 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
       short_name: "",
       initials: "",
       email: prefillEmail || "",
+      society_id: "",
+      service_id: "",
       category_id: "",
       city: "",
       id_number: "",
@@ -255,6 +260,23 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
     control: form.control,
     name: "competencies",
   });
+
+  // Categoría se filtra por la práctica elegida (FEAT 0810-173). Sin práctica
+  // seleccionada, no se listan categorías.
+  const watchedServiceId = form.watch("service_id");
+  const { data: categories } = useCategories(watchedServiceId || undefined);
+
+  // Práctica excluye Firmwide (allows_rates_activities=false) para altas nuevas.
+  // En edición, si el staff ya tiene asignada una práctica inactiva o excluida,
+  // se preserva en la lista para no bloquear ediciones no relacionadas.
+  const practiceOptions = useMemo(() => {
+    const active = (services ?? []).filter((s) => s.is_active && s.allows_rates_activities);
+    if (isEdit && staff?.service_id && !active.some((s) => s.service_id === staff.service_id)) {
+      const assigned = (services ?? []).find((s) => s.service_id === staff.service_id);
+      if (assigned) return [...active, assigned];
+    }
+    return active;
+  }, [services, isEdit, staff?.service_id]);
 
   useEffect(() => {
     if (staff) {
@@ -272,6 +294,8 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
         short_name: staff.short_name || "",
         initials: staff.initials || "",
         email: staff.email || "",
+        society_id: staff.society_id || "",
+        service_id: staff.service_id || "",
         category_id: staff.category_id || "",
         city: staff.city || "",
         id_number: staff.id_number || "",
@@ -386,6 +410,14 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
       }
     }
 
+    // Revalida que la categoría siga perteneciendo a la práctica elegida — guarda
+    // contra un category_id stale (p.ej. una práctica cambiada por otra vía antes
+    // del submit). `categories` ya está acotado a watchedServiceId.
+    if (data.category_id && !(categories ?? []).some((c) => c.category_id === data.category_id)) {
+      toast.error(t('errors.categoryPracticeMismatch'));
+      return;
+    }
+
     // Pending-hours completeness gate: only on deactivation with termination_date
     if (isEdit && staff && staff.is_active && !data.is_active && data.termination_date) {
       try {
@@ -418,6 +450,8 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
       short_name: data.short_name || undefined,
       initials: data.initials || undefined,
       email: data.email,
+      society_id: data.society_id,
+      service_id: data.service_id,
       category_id: data.category_id,
       city: data.city,
       id_number: data.id_number,
@@ -744,13 +778,73 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
 
             <div className="space-y-4">
               <h3 className="font-medium text-lg">{t("common.role")}</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="society_id"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t("staff.society")} *</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder={t("staff.selectSociety")} />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {societies?.map((soc) => (
+                            <SelectItem key={soc.society_id} value={soc.society_id}>
+                              {soc.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="service_id"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t("staff.practice")} *</FormLabel>
+                      <Select
+                        onValueChange={(value) => {
+                          field.onChange(value);
+                          // Cambiar de práctica invalida la categoría elegida
+                          // (está acotada a la práctica anterior).
+                          form.setValue("category_id", "", { shouldDirty: true });
+                        }}
+                        value={field.value}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder={t("staff.selectPractice")} />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {practiceOptions.map((svc) => (
+                            <SelectItem key={svc.service_id} value={svc.service_id}>
+                              {svc.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
               <FormField
                 control={form.control}
                 name="category_id"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>{t("staff.category")} *</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
+                    <Select onValueChange={field.onChange} value={field.value} disabled={!watchedServiceId}>
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder={t("staff.selectCategory")} />

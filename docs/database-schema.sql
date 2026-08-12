@@ -73,7 +73,19 @@ CREATE TABLE public.categories (
   can_approve_wo BOOLEAN DEFAULT false,
   can_approve_timesheets BOOLEAN DEFAULT false,
   default_app_role app_role
+  -- + CONSTRAINT categories_service_category_unique UNIQUE (service_id, category_id)
+  --     (FEAT 0810-173) — target del FK compuesto de staff, ver arriba.
 );
+
+-- Society (FEAT 0810-173: catálogo interno de sociedades, sin ABM — solo lectura)
+CREATE TABLE public.society (
+  society_id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- RLS: SELECT-only para authenticated (sin INSERT/UPDATE/DELETE — sin ABM).
+-- Seed: 'Ruizmier Pelaez S.R.L.', 'Ruizmier Juaregui S.R.L.'.
 
 -- Clients
 CREATE TABLE public.clients (
@@ -200,7 +212,14 @@ CREATE TABLE public.staff (
   hire_date DATE,
   termination_date DATE,
   deleted_at TIMESTAMPTZ,
-  is_blocked BOOLEAN NOT NULL DEFAULT false  -- BUG 0601-132: admin-visible account lockout flag
+  is_blocked BOOLEAN NOT NULL DEFAULT false,  -- BUG 0601-132: admin-visible account lockout flag
+  -- FEAT 0810-173: sociedad y práctica del staff. NOT NULL tras el backfill de la migración.
+  society_id UUID NOT NULL REFERENCES public.society(society_id),
+  service_id UUID NOT NULL REFERENCES public.services(service_id)
+  -- + CONSTRAINT staff_service_category_fk FOREIGN KEY (service_id, category_id)
+  --     REFERENCES public.categories (service_id, category_id) — garantiza que la
+  --     categoría elegida pertenezca a la práctica (MATCH SIMPLE: filas con
+  --     category_id NULL no se validan).
 );
 
 -- NOTE: staff_capacity table removed in 2026-02-13 migration.
@@ -2105,6 +2124,7 @@ ALTER TABLE public.expense_types ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.global_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.holidays ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.industries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.society ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.staff ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.time_entries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.timer_entries ENABLE ROW LEVEL SECURITY;
