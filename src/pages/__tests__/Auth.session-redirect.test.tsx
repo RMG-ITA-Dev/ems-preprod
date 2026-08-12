@@ -1,7 +1,7 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
-import { MemoryRouter, Routes, Route } from "react-router-dom";
+import { render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter, Routes, Route, useLocation } from "react-router-dom";
 
 // BUG 0723-170: an already-authenticated user hitting /auth (manual navigation,
 // refresh, or direct URL entry) must be redirected away instead of seeing the
@@ -26,9 +26,17 @@ vi.mock("@/components/auth/ForgotPasswordDialog", () => ({
 
 import Auth from "../Auth";
 
+// Reports whatever state is currently attached to the active history entry, so
+// tests can assert that the signing-out flag was consumed (review R3-01).
+function LocationProbe() {
+  const location = useLocation();
+  return <div data-testid="entry-state">{JSON.stringify(location.state ?? null)}</div>;
+}
+
 function renderAtAuth(state?: { signingOut?: boolean }) {
   return render(
     <MemoryRouter initialEntries={[{ pathname: "/auth", state }]}>
+      <LocationProbe />
       <Routes>
         <Route path="/auth" element={<Auth />} />
         <Route path="/" element={<div>home-screen</div>} />
@@ -79,6 +87,24 @@ describe("Auth — session redirect from /auth (0723-170)", () => {
 
     const { container } = renderAtAuth({ signingOut: true });
 
+    expect(container.querySelector("#email")).not.toBeNull();
+    expect(screen.queryByText("home-screen")).toBeNull();
+  });
+
+  // Review R3-01: the flag must not outlive the visit it was issued for. Left on
+  // the history entry it would suppress the guard again on a later authenticated
+  // return to that entry (Back after a successful re-login), re-exposing the
+  // form. Once stripped, such a return is just the case covered by the first
+  // test above — authenticated, no flag, redirected.
+  it("consumes the signing-out flag so it cannot outlive the current visit", async () => {
+    mockUseAuth.mockReturnValue({ signIn: vi.fn(), signUp: vi.fn(), user: { id: "u1" }, loading: false });
+
+    const { container } = renderAtAuth({ signingOut: true });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("entry-state").textContent).toBe("null");
+    });
+    // The escape hatch survives the cleanup: this visit still shows the form.
     expect(container.querySelector("#email")).not.toBeNull();
     expect(screen.queryByText("home-screen")).toBeNull();
   });
