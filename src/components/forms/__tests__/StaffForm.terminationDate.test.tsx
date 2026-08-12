@@ -253,6 +253,7 @@ const baseStaff: StaffFull = {
   service_id: "svc-1",
   city: "La Paz",
   is_active: true,
+  is_blocked: false,
   hire_date: "2020-01-01",
   termination_date: null,
   auth_user_id: null,

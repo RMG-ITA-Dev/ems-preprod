@@ -217,6 +217,7 @@ const baseStaff: StaffFull = {
   service_id: "svc-auditoria",
   city: "La Paz",
   is_active: true,
+  is_blocked: false,
   hire_date: "2020-01-01",
   termination_date: null,
   auth_user_id: null,
@@ -247,22 +248,65 @@ const renderEditForm = (overrides: Partial<StaffFull> = {}) => {
 // Select order in the DOM: [0]=city, [1]=society, [2]=practice, [3]=category.
 const getSelects = (container: HTMLElement) =>
   Array.from(container.querySelectorAll("select")) as HTMLSelectElement[];
+const citySelect = (container: HTMLElement) => getSelects(container)[0];
 const societySelect = (container: HTMLElement) => getSelects(container)[1];
 const practiceSelect = (container: HTMLElement) => getSelects(container)[2];
 const categorySelect = (container: HTMLElement) => getSelects(container)[3];
 
+// Llena todos los campos requeridos del alta *excepto* los que se pasen en
+// `skip`, para poder aislar qué campo específico bloquea el submit.
+const fillRequiredExcept = (container: HTMLElement, skip: Array<"city" | "society" | "practice" | "category"> = []) => {
+  fireEvent.change(screen.getByPlaceholderText("John"), { target: { value: "Ana" } });
+  fireEvent.change(screen.getByPlaceholderText("Doe"), { target: { value: "López" } });
+  fireEvent.change(screen.getByPlaceholderText("john.doe@example.com"), { target: { value: "ana@test.com" } });
+  fireEvent.change(screen.getByPlaceholderText("12345678"), { target: { value: "12345" } });
+  fireEvent.change(container.querySelector('input[type="date"]')!, { target: { value: "2020-01-01" } });
+  if (!skip.includes("city")) fireEvent.change(citySelect(container), { target: { value: "La Paz" } });
+  if (!skip.includes("society")) fireEvent.change(societySelect(container), { target: { value: "soc-pelaez" } });
+  if (!skip.includes("practice")) fireEvent.change(practiceSelect(container), { target: { value: "svc-auditoria" } });
+  if (!skip.includes("category")) fireEvent.change(categorySelect(container), { target: { value: "cat-aud-1" } });
+};
+
 // ─── Tests ─────────────────────────────────────────────────────────────────────
 
 describe("StaffForm — sociedad y práctica (FEAT 0810-173)", () => {
-  it("1) Sociedad, Práctica y Categoría requeridas — submit bloqueado si vacías", async () => {
+  it("1a) Sociedad requerida — submit bloqueado y mensaje específico si falta solo ella", async () => {
     const { container } = renderNewForm();
     await waitFor(() => expect(getSelects(container).length).toBeGreaterThan(0));
 
+    fillRequiredExcept(container, ["society"]);
     fireEvent.submit(container.querySelector("form")!);
 
     await waitFor(() => {
-      expect(createMutateAsync).not.toHaveBeenCalled();
+      expect(screen.getByText("validation.societyRequired")).toBeInTheDocument();
     });
+    expect(createMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("1b) Práctica requerida — submit bloqueado y mensaje específico si falta solo ella", async () => {
+    const { container } = renderNewForm();
+    await waitFor(() => expect(getSelects(container).length).toBeGreaterThan(0));
+
+    fillRequiredExcept(container, ["practice", "category"]);
+    fireEvent.submit(container.querySelector("form")!);
+
+    await waitFor(() => {
+      expect(screen.getByText("validation.practiceRequired")).toBeInTheDocument();
+    });
+    expect(createMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("1c) Categoría requerida — submit bloqueado y mensaje específico si falta solo ella", async () => {
+    const { container } = renderNewForm();
+    await waitFor(() => expect(getSelects(container).length).toBeGreaterThan(0));
+
+    fillRequiredExcept(container, ["category"]);
+    fireEvent.submit(container.querySelector("form")!);
+
+    await waitFor(() => {
+      expect(screen.getByText("validation.categoryRequired")).toBeInTheDocument();
+    });
+    expect(createMutateAsync).not.toHaveBeenCalled();
   });
 
   it("2) ambas sociedades están disponibles en el selector", async () => {

@@ -637,6 +637,8 @@ export function useActiveStaffWithSkills() {
           short_name,
           initials,
           category_id,
+          society_id,
+          service_id,
           city,
           is_active,
           is_schedulable,
