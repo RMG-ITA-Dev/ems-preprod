@@ -52,7 +52,7 @@ ninguna migración crea, y el script inyecta el parche y continúa:
 **Una parada en cualquier otro timestamp = hallazgo nuevo:** detenerse y reportar, no parchear a ojo.
 
 Luego (sin paradas): verificación (`migration list` + `db push --dry-run` = 0 pendientes) →
-**grants + RLS** (`post-reset-grants-rls.sql`) → secreto `FRONTEND_URL` → **deploy de las 9 edge
+**grants + RLS** (`post-reset-grants-rls.sql`) → secreto `FRONTEND_URL` → **deploy de las edge
 functions** → **admin usable** (Admin API + ficha en `staff` + promoción).
 
 Al terminar: login con `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD`.
