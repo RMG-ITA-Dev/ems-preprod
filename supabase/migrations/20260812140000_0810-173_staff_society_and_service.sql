@@ -43,6 +43,13 @@ ALTER TABLE public.staff
   ADD COLUMN society_id uuid REFERENCES public.society (society_id) ON DELETE RESTRICT,
   ADD COLUMN service_id uuid REFERENCES public.services (service_id) ON DELETE RESTRICT;
 
+-- `20260730080000_harden_staff_pii_columns.sql` revocó el SELECT de tabla en
+-- staff para `authenticated` y lo reemplazó por un GRANT explícito por columna
+-- (mismo motivo por el que `20260806000000` tuvo que sumar `is_schedulable`):
+-- una columna nueva ausente de ese GRANT tumba la consulta COMPLETA con 403
+-- para cualquier SELECT que la incluya, admin incluido — no solo esa columna.
+GRANT SELECT (society_id, service_id) ON public.staff TO authenticated;
+
 -- ────────────────────────────────────────────────────────────────────────────
 -- 3. BACKFILL
 -- ────────────────────────────────────────────────────────────────────────────

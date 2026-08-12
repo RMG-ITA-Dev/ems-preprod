@@ -74,13 +74,15 @@ export function useCreateStaff() {
       if (error) throw error;
       return result;
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       queryClient.invalidateQueries({ queryKey: ["staff"] });
       queryClient.invalidateQueries({ queryKey: ["staff_full"] });
       // Bootstrap creates the first staff row for the current auth user then
-      // navigates to "/" immediately; without this, ProtectedRoute reads the
-      // stale (pre-creation) current_staff cache and bounces back to /bootstrap.
-      queryClient.invalidateQueries({ queryKey: ["current_staff"] });
+      // navigates to "/" immediately; mutateAsync only waits for onSuccess if it
+      // returns a promise, so this must be awaited — otherwise ProtectedRoute can
+      // read the stale (pre-creation) current_staff cache before the refetch lands
+      // and bounce back to /bootstrap.
+      await queryClient.invalidateQueries({ queryKey: ["current_staff"] });
       toast.success(i18n.t("messages.createSuccess", { entity: i18n.t("entities.staffMember") }));
     },
     onError: (error) => handleStaffError(error, "creating staff member"),
