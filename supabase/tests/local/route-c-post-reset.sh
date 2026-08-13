@@ -71,8 +71,6 @@ json_escape() { local s="$1"; s="${s//\\/\\\\}"; s="${s//\"/\\\"}"; printf '%s' 
 if [[ -n "$SEED_ADMIN_EMAIL" && -n "$SEED_ADMIN_PASSWORD" && -n "$SB_SERVICE_KEY" ]]; then
   SB_URL="https://${EXPECTED_REF}.supabase.co"
   echo "== Creando admin usable vía Admin API: $SEED_ADMIN_EMAIL =="
-  # email/password escapados; --fail-with-body aborta (set -e) si el Admin API
-  # responde HTTP >= 400 (usuario duplicado, credenciales inválidas, etc.).
   # Rechazar caracteres de control (tab/newline/CR/…): json_escape no los escapa y
   # romperían el JSON → el Admin API rechazaría y no se crearía el admin.
   if [[ "${SEED_ADMIN_EMAIL}${SEED_ADMIN_PASSWORD}" == *[$'\x01'-$'\x1f']* ]]; then
@@ -80,12 +78,24 @@ if [[ -n "$SEED_ADMIN_EMAIL" && -n "$SEED_ADMIN_PASSWORD" && -n "$SB_SERVICE_KEY
     exit 1
   fi
   admin_payload="{\"email\":\"$(json_escape "$SEED_ADMIN_EMAIL")\",\"password\":\"$(json_escape "$SEED_ADMIN_PASSWORD")\",\"email_confirm\":true}"
-  curl -sS --fail-with-body -X POST "$SB_URL/auth/v1/admin/users" \
+  # Crear el usuario, TOLERANTE a "ya existe" (rerun tras un fallo posterior): no se
+  # usa --fail-with-body; se captura el HTTP code y, si no es 2xx, se verifica en la
+  # BD si el usuario ya está → se continúa (los pasos de staff/rol son idempotentes).
+  _resp="$(curl -sS -w '\n%{http_code}' -X POST "$SB_URL/auth/v1/admin/users" \
     -H "apikey: $SB_SERVICE_KEY" \
     -H "Authorization: Bearer $SB_SERVICE_KEY" \
     -H "Content-Type: application/json" \
-    -d "$admin_payload"
-  echo ""
+    -d "$admin_payload")"
+  _http_code="${_resp##*$'\n'}"
+  if [[ "$_http_code" == 2* ]]; then
+    echo "  usuario creado (HTTP $_http_code)."
+  elif psql "$DB_URL" -tA -v email="$SEED_ADMIN_EMAIL" -c "select 1 from auth.users where email = :'email'" | grep -q 1; then
+    echo "  el usuario ya existía (HTTP $_http_code) — se continúa (staff/rol son idempotentes)."
+  else
+    echo "ERROR: el Admin API falló (HTTP $_http_code) y el usuario no existe:" >&2
+    echo "${_resp%$'\n'*}" >&2
+    exit 1
+  fi
   echo "== Vinculando ficha de staff + promoviendo a admin =="
   psql "$DB_URL" -v ON_ERROR_STOP=1 -v email="$SEED_ADMIN_EMAIL" <<'SQL'
 insert into public.staff (first_name, last_name, email, category_id, is_active)
