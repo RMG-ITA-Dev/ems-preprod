@@ -14,8 +14,8 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Info } from "lucide-react";
 
 const formatCurrency = (n: number, currency: "BOB" | "USD") =>
-  Math.round(n).toLocaleString(currency === "BOB" ? "es-BO" : "en-US", {
-    maximumFractionDigits: 0,
+  Number(n).toLocaleString(currency === "BOB" ? "es-BO" : "en-US", {
+    maximumFractionDigits: 2,
   });
 
 const formatDate = (iso: string | null | undefined) => {

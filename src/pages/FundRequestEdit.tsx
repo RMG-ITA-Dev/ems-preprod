@@ -535,9 +535,9 @@ const FundRequestEdit = () => {
                     {t("fundRequest.totalDisbursed")}:
                   </span>{" "}
                   <span className="font-mono font-semibold">
-                    {Math.round(Number(fr.total_disbursed_amount)).toLocaleString(
+                    {Number(fr.total_disbursed_amount).toLocaleString(
                       fr.currency === "BOB" ? "es-BO" : "en-US",
-                      { maximumFractionDigits: 0 },
+                      { maximumFractionDigits: 2 },
                     )}{" "}
                     {fr.currency}
                   </span>

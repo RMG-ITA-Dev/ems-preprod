@@ -313,11 +313,11 @@ export function WorkOrderPaymentPlanSection({
   // ----- Formatting -----
 
   const formatAmount = (amount: number) => {
-    const rounded = Math.round(amount);
-    if (currency === "BOB") {
-      return rounded.toLocaleString("es-BO", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-    }
-    return rounded.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    const amountLocale = currency === "BOB" ? "es-BO" : "en-US";
+    return Number(amount).toLocaleString(amountLocale, {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    });
   };
 
   return (

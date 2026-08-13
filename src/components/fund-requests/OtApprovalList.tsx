@@ -25,8 +25,8 @@ const statusStyles: Record<FrWoApprovalStatus, string> = {
 };
 
 const formatCurrency = (n: number, currency: "BOB" | "USD") =>
-  Math.round(n).toLocaleString(currency === "BOB" ? "es-BO" : "en-US", {
-    maximumFractionDigits: 0,
+  Number(n).toLocaleString(currency === "BOB" ? "es-BO" : "en-US", {
+    maximumFractionDigits: 2,
   });
 
 const decisionToStatus: Record<DecisionMode, "aprobado" | "observado" | "rechazado"> = {

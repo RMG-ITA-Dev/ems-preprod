@@ -88,9 +88,9 @@ export function DisbursementDialog({
             />
             <p className="text-xs text-muted-foreground">
               {t("fundRequest.requestedHint", {
-                amount: Math.round(requestedAmount).toLocaleString(
+                amount: Number(requestedAmount).toLocaleString(
                   currency === "BOB" ? "es-BO" : "en-US",
-                  { maximumFractionDigits: 0 },
+                  { maximumFractionDigits: 2 },
                 ),
                 currency,
               })}
