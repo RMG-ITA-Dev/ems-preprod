@@ -80,7 +80,19 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
 
   // Redirect if needed
   if (redirectTo) {
-    return <Navigate to={redirectTo} replace />;
+    // BUG 0723-170: when this redirect is part of the rejection flow (no staff
+    // record / inactive staff), the signOut() above is still in flight and
+    // `user` stays populated for a few frames. Flag it so Auth's session guard
+    // lets the form render instead of bouncing the session straight back here —
+    // otherwise the two routes ping-pong until sign-out resolves, and forever
+    // if it never does.
+    return (
+      <Navigate
+        to={redirectTo}
+        replace
+        state={shouldSignOut ? { signingOut: true } : undefined}
+      />
+    );
   }
 
   return <>{children}</>;

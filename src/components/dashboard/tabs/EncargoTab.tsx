@@ -153,7 +153,7 @@ export function EncargoTab() {
         .select(`
           hours_logged,
           staff:staff!inner(
-            category:categories!inner(category_id, category_name, display_order)
+            category:categories!staff_category_id_fkey!inner(category_id, category_name, display_order)
           )
         `)
         .eq('engagement_id', selectedEngagementId)

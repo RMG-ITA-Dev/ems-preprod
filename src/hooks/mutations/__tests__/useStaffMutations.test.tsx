@@ -86,6 +86,31 @@ describe("useStaffMutations", () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
     });
+
+    it("passes through society_id and service_id unchanged (FEAT 0810-173)", async () => {
+      const mockSingle = vi.fn().mockResolvedValue({ data: { staff_id: "staff-1" }, error: null });
+      const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
+      const mockInsert = vi.fn().mockReturnValue({ select: mockSelect });
+      vi.mocked(supabase.from).mockReturnValue({ insert: mockInsert } as any);
+
+      const { result } = renderHook(() => useCreateStaff(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate({
+        first_name: "John",
+        last_name: "Doe",
+        society_id: "soc-1",
+        service_id: "svc-1",
+        category_id: "cat-1",
+      });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      expect(mockInsert).toHaveBeenCalledWith(
+        expect.objectContaining({ society_id: "soc-1", service_id: "svc-1" })
+      );
+    });
   });
 
   describe("useUpdateStaff", () => {
@@ -108,6 +133,24 @@ describe("useStaffMutations", () => {
       expect(supabase.from).toHaveBeenCalledWith("staff");
       expect(mockEq).toHaveBeenCalledWith("staff_id", "1");
       expect(toast.success).toHaveBeenCalled();
+    });
+
+    it("passes through society_id and service_id unchanged (FEAT 0810-173)", async () => {
+      const mockSingle = vi.fn().mockResolvedValue({ data: { staff_id: "1" }, error: null });
+      const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
+      const mockEq = vi.fn().mockReturnValue({ select: mockSelect });
+      const mockUpdate = vi.fn().mockReturnValue({ eq: mockEq });
+      vi.mocked(supabase.from).mockReturnValue({ update: mockUpdate } as any);
+
+      const { result } = renderHook(() => useUpdateStaff(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate({ id: "1", data: { society_id: "soc-2", service_id: "svc-2" } });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      expect(mockUpdate).toHaveBeenCalledWith({ society_id: "soc-2", service_id: "svc-2" });
     });
   });
 

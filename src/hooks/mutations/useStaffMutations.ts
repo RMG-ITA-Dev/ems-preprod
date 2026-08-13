@@ -53,6 +53,8 @@ export function useCreateStaff() {
       initials?: string;
       email?: string;
       category_id?: string;
+      society_id?: string;
+      service_id?: string;
       city?: string;
       id_number?: string;
       aud_reg_number?: string;
@@ -72,9 +74,15 @@ export function useCreateStaff() {
       if (error) throw error;
       return result;
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       queryClient.invalidateQueries({ queryKey: ["staff"] });
       queryClient.invalidateQueries({ queryKey: ["staff_full"] });
+      // Bootstrap creates the first staff row for the current auth user then
+      // navigates to "/" immediately; mutateAsync only waits for onSuccess if it
+      // returns a promise, so this must be awaited — otherwise ProtectedRoute can
+      // read the stale (pre-creation) current_staff cache before the refetch lands
+      // and bounce back to /bootstrap.
+      await queryClient.invalidateQueries({ queryKey: ["current_staff"] });
       toast.success(i18n.t("messages.createSuccess", { entity: i18n.t("entities.staffMember") }));
     },
     onError: (error) => handleStaffError(error, "creating staff member"),
@@ -96,6 +104,8 @@ export function useUpdateStaff() {
         initials: string;
         email: string;
         category_id: string;
+        society_id: string;
+        service_id: string;
         city: string;
         id_number: string;
         aud_reg_number: string;

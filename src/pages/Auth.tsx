@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { useNavigate, Navigate, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,9 +43,35 @@ const Auth = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
   const [sentToEmail, setSentToEmail] = useState("");
-  const { signIn, signUp } = useAuth();
+  const { signIn, signUp, user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  // BUG 0723-170: ProtectedRoute flags this entry when it redirects a rejected
+  // session (no staff record / inactive staff) whose signOut() is still
+  // resolving. Without the flag the guard below would bounce that
+  // still-populated `user` back to "/" and loop.
+  //
+  // Review R3-01: the flag is read once into component state and stripped from
+  // the history entry right away. Left in place it would survive a later
+  // authenticated visit to the same entry — Back after a successful re-login —
+  // and suppress the guard there, re-exposing the form this fix exists to hide.
+  // Keeping the value in local state preserves the escape hatch for the current
+  // visit even after the entry is cleaned.
+  const [isSigningOut] = useState(
+    () => (location.state as { signingOut?: boolean } | null)?.signingOut === true
+  );
   const { data: settings } = useGlobalSettings();
+
+  // Review R3-01: consume the flag — same path, `replace`, no state — so the
+  // entry is clean if the user ever navigates back to it with a live session.
+  useEffect(() => {
+    if (isSigningOut) {
+      navigate(location.pathname, { replace: true, state: null });
+    }
+    // Runs once per visit: `isSigningOut` is frozen at mount and this is the
+    // only writer of that history entry's state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSigningOut]);
 
   // Get allowed domain from settings
   const allowedDomain = settings?.find(s => s.setting_key === 'ALLOWED_EMAIL_DOMAIN')?.setting_value || '';
@@ -140,6 +166,20 @@ const Auth = () => {
       description: t("auth.features.roleBasedAccessDesc"),
     },
   ];
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="h-8 w-8 animate-spin text-accent" />
+        </div>
+      </div>
+    );
+  }
+
+  if (user && !isSigningOut) {
+    return <Navigate to="/" replace />;
+  }
 
   return (
     <div className="min-h-screen flex">
