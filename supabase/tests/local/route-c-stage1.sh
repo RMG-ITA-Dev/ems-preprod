@@ -20,11 +20,15 @@ if [[ -z "$DB_URL" ]]; then
   echo "ERROR: SUPABASE_DB_URL no está seteado." >&2
   exit 1
 fi
-# El ref debe estar en el HOST (db.<ref>.supabase.co) o el USUARIO (postgres.<ref>),
-# NO un substring en cualquier parte (un ref en el password apuntando a otra base pasaría).
-if [[ "$DB_URL" != *"db.${EXPECTED_REF}.supabase.co"* && "$DB_URL" != *"postgres.${EXPECTED_REF}"* ]]; then
-  echo "ERROR: SUPABASE_DB_URL no apunta al host/usuario de Test ($EXPECTED_REF)." >&2
-  echo "       El ref debe estar en el host (db.<ref>.supabase.co) o el usuario (postgres.<ref>)." >&2
+# Extraer el HOST y el USUARIO reales del URL y compararlos EXACTO — no un substring:
+# un ref dentro del password, db-name o query params (con el host apuntando a otra
+# base) pasaría un wildcard y los psql irían al destino equivocado.
+_dburl_rest="${DB_URL#*://}"
+_dburl_user="${_dburl_rest%%@*}"; _dburl_user="${_dburl_user%%:*}"
+_dburl_host="${_dburl_rest#*@}";  _dburl_host="${_dburl_host%%[:/?]*}"
+if [[ "$_dburl_host" != "db.${EXPECTED_REF}.supabase.co" && "$_dburl_user" != "postgres.${EXPECTED_REF}" ]]; then
+  echo "ERROR: SUPABASE_DB_URL no apunta a Test ($EXPECTED_REF)." >&2
+  echo "       host='${_dburl_host}' user='${_dburl_user}' (se esperaba db.<ref>.supabase.co o postgres.<ref>)." >&2
   exit 1
 fi
 LINKED_REF=""

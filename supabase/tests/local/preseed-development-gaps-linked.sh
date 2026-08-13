@@ -32,12 +32,15 @@ if [[ -z "$DB_URL" ]]; then
   echo "ERROR: SUPABASE_DB_URL no está seteado. Exporta la cadena de conexión del mirror." >&2
   exit 1
 fi
-# El ref debe estar en el HOST (db.<ref>.supabase.co) o el USUARIO (postgres.<ref>),
-# NO un substring en cualquier parte: un ref dentro del password/db-name/params
-# apuntando a otra base pasaría el chequeo y los psql irían al destino equivocado.
-if [[ "$DB_URL" != *"db.${EXPECTED_REF}.supabase.co"* && "$DB_URL" != *"postgres.${EXPECTED_REF}"* ]]; then
-  echo "ERROR: SUPABASE_DB_URL no apunta al host/usuario de Test ($EXPECTED_REF)." >&2
-  echo "       El ref debe estar en el host (db.<ref>.supabase.co) o el usuario (postgres.<ref>)." >&2
+# Extraer el HOST y el USUARIO reales del URL y compararlos EXACTO — no un substring:
+# un ref dentro del password, db-name o query params (con el host apuntando a otra
+# base) pasaría un wildcard y los psql irían al destino equivocado.
+_dburl_rest="${DB_URL#*://}"
+_dburl_user="${_dburl_rest%%@*}"; _dburl_user="${_dburl_user%%:*}"
+_dburl_host="${_dburl_rest#*@}";  _dburl_host="${_dburl_host%%[:/?]*}"
+if [[ "$_dburl_host" != "db.${EXPECTED_REF}.supabase.co" && "$_dburl_user" != "postgres.${EXPECTED_REF}" ]]; then
+  echo "ERROR: SUPABASE_DB_URL no apunta a Test ($EXPECTED_REF)." >&2
+  echo "       host='${_dburl_host}' user='${_dburl_user}' (se esperaba db.<ref>.supabase.co o postgres.<ref>)." >&2
   exit 1
 fi
 # Verificar que el proyecto ENLAZADO del CLI sea Test — ABORTA si no se puede
@@ -174,6 +177,12 @@ if [[ -n "$SEED_ADMIN_EMAIL" && -n "$SEED_ADMIN_PASSWORD" && -n "$SB_SERVICE_KEY
   # email/password escapados para no romper el JSON con caracteres especiales;
   # --fail-with-body hace que curl aborte (set -e) si el Admin API responde
   # HTTP >= 400 (usuario duplicado, credenciales inválidas, etc.).
+  # Rechazar caracteres de control (tab/newline/CR/…): json_escape no los escapa y
+  # romperían el JSON → el Admin API rechazaría y no se crearía el admin.
+  if [[ "${SEED_ADMIN_EMAIL}${SEED_ADMIN_PASSWORD}" == *[$'\x01'-$'\x1f']* ]]; then
+    echo "ERROR: SEED_ADMIN_EMAIL/SEED_ADMIN_PASSWORD contienen caracteres de control; quítalos." >&2
+    exit 1
+  fi
   admin_payload="{\"email\":\"$(json_escape "$SEED_ADMIN_EMAIL")\",\"password\":\"$(json_escape "$SEED_ADMIN_PASSWORD")\",\"email_confirm\":true}"
   curl -sS --fail-with-body -X POST "$SB_URL/auth/v1/admin/users" \
     -H "apikey: $SB_SERVICE_KEY" \

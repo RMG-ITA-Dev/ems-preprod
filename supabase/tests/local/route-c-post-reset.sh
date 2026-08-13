@@ -20,10 +20,14 @@ DB_URL="${SUPABASE_DB_URL:-}"
 if [[ -z "$DB_URL" ]]; then
   echo "ERROR: SUPABASE_DB_URL no está seteado." >&2; exit 1
 fi
-# El ref debe estar en el HOST (db.<ref>.supabase.co) o el USUARIO (postgres.<ref>),
-# NO un substring en cualquier parte (un ref en el password apuntando a otra base pasaría).
-if [[ "$DB_URL" != *"db.${EXPECTED_REF}.supabase.co"* && "$DB_URL" != *"postgres.${EXPECTED_REF}"* ]]; then
-  echo "ERROR: SUPABASE_DB_URL no apunta al host/usuario de Test ($EXPECTED_REF)." >&2; exit 1
+# Extraer el HOST y el USUARIO reales del URL y compararlos EXACTO — no un substring:
+# un ref dentro del password, db-name o query params (con el host apuntando a otra
+# base) pasaría un wildcard y los psql irían al destino equivocado.
+_dburl_rest="${DB_URL#*://}"
+_dburl_user="${_dburl_rest%%@*}"; _dburl_user="${_dburl_user%%:*}"
+_dburl_host="${_dburl_rest#*@}";  _dburl_host="${_dburl_host%%[:/?]*}"
+if [[ "$_dburl_host" != "db.${EXPECTED_REF}.supabase.co" && "$_dburl_user" != "postgres.${EXPECTED_REF}" ]]; then
+  echo "ERROR: SUPABASE_DB_URL no apunta a Test ($EXPECTED_REF)." >&2; exit 1
 fi
 LINKED_REF=""
 if [[ -f supabase/.temp/project-ref ]]; then
@@ -65,6 +69,12 @@ if [[ -n "$SEED_ADMIN_EMAIL" && -n "$SEED_ADMIN_PASSWORD" && -n "$SB_SERVICE_KEY
   echo "== Creando admin usable vía Admin API: $SEED_ADMIN_EMAIL =="
   # email/password escapados; --fail-with-body aborta (set -e) si el Admin API
   # responde HTTP >= 400 (usuario duplicado, credenciales inválidas, etc.).
+  # Rechazar caracteres de control (tab/newline/CR/…): json_escape no los escapa y
+  # romperían el JSON → el Admin API rechazaría y no se crearía el admin.
+  if [[ "${SEED_ADMIN_EMAIL}${SEED_ADMIN_PASSWORD}" == *[$'\x01'-$'\x1f']* ]]; then
+    echo "ERROR: SEED_ADMIN_EMAIL/SEED_ADMIN_PASSWORD contienen caracteres de control; quítalos." >&2
+    exit 1
+  fi
   admin_payload="{\"email\":\"$(json_escape "$SEED_ADMIN_EMAIL")\",\"password\":\"$(json_escape "$SEED_ADMIN_PASSWORD")\",\"email_confirm\":true}"
   curl -sS --fail-with-body -X POST "$SB_URL/auth/v1/admin/users" \
     -H "apikey: $SB_SERVICE_KEY" \
