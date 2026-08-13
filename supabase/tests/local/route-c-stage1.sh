@@ -78,6 +78,22 @@ echo "== 1/3: supabase db reset --linked (se espera que se detenga en 2026022406
 if supabase db reset --linked; then
   echo "AVISO: db reset completó sin detenerse en 065512 — se omiten los parches de pre-seed."
 else
+  # Guard: confirmá que el reset falló POR el gap de 065512 (faltan categorías) y no
+  # por otra causa (red, otra migración rota, credenciales). 065512 hace fail-fast si
+  # falta alguna de estas 10 categorías; si ya están las 10, el fallo es OTRO → abortá
+  # mostrando el error real en vez de parchear a ciegas una BD a medio migrar.
+  # (si la tabla ni existe, ON_ERROR_STOP + set -e cortan acá con el error real de psql).
+  _missing_cats="$(psql "$DB_URL" -tA -v ON_ERROR_STOP=1 -c "
+    select count(*) from (values
+      ('Socio'),('SQR'),('Director'),('Gerente'),('Supervisor'),
+      ('Senior'),('Semi-Senior'),('Asistente'),('Especialista IT'),('Especialista TAX')
+    ) e(name)
+    where not exists (select 1 from categories c where c.category_name = e.name)")"
+  if [[ "$_missing_cats" == "0" ]]; then
+    echo "ERROR: db reset falló, pero las 10 categorías esperadas ya están completas —" >&2
+    echo "       no es el gap de 065512. Revisá el error real del reset; no se parchea." >&2
+    exit 1
+  fi
   echo "== Aplicando parche de categorías (§1.1) =="
   psql "$DB_URL" -v ON_ERROR_STOP=1 -c "$PATCH_CATEGORIES"
 
@@ -86,6 +102,20 @@ else
     echo "AVISO: db push completó sin detenerse en 065539 — verificar por qué (¿admin/Junior"
     echo "       ya estaban resueltos de antes?)."
   else
+    # Guard: confirmá que el push falló POR el gap de 065539 y no por otra causa. 065539
+    # hace fail-fast si no hay admin O si alguna categoría tiene default_app_role NULL
+    # (las dos cosas que arregla PATCH_ADMIN). Si ninguna se cumple, el fallo es OTRO →
+    # abortá mostrando el error real en vez de parchear a ciegas.
+    _gap539="$(psql "$DB_URL" -tA -v ON_ERROR_STOP=1 -c "
+      select case when
+        (select count(*) from user_roles where role = 'admin') = 0
+        or exists (select 1 from categories where default_app_role is null)
+      then 1 else 0 end")"
+    if [[ "$_gap539" == "0" ]]; then
+      echo "ERROR: db push falló, pero ya hay admin y ninguna categoría con default_app_role" >&2
+      echo "       NULL — no es el gap de 065539. Revisá el error real del push; no se parchea." >&2
+      exit 1
+    fi
     echo "== Aplicando parche de admin + Junior (§1.2) =="
     psql "$DB_URL" -v ON_ERROR_STOP=1 -c "$PATCH_ADMIN"
 
