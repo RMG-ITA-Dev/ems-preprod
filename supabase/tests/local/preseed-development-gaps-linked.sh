@@ -32,15 +32,20 @@ if [[ -z "$DB_URL" ]]; then
   echo "ERROR: SUPABASE_DB_URL no está seteado. Exporta la cadena de conexión del mirror." >&2
   exit 1
 fi
-# Extraer el HOST y el USUARIO reales del URL y compararlos EXACTO — no un substring:
-# un ref dentro del password, db-name o query params (con el host apuntando a otra
-# base) pasaría un wildcard y los psql irían al destino equivocado.
+# Verificar que el URL apunte al proyecto Test, exigiendo AMBOS componentes que lo
+# identifican según el tipo de conexión (no basta con uno):
+#   - directo: host == db.<ref>.supabase.co
+#   - pooler:  usuario == postgres.<ref>  Y  host termina en .pooler.supabase.com
+# Así un host ajeno con el usuario correcto (o viceversa) se rechaza.
 _dburl_rest="${DB_URL#*://}"
 _dburl_user="${_dburl_rest%%@*}"; _dburl_user="${_dburl_user%%:*}"
 _dburl_host="${_dburl_rest#*@}";  _dburl_host="${_dburl_host%%[:/?]*}"
-if [[ "$_dburl_host" != "db.${EXPECTED_REF}.supabase.co" && "$_dburl_user" != "postgres.${EXPECTED_REF}" ]]; then
+if [[ "$_dburl_host" == "db.${EXPECTED_REF}.supabase.co" ]] \
+   || { [[ "$_dburl_user" == "postgres.${EXPECTED_REF}" ]] && [[ "$_dburl_host" == *.pooler.supabase.com ]]; }; then
+  : # OK — Test (conexión directa o pooler del proyecto)
+else
   echo "ERROR: SUPABASE_DB_URL no apunta a Test ($EXPECTED_REF)." >&2
-  echo "       host='${_dburl_host}' user='${_dburl_user}' (se esperaba db.<ref>.supabase.co o postgres.<ref>)." >&2
+  echo "       host='${_dburl_host}' user='${_dburl_user}'." >&2
   exit 1
 fi
 # Verificar que el proyecto ENLAZADO del CLI sea Test — ABORTA si no se puede
