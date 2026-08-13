@@ -106,20 +106,32 @@ select 'Seed', 'Admin', :'email',
        (select category_id from public.categories order by display_order limit 1), true
 where not exists (select 1 from public.staff where lower(trim(email)) = lower(trim(:'email')));
 
+-- Vincular la ficha (existente o nueva) al auth user, por si el trigger no lo hizo
+-- (p. ej. una ficha demo sembrada por migración nace con auth_user_id null) → sin
+-- esto get_my_staff_id() devuelve null aunque el rol esté puesto.
+update public.staff s
+set auth_user_id = u.id
+from auth.users u
+where u.email = :'email'
+  and lower(trim(s.email)) = lower(trim(:'email'))
+  and s.auth_user_id is distinct from u.id;
+
 update public.user_roles
 set role = 'admin', role_key = 'admin'
 where user_id = (select id from auth.users where email = :'email');
 
--- Verificar que el admin quedó realmente configurado; si no, abortar (no salir "ok").
+-- Verificar que el admin quedó configurado CON rol Y ficha de staff vinculada; si no, abortar.
 select set_config('seed.admin_email', :'email', false);
 do $$
 begin
   if not exists (
-    select 1 from public.user_roles ur
-    join auth.users u on u.id = ur.user_id
+    select 1
+    from auth.users u
+    join public.user_roles ur on ur.user_id = u.id
+    join public.staff s      on s.auth_user_id = u.id
     where u.email = current_setting('seed.admin_email') and ur.role_key = 'admin'
   ) then
-    raise exception 'Admin % no quedó configurado (usuario o rol ausente).', current_setting('seed.admin_email');
+    raise exception 'Admin % no quedó configurado (rol o ficha de staff vinculada ausente).', current_setting('seed.admin_email');
   end if;
 end $$;
 SQL
