@@ -25,6 +25,7 @@ const baseProps = {
   service: "Auditoría",           // 0625-149: catalog name, not an i18n key
   funcion: "engagement.funcion_cli",
   status: "status.active",
+  society: "Ruizmier Pelaez S.R.L.", // FEAT 0714-155: resolved society name, not an i18n key
   onClose: vi.fn(),
   onCreateAnother: vi.fn(),
   onGoToWorkMatrix: vi.fn(),
@@ -47,6 +48,7 @@ describe("EngagementCreatedDialog (BUG 0603-140 enhancement)", () => {
     expect(screen.getByText("Auditoría")).toBeInTheDocument();
     expect(screen.getByText("engagement.funcion_cli")).toBeInTheDocument();
     expect(screen.getByText("status.active")).toBeInTheDocument();
+    expect(screen.getByText("Ruizmier Pelaez S.R.L.")).toBeInTheDocument();
   });
 
   it("renders the three footer actions", () => {

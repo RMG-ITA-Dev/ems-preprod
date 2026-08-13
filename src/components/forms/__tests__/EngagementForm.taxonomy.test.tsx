@@ -68,6 +68,7 @@ vi.mock("@/hooks/useEmsData", () => ({
   useClients:    () => ({ data: stableClients }),
   useServices:   () => ({ data: mockServices }),
   useTaxonomies: () => ({ data: mockTaxonomies }),
+  useSocieties:  () => ({ data: [] }),
   // Fase 5: EngagementForm now mounts StaffAssignmentsCard in edit mode, which pulls these.
   useEngagementAssignments: () => ({ data: stableAssignments, isLoading: false, isError: false }),
   useEngagementAggregatedRequirements: () => ({ data: stableAggregatedReqs }),
@@ -129,6 +130,7 @@ const mockEngagementInactiveTaxonomy: Engagement = {
   funcion:             1,
   anio_fiscal:         2026,
   taxonomy_id:         "tx-inactive",
+  society_id:          null,
 };
 
 const mockEngagementLegacyNullTaxonomy: Engagement = {

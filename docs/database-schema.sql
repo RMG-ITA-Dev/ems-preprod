@@ -130,7 +130,12 @@ CREATE TABLE public.engagements (
   -- FEAT 0602-136: clasificación granular del servicio vendido al cliente, independiente
   -- de `practica`. Nullable: sin backfill de encargos legados; obligatoria en el formulario
   -- solo cuando funcion = Cliente (1), no a nivel de base de datos.
-  taxonomy_id UUID REFERENCES public.taxonomies(taxonomy_id)
+  taxonomy_id UUID REFERENCES public.taxonomies(taxonomy_id),
+  -- FEAT 0714-155: sociedad interna (Ruizmier Pelaez / Ruizmier Juaregui) que ejecuta y
+  -- factura el encargo, independiente del Cliente. Nullable — backfill acotado a los
+  -- encargos que usaban uno de los 2 client-firma; el resto queda NULL (histórico parcial).
+  -- Obligatoria en el formulario de creación (RPC), no a nivel de base de datos.
+  society_id UUID REFERENCES public.society(society_id)
 );
 
 -- Expense Logs

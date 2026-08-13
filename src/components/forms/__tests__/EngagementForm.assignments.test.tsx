@@ -49,6 +49,7 @@ vi.mock("@/hooks/useEmsData", () => ({
   useClients: () => ({ data: stableClients }),
   useServices: () => ({ data: stableServices }),
   useTaxonomies: () => ({ data: stableTaxonomies }),
+  useSocieties: () => ({ data: [] }),
 }));
 
 vi.mock("@/hooks/useCategoryStaff", () => ({
@@ -164,6 +165,7 @@ const mockEngagement: Engagement = {
   specialist_tax_id: null,
   taxonomy_id: "tx-1",
   contract_file_path: null,
+  society_id: null,
 };
 
 describe("EngagementForm — Fase 5 assignments integration", () => {

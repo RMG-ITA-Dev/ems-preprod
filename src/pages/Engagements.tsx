@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Badge } from "@/components/ui/badge";
 
-import { useEngagements, Engagement } from "@/hooks/useEmsData";
+import { useEngagements, useSocieties, Engagement } from "@/hooks/useEmsData";
 import { useCategoryStaff } from "@/hooks/useCategoryStaff";
 import { DataTable, Column } from "@/components/data-table/DataTable";
 import { useNavigate } from "react-router-dom";
@@ -28,6 +28,7 @@ const Engagements = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { data: engagements, isLoading } = useEngagements();
+  const { data: societies } = useSocieties();
   const { partnerOptions, managerOptions } = useCategoryStaff();
   const { can } = useAuthorization();
   const canCreate = can("engagement.create");
@@ -61,6 +62,14 @@ const Engagements = () => {
       sortable: true,
       mobilePriority: 'primary',
       render: (row) => row.client?.client_legal_name || "-",
+    },
+    {
+      key: "society.name",
+      label: t("engagement.society"),
+      sortable: true,
+      filterKey: "society_id",
+      mobilePriority: 'secondary',
+      render: (row) => row.society?.name || "-",
     },
     {
       key: "partner.last_name",
@@ -135,6 +144,11 @@ const Engagements = () => {
         onRowClick={(row) => navigate(`/engagements/${row.engagement_id}`)}
         getRowId={(row) => row.engagement_id}
         filters={[
+          {
+            key: "society_id",
+            label: t("engagement.society"),
+            options: (societies ?? []).map((soc) => ({ value: soc.society_id, label: soc.name })),
+          },
           {
             key: "partner_id",
             label: t("engagement.partner"),

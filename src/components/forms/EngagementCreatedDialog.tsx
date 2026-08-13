@@ -25,6 +25,7 @@ export interface EngagementCreatedDialogProps {
   service: string; // already-translated label (engagement.practica_*)
   funcion: string; // already-translated label (engagement.funcion_*)
   status: string;  // already-translated label (status.*)
+  society: string; // FEAT 0714-155: resolved society name (from societyOptions), not an i18n key
   onClose: () => void;          // Close / X → engagements list
   onCreateAnother: () => void;  // Create another → reset form, no navigation
   onGoToWorkMatrix: () => void; // Go to Work Matrix → /worksheets
@@ -39,6 +40,7 @@ export function EngagementCreatedDialog({
   service,
   funcion,
   status,
+  society,
   onClose,
   onCreateAnother,
   onGoToWorkMatrix,
@@ -60,6 +62,7 @@ export function EngagementCreatedDialog({
     { label: t("engagement.anioFiscal"), value: String(anioFiscal) },
     { label: t("engagement.practica"), value: service },
     { label: t("engagement.funcion"), value: funcion },
+    { label: t("engagement.society"), value: society },
     { label: t("engagement.status"), value: status },
   ];
 

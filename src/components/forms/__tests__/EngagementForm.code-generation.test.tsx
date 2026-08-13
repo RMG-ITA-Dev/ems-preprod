@@ -63,6 +63,7 @@ vi.mock("@/hooks/useEmsData", () => ({
   useClients: () => ({ data: stableClientList }),
   useServices: () => ({ data: mockServices }),
   useTaxonomies: () => ({ data: [] }),
+  useSocieties: () => ({ data: [] }),
   // Fase 5: EngagementForm now mounts StaffAssignmentsCard in edit mode, which pulls these.
   useEngagementAssignments: () => ({ data: stableAssignments, isLoading: false, isError: false }),
   useEngagementAggregatedRequirements: () => ({ data: stableAggregatedReqs }),
@@ -146,6 +147,7 @@ const mockEngagement: Engagement = {
   // individual test in this file is actually exercising).
   taxonomy_id:         "tx-1",
   contract_file_path:  null,
+  society_id:          null,
 };
 
 // Mirror the helpers from EngagementForm.tsx

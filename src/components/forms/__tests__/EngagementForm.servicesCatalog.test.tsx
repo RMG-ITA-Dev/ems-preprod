@@ -63,10 +63,15 @@ const stableAssignments: never[] = [];
 const stableAggregatedReqs: never[] = [];
 const stableActiveStaff: never[] = [];
 const stableCategories: never[] = [];
+const mockSocieties = [
+  { society_id: "soc-1", name: "Ruizmier Pelaez S.R.L.", is_active: true, created_at: "" },
+  { society_id: "soc-2", name: "Ruizmier Juaregui S.R.L.", is_active: true, created_at: "" },
+];
 vi.mock("@/hooks/useEmsData", () => ({
   useClients:  () => ({ data: stableClientList }),
   useServices: () => ({ data: mockServices }),
   useTaxonomies: () => ({ data: [] }),
+  useSocieties: () => ({ data: mockSocieties }),
   // Fase 5: EngagementForm now mounts StaffAssignmentsCard in edit mode, which pulls these.
   useEngagementAssignments: () => ({ data: stableAssignments, isLoading: false, isError: false }),
   useEngagementAggregatedRequirements: () => ({ data: stableAggregatedReqs }),
@@ -201,6 +206,7 @@ const mockEngagementInactiveService: Engagement = {
   funcion:             1,
   anio_fiscal:         2026,
   taxonomy_id:         null,
+  society_id:          null,
 };
 
 describe("EngagementForm — catalog-driven practica (0625-149)", () => {
@@ -381,6 +387,12 @@ describe("0625-148 — role-based service restriction", () => {
     await waitFor(() => screen.getByRole("option", { name: "engagement.funcion_adm" }));
     await user.click(screen.getByRole("option", { name: "engagement.funcion_adm" }));
 
+    // FEAT 0714-155: Sociedad is required on create, mirroring oficina/practica/funcion.
+    const society = screen.getByLabelText(/engagement\.society/);
+    await user.click(society);
+    await waitFor(() => screen.getByRole("option", { name: "Ruizmier Pelaez S.R.L." }));
+    await user.click(screen.getByRole("option", { name: "Ruizmier Pelaez S.R.L." }));
+
     // 0604-143: closing date is required before the form can be submitted.
     const closingDate = screen.getByRole("combobox", { name: "engagement.closingDate *" });
     await user.click(closingDate);
@@ -408,5 +420,8 @@ describe("0625-148 — role-based service restriction", () => {
       expect(practica).toHaveTextContent("Auditoría");
       expect(practica).toBeDisabled();
     });
+
+    // FEAT 0714-155: "crear otro" must not carry over the previous engagement's Sociedad.
+    expect(screen.getByLabelText(/engagement\.society/)).toHaveTextContent("engagement.selectSociety");
   }, 15000);
 });

@@ -31,6 +31,7 @@ vi.mock("@/hooks/useEmsData", () => ({
   useClients: () => ({ data: stableClients }),
   useServices: () => ({ data: stableServices }),
   useTaxonomies: () => ({ data: stableTaxonomies }),
+  useSocieties: () => ({ data: [] }),
 }));
 
 const emptyStaffList: never[] = [];
