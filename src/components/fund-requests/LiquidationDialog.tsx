@@ -55,7 +55,8 @@ export function LiquidationDialog({
   isSubmitting,
   onConfirm,
 }: Props) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const numericLocale = i18n.language?.startsWith("es") ? "es" : "en";
 
   // > 0 sobró (a favor de la firma) · < 0 gastó de más (a favor del solicitante)
   const { balance, favorsFirm, favorsRequester, noBalance } = computeSettlement(disbursed, spent);
@@ -213,6 +214,7 @@ export function LiquidationDialog({
               <NumericInput
                 id="settle-amount"
                 decimals={2}
+                locale={numericLocale}
                 min={0}
                 value={amount || ""}
                 onChange={(v) => setAmount(v)}

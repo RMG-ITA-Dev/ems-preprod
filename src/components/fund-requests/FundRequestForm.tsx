@@ -29,7 +29,8 @@ export function FundRequestForm({
   disabled = false,
   hideAllocations = false,
 }: Props) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const numericLocale = i18n.language?.startsWith("es") ? "es" : "en";
 
   return (
     <Card>
@@ -40,7 +41,8 @@ export function FundRequestForm({
             <Label htmlFor="fr-amount">{t("fundRequest.totalRequested")} (BOB) *</Label>
             <NumericInput
               id="fr-amount"
-              decimals={0}
+              decimals={2}
+              locale={numericLocale}
               min={0}
               value={values.total_requested_amount || ""}
               onChange={(v) => {

@@ -56,7 +56,8 @@ export function FundRequestExpenseForm({
   bare = false,
   onlyAttachment = false,
 }: Props) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const numericLocale = i18n.language?.startsWith("es") ? "es" : "en";
   const { data: expenseTypes } = useExpenseTypes();
 
   // En modo "solo respaldo" se deshabilitan todos los campos menos el adjunto.
@@ -227,6 +228,7 @@ export function FundRequestExpenseForm({
             <NumericInput
               id="fre-amount"
               decimals={2}
+              locale={numericLocale}
               min={0}
               value={values.amount || ""}
               onChange={(v) => onChange({ amount: v })}

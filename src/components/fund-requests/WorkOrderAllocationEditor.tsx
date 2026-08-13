@@ -36,7 +36,8 @@ export function WorkOrderAllocationEditor({
   onChange,
   disabled = false,
 }: Props) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const numericLocale = i18n.language?.startsWith("es") ? "es" : "en";
   const { data: workOrders } = useSelectableWorkOrders();
 
   const staffName = (s?: { first_name?: string; last_name?: string; short_name?: string | null }) =>
@@ -173,7 +174,8 @@ export function WorkOrderAllocationEditor({
                     </td>
                     <td className="px-3 py-2">
                       <NumericInput
-                        decimals={0}
+                        decimals={2}
+                        locale={numericLocale}
                         min={0}
                         value={alloc.allocated_amount || ""}
                         onChange={(v) => updateRow(idx, { allocated_amount: v })}
