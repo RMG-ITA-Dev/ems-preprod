@@ -33,7 +33,7 @@ export function useCurrentStaff() {
           is_active,
           hire_date,
           termination_date,
-          category:categories(*)
+          category:categories!staff_category_id_fkey(*)
         `)
         .eq('auth_user_id', user.id)
         .maybeSingle();
@@ -60,7 +60,7 @@ export function useCurrentStaff() {
           is_active,
           hire_date,
           termination_date,
-          category:categories(*)
+          category:categories!staff_category_id_fkey(*)
         `)
         .eq('email', userEmail)
         .is('auth_user_id', null)

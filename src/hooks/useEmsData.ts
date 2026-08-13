@@ -387,7 +387,7 @@ export function useStaff() {
           service_id,
           city,
           is_active,
-          category:categories(*)
+          category:categories!staff_category_id_fkey(*)
         `)
         .eq('is_active', true)
         .order('last_name');
@@ -642,7 +642,7 @@ export function useActiveStaffWithSkills() {
           city,
           is_active,
           is_schedulable,
-          category:categories(*),
+          category:categories!staff_category_id_fkey(*),
           staff_skills (
             staff_skill_id,
             skill_id,

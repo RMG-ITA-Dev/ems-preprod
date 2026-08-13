@@ -47,7 +47,7 @@ export function StaffHoursDetailDialog({ open, onOpenChange, engagementId, engag
           period:timesheet_periods(year, week_number, week_start_date),
           staff:staff(
             first_name, last_name,
-            category:categories(category_name, display_order)
+            category:categories!staff_category_id_fkey(category_name, display_order)
           )
         `)
         .eq('engagement_id', engagementId)

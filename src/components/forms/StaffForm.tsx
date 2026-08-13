@@ -264,7 +264,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
   // Categoría se filtra por la práctica elegida (FEAT 0810-173). Sin práctica
   // seleccionada, no se listan categorías.
   const watchedServiceId = form.watch("service_id");
-  const { data: categories } = useCategories(watchedServiceId || undefined);
+  const { data: categories, isLoading: categoriesLoading } = useCategories(watchedServiceId || undefined);
 
   // Práctica excluye Firmwide (allows_rates_activities=false) para altas nuevas.
   // En edición, si el staff ya tiene asignada una práctica inactiva o excluida,
@@ -412,8 +412,10 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
 
     // Revalida que la categoría siga perteneciendo a la práctica elegida — guarda
     // contra un category_id stale (p.ej. una práctica cambiada por otra vía antes
-    // del submit). `categories` ya está acotado a watchedServiceId.
-    if (data.category_id && !(categories ?? []).some((c) => c.category_id === data.category_id)) {
+    // del submit). `categories` ya está acotado a watchedServiceId. Se omite
+    // mientras la query todavía está cargando: de lo contrario `categories`
+    // vale `undefined` y cualquier category_id se lee como "no pertenece".
+    if (!categoriesLoading && data.category_id && !(categories ?? []).some((c) => c.category_id === data.category_id)) {
       toast.error(t('errors.categoryPracticeMismatch'));
       return;
     }

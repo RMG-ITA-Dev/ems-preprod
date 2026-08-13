@@ -194,7 +194,7 @@ export function PracticaTab() {
           last_name,
           short_name,
           initials,
-          category:categories!inner(display_order)
+          category:categories!staff_category_id_fkey!inner(display_order)
         `)
         .lte('categories.display_order', 2)
         .eq('is_active', true)
