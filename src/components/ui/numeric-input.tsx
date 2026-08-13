@@ -10,7 +10,10 @@ interface NumericInputProps
    * unbounded NUMERIC and are not rounded by any downstream calculation.
    */
   decimals?: 0 | 1 | 2 | 3 | 4 | 5 | 6;
-  /** Locale for decimal separator: "es" uses comma, "en" uses period */
+  /**
+   * Locale for the DISPLAYED decimal separator: "es" shows a comma, "en" a period.
+   * Both separators are always accepted on input regardless of this value.
+   */
   locale?: "es" | "en";
   /** Minimum value */
   min?: number;
