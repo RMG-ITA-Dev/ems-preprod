@@ -267,8 +267,8 @@ Locale-aware numeric input for currencies and hours (from `src/components/ui/num
 <NumericInput
   value={amount}
   onChange={(num) => field.onChange(num)}
-  decimals={2}          // 0 = integer, 1 = hours, 2 = currency
-  locale="es"           // "es" = comma decimal, "en" = period decimal
+  decimals={2}          // 0 = integer, 1 = hours, 2 = currency, up to 6 for rates
+  locale="es"           // display separator only: "es" = comma, "en" = period
   min={0}
   max={999999}
   placeholder="0,00"
@@ -276,6 +276,10 @@ Locale-aware numeric input for currencies and hours (from `src/components/ui/num
 ```
 
 **Key behavior**: Allows intermediate input states (e.g., "0." while typing) without triggering validation until blur. Hides browser number spinners via `.hide-spinners`.
+
+**Separator**: both `,` and `.` are accepted on input regardless of `locale` — a Spanish numpad emits `,`, an English one `.`, and rejecting the "wrong" one silently ate the keystroke. `locale` decides only which separator is echoed back to the user.
+
+**Precision**: use `2` for money. The fund-request/expense pipeline (server allocation gate, 13% IVA, settlement) rounds to 2 decimals, so accepting more in a money field would silently discard what the user typed. Reserve `3`–`6` for values nothing downstream rounds, such as `wo_payment_plan.exchange_rate`.
 
 ---
 
