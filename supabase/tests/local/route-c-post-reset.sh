@@ -101,9 +101,12 @@ if [[ -n "$SEED_ADMIN_EMAIL" && -n "$SEED_ADMIN_PASSWORD" && -n "$SB_SERVICE_KEY
   fi
   echo "== Vinculando ficha de staff + promoviendo a admin =="
   psql "$DB_URL" -v ON_ERROR_STOP=1 -v email="$SEED_ADMIN_EMAIL" <<'SQL'
-insert into public.staff (first_name, last_name, email, category_id, is_active)
+insert into public.staff (first_name, last_name, email, category_id, society_id, service_id, is_active)
 select 'Seed', 'Admin', :'email',
-       (select category_id from public.categories order by display_order limit 1), true
+       (select category_id from public.categories order by display_order limit 1),
+       (select society_id from public.society where name = 'Ruizmier Pelaez S.R.L.'),
+       (select service_id from public.services where code = 1),
+       true
 where not exists (select 1 from public.staff where lower(trim(email)) = lower(trim(:'email')));
 
 -- Vincular la ficha (existente o nueva) al auth user, por si el trigger no lo hizo
