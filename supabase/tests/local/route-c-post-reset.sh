@@ -116,9 +116,13 @@ where u.email = :'email'
   and lower(trim(s.email)) = lower(trim(:'email'))
   and s.auth_user_id is distinct from u.id;
 
-update public.user_roles
-set role = 'admin', role_key = 'admin'
-where user_id = (select id from auth.users where email = :'email');
+-- Upsert (no UPDATE): si un rerun/parcial dejó al auth user sin fila en user_roles
+-- (p. ej. la borraron a mano), un UPDATE afectaría 0 filas y la verificación final
+-- abortaría en cada rerun. user_roles tiene UNIQUE (user_id), así que el ON CONFLICT
+-- lo hace idempotente-con-reparación, igual que el insert de staff de arriba.
+insert into public.user_roles (user_id, role, role_key)
+select id, 'admin', 'admin' from auth.users where email = :'email'
+on conflict (user_id) do update set role = 'admin', role_key = 'admin';
 
 -- Verificar que el admin quedó configurado CON rol Y ficha de staff vinculada; si no, abortar.
 select set_config('seed.admin_email', :'email', false);
