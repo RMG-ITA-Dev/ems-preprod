@@ -172,7 +172,8 @@ const FundRequestEdit = () => {
     if (values.allocations.some((a) => !a.wo_id || a.allocated_amount <= 0))
       return t("fundRequest.errors.allocationIncomplete");
     const totalAlloc = values.allocations.reduce((s, a) => s + Number(a.allocated_amount || 0), 0);
-    if (Math.abs(totalAlloc - values.total_requested_amount) > 0.01)
+    // Al centavo, igual que el gate de la RPC de envio (round(...,2) <> round(...,2)).
+    if (Math.round(totalAlloc * 100) !== Math.round(values.total_requested_amount * 100))
       return t("fundRequest.errors.allocationMismatch");
     return null;
   };

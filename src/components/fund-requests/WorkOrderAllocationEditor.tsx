@@ -64,7 +64,10 @@ export function WorkOrderAllocationEditor({
     0,
   );
   const diff = totalRequested - allocatedTotal;
-  const mismatch = Math.abs(diff) > 0.01;
+  // Comparado al centavo, igual que el gate de la RPC de envio
+  // (round(v_alloc, 2) <> round(v_total, 2)): una tolerancia de 0.01 dejaba
+  // pasar un descuadre que el servidor despues rechazaba con un error crudo.
+  const mismatch = Math.round(totalRequested * 100) !== Math.round(allocatedTotal * 100);
 
   const usedIds = new Set(allocations.map((a) => a.wo_id).filter(Boolean));
 
