@@ -212,7 +212,7 @@ if [[ -n "$SEED_ADMIN_EMAIL" && -n "$SEED_ADMIN_PASSWORD" && -n "$SB_SERVICE_KEY
 insert into public.staff (first_name, last_name, email, category_id, is_active)
 select 'Seed', 'Admin', :'email',
        (select category_id from public.categories order by display_order limit 1), true
-where not exists (select 1 from public.staff where email = :'email');
+where not exists (select 1 from public.staff where lower(trim(email)) = lower(trim(:'email')));
 
 update public.user_roles
 set role = 'admin', role_key = 'admin'
