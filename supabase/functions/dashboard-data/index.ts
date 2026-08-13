@@ -636,7 +636,7 @@ async function getStaffUtilization(
   // Get staff info (includes weekly_capacity_hours)
   let staffQuery = supabase
     .from("staff")
-    .select("staff_id, first_name, last_name, short_name, category_id, weekly_capacity_hours, categories(category_name, display_order)")
+    .select("staff_id, first_name, last_name, short_name, category_id, weekly_capacity_hours, categories!staff_category_id_fkey(category_name, display_order)")
     .eq("is_active", true);
 
   // Alcance por permiso — ver nota en getTimeValue(). A diferencia de esa función, acá no hay un
@@ -763,7 +763,7 @@ async function getPartnerLeaderboard(
   // Get partner staff info
   const { data: partners } = await supabase
     .from("staff")
-    .select("staff_id, first_name, last_name, short_name, categories!inner(display_order)")
+    .select("staff_id, first_name, last_name, short_name, categories!staff_category_id_fkey!inner(display_order)")
     .lte("categories.display_order", 2);
 
   const typedPartners = (partners || []) as (StaffMember & { categories: { display_order: number } })[];

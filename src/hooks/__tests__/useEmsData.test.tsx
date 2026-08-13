@@ -14,6 +14,7 @@ import {
   useExpenseTypes,
   useGlobalSettings,
   useWorkOrderStaffingRequirements,
+  useSocieties,
 } from "../useEmsData";
 
 // Controllable auth identity for the viewer-keyed cache isolation tests below
@@ -141,6 +142,8 @@ describe("useEmsData hooks", () => {
           first_name: "John",
           last_name: "Doe",
           is_active: true,
+          society_id: "soc-1",
+          service_id: "svc-1",
           category: { category_id: "1", category_name: "Partner" },
         },
       ];
@@ -162,6 +165,37 @@ describe("useEmsData hooks", () => {
       expect(supabase.from).toHaveBeenCalledWith("staff");
       expect(mockEq).toHaveBeenCalledWith("is_active", true);
       expect(result.current.data?.[0].category?.category_name).toBe("Partner");
+      // FEAT 0810-173: society_id/service_id are selected and passed through.
+      const selectArg = mockSelect.mock.calls[0][0] as string;
+      expect(selectArg).toContain("society_id");
+      expect(selectArg).toContain("service_id");
+      expect(result.current.data?.[0].society_id).toBe("soc-1");
+      expect(result.current.data?.[0].service_id).toBe("svc-1");
+    });
+  });
+
+  describe("useSocieties (FEAT 0810-173)", () => {
+    it("fetches active societies ordered by name", async () => {
+      const mockSocieties = [
+        { society_id: "soc-1", name: "Ruizmier Juaregui S.R.L.", is_active: true, created_at: "2026-01-01" },
+        { society_id: "soc-2", name: "Ruizmier Pelaez S.R.L.", is_active: true, created_at: "2026-01-01" },
+      ];
+
+      const mockOrder = vi.fn().mockResolvedValue({ data: mockSocieties, error: null });
+      const mockEq = vi.fn().mockReturnValue({ order: mockOrder });
+      const mockSelect = vi.fn().mockReturnValue({ eq: mockEq });
+      vi.mocked(supabase.from).mockReturnValue({ select: mockSelect } as any);
+
+      const { result } = renderHook(() => useSocieties(), {
+        wrapper: createWrapper(),
+      });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      expect(supabase.from).toHaveBeenCalledWith("society");
+      expect(mockEq).toHaveBeenCalledWith("is_active", true);
+      expect(mockOrder).toHaveBeenCalledWith("name");
+      expect(result.current.data).toEqual(mockSocieties);
     });
   });
 

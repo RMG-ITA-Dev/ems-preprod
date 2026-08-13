@@ -17,6 +17,16 @@ Deno.serve(async (req) => {
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const supabase = createClient(supabaseUrl, serviceRoleKey);
 
+  // FEAT 0810-173: staff.society_id / staff.service_id son NOT NULL — todo
+  // insert de prueba en esta función necesita valores (Pelaez / Auditoría,
+  // mismo default que el backfill de la migración).
+  const { data: defaultSociety } = await supabase
+    .from("society").select("society_id").eq("name", "Ruizmier Pelaez S.R.L.").single();
+  const { data: defaultService } = await supabase
+    .from("services").select("service_id").eq("code", 1).single();
+  const societyId = defaultSociety!.society_id;
+  const serviceId = defaultService!.service_id;
+
   // Helper: create test data
   async function setupTestData(suffix: string) {
     // Create a test client
@@ -46,6 +56,7 @@ Deno.serve(async (req) => {
     const { data: staff } = await supabase.from("staff").insert({
       first_name: `Test`, last_name: `Staff ${suffix}`,
       email: `test-${suffix}@test.local`,
+      society_id: societyId, service_id: serviceId,
     }).select().single();
 
     // Create an activity code
@@ -116,6 +127,7 @@ Deno.serve(async (req) => {
       first_name: `Test`, last_name: `HolidayStaff ${suffix}`,
       email: `test-holiday-${suffix}@test.local`,
       city: staffCity,
+      society_id: societyId, service_id: serviceId,
     }).select().single();
 
     const { data: activities } = await supabase.from("activity_codes")
