@@ -61,7 +61,10 @@ echo "== Desplegando las edge functions al proyecto enlazado (Test) =="
 supabase functions deploy
 
 # 4) Admin usable + ficha de staff + promoción (opcional, por env).
-SEED_ADMIN_EMAIL="${SEED_ADMIN_EMAIL:-}"
+# GoTrue normaliza el email a minúsculas al crear el usuario; lo igualamos acá para que
+# la creación, la ficha de staff y los matches por email (recuperación/promoción)
+# coincidan aunque SEED_ADMIN_EMAIL venga con mayúsculas.
+SEED_ADMIN_EMAIL="$(printf '%s' "${SEED_ADMIN_EMAIL:-}" | tr '[:upper:]' '[:lower:]')"
 SEED_ADMIN_PASSWORD="${SEED_ADMIN_PASSWORD:-}"
 SB_SERVICE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
 

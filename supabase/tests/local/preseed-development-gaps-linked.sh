@@ -169,7 +169,10 @@ supabase functions deploy
 #   export SUPABASE_SERVICE_ROLE_KEY="<service_role key de Test>"  # Dashboard → API keys
 # El email debe pasar validate_email_domain (dominio permitido).
 # =====================================================================
-SEED_ADMIN_EMAIL="${SEED_ADMIN_EMAIL:-}"
+# GoTrue normaliza el email a minúsculas al crear el usuario; lo igualamos acá para que
+# la creación, la ficha de staff y los matches por email (recuperación/promoción)
+# coincidan aunque SEED_ADMIN_EMAIL venga con mayúsculas.
+SEED_ADMIN_EMAIL="$(printf '%s' "${SEED_ADMIN_EMAIL:-}" | tr '[:upper:]' '[:lower:]')"
 SEED_ADMIN_PASSWORD="${SEED_ADMIN_PASSWORD:-}"
 SB_SERVICE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
 
