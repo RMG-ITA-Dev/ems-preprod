@@ -47,17 +47,36 @@ vi.mock("@/components/ui/dialog", () => ({
   DialogFooter:      ({ children }: { children?: React.ReactNode }) => <>{children}</>,
 }));
 
-// Expose controlled number input via testid so we can query disabled state
+// Expose controlled number input via testid so we can query disabled state.
+// 0722-161: reenvia decimals/locale/min como atributos para poder afirmar el
+// contrato del campo, y respeta un data-testid propio si el call site lo pasa.
 vi.mock("@/components/ui/numeric-input", () => ({
-  NumericInput: ({ value, onChange, disabled }: {
+  NumericInput: ({
+    value,
+    onChange,
+    disabled,
+    decimals,
+    locale,
+    min,
+    "data-testid": testId,
+  }: {
     value?: number;
     onChange?: (val: number) => void;
     disabled?: boolean;
+    decimals?: number;
+    locale?: string;
+    min?: number;
+    "data-testid"?: string;
   }) => (
     <input
-      data-testid="numeric-input"
+      // El fallback sigue siendo "numeric-input": PP12 consulta ese selector
+      // sobre todos los inputs de la seccion.
+      data-testid={testId ?? "numeric-input"}
+      data-decimals={decimals}
+      data-locale={locale}
       type="number"
       value={value}
+      min={min}
       onChange={(e) => onChange?.(Number(e.target.value))}
       disabled={disabled}
     />
@@ -162,6 +181,69 @@ describe("WorkOrderPaymentPlanSection — Tipo de Cambio visibility", () => {
   it("PP3: visible when currency='USDT'", () => {
     renderSection({ currency: "USDT" });
     expect(screen.getByText("workOrders.paymentPlan.exchangeRate")).toBeInTheDocument();
+  });
+});
+
+// ── 0722-161: decimales en el tipo de cambio ──────────────────────────────────
+// Antes no existia NINGUN test que escribiera en este campo. El bug reportado
+// era que no aceptaba decimales: no pasaba `decimals` (dependia del default 2)
+// ni `locale`, asi que la coma de un numpad es-BO se descartaba en silencio.
+
+describe("WorkOrderPaymentPlanSection — Tipo de Cambio precision (0722-161)", () => {
+  it("PP24: el campo declara 6 decimales, locale del idioma activo y min 0", () => {
+    renderSection({ currency: "USD" });
+    const input = screen.getByTestId("payment-plan-exchange-rate");
+
+    // 6 decimales: es una tasa, no dinero, y ningun calculo aguas abajo la redondea
+    expect(input).toHaveAttribute("data-decimals", "6");
+    expect(input).toHaveAttribute("data-locale", "es");
+    // min=0 evita teclear una tasa negativa que `val > 0 ? val : null` descartaba
+    expect(input).toHaveAttribute("min", "0");
+  });
+
+  it("PP25: propaga una tasa fraccionaria sin truncar", () => {
+    const onPlanChange = vi.fn();
+    renderSection({ currency: "USD", onPlanChange });
+
+    fireEvent.change(screen.getByTestId("payment-plan-exchange-rate"), {
+      target: { value: "6.96" },
+    });
+
+    expect(onPlanChange).toHaveBeenCalledWith(
+      expect.objectContaining({ exchange_rate: 6.96 }),
+    );
+  });
+
+  it("PP26: propaga una tasa de alta precision (6 decimales)", () => {
+    const onPlanChange = vi.fn();
+    renderSection({ currency: "USD", onPlanChange });
+
+    fireEvent.change(screen.getByTestId("payment-plan-exchange-rate"), {
+      target: { value: "6.123456" },
+    });
+
+    expect(onPlanChange).toHaveBeenCalledWith(
+      expect.objectContaining({ exchange_rate: 6.123456 }),
+    );
+  });
+
+  it("PP27: borrar la tasa a 0 la guarda como null", () => {
+    const onPlanChange = vi.fn();
+    // Hay que partir de una tasa no nula: el campo se pinta con
+    // `exchange_rate ?? 0`, asi que cambiar "0" -> "0" no dispara onChange.
+    renderSection({
+      currency: "USD",
+      plan: { wo_id: "wo-1", exchange_rate: 6.96, payment_days: 30 },
+      onPlanChange,
+    });
+
+    fireEvent.change(screen.getByTestId("payment-plan-exchange-rate"), {
+      target: { value: "0" },
+    });
+
+    expect(onPlanChange).toHaveBeenCalledWith(
+      expect.objectContaining({ exchange_rate: null }),
+    );
   });
 });
 

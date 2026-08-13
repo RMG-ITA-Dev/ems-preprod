@@ -218,8 +218,112 @@ describe("NumericInput", () => {
 
   it("handles disabled state", () => {
     render(<NumericInput disabled data-testid="numeric-input" />);
-    
+
     const input = screen.getByTestId("numeric-input");
     expect(input).toBeDisabled();
+  });
+
+  // ── 0722-161: el separador tecleado no depende del locale ────────────────────
+  // handleKeyDown siempre acepto "," y ".", pero handleChange construia el patron
+  // solo desde `locale`, asi que el separador "contrario" se descartaba en
+  // silencio. `locale` ahora rige unicamente el separador que se muestra.
+
+  it("accepts a comma as decimal separator in en locale", () => {
+    const onChange = vi.fn();
+    const onValueChange = vi.fn();
+    render(
+      <NumericInput onChange={onChange} onValueChange={onValueChange} data-testid="numeric-input" />
+    );
+
+    const input = screen.getByTestId("numeric-input");
+    fireEvent.change(input, { target: { value: "123,45" } });
+
+    expect(onChange).toHaveBeenCalledWith(123.45);
+    // se devuelve canonicalizado al separador del locale
+    expect(onValueChange).toHaveBeenCalledWith("123.45");
+  });
+
+  it("accepts a period as decimal separator in es locale", () => {
+    const onChange = vi.fn();
+    const onValueChange = vi.fn();
+    render(
+      <NumericInput
+        locale="es"
+        onChange={onChange}
+        onValueChange={onValueChange}
+        data-testid="numeric-input"
+      />
+    );
+
+    const input = screen.getByTestId("numeric-input");
+    fireEvent.change(input, { target: { value: "123.45" } });
+
+    expect(onChange).toHaveBeenCalledWith(123.45);
+    expect(onValueChange).toHaveBeenCalledWith("123,45");
+  });
+
+  it("keeps the intermediate comma state while typing in en locale", () => {
+    const onChange = vi.fn();
+    render(<NumericInput onChange={onChange} value="" data-testid="numeric-input" />);
+
+    const input = screen.getByTestId("numeric-input") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "6," } });
+
+    // el caracter no se traga: queda visible, canonicalizado, y sin emitir NaN
+    expect(input.value).toBe("6.");
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("strips a trailing foreign separator on blur", () => {
+    const onValueChange = vi.fn();
+    render(<NumericInput onValueChange={onValueChange} value="" data-testid="numeric-input" />);
+
+    const input = screen.getByTestId("numeric-input");
+    fireEvent.change(input, { target: { value: "6," } });
+    fireEvent.blur(input);
+
+    expect(onValueChange).toHaveBeenLastCalledWith("6");
+  });
+
+  it("rejects a comma when decimals=0", () => {
+    // guarda de regresion: los campos enteros no se aflojan por el cambio de patron
+    const onChange = vi.fn();
+    render(<NumericInput onChange={onChange} decimals={0} data-testid="numeric-input" />);
+
+    const input = screen.getByTestId("numeric-input");
+    fireEvent.change(input, { target: { value: "123,5" } });
+
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("rejects a comma group beyond the decimal budget", () => {
+    // "1,250" (separador de miles) sigue rechazado: 3 digitos exceden decimals=2
+    const onChange = vi.fn();
+    render(<NumericInput onChange={onChange} decimals={2} data-testid="numeric-input" />);
+
+    const input = screen.getByTestId("numeric-input");
+    fireEvent.change(input, { target: { value: "1,250" } });
+
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("accepts up to 6 decimals for high-precision rates", () => {
+    const onChange = vi.fn();
+    render(<NumericInput onChange={onChange} decimals={6} data-testid="numeric-input" />);
+
+    const input = screen.getByTestId("numeric-input");
+    fireEvent.change(input, { target: { value: "6,123456" } });
+
+    expect(onChange).toHaveBeenCalledWith(6.123456);
+  });
+
+  it("rejects a 7th decimal when decimals=6", () => {
+    const onChange = vi.fn();
+    render(<NumericInput onChange={onChange} decimals={6} data-testid="numeric-input" />);
+
+    const input = screen.getByTestId("numeric-input");
+    fireEvent.change(input, { target: { value: "6.1234567" } });
+
+    expect(onChange).not.toHaveBeenCalled();
   });
 });
