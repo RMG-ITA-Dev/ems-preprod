@@ -157,6 +157,28 @@ describe("WorkOrderAllocationEditor — montos decimales (0722-161)", () => {
     expect(screen.getByText(/fundRequest.overAllocated/)).toBeInTheDocument();
   });
 
+  it("prellena el resto por distribuir redondeado al centavo", () => {
+    // 100,3 - 50,2 = 50.099999999999994 en IEEE-754. Sin redondear, el input de 2
+    // decimales muestra el valor largo y despues ignora cada tecla (no matchea su
+    // patron), y ese ruido se guardaria en el NUMERIC.
+    const onChange = vi.fn();
+    render(
+      <WorkOrderAllocationEditor
+        currency="BOB"
+        totalRequested={100.3}
+        allocations={[{ wo_id: "wo-1", allocated_amount: 50.2 }]}
+        onChange={onChange}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /fundRequest.addAllocation/ }));
+
+    expect(onChange).toHaveBeenCalledWith([
+      { wo_id: "wo-1", allocated_amount: 50.2 },
+      { wo_id: "", allocated_amount: 50.1 },
+    ]);
+  });
+
   it("no marca descuadre cuando los centavos cuadran exacto", () => {
     renderEditor(100.5, [
       { wo_id: "wo-1", allocated_amount: 50.25 },

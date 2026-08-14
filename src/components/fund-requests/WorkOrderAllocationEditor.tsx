@@ -85,7 +85,15 @@ export function WorkOrderAllocationEditor({
   const addRow = () => {
     // La nueva fila se prellena con lo que falta por distribuir: la primera OT
     // toma el total; las siguientes quedan en 0 (vacías) si ya está repartido.
-    const remaining = Math.max(totalRequested - allocatedTotal, 0);
+    // Redondeado al centavo: con montos decimales la resta arrastra artefactos de
+    // punto flotante (100,3 − 50,2 = 50.099999999999994) que el input de 2
+    // decimales muestra completos y luego se niega a editar (el valor no matchea
+    // su patrón, así que ignora cada tecla), además de guardar esa basura en el
+    // NUMERIC.
+    const remaining = Math.max(
+      Math.round((totalRequested - allocatedTotal) * 100) / 100,
+      0,
+    );
     onChange([...allocations, { wo_id: "", allocated_amount: remaining }]);
   };
 
