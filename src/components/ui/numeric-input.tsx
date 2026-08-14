@@ -51,19 +51,22 @@ const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps>(
 
     // Clear intermediate state when external value changes
     useEffect(() => {
-      if (value !== undefined && value !== null && value !== "") {
-        setIntermediateValue((prev) => {
-          if (prev === null) return null;
-          // BUG 0722-164: distinguir un cambio EXTERNO (hidratar/resetear el campo)
-          // de la propia emisión de este input. Al editar 100,15 → "100,0" el
-          // onChange mueve el value del padre (100.15 → 100) y este efecto borraba
-          // el texto que se acababa de guardar: la tecla siguiente daba 1005. Si el
-          // value nuevo es justo el número que representa ese texto, el cambio vino
-          // de acá y hay que conservarlo; cualquier otro valor sí lo reemplaza.
-          const parsedPrev = parseFloat(prev.replace(",", "."));
-          return !isNaN(parsedPrev) && parsedPrev === Number(value) ? prev : null;
-        });
-      }
+      if (value === undefined || value === null) return;
+      setIntermediateValue((prev) => {
+        if (prev === null) return null;
+        // BUG 0722-164: el padre vació el campo (su modelo volvió a 0 y lo pasa
+        // como ""). Es un reset externo: el borrador ya no corresponde y hay que
+        // soltarlo, o quedaría texto viejo montado sobre un modelo vacío.
+        if (value === "") return null;
+        // BUG 0722-164: distinguir un cambio EXTERNO (hidratar/resetear el campo)
+        // de la propia emisión de este input. Al editar 100,15 → "100,0" el
+        // onChange mueve el value del padre (100.15 → 100) y este efecto borraba
+        // el texto que se acababa de guardar: la tecla siguiente daba 1005. Si el
+        // value nuevo es justo el número que representa ese texto, el cambio vino
+        // de acá y hay que conservarlo; cualquier otro valor sí lo reemplaza.
+        const parsedPrev = parseFloat(prev.replace(",", "."));
+        return !isNaN(parsedPrev) && parsedPrev === Number(value) ? prev : null;
+      });
     }, [value]);
     
     // Build regex pattern based on decimals

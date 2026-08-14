@@ -531,6 +531,23 @@ describe("NumericInput — tecleo incremental (0722-164)", () => {
     expect(screen.getByTestId("model").textContent).toBe("5");
   });
 
+  it("suelta el borrador cuando el padre vacia el valor por fuera", () => {
+    // El padre pasa "" cuando su modelo numerico vuelve a 0 (patron `value || ""`).
+    // Sin esto, el efecto se saltaba el caso y el borrador quedaba montado sobre un
+    // modelo vacio: la tecla siguiente editaba un monto que ya no existe.
+    const { rerender } = render(
+      <NumericInput decimals={2} locale="es" value={100} data-testid="numeric-input" />,
+    );
+    const input = screen.getByTestId("numeric-input") as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: "100,0" } });
+    expect(input.value).toBe("100,0");
+
+    rerender(<NumericInput decimals={2} locale="es" value="" data-testid="numeric-input" />);
+
+    expect(input.value).toBe("");
+  });
+
   it("teclea un entero sin dejar texto intermedio pegado", () => {
     // Guarda: el intermedio solo debe sobrevivir cuando el texto NO es canonico.
     render(<Controlled />);
