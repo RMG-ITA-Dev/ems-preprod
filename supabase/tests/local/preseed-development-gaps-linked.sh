@@ -32,22 +32,36 @@ if [[ -z "$DB_URL" ]]; then
   echo "ERROR: SUPABASE_DB_URL no está seteado. Exporta la cadena de conexión del mirror." >&2
   exit 1
 fi
-if [[ "$DB_URL" != *"$EXPECTED_REF"* ]]; then
-  echo "ERROR: SUPABASE_DB_URL no contiene el ref esperado ($EXPECTED_REF)." >&2
-  echo "       Apunta a otra base. Aborta por seguridad." >&2
+# Verificar que el URL apunte al proyecto Test, exigiendo AMBOS componentes que lo
+# identifican según el tipo de conexión (no basta con uno):
+#   - directo: host == db.<ref>.supabase.co
+#   - pooler:  usuario == postgres.<ref>  Y  host termina en .pooler.supabase.com
+# Así un host ajeno con el usuario correcto (o viceversa) se rechaza.
+_dburl_rest="${DB_URL#*://}"
+_dburl_user="${_dburl_rest%%@*}"; _dburl_user="${_dburl_user%%:*}"
+_dburl_host="${_dburl_rest#*@}";  _dburl_host="${_dburl_host%%[:/?]*}"
+if [[ "$_dburl_host" == "db.${EXPECTED_REF}.supabase.co" ]] \
+   || { [[ "$_dburl_user" == "postgres.${EXPECTED_REF}" ]] && [[ "$_dburl_host" == *.pooler.supabase.com ]]; }; then
+  : # OK — Test (conexión directa o pooler del proyecto)
+else
+  echo "ERROR: SUPABASE_DB_URL no apunta a Test ($EXPECTED_REF)." >&2
+  echo "       host='${_dburl_host}' user='${_dburl_user}'." >&2
   exit 1
 fi
-# Verifica también el proyecto enlazado del CLI, si el archivo existe.
+# Verificar que el proyecto ENLAZADO del CLI sea Test — ABORTA si no se puede
+# confirmar. El destructivo `db reset --linked` usa ESE proyecto (no SUPABASE_DB_URL),
+# así que sin esta verificación podría resetear la base equivocada (hay 3 refs en
+# juego, uno es Lovable producción). Soporta ambos formatos de estado del CLI.
+LINKED_REF=""
 if [[ -f supabase/.temp/project-ref ]]; then
   LINKED_REF="$(tr -d '[:space:]' < supabase/.temp/project-ref)"
-  if [[ "$LINKED_REF" != "$EXPECTED_REF" ]]; then
-    echo "ERROR: proyecto enlazado ($LINKED_REF) != esperado ($EXPECTED_REF)." >&2
-    echo "       Corre: supabase link --project-ref $EXPECTED_REF" >&2
-    exit 1
-  fi
-else
-  echo "AVISO: no se encontró supabase/.temp/project-ref — asegúrate de haber corrido"
-  echo "       'supabase link --project-ref $EXPECTED_REF' antes de continuar."
+elif [[ -f supabase/.temp/linked-project.json ]]; then
+  LINKED_REF="$(sed -n 's/.*"ref"[[:space:]]*:[[:space:]]*"\([a-z0-9]*\)".*/\1/p' supabase/.temp/linked-project.json)"
+fi
+if [[ "$LINKED_REF" != "$EXPECTED_REF" ]]; then
+  echo "ERROR: no se pudo verificar que el proyecto enlazado sea Test ($EXPECTED_REF)." >&2
+  echo "       Ref detectado: '${LINKED_REF:-<ninguno>}'. Corre 'supabase link --project-ref $EXPECTED_REF' primero." >&2
+  exit 1
 fi
 
 PATCH_CATEGORIES=$(cat <<'SQL'
@@ -77,26 +91,55 @@ SQL
 
 echo "== 1/3: supabase db reset --linked (se espera que se detenga en 20260224065512) =="
 if supabase db reset --linked; then
-  echo "AVISO: db reset completó sin detenerse en 065512 — el gap de categorías ya no está,"
-  echo "verificar por qué antes de asumir que el pre-seed sigue haciendo falta."
-  supabase migration list --linked
-  supabase db push --dry-run --include-all --linked
-  exit 0
-fi
-
-echo "== Aplicando parche de categorías (§1.1) =="
-psql "$DB_URL" -v ON_ERROR_STOP=1 -c "$PATCH_CATEGORIES"
-
-echo "== 2/3: supabase db push --include-all --linked (se espera que se detenga en 20260224065539) =="
-if supabase db push --include-all --linked; then
-  echo "AVISO: db push completó sin detenerse en 065539 — verificar por qué (¿admin/Junior"
-  echo "ya estaban resueltos de antes?)."
+  # NO salir acá: el reset completó (el gap de categorías ya no existe, p. ej. si
+  # se actualizó la semilla) → se OMITEN los parches, pero la reconstrucción de
+  # abajo (grants/RLS, secreto, funciones, admin) DEBE correr igual.
+  echo "AVISO: db reset completó sin detenerse en 065512 — se omiten los parches de pre-seed."
 else
-  echo "== Aplicando parche de admin + Junior (§1.2) =="
-  psql "$DB_URL" -v ON_ERROR_STOP=1 -c "$PATCH_ADMIN"
+  # Guard: confirmá que el reset falló POR el gap de 065512 (faltan categorías) y no
+  # por otra causa (red, otra migración rota, credenciales). 065512 hace fail-fast si
+  # falta alguna de estas 10 categorías; si ya están las 10, el fallo es OTRO → abortá
+  # mostrando el error real en vez de parchear a ciegas una BD a medio migrar.
+  # (si la tabla ni existe, ON_ERROR_STOP + set -e cortan acá con el error real de psql).
+  _missing_cats="$(psql "$DB_URL" -tA -v ON_ERROR_STOP=1 -c "
+    select count(*) from (values
+      ('Socio'),('SQR'),('Director'),('Gerente'),('Supervisor'),
+      ('Senior'),('Semi-Senior'),('Asistente'),('Especialista IT'),('Especialista TAX')
+    ) e(name)
+    where not exists (select 1 from categories c where c.category_name = e.name)")"
+  if [[ "$_missing_cats" == "0" ]]; then
+    echo "ERROR: db reset falló, pero las 10 categorías esperadas ya están completas —" >&2
+    echo "       no es el gap de 065512. Revisá el error real del reset; no se parchea." >&2
+    exit 1
+  fi
+  echo "== Aplicando parche de categorías (§1.1) =="
+  psql "$DB_URL" -v ON_ERROR_STOP=1 -c "$PATCH_CATEGORIES"
 
-  echo "== 3/3: supabase db push --include-all --linked (debe completar el resto sin más bloqueos) =="
-  supabase db push --include-all --linked
+  echo "== 2/3: supabase db push --include-all --linked (se espera que se detenga en 20260224065539) =="
+  if supabase db push --include-all --linked; then
+    echo "AVISO: db push completó sin detenerse en 065539 — verificar por qué (¿admin/Junior"
+    echo "       ya estaban resueltos de antes?)."
+  else
+    # Guard: confirmá que el push falló POR el gap de 065539 y no por otra causa. 065539
+    # hace fail-fast si no hay admin O si alguna categoría tiene default_app_role NULL
+    # (las dos cosas que arregla PATCH_ADMIN). Si ninguna se cumple, el fallo es OTRO →
+    # abortá mostrando el error real en vez de parchear a ciegas.
+    _gap539="$(psql "$DB_URL" -tA -v ON_ERROR_STOP=1 -c "
+      select case when
+        (select count(*) from user_roles where role = 'admin') = 0
+        or exists (select 1 from categories where default_app_role is null)
+      then 1 else 0 end")"
+    if [[ "$_gap539" == "0" ]]; then
+      echo "ERROR: db push falló, pero ya hay admin y ninguna categoría con default_app_role" >&2
+      echo "       NULL — no es el gap de 065539. Revisá el error real del push; no se parchea." >&2
+      exit 1
+    fi
+    echo "== Aplicando parche de admin + Junior (§1.2) =="
+    psql "$DB_URL" -v ON_ERROR_STOP=1 -c "$PATCH_ADMIN"
+
+    echo "== 3/3: supabase db push --include-all --linked (debe completar el resto sin más bloqueos) =="
+    supabase db push --include-all --linked
+  fi
 fi
 
 echo "== Verificación final =="
@@ -137,7 +180,7 @@ fi
 # fallan al ejecutarse):  supabase secrets set FRONTEND_URL="https://<app-url>"
 # Si solo querés el replay puro (sin desplegar), comentá las 2 líneas de abajo.
 # =====================================================================
-echo "== Desplegando las 10 edge functions al proyecto enlazado (Test) =="
+echo "== Desplegando las edge functions al proyecto enlazado (Test) =="
 supabase functions deploy
 
 # =====================================================================
@@ -156,18 +199,44 @@ supabase functions deploy
 #   export SUPABASE_SERVICE_ROLE_KEY="<service_role key de Test>"  # Dashboard → API keys
 # El email debe pasar validate_email_domain (dominio permitido).
 # =====================================================================
-SEED_ADMIN_EMAIL="${SEED_ADMIN_EMAIL:-}"
+# GoTrue normaliza el email a minúsculas al crear el usuario; lo igualamos acá para que
+# la creación, la ficha de staff y los matches por email (recuperación/promoción)
+# coincidan aunque SEED_ADMIN_EMAIL venga con mayúsculas.
+SEED_ADMIN_EMAIL="$(printf '%s' "${SEED_ADMIN_EMAIL:-}" | tr '[:upper:]' '[:lower:]')"
 SEED_ADMIN_PASSWORD="${SEED_ADMIN_PASSWORD:-}"
 SB_SERVICE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
+
+# Escapa un valor para incrustarlo seguro en JSON (backslash y comillas dobles).
+json_escape() { local s="$1"; s="${s//\\/\\\\}"; s="${s//\"/\\\"}"; printf '%s' "$s"; }
+
 if [[ -n "$SEED_ADMIN_EMAIL" && -n "$SEED_ADMIN_PASSWORD" && -n "$SB_SERVICE_KEY" ]]; then
   SB_URL="https://${EXPECTED_REF}.supabase.co"
   echo "== Creando admin usable vía Admin API: $SEED_ADMIN_EMAIL =="
-  curl -sS -X POST "$SB_URL/auth/v1/admin/users" \
+  # Rechazar caracteres de control (tab/newline/CR/…): json_escape no los escapa y
+  # romperían el JSON → el Admin API rechazaría y no se crearía el admin.
+  if [[ "${SEED_ADMIN_EMAIL}${SEED_ADMIN_PASSWORD}" == *[$'\x01'-$'\x1f']* ]]; then
+    echo "ERROR: SEED_ADMIN_EMAIL/SEED_ADMIN_PASSWORD contienen caracteres de control; quítalos." >&2
+    exit 1
+  fi
+  admin_payload="{\"email\":\"$(json_escape "$SEED_ADMIN_EMAIL")\",\"password\":\"$(json_escape "$SEED_ADMIN_PASSWORD")\",\"email_confirm\":true}"
+  # Crear el usuario, TOLERANTE a "ya existe" (rerun tras un fallo posterior): no se
+  # usa --fail-with-body; se captura el HTTP code y, si no es 2xx, se verifica en la
+  # BD si el usuario ya está → se continúa (los pasos de staff/rol son idempotentes).
+  _resp="$(curl -sS -w '\n%{http_code}' -X POST "$SB_URL/auth/v1/admin/users" \
     -H "apikey: $SB_SERVICE_KEY" \
     -H "Authorization: Bearer $SB_SERVICE_KEY" \
     -H "Content-Type: application/json" \
-    -d "{\"email\":\"$SEED_ADMIN_EMAIL\",\"password\":\"$SEED_ADMIN_PASSWORD\",\"email_confirm\":true}"
-  echo ""
+    -d "$admin_payload")"
+  _http_code="${_resp##*$'\n'}"
+  if [[ "$_http_code" == 2* ]]; then
+    echo "  usuario creado (HTTP $_http_code)."
+  elif psql "$DB_URL" -tA -v email="$SEED_ADMIN_EMAIL" -c "select 1 from auth.users where email = :'email'" | grep -q 1; then
+    echo "  el usuario ya existía (HTTP $_http_code) — se continúa (staff/rol son idempotentes)."
+  else
+    echo "ERROR: el Admin API falló (HTTP $_http_code) y el usuario no existe:" >&2
+    echo "${_resp%$'\n'*}" >&2
+    exit 1
+  fi
   echo "== Vinculando ficha de staff + promoviendo a admin =="
   psql "$DB_URL" -v ON_ERROR_STOP=1 -v email="$SEED_ADMIN_EMAIL" <<'SQL'
 insert into public.staff (first_name, last_name, email, category_id, society_id, service_id, is_active)
@@ -176,11 +245,40 @@ select 'Seed', 'Admin', :'email',
        (select society_id from public.society where name = 'Ruizmier Pelaez S.R.L.'),
        (select service_id from public.services where code = 1),
        true
-where not exists (select 1 from public.staff where email = :'email');
+where not exists (select 1 from public.staff where lower(trim(email)) = lower(trim(:'email')));
 
-update public.user_roles
-set role = 'admin', role_key = 'admin'
-where user_id = (select id from auth.users where email = :'email');
+-- Vincular la ficha (existente o nueva) al auth user, por si el trigger no lo hizo
+-- (p. ej. una ficha demo sembrada por migración nace con auth_user_id null) → sin
+-- esto get_my_staff_id() devuelve null aunque el rol esté puesto.
+update public.staff s
+set auth_user_id = u.id
+from auth.users u
+where u.email = :'email'
+  and lower(trim(s.email)) = lower(trim(:'email'))
+  and s.auth_user_id is distinct from u.id;
+
+-- Upsert (no UPDATE): si un rerun/parcial dejó al auth user sin fila en user_roles
+-- (p. ej. la borraron a mano), un UPDATE afectaría 0 filas y la verificación final
+-- abortaría en cada rerun. user_roles tiene UNIQUE (user_id), así que el ON CONFLICT
+-- lo hace idempotente-con-reparación, igual que el insert de staff de arriba.
+insert into public.user_roles (user_id, role, role_key)
+select id, 'admin', 'admin' from auth.users where email = :'email'
+on conflict (user_id) do update set role = 'admin', role_key = 'admin';
+
+-- Verificar que el admin quedó configurado CON rol Y ficha de staff vinculada; si no, abortar.
+select set_config('seed.admin_email', :'email', false);
+do $$
+begin
+  if not exists (
+    select 1
+    from auth.users u
+    join public.user_roles ur on ur.user_id = u.id
+    join public.staff s      on s.auth_user_id = u.id
+    where u.email = current_setting('seed.admin_email') and ur.role_key = 'admin'
+  ) then
+    raise exception 'Admin % no quedó configurado (rol o ficha de staff vinculada ausente).', current_setting('seed.admin_email');
+  end if;
+end $$;
 SQL
 else
   echo "AVISO: SEED_ADMIN_EMAIL / SEED_ADMIN_PASSWORD / SUPABASE_SERVICE_ROLE_KEY no"
