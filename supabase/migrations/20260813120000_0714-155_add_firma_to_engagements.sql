@@ -11,6 +11,10 @@
 --     la que ya se usaba. Si en el futuro hay huella de MÁS de una sociedad, no aplica
 --     default automático (ambiguo) — avisa y hay que decidir caso por caso.
 -- 3. Reemplazar create_engagement_with_code() agregando p_society_id obligatorio.
+-- 3b. Limpieza defensiva + postcondition: dropear el overload legado de 15 params (visto
+--     vivo en fingerprints reales de al menos un entorno) y verificar que sobreviva
+--     exactamente 1 firma del RPC — evita que quede una vía de creación de encargos que
+--     no valide society_id.
 --
 -- Decisiones confirmadas por el operador (2026-08-13, bugs/0714-155/plan_v2.md §Open Questions):
 --   #1 el nombre de la sociedad NUNCA se hardcodea — el backfill matchea dinámicamente
@@ -38,8 +42,11 @@
 -- de dar por buena la migración en EMS_Dev_Supabase.
 
 -- ────────────────────────────────────────────────────────────────────────────
--- 1. COLUMNA (nullable — histórico parcial; sin índice, mismo precedente que
---    engagements.taxonomy_id: cardinalidad 2, sin filtro server-side)
+-- 1. COLUMNA (nullable a nivel de esquema, sin NOT NULL — sin índice, mismo precedente
+--    que engagements.taxonomy_id: cardinalidad 2, sin filtro server-side. Los pasos 2/2b
+--    de abajo backfillean el histórico completo y el RPC exige la sociedad en toda alta
+--    nueva, así que en la práctica no quedan filas sin asignar; la nulabilidad es solo una
+--    salvaguarda de esquema)
 -- ────────────────────────────────────────────────────────────────────────────
 ALTER TABLE public.engagements
   ADD COLUMN society_id uuid REFERENCES public.society(society_id) ON DELETE RESTRICT;
@@ -286,3 +293,38 @@ GRANT EXECUTE ON FUNCTION public.create_engagement_with_code(
   smallint, smallint, smallint, integer, boolean, boolean, boolean, boolean,
   date, boolean, uuid, uuid, uuid, uuid, uuid, text, uuid
 ) TO authenticated;
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- 3b. LIMPIEZA DEFENSIVA (REVIEW FIX, post-implementación 2026-08-14): la cadena lineal de
+--     migraciones ya dropea el overload de 15 params (pre-0602-137, sin personal
+--     responsable/fecha de cierre/taxonomía) en 20260625000000_add_engagement_responsible_
+--     personnel.sql, pero los fingerprints reales capturados en
+--     supabase/tests/fixtures/route-fingerprints/ruta_{a,b,c}_schema.sql (2026-08-06)
+--     muestran ese overload todavía vivo junto al de 23 params en las 3 rutas — drift entre
+--     entornos (Test/Dev2.0/Lovable), no un problema de esta cadena de migraciones en sí.
+--     Sigue siendo SECURITY DEFINER y NO valida society_id: si sobrevive en el entorno de
+--     destino, permite crear encargos con society_id = NULL, saltándose la validación nueva
+--     de este archivo. Se dropea explícitamente por las dudas (idempotente, IF EXISTS).
+-- ────────────────────────────────────────────────────────────────────────────
+DROP FUNCTION IF EXISTS public.create_engagement_with_code(
+  text, uuid, uuid, uuid, date, date, text,
+  smallint, smallint, smallint, integer, boolean, boolean, boolean, boolean
+);
+
+-- Postcondition: después de los DROP de arriba debe sobrevivir exactamente 1 firma. Un
+-- WARNING visible en el log de la migración es preferible a un overload legado silencioso.
+DO $$
+DECLARE
+  v_overload_count integer;
+BEGIN
+  SELECT count(*) INTO v_overload_count
+    FROM pg_proc
+   WHERE proname = 'create_engagement_with_code'
+     AND pronamespace = 'public'::regnamespace;
+
+  IF v_overload_count <> 1 THEN
+    RAISE WARNING '0714-155: se esperaba 1 overload de create_engagement_with_code, hay % — revisar overloads legados antes de dar la migración por buena.', v_overload_count;
+  ELSE
+    RAISE NOTICE '0714-155: overload único de create_engagement_with_code confirmado.';
+  END IF;
+END $$;

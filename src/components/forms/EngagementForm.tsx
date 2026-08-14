@@ -324,12 +324,19 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     [clients, engagement?.client_id]
   );
 
-  // FEAT 0714-155: keeps a historical (now-inactive) sociedad visible when editing an
-  // already-saved engagement, mirroring clientOptions/activeTaxonomyOptions above.
-  const societyOptions = useMemo(
-    () => societies?.filter(s => s.is_active || s.society_id === engagement?.society_id) ?? [],
-    [societies, engagement?.society_id]
-  );
+  // FEAT 0714-155 (review fix): unlike clients/taxonomies (fetched in full, filtered
+  // client-side), useSocieties() filters is_active=true server-side — reused as-is per
+  // plan (no crear hook nuevo). Filtering that already-active-only list can never surface
+  // a historical (now-inactive) sociedad, so it's merged in explicitly from the engagement
+  // embed instead, keeping the same "stay visible when editing" guarantee as the siblings.
+  const societyOptions = useMemo(() => {
+    const active = societies ?? [];
+    const historicalSociety = engagement?.society;
+    if (historicalSociety && !active.some(s => s.society_id === historicalSociety.society_id)) {
+      return [...active, historicalSociety];
+    }
+    return active;
+  }, [societies, engagement?.society]);
 
   const initializedEngagementIdRef = useRef<string | null>(null);
 

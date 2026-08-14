@@ -22,7 +22,7 @@ describe("useCreateEngagement — code generation (BUG 0306-82)", () => {
     vi.clearAllMocks();
   });
 
-  it("calls supabase.rpc with create_engagement_with_code and all 23 params", async () => {
+  it("calls supabase.rpc with create_engagement_with_code and all 24 params", async () => {
     const mockData = {
       engagement_id: "eng-100",
       engagement_name: "Audit FY2027",

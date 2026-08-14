@@ -132,8 +132,9 @@ export interface Engagement {
   // FEAT 0602-135: override manual del estado del encargo (1..9). NULL = derivado de la OT.
   engagement_state_override?: number | null;
   taxonomy_id: string | null;
-  // FEAT 0714-155: sociedad interna (firma) que ejecuta y factura el encargo. Nullable —
-  // histórico parcial, obligatoria en el formulario de creación.
+  // FEAT 0714-155: sociedad interna (firma) que ejecuta y factura el encargo. Nullable a
+  // nivel de esquema (sin NOT NULL), pero la migración backfillea el histórico completo y
+  // el RPC de creación la exige — en la práctica no quedan filas sin asignar.
   society_id: string | null;
   client?: Client;
   partner?: Staff;

@@ -1,6 +1,7 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@/test/utils";
+import { fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 /**
@@ -47,15 +48,39 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (k: string) => k, i18n: { language: "en" } }),
 }));
 
+// Mock Calendar with a simple date input and Popover as a passthrough (same convention as
+// EngagementForm.servicesCatalog.test.tsx) so start_date/end_date — required by the Zod
+// schema for onSubmit to even run — can be set without exercising the real react-day-picker.
+vi.mock("@/components/ui/calendar", () => ({
+  Calendar: ({ onSelect }: any) => (
+    <input
+      data-testid="calendar-mock"
+      type="date"
+      onChange={(e) => e.target.value && onSelect(new Date(e.target.value + "T12:00:00"))}
+    />
+  ),
+}));
+vi.mock("@/components/ui/popover", () => ({
+  Popover:        ({ children }: any) => <>{children}</>,
+  PopoverTrigger: ({ children }: any) => <>{children}</>,
+  PopoverContent: ({ children }: any) => <>{children}</>,
+}));
+
 const mockServices = [
   { service_id: "s1", name: "Auditoría", code: 1, allows_rates_activities: true, is_active: true, created_at: "" },
 ];
 
+// REVIEW FIX: useSocieties() filters is_active=true server-side (unlike useClients/
+// useTaxonomies, which fetch every row and filter client-side) — mocking it with an
+// inactive row here would mask the real production shape and let a broken fallback
+// pass. Only active societies come from the catalog; the inactive historical one below
+// is supplied through the engagement's `society` embed instead, same as production.
 const mockSocieties = [
   { society_id: "soc-active-1", name: "Ruizmier Pelaez S.R.L.", is_active: true, created_at: "" },
   { society_id: "soc-active-2", name: "Ruizmier Juaregui S.R.L.", is_active: true, created_at: "" },
-  { society_id: "soc-inactive", name: "Old Society S.R.L.", is_active: false, created_at: "" },
 ];
+
+const inactiveSociety = { society_id: "soc-inactive", name: "Old Society S.R.L.", is_active: false, created_at: "" };
 
 // Includes the client referenced by the edit-mode fixtures below so the client Select can
 // resolve a matching SelectItem — Radix Select can't retain a `value` that has no
@@ -80,9 +105,9 @@ vi.mock("@/hooks/useEmsData", () => ({
 
 vi.mock("@/hooks/useCategoryStaff", () => ({
   useCategoryStaff: () => ({
-    partners: [],
-    partnerOptions: [],
-    managerOptions: [],
+    partners: [{ staff_id: "p1", first_name: "Juan", last_name: "Partner" }],
+    partnerOptions: [{ value: "p1", label: "Juan Partner" }],
+    managerOptions: [{ value: "m1", label: "Ana Manager" }],
     allActiveStaff: [],
     hasPartnerCategory: true,
     hasManagerCategory: true,
@@ -90,8 +115,9 @@ vi.mock("@/hooks/useCategoryStaff", () => ({
 }));
 
 const mockUpdateMutateAsync = vi.fn().mockResolvedValue(undefined);
+const mockCreateMutateAsync = vi.fn();
 vi.mock("@/hooks/mutations", () => ({
-  useCreateEngagement: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useCreateEngagement: () => ({ mutateAsync: mockCreateMutateAsync, isPending: false }),
   useUpdateEngagement: () => ({ mutateAsync: mockUpdateMutateAsync, isPending: false }),
   useDeleteEngagement: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useSaveEngagementAssignments: () => ({ saveAssignments: vi.fn(), isSaving: false }),
@@ -143,12 +169,14 @@ const mockEngagementWithSociety: Engagement = {
   taxonomy_id: null,
   contract_file_path: null,
   society_id: "soc-inactive",
+  society: inactiveSociety,
 };
 
 const mockEngagementNullSociety: Engagement = {
   ...mockEngagementWithSociety,
   engagement_id: "eng-soc-2",
   society_id: null,
+  society: undefined,
 };
 
 describe("EngagementForm — Sociedad select (FEAT 0714-155)", () => {
@@ -201,19 +229,64 @@ describe("EngagementForm — Sociedad select (FEAT 0714-155)", () => {
   });
 });
 
-describe("EngagementForm — Sociedad requiredness (mirrors onSubmit logic, FEAT 0714-155)", () => {
-  // Mirrors the guard added to onSubmit in EngagementForm.tsx: required only in creation.
-  const isSocietyMissing = (isEdit: boolean, societyId: string | undefined) => !isEdit && societyId === undefined;
-
-  it("is missing on create when the field was never touched", () => {
-    expect(isSocietyMissing(false, undefined)).toBe(true);
+describe("EngagementForm — Sociedad required in creation (real submit, FEAT 0714-155)", () => {
+  beforeEach(() => {
+    mockCreateMutateAsync.mockClear();
   });
 
-  it("is NOT missing on create once a society is picked", () => {
-    expect(isSocietyMissing(false, "soc-active-1")).toBe(false);
-  });
+  // REVIEW FIX: the previous version of this describe block only re-implemented the
+  // onSubmit guard as a standalone `isSocietyMissing` helper and asserted against that
+  // copy — it never rendered the form or submitted it, so it couldn't catch a regression
+  // in the actual guard. This drives a real submit through every other required field
+  // (mirroring EngagementForm.servicesCatalog.test.tsx's create-and-reset fixture) while
+  // leaving Sociedad untouched.
+  it("blocks submit and shows requiredSociety when Sociedad is left unselected", async () => {
+    const user = userEvent.setup();
+    render(<EngagementForm />);
 
-  it("is never enforced in edit mode (immutable, not re-validated)", () => {
-    expect(isSocietyMissing(true, undefined)).toBe(false);
-  });
+    await user.type(screen.getByLabelText(/engagement\.name/), "Test Engagement Alpha");
+
+    const clientSelect = screen.getByLabelText(/engagement\.client/);
+    await user.click(clientSelect);
+    await waitFor(() => screen.getByRole("option", { name: "Test Client" }));
+    await user.click(screen.getByRole("option", { name: "Test Client" }));
+
+    const partnerSelect = screen.getByLabelText(/engagement\.partner/);
+    await user.click(partnerSelect);
+    await waitFor(() => screen.getByRole("option", { name: "Juan Partner" }));
+    await user.click(screen.getByRole("option", { name: "Juan Partner" }));
+
+    const managerSelect = screen.getByLabelText(/engagement\.manager/);
+    await user.click(managerSelect);
+    await waitFor(() => screen.getByRole("option", { name: "Ana Manager" }));
+    await user.click(screen.getByRole("option", { name: "Ana Manager" }));
+
+    const calendars = screen.getAllByTestId("calendar-mock");
+    fireEvent.change(calendars[0], { target: { value: "2026-10-01" } });
+    fireEvent.change(calendars[1], { target: { value: "2027-09-30" } });
+
+    const oficina = screen.getByLabelText(/engagement\.oficina/);
+    await user.click(oficina);
+    await waitFor(() => screen.getByRole("option", { name: "engagement.oficina_ambos" }));
+    await user.click(screen.getByRole("option", { name: "engagement.oficina_ambos" }));
+
+    // funcion_adm (0) avoids the Cliente-only taxonomy requirement, same as the sibling fixture.
+    const funcion = screen.getByLabelText(/engagement\.funcion/);
+    await user.click(funcion);
+    await waitFor(() => screen.getByRole("option", { name: "engagement.funcion_adm" }));
+    await user.click(screen.getByRole("option", { name: "engagement.funcion_adm" }));
+
+    const closingDate = screen.getByRole("combobox", { name: "engagement.closingDate *" });
+    await user.click(closingDate);
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBeGreaterThan(0));
+    await user.click(screen.getAllByRole("option")[0]);
+
+    // Sociedad is intentionally left unselected — submit without touching it.
+    await user.click(screen.getByText("engagement.createEngagement"));
+
+    await waitFor(() => {
+      expect(screen.getByText("engagement.requiredSociety")).toBeInTheDocument();
+    });
+    expect(mockCreateMutateAsync).not.toHaveBeenCalled();
+  }, 15000);
 });
