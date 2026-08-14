@@ -346,8 +346,12 @@ DROP FUNCTION IF EXISTS public.create_engagement_with_code(
   smallint, smallint, smallint, integer, boolean, boolean, boolean, boolean
 );
 
--- Postcondition: después de los DROP de arriba debe sobrevivir exactamente 1 firma. Un
--- WARNING visible en el log de la migración es preferible a un overload legado silencioso.
+-- Postcondition: después de los DROP de arriba debe sobrevivir exactamente 1 firma.
+-- REVIEW FIX (2026-08-14): un RAISE WARNING no detiene la migración — si sobreviviera un
+-- overload legado desconocido (uno no cubierto por los 2 DROP explícitos de arriba), la
+-- migración se completaba igual con el bypass potencialmente vivo (SECURITY DEFINER, sin
+-- validar society_id). Se escala a RAISE EXCEPTION para que la migración aborte (rollback)
+-- y quede en manos de una persona revisarlo, en vez de depender de que alguien lea el log.
 DO $$
 DECLARE
   v_overload_count integer;
@@ -358,7 +362,7 @@ BEGIN
      AND pronamespace = 'public'::regnamespace;
 
   IF v_overload_count <> 1 THEN
-    RAISE WARNING '0714-155: se esperaba 1 overload de create_engagement_with_code, hay % — revisar overloads legados antes de dar la migración por buena.', v_overload_count;
+    RAISE EXCEPTION '0714-155: se esperaba 1 overload de create_engagement_with_code, hay % — revisar overloads legados antes de reintentar la migración.', v_overload_count;
   ELSE
     RAISE NOTICE '0714-155: overload único de create_engagement_with_code confirmado.';
   END IF;
