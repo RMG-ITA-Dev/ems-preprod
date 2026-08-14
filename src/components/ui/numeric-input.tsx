@@ -4,9 +4,16 @@ import { cn } from "@/lib/utils";
 
 interface NumericInputProps
   extends Omit<React.InputHTMLAttributes<HTMLInputElement>, "onChange" | "type"> {
-  /** Number of decimal places: 0 for integers, 1 for hours, 2 for currency */
-  decimals?: 0 | 1 | 2;
-  /** Locale for decimal separator: "es" uses comma, "en" uses period */
+  /**
+   * Number of decimal places: 0 for integers, 1 for hours, 2 for currency amounts.
+   * Up to 6 for high-precision rates (e.g. exchange rates), which are stored as
+   * unbounded NUMERIC and are not rounded by any downstream calculation.
+   */
+  decimals?: 0 | 1 | 2 | 3 | 4 | 5 | 6;
+  /**
+   * Locale for the DISPLAYED decimal separator: "es" shows a comma, "en" a period.
+   * Both separators are always accepted on input regardless of this value.
+   */
   locale?: "es" | "en";
   /** Minimum value */
   min?: number;
@@ -37,7 +44,11 @@ const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps>(
     const [intermediateValue, setIntermediateValue] = useState<string | null>(null);
     
     const decimalSeparator = locale === "es" ? "," : ".";
-    
+
+    // Both separators are accepted while typing (a Spanish numpad emits ",", an
+    // English one "."); `locale` only decides which one is echoed back.
+    const toDisplay = (val: string) => val.replace(/[.,]/, decimalSeparator);
+
     // Clear intermediate state when external value changes
     useEffect(() => {
       if (value !== undefined && value !== null && value !== "") {
@@ -50,16 +61,14 @@ const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps>(
       if (decimals === 0) {
         return /^-?\d*$/;
       }
-      const sep = locale === "es" ? "," : "\\.";
-      return new RegExp(`^-?\\d*${sep}?\\d{0,${decimals}}$`);
+      // Accept either separator on input; `locale` governs display only.
+      return new RegExp(`^-?\\d*[.,]?\\d{0,${decimals}}$`);
     };
 
     const pattern = buildPattern();
 
-    // Normalize value for internal use (convert comma to period for parsing)
-    const normalizeValue = (val: string): string => {
-      return locale === "es" ? val.replace(",", ".") : val;
-    };
+    // Normalize value for internal use (parse with a period regardless of locale)
+    const normalizeValue = (val: string): string => val.replace(",", ".");
 
     // Format value for display (convert period to comma for es locale)
     const formatValue = (val: string | number | readonly string[] | undefined): string => {
@@ -173,22 +182,24 @@ const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps>(
         return;
       }
 
-      // Allow just a minus sign or decimal separator while typing
-      if (newValue === "-" || newValue === decimalSeparator) {
-        setIntermediateValue(newValue);
-        onValueChange?.(newValue);
+      // Allow just a minus sign or either decimal separator while typing
+      if (newValue === "-" || newValue === "." || newValue === ",") {
+        const display = toDisplay(newValue);
+        setIntermediateValue(display);
+        onValueChange?.(display);
         return;
       }
 
       // BUG #33: Allow intermediate states like "0." while typing decimals
       // Only block if value ends with separator AND has content after
-      const endsWithSeparator = newValue.endsWith(decimalSeparator) || newValue.endsWith(".");
+      const endsWithSeparator = /[.,]$/.test(newValue);
       if (endsWithSeparator && decimals > 0) {
         // Allow typing "0." on the way to "0.5"
         const baseValue = newValue.slice(0, -1);
         if (baseValue === "" || baseValue === "-" || !isNaN(parseFloat(normalizeValue(baseValue)))) {
-          setIntermediateValue(newValue);
-          onValueChange?.(newValue);
+          const display = toDisplay(newValue);
+          setIntermediateValue(display);
+          onValueChange?.(display);
           return;
         }
       }
@@ -212,7 +223,7 @@ const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps>(
       }
 
       setIntermediateValue(null);
-      onValueChange?.(newValue);
+      onValueChange?.(toDisplay(newValue));
       onChange?.(isNaN(numericValue) ? 0 : numericValue);
     };
 
@@ -223,8 +234,8 @@ const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps>(
       // Clear intermediate state first
       setIntermediateValue(null);
 
-      // Clean up trailing decimal separator
-      if (currentValue.endsWith(decimalSeparator) || currentValue.endsWith(".")) {
+      // Clean up trailing decimal separator (either one)
+      if (/[.,]$/.test(currentValue)) {
         currentValue = currentValue.slice(0, -1);
         onValueChange?.(currentValue);
         // Also need to notify onChange with the cleaned-up numeric value

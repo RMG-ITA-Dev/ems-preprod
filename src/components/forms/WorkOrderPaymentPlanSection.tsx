@@ -92,7 +92,8 @@ export function WorkOrderPaymentPlanSection({
   onPlanChange,
   onInstallmentsChange,
 }: WorkOrderPaymentPlanSectionProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const numericLocale = i18n.language?.startsWith("es") ? "es" : "en";
   const updateStatus = useUpdateInstallmentStatus();
   const updateCollectionDate = useUpdateCollectionDate();
   const [pendingChange, setPendingChange] = useState<{
@@ -312,11 +313,11 @@ export function WorkOrderPaymentPlanSection({
   // ----- Formatting -----
 
   const formatAmount = (amount: number) => {
-    const rounded = Math.round(amount);
-    if (currency === "BOB") {
-      return rounded.toLocaleString("es-BO", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-    }
-    return rounded.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    const amountLocale = currency === "BOB" ? "es-BO" : "en-US";
+    return Number(amount).toLocaleString(amountLocale, {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    });
   };
 
   return (
@@ -346,10 +347,14 @@ export function WorkOrderPaymentPlanSection({
             <div className="flex flex-col gap-1 min-w-[150px]">
               <Label>{t("workOrders.paymentPlan.exchangeRate")}</Label>
               <NumericInput
+                decimals={6}
+                locale={numericLocale}
+                min={0}
                 value={currentPlan.exchange_rate ?? 0}
                 onChange={handleExchangeRateChange}
                 disabled={!isEditable}
                 className="w-full"
+                data-testid="payment-plan-exchange-rate"
               />
             </div>
           )}
@@ -462,6 +467,7 @@ export function WorkOrderPaymentPlanSection({
                       </td>
                       <td className="py-3 px-3 border-b border-border/50">
                         <NumericInput
+                          locale={numericLocale}
                           value={inst.percentage}
                           onChange={(val) => handlePercentageChange(idx, val)}
                           disabled={!isEditable}

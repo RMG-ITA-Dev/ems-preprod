@@ -25,8 +25,8 @@ interface Props {
 }
 
 const formatCurrency = (n: number, currency: "BOB" | "USD") =>
-  Math.round(n).toLocaleString(currency === "BOB" ? "es-BO" : "en-US", {
-    maximumFractionDigits: 0,
+  Number(n).toLocaleString(currency === "BOB" ? "es-BO" : "en-US", {
+    maximumFractionDigits: 2,
   });
 
 export function WorkOrderAllocationEditor({
@@ -36,7 +36,8 @@ export function WorkOrderAllocationEditor({
   onChange,
   disabled = false,
 }: Props) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const numericLocale = i18n.language?.startsWith("es") ? "es" : "en";
   const { data: workOrders } = useSelectableWorkOrders();
 
   const staffName = (s?: { first_name?: string; last_name?: string; short_name?: string | null }) =>
@@ -63,7 +64,10 @@ export function WorkOrderAllocationEditor({
     0,
   );
   const diff = totalRequested - allocatedTotal;
-  const mismatch = Math.abs(diff) > 0.01;
+  // Comparado al centavo, igual que el gate de la RPC de envio
+  // (round(v_alloc, 2) <> round(v_total, 2)): una tolerancia de 0.01 dejaba
+  // pasar un descuadre que el servidor despues rechazaba con un error crudo.
+  const mismatch = Math.round(totalRequested * 100) !== Math.round(allocatedTotal * 100);
 
   const usedIds = new Set(allocations.map((a) => a.wo_id).filter(Boolean));
 
@@ -173,7 +177,8 @@ export function WorkOrderAllocationEditor({
                     </td>
                     <td className="px-3 py-2">
                       <NumericInput
-                        decimals={0}
+                        decimals={2}
+                        locale={numericLocale}
                         min={0}
                         value={alloc.allocated_amount || ""}
                         onChange={(v) => updateRow(idx, { allocated_amount: v })}

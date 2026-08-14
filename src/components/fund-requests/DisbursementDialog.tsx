@@ -31,7 +31,8 @@ export function DisbursementDialog({
   isSubmitting,
   onConfirm,
 }: Props) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const numericLocale = i18n.language?.startsWith("es") ? "es" : "en";
   const [amount, setAmount] = useState<number>(requestedAmount);
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -75,7 +76,8 @@ export function DisbursementDialog({
             </Label>
             <NumericInput
               id="disbursed-amount"
-              decimals={0}
+              decimals={2}
+              locale={numericLocale}
               min={0}
               value={amount || ""}
               onChange={(v) => {
@@ -86,9 +88,9 @@ export function DisbursementDialog({
             />
             <p className="text-xs text-muted-foreground">
               {t("fundRequest.requestedHint", {
-                amount: Math.round(requestedAmount).toLocaleString(
+                amount: Number(requestedAmount).toLocaleString(
                   currency === "BOB" ? "es-BO" : "en-US",
-                  { maximumFractionDigits: 0 },
+                  { maximumFractionDigits: 2 },
                 ),
                 currency,
               })}
