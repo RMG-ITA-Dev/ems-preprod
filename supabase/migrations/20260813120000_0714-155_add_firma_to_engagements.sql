@@ -1,20 +1,41 @@
 -- 0714-155: Sociedad (firma interna) en Nuevo Encargo.
 --
 -- 1. Agregar engagements.society_id (FK a public.society, ya existente — sin tabla nueva).
--- 2. Backfill acotado: SOLO encargos cuyo client_id sea uno de los 2 registros-firma
---    (clients.client_legal_name = society.name, join dinámico — NUNCA hardcoded, para que
---    siga funcionando si el nombre legal de la sociedad cambia a futuro, p.ej. SRL -> SA).
--- 3. Desactivar (is_active=false) esos mismos client-firma — no se borran ni renombran.
--- 4. Reemplazar create_engagement_with_code() agregando p_society_id obligatorio.
+-- 2. Backfill: encargos cuyo Cliente es la sociedad facturándose servicios administrativos
+--    a sí misma (client_legal_name empieza con el nombre de una society — join dinámico,
+--    NUNCA hardcoded) reciben ese society_id.
+-- 2b. Default histórico: el resto de los encargos (clientes reales, sin huella de ninguna
+--     sociedad) recibe la ÚNICA sociedad que sí tuvo huella en 2 — decisión del operador
+--     (2026-08-13): "todos los encargos deben tener sociedad", y no hay ningún dato que
+--     distinga cuáles serían de la otra sociedad, así que el histórico completo se asume de
+--     la que ya se usaba. Si en el futuro hay huella de MÁS de una sociedad, no aplica
+--     default automático (ambiguo) — avisa y hay que decidir caso por caso.
+-- 3. Reemplazar create_engagement_with_code() agregando p_society_id obligatorio.
 --
 -- Decisiones confirmadas por el operador (2026-08-13, bugs/0714-155/plan_v2.md §Open Questions):
---   #1 el nombre de la sociedad NUNCA se hardcodea — el backfill matchea por igualdad exacta
+--   #1 el nombre de la sociedad NUNCA se hardcodea — el backfill matchea dinámicamente
 --      contra public.society.name en vez de literales fijos, así sigue funcionando si el
 --      nombre legal cambia a futuro.
 --   #2 society_id no tiene default: todo encargo nuevo debe traer una sociedad asociada.
 --   #3 en la UI el campo se llama "Sociedad" (no "Firma"), consistente con StaffForm
 --      (staff.society / staff.selectSociety), para no introducir un segundo término para
 --      el mismo concepto.
+--
+-- REVIEW FIX (post-implementación, 2026-08-13): se investigó en EMS_Dev_Supabase por qué el
+-- backfill no afectaba filas. Hallazgo del operador: NO hay 2 "clientes-hack" a limpiar como
+-- asumía el packet original — hay UN cliente real y legítimo, "Ruizmier Pelaez S.R.L. ADMIN",
+-- que representa a la sociedad Pelaez facturándose servicios administrativos a sí misma (12
+-- encargos). Cliente y Sociedad son conceptos que coexisten aquí, no un cliente-firma a
+-- desactivar. En consecuencia:
+--   - Se ELIMINA por completo el paso de desactivar clients (ya no aplica: no se toca la
+--     tabla clients para nada, ni is_active ni ningún otro campo).
+--   - El match pasa de igualdad exacta/normalizada a PREFIJO dinámico
+--     (client_legal_name ILIKE society.name || '%'), porque el nombre real del cliente
+--     extiende el nombre de la sociedad con un sufijo (" ADMIN"), no es igual a secas.
+--   - Un bloque de diagnóstico hace RAISE NOTICE/WARNING con el conteo de matches por
+--     sociedad ANTES del UPDATE, para que un 0 sea visible en el log en vez de silencioso.
+-- Verificar el resultado con las queries de diagnóstico documentadas en el bug packet antes
+-- de dar por buena la migración en EMS_Dev_Supabase.
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- 1. COLUMNA (nullable — histórico parcial; sin índice, mismo precedente que
@@ -24,27 +45,79 @@ ALTER TABLE public.engagements
   ADD COLUMN society_id uuid REFERENCES public.society(society_id) ON DELETE RESTRICT;
 
 -- ────────────────────────────────────────────────────────────────────────────
--- 2. BACKFILL ACOTADO: solo encargos cuyo client_id ES uno de los 2 client-firma
---    (match exacto de nombre contra society.name, sin literales hardcoded). Clientes
---    reales/internos quedan society_id = NULL.
+-- 2. BACKFILL: encargos cuyo Cliente es la sociedad autofacturándose servicios
+--    administrativos (client_legal_name EMPIEZA CON el nombre de una society — join
+--    dinámico por prefijo, sin hardcodear ningún literal). No se toca la tabla clients.
 -- ────────────────────────────────────────────────────────────────────────────
-UPDATE public.engagements e
-   SET society_id = s.society_id
-  FROM public.clients c
-  JOIN public.society s ON s.name = c.client_legal_name
- WHERE e.client_id = c.client_id;
+DO $$
+DECLARE
+  v_society        record;
+  v_match_count    integer;
+  v_total_matched  integer := 0;
+BEGIN
+  -- Diagnóstico ANTES de tocar datos: si alguna sociedad no tiene ningún cliente cuyo
+  -- nombre empiece con la suya, avisa en el log — puede ser esperado (esa sociedad nunca
+  -- se autofacturó servicios administrativos) o señal de que el nombre difiere más de lo
+  -- que este match cubre.
+  FOR v_society IN SELECT society_id, name FROM public.society LOOP
+    SELECT count(*) INTO v_match_count
+      FROM public.clients c
+     WHERE c.client_legal_name ILIKE trim(v_society.name) || '%';
+
+    IF v_match_count = 0 THEN
+      RAISE WARNING '0714-155 backfill: ningún cliente empieza con el nombre de la sociedad "%" — su backfill quedará en 0 filas.', v_society.name;
+    ELSE
+      RAISE NOTICE '0714-155 backfill: % cliente(s) empiezan con el nombre de la sociedad "%".', v_match_count, v_society.name;
+    END IF;
+  END LOOP;
+
+  UPDATE public.engagements e
+     SET society_id = s.society_id
+    FROM public.clients c
+    JOIN public.society s ON c.client_legal_name ILIKE trim(s.name) || '%'
+   WHERE e.client_id = c.client_id;
+
+  GET DIAGNOSTICS v_total_matched = ROW_COUNT;
+  RAISE NOTICE '0714-155 backfill: % encargo(s) recibieron society_id.', v_total_matched;
+END $$;
 
 -- ────────────────────────────────────────────────────────────────────────────
--- 3. DESACTIVAR los client-firma (is_active=false, no se borran ni renombran): dejan
---    de ofrecerse en el combo de Cliente para altas nuevas; los FK e historial intactos.
+-- 2b. DEFAULT HISTÓRICO: el resto de los encargos (sin huella de ninguna sociedad, p.ej.
+--     clientes reales) recibe la ÚNICA sociedad que sí quedó asignada en el paso 2. No se
+--     hardcodea "Ruizmier Pelaez S.R.L." — se deriva de qué sociedad tiene huella real en
+--     los datos. Si hay huella de 0 o de MÁS de una sociedad, es ambiguo: no aplica default
+--     y avisa (decidir caso por caso en vez de adivinar).
 -- ────────────────────────────────────────────────────────────────────────────
-UPDATE public.clients c
-   SET is_active = false
-  FROM public.society s
- WHERE s.name = c.client_legal_name;
+DO $$
+DECLARE
+  v_default_society_id uuid;
+  v_default_name        text;
+  v_distinct_societies   integer;
+  v_defaulted            integer;
+BEGIN
+  SELECT count(DISTINCT society_id) INTO v_distinct_societies
+    FROM public.engagements
+   WHERE society_id IS NOT NULL;
+
+  IF v_distinct_societies = 1 THEN
+    SELECT DISTINCT e.society_id, s.name INTO v_default_society_id, v_default_name
+      FROM public.engagements e
+      JOIN public.society s ON s.society_id = e.society_id
+     WHERE e.society_id IS NOT NULL;
+
+    UPDATE public.engagements
+       SET society_id = v_default_society_id
+     WHERE society_id IS NULL;
+
+    GET DIAGNOSTICS v_defaulted = ROW_COUNT;
+    RAISE NOTICE '0714-155 default histórico: % encargo(s) sin sociedad recibieron el default ("%").', v_defaulted, v_default_name;
+  ELSE
+    RAISE WARNING '0714-155 default histórico: hay % sociedad(es) distinta(s) con huella real (esperada: 1) — NO se aplicó ningún default automático. Decidir manualmente.', v_distinct_societies;
+  END IF;
+END $$;
 
 -- ────────────────────────────────────────────────────────────────────────────
--- 4. REEMPLAZAR RPC: agregar p_society_id (obligatorio, sin DEFAULT — va antes de los
+-- 3. REEMPLAZAR RPC: agregar p_society_id (obligatorio, sin DEFAULT — va antes de los
 --    parámetros con DEFAULT, junto a p_oficina/p_practica/p_funcion/p_anio_fiscal_override).
 --    Cuerpo idéntico a 20260707000000_create_taxonomies_catalog.sql salvo la validación e
 --    inserción de society_id. No se agrega trigger de inmutabilidad ni de insert: el insert
