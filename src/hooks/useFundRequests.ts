@@ -139,7 +139,10 @@ export function useFundRequestById(id: string | undefined) {
 // tabla base — así el dropdown no expone cliente/NIT/presupuesto/notas.
 export interface SelectableWorkOrder {
   wo_id: string;
-  currency: "BOB" | "USD";
+  // Moneda de la OT (contrato con el cliente), NO la de la solicitud. La vista
+  // devuelve lo que tenga work_orders.currency, que admite BOB | USD | USDT — de
+  // ahí el tipo ancho; el editor filtra las monedas que fondos admite (0722-164).
+  currency: string;
   approval_status: string;
   engagement: {
     engagement_id: string;

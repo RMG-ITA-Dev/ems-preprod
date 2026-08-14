@@ -1669,8 +1669,8 @@
     "totalAllocated": "Total distribuido",
     "missingToAllocate": "Falta por distribuir",
     "overAllocated": "Exceso distribuido",
-    "noApprovedWorkOrders": "No hay OTs aprobadas en {{currency}} disponibles",
-    "noApprovedWorkOrdersHelp": "Cambie la moneda o pida al equipo que apruebe una OT en esa moneda antes de continuar.",
+    "noApprovedWorkOrders": "No hay OTs aprobadas disponibles",
+    "noApprovedWorkOrdersHelp": "Pida al equipo que apruebe una OT y que su encargo tenga gerente asignado antes de continuar.",
     "noAllocationsYet": "Aún no hay OTs asignadas. Agregue al menos una.",
     "noManagersAvailable": "No hay gerentes disponibles para asignar. Verifique que existan miembros del staff con categoría Gerente o Director.",
     "prereq": {

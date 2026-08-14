@@ -1,5 +1,5 @@
 import React from "react";
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
@@ -24,33 +24,69 @@ vi.mock("@/components/ui/select", () => ({
   ),
 }));
 
+// OTs devueltas por la vista `fund_request_selectable_work_orders`. Incluye las
+// monedas que el módulo NO modela (USDT) para ejercer el filtro de 0722-164.
+const woBob1 = {
+  wo_id: "wo-1",
+  currency: "BOB",
+  approval_status: "Approved",
+  engagement: {
+    engagement_code: "ENG-001",
+    engagement_name: "Encargo Uno",
+    manager_id: "mgr-1",
+    manager: { first_name: "Ana", last_name: "Perez", short_name: "A. Perez" },
+  },
+};
+const woBob2 = {
+  wo_id: "wo-2",
+  currency: "BOB",
+  approval_status: "Approved",
+  engagement: {
+    engagement_code: "ENG-002",
+    engagement_name: "Encargo Dos",
+    manager_id: "mgr-2",
+    manager: { first_name: "Luis", last_name: "Gomez", short_name: "L. Gomez" },
+  },
+};
+const woUsd = {
+  wo_id: "wo-3",
+  currency: "USD",
+  approval_status: "Approved",
+  engagement: {
+    engagement_code: "ENG-003",
+    engagement_name: "Encargo Tres",
+    manager_id: "mgr-3",
+    manager: { first_name: "Sofia", last_name: "Rojas", short_name: "S. Rojas" },
+  },
+};
+const woUsdt = {
+  wo_id: "wo-4",
+  currency: "USDT",
+  approval_status: "Approved",
+  engagement: {
+    engagement_code: "ENG-004",
+    engagement_name: "Encargo Cuatro",
+    manager_id: "mgr-4",
+    manager: { first_name: "Mario", last_name: "Vega", short_name: "M. Vega" },
+  },
+};
+const woUsdNoManager = {
+  wo_id: "wo-5",
+  currency: "USD",
+  approval_status: "Approved",
+  engagement: {
+    engagement_code: "ENG-005",
+    engagement_name: "Encargo Cinco",
+    manager_id: null,
+    manager: null,
+  },
+};
+
+// Mutable: cada test define qué devuelve la vista antes de renderizar.
+let selectableWorkOrders: unknown[] = [];
+
 vi.mock("@/hooks/useFundRequests", () => ({
-  useSelectableWorkOrders: () => ({
-    data: [
-      {
-        wo_id: "wo-1",
-        currency: "BOB",
-        approval_status: "Approved",
-        engagement: {
-          engagement_code: "ENG-001",
-          engagement_name: "Encargo Uno",
-          manager_id: "mgr-1",
-          manager: { first_name: "Ana", last_name: "Perez", short_name: "A. Perez" },
-        },
-      },
-      {
-        wo_id: "wo-2",
-        currency: "BOB",
-        approval_status: "Approved",
-        engagement: {
-          engagement_code: "ENG-002",
-          engagement_name: "Encargo Dos",
-          manager_id: "mgr-2",
-          manager: { first_name: "Luis", last_name: "Gomez", short_name: "L. Gomez" },
-        },
-      },
-    ],
-  }),
+  useSelectableWorkOrders: () => ({ data: selectableWorkOrders }),
 }));
 
 // ── Import under test (after all vi.mock hoists) ───────────────────────────────
@@ -58,6 +94,12 @@ import { WorkOrderAllocationEditor } from "../WorkOrderAllocationEditor";
 import type { AllocationInput } from "@/hooks/mutations/useFundRequestMutations";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+// Por defecto la vista devuelve las dos OTs en BOB (escenario de los tests de
+// decimales). Cada test de moneda sobreescribe `selectableWorkOrders`.
+beforeEach(() => {
+  selectableWorkOrders = [woBob1, woBob2];
+});
 
 function renderEditor(totalRequested: number, allocations: AllocationInput[]) {
   const onChange = vi.fn();
@@ -123,5 +165,55 @@ describe("WorkOrderAllocationEditor — montos decimales (0722-161)", () => {
 
     expect(screen.queryByText(/fundRequest.overAllocated/)).not.toBeInTheDocument();
     expect(screen.queryByText(/fundRequest.missingToAllocate/)).not.toBeInTheDocument();
+  });
+});
+
+describe("WorkOrderAllocationEditor — OTs en dólares (0722-164)", () => {
+  it("lista las OTs aprobadas en USD junto a las BOB", () => {
+    // La solicitud es BOB; la OT en USD debe poder elegirse igual, porque el
+    // monto asignado es el efectivo (BOB) y no el contrato de la OT.
+    selectableWorkOrders = [woBob1, woUsd];
+    renderEditor(1000, [{ wo_id: "", allocated_amount: 1000 }]);
+
+    expect(screen.getByText(/ENG-003/)).toBeInTheDocument();
+    expect(screen.getByText(/ENG-001/)).toBeInTheDocument();
+  });
+
+  it("no muestra el aviso de 'sin OTs' cuando solo hay OTs en USD", () => {
+    selectableWorkOrders = [woUsd];
+    renderEditor(0, []);
+
+    expect(screen.queryByText(/fundRequest.noApprovedWorkOrders/)).not.toBeInTheDocument();
+    // El boton "Agregar OT" queda habilitado: hay al menos una OT usable.
+    expect(screen.getByRole("button", { name: /fundRequest.addAllocation/ })).toBeEnabled();
+  });
+
+  it("muestra el codigo de moneda de la OT en la opcion", () => {
+    // Evita leer el monto (que va en BOB) como si fuera de la moneda de la OT.
+    selectableWorkOrders = [woUsd];
+    renderEditor(1000, [{ wo_id: "wo-3", allocated_amount: 1000 }]);
+
+    expect(screen.getByText(/ENG-003.*USD/)).toBeInTheDocument();
+    // El encabezado del monto sigue anunciando la moneda de la SOLICITUD.
+    expect(screen.getByText(/fundRequest\.amount \(BOB\)/)).toBeInTheDocument();
+  });
+
+  it("excluye las OTs en USDT (moneda no modelada por fondos)", () => {
+    selectableWorkOrders = [woBob1, woUsdt];
+    renderEditor(1000, [{ wo_id: "", allocated_amount: 1000 }]);
+
+    expect(screen.queryByText(/ENG-004/)).not.toBeInTheDocument();
+    expect(screen.getByText(/ENG-001/)).toBeInTheDocument();
+  });
+
+  it("sigue excluyendo las OTs sin gerente, sin importar la moneda", () => {
+    // El aprobador se deriva del gerente del encargo: sin gerente la OT no sirve,
+    // y quitar el filtro de moneda no debe arrastrar tambien este filtro.
+    selectableWorkOrders = [woUsd, woUsdNoManager];
+    renderEditor(1000, [{ wo_id: "", allocated_amount: 1000 }]);
+
+    expect(screen.queryByText(/ENG-005/)).not.toBeInTheDocument();
+    expect(screen.getByText(/ENG-003/)).toBeInTheDocument();
+    expect(screen.getByText(/fundRequest.otsBlockedNoManager/)).toBeInTheDocument();
   });
 });

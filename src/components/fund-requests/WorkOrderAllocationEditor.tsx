@@ -29,6 +29,13 @@ const formatCurrency = (n: number, currency: "BOB" | "USD") =>
     maximumFractionDigits: 2,
   });
 
+// Monedas de OT admitidas en solicitudes de fondos (0722-164). La asignación va
+// SIEMPRE en la moneda de la solicitud (BOB): es el efectivo que se entrega y se
+// rinde con facturas bolivianas. La moneda de la OT es la del contrato con el
+// cliente, así que una OT en USD puede recibir una asignación en BOB sin
+// conversión. USDT queda fuera: el módulo de fondos no lo modela.
+const FUND_REQUEST_WO_CURRENCIES: readonly string[] = ["BOB", "USD"];
+
 export function WorkOrderAllocationEditor({
   currency,
   totalRequested,
@@ -43,21 +50,25 @@ export function WorkOrderAllocationEditor({
   const staffName = (s?: { first_name?: string; last_name?: string; short_name?: string | null }) =>
     s ? s.short_name || `${s.first_name ?? ""} ${s.last_name ?? ""}`.trim() : "-";
 
-  // OTs aprobadas en la moneda de la solicitud.
-  const approvedInCurrency = useMemo(
+  // OTs aprobadas en una moneda que el módulo admite (BOB o USD), sin importar si
+  // coincide con la de la solicitud: el monto asignado va en la moneda de la
+  // solicitud (0722-164).
+  const approvedWorkOrders = useMemo(
     () =>
       (workOrders ?? []).filter(
-        (wo) => wo.approval_status === "Approved" && wo.currency === currency,
+        (wo) =>
+          wo.approval_status === "Approved" &&
+          FUND_REQUEST_WO_CURRENCIES.includes(wo.currency),
       ),
-    [workOrders, currency],
+    [workOrders],
   );
   // Solo seleccionables las que tienen gerente en su engagement: la aprobación
   // de la solicitud se deriva de ese gerente, así que una OT sin gerente no sirve.
   const availableWorkOrders = useMemo(
-    () => approvedInCurrency.filter((wo) => !!wo.engagement?.manager_id),
-    [approvedInCurrency],
+    () => approvedWorkOrders.filter((wo) => !!wo.engagement?.manager_id),
+    [approvedWorkOrders],
   );
-  const blockedNoManager = approvedInCurrency.length - availableWorkOrders.length;
+  const blockedNoManager = approvedWorkOrders.length - availableWorkOrders.length;
 
   const allocatedTotal = allocations.reduce(
     (sum, a) => sum + (Number(a.allocated_amount) || 0),
@@ -121,7 +132,7 @@ export function WorkOrderAllocationEditor({
           <Info className="h-4 w-4" />
           <AlertDescription>
             <p className="font-medium mb-1">
-              {t("fundRequest.noApprovedWorkOrders", { currency })}
+              {t("fundRequest.noApprovedWorkOrders")}
             </p>
             <p className="text-sm text-muted-foreground">
               {t("fundRequest.noApprovedWorkOrdersHelp")}
@@ -150,7 +161,7 @@ export function WorkOrderAllocationEditor({
                 const selectable = availableWorkOrders.filter(
                   (wo) => wo.wo_id === alloc.wo_id || !usedIds.has(wo.wo_id),
                 );
-                const selectedWo = approvedInCurrency.find((wo) => wo.wo_id === alloc.wo_id);
+                const selectedWo = approvedWorkOrders.find((wo) => wo.wo_id === alloc.wo_id);
                 return (
                   <tr key={idx} className="border-t border-border">
                     <td className="px-3 py-2">
@@ -165,8 +176,12 @@ export function WorkOrderAllocationEditor({
                         <SelectContent>
                           {selectable.map((wo) => (
                             <SelectItem key={wo.wo_id} value={wo.wo_id}>
+                              {/* La moneda de la OT va en el texto del ítem: el
+                                  trigger del Select lo reproduce, así queda claro
+                                  que el monto de al lado es de la solicitud (BOB)
+                                  y no de la OT (0722-164). */}
                               {wo.engagement?.engagement_code} —{" "}
-                              {wo.engagement?.engagement_name}
+                              {wo.engagement?.engagement_name} · {wo.currency}
                             </SelectItem>
                           ))}
                         </SelectContent>
