@@ -125,8 +125,10 @@ $$;
 -- resolver la moneda contable de gastos, IVA y liquidación.
 -- Idempotente.
 
--- Revierte el CHECK de la primera versión de esta migración (ya aplicado en el
--- mirror): habría varado cualquier solicitud USD histórica.
+-- Defensa idempotente: si en algún entorno llegó a aplicarse a mano un
+-- `CHECK (currency = 'BOB')` con este nombre, hay que retirarlo — se evaluaba en
+-- CADA update de la fila y varaba las solicitudes USD históricas (ver arriba).
+-- En una base limpia no existe y este DROP no hace nada.
 ALTER TABLE public.fund_requests
   DROP CONSTRAINT IF EXISTS fund_requests_currency_bob_only;
 
