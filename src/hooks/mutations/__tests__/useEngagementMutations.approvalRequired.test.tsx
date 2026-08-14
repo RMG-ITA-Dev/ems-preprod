@@ -41,7 +41,9 @@ describe("useEngagementMutations approval_required integration (BUG 0220-61)", (
       oficina: 1,
       practica: 2,
       funcion: 1,
+      society_id: "society-uuid",
       anio_fiscal: 2027,
+      fecha_cierre: "2027-09-30",
       is_internal: true,
       approval_required: false,
     });
@@ -70,7 +72,9 @@ describe("useEngagementMutations approval_required integration (BUG 0220-61)", (
       oficina: 1,
       practica: 1,
       funcion: 1,
+      society_id: "society-uuid",
       anio_fiscal: 2027,
+      fecha_cierre: "2027-09-30",
     });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));

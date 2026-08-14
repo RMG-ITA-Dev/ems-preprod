@@ -132,6 +132,10 @@ export interface Engagement {
   // FEAT 0602-135: override manual del estado del encargo (1..9). NULL = derivado de la OT.
   engagement_state_override?: number | null;
   taxonomy_id: string | null;
+  // FEAT 0714-155: sociedad interna (firma) que ejecuta y factura el encargo. Nullable a
+  // nivel de esquema (sin NOT NULL), pero la migración backfillea el histórico completo y
+  // el RPC de creación la exige — en la práctica no quedan filas sin asignar.
+  society_id: string | null;
   client?: Client;
   partner?: Staff;
   manager?: Staff;
@@ -139,6 +143,7 @@ export interface Engagement {
   encargado?: Staff;
   specialist_it?: Staff;
   specialist_tax?: Staff;
+  society?: Society;
   // FEAT 0602-135: OT asociada (1:1) para derivar el estado efectivo. Normalizada a objeto o null.
   work_order?: {
     approval_status: string | null;
@@ -722,7 +727,8 @@ export function useEngagements() {
           encargado:staff!engagements_encargado_id_fkey(staff_id, first_name, last_name, short_name, initials, category_id, city, is_active),
           specialist_it:staff!engagements_specialist_it_id_fkey(staff_id, first_name, last_name, short_name, initials, category_id, city, is_active),
           specialist_tax:staff!engagements_specialist_tax_id_fkey(staff_id, first_name, last_name, short_name, initials, category_id, city, is_active),
-          taxonomy:taxonomies(*)
+          taxonomy:taxonomies(*),
+          society:society(*)
         `)
         .order('created_at', { ascending: false });
       if (error) throw error;

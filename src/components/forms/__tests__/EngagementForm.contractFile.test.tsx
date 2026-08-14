@@ -47,6 +47,7 @@ vi.mock("@/hooks/useEmsData", () => ({
   useClients: () => ({ data: stableClients }),
   useServices: () => ({ data: stableServices }),
   useTaxonomies: () => ({ data: stableTaxonomies }),
+  useSocieties: () => ({ data: [] }),
   // Fase 5: EngagementForm now mounts StaffAssignmentsCard in edit mode, which pulls these.
   useEngagementAssignments: () => ({ data: stableAssignments, isLoading: false, isError: false }),
   useEngagementAggregatedRequirements: () => ({ data: stableAggregatedReqs }),
@@ -149,6 +150,7 @@ const mockEngagement: Engagement = {
   specialist_it_id: null,
   specialist_tax_id: null,
   contract_file_path: "contracts/123-abc.pdf",
+  society_id: null,
 };
 
 describe("EngagementForm — contract file upload (BUG 0625-151)", () => {

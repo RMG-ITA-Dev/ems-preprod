@@ -130,7 +130,13 @@ CREATE TABLE public.engagements (
   -- FEAT 0602-136: clasificación granular del servicio vendido al cliente, independiente
   -- de `practica`. Nullable: sin backfill de encargos legados; obligatoria en el formulario
   -- solo cuando funcion = Cliente (1), no a nivel de base de datos.
-  taxonomy_id UUID REFERENCES public.taxonomies(taxonomy_id)
+  taxonomy_id UUID REFERENCES public.taxonomies(taxonomy_id),
+  -- FEAT 0714-155: sociedad interna (Ruizmier Pelaez / Ruizmier Juaregui) que ejecuta y
+  -- factura el encargo, independiente del Cliente. Columna nullable a nivel de DB (sin
+  -- NOT NULL); la migración backfillea el histórico completo (match dinámico por prefijo +
+  -- default para el resto) y el RPC create_engagement_with_code exige la sociedad en toda
+  -- alta nueva — la nulabilidad es solo una salvaguarda de esquema, no deja filas sin asignar.
+  society_id UUID REFERENCES public.society(society_id)
 );
 
 -- Expense Logs

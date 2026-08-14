@@ -46,6 +46,7 @@ describe("useEngagementMutations", () => {
         oficina: 1,
         practica: 2,
         funcion: 1,
+        society_id: "soc-1",
         anio_fiscal: 2027,
       });
 
@@ -59,6 +60,7 @@ describe("useEngagementMutations", () => {
           p_oficina: 1,
           p_practica: 2,
           p_funcion: 1,
+          p_society_id: "soc-1",
           p_anio_fiscal: 2027,
           p_taxonomy_id: null,
         })
@@ -88,6 +90,7 @@ describe("useEngagementMutations", () => {
         oficina: 1,
         practica: 2,
         funcion: 1,
+        society_id: "soc-1",
         anio_fiscal: 2027,
         partner_id: "staff-1",
         manager_id: "staff-2",
@@ -105,6 +108,7 @@ describe("useEngagementMutations", () => {
           p_oficina: 1,
           p_practica: 2,
           p_funcion: 1,
+          p_society_id: "soc-1",
           p_anio_fiscal: 2027,
           p_taxonomy_id: "tax-1",
         })

@@ -24,6 +24,7 @@ vi.mock("@/hooks/useAuthorization", () => ({
 vi.mock("@/hooks/useEmsData", () => ({
   useEngagements: () => ({ data: [], isLoading: false }),
   useStaff: () => ({ data: [] }),
+  useSocieties: () => ({ data: [] }),
 }));
 vi.mock("@/hooks/useCategoryStaff", () => ({
   useCategoryStaff: () => ({ partnerOptions: [], managerOptions: [], partners: [], managers: [] }),

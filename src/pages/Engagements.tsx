@@ -1,10 +1,11 @@
+import { useMemo } from "react";
 import { format } from "date-fns";
 import { parseDateLocal } from "@/lib/timesheetUtils";
 import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Badge } from "@/components/ui/badge";
 
-import { useEngagements, Engagement } from "@/hooks/useEmsData";
+import { useEngagements, useSocieties, Engagement } from "@/hooks/useEmsData";
 import { useCategoryStaff } from "@/hooks/useCategoryStaff";
 import { DataTable, Column } from "@/components/data-table/DataTable";
 import { useNavigate } from "react-router-dom";
@@ -28,6 +29,7 @@ const Engagements = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { data: engagements, isLoading } = useEngagements();
+  const { data: societies } = useSocieties();
   const { partnerOptions, managerOptions } = useCategoryStaff();
   const { can } = useAuthorization();
   const canCreate = can("engagement.create");
@@ -36,6 +38,21 @@ const Engagements = () => {
     ...e,
     effective_state: String(effectiveEngagementState(e, e.work_order)),
   })) as EngagementRow[];
+
+  // REVIEW FIX (FEAT 0714-155): useSocieties() filters is_active=true server-side, so a
+  // historical (now-inactive) society an engagement still points to would never appear as
+  // a filter option — even though the column above already renders it. Merge in any
+  // embedded society from the loaded engagements, same approach as EngagementForm's
+  // societyOptions memo.
+  const societyFilterOptions = useMemo(() => {
+    const bySocietyId = new Map((societies ?? []).map((s) => [s.society_id, s]));
+    (engagements ?? []).forEach((e) => {
+      if (e.society && !bySocietyId.has(e.society.society_id)) {
+        bySocietyId.set(e.society.society_id, e.society);
+      }
+    });
+    return [...bySocietyId.values()].map((soc) => ({ value: soc.society_id, label: soc.name }));
+  }, [societies, engagements]);
 
   const columns: Column<EngagementRow>[] = [
     {
@@ -61,6 +78,14 @@ const Engagements = () => {
       sortable: true,
       mobilePriority: 'primary',
       render: (row) => row.client?.client_legal_name || "-",
+    },
+    {
+      key: "society.name",
+      label: t("engagement.society"),
+      sortable: true,
+      filterKey: "society_id",
+      mobilePriority: 'secondary',
+      render: (row) => row.society?.name || "-",
     },
     {
       key: "partner.last_name",
@@ -135,6 +160,11 @@ const Engagements = () => {
         onRowClick={(row) => navigate(`/engagements/${row.engagement_id}`)}
         getRowId={(row) => row.engagement_id}
         filters={[
+          {
+            key: "society_id",
+            label: t("engagement.society"),
+            options: societyFilterOptions,
+          },
           {
             key: "partner_id",
             label: t("engagement.partner"),

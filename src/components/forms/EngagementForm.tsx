@@ -45,7 +45,7 @@ import { EngagementCreatedDialog } from "@/components/forms/EngagementCreatedDia
 import { StaffAssignmentsCard } from "@/components/engagements/StaffAssignmentsCard";
 import { isSchedulerEnabled } from "@/lib/schedulerFeature";
 import { TaxonomyCombobox, NO_APLICA_VALUE } from "@/components/forms/TaxonomyCombobox";
-import { Engagement, useClients, useServices, useTaxonomies } from "@/hooks/useEmsData";
+import { Engagement, useClients, useServices, useTaxonomies, useSocieties } from "@/hooks/useEmsData";
 import { useCategoryStaff } from "@/hooks/useCategoryStaff";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { useCreateEngagement, useUpdateEngagement, useDeleteEngagement } from "@/hooks/mutations";
@@ -176,6 +176,9 @@ const formSchema = z.object({
   practica:    z.number().int().min(0).max(9,   "Invalid practice").optional(),
   funcion:     z.number().int().min(0).max(3,   "Invalid function").optional(),
   taxonomy_id: z.string().optional(),
+  // FEAT 0714-155: sociedad interna (firma) del encargo — optional at the Zod level;
+  // required-in-creation is validated manually, mirroring oficina/practica/funcion.
+  society_id:  z.string().optional(),
   client_id: z.string().min(1, "Client is required"),
   partner_id: z.string().min(1, "Partner/Director is required"),
   manager_id: z.string().min(1, "Manager is required"),
@@ -270,6 +273,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   const { data: clients } = useClients();
   const { data: allServices } = useServices();
   const { data: allTaxonomies } = useTaxonomies();
+  const { data: societies } = useSocieties();
   const { partnerOptions, managerOptions, hasPartnerCategory, hasManagerCategory, allActiveStaff } = useCategoryStaff();
   const { staffRecord } = useCurrentStaff();
 
@@ -320,6 +324,20 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     [clients, engagement?.client_id]
   );
 
+  // FEAT 0714-155 (review fix): unlike clients/taxonomies (fetched in full, filtered
+  // client-side), useSocieties() filters is_active=true server-side — reused as-is per
+  // plan (no crear hook nuevo). Filtering that already-active-only list can never surface
+  // a historical (now-inactive) sociedad, so it's merged in explicitly from the engagement
+  // embed instead, keeping the same "stay visible when editing" guarantee as the siblings.
+  const societyOptions = useMemo(() => {
+    const active = societies ?? [];
+    const historicalSociety = engagement?.society;
+    if (historicalSociety && !active.some(s => s.society_id === historicalSociety.society_id)) {
+      return [...active, historicalSociety];
+    }
+    return active;
+  }, [societies, engagement?.society]);
+
   const initializedEngagementIdRef = useRef<string | null>(null);
 
   // Build missing categories message
@@ -337,6 +355,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       practica: undefined,
       funcion: undefined,
       taxonomy_id: undefined,
+      society_id: undefined,
       client_id: "",
       partner_id: "",
       manager_id: "",
@@ -362,6 +381,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     service: string;
     funcion: string;
     status: string;
+    society: string;
   } | null>(null);
 
   // Policy flags state (outside react-hook-form since they're admin-only)
@@ -418,6 +438,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
         practica:    engagement.practica    ?? undefined,
         funcion:     engagement.funcion     ?? undefined,
         taxonomy_id: engagement.taxonomy_id ?? undefined,
+        society_id:  engagement.society_id  ?? undefined,
         client_id: engagement.client_id,
         partner_id: engagement.partner_id || "",
         manager_id: engagement.manager_id || "",
@@ -616,6 +637,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       if (data.oficina    === undefined) { form.setError("oficina",     { message: t("engagement.requiredOficina")    }); missingCodeField = true; }
       if (data.practica   === undefined) { form.setError("practica",    { message: t("engagement.requiredPractica")   }); missingCodeField = true; }
       if (data.funcion    === undefined) { form.setError("funcion",     { message: t("engagement.requiredFuncion")    }); missingCodeField = true; }
+      if (data.society_id === undefined) { form.setError("society_id", { message: t("engagement.requiredSociety")    }); missingCodeField = true; }
       if (data.closing_date_option === undefined) { form.setError("closing_date_option", { message: t("engagement.requiredClosingDate") }); missingCodeField = true; }
       if (missingCodeField) return;
     }
@@ -676,7 +698,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                     : Number(data.engagement_state_override),
               }
             : {}),
-          // oficina, practica, funcion, engagement_code intentionally omitted — immutable after create
+          // oficina, practica, funcion, engagement_code, society_id intentionally omitted — immutable after create
           ...(canEditClosing && closingDateResolved
             ? {
                 anio_fiscal:          data.anio_fiscal as number,
@@ -715,6 +737,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       oficina:             data.oficina    as number,
       practica:            data.practica   as number,
       funcion:             data.funcion    as number,
+      society_id:          data.society_id as string,
       anio_fiscal:         data.anio_fiscal as number,
       fecha_cierre:        format(closingDateResolved, "yyyy-MM-dd"),
       anio_fiscal_override: effectiveOverride,
@@ -752,6 +775,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
         service: data.practica != null ? (serviceNameByCode[data.practica] ?? String(data.practica)) : "",
         funcion: data.funcion != null ? t(FUNCION_LABEL_KEYS[data.funcion]) : "",
         status: t(`status.${data.status}`),
+        society: societyOptions.find((s) => s.society_id === data.society_id)?.name ?? "",
       });
       return;
     }
@@ -813,6 +837,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       practica: isAdmin ? undefined : AUDITORIA_SERVICE_CODE,
       funcion: undefined,
       taxonomy_id: undefined,
+      society_id: undefined,
       client_id: "",
       partner_id: "",
       manager_id: "",
@@ -1036,6 +1061,27 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                         <SelectItem value="1">{t("engagement.funcion_cli")}</SelectItem>
                         <SelectItem value="2">{t("engagement.funcion_cap")}</SelectItem>
                         <SelectItem value="3">{t("engagement.funcion_calidad")}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+
+                <FormField control={form.control} name="society_id" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t("engagement.society")} *</FormLabel>
+                    <Select
+                      disabled={isEdit}
+                      onValueChange={field.onChange}
+                      value={field.value ?? ""}
+                    >
+                      <FormControl><SelectTrigger><SelectValue placeholder={t("engagement.selectSociety")} /></SelectTrigger></FormControl>
+                      <SelectContent>
+                        {societyOptions.map((soc) => (
+                          <SelectItem key={soc.society_id} value={soc.society_id}>
+                            {soc.name}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -1589,6 +1635,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
         service={createdInfo?.service ?? ""}
         funcion={createdInfo?.funcion ?? ""}
         status={createdInfo?.status ?? ""}
+        society={createdInfo?.society ?? ""}
         onClose={handleSuccessDialogClose}
         onCreateAnother={handleCreateAnother}
         onGoToWorkMatrix={handleGoToWorkMatrix}
