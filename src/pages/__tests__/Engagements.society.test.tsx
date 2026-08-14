@@ -54,6 +54,16 @@ const mockEngagements = [
     society: undefined, // historical row: no society backfilled
     work_order: null,
   },
+  {
+    engagement_id: "eng-3",
+    engagement_code: "2027.121.003",
+    engagement_name: "Old Firm Engagement",
+    client: { client_legal_name: "Old Firm Client" },
+    // REVIEW FIX: society deactivated after this engagement was created — useSocieties()
+    // (active-only) would never surface it, so it must come from the engagement embed.
+    society: { society_id: "soc-inactive", name: "Old Society S.R.L." },
+    work_order: null,
+  },
 ];
 
 vi.mock("@/hooks/useEmsData", () => ({
@@ -113,9 +123,21 @@ describe("Engagements — Sociedad column and filter (FEAT 0714-155)", () => {
     wrap(<Engagements />);
     const filter = capturedProps.filters.find((f: any) => f.key === "society_id");
     expect(filter).toBeDefined();
-    expect(filter.options).toEqual([
-      { value: "soc-1", label: "Ruizmier Pelaez S.R.L." },
-      { value: "soc-2", label: "Ruizmier Juaregui S.R.L." },
-    ]);
+    expect(filter.options).toEqual(
+      expect.arrayContaining([
+        { value: "soc-1", label: "Ruizmier Pelaez S.R.L." },
+        { value: "soc-2", label: "Ruizmier Juaregui S.R.L." },
+      ])
+    );
+  });
+
+  it("REVIEW FIX: merges in a historical (now-inactive) society from the engagement embed", () => {
+    wrap(<Engagements />);
+    const filter = capturedProps.filters.find((f: any) => f.key === "society_id");
+    expect(filter.options).toEqual(
+      expect.arrayContaining([{ value: "soc-inactive", label: "Old Society S.R.L." }])
+    );
+    // Still exactly 3: the 2 active + the 1 distinct inactive one — not duplicated.
+    expect(filter.options).toHaveLength(3);
   });
 });
