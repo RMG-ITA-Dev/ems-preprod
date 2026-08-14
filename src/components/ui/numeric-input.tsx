@@ -187,6 +187,11 @@ const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps>(
 
       // Allow empty string
       if (newValue === "") {
+        // BUG 0722-164: limpiar el borrador. Si el campo tenía texto preservado
+        // ("100,0") y se selecciona todo y se borra, sin esto el input seguía
+        // mostrando ese resto (el padre ya está en 0) y la tecla siguiente se
+        // pegaba a él, guardando un monto ajeno al que se ve.
+        setIntermediateValue(null);
         onValueChange?.("");
         onChange?.(0);
         return;

@@ -30,16 +30,16 @@
 --       Al quitar la igualdad ese freno accidental desaparecía, así que la
 --       invariante se declara acá — donde de verdad corresponde.
 --
---   (3) La misma invariante como CONSTRAINT sobre `fund_requests` (al final del
---       archivo). (2) valida el momento de ASIGNAR una OT, pero la invariante es
+--   (3) La misma invariante sobre `fund_requests` (al final del archivo). (2)
+--       valida el momento de ASIGNAR una OT, pero la invariante es
 --       sobre una columna que puede mutar después: el trigger es
 --       `BEFORE INSERT OR UPDATE OF wo_id` sobre la tabla hija, así que cambiar
 --       `fund_requests.currency` a USD cuando las asignaciones YA existen no lo
 --       dispara — y `fund_request_save_edit` acepta `currency` en su `p_fields`,
 --       de modo que ni siquiera hace falta API cruda (basta `p_allocations` NULL).
 --       `fund_request_submit` tampoco revisa la moneda (valida dueño, estado, ≥1
---       OT, cuadre de la suma, OTs Approved y estado del encargo). El CHECK es la
---       única capa que cubre los tres caminos a la vez: INSERT, UPDATE y la RPC.
+--       OT, cuadre de la suma, OTs Approved y estado del encargo). Este trigger
+--       es la única capa que cubre los tres caminos: INSERT, UPDATE y la RPC.
 --
 -- ⚠ NO reintroducir la igualdad de monedas OT=solicitud. Si algún día la
 -- solicitud debe poder ser USD, lo que se relaja es (2)+(3), y antes hay que
@@ -102,23 +102,54 @@ $$;
 -- =====================================================================
 -- Cubre los tres caminos de una sola vez — INSERT, UPDATE directo por API y la
 -- RPC `fund_request_save_edit` (que acepta `currency` en su jsonb) — porque el
--- chequeo del trigger solo corre al asignar OTs y no ve un cambio de moneda
--- posterior a la asignación.
+-- chequeo del trigger de la tabla hija solo corre al asignar OTs y no ve un
+-- cambio de moneda posterior a la asignación.
 --
--- NOT VALID a propósito: no revalida las filas históricas, así que el deploy no
--- puede fallar por una solicitud legacy en un entorno que no se inspeccionó (en
--- el mirror son 40 filas, todas BOB). El constraint SÍ se aplica a todo INSERT y
--- a todo UPDATE nuevo, que es exactamente el hueco que se está cerrando. Una vez
--- confirmado cada entorno se puede promover con:
---   ALTER TABLE public.fund_requests VALIDATE CONSTRAINT fund_requests_currency_bob_only;
+-- Se hace con TRIGGER y no con CHECK. Un `CHECK (currency = 'BOB')`, incluso
+-- declarado NOT VALID, se evalúa en CADA update de la fila: NOT VALID solo se
+-- salta el escaneo inicial de la tabla. En un entorno con una solicitud USD
+-- histórica (el formulario llegó a tener selector de moneda antes de que se
+-- quitara), eso NO la deja como estaba: la deja VARADA — aprobar, desembolsar,
+-- liquidar y cerrar hacen UPDATE sobre `fund_requests` y todos fallarían con un
+-- 23514, aunque no toquen la moneda. Cambiar un deploy ruidoso por un flujo de
+-- negocio que revienta semanas después es peor.
 --
--- El CHECK original `currency IN ('BOB','USD')` (20260610000000) se conserva; este
--- lo estrecha. Para habilitar solicitudes en USD hay que DROPear este constraint,
--- no editarlo — y antes resolver la moneda contable de gastos, IVA y liquidación.
+-- La invariante real no es "toda fila es BOB" sino "nadie CREA una solicitud que
+-- no sea BOB ni CAMBIA la moneda de una existente". Eso es justo lo que valida
+-- este trigger, así que una fila legacy en USD sigue procesándose con normalidad
+-- (sus updates no tocan `currency`) pero ya no puede aparecer ninguna nueva.
+-- Tampoco se reescriben filas históricas a BOB: falsearía datos contables — si
+-- existe alguna, es el negocio quien decide qué hacer con ella.
+--
+-- Para habilitar solicitudes en USD hay que DROPear este trigger — y antes
+-- resolver la moneda contable de gastos, IVA y liquidación.
 -- Idempotente.
+
+-- Revierte el CHECK de la primera versión de esta migración (ya aplicado en el
+-- mirror): habría varado cualquier solicitud USD histórica.
 ALTER TABLE public.fund_requests
   DROP CONSTRAINT IF EXISTS fund_requests_currency_bob_only;
-ALTER TABLE public.fund_requests
-  ADD CONSTRAINT fund_requests_currency_bob_only CHECK (currency = 'BOB') NOT VALID;
+
+CREATE OR REPLACE FUNCTION public.fund_requests_enforce_bob()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.currency IS DISTINCT FROM 'BOB' THEN
+      RAISE EXCEPTION 'Las solicitudes de fondos se registran en BOB (recibido: %)', NEW.currency;
+    END IF;
+  -- En UPDATE solo se valida cuando la moneda CAMBIA: así una fila legacy en USD
+  -- puede seguir aprobándose, desembolsándose, liquidándose y cerrándose.
+  ELSIF NEW.currency IS DISTINCT FROM OLD.currency
+        AND NEW.currency IS DISTINCT FROM 'BOB' THEN
+    RAISE EXCEPTION 'No se puede cambiar la moneda de la solicitud a % (solo BOB)', NEW.currency;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS tr_fund_requests_enforce_bob ON public.fund_requests;
+CREATE TRIGGER tr_fund_requests_enforce_bob
+  BEFORE INSERT OR UPDATE ON public.fund_requests
+  FOR EACH ROW EXECUTE FUNCTION public.fund_requests_enforce_bob();
 
 NOTIFY pgrst, 'reload schema';

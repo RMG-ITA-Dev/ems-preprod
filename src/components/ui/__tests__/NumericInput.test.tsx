@@ -510,6 +510,27 @@ describe("NumericInput — tecleo incremental (0722-164)", () => {
     expect(input.value).toBe("0.5");
   });
 
+  it("limpia el texto intermedio al vaciar el campo por completo", () => {
+    // Con un borrador preservado ("100,0"), seleccionar todo y borrar emitia 0
+    // pero dejaba el intermedio pegado: el input seguia mostrando "100,0" y la
+    // tecla siguiente se pegaba a ese resto, guardando un monto ajeno.
+    render(<Controlled />);
+    const input = screen.getByTestId("numeric-input") as HTMLInputElement;
+
+    typeKeys(input, "100,0");
+    expect(input.value).toBe("100,0");
+
+    fireEvent.change(input, { target: { value: "" } }); // seleccionar todo + borrar
+
+    expect(input.value).toBe("");
+    expect(screen.getByTestId("model").textContent).toBe("0");
+
+    typeKeys(input, "5");
+
+    expect(input.value).toBe("5");
+    expect(screen.getByTestId("model").textContent).toBe("5");
+  });
+
   it("teclea un entero sin dejar texto intermedio pegado", () => {
     // Guarda: el intermedio solo debe sobrevivir cuando el texto NO es canonico.
     render(<Controlled />);
