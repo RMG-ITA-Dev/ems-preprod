@@ -222,8 +222,15 @@ const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps>(
         }
       }
 
-      setIntermediateValue(null);
-      onValueChange?.(toDisplay(newValue));
+      // BUG 0722-164: conservar el texto tecleado mientras NO sea la forma
+      // canónica del número. "100,0" parsea a 100 y, al limpiar el intermedio,
+      // el input volvía a renderizar el `value` del padre ("100"), borrando el
+      // ",0" recién tecleado: la tecla siguiente aterrizaba sobre el entero y
+      // "100,05" terminaba guardado como 1005 — un monto equivocado, en silencio.
+      // Afectaba a todo decimal que empiece en 0 (x,0y) y al cero final ("1250,50").
+      const display = toDisplay(newValue);
+      setIntermediateValue(normalizedValue === String(numericValue) ? null : display);
+      onValueChange?.(display);
       onChange?.(isNaN(numericValue) ? 0 : numericValue);
     };
 

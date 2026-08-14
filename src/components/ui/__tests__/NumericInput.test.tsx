@@ -327,3 +327,116 @@ describe("NumericInput", () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 });
+
+// ── Tecleo incremental sobre un padre controlado (BUG 0722-164) ────────────────
+// El resto de la suite dispara UN change con el valor final ("123.45"), lo que
+// sobreescribe lo que el input muestre y esconde los bugs de re-render. Un
+// navegador teclea SOBRE el contenido visible, y el padre real guarda un numero
+// (no el string), asi que hay que reproducir las dos cosas.
+
+function Controlled({
+  decimals = 2,
+  locale = "es",
+}: {
+  decimals?: 0 | 1 | 2 | 3 | 4 | 5 | 6;
+  locale?: "es" | "en";
+}) {
+  const [value, setValue] = React.useState<number>(0);
+  return (
+    <>
+      <NumericInput
+        data-testid="numeric-input"
+        decimals={decimals}
+        locale={locale}
+        min={0}
+        value={value || ""}
+        onChange={setValue}
+      />
+      <span data-testid="model">{String(value)}</span>
+    </>
+  );
+}
+
+/** Teclea sobre lo que el input MUESTRA, con el caret al final (como el browser). */
+function typeKeys(input: HTMLInputElement, keys: string) {
+  for (const key of keys) {
+    fireEvent.change(input, { target: { value: input.value + key } });
+  }
+}
+
+describe("NumericInput — tecleo incremental (0722-164)", () => {
+  it("teclea 100,05 sin perder el cero del primer decimal", () => {
+    // Antes: al teclear el "0" el input volvia a renderizar "100" desde el value
+    // del padre, el "5" caia sobre el entero y se guardaba 1005.
+    render(<Controlled />);
+    const input = screen.getByTestId("numeric-input") as HTMLInputElement;
+
+    typeKeys(input, "100,05");
+
+    expect(input.value).toBe("100,05");
+    expect(screen.getByTestId("model").textContent).toBe("100.05");
+  });
+
+  it("teclea 0,05", () => {
+    render(<Controlled />);
+    const input = screen.getByTestId("numeric-input") as HTMLInputElement;
+
+    typeKeys(input, "0,05");
+
+    expect(screen.getByTestId("model").textContent).toBe("0.05");
+  });
+
+  it("teclea 100,75 (primer decimal distinto de cero, ya funcionaba)", () => {
+    render(<Controlled />);
+    const input = screen.getByTestId("numeric-input") as HTMLInputElement;
+
+    typeKeys(input, "100,75");
+
+    expect(input.value).toBe("100,75");
+    expect(screen.getByTestId("model").textContent).toBe("100.75");
+  });
+
+  it("teclea 1250,50 conservando el cero final visible", () => {
+    render(<Controlled />);
+    const input = screen.getByTestId("numeric-input") as HTMLInputElement;
+
+    typeKeys(input, "1250,50");
+
+    expect(input.value).toBe("1250,50");
+    expect(screen.getByTestId("model").textContent).toBe("1250.5");
+  });
+
+  it("teclea un tipo de cambio 6,05 con decimals=6", () => {
+    // El mismo defecto convertia 6,05 en 605 en el tipo de cambio del plan de pagos.
+    render(<Controlled decimals={6} />);
+    const input = screen.getByTestId("numeric-input") as HTMLInputElement;
+
+    typeKeys(input, "6,05");
+
+    expect(screen.getByTestId("model").textContent).toBe("6.05");
+  });
+
+  it("normaliza el texto intermedio al salir del campo", () => {
+    render(<Controlled />);
+    const input = screen.getByTestId("numeric-input") as HTMLInputElement;
+
+    typeKeys(input, "100,0");
+    expect(input.value).toBe("100,0"); // se conserva mientras se escribe
+
+    fireEvent.blur(input);
+
+    expect(input.value).toBe("100"); // al salir, forma canonica del numero
+    expect(screen.getByTestId("model").textContent).toBe("100");
+  });
+
+  it("teclea un entero sin dejar texto intermedio pegado", () => {
+    // Guarda: el intermedio solo debe sobrevivir cuando el texto NO es canonico.
+    render(<Controlled />);
+    const input = screen.getByTestId("numeric-input") as HTMLInputElement;
+
+    typeKeys(input, "250");
+
+    expect(input.value).toBe("250");
+    expect(screen.getByTestId("model").textContent).toBe("250");
+  });
+});
