@@ -327,3 +327,235 @@ describe("NumericInput", () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 });
+
+// ── Tecleo incremental sobre un padre controlado (BUG 0722-164) ────────────────
+// El resto de la suite dispara UN change con el valor final ("123.45"), lo que
+// sobreescribe lo que el input muestre y esconde los bugs de re-render. Un
+// navegador teclea SOBRE el contenido visible, y el padre real guarda un numero
+// (no el string), asi que hay que reproducir las dos cosas.
+
+function Controlled({
+  decimals = 2,
+  locale = "es",
+}: {
+  decimals?: 0 | 1 | 2 | 3 | 4 | 5 | 6;
+  locale?: "es" | "en";
+}) {
+  const [value, setValue] = React.useState<number>(0);
+  return (
+    <>
+      <NumericInput
+        data-testid="numeric-input"
+        decimals={decimals}
+        locale={locale}
+        min={0}
+        value={value || ""}
+        onChange={setValue}
+      />
+      <span data-testid="model">{String(value)}</span>
+    </>
+  );
+}
+
+/** Teclea sobre lo que el input MUESTRA, con el caret al final (como el browser). */
+function typeKeys(input: HTMLInputElement, keys: string) {
+  for (const key of keys) {
+    fireEvent.change(input, { target: { value: input.value + key } });
+  }
+}
+
+/** Backspace desde el final, tambien sobre lo que el input MUESTRA. */
+function backspace(input: HTMLInputElement, times = 1) {
+  for (let i = 0; i < times; i++) {
+    fireEvent.change(input, { target: { value: input.value.slice(0, -1) } });
+  }
+}
+
+describe("NumericInput — tecleo incremental (0722-164)", () => {
+  it("teclea 100,05 sin perder el cero del primer decimal", () => {
+    // Antes: al teclear el "0" el input volvia a renderizar "100" desde el value
+    // del padre, el "5" caia sobre el entero y se guardaba 1005.
+    render(<Controlled />);
+    const input = screen.getByTestId("numeric-input") as HTMLInputElement;
+
+    typeKeys(input, "100,05");
+
+    expect(input.value).toBe("100,05");
+    expect(screen.getByTestId("model").textContent).toBe("100.05");
+  });
+
+  it("teclea 0,05", () => {
+    render(<Controlled />);
+    const input = screen.getByTestId("numeric-input") as HTMLInputElement;
+
+    typeKeys(input, "0,05");
+
+    expect(screen.getByTestId("model").textContent).toBe("0.05");
+  });
+
+  it("teclea 100,75 (primer decimal distinto de cero, ya funcionaba)", () => {
+    render(<Controlled />);
+    const input = screen.getByTestId("numeric-input") as HTMLInputElement;
+
+    typeKeys(input, "100,75");
+
+    expect(input.value).toBe("100,75");
+    expect(screen.getByTestId("model").textContent).toBe("100.75");
+  });
+
+  it("teclea 1250,50 conservando el cero final visible", () => {
+    render(<Controlled />);
+    const input = screen.getByTestId("numeric-input") as HTMLInputElement;
+
+    typeKeys(input, "1250,50");
+
+    expect(input.value).toBe("1250,50");
+    expect(screen.getByTestId("model").textContent).toBe("1250.5");
+  });
+
+  it("teclea un tipo de cambio 6,05 con decimals=6", () => {
+    // El mismo defecto convertia 6,05 en 605 en el tipo de cambio del plan de pagos.
+    render(<Controlled decimals={6} />);
+    const input = screen.getByTestId("numeric-input") as HTMLInputElement;
+
+    typeKeys(input, "6,05");
+
+    expect(screen.getByTestId("model").textContent).toBe("6.05");
+  });
+
+  it("normaliza el texto intermedio al salir del campo", () => {
+    render(<Controlled />);
+    const input = screen.getByTestId("numeric-input") as HTMLInputElement;
+
+    typeKeys(input, "100,0");
+    expect(input.value).toBe("100,0"); // se conserva mientras se escribe
+
+    fireEvent.blur(input);
+
+    expect(input.value).toBe("100"); // al salir, forma canonica del numero
+    expect(screen.getByTestId("model").textContent).toBe("100");
+  });
+
+  it("edita un monto YA cargado bajando a un decimal cero", () => {
+    // El caso que el tecleo desde cero no cubre: al pasar de 100,15 a 100,0 el
+    // valor del padre cambia (100.15 -> 100), y el efecto que escucha `value`
+    // borraba el texto intermedio recien guardado. El "5" siguiente caia sobre
+    // el entero y quedaba 1005.
+    render(<Controlled />);
+    const input = screen.getByTestId("numeric-input") as HTMLInputElement;
+
+    typeKeys(input, "100,15");
+    expect(screen.getByTestId("model").textContent).toBe("100.15");
+
+    backspace(input, 2); // "100,15" -> "100,1" -> "100,"
+    typeKeys(input, "05");
+
+    expect(input.value).toBe("100,05");
+    expect(screen.getByTestId("model").textContent).toBe("100.05");
+  });
+
+  it("edita un monto YA cargado dejando el cero final", () => {
+    render(<Controlled />);
+    const input = screen.getByTestId("numeric-input") as HTMLInputElement;
+
+    typeKeys(input, "1250,75");
+    backspace(input, 2); // -> "1250,"
+    typeKeys(input, "50");
+
+    expect(input.value).toBe("1250,50");
+    expect(screen.getByTestId("model").textContent).toBe("1250.5");
+  });
+
+  it("descarta el texto intermedio cuando el valor cambia DESDE AFUERA", () => {
+    // Guarda del efecto: hidratar/resetear el campo por fuera (cargar una
+    // solicitud existente) debe seguir imponiendose sobre lo que se estaba
+    // tecleando; el fix no puede volver inmune al texto intermedio.
+    const { rerender } = render(
+      <NumericInput decimals={2} locale="es" value={100} data-testid="numeric-input" />,
+    );
+    const input = screen.getByTestId("numeric-input") as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: "100,0" } });
+    expect(input.value).toBe("100,0");
+
+    rerender(
+      <NumericInput decimals={2} locale="es" value={2500.5} data-testid="numeric-input" />,
+    );
+
+    expect(input.value).toBe("2500,5");
+  });
+
+  it("no arrastra ceros a la izquierda al teclear sobre un campo en 0", () => {
+    // Guarda de la regresion que detecto StaffAssignmentsCard: el campo muestra
+    // "0", el usuario teclea "0.5" y quedaba "00.5". Los ceros a la izquierda son
+    // ruido que el numero ya representa; solo el cero DECIMAL debe conservarse.
+    // Padre que renderiza el 0 literal (sin `|| ""`), como StaffAssignmentsCard.
+    function ControlledZero() {
+      const [value, setValue] = React.useState<number>(0);
+      return (
+        <NumericInput
+          data-testid="numeric-input"
+          decimals={2}
+          locale="en"
+          value={value}
+          onChange={setValue}
+        />
+      );
+    }
+    render(<ControlledZero />);
+    const input = screen.getByTestId("numeric-input") as HTMLInputElement;
+
+    typeKeys(input, "0.5");
+
+    expect(input.value).toBe("0.5");
+  });
+
+  it("limpia el texto intermedio al vaciar el campo por completo", () => {
+    // Con un borrador preservado ("100,0"), seleccionar todo y borrar emitia 0
+    // pero dejaba el intermedio pegado: el input seguia mostrando "100,0" y la
+    // tecla siguiente se pegaba a ese resto, guardando un monto ajeno.
+    render(<Controlled />);
+    const input = screen.getByTestId("numeric-input") as HTMLInputElement;
+
+    typeKeys(input, "100,0");
+    expect(input.value).toBe("100,0");
+
+    fireEvent.change(input, { target: { value: "" } }); // seleccionar todo + borrar
+
+    expect(input.value).toBe("");
+    expect(screen.getByTestId("model").textContent).toBe("0");
+
+    typeKeys(input, "5");
+
+    expect(input.value).toBe("5");
+    expect(screen.getByTestId("model").textContent).toBe("5");
+  });
+
+  it("suelta el borrador cuando el padre vacia el valor por fuera", () => {
+    // El padre pasa "" cuando su modelo numerico vuelve a 0 (patron `value || ""`).
+    // Sin esto, el efecto se saltaba el caso y el borrador quedaba montado sobre un
+    // modelo vacio: la tecla siguiente editaba un monto que ya no existe.
+    const { rerender } = render(
+      <NumericInput decimals={2} locale="es" value={100} data-testid="numeric-input" />,
+    );
+    const input = screen.getByTestId("numeric-input") as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: "100,0" } });
+    expect(input.value).toBe("100,0");
+
+    rerender(<NumericInput decimals={2} locale="es" value="" data-testid="numeric-input" />);
+
+    expect(input.value).toBe("");
+  });
+
+  it("teclea un entero sin dejar texto intermedio pegado", () => {
+    // Guarda: el intermedio solo debe sobrevivir cuando el texto NO es canonico.
+    render(<Controlled />);
+    const input = screen.getByTestId("numeric-input") as HTMLInputElement;
+
+    typeKeys(input, "250");
+
+    expect(input.value).toBe("250");
+    expect(screen.getByTestId("model").textContent).toBe("250");
+  });
+});

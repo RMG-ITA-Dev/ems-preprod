@@ -1672,8 +1672,8 @@
     "totalAllocated": "Total allocated",
     "missingToAllocate": "Pending to allocate",
     "overAllocated": "Over-allocated",
-    "noApprovedWorkOrders": "No approved Work Orders in {{currency}} available",
-    "noApprovedWorkOrdersHelp": "Change the currency or ask the team to approve a Work Order in that currency before continuing.",
+    "noApprovedWorkOrders": "No approved Work Orders available",
+    "noApprovedWorkOrdersHelp": "Ask the team to approve a Work Order and to assign a manager to its engagement before continuing.",
     "noAllocationsYet": "No work orders allocated yet. Add at least one.",
     "noManagersAvailable": "No managers available to assign. Make sure there are active staff members with category Manager or Director.",
     "prereq": {
