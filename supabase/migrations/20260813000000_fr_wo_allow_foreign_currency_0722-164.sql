@@ -28,15 +28,22 @@
 --       sostenía de rebote: una solicitud USD no podía recibir OTs BOB y, como
 --       `fund_request_submit` exige al menos una OT, quedaba muerta en borrador.
 --       Al quitar la igualdad ese freno accidental desaparecía, así que la
---       invariante se declara acá — donde de verdad corresponde. `currency` en
---       `fund_requests` admite BOB|USD por CHECK y ninguna RLS lo acota, así que
---       sin esto un caller autenticado podía crear una solicitud USD por API y
---       arrastrar los gastos a USD. Verificado antes de aplicar: las 40 filas de
---       `fund_requests` en el mirror son BOB, ninguna queda bloqueada.
+--       invariante se declara acá — donde de verdad corresponde.
+--
+--   (3) La misma invariante como CONSTRAINT sobre `fund_requests` (al final del
+--       archivo). (2) valida el momento de ASIGNAR una OT, pero la invariante es
+--       sobre una columna que puede mutar después: el trigger es
+--       `BEFORE INSERT OR UPDATE OF wo_id` sobre la tabla hija, así que cambiar
+--       `fund_requests.currency` a USD cuando las asignaciones YA existen no lo
+--       dispara — y `fund_request_save_edit` acepta `currency` en su `p_fields`,
+--       de modo que ni siquiera hace falta API cruda (basta `p_allocations` NULL).
+--       `fund_request_submit` tampoco revisa la moneda (valida dueño, estado, ≥1
+--       OT, cuadre de la suma, OTs Approved y estado del encargo). El CHECK es la
+--       única capa que cubre los tres caminos a la vez: INSERT, UPDATE y la RPC.
 --
 -- ⚠ NO reintroducir la igualdad de monedas OT=solicitud. Si algún día la
--- solicitud debe poder ser USD, lo que se relaja es (2), y antes hay que decidir
--- la moneda contable de gastos, IVA y liquidación.
+-- solicitud debe poder ser USD, lo que se relaja es (2)+(3), y antes hay que
+-- decidir la moneda contable de gastos, IVA y liquidación.
 --
 -- Se reproduce la definición vigente de 20260714000000 (FEAT 0602-135) y se
 -- conserva TODO lo demás: existencia de la OT, `approval_status = 'Approved'`,
@@ -89,5 +96,29 @@ BEGIN
   RETURN NEW;
 END;
 $$;
+
+-- =====================================================================
+-- (3) La invariante BOB, sobre la columna misma
+-- =====================================================================
+-- Cubre los tres caminos de una sola vez — INSERT, UPDATE directo por API y la
+-- RPC `fund_request_save_edit` (que acepta `currency` en su jsonb) — porque el
+-- chequeo del trigger solo corre al asignar OTs y no ve un cambio de moneda
+-- posterior a la asignación.
+--
+-- NOT VALID a propósito: no revalida las filas históricas, así que el deploy no
+-- puede fallar por una solicitud legacy en un entorno que no se inspeccionó (en
+-- el mirror son 40 filas, todas BOB). El constraint SÍ se aplica a todo INSERT y
+-- a todo UPDATE nuevo, que es exactamente el hueco que se está cerrando. Una vez
+-- confirmado cada entorno se puede promover con:
+--   ALTER TABLE public.fund_requests VALIDATE CONSTRAINT fund_requests_currency_bob_only;
+--
+-- El CHECK original `currency IN ('BOB','USD')` (20260610000000) se conserva; este
+-- lo estrecha. Para habilitar solicitudes en USD hay que DROPear este constraint,
+-- no editarlo — y antes resolver la moneda contable de gastos, IVA y liquidación.
+-- Idempotente.
+ALTER TABLE public.fund_requests
+  DROP CONSTRAINT IF EXISTS fund_requests_currency_bob_only;
+ALTER TABLE public.fund_requests
+  ADD CONSTRAINT fund_requests_currency_bob_only CHECK (currency = 'BOB') NOT VALID;
 
 NOTIFY pgrst, 'reload schema';
