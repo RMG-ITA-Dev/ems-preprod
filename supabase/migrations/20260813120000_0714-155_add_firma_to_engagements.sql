@@ -16,6 +16,13 @@
 --     exactamente 1 firma del RPC — evita que quede una vía de creación de encargos que
 --     no valide society_id.
 --
+-- REVIEW FIX (post-implementación, 2026-08-14): esta migración también se corre contra una
+-- base vacía (réplay completo de todas las migraciones). Los pasos 2/2b salen temprano si
+-- `engagements` no tiene filas, en vez de correr el loop de diagnóstico y los UPDATE contra
+-- tablas vacías. Además, ambos UPDATE deshabilitan/rehabilitan
+-- update_engagements_updated_at para no pisar el updated_at real de los encargos
+-- backfilleados con la hora de la migración.
+--
 -- Decisiones confirmadas por el operador (2026-08-13, bugs/0714-155/plan_v2.md §Open Questions):
 --   #1 el nombre de la sociedad NUNCA se hardcodea — el backfill matchea dinámicamente
 --      contra public.society.name en vez de literales fijos, así sigue funcionando si el
@@ -52,6 +59,23 @@ ALTER TABLE public.engagements
   ADD COLUMN society_id uuid REFERENCES public.society(society_id) ON DELETE RESTRICT;
 
 -- ────────────────────────────────────────────────────────────────────────────
+-- REVIEW FIX (2026-08-14): los pasos 2/2b se corren también contra una base recién creada
+-- (réplay completo de todas las migraciones, p.ej. para validación de esquema) donde
+-- `engagements` está vacía — ahí no hay nada que backfillear, así que ambos bloques
+-- salen temprano en vez de correr el loop de diagnóstico y los UPDATE contra tablas
+-- vacías. Esto también evita que la advertencia de "0 sociedades con huella" (pensada
+-- para un histórico real que no matcheó) se dispare en una base vacía, donde no
+-- significa nada.
+--
+-- Los dos UPDATE de backfill/default deshabilitan temporalmente
+-- update_engagements_updated_at (mismo patrón que
+-- 20260218023625_ee35a838-e97e-4356-8de2-7d4986d8d114.sql): sin esto, cada fila
+-- backfilleada perdería su updated_at real y aparentaría haber sido modificada en el
+-- momento de correr esta migración, arruinando cualquier auditoría por fecha.
+-- ────────────────────────────────────────────────────────────────────────────
+ALTER TABLE public.engagements DISABLE TRIGGER update_engagements_updated_at;
+
+-- ────────────────────────────────────────────────────────────────────────────
 -- 2. BACKFILL: encargos cuyo Cliente es la sociedad autofacturándose servicios
 --    administrativos (client_legal_name EMPIEZA CON el nombre de una society — join
 --    dinámico por prefijo, sin hardcodear ningún literal). No se toca la tabla clients.
@@ -62,6 +86,11 @@ DECLARE
   v_match_count    integer;
   v_total_matched  integer := 0;
 BEGIN
+  IF NOT EXISTS (SELECT 1 FROM public.engagements) THEN
+    RAISE NOTICE '0714-155 backfill: engagements está vacía (base nueva) — nada que backfillear.';
+    RETURN;
+  END IF;
+
   -- Diagnóstico ANTES de tocar datos: si alguna sociedad no tiene ningún cliente cuyo
   -- nombre empiece con la suya, avisa en el log — puede ser esperado (esa sociedad nunca
   -- se autofacturó servicios administrativos) o señal de que el nombre difiere más de lo
@@ -102,6 +131,10 @@ DECLARE
   v_distinct_societies   integer;
   v_defaulted            integer;
 BEGIN
+  IF NOT EXISTS (SELECT 1 FROM public.engagements) THEN
+    RETURN; -- base vacía: el paso 2 ya lo notificó, nada que defaultear tampoco.
+  END IF;
+
   SELECT count(DISTINCT society_id) INTO v_distinct_societies
     FROM public.engagements
    WHERE society_id IS NOT NULL;
@@ -122,6 +155,8 @@ BEGIN
     RAISE WARNING '0714-155 default histórico: hay % sociedad(es) distinta(s) con huella real (esperada: 1) — NO se aplicó ningún default automático. Decidir manualmente.', v_distinct_societies;
   END IF;
 END $$;
+
+ALTER TABLE public.engagements ENABLE TRIGGER update_engagements_updated_at;
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- 3. REEMPLAZAR RPC: agregar p_society_id (obligatorio, sin DEFAULT — va antes de los
