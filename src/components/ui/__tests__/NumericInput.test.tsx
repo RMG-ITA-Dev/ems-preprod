@@ -364,6 +364,13 @@ function typeKeys(input: HTMLInputElement, keys: string) {
   }
 }
 
+/** Backspace desde el final, tambien sobre lo que el input MUESTRA. */
+function backspace(input: HTMLInputElement, times = 1) {
+  for (let i = 0; i < times; i++) {
+    fireEvent.change(input, { target: { value: input.value.slice(0, -1) } });
+  }
+}
+
 describe("NumericInput — tecleo incremental (0722-164)", () => {
   it("teclea 100,05 sin perder el cero del primer decimal", () => {
     // Antes: al teclear el "0" el input volvia a renderizar "100" desde el value
@@ -427,6 +434,80 @@ describe("NumericInput — tecleo incremental (0722-164)", () => {
 
     expect(input.value).toBe("100"); // al salir, forma canonica del numero
     expect(screen.getByTestId("model").textContent).toBe("100");
+  });
+
+  it("edita un monto YA cargado bajando a un decimal cero", () => {
+    // El caso que el tecleo desde cero no cubre: al pasar de 100,15 a 100,0 el
+    // valor del padre cambia (100.15 -> 100), y el efecto que escucha `value`
+    // borraba el texto intermedio recien guardado. El "5" siguiente caia sobre
+    // el entero y quedaba 1005.
+    render(<Controlled />);
+    const input = screen.getByTestId("numeric-input") as HTMLInputElement;
+
+    typeKeys(input, "100,15");
+    expect(screen.getByTestId("model").textContent).toBe("100.15");
+
+    backspace(input, 2); // "100,15" -> "100,1" -> "100,"
+    typeKeys(input, "05");
+
+    expect(input.value).toBe("100,05");
+    expect(screen.getByTestId("model").textContent).toBe("100.05");
+  });
+
+  it("edita un monto YA cargado dejando el cero final", () => {
+    render(<Controlled />);
+    const input = screen.getByTestId("numeric-input") as HTMLInputElement;
+
+    typeKeys(input, "1250,75");
+    backspace(input, 2); // -> "1250,"
+    typeKeys(input, "50");
+
+    expect(input.value).toBe("1250,50");
+    expect(screen.getByTestId("model").textContent).toBe("1250.5");
+  });
+
+  it("descarta el texto intermedio cuando el valor cambia DESDE AFUERA", () => {
+    // Guarda del efecto: hidratar/resetear el campo por fuera (cargar una
+    // solicitud existente) debe seguir imponiendose sobre lo que se estaba
+    // tecleando; el fix no puede volver inmune al texto intermedio.
+    const { rerender } = render(
+      <NumericInput decimals={2} locale="es" value={100} data-testid="numeric-input" />,
+    );
+    const input = screen.getByTestId("numeric-input") as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: "100,0" } });
+    expect(input.value).toBe("100,0");
+
+    rerender(
+      <NumericInput decimals={2} locale="es" value={2500.5} data-testid="numeric-input" />,
+    );
+
+    expect(input.value).toBe("2500,5");
+  });
+
+  it("no arrastra ceros a la izquierda al teclear sobre un campo en 0", () => {
+    // Guarda de la regresion que detecto StaffAssignmentsCard: el campo muestra
+    // "0", el usuario teclea "0.5" y quedaba "00.5". Los ceros a la izquierda son
+    // ruido que el numero ya representa; solo el cero DECIMAL debe conservarse.
+    // Padre que renderiza el 0 literal (sin `|| ""`), como StaffAssignmentsCard.
+    function ControlledZero() {
+      const [value, setValue] = React.useState<number>(0);
+      return (
+        <NumericInput
+          data-testid="numeric-input"
+          decimals={2}
+          locale="en"
+          value={value}
+          onChange={setValue}
+        />
+      );
+    }
+    render(<ControlledZero />);
+    const input = screen.getByTestId("numeric-input") as HTMLInputElement;
+
+    typeKeys(input, "0.5");
+
+    expect(input.value).toBe("0.5");
   });
 
   it("teclea un entero sin dejar texto intermedio pegado", () => {

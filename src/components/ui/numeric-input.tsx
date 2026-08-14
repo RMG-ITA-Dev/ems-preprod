@@ -52,7 +52,17 @@ const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps>(
     // Clear intermediate state when external value changes
     useEffect(() => {
       if (value !== undefined && value !== null && value !== "") {
-        setIntermediateValue(null);
+        setIntermediateValue((prev) => {
+          if (prev === null) return null;
+          // BUG 0722-164: distinguir un cambio EXTERNO (hidratar/resetear el campo)
+          // de la propia emisión de este input. Al editar 100,15 → "100,0" el
+          // onChange mueve el value del padre (100.15 → 100) y este efecto borraba
+          // el texto que se acababa de guardar: la tecla siguiente daba 1005. Si el
+          // value nuevo es justo el número que representa ese texto, el cambio vino
+          // de acá y hay que conservarlo; cualquier otro valor sí lo reemplaza.
+          const parsedPrev = parseFloat(prev.replace(",", "."));
+          return !isNaN(parsedPrev) && parsedPrev === Number(value) ? prev : null;
+        });
       }
     }, [value]);
     
@@ -228,8 +238,14 @@ const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps>(
       // ",0" recién tecleado: la tecla siguiente aterrizaba sobre el entero y
       // "100,05" terminaba guardado como 1005 — un monto equivocado, en silencio.
       // Afectaba a todo decimal que empiece en 0 (x,0y) y al cero final ("1250,50").
+      //
+      // Los ceros a la IZQUIERDA quedan fuera: son ruido que el número ya
+      // representa ("00" → 0, "007" → 7). Conservarlos rompía escribir sobre un
+      // campo que ya muestra "0" — tecleando "0.5" quedaba "00.5".
       const display = toDisplay(newValue);
-      setIntermediateValue(normalizedValue === String(numericValue) ? null : display);
+      const withoutLeadingZeros = normalizedValue.replace(/^(-?)0+(?=\d)/, "$1");
+      const isFractionalDraft = withoutLeadingZeros !== String(numericValue);
+      setIntermediateValue(isFractionalDraft ? display : null);
       onValueChange?.(display);
       onChange?.(isNaN(numericValue) ? 0 : numericValue);
     };
