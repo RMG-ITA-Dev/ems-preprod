@@ -46,7 +46,8 @@ import { StaffAssignmentsCard } from "@/components/engagements/StaffAssignmentsC
 import { isSchedulerEnabled } from "@/lib/schedulerFeature";
 import { TaxonomyCombobox, NO_APLICA_VALUE } from "@/components/forms/TaxonomyCombobox";
 import { Engagement, useClients, useServices, useTaxonomies, useSocieties } from "@/hooks/useEmsData";
-import { useCategoryStaff } from "@/hooks/useCategoryStaff";
+import { useEngagementTeamCandidates } from "@/hooks/useEngagementTeamCandidates";
+import { filterByService, withSavedStaff } from "@/lib/engagementTeamCandidates";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { useCreateEngagement, useUpdateEngagement, useDeleteEngagement } from "@/hooks/mutations";
 import { Trash2, CalendarIcon, AlertCircle, ChevronsUpDown, Check, Upload, X, FileText } from "lucide-react";
@@ -274,7 +275,18 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   const { data: allServices } = useServices();
   const { data: allTaxonomies } = useTaxonomies();
   const { data: societies } = useSocieties();
-  const { partnerOptions, managerOptions, hasPartnerCategory, hasManagerCategory, allActiveStaff } = useCategoryStaff();
+  // BUG 0722-162: los seis selectores del bloque Equipo se alimentan de `role_key`, no de la
+  // categoría del personal. `useCategoryStaff` ya no se usa acá (sus otros cuatro consumidores
+  // —Engagements, SchedulerL1, WorkOrders, ClientEngagementsTable— quedan intactos).
+  const {
+    partnerDirectorOptions,
+    managerRoleOptions,
+    encargadoOptions,
+    specialistItOptions,
+    specialistTaxOptions,
+    hasPartnerDirectorCandidates,
+    hasManagerCandidates,
+  } = useEngagementTeamCandidates();
   const { staffRecord } = useCurrentStaff();
 
   // FEAT 0602-135 — congelar/descongelar. Decisión de negocio (2026-07-30): además
@@ -341,9 +353,12 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   const initializedEngagementIdRef = useRef<string | null>(null);
 
   // Build missing categories message
+  // BUG 0722-162: el aviso ahora se decide por candidatos con el ROL correspondiente, no por
+  // presencia de categorías en cierto rango de display_order. Sin este cambio el mensaje
+  // evaluaría un criterio distinto al que filtra los selectores.
   const missingCategories: string[] = [];
-  if (!hasPartnerCategory) missingCategories.push(t("engagement.partner"));
-  if (!hasManagerCategory) missingCategories.push(t("engagement.manager"));
+  if (!hasPartnerDirectorCandidates) missingCategories.push(t("engagement.partner"));
+  if (!hasManagerCandidates) missingCategories.push(t("engagement.manager"));
   const hasMissingCategories = missingCategories.length > 0;
 
   const form = useForm<FormData>({
@@ -497,6 +512,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     !isAdmin &&
     savedEffectiveState !== EngagementState.Pendiente &&
     savedEffectiveState !== EngagementState.Rechazado;
+
 
   // BUG #0604-143: derive Año Fiscal from the closing date in real time. Standard options
   // carry their full "yyyy-MM-dd" value; "Otro" carries its own picked date.
@@ -814,6 +830,45 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   const previewCodePrefix = previewIncomplete
     ? null
     : `${wAnio}.${wOficina}${wPractica}${wFuncion}.`;
+
+  // ── BUG 0722-162: opciones del bloque Equipo ──────────────────────────────────────────
+  // Cada campo ofrece SOLO los roles que le corresponden (el RPC ya filtró por rol) y además se
+  // restringe al servicio del encargo. `practica` es el CODE del servicio, así que el service_id
+  // se resuelve contra el catálogo ya cargado. Reutiliza el `wPractica` del watch de arriba, y es
+  // reactivo: si el Admin cambia el servicio, los seis selectores se re-filtran sin pedir datos.
+  const engagementServiceId = useMemo(
+    () => (allServices ?? []).find((s) => s.code === wPractica)?.service_id ?? null,
+    [allServices, wPractica]
+  );
+
+  // `withSavedStaff` se aplica DESPUÉS del filtro por servicio: un asignado histórico que ya no
+  // califica (por rol o por servicio) debe seguir viéndose en SU campo, o `StaffCombobox` no
+  // encontraría el id en `options` y mostraría el placeholder en un campo obligatorio que sí está
+  // lleno. Mismo patrón que societyOptions / clientOptions / activeServiceOptions.
+  const partnerFieldOptions = useMemo(
+    () => withSavedStaff(filterByService(partnerDirectorOptions, engagementServiceId), engagement?.partner),
+    [partnerDirectorOptions, engagementServiceId, engagement?.partner]
+  );
+  const sqrFieldOptions = useMemo(
+    () => withSavedStaff(filterByService(partnerDirectorOptions, engagementServiceId), engagement?.sqr),
+    [partnerDirectorOptions, engagementServiceId, engagement?.sqr]
+  );
+  const managerFieldOptions = useMemo(
+    () => withSavedStaff(filterByService(managerRoleOptions, engagementServiceId), engagement?.manager),
+    [managerRoleOptions, engagementServiceId, engagement?.manager]
+  );
+  const encargadoFieldOptions = useMemo(
+    () => withSavedStaff(filterByService(encargadoOptions, engagementServiceId), engagement?.encargado),
+    [encargadoOptions, engagementServiceId, engagement?.encargado]
+  );
+  const specialistItFieldOptions = useMemo(
+    () => withSavedStaff(filterByService(specialistItOptions, engagementServiceId), engagement?.specialist_it),
+    [specialistItOptions, engagementServiceId, engagement?.specialist_it]
+  );
+  const specialistTaxFieldOptions = useMemo(
+    () => withSavedStaff(filterByService(specialistTaxOptions, engagementServiceId), engagement?.specialist_tax),
+    [specialistTaxOptions, engagementServiceId, engagement?.specialist_tax]
+  );
 
   // Defer navigation until the success modal is dismissed (Close button or `X`), so
   // the user always sees the assigned code before leaving the form.
@@ -1440,7 +1495,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                       searchPlaceholder={t("engagement.searchStaff")}
                       noResultsText={t("engagement.noStaffFound")}
                       noAplicaText={t("engagement.noAplica")}
-                      options={partnerOptions}
+                      options={partnerFieldOptions}
                       value={field.value || null}
                       onChange={(v) => field.onChange(v ?? "")}
                       showNoAplica={false}
@@ -1458,7 +1513,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                       searchPlaceholder={t("engagement.searchStaff")}
                       noResultsText={t("engagement.noStaffFound")}
                       noAplicaText={t("engagement.noAplica")}
-                      options={allActiveStaff}
+                      options={sqrFieldOptions}
                       value={field.value ?? null}
                       onChange={field.onChange}
                     />
@@ -1475,7 +1530,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                       searchPlaceholder={t("engagement.searchStaff")}
                       noResultsText={t("engagement.noStaffFound")}
                       noAplicaText={t("engagement.noAplica")}
-                      options={managerOptions}
+                      options={managerFieldOptions}
                       value={field.value || null}
                       onChange={(v) => field.onChange(v ?? "")}
                       showNoAplica={false}
@@ -1493,7 +1548,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                       searchPlaceholder={t("engagement.searchStaff")}
                       noResultsText={t("engagement.noStaffFound")}
                       noAplicaText={t("engagement.noAplica")}
-                      options={allActiveStaff}
+                      options={encargadoFieldOptions}
                       value={field.value ?? null}
                       onChange={field.onChange}
                     />
@@ -1510,7 +1565,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                       searchPlaceholder={t("engagement.searchStaff")}
                       noResultsText={t("engagement.noStaffFound")}
                       noAplicaText={t("engagement.noAplica")}
-                      options={allActiveStaff}
+                      options={specialistItFieldOptions}
                       value={field.value ?? null}
                       onChange={field.onChange}
                     />
@@ -1527,7 +1582,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                       searchPlaceholder={t("engagement.searchStaff")}
                       noResultsText={t("engagement.noStaffFound")}
                       noAplicaText={t("engagement.noAplica")}
-                      options={allActiveStaff}
+                      options={specialistTaxFieldOptions}
                       value={field.value ?? null}
                       onChange={field.onChange}
                     />

@@ -1,0 +1,100 @@
+import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import {
+  TeamCandidateGroup,
+  TeamCandidateOption,
+} from "@/lib/engagementTeamCandidates";
+
+// BUG 0722-162 — candidatos elegibles para cada campo del bloque "Equipo" del encargo.
+//
+// Por qué un RPC y no `useStaff()`: el rol de negocio vive en `user_roles.role_key`, y para
+// cruzarlo con el personal hace falta `staff.auth_user_id`, que `useStaff()` NO selecciona (PII
+// excluido a propósito, ver useEmsData.ts). Tampoco sirve `get_all_user_roles()`: está gateado
+// por `user_role.read` — permiso que un Gerente con `engagement.create` no necesariamente tiene —
+// y además devuelve email y user_id, PII que este caso de uso no necesita.
+//
+// `get_engagement_team_candidates()` es SECURITY DEFINER, gateada por
+// `engagement.create OR engagement.update`, y devuelve un GRUPO neutro en vez del `role_key`
+// crudo: quien crea un encargo no necesita conocer el rol exacto de sus colegas.
+
+/** Fila cruda del RPC. */
+interface TeamCandidateRow {
+  staff_id: string;
+  display_name: string;
+  candidate_group: TeamCandidateGroup | null;
+  service_id: string | null;
+}
+
+export interface UseEngagementTeamCandidatesResult {
+  /** Socio/Director — alimenta `partner_id` Y `sqr_id` (ambos piden Socio o Director). */
+  partnerDirectorOptions: TeamCandidateOption[];
+  /** Gerente/Supervisor — solo el rol base `manager`. */
+  managerRoleOptions: TeamCandidateOption[];
+  /** Encargado — `senior` y `semisenior`. */
+  encargadoOptions: TeamCandidateOption[];
+  /** Especialista TI — las tres familias `ita_*`. */
+  specialistItOptions: TeamCandidateOption[];
+  /** Especialista Impuestos — las tres familias `tax_*`. */
+  specialistTaxOptions: TeamCandidateOption[];
+  /** Para el aviso de "faltan categorías" de los dos campos obligatorios. */
+  hasPartnerDirectorCandidates: boolean;
+  hasManagerCandidates: boolean;
+  isLoading: boolean;
+  isError: boolean;
+}
+
+const EMPTY: TeamCandidateOption[] = [];
+
+export function useEngagementTeamCandidates(): UseEngagementTeamCandidatesResult {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["engagement-team-candidates"],
+    queryFn: async () => {
+      // NOTA: get_engagement_team_candidates aún no está en src/integrations/supabase/types.ts
+      // (se regenera tras aplicar la migración desde el Supabase real). Hasta entonces se
+      // castea el nombre — mismo escape que usa useStaffFull() con get_staff_full.
+      const { data, error } = await supabase.rpc(
+        "get_engagement_team_candidates" as never
+      );
+      if (error) throw error;
+      return (data ?? []) as unknown as TeamCandidateRow[];
+    },
+  });
+
+  // Un solo pase agrupando por `candidate_group`. Preserva el orden que ya trae el RPC
+  // (ORDER BY last_name, first_name), así los selectores siguen alfabéticos por apellido.
+  //
+  // Ante error o datos ausentes: arrays VACÍOS, nunca la nómina completa. Un fallback amplio
+  // recrearía exactamente el bug que este fix corrige.
+  const grouped = useMemo(() => {
+    const buckets: Record<TeamCandidateGroup, TeamCandidateOption[]> = {
+      partner_director: [],
+      manager: [],
+      encargado: [],
+      specialist_it: [],
+      specialist_tax: [],
+    };
+    for (const row of data ?? []) {
+      // Defensa: el CASE del RPC devuelve NULL si algún rol dejara de estar mapeado.
+      if (!row.candidate_group || !(row.candidate_group in buckets)) continue;
+      buckets[row.candidate_group].push({
+        value: row.staff_id,
+        label: row.display_name,
+        serviceId: row.service_id,
+      });
+    }
+    return buckets;
+  }, [data]);
+
+  return {
+    partnerDirectorOptions: grouped.partner_director ?? EMPTY,
+    managerRoleOptions: grouped.manager ?? EMPTY,
+    encargadoOptions: grouped.encargado ?? EMPTY,
+    specialistItOptions: grouped.specialist_it ?? EMPTY,
+    specialistTaxOptions: grouped.specialist_tax ?? EMPTY,
+    hasPartnerDirectorCandidates: grouped.partner_director.length > 0,
+    hasManagerCandidates: grouped.manager.length > 0,
+    isLoading,
+    isError,
+  };
+}
