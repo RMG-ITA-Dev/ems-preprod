@@ -54,6 +54,35 @@ describe("i18n new keys from bug 0625-151 (contrato escaneado)", () => {
   });
 });
 
+// BUG 0722-162: el aviso de personal faltante en el bloque Equipo pasó a decidirse por ROL
+// (user_roles.role_key) en vez de por categoría, así que el texto también cambió — el viejo
+// mandaba a agregar categorías en Configuración, lo que ya no habilita el botón Crear.
+const NEW_KEYS_0722_162 = ["messages.missingTeamRoles"];
+
+describe("i18n new keys from bug 0722-162 (roles del bloque Equipo)", () => {
+  NEW_KEYS_0722_162.forEach((key) => {
+    it(`es.json has key: ${key}`, () => {
+      expect(getNestedValue(esJson as Record<string, unknown>, key)).toBeDefined();
+    });
+
+    it(`en.json has key: ${key}`, () => {
+      expect(getNestedValue(enJson as Record<string, unknown>, key)).toBeDefined();
+    });
+  });
+
+  it("el mensaje dirige a Roles de Usuario, no a agregar categorías", () => {
+    expect(esJson.messages.missingTeamRoles).toContain("Roles de Usuario");
+    expect(esJson.messages.missingTeamRoles).not.toContain("categorías");
+    expect(enJson.messages.missingTeamRoles).toContain("User Roles");
+    expect(enJson.messages.missingTeamRoles).not.toContain("categories");
+  });
+
+  it("interpola {{roles}}, no {{categories}}", () => {
+    expect(esJson.messages.missingTeamRoles).toContain("{{roles}}");
+    expect(enJson.messages.missingTeamRoles).toContain("{{roles}}");
+  });
+});
+
 const REPORT_KEYS_0319_91 = [
   "fundRequestExpense.report.exportButton",
   "fundRequestExpense.report.title",

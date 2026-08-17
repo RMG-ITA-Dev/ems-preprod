@@ -427,12 +427,18 @@ describe("EngagementForm — elegibilidad por rol en el bloque Equipo (0722-162)
     await user.click(screen.getByLabelText(/engagement\.practica/));
     await user.click(await screen.findByRole("option", { name: "Auditoría" }));
 
-    // 3) El valor quedó en null: `No Aplica` pasa a estar marcado.
-    await waitFor(async () => {
-      expect(noAplicaCheck(await openCombobox("engagement.selectEncargado"))).toHaveClass(
-        "opacity-100"
-      );
-    });
+    // 3) Esperar a que el filtro se haya aplicado — señal: el trigger volvió al placeholder.
+    //    (Ojo: esto pasa CON y SIN el fix, así que no alcanza como aserción; ver abajo.)
+    //    No abrir el popover dentro del waitFor: cada reintento lo abriría de nuevo.
+    await waitFor(() =>
+      expect(screen.getByText("engagement.selectEncargado")).toBeInTheDocument()
+    );
+
+    // Y acá la aserción que sí distingue: el VALOR quedó en null, así que `No Aplica` está
+    // marcado. Sin la limpieza el UUID rancio seguiría en RHF y el check estaría en opacity-0.
+    expect(noAplicaCheck(await openCombobox("engagement.selectEncargado"))).toHaveClass(
+      "opacity-100"
+    );
   });
 
   it("cambiar el servicio NO limpia a quien sigue siendo elegible", async () => {
@@ -451,6 +457,24 @@ describe("EngagementForm — elegibilidad por rol en el bloque Equipo (0722-162)
 
     await waitFor(() => expect(getTriggerByText(SENIOR.label)).toBeInTheDocument());
     expect(noAplicaCheck(await openCombobox(SENIOR.label))).toHaveClass("opacity-0");
+  });
+
+  // ── Review de Codex: el aviso debe dirigir a roles, no a categorías ─────────────────────
+  it("sin candidatos obligatorios avisa por ROLES, no por categorías", async () => {
+    // Seguir el mensaje viejo ("agregue categorías en Configuración") no habilitaba nada: la
+    // elegibilidad depende de user_roles.role_key.
+    mockCandidates.partnerDirectorOptions = [];
+    mockCandidates.managerRoleOptions = [];
+    mockCandidates.hasPartnerDirectorCandidates = false;
+    mockCandidates.hasManagerCandidates = false;
+    render(<EngagementForm />);
+    expect(screen.getByText(/messages\.missingTeamRoles/)).toBeInTheDocument();
+    expect(screen.queryByText(/messages\.missingCategories/)).toBeNull();
+  });
+
+  it("con candidatos en los dos campos obligatorios no muestra el aviso", () => {
+    render(<EngagementForm />);
+    expect(screen.queryByText(/messages\.missingTeamRoles/)).toBeNull();
   });
 
   // ── Sin datos: nunca se degrada a mostrar de más ─────────────────────────────────────────

@@ -359,14 +359,18 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
 
   const initializedEngagementIdRef = useRef<string | null>(null);
 
-  // Build missing categories message
   // BUG 0722-162: el aviso ahora se decide por candidatos con el ROL correspondiente, no por
-  // presencia de categorías en cierto rango de display_order. Sin este cambio el mensaje
-  // evaluaría un criterio distinto al que filtra los selectores.
-  const missingCategories: string[] = [];
-  if (!hasPartnerDirectorCandidates) missingCategories.push(t("engagement.partner"));
-  if (!hasManagerCandidates) missingCategories.push(t("engagement.manager"));
-  const hasMissingCategories = missingCategories.length > 0;
+  // presencia de categorías en cierto rango de display_order — si no, evaluaría un criterio
+  // distinto al que filtra los selectores.
+  //
+  // Review de Codex: el mensaje también tenía que cambiar. `messages.missingCategories` manda a
+  // agregar CATEGORÍAS en Configuración, y seguir esa instrucción ya no habilita nada: la
+  // elegibilidad depende de `user_roles.role_key`. `messages.missingTeamRoles` dirige al lugar
+  // correcto (Configuración → Roles de Usuario).
+  const missingTeamRoles: string[] = [];
+  if (!hasPartnerDirectorCandidates) missingTeamRoles.push(t("engagement.partner"));
+  if (!hasManagerCandidates) missingTeamRoles.push(t("engagement.manager"));
+  const hasMissingTeamRoles = missingTeamRoles.length > 0;
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -1036,11 +1040,11 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
         )}
       </div>
 
-      {hasMissingCategories && !isEdit && (
+      {hasMissingTeamRoles && !isEdit && (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
-            {t("messages.missingCategories", { categories: missingCategories.join(", ") })}
+            {t("messages.missingTeamRoles", { roles: missingTeamRoles.join(", ") })}
           </AlertDescription>
         </Alert>
       )}
@@ -1743,7 +1747,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                   variant="default"
                   className="w-full sm:w-auto min-h-[44px] sm:min-h-0"
                   loading={createMutation.isPending || updateMutation.isPending}
-                  disabled={hasMissingCategories && !isEdit}
+                  disabled={hasMissingTeamRoles && !isEdit}
                 >
                   {isEdit ? t("common.saveChanges") : t("engagement.createEngagement")}
                 </LoadingButton>
