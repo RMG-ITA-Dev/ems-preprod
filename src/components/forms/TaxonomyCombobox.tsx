@@ -33,10 +33,7 @@ interface TaxonomyComboboxProps {
   disabled?: boolean;
   placeholder?: string;
   showNoAplica?: boolean;
-}
-
-function formatTaxonomyLabel(code: string, name: string): string {
-  return `${code} - ${name}`;
+  "aria-invalid"?: boolean;
 }
 
 export function TaxonomyCombobox({
@@ -46,6 +43,7 @@ export function TaxonomyCombobox({
   disabled = false,
   placeholder,
   showNoAplica = true,
+  "aria-invalid": ariaInvalid,
 }: TaxonomyComboboxProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -60,13 +58,14 @@ export function TaxonomyCombobox({
           variant="outline"
           role="combobox"
           aria-expanded={open}
+          aria-invalid={ariaInvalid}
           disabled={disabled}
           data-testid="taxonomy-combobox-trigger"
           className="w-full justify-between h-10 font-normal"
         >
           <span className="truncate">
             {selected
-              ? formatTaxonomyLabel(selected.code, selected.name)
+              ? selected.name
               : isNoAplica
                 ? t("engagement.noAplicaTaxonomy")
                 : placeholder || t("engagement.selectTaxonomy")}
@@ -112,8 +111,7 @@ export function TaxonomyCombobox({
                       value === tx.taxonomy_id ? "opacity-100" : "opacity-0"
                     )}
                   />
-                  <span className="font-medium">{tx.code}</span>
-                  <span className="opacity-70 ml-2 whitespace-normal">- {tx.name}</span>
+                  <span className="whitespace-normal">{tx.name}</span>
                 </CommandItem>
               ))}
             </CommandGroup>

@@ -137,6 +137,28 @@ describe("useEngagementMutations", () => {
       expect(mockEq).toHaveBeenCalledWith("engagement_id", "1");
       expect(toast.success).toHaveBeenCalled();
     });
+
+    // 0722-157: Sociedad is now editable by Admin after creation — EngagementForm gates
+    // society_id to admin-only, but the mutation itself just passes whatever it's given
+    // straight to Supabase (the gate lives in the caller).
+    it("passes society_id through unchanged to the update payload", async () => {
+      const mockData = { engagement_id: "1", society_id: "soc-2" };
+      const mockSingle = vi.fn().mockResolvedValue({ data: mockData, error: null });
+      const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
+      const mockEq = vi.fn().mockReturnValue({ select: mockSelect });
+      const mockUpdate = vi.fn().mockReturnValue({ eq: mockEq });
+      vi.mocked(supabase.from).mockReturnValue({ update: mockUpdate } as any);
+
+      const { result } = renderHook(() => useUpdateEngagement(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate({ id: "1", data: { society_id: "soc-2" } });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ society_id: "soc-2" }));
+    });
   });
 
   describe("useDeleteEngagement", () => {

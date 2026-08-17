@@ -813,6 +813,8 @@
     "noMatchingTaxonomies": "No matching services.",
     "noAplicaTaxonomy":   "Not applicable",
     "requiredTaxonomyCliente": "Service is required for Client engagements",
+    "sectionClassification": "Classification",
+    "requiredFieldsLegend": "* Required fields",
     "assignments": {
       "category": "Category",
       "searchStaff": "Search staff...",
@@ -827,7 +829,7 @@
         "missingSkills": "Missing competencies: {{list}}",
         "belowLevel": "Below required level: {{list}}"
       },
-      "title": "Staff assignments",
+      "title": "Staff assignment",
       "addRow": "Add assignment",
       "save": "Save assignments",
       "discard": "Discard changes",
@@ -1587,6 +1589,10 @@
     "copyActivitiesLabel": "{{count}} activities with hours",
     "copyReplaceWarning": "This will replace the current matrix. You can still edit before saving.",
     "copyConfirmButton": "Copy matrix"
+  },
+  "worksheet": {
+    "searchEngagement": "Search engagement...",
+    "noEngagementResults": "No matching engagements."
   },
   "bootstrap": {
     "title": "Complete Your Setup",

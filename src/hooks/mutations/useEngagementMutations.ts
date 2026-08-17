@@ -89,6 +89,9 @@ export function useUpdateEngagement() {
         engagement_name: string;
         engagement_code: string;
         client_id: string;
+        // FEAT 0722-157: solo el Admin puede editar la Sociedad tras la creación — el
+        // gate está en EngagementForm.tsx (society_id se omite del payload para no-admin).
+        society_id: string;
         partner_id: string;
         manager_id: string;
         start_date: string;

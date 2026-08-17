@@ -173,11 +173,16 @@ vi.mock("@/components/ui/popover", () => ({
 
 // Minimal EngagementCreatedDialog mock — renders the "crear otro" button when open (Review 2)
 vi.mock("@/components/forms/EngagementCreatedDialog", () => ({
-  EngagementCreatedDialog: ({ open, onCreateAnother }: any) =>
+  EngagementCreatedDialog: ({ open, onCreateAnother, onGoToWorkMatrix }: any) =>
     open ? (
-      <button type="button" onClick={onCreateAnother}>
-        engagement.createAnother
-      </button>
+      <>
+        <button type="button" onClick={onCreateAnother}>
+          engagement.createAnother
+        </button>
+        <button type="button" onClick={onGoToWorkMatrix}>
+          engagement.goToWorkMatrix
+        </button>
+      </>
     ) : null,
 }));
 
@@ -423,5 +428,69 @@ describe("0625-148 — role-based service restriction", () => {
 
     // FEAT 0714-155: "crear otro" must not carry over the previous engagement's Sociedad.
     expect(screen.getByLabelText(/engagement\.society/)).toHaveTextContent("engagement.selectSociety");
+  }, 15000);
+
+  // 0722-157: "Ir a Matriz de Trabajo" must forward the just-created engagement_id so
+  // /worksheets/new can preselect it instead of making the user search for it again.
+  it("'Ir a Matriz de Trabajo' forwards the created engagement_id", async () => {
+    const user = userEvent.setup();
+    mockCreateMutateAsync.mockResolvedValue({ engagement_code: "2026.011.001", engagement_id: "eng-abc" });
+    const onGoToWorkMatrix = vi.fn();
+
+    render(<EngagementForm onGoToWorkMatrix={onGoToWorkMatrix} />);
+
+    await user.type(screen.getByLabelText(/engagement\.name/), "Test Engagement Alpha");
+
+    const clientSelect = screen.getByLabelText(/engagement\.client/);
+    await user.click(clientSelect);
+    await waitFor(() => screen.getByRole("option", { name: "Acme Corp" }));
+    await user.click(screen.getByRole("option", { name: "Acme Corp" }));
+
+    const partnerSelect = screen.getByLabelText(/engagement\.partner/);
+    await user.click(partnerSelect);
+    await waitFor(() => screen.getByRole("option", { name: "Juan Partner" }));
+    await user.click(screen.getByRole("option", { name: "Juan Partner" }));
+
+    const managerSelect = screen.getByLabelText(/engagement\.manager/);
+    await user.click(managerSelect);
+    await waitFor(() => screen.getByRole("option", { name: "Ana Manager" }));
+    await user.click(screen.getByRole("option", { name: "Ana Manager" }));
+
+    const calendars = screen.getAllByTestId("calendar-mock");
+    fireEvent.change(calendars[0], { target: { value: "2026-10-01" } });
+    fireEvent.change(calendars[1], { target: { value: "2027-09-30" } });
+
+    const oficina = screen.getByLabelText(/engagement\.oficina/);
+    await user.click(oficina);
+    await waitFor(() => screen.getByRole("option", { name: "engagement.oficina_ambos" }));
+    await user.click(screen.getByRole("option", { name: "engagement.oficina_ambos" }));
+
+    const funcion = screen.getByLabelText(/engagement\.funcion/);
+    await user.click(funcion);
+    await waitFor(() => screen.getByRole("option", { name: "engagement.funcion_adm" }));
+    await user.click(screen.getByRole("option", { name: "engagement.funcion_adm" }));
+
+    const society = screen.getByLabelText(/engagement\.society/);
+    await user.click(society);
+    await waitFor(() => screen.getByRole("option", { name: "Ruizmier Pelaez S.R.L." }));
+    await user.click(screen.getByRole("option", { name: "Ruizmier Pelaez S.R.L." }));
+
+    const closingDate = screen.getByRole("combobox", { name: "engagement.closingDate *" });
+    await user.click(closingDate);
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBeGreaterThan(0));
+    await user.click(screen.getAllByRole("option")[0]);
+
+    const contractInput = document.getElementById("engagement-contract-upload") as HTMLInputElement;
+    fireEvent.change(contractInput, { target: { files: [makePdfFile()] } });
+    await waitFor(() => expect(mockContractUpload).toHaveBeenCalledTimes(1));
+
+    await user.click(screen.getByText("engagement.createEngagement"));
+
+    await waitFor(() => {
+      expect(screen.getByText("engagement.goToWorkMatrix")).toBeInTheDocument();
+    });
+    await user.click(screen.getByText("engagement.goToWorkMatrix"));
+
+    expect(onGoToWorkMatrix).toHaveBeenCalledWith("eng-abc");
   }, 15000);
 });

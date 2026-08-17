@@ -123,21 +123,27 @@ vi.mock("@/hooks/mutations", () => ({
   useSaveEngagementAssignments: () => ({ saveAssignments: vi.fn(), isSaving: false }),
 }));
 
-vi.mock("@/hooks/useAuthorization", () => ({
-  useAuthorization: () => ({ can: () => true, roleKey: "manager" }),
-}));
-
 // The scheduler flag defaults to "true" in vitest.config.ts, so edit mode mounts
-// StaffAssignmentsCard, which pulls useUserRole (-> useAuth). Mock it directly, same
-// convention as EngagementForm.taxonomy.test.tsx/contractFile.test.tsx.
-vi.mock("@/hooks/useUserRole", () => ({
-  useUserRole: () => ({ isAdmin: false }),
-}));
+// StaffAssignmentsCard, which pulls useUserRole (-> useAuth). Mocked as a controllable vi.fn()
+// (default non-admin) so the 0722-157 admin-editable-Sociedad tests can flip it per test —
+// same convention as EngagementForm.servicesCatalog.test.tsx. `useAuthorization` derives
+// `roleKey` from it at call time (not at mock-hoist time) so both mocks stay in sync.
+vi.mock("@/hooks/useUserRole", () => ({ useUserRole: vi.fn() }));
+vi.mock("@/hooks/useAuthorization", async () => {
+  const { useUserRole } = await import("@/hooks/useUserRole");
+  return {
+    useAuthorization: () => ({
+      can: () => true,
+      roleKey: (useUserRole() as unknown as { isAdmin?: boolean })?.isAdmin ? "admin" : "manager",
+    }),
+  };
+});
 
 vi.mock("@/hooks/useCurrentStaff", () => ({
   useCurrentStaff: () => ({ staffRecord: null }),
 }));
 
+import { useUserRole } from "@/hooks/useUserRole";
 import { EngagementForm } from "@/components/forms/EngagementForm";
 import type { Engagement } from "@/hooks/useEmsData";
 
@@ -182,6 +188,7 @@ const mockEngagementNullSociety: Engagement = {
 describe("EngagementForm — Sociedad select (FEAT 0714-155)", () => {
   beforeEach(() => {
     mockUpdateMutateAsync.mockClear();
+    vi.mocked(useUserRole).mockReturnValue({ isAdmin: false, isLoading: false } as any);
   });
 
   it("renders the label with an asterisk", () => {
@@ -227,11 +234,40 @@ describe("EngagementForm — Sociedad select (FEAT 0714-155)", () => {
     const [[call]] = mockUpdateMutateAsync.mock.calls;
     expect(call.data).not.toHaveProperty("society_id");
   });
+
+  // 0722-157: Admin may edit Sociedad after creation (frontend-only, no DB guard — OQ4);
+  // every other role keeps seeing it disabled, unchanged from the block above.
+  describe("admin-only editable after creation (0722-157)", () => {
+    beforeEach(() => {
+      vi.mocked(useUserRole).mockReturnValue({ isAdmin: true, isLoading: false } as any);
+    });
+
+    it("edit mode: the select is enabled for admin", () => {
+      render(<EngagementForm engagement={mockEngagementWithSociety} />);
+      expect(screen.getByLabelText(/engagement\.society/)).not.toBeDisabled();
+    });
+
+    it("edit mode: admin changing Sociedad sends the new society_id in the update payload", async () => {
+      const user = userEvent.setup();
+      render(<EngagementForm engagement={mockEngagementWithSociety} />);
+
+      await user.click(screen.getByLabelText(/engagement\.society/));
+      await waitFor(() => screen.getByRole("option", { name: "Ruizmier Juaregui S.R.L." }));
+      await user.click(screen.getByRole("option", { name: "Ruizmier Juaregui S.R.L." }));
+
+      await user.click(screen.getByRole("button", { name: "common.saveChanges" }));
+
+      await waitFor(() => expect(mockUpdateMutateAsync).toHaveBeenCalled());
+      const [[call]] = mockUpdateMutateAsync.mock.calls;
+      expect(call.data).toMatchObject({ society_id: "soc-active-2" });
+    });
+  });
 });
 
 describe("EngagementForm — Sociedad required in creation (real submit, FEAT 0714-155)", () => {
   beforeEach(() => {
     mockCreateMutateAsync.mockClear();
+    vi.mocked(useUserRole).mockReturnValue({ isAdmin: false, isLoading: false } as any);
   });
 
   // REVIEW FIX: the previous version of this describe block only re-implemented the
