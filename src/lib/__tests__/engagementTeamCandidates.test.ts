@@ -151,28 +151,39 @@ describe("withSavedStaff", () => {
   const options = [opt("a", "Ana Socia", "svc-audit")];
   const saved = { staff_id: "hist", first_name: "Hugo", last_name: "Historico" };
 
-  it("agrega al asignado guardado cuando no está entre los candidatos", () => {
-    const result = withSavedStaff(options, saved);
+  it("agrega al asignado guardado cuando sigue siendo el valor del campo", () => {
+    const result = withSavedStaff(options, saved, "hist");
     expect(result).toHaveLength(2);
     expect(result[1]).toEqual({ value: "hist", label: "Hugo Historico", serviceId: null });
   });
 
   it("no lo duplica si ya está en la lista", () => {
     const already = [...options, opt("hist", "Hugo Historico", "svc-audit")];
-    expect(withSavedStaff(already, saved)).toHaveLength(2);
+    expect(withSavedStaff(already, saved, "hist")).toHaveLength(2);
   });
 
   it("es no-op cuando no hay valor guardado", () => {
-    expect(withSavedStaff(options, null)).toEqual(options);
-    expect(withSavedStaff(options, undefined)).toEqual(options);
+    expect(withSavedStaff(options, null, null)).toEqual(options);
+    expect(withSavedStaff(options, undefined, "hist")).toEqual(options);
   });
 
-  it("preserva el histórico incluso sobre una lista vacía (campo obligatorio no queda huérfano)", () => {
+  it("preserva el histórico sobre una lista vacía (campo obligatorio no queda huérfano)", () => {
     // Caso real: partner_id apunta a alguien sin role_key. Sin esto, StaffCombobox mostraría
     // el placeholder en un campo obligatorio que sí está lleno.
-    expect(withSavedStaff([], saved)).toEqual([
+    expect(withSavedStaff([], saved, "hist")).toEqual([
       { value: "hist", label: "Hugo Historico", serviceId: null },
     ]);
+  });
+
+  // Review de Codex: el merge sirve para no perder de vista lo guardado, NO para volver elegible
+  // a alguien que no califica. Reemplazado ⇒ fuera de la lista.
+  it("deja de ofrecer al histórico una vez que el campo tiene otro valor", () => {
+    expect(withSavedStaff(options, saved, "a")).toEqual(options);
+  });
+
+  it("deja de ofrecerlo cuando el campo se limpió a null", () => {
+    expect(withSavedStaff(options, saved, null)).toEqual(options);
+    expect(withSavedStaff(options, saved, "")).toEqual(options);
   });
 });
 
@@ -184,7 +195,8 @@ describe("composición usada por EngagementForm: withSavedStaff(filterByService(
     const saved = { staff_id: "otro", first_name: "Otro", last_name: "Servicio" };
     const result = withSavedStaff(
       filterByService(options, { apply: true, serviceId: "svc-audit" }),
-      saved
+      saved,
+      "otro"
     );
     expect(result.map((o) => o.value)).toEqual(["a", "otro"]);
   });
@@ -194,7 +206,8 @@ describe("composición usada por EngagementForm: withSavedStaff(filterByService(
     const saved = { staff_id: "hist", first_name: "Hugo", last_name: "Historico" };
     const result = withSavedStaff(
       filterByService([opt("a", "Ana", "svc-audit")], { apply: true, serviceId: null }),
-      saved
+      saved,
+      "hist"
     );
     expect(result.map((o) => o.value)).toEqual(["hist"]);
   });

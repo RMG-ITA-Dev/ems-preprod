@@ -852,29 +852,42 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   // califica (por rol o por servicio) debe seguir viéndose en SU campo, o `StaffCombobox` no
   // encontraría el id en `options` y mostraría el placeholder en un campo obligatorio que sí está
   // lleno. Mismo patrón que societyOptions / clientOptions / activeServiceOptions.
+  //
+  // Review de Codex: se le pasa el VALOR VIGENTE del campo. El merge existe para no perder de
+  // vista lo guardado, no para volver elegible a alguien que no califica — en cuanto el editor
+  // elige un reemplazo válido, el histórico deja de ofrecerse (si no, podría re-seleccionarse y
+  // persistirse, y el update path no valida elegibilidad). De ahí el watch de los cuatro campos
+  // opcionales; partner_id y manager_id ya vienen del watch de más arriba.
+  const [wSqrId, wEncargadoId, wSpecialistItId, wSpecialistTaxId] = form.watch([
+    "sqr_id",
+    "encargado_id",
+    "specialist_it_id",
+    "specialist_tax_id",
+  ]);
+
   const partnerFieldOptions = useMemo(
-    () => withSavedStaff(filterByService(partnerDirectorOptions, serviceFilter), engagement?.partner),
-    [partnerDirectorOptions, serviceFilter, engagement?.partner]
+    () => withSavedStaff(filterByService(partnerDirectorOptions, serviceFilter), engagement?.partner, wPartnerId),
+    [partnerDirectorOptions, serviceFilter, engagement?.partner, wPartnerId]
   );
   const sqrFieldOptions = useMemo(
-    () => withSavedStaff(filterByService(partnerDirectorOptions, serviceFilter), engagement?.sqr),
-    [partnerDirectorOptions, serviceFilter, engagement?.sqr]
+    () => withSavedStaff(filterByService(partnerDirectorOptions, serviceFilter), engagement?.sqr, wSqrId),
+    [partnerDirectorOptions, serviceFilter, engagement?.sqr, wSqrId]
   );
   const managerFieldOptions = useMemo(
-    () => withSavedStaff(filterByService(managerRoleOptions, serviceFilter), engagement?.manager),
-    [managerRoleOptions, serviceFilter, engagement?.manager]
+    () => withSavedStaff(filterByService(managerRoleOptions, serviceFilter), engagement?.manager, wManagerId),
+    [managerRoleOptions, serviceFilter, engagement?.manager, wManagerId]
   );
   const encargadoFieldOptions = useMemo(
-    () => withSavedStaff(filterByService(encargadoOptions, serviceFilter), engagement?.encargado),
-    [encargadoOptions, serviceFilter, engagement?.encargado]
+    () => withSavedStaff(filterByService(encargadoOptions, serviceFilter), engagement?.encargado, wEncargadoId),
+    [encargadoOptions, serviceFilter, engagement?.encargado, wEncargadoId]
   );
   const specialistItFieldOptions = useMemo(
-    () => withSavedStaff(filterByService(specialistItOptions, serviceFilter), engagement?.specialist_it),
-    [specialistItOptions, serviceFilter, engagement?.specialist_it]
+    () => withSavedStaff(filterByService(specialistItOptions, serviceFilter), engagement?.specialist_it, wSpecialistItId),
+    [specialistItOptions, serviceFilter, engagement?.specialist_it, wSpecialistItId]
   );
   const specialistTaxFieldOptions = useMemo(
-    () => withSavedStaff(filterByService(specialistTaxOptions, serviceFilter), engagement?.specialist_tax),
-    [specialistTaxOptions, serviceFilter, engagement?.specialist_tax]
+    () => withSavedStaff(filterByService(specialistTaxOptions, serviceFilter), engagement?.specialist_tax, wSpecialistTaxId),
+    [specialistTaxOptions, serviceFilter, engagement?.specialist_tax, wSpecialistTaxId]
   );
 
   // ── Aviso de personal faltante (los dos campos obligatorios) ─────────────────────────────
@@ -894,19 +907,27 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   // habilitado, dejando un campo obligatorio imposible de llenar y sin explicación. Se exige
   // además que el servicio esté RESUELTO — durante el fail-closed del catálogo las listas están
   // vacías por otra razón y afirmar "falta personal" sería otra vez engañoso.
+  // Hay `practica` elegida pero el catálogo no la resuelve (cargando, fallado, o el code no está
+  // en el catálogo): estado INDETERMINADO — no se sabe a qué servicio pertenece el encargo.
+  const serviceUnresolved = serviceFilter.apply && serviceFilter.serviceId == null;
+
   const teamSelectionResolved =
-    !teamCandidatesLoading &&
-    !teamCandidatesError &&
-    (!serviceFilter.apply || serviceFilter.serviceId != null);
+    !teamCandidatesLoading && !teamCandidatesError && !serviceUnresolved;
   const missingTeamRoles: string[] = [];
   if (teamSelectionResolved) {
     if (partnerFieldOptions.length === 0) missingTeamRoles.push(t("engagement.partner"));
     if (managerFieldOptions.length === 0) missingTeamRoles.push(t("engagement.manager"));
   }
   const hasMissingTeamRoles = missingTeamRoles.length > 0;
-  // El botón Crear se bloquea en ambos casos (sin candidatos no se puede completar el Equipo),
-  // pero el mensaje que se muestra es el que corresponde a cada causa.
-  const teamBlocksCreation = hasMissingTeamRoles || teamCandidatesError;
+
+  // Review de Greptile: con el servicio indeterminado, el `useEffect` de limpieza se saltea a
+  // propósito — podría ser un glitch transitorio del catálogo y borrar selecciones válidas sería
+  // peor que el problema. Pero entonces quedaban tres cosas a la vez: selectores vacíos por el
+  // fail-closed, valores retenidos en React Hook Form, y Crear habilitado. Como esos valores
+  // pasan la validación de "string no vacío" y `create_engagement_with_code` NO valida alineación
+  // staff/servicio, se podía persistir una asignación cruzada. Se bloquea la creación: así el
+  // fail-closed deja de ser solo visual y ningún valor retenido llega al backend.
+  const teamBlocksCreation = hasMissingTeamRoles || teamCandidatesError || serviceUnresolved;
 
   // Review de Codex (0722-162): quitar a alguien de `options` NO lo saca del formulario.
   //
@@ -1064,7 +1085,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
           abajo. Un fallo de carga importa igual o más en edición: los selectores quedan vacíos
           (solo `withSavedStaff` rescata al asignado actual), así que el editor no puede elegir
           reemplazo — y sin este mensaje no tendría ninguna explicación de por qué. */}
-      {teamCandidatesError && (
+      {(teamCandidatesError || serviceUnresolved) && (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>{t("messages.teamCandidatesLoadError")}</AlertDescription>

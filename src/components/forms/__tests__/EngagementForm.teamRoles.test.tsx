@@ -363,6 +363,37 @@ describe("EngagementForm — elegibilidad por rol en el bloque Equipo (0722-162)
     expect(screen.queryByText("engagement.selectPartner")).toBeNull();
   });
 
+  it("tras elegir un reemplazo válido, el histórico inelegible deja de ofrecerse", async () => {
+    // Review de Codex: el merge existe para no perder de vista lo guardado, no para volver
+    // elegible a alguien que no califica. Si siguiera en la lista se lo podría re-seleccionar y
+    // persistir, y el update path no valida elegibilidad.
+    const historico = { staff_id: "hist", first_name: "Hugo", last_name: "Historico" };
+    mockCandidates.encargadoOptions = [SENIOR];
+    const user = userEvent.setup();
+    render(
+      <EngagementForm
+        engagement={{
+          ...baseEngagement,
+          encargado_id: historico.staff_id,
+          encargado: historico as any,
+        }}
+      />
+    );
+
+    // 1) Al abrir, el histórico está visible porque sigue siendo el valor del campo.
+    let listbox = await openCombobox("Hugo Historico");
+    expect(listbox).toHaveTextContent("Hugo Historico");
+    expect(listbox).toHaveTextContent(SENIOR.label);
+
+    // 2) El editor elige un reemplazo elegible.
+    await user.click(await screen.findByText(SENIOR.label));
+    await waitFor(() => expect(getTriggerByText(SENIOR.label)).toBeInTheDocument());
+
+    // 3) Reabrir: el histórico ya no se ofrece.
+    listbox = await openCombobox(SENIOR.label);
+    expect(listbox).not.toHaveTextContent("Hugo Historico");
+  });
+
   it("el histórico de un campo no se filtra al conjunto de otro campo", async () => {
     const historico = { staff_id: "hist", first_name: "Hugo", last_name: "Historico" };
     mockCandidates.partnerDirectorOptions = [DIRECTOR];
@@ -540,6 +571,42 @@ describe("EngagementForm — elegibilidad por rol en el bloque Equipo (0722-162)
       expect(screen.getByDisplayValue("Auditoría Acme 2026")).toBeInTheDocument()
     );
     expect(screen.queryByText(/messages\.missingTeamRoles/)).toBeNull();
+  });
+
+  // ── Review de Greptile: servicio indeterminado no debe permitir persistir ─────────────────
+  it("si el catálogo deja de resolver la práctica, bloquea la creación y avisa", async () => {
+    // El fail-closed vacía los selectores, pero los valores ya elegidos siguen en React Hook Form
+    // y pasan la validación de "string no vacío". Como create_engagement_with_code NO valida
+    // alineación staff/servicio, hay que bloquear el submit — vaciar la lista no alcanza.
+    // Los valores NO se limpian a propósito: el catálogo puede volver, y borrar selecciones
+    // válidas sería peor que el problema.
+    mockIsAdmin = true; // el Admin elige la práctica a mano
+    const user = userEvent.setup();
+    const { rerender } = render(<EngagementForm />);
+
+    // 1) Con el catálogo completo elige Consultoría (code 3) y todo está habilitado.
+    await user.click(screen.getByLabelText(/engagement\.practica/));
+    await user.click(await screen.findByRole("option", { name: "Consultoría" }));
+    expect(screen.queryByText(/messages\.teamCandidatesLoadError/)).toBeNull();
+
+    // 2) El catálogo deja de traer ese servicio (refetch/falla): la práctica ya no resuelve.
+    mockServicesData = [mockServices[0]]; // solo Auditoría (code 1)
+    rerender(<EngagementForm />);
+
+    // 3) Aviso visible y submit bloqueado: ningún valor retenido puede llegar al backend.
+    await waitFor(() =>
+      expect(screen.getByText(/messages\.teamCandidatesLoadError/)).toBeInTheDocument()
+    );
+    expect(screen.getByText("engagement.createEngagement").closest("button")).toBeDisabled();
+  });
+
+  it("con el servicio resuelto el Equipo no bloquea el botón de crear", async () => {
+    // Guard contra over-blocking del cambio de arriba.
+    render(<EngagementForm />);
+    await waitFor(() =>
+      expect(screen.getByText("engagement.createEngagement").closest("button")).not.toBeDisabled()
+    );
+    expect(screen.queryByText(/messages\.teamCandidatesLoadError/)).toBeNull();
   });
 
   it("mientras carga no afirma que falten roles", () => {

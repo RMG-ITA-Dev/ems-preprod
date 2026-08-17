@@ -130,22 +130,31 @@ export function filterByService(
 }
 
 /**
- * Fusiona a la persona ya asignada cuando no califica bajo el criterio nuevo.
+ * Fusiona a la persona ya asignada cuando no califica bajo el criterio nuevo — pero SOLO mientras
+ * siga siendo el valor del campo.
  *
- * Mismo patrón que `societyOptions` / `clientOptions` / `activeServiceOptions` en
- * EngagementForm: un valor histórico no debe desaparecer de su propio campo. Sin esto,
+ * El objetivo es que un valor histórico no desaparezca de su propio campo: sin esto,
  * `StaffCombobox` no encontraría el id en `options` y mostraría el placeholder en un campo
  * obligatorio que sí está lleno (el valor sigue en React Hook Form, así que no se pierde al
- * guardar, pero el usuario lo vería vacío).
+ * guardar, pero el usuario lo vería vacío). Mismo patrón que `societyOptions` /
+ * `clientOptions` / `activeServiceOptions` en EngagementForm.
+ *
+ * `currentValue` es lo que distingue "no perder de vista lo guardado" de "volver elegible a
+ * alguien que no califica" (review de Codex). Si el editor ya eligió un reemplazo válido, el
+ * histórico deja de ofrecerse: si siguiera en la lista podría volver a seleccionarse y
+ * persistirse, y el update path no valida elegibilidad.
  *
  * Se aplica DESPUÉS de `filterByService`: el staff embebido en el encargo no trae `service_id`,
- * y de todos modos el histórico debe preservarse sin importar el servicio.
+ * y el histórico debe preservarse sin importar el servicio.
  */
 export function withSavedStaff(
   options: TeamCandidateOption[],
-  saved: SavedStaffRef | null | undefined
+  saved: SavedStaffRef | null | undefined,
+  currentValue: string | null | undefined
 ): TeamCandidateOption[] {
   if (!saved) return options;
+  // Ya fue reemplazado por otro valor ⇒ no re-ofrecerlo.
+  if (currentValue !== saved.staff_id) return options;
   if (options.some((o) => o.value === saved.staff_id)) return options;
   return [
     ...options,
