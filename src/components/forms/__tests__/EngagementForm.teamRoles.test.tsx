@@ -506,6 +506,42 @@ describe("EngagementForm — elegibilidad por rol en el bloque Equipo (0722-162)
     expect(screen.queryByText(/messages\.missingTeamRoles/)).toBeNull();
   });
 
+  // ── Review de Codex: el aviso se mide sobre las listas FILTRADAS POR SERVICIO ────────────
+  it("avisa cuando hay candidatos globales pero ninguno en el servicio del encargo", async () => {
+    // Existe un Socio y un Gerente, pero en Consultoría; el encargo es de Auditoría. Con flags
+    // globales el aviso quedaba suprimido y Crear habilitado, dejando dos campos obligatorios
+    // imposibles de llenar y sin ninguna explicación.
+    mockCandidates.partnerDirectorOptions = [opt("p9", "Pablo Consultoria", SVC_CONSULT)];
+    mockCandidates.managerRoleOptions = [opt("m9", "Mora Consultoria", SVC_CONSULT)];
+    render(<EngagementForm engagement={{ ...baseEngagement, partner_id: null, manager_id: null }} />);
+    await waitFor(() =>
+      expect(screen.getByDisplayValue("Auditoría Acme 2026")).toBeInTheDocument()
+    );
+    // baseEngagement.practica = 1 ⇒ servicio Auditoría, así que ninguno de los dos califica.
+    expect(await openCombobox("engagement.selectPartner")).not.toHaveTextContent("Pablo Consultoria");
+  });
+
+  it("en creación avisa por falta de personal cuando el servicio no tiene candidatos", async () => {
+    mockCandidates.partnerDirectorOptions = [opt("p9", "Pablo Consultoria", SVC_CONSULT)];
+    mockCandidates.managerRoleOptions = [opt("m9", "Mora Consultoria", SVC_CONSULT)];
+    render(<EngagementForm />);
+    // No-admin ⇒ practica se auto-asigna a code 1 (Auditoría) por efecto.
+    await waitFor(() =>
+      expect(screen.getByText(/messages\.missingTeamRoles/)).toBeInTheDocument()
+    );
+  });
+
+  it("mientras el servicio no está resuelto no afirma que falte personal", async () => {
+    // Fail-closed del catálogo: las listas están vacías por otra razón, así que afirmar "falta
+    // personal" sería tan engañoso como el caso del RPC caído.
+    mockServicesData = [mockServices[1]]; // el code 1 del encargo no resuelve
+    render(<EngagementForm engagement={{ ...baseEngagement, partner_id: null, manager_id: null }} />);
+    await waitFor(() =>
+      expect(screen.getByDisplayValue("Auditoría Acme 2026")).toBeInTheDocument()
+    );
+    expect(screen.queryByText(/messages\.missingTeamRoles/)).toBeNull();
+  });
+
   it("mientras carga no afirma que falten roles", () => {
     mockCandidates.partnerDirectorOptions = [];
     mockCandidates.managerRoleOptions = [];

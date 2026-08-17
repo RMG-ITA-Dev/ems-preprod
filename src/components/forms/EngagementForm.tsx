@@ -289,8 +289,6 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     encargadoOptions,
     specialistItOptions,
     specialistTaxOptions,
-    hasPartnerDirectorCandidates,
-    hasManagerCandidates,
     isLoading: teamCandidatesLoading,
     isError: teamCandidatesError,
   } = useEngagementTeamCandidates();
@@ -359,28 +357,9 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
 
   const initializedEngagementIdRef = useRef<string | null>(null);
 
-  // BUG 0722-162: el aviso ahora se decide por candidatos con el ROL correspondiente, no por
-  // presencia de categorías en cierto rango de display_order — si no, evaluaría un criterio
-  // distinto al que filtra los selectores.
-  //
-  // Review de Codex: el mensaje también tenía que cambiar. `messages.missingCategories` manda a
-  // agregar CATEGORÍAS en Configuración, y seguir esa instrucción ya no habilita nada: la
-  // elegibilidad depende de `user_roles.role_key`. `messages.missingTeamRoles` dirige al lugar
-  // correcto (Configuración → Roles de Usuario).
-  // Review de Codex #2: "sin candidatos" y "no se pudieron cargar los candidatos" NO son lo
-  // mismo. El hook devuelve buckets vacíos también cuando el RPC falla (p. ej. frontend
-  // desplegado antes de aplicar la migración), y tratar eso como "faltan roles" manda al usuario
-  // a asignar roles que quizá ya existen. Solo se concluye "faltan roles" sobre una respuesta
-  // exitosa; el error se informa aparte y mientras carga no se afirma nada.
-  const missingTeamRoles: string[] = [];
-  if (!teamCandidatesLoading && !teamCandidatesError) {
-    if (!hasPartnerDirectorCandidates) missingTeamRoles.push(t("engagement.partner"));
-    if (!hasManagerCandidates) missingTeamRoles.push(t("engagement.manager"));
-  }
-  const hasMissingTeamRoles = missingTeamRoles.length > 0;
-  // El botón Crear se bloquea en ambos casos (sin candidatos no se puede completar el Equipo),
-  // pero el mensaje que se muestra es el que corresponde a cada causa.
-  const teamBlocksCreation = hasMissingTeamRoles || teamCandidatesError;
+  // NOTA (BUG 0722-162): el aviso de personal faltante del bloque Equipo se calcula MÁS ABAJO,
+  // después de los memos de opciones — necesita las listas YA FILTRADAS POR SERVICIO. Ver el
+  // bloque "aviso de personal faltante" junto a `partnerFieldOptions`.
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -897,6 +876,37 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     () => withSavedStaff(filterByService(specialistTaxOptions, serviceFilter), engagement?.specialist_tax),
     [specialistTaxOptions, serviceFilter, engagement?.specialist_tax]
   );
+
+  // ── Aviso de personal faltante (los dos campos obligatorios) ─────────────────────────────
+  //
+  // Se decide por ROL, no por presencia de categorías en cierto rango de display_order — si no,
+  // evaluaría un criterio distinto al que filtra los selectores.
+  //
+  // Review de Codex #2: "sin candidatos" y "no se pudieron cargar los candidatos" NO son lo
+  // mismo. El hook devuelve buckets vacíos también cuando el RPC falla (p. ej. frontend
+  // desplegado antes de aplicar la migración), y tratar eso como "faltan roles" manda al usuario
+  // a asignar roles que quizá ya existen. Solo se concluye "falta personal" sobre una respuesta
+  // exitosa; el error se informa aparte y mientras carga no se afirma nada.
+  //
+  // Review de Codex #3: se mide sobre las listas YA FILTRADAS POR SERVICIO, no sobre los flags
+  // globales del hook. Si existe un Socio en Consultoría pero ninguno en Auditoría, el flag
+  // global es true mientras `partnerFieldOptions` está vacío: el aviso quedaba suprimido y Crear
+  // habilitado, dejando un campo obligatorio imposible de llenar y sin explicación. Se exige
+  // además que el servicio esté RESUELTO — durante el fail-closed del catálogo las listas están
+  // vacías por otra razón y afirmar "falta personal" sería otra vez engañoso.
+  const teamSelectionResolved =
+    !teamCandidatesLoading &&
+    !teamCandidatesError &&
+    (!serviceFilter.apply || serviceFilter.serviceId != null);
+  const missingTeamRoles: string[] = [];
+  if (teamSelectionResolved) {
+    if (partnerFieldOptions.length === 0) missingTeamRoles.push(t("engagement.partner"));
+    if (managerFieldOptions.length === 0) missingTeamRoles.push(t("engagement.manager"));
+  }
+  const hasMissingTeamRoles = missingTeamRoles.length > 0;
+  // El botón Crear se bloquea en ambos casos (sin candidatos no se puede completar el Equipo),
+  // pero el mensaje que se muestra es el que corresponde a cada causa.
+  const teamBlocksCreation = hasMissingTeamRoles || teamCandidatesError;
 
   // Review de Codex (0722-162): quitar a alguien de `options` NO lo saca del formulario.
   //

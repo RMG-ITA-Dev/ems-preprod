@@ -37,12 +37,14 @@ export interface UseEngagementTeamCandidatesResult {
   specialistItOptions: TeamCandidateOption[];
   /** Especialista Impuestos — las tres familias `tax_*`. */
   specialistTaxOptions: TeamCandidateOption[];
-  /** Para el aviso de "faltan categorías" de los dos campos obligatorios. */
-  hasPartnerDirectorCandidates: boolean;
-  hasManagerCandidates: boolean;
   isLoading: boolean;
   isError: boolean;
 }
+
+// A propósito NO se exponen flags tipo `hasPartnerDirectorCandidates`: serían GLOBALES, sin el
+// filtro por servicio que aplica el formulario, y usarlos para decidir el aviso de "falta
+// personal" da falsos negativos (existe un Socio en otro servicio ⇒ flag true, pero el selector
+// del encargo está vacío). El aviso se deriva de las listas ya filtradas — ver EngagementForm.
 
 const EMPTY: TeamCandidateOption[] = [];
 
@@ -92,8 +94,6 @@ export function useEngagementTeamCandidates(): UseEngagementTeamCandidatesResult
     encargadoOptions: grouped.encargado ?? EMPTY,
     specialistItOptions: grouped.specialist_it ?? EMPTY,
     specialistTaxOptions: grouped.specialist_tax ?? EMPTY,
-    hasPartnerDirectorCandidates: grouped.partner_director.length > 0,
-    hasManagerCandidates: grouped.manager.length > 0,
     isLoading,
     isError,
   };

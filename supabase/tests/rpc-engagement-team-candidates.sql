@@ -55,8 +55,16 @@ BEGIN
   END IF;
 END $$;
 
--- 30 fichas de personal activas y vinculadas. El apellido lleva el número para que el ORDER BY
--- del RPC sea determinista y verificable.
+-- Fichas de personal SOLO para los sujetos (1..27). Los callers (28..30) se quedan sin ficha a
+-- propósito: has_permission() resuelve por auth.uid() → user_roles y no mira `staff`, así que un
+-- caller no necesita ficha para invocar el RPC.
+--
+-- Y NO puede tenerla: los únicos roles no-admin con engagement.create/update son `manager`,
+-- `ita_manager` y `tax_manager` (20260724010000:380-387), y los tres son candidatos ELEGIBLES en
+-- este mapa. Si los callers tuvieran ficha activa y vinculada, se contarían a sí mismos y el
+-- conteo esperado dejaría de ser 11.
+--
+-- El apellido lleva el número para que el ORDER BY del RPC sea determinista y verificable.
 INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, is_active,
                           service_id, society_id)
 SELECT ('51c00000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid,
@@ -65,7 +73,7 @@ SELECT ('51c00000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid,
        true,
        (SELECT service_id FROM public.services WHERE code = 1),
        (SELECT society_id FROM public.society ORDER BY name LIMIT 1)
-  FROM generate_series(1, 30) n;
+  FROM generate_series(1, 27) n;
 
 -- Roles: 1..11 elegibles (en el orden de ROLE_KEY_TO_GROUP), 12..24 NO elegibles.
 INSERT INTO public.user_roles (user_id, role_key)
@@ -122,6 +130,8 @@ $$;
 -- Callers: 28 con engagement.create, 29 con engagement.update, 30 sin ninguno de los dos.
 -- Se resuelven contra la matriz real en vez de hardcodear un rol, para que el test no se rompa
 -- si la matriz cambia — y si no hubiera ningún rol con esos permisos, el test aborta avisando.
+-- Estos tres NO tienen ficha de personal (ver el INSERT de staff), así que su role_key —que para
+-- create/update es siempre uno de los tres *_manager elegibles— no los vuelve candidatos.
 DO $$
 DECLARE
   v_creator text;
@@ -232,6 +242,17 @@ BEGIN
   RAISE NOTICE 'OK 3: inactivo / soft-deleted / sin login / sin role_key quedan fuera';
 
   -- ── 5. El gate de permisos ───────────────────────────────────────────────────────────────
+  -- Guarda del fixture: si alguien le diera ficha de personal a los callers, se contarían a sí
+  -- mismos (sus roles *_manager son elegibles) y el 11 de abajo dejaría de ser el número real.
+  -- Este chequeo falla con un mensaje claro antes que la aserción de conteo.
+  PERFORM 1 FROM public.get_engagement_team_candidates() c
+   WHERE c.staff_id IN ('51c00000-0000-4000-8000-000000000028',
+                        '51c00000-0000-4000-8000-000000000029',
+                        '51c00000-0000-4000-8000-000000000030');
+  IF FOUND THEN
+    RAISE EXCEPTION 'FAIL (fixture): los callers no deben tener ficha de personal — se cuentan como candidatos.';
+  END IF;
+
   SELECT count(*) INTO v_count FROM public.get_engagement_team_candidates();
   IF v_count <> 11 THEN
     RAISE EXCEPTION 'FAIL: un caller con engagement.create debía ver 11 candidatos, vio %', v_count;

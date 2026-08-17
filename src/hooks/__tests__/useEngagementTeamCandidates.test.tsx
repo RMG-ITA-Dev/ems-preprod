@@ -134,15 +134,12 @@ describe("useEngagementTeamCandidates", () => {
     expect(result.current.managerRoleOptions).toEqual([]);
   });
 
-  it("las guardas reflejan si hay candidatos de los dos campos obligatorios", async () => {
+  // Review de Codex #3: el hook NO expone flags de "hay candidatos". Serían globales, sin el
+  // filtro por servicio del formulario, y usarlos para el aviso de "falta personal" da falsos
+  // negativos. El aviso se deriva de las listas ya filtradas, en EngagementForm.
+  it("no expone flags globales de presencia de candidatos", async () => {
     const { result } = await renderWith(FULL_SET);
-    expect(result.current.hasPartnerDirectorCandidates).toBe(true);
-    expect(result.current.hasManagerCandidates).toBe(true);
-  });
-
-  it("las guardas son false cuando falta el grupo correspondiente", async () => {
-    const { result } = await renderWith([row("s1", "Dario Diaz", "encargado")]);
-    expect(result.current.hasPartnerDirectorCandidates).toBe(false);
-    expect(result.current.hasManagerCandidates).toBe(false);
+    expect(result.current).not.toHaveProperty("hasPartnerDirectorCandidates");
+    expect(result.current).not.toHaveProperty("hasManagerCandidates");
   });
 });
