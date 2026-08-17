@@ -136,8 +136,23 @@ jobs:
           supabase migration list --local
           supabase db push --dry-run --include-all --local
 
+      # BUG 0722-162: el test del RPC de candidatos del bloque Equipo necesita el esquema
+      # COMPLETO — has_permission(), authorization_roles, user_roles.role_key y
+      # staff.society_id/service_id NOT NULL. El lane `rls-migration-tests` no sirve: su base
+      # son shims + las migraciones de Scheduler, sin el motor de autorización. Acá, en cambio,
+      # Ruta A acaba de aplicar las 177 migraciones sobre un Supabase real, así que es el único
+      # lugar del CI donde el test puede correr. Va después del fingerprint para no alterar el
+      # esquema antes de capturarlo (el test es una transacción con ROLLBACK, así que no deja
+      # rastro, pero el orden mantiene la captura completamente aislada).
       - name: Ruta A — capture fingerprint
         run: bash supabase/tests/local/capture-route-fingerprint.sh ruta_a
+
+      - name: Ruta A — RPC tests (0722-162 engagement team candidates)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 -f supabase/tests/rpc-engagement-team-candidates.sql 2>&1 | tee /tmp/rpc-etc.log
+          grep -q 'ALL CHECKS PASSED' /tmp/rpc-etc.log \
+            || { echo 'FAIL: rpc-engagement-team-candidates.sql no llegó a su marcador final' >&2; exit 1; }
 
       # ── Ruta C: base + the 8 historical scheduler migrations FIRST (72+8=80, from
       #    origin/sruizmier-scheduler-v3, which predates development's 59 migrations and

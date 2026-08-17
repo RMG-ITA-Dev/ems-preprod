@@ -477,6 +477,32 @@ describe("EngagementForm — elegibilidad por rol en el bloque Equipo (0722-162)
     expect(screen.queryByText(/messages\.missingTeamRoles/)).toBeNull();
   });
 
+  // ── Review de Codex: fallo de carga ≠ roles faltantes ────────────────────────────────────
+  it("si el RPC falla avisa error de carga, NO que falten roles", () => {
+    // Escenario real: frontend desplegado antes de aplicar la migración. El hook devuelve
+    // buckets vacíos con isError, y mandar al usuario a asignar roles que quizá ya existen es
+    // una instrucción equivocada.
+    mockCandidates.partnerDirectorOptions = [];
+    mockCandidates.managerRoleOptions = [];
+    mockCandidates.hasPartnerDirectorCandidates = false;
+    mockCandidates.hasManagerCandidates = false;
+    mockCandidates.isError = true;
+    render(<EngagementForm />);
+    expect(screen.getByText(/messages\.teamCandidatesLoadError/)).toBeInTheDocument();
+    expect(screen.queryByText(/messages\.missingTeamRoles/)).toBeNull();
+  });
+
+  it("mientras carga no afirma que falten roles", () => {
+    mockCandidates.partnerDirectorOptions = [];
+    mockCandidates.managerRoleOptions = [];
+    mockCandidates.hasPartnerDirectorCandidates = false;
+    mockCandidates.hasManagerCandidates = false;
+    mockCandidates.isLoading = true;
+    render(<EngagementForm />);
+    expect(screen.queryByText(/messages\.missingTeamRoles/)).toBeNull();
+    expect(screen.queryByText(/messages\.teamCandidatesLoadError/)).toBeNull();
+  });
+
   // ── Sin datos: nunca se degrada a mostrar de más ─────────────────────────────────────────
   it("sin candidatos el selector queda vacío — no cae a la nómina completa", async () => {
     mockCandidates.specialistTaxOptions = [];

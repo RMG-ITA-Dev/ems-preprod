@@ -1,10 +1,18 @@
 -- Transactional tests for public.get_engagement_team_candidates()
 -- — BUG 0722-162 (bugs/0722-162/plan_v2.md, sección e).
 --
--- Corre contra la base descartable local, DESPUÉS de aplicar
--- 20260817120000_0722-162_engagement_team_candidates.sql. Una sola transacción, SIEMPRE hace
--- ROLLBACK. Misma convención que rpc-save-engagement-assignments.sql: un NOTICE por chequeo que
--- pasa, y al final "ENGAGEMENT_TEAM_CANDIDATES RPC: ALL CHECKS PASSED (rolled back)".
+-- DÓNDE CORRE: en CI, en el paso "Ruta A — RPC tests" de
+-- .github/workflows/scheduler-fase2-integrity.yml, contra el Supabase local que Ruta A acaba de
+-- levantar con las 177 migraciones aplicadas. NO va en el lane `rls-migration-tests`: esa base
+-- son shims + las migraciones de Scheduler, sin has_permission() ni authorization_roles.
+--
+-- A MANO: se puede pegar tal cual en el SQL Editor de un proyecto Supabase con el esquema al día
+-- (es una sola transacción que SIEMPRE termina en ROLLBACK, así que no deja rastro). En el SQL
+-- Editor los NOTICE no siempre se muestran, así que el criterio es: si no hay error, pasó — cada
+-- chequeo fallido levanta un RAISE EXCEPTION con su motivo.
+--
+-- Misma convención que rpc-save-engagement-assignments.sql: un NOTICE por chequeo que pasa, y al
+-- final "ENGAGEMENT_TEAM_CANDIDATES RPC: ALL CHECKS PASSED (rolled back)".
 --
 -- Qué se cubre:
 --   1. Los 11 role_key elegibles caen en su grupo (uno por rol).
@@ -34,14 +42,29 @@ BEGIN
   END IF;
 END $$;
 
+-- Guard: 20260812140000 dejó staff.society_id y staff.service_id como NOT NULL sin default, así
+-- que el fixture necesita valores reales de ambos catálogos. Si faltaran, el INSERT de abajo
+-- abortaría con un error de NOT NULL poco informativo — mejor fallar acá diciendo qué falta.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM public.society) THEN
+    RAISE EXCEPTION 'FIXTURE: no hay filas en public.society y staff.society_id es NOT NULL.';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.services WHERE code = 1) THEN
+    RAISE EXCEPTION 'FIXTURE: falta el servicio code = 1 y staff.service_id es NOT NULL.';
+  END IF;
+END $$;
+
 -- 30 fichas de personal activas y vinculadas. El apellido lleva el número para que el ORDER BY
 -- del RPC sea determinista y verificable.
-INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, is_active, service_id)
+INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, is_active,
+                          service_id, society_id)
 SELECT ('51c00000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid,
        ('a1c00000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid,
        'ETC', 'Sujeto' || lpad(n::text, 2, '0'),
        true,
-       (SELECT service_id FROM public.services WHERE code = 1)
+       (SELECT service_id FROM public.services WHERE code = 1),
+       (SELECT society_id FROM public.society ORDER BY name LIMIT 1)
   FROM generate_series(1, 30) n;
 
 -- Roles: 1..11 elegibles (en el orden de ROLE_KEY_TO_GROUP), 12..24 NO elegibles.
@@ -208,16 +231,6 @@ BEGIN
   END LOOP;
   RAISE NOTICE 'OK 3: inactivo / soft-deleted / sin login / sin role_key quedan fuera';
 
-  -- ── 4. Un rol desactivado en el catálogo deja de aportar candidatos ──────────────────────
-  UPDATE public.authorization_roles SET is_active = false WHERE role_key = 'tax_senior';
-  PERFORM 1 FROM public.get_engagement_team_candidates() c
-   WHERE c.staff_id = '51c00000-0000-4000-8000-000000000010';
-  IF FOUND THEN
-    RAISE EXCEPTION 'FAIL: authorization_roles.is_active = false debía excluir al candidato';
-  END IF;
-  UPDATE public.authorization_roles SET is_active = true WHERE role_key = 'tax_senior';
-  RAISE NOTICE 'OK 4: authorization_roles.is_active = false excluye a sus candidatos';
-
   -- ── 5. El gate de permisos ───────────────────────────────────────────────────────────────
   SELECT count(*) INTO v_count FROM public.get_engagement_team_candidates();
   IF v_count <> 11 THEN
@@ -237,10 +250,30 @@ BEGIN
   END IF;
   RAISE NOTICE 'OK 5: create y update habilitan; sin ninguno, 0 filas (fail-closed)';
 
-  RAISE NOTICE 'ENGAGEMENT_TEAM_CANDIDATES RPC: ALL CHECKS PASSED (rolled back)';
 END $$;
 
 RESET ROLE;
+
+-- ── 4. Un rol desactivado en el catálogo deja de aportar candidatos ─────────────────────────
+-- Va en su propio bloque y NO bajo `SET LOCAL ROLE authenticated`: escribir en
+-- authorization_roles es privilegio de administración, así que el UPDATE se hace con el rol
+-- original y solo la LECTURA del RPC se impersona.
+UPDATE public.authorization_roles SET is_active = false WHERE role_key = 'tax_senior';
+
+SET LOCAL ROLE authenticated;
+DO $$
+BEGIN
+  PERFORM pg_temp.impersonate('a1c00000-0000-4000-8000-000000000028');  -- engagement.create
+  PERFORM 1 FROM public.get_engagement_team_candidates() c
+   WHERE c.staff_id = '51c00000-0000-4000-8000-000000000010';
+  IF FOUND THEN
+    RAISE EXCEPTION 'FAIL: authorization_roles.is_active = false debía excluir al candidato';
+  END IF;
+  RAISE NOTICE 'OK 4: authorization_roles.is_active = false excluye a sus candidatos';
+END $$;
+RESET ROLE;
+
+UPDATE public.authorization_roles SET is_active = true WHERE role_key = 'tax_senior';
 
 -- ── 6. Forma del resultado: nada de PII ni del rol crudo ───────────────────────────────────
 -- Se verifica sobre el catálogo, no sobre las filas: si alguien agrega una columna sensible al
@@ -258,6 +291,7 @@ BEGIN
     RAISE EXCEPTION 'FAIL: la firma de salida cambió (%). No debe exponer email, auth_user_id ni role_key.', v_cols;
   END IF;
   RAISE NOTICE 'OK 6: la salida es exactamente staff_id/display_name/candidate_group/service_id';
+  RAISE NOTICE 'ENGAGEMENT_TEAM_CANDIDATES RPC: ALL CHECKS PASSED (rolled back)';
 END $$;
 
 ROLLBACK;

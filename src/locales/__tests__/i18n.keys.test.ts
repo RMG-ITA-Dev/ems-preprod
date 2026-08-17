@@ -57,7 +57,7 @@ describe("i18n new keys from bug 0625-151 (contrato escaneado)", () => {
 // BUG 0722-162: el aviso de personal faltante en el bloque Equipo pasó a decidirse por ROL
 // (user_roles.role_key) en vez de por categoría, así que el texto también cambió — el viejo
 // mandaba a agregar categorías en Configuración, lo que ya no habilita el botón Crear.
-const NEW_KEYS_0722_162 = ["messages.missingTeamRoles"];
+const NEW_KEYS_0722_162 = ["messages.missingTeamRoles", "messages.teamCandidatesLoadError"];
 
 describe("i18n new keys from bug 0722-162 (roles del bloque Equipo)", () => {
   NEW_KEYS_0722_162.forEach((key) => {

@@ -367,10 +367,20 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   // agregar CATEGORÍAS en Configuración, y seguir esa instrucción ya no habilita nada: la
   // elegibilidad depende de `user_roles.role_key`. `messages.missingTeamRoles` dirige al lugar
   // correcto (Configuración → Roles de Usuario).
+  // Review de Codex #2: "sin candidatos" y "no se pudieron cargar los candidatos" NO son lo
+  // mismo. El hook devuelve buckets vacíos también cuando el RPC falla (p. ej. frontend
+  // desplegado antes de aplicar la migración), y tratar eso como "faltan roles" manda al usuario
+  // a asignar roles que quizá ya existen. Solo se concluye "faltan roles" sobre una respuesta
+  // exitosa; el error se informa aparte y mientras carga no se afirma nada.
   const missingTeamRoles: string[] = [];
-  if (!hasPartnerDirectorCandidates) missingTeamRoles.push(t("engagement.partner"));
-  if (!hasManagerCandidates) missingTeamRoles.push(t("engagement.manager"));
+  if (!teamCandidatesLoading && !teamCandidatesError) {
+    if (!hasPartnerDirectorCandidates) missingTeamRoles.push(t("engagement.partner"));
+    if (!hasManagerCandidates) missingTeamRoles.push(t("engagement.manager"));
+  }
   const hasMissingTeamRoles = missingTeamRoles.length > 0;
+  // El botón Crear se bloquea en ambos casos (sin candidatos no se puede completar el Equipo),
+  // pero el mensaje que se muestra es el que corresponde a cada causa.
+  const teamBlocksCreation = hasMissingTeamRoles || teamCandidatesError;
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -1039,6 +1049,13 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
           </AlertDialog>
         )}
       </div>
+
+      {teamCandidatesError && !isEdit && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{t("messages.teamCandidatesLoadError")}</AlertDescription>
+        </Alert>
+      )}
 
       {hasMissingTeamRoles && !isEdit && (
         <Alert variant="destructive">
@@ -1747,7 +1764,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                   variant="default"
                   className="w-full sm:w-auto min-h-[44px] sm:min-h-0"
                   loading={createMutation.isPending || updateMutation.isPending}
-                  disabled={hasMissingTeamRoles && !isEdit}
+                  disabled={teamBlocksCreation && !isEdit}
                 >
                   {isEdit ? t("common.saveChanges") : t("engagement.createEngagement")}
                 </LoadingButton>

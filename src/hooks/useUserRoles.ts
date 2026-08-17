@@ -111,6 +111,12 @@ export function useUpdateUserRoleKey() {
       // El usuario afectado debe recargar sus permisos en su próxima sesión;
       // invalidamos por si el admin cambió su propio contexto indirectamente.
       queryClient.invalidateQueries({ queryKey: ["authz_context"] });
+      // BUG 0722-162: los candidatos del bloque Equipo del encargo se derivan de role_key, así
+      // que asignar un rol cambia ese conjunto. Sin invalidar, el flujo que induce el propio
+      // aviso del formulario ("asigne los roles en Configuración → Roles de Usuario") vuelve a
+      // /engagements/new dentro del staleTime global de 60s (App.tsx) y sigue viendo el set
+      // viejo, con el botón Crear bloqueado.
+      queryClient.invalidateQueries({ queryKey: ["engagement-team-candidates"] });
       toast.success(t("userRoles.roleUpdated"));
     },
     onError: (error) => {
@@ -148,6 +154,9 @@ export function useDeleteAuthUser() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["all_user_roles"] });
+      // BUG 0722-162: borrar la cuenta rompe el vínculo staff.auth_user_id, así que esa persona
+      // deja de ser candidata para el bloque Equipo del encargo.
+      queryClient.invalidateQueries({ queryKey: ["engagement-team-candidates"] });
       toast.success(t("userRoles.accountDeleted"));
     },
     onError: (error) => {
