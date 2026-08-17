@@ -1,6 +1,7 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@/test/utils";
+import { within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 /**
@@ -57,9 +58,12 @@ const mockServices = [
 const stableClients = [{ client_id: "c1", client_legal_name: "Acme Corp", is_active: true }];
 const stableEmpty: never[] = [];
 
+// Mutable para poder simular un catálogo que no resuelve la práctica (fail-closed).
+let mockServicesData: typeof mockServices | undefined = mockServices;
+
 vi.mock("@/hooks/useEmsData", () => ({
   useClients: () => ({ data: stableClients }),
-  useServices: () => ({ data: mockServices }),
+  useServices: () => ({ data: mockServicesData }),
   useTaxonomies: () => ({ data: stableEmpty }),
   useSocieties: () => ({ data: stableEmpty }),
   useEngagementAssignments: () => ({ data: stableEmpty, isLoading: false, isError: false }),
@@ -223,6 +227,7 @@ describe("EngagementForm — elegibilidad por rol en el bloque Equipo (0722-162)
   beforeEach(() => {
     vi.clearAllMocks();
     mockIsAdmin = false;
+    mockServicesData = mockServices;
     resetCandidates();
   });
 
@@ -374,6 +379,78 @@ describe("EngagementForm — elegibilidad por rol en el bloque Equipo (0722-162)
   it("aplica el mismo criterio en edición que en creación", async () => {
     render(<EngagementForm engagement={baseEngagement} />);
     expectOnly(await openCombobox("engagement.selectSqr"), [SOCIO.label, DIRECTOR.label]);
+  });
+
+  // ── Review de Greptile: servicio sin resolver ⇒ fail-closed, no lista completa ───────────
+  it("si el catálogo no resuelve la práctica, el selector queda vacío en vez de mostrar de más", async () => {
+    // El encargo tiene practica = 1 (Auditoría) pero el catálogo solo trae el code 3. Antes,
+    // `engagementServiceId` caía a null y eso DESACTIVABA el filtro, ofreciendo personal de
+    // cualquier servicio; una selección hecha en esa ventana se guardaba contra el servicio
+    // equivocado. Ahora es fail-closed.
+    mockServicesData = [mockServices[1]]; // solo Consultoría (code 3)
+    render(<EngagementForm engagement={baseEngagement} />);
+    const listbox = await openCombobox("engagement.selectSqr");
+    expectOnly(listbox, []);
+  });
+
+  // ── Review de Codex: valores rancios al cambiar de servicio ──────────────────────────────
+  //
+  // OJO con la forma de aserción: mirar el trigger NO sirve. Sin limpiar el formulario, el
+  // trigger igual muestra el placeholder — porque `StaffCombobox` resuelve la etiqueta con
+  // `options.find(...)` y el UUID rancio ya no está en `options`. Ese es justamente el bug:
+  // el campo se ve vacío mientras el valor sigue en React Hook Form. Hay que inspeccionar el
+  // VALOR: en un campo opcional se ve por el check de `No Aplica`, que solo está marcado
+  // cuando el valor es null.
+  const noAplicaCheck = (listbox: HTMLElement) =>
+    within(listbox).getByText("engagement.noAplica").closest("[role='option']")?.querySelector("svg");
+
+  it("cambiar el servicio limpia el VALOR del personal que dejó de ser elegible", async () => {
+    // Admin en creación: sin práctica no se filtra por servicio, así que puede elegir a alguien
+    // de Consultoría y después fijar la práctica en Auditoría. Sin la limpieza, su UUID quedaría
+    // en RHF y `create_engagement_with_code` no valida alineación staff/servicio: se persistiría
+    // una asignación cruzada.
+    mockIsAdmin = true;
+    const seniorConsult = opt("sc", "Sonia Consultoria", SVC_CONSULT);
+    mockCandidates.encargadoOptions = [SENIOR, seniorConsult];
+    const user = userEvent.setup();
+    render(<EngagementForm />);
+
+    // 1) Sin práctica, el Senior de Consultoría se ofrece y se elige.
+    await openCombobox("engagement.selectEncargado");
+    await user.click(await screen.findByText(seniorConsult.label));
+    await waitFor(() => expect(getTriggerByText(seniorConsult.label)).toBeInTheDocument());
+    // Con un valor elegido, `No Aplica` NO está marcado.
+    expect(noAplicaCheck(await openCombobox(seniorConsult.label))).toHaveClass("opacity-0");
+    await user.keyboard("{Escape}");
+
+    // 2) El Admin fija la práctica en Auditoría.
+    await user.click(screen.getByLabelText(/engagement\.practica/));
+    await user.click(await screen.findByRole("option", { name: "Auditoría" }));
+
+    // 3) El valor quedó en null: `No Aplica` pasa a estar marcado.
+    await waitFor(async () => {
+      expect(noAplicaCheck(await openCombobox("engagement.selectEncargado"))).toHaveClass(
+        "opacity-100"
+      );
+    });
+  });
+
+  it("cambiar el servicio NO limpia a quien sigue siendo elegible", async () => {
+    // Guard contra over-clearing: el efecto solo debe tocar los valores que dejaron de calificar.
+    mockIsAdmin = true;
+    const user = userEvent.setup();
+    render(<EngagementForm />);
+
+    // SENIOR es de Auditoría, así que sobrevive a fijar la práctica en Auditoría.
+    await openCombobox("engagement.selectEncargado");
+    await user.click(await screen.findByText(SENIOR.label));
+    await waitFor(() => expect(getTriggerByText(SENIOR.label)).toBeInTheDocument());
+
+    await user.click(screen.getByLabelText(/engagement\.practica/));
+    await user.click(await screen.findByRole("option", { name: "Auditoría" }));
+
+    await waitFor(() => expect(getTriggerByText(SENIOR.label)).toBeInTheDocument());
+    expect(noAplicaCheck(await openCombobox(SENIOR.label))).toHaveClass("opacity-0");
   });
 
   // ── Sin datos: nunca se degrada a mostrar de más ─────────────────────────────────────────

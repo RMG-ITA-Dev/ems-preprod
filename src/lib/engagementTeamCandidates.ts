@@ -92,18 +92,41 @@ export interface SavedStaffRef {
 }
 
 /**
+ * Estado del filtro por servicio. Son TRES situaciones distintas, no dos —
+ * colapsarlas en un `string | null` fue el defecto que marcó la revisión de Greptile:
+ *
+ *   { apply: false }                      → todavía no hay servicio que aplicar (creación sin
+ *                                           `practica` elegida). Se filtra solo por rol.
+ *   { apply: true,  serviceId: "svc-x" }  → hay servicio resuelto: se restringe a él.
+ *   { apply: true,  serviceId: null }     → hay `practica` pero el catálogo de servicios no la
+ *                                           resolvió (cargando, falló, o el code no existe).
+ *                                           FAIL-CLOSED: lista vacía.
+ *
+ * El tercer caso es el importante: si se devolviera la lista completa, durante la carga del
+ * catálogo se ofrecería personal de otros servicios, y una selección hecha en esa ventana
+ * quedaría en el formulario y podría guardarse contra el servicio equivocado.
+ */
+export interface ServiceFilter {
+  apply: boolean;
+  serviceId: string | null;
+}
+
+/** Filtro inerte, para cuando todavía no hay `practica` elegida. */
+export const NO_SERVICE_FILTER: ServiceFilter = { apply: false, serviceId: null };
+
+/**
  * Restringe las opciones al servicio del encargo.
  *
- * Con `serviceId` nulo devuelve la lista intacta: en creación, mientras no se haya elegido
- * `practica`, todavía no hay servicio contra el que comparar. NO es un fallback amplio — el
- * filtro por rol ya se aplicó en el RPC; lo único que falta es el refinamiento por servicio.
+ * Nunca ensancha el conjunto: en la duda devuelve menos, no más. El filtro por rol ya lo aplicó
+ * el RPC; acá solo se refina por servicio.
  */
 export function filterByService(
   options: TeamCandidateOption[],
-  serviceId: string | null | undefined
+  filter: ServiceFilter
 ): TeamCandidateOption[] {
-  if (!serviceId) return options;
-  return options.filter((o) => o.serviceId === serviceId);
+  if (!filter.apply) return options;
+  if (!filter.serviceId) return [];
+  return options.filter((o) => o.serviceId === filter.serviceId);
 }
 
 /**

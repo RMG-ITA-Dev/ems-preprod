@@ -47,7 +47,12 @@ import { isSchedulerEnabled } from "@/lib/schedulerFeature";
 import { TaxonomyCombobox, NO_APLICA_VALUE } from "@/components/forms/TaxonomyCombobox";
 import { Engagement, useClients, useServices, useTaxonomies, useSocieties } from "@/hooks/useEmsData";
 import { useEngagementTeamCandidates } from "@/hooks/useEngagementTeamCandidates";
-import { filterByService, withSavedStaff } from "@/lib/engagementTeamCandidates";
+import {
+  filterByService,
+  withSavedStaff,
+  NO_SERVICE_FILTER,
+  type ServiceFilter,
+} from "@/lib/engagementTeamCandidates";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { useCreateEngagement, useUpdateEngagement, useDeleteEngagement } from "@/hooks/mutations";
 import { Trash2, CalendarIcon, AlertCircle, ChevronsUpDown, Check, Upload, X, FileText } from "lucide-react";
@@ -286,6 +291,8 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     specialistTaxOptions,
     hasPartnerDirectorCandidates,
     hasManagerCandidates,
+    isLoading: teamCandidatesLoading,
+    isError: teamCandidatesError,
   } = useEngagementTeamCandidates();
   const { staffRecord } = useCurrentStaff();
 
@@ -836,39 +843,105 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   // restringe al servicio del encargo. `practica` es el CODE del servicio, así que el service_id
   // se resuelve contra el catálogo ya cargado. Reutiliza el `wPractica` del watch de arriba, y es
   // reactivo: si el Admin cambia el servicio, los seis selectores se re-filtran sin pedir datos.
-  const engagementServiceId = useMemo(
-    () => (allServices ?? []).find((s) => s.code === wPractica)?.service_id ?? null,
-    [allServices, wPractica]
-  );
+  // Tres estados, no dos (review de Greptile): sin `practica` no hay servicio que aplicar y se
+  // filtra solo por rol; con `practica` resuelta se restringe a ese servicio; y con `practica`
+  // pero sin resolver (catálogo cargando/fallado, o code inexistente) se va a FAIL-CLOSED —
+  // lista vacía — para no ofrecer personal de otros servicios en esa ventana.
+  const serviceFilter = useMemo<ServiceFilter>(() => {
+    if (wPractica == null) return NO_SERVICE_FILTER;
+    return {
+      apply: true,
+      serviceId: (allServices ?? []).find((s) => s.code === wPractica)?.service_id ?? null,
+    };
+  }, [allServices, wPractica]);
 
   // `withSavedStaff` se aplica DESPUÉS del filtro por servicio: un asignado histórico que ya no
   // califica (por rol o por servicio) debe seguir viéndose en SU campo, o `StaffCombobox` no
   // encontraría el id en `options` y mostraría el placeholder en un campo obligatorio que sí está
   // lleno. Mismo patrón que societyOptions / clientOptions / activeServiceOptions.
   const partnerFieldOptions = useMemo(
-    () => withSavedStaff(filterByService(partnerDirectorOptions, engagementServiceId), engagement?.partner),
-    [partnerDirectorOptions, engagementServiceId, engagement?.partner]
+    () => withSavedStaff(filterByService(partnerDirectorOptions, serviceFilter), engagement?.partner),
+    [partnerDirectorOptions, serviceFilter, engagement?.partner]
   );
   const sqrFieldOptions = useMemo(
-    () => withSavedStaff(filterByService(partnerDirectorOptions, engagementServiceId), engagement?.sqr),
-    [partnerDirectorOptions, engagementServiceId, engagement?.sqr]
+    () => withSavedStaff(filterByService(partnerDirectorOptions, serviceFilter), engagement?.sqr),
+    [partnerDirectorOptions, serviceFilter, engagement?.sqr]
   );
   const managerFieldOptions = useMemo(
-    () => withSavedStaff(filterByService(managerRoleOptions, engagementServiceId), engagement?.manager),
-    [managerRoleOptions, engagementServiceId, engagement?.manager]
+    () => withSavedStaff(filterByService(managerRoleOptions, serviceFilter), engagement?.manager),
+    [managerRoleOptions, serviceFilter, engagement?.manager]
   );
   const encargadoFieldOptions = useMemo(
-    () => withSavedStaff(filterByService(encargadoOptions, engagementServiceId), engagement?.encargado),
-    [encargadoOptions, engagementServiceId, engagement?.encargado]
+    () => withSavedStaff(filterByService(encargadoOptions, serviceFilter), engagement?.encargado),
+    [encargadoOptions, serviceFilter, engagement?.encargado]
   );
   const specialistItFieldOptions = useMemo(
-    () => withSavedStaff(filterByService(specialistItOptions, engagementServiceId), engagement?.specialist_it),
-    [specialistItOptions, engagementServiceId, engagement?.specialist_it]
+    () => withSavedStaff(filterByService(specialistItOptions, serviceFilter), engagement?.specialist_it),
+    [specialistItOptions, serviceFilter, engagement?.specialist_it]
   );
   const specialistTaxFieldOptions = useMemo(
-    () => withSavedStaff(filterByService(specialistTaxOptions, engagementServiceId), engagement?.specialist_tax),
-    [specialistTaxOptions, engagementServiceId, engagement?.specialist_tax]
+    () => withSavedStaff(filterByService(specialistTaxOptions, serviceFilter), engagement?.specialist_tax),
+    [specialistTaxOptions, serviceFilter, engagement?.specialist_tax]
   );
+
+  // Review de Codex (0722-162): quitar a alguien de `options` NO lo saca del formulario.
+  //
+  // En creación el Admin puede elegir personal ANTES de fijar la práctica (sin servicio elegido
+  // solo se filtra por rol) y después cambiar el servicio. Los memos de arriba dejan de ofrecer a
+  // esa gente, pero su UUID seguiría en React Hook Form: el combobox mostraría el placeholder, la
+  // validación de "string no vacío" pasaría igual, y `create_engagement_with_code` NO valida
+  // alineación staff/servicio ni el rol de los `*_id` (solo oficina/practica/funcion/año fiscal/
+  // fecha de cierre/sociedad/taxonomía). Se persistiría una asignación cruzada de servicio.
+  //
+  // Por eso, cuando el servicio queda resuelto, se limpia todo valor que dejó de ser elegible.
+  // Los dos campos obligatorios quedan vacíos y el submit los bloquea, así que el usuario tiene
+  // que volver a elegir de forma consciente.
+  //
+  // Guardas: solo en creación (en edición `practica` es inmutable —`serviceSelectDisabled`— y el
+  // asignado histórico se preserva a propósito vía `withSavedStaff`), y solo con los candidatos
+  // ya cargados y el servicio resuelto — si no, se borrarían valores válidos durante la carga,
+  // justo cuando el fail-closed vacía las listas.
+  useEffect(() => {
+    if (isEdit) return;
+    if (teamCandidatesLoading || teamCandidatesError) return;
+    if (!serviceFilter.apply || serviceFilter.serviceId == null) return;
+
+    const isStale = (current: string | null | undefined, options: { value: string }[]) =>
+      !!current && !options.some((o) => o.value === current);
+
+    // Obligatorios: se vacían con "" (lo que espera el `min(1)` del schema para marcar faltante).
+    if (isStale(form.getValues("partner_id"), partnerFieldOptions)) {
+      form.setValue("partner_id", "", { shouldDirty: false, shouldValidate: false });
+    }
+    if (isStale(form.getValues("manager_id"), managerFieldOptions)) {
+      form.setValue("manager_id", "", { shouldDirty: false, shouldValidate: false });
+    }
+    // Opcionales: null es su "No Aplica".
+    if (isStale(form.getValues("sqr_id"), sqrFieldOptions)) {
+      form.setValue("sqr_id", null, { shouldDirty: false, shouldValidate: false });
+    }
+    if (isStale(form.getValues("encargado_id"), encargadoFieldOptions)) {
+      form.setValue("encargado_id", null, { shouldDirty: false, shouldValidate: false });
+    }
+    if (isStale(form.getValues("specialist_it_id"), specialistItFieldOptions)) {
+      form.setValue("specialist_it_id", null, { shouldDirty: false, shouldValidate: false });
+    }
+    if (isStale(form.getValues("specialist_tax_id"), specialistTaxFieldOptions)) {
+      form.setValue("specialist_tax_id", null, { shouldDirty: false, shouldValidate: false });
+    }
+  }, [
+    isEdit,
+    teamCandidatesLoading,
+    teamCandidatesError,
+    serviceFilter,
+    partnerFieldOptions,
+    sqrFieldOptions,
+    managerFieldOptions,
+    encargadoFieldOptions,
+    specialistItFieldOptions,
+    specialistTaxFieldOptions,
+    form,
+  ]);
 
   // Defer navigation until the success modal is dismissed (Close button or `X`), so
   // the user always sees the assigned code before leaving the form.

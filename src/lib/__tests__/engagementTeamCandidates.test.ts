@@ -5,7 +5,9 @@ import {
   ELIGIBLE_ROLE_KEYS,
   filterByService,
   withSavedStaff,
+  NO_SERVICE_FILTER,
   TeamCandidateOption,
+  ServiceFilter,
 } from "@/lib/engagementTeamCandidates";
 
 /**
@@ -107,30 +109,41 @@ describe("filterByService", () => {
     opt("b", "Beto Consultoria", "svc-consult"),
     opt("c", "Carla Auditoria", "svc-audit"),
   ];
+  const resolved = (serviceId: string): ServiceFilter => ({ apply: true, serviceId });
 
   it("devuelve solo los candidatos del servicio pedido", () => {
-    expect(filterByService(options, "svc-audit").map((o) => o.value)).toEqual(["a", "c"]);
+    expect(filterByService(options, resolved("svc-audit")).map((o) => o.value)).toEqual(["a", "c"]);
   });
 
-  it("con serviceId null devuelve la lista intacta (creación sin práctica elegida)", () => {
-    expect(filterByService(options, null)).toEqual(options);
-    expect(filterByService(options, undefined)).toEqual(options);
+  it("sin práctica elegida devuelve la lista intacta (solo filtra por rol)", () => {
+    expect(filterByService(options, NO_SERVICE_FILTER)).toEqual(options);
+    expect(filterByService(options, { apply: false, serviceId: null })).toEqual(options);
+  });
+
+  // Review de Greptile: el caso que antes ensanchaba el conjunto. Con `practica` elegida pero el
+  // catálogo de servicios sin resolver (cargando, fallado, o code inexistente) NO debe ofrecerse
+  // personal de otros servicios — una selección hecha en esa ventana se guardaría mal.
+  it("con práctica elegida y servicio SIN resolver va a fail-closed, no a la lista completa", () => {
+    expect(filterByService(options, { apply: true, serviceId: null })).toEqual([]);
   });
 
   it("con un servicio sin coincidencias devuelve [] y NO la lista completa", () => {
-    // Sin este comportamiento el filtro se degradaría al bug original.
-    expect(filterByService(options, "svc-inexistente")).toEqual([]);
+    expect(filterByService(options, resolved("svc-inexistente"))).toEqual([]);
   });
 
   it("preserva el orden de entrada (el RPC ya ordenó por apellido)", () => {
     const same = [opt("z", "Zulema", "s1"), opt("a", "Ana", "s1")];
-    expect(filterByService(same, "s1").map((o) => o.value)).toEqual(["z", "a"]);
+    expect(filterByService(same, resolved("s1")).map((o) => o.value)).toEqual(["z", "a"]);
   });
 
-  it("no filtra candidatos con serviceId null cuando no hay servicio del encargo", () => {
+  it("un candidato con serviceId null solo pasa cuando no se filtra por servicio", () => {
     const withNull = [opt("n", "Sin servicio", null)];
-    expect(filterByService(withNull, null)).toEqual(withNull);
-    expect(filterByService(withNull, "svc-audit")).toEqual([]);
+    expect(filterByService(withNull, NO_SERVICE_FILTER)).toEqual(withNull);
+    expect(filterByService(withNull, resolved("svc-audit"))).toEqual([]);
+  });
+
+  it("NO_SERVICE_FILTER no aplica filtro", () => {
+    expect(NO_SERVICE_FILTER.apply).toBe(false);
   });
 });
 
@@ -169,7 +182,20 @@ describe("composición usada por EngagementForm: withSavedStaff(filterByService(
     // del filtro — si fuera antes, el propio filtro lo descartaría.
     const options = [opt("a", "Ana", "svc-audit")];
     const saved = { staff_id: "otro", first_name: "Otro", last_name: "Servicio" };
-    const result = withSavedStaff(filterByService(options, "svc-audit"), saved);
+    const result = withSavedStaff(
+      filterByService(options, { apply: true, serviceId: "svc-audit" }),
+      saved
+    );
     expect(result.map((o) => o.value)).toEqual(["a", "otro"]);
+  });
+
+  it("en edición el histórico se ve incluso con el catálogo de servicios sin resolver", () => {
+    // fail-closed vacía la lista, pero el asignado guardado no debe desaparecer de su campo.
+    const saved = { staff_id: "hist", first_name: "Hugo", last_name: "Historico" };
+    const result = withSavedStaff(
+      filterByService([opt("a", "Ana", "svc-audit")], { apply: true, serviceId: null }),
+      saved
+    );
+    expect(result.map((o) => o.value)).toEqual(["hist"]);
   });
 });
