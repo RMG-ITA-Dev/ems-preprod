@@ -1050,7 +1050,11 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
         )}
       </div>
 
-      {teamCandidatesError && !isEdit && (
+      {/* Review de Codex: SIN el guard `!isEdit`, a diferencia del aviso de roles faltantes de
+          abajo. Un fallo de carga importa igual o más en edición: los selectores quedan vacíos
+          (solo `withSavedStaff` rescata al asignado actual), así que el editor no puede elegir
+          reemplazo — y sin este mensaje no tendría ninguna explicación de por qué. */}
+      {teamCandidatesError && (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>{t("messages.teamCandidatesLoadError")}</AlertDescription>

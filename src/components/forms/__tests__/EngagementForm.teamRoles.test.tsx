@@ -492,6 +492,20 @@ describe("EngagementForm — elegibilidad por rol en el bloque Equipo (0722-162)
     expect(screen.queryByText(/messages\.missingTeamRoles/)).toBeNull();
   });
 
+  it("el error de carga también se muestra en modo edición", () => {
+    // Review de Codex: en edición los selectores quedan vacíos (solo `withSavedStaff` rescata al
+    // asignado actual), así que el editor no puede elegir reemplazo. Sin este aviso no tendría
+    // ninguna explicación. El aviso de roles faltantes sí queda solo en creación.
+    mockCandidates.partnerDirectorOptions = [];
+    mockCandidates.managerRoleOptions = [];
+    mockCandidates.hasPartnerDirectorCandidates = false;
+    mockCandidates.hasManagerCandidates = false;
+    mockCandidates.isError = true;
+    render(<EngagementForm engagement={baseEngagement} />);
+    expect(screen.getByText(/messages\.teamCandidatesLoadError/)).toBeInTheDocument();
+    expect(screen.queryByText(/messages\.missingTeamRoles/)).toBeNull();
+  });
+
   it("mientras carga no afirma que falten roles", () => {
     mockCandidates.partnerDirectorOptions = [];
     mockCandidates.managerRoleOptions = [];
