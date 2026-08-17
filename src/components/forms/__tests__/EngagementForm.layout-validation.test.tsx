@@ -95,13 +95,12 @@ vi.mock("@/hooks/useCurrentStaff", () => ({
 import { EngagementForm } from "@/components/forms/EngagementForm";
 
 describe("EngagementForm — section order after the 0722-157 reorder", () => {
-  it("renders the section headings in the order: Información Básica, Fechas, Clasificación, Equipo, Asignación, Política", () => {
+  it("renders the section headings in the order: Información Básica, Clasificación, Equipo, Asignación, Política (Fechas has no heading, per feedback)", () => {
     const { container } = render(<EngagementForm />);
     const headings = Array.from(container.querySelectorAll("h3")).map((h) => h.textContent);
 
     expect(headings).toEqual([
       "common.basicInfo",
-      "common.dates",
       "engagement.sectionClassification",
       "common.team",
       "engagement.assignments.title",

@@ -930,40 +930,75 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
               <div className="space-y-4">
               <div className="flex items-center justify-between gap-4">
                 <h3 className="font-medium text-lg">{t("common.basicInfo")}</h3>
-                {/* FEAT 0602-135 (0722-157: movido al encabezado, sin el toggle del Gerente):
-                    Admin edita con <Select> los 9 estados + Automático; el resto ve el badge de
-                    solo lectura, reutilizando el patrón de la tabla de Encargos. */}
-                {isEdit && isAdmin ? (
-                  <FormField
-                    control={form.control}
-                    name="engagement_state_override"
-                    render={({ field }) => (
-                      <FormItem className="space-y-0">
-                        <Select onValueChange={field.onChange} value={field.value ?? "auto"}>
-                          <FormControl>
-                            <SelectTrigger className="h-8 w-[180px]" aria-label={t("engagement.status")}>
-                              <SelectValue />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="auto">{t("engagementState.auto")}</SelectItem>
-                            {ENGAGEMENT_STATES.map((s) => (
-                              <SelectItem key={s} value={String(s)}>
-                                {t(engagementStateI18nKey(s))}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </FormItem>
-                    )}
-                  />
-                ) : savedEffectiveState ? (
-                  <Badge variant="outline" className={engagementStateBadgeClass(savedEffectiveState)}>
-                    {t(engagementStateI18nKey(savedEffectiveState))}
-                  </Badge>
-                ) : (
-                  <Badge variant="outline">{t("engagementState.auto")}</Badge>
-                )}
+                <div className="flex items-center gap-3">
+                  {/* 0722-157 (feedback): el Código del Encargo se muestra junto al Estado en
+                      el encabezado, en vez de ocupar un lugar en la grilla de Clasificación. */}
+                  {isEdit ? (
+                    <FormItem className="space-y-0">
+                      <FormLabel className="text-xs">{t("engagement.engagementCode")}</FormLabel>
+                      <Input
+                        data-testid="engagement-code-readonly"
+                        value={engagement?.engagement_code ?? ""}
+                        readOnly
+                        disabled
+                        className="h-8 w-40 font-mono border-warning/40"
+                      />
+                    </FormItem>
+                  ) : (
+                    <FormItem className="space-y-0">
+                      <FormLabel className="text-xs">{t("engagement.engagementCode")}</FormLabel>
+                      <div
+                        data-testid="engagement-code-preview"
+                        className="flex h-8 items-center rounded-md border border-warning/30 bg-warning/10 px-3 text-xs"
+                      >
+                        {previewIncomplete ? (
+                          <span className="text-muted-foreground">{t("engagement.codePreviewIncomplete")}</span>
+                        ) : (
+                          <span className="font-mono text-warning">
+                            {previewCodePrefix}
+                            <span className="text-warning/60">---</span>
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[10px] text-muted-foreground">{t("engagement.codePreviewHelp")}</p>
+                    </FormItem>
+                  )}
+
+                  {/* FEAT 0602-135 (0722-157: movido al encabezado, sin el toggle del Gerente):
+                      Admin edita con <Select> los 9 estados + Automático; el resto ve el badge de
+                      solo lectura, reutilizando el patrón de la tabla de Encargos. */}
+                  {isEdit && isAdmin ? (
+                    <FormField
+                      control={form.control}
+                      name="engagement_state_override"
+                      render={({ field }) => (
+                        <FormItem className="space-y-0">
+                          <Select onValueChange={field.onChange} value={field.value ?? "auto"}>
+                            <FormControl>
+                              <SelectTrigger className="h-8 w-[180px]" aria-label={t("engagement.status")}>
+                                <SelectValue />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="auto">{t("engagementState.auto")}</SelectItem>
+                              {ENGAGEMENT_STATES.map((s) => (
+                                <SelectItem key={s} value={String(s)}>
+                                  {t(engagementStateI18nKey(s))}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </FormItem>
+                      )}
+                    />
+                  ) : savedEffectiveState ? (
+                    <Badge variant="outline" className={engagementStateBadgeClass(savedEffectiveState)}>
+                      {t(engagementStateI18nKey(savedEffectiveState))}
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline">{t("engagementState.auto")}</Badge>
+                  )}
+                </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1060,7 +1095,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                     {!isEdit ? (
                       <div className="">
                         {contractFilePath ? (
-                          <div className="flex items-center gap-2 p-2 border rounded-md bg-muted/50 max-w-md">
+                          <div className="flex h-10 items-center gap-2 px-3 border rounded-md bg-muted/50">
                             <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                             <span className="text-sm truncate flex-1">{contractFileName}</span>
                             <Button
@@ -1075,7 +1110,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                             </Button>
                           </div>
                         ) : (
-                          <div className="space-y-2 max-w-md">
+                          <div className="space-y-2">
                             <input
                               ref={contractFileInputRef}
                               type="file"
@@ -1090,6 +1125,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                               aria-invalid={!!contractError}
                               onClick={() => contractFileInputRef.current?.click()}
                               disabled={contractUploading}
+                              className="w-full justify-start font-normal"
                             >
                               <Upload className="h-4 w-4 mr-2" />
                               {t("engagement.uploadContract")}
@@ -1107,6 +1143,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                         variant="outline"
                         onClick={handleDownloadContract}
                         disabled={downloadingContract}
+                        className="w-full justify-start font-normal"
                       >
                         <FileText className="h-4 w-4 mr-2" />
                         {t("engagement.downloadContract")}
@@ -1118,7 +1155,8 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
               </div>
 
             <div className="space-y-4">
-              <h3 className="font-medium text-lg">{t("common.dates")}</h3>
+              {/* 0722-157 (feedback): se quita el h3 "Fechas" — la sección ya queda clara por
+                  su posición inmediatamente debajo de Información Básica. */}
               {datesLockedByState && (
                 <p className="text-xs text-muted-foreground">{t("engagement.datesLockedByState")}</p>
               )}
@@ -1272,40 +1310,9 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
               </div>
               </div>
 
-              <div className="space-y-4">
+              <div className="space-y-4 mt-6">
               <h3 className="font-medium text-lg">{t("engagement.sectionClassification")}</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-                {isEdit ? (
-                  <FormItem>
-                    <FormLabel>{t("engagement.engagementCode")}</FormLabel>
-                    <Input
-                      data-testid="engagement-code-readonly"
-                      value={engagement?.engagement_code ?? ""}
-                      readOnly
-                      disabled
-                      className="font-mono border-warning/40"
-                    />
-                  </FormItem>
-                ) : (
-                  <FormItem>
-                    <FormLabel>{t("engagement.engagementCode")}</FormLabel>
-                    <div
-                      data-testid="engagement-code-preview"
-                      className="flex h-10 items-center rounded-md border border-warning/30 bg-warning/10 px-3 text-sm"
-                    >
-                      {previewIncomplete ? (
-                        <span className="text-muted-foreground">{t("engagement.codePreviewIncomplete")}</span>
-                      ) : (
-                        <span className="font-mono text-warning">
-                          {previewCodePrefix}
-                          <span className="text-warning/60">---</span>
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-muted-foreground">{t("engagement.codePreviewHelp")}</p>
-                  </FormItem>
-                )}
-
                 <FormField control={form.control} name="anio_fiscal" render={({ field }) => (
                   <FormItem>
                     <FormLabel>{t("engagement.anioFiscal")} *</FormLabel>
