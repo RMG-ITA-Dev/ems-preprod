@@ -201,7 +201,7 @@ const SchedulerStaff = () => {
         <Button
           variant="cancel"
           size="sm"
-          className="w-fit self-start"
+          className="w-fit self-start min-h-[44px] sm:min-h-0"
           onClick={() =>
             navigate(returnNav?.returnTo ?? "/scheduler", {
               state: returnNav?.returnState ?? null,
