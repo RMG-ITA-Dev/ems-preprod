@@ -741,6 +741,7 @@
     "datesLockedByState": "Dates can't be edited in this state (Cancelled, Finalized, or Frozen).",
     "selectPartner": "Select Partner/Director",
     "selectManager": "Select Manager/Supervisor",
+    "selfAssignedLocked": "Automatically assigned based on your role.",
     "sqr": "SQR (Quality Review Partner)",
     "encargado": "Lead",
     "specialistIt1": "IT Specialist 1",

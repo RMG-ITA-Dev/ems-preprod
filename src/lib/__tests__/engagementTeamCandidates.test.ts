@@ -5,6 +5,7 @@ import {
   ELIGIBLE_ROLE_KEYS,
   filterByService,
   withSavedStaff,
+  withSelfCandidate,
   NO_SERVICE_FILTER,
   TeamCandidateOption,
   ServiceFilter,
@@ -210,5 +211,54 @@ describe("composición usada por EngagementForm: withSavedStaff(filterByService(
       "hist"
     );
     expect(result.map((o) => o.value)).toEqual(["hist"]);
+  });
+});
+
+describe("withSelfCandidate — BUG 0810-172", () => {
+  const self = opt("me", "Gala Gerente", null);
+
+  it("agrega al creador cuando no está en las opciones", () => {
+    const result = withSelfCandidate([opt("a", "Ana", "svc-audit")], self);
+    expect(result.map((o) => o.value)).toEqual(["a", "me"]);
+  });
+
+  it("no lo duplica cuando ya figura como candidato", () => {
+    // Caso normal: el creador SÍ es candidato de su propio campo y del servicio del encargo.
+    const alreadyThere = opt("me", "Gala Gerente", "svc-audit");
+    const result = withSelfCandidate([alreadyThere, opt("a", "Ana", "svc-audit")], self);
+    expect(result).toHaveLength(2);
+    expect(result.map((o) => o.value)).toEqual(["me", "a"]);
+    // Se conserva la opción original (con su serviceId real), no la inyectada.
+    expect(result[0].serviceId).toBe("svc-audit");
+  });
+
+  it("sin creador devuelve la lista intacta (misma referencia)", () => {
+    const options = [opt("a", "Ana", "svc-audit")];
+    expect(withSelfCandidate(options, null)).toBe(options);
+  });
+
+  it("funciona sobre una lista vacía: el campo bloqueado nunca queda sin su opción", () => {
+    // Es el escenario que evita el formulario sin salida: el filtro por servicio dejó la lista
+    // vacía, pero el campo autoasignado igual puede mostrar al creador.
+    expect(withSelfCandidate([], self)).toEqual([self]);
+  });
+
+  it("preserva el orden de los candidatos existentes", () => {
+    const options = [opt("a", "Ana", "s1"), opt("b", "Beto", "s1"), opt("c", "Caro", "s1")];
+    expect(withSelfCandidate(options, self).map((o) => o.label)).toEqual([
+      "Ana",
+      "Beto",
+      "Caro",
+      "Gala Gerente",
+    ]);
+  });
+
+  it("compuesto como en EngagementForm: sobrevive al filtro por servicio que lo excluiría", () => {
+    // El creador es de Consultoría y el encargo es de Auditoría (los no-admin reciben Auditoría
+    // forzada). filterByService lo descartaría; la inyección posterior lo repone.
+    const options = [opt("a", "Ana", "svc-audit"), opt("me", "Gala Gerente", "svc-consult")];
+    const filtered = filterByService(options, { apply: true, serviceId: "svc-audit" });
+    expect(filtered.map((o) => o.value)).toEqual(["a"]);
+    expect(withSelfCandidate(filtered, self).map((o) => o.value)).toEqual(["a", "me"]);
   });
 });

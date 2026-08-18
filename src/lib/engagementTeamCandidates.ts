@@ -165,3 +165,34 @@ export function withSavedStaff(
     },
   ];
 }
+
+/**
+ * BUG 0810-172 — garantiza que el creador autoasignado figure en las opciones de SU campo.
+ *
+ * Se aplica solo al campo que 0810-172 bloquea (`partner_id` o `manager_id`, nunca a los otros
+ * cuatro) y DESPUÉS de `filterByService`. Es una excepción DELIBERADA al filtro por servicio: los
+ * no-admin reciben `practica` = Auditoría forzada, y un creador cuyo `staff.service_id` sea otro no
+ * sobreviviría al filtro. Sin esta inyección pasarían tres cosas a la vez, todas malas:
+ *
+ *   1. `StaffCombobox` no encontraría el id en `options` y mostraría el placeholder en un campo
+ *      obligatorio que SÍ está lleno y además bloqueado.
+ *   2. El `useEffect` de limpieza de valores stale de EngagementForm borraría el valor sembrado,
+ *      dejando un campo obligatorio bloqueado y VACÍO ⇒ formulario sin salida.
+ *   3. El aviso de "falta personal" no se dispararía (otros socios sí califican), así que el
+ *      usuario no tendría ninguna explicación.
+ *
+ * Al vivir dentro del memo de opciones, las tres se resuelven de una sola vez: no hace falta
+ * exceptuar el efecto de limpieza aparte, porque para él el valor deja de ser stale.
+ *
+ * A diferencia de `withSavedStaff`, no se condiciona al valor vigente del campo: el creador debe
+ * poder mostrarse ANTES de que el efecto de siembra escriba el valor, y el campo queda bloqueado,
+ * así que no hay riesgo de que se use para re-seleccionar a alguien inelegible.
+ */
+export function withSelfCandidate(
+  options: TeamCandidateOption[],
+  self: TeamCandidateOption | null
+): TeamCandidateOption[] {
+  if (!self) return options;
+  if (options.some((o) => o.value === self.value)) return options;
+  return [...options, self];
+}
