@@ -846,15 +846,6 @@ const Settings = () => {
                 <div className="flex gap-2">
                   <Button
                     type="button"
-                    variant="default"
-                    onClick={() => { setSelectedService(null); setServiceFormOpen(true); }}
-                    data-testid="new-practice-button"
-                  >
-                    <Plus className="h-4 w-4 mr-2" />
-                    {t("service.newService")}
-                  </Button>
-                  <Button
-                    type="button"
                     variant="warning"
                     disabled={!currentService}
                     onClick={() => { setSelectedService(currentService ?? null); setServiceFormOpen(true); }}
@@ -862,6 +853,15 @@ const Settings = () => {
                   >
                     <Edit2 className="h-4 w-4 mr-2" />
                     {t("service.editService")}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="default"
+                    onClick={() => { setSelectedService(null); setServiceFormOpen(true); }}
+                    data-testid="new-practice-button"
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    {t("service.newService")}
                   </Button>
                 </div>
               )}
