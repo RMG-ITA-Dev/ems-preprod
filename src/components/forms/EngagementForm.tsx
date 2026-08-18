@@ -940,9 +940,9 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
 
             <div className="border border-border bg-background/50 rounded-xl p-8">
               <div className="space-y-6">
-              <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center justify-between gap-4 flex-wrap">
                 <h3 className="font-medium text-lg">{t("common.basicInfo")}</h3>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 flex-wrap">
                   {/* 0722-157 (feedback): el Código del Encargo se muestra junto al Estado en
                       el encabezado, en vez de ocupar un lugar en la grilla de Clasificación. */}
                   {isEdit ? (
