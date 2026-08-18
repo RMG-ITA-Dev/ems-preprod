@@ -321,10 +321,9 @@ describe("Engagement code preview format (BUG 0603-140)", () => {
 describe("EngagementForm render — create mode (BUG 0306-82 / 0603-140)", () => {
   it("EF-R1: renders the engagement code as a non-editable preview (no free-text code input)", () => {
     render(<EngagementForm />);
-    // The code label is now shown in create mode (preview), not hidden.
-    expect(screen.getByText("engagement.engagementCode")).toBeInTheDocument();
-    // With no office/service/function selected yet, the incomplete state is shown.
-    expect(screen.getByText("engagement.codePreviewIncomplete")).toBeInTheDocument();
+    // 0722-157 (feedback): no standalone label anymore — with no office/service/function
+    // selected yet, the preview box itself shows "Código del Encargo" as its placeholder text.
+    expect(screen.getByTestId("engagement-code-preview")).toHaveTextContent("engagement.engagementCode");
     // And the helper text explaining the code is assigned on save.
     expect(screen.getByText("engagement.codePreviewHelp")).toBeInTheDocument();
     // The preview is not a writable input: no field shows an editable code value.
@@ -362,7 +361,8 @@ describe("EngagementForm render — create mode (BUG 0306-82 / 0603-140)", () =>
 describe("EngagementForm render — edit mode (BUG 0306-82)", () => {
   it("EF-R5: renders engagement code as a disabled read-only input with a subtle warning accent", () => {
     render(<EngagementForm engagement={mockEngagement} />);
-    expect(screen.getByText("engagement.engagementCode")).toBeInTheDocument();
+    // 0722-157 (feedback): no standalone label anymore — the accessible name comes from aria-label.
+    expect(screen.getByLabelText("engagement.engagementCode")).toBeInTheDocument();
     const codeInput = screen.getByTestId("engagement-code-readonly");
     expect(codeInput).toBeDisabled();
     expect(codeInput).toHaveValue("2027.121.001");

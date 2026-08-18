@@ -70,7 +70,9 @@ export function TaxonomyCombobox({
                 ? t("engagement.noAplicaTaxonomy")
                 : placeholder || t("engagement.selectTaxonomy")}
           </span>
-          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+          {/* 0722-157 (feedback): azul de acento — usado solo por EngagementForm, distingue
+              de un vistazo que este control es un combobox de búsqueda. */}
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 text-info" />
         </Button>
       </PopoverTrigger>
       <PopoverContent className="min-w-[--radix-popover-trigger-width] w-auto max-w-[600px] p-0" align="start">

@@ -115,7 +115,9 @@ function StaffCombobox({
               className={cn("w-full justify-between font-normal", !selectedLabel && "text-muted-foreground")}
             >
               {selectedLabel ?? placeholder}
-              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+              {/* 0722-157 (feedback): azul de acento para distinguir de un vistazo que este
+                  control es un combobox de búsqueda (mismo tratamiento que TaxonomyCombobox). */}
+              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 text-info" />
             </Button>
           </FormControl>
         </PopoverTrigger>
@@ -927,32 +929,30 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
           <form ref={formRef} onSubmit={form.handleSubmit(onSubmit, focusFirstInvalidField)} className="space-y-6">
 
             <div className="border border-border bg-background/50 rounded-xl p-8">
-              <div className="space-y-4">
+              <div className="space-y-6">
               <div className="flex items-center justify-between gap-4">
                 <h3 className="font-medium text-lg">{t("common.basicInfo")}</h3>
                 <div className="flex items-center gap-3">
                   {/* 0722-157 (feedback): el Código del Encargo se muestra junto al Estado en
                       el encabezado, en vez de ocupar un lugar en la grilla de Clasificación. */}
                   {isEdit ? (
-                    <FormItem className="space-y-0">
-                      <FormLabel className="text-xs">{t("engagement.engagementCode")}</FormLabel>
-                      <Input
-                        data-testid="engagement-code-readonly"
-                        value={engagement?.engagement_code ?? ""}
-                        readOnly
-                        disabled
-                        className="h-8 w-40 font-mono border-warning/40"
-                      />
-                    </FormItem>
+                    <Input
+                      data-testid="engagement-code-readonly"
+                      aria-label={t("engagement.engagementCode")}
+                      value={engagement?.engagement_code ?? ""}
+                      readOnly
+                      disabled
+                      className="h-8 w-40 font-mono border-warning/40"
+                    />
                   ) : (
-                    <FormItem className="space-y-0">
-                      <FormLabel className="text-xs">{t("engagement.engagementCode")}</FormLabel>
+                    <div className="space-y-0.5">
                       <div
                         data-testid="engagement-code-preview"
+                        aria-label={t("engagement.engagementCode")}
                         className="flex h-8 items-center rounded-md border border-warning/30 bg-warning/10 px-3 text-xs"
                       >
                         {previewIncomplete ? (
-                          <span className="text-muted-foreground">{t("engagement.codePreviewIncomplete")}</span>
+                          <span className="text-muted-foreground">{t("engagement.engagementCode")}</span>
                         ) : (
                           <span className="font-mono text-warning">
                             {previewCodePrefix}
@@ -961,7 +961,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                         )}
                       </div>
                       <p className="text-[10px] text-muted-foreground">{t("engagement.codePreviewHelp")}</p>
-                    </FormItem>
+                    </div>
                   )}
 
                   {/* FEAT 0602-135 (0722-157: movido al encabezado, sin el toggle del Gerente):
@@ -1110,7 +1110,10 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                             </Button>
                           </div>
                         ) : (
-                          <div className="space-y-2">
+                          <div>
+                            {/* 0722-157 (feedback): the hidden file input still counts as a
+                                sibling for `space-y-*`, which was pushing the Button below the
+                                height of "Nombre del Encargo" — no gap needed since it's hidden. */}
                             <input
                               ref={contractFileInputRef}
                               type="file"
@@ -1125,12 +1128,12 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                               aria-invalid={!!contractError}
                               onClick={() => contractFileInputRef.current?.click()}
                               disabled={contractUploading}
-                              className="w-full justify-start font-normal"
+                              className="h-10 w-full justify-start font-normal"
                             >
-                              <Upload className="h-4 w-4 mr-2" />
+                              <Upload className="h-4 w-4 mr-2 text-info" />
                               {t("engagement.uploadContract")}
                             </Button>
-                            {contractUploading && <Progress value={contractProgress} className="h-2" />}
+                            {contractUploading && <Progress value={contractProgress} className="h-2 mt-2" />}
                           </div>
                         )}
                         {contractError && (
@@ -1154,7 +1157,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
               </div>
               </div>
 
-            <div className="space-y-4">
+            <div className="space-y-6 mt-6">
               {/* 0722-157 (feedback): se quita el h3 "Fechas" — la sección ya queda clara por
                   su posición inmediatamente debajo de Información Básica. */}
               {datesLockedByState && (
@@ -1183,7 +1186,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                               )}
                             >
                               {field.value ? format(field.value, "dd/MM/yyyy") : t("common.pickDate")}
-                              <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                              <CalendarIcon className="ml-auto h-4 w-4 text-info" />
                             </Button>
                           </FormControl>
                         </PopoverTrigger>
@@ -1221,7 +1224,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                               )}
                             >
                               {field.value ? format(field.value, "dd/MM/yyyy") : t("common.pickDate")}
-                              <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                              <CalendarIcon className="ml-auto h-4 w-4 text-info" />
                             </Button>
                           </FormControl>
                         </PopoverTrigger>
@@ -1288,7 +1291,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                                 )}
                               >
                                 {field.value ? format(field.value, "dd/MM/yyyy") : t("common.pickDate")}
-                                <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                                <CalendarIcon className="ml-auto h-4 w-4 text-info" />
                               </Button>
                             </FormControl>
                           </PopoverTrigger>
@@ -1310,8 +1313,9 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
               </div>
               </div>
 
-              <div className="space-y-4 mt-6">
-              <h3 className="font-medium text-lg">{t("engagement.sectionClassification")}</h3>
+              <div className="mt-8">
+              {/* 0722-157 (feedback): se quita el h3 "Clasificación" — la separación con
+                  Fechas la marca el `mt-8` de este bloque. */}
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                 <FormField control={form.control} name="anio_fiscal" render={({ field }) => (
                   <FormItem>
