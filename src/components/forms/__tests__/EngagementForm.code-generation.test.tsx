@@ -339,44 +339,46 @@ describe("EngagementForm render — create mode (BUG 0306-82 / 0603-140)", () =>
 
   it("EF-R2: renders the Fiscal Year select label", () => {
     render(<EngagementForm />);
-    expect(screen.getByText("engagement.anioFiscal *")).toBeInTheDocument();
+    expect(screen.getByText((_, el) => el?.textContent === "engagement.anioFiscal *")).toBeInTheDocument();
   });
 
   it("EF-R3: renders the Office (Oficina) select label", () => {
     render(<EngagementForm />);
-    expect(screen.getByText("engagement.oficina *")).toBeInTheDocument();
+    expect(screen.getByText((_, el) => el?.textContent === "engagement.oficina *")).toBeInTheDocument();
   });
 
   it("EF-R4: renders the Practice (Practica) select label", () => {
     render(<EngagementForm />);
-    expect(screen.getByText("engagement.practica *")).toBeInTheDocument();
+    expect(screen.getByText((_, el) => el?.textContent === "engagement.practica *")).toBeInTheDocument();
   });
 
   it("EF-R7: renders the Function (Funcion) select label", () => {
     render(<EngagementForm />);
-    expect(screen.getByText("engagement.funcion *")).toBeInTheDocument();
+    expect(screen.getByText((_, el) => el?.textContent === "engagement.funcion *")).toBeInTheDocument();
   });
 });
 
 describe("EngagementForm render — edit mode (BUG 0306-82)", () => {
-  it("EF-R5: renders engagement code as a disabled read-only input with a subtle warning accent", () => {
+  it("EF-R5: renders engagement code as a disabled read-only input with the same warning accent as create mode", () => {
     render(<EngagementForm engagement={mockEngagement} />);
     // 0722-157 (feedback): no standalone label anymore — the accessible name comes from aria-label.
     expect(screen.getByLabelText("engagement.engagementCode")).toBeInTheDocument();
     const codeInput = screen.getByTestId("engagement-code-readonly");
     expect(codeInput).toBeDisabled();
     expect(codeInput).toHaveValue("2027.121.001");
-    // Subtle accent (border only), not the full warning background used in create mode.
+    // 0722-157 (feedback): keep the same gold/warning fill+text as the create-mode preview —
+    // it must not be lost when editing.
     expect(codeInput).toHaveClass("border-warning/40");
-    expect(codeInput).not.toHaveClass("bg-warning/10");
+    expect(codeInput).toHaveClass("bg-warning/10");
+    expect(codeInput).toHaveClass("text-warning");
   });
 
   it("EF-R6: fiscal year/office/practice/function labels are still present in edit mode", () => {
     render(<EngagementForm engagement={mockEngagement} />);
-    expect(screen.getByText("engagement.anioFiscal *")).toBeInTheDocument();
-    expect(screen.getByText("engagement.oficina *")).toBeInTheDocument();
-    expect(screen.getByText("engagement.practica *")).toBeInTheDocument();
-    expect(screen.getByText("engagement.funcion *")).toBeInTheDocument();
+    expect(screen.getByText((_, el) => el?.textContent === "engagement.anioFiscal *")).toBeInTheDocument();
+    expect(screen.getByText((_, el) => el?.textContent === "engagement.oficina *")).toBeInTheDocument();
+    expect(screen.getByText((_, el) => el?.textContent === "engagement.practica *")).toBeInTheDocument();
+    expect(screen.getByText((_, el) => el?.textContent === "engagement.funcion *")).toBeInTheDocument();
   });
 });
 
@@ -391,7 +393,7 @@ describe("EngagementForm — closing date drives Año Fiscal (BUG 0604-143)", ()
 
   it("non-admin: renders the closing-date field and the fiscal-year helper text", () => {
     render(<EngagementForm />);
-    expect(screen.getByText("engagement.closingDate *")).toBeInTheDocument();
+    expect(screen.getByText((_, el) => el?.textContent === "engagement.closingDate *")).toBeInTheDocument();
     expect(screen.getByText("engagement.fiscalYearHelper")).toBeInTheDocument();
   });
 

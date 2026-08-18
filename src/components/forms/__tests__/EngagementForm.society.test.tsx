@@ -193,7 +193,7 @@ describe("EngagementForm — Sociedad select (FEAT 0714-155)", () => {
 
   it("renders the label with an asterisk", () => {
     render(<EngagementForm />);
-    expect(screen.getByText("engagement.society *")).toBeInTheDocument();
+    expect(screen.getByText((_, el) => el?.textContent === "engagement.society *")).toBeInTheDocument();
   });
 
   it("create mode: opening the select lists only active societies", async () => {

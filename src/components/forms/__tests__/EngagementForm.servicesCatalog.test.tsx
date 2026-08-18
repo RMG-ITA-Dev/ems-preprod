@@ -222,7 +222,7 @@ describe("EngagementForm — catalog-driven practica (0625-149)", () => {
 
   it("renders the practica select label in create mode", () => {
     render(<EngagementForm />);
-    expect(screen.getByText("engagement.practica *")).toBeInTheDocument();
+    expect(screen.getByText((_, el) => el?.textContent === "engagement.practica *")).toBeInTheDocument();
   });
 
   it("code-preview block still present in create mode", () => {

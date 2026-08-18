@@ -78,6 +78,7 @@ import { getUpcomingClosingDates, getFiscalYearForDate } from "@/lib/fiscalCalcu
 
 interface StaffComboboxProps {
   label: string;
+  required?: boolean;
   placeholder: string;
   searchPlaceholder: string;
   noResultsText: string;
@@ -90,6 +91,7 @@ interface StaffComboboxProps {
 
 function StaffCombobox({
   label,
+  required = false,
   placeholder,
   searchPlaceholder,
   noResultsText,
@@ -104,7 +106,10 @@ function StaffCombobox({
 
   return (
     <FormItem>
-      <FormLabel>{label}</FormLabel>
+      <FormLabel>
+        {label}
+        {required && <span className="text-destructive"> *</span>}
+      </FormLabel>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <FormControl>
@@ -942,7 +947,9 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                       value={engagement?.engagement_code ?? ""}
                       readOnly
                       disabled
-                      className="h-8 w-40 font-mono border-warning/40"
+                      // 0722-157 (feedback): conservar el mismo dorado/warning de la vista de
+                      // creación — antes esta vista solo tenía el borde, sin el relleno/texto.
+                      className="h-8 w-40 font-mono border-warning/40 bg-warning/10 text-warning disabled:!opacity-100"
                     />
                   ) : (
                     <div className="space-y-0.5">
@@ -975,8 +982,20 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                         <FormItem className="space-y-0">
                           <Select onValueChange={field.onChange} value={field.value ?? "auto"}>
                             <FormControl>
-                              <SelectTrigger className="h-8 w-[180px]" aria-label={t("engagement.status")}>
-                                <SelectValue />
+                              <SelectTrigger
+                                className="h-8 w-[180px] [&_svg]:text-info [&_svg]:opacity-100"
+                                aria-label={t("engagement.status")}
+                              >
+                                {/* 0722-157 (feedback): cuando sigue el derivado de la OT
+                                    ("auto"), mostrar el estado real vigente en vez de la
+                                    palabra "Automático" — mucho más claro de un vistazo. */}
+                                <SelectValue>
+                                  {field.value && field.value !== "auto"
+                                    ? t(engagementStateI18nKey(Number(field.value)))
+                                    : savedEffectiveState
+                                      ? t(engagementStateI18nKey(savedEffectiveState))
+                                      : t("engagementState.auto")}
+                                </SelectValue>
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
@@ -996,7 +1015,11 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                       {t(engagementStateI18nKey(savedEffectiveState))}
                     </Badge>
                   ) : (
-                    <Badge variant="outline">{t("engagementState.auto")}</Badge>
+                    // 0722-157 (feedback): al crear todavía no existe un encargo (ni OT), así
+                    // que "Pendiente" (1) describe mejor el punto de partida que "Automático".
+                    <Badge variant="outline" className={engagementStateBadgeClass(EngagementState.Pendiente)}>
+                      {t(engagementStateI18nKey(EngagementState.Pendiente))}
+                    </Badge>
                   )}
                 </div>
               </div>
@@ -1007,10 +1030,10 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                   name="client_id"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>{t("engagement.client")} *</FormLabel>
+                      <FormLabel>{t("engagement.client")} <span className="text-destructive">*</span></FormLabel>
                       <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
-                          <SelectTrigger>
+                          <SelectTrigger className="[&_svg]:text-info [&_svg]:opacity-100">
                             <SelectValue placeholder={t("engagement.selectClient")} />
                           </SelectTrigger>
                         </FormControl>
@@ -1030,13 +1053,13 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
 
                 <FormField control={form.control} name="society_id" render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{t("engagement.society")} *</FormLabel>
+                    <FormLabel>{t("engagement.society")} <span className="text-destructive">*</span></FormLabel>
                     <Select
                       disabled={isEdit && !isAdmin}
                       onValueChange={field.onChange}
                       value={field.value ?? ""}
                     >
-                      <FormControl><SelectTrigger><SelectValue placeholder={t("engagement.selectSociety")} /></SelectTrigger></FormControl>
+                      <FormControl><SelectTrigger className="[&_svg]:text-info [&_svg]:opacity-100"><SelectValue placeholder={t("engagement.selectSociety")} /></SelectTrigger></FormControl>
                       <SelectContent>
                         {societyOptions.map((soc) => (
                           <SelectItem key={soc.society_id} value={soc.society_id}>
@@ -1056,7 +1079,9 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                     <FormItem>
                       <FormLabel>
                         {t("engagement.taxonomy")}
-                        {form.watch("funcion") === FUNCION_CLIENTE && " *"}
+                        {form.watch("funcion") === FUNCION_CLIENTE && (
+                          <span className="text-destructive"> *</span>
+                        )}
                       </FormLabel>
                       <TaxonomyCombobox
                         taxonomies={activeTaxonomyOptions}
@@ -1077,7 +1102,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                   name="engagement_name"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>{t("engagement.name")} *</FormLabel>
+                      <FormLabel>{t("engagement.name")} <span className="text-destructive">*</span></FormLabel>
                       <FormControl>
                         <Input placeholder="Annual Audit 2024" {...field} />
                       </FormControl>
@@ -1089,7 +1114,8 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                 {showContractSection && (
                   <div className="space-y-2">
                     <Label className={cn(contractError && "text-destructive")}>
-                      {t("engagement.contractScanned")}{!isEdit && " *"}
+                      {t("engagement.contractScanned")}
+                      {!isEdit && <span className="text-destructive"> *</span>}
                     </Label>
 
                     {!isEdit ? (
@@ -1173,7 +1199,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                   name="start_date"
                   render={({ field }) => (
                     <FormItem className="flex flex-col">
-                      <FormLabel>{t("engagement.startDate")} *</FormLabel>
+                      <FormLabel>{t("engagement.startDate")} <span className="text-destructive">*</span></FormLabel>
                       <Popover>
                         <PopoverTrigger asChild>
                           <FormControl>
@@ -1211,7 +1237,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                   name="end_date"
                   render={({ field }) => (
                     <FormItem className="flex flex-col">
-                      <FormLabel>{t("engagement.endDate")} *</FormLabel>
+                      <FormLabel>{t("engagement.endDate")} <span className="text-destructive">*</span></FormLabel>
                       <Popover>
                         <PopoverTrigger asChild>
                           <FormControl>
@@ -1251,13 +1277,13 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
 
                 <FormField control={form.control} name="closing_date_option" render={({ field }) => (
                   <FormItem className="flex flex-col">
-                    <FormLabel>{t("engagement.closingDate")} *</FormLabel>
+                    <FormLabel>{t("engagement.closingDate")} <span className="text-destructive">*</span></FormLabel>
                     <Select
                       disabled={isEdit && (!canEditClosing || (overrideOn && !isAdmin) || datesLockedByState)}
                       onValueChange={field.onChange}
                       value={field.value ?? ""}
                     >
-                      <FormControl><SelectTrigger><SelectValue placeholder={t("engagement.selectClosingDate")} /></SelectTrigger></FormControl>
+                      <FormControl><SelectTrigger className="[&_svg]:text-info [&_svg]:opacity-100"><SelectValue placeholder={t("engagement.selectClosingDate")} /></SelectTrigger></FormControl>
                       <SelectContent>
                         {closingDateOptions.map((opt) => (
                           <SelectItem key={opt.value} value={opt.value}>
@@ -1277,7 +1303,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                     name="closing_date_custom"
                     render={({ field }) => (
                       <FormItem className="flex flex-col">
-                        <FormLabel>{t("engagement.closingDateCustom")} *</FormLabel>
+                        <FormLabel>{t("engagement.closingDateCustom")} <span className="text-destructive">*</span></FormLabel>
                         <Popover>
                           <PopoverTrigger asChild>
                             <FormControl>
@@ -1319,13 +1345,13 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                 <FormField control={form.control} name="anio_fiscal" render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{t("engagement.anioFiscal")} *</FormLabel>
+                    <FormLabel>{t("engagement.anioFiscal")} <span className="text-destructive">*</span></FormLabel>
                     {showOverrideSelect ? (
                       <Select
                         onValueChange={(v) => field.onChange(Number(v))}
                         value={field.value ? String(field.value) : ""}
                       >
-                        <FormControl><SelectTrigger><SelectValue placeholder={t("engagement.selectAnioFiscal")} /></SelectTrigger></FormControl>
+                        <FormControl><SelectTrigger className="[&_svg]:text-info [&_svg]:opacity-100"><SelectValue placeholder={t("engagement.selectAnioFiscal")} /></SelectTrigger></FormControl>
                         <SelectContent>
                           {fiscalYearOptions.map((fy) => (
                             <SelectItem key={fy} value={String(fy)}>{fy}</SelectItem>
@@ -1354,13 +1380,13 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
 
                 <FormField control={form.control} name="oficina" render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{t("engagement.oficina")} *</FormLabel>
+                    <FormLabel>{t("engagement.oficina")} <span className="text-destructive">*</span></FormLabel>
                     <Select
                       disabled={isEdit}
                       onValueChange={(v) => field.onChange(Number(v))}
                       value={field.value != null ? String(field.value) : ""}
                     >
-                      <FormControl><SelectTrigger><SelectValue placeholder={t("engagement.selectOficina")} /></SelectTrigger></FormControl>
+                      <FormControl><SelectTrigger className="[&_svg]:text-info [&_svg]:opacity-100"><SelectValue placeholder={t("engagement.selectOficina")} /></SelectTrigger></FormControl>
                       <SelectContent>
                         <SelectItem value="0">{t("engagement.oficina_ambos")}</SelectItem>
                         <SelectItem value="1">{t("engagement.oficina_laPaz")}</SelectItem>
@@ -1373,13 +1399,13 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
 
                 <FormField control={form.control} name="practica" render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{t("engagement.practica")} *</FormLabel>
+                    <FormLabel>{t("engagement.practica")} <span className="text-destructive">*</span></FormLabel>
                     <Select
                       disabled={serviceSelectDisabled}
                       onValueChange={(v) => field.onChange(Number(v))}
                       value={field.value != null ? String(field.value) : ""}
                     >
-                      <FormControl><SelectTrigger><SelectValue placeholder={t("engagement.selectPractica")} /></SelectTrigger></FormControl>
+                      <FormControl><SelectTrigger className="[&_svg]:text-info [&_svg]:opacity-100"><SelectValue placeholder={t("engagement.selectPractica")} /></SelectTrigger></FormControl>
                       <SelectContent>
                         {activeServiceOptions.map((s) => (
                           <SelectItem key={s.code} value={String(s.code)}>
@@ -1394,13 +1420,13 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
 
                 <FormField control={form.control} name="funcion" render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{t("engagement.funcion")} *</FormLabel>
+                    <FormLabel>{t("engagement.funcion")} <span className="text-destructive">*</span></FormLabel>
                     <Select
                       disabled={isEdit}
                       onValueChange={(v) => field.onChange(Number(v))}
                       value={field.value !== undefined ? String(field.value) : ""}
                     >
-                      <FormControl><SelectTrigger><SelectValue placeholder={t("engagement.selectFuncion")} /></SelectTrigger></FormControl>
+                      <FormControl><SelectTrigger className="[&_svg]:text-info [&_svg]:opacity-100"><SelectValue placeholder={t("engagement.selectFuncion")} /></SelectTrigger></FormControl>
                       <SelectContent>
                         <SelectItem value="0">{t("engagement.funcion_adm")}</SelectItem>
                         <SelectItem value="1">{t("engagement.funcion_cli")}</SelectItem>
@@ -1424,7 +1450,8 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                   name="partner_id"
                   render={({ field }) => (
                     <StaffCombobox
-                      label={`${t("engagement.partner")} *`}
+                      label={t("engagement.partner")}
+                      required
                       placeholder={t("engagement.selectPartner")}
                       searchPlaceholder={t("engagement.searchStaff")}
                       noResultsText={t("engagement.noStaffFound")}
@@ -1459,7 +1486,8 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                   name="manager_id"
                   render={({ field }) => (
                     <StaffCombobox
-                      label={`${t("engagement.manager")} *`}
+                      label={t("engagement.manager")}
+                      required
                       placeholder={t("engagement.selectManager")}
                       searchPlaceholder={t("engagement.searchStaff")}
                       noResultsText={t("engagement.noStaffFound")}

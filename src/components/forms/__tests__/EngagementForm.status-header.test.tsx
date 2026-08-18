@@ -186,19 +186,21 @@ describe("EngagementForm — engagement-state header control (0722-157)", () => 
     expect(screen.queryByLabelText("engagement.freezeToggle")).not.toBeInTheDocument();
   });
 
-  it("create mode: shows the 'Automático' badge regardless of role (Admin)", () => {
+  // 0722-157 (feedback): "Automático" no se entendía antes de que exista el encargo — se
+  // muestra "Pendiente" (1), el punto de partida real, en su lugar.
+  it("create mode: shows the 'Pendiente' badge regardless of role (Admin)", () => {
     mockUseUserRole.mockReturnValue({ isAdmin: true });
     render(<EngagementForm />);
 
-    expect(screen.getByText("engagementState.auto")).toBeInTheDocument();
+    expect(screen.getByText("engagementState.1")).toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: "engagement.status" })).not.toBeInTheDocument();
   });
 
-  it("create mode: shows the 'Automático' badge for non-admin too", () => {
+  it("create mode: shows the 'Pendiente' badge for non-admin too", () => {
     mockUseUserRole.mockReturnValue({ isAdmin: false });
     render(<EngagementForm />);
 
-    expect(screen.getByText("engagementState.auto")).toBeInTheDocument();
+    expect(screen.getByText("engagementState.1")).toBeInTheDocument();
   });
 
   it("Admin picking a different state from the header Select sends it in the update payload", async () => {

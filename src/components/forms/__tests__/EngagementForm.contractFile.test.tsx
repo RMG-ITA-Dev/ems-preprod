@@ -165,7 +165,7 @@ describe("EngagementForm — contract file upload (BUG 0625-151)", () => {
 
   it("renders the required 'Contrato Escaneado' upload control for a new client engagement", () => {
     render(<EngagementForm />);
-    expect(screen.getByText("engagement.contractScanned *")).toBeInTheDocument();
+    expect(screen.getByText((_, el) => el?.textContent === "engagement.contractScanned *")).toBeInTheDocument();
     expect(screen.getByText("engagement.uploadContract")).toBeInTheDocument();
   });
 
