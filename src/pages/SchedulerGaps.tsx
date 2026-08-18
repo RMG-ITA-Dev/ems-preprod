@@ -15,7 +15,7 @@
 // el servicio para distinguir homónimas.
 
 import { useCallback, useEffect, useMemo } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { format, addMonths, endOfQuarter, startOfQuarter, differenceInCalendarDays } from "date-fns";
 import { enUS, es } from "date-fns/locale";
@@ -120,6 +120,7 @@ function WindowDatePicker({
 
 const SchedulerGaps = () => {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const {
     roleKey,
     isLoading: roleLoading,
@@ -362,8 +363,11 @@ const SchedulerGaps = () => {
   }
 
   return (
-    <AppLayout>
+    <AppLayout title={t("scheduler.gaps.title")} focusMode>
       <div className="flex h-full flex-col gap-3 p-4 md:p-6">
+        <Button variant="cancel" size="sm" className="w-fit self-start" onClick={() => navigate("/")}>
+          {t("common.cancel")}
+        </Button>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h1 className="text-xl font-semibold">{t("scheduler.gaps.title")}</h1>
           <div className="flex flex-wrap items-center gap-2">

@@ -264,7 +264,14 @@ const SchedulerL2 = () => {
   const preflightUnavailable = loadQuery.error instanceof SchedulerUnavailableError;
 
   return (
-    <AppLayout>
+    <AppLayout
+      title={
+        engagement
+          ? `${engagement.engagement_code} — ${engagement.engagement_name}`
+          : t("scheduler.title")
+      }
+      focusMode
+    >
       <div className="flex h-full flex-col gap-3 p-4 md:p-6">
         {/* Return to the caller. Gray Cancel button, no back-arrow icon.
             Rendered above the conditional so it is present in every state

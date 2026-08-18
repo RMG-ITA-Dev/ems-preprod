@@ -26,7 +26,11 @@ vi.mock("react-i18next", () => ({
 }));
 
 vi.mock("@/components/layout/AppLayout", () => ({
-  AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  AppLayout: ({ children, focusMode }: { children: React.ReactNode; focusMode?: boolean }) => (
+    <div data-testid="app-layout" data-focus-mode={focusMode}>
+      {children}
+    </div>
+  ),
 }));
 
 const role: { roleKey: string | null; isLoading: boolean; isError: boolean; refetch: () => void } = {
@@ -144,6 +148,11 @@ describe("SchedulerStaff role ladder", () => {
     renderPage();
     expect(screen.getByTestId("staff-gantt")).toBeInTheDocument();
     expect(screen.getByText("Daniela Linarez")).toBeInTheDocument();
+  });
+
+  it("BUG 0817-174: AppLayout receives focusMode=true", () => {
+    renderPage();
+    expect(screen.getByTestId("app-layout").dataset.focusMode).toBe("true");
   });
 
   it("a resolved non-scheduler role is Forbidden — never the schedule", () => {
