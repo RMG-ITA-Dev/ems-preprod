@@ -247,3 +247,13 @@
 .sch-gantt .wx-area {
   position: relative;
 }
+/* wx-chart's own overflow-x:auto scrollbar isn't reserved by the vendor —
+   its row content fills the pane's full height, so the native horizontal
+   scrollbar renders on top of the bottom row's label instead of below it.
+   Most visible with few rows (SchedulerL2/SchedulerStaff single-engagement
+   or single-staff views). Reserve a bottom strip so the scrollbar always
+   has its own space. */
+.sch-gantt .wx-chart {
+  box-sizing: border-box;
+  padding-bottom: var(--wx-scrollbar-width);
+}
