@@ -13,36 +13,21 @@ function invalidateActivityCodes(queryClient: ReturnType<typeof useQueryClient>)
 export function useCreateActivityCode() {
   const queryClient = useQueryClient();
   return useMutation({
+    // 0817-177: every activity belongs to a practice — service_id is required
+    // and creation always delegates code generation to create_service_activity.
     mutationFn: async (data: {
-      activity_code?: string;
+      service_id: string;
       description: string;
-      is_active?: boolean;
-      service_id?: string | null;
       entity_type?: string;
     }) => {
-      if (data.service_id) {
-        // Vinculada: delegate code generation to the RPC.
-        const { data: result, error } = await supabase.rpc(
-          "create_service_activity",
-          {
-            p_service_id:  data.service_id,
-            p_description: data.description,
-            p_entity_type: data.entity_type ?? "A",
-          }
-        );
-        if (error) throw error;
-        return result;
-      }
-      // Heredada: direct insert (legacy path).
-      const { data: result, error } = await supabase
-        .from("activity_codes")
-        .insert({
-          activity_code: data.activity_code!,
-          description:   data.description,
-          is_active:     data.is_active ?? true,
-        })
-        .select()
-        .single();
+      const { data: result, error } = await supabase.rpc(
+        "create_service_activity",
+        {
+          p_service_id:  data.service_id,
+          p_description: data.description,
+          p_entity_type: data.entity_type ?? "A",
+        }
+      );
       if (error) throw error;
       return result;
     },

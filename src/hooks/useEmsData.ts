@@ -232,7 +232,9 @@ export interface ActivityCode {
   activity_code: string;
   description: string;
   is_active: boolean;
-  service_id: string | null;
+  // 0817-177: activity_codes.service_id is NOT NULL — every activity belongs
+  // to a practice (the "Global" bucket was removed).
+  service_id: string;
   entity_type: string;
   service?: Service;
 }

@@ -121,6 +121,9 @@ vi.mock("@/hooks/mutations", () => ({
   useCreateCategory: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useUpdateCategory: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useDeleteCategory: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  // 0817-177: ServiceForm now mounts inside the unified Prácticas tab.
+  useCreateService: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useUpdateService: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useReorderServiceActivity: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
   useMoveCategory: () => ({ mutate: moveCategoryMutate, mutateAsync: vi.fn(), isPending: false }),
   useCopyCategories: () => ({ mutate: vi.fn(), mutateAsync: copyCategoriesMutateAsync, isPending: false }),
@@ -168,8 +171,11 @@ describe("Settings category-rates (0702-152 / BUG 0306-73)", () => {
       </QueryClientProvider>
     );
 
+  // 0817-177: Categorías is now a sub-tab under the unified "settings.services"
+  // (Prácticas) tab, not a top-level tab. It defaults to selected since both
+  // permissions are granted in this suite's mocks.
   const goToRates = async (user: ReturnType<typeof userEvent.setup>) => {
-    await user.click(screen.getByText("settings.categoryRates"));
+    await user.click(screen.getByRole("tab", { name: "settings.services" }));
   };
 
   it("Test 5: 'New Category' opens the create form without crashing", async () => {
@@ -208,7 +214,7 @@ describe("Settings category-rates (0702-152 / BUG 0306-73)", () => {
     await goToRates(user);
 
     // Open the Radix Select and pick Tax from the listbox.
-    await user.click(screen.getByTestId("rates-service-filter"));
+    await user.click(screen.getByTestId("practice-selector"));
     const taxOption = await screen.findByRole("option", { name: "Tax" });
     await user.click(taxOption);
 

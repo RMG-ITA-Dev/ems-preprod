@@ -6,7 +6,6 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { LoadingButton } from "@/components/ui/loading-button";
 import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
 import {
   Form,
   FormControl,
@@ -47,7 +46,6 @@ import { useServices, useAllActivityCodes } from "@/hooks/useEmsData";
 import {
   useCreateActivityCode,
   useUpdateActivityCode,
-  useDeleteActivityCode,
   useDeactivateServiceActivity,
   useReactivateServiceActivity,
 } from "@/hooks/mutations";
@@ -58,10 +56,8 @@ import { Trash2, RotateCcw, AlertTriangle } from "lucide-react";
 const RECOMMENDED_MAX_ACTIVITIES = 9;
 
 const formSchema = z.object({
-  activity_code: z.string().max(10, "Max 10 characters"),
   description: z.string().min(1, "Description is required"),
-  is_active: z.boolean(),
-  service_id: z.string().nullable(),
+  service_id: z.string().min(1, "validation.categoryServiceRequired"),
 });
 
 type FormData = z.infer<typeof formSchema>;
@@ -70,19 +66,19 @@ interface ActivityCodeFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   activityCode?: ActivityCode | null;
-  /** Default práctica for a new activity (the currently filtered práctica). */
+  /** Default práctica for a new activity (the currently selected práctica). */
   serviceId?: string;
+  /** When true, the práctica is fixed to `serviceId` and rendered read-only on create. */
+  lockService?: boolean;
 }
 
-export function ActivityCodeForm({ open, onOpenChange, activityCode, serviceId }: ActivityCodeFormProps) {
+export function ActivityCodeForm({ open, onOpenChange, activityCode, serviceId, lockService }: ActivityCodeFormProps) {
   const { t } = useTranslation();
   const isEdit = !!activityCode;
-  const isServiceLinked = !!activityCode?.service_id;
   const isActive = activityCode?.is_active ?? true;
 
   const createMutation = useCreateActivityCode();
   const updateMutation = useUpdateActivityCode();
-  const deleteMutation = useDeleteActivityCode();
   const deactivateMutation = useDeactivateServiceActivity();
   const reactivateMutation = useReactivateServiceActivity();
 
@@ -96,17 +92,16 @@ export function ActivityCodeForm({ open, onOpenChange, activityCode, serviceId }
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      activity_code: "",
       description: "",
-      is_active: true,
-      service_id: null,
+      service_id: "",
     },
   });
 
   const { data: allActivities } = useAllActivityCodes();
 
   const watchedServiceId = form.watch("service_id");
-  const selectedService = activeServices.find((s) => s.service_id === watchedServiceId);
+  const selectedService = activeServices.find((s) => s.service_id === watchedServiceId)
+    ?? (activityCode?.service ?? null);
 
   // Active activities already linked to the selected service (for the soft
   // recommendation note when creating a new one).
@@ -114,7 +109,7 @@ export function ActivityCodeForm({ open, onOpenChange, activityCode, serviceId }
     ? (allActivities ?? []).filter((a) => a.service_id === watchedServiceId && a.is_active).length
     : 0;
 
-  // Derive a preview code for a NEW service-linked activity.
+  // Derive a preview code for a NEW activity.
   const derivedCodePreview = (() => {
     if (!watchedServiceId || !selectedService?.abbreviation) return "";
     return `${selectedService.abbreviation}-A?`;
@@ -123,60 +118,29 @@ export function ActivityCodeForm({ open, onOpenChange, activityCode, serviceId }
   useEffect(() => {
     if (open) {
       form.reset({
-        activity_code: activityCode?.activity_code || "",
         description: activityCode?.description || "",
-        is_active: activityCode?.is_active ?? true,
-        service_id: activityCode?.service_id ?? serviceId ?? null,
+        service_id: activityCode?.service_id || serviceId || "",
       });
     }
   }, [open, activityCode, serviceId, form]);
 
   const onSubmit = async (data: FormData) => {
     if (isEdit && activityCode) {
-      if (isServiceLinked) {
-        // Service-linked: only description is editable (code is managed by RPCs).
-        await updateMutation.mutateAsync({
-          id: activityCode.activity_id,
-          data: { description: data.description },
-        });
-      } else {
-        // Legacy (no service): code and active status can also change.
-        await updateMutation.mutateAsync({
-          id: activityCode.activity_id,
-          data: {
-            description: data.description,
-            ...(data.activity_code && { activity_code: data.activity_code.toUpperCase() }),
-            is_active: data.is_active,
-          },
-        });
-      }
-    } else if (data.service_id) {
-      // New service-linked activity: code derived by RPC.
-      await createMutation.mutateAsync({
-        service_id:  data.service_id,
-        description: data.description,
-        entity_type: "A",
+      // Práctica is immutable on edit — only description is editable (code is
+      // managed by RPCs).
+      await updateMutation.mutateAsync({
+        id: activityCode.activity_id,
+        data: { description: data.description },
       });
     } else {
-      // Legacy heredada path: manual code.
-      if (!data.activity_code) {
-        form.setError("activity_code", { message: t("activity.codeRequired") });
-        return;
-      }
       await createMutation.mutateAsync({
-        activity_code: data.activity_code.toUpperCase(),
-        description:   data.description,
-        is_active:     data.is_active,
+        service_id: data.service_id,
+        description: data.description,
+        entity_type: "A",
       });
     }
     onOpenChange(false);
     form.reset();
-  };
-
-  const handleDelete = async () => {
-    if (!activityCode) return;
-    await deleteMutation.mutateAsync(activityCode.activity_id);
-    onOpenChange(false);
   };
 
   const handleDeactivate = async () => {
@@ -191,6 +155,7 @@ export function ActivityCodeForm({ open, onOpenChange, activityCode, serviceId }
     onOpenChange(false);
   };
 
+  const isNewLocked = !isEdit && lockService;
   const isServiceLinkedNew = !isEdit && !!watchedServiceId;
 
   return (
@@ -203,25 +168,33 @@ export function ActivityCodeForm({ open, onOpenChange, activityCode, serviceId }
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6 mt-6">
-            {/* Service selector — only for new activities */}
-            {!isEdit && (
+            {/* Práctica: locked read-only when created from the unified Settings
+                tab; free selector otherwise. Never shown/editable on edit. */}
+            {!isEdit && isNewLocked && (
+              <FormItem>
+                <FormLabel>{t("activity.service")}</FormLabel>
+                <Input
+                  value={selectedService ? `${selectedService.name} (${selectedService.abbreviation})` : ""}
+                  disabled
+                  data-testid="activity-service-readonly"
+                />
+              </FormItem>
+            )}
+
+            {!isEdit && !isNewLocked && (
               <FormField
                 control={form.control}
                 name="service_id"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{t("activity.service")}</FormLabel>
-                    <Select
-                      onValueChange={(v) => field.onChange(v === "__none__" ? null : v)}
-                      value={field.value ?? "__none__"}
-                    >
+                    <FormLabel>{t("activity.service")} *</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value || undefined}>
                       <FormControl>
                         <SelectTrigger data-testid="activity-service-select">
                           <SelectValue placeholder={t("activity.selectService")} />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="__none__">{t("activity.global")}</SelectItem>
                         {activeServices.map((s) => (
                           <SelectItem key={s.service_id} value={s.service_id}>
                             {s.name} ({s.abbreviation})
@@ -244,8 +217,8 @@ export function ActivityCodeForm({ open, onOpenChange, activityCode, serviceId }
               </Alert>
             )}
 
-            {/* Show current service in edit mode */}
-            {isEdit && isServiceLinked && activityCode?.service && (
+            {/* Show current práctica in edit mode (always service-linked, immutable) */}
+            {isEdit && activityCode?.service && (
               <FormItem>
                 <FormLabel>{t("activity.service")}</FormLabel>
                 <Input
@@ -256,50 +229,20 @@ export function ActivityCodeForm({ open, onOpenChange, activityCode, serviceId }
               </FormItem>
             )}
 
-            {/* Legacy activities: no service to display, but still show the
-                scope read-only so editing acknowledges it's Global (immutable). */}
-            {isEdit && !isServiceLinked && (
-              <FormItem>
-                <FormLabel>{t("activity.service")}</FormLabel>
+            {/* Code field: always read-only/auto-generated (service-linked). Pure
+                display — not a bound form field, since the code never submits. */}
+            <FormItem>
+              <FormLabel>{t("activity.code")}</FormLabel>
+              <FormControl>
                 <Input
-                  value={t("activity.global")}
+                  value={isEdit ? activityCode?.activity_code ?? "" : derivedCodePreview}
                   disabled
-                  data-testid="activity-service-global-readonly"
+                  data-testid="activity-code-readonly"
+                  placeholder={t("activity.codeAutoGenerated")}
                 />
-              </FormItem>
-            )}
-
-            {/* Code field: read-only for service-linked; manual for legacy; preview for new linked */}
-            <FormField
-              control={form.control}
-              name="activity_code"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t("activity.code")} {!isServiceLinked && !isServiceLinkedNew ? "*" : ""}</FormLabel>
-                  <FormControl>
-                    {isServiceLinked || isServiceLinkedNew ? (
-                      <Input
-                        value={isEdit ? activityCode?.activity_code ?? "" : derivedCodePreview}
-                        disabled
-                        data-testid="activity-code-readonly"
-                        placeholder={t("activity.codeAutoGenerated")}
-                      />
-                    ) : (
-                      <Input
-                        placeholder={t("activity.codePlaceholder")}
-                        maxLength={10}
-                        {...field}
-                        onChange={(e) => field.onChange(e.target.value.toUpperCase())}
-                      />
-                    )}
-                  </FormControl>
-                  {(isServiceLinked || isServiceLinkedNew) && (
-                    <FormDescription>{t("activity.codeAutoGeneratedDescription")}</FormDescription>
-                  )}
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+              </FormControl>
+              <FormDescription>{t("activity.codeAutoGeneratedDescription")}</FormDescription>
+            </FormItem>
 
             <FormField
               control={form.control}
@@ -315,33 +258,12 @@ export function ActivityCodeForm({ open, onOpenChange, activityCode, serviceId }
               )}
             />
 
-            {/* is_active toggle only for legacy (non-service-linked) activities */}
-            {!isServiceLinked && !isServiceLinkedNew && (
-              <FormField
-                control={form.control}
-                name="is_active"
-                render={({ field }) => (
-                  <FormItem className="flex items-center justify-between rounded-lg border p-4">
-                    <div className="space-y-0.5">
-                      <FormLabel className="text-base">{t("common.active")}</FormLabel>
-                      <FormDescription>
-                        {t("activity.activeDescription")}
-                      </FormDescription>
-                    </div>
-                    <FormControl>
-                      <Switch checked={field.value} onCheckedChange={field.onChange} />
-                    </FormControl>
-                  </FormItem>
-                )}
-              />
-            )}
-
             <SheetFooter className="flex flex-col-reverse sm:flex-row gap-2 pt-4">
               <Button type="button" variant="cancel" onClick={() => onOpenChange(false)} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
                 {t("common.cancel")}
               </Button>
 
-              {isEdit && isServiceLinked && isActive && (
+              {isEdit && isActive && (
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
                     <Button type="button" variant="destructive" className="w-full sm:w-auto min-h-[44px] sm:min-h-0" data-testid="deactivate-button">
@@ -366,7 +288,7 @@ export function ActivityCodeForm({ open, onOpenChange, activityCode, serviceId }
                 </AlertDialog>
               )}
 
-              {isEdit && isServiceLinked && !isActive && (
+              {isEdit && !isActive && (
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
                     <Button type="button" variant="outline" className="w-full sm:w-auto min-h-[44px] sm:min-h-0" data-testid="activate-button">
@@ -385,31 +307,6 @@ export function ActivityCodeForm({ open, onOpenChange, activityCode, serviceId }
                       <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
                       <AlertDialogAction onClick={handleReactivate}>
                         {t("activity.activate")}
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              )}
-
-              {isEdit && !isServiceLinked && (
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button type="button" variant="destructive" className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
-                      <Trash2 className="h-4 w-4" />
-                      {t("common.delete")}
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>{t("activity.deleteActivity")}</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        {t("common.confirmDelete", { name: activityCode?.activity_code })} {t("common.deleteWarning")}
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-                      <AlertDialogAction onClick={handleDelete} className="bg-destructive/70 text-destructive-foreground hover:bg-destructive">
-                        {t("common.delete")}
                       </AlertDialogAction>
                     </AlertDialogFooter>
                   </AlertDialogContent>

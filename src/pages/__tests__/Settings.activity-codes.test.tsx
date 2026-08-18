@@ -1,8 +1,8 @@
+import React from "react";
 import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import React from "react";
 
 beforeAll(() => {
   class MockResizeObserver {
@@ -61,12 +61,12 @@ const mockServices = [
 const audService = mockServices[0];
 const conService = mockServices[1];
 
+// 0817-177: activity_codes.service_id is NOT NULL — every row is
+// práctica-linked, there is no more "Global" bucket to test.
 const mockActivityCodes = [
   { activity_id: "a1", activity_code: "AUD-01", description: "Planificación de auditoría", is_active: true, service_id: AUD, entity_type: "A", service: audService },
   { activity_id: "a2", activity_code: "AUD-02", description: "Trabajo de campo", is_active: true, service_id: AUD, entity_type: "A", service: audService },
   { activity_id: "c1", activity_code: "CON-01", description: "Diagnóstico inicial", is_active: true, service_id: CON, entity_type: "A", service: conService },
-  { activity_id: "g1", activity_code: "001", description: "Reunión interna", is_active: true, service_id: null, entity_type: "A" },
-  { activity_id: "g2", activity_code: "002", description: "Capacitación", is_active: true, service_id: null, entity_type: "A" },
 ];
 
 // Mutable so a test can simulate useServices() not having resolved yet.
@@ -103,6 +103,8 @@ const createActivityMutateAsync = vi.fn().mockResolvedValue({});
 
 vi.mock("@/hooks/mutations", () => ({
   useUpdateGlobalSetting: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useCreateService: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useUpdateService: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useCreateCategory: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useUpdateCategory: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useDeleteCategory: () => ({ mutateAsync: vi.fn(), isPending: false }),
@@ -111,7 +113,6 @@ vi.mock("@/hooks/mutations", () => ({
   useCopyCategories: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
   useCreateActivityCode: () => ({ mutateAsync: createActivityMutateAsync, isPending: false }),
   useUpdateActivityCode: () => ({ mutateAsync: vi.fn(), isPending: false }),
-  useDeleteActivityCode: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useDeactivateServiceActivity: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useReactivateServiceActivity: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
@@ -136,11 +137,11 @@ vi.mock("@/components/settings/ChangePasswordCard", () => ({ ChangePasswordCard:
 vi.mock("@/components/settings/HolidaysManager", () => ({ HolidaysManager: () => <div /> }));
 
 // ActivityCodeForm is intentionally NOT mocked so the real form (práctica
-// pre-selection, Global labels) mounts.
+// locked/pre-selected) mounts.
 
 import Settings from "../Settings";
 
-describe("Settings activity-codes (0723-169)", () => {
+describe("Settings activity-codes (0723-169 / 0817-177)", () => {
   let queryClient: QueryClient;
 
   beforeEach(() => {
@@ -159,22 +160,26 @@ describe("Settings activity-codes (0723-169)", () => {
       </QueryClientProvider>
     );
 
+  // 0817-177: Actividades is now a sub-tab under the unified "settings.services"
+  // (Prácticas) tab. This suite grants both category_rate.read and
+  // activity_code.read, so Categorías is the default sub-tab — switch explicitly.
   const goToActivities = async (user: ReturnType<typeof userEvent.setup>) => {
-    await user.click(screen.getByText("settings.activityCodes"));
+    await user.click(screen.getByRole("tab", { name: "settings.services" }));
+    await user.click(screen.getByRole("tab", { name: "settings.activityCodes" }));
   };
 
-  it("Práctica selector renders one option per eligible service plus Global", async () => {
+  it("shared práctica selector has one option per eligible service, no 'Global'", async () => {
     renderSettings();
     const user = userEvent.setup();
     await goToActivities(user);
 
-    await user.click(screen.getByTestId("activity-service-filter"));
+    await user.click(screen.getByTestId("practice-selector"));
     expect(await screen.findByRole("option", { name: "Auditoría" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "Consultoría" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "activity.global" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "activity.global" })).not.toBeInTheDocument();
   });
 
-  it("defaults to the first active práctica (Auditoría), not Global", async () => {
+  it("defaults to the first eligible práctica (Auditoría)", async () => {
     renderSettings();
     const user = userEvent.setup();
     await goToActivities(user);
@@ -182,44 +187,24 @@ describe("Settings activity-codes (0723-169)", () => {
     await waitFor(() => expect(screen.getByText("Planificación de auditoría")).toBeInTheDocument());
     expect(screen.getByText("Trabajo de campo")).toBeInTheDocument();
     expect(screen.queryByText("Diagnóstico inicial")).not.toBeInTheDocument();
-    expect(screen.queryByText("Reunión interna")).not.toBeInTheDocument();
   });
 
-  it("selecting a práctica shows only that práctica's activity codes", async () => {
+  it("selecting a práctica shows only that práctica's activity codes (shared with Categorías)", async () => {
     renderSettings();
     const user = userEvent.setup();
     await goToActivities(user);
     await waitFor(() => expect(screen.getByText("Planificación de auditoría")).toBeInTheDocument());
 
-    await user.click(screen.getByTestId("activity-service-filter"));
+    await user.click(screen.getByTestId("practice-selector"));
     const conOption = await screen.findByRole("option", { name: "Consultoría" });
     await user.click(conOption);
 
     await waitFor(() => expect(screen.getByText("Diagnóstico inicial")).toBeInTheDocument());
     expect(screen.queryByText("Planificación de auditoría")).not.toBeInTheDocument();
     expect(screen.queryByText("Trabajo de campo")).not.toBeInTheDocument();
-    expect(screen.queryByText("Reunión interna")).not.toBeInTheDocument();
   });
 
-  it("selecting Global shows only unlinked codes and labels them 'Global' in the Service column", async () => {
-    renderSettings();
-    const user = userEvent.setup();
-    await goToActivities(user);
-    await waitFor(() => expect(screen.getByText("Planificación de auditoría")).toBeInTheDocument());
-
-    await user.click(screen.getByTestId("activity-service-filter"));
-    const globalOption = await screen.findByRole("option", { name: "activity.global" });
-    await user.click(globalOption);
-
-    await waitFor(() => expect(screen.getByText("Reunión interna")).toBeInTheDocument());
-    expect(screen.getByText("Capacitación")).toBeInTheDocument();
-    expect(screen.queryByText("Planificación de auditoría")).not.toBeInTheDocument();
-    expect(screen.queryByText("Diagnóstico inicial")).not.toBeInTheDocument();
-    // The Service column renders the "Global" label (i18n key, mocked as literal) for these rows.
-    expect(screen.getAllByText("activity.global").length).toBeGreaterThan(0);
-  });
-
-  it("renders zero rows (never the full unfiltered list) while the default-selection effect hasn't fired yet", async () => {
+  it("renders zero activity rows while the default-selection effect hasn't fired yet", async () => {
     mockServicesData = undefined;
     renderSettings();
     const user = userEvent.setup();
@@ -227,10 +212,9 @@ describe("Settings activity-codes (0723-169)", () => {
 
     expect(screen.queryByText("Planificación de auditoría")).not.toBeInTheDocument();
     expect(screen.queryByText("Diagnóstico inicial")).not.toBeInTheDocument();
-    expect(screen.queryByText("Reunión interna")).not.toBeInTheDocument();
   });
 
-  it("'+ Nueva' while a práctica is selected opens the form with that práctica pre-selected", async () => {
+  it("'+ Nueva' opens the form with the selected práctica locked/pre-selected", async () => {
     renderSettings();
     const user = userEvent.setup();
     await goToActivities(user);
@@ -238,10 +222,10 @@ describe("Settings activity-codes (0723-169)", () => {
 
     await user.click(screen.getByText("activity.newActivity"));
 
-    // Pre-selection means the form already treats this as service-linked:
-    // the code field renders read-only with an auto-generated preview,
-    // without the user having to touch the form's own selector.
+    // Práctica pre-selected and locked: the code field is already read-only
+    // with an auto-generated preview, and there is no práctica selector.
     await waitFor(() => expect(screen.getByTestId("activity-code-readonly")).toBeInTheDocument());
+    expect(screen.queryByTestId("activity-service-select")).not.toBeInTheDocument();
 
     await user.type(screen.getByPlaceholderText("activity.descriptionPlaceholder"), "Nueva actividad");
     await user.click(screen.getByRole("button", { name: "activity.createActivity" }));
@@ -253,20 +237,22 @@ describe("Settings activity-codes (0723-169)", () => {
     );
   });
 
-  it("'+ Nueva' while 'Global' is selected opens the form defaulting to Global (legacy/manual-code path)", async () => {
+  it("switching to a práctica without an abbreviation disables creation and shows a notice", async () => {
+    const NO_ABBR = "svc-no-abbr";
+    mockServicesData = [
+      ...mockServices,
+      { service_id: NO_ABBR, name: "SinAbrev", code: 4, allows_rates_activities: true, is_active: true, created_at: "", abbreviation: null },
+    ];
     renderSettings();
     const user = userEvent.setup();
     await goToActivities(user);
     await waitFor(() => expect(screen.getByText("Planificación de auditoría")).toBeInTheDocument());
 
-    await user.click(screen.getByTestId("activity-service-filter"));
-    const globalOption = await screen.findByRole("option", { name: "activity.global" });
-    await user.click(globalOption);
-    await waitFor(() => expect(screen.getByText("Reunión interna")).toBeInTheDocument());
+    await user.click(screen.getByTestId("practice-selector"));
+    const option = await screen.findByRole("option", { name: "SinAbrev" });
+    await user.click(option);
 
-    await user.click(screen.getByText("activity.newActivity"));
-
-    // No práctica pre-selected: code stays manual/editable, not auto-generated.
-    expect(screen.queryByTestId("activity-code-readonly")).not.toBeInTheDocument();
+    expect(await screen.findByTestId("activity-abbreviation-missing-notice")).toBeInTheDocument();
+    expect(screen.queryByText("activity.newActivity")).not.toBeInTheDocument();
   });
 });
