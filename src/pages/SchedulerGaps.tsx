@@ -365,7 +365,12 @@ const SchedulerGaps = () => {
   return (
     <AppLayout title={t("scheduler.gaps.title")} focusMode>
       <div className="flex h-full flex-col gap-3">
-        <Button variant="cancel" size="sm" className="w-fit self-start" onClick={() => navigate("/")}>
+        <Button
+          variant="cancel"
+          size="sm"
+          className="w-fit self-start min-h-[44px] sm:min-h-0"
+          onClick={() => navigate("/")}
+        >
           {t("common.cancel")}
         </Button>
         <div className="flex flex-wrap items-center justify-between gap-2">
