@@ -276,7 +276,7 @@ const SchedulerL1 = () => {
 
   return (
     <AppLayout title={t("scheduler.title")} focusMode>
-      <div className="flex h-full flex-col gap-3 p-4 md:p-6">
+      <div className="flex h-full flex-col gap-3">
         <Button variant="cancel" size="sm" className="w-fit self-start" onClick={() => navigate("/")}>
           {t("common.cancel")}
         </Button>

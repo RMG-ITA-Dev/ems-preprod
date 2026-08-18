@@ -272,7 +272,7 @@ const SchedulerL2 = () => {
       }
       focusMode
     >
-      <div className="flex h-full flex-col gap-3 p-4 md:p-6">
+      <div className="flex h-full flex-col gap-3">
         {/* Return to the caller. Gray Cancel button, no back-arrow icon.
             Rendered above the conditional so it is present in every state
             — incl. error/forbidden/unavailable — where the user would
