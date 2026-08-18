@@ -5,7 +5,10 @@ import { resolve } from "path";
 /**
  * 0817-177: Static assertions on the "require activity practice" migration.
  * Guards the fail-fast precondition and the NOT NULL constraint against
- * accidental drift (e.g. someone adding a silent backfill later).
+ * accidental drift, and pins the backfill to the 8 known legacy codes only
+ * (a from-scratch replay — e.g. CI's route-parity job — otherwise fails:
+ * those 8 predate the service_id column and were only fixed by hand in
+ * already-deployed environments).
  */
 
 const migrationPath = resolve(
@@ -26,7 +29,19 @@ describe("require activity practice migration (0817-177)", () => {
     expect(sql).toContain("ALTER COLUMN service_id SET NOT NULL");
   });
 
-  it("does not backfill any row (no UPDATE statement)", () => {
-    expect(sql).not.toMatch(/UPDATE\s+public\.activity_codes/i);
+  it("backfills only the 8 known legacy codes to Auditoría (code=1), before the fail-fast check", () => {
+    const backfillIndex = sql.search(/UPDATE\s+public\.activity_codes/i);
+    const failFastIndex = sql.indexOf("RAISE EXCEPTION");
+    expect(backfillIndex).toBeGreaterThan(-1);
+    expect(backfillIndex).toBeLessThan(failFastIndex);
+
+    expect(sql).toMatch(/SET service_id = \(SELECT service_id FROM public\.services WHERE code = 1\)/);
+    expect(sql).toMatch(/WHERE service_id IS NULL\s+AND activity_code IN \('PLN', 'FLD', 'REV', 'DOC', 'ADM', 'MTG', 'TRV', 'TRN'\)/);
+  });
+
+  it("does not backfill any row outside the 8 known legacy codes", () => {
+    const updateStatements = sql.match(/UPDATE\s+public\.activity_codes[\s\S]*?;/gi) ?? [];
+    expect(updateStatements).toHaveLength(1);
+    expect(updateStatements[0]).toContain("activity_code IN ('PLN', 'FLD', 'REV', 'DOC', 'ADM', 'MTG', 'TRV', 'TRN')");
   });
 });
