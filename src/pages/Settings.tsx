@@ -144,7 +144,12 @@ const Settings = () => {
   const canManageChildren = !!currentService?.is_active && !!currentService?.allows_rates_activities;
   const canCreateActivities = canManageChildren && !!currentService?.abbreviation;
 
-  const { data: categories, isLoading: categoriesLoading } = useCategories(selectedServiceId || undefined);
+  // Hold off the query entirely while no práctica is selected — passing a
+  // falsy serviceId to useCategories() reads as "all", which would leak
+  // categories from every práctica into this scoped view (0817-177).
+  const { data: categories, isLoading: categoriesLoading } = useCategories(selectedServiceId || undefined, {
+    enabled: !!selectedServiceId,
+  });
 
   // Copy-categories dialog state.
   const [copyDialogOpen, setCopyDialogOpen] = useState(false);
@@ -454,8 +459,10 @@ const Settings = () => {
         // 1..N sequence, so display_order is the 1-based position.
         // Wait for selectedServiceId before computing total — otherwise
         // useCategories(undefined) can return ALL services' categories while
-        // pos is per-service, mismatching the bounds check.
-        if (!isAdmin || !selectedServiceId) return null;
+        // pos is per-service, mismatching the bounds check. Reordering is a
+        // child mutation, so it stays off while the práctica can't host
+        // children (canManageChildren), matching create.
+        if (!isAdmin || !selectedServiceId || !canManageChildren) return null;
         const total = (categories ?? []).length;
         const pos = row.display_order;
         if (total < 2) return null;
@@ -532,8 +539,10 @@ const Settings = () => {
       mobilePriority: 'secondary',
       render: (row) => {
         // ↑/↓ only for active activities; swap code with the adjacent sibling
-        // of the same practice via reorder_service_activity.
-        if (!isAdmin || !row.is_active) return null;
+        // of the same practice via reorder_service_activity. Reordering is a
+        // child mutation, so it stays off while the práctica can't host
+        // children (canManageChildren), matching create.
+        if (!isAdmin || !row.is_active || !canManageChildren) return null;
         const siblings = activeActivitiesByService.get(row.service_id) ?? [];
         const pos = siblings.indexOf(row.activity_id) + 1; // 1-based
         const total = siblings.length;
@@ -905,7 +914,7 @@ const Settings = () => {
                     isLoading={categoriesLoading}
                     newButtonLabel={canRatesWrite && canManageChildren ? t("category.newCategory") : undefined}
                     onNewClick={canRatesWrite && canManageChildren ? () => { setSelectedCategory(null); setCategoryFormOpen(true); } : undefined}
-                    onRowClick={canRatesWrite ? (row) => { setSelectedCategory(row); setCategoryFormOpen(true); } : undefined}
+                    onRowClick={canRatesWrite && canManageChildren ? (row) => { setSelectedCategory(row); setCategoryFormOpen(true); } : undefined}
                     getRowId={(row) => row.category_id}
                     headerActions={
                       canRatesWrite ? (
@@ -1010,7 +1019,7 @@ const Settings = () => {
                     isLoading={activitiesLoading}
                     newButtonLabel={canActivitiesWrite ? t("activity.newActivity") : undefined}
                     onNewClick={canActivitiesWrite && canCreateActivities ? () => { setSelectedActivity(null); setActivityFormOpen(true); } : undefined}
-                    onRowClick={canActivitiesWrite ? (row) => { setSelectedActivity(row); setActivityFormOpen(true); } : undefined}
+                    onRowClick={canActivitiesWrite && canManageChildren ? (row) => { setSelectedActivity(row); setActivityFormOpen(true); } : undefined}
                     getRowId={(row) => row.activity_id}
                     statusFilter={{
                       key: "is_active",

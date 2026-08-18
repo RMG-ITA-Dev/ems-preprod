@@ -344,7 +344,10 @@ export function useTaxonomies() {
 // useCategories(serviceId?) — no argument returns ALL categories (Staff / WO
 // pickers rely on this). Passing a serviceId scopes the list to one service,
 // keyed separately so the Settings rates tab can switch services independently.
-export function useCategories(serviceId?: string) {
+// `options.enabled` (default true) lets a caller that must never show the
+// unscoped "all" list — e.g. Settings before a práctica is selected — hold
+// off the query instead of passing a falsy serviceId (which reads as "all").
+export function useCategories(serviceId?: string, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ['categories', serviceId ?? 'all'],
     queryFn: async () => {
@@ -356,6 +359,7 @@ export function useCategories(serviceId?: string) {
       if (error) throw error;
       return data as Category[];
     },
+    enabled: options?.enabled ?? true,
   });
 }
 

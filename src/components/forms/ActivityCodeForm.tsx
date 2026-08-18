@@ -188,7 +188,7 @@ export function ActivityCodeForm({ open, onOpenChange, activityCode, serviceId, 
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>{t("activity.service")} *</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value || undefined}>
+                    <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger data-testid="activity-service-select">
                           <SelectValue placeholder={t("activity.selectService")} />
