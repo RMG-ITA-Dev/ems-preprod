@@ -210,6 +210,34 @@ export function GanttCanvas({
     [barTitle]
   );
 
+  // Plain mouse-wheel pans the timeline horizontally (BUG 0817-174 follow-up):
+  // .wx-chart's native horizontal scrollbar is hidden (gantt-theme.css — its
+  // bars anchor flush to the pane's own bottom edge regardless of height, so
+  // the scrollbar always rendered on top of the last row's label), so wheel
+  // is now the only discoverable way to pan without Shift+wheel/trackpad.
+  // A native listener is required (not React's onWheel) because React
+  // attaches wheel handlers as passive, silently dropping preventDefault.
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    const handleWheel = (e: WheelEvent) => {
+      // Let trackpad horizontal swipes (deltaX) and vertical-only gestures
+      // with no vertical delta pass through untouched.
+      if (e.deltaY === 0 || e.deltaX !== 0) return;
+      const chart = (e.target as HTMLElement).closest<HTMLElement>(".wx-chart");
+      if (!chart || chart.scrollWidth <= chart.clientWidth) return;
+      const max = chart.scrollWidth - chart.clientWidth;
+      const next = Math.max(0, Math.min(chart.scrollLeft + e.deltaY, max));
+      // Already at the edge in this direction — let the page scroll
+      // instead of trapping the wheel gesture.
+      if (next === chart.scrollLeft) return;
+      chart.scrollLeft = next;
+      e.preventDefault();
+    };
+    host.addEventListener("wheel", handleWheel, { passive: false });
+    return () => host.removeEventListener("wheel", handleWheel);
+  }, []);
+
   const Theme = resolvedTheme === "dark" ? WillowDark : Willow;
   const refreshKey = [zoom, from, to, resolvedTheme, localeCode, rows.length].join("|");
 
