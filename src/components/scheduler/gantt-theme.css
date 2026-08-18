@@ -247,13 +247,18 @@
 .sch-gantt .wx-area {
   position: relative;
 }
-/* wx-chart's own overflow-x:auto scrollbar isn't reserved by the vendor —
-   its row content fills the pane's full height, so the native horizontal
-   scrollbar renders on top of the bottom row's label instead of below it.
-   Most visible with few rows (SchedulerL2/SchedulerStaff single-engagement
-   or single-staff views). Reserve a bottom strip so the scrollbar always
-   has its own space. */
+/* wx-chart's row bars are positioned flush against the pane's own bottom
+   edge regardless of the pane's total height (confirmed empirically —
+   neither extra height nor padding-bottom moves them), so the native
+   horizontal scrollbar always renders on top of the bottom row's label.
+   Most visible with few rows (SchedulerL2/SchedulerStaff single-
+   engagement or single-staff views). Hiding the scrollbar's own chrome
+   removes the collision; overflow-x stays auto, so horizontal panning is
+   still available via trackpad/shift+wheel, and the from/to date pickers
+   + zoom toggle are the primary way users change what's visible. */
 .sch-gantt .wx-chart {
-  box-sizing: border-box;
-  padding-bottom: var(--wx-scrollbar-width);
+  scrollbar-width: none;
+}
+.sch-gantt .wx-chart::-webkit-scrollbar {
+  display: none;
 }
