@@ -62,7 +62,7 @@ import { ChangePasswordCard } from "@/components/settings/ChangePasswordCard";
 import { HolidaysManager } from "@/components/settings/HolidaysManager";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Lock, CheckCircle, AlertTriangle, ArrowUp, ArrowDown } from "lucide-react";
+import { Lock, CheckCircle, AlertTriangle, ArrowUp, ArrowDown, Plus, Edit2, Copy } from "lucide-react";
 import { formatFiscalYearEnd } from "@/lib/fiscalYearDisplay";
 import { useHolidayEngagementId } from "@/hooks/useHolidays";
 import { toast } from "sonner";
@@ -825,7 +825,11 @@ const Settings = () => {
               <div className="flex items-center gap-2">
                 <Label htmlFor="practiceSelector">{t("category.service")}</Label>
                 <Select value={selectedServiceId} onValueChange={setSelectedServiceId}>
-                  <SelectTrigger id="practiceSelector" className="w-56" data-testid="practice-selector">
+                  <SelectTrigger
+                    id="practiceSelector"
+                    className="w-56 border-info [&_svg]:text-info [&_svg]:opacity-100"
+                    data-testid="practice-selector"
+                  >
                     <SelectValue placeholder={t("category.selectService")} />
                   </SelectTrigger>
                   <SelectContent>
@@ -842,19 +846,21 @@ const Settings = () => {
                 <div className="flex gap-2">
                   <Button
                     type="button"
-                    variant="outline"
+                    variant="default"
                     onClick={() => { setSelectedService(null); setServiceFormOpen(true); }}
                     data-testid="new-practice-button"
                   >
+                    <Plus className="h-4 w-4 mr-2" />
                     {t("service.newService")}
                   </Button>
                   <Button
                     type="button"
-                    variant="outline"
+                    variant="warning"
                     disabled={!currentService}
                     onClick={() => { setSelectedService(currentService ?? null); setServiceFormOpen(true); }}
                     data-testid="edit-practice-button"
                   >
+                    <Edit2 className="h-4 w-4 mr-2" />
                     {t("service.editService")}
                   </Button>
                 </div>
@@ -869,30 +875,27 @@ const Settings = () => {
             )}
 
             <Tabs value={servicesSubTab} onValueChange={(v) => setServicesSubTab(v as "categories" | "activities")}>
-              <TabsList className="bg-muted">
+              <TabsList className="h-auto w-full justify-start gap-6 rounded-none border-b border-border bg-transparent p-0">
                 {canRatesTab && (
-                  <TabsTrigger value="categories">{t("settings.categoryRates")}</TabsTrigger>
+                  <TabsTrigger
+                    value="categories"
+                    className="rounded-none border-b-2 border-transparent bg-transparent px-0 pb-3 pt-0 font-medium text-muted-foreground shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
+                  >
+                    {t("settings.categoryRates")}
+                  </TabsTrigger>
                 )}
                 {canActivitiesTab && (
-                  <TabsTrigger value="activities">{t("settings.activityCodes")}</TabsTrigger>
+                  <TabsTrigger
+                    value="activities"
+                    className="rounded-none border-b-2 border-transparent bg-transparent px-0 pb-3 pt-0 font-medium text-muted-foreground shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
+                  >
+                    {t("settings.activityCodes")}
+                  </TabsTrigger>
                 )}
               </TabsList>
 
               {canRatesTab && (
-                <TabsContent value="categories" className="space-y-6">
-                  <div className="flex justify-end">
-                    {canRatesWrite && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={openCopyDialog}
-                        disabled={!selectedServiceId || copyTargetServices.length === 0}
-                        data-testid="copy-categories-button"
-                      >
-                        {t("category.copyFromService")}
-                      </Button>
-                    )}
-                  </div>
+                <TabsContent value="categories" className="space-y-6 mt-6">
                   <DataTable
                     key={selectedServiceId}
                     data={categories || []}
@@ -904,6 +907,21 @@ const Settings = () => {
                     onNewClick={canRatesWrite && canManageChildren ? () => { setSelectedCategory(null); setCategoryFormOpen(true); } : undefined}
                     onRowClick={canRatesWrite ? (row) => { setSelectedCategory(row); setCategoryFormOpen(true); } : undefined}
                     getRowId={(row) => row.category_id}
+                    headerActions={
+                      canRatesWrite ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={openCopyDialog}
+                          disabled={!selectedServiceId || copyTargetServices.length === 0}
+                          className="w-full sm:w-auto min-h-[44px] sm:min-h-0"
+                          data-testid="copy-categories-button"
+                        >
+                          <Copy className="h-4 w-4 mr-2" />
+                          {t("category.copyFromService")}
+                        </Button>
+                      ) : undefined
+                    }
                   />
                   <CategoryForm
                     open={categoryFormOpen}
@@ -976,7 +994,7 @@ const Settings = () => {
               )}
 
               {canActivitiesTab && (
-                <TabsContent value="activities" className="space-y-6">
+                <TabsContent value="activities" className="space-y-6 mt-6">
                   {canManageChildren && !canCreateActivities && (
                     <Alert data-testid="activity-abbreviation-missing-notice">
                       <AlertTriangle className="h-4 w-4" />
