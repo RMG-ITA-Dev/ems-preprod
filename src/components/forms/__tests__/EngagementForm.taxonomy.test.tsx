@@ -50,10 +50,11 @@ const mockServices = [
   { service_id: "s1", name: "Auditoría", code: 1, allows_rates_activities: true, is_active: true, created_at: "" },
 ];
 
-// 0722-157: deliberately out of code order — activeTaxonomyOptions must sort by code.
+// 0722-157: deliberately out of name order ("New" before "Continued") — activeTaxonomyOptions
+// must sort by name (A-Z), per operator feedback superseding the original by-code ordering.
 const mockTaxonomies = [
-  { taxonomy_id: "tx-active-2", code: "AA1007", name: "Continued audit", service_id: null, is_active: true, created_at: "" },
   { taxonomy_id: "tx-active-1", code: "AA1006", name: "New audit", service_id: null, is_active: true, created_at: "" },
+  { taxonomy_id: "tx-active-2", code: "AA1007", name: "Continued audit", service_id: null, is_active: true, created_at: "" },
   { taxonomy_id: "tx-inactive", code: "AA1501", name: "Old audit", service_id: null, is_active: false, created_at: "" },
 ];
 
@@ -162,8 +163,8 @@ describe("EngagementForm — taxonomy combobox filtering (0602-136)", () => {
   });
 
   // 0722-157: options display only the name (code stays in the searchable `value` — see the
-  // "code search still filters" test below), ordered by code regardless of catalog order.
-  it("create mode: options are ordered by code (AA1006 before AA1007), not catalog order", async () => {
+  // "code search still filters" test below), ordered by name (A-Z) regardless of catalog order.
+  it("create mode: options are ordered by name A-Z ('Continued' before 'New'), not catalog order", async () => {
     const user = userEvent.setup();
     render(<EngagementForm />);
 
@@ -171,7 +172,7 @@ describe("EngagementForm — taxonomy combobox filtering (0602-136)", () => {
 
     await waitFor(() => screen.getByText("New audit"));
     const items = screen.getAllByText(/New audit|Continued audit/);
-    expect(items.map((el) => el.textContent)).toEqual(["New audit", "Continued audit"]);
+    expect(items.map((el) => el.textContent)).toEqual(["Continued audit", "New audit"]);
   });
 
   it("create mode: typing a code still filters the (name-only) options", async () => {

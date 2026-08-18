@@ -284,7 +284,8 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     () =>
       (allTaxonomies ?? [])
         .filter((tx) => tx.is_active || tx.taxonomy_id === engagement?.taxonomy_id)
-        .sort((a, b) => a.code.localeCompare(b.code)),
+        // 0722-157 (feedback): ordenar por nombre (A-Z), no por código.
+        .sort((a, b) => a.name.localeCompare(b.name)),
     [allTaxonomies, engagement?.taxonomy_id]
   );
 
@@ -371,6 +372,9 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     status: string;
     society: string;
     engagementId: string;
+    // 0722-157 (feedback): "Ir a Matriz de Trabajo" solo tiene sentido para encargos de
+    // Cliente — Administrativa/Capacitación/Control de Calidad no presupuestan horas ahí.
+    isCliente: boolean;
   } | null>(null);
 
   // Policy flags state (outside react-hook-form since they're admin-only)
@@ -787,6 +791,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
         status: t(`status.${data.status}`),
         society: societyOptions.find((s) => s.society_id === data.society_id)?.name ?? "",
         engagementId: created.engagement_id,
+        isCliente: data.funcion === FUNCION_CLIENTE,
       });
       return;
     }
@@ -1657,6 +1662,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
         funcion={createdInfo?.funcion ?? ""}
         status={createdInfo?.status ?? ""}
         society={createdInfo?.society ?? ""}
+        showGoToWorkMatrix={createdInfo?.isCliente ?? false}
         onClose={handleSuccessDialogClose}
         onCreateAnother={handleCreateAnother}
         onGoToWorkMatrix={handleGoToWorkMatrix}
