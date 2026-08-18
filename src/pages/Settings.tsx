@@ -922,7 +922,7 @@ const Settings = () => {
                           type="button"
                           variant="outline"
                           onClick={openCopyDialog}
-                          disabled={!selectedServiceId || copyTargetServices.length === 0}
+                          disabled={!selectedServiceId || !canManageChildren || copyTargetServices.length === 0}
                           className="w-full sm:w-auto min-h-[44px] sm:min-h-0"
                           data-testid="copy-categories-button"
                         >

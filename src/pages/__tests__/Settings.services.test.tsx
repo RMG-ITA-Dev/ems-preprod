@@ -198,6 +198,18 @@ describe("Settings — unified Prácticas tab (0817-177)", () => {
     expect(await screen.findByRole("option", { name: /Tax.*status\.inactive/ })).toBeInTheDocument();
   });
 
+  it("selecting an inactive práctica disables 'Copiar categorías' (its source would fail server-side)", async () => {
+    authMock.permissions = new Set(["category_rate.read", "category_rate.create", "activity_code.read"]);
+    const user = userEvent.setup();
+    render(<Settings />);
+    await user.click(screen.getByRole("tab", { name: "settings.services" }));
+
+    await user.click(screen.getByTestId("practice-selector"));
+    await user.click(await screen.findByRole("option", { name: /Tax.*status\.inactive/ }));
+
+    expect(await screen.findByTestId("copy-categories-button")).toBeDisabled();
+  });
+
   it("sub-tabs are gated by their own read permission: only Categorías with category_rate.read only", async () => {
     authMock.roleKey = "staff";
     authMock.permissions = new Set(["category_rate.read"]);
