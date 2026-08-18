@@ -99,7 +99,7 @@ const WorksheetNew = () => {
                   engagements={engagements ?? []}
                   value={selectedEngagementId}
                   onValueChange={setSelectedEngagementId}
-                  placeholder={t("engagement.selectClient")}
+                  placeholder={t("workMatrix.selectEngagement")}
                 />
 
                 {/* Selected Engagement Preview */}

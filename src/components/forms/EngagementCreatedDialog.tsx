@@ -31,7 +31,7 @@ export interface EngagementCreatedDialogProps {
   showGoToWorkMatrix: boolean;
   onClose: () => void;          // Close / X → engagements list
   onCreateAnother: () => void;  // Create another → reset form, no navigation
-  onGoToWorkMatrix: () => void; // Go to Work Matrix → /worksheets
+  onGoToWorkMatrix: () => void; // Go to Work Matrix → /worksheets/new?engagement=<id>
 }
 
 export function EngagementCreatedDialog({

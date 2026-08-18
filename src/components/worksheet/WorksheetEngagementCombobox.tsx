@@ -61,7 +61,7 @@ export function WorksheetEngagementCombobox({
                 : selected.engagement_name
             ) : (
               <span className="text-muted-foreground">
-                {placeholder || t("engagement.selectClient")}
+                {placeholder || t("workMatrix.selectEngagement")}
               </span>
             )}
           </span>

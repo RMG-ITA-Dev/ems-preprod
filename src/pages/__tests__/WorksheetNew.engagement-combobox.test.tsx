@@ -157,7 +157,7 @@ describe("WorksheetNew — engagement combobox (0722-157)", () => {
   it("does not preselect an invalid/obsolete ?engagement= id, leaving Create disabled", async () => {
     wrap("/worksheets/new?engagement=eng-does-not-exist");
 
-    expect(screen.getAllByRole("combobox")[0]).toHaveTextContent("engagement.selectClient");
+    expect(screen.getAllByRole("combobox")[0]).toHaveTextContent("workMatrix.selectEngagement");
     expect(screen.getByRole("button", { name: "common.create" })).toBeDisabled();
   });
 

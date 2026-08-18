@@ -234,8 +234,8 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   // cambio, sin tocar cada sitio.
   //
   // Este archivo ya NO usa el enum legacy: todo sale de `role_key` y de los
-  // permisos. El último resto era `isManager` para el toggle de congelamiento, que
-  // ahora se resuelve por asignación (ver `canFreezeAsManager` más abajo).
+  // permisos. El toggle de congelamiento del Gerente (`isManager`) se eliminó
+  // (0722-157); el estado "Congelado" ahora solo lo fija el Admin.
   const { can, roleKey, isLoading: roleLoading } = useAuthorization();
   const isAdmin = roleKey === "admin";
   const isEdit = !!engagement;
