@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { format, parseISO } from "date-fns";
@@ -21,6 +21,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { TableTopScrollbar } from "@/components/ui/table-top-scrollbar";
 import { Badge } from "@/components/ui/badge";
 import {
   Popover,
@@ -80,6 +81,8 @@ const TrackerList = () => {
   // Selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  // Bug 0722-158: el scroller real es el div interno de <Table>.
+  const tableScrollRef = useRef<HTMLDivElement>(null);
   const [manualDialogOpen, setManualDialogOpen] = useState(false);
   const [consolidationDialogOpen, setConsolidationDialogOpen] = useState(false);
   const [consolidationAnalysis, setConsolidationAnalysis] = useState<PreflightAnalysis | null>(null);
@@ -757,10 +760,14 @@ const TrackerList = () => {
             )}
           </div>
         ) : (
-          /* Desktop Table View */
-          <div className="border border-border rounded-lg overflow-hidden">
-            <div className="overflow-x-auto">
-              <Table className="table-dense">
+          /* Desktop Table View. Bug 0722-158: div plano externo que agrupa la
+             franja de scroll con el marco de la tabla. El `overflow-x-auto` que
+             estaba aqui era inerte: su unico hijo es el `w-full` de <Table>, asi
+             que nunca desbordaba; el scroller real es el div interno. */
+          <div>
+            <TableTopScrollbar targetRef={tableScrollRef} />
+            <div className="border border-border rounded-lg overflow-hidden">
+              <Table className="table-dense" containerRef={tableScrollRef}>
                 <TableHeader>
                   <TableRow className="bg-muted/50">
                     {/* Checkbox - 4% */}

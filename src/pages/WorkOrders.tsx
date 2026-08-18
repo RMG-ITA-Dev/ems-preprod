@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -36,6 +36,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { TableTopScrollbar } from "@/components/ui/table-top-scrollbar";
+import { Badge } from "@/components/ui/badge";
+import { badgeVariants } from "@/components/ui/badge-variants";
 import { Card, CardContent } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
@@ -54,6 +57,14 @@ const statusI18nKey: Record<string, string> = {
   Approved: "approved",
   Rejected: "rejected",
 };
+
+// Bug 0722-158: la etiqueta corta va en el chip; el nombre completo, en el title.
+type StaffRef = { short_name?: string | null; first_name?: string | null; last_name?: string | null } | null | undefined;
+
+const staffFullName = (person: StaffRef) =>
+  person ? `${person.first_name || ""} ${person.last_name || ""}`.trim() : "-";
+
+const staffLabel = (person: StaffRef) => (person ? person.short_name || staffFullName(person) : "-");
 
 type SortDirection = "asc" | "desc" | null;
 type SortColumn = "code" | "name" | "client" | "partner" | "manager" | "hours" | "standardFee" | "realization" | "adjustedFee" | "expenses" | "totalNoVAT" | "totalVAT" | null;
@@ -75,6 +86,8 @@ const WorkOrders = () => {
   const [sortDirection, setSortDirection] = useState<SortDirection>(null);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const isMobile = useIsMobile();
+  // Bug 0722-158: el scroller real es el div interno de <Table>.
+  const tableScrollRef = useRef<HTMLDivElement>(null);
   
   // Filter popover states
   const [partnerFilterOpen, setPartnerFilterOpen] = useState(false);
@@ -408,141 +421,129 @@ const WorkOrders = () => {
             )}
           </div>
         ) : (
-          /* Desktop Table */
-          <div className="border border-border rounded-lg overflow-hidden">
-            <div className="overflow-x-auto">
-              <Table className="table-dense">
+          /* Desktop Table. Bug 0722-158: div plano externo que agrupa la franja de
+             scroll con el marco de la tabla. El `overflow-x-auto` que estaba aqui
+             era inerte: su unico hijo es el `w-full` de <Table>, asi que nunca
+             desbordaba; el scroller real es el div interno del primitivo. */
+          <div>
+            <TableTopScrollbar targetRef={tableScrollRef} />
+            <div className="border border-border rounded-lg overflow-hidden">
+              <Table className="table-dense" containerRef={tableScrollRef}>
                 <TableHeader>
                   <TableRow className="bg-muted/50">
-                    <TableHead className="w-10 text-center border-r border-border">
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <span className="cursor-help text-xs text-muted-foreground">T</span>
-                          </TooltipTrigger>
-                          <TooltipContent><p>{t("workOrders.seasonColumn")}</p></TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    </TableHead>
-                    <TableHead className="w-10 text-center border-r border-border">
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <span className="cursor-help text-xs text-muted-foreground">E</span>
-                          </TooltipTrigger>
-                          <TooltipContent><p>{t("workOrders.statusColumn")}</p></TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    </TableHead>
-                    <TableHead className="w-28 text-center border-r border-border">
-                      <span
-                        className="cursor-pointer hover:text-foreground flex items-center gap-1 justify-center"
-                        onClick={() => handleSort("code")}
-                      >
-                        {t("engagement.code")}
-                        {getSortIcon("code")}
-                      </span>
-                    </TableHead>
-                    <TableHead className="min-w-[180px] text-center border-r border-border">
-                      <span
-                        className="cursor-pointer hover:text-foreground flex items-center gap-1 justify-center"
-                        onClick={() => handleSort("name")}
-                      >
-                        {t("engagement.name")}
-                        {getSortIcon("name")}
-                      </span>
-                    </TableHead>
-                    <TableHead className="min-w-[160px] text-center border-r border-border">
-                      <span
-                        className="cursor-pointer hover:text-foreground flex items-center gap-1 justify-center"
-                        onClick={() => handleSort("client")}
-                      >
-                        {t("engagement.client")}
-                        {getSortIcon("client")}
-                      </span>
-                    </TableHead>
-                    <TableHead className="w-28 text-center border-r border-border">
-                      <div className="flex items-center gap-1 justify-center">
+                    {/* Bug 0722-158 - columna «Encargo»: nombre arriba, codigo debajo.
+                        Los DOS ordenamientos se conservan como disparadores apilados. */}
+                    <TableHead className="min-w-[260px] text-center border-r border-border">
+                      <div className="flex flex-col items-center gap-0.5">
                         <span
                           className="cursor-pointer hover:text-foreground flex items-center gap-1"
-                          onClick={() => handleSort("partner")}
+                          onClick={() => handleSort("name")}
                         >
-                          {t("engagement.partner")}
-                          {getSortIcon("partner")}
+                          {t("engagement.name")}
+                          {getSortIcon("name")}
                         </span>
-                        <Popover open={partnerFilterOpen} onOpenChange={setPartnerFilterOpen}>
-                          <PopoverTrigger asChild>
-                            <button className="p-0.5 hover:bg-muted rounded">
-                              <Filter className={`h-3 w-3 ${partnerFilter !== "all" ? "text-accent" : "opacity-50"}`} />
-                            </button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-56 p-2" align="start">
-                            <Select value={partnerFilter} onValueChange={(val) => {
-                              setPartnerFilter(val);
-                              setPartnerFilterOpen(false);
-                            }}>
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="all">{t("common.all")}</SelectItem>
-                                {partnerOptions.map((p) => (
-                                  <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            {partnerFilter !== "all" && (
-                              <Button variant="ghost" size="sm" onClick={() => {
-                                setPartnerFilter("all");
-                                setPartnerFilterOpen(false);
-                              }} className="w-full mt-2">
-                                {t("common.clear")}
-                              </Button>
-                            )}
-                          </PopoverContent>
-                        </Popover>
+                        <span
+                          className="cursor-pointer hover:text-foreground flex items-center gap-1 text-xs font-normal text-muted-foreground"
+                          onClick={() => handleSort("code")}
+                        >
+                          {t("engagement.code")}
+                          {getSortIcon("code")}
+                        </span>
                       </div>
                     </TableHead>
-                    <TableHead className="w-28 text-center border-r border-border">
-                      <div className="flex items-center gap-1 justify-center">
+                    {/* Bug 0722-158 - columna «Cliente»: los filtros de Socio y Gerente se
+                        trasladan aqui SIN MODIFICAR, junto con sus ordenamientos. */}
+                    <TableHead className="min-w-[240px] text-center border-r border-border">
+                      <div className="flex flex-col items-center gap-0.5">
                         <span
                           className="cursor-pointer hover:text-foreground flex items-center gap-1"
-                          onClick={() => handleSort("manager")}
+                          onClick={() => handleSort("client")}
                         >
-                          {t("engagement.manager")}
-                          {getSortIcon("manager")}
+                          {t("engagement.client")}
+                          {getSortIcon("client")}
                         </span>
-                        <Popover open={managerFilterOpen} onOpenChange={setManagerFilterOpen}>
-                          <PopoverTrigger asChild>
-                            <button className="p-0.5 hover:bg-muted rounded">
-                              <Filter className={`h-3 w-3 ${managerFilter !== "all" ? "text-accent" : "opacity-50"}`} />
-                            </button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-56 p-2" align="start">
-                            <Select value={managerFilter} onValueChange={(val) => {
-                              setManagerFilter(val);
-                              setManagerFilterOpen(false);
-                            }}>
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="all">{t("common.all")}</SelectItem>
-                                {managerOptions.map((m) => (
-                                  <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            {managerFilter !== "all" && (
-                              <Button variant="ghost" size="sm" onClick={() => {
-                                setManagerFilter("all");
-                                setManagerFilterOpen(false);
-                              }} className="w-full mt-2">
-                                {t("common.clear")}
-                              </Button>
-                            )}
-                          </PopoverContent>
-                        </Popover>
+                        <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-0.5 text-xs font-normal text-muted-foreground">
+                          <div className="flex items-center gap-1 justify-center">
+                            <span
+                              className="cursor-pointer hover:text-foreground flex items-center gap-1"
+                              onClick={() => handleSort("partner")}
+                            >
+                              {t("engagement.partner")}
+                              {getSortIcon("partner")}
+                            </span>
+                            <Popover open={partnerFilterOpen} onOpenChange={setPartnerFilterOpen}>
+                              <PopoverTrigger asChild>
+                                <button className="p-0.5 hover:bg-muted rounded">
+                                  <Filter className={`h-3 w-3 ${partnerFilter !== "all" ? "text-accent" : "opacity-50"}`} />
+                                </button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-56 p-2" align="start">
+                                <Select value={partnerFilter} onValueChange={(val) => {
+                                  setPartnerFilter(val);
+                                  setPartnerFilterOpen(false);
+                                }}>
+                                  <SelectTrigger>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="all">{t("common.all")}</SelectItem>
+                                    {partnerOptions.map((p) => (
+                                      <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                {partnerFilter !== "all" && (
+                                  <Button variant="ghost" size="sm" onClick={() => {
+                                    setPartnerFilter("all");
+                                    setPartnerFilterOpen(false);
+                                  }} className="w-full mt-2">
+                                    {t("common.clear")}
+                                  </Button>
+                                )}
+                              </PopoverContent>
+                            </Popover>
+                          </div>
+                          <div className="flex items-center gap-1 justify-center">
+                            <span
+                              className="cursor-pointer hover:text-foreground flex items-center gap-1"
+                              onClick={() => handleSort("manager")}
+                            >
+                              {t("engagement.manager")}
+                              {getSortIcon("manager")}
+                            </span>
+                            <Popover open={managerFilterOpen} onOpenChange={setManagerFilterOpen}>
+                              <PopoverTrigger asChild>
+                                <button className="p-0.5 hover:bg-muted rounded">
+                                  <Filter className={`h-3 w-3 ${managerFilter !== "all" ? "text-accent" : "opacity-50"}`} />
+                                </button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-56 p-2" align="start">
+                                <Select value={managerFilter} onValueChange={(val) => {
+                                  setManagerFilter(val);
+                                  setManagerFilterOpen(false);
+                                }}>
+                                  <SelectTrigger>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="all">{t("common.all")}</SelectItem>
+                                    {managerOptions.map((m) => (
+                                      <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                {managerFilter !== "all" && (
+                                  <Button variant="ghost" size="sm" onClick={() => {
+                                    setManagerFilter("all");
+                                    setManagerFilterOpen(false);
+                                  }} className="w-full mt-2">
+                                    {t("common.clear")}
+                                  </Button>
+                                )}
+                              </PopoverContent>
+                            </Popover>
+                          </div>
+                        </div>
                       </div>
                     </TableHead>
                     <TableHead className="w-20 text-center border-r border-border">
@@ -648,14 +649,14 @@ const WorkOrders = () => {
                   {isLoading ? (
                     Array.from({ length: 5 }).map((_, i) => (
                       <TableRow key={i}>
-                        {Array.from({ length: 14 }).map((_, j) => (
+                        {Array.from({ length: 9 }).map((_, j) => (
                           <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
                         ))}
                       </TableRow>
                     ))
                   ) : filteredWorkOrders.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={14} className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                         {t("common.noResults")}
                       </TableCell>
                     </TableRow>
@@ -663,6 +664,7 @@ const WorkOrders = () => {
                     filteredWorkOrders.map((wo) => {
                       const { totalHours, standardFee, realizationPercent, adjustedFee, totalExpenses, totalWithoutVAT, totalWithVAT } = calculateTotals(wo);
                       const status = wo.approval_status || "Draft";
+                      const statusKey = statusI18nKey[status] ?? status.toLowerCase();
 
                       return (
                         <TableRow
@@ -670,69 +672,86 @@ const WorkOrders = () => {
                           className="cursor-pointer hover:bg-muted/50"
                           onClick={() => navigate(`/work-orders/${wo.wo_id}`)}
                         >
-                          {/* Season Icon */}
-                          <TableCell className="text-center border-r border-border">
-                            <TooltipProvider>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  {wo.season_mode === "High" ? (
-                                    <Sun className="h-4 w-4 text-warning mx-auto cursor-help" />
-                                  ) : (
-                                    <Snowflake className="h-4 w-4 text-info mx-auto cursor-help" />
-                                  )}
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <p>{wo.season_mode === "High" ? t("workOrders.seasonHigh") : t("workOrders.seasonLow")}</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            </TooltipProvider>
+                          {/* Bug 0722-158 - «Encargo»: nombre, codigo y, como badges
+                              etiquetados, Temporada y Estado. Ninguno de los dos se
+                              filtra ni se ordena: no justificaban columnas propias. */}
+                          <TableCell className="text-left border-r border-border min-w-[260px]">
+                            <div className="font-medium truncate max-w-[260px]">
+                              {wo.engagement?.engagement_name}
+                            </div>
+                            <div className="text-xs text-muted-foreground truncate max-w-[260px]">
+                              {wo.engagement?.engagement_code || "-"}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1 mt-1">
+                              <span
+                                className={cn(
+                                  badgeVariants({ variant: "outline" }),
+                                  "bg-muted text-muted-foreground font-normal text-[10px] px-1.5 py-0 gap-1",
+                                )}
+                              >
+                                {wo.season_mode === "High" ? (
+                                  <Sun className="h-3 w-3 text-warning" />
+                                ) : (
+                                  <Snowflake className="h-3 w-3 text-info" />
+                                )}
+                                <span className="opacity-70">{t("workOrders.season")}</span>
+                                <span className="opacity-40">·</span>
+                                {wo.season_mode === "High"
+                                  ? t("workOrders.seasonHighShort")
+                                  : t("workOrders.seasonLowShort")}
+                              </span>
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span
+                                      className={cn(
+                                        badgeVariants({ variant: "outline" }),
+                                        "bg-muted text-muted-foreground font-normal text-[10px] px-1.5 py-0 gap-1 cursor-help",
+                                      )}
+                                    >
+                                      <span
+                                        className={cn("h-2 w-2 rounded-full shrink-0", statusDotColors[status])}
+                                      />
+                                      <span className="opacity-70">{t("workOrders.statusColumn")}</span>
+                                      <span className="opacity-40">·</span>
+                                      {t(`workOrders.status.${statusKey}`)}
+                                    </span>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    <p className="font-medium">{t(`workOrders.status.${statusKey}`)}</p>
+                                    <p className="text-xs text-muted-foreground">
+                                      {t(`workOrders.statusTooltip.${statusKey}`)}
+                                    </p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            </div>
                           </TableCell>
-                          {/* Status Dot with Tooltip */}
-                          <TableCell className="text-center border-r border-border">
-                            <TooltipProvider>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <div
-                                    className={cn(
-                                      "h-2.5 w-2.5 rounded-full mx-auto cursor-help",
-                                      statusDotColors[status]
-                                    )}
-                                  />
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  {(() => { const key = statusI18nKey[status] ?? status.toLowerCase(); return (
-                                    <>
-                                      <p className="font-medium">{t(`workOrders.status.${key}`)}</p>
-                                      <p className="text-xs text-muted-foreground">{t(`workOrders.statusTooltip.${key}`)}</p>
-                                    </>
-                                  ); })()}
-                                </TooltipContent>
-                              </Tooltip>
-                            </TooltipProvider>
-                          </TableCell>
-                          {/* Engagement Code */}
-                          <TableCell className="text-muted-foreground text-left border-r border-border">
-                            {wo.engagement?.engagement_code || "-"}
-                          </TableCell>
-                          {/* Engagement Name */}
-                          <TableCell className="font-medium truncate max-w-[200px] text-left border-r border-border">
-                            {wo.engagement?.engagement_name}
-                          </TableCell>
-                          {/* Client */}
-                          <TableCell className="truncate max-w-[180px] text-left border-r border-border">
-                            {wo.engagement?.client?.client_legal_name || "-"}
-                          </TableCell>
-                          {/* Partner */}
-                          <TableCell className="text-left border-r border-border">
-                            {wo.engagement?.partner 
-                              ? wo.engagement.partner.short_name || `${wo.engagement.partner.first_name} ${wo.engagement.partner.last_name}`
-                              : "-"}
-                          </TableCell>
-                          {/* Manager */}
-                          <TableCell className="text-left border-r border-border">
-                            {wo.engagement?.manager
-                              ? wo.engagement.manager.short_name || `${wo.engagement.manager.first_name} ${wo.engagement.manager.last_name}`
-                              : "-"}
+                          {/* Bug 0722-158 - «Cliente»: cliente arriba, Socio y Gerente como chips */}
+                          <TableCell className="text-left border-r border-border min-w-[240px]">
+                            <div className="truncate max-w-[240px]">
+                              {wo.engagement?.client?.client_legal_name || "-"}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1 mt-1">
+                              <Badge
+                                variant="outline"
+                                className="bg-muted text-muted-foreground font-normal text-[10px] px-1.5 py-0"
+                                title={`${t("engagement.partner")}: ${staffFullName(wo.engagement?.partner)}`}
+                              >
+                                <span className="opacity-70">{t("common.partner")}</span>
+                                <span className="mx-1 opacity-40">·</span>
+                                {staffLabel(wo.engagement?.partner)}
+                              </Badge>
+                              <Badge
+                                variant="outline"
+                                className="bg-muted text-muted-foreground font-normal text-[10px] px-1.5 py-0"
+                                title={`${t("engagement.manager")}: ${staffFullName(wo.engagement?.manager)}`}
+                              >
+                                <span className="opacity-70">{t("common.manager")}</span>
+                                <span className="mx-1 opacity-40">·</span>
+                                {staffLabel(wo.engagement?.manager)}
+                              </Badge>
+                            </div>
                           </TableCell>
                           {/* Total Hours */}
                           <TableCell className="text-right font-mono border-r border-border">
