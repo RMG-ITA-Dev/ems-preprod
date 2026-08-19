@@ -189,6 +189,10 @@ const WorkOrderEdit = () => {
   // Fase 8 (0817-176): activa la pestaña de Riesgos en WorkOrderForm cuando falla la
   // validación de riesgo al "Enviar para Aprobación" (análogo a staffingFocusSignal).
   const [riskFocusSignal, setRiskFocusSignal] = useState(0);
+  // Idem para la pestaña de Pagos cuando falla la validación de porcentajes en
+  // persistNonRiskChanges (Decisión del operador #4: auto-switch ante cualquier
+  // fallo de validación al guardar/enviar, no solo staffing/riesgo).
+  const [paymentFocusSignal, setPaymentFocusSignal] = useState(0);
 
   // Track original values for dirty check
   const [originalAdjustment, setOriginalAdjustment] = useState(0);
@@ -485,11 +489,13 @@ const WorkOrderEdit = () => {
     if (paymentInstallments.length > 0) {
       if (paymentInstallments.some((i) => i.percentage < 0 || i.percentage > 100)) {
         toast.error(t("workOrders.paymentPlan.validationPercentageRange"));
+        setPaymentFocusSignal((n) => n + 1);
         return false;
       }
       const pctSum = paymentInstallments.reduce((s, i) => s + i.percentage, 0);
       if (Math.abs(pctSum - 100) > 0.01) {
         toast.error(t("workOrders.paymentPlan.validationPercentageSum"));
+        setPaymentFocusSignal((n) => n + 1);
         return false;
       }
     }
@@ -971,6 +977,7 @@ const WorkOrderEdit = () => {
           staffingServiceId={engagementService?.service_id ?? null}
           staffingFocusSignal={staffingFocusSignal}
           riskFocusSignal={riskFocusSignal}
+          paymentFocusSignal={paymentFocusSignal}
           isSubmitting={isSubmitting}
         />
       </div>

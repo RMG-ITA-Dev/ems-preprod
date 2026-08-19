@@ -140,6 +140,8 @@ interface WorkOrderFormProps {
   staffingFocusSignal?: number;
   /** Incremented by the parent to switch to the Risk tab after a submit-time risk validation error. */
   riskFocusSignal?: number;
+  /** Incremented by the parent to switch to the Payment tab after a percentage validation error. */
+  paymentFocusSignal?: number;
   onSeasonChange: (season: "High" | "Low") => void;
   onAdjustmentChange: (amount: number) => void;
   onBudgetLinesChange: (lines: BudgetLineInput[]) => void;
@@ -410,6 +412,7 @@ export function WorkOrderForm({
   staffingServiceId = null,
   staffingFocusSignal = 0,
   riskFocusSignal = 0,
+  paymentFocusSignal = 0,
 }: WorkOrderFormProps) {
   const { t } = useTranslation();
   // Emergency confirmation now lives at submit time (Manager), capturing a mandatory
@@ -814,6 +817,15 @@ export function WorkOrderForm({
       setActiveTab("risk");
     }
   }, [riskFocusSignal]);
+
+  // Pagos: al fallar la validación de porcentajes en persistNonRiskChanges, activar
+  // la pestaña 2 (Decisión del operador #4: auto-switch ante fallo de validación al
+  // guardar/enviar, generalizado igual que staffing/riesgo).
+  useEffect(() => {
+    if (paymentFocusSignal > 0) {
+      setActiveTab("payment");
+    }
+  }, [paymentFocusSignal]);
 
   // Al montar/actualizar: abrir la pestaña de la pista rechazada (operador #4). Solo
   // reacciona a cambios reales de estado (no en cada render) — el mount ya queda
@@ -2043,7 +2055,7 @@ export function WorkOrderForm({
             <span className="absolute -top-2 left-3 bg-background px-1 text-xs font-medium text-muted-foreground">
               {t("workOrders.partnerActionsLabel")}
             </span>
-            <div className="flex justify-end gap-3">
+            <div className="flex flex-col sm:flex-row sm:justify-end gap-3">
               {onReject && (
                 <LoadingButton
                   variant="outline"
@@ -2080,7 +2092,7 @@ export function WorkOrderForm({
             <span className="absolute -top-2 left-3 bg-background px-1 text-xs font-medium text-muted-foreground">
               {t("workOrders.riskActionsLabel")}
             </span>
-            <div className="flex justify-end gap-3">
+            <div className="flex flex-col sm:flex-row sm:justify-end gap-3">
               {onRejectRisk && (
                 <LoadingButton
                   variant="outline"

@@ -1,6 +1,6 @@
 import React from "react";
 import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { PaymentInstallmentInput, PaymentPlanInput } from "@/types/workOrderPaymentPlan";
@@ -147,6 +147,18 @@ function hasIndicator(trigger: HTMLElement, statusKey: string) {
   return !!trigger.querySelector(`[aria-label="workOrders.tabs.status.${statusKey}"]`);
 }
 
+// All four TabsContent panels stay mounted (forceMount) regardless of which tab is
+// active — jsdom never applies the `data-[state=inactive]:hidden` CSS that hides the
+// others visually, so a plain screen.getByText() would find content in an inactive
+// panel too. Scoping to the panel whose own data-state is "active" is what actually
+// proves a tab switch changed what's showing (Finding #4, review iteration 1).
+function getActivePanel(): HTMLElement {
+  const panels = screen.getAllByRole("tabpanel", { hidden: true });
+  const active = panels.find((p) => p.getAttribute("data-state") === "active");
+  if (!active) throw new Error("No active tabpanel found");
+  return active;
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe("WorkOrderForm — Tabs (0817-176)", () => {
@@ -194,10 +206,15 @@ describe("WorkOrderForm — Tabs (0817-176)", () => {
       onRejectRisk: vi.fn(),
       ...fullRisk,
     });
-    // Budget tab is active by default: Socio box visible.
-    expect(screen.getByText("workOrders.approve")).toBeInTheDocument();
+    // Budget tab is active by default: Socio box is in the active panel, Riesgos'
+    // is not (it's forceMounted but sits in the still-inactive Risk panel).
+    expect(within(getActivePanel()).getByText("workOrders.approve")).toBeInTheDocument();
+    expect(getTabTrigger("risk")).toHaveAttribute("data-state", "inactive");
+
     await user.click(await screen.findByRole("tab", { name: /workOrders\.tabs\.risk/ }));
-    expect(screen.getByText("workOrders.approveRisk")).toBeInTheDocument();
+
+    expect(getTabTrigger("risk")).toHaveAttribute("data-state", "active");
+    expect(within(getActivePanel()).getByText("workOrders.approveRisk")).toBeInTheDocument();
   });
 
   it("T6: the global footer (Cancel) stays present regardless of the active tab", async () => {
@@ -205,6 +222,7 @@ describe("WorkOrderForm — Tabs (0817-176)", () => {
     renderForm({ onCancel: vi.fn() });
     expect(screen.getByText("common.cancel")).toBeInTheDocument();
     await user.click(await screen.findByRole("tab", { name: /workOrders\.tabs\.payment/ }));
+    expect(getTabTrigger("payment")).toHaveAttribute("data-state", "active");
     expect(screen.getByText("common.cancel")).toBeInTheDocument();
   });
 
@@ -370,5 +388,16 @@ describe("WorkOrderForm — Tabs (0817-176)", () => {
       </QueryClientProvider>,
     );
     expect(getTabTrigger("risk")).toHaveAttribute("data-state", "active");
+  });
+
+  it("T16: paymentFocusSignal activa la pestaña de Pagos (auto-switch tras error de % al guardar)", () => {
+    const { rerender } = renderForm({ paymentFocusSignal: 0 });
+    expect(getTabTrigger("budget")).toHaveAttribute("data-state", "active");
+    rerender(
+      <QueryClientProvider client={makeQC()}>
+        <WorkOrderForm {...(baseProps as any)} paymentFocusSignal={1} />
+      </QueryClientProvider>,
+    );
+    expect(getTabTrigger("payment")).toHaveAttribute("data-state", "active");
   });
 });
