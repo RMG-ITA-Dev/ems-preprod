@@ -1352,7 +1352,8 @@
         "approved": "Approved",
         "rejected": "Rejected",
         "billingOk": "Billing on track",
-        "billingAlert": "Billing alert — payment due soon or overdue"
+        "billingAlert": "Billing alert — payment due soon or overdue",
+        "billingComplete": "Collection complete"
       }
     },
     "paymentPlan": {

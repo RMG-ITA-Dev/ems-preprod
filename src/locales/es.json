@@ -1352,7 +1352,8 @@
         "approved": "Aprobado",
         "rejected": "Rechazado",
         "billingOk": "Cobranza al día",
-        "billingAlert": "Cobranza con alerta de vencimiento"
+        "billingAlert": "Cobranza con alerta de vencimiento",
+        "billingComplete": "Cobranza completa"
       }
     },
     "paymentPlan": {

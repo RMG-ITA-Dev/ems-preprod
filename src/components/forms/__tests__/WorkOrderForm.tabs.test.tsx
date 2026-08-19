@@ -307,7 +307,7 @@ describe("WorkOrderForm — Tabs (0817-176)", () => {
     expect(hasIndicator(getTabTrigger("staffing"), "notReviewed")).toBe(false);
   });
 
-  it("T13: OT totalmente aprobada muestra ✓ en pest.4 y ☼ verde en pest.2 (sin cuotas en riesgo)", () => {
+  it("T13: OT totalmente aprobada con toda la cobranza al 100% muestra ✓ en pest.4 y ✓ (check) en pest.2", () => {
     renderForm({
       approvalStatus: "Approved",
       approvedAt: "2026-06-19T10:00:00Z",
@@ -319,20 +319,33 @@ describe("WorkOrderForm — Tabs (0817-176)", () => {
       onStaffingRequirementsChange: vi.fn(),
     });
     expect(hasIndicator(getTabTrigger("staffing"), "approved")).toBe(true);
-    expect(hasIndicator(getTabTrigger("payment"), "billingOk")).toBe(true);
+    expect(hasIndicator(getTabTrigger("payment"), "billingComplete")).toBe(true);
   });
 
-  it("T13b: ☼ es rojo cuando una cuota no-Completed está vencida/por vencer tras la aprobación total", () => {
+  it("T13b: ☼ es rojo cuando una cuota sin cobrar tiene la fecha de PAGO por vencer/vencida tras la aprobación total", () => {
     renderForm({
       approvalStatus: "Approved",
       approvedAt: "2026-06-19T10:00:00Z",
       riskStatus: "Approved",
       paymentPlan: completePlan,
-      paymentInstallments: [makeInstallment({ status: "Pending", agreed_invoice_date: dayOffset(2) })],
+      paymentInstallments: [makeInstallment({ status: "Invoiced", agreed_payment_date: dayOffset(3) })],
       onPaymentPlanChange: vi.fn(),
       onPaymentInstallmentsChange: vi.fn(),
     });
     expect(hasIndicator(getTabTrigger("payment"), "billingAlert")).toBe(true);
+  });
+
+  it("T13c: ☼ es verde (en proceso) cuando hay cuotas facturadas pero sin pagos en riesgo", () => {
+    renderForm({
+      approvalStatus: "Approved",
+      approvedAt: "2026-06-19T10:00:00Z",
+      riskStatus: "Approved",
+      paymentPlan: completePlan,
+      paymentInstallments: [makeInstallment({ status: "Invoiced", agreed_payment_date: dayOffset(45) })],
+      onPaymentPlanChange: vi.fn(),
+      onPaymentInstallmentsChange: vi.fn(),
+    });
+    expect(hasIndicator(getTabTrigger("payment"), "billingOk")).toBe(true);
   });
 
   it("T14: Pending_Approval (enviada) no muestra indicador en ninguna pestaña sin pista decidida", () => {

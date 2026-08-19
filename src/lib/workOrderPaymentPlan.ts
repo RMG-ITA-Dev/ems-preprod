@@ -90,14 +90,38 @@ export function getEffectiveInstallmentStatus(
   return installment.status;
 }
 
-// Billing indicator (0817-176 §Indicadores) for a fully-approved Work Order's Payment
-// tab: "red" when some not-yet-Completed installment is due within the alert window or
-// already overdue, "green" otherwise (in progress with no risk, or collection complete).
-export function computeBillingIndicator(installments: PaymentInstallmentInput[]): 'red' | 'green' {
-  const hasRiskyInstallment = installments.some((installment) => {
-    const effectiveStatus = getEffectiveInstallmentStatus(installment);
-    if (effectiveStatus === 'Completed') return false;
-    return effectiveStatus === 'Overdue' || isAlertDue(installment, 7);
-  });
-  return hasRiskyInstallment ? 'red' : 'green';
+// Returns true when a not-yet-collected installment's agreed PAYMENT date is within
+// `windowDays` calendar days ahead OR already past (overdue) — i.e. payment due soon or
+// already overdue and still unpaid. A Completed (collected) installment never qualifies;
+// an installment already flagged Overdue always does.
+export function isPaymentDueSoonOrOverdue(
+  installment: PaymentInstallmentInput,
+  windowDays = 7,
+): boolean {
+  if (installment.status === 'Completed') return false;
+  if (installment.status === 'Overdue') return true;
+  if (!installment.agreed_payment_date) return false;
+  const todayStr = new Intl.DateTimeFormat("en-CA", { timeZone: "America/La_Paz" }).format(new Date());
+  const today = new Date(todayStr + "T00:00:00");
+  const pay = new Date(installment.agreed_payment_date + "T00:00:00");
+  const diffDays = (pay.getTime() - today.getTime()) / 86400000;
+  return diffDays <= windowDays; // within the window ahead, or already past
+}
+
+// Billing indicator (0817-176 §Indicadores) for a fully-approved Work Order's Payment tab:
+// - "complete": every installment is Collected (Completed) → rendered as the green check ✓
+//   like the other tabs (collection closed 100%).
+// - "red" (☼): some not-yet-Collected installment's agreed PAYMENT date is within the alert
+//   window or already overdue (payment due soon / overdue and still unpaid).
+// - "green" (☼): otherwise — approved and in progress with no payment at risk.
+export function computeBillingIndicator(
+  installments: PaymentInstallmentInput[],
+): 'red' | 'green' | 'complete' {
+  if (installments.length > 0 && installments.every((i) => i.status === 'Completed')) {
+    return 'complete';
+  }
+  const hasPaymentAtRisk = installments.some((installment) =>
+    isPaymentDueSoonOrOverdue(installment, 7),
+  );
+  return hasPaymentAtRisk ? 'red' : 'green';
 }

@@ -373,60 +373,68 @@ describe("getEffectiveInstallmentStatus", () => {
 // ---------------------------------------------------------------------------
 
 describe("computeBillingIndicator", () => {
-  it("returns green when every installment is Completed", () => {
+  it("returns 'complete' when every installment is Collected (Completed)", () => {
     const installments = [
-      baseInstallment({ status: "Completed", agreed_invoice_date: dayOffset(-30) }),
-      baseInstallment({ status: "Completed", agreed_invoice_date: dayOffset(-10) }),
+      baseInstallment({ status: "Completed", agreed_payment_date: dayOffset(-30) }),
+      baseInstallment({ status: "Completed", agreed_payment_date: dayOffset(-10) }),
+    ];
+    expect(computeBillingIndicator(installments)).toBe("complete");
+  });
+
+  it("returns 'green' when in progress with no payment due soon or overdue", () => {
+    const installments = [
+      baseInstallment({ status: "Completed", agreed_payment_date: dayOffset(-30) }),
+      baseInstallment({ status: "Invoiced", agreed_payment_date: dayOffset(20) }),
     ];
     expect(computeBillingIndicator(installments)).toBe("green");
   });
 
-  it("returns green when in progress with no installment due/overdue", () => {
+  it("returns 'red' when a not-yet-collected installment's payment date is within the alert window", () => {
     const installments = [
-      baseInstallment({ status: "Completed", agreed_invoice_date: dayOffset(-30) }),
-      baseInstallment({ status: "Pending", agreed_invoice_date: dayOffset(20) }),
+      baseInstallment({ status: "Completed", agreed_payment_date: dayOffset(-30) }),
+      baseInstallment({ status: "Invoiced", agreed_payment_date: dayOffset(3) }),
+    ];
+    expect(computeBillingIndicator(installments)).toBe("red");
+  });
+
+  it("returns 'red' when a not-yet-collected installment's payment date is already overdue", () => {
+    const installments = [
+      baseInstallment({ status: "Invoiced", agreed_payment_date: dayOffset(-5) }),
+    ];
+    expect(computeBillingIndicator(installments)).toBe("red");
+  });
+
+  it("stays 'red' when the payment date passed and it was never invoiced (Pending, unpaid = overdue)", () => {
+    const installments = [
+      baseInstallment({ status: "Pending", agreed_payment_date: dayOffset(-1) }),
+    ];
+    expect(computeBillingIndicator(installments)).toBe("red");
+  });
+
+  it("returns 'green' for already-Invoiced installments with far-off payment dates (0817-176: Facturado en proceso, no rojo)", () => {
+    const installments = [
+      baseInstallment({ status: "Invoiced", agreed_payment_date: dayOffset(43) }),
+      baseInstallment({ status: "Invoiced", agreed_payment_date: dayOffset(58) }),
     ];
     expect(computeBillingIndicator(installments)).toBe("green");
   });
 
-  it("returns red when a non-Completed installment is within the alert window", () => {
+  it("an Overdue-status installment is always red, regardless of its payment date", () => {
     const installments = [
-      baseInstallment({ status: "Completed", agreed_invoice_date: dayOffset(-30) }),
-      baseInstallment({ status: "Pending", agreed_invoice_date: dayOffset(3) }),
+      baseInstallment({ status: "Overdue", agreed_payment_date: dayOffset(30) }),
     ];
     expect(computeBillingIndicator(installments)).toBe("red");
   });
 
-  it("returns red when a non-Completed installment is overdue (effective status)", () => {
-    const installments = [
-      baseInstallment({ status: "Pending", agreed_invoice_date: dayOffset(-5) }),
-    ];
-    expect(computeBillingIndicator(installments)).toBe("red");
-  });
-
-  it("returns red for an Invoiced (not just Pending) installment within the alert window", () => {
-    const installments = [
-      baseInstallment({ status: "Invoiced", agreed_invoice_date: dayOffset(3) }),
-    ];
-    expect(computeBillingIndicator(installments)).toBe("red");
-  });
-
-  it("an Overdue-status installment is always red, regardless of dates", () => {
-    const installments = [
-      baseInstallment({ status: "Overdue", agreed_invoice_date: dayOffset(30) }),
-    ];
-    expect(computeBillingIndicator(installments)).toBe("red");
-  });
-
-  it("returns green for an empty installments list", () => {
+  it("returns 'green' for an empty installments list", () => {
     expect(computeBillingIndicator([])).toBe("green");
   });
 
-  it("a risky installment does not turn green just because another one is Completed", () => {
+  it("a payment at risk does not turn green just because another installment is Completed", () => {
     const installments = [
-      baseInstallment({ status: "Completed", agreed_invoice_date: dayOffset(-60) }),
-      baseInstallment({ status: "Pending", agreed_invoice_date: dayOffset(-1) }),
-      baseInstallment({ status: "Pending", agreed_invoice_date: dayOffset(60) }),
+      baseInstallment({ status: "Completed", agreed_payment_date: dayOffset(-60) }),
+      baseInstallment({ status: "Invoiced", agreed_payment_date: dayOffset(-1) }),
+      baseInstallment({ status: "Invoiced", agreed_payment_date: dayOffset(60) }),
     ];
     expect(computeBillingIndicator(installments)).toBe("red");
   });

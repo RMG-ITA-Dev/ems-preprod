@@ -657,7 +657,7 @@ export function WorkOrderForm({
 
   // ── Indicadores por pestaña (0817-176 §Indicadores) ──────────────────────────
   // Todo derivado de flags/props ya existentes; sin datos ni reglas de negocio nuevas.
-  type TabIndicatorKind = "approved" | "rejected" | "warning" | "billing-green" | "billing-red";
+  type TabIndicatorKind = "approved" | "rejected" | "warning" | "billing-green" | "billing-red" | "billing-complete";
   const otFullyApproved = socioApproved && riskApproved;
 
   // Pestaña 1 (Presupuesto, pista Socio): terminal > "!" no revisada > sin indicador.
@@ -683,7 +683,14 @@ export function WorkOrderForm({
     );
   }, [paymentPlan, paymentInstallments]);
   const paymentIndicatorKind: TabIndicatorKind | null = otFullyApproved
-    ? (computeBillingIndicator(paymentInstallments) === "red" ? "billing-red" : "billing-green")
+    ? ((): TabIndicatorKind => {
+        const billing = computeBillingIndicator(paymentInstallments);
+        return billing === "red"
+          ? "billing-red"
+          : billing === "complete"
+            ? "billing-complete"
+            : "billing-green";
+      })()
     : isPending
       ? null
       : paymentPlanComplete
@@ -710,9 +717,16 @@ export function WorkOrderForm({
 
   const renderTabIndicator = (kind: TabIndicatorKind | null, ariaLabel: string) => {
     if (!kind) return null;
-    const Icon = kind === "approved" ? CheckCircle : kind === "rejected" ? XCircle : kind === "warning" ? AlertCircle : Sun;
+    const Icon =
+      kind === "approved" || kind === "billing-complete"
+        ? CheckCircle
+        : kind === "rejected"
+          ? XCircle
+          : kind === "warning"
+            ? AlertCircle
+            : Sun;
     const colorClass =
-      kind === "approved" || kind === "billing-green"
+      kind === "approved" || kind === "billing-green" || kind === "billing-complete"
         ? "text-success"
         : kind === "rejected" || kind === "billing-red"
           ? "text-destructive"
@@ -731,6 +745,8 @@ export function WorkOrderForm({
         return t("workOrders.tabs.status.billingOk");
       case "billing-red":
         return t("workOrders.tabs.status.billingAlert");
+      case "billing-complete":
+        return t("workOrders.tabs.status.billingComplete");
       default:
         return "";
     }
