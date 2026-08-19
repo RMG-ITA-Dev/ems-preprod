@@ -82,16 +82,23 @@ export function TableTopScrollbar({ targetRef, className }: TableTopScrollbarPro
     // navegador despacha en el mismo paso los `scroll` pendientes de ambos
     // elementos, y el eco de la franja va encolado ANTES del evento nuevo del
     // target. (Revisiones de Codex P2 y greptile P1.)
-    const expectedEchoes = new Map<HTMLElement, number>();
+    // Se guarda QUE posicion escribimos, no cuantas veces escribimos: los
+    // eventos `scroll` se coalescen por elemento y por frame, asi que si el
+    // usuario mueve ese elemento antes de que se despache el eco, no llegan dos
+    // eventos sino uno solo con la posicion nueva. Un contador no puede
+    // distinguirlos y tiraria el movimiento del usuario.
+    const writtenPos = new Map<HTMLElement, number>();
 
     const mirror = (from: HTMLElement, to: HTMLElement) => () => {
-      const pending = expectedEchoes.get(from) ?? 0;
-      if (pending > 0) {
-        expectedEchoes.set(from, pending - 1);
-        return;
-      }
-
       const next = from.scrollLeft;
+      const written = writtenPos.get(from);
+      // Un eco pendiente solo se descarta si la posicion sigue siendo
+      // EXACTAMENTE la que escribimos. Si cambio, el usuario lo movio despues y
+      // ese movimiento manda.
+      const isEcho = written !== undefined && Math.abs(next - written) <= 0.5;
+      writtenPos.delete(from);
+      if (isEcho) return;
+
       const before = to.scrollLeft;
       // Tolerancia sub-pixel: en pantallas HiDPI `scrollLeft` es fraccionario y
       // el navegador puede redondear al escribir. Sin epsilon rebotarian entre
@@ -99,12 +106,13 @@ export function TableTopScrollbar({ targetRef, className }: TableTopScrollbarPro
       if (Math.abs(before - next) <= 0.5) return;
 
       to.scrollLeft = next;
-      // Solo cuenta como eco si la posicion cambio de verdad: una escritura
-      // recortada al maximo scroll puede dejarla igual, y entonces no habra
-      // evento que consumir — anotarlo dejaria el contador desfasado.
-      if (to.scrollLeft !== before) {
-        expectedEchoes.set(to, (expectedEchoes.get(to) ?? 0) + 1);
-      }
+      const after = to.scrollLeft;
+      // Se anota el valor REAL tras la escritura, no el pedido: los dos
+      // scrollers tienen anchos utiles algo distintos (la franja va fuera del
+      // borde), asi que el maximo difiere y el navegador puede recortar. Anotar
+      // el pedido haria que el eco recortado no se reconociera y se copiara de
+      // vuelta, dejando los ultimos pixeles de la tabla inalcanzables.
+      if (after !== before) writtenPos.set(to, after);
     };
 
     const onTargetScroll = mirror(target, strip);

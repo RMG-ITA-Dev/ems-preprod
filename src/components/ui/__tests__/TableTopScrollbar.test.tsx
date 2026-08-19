@@ -114,7 +114,63 @@ describe("TableTopScrollbar (bug 0722-158)", () => {
     expect(strip.scrollLeft).toBe(400);
   });
 
-  it("el contador de ecos no se traba: tras consumir uno, el scroll real sigue funcionando", () => {
+  it("un scroll del usuario que adelanta al eco no se descarta", () => {
+    // Los eventos `scroll` se coalescen por elemento y por frame: si el usuario
+    // mueve la franja antes de que se despache el eco de nuestra escritura, no
+    // llegan dos eventos sino UNO, con la posicion nueva del usuario. Tratarlo
+    // como eco tira ese movimiento a la basura.
+    render(<Harness scrollWidth={1600} clientWidth={800} />);
+    const target = getTarget();
+    const strip = getStrip();
+
+    // Frame N: el usuario mueve la tabla; se escribe la franja y queda un eco.
+    target.scrollLeft = 100;
+    act(() => {
+      target.dispatchEvent(new Event("scroll"));
+    });
+    expect(strip.scrollLeft).toBe(100);
+
+    // Antes de que llegue el eco, el usuario agarra la franja y la lleva a 700.
+    strip.scrollLeft = 700;
+    act(() => {
+      strip.dispatchEvent(new Event("scroll"));
+    });
+
+    expect(target.scrollLeft).toBe(700);
+  });
+
+  it("no vuelve inalcanzable el extremo de la tabla cuando la franja recorta", () => {
+    // La franja se monta FUERA del borde, asi que su ancho util difiere unos px
+    // del scroller de la tabla y su maximo scroll es menor. Si se anotara la
+    // posicion PEDIDA en vez de la real, el eco recortado no se reconoceria como
+    // eco y se copiaria de vuelta, arrastrando la tabla lejos de su extremo.
+    render(<Harness scrollWidth={1600} clientWidth={800} />);
+    const target = getTarget();
+    const strip = getStrip();
+
+    let stripPos = 0;
+    Object.defineProperty(strip, "scrollLeft", {
+      configurable: true,
+      get: () => stripPos,
+      set: (v: number) => {
+        stripPos = Math.min(v, 798); // la franja llega 2px menos
+      },
+    });
+
+    target.scrollLeft = 800; // el usuario llega al extremo de la tabla
+    act(() => {
+      target.dispatchEvent(new Event("scroll"));
+    });
+    expect(strip.scrollLeft).toBe(798); // recortada
+
+    // El eco llega con 798; debe reconocerse y no arrastrar la tabla a 798.
+    act(() => {
+      strip.dispatchEvent(new Event("scroll"));
+    });
+    expect(target.scrollLeft).toBe(800);
+  });
+
+  it("el eco no se traba: tras consumir uno, el scroll real sigue funcionando", () => {
     // Modo de falla propio de contar ecos: si un contador quedara incrementado
     // de mas, se tragaria un scroll legitimo del usuario. Cada eco debe
     // consumir exactamente una unidad.
