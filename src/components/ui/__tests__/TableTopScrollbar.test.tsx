@@ -93,7 +93,7 @@ describe("TableTopScrollbar (bug 0722-158)", () => {
     expect(getTarget().scrollLeft).toBe(150);
   });
 
-  it("no se realimenta: el eco del destino no reescribe el origen", () => {
+  it("no se realimenta: con ambos ya sincronizados el eco no mueve nada", () => {
     render(<Harness scrollWidth={1600} clientWidth={800} />);
     const target = getTarget();
     const strip = getStrip();
@@ -104,13 +104,54 @@ describe("TableTopScrollbar (bug 0722-158)", () => {
     });
     expect(strip.scrollLeft).toBe(400);
 
-    // El navegador emite `scroll` en la franja al escribirle scrollLeft. Sin el
-    // guard, este eco reescribiria el target y arrancaria un bucle infinito.
-    target.scrollLeft = 999;
+    // El navegador emite `scroll` en la franja al escribirle scrollLeft. Ambos
+    // estan ya en 400, asi que el handler no escribe; sin cambio de posicion no
+    // hay evento nuevo y la cadena se corta. Eso es lo que evita el bucle — no
+    // un lock temporal, que ademas descartaba eventos legitimos.
     act(() => {
       strip.dispatchEvent(new Event("scroll"));
     });
-    expect(target.scrollLeft).toBe(999);
+    expect(target.scrollLeft).toBe(400);
+    expect(strip.scrollLeft).toBe(400);
+  });
+
+  it("no se queda desincronizada cuando llegan dos eventos en el mismo frame", async () => {
+    // Revision de Codex (P2): el navegador despacha los `scroll` pendientes de
+    // AMBOS elementos en el mismo paso del frame. Durante un scroll continuo eso
+    // pasa siempre: el eco de la franja (del frame anterior) llega junto al
+    // evento nuevo del target. Si el primero toma el lock, el segundo se
+    // DESCARTA y la franja queda vieja hasta que el usuario vuelva a scrollear.
+    render(<Harness scrollWidth={1600} clientWidth={800} />);
+    const target = getTarget();
+    const strip = getStrip();
+
+    // Frame N: el usuario scrollea el target a 100 y se espeja.
+    target.scrollLeft = 100;
+    act(() => {
+      target.dispatchEvent(new Event("scroll"));
+    });
+    expect(strip.scrollLeft).toBe(100);
+    await act(async () => {
+      await new Promise((r) => requestAnimationFrame(() => r(null)));
+    });
+
+    // Frame N+1: primero el eco de la franja, y en el MISMO frame el evento
+    // nuevo del target, que ya avanzo a 250.
+    act(() => {
+      strip.dispatchEvent(new Event("scroll"));
+    });
+    target.scrollLeft = 250;
+    act(() => {
+      target.dispatchEvent(new Event("scroll"));
+    });
+
+    await act(async () => {
+      await new Promise((r) => requestAnimationFrame(() => r(null)));
+    });
+
+    // Si el segundo evento se descarto, la franja se quedo en 100 y arrastrarla
+    // devolveria la tabla a esa posicion vieja.
+    expect(strip.scrollLeft).toBe(250);
   });
 
   it("es decorativa: aria-hidden y fuera del orden de tabulacion", () => {

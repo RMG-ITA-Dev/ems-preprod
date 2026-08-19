@@ -24,7 +24,6 @@ interface TableTopScrollbarProps {
  */
 export function TableTopScrollbar({ targetRef, className }: TableTopScrollbarProps) {
   const stripRef = useRef<HTMLDivElement>(null);
-  const syncingRef = useRef(false);
   const [dims, setDims] = useState({ scrollWidth: 0, clientWidth: 0 });
 
   const measure = useCallback(() => {
@@ -72,15 +71,22 @@ export function TableTopScrollbar({ targetRef, className }: TableTopScrollbarPro
     const strip = stripRef.current;
     if (!target || !strip || !hasOverflow) return;
 
-    // Guard anti-bucle: escribir `scrollLeft` dispara otro evento `scroll`, que
-    // sin esto reescribiría el origen y así indefinidamente.
+    // El bucle se corta por VALOR, no por un lock temporal: si el destino ya
+    // esta en la posicion del origen no se escribe, y sin cambio de posicion el
+    // navegador no emite otro `scroll`, asi que la cadena muere sola.
+    //
+    // Un lock de un frame no sirve aqui (revision Codex, P2): el navegador
+    // despacha en el MISMO paso del frame los `scroll` pendientes de ambos
+    // elementos, y durante un scroll continuo eso pasa siempre — el eco de la
+    // franja llega junto al evento nuevo del target. El que llegaba segundo se
+    // descartaba y la franja quedaba vieja hasta el proximo movimiento; al
+    // arrastrarla despues, la tabla saltaba a esa posicion obsoleta.
     const mirror = (from: HTMLElement, to: HTMLElement) => () => {
-      if (syncingRef.current) return;
-      syncingRef.current = true;
-      to.scrollLeft = from.scrollLeft;
-      requestAnimationFrame(() => {
-        syncingRef.current = false;
-      });
+      const next = from.scrollLeft;
+      // Tolerancia sub-pixel: en pantallas HiDPI `scrollLeft` es fraccionario y
+      // el navegador puede redondear al escribir. Sin epsilon rebotarian entre
+      // si por diferencias invisibles.
+      if (Math.abs(to.scrollLeft - next) > 0.5) to.scrollLeft = next;
     };
 
     const onTargetScroll = mirror(target, strip);
