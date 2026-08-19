@@ -19,6 +19,10 @@ vi.mock("@/components/forms/WorkOrderForm", () => ({
     capturedFormProps = props;
     return <div data-testid="work-order-form" />;
   },
+  // 0819-181: stubs — WorkOrderEdit renders these directly in the merged "Encargo"
+  // card; this suite only asserts on props passed to WorkOrderForm.
+  WorkOrderStatusBadge: () => null,
+  WorkOrderTrackStatus: () => null,
 }));
 
 // ── Routing ───────────────────────────────────────────────────────────────────

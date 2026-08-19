@@ -186,6 +186,161 @@ const statusLabels = {
   Rejected: "workOrders.status.rejected",
 };
 
+// 0819-181: extraído para reutilizarlo desde la tarjeta "Encargo" de WorkOrderEdit
+// (fusión de la barra Estado/Moneda/Temporada) sin duplicar la lógica de color/label.
+export interface WorkOrderStatusBadgeProps {
+  approvalStatus: "Draft" | "Pending_Approval" | "Approved" | "Rejected";
+  isLocked: boolean;
+  isDirty?: boolean;
+}
+
+export function WorkOrderStatusBadge({
+  approvalStatus,
+  isLocked,
+  isDirty = false,
+}: WorkOrderStatusBadgeProps) {
+  const { t } = useTranslation();
+  return (
+    <div className="flex items-center gap-3">
+      <Badge
+        variant="outline"
+        className={cn("text-xs px-2.5 py-1", statusColors[approvalStatus])}
+      >
+        {isLocked && <Lock className="h-3 w-3 mr-1" />}
+        {t(statusLabels[approvalStatus])}
+      </Badge>
+      {/* Dirty indicator - same size as status badge, purple to match Guardar button */}
+      {isDirty && (
+        <Badge
+          variant="outline"
+          className="text-xs px-2.5 py-1 bg-brand-purple/10 text-brand-purple border-brand-purple/20"
+        >
+          {t("common.unsavedChanges")}
+        </Badge>
+      )}
+    </div>
+  );
+}
+
+// 0819-181: idem — la fila "Socio: .../Riesgos: ..." (con sus íconos y el botón de
+// deshacer aprobación) se reutiliza tanto en el encabezado de WorkOrderForm (isNew)
+// como fusionada dentro de la tarjeta "Encargo" de WorkOrderEdit (!isNew).
+export interface WorkOrderTrackStatusProps {
+  approvalStatus: "Draft" | "Pending_Approval" | "Approved" | "Rejected";
+  approvedAt?: string | null;
+  riskStatus?: string | null;
+  canRevert?: boolean;
+  onRevertSocio?: () => void;
+  onRevertRisk?: () => void;
+  isSubmitting: boolean;
+  className?: string;
+}
+
+export function WorkOrderTrackStatus({
+  approvalStatus,
+  approvedAt,
+  riskStatus,
+  canRevert = false,
+  onRevertSocio,
+  onRevertRisk,
+  isSubmitting,
+  className,
+}: WorkOrderTrackStatusProps) {
+  const { t } = useTranslation();
+  const isPending = approvalStatus === "Pending_Approval";
+  const isApproved = approvalStatus === "Approved";
+  const isRejected = approvalStatus === "Rejected";
+  const socioApproved = !!approvedAt;
+  const socioRejected = isRejected;
+  const riskApproved = riskStatus === "Approved" || riskStatus === "Emergency_Approved";
+  const isRiskRejected = riskStatus === "Rejected";
+  // Visible mientras cualquiera de las dos pistas tenga un estado decidido — incluido
+  // tras retirar (la OT vuelve a Draft pero approved_at/risk_status persisten), de modo
+  // que la pista aprobada nunca pierde su indicador "Aprobado".
+  const showTrackStatus =
+    socioApproved ||
+    socioRejected ||
+    riskApproved ||
+    isRiskRejected ||
+    isPending ||
+    isApproved ||
+    isRejected;
+  if (!showTrackStatus) return null;
+  return (
+    <div className={className}>
+      <span className="flex items-center gap-1.5">
+        <span className="text-muted-foreground">
+          {t("workOrders.partnerActionsLabel")}:
+        </span>
+        {socioApproved ? (
+          <span className="flex items-center gap-1 font-medium text-success">
+            <CheckCircle className="h-3.5 w-3.5" />
+            {t("workOrders.trackApproved")}
+          </span>
+        ) : socioRejected ? (
+          <span className="flex items-center gap-1 font-medium text-destructive">
+            <XCircle className="h-3.5 w-3.5" />
+            {t("workOrders.trackRejected")}
+          </span>
+        ) : (
+          <span className="text-muted-foreground">
+            {t("workOrders.trackPending")}
+          </span>
+        )}
+        {canRevert && approvedAt && onRevertSocio && (
+          <button
+            type="button"
+            onClick={onRevertSocio}
+            disabled={isSubmitting}
+            title={t("workOrders.revertApproval")}
+            className="ml-0.5 inline-flex items-center text-muted-foreground hover:text-foreground disabled:opacity-50"
+          >
+            <Undo2 className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </span>
+      <span className="flex items-center gap-1.5">
+        <span className="text-muted-foreground">
+          {t("workOrders.riskActionsLabel")}:
+        </span>
+        {riskStatus === "Approved" ? (
+          <span className="flex items-center gap-1 font-medium text-success">
+            <ShieldCheck className="h-3.5 w-3.5" />
+            {t("workOrders.trackApproved")}
+          </span>
+        ) : riskStatus === "Emergency_Approved" ? (
+          <span className="flex items-center gap-1 font-medium text-orange-500">
+            <ShieldAlert className="h-3.5 w-3.5" />
+            {t("workOrders.trackEmergency")}
+          </span>
+        ) : riskStatus === "Rejected" ? (
+          <span className="flex items-center gap-1 font-medium text-destructive">
+            <XCircle className="h-3.5 w-3.5" />
+            {t("workOrders.trackRejected")}
+          </span>
+        ) : (
+          <span className="text-muted-foreground">
+            {t("workOrders.trackPending")}
+          </span>
+        )}
+        {canRevert &&
+          (riskStatus === "Approved" || riskStatus === "Emergency_Approved") &&
+          onRevertRisk && (
+            <button
+              type="button"
+              onClick={onRevertRisk}
+              disabled={isSubmitting}
+              title={t("workOrders.revertApproval")}
+              className="ml-0.5 inline-flex items-center text-muted-foreground hover:text-foreground disabled:opacity-50"
+            >
+              <Undo2 className="h-3.5 w-3.5" />
+            </button>
+          )}
+      </span>
+    </div>
+  );
+}
+
 export function WorkOrderForm({
   currency,
   seasonMode,
@@ -607,94 +762,6 @@ export function WorkOrderForm({
         : riskLevel === "Bajo"
           ? "text-success"
           : "text-muted-foreground";
-
-  // Per-track approval status (Socio / Riesgos), shown both in the header and the
-  // bottom action area. Visible once the OT leaves Draft (Pending/Approved/Rejected),
-  // so the Socio sign-off stays visible even after a rejection.
-  // Visible mientras cualquiera de las dos pistas tenga un estado decidido — incluido
-  // tras retirar (la OT vuelve a Draft pero approved_at/risk_status persisten), de modo
-  // que la pista aprobada nunca pierde su indicador "Aprobado".
-  const showTrackStatus =
-    socioApproved ||
-    socioRejected ||
-    riskApproved ||
-    isRiskRejected ||
-    isPending ||
-    isApproved ||
-    isRejected;
-  const renderTrackStatus = () => (
-    <>
-      <span className="flex items-center gap-1.5">
-        <span className="text-muted-foreground">
-          {t("workOrders.partnerActionsLabel")}:
-        </span>
-        {socioApproved ? (
-          <span className="flex items-center gap-1 font-medium text-success">
-            <CheckCircle className="h-3.5 w-3.5" />
-            {t("workOrders.trackApproved")}
-          </span>
-        ) : socioRejected ? (
-          <span className="flex items-center gap-1 font-medium text-destructive">
-            <XCircle className="h-3.5 w-3.5" />
-            {t("workOrders.trackRejected")}
-          </span>
-        ) : (
-          <span className="text-muted-foreground">
-            {t("workOrders.trackPending")}
-          </span>
-        )}
-        {canRevert && approvedAt && onRevertSocio && (
-          <button
-            type="button"
-            onClick={onRevertSocio}
-            disabled={isSubmitting}
-            title={t("workOrders.revertApproval")}
-            className="ml-0.5 inline-flex items-center text-muted-foreground hover:text-foreground disabled:opacity-50"
-          >
-            <Undo2 className="h-3.5 w-3.5" />
-          </button>
-        )}
-      </span>
-      <span className="flex items-center gap-1.5">
-        <span className="text-muted-foreground">
-          {t("workOrders.riskActionsLabel")}:
-        </span>
-        {riskStatus === "Approved" ? (
-          <span className="flex items-center gap-1 font-medium text-success">
-            <ShieldCheck className="h-3.5 w-3.5" />
-            {t("workOrders.trackApproved")}
-          </span>
-        ) : riskStatus === "Emergency_Approved" ? (
-          <span className="flex items-center gap-1 font-medium text-orange-500">
-            <ShieldAlert className="h-3.5 w-3.5" />
-            {t("workOrders.trackEmergency")}
-          </span>
-        ) : riskStatus === "Rejected" ? (
-          <span className="flex items-center gap-1 font-medium text-destructive">
-            <XCircle className="h-3.5 w-3.5" />
-            {t("workOrders.trackRejected")}
-          </span>
-        ) : (
-          <span className="text-muted-foreground">
-            {t("workOrders.trackPending")}
-          </span>
-        )}
-        {canRevert &&
-          (riskStatus === "Approved" || riskStatus === "Emergency_Approved") &&
-          onRevertRisk && (
-            <button
-              type="button"
-              onClick={onRevertRisk}
-              disabled={isSubmitting}
-              title={t("workOrders.revertApproval")}
-              className="ml-0.5 inline-flex items-center text-muted-foreground hover:text-foreground disabled:opacity-50"
-            >
-              <Undo2 className="h-3.5 w-3.5" />
-            </button>
-          )}
-      </span>
-    </>
-  );
 
   // Get category name by ID
   const getCategoryName = (categoryId: string) => {
@@ -1849,34 +1916,15 @@ export function WorkOrderForm({
 
   return (
     <div className="space-y-4">
-      {/* Zone A: Header */}
-      <Card>
-        <CardHeader className="py-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Badge
-                variant="outline"
-                className={cn(
-                  "text-xs px-2.5 py-1",
-                  statusColors[approvalStatus],
-                )}
-              >
-                {isLocked && <Lock className="h-3 w-3 mr-1" />}
-                {t(statusLabels[approvalStatus])}
-              </Badge>
-              {/* Dirty indicator - same size as status badge, purple to match Guardar button */}
-              {isDirty && (
-                <Badge
-                  variant="outline"
-                  className="text-xs px-2.5 py-1 bg-brand-purple/10 text-brand-purple border-brand-purple/20"
-                >
-                  {t("common.unsavedChanges")}
-                </Badge>
-              )}
-            </div>
-            <div className="flex items-center gap-3">
-              {/* Currency - styled chip, editable only on new */}
-              {isNew ? (
+      {/* Zone A: Header — solo para isNew (creación). En edición (!isNew), Estado/
+          Moneda/Temporada/Pistas viven fusionados en la tarjeta "Encargo" de
+          WorkOrderEdit.tsx (0819-181), vía WorkOrderStatusBadge/WorkOrderTrackStatus. */}
+      {isNew && (
+        <Card>
+          <CardHeader className="py-3">
+            <div className="flex items-center justify-between">
+              <WorkOrderStatusBadge approvalStatus={approvalStatus} isLocked={isLocked} isDirty={isDirty} />
+              <div className="flex items-center gap-3">
                 <div className="flex items-center gap-2">
                   <Label className="text-xs text-muted-foreground">
                     {t("workOrders.currency")}:
@@ -1895,16 +1943,6 @@ export function WorkOrderForm({
                     </SelectContent>
                   </Select>
                 </div>
-              ) : (
-                <div className="flex items-center gap-1.5 bg-muted/50 rounded-md px-2.5 py-1">
-                  <span className="text-xs text-muted-foreground">
-                    {t("workOrders.currency")}:
-                  </span>
-                  <span className="text-sm font-semibold">{currency}</span>
-                </div>
-              )}
-              {/* Season - styled chip, editable only on new */}
-              {isNew ? (
                 <div className="flex items-center gap-2">
                   <Label className="text-xs text-muted-foreground">
                     {t("workOrders.season")}:
@@ -1922,28 +1960,21 @@ export function WorkOrderForm({
                     </SelectContent>
                   </Select>
                 </div>
-              ) : (
-                <div className="flex items-center gap-1.5 bg-muted/50 rounded-md px-2.5 py-1">
-                  <span className="text-xs text-muted-foreground">
-                    {t("workOrders.season")}:
-                  </span>
-                  <span className="text-sm font-semibold">
-                    {seasonMode === "High"
-                      ? t("industry.high")
-                      : t("industry.low")}
-                  </span>
-                </div>
-              )}
+              </div>
             </div>
-          </div>
-          {/* Estado por pista (Socio / Riesgos) — visible en el encabezado. */}
-          {showTrackStatus && (
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm mt-2 pt-2 border-t">
-              {renderTrackStatus()}
-            </div>
-          )}
-        </CardHeader>
-      </Card>
+            <WorkOrderTrackStatus
+              approvalStatus={approvalStatus}
+              approvedAt={approvedAt}
+              riskStatus={riskStatus}
+              canRevert={canRevert}
+              onRevertSocio={onRevertSocio}
+              onRevertRisk={onRevertRisk}
+              isSubmitting={isSubmitting}
+              className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm mt-2 pt-2 border-t"
+            />
+          </CardHeader>
+        </Card>
+      )}
 
       {isNew ? (
         <>
@@ -2095,12 +2126,18 @@ export function WorkOrderForm({
       )}
 
 
-      {/* Approval track status (fila inferior) — espejo del indicador del encabezado. */}
-      {showTrackStatus && (
-        <div className="flex flex-wrap justify-end gap-x-6 gap-y-1 text-sm">
-          {renderTrackStatus()}
-        </div>
-      )}
+      {/* Approval track status (fila inferior) — espejo del indicador de arriba (Zone
+          A en isNew; la tarjeta "Encargo" fusionada de WorkOrderEdit en !isNew). */}
+      <WorkOrderTrackStatus
+        approvalStatus={approvalStatus}
+        approvedAt={approvedAt}
+        riskStatus={riskStatus}
+        canRevert={canRevert}
+        onRevertSocio={onRevertSocio}
+        onRevertRisk={onRevertRisk}
+        isSubmitting={isSubmitting}
+        className="flex flex-wrap justify-end gap-x-6 gap-y-1 text-sm"
+      />
       {/* Rejection note banner (de 0527-126): rojo en Rechazado, naranja en Draft. */}
       {isRejected && rejectionNote && (
         <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
