@@ -104,15 +104,38 @@ describe("TableTopScrollbar (bug 0722-158)", () => {
     });
     expect(strip.scrollLeft).toBe(400);
 
-    // El navegador emite `scroll` en la franja al escribirle scrollLeft. Ambos
-    // estan ya en 400, asi que el handler no escribe; sin cambio de posicion no
-    // hay evento nuevo y la cadena se corta. Eso es lo que evita el bucle — no
-    // un lock temporal, que ademas descartaba eventos legitimos.
+    // El navegador emite `scroll` en la franja al escribirle scrollLeft. Ese eco
+    // esta contabilizado, asi que se consume sin espejar de vuelta y la cadena
+    // se corta ahi.
     act(() => {
       strip.dispatchEvent(new Event("scroll"));
     });
     expect(target.scrollLeft).toBe(400);
     expect(strip.scrollLeft).toBe(400);
+  });
+
+  it("el contador de ecos no se traba: tras consumir uno, el scroll real sigue funcionando", () => {
+    // Modo de falla propio de contar ecos: si un contador quedara incrementado
+    // de mas, se tragaria un scroll legitimo del usuario. Cada eco debe
+    // consumir exactamente una unidad.
+    render(<Harness scrollWidth={1600} clientWidth={800} />);
+    const target = getTarget();
+    const strip = getStrip();
+
+    target.scrollLeft = 200;
+    act(() => {
+      target.dispatchEvent(new Event("scroll"));
+    });
+    act(() => {
+      strip.dispatchEvent(new Event("scroll"));
+    }); // eco consumido
+
+    // Ahora el usuario arrastra la franja: debe mandar, no ser descartado.
+    strip.scrollLeft = 640;
+    act(() => {
+      strip.dispatchEvent(new Event("scroll"));
+    });
+    expect(target.scrollLeft).toBe(640);
   });
 
   it("no se queda desincronizada cuando llegan dos eventos en el mismo frame", async () => {
@@ -135,12 +158,19 @@ describe("TableTopScrollbar (bug 0722-158)", () => {
       await new Promise((r) => requestAnimationFrame(() => r(null)));
     });
 
-    // Frame N+1: primero el eco de la franja, y en el MISMO frame el evento
-    // nuevo del target, que ya avanzo a 250.
+    // El usuario sigue scrolleando ANTES de que llegue el eco: cuando el
+    // handler de la franja corra, el target ya esta en 250. Este orden importa
+    // — es el que reprodujo la revision, y el que mi primer test erraba.
+    target.scrollLeft = 250;
+
+    // Frame N+1: el eco de la franja esta encolado primero, asi que corre antes
+    // que el evento nuevo del target.
     act(() => {
       strip.dispatchEvent(new Event("scroll"));
     });
-    target.scrollLeft = 250;
+    // La franja NO puede arrastrar al target de vuelta a su posicion vieja.
+    expect(target.scrollLeft).toBe(250);
+
     act(() => {
       target.dispatchEvent(new Event("scroll"));
     });

@@ -71,22 +71,40 @@ export function TableTopScrollbar({ targetRef, className }: TableTopScrollbarPro
     const strip = stripRef.current;
     if (!target || !strip || !hasOverflow) return;
 
-    // El bucle se corta por VALOR, no por un lock temporal: si el destino ya
-    // esta en la posicion del origen no se escribe, y sin cambio de posicion el
-    // navegador no emite otro `scroll`, asi que la cadena muere sola.
+    // Cada escritura programatica de `scrollLeft` produce exactamente UN evento
+    // `scroll` en el destino (el proyecto no usa `scroll-behavior: smooth`), y
+    // ese eco no llega en el acto: se despacha en el frame siguiente. Para
+    // entonces el usuario pudo haber movido el origen otra vez, asi que tratar
+    // el eco como un scroll del usuario copia una posicion VIEJA hacia atras y
+    // le roba el movimiento. Por eso se contabiliza y se descarta.
     //
-    // Un lock de un frame no sirve aqui (revision Codex, P2): el navegador
-    // despacha en el MISMO paso del frame los `scroll` pendientes de ambos
-    // elementos, y durante un scroll continuo eso pasa siempre — el eco de la
-    // franja llega junto al evento nuevo del target. El que llegaba segundo se
-    // descartaba y la franja quedaba vieja hasta el proximo movimiento; al
-    // arrastrarla despues, la tabla saltaba a esa posicion obsoleta.
+    // Ni un lock por frame ni la simple comparacion de valores alcanzan: el
+    // navegador despacha en el mismo paso los `scroll` pendientes de ambos
+    // elementos, y el eco de la franja va encolado ANTES del evento nuevo del
+    // target. (Revisiones de Codex P2 y greptile P1.)
+    const expectedEchoes = new Map<HTMLElement, number>();
+
     const mirror = (from: HTMLElement, to: HTMLElement) => () => {
+      const pending = expectedEchoes.get(from) ?? 0;
+      if (pending > 0) {
+        expectedEchoes.set(from, pending - 1);
+        return;
+      }
+
       const next = from.scrollLeft;
+      const before = to.scrollLeft;
       // Tolerancia sub-pixel: en pantallas HiDPI `scrollLeft` es fraccionario y
       // el navegador puede redondear al escribir. Sin epsilon rebotarian entre
       // si por diferencias invisibles.
-      if (Math.abs(to.scrollLeft - next) > 0.5) to.scrollLeft = next;
+      if (Math.abs(before - next) <= 0.5) return;
+
+      to.scrollLeft = next;
+      // Solo cuenta como eco si la posicion cambio de verdad: una escritura
+      // recortada al maximo scroll puede dejarla igual, y entonces no habra
+      // evento que consumir — anotarlo dejaria el contador desfasado.
+      if (to.scrollLeft !== before) {
+        expectedEchoes.set(to, (expectedEchoes.get(to) ?? 0) + 1);
+      }
     };
 
     const onTargetScroll = mirror(target, strip);
