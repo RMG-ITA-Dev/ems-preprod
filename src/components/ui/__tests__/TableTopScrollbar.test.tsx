@@ -266,6 +266,24 @@ describe("TableTopScrollbar (bug 0722-158)", () => {
     expect(strip.className).not.toContain("bg-background");
   });
 
+  it("si nunca hay target, no renderiza ni reintenta en bucle", () => {
+    // La medicion corre en useLayoutEffect y pide un render extra cuando la ref
+    // todavia no esta atada (la franja se monta ANTES de <Table>). Ese reintento
+    // debe ser uno solo: si el consumidor olvidara `containerRef`, un bucle de
+    // renders colgaria la pagina.
+    function SinTarget() {
+      const targetRef = useRef<HTMLDivElement>(null);
+      renders += 1;
+      return <TableTopScrollbar targetRef={targetRef} />;
+    }
+    let renders = 0;
+
+    render(<SinTarget />);
+
+    expect(screen.queryByRole(STRIP, { hidden: true })).toBeNull();
+    expect(renders).toBeLessThanOrEqual(3); // montaje + un reintento, con holgura
+  });
+
   it("no lanza cuando el entorno carece de ResizeObserver", () => {
     (globalThis as unknown as { ResizeObserver?: unknown }).ResizeObserver = undefined;
     expect(() => {
