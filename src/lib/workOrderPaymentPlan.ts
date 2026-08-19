@@ -1,5 +1,5 @@
 import { getBoliviaNationalHolidays } from './boliviaHolidays';
-import type { PaymentInstallmentInput } from '@/types/workOrderPaymentPlan';
+import type { PaymentInstallmentInput, PaymentInstallmentStatus } from '@/types/workOrderPaymentPlan';
 
 // Returns a new Date that is `days` business days after `start`.
 // Skips weekends and Bolivia national holidays.
@@ -76,4 +76,28 @@ export function isAlertDue(installment: PaymentInstallmentInput, windowDays = 7)
   const invoice = new Date(installment.agreed_invoice_date + "T00:00:00");
   const diffDays = (invoice.getTime() - today.getTime()) / 86400000;
   return diffDays >= 0 && diffDays <= windowDays;
+}
+
+// Effective display status: a still-Pending installment whose invoice date has already
+// passed reads as Overdue, without needing a persisted status transition.
+export function getEffectiveInstallmentStatus(
+  installment: PaymentInstallmentInput,
+): PaymentInstallmentStatus {
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/La_Paz" }).format(new Date());
+  if (installment.status === 'Pending' && installment.agreed_invoice_date && installment.agreed_invoice_date < today) {
+    return 'Overdue';
+  }
+  return installment.status;
+}
+
+// Billing indicator (0817-176 §Indicadores) for a fully-approved Work Order's Payment
+// tab: "red" when some not-yet-Completed installment is due within the alert window or
+// already overdue, "green" otherwise (in progress with no risk, or collection complete).
+export function computeBillingIndicator(installments: PaymentInstallmentInput[]): 'red' | 'green' {
+  const hasRiskyInstallment = installments.some((installment) => {
+    const effectiveStatus = getEffectiveInstallmentStatus(installment);
+    if (effectiveStatus === 'Completed') return false;
+    return effectiveStatus === 'Overdue' || isAlertDue(installment, 7);
+  });
+  return hasRiskyInstallment ? 'red' : 'green';
 }

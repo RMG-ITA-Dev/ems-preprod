@@ -180,6 +180,9 @@ const WorkOrderEdit = () => {
   // right before the invalidated query re-hydrates the fresh persisted baseline.
   const staffingEditedRef = useRef(false);
   const [staffingFocusSignal, setStaffingFocusSignal] = useState(0);
+  // Fase 8 (0817-176): activa la pestaña de Riesgos en WorkOrderForm cuando falla la
+  // validación de riesgo al "Enviar para Aprobación" (análogo a staffingFocusSignal).
+  const [riskFocusSignal, setRiskFocusSignal] = useState(0);
 
   // Track original values for dirty check
   const [originalAdjustment, setOriginalAdjustment] = useState(0);
@@ -629,6 +632,7 @@ const WorkOrderEdit = () => {
     // All-or-nothing: complete (normal) or empty (emergency). Partial is blocked.
     if (!allComplete && !allEmpty) {
       toast.error(t("workOrders.riskAssessmentRequired"));
+      setRiskFocusSignal((n) => n + 1);
       return;
     }
     await submitWorkOrder.mutateAsync({
@@ -912,6 +916,7 @@ const WorkOrderEdit = () => {
           staffingServiceResolved={staffingServiceResolved}
           staffingServiceId={engagementService?.service_id ?? null}
           staffingFocusSignal={staffingFocusSignal}
+          riskFocusSignal={riskFocusSignal}
           isSubmitting={
             updateWorkOrder.isPending ||
             submitWorkOrder.isPending ||

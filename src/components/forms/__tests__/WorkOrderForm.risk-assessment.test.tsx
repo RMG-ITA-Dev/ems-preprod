@@ -159,13 +159,17 @@ describe("WorkOrderForm — Risk dual-track + emergency (feat/0306-78)", () => {
   });
 
   // ── Risk section visibility ────────────────────────────────────────────────────
-  it("WF3: Risk section is hidden for a pure Socio approver (no canApproveRisk, no data)", () => {
-    renderForm({
+  // 0817-176 (operador #2): la pestaña de Riesgos es SIEMPRE visible, incluso para un
+  // Socio-approver puro sin datos ni rol de aprobador de riesgo (antes se ocultaba).
+  it("WF3: Risk section is visible read-only for a pure Socio approver (no canApproveRisk, no data)", () => {
+    const container = renderForm({
       approvalStatus: "Pending_Approval",
       canApprove: true,
       canApproveRisk: false,
     });
-    expect(screen.queryByText("workOrders.riskAssessment")).not.toBeInTheDocument();
+    expect(screen.getByText("workOrders.riskAssessment")).toBeInTheDocument();
+    const dateInputs = container.querySelectorAll<HTMLInputElement>('input[type="date"]');
+    expect(dateInputs.length).toBe(0);
   });
 
   it("WF4: Risk section is visible read-only for the Riesgos approver in Pending", () => {
@@ -205,9 +209,13 @@ describe("WorkOrderForm — Risk dual-track + emergency (feat/0306-78)", () => {
     dateInputs.forEach((input) => expect(input.readOnly).toBe(true));
   });
 
-  it("WF7: Risk card absent for Approved OT with no risk data and not emergency", () => {
-    renderForm({ approvalStatus: "Approved" });
-    expect(screen.queryByText("workOrders.riskAssessment")).not.toBeInTheDocument();
+  // 0817-176 (operador #2): antes se ocultaba en este caso (Approved, sin datos, sin
+  // emergencia); ahora la pestaña permanece visible en solo-lectura.
+  it("WF7: Risk card visible read-only for Approved OT with no risk data and not emergency", () => {
+    const container = renderForm({ approvalStatus: "Approved" });
+    expect(screen.getByText("workOrders.riskAssessment")).toBeInTheDocument();
+    const dateInputs = container.querySelectorAll<HTMLInputElement>('input[type="date"]');
+    expect(dateInputs.length).toBe(0);
   });
 
   // ── Risk action buttons ────────────────────────────────────────────────────────

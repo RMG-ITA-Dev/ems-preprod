@@ -1341,6 +1341,20 @@
     "selectedCurrency": "Currency",
     "selectedSeason": "Season",
     "confirmAndCreate": "Confirm & Create",
+    "tabs": {
+      "budget": "Budget Lines",
+      "payment": "Payment Plan & Billing",
+      "risk": "Risk Assessment",
+      "staffing": "Staffing Requirements",
+      "status": {
+        "notReviewed": "Not yet reviewed",
+        "incomplete": "Missing data to complete",
+        "approved": "Approved",
+        "rejected": "Rejected",
+        "billingOk": "Billing on track",
+        "billingAlert": "Billing alert — payment due soon or overdue"
+      }
+    },
     "paymentPlan": {
       "title": "Payment Schedule",
       "exchangeRate": "Exchange Rate (BOB)",
