@@ -95,6 +95,12 @@ export const EMS_TASK_TYPES = [
 
 const CLICK_DRAG_TOLERANCE_PX = 4;
 
+// Approximate px-per-line used to scale WheelEvent.DOM_DELTA_LINE deltas
+// (BUG 0817-174 review iteration 2 — Firefox commonly reports ~3
+// lines/notch with a physical mouse; left unscaled, the wheel-pan below
+// would barely move scrollLeft on that browser).
+const WHEEL_LINE_HEIGHT_PX = 16;
+
 // SVAR's setID prefixes STRING task ids with ":" in DOM data-id
 // attributes (verified against the artifact); store-level event payloads
 // carry the raw id. Strip the prefix when reading from the DOM.
@@ -209,6 +215,43 @@ export function GanttCanvas({
     },
     [barTitle]
   );
+
+  // Plain mouse-wheel pans the timeline horizontally (BUG 0817-174 follow-up):
+  // .wx-chart's native horizontal scrollbar is hidden (gantt-theme.css — its
+  // bars anchor flush to the pane's own bottom edge regardless of height, so
+  // the scrollbar always rendered on top of the last row's label), so wheel
+  // is now the only discoverable way to pan without Shift+wheel/trackpad.
+  // A native listener is required (not React's onWheel) because React
+  // attaches wheel handlers as passive, silently dropping preventDefault.
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    const handleWheel = (e: WheelEvent) => {
+      // Let trackpad horizontal swipes (deltaX) and vertical-only gestures
+      // with no vertical delta pass through untouched.
+      if (e.deltaY === 0 || e.deltaX !== 0) return;
+      const chart = (e.target as HTMLElement).closest<HTMLElement>(".wx-chart");
+      if (!chart || chart.scrollWidth <= chart.clientWidth) return;
+      // deltaY is reported in pixels (Chrome/Safari default), lines, or
+      // pages depending on the browser/input device (WheelEvent.deltaMode)
+      // — scale line/page deltas to an equivalent pixel distance before use.
+      const deltaY =
+        e.deltaMode === WheelEvent.DOM_DELTA_LINE
+          ? e.deltaY * WHEEL_LINE_HEIGHT_PX
+          : e.deltaMode === WheelEvent.DOM_DELTA_PAGE
+            ? e.deltaY * chart.clientWidth
+            : e.deltaY;
+      const max = chart.scrollWidth - chart.clientWidth;
+      const next = Math.max(0, Math.min(chart.scrollLeft + deltaY, max));
+      // Already at the edge in this direction — let the page scroll
+      // instead of trapping the wheel gesture.
+      if (next === chart.scrollLeft) return;
+      chart.scrollLeft = next;
+      e.preventDefault();
+    };
+    host.addEventListener("wheel", handleWheel, { passive: false });
+    return () => host.removeEventListener("wheel", handleWheel);
+  }, []);
 
   const Theme = resolvedTheme === "dark" ? WillowDark : Willow;
   const refreshKey = [zoom, from, to, resolvedTheme, localeCode, rows.length].join("|");
