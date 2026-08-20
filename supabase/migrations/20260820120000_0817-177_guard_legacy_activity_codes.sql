@@ -28,12 +28,27 @@
 --     9th real activity exists, its first temporary rename ('AUD-A9' →
 --     'AUD-A10') collides with an already-active 'AUD-A10', violating
 --     activity_codes_active_code_unique.
+--   - reactivate_service_activity never validated the *previous* code of the
+--     row being reactivated, so it would rename a legacy code the same way a
+--     brand-new activity gets one — same 'ADM' → 'AUD-A<n>' risk as reorder.
+--   - Filtering create/reactivate's count to ordinal-scheme rows (first pass
+--     of this migration) only prevents *future* inflation. On an environment
+--     where the legacy codes were already linked to a práctica before this
+--     migration (every deployed environment, per 20260818120000's own
+--     rationale), a real activity may already have been created under the
+--     old, unfiltered count — e.g. 'AUD-A9' as the first real one. Deriving
+--     the next code from COUNT(*) + 1 over the filtered set doesn't know
+--     about that gap: it fills 'AUD-A2'..'AUD-A8' and then re-derives
+--     'AUD-A9', colliding with the already-active row from before this fix.
 --
 -- Fix: all four RPCs now either reject operating on a legacy
 -- (non-ordinal-scheme) code, or exclude legacy rows from whatever count/set
 -- they compute — so the ordinal scheme stays contiguous from 1 regardless of
 -- how many legacy rows share a (service_id, entity_type), and reordering a
 -- real service-created activity in Auditoría never touches the legacy rows.
+-- create_service_activity/reactivate_service_activity derive the next code
+-- from the highest existing ordinal (MAX), not a row count, so any gap or
+-- inflation left over from before this guard can never produce a collision.
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- deactivate_service_activity — reject legacy codes with a clear error
@@ -215,8 +230,9 @@ REVOKE ALL ON FUNCTION public.reorder_service_activity(uuid, integer) FROM PUBLI
 GRANT EXECUTE ON FUNCTION public.reorder_service_activity(uuid, integer) TO authenticated;
 
 -- ────────────────────────────────────────────────────────────────────────────
--- create_service_activity — count only ordinal-scheme siblings, so a legacy
--- row sharing (service_id, entity_type) never inflates the next ordinal.
+-- create_service_activity — derive the next ordinal from the highest
+-- existing one (MAX), scoped to ordinal-scheme siblings only, so neither a
+-- legacy row nor a pre-existing gap/inflation can ever produce a collision.
 -- ────────────────────────────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.create_service_activity(
   p_service_id  uuid,
@@ -228,10 +244,10 @@ SECURITY DEFINER
 SET search_path TO 'public'
 AS $$
 DECLARE
-  v_abbrev  text;
-  v_count   integer;
-  v_code    text;
-  v_row     public.activity_codes;
+  v_abbrev       text;
+  v_max_ordinal  integer;
+  v_code         text;
+  v_row          public.activity_codes;
 BEGIN
   IF NOT public.is_admin() THEN
     RAISE EXCEPTION 'Permission denied: admin only';
@@ -251,11 +267,14 @@ BEGIN
     RAISE EXCEPTION 'Service not found, inactive, or has no abbreviation';
   END IF;
 
-  -- Count existing active, ordinal-scheme activities for this (service,
-  -- entity_type) pair. 0817-177: legacy codes (PLN/FLD/REV/DOC/ADM/MTG/TRV/
-  -- TRN) don't match the {abbrev}-{entity_type}{n} pattern and must not
-  -- count toward the next ordinal.
-  SELECT COUNT(*) INTO v_count
+  -- Highest existing ordinal among active, ordinal-scheme activities for
+  -- this (service, entity_type) pair. 0817-177: legacy codes (PLN/FLD/REV/
+  -- DOC/ADM/MTG/TRV/TRN) don't match the {abbrev}-{entity_type}{n} pattern
+  -- and are excluded. Using MAX (not COUNT) also survives any gap left by an
+  -- environment where a real activity was already created under the old,
+  -- unfiltered count before this guard existed — the next code always beats
+  -- the highest one on record, so it can never collide.
+  SELECT COALESCE(MAX(substring(activity_code FROM '[0-9]+$')::int), 0) INTO v_max_ordinal
     FROM public.activity_codes
    WHERE service_id  = p_service_id
      AND entity_type = p_entity_type
@@ -263,7 +282,7 @@ BEGIN
      AND activity_code ~ ('^' || v_abbrev || '-' || p_entity_type || '[0-9]+$');
 
   -- No hard cap: 1–9 is a UI recommendation only.
-  v_code := v_abbrev || '-' || p_entity_type || (v_count + 1)::text;
+  v_code := v_abbrev || '-' || p_entity_type || (v_max_ordinal + 1)::text;
 
   INSERT INTO public.activity_codes (activity_code, description, is_active, service_id, entity_type)
   VALUES (v_code, p_description, true, p_service_id, p_entity_type)
@@ -277,8 +296,9 @@ REVOKE ALL ON FUNCTION public.create_service_activity(uuid, text, text) FROM PUB
 GRANT EXECUTE ON FUNCTION public.create_service_activity(uuid, text, text) TO authenticated;
 
 -- ────────────────────────────────────────────────────────────────────────────
--- reactivate_service_activity — same ordinal-scheme count fix as
--- create_service_activity above.
+-- reactivate_service_activity — reject reactivating a legacy code (its old
+-- code must be preserved, not renumbered), and derive the next ordinal from
+-- the highest existing one (MAX), same fix as create_service_activity above.
 -- ────────────────────────────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.reactivate_service_activity(
   p_activity_id uuid
@@ -288,20 +308,21 @@ SECURITY DEFINER
 SET search_path TO 'public'
 AS $$
 DECLARE
-  v_service_id  uuid;
-  v_entity_type text;
-  v_abbrev      text;
-  v_count       integer;
-  v_code        text;
-  v_row         public.activity_codes;
+  v_service_id   uuid;
+  v_entity_type  text;
+  v_abbrev       text;
+  v_old_code     text;
+  v_max_ordinal  integer;
+  v_code         text;
+  v_row          public.activity_codes;
 BEGIN
   IF NOT public.is_admin() THEN
     RAISE EXCEPTION 'Permission denied: admin only';
   END IF;
 
   -- Lock and fetch the target (and its service row) atomically.
-  SELECT ac.service_id, ac.entity_type, s.abbreviation
-    INTO v_service_id, v_entity_type, v_abbrev
+  SELECT ac.service_id, ac.entity_type, ac.activity_code, s.abbreviation
+    INTO v_service_id, v_entity_type, v_old_code, v_abbrev
     FROM public.activity_codes ac
     JOIN public.services s USING (service_id)
    WHERE ac.activity_id = p_activity_id AND ac.is_active = false
@@ -315,10 +336,21 @@ BEGIN
     RAISE EXCEPTION 'Service has no abbreviation';
   END IF;
 
-  -- Count active, ordinal-scheme activities for this (service, entity_type)
-  -- pair. 0817-177: excludes legacy codes, same reasoning as
-  -- create_service_activity above.
-  SELECT COUNT(*) INTO v_count
+  -- 0817-177: legacy codes (PLN/FLD/REV/DOC/ADM/MTG/TRV/TRN) predate the
+  -- {abbrev}-{entity_type}{n} scheme; reactivating one must never assign it
+  -- a fresh ordinal code (e.g. 'ADM' → 'AUD-A<n>' would break
+  -- useAdminActivityId's literal lookup), so reject it with a clear error
+  -- instead — same posture as deactivate_service_activity/
+  -- reorder_service_activity for these codes.
+  IF v_old_code !~ ('^' || v_abbrev || '-' || v_entity_type || '[0-9]+$') THEN
+    RAISE EXCEPTION 'Activity code % predates the ordinal scheme and cannot be reactivated through this action', v_old_code;
+  END IF;
+
+  -- Highest existing ordinal among active, ordinal-scheme activities for
+  -- this (service, entity_type) pair — same MAX-based derivation as
+  -- create_service_activity, so a code assigned before this guard existed
+  -- can never collide with the one generated here.
+  SELECT COALESCE(MAX(substring(activity_code FROM '[0-9]+$')::int), 0) INTO v_max_ordinal
     FROM public.activity_codes
    WHERE service_id  = v_service_id
      AND entity_type = v_entity_type
@@ -326,7 +358,7 @@ BEGIN
      AND activity_code ~ ('^' || v_abbrev || '-' || v_entity_type || '[0-9]+$');
 
   -- No hard cap: 1–9 is a UI recommendation only.
-  v_code := v_abbrev || '-' || v_entity_type || (v_count + 1)::text;
+  v_code := v_abbrev || '-' || v_entity_type || (v_max_ordinal + 1)::text;
 
   UPDATE public.activity_codes
      SET is_active = true,

@@ -92,6 +92,18 @@ const inactiveLinkedActivity: ActivityCode = {
   service: { service_id: "s1", name: "Auditoría", abbreviation: "AUD", code: 1, allows_rates_activities: true, is_active: true, created_at: "" },
 };
 
+// 0817-177 (review follow-up): an inactive legacy code — reactivate_service_activity
+// now rejects it server-side rather than assigning it a fresh ordinal code.
+const legacyInactiveActivity: ActivityCode = {
+  activity_id: "act-legacy-adm-inactive",
+  activity_code: "ADM",
+  description: "Administration",
+  is_active: false,
+  service_id: "s1",
+  entity_type: "A",
+  service: { service_id: "s1", name: "Auditoría", abbreviation: "AUD", code: 1, allows_rates_activities: true, is_active: true, created_at: "" },
+};
+
 // Helper: change Radix UI Select via the hidden native <select> element.
 // The SheetContent is a Radix portal rendered into document.body, so we must
 // query document rather than the render container.
@@ -292,6 +304,12 @@ describe("ActivityCodeForm — edit (0817-177)", () => {
     render(<ActivityCodeForm open={true} onOpenChange={vi.fn()} activityCode={legacyActivity} />);
     expect(screen.queryByTestId("deactivate-button")).not.toBeInTheDocument();
     expect(screen.queryByTestId("activate-button")).not.toBeInTheDocument();
+  });
+
+  it("hides the activate button for an inactive legacy activity code (review 0817-177)", () => {
+    render(<ActivityCodeForm open={true} onOpenChange={vi.fn()} activityCode={legacyInactiveActivity} />);
+    expect(screen.queryByTestId("activate-button")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("deactivate-button")).not.toBeInTheDocument();
   });
 
   it("still allows saving the description of a legacy activity code", async () => {

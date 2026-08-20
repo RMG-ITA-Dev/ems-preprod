@@ -13,9 +13,16 @@ import { resolve } from "path";
  * - reordering any other Auditoría activity silently renames them (fixed by
  *   excluding legacy siblings from the renumbered set), and
  * - creating/reactivating an activity in Auditoría on a from-scratch install
- *   inflates the next ordinal past the legacy rows (fixed by counting only
- *   ordinal-scheme siblings), which would otherwise make reorder's temp-code
- *   phase collide with an already-active real code once a 9th activity exists.
+ *   inflates the next ordinal past the legacy rows (fixed by deriving the
+ *   next code from the highest existing ordinal, scoped to ordinal-scheme
+ *   siblings only, instead of a row count) — MAX-based derivation also
+ *   survives an environment where a real activity was already created under
+ *   the old, unfiltered count before this guard existed, which a COUNT-based
+ *   fix alone would still collide with, and
+ * - reactivating a legacy code (if one were ever inactive) would silently
+ *   assign it a fresh ordinal code, the same 'ADM' → 'AUD-A<n>' risk as
+ *   reorder (fixed by rejecting it with a clear exception, mirroring
+ *   deactivate/reorder).
  */
 
 const migrationPath = resolve(
@@ -63,7 +70,7 @@ describe("guard legacy activity codes migration (0817-177)", () => {
     expect(patternFilterCount).toBe(2);
   });
 
-  it("create_service_activity and reactivate_service_activity count only ordinal-scheme siblings", () => {
+  it("create_service_activity and reactivate_service_activity derive the next code from MAX(ordinal), scoped to ordinal-scheme siblings", () => {
     const createFn = sql.slice(
       sql.indexOf("CREATE OR REPLACE FUNCTION public.create_service_activity("),
       sql.indexOf("CREATE OR REPLACE FUNCTION public.reactivate_service_activity(")
@@ -71,14 +78,29 @@ describe("guard legacy activity codes migration (0817-177)", () => {
     const reactivateFn = sql.slice(sql.indexOf("CREATE OR REPLACE FUNCTION public.reactivate_service_activity("));
 
     for (const fn of [createFn, reactivateFn]) {
-      const countIndex = fn.indexOf("SELECT COUNT(*) INTO v_count");
-      const patternIndex = fn.indexOf("activity_code ~ (", countIndex);
-      expect(countIndex).toBeGreaterThan(-1);
+      // Not a plain COUNT(*): a pre-existing gap/inflation left over from
+      // before this guard must never collide with the derived code.
+      expect(fn).not.toMatch(/SELECT COUNT\(\*\) INTO v_count/);
+      const maxIndex = fn.indexOf("SELECT COALESCE(MAX(");
+      const patternIndex = fn.indexOf("activity_code ~ (", maxIndex);
+      expect(maxIndex).toBeGreaterThan(-1);
       expect(patternIndex).toBeGreaterThan(-1);
-      // The pattern filter must be part of the same COUNT query, i.e. before
-      // the next statement terminator.
-      expect(patternIndex).toBeLessThan(fn.indexOf(";", countIndex));
+      // The pattern filter must be part of the same query, i.e. before the
+      // next statement terminator.
+      expect(patternIndex).toBeLessThan(fn.indexOf(";", maxIndex));
+      // The next code is derived from v_max_ordinal + 1, not a count.
+      expect(fn).toMatch(/v_max_ordinal \+ 1\)::text/);
     }
+  });
+
+  it("reactivate_service_activity rejects reactivating a legacy code before deriving a new ordinal", () => {
+    const fn = sql.slice(sql.indexOf("CREATE OR REPLACE FUNCTION public.reactivate_service_activity("));
+    const guardIndex = fn.indexOf("v_old_code !~");
+    const maxIndex = fn.indexOf("SELECT COALESCE(MAX(");
+    expect(guardIndex).toBeGreaterThan(-1);
+    expect(maxIndex).toBeGreaterThan(-1);
+    expect(guardIndex).toBeLessThan(maxIndex);
+    expect(fn).toContain("RAISE EXCEPTION 'Activity code % predates the ordinal scheme and cannot be reactivated");
   });
 
   it("grants stay scoped to authenticated, matching the functions being replaced", () => {
