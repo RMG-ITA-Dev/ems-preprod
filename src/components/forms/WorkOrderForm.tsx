@@ -931,54 +931,67 @@ export function WorkOrderForm({
           </CardHeader>
           <CardContent className="pt-0 form-dense">
             <div className="space-y-2">
-              {expenseBudget.map((exp) => (
-                <div key={exp.id} className="flex items-center gap-2">
-                  <Select
-                    value={exp.expense_type_id}
-                    onValueChange={(v) =>
-                      updateExpenseBudget(exp.id, "expense_type_id", v)
-                    }
-                    disabled={!isEditable}
-                  >
-                    <SelectTrigger className="flex-1 h-8">
-                      <SelectValue
-                        placeholder={t("workOrders.selectExpense")}
-                      />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {expenseTypes?.map((type) => (
-                        <SelectItem
-                          key={type.expense_type_id}
-                          value={type.expense_type_id}
-                        >
-                          {type.expense_name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <NumericInput
-                    decimals={2}
-                    locale={currentLanguage as "es" | "en"}
-                    min={0}
-                    value={exp.budgeted_amount || ""}
-                    onChange={(val) =>
-                      updateExpenseBudget(exp.id, "budgeted_amount", val)
-                    }
-                    className="w-28 text-right h-8"
-                    disabled={!isEditable}
-                  />
-                  {isEditable && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => removeExpenseBudget(exp.id)}
-                      className="h-7 w-7 text-destructive"
+              {expenseBudget.map((exp) => {
+                const usedByOtherExpenses = new Set(
+                  expenseBudget
+                    .filter((e) => e.id !== exp.id)
+                    .map((e) => e.expense_type_id)
+                    .filter(Boolean),
+                );
+                const expenseTypeOptions = (expenseTypes ?? []).filter(
+                  (type) =>
+                    type.expense_type_id === exp.expense_type_id ||
+                    !usedByOtherExpenses.has(type.expense_type_id),
+                );
+                return (
+                  <div key={exp.id} className="flex items-center gap-2">
+                    <Select
+                      value={exp.expense_type_id}
+                      onValueChange={(v) =>
+                        updateExpenseBudget(exp.id, "expense_type_id", v)
+                      }
+                      disabled={!isEditable}
                     >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  )}
-                </div>
-              ))}
+                      <SelectTrigger className="flex-1 h-8">
+                        <SelectValue
+                          placeholder={t("workOrders.selectExpense")}
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {expenseTypeOptions.map((type) => (
+                          <SelectItem
+                            key={type.expense_type_id}
+                            value={type.expense_type_id}
+                          >
+                            {type.expense_name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <NumericInput
+                      decimals={2}
+                      locale={currentLanguage as "es" | "en"}
+                      min={0}
+                      value={exp.budgeted_amount || ""}
+                      onChange={(val) =>
+                        updateExpenseBudget(exp.id, "budgeted_amount", val)
+                      }
+                      className="w-28 text-right h-8"
+                      disabled={!isEditable}
+                    />
+                    {isEditable && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => removeExpenseBudget(exp.id)}
+                        className="h-7 w-7 text-destructive"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+                );
+              })}
               {isEditable && (
                 <Button
                   variant="outline"
