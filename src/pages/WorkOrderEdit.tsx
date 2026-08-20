@@ -842,7 +842,7 @@ const WorkOrderEdit = () => {
             pista Socio+Riesgos (si hay algo decidido). */}
         <Card className="bg-muted/30">
           <CardContent className="py-4">
-            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+            <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
               <div>
                 <p className="text-sm text-muted-foreground">{t("entities.engagement")}</p>
                 <p className="font-semibold">
@@ -853,7 +853,7 @@ const WorkOrderEdit = () => {
                   <WorkOrderStatusBadge approvalStatus={approvalStatus} isLocked={isLocked} isDirty={isDirty} />
                 </div>
               </div>
-              <div className="flex flex-col items-start sm:items-end gap-2 shrink-0">
+              <div className="flex flex-col items-start md:items-end gap-2 shrink-0">
                 {/* Show linked worksheet buttons if exists - always in same position */}
                 {linkedWorksheet?.wo_id === workOrder.wo_id && (
                   <div className="flex items-center gap-2">

@@ -1353,7 +1353,8 @@
         "rejected": "Rechazado",
         "billingOk": "Cobranza al día",
         "billingAlert": "Cobranza con alerta de vencimiento",
-        "billingComplete": "Cobranza completa"
+        "billingComplete": "Cobranza completa",
+        "billingUnconfigured": "Plan de pagos sin configurar"
       }
     },
     "paymentPlan": {

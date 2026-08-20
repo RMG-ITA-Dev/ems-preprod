@@ -108,17 +108,27 @@ export function isPaymentDueSoonOrOverdue(
   return diffDays <= windowDays; // within the window ahead, or already past
 }
 
-// Billing indicator (0817-176 §Indicadores) for a fully-approved Work Order's Payment tab:
-// - "complete": every installment is Collected (Completed) → rendered as the green check ✓
-//   like the other tabs (collection closed 100%).
-// - "red" (☼): some not-yet-Collected installment's agreed PAYMENT date is within the alert
-//   window or already overdue (payment due soon / overdue and still unpaid).
+// Billing indicator (0817-176 §Indicadores, review iteración 2 #1/#2) for a
+// fully-approved Work Order's Payment tab:
+// - "unconfigured": no installments at all, or none of them ever got an agreed PAYMENT
+//   date — the plan's completeness hint in Draft is a non-blocking suggestion (plan_v2.md
+//   Open Question #2), so an OT can reach full approval with its payment plan never
+//   filled in. Surfacing that as "on track" (green) would be misleading.
+// - "complete": every installment is Collected (Completed) AND their percentages sum to
+//   ~100% → rendered as the green check ✓ like the other tabs (collection closed 100%
+//   of the fee, not just of the recorded rows).
+// - "red" (☼): some not-yet-Collected installment's agreed PAYMENT date is within the
+//   alert window or already overdue (payment due soon / overdue and still unpaid).
 // - "green" (☼): otherwise — approved and in progress with no payment at risk.
 export function computeBillingIndicator(
   installments: PaymentInstallmentInput[],
-): 'red' | 'green' | 'complete' {
-  if (installments.length > 0 && installments.every((i) => i.status === 'Completed')) {
-    return 'complete';
+): 'red' | 'green' | 'complete' | 'unconfigured' {
+  if (installments.length === 0) return 'unconfigured';
+  if (installments.every((i) => i.status === 'Completed')) {
+    const pctSum = installments.reduce((sum, i) => sum + i.percentage, 0);
+    if (Math.abs(pctSum - 100) <= 0.01) return 'complete';
+  } else if (!installments.some((i) => !!i.agreed_payment_date)) {
+    return 'unconfigured';
   }
   const hasPaymentAtRisk = installments.some((installment) =>
     isPaymentDueSoonOrOverdue(installment, 7),

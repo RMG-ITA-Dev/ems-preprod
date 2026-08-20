@@ -1353,7 +1353,8 @@
         "rejected": "Rejected",
         "billingOk": "Billing on track",
         "billingAlert": "Billing alert — payment due soon or overdue",
-        "billingComplete": "Collection complete"
+        "billingComplete": "Collection complete",
+        "billingUnconfigured": "Payment plan not configured"
       }
     },
     "paymentPlan": {

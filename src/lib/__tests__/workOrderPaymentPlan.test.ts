@@ -373,10 +373,10 @@ describe("getEffectiveInstallmentStatus", () => {
 // ---------------------------------------------------------------------------
 
 describe("computeBillingIndicator", () => {
-  it("returns 'complete' when every installment is Collected (Completed)", () => {
+  it("returns 'complete' when every installment is Collected (Completed) and percentages sum to 100%", () => {
     const installments = [
-      baseInstallment({ status: "Completed", agreed_payment_date: dayOffset(-30) }),
-      baseInstallment({ status: "Completed", agreed_payment_date: dayOffset(-10) }),
+      baseInstallment({ status: "Completed", percentage: 50, agreed_payment_date: dayOffset(-30) }),
+      baseInstallment({ status: "Completed", percentage: 50, agreed_payment_date: dayOffset(-10) }),
     ];
     expect(computeBillingIndicator(installments)).toBe("complete");
   });
@@ -426,10 +426,6 @@ describe("computeBillingIndicator", () => {
     expect(computeBillingIndicator(installments)).toBe("red");
   });
 
-  it("returns 'green' for an empty installments list", () => {
-    expect(computeBillingIndicator([])).toBe("green");
-  });
-
   it("a payment at risk does not turn green just because another installment is Completed", () => {
     const installments = [
       baseInstallment({ status: "Completed", agreed_payment_date: dayOffset(-60) }),
@@ -437,5 +433,43 @@ describe("computeBillingIndicator", () => {
       baseInstallment({ status: "Invoiced", agreed_payment_date: dayOffset(60) }),
     ];
     expect(computeBillingIndicator(installments)).toBe("red");
+  });
+
+  // Review iteración 2 (2026-08-19) #1: un plan de pagos nunca configurado no debe
+  // leerse como "al día" (green) una vez la OT queda totalmente aprobada — el hint de
+  // completitud en Draft es solo visual y no bloquea el envío (Open Question #2).
+  describe("'unconfigured' — sin datos de cobranza cargados (review iteración 2 #1)", () => {
+    it("returns 'unconfigured' for an empty installments list", () => {
+      expect(computeBillingIndicator([])).toBe("unconfigured");
+    });
+
+    it("returns 'unconfigured' when no installment ever got an agreed payment date", () => {
+      const installments = [
+        baseInstallment({ status: "Pending", agreed_payment_date: null }),
+        baseInstallment({ status: "Pending", agreed_payment_date: null }),
+      ];
+      expect(computeBillingIndicator(installments)).toBe("unconfigured");
+    });
+  });
+
+  // Review iteración 2 #2: "complete" exige que las cuotas Completed cubran el 100%
+  // del honorario, no solo que las cuotas registradas estén todas cobradas.
+  describe("'complete' exige que la suma de % sea ~100% (review iteración 2 #2)", () => {
+    it("does NOT return 'complete' when Completed installments only sum to 80%", () => {
+      const installments = [
+        baseInstallment({ status: "Completed", percentage: 40, agreed_payment_date: dayOffset(-30) }),
+        baseInstallment({ status: "Completed", percentage: 40, agreed_payment_date: dayOffset(-10) }),
+      ];
+      expect(computeBillingIndicator(installments)).toBe("green");
+    });
+
+    it("still returns 'complete' when percentages sum to 100 within tolerance", () => {
+      const installments = [
+        baseInstallment({ status: "Completed", percentage: 33.33, agreed_payment_date: dayOffset(-30) }),
+        baseInstallment({ status: "Completed", percentage: 33.33, agreed_payment_date: dayOffset(-20) }),
+        baseInstallment({ status: "Completed", percentage: 33.34, agreed_payment_date: dayOffset(-10) }),
+      ];
+      expect(computeBillingIndicator(installments)).toBe("complete");
+    });
   });
 });

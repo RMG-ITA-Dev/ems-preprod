@@ -366,6 +366,20 @@ describe("WorkOrderForm — Tabs (0817-176)", () => {
     expect(hasIndicator(getTabTrigger("payment"), "billingOk")).toBe(true);
   });
 
+  it("T13d: OT totalmente aprobada sin plan de pagos configurado no muestra 'al día' (review iteración 2 #1)", () => {
+    renderForm({
+      approvalStatus: "Approved",
+      approvedAt: "2026-06-19T10:00:00Z",
+      riskStatus: "Approved",
+      paymentPlan: completePlan,
+      paymentInstallments: [],
+      onPaymentPlanChange: vi.fn(),
+      onPaymentInstallmentsChange: vi.fn(),
+    });
+    expect(hasIndicator(getTabTrigger("payment"), "billingUnconfigured")).toBe(true);
+    expect(hasIndicator(getTabTrigger("payment"), "billingOk")).toBe(false);
+  });
+
   it("T14: Pending_Approval (enviada) no muestra indicador en ninguna pestaña sin pista decidida", () => {
     renderForm({
       approvalStatus: "Pending_Approval",
@@ -399,5 +413,25 @@ describe("WorkOrderForm — Tabs (0817-176)", () => {
       </QueryClientProvider>,
     );
     expect(getTabTrigger("payment")).toHaveAttribute("data-state", "active");
+  });
+
+  it("T17: staffingFocusSignal también marca la pestaña como visitada, limpiando el '!' (review iteración 2 #4)", () => {
+    const { rerender } = renderForm({
+      approvalStatus: "Draft",
+      onStaffingRequirementsChange: vi.fn(),
+      staffingFocusSignal: 0,
+    });
+    expect(hasIndicator(getTabTrigger("staffing"), "notReviewed")).toBe(true);
+    rerender(
+      <QueryClientProvider client={makeQC()}>
+        <WorkOrderForm
+          {...(baseProps as any)}
+          onStaffingRequirementsChange={vi.fn()}
+          staffingFocusSignal={1}
+        />
+      </QueryClientProvider>,
+    );
+    expect(getTabTrigger("staffing")).toHaveAttribute("data-state", "active");
+    expect(hasIndicator(getTabTrigger("staffing"), "notReviewed")).toBe(false);
   });
 });

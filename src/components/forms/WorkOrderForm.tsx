@@ -660,7 +660,14 @@ export function WorkOrderForm({
 
   // ── Indicadores por pestaña (0817-176 §Indicadores) ──────────────────────────
   // Todo derivado de flags/props ya existentes; sin datos ni reglas de negocio nuevas.
-  type TabIndicatorKind = "approved" | "rejected" | "warning" | "billing-green" | "billing-red" | "billing-complete";
+  type TabIndicatorKind =
+    | "approved"
+    | "rejected"
+    | "warning"
+    | "billing-green"
+    | "billing-red"
+    | "billing-complete"
+    | "billing-unconfigured";
   const otFullyApproved = socioApproved && riskApproved;
 
   // Pestaña 1 (Presupuesto, pista Socio): terminal > "!" no revisada > sin indicador.
@@ -692,7 +699,9 @@ export function WorkOrderForm({
           ? "billing-red"
           : billing === "complete"
             ? "billing-complete"
-            : "billing-green";
+            : billing === "unconfigured"
+              ? "billing-unconfigured"
+              : "billing-green";
       })()
     : isPending
       ? null
@@ -725,7 +734,7 @@ export function WorkOrderForm({
         ? CheckCircle
         : kind === "rejected"
           ? XCircle
-          : kind === "warning"
+          : kind === "warning" || kind === "billing-unconfigured"
             ? AlertCircle
             : Sun;
     const colorClass =
@@ -750,6 +759,8 @@ export function WorkOrderForm({
         return t("workOrders.tabs.status.billingAlert");
       case "billing-complete":
         return t("workOrders.tabs.status.billingComplete");
+      case "billing-unconfigured":
+        return t("workOrders.tabs.status.billingUnconfigured");
       default:
         return "";
     }
@@ -796,6 +807,10 @@ export function WorkOrderForm({
   useEffect(() => {
     if (staffingFocusSignal > 0) {
       setActiveTab("staffing");
+      // Review iteración 2 #4: el usuario queda forzosamente mirando la pestaña que
+      // falló, así que cuenta como "revisada" igual que un click manual — si no, el
+      // "!" de "aún no revisada" (pest.4) podía quedar pegado mientras la corrige.
+      setVisitedTabs((prev) => (prev.has("staffing") ? prev : new Set(prev).add("staffing")));
     }
   }, [staffingFocusSignal]);
   const scrolledStaffingSignalRef = useRef(0);
