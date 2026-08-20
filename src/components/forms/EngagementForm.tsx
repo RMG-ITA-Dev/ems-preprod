@@ -421,7 +421,6 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     if (
       engagement &&
       clients &&
-      !isDirty &&
       initializedEngagementIdRef.current !== engagement.engagement_id
     ) {
       initializedEngagementIdRef.current = engagement.engagement_id;
@@ -460,7 +459,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       setApprovalRequired(engagement.approval_required ?? true);
       setOverrideOn(engagement.anio_fiscal_override ?? false);
     }
-  }, [engagement, clients, form, isDirty, closingDateOptions]);
+  }, [engagement, clients, form, closingDateOptions]);
 
   // Fase 5 (bugs/scheduler/fase_5/plan_v2.md §6): StaffAssignmentsCard tiene su propio ciclo de
   // guardado (RPC directa) — el submit principal NUNCA lo ejecuta. Su dirty state SÍ participa
@@ -516,11 +515,16 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   const showOverrideSelect = isAdmin && overrideOn;
 
   // Keep the effective anio_fiscal in sync with the derived value unless an override is active.
+  // BUG #0819-181: in edit mode, wait for the engagement's real data to be loaded into the form
+  // (see the populate effect above) before deriving anything from closing_date_option — otherwise
+  // this fires on mount against the still-empty placeholder defaults and overwrites anio_fiscal,
+  // which permanently (falsely) marks the form dirty and blocks that populate effect forever.
+  const engagementLoaded = !isEdit || initializedEngagementIdRef.current === engagement?.engagement_id;
   useEffect(() => {
-    if (!effectiveOverride) {
+    if (!effectiveOverride && engagementLoaded) {
       form.setValue("anio_fiscal", derivedFiscalYear ?? undefined, { shouldValidate: false, shouldDirty: false });
     }
-  }, [derivedFiscalYear, effectiveOverride, form]);
+  }, [derivedFiscalYear, effectiveOverride, engagementLoaded, form]);
 
   const handleOverrideToggle = (checked: boolean) => {
     setOverrideOn(checked);
