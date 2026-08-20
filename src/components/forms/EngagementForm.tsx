@@ -95,6 +95,13 @@ interface StaffComboboxProps {
   value: string | null;
   onChange: (value: string | null) => void;
   showNoAplica?: boolean;
+  /**
+   * BUG 0722-162 (review de Codex): se deshabilita mientras los candidatos no sean confiables
+   * —refetch en background tras invalidar, error del RPC, o servicio del encargo sin resolver—
+   * para que no se pueda elegir de un conjunto obsoleto. Se deshabilita el SELECTOR y no el
+   * guardado: en edición, bloquear Guardar impediría editar el resto del encargo (nombre,
+   * fechas, políticas), que no tiene nada que ver con el bloque Equipo.
+   */
   // BUG 0810-172: los seis campos comparten este componente, pero solo `partner_id`/`manager_id`
   // reciben estas dos props — el resto las deja en undefined y se comporta igual que antes.
   disabled?: boolean;
@@ -111,8 +118,8 @@ function StaffCombobox({
   value,
   onChange,
   showNoAplica = true,
-  disabled = false,
   helperText,
+  disabled = false,
 }: StaffComboboxProps) {
   const [open, setOpen] = useState(false);
   const selectedLabel = value ? options.find((o) => o.value === value)?.label : null;
@@ -306,7 +313,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     encargadoOptions,
     specialistItOptions,
     specialistTaxOptions,
-    isLoading: teamCandidatesLoading,
+    isFetching: teamCandidatesFetching,
     isError: teamCandidatesError,
   } = useEngagementTeamCandidates();
   const { staffRecord, isLoading: currentStaffLoading } = useCurrentStaff();
@@ -483,7 +490,6 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     if (
       engagement &&
       clients &&
-      !isDirty &&
       initializedEngagementIdRef.current !== engagement.engagement_id
     ) {
       initializedEngagementIdRef.current = engagement.engagement_id;
@@ -522,7 +528,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       setApprovalRequired(engagement.approval_required ?? true);
       setOverrideOn(engagement.anio_fiscal_override ?? false);
     }
-  }, [engagement, clients, form, isDirty, closingDateOptions]);
+  }, [engagement, clients, form, closingDateOptions]);
 
   // Fase 5 (bugs/scheduler/fase_5/plan_v2.md §6): StaffAssignmentsCard tiene su propio ciclo de
   // guardado (RPC directa) — el submit principal NUNCA lo ejecuta. Su dirty state SÍ participa
@@ -579,11 +585,16 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   const showOverrideSelect = isAdmin && overrideOn;
 
   // Keep the effective anio_fiscal in sync with the derived value unless an override is active.
+  // BUG #0819-181: in edit mode, wait for the engagement's real data to be loaded into the form
+  // (see the populate effect above) before deriving anything from closing_date_option — otherwise
+  // this fires on mount against the still-empty placeholder defaults and overwrites anio_fiscal,
+  // which permanently (falsely) marks the form dirty and blocks that populate effect forever.
+  const engagementLoaded = !isEdit || initializedEngagementIdRef.current === engagement?.engagement_id;
   useEffect(() => {
-    if (!effectiveOverride) {
+    if (!effectiveOverride && engagementLoaded) {
       form.setValue("anio_fiscal", derivedFiscalYear ?? undefined, { shouldValidate: false, shouldDirty: false });
     }
-  }, [derivedFiscalYear, effectiveOverride, form]);
+  }, [derivedFiscalYear, effectiveOverride, engagementLoaded, form]);
 
   const handleOverrideToggle = (checked: boolean) => {
     setOverrideOn(checked);
@@ -969,8 +980,14 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   // en el catálogo): estado INDETERMINADO — no se sabe a qué servicio pertenece el encargo.
   const serviceUnresolved = serviceFilter.apply && serviceFilter.serviceId == null;
 
+  // Review de Codex: se mira `isFetching`, no `isLoading`. Con datos en cache TanStack devuelve
+  // isLoading:false y refetchea por detrás sirviendo el conjunto VIEJO — y como las mutaciones de
+  // personal y de roles ahora invalidan esta query, ese refetch al montar es el camino normal, no
+  // la excepción. Hasta que la respuesta llegue, los candidatos no son confiables: no se afirma
+  // nada y no se deja crear (`refetchOnWindowFocus/Reconnect` están en false, así que esto no
+  // produce parpadeos espontáneos — solo cubre la carga real).
   const teamSelectionResolved =
-    !teamCandidatesLoading && !teamCandidatesError && !serviceUnresolved;
+    !teamCandidatesFetching && !teamCandidatesError && !serviceUnresolved;
   const missingTeamRoles: string[] = [];
   if (teamSelectionResolved) {
     if (partnerFieldOptions.length === 0) missingTeamRoles.push(t("engagement.partner"));
@@ -985,31 +1002,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   // pasan la validación de "string no vacío" y `create_engagement_with_code` NO valida alineación
   // staff/servicio, se podía persistir una asignación cruzada. Se bloquea la creación: así el
   // fail-closed deja de ser solo visual y ningún valor retenido llega al backend.
-  const teamBlocksCreation = hasMissingTeamRoles || teamCandidatesError || serviceUnresolved;
-
-  // ── BUG 0810-172: siembra del campo autoasignado ─────────────────────────────────────────────
-  //
-  // Cuatro propiedades que importan:
-  //
-  //   1. Depende del VALOR OBSERVADO (`wPartnerId`/`wManagerId`), no de `form.getValues()`. Así se
-  //      re-siembra solo cuando `handleCreateAnother` resetea el campo a "" — un efecto que
-  //      dependiera de identidades no cambiaría y el campo quedaría bloqueado y vacío.
-  //   2. `shouldDirty: false` — mismo criterio que la autoasignación de `practica` (0625-148): un
-  //      valor que puso el sistema no puede disparar el LeavePageDialog de "cambios sin guardar".
-  //      `shouldValidate: true` limpia cualquier error previo del campo obligatorio.
-  //   3. No hay loop con el efecto de limpieza de más abajo: ese borra cuando el valor NO está en
-  //      `options`, y `withSelfCandidate` garantiza que acá SÍ está. Son mutuamente excluyentes.
-  //   4. No espera a `useEngagementTeamCandidates`: la opción se inyecta localmente, así que no hay
-  //      ventana en la que el campo bloqueado muestre el placeholder.
-  useEffect(() => {
-    if (!selfAssignedField || !staffRecord?.staff_id) return;
-    const current = selfAssignedField === "partner_id" ? wPartnerId : wManagerId;
-    if (current === staffRecord.staff_id) return;
-    form.setValue(selfAssignedField, staffRecord.staff_id, {
-      shouldDirty: false,
-      shouldValidate: true,
-    });
-  }, [selfAssignedField, staffRecord?.staff_id, wPartnerId, wManagerId, form]);
+  const teamBlocksCreation = hasMissingTeamRoles || teamCandidatesError || serviceUnresolved || teamCandidatesFetching;
 
   // Review de Codex (0722-162): quitar a alguien de `options` NO lo saca del formulario.
   //
@@ -1030,7 +1023,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   // justo cuando el fail-closed vacía las listas.
   useEffect(() => {
     if (isEdit) return;
-    if (teamCandidatesLoading || teamCandidatesError) return;
+    if (teamCandidatesFetching || teamCandidatesError) return;
     if (!serviceFilter.apply || serviceFilter.serviceId == null) return;
 
     const isStale = (current: string | null | undefined, options: { value: string }[]) =>
@@ -1058,7 +1051,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     }
   }, [
     isEdit,
-    teamCandidatesLoading,
+    teamCandidatesFetching,
     teamCandidatesError,
     serviceFilter,
     partnerFieldOptions,
@@ -1707,6 +1700,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                       noResultsText={t("engagement.noStaffFound")}
                       noAplicaText={t("engagement.noAplica")}
                       options={partnerFieldOptions}
+                      disabled={!teamSelectionResolved}
                       value={field.value || null}
                       onChange={(v) => field.onChange(v ?? "")}
                       showNoAplica={false}
@@ -1727,6 +1721,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                       noResultsText={t("engagement.noStaffFound")}
                       noAplicaText={t("engagement.noAplica")}
                       options={sqrFieldOptions}
+                      disabled={!teamSelectionResolved}
                       value={field.value ?? null}
                       onChange={field.onChange}
                     />
@@ -1744,6 +1739,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                       noResultsText={t("engagement.noStaffFound")}
                       noAplicaText={t("engagement.noAplica")}
                       options={managerFieldOptions}
+                      disabled={!teamSelectionResolved}
                       value={field.value || null}
                       onChange={(v) => field.onChange(v ?? "")}
                       showNoAplica={false}
@@ -1764,6 +1760,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                       noResultsText={t("engagement.noStaffFound")}
                       noAplicaText={t("engagement.noAplica")}
                       options={encargadoFieldOptions}
+                      disabled={!teamSelectionResolved}
                       value={field.value ?? null}
                       onChange={field.onChange}
                     />
@@ -1781,6 +1778,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                       noResultsText={t("engagement.noStaffFound")}
                       noAplicaText={t("engagement.noAplica")}
                       options={specialistItFieldOptions}
+                      disabled={!teamSelectionResolved}
                       value={field.value ?? null}
                       onChange={field.onChange}
                     />
@@ -1798,6 +1796,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                       noResultsText={t("engagement.noStaffFound")}
                       noAplicaText={t("engagement.noAplica")}
                       options={specialistTaxFieldOptions}
+                      disabled={!teamSelectionResolved}
                       value={field.value ?? null}
                       onChange={field.onChange}
                     />

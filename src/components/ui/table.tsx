@@ -2,9 +2,17 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
-const Table = React.forwardRef<HTMLTableElement, React.HTMLAttributes<HTMLTableElement>>(
-  ({ className, ...props }, ref) => (
-    <div className="relative w-full overflow-auto">
+interface TableProps extends React.HTMLAttributes<HTMLTableElement> {
+  // Bug 0722-158: este div es el contenedor de scroll REAL de la tabla — un
+  // envoltorio externo nunca desborda, porque su único hijo es este `w-full`.
+  // `containerRef` es la única forma de que una barra externa lo sincronice.
+  containerRef?: React.Ref<HTMLDivElement>;
+  containerClassName?: string;
+}
+
+const Table = React.forwardRef<HTMLTableElement, TableProps>(
+  ({ className, containerRef, containerClassName, ...props }, ref) => (
+    <div ref={containerRef} className={cn("relative w-full overflow-auto", containerClassName)}>
       <table ref={ref} className={cn("w-full caption-bottom text-sm", className)} {...props} />
     </div>
   ),

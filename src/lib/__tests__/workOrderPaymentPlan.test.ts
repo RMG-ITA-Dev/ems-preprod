@@ -6,6 +6,8 @@ import {
   computePaymentDate,
   detectOverdue,
   isAlertDue,
+  getEffectiveInstallmentStatus,
+  computeBillingIndicator,
 } from "../workOrderPaymentPlan";
 import type { PaymentInstallmentInput } from "@/types/workOrderPaymentPlan";
 
@@ -335,5 +337,139 @@ describe("isAlertDue", () => {
     });
     expect(isAlertDue(inst, 2)).toBe(false);
     expect(isAlertDue(inst, 3)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getEffectiveInstallmentStatus (0817-176: extraída de WorkOrderPaymentPlanSection
+// para compartirla con computeBillingIndicator)
+// ---------------------------------------------------------------------------
+
+describe("getEffectiveInstallmentStatus", () => {
+  it("Pending with a past agreed_invoice_date reads as Overdue", () => {
+    const inst = baseInstallment({ status: "Pending", agreed_invoice_date: dayOffset(-1) });
+    expect(getEffectiveInstallmentStatus(inst)).toBe("Overdue");
+  });
+
+  it("Pending with a future agreed_invoice_date stays Pending", () => {
+    const inst = baseInstallment({ status: "Pending", agreed_invoice_date: dayOffset(1) });
+    expect(getEffectiveInstallmentStatus(inst)).toBe("Pending");
+  });
+
+  it("Pending with no agreed_invoice_date stays Pending", () => {
+    const inst = baseInstallment({ status: "Pending", agreed_invoice_date: null });
+    expect(getEffectiveInstallmentStatus(inst)).toBe("Pending");
+  });
+
+  it("non-Pending statuses pass through unchanged", () => {
+    expect(getEffectiveInstallmentStatus(baseInstallment({ status: "Invoiced", agreed_invoice_date: dayOffset(-5) }))).toBe("Invoiced");
+    expect(getEffectiveInstallmentStatus(baseInstallment({ status: "Completed", agreed_invoice_date: dayOffset(-5) }))).toBe("Completed");
+    expect(getEffectiveInstallmentStatus(baseInstallment({ status: "Overdue", agreed_invoice_date: dayOffset(-5) }))).toBe("Overdue");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeBillingIndicator (0817-176 §Indicadores — pestaña 2 tras aprobación total)
+// ---------------------------------------------------------------------------
+
+describe("computeBillingIndicator", () => {
+  it("returns 'complete' when every installment is Collected (Completed) and percentages sum to 100%", () => {
+    const installments = [
+      baseInstallment({ status: "Completed", percentage: 50, agreed_payment_date: dayOffset(-30) }),
+      baseInstallment({ status: "Completed", percentage: 50, agreed_payment_date: dayOffset(-10) }),
+    ];
+    expect(computeBillingIndicator(installments)).toBe("complete");
+  });
+
+  it("returns 'green' when in progress with no payment due soon or overdue", () => {
+    const installments = [
+      baseInstallment({ status: "Completed", agreed_payment_date: dayOffset(-30) }),
+      baseInstallment({ status: "Invoiced", agreed_payment_date: dayOffset(20) }),
+    ];
+    expect(computeBillingIndicator(installments)).toBe("green");
+  });
+
+  it("returns 'red' when a not-yet-collected installment's payment date is within the alert window", () => {
+    const installments = [
+      baseInstallment({ status: "Completed", agreed_payment_date: dayOffset(-30) }),
+      baseInstallment({ status: "Invoiced", agreed_payment_date: dayOffset(3) }),
+    ];
+    expect(computeBillingIndicator(installments)).toBe("red");
+  });
+
+  it("returns 'red' when a not-yet-collected installment's payment date is already overdue", () => {
+    const installments = [
+      baseInstallment({ status: "Invoiced", agreed_payment_date: dayOffset(-5) }),
+    ];
+    expect(computeBillingIndicator(installments)).toBe("red");
+  });
+
+  it("stays 'red' when the payment date passed and it was never invoiced (Pending, unpaid = overdue)", () => {
+    const installments = [
+      baseInstallment({ status: "Pending", agreed_payment_date: dayOffset(-1) }),
+    ];
+    expect(computeBillingIndicator(installments)).toBe("red");
+  });
+
+  it("returns 'green' for already-Invoiced installments with far-off payment dates (0817-176: Facturado en proceso, no rojo)", () => {
+    const installments = [
+      baseInstallment({ status: "Invoiced", agreed_payment_date: dayOffset(43) }),
+      baseInstallment({ status: "Invoiced", agreed_payment_date: dayOffset(58) }),
+    ];
+    expect(computeBillingIndicator(installments)).toBe("green");
+  });
+
+  it("an Overdue-status installment is always red, regardless of its payment date", () => {
+    const installments = [
+      baseInstallment({ status: "Overdue", agreed_payment_date: dayOffset(30) }),
+    ];
+    expect(computeBillingIndicator(installments)).toBe("red");
+  });
+
+  it("a payment at risk does not turn green just because another installment is Completed", () => {
+    const installments = [
+      baseInstallment({ status: "Completed", agreed_payment_date: dayOffset(-60) }),
+      baseInstallment({ status: "Invoiced", agreed_payment_date: dayOffset(-1) }),
+      baseInstallment({ status: "Invoiced", agreed_payment_date: dayOffset(60) }),
+    ];
+    expect(computeBillingIndicator(installments)).toBe("red");
+  });
+
+  // Review iteración 2 (2026-08-19) #1: un plan de pagos nunca configurado no debe
+  // leerse como "al día" (green) una vez la OT queda totalmente aprobada — el hint de
+  // completitud en Draft es solo visual y no bloquea el envío (Open Question #2).
+  describe("'unconfigured' — sin datos de cobranza cargados (review iteración 2 #1)", () => {
+    it("returns 'unconfigured' for an empty installments list", () => {
+      expect(computeBillingIndicator([])).toBe("unconfigured");
+    });
+
+    it("returns 'unconfigured' when no installment ever got an agreed payment date", () => {
+      const installments = [
+        baseInstallment({ status: "Pending", agreed_payment_date: null }),
+        baseInstallment({ status: "Pending", agreed_payment_date: null }),
+      ];
+      expect(computeBillingIndicator(installments)).toBe("unconfigured");
+    });
+  });
+
+  // Review iteración 2 #2: "complete" exige que las cuotas Completed cubran el 100%
+  // del honorario, no solo que las cuotas registradas estén todas cobradas.
+  describe("'complete' exige que la suma de % sea ~100% (review iteración 2 #2)", () => {
+    it("does NOT return 'complete' when Completed installments only sum to 80%", () => {
+      const installments = [
+        baseInstallment({ status: "Completed", percentage: 40, agreed_payment_date: dayOffset(-30) }),
+        baseInstallment({ status: "Completed", percentage: 40, agreed_payment_date: dayOffset(-10) }),
+      ];
+      expect(computeBillingIndicator(installments)).toBe("green");
+    });
+
+    it("still returns 'complete' when percentages sum to 100 within tolerance", () => {
+      const installments = [
+        baseInstallment({ status: "Completed", percentage: 33.33, agreed_payment_date: dayOffset(-30) }),
+        baseInstallment({ status: "Completed", percentage: 33.33, agreed_payment_date: dayOffset(-20) }),
+        baseInstallment({ status: "Completed", percentage: 33.34, agreed_payment_date: dayOffset(-10) }),
+      ];
+      expect(computeBillingIndicator(installments)).toBe("complete");
+    });
   });
 });

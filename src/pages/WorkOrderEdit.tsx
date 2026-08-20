@@ -10,7 +10,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FileSpreadsheet, RefreshCw } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
-import { WorkOrderForm, BudgetLineInput, ExpenseBudgetInput } from "@/components/forms/WorkOrderForm";
+import {
+  WorkOrderForm,
+  BudgetLineInput,
+  ExpenseBudgetInput,
+  WorkOrderStatusBadge,
+  WorkOrderTrackStatus,
+} from "@/components/forms/WorkOrderForm";
 import {
   useWorkOrderById,
   useSetting,
@@ -180,6 +186,13 @@ const WorkOrderEdit = () => {
   // right before the invalidated query re-hydrates the fresh persisted baseline.
   const staffingEditedRef = useRef(false);
   const [staffingFocusSignal, setStaffingFocusSignal] = useState(0);
+  // Fase 8 (0817-176): activa la pestaña de Riesgos en WorkOrderForm cuando falla la
+  // validación de riesgo al "Enviar para Aprobación" (análogo a staffingFocusSignal).
+  const [riskFocusSignal, setRiskFocusSignal] = useState(0);
+  // Idem para la pestaña de Pagos cuando falla la validación de porcentajes en
+  // persistNonRiskChanges (Decisión del operador #4: auto-switch ante cualquier
+  // fallo de validación al guardar/enviar, no solo staffing/riesgo).
+  const [paymentFocusSignal, setPaymentFocusSignal] = useState(0);
 
   // Track original values for dirty check
   const [originalAdjustment, setOriginalAdjustment] = useState(0);
@@ -446,6 +459,23 @@ const WorkOrderEdit = () => {
     // ofrecer un guardado que RLS va a rechazar.
     !canWriteWorkOrder;
 
+  // 0819-181: extraído para reutilizarlo también en WorkOrderTrackStatus, fusionada
+  // ahora en la tarjeta "Encargo" (antes solo se pasaba inline a WorkOrderForm).
+  const isSubmitting =
+    updateWorkOrder.isPending ||
+    submitWorkOrder.isPending ||
+    approveWorkOrder.isPending ||
+    approveRisk.isPending ||
+    approveEmergencyReview.isPending ||
+    approveEmergencyPartner.isPending ||
+    rejectRisk.isPending ||
+    revertSocioApproval.isPending ||
+    revertRiskApproval.isPending ||
+    completeRiskAssessment.isPending ||
+    rejectWorkOrder.isPending ||
+    unsubmitWorkOrder.isPending ||
+    saveWorkOrderStaffing.isPending;
+
   // Persists everything "Enviar para Aprobación" doesn't otherwise touch (adjustment,
   // expenses, payment plan, staffing) — the same steps handleSubmit ("Guardar") runs.
   // Shared so a single click on either button can both save and proceed, instead of
@@ -459,11 +489,13 @@ const WorkOrderEdit = () => {
     if (paymentInstallments.length > 0) {
       if (paymentInstallments.some((i) => i.percentage < 0 || i.percentage > 100)) {
         toast.error(t("workOrders.paymentPlan.validationPercentageRange"));
+        setPaymentFocusSignal((n) => n + 1);
         return false;
       }
       const pctSum = paymentInstallments.reduce((s, i) => s + i.percentage, 0);
       if (Math.abs(pctSum - 100) > 0.01) {
         toast.error(t("workOrders.paymentPlan.validationPercentageSum"));
+        setPaymentFocusSignal((n) => n + 1);
         return false;
       }
     }
@@ -629,6 +661,7 @@ const WorkOrderEdit = () => {
     // All-or-nothing: complete (normal) or empty (emergency). Partial is blocked.
     if (!allComplete && !allEmpty) {
       toast.error(t("workOrders.riskAssessmentRequired"));
+      setRiskFocusSignal((n) => n + 1);
       return;
     }
     await submitWorkOrder.mutateAsync({
@@ -802,41 +835,72 @@ const WorkOrderEdit = () => {
   return (
     <AppLayout title={`${t("entities.workOrder")} - ${workOrder.engagement?.engagement_code || ""}`} focusMode>
       <div className="space-y-6">
-        {/* Engagement Info */}
+        {/* Engagement Info + Estado/Moneda/Temporada/Pistas (0819-181: fusión de
+            tarjetas — antes esta franja vivía duplicada en el header de
+            WorkOrderForm). Izquierda: descripción del encargo + chip de Estado.
+            Derecha: botones de hoja de trabajo (si aplica) / Moneda+Temporada /
+            pista Socio+Riesgos (si hay algo decidido). */}
         <Card className="bg-muted/30">
           <CardContent className="py-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
               <div>
                 <p className="text-sm text-muted-foreground">{t("entities.engagement")}</p>
                 <p className="font-semibold">
                   {workOrder.engagement?.engagement_code} - {workOrder.engagement?.engagement_name}
                 </p>
                 <p className="text-sm text-muted-foreground">{workOrder.engagement?.client?.client_legal_name}</p>
-              </div>
-              {/* Show linked worksheet buttons if exists - always in same position */}
-              {linkedWorksheet?.wo_id === workOrder.wo_id && (
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setShowResyncDialog(true)}
-                    disabled={isLocked || resyncWorksheet.isPending || currency === "USDT"}
-                    className="gap-2 bg-info/10 hover:bg-info/20 text-info border-info/30"
-                  >
-                    <RefreshCw className={`h-4 w-4 ${resyncWorksheet.isPending ? "animate-spin" : ""}`} />
-                    {t("workMatrix.resyncToWorkOrder")}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => { allowNextNavigation(); navigate(`/worksheets/${linkedWorksheet.id}`); }}
-                    className="gap-2 bg-primary/10 hover:bg-primary/20 text-primary border-primary/30"
-                  >
-                    <FileSpreadsheet className="h-4 w-4" />
-                    {t("workMatrix.viewWorksheet")}
-                  </Button>
+                <div className="mt-2">
+                  <WorkOrderStatusBadge approvalStatus={approvalStatus} isLocked={isLocked} isDirty={isDirty} />
                 </div>
-              )}
+              </div>
+              <div className="flex flex-col items-start md:items-end gap-2 shrink-0">
+                {/* Show linked worksheet buttons if exists - always in same position */}
+                {linkedWorksheet?.wo_id === workOrder.wo_id && (
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowResyncDialog(true)}
+                      disabled={isLocked || resyncWorksheet.isPending || currency === "USDT"}
+                      className="gap-2 bg-info/10 hover:bg-info/20 text-info border-info/30"
+                    >
+                      <RefreshCw className={`h-4 w-4 ${resyncWorksheet.isPending ? "animate-spin" : ""}`} />
+                      {t("workMatrix.resyncToWorkOrder")}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => { allowNextNavigation(); navigate(`/worksheets/${linkedWorksheet.id}`); }}
+                      className="gap-2 bg-primary/10 hover:bg-primary/20 text-primary border-primary/30"
+                    >
+                      <FileSpreadsheet className="h-4 w-4" />
+                      {t("workMatrix.viewWorksheet")}
+                    </Button>
+                  </div>
+                )}
+                <div className="flex items-center gap-4 text-sm">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-muted-foreground">{t("workOrders.currency")}:</span>
+                    <span className="font-semibold">{currency}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-muted-foreground">{t("workOrders.season")}:</span>
+                    <span className="font-semibold">
+                      {seasonMode === "High" ? t("industry.high") : t("industry.low")}
+                    </span>
+                  </div>
+                </div>
+                <WorkOrderTrackStatus
+                  approvalStatus={approvalStatus}
+                  approvedAt={workOrder.approved_at}
+                  riskStatus={workOrder.risk_status}
+                  canRevert={isAdmin}
+                  onRevertSocio={handleRevertSocio}
+                  onRevertRisk={handleRevertRisk}
+                  isSubmitting={isSubmitting}
+                  className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm"
+                />
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -912,21 +976,9 @@ const WorkOrderEdit = () => {
           staffingServiceResolved={staffingServiceResolved}
           staffingServiceId={engagementService?.service_id ?? null}
           staffingFocusSignal={staffingFocusSignal}
-          isSubmitting={
-            updateWorkOrder.isPending ||
-            submitWorkOrder.isPending ||
-            approveWorkOrder.isPending ||
-            approveRisk.isPending ||
-            approveEmergencyReview.isPending ||
-            approveEmergencyPartner.isPending ||
-            rejectRisk.isPending ||
-            revertSocioApproval.isPending ||
-            revertRiskApproval.isPending ||
-            completeRiskAssessment.isPending ||
-            rejectWorkOrder.isPending ||
-            unsubmitWorkOrder.isPending ||
-            saveWorkOrderStaffing.isPending
-          }
+          riskFocusSignal={riskFocusSignal}
+          paymentFocusSignal={paymentFocusSignal}
+          isSubmitting={isSubmitting}
         />
       </div>
 

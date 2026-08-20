@@ -193,15 +193,15 @@ const SchedulerStaff = () => {
     : "";
 
   return (
-    <AppLayout>
-      <div className="flex h-full flex-col gap-3 p-4 md:p-6">
+    <AppLayout title={staffName || t("scheduler.title")} focusMode>
+      <div className="flex h-full flex-col gap-3">
         {/* Gray Cancel button, no back arrow (AGENTS.md rule 2), present
             in EVERY state. Returns to the L2 that opened this page;
             bookmarked/shared URLs fall back to L1 (D-P7-8). */}
         <Button
           variant="cancel"
           size="sm"
-          className="w-fit self-start"
+          className="w-fit self-start min-h-[44px] sm:min-h-0"
           onClick={() =>
             navigate(returnNav?.returnTo ?? "/scheduler", {
               state: returnNav?.returnState ?? null,

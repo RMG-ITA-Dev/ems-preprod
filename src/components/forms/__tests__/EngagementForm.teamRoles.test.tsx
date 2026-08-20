@@ -141,6 +141,7 @@ function resetCandidates() {
     hasPartnerDirectorCandidates: true,
     hasManagerCandidates: true,
     isLoading: false,
+    isFetching: false,
     isError: false,
   };
 }
@@ -413,15 +414,17 @@ describe("EngagementForm — elegibilidad por rol en el bloque Equipo (0722-162)
   });
 
   // ── Review de Greptile: servicio sin resolver ⇒ fail-closed, no lista completa ───────────
-  it("si el catálogo no resuelve la práctica, el selector queda vacío en vez de mostrar de más", async () => {
+  it("si el catálogo no resuelve la práctica, los selectores quedan deshabilitados", async () => {
     // El encargo tiene practica = 1 (Auditoría) pero el catálogo solo trae el code 3. Antes,
     // `engagementServiceId` caía a null y eso DESACTIVABA el filtro, ofreciendo personal de
     // cualquier servicio; una selección hecha en esa ventana se guardaba contra el servicio
-    // equivocado. Ahora es fail-closed.
+    // equivocado. Ahora es fail-closed Y el selector no se puede abrir (review de Codex): con
+    // los candidatos no confiables no debe poder elegirse nada.
     mockServicesData = [mockServices[1]]; // solo Consultoría (code 3)
     render(<EngagementForm engagement={baseEngagement} />);
-    const listbox = await openCombobox("engagement.selectSqr");
-    expectOnly(listbox, []);
+    await waitFor(() =>
+      expect(getTriggerByText("engagement.selectSqr")).toBeDisabled()
+    );
   });
 
   // ── Review de Codex: valores rancios al cambiar de servicio ──────────────────────────────
@@ -609,12 +612,45 @@ describe("EngagementForm — elegibilidad por rol en el bloque Equipo (0722-162)
     expect(screen.queryByText(/messages\.teamCandidatesLoadError/)).toBeNull();
   });
 
+  it("mientras refetchea en background no afirma que falten roles ni deja crear", () => {
+    // El caso que trajo la review: hay datos en cache (isLoading false) pero se están
+    // revalidando. Ofrecer y permitir enviar ese conjunto viejo es lo que se evita.
+    mockCandidates.isFetching = true;
+    render(<EngagementForm />);
+    expect(screen.queryByText(/messages\.missingTeamRoles/)).toBeNull();
+    expect(screen.getByText("engagement.createEngagement").closest("button")).toBeDisabled();
+  });
+
+  // ── Review de Codex: en edición tampoco debe poder elegirse con datos sin resolver ───────
+  it("en edición bloquea los selectores durante el refetch, pero deja guardar el resto", async () => {
+    // Tras una mutación de personal o de roles la query queda stale; al montar hay un refetch en
+    // background sirviendo el conjunto viejo. Se bloquean los SELECTORES, no el guardado: en
+    // edición, impedir Guardar dejaría sin poder editar nombre, fechas o políticas, que no tienen
+    // relación con el bloque Equipo.
+    mockCandidates.isFetching = true;
+    render(<EngagementForm engagement={baseEngagement} />);
+    await waitFor(() =>
+      expect(getTriggerByText("engagement.selectSqr")).toBeDisabled()
+    );
+    expect(getTriggerByText("engagement.selectEncargado")).toBeDisabled();
+    // Guardar sigue habilitado: el resto del encargo se puede editar.
+    expect(screen.getByText("common.saveChanges").closest("button")).not.toBeDisabled();
+  });
+
+  it("con los candidatos resueltos los selectores están habilitados", async () => {
+    // Guard contra over-blocking.
+    render(<EngagementForm />);
+    await waitFor(() =>
+      expect(getTriggerByText("engagement.selectSqr")).not.toBeDisabled()
+    );
+  });
+
   it("mientras carga no afirma que falten roles", () => {
     mockCandidates.partnerDirectorOptions = [];
     mockCandidates.managerRoleOptions = [];
     mockCandidates.hasPartnerDirectorCandidates = false;
     mockCandidates.hasManagerCandidates = false;
-    mockCandidates.isLoading = true;
+    mockCandidates.isFetching = true;
     render(<EngagementForm />);
     expect(screen.queryByText(/messages\.missingTeamRoles/)).toBeNull();
     expect(screen.queryByText(/messages\.teamCandidatesLoadError/)).toBeNull();

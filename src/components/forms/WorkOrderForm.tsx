@@ -27,6 +27,7 @@ import {
   Undo2,
   Eraser,
   Users,
+  Sun,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -53,6 +54,8 @@ import { cn } from "@/lib/utils";
 import { isSchedulerEnabled } from "@/lib/schedulerFeature";
 import { useLanguage } from "@/hooks/useLanguage";
 import { WorkOrderPaymentPlanSection } from "./WorkOrderPaymentPlanSection";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { computeBillingIndicator } from "@/lib/workOrderPaymentPlan";
 import {
   STAFFING_PROFICIENCY_LEVELS,
   createEmptyRequirement,
@@ -79,6 +82,9 @@ export interface ExpenseBudgetInput {
   expense_type_id: string;
   budgeted_amount: number;
 }
+
+// Fase 8 (0817-176): pestañas de la Orden de Trabajo (solo cuando !isNew).
+type WorkOrderFormTabId = "budget" | "payment" | "risk" | "staffing";
 
 interface WorkOrderFormProps {
   currency: "USD" | "BOB" | "USDT";
@@ -132,6 +138,10 @@ interface WorkOrderFormProps {
   staffingServiceId?: string | null;
   /** Incremented by the parent to scroll the Staffing section into view after a validation error. */
   staffingFocusSignal?: number;
+  /** Incremented by the parent to switch to the Risk tab after a submit-time risk validation error. */
+  riskFocusSignal?: number;
+  /** Incremented by the parent to switch to the Payment tab after a percentage validation error. */
+  paymentFocusSignal?: number;
   onSeasonChange: (season: "High" | "Low") => void;
   onAdjustmentChange: (amount: number) => void;
   onBudgetLinesChange: (lines: BudgetLineInput[]) => void;
@@ -177,6 +187,161 @@ const statusLabels = {
   Approved: "workOrders.status.approved",
   Rejected: "workOrders.status.rejected",
 };
+
+// 0819-181: extraído para reutilizarlo desde la tarjeta "Encargo" de WorkOrderEdit
+// (fusión de la barra Estado/Moneda/Temporada) sin duplicar la lógica de color/label.
+export interface WorkOrderStatusBadgeProps {
+  approvalStatus: "Draft" | "Pending_Approval" | "Approved" | "Rejected";
+  isLocked: boolean;
+  isDirty?: boolean;
+}
+
+export function WorkOrderStatusBadge({
+  approvalStatus,
+  isLocked,
+  isDirty = false,
+}: WorkOrderStatusBadgeProps) {
+  const { t } = useTranslation();
+  return (
+    <div className="flex items-center gap-3">
+      <Badge
+        variant="outline"
+        className={cn("text-xs px-2.5 py-1", statusColors[approvalStatus])}
+      >
+        {isLocked && <Lock className="h-3 w-3 mr-1" />}
+        {t(statusLabels[approvalStatus])}
+      </Badge>
+      {/* Dirty indicator - same size as status badge, purple to match Guardar button */}
+      {isDirty && (
+        <Badge
+          variant="outline"
+          className="text-xs px-2.5 py-1 bg-brand-purple/10 text-brand-purple border-brand-purple/20"
+        >
+          {t("common.unsavedChanges")}
+        </Badge>
+      )}
+    </div>
+  );
+}
+
+// 0819-181: idem — la fila "Socio: .../Riesgos: ..." (con sus íconos y el botón de
+// deshacer aprobación) se reutiliza tanto en el encabezado de WorkOrderForm (isNew)
+// como fusionada dentro de la tarjeta "Encargo" de WorkOrderEdit (!isNew).
+export interface WorkOrderTrackStatusProps {
+  approvalStatus: "Draft" | "Pending_Approval" | "Approved" | "Rejected";
+  approvedAt?: string | null;
+  riskStatus?: string | null;
+  canRevert?: boolean;
+  onRevertSocio?: () => void;
+  onRevertRisk?: () => void;
+  isSubmitting: boolean;
+  className?: string;
+}
+
+export function WorkOrderTrackStatus({
+  approvalStatus,
+  approvedAt,
+  riskStatus,
+  canRevert = false,
+  onRevertSocio,
+  onRevertRisk,
+  isSubmitting,
+  className,
+}: WorkOrderTrackStatusProps) {
+  const { t } = useTranslation();
+  const isPending = approvalStatus === "Pending_Approval";
+  const isApproved = approvalStatus === "Approved";
+  const isRejected = approvalStatus === "Rejected";
+  const socioApproved = !!approvedAt;
+  const socioRejected = isRejected;
+  const riskApproved = riskStatus === "Approved" || riskStatus === "Emergency_Approved";
+  const isRiskRejected = riskStatus === "Rejected";
+  // Visible mientras cualquiera de las dos pistas tenga un estado decidido — incluido
+  // tras retirar (la OT vuelve a Draft pero approved_at/risk_status persisten), de modo
+  // que la pista aprobada nunca pierde su indicador "Aprobado".
+  const showTrackStatus =
+    socioApproved ||
+    socioRejected ||
+    riskApproved ||
+    isRiskRejected ||
+    isPending ||
+    isApproved ||
+    isRejected;
+  if (!showTrackStatus) return null;
+  return (
+    <div className={className}>
+      <span className="flex items-center gap-1.5">
+        <span className="text-muted-foreground">
+          {t("workOrders.partnerActionsLabel")}:
+        </span>
+        {socioApproved ? (
+          <span className="flex items-center gap-1 font-medium text-success">
+            <CheckCircle className="h-3.5 w-3.5" />
+            {t("workOrders.trackApproved")}
+          </span>
+        ) : socioRejected ? (
+          <span className="flex items-center gap-1 font-medium text-destructive">
+            <XCircle className="h-3.5 w-3.5" />
+            {t("workOrders.trackRejected")}
+          </span>
+        ) : (
+          <span className="text-muted-foreground">
+            {t("workOrders.trackPending")}
+          </span>
+        )}
+        {canRevert && approvedAt && onRevertSocio && (
+          <button
+            type="button"
+            onClick={onRevertSocio}
+            disabled={isSubmitting}
+            title={t("workOrders.revertApproval")}
+            className="ml-0.5 inline-flex items-center text-muted-foreground hover:text-foreground disabled:opacity-50"
+          >
+            <Undo2 className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </span>
+      <span className="flex items-center gap-1.5">
+        <span className="text-muted-foreground">
+          {t("workOrders.riskActionsLabel")}:
+        </span>
+        {riskStatus === "Approved" ? (
+          <span className="flex items-center gap-1 font-medium text-success">
+            <ShieldCheck className="h-3.5 w-3.5" />
+            {t("workOrders.trackApproved")}
+          </span>
+        ) : riskStatus === "Emergency_Approved" ? (
+          <span className="flex items-center gap-1 font-medium text-orange-500">
+            <ShieldAlert className="h-3.5 w-3.5" />
+            {t("workOrders.trackEmergency")}
+          </span>
+        ) : riskStatus === "Rejected" ? (
+          <span className="flex items-center gap-1 font-medium text-destructive">
+            <XCircle className="h-3.5 w-3.5" />
+            {t("workOrders.trackRejected")}
+          </span>
+        ) : (
+          <span className="text-muted-foreground">
+            {t("workOrders.trackPending")}
+          </span>
+        )}
+        {canRevert &&
+          (riskStatus === "Approved" || riskStatus === "Emergency_Approved") &&
+          onRevertRisk && (
+            <button
+              type="button"
+              onClick={onRevertRisk}
+              disabled={isSubmitting}
+              title={t("workOrders.revertApproval")}
+              className="ml-0.5 inline-flex items-center text-muted-foreground hover:text-foreground disabled:opacity-50"
+            >
+              <Undo2 className="h-3.5 w-3.5" />
+            </button>
+          )}
+      </span>
+    </div>
+  );
+}
 
 export function WorkOrderForm({
   currency,
@@ -246,6 +411,8 @@ export function WorkOrderForm({
   staffingServiceResolved = true,
   staffingServiceId = null,
   staffingFocusSignal = 0,
+  riskFocusSignal = 0,
+  paymentFocusSignal = 0,
 }: WorkOrderFormProps) {
   const { t } = useTranslation();
   // Emergency confirmation now lives at submit time (Manager), capturing a mandatory
@@ -259,6 +426,16 @@ export function WorkOrderForm({
   // Risk fields stay locked after an emergency approval until the Manager explicitly
   // opts to add the data via the "Agregar datos de Riesgo" button.
   const [addingRiskData, setAddingRiskData] = useState(false);
+  // Fase 8 (0817-176): pestaña activa + pestañas "visitadas" (para el "!" de aún-no-
+  // revisada en pest. 1/4, que se limpia al visitar la pestaña o al enviar). Abre la
+  // pista rechazada al montar (operador #4): Socio rechazado -> pest.1; si no, Riesgos
+  // rechazado -> pest.3; si no, pest.1 por defecto.
+  const [activeTab, setActiveTab] = useState<WorkOrderFormTabId>(() => {
+    if (approvalStatus === "Rejected") return "budget";
+    if (riskStatus === "Rejected") return "risk";
+    return "budget";
+  });
+  const [visitedTabs, setVisitedTabs] = useState<Set<WorkOrderFormTabId>>(() => new Set([activeTab]));
   const { currentLanguage } = useLanguage();
   const { data: categories } = useCategories();
   const { data: expenseTypes } = useExpenseTypes();
@@ -480,9 +657,132 @@ export function WorkOrderForm({
   const socioPending = isPending && !socioApproved;
   const riskPending = !isDraft && (riskStatus === "Pending" || !riskStatus);
   const showWithdraw = !!onUnsubmit && (socioPending || riskPending);
-  // True when the Socio/Riesgos labeled boxes are shown — used to vertically align
-  // the standalone Cancel/Save/Unsubmit buttons with the buttons inside those boxes.
-  const hasActionBoxes = socioCanAct || (showRiskActions && hasRiskAction);
+
+  // ── Indicadores por pestaña (0817-176 §Indicadores) ──────────────────────────
+  // Todo derivado de flags/props ya existentes; sin datos ni reglas de negocio nuevas.
+  type TabIndicatorKind =
+    | "approved"
+    | "rejected"
+    | "warning"
+    | "billing-green"
+    | "billing-red"
+    | "billing-complete"
+    | "billing-unconfigured";
+  const otFullyApproved = socioApproved && riskApproved;
+
+  // Pestaña 1 (Presupuesto, pista Socio): terminal > "!" no revisada > sin indicador.
+  const budgetIndicatorKind: TabIndicatorKind | null = socioRejected
+    ? "rejected"
+    : socioApproved
+      ? "approved"
+      : isPending
+        ? null
+        : visitedTabs.has("budget")
+          ? null
+          : "warning";
+
+  // Pestaña 2 (Pagos y Facturación): completitud en borrador; ☼ tras aprobación total.
+  const paymentPlanComplete = useMemo(() => {
+    if (!paymentPlan) return false;
+    if (!paymentPlan.payment_days || paymentPlan.payment_days <= 0) return false;
+    if (paymentInstallments.length === 0) return false;
+    const pctSum = paymentInstallments.reduce((sum, inst) => sum + inst.percentage, 0);
+    if (Math.abs(pctSum - 100) > 0.01) return false;
+    return paymentInstallments.every(
+      (inst) => !!inst.agreed_invoice_date && !!inst.agreed_payment_date && inst.percentage > 0,
+    );
+  }, [paymentPlan, paymentInstallments]);
+  const paymentIndicatorKind: TabIndicatorKind | null = otFullyApproved
+    ? ((): TabIndicatorKind => {
+        const billing = computeBillingIndicator(paymentInstallments);
+        return billing === "red"
+          ? "billing-red"
+          : billing === "complete"
+            ? "billing-complete"
+            : billing === "unconfigured"
+              ? "billing-unconfigured"
+              : "billing-green";
+      })()
+    : isPending
+      ? null
+      : paymentPlanComplete
+        ? "approved"
+        : "warning";
+
+  // Pestaña 3 (Evaluación de Riesgos, pista Riesgos): terminal > "!" datos incompletos.
+  const riskIndicatorKind: TabIndicatorKind | null = isRiskRejected
+    ? "rejected"
+    : riskApproved
+      ? "approved"
+      : isDraft && !riskApprovalReady
+        ? "warning"
+        : null;
+
+  // Pestaña 4 (Staffing, sin pista propia): ✓ solo con OT totalmente aprobada.
+  const staffingIndicatorKind: TabIndicatorKind | null = otFullyApproved
+    ? "approved"
+    : isPending
+      ? null
+      : visitedTabs.has("staffing")
+        ? null
+        : "warning";
+
+  const renderTabIndicator = (kind: TabIndicatorKind | null, ariaLabel: string) => {
+    if (!kind) return null;
+    const Icon =
+      kind === "approved" || kind === "billing-complete"
+        ? CheckCircle
+        : kind === "rejected"
+          ? XCircle
+          : kind === "warning" || kind === "billing-unconfigured"
+            ? AlertCircle
+            : Sun;
+    const colorClass =
+      kind === "approved" || kind === "billing-green" || kind === "billing-complete"
+        ? "text-success"
+        : kind === "rejected" || kind === "billing-red"
+          ? "text-destructive"
+          : "text-warning";
+    return <Icon className={cn("ml-1.5 h-3.5 w-3.5 shrink-0", colorClass)} aria-label={ariaLabel} />;
+  };
+  const ariaLabelForIndicator = (kind: TabIndicatorKind | null, incompleteKey: string): string => {
+    switch (kind) {
+      case "approved":
+        return t("workOrders.tabs.status.approved");
+      case "rejected":
+        return t("workOrders.tabs.status.rejected");
+      case "warning":
+        return t(incompleteKey);
+      case "billing-green":
+        return t("workOrders.tabs.status.billingOk");
+      case "billing-red":
+        return t("workOrders.tabs.status.billingAlert");
+      case "billing-complete":
+        return t("workOrders.tabs.status.billingComplete");
+      case "billing-unconfigured":
+        return t("workOrders.tabs.status.billingUnconfigured");
+      default:
+        return "";
+    }
+  };
+
+  // Marca las pestañas 1 y 4 como "revisadas" al pulsar Enviar para Aprobación
+  // (además de limpiarse al simplemente visitarlas vía onValueChange).
+  const markTabsSubmitted = () => {
+    setVisitedTabs((prev) => {
+      if (prev.has("budget") && prev.has("staffing")) return prev;
+      const next = new Set(prev);
+      next.add("budget");
+      next.add("staffing");
+      return next;
+    });
+  };
+  const handleTabChange = (value: string) => {
+    const tab = value as WorkOrderFormTabId;
+    setActiveTab(tab);
+    setVisitedTabs((prev) => (prev.has(tab) ? prev : new Set(prev).add(tab)));
+  };
+
   // Risk-level color: Alto=red, Moderado=yellow, Bajo=green.
   const riskLevelColorClass =
     riskLevel === "Alto"
@@ -493,94 +793,6 @@ export function WorkOrderForm({
           ? "text-success"
           : "text-muted-foreground";
 
-  // Per-track approval status (Socio / Riesgos), shown both in the header and the
-  // bottom action area. Visible once the OT leaves Draft (Pending/Approved/Rejected),
-  // so the Socio sign-off stays visible even after a rejection.
-  // Visible mientras cualquiera de las dos pistas tenga un estado decidido — incluido
-  // tras retirar (la OT vuelve a Draft pero approved_at/risk_status persisten), de modo
-  // que la pista aprobada nunca pierde su indicador "Aprobado".
-  const showTrackStatus =
-    socioApproved ||
-    socioRejected ||
-    riskApproved ||
-    isRiskRejected ||
-    isPending ||
-    isApproved ||
-    isRejected;
-  const renderTrackStatus = () => (
-    <>
-      <span className="flex items-center gap-1.5">
-        <span className="text-muted-foreground">
-          {t("workOrders.partnerActionsLabel")}:
-        </span>
-        {socioApproved ? (
-          <span className="flex items-center gap-1 font-medium text-success">
-            <CheckCircle className="h-3.5 w-3.5" />
-            {t("workOrders.trackApproved")}
-          </span>
-        ) : socioRejected ? (
-          <span className="flex items-center gap-1 font-medium text-destructive">
-            <XCircle className="h-3.5 w-3.5" />
-            {t("workOrders.trackRejected")}
-          </span>
-        ) : (
-          <span className="text-muted-foreground">
-            {t("workOrders.trackPending")}
-          </span>
-        )}
-        {canRevert && approvedAt && onRevertSocio && (
-          <button
-            type="button"
-            onClick={onRevertSocio}
-            disabled={isSubmitting}
-            title={t("workOrders.revertApproval")}
-            className="ml-0.5 inline-flex items-center text-muted-foreground hover:text-foreground disabled:opacity-50"
-          >
-            <Undo2 className="h-3.5 w-3.5" />
-          </button>
-        )}
-      </span>
-      <span className="flex items-center gap-1.5">
-        <span className="text-muted-foreground">
-          {t("workOrders.riskActionsLabel")}:
-        </span>
-        {riskStatus === "Approved" ? (
-          <span className="flex items-center gap-1 font-medium text-success">
-            <ShieldCheck className="h-3.5 w-3.5" />
-            {t("workOrders.trackApproved")}
-          </span>
-        ) : riskStatus === "Emergency_Approved" ? (
-          <span className="flex items-center gap-1 font-medium text-orange-500">
-            <ShieldAlert className="h-3.5 w-3.5" />
-            {t("workOrders.trackEmergency")}
-          </span>
-        ) : riskStatus === "Rejected" ? (
-          <span className="flex items-center gap-1 font-medium text-destructive">
-            <XCircle className="h-3.5 w-3.5" />
-            {t("workOrders.trackRejected")}
-          </span>
-        ) : (
-          <span className="text-muted-foreground">
-            {t("workOrders.trackPending")}
-          </span>
-        )}
-        {canRevert &&
-          (riskStatus === "Approved" || riskStatus === "Emergency_Approved") &&
-          onRevertRisk && (
-            <button
-              type="button"
-              onClick={onRevertRisk}
-              disabled={isSubmitting}
-              title={t("workOrders.revertApproval")}
-              className="ml-0.5 inline-flex items-center text-muted-foreground hover:text-foreground disabled:opacity-50"
-            >
-              <Undo2 className="h-3.5 w-3.5" />
-            </button>
-          )}
-      </span>
-    </>
-  );
-
   // Get category name by ID
   const getCategoryName = (categoryId: string) => {
     const category = categories?.find((c) => c.category_id === categoryId);
@@ -589,11 +801,61 @@ export function WorkOrderForm({
 
   // ── Staffing Requirements (Fase 4) ───────────────────────────────────────
   const staffingSectionRef = useRef<HTMLDivElement>(null);
+  // Two-phase auto-switch (0817-176 §Indicadores): activate the offending tab first,
+  // then scroll — the section is hidden (display:none) while its tab is inactive, so
+  // scrolling before activation would be a no-op in a real browser.
   useEffect(() => {
     if (staffingFocusSignal > 0) {
-      staffingSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      setActiveTab("staffing");
+      // Review iteración 2 #4: el usuario queda forzosamente mirando la pestaña que
+      // falló, así que cuenta como "revisada" igual que un click manual — si no, el
+      // "!" de "aún no revisada" (pest.4) podía quedar pegado mientras la corrige.
+      setVisitedTabs((prev) => (prev.has("staffing") ? prev : new Set(prev).add("staffing")));
     }
   }, [staffingFocusSignal]);
+  const scrolledStaffingSignalRef = useRef(0);
+  useEffect(() => {
+    if (
+      staffingFocusSignal > 0 &&
+      activeTab === "staffing" &&
+      scrolledStaffingSignalRef.current !== staffingFocusSignal
+    ) {
+      scrolledStaffingSignalRef.current = staffingFocusSignal;
+      staffingSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [activeTab, staffingFocusSignal]);
+
+  // Riesgos: al fallar la validación de riesgo en "Enviar para Aprobación", activar
+  // la pestaña 3 (operador §Proposed Fix #5).
+  useEffect(() => {
+    if (riskFocusSignal > 0) {
+      setActiveTab("risk");
+    }
+  }, [riskFocusSignal]);
+
+  // Pagos: al fallar la validación de porcentajes en persistNonRiskChanges, activar
+  // la pestaña 2 (Decisión del operador #4: auto-switch ante fallo de validación al
+  // guardar/enviar, generalizado igual que staffing/riesgo).
+  useEffect(() => {
+    if (paymentFocusSignal > 0) {
+      setActiveTab("payment");
+    }
+  }, [paymentFocusSignal]);
+
+  // Al montar/actualizar: abrir la pestaña de la pista rechazada (operador #4). Solo
+  // reacciona a cambios reales de estado (no en cada render) — el mount ya queda
+  // cubierto por el inicializador de `activeTab` arriba.
+  const prevTrackStatusRef = useRef({ approvalStatus, riskStatus });
+  useEffect(() => {
+    const prev = prevTrackStatusRef.current;
+    prevTrackStatusRef.current = { approvalStatus, riskStatus };
+    if (prev.approvalStatus === approvalStatus && prev.riskStatus === riskStatus) return;
+    if (approvalStatus === "Rejected") {
+      setActiveTab("budget");
+    } else if (riskStatus === "Rejected") {
+      setActiveTab("risk");
+    }
+  }, [approvalStatus, riskStatus]);
 
   // Categories already selected by OTHER requirement rows are excluded from
   // every row's options (a category cannot repeat within the same OT), but a
@@ -692,104 +954,8 @@ export function WorkOrderForm({
     );
   };
 
-  return (
-    <div className="space-y-4">
-      {/* Zone A: Header */}
-      <Card>
-        <CardHeader className="py-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Badge
-                variant="outline"
-                className={cn(
-                  "text-xs px-2.5 py-1",
-                  statusColors[approvalStatus],
-                )}
-              >
-                {isLocked && <Lock className="h-3 w-3 mr-1" />}
-                {t(statusLabels[approvalStatus])}
-              </Badge>
-              {/* Dirty indicator - same size as status badge, purple to match Guardar button */}
-              {isDirty && (
-                <Badge
-                  variant="outline"
-                  className="text-xs px-2.5 py-1 bg-brand-purple/10 text-brand-purple border-brand-purple/20"
-                >
-                  {t("common.unsavedChanges")}
-                </Badge>
-              )}
-            </div>
-            <div className="flex items-center gap-3">
-              {/* Currency - styled chip, editable only on new */}
-              {isNew ? (
-                <div className="flex items-center gap-2">
-                  <Label className="text-xs text-muted-foreground">
-                    {t("workOrders.currency")}:
-                  </Label>
-                  <Select
-                    value={currency}
-                    onValueChange={(v) => onCurrencyChange(v as "USD" | "BOB" | "USDT")}
-                  >
-                    <SelectTrigger className="w-24 h-7 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="BOB">BOB</SelectItem>
-                      <SelectItem value="USD">USD</SelectItem>
-                      <SelectItem value="USDT">USDT</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              ) : (
-                <div className="flex items-center gap-1.5 bg-muted/50 rounded-md px-2.5 py-1">
-                  <span className="text-xs text-muted-foreground">
-                    {t("workOrders.currency")}:
-                  </span>
-                  <span className="text-sm font-semibold">{currency}</span>
-                </div>
-              )}
-              {/* Season - styled chip, editable only on new */}
-              {isNew ? (
-                <div className="flex items-center gap-2">
-                  <Label className="text-xs text-muted-foreground">
-                    {t("workOrders.season")}:
-                  </Label>
-                  <Select
-                    value={seasonMode}
-                    onValueChange={(v) => onSeasonChange(v as "High" | "Low")}
-                  >
-                    <SelectTrigger className="w-20 h-7 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="High">{t("industry.high")}</SelectItem>
-                      <SelectItem value="Low">{t("industry.low")}</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              ) : (
-                <div className="flex items-center gap-1.5 bg-muted/50 rounded-md px-2.5 py-1">
-                  <span className="text-xs text-muted-foreground">
-                    {t("workOrders.season")}:
-                  </span>
-                  <span className="text-sm font-semibold">
-                    {seasonMode === "High"
-                      ? t("industry.high")
-                      : t("industry.low")}
-                  </span>
-                </div>
-              )}
-            </div>
-          </div>
-          {/* Estado por pista (Socio / Riesgos) — visible en el encabezado. */}
-          {showTrackStatus && (
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm mt-2 pt-2 border-t">
-              {renderTrackStatus()}
-            </div>
-          )}
-        </CardHeader>
-      </Card>
-
+  const budgetGridCard = (
+    <>
       {/* Zone B: Budget Grid - Read-only, managed via Work Matrix */}
       <Card>
         <CardHeader className="py-3">
@@ -920,6 +1086,11 @@ export function WorkOrderForm({
         </CardContent>
       </Card>
 
+    </>
+  );
+
+  const expensesSummaryGrid = (
+    <>
       {/* Zone C: Footer - Expenses, Adjustment, Tax */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Expenses Section - Editable in Draft mode */}
@@ -931,54 +1102,67 @@ export function WorkOrderForm({
           </CardHeader>
           <CardContent className="pt-0 form-dense">
             <div className="space-y-2">
-              {expenseBudget.map((exp) => (
-                <div key={exp.id} className="flex items-center gap-2">
-                  <Select
-                    value={exp.expense_type_id}
-                    onValueChange={(v) =>
-                      updateExpenseBudget(exp.id, "expense_type_id", v)
-                    }
-                    disabled={!isEditable}
-                  >
-                    <SelectTrigger className="flex-1 h-8">
-                      <SelectValue
-                        placeholder={t("workOrders.selectExpense")}
-                      />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {expenseTypes?.map((type) => (
-                        <SelectItem
-                          key={type.expense_type_id}
-                          value={type.expense_type_id}
-                        >
-                          {type.expense_name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <NumericInput
-                    decimals={2}
-                    locale={currentLanguage as "es" | "en"}
-                    min={0}
-                    value={exp.budgeted_amount || ""}
-                    onChange={(val) =>
-                      updateExpenseBudget(exp.id, "budgeted_amount", val)
-                    }
-                    className="w-28 text-right h-8"
-                    disabled={!isEditable}
-                  />
-                  {isEditable && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => removeExpenseBudget(exp.id)}
-                      className="h-7 w-7 text-destructive"
+              {expenseBudget.map((exp) => {
+                const usedByOtherExpenses = new Set(
+                  expenseBudget
+                    .filter((e) => e.id !== exp.id)
+                    .map((e) => e.expense_type_id)
+                    .filter(Boolean),
+                );
+                const expenseTypeOptions = (expenseTypes ?? []).filter(
+                  (type) =>
+                    type.expense_type_id === exp.expense_type_id ||
+                    !usedByOtherExpenses.has(type.expense_type_id),
+                );
+                return (
+                  <div key={exp.id} className="flex items-center gap-2">
+                    <Select
+                      value={exp.expense_type_id}
+                      onValueChange={(v) =>
+                        updateExpenseBudget(exp.id, "expense_type_id", v)
+                      }
+                      disabled={!isEditable}
                     >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  )}
-                </div>
-              ))}
+                      <SelectTrigger className="flex-1 h-8">
+                        <SelectValue
+                          placeholder={t("workOrders.selectExpense")}
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {expenseTypeOptions.map((type) => (
+                          <SelectItem
+                            key={type.expense_type_id}
+                            value={type.expense_type_id}
+                          >
+                            {type.expense_name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <NumericInput
+                      decimals={2}
+                      locale={currentLanguage as "es" | "en"}
+                      min={0}
+                      value={exp.budgeted_amount || ""}
+                      onChange={(val) =>
+                        updateExpenseBudget(exp.id, "budgeted_amount", val)
+                      }
+                      className="w-28 text-right h-8"
+                      disabled={!isEditable}
+                    />
+                    {isEditable && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => removeExpenseBudget(exp.id)}
+                        className="h-7 w-7 text-destructive"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+                );
+              })}
               {isEditable && (
                 <Button
                   variant="outline"
@@ -1134,6 +1318,11 @@ export function WorkOrderForm({
         </Card>
       </div>
 
+    </>
+  );
+
+  const paymentPlanSection = (
+    <>
       {/* Plan de Pagos */}
       {onPaymentPlanChange && onPaymentInstallmentsChange && (
         <WorkOrderPaymentPlanSection
@@ -1151,6 +1340,11 @@ export function WorkOrderForm({
         />
       )}
 
+    </>
+  );
+
+  const staffingSection = (
+    <>
       {/* Staffing Requirements Section (Fase 4). During creation (no wo_id yet) the
           section is shown disabled with an explanatory message — staffing is only
           configurable from the edit page, once the Work Order has a wo_id.
@@ -1425,9 +1619,13 @@ export function WorkOrderForm({
         )
       ))}
 
+    </>
+  );
+
+  const riskAssessmentCard = (
+    <>
       {/* Risk Assessment Section - editable by creator/Manager in Draft (or emergency
           completion); read-only for the Riesgos approver in Pending/Approved */}
-      {showRiskSection && (
         <Card
           className={cn(
             "transition-all duration-500",
@@ -1768,140 +1966,124 @@ export function WorkOrderForm({
             )}
           </CardContent>
         </Card>
+
+    </>
+  );
+
+  return (
+    <div className="space-y-4">
+      {/* Zone A: Header — solo para isNew (creación). En edición (!isNew), Estado/
+          Moneda/Temporada/Pistas viven fusionados en la tarjeta "Encargo" de
+          WorkOrderEdit.tsx (0819-181), vía WorkOrderStatusBadge/WorkOrderTrackStatus. */}
+      {isNew && (
+        <Card>
+          <CardHeader className="py-3">
+            <div className="flex items-center justify-between">
+              <WorkOrderStatusBadge approvalStatus={approvalStatus} isLocked={isLocked} isDirty={isDirty} />
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <Label className="text-xs text-muted-foreground">
+                    {t("workOrders.currency")}:
+                  </Label>
+                  <Select
+                    value={currency}
+                    onValueChange={(v) => onCurrencyChange(v as "USD" | "BOB" | "USDT")}
+                  >
+                    <SelectTrigger className="w-24 h-7 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="BOB">BOB</SelectItem>
+                      <SelectItem value="USD">USD</SelectItem>
+                      <SelectItem value="USDT">USDT</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Label className="text-xs text-muted-foreground">
+                    {t("workOrders.season")}:
+                  </Label>
+                  <Select
+                    value={seasonMode}
+                    onValueChange={(v) => onSeasonChange(v as "High" | "Low")}
+                  >
+                    <SelectTrigger className="w-20 h-7 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="High">{t("industry.high")}</SelectItem>
+                      <SelectItem value="Low">{t("industry.low")}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </div>
+            <WorkOrderTrackStatus
+              approvalStatus={approvalStatus}
+              approvedAt={approvedAt}
+              riskStatus={riskStatus}
+              canRevert={canRevert}
+              onRevertSocio={onRevertSocio}
+              onRevertRisk={onRevertRisk}
+              isSubmitting={isSubmitting}
+              className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm mt-2 pt-2 border-t"
+            />
+          </CardHeader>
+        </Card>
       )}
 
-      {/* Approval track status (fila inferior) — espejo del indicador del encabezado. */}
-      {showTrackStatus && (
-        <div className="flex flex-wrap justify-end gap-x-6 gap-y-1 text-sm">
-          {renderTrackStatus()}
-        </div>
-      )}
-      {/* Rejection note banner (de 0527-126): rojo en Rechazado, naranja en Draft. */}
-      {isRejected && rejectionNote && (
-        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          <span className="font-medium">{t("workOrders.rejectionNoteLabel")}</span>{" "}
-          {rejectionNote}
-        </div>
-      )}
-      {isDraft && rejectionNote && (
-        <div className="rounded-md border border-orange-300 bg-orange-50 px-4 py-3 text-sm text-orange-800">
-          <span className="font-medium">{t("workOrders.rejectionNoteLabel")}</span>{" "}
-          {rejectionNote}
-        </div>
-      )}
-      {/* Nota de rechazo de Riesgos — visible mientras se corrige (risk_status='Rejected'). */}
-      {isRiskRejected && riskNote && (
-        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          <span className="font-medium">{t("workOrders.riskRejectionNoteLabel")}</span>{" "}
-          {riskNote}
-        </div>
-      )}
-
-      {/* Actions */}
-      <div className="flex justify-end gap-3 items-start">
-        {/* Standalone buttons. When the Socio/Riesgos boxes are shown they are taller
-            (border + top label), so pad the top here to keep all buttons aligned. */}
-        <div className={cn("flex gap-3", hasActionBoxes && "pt-4")}>
-          {onCancel && (
-            <Button
-              variant="cancel"
-              onClick={onCancel}
-              disabled={isSubmitting}
-              className="btn-action"
-            >
-              {t("common.cancel")}
-            </Button>
-          )}
-          {isDraft && (
-            <>
-              <LoadingButton
-                onClick={onSubmit}
-                loading={isSubmitting}
-                className="btn-action"
-                disabled={isDirty && !hasNonRiskDirty}
-                title={
-                  isDirty && !hasNonRiskDirty
-                    ? t("workOrders.riskSavedOnSubmit")
-                    : undefined
-                }
-              >
-                {t("common.save")}
-              </LoadingButton>
-              {onSubmitForApproval && (
-                <LoadingButton
-                  onClick={() => {
-                    // Empty risk data + risk NOT yet approved => new emergency: capture motive.
-                    // If risk is already Emergency_Approved (re-submitting Socio track only),
-                    // skip the modal — no new justification needed.
-                    if (riskAllEmpty && !riskApproved) {
-                      setSubmitJustification("");
-                      setEmergencyDialogMode("submit");
-                      setSubmitEmergencyDialogOpen(true);
-                    } else {
-                      onSubmitForApproval();
-                    }
-                  }}
-                  className="bg-info hover:bg-info/90 btn-action"
-                  loading={isSubmitting}
-                  disabled={!canSubmitForApproval}
-                  title={!canSubmitForApproval ? t("workOrders.riskAssessmentRequired") : undefined}
-                >
-                  <Send className="h-4 w-4 mr-2" />
-                  {t("workOrders.submitForApproval")}
-                </LoadingButton>
+      {isNew ? (
+        <>
+          {budgetGridCard}
+          {expensesSummaryGrid}
+          {paymentPlanSection}
+          {staffingSection}
+          {showRiskSection && riskAssessmentCard}
+        </>
+      ) : (
+        <Tabs value={activeTab} onValueChange={handleTabChange}>
+          <TabsList className="flex w-full justify-start overflow-x-auto">
+            <TabsTrigger value="budget" className="shrink-0">
+              {t("workOrders.tabs.budget")}
+              {renderTabIndicator(
+                budgetIndicatorKind,
+                ariaLabelForIndicator(budgetIndicatorKind, "workOrders.tabs.status.notReviewed"),
               )}
-            </>
-          )}
-          {/* Corrección de la pista Socio en sitio (Rechazado): gastos/ajuste editables;
-              "Enviar para Aprobación" guarda esos cambios pendientes (si los hay) y luego
-              reenvía SOLO la pista Socio (el riesgo decidido permanece bloqueado y visible).
-              No usa el flujo de emergencia (riesgo ya resuelto). "Guardar" sigue disponible
-              para quien prefiera guardar sin reenviar todavía. */}
-          {socioCorrecting && (
-            <>
-              <LoadingButton
-                onClick={onSubmit}
-                loading={isSubmitting}
-                className="btn-action"
-              >
-                {t("common.save")}
-              </LoadingButton>
-              {onSubmitForApproval && (
-                <LoadingButton
-                  onClick={() => onSubmitForApproval()}
-                  className="bg-info hover:bg-info/90 btn-action"
-                  loading={isSubmitting}
-                >
-                  <Send className="h-4 w-4 mr-2" />
-                  {t("workOrders.sendForPartnerApproval")}
-                </LoadingButton>
+            </TabsTrigger>
+            <TabsTrigger value="payment" className="shrink-0">
+              {t("workOrders.tabs.payment")}
+              {renderTabIndicator(
+                paymentIndicatorKind,
+                ariaLabelForIndicator(paymentIndicatorKind, "workOrders.tabs.status.incomplete"),
               )}
-            </>
-          )}
-          {/* Retirar de Aprobación: solo cuando hay una pista pendiente (socioPending ||
-              riskPending). Devuelve la OT a Draft; al editar, solo se corrige la pista no
-              aprobada. Con ambas pistas rechazadas (o una aprobada + otra rechazada) no hay
-              pendiente => no se muestra: la corrección se hace en sitio. */}
-          {showWithdraw && (
-            <LoadingButton
-              variant="outline"
-              onClick={onUnsubmit}
-              loading={isSubmitting}
-              className="bg-warning hover:bg-warning/90 text-warning-foreground btn-action"
-            >
-              <Undo2 className="h-4 w-4 mr-2" />
-              {t("workOrders.unsubmit")}
-            </LoadingButton>
-          )}
-        </div>
-        {/* Socio track: business approval. Hidden once the Socio has approved (the track
-            status indicator above then shows "Aprobado"). */}
-        {socioCanAct && (
+            </TabsTrigger>
+            <TabsTrigger value="risk" className="shrink-0">
+              {t("workOrders.tabs.risk")}
+              {renderTabIndicator(
+                riskIndicatorKind,
+                ariaLabelForIndicator(riskIndicatorKind, "workOrders.tabs.status.incomplete"),
+              )}
+            </TabsTrigger>
+            {isSchedulerEnabled() && (
+              <TabsTrigger value="staffing" className="shrink-0">
+                {t("workOrders.tabs.staffing")}
+                {renderTabIndicator(
+                  staffingIndicatorKind,
+                  ariaLabelForIndicator(staffingIndicatorKind, "workOrders.tabs.status.notReviewed"),
+                )}
+              </TabsTrigger>
+            )}
+          </TabsList>
+          <TabsContent value="budget" forceMount className="mt-4 space-y-4 data-[state=inactive]:hidden">
+            {budgetGridCard}
+            {expensesSummaryGrid}
+            {socioCanAct && (
+              <div className="flex justify-end">
           <div className="relative rounded-md border p-3 pt-4">
             <span className="absolute -top-2 left-3 bg-background px-1 text-xs font-medium text-muted-foreground">
               {t("workOrders.partnerActionsLabel")}
             </span>
-            <div className="flex justify-end gap-3">
+            <div className="flex flex-col sm:flex-row sm:justify-end gap-3">
               {onReject && (
                 <LoadingButton
                   variant="outline"
@@ -1924,16 +2106,21 @@ export function WorkOrderForm({
               </LoadingButton>
             </div>
           </div>
-        )}
-        {/* Riesgos track: Administrator (roles split later). Normal flow / post-completion
-            => single "Aprobar Riesgo". Emergency (risk empty) => two sequential orange
-            sign-offs: Riesgo (assistant) then Socio de Riesgos. */}
-        {showRiskActions && hasRiskAction && (
+              </div>
+            )}
+          </TabsContent>
+          <TabsContent value="payment" forceMount className="mt-4 data-[state=inactive]:hidden">
+            {paymentPlanSection}
+          </TabsContent>
+          <TabsContent value="risk" forceMount className="mt-4 space-y-4 data-[state=inactive]:hidden">
+            {riskAssessmentCard}
+            {showRiskActions && hasRiskAction && (
+              <div className="flex justify-end">
           <div className="relative rounded-md border p-3 pt-4">
             <span className="absolute -top-2 left-3 bg-background px-1 text-xs font-medium text-muted-foreground">
               {t("workOrders.riskActionsLabel")}
             </span>
-            <div className="flex justify-end gap-3">
+            <div className="flex flex-col sm:flex-row sm:justify-end gap-3">
               {onRejectRisk && (
                 <LoadingButton
                   variant="outline"
@@ -1983,7 +2170,149 @@ export function WorkOrderForm({
               )}
             </div>
           </div>
-        )}
+              </div>
+            )}
+          </TabsContent>
+          {isSchedulerEnabled() && (
+            <TabsContent value="staffing" forceMount className="mt-4 data-[state=inactive]:hidden">
+              {staffingSection}
+            </TabsContent>
+          )}
+        </Tabs>
+      )}
+
+
+      {/* Approval track status (fila inferior) — espejo del indicador de arriba (Zone
+          A en isNew; la tarjeta "Encargo" fusionada de WorkOrderEdit en !isNew). */}
+      <WorkOrderTrackStatus
+        approvalStatus={approvalStatus}
+        approvedAt={approvedAt}
+        riskStatus={riskStatus}
+        canRevert={canRevert}
+        onRevertSocio={onRevertSocio}
+        onRevertRisk={onRevertRisk}
+        isSubmitting={isSubmitting}
+        className="flex flex-wrap justify-end gap-x-6 gap-y-1 text-sm"
+      />
+      {/* Rejection note banner (de 0527-126): rojo en Rechazado, naranja en Draft. */}
+      {isRejected && rejectionNote && (
+        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          <span className="font-medium">{t("workOrders.rejectionNoteLabel")}</span>{" "}
+          {rejectionNote}
+        </div>
+      )}
+      {isDraft && rejectionNote && (
+        <div className="rounded-md border border-orange-300 bg-orange-50 px-4 py-3 text-sm text-orange-800">
+          <span className="font-medium">{t("workOrders.rejectionNoteLabel")}</span>{" "}
+          {rejectionNote}
+        </div>
+      )}
+      {/* Nota de rechazo de Riesgos — visible mientras se corrige (risk_status='Rejected'). */}
+      {isRiskRejected && riskNote && (
+        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          <span className="font-medium">{t("workOrders.riskRejectionNoteLabel")}</span>{" "}
+          {riskNote}
+        </div>
+      )}
+
+      {/* Actions: botones globales transversales. Las cajas de acción de Socio y
+          Riesgos viven ahora dentro de sus pestañas (pest. 1 y 3). */}
+      <div className="flex flex-col sm:flex-row sm:justify-end gap-3">
+          {onCancel && (
+            <Button
+              variant="cancel"
+              onClick={onCancel}
+              disabled={isSubmitting}
+              className="btn-action"
+            >
+              {t("common.cancel")}
+            </Button>
+          )}
+          {isDraft && (
+            <>
+              <LoadingButton
+                onClick={onSubmit}
+                loading={isSubmitting}
+                className="btn-action"
+                disabled={isDirty && !hasNonRiskDirty}
+                title={
+                  isDirty && !hasNonRiskDirty
+                    ? t("workOrders.riskSavedOnSubmit")
+                    : undefined
+                }
+              >
+                {t("common.save")}
+              </LoadingButton>
+              {onSubmitForApproval && (
+                <LoadingButton
+                  onClick={() => {
+                    // Empty risk data + risk NOT yet approved => new emergency: capture motive.
+                    // If risk is already Emergency_Approved (re-submitting Socio track only),
+                    // skip the modal — no new justification needed.
+                    if (riskAllEmpty && !riskApproved) {
+                      setSubmitJustification("");
+                      setEmergencyDialogMode("submit");
+                      setSubmitEmergencyDialogOpen(true);
+                    } else {
+                      markTabsSubmitted();
+                      onSubmitForApproval();
+                    }
+                  }}
+                  className="bg-info hover:bg-info/90 btn-action"
+                  loading={isSubmitting}
+                  disabled={!canSubmitForApproval}
+                  title={!canSubmitForApproval ? t("workOrders.riskAssessmentRequired") : undefined}
+                >
+                  <Send className="h-4 w-4 mr-2" />
+                  {t("workOrders.submitForApproval")}
+                </LoadingButton>
+              )}
+            </>
+          )}
+          {/* Corrección de la pista Socio en sitio (Rechazado): gastos/ajuste editables;
+              "Enviar para Aprobación" guarda esos cambios pendientes (si los hay) y luego
+              reenvía SOLO la pista Socio (el riesgo decidido permanece bloqueado y visible).
+              No usa el flujo de emergencia (riesgo ya resuelto). "Guardar" sigue disponible
+              para quien prefiera guardar sin reenviar todavía. */}
+          {socioCorrecting && (
+            <>
+              <LoadingButton
+                onClick={onSubmit}
+                loading={isSubmitting}
+                className="btn-action"
+              >
+                {t("common.save")}
+              </LoadingButton>
+              {onSubmitForApproval && (
+                <LoadingButton
+                  onClick={() => {
+                    markTabsSubmitted();
+                    onSubmitForApproval();
+                  }}
+                  className="bg-info hover:bg-info/90 btn-action"
+                  loading={isSubmitting}
+                >
+                  <Send className="h-4 w-4 mr-2" />
+                  {t("workOrders.sendForPartnerApproval")}
+                </LoadingButton>
+              )}
+            </>
+          )}
+          {/* Retirar de Aprobación: solo cuando hay una pista pendiente (socioPending ||
+              riskPending). Devuelve la OT a Draft; al editar, solo se corrige la pista no
+              aprobada. Con ambas pistas rechazadas (o una aprobada + otra rechazada) no hay
+              pendiente => no se muestra: la corrección se hace en sitio. */}
+          {showWithdraw && (
+            <LoadingButton
+              variant="outline"
+              onClick={onUnsubmit}
+              loading={isSubmitting}
+              className="bg-warning hover:bg-warning/90 text-warning-foreground btn-action"
+            >
+              <Undo2 className="h-4 w-4 mr-2" />
+              {t("workOrders.unsubmit")}
+            </LoadingButton>
+          )}
       </div>
 
       {/* Submit-time emergency dialog — Manager confirms sending without risk data and
@@ -2023,6 +2352,7 @@ export function WorkOrderForm({
                 if (emergencyDialogMode === "resend") {
                   onCompleteRisk?.(justif);
                 } else {
+                  markTabsSubmitted();
                   onSubmitForApproval?.(justif);
                 }
                 setSubmitEmergencyDialogOpen(false);

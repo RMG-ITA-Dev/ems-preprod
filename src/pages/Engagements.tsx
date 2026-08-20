@@ -54,74 +54,88 @@ const Engagements = () => {
     return [...bySocietyId.values()].map((soc) => ({ value: soc.society_id, label: soc.name }));
   }, [societies, engagements]);
 
+  // Bug 0722-158 (extension a Encargos): 9 columnas -> 7. Cada fusion conserva
+  // TODOS sus ordenamientos y filtros via `secondary`, el campo opcional que
+  // DataTable expone para apilar controles bajo el label.
+  type StaffRef = { short_name?: string | null; first_name?: string | null; last_name?: string | null } | null | undefined;
+  const staffName = (person: StaffRef) =>
+    person ? person.short_name || `${person.first_name} ${person.last_name}` : "-";
+
   const columns: Column<EngagementRow>[] = [
     {
-      key: "engagement_code",
-      label: t("engagement.code"),
-      sortable: true,
-      className: "w-42",
-      mobilePriority: 'secondary',
-      render: (row) => <span className="font-mono text-muted-foreground">{row.engagement_code || "-"}</span>,
-    },
-    {
+      // Encargo = nombre (primario) + codigo debajo.
       key: "engagement_name",
       label: t("engagement.name"),
       sortable: true,
+      className: "min-w-[220px]",
       mobilePriority: 'primary',
+      secondary: [{ key: "engagement_code", label: t("engagement.code"), sortable: true }],
       render: (row) => (
-        <span className="font-medium">{row.engagement_name}</span>
+        <div>
+          <div className="font-medium">{row.engagement_name}</div>
+          <div className="font-mono text-xs text-muted-foreground">{row.engagement_code || "-"}</div>
+        </div>
       ),
     },
     {
+      // Cliente + la sociedad del estudio como chip.
       key: "client.client_legal_name",
       label: t("engagement.client"),
       sortable: true,
+      className: "min-w-[220px]",
       mobilePriority: 'primary',
-      render: (row) => row.client?.client_legal_name || "-",
+      secondary: [{ key: "society.name", label: t("engagement.society"), sortable: true, filterKey: "society_id" }],
+      render: (row) => (
+        <div>
+          <div>{row.client?.client_legal_name || "-"}</div>
+          <div className="flex flex-wrap items-center gap-1 mt-1">
+            <Badge
+              variant="outline"
+              className="bg-muted text-muted-foreground font-normal text-[10px] px-1.5 py-0"
+              title={`${t("engagement.society")}: ${row.society?.name || "-"}`}
+            >
+              <span className="opacity-70">{t("engagement.society")}</span>
+              <span className="mx-1 opacity-40">·</span>
+              {row.society?.name || "-"}
+            </Badge>
+          </div>
+        </div>
+      ),
     },
     {
-      key: "society.name",
-      label: t("engagement.society"),
-      sortable: true,
-      filterKey: "society_id",
-      mobilePriority: 'secondary',
-      render: (row) => row.society?.name || "-",
-    },
-    {
+      // Socio y Gerente siguen siendo columnas propias: con cabecera que las
+      // nombra, el nombre suelto ya se entiende y no hace falta chip etiquetado.
       key: "partner.last_name",
-      label: t("engagement.partner"),
+      label: t("common.partner"),
       sortable: true,
       filterKey: "partner_id",
+      className: "w-32",
       mobilePriority: 'secondary',
-      render: (row) => (row.partner ? row.partner.short_name || `${row.partner.first_name} ${row.partner.last_name}` : "-"),
+      render: (row) => staffName(row.partner),
     },
     {
       key: "manager.last_name",
-      label: t("engagement.manager"),
+      label: t("common.manager"),
       sortable: true,
       filterKey: "manager_id",
+      className: "w-32",
       mobilePriority: 'secondary',
-      render: (row) => (row.manager ? row.manager.short_name || `${row.manager.first_name} ${row.manager.last_name}` : "-"),
+      render: (row) => staffName(row.manager),
     },
     {
+      // Inicio y Fin siguen siendo columnas propias.
       key: "start_date",
       label: t("engagement.startDate"),
       sortable: true,
       mobilePriority: 'secondary',
-      render: (row) => {
-        const engagement = row as EngagementRow;
-        return engagement.start_date ? format(parseDateLocal(engagement.start_date), "dd/MM/yyyy") : "-";
-      },
+      render: (row) => (row.start_date ? format(parseDateLocal(row.start_date), "dd/MM/yyyy") : "-"),
     },
     {
       key: "end_date",
       label: t("engagement.endDate"),
       sortable: true,
       mobilePriority: 'secondary',
-      render: (row) => {
-        const engagement = row as EngagementRow;
-        return engagement.end_date ? format(parseDateLocal(engagement.end_date), "dd/MM/yyyy") : "-";
-      },
+      render: (row) => (row.end_date ? format(parseDateLocal(row.end_date), "dd/MM/yyyy") : "-"),
     },
     {
       key: "effective_state",

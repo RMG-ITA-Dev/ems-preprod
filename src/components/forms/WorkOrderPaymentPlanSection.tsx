@@ -30,6 +30,7 @@ import {
   computeAmount,
   computePaymentDate,
   isAlertDue,
+  getEffectiveInstallmentStatus,
 } from "@/lib/workOrderPaymentPlan";
 import type {
   PaymentPlanInput,
@@ -109,10 +110,7 @@ export function WorkOrderPaymentPlanSection({
   const numInstallments = installments.length;
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/La_Paz" }).format(new Date());
 
-  const getEffectiveStatus = (inst: PaymentInstallmentInput): PaymentInstallmentStatus => {
-    if (inst.status === "Pending" && inst.agreed_invoice_date && inst.agreed_invoice_date < today) return "Overdue";
-    return inst.status as PaymentInstallmentStatus;
-  };
+  const getEffectiveStatus = getEffectiveInstallmentStatus;
 
   const hasAlert = installments.some((inst) => isAlertDue(inst));
 

@@ -1,6 +1,7 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { TableTopScrollbar } from "@/components/ui/table-top-scrollbar";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -10,6 +11,20 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Search, Plus, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, Filter, ChevronDown } from "lucide-react";
 import { useIsMobile } from "@/hooks/useMobile";
+
+/**
+ * Ordenamiento y/o filtro EXTRA que se apila bajo el label de una columna.
+ * Permite fusionar columnas relacionadas sin perder sus controles: una columna
+ * «Equipo» puede llevar los filtros de Socio y de Gerente a la vez.
+ */
+export interface ColumnSecondaryControl {
+  /** Ruta de ordenamiento (admite "a.b.c"). */
+  key: string;
+  label: string;
+  sortable?: boolean;
+  /** Debe coincidir con un `filters[].key` o con `statusFilter.key`. */
+  filterKey?: string;
+}
 
 export interface Column<T> {
   key: string;
@@ -21,6 +36,11 @@ export interface Column<T> {
   className?: string;
   /** Mobile priority: 'primary' shows on card, 'secondary' in expandable, undefined hidden on mobile */
   mobilePriority?: 'primary' | 'secondary';
+  /**
+   * Controles extra bajo el label. Opcional: sin el, la cabecera se renderiza
+   * exactamente como antes.
+   */
+  secondary?: ColumnSecondaryControl[];
 }
 
 export interface FilterConfig {
@@ -84,6 +104,8 @@ export function DataTable<T extends Record<string, unknown>>({
   const [rowsPerPage, setRowsPerPage] = useState(20);
   const [openFilterKey, setOpenFilterKey] = useState<string | null>(null);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  // Bug 0722-158: el scroller real es el div interno de <Table>, no la card.
+  const desktopScrollRef = useRef<HTMLDivElement>(null);
 
   const handleSort = (columnKey: string) => {
     if (sortColumn === columnKey) {
@@ -150,6 +172,47 @@ export function DataTable<T extends Record<string, unknown>>({
       setFilterValues((prev) => ({ ...prev, [filterKey]: value }));
     }
     setOpenFilterKey(null);
+  };
+
+  // Extraido para que el label principal y cada control `secondary` compartan
+  // exactamente el mismo popover de filtro.
+  const renderFilter = (filterKey?: string) => {
+    const filterConfig = getFilterConfig(filterKey);
+    if (!filterConfig || !filterKey) return null;
+    const active = isFilterActive(filterKey);
+
+    return (
+      <Popover
+        open={openFilterKey === filterKey}
+        onOpenChange={(open) => setOpenFilterKey(open ? filterKey : null)}
+      >
+        <PopoverTrigger asChild>
+          <button className="p-0.5 hover:bg-muted rounded">
+            <Filter className={`h-3 w-3 ${active ? "text-accent" : "opacity-50"}`} />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent className="w-56 p-2" align="start">
+          <Select value={getFilterValue(filterKey)} onValueChange={(val) => setFilterValue(filterKey, val)}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t("common.all")}</SelectItem>
+              {filterConfig.options.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {active && (
+            <Button variant="ghost" size="sm" onClick={() => setFilterValue(filterKey, "all")} className="w-full mt-2">
+              {t("common.clear")}
+            </Button>
+          )}
+        </PopoverContent>
+      </Popover>
+    );
   };
 
   const filteredAndSortedData = useMemo(() => {
@@ -331,118 +394,103 @@ export function DataTable<T extends Record<string, unknown>>({
     </div>
   );
 
-  // Desktop Table View (UNCHANGED)
+  // Desktop Table View
   const renderDesktopTable = () => (
-    <div className="bg-card rounded-xl border border-border overflow-hidden">
-      <Table>
-        <TableHeader>
-          <TableRow className="bg-muted/50">
-            {columns.map((col) => {
-              const filterConfig = getFilterConfig(col.filterKey);
-              const hasFilter = !!filterConfig;
-              const filterActive = isFilterActive(col.filterKey);
-
-              const isLast = columns.indexOf(col) === columns.length - 1;
-              return (
-                <TableHead
-                  key={col.key}
-                  className={`font-semibold text-sm text-center ${!isLast ? "border-r border-border" : ""} ${col.className || ""}`}
-                >
-                  <div className="flex items-center gap-1">
-                    {col.sortable ? (
-                      <span
-                        className="cursor-pointer select-none hover:text-foreground flex items-center gap-1"
-                        onClick={() => handleSort(col.key)}
-                      >
-                        {col.label}
-                        {getSortIcon(col.key)}
-                      </span>
-                    ) : (
-                      <span>{col.label}</span>
+    // Bug 0722-158: div plano externo que agrupa la franja de scroll con la card.
+    // La franja va FUERA del `overflow-hidden` para que el borde redondeado no la
+    // recorte.
+    <div>
+      <TableTopScrollbar targetRef={desktopScrollRef} className="bg-card" />
+      <div className="bg-card rounded-xl border border-border overflow-hidden">
+        <Table containerRef={desktopScrollRef}>
+          <TableHeader>
+            <TableRow className="bg-muted/50">
+              {columns.map((col) => {
+                const isLast = columns.indexOf(col) === columns.length - 1;
+                return (
+                  <TableHead
+                    key={col.key}
+                    className={`font-semibold text-sm text-center ${!isLast ? "border-r border-border" : ""} ${col.className || ""}`}
+                  >
+                    <div className="flex flex-col gap-0.5">
+                    <div className="flex items-center gap-1">
+                      {col.sortable ? (
+                        <span
+                          className="cursor-pointer select-none hover:text-foreground flex items-center gap-1"
+                          onClick={() => handleSort(col.key)}
+                        >
+                          {col.label}
+                          {getSortIcon(col.key)}
+                        </span>
+                      ) : (
+                        <span>{col.label}</span>
+                      )}
+                      {renderFilter(col.filterKey)}
+                    </div>
+                    {col.secondary && col.secondary.length > 0 && (
+                      <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-0.5 text-xs font-normal text-muted-foreground">
+                        {col.secondary.map((sec) => (
+                          <div key={sec.key} className="flex items-center gap-1">
+                            {sec.sortable ? (
+                              <span
+                                className="cursor-pointer select-none hover:text-foreground flex items-center gap-1"
+                                onClick={() => handleSort(sec.key)}
+                              >
+                                {sec.label}
+                                {getSortIcon(sec.key)}
+                              </span>
+                            ) : (
+                              <span>{sec.label}</span>
+                            )}
+                            {renderFilter(sec.filterKey)}
+                          </div>
+                        ))}
+                      </div>
                     )}
-                    {hasFilter && (
-                      <Popover 
-                        open={openFilterKey === col.filterKey} 
-                        onOpenChange={(open) => setOpenFilterKey(open ? col.filterKey || null : null)}
-                      >
-                        <PopoverTrigger asChild>
-                          <button className="p-0.5 hover:bg-muted rounded">
-                            <Filter className={`h-3 w-3 ${filterActive ? "text-accent" : "opacity-50"}`} />
-                          </button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-56 p-2" align="start">
-                          <Select 
-                            value={getFilterValue(col.filterKey)} 
-                            onValueChange={(val) => setFilterValue(col.filterKey!, val)}
-                          >
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="all">{t("common.all")}</SelectItem>
-                              {filterConfig?.options.map((opt) => (
-                                <SelectItem key={opt.value} value={opt.value}>
-                                  {opt.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          {filterActive && (
-                            <Button 
-                              variant="ghost" 
-                              size="sm" 
-                              onClick={() => setFilterValue(col.filterKey!, "all")} 
-                              className="w-full mt-2"
-                            >
-                              {t("common.clear")}
-                            </Button>
-                          )}
-                        </PopoverContent>
-                      </Popover>
-                    )}
-                  </div>
-                </TableHead>
-              );
-            })}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {isLoading ? (
-            Array.from({ length: 5 }).map((_, i) => (
-              <TableRow key={i}>
-                {columns.map((col) => (
-                  <TableCell key={col.key}>
-                    <Skeleton className="h-5 w-full max-w-[150px]" />
-                  </TableCell>
-                ))}
-              </TableRow>
-            ))
-          ) : paginatedData.length === 0 ? (
-            <TableRow>
-              <TableCell colSpan={columns.length} className="h-24 text-center text-muted-foreground">
-                {t("common.noResults")}
-              </TableCell>
+                    </div>
+                  </TableHead>
+                );
+              })}
             </TableRow>
-          ) : (
-            paginatedData.map((row) => (
-              <TableRow
-                key={getRowId(row)}
-                className={`${onRowClick ? "cursor-pointer hover:bg-muted/30" : ""}`}
-                onClick={() => onRowClick?.(row)}
-              >
-                {columns.map((col, idx) => {
-                  const isLast = idx === columns.length - 1;
-                  return (
-                    <TableCell key={col.key} className={`py-2 text-sm ${!isLast ? "border-r border-border" : ""} ${col.className || ""}`}>
-                      {col.render ? col.render(row) : (getValueByPath(row, col.key) as React.ReactNode)}
+          </TableHeader>
+          <TableBody>
+            {isLoading ? (
+              Array.from({ length: 5 }).map((_, i) => (
+                <TableRow key={i}>
+                  {columns.map((col) => (
+                    <TableCell key={col.key}>
+                      <Skeleton className="h-5 w-full max-w-[150px]" />
                     </TableCell>
-                  );
-                })}
+                  ))}
+                </TableRow>
+              ))
+            ) : paginatedData.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={columns.length} className="h-24 text-center text-muted-foreground">
+                  {t("common.noResults")}
+                </TableCell>
               </TableRow>
-            ))
-          )}
-        </TableBody>
-      </Table>
+            ) : (
+              paginatedData.map((row) => (
+                <TableRow
+                  key={getRowId(row)}
+                  className={`${onRowClick ? "cursor-pointer hover:bg-muted/30" : ""}`}
+                  onClick={() => onRowClick?.(row)}
+                >
+                  {columns.map((col, idx) => {
+                    const isLast = idx === columns.length - 1;
+                    return (
+                      <TableCell key={col.key} className={`py-2 text-sm ${!isLast ? "border-r border-border" : ""} ${col.className || ""}`}>
+                        {col.render ? col.render(row) : (getValueByPath(row, col.key) as React.ReactNode)}
+                      </TableCell>
+                    );
+                  })}
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
     </div>
   );
 
