@@ -281,12 +281,14 @@ describe("useEmsData hooks", () => {
     });
   });
 
-  describe("useAllActivityCodes (0513-114)", () => {
+  describe("useAllActivityCodes (0513-114 / 0817-177)", () => {
     it("fetches ALL activity codes without is_active filter (for admin)", async () => {
+      // 0817-177: activity_codes.service_id is NOT NULL — every row is
+      // practice-linked, there is no more "Global" bucket.
       const mockCodes = [
         { activity_id: "1", activity_code: "AUD-A1", description: "Planning", is_active: true, service_id: "s1", entity_type: "A", service: { service_id: "s1", name: "Auditoría", abbreviation: "AUD" } },
         { activity_id: "2", activity_code: "AUD-AX", description: "Old Step", is_active: false, service_id: "s1", entity_type: "A", service: { service_id: "s1", name: "Auditoría", abbreviation: "AUD" } },
-        { activity_id: "3", activity_code: "100-PLA", description: "Legacy Plan", is_active: true, service_id: null, entity_type: "A", service: null },
+        { activity_id: "3", activity_code: "TAX-A1", description: "Tax Review", is_active: true, service_id: "s2", entity_type: "A", service: { service_id: "s2", name: "Tax", abbreviation: "TAX" } },
       ];
 
       const mockSelect = vi.fn().mockResolvedValue({ data: mockCodes, error: null });

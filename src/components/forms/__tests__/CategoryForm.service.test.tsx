@@ -135,3 +135,28 @@ describe("CategoryForm — edit (0702-152)", () => {
     expect(screen.queryByTestId("category-service-select")).not.toBeInTheDocument();
   });
 });
+
+// ── lockService (0817-177: unified Settings tab) ────────────────────────────
+describe("CategoryForm — lockService on create (0817-177)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCategoriesData = mockAllCategories;
+  });
+
+  it("renders the práctica read-only (no selector) when lockService is true", () => {
+    render(
+      <CategoryForm open={true} onOpenChange={vi.fn()} category={null} serviceId="s1" lockService />
+    );
+    const readonly = screen.getByTestId("category-service-readonly") as HTMLInputElement;
+    expect(readonly).toBeInTheDocument();
+    expect(readonly).toBeDisabled();
+    expect(readonly.value).toBe("Auditoría");
+    expect(screen.queryByTestId("category-service-select")).not.toBeInTheDocument();
+  });
+
+  it("still shows the selector when lockService is false/absent, even with a serviceId default", () => {
+    render(<CategoryForm open={true} onOpenChange={vi.fn()} category={null} serviceId="s1" />);
+    expect(screen.getByTestId("category-service-select")).toBeInTheDocument();
+    expect(screen.queryByTestId("category-service-readonly")).not.toBeInTheDocument();
+  });
+});

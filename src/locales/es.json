@@ -490,7 +490,7 @@
     "description": "Descripción",
     "status": "Estado",
     "service": "Práctica",
-    "selectService": "Seleccionar práctica (opcional)",
+    "selectService": "Seleccionar práctica",
     "selectServiceFilter": "Seleccionar práctica",
     "serviceDescription": "Vincular a una práctica para generar el código automáticamente. Dejar vacío para códigos heredados.",
     "codeRequired": "El código es requerido para actividades heredadas",
@@ -554,7 +554,8 @@
     "nameRequired": "El nombre es requerido",
     "namePlaceholder": "ej., Auditoría",
     "noDigitsAvailable": "Todos los códigos (0–9) están en uso. Desactive una práctica para liberar un código.",
-    "formDescription": "Administra los detalles y disponibilidad de la práctica."
+    "formDescription": "Administra los detalles y disponibilidad de la práctica.",
+    "disallowsChildrenNotice": "Esta práctica no permite categorías ni actividades. Habilite \"Requiere configuración adicional\" y asegúrese de que esté activa para gestionarlas."
   },
   "taxonomy": {
     "name": "Nombre",

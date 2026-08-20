@@ -490,7 +490,7 @@
     "description": "Description",
     "status": "Status",
     "service": "Practice",
-    "selectService": "Select practice (optional)",
+    "selectService": "Select practice",
     "selectServiceFilter": "Select practice",
     "serviceDescription": "Link to a practice to auto-generate the code. Leave empty for legacy codes.",
     "codeRequired": "Code is required for legacy activities",
@@ -554,7 +554,8 @@
     "nameRequired": "Name is required",
     "namePlaceholder": "e.g., Auditoría",
     "noDigitsAvailable": "All codes (0–9) are in use. Deactivate a practice to free up a code.",
-    "formDescription": "Manage practice details and availability."
+    "formDescription": "Manage practice details and availability.",
+    "disallowsChildrenNotice": "This practice does not allow categories or activities. Enable \"Requires additional configuration\" and make sure it is active to manage them."
   },
   "taxonomy": {
     "name": "Name",

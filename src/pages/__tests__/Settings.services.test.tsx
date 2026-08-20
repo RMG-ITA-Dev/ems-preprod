@@ -1,14 +1,30 @@
 import React from "react";
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@/test/utils";
 import userEvent from "@testing-library/user-event";
 
 /**
- * 0625-149: Settings — Servicios tab
- * - Admin sees the tab trigger
- * - Non-admin does NOT see it
- * - Rows render code/name/active badge
+ * 0817-177: Settings — unified "Prácticas" tab.
+ * Replaces the old three independent tabs (Prácticas / Tarifas por Categoría /
+ * Códigos de Actividad) with a single tab: a shared práctica selector, admin
+ * ABM actions (Nueva/Editar Práctica), and permission-gated sub-tabs.
  */
+
+class MockResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+(globalThis as any).ResizeObserver = MockResizeObserver;
+
+if (typeof Element !== "undefined" && !Element.prototype.hasPointerCapture) {
+  Element.prototype.hasPointerCapture = () => false;
+  Element.prototype.setPointerCapture = () => {};
+  Element.prototype.releasePointerCapture = () => {};
+}
+if (typeof Element !== "undefined") {
+  Element.prototype.scrollIntoView = vi.fn();
+}
 
 Object.defineProperty(window, "matchMedia", {
   writable: true,
@@ -35,8 +51,8 @@ vi.mock("react-router-dom", async () => {
 });
 
 const mockServices = [
-  { service_id: "s1", name: "Auditoría",  code: 1, allows_rates_activities: true,  is_active: true,  created_at: "" },
-  { service_id: "s2", name: "Tax",        code: 3, allows_rates_activities: true,  is_active: false, created_at: "" },
+  { service_id: "s1", name: "Auditoría", code: 1, allows_rates_activities: true, is_active: true, created_at: "", abbreviation: "AUD" },
+  { service_id: "s2", name: "Tax", code: 3, allows_rates_activities: true, is_active: false, created_at: "", abbreviation: "TAX" },
 ];
 
 vi.mock("@/hooks/useEmsData", () => ({
@@ -56,8 +72,17 @@ vi.mock("@/hooks/useUserRole", () => ({
   useUserRole: () => ({ isAdmin: true }),
 }));
 
+// Configurable per test: role_key + which permissions `can()` grants.
+const authMock = vi.hoisted(() => ({
+  roleKey: "admin" as string,
+  permissions: new Set<string>(["category_rate.read", "activity_code.read"]),
+}));
+
 vi.mock("@/hooks/useAuthorization", () => ({
-  useAuthorization: () => ({ can: () => true, roleKey: "admin" }),
+  useAuthorization: () => ({
+    can: (key: string) => authMock.permissions.has(key),
+    roleKey: authMock.roleKey,
+  }),
 }));
 
 vi.mock("@/hooks/mutations", () => ({
@@ -67,6 +92,14 @@ vi.mock("@/hooks/mutations", () => ({
   useReorderServiceActivity: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
   useMoveCategory: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
   useCopyCategories: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
+  // 0817-177: CategoryForm/ActivityCodeForm now mount inside the unified tab.
+  useCreateCategory: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useUpdateCategory: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useDeleteCategory: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useCreateActivityCode: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useUpdateActivityCode: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useDeactivateServiceActivity: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useReactivateServiceActivity: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
 vi.mock("@/hooks/useLanguage", () => ({
@@ -108,16 +141,83 @@ vi.mock("@/lib/fiscalYearDisplay", () => ({
 
 import Settings from "@/pages/Settings";
 
-describe("Settings — Servicios tab (0625-149)", () => {
-  it("admin sees 'settings.services' tab trigger", () => {
+describe("Settings — unified Prácticas tab (0817-177)", () => {
+  beforeEach(() => {
+    authMock.roleKey = "admin";
+    authMock.permissions = new Set(["category_rate.read", "activity_code.read"]);
+  });
+
+  it("admin sees the single 'settings.services' tab trigger (no separate rates/activities tabs)", () => {
+    render(<Settings />);
+    expect(screen.getByRole("tab", { name: "settings.services" })).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "settings.categoryRates" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "settings.activityCodes" })).not.toBeInTheDocument();
+  });
+
+  it("a non-admin without either read permission does NOT see the tab trigger", () => {
+    authMock.roleKey = "staff";
+    authMock.permissions = new Set();
+    render(<Settings />);
+    expect(screen.queryByRole("tab", { name: "settings.services" })).not.toBeInTheDocument();
+  });
+
+  it("a non-admin with only activity_code.read still sees the unified tab", () => {
+    authMock.roleKey = "staff";
+    authMock.permissions = new Set(["activity_code.read"]);
     render(<Settings />);
     expect(screen.getByRole("tab", { name: "settings.services" })).toBeInTheDocument();
   });
 
-  it("renders the new service button when tab is active", async () => {
+  it("shows the shared práctica selector and, for admin, Nueva/Editar Práctica actions", async () => {
     const user = userEvent.setup();
     render(<Settings />);
     await user.click(screen.getByRole("tab", { name: "settings.services" }));
-    expect(screen.getByText("service.newService")).toBeInTheDocument();
+
+    expect(screen.getByTestId("practice-selector")).toBeInTheDocument();
+    expect(screen.getByTestId("new-practice-button")).toBeInTheDocument();
+    expect(screen.getByTestId("edit-practice-button")).toBeInTheDocument();
+  });
+
+  it("a non-admin never sees the Nueva/Editar Práctica actions", async () => {
+    authMock.roleKey = "staff";
+    authMock.permissions = new Set(["category_rate.read"]);
+    const user = userEvent.setup();
+    render(<Settings />);
+    await user.click(screen.getByRole("tab", { name: "settings.services" }));
+
+    expect(screen.queryByTestId("new-practice-button")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("edit-practice-button")).not.toBeInTheDocument();
+  });
+
+  it("admin can select an inactive práctica from the selector (marked inactive)", async () => {
+    const user = userEvent.setup();
+    render(<Settings />);
+    await user.click(screen.getByRole("tab", { name: "settings.services" }));
+
+    await user.click(screen.getByTestId("practice-selector"));
+    expect(await screen.findByRole("option", { name: /Tax.*status\.inactive/ })).toBeInTheDocument();
+  });
+
+  it("selecting an inactive práctica disables 'Copiar categorías' (its source would fail server-side)", async () => {
+    authMock.permissions = new Set(["category_rate.read", "category_rate.create", "activity_code.read"]);
+    const user = userEvent.setup();
+    render(<Settings />);
+    await user.click(screen.getByRole("tab", { name: "settings.services" }));
+
+    await user.click(screen.getByTestId("practice-selector"));
+    await user.click(await screen.findByRole("option", { name: /Tax.*status\.inactive/ }));
+
+    expect(await screen.findByTestId("copy-categories-button")).toBeDisabled();
+  });
+
+  it("sub-tabs are gated by their own read permission: only Categorías with category_rate.read only", async () => {
+    authMock.roleKey = "staff";
+    authMock.permissions = new Set(["category_rate.read"]);
+    const user = userEvent.setup();
+    render(<Settings />);
+    await user.click(screen.getByRole("tab", { name: "settings.services" }));
+
+    expect(screen.getByRole("tab", { name: "settings.categoryRates" })).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "settings.activityCodes" })).not.toBeInTheDocument();
   });
 });
