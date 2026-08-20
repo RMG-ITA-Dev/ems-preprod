@@ -289,7 +289,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     encargadoOptions,
     specialistItOptions,
     specialistTaxOptions,
-    isLoading: teamCandidatesLoading,
+    isFetching: teamCandidatesFetching,
     isError: teamCandidatesError,
   } = useEngagementTeamCandidates();
   const { staffRecord } = useCurrentStaff();
@@ -911,8 +911,14 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   // en el catálogo): estado INDETERMINADO — no se sabe a qué servicio pertenece el encargo.
   const serviceUnresolved = serviceFilter.apply && serviceFilter.serviceId == null;
 
+  // Review de Codex: se mira `isFetching`, no `isLoading`. Con datos en cache TanStack devuelve
+  // isLoading:false y refetchea por detrás sirviendo el conjunto VIEJO — y como las mutaciones de
+  // personal y de roles ahora invalidan esta query, ese refetch al montar es el camino normal, no
+  // la excepción. Hasta que la respuesta llegue, los candidatos no son confiables: no se afirma
+  // nada y no se deja crear (`refetchOnWindowFocus/Reconnect` están en false, así que esto no
+  // produce parpadeos espontáneos — solo cubre la carga real).
   const teamSelectionResolved =
-    !teamCandidatesLoading && !teamCandidatesError && !serviceUnresolved;
+    !teamCandidatesFetching && !teamCandidatesError && !serviceUnresolved;
   const missingTeamRoles: string[] = [];
   if (teamSelectionResolved) {
     if (partnerFieldOptions.length === 0) missingTeamRoles.push(t("engagement.partner"));
@@ -927,7 +933,8 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   // pasan la validación de "string no vacío" y `create_engagement_with_code` NO valida alineación
   // staff/servicio, se podía persistir una asignación cruzada. Se bloquea la creación: así el
   // fail-closed deja de ser solo visual y ningún valor retenido llega al backend.
-  const teamBlocksCreation = hasMissingTeamRoles || teamCandidatesError || serviceUnresolved;
+  const teamBlocksCreation =
+    hasMissingTeamRoles || teamCandidatesError || serviceUnresolved || teamCandidatesFetching;
 
   // Review de Codex (0722-162): quitar a alguien de `options` NO lo saca del formulario.
   //
@@ -948,7 +955,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   // justo cuando el fail-closed vacía las listas.
   useEffect(() => {
     if (isEdit) return;
-    if (teamCandidatesLoading || teamCandidatesError) return;
+    if (teamCandidatesFetching || teamCandidatesError) return;
     if (!serviceFilter.apply || serviceFilter.serviceId == null) return;
 
     const isStale = (current: string | null | undefined, options: { value: string }[]) =>
@@ -976,7 +983,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     }
   }, [
     isEdit,
-    teamCandidatesLoading,
+    teamCandidatesFetching,
     teamCandidatesError,
     serviceFilter,
     partnerFieldOptions,

@@ -37,7 +37,19 @@ export interface UseEngagementTeamCandidatesResult {
   specialistItOptions: TeamCandidateOption[];
   /** Especialista Impuestos — las tres familias `tax_*`. */
   specialistTaxOptions: TeamCandidateOption[];
+  /** Primer fetch, todavía sin datos. */
   isLoading: boolean;
+  /**
+   * Hay un fetch en curso, INCLUIDO el refetch en background que sirve datos cacheados.
+   *
+   * Review de Codex: `isLoading` no alcanza para decidir si los candidatos son confiables. Con
+   * datos en cache TanStack devuelve `isLoading: false` y refetchea por detrás, así que el
+   * formulario seguiría ofreciendo el conjunto viejo. Y las invalidaciones que disparan las
+   * mutaciones de personal y de roles vuelven ese camino la NORMA: la query queda stale, y al
+   * montar el formulario siempre hay una ventana sirviendo lo anterior. Quien consuma este hook
+   * debe tratar `isFetching` como "todavía no resuelto".
+   */
+  isFetching: boolean;
   isError: boolean;
 }
 
@@ -49,7 +61,7 @@ export interface UseEngagementTeamCandidatesResult {
 const EMPTY: TeamCandidateOption[] = [];
 
 export function useEngagementTeamCandidates(): UseEngagementTeamCandidatesResult {
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading, isFetching, isError } = useQuery({
     queryKey: ["engagement-team-candidates"],
     queryFn: async () => {
       // NOTA: get_engagement_team_candidates aún no está en src/integrations/supabase/types.ts
@@ -95,6 +107,7 @@ export function useEngagementTeamCandidates(): UseEngagementTeamCandidatesResult
     specialistItOptions: grouped.specialist_it ?? EMPTY,
     specialistTaxOptions: grouped.specialist_tax ?? EMPTY,
     isLoading,
+    isFetching,
     isError,
   };
 }

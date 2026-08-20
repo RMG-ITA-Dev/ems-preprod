@@ -141,6 +141,7 @@ function resetCandidates() {
     hasPartnerDirectorCandidates: true,
     hasManagerCandidates: true,
     isLoading: false,
+    isFetching: false,
     isError: false,
   };
 }
@@ -609,12 +610,21 @@ describe("EngagementForm — elegibilidad por rol en el bloque Equipo (0722-162)
     expect(screen.queryByText(/messages\.teamCandidatesLoadError/)).toBeNull();
   });
 
+  it("mientras refetchea en background no afirma que falten roles ni deja crear", () => {
+    // El caso que trajo la review: hay datos en cache (isLoading false) pero se están
+    // revalidando. Ofrecer y permitir enviar ese conjunto viejo es lo que se evita.
+    mockCandidates.isFetching = true;
+    render(<EngagementForm />);
+    expect(screen.queryByText(/messages\.missingTeamRoles/)).toBeNull();
+    expect(screen.getByText("engagement.createEngagement").closest("button")).toBeDisabled();
+  });
+
   it("mientras carga no afirma que falten roles", () => {
     mockCandidates.partnerDirectorOptions = [];
     mockCandidates.managerRoleOptions = [];
     mockCandidates.hasPartnerDirectorCandidates = false;
     mockCandidates.hasManagerCandidates = false;
-    mockCandidates.isLoading = true;
+    mockCandidates.isFetching = true;
     render(<EngagementForm />);
     expect(screen.queryByText(/messages\.missingTeamRoles/)).toBeNull();
     expect(screen.queryByText(/messages\.teamCandidatesLoadError/)).toBeNull();
