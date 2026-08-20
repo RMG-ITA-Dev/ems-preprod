@@ -64,13 +64,23 @@ const conService = mockServices[1];
 // 0817-177: activity_codes.service_id is NOT NULL — every row is
 // práctica-linked, there is no more "Global" bucket to test.
 const mockActivityCodes = [
-  { activity_id: "a1", activity_code: "AUD-01", description: "Planificación de auditoría", is_active: true, service_id: AUD, entity_type: "A", service: audService },
-  { activity_id: "a2", activity_code: "AUD-02", description: "Trabajo de campo", is_active: true, service_id: AUD, entity_type: "A", service: audService },
-  { activity_id: "c1", activity_code: "CON-01", description: "Diagnóstico inicial", is_active: true, service_id: CON, entity_type: "A", service: conService },
+  { activity_id: "a1", activity_code: "AUD-A1", description: "Planificación de auditoría", is_active: true, service_id: AUD, entity_type: "A", service: audService },
+  { activity_id: "a2", activity_code: "AUD-A2", description: "Trabajo de campo", is_active: true, service_id: AUD, entity_type: "A", service: audService },
+  { activity_id: "c1", activity_code: "CON-A1", description: "Diagnóstico inicial", is_active: true, service_id: CON, entity_type: "A", service: conService },
+];
+
+// 0817-177 (review follow-up): the require-practice migration backfilled 8
+// pre-service_id legacy codes to Auditoría. They predate the {abrev}-A{n}
+// ordinal scheme, so reorder/deactivate must never treat them as a sibling.
+const mockActivityCodesWithLegacy = [
+  ...mockActivityCodes,
+  { activity_id: "legacy-adm", activity_code: "ADM", description: "Administration", is_active: true, service_id: AUD, entity_type: "A", service: audService },
 ];
 
 // Mutable so a test can simulate useServices() not having resolved yet.
 let mockServicesData: typeof mockServices | undefined = mockServices;
+// Mutable so a test can inject the legacy 'ADM' code alongside the normal ones.
+let mockActivityCodesData: typeof mockActivityCodes = mockActivityCodes;
 
 vi.mock("@/hooks/useEmsData", () => ({
   useCategories: () => ({ data: [], isLoading: false }),
@@ -90,8 +100,8 @@ vi.mock("@/hooks/useEmsData", () => ({
     ],
     isLoading: false,
   }),
-  useActivityCodes:    () => ({ data: mockActivityCodes, isLoading: false }),
-  useAllActivityCodes: () => ({ data: mockActivityCodes, isLoading: false }),
+  useActivityCodes:    () => ({ data: mockActivityCodesData, isLoading: false }),
+  useAllActivityCodes: () => ({ data: mockActivityCodesData, isLoading: false }),
   useExpenseTypes:     () => ({ data: [], isLoading: false }),
   useSkills: () => ({ data: [], isLoading: false }),
   useEngagements: () => ({ data: [], isLoading: false }),
@@ -148,6 +158,7 @@ describe("Settings activity-codes (0723-169 / 0817-177)", () => {
     vi.clearAllMocks();
     createActivityMutateAsync.mockResolvedValue({});
     mockServicesData = mockServices;
+    mockActivityCodesData = mockActivityCodes;
     queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
@@ -254,5 +265,23 @@ describe("Settings activity-codes (0723-169 / 0817-177)", () => {
 
     expect(await screen.findByTestId("activity-abbreviation-missing-notice")).toBeInTheDocument();
     expect(screen.queryByText("activity.newActivity")).not.toBeInTheDocument();
+  });
+
+  it("hides reorder arrows on a legacy activity code and excludes it from siblings' position/total (review 0817-177)", async () => {
+    mockActivityCodesData = mockActivityCodesWithLegacy;
+    renderSettings();
+    const user = userEvent.setup();
+    await goToActivities(user);
+    await waitFor(() => expect(screen.getByText("Planificación de auditoría")).toBeInTheDocument());
+    expect(screen.getByText("Administration")).toBeInTheDocument();
+
+    // Only the two ordinal-scheme activities (AUD-A1, AUD-A2) get arrows —
+    // the legacy 'ADM' row is excluded entirely, not just its own arrows.
+    const upButtons = screen.getAllByLabelText("activity.moveUp");
+    const downButtons = screen.getAllByLabelText("activity.moveDown");
+    expect(upButtons).toHaveLength(2);
+    expect(downButtons).toHaveLength(2);
+    expect(upButtons[0]).toBeDisabled();
+    expect(downButtons[downButtons.length - 1]).toBeDisabled();
   });
 });

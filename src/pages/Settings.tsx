@@ -158,10 +158,20 @@ const Settings = () => {
 
   // Active service-linked activities grouped by service, ordered by code.
   // Used to compute the 1-based position of each row for the ↑/↓ controls.
+  //
+  // 0817-177: excludes the 8 legacy codes (PLN/FLD/REV/DOC/ADM/MTG/TRV/TRN)
+  // backfilled to a práctica by the require-practice migration — they predate
+  // the {ABREV}-A{n} ordinal scheme reorder_service_activity/
+  // deactivate_service_activity assume, and 'ADM' is looked up by literal code
+  // in useAdminActivityId. The RPCs reject/skip them server-side (see
+  // 20260820120000_0817-177_guard_legacy_activity_codes.sql); mirroring that
+  // filter here keeps the client's position/total in sync with what the RPC
+  // will actually renumber, and hides the ↑/↓ controls on the legacy rows
+  // themselves (indexOf returns -1 → pos 0 → no arrows).
   const activeActivitiesByService = useMemo(() => {
     const map = new Map<string, string[]>();
     (activityCodes ?? [])
-      .filter((a) => a.is_active && a.service_id)
+      .filter((a) => a.is_active && a.service_id && /^[A-Z]{2,5}-[A-Z]\d+$/.test(a.activity_code))
       .slice()
       .sort((a, b) => {
         const n = (code: string) => parseInt(code.match(/(\d+)$/)?.[1] ?? "0", 10);
