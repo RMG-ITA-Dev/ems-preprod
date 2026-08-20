@@ -83,6 +83,11 @@ export function useCreateStaff() {
       // read the stale (pre-creation) current_staff cache before the refetch lands
       // and bounce back to /bootstrap.
       await queryClient.invalidateQueries({ queryKey: ["current_staff"] });
+      // BUG 0722-162: los candidatos del bloque Equipo del encargo se filtran por is_active,
+      // deleted_at y service_id del personal, así que cualquier alta/baja/edición cambia ese
+      // conjunto. Sin invalidar, el formulario reusa el set viejo durante el staleTime global
+      // de 60s (App.tsx) y podría ofrecer a alguien ya desactivado o de otro servicio.
+      queryClient.invalidateQueries({ queryKey: ["engagement-team-candidates"] });
       toast.success(i18n.t("messages.createSuccess", { entity: i18n.t("entities.staffMember") }));
     },
     onError: (error) => handleStaffError(error, "creating staff member"),
@@ -128,6 +133,9 @@ export function useUpdateStaff() {
       queryClient.invalidateQueries({ queryKey: ["staff"] });
       queryClient.invalidateQueries({ queryKey: ["staff_full"] });
       queryClient.invalidateQueries({ queryKey: ["current_staff"] });
+      // BUG 0722-162: ver useCreateStaff — editar nombre, servicio, is_active o el vínculo de
+      // cuenta cambia quién es candidato para el bloque Equipo del encargo.
+      queryClient.invalidateQueries({ queryKey: ["engagement-team-candidates"] });
       toast.success(i18n.t("messages.updateSuccess", { entity: i18n.t("entities.staffMember") }));
     },
     onError: (error) => handleStaffError(error, "updating staff member"),
@@ -191,6 +199,8 @@ export function useDeleteStaff() {
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["staff"] });
       queryClient.invalidateQueries({ queryKey: ["staff_full"] });
+      // BUG 0722-162: baja (hard o soft) ⇒ deja de ser candidato para el bloque Equipo.
+      queryClient.invalidateQueries({ queryKey: ["engagement-team-candidates"] });
       if (result.softDeleted) {
         toast.success(i18n.t("messages.staffDeactivated"));
       } else {
