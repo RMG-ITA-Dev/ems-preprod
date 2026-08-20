@@ -100,23 +100,32 @@ describe("Engagements — Sociedad column and filter (FEAT 0714-155)", () => {
     expect(screen.getByTestId("data-table-stub")).toBeInTheDocument();
   });
 
-  it("includes a 'society.name' column filtered by society_id", () => {
+  // Bug 0722-158 (extension a Encargos): Sociedad dejo de ser columna propia y
+  // vive dentro de «Cliente» — como chip en la celda y como control `secondary`
+  // en la cabecera. La CAPACIDAD es la misma: se muestra y se filtra por
+  // society_id; solo cambio de sitio. Estos tests siguen su intencion original.
+  const clienteColumn = () =>
+    capturedProps.columns.find((c: any) => c.key === "client.client_legal_name");
+
+  it("expone 'society.name' ordenable y filtrado por society_id dentro de «Cliente»", () => {
     wrap(<Engagements />);
-    const column = capturedProps.columns.find((c: any) => c.key === "society.name");
-    expect(column).toBeDefined();
-    expect(column.filterKey).toBe("society_id");
+    const society = clienteColumn().secondary.find((sec: any) => sec.key === "society.name");
+    expect(society).toBeDefined();
+    expect(society.sortable).toBe(true);
+    expect(society.filterKey).toBe("society_id");
   });
 
-  it("column render shows the society name when present", () => {
+  it("la celda de «Cliente» muestra el nombre de la sociedad cuando existe", () => {
     wrap(<Engagements />);
-    const column = capturedProps.columns.find((c: any) => c.key === "society.name");
-    expect(column.render(capturedProps.data[0])).toBe("Ruizmier Pelaez S.R.L.");
+    const { container } = render(<>{clienteColumn().render(capturedProps.data[0])}</>);
+    expect(container.textContent).toContain("Ruizmier Pelaez S.R.L.");
   });
 
-  it("column render falls back to '-' for a historical engagement with no society", () => {
+  it("la celda cae a '-' para un encargo historico sin sociedad", () => {
     wrap(<Engagements />);
-    const column = capturedProps.columns.find((c: any) => c.key === "society.name");
-    expect(column.render(capturedProps.data[1])).toBe("-");
+    const { container } = render(<>{clienteColumn().render(capturedProps.data[1])}</>);
+    // El chip de sociedad queda en "-", pero el cliente se sigue mostrando.
+    expect(container.querySelector("[title]")?.getAttribute("title")).toContain("-");
   });
 
   it("exposes a society_id filter with the 2 catalog options", () => {
