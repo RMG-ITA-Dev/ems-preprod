@@ -1021,6 +1021,39 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   // asignado histórico se preserva a propósito vía `withSavedStaff`), y solo con los candidatos
   // ya cargados y el servicio resuelto — si no, se borrarían valores válidos durante la carga,
   // justo cuando el fail-closed vacía las listas.
+  // ── BUG 0810-172: siembra del campo autoasignado ─────────────────────────────────────────
+  //
+  // `withSelfCandidate` solo agrega al creador a las OPCIONES; el valor de React Hook Form sigue
+  // en su default vacío. Sin esta siembra el campo bloqueado queda vacío y sin salida: el trigger
+  // muestra el placeholder, Zod corta con "Manager is required" antes del onSubmit, y como el
+  // selector está deshabilitado el usuario no puede corregirlo — el trigger de BD
+  // `trg_engagements_creator_team`, que canonizaría el valor, nunca se alcanza.
+  //
+  // `shouldDirty: false`: la autoasignación es del sistema, no una edición del usuario, así que no
+  // debe disparar el aviso de "cambios sin guardar" (usePageLeaveLock / onDirtyChange).
+  //
+  // Corre antes del efecto de limpieza de abajo a propósito: en el primer ciclo el campo está en
+  // "" y la limpieza no lo toca (solo actúa sobre valores truthy); una vez sembrado, el id SÍ está
+  // en `options` gracias a `withSelfCandidate`, así que para la limpieza deja de ser stale.
+  //
+  // `wPartnerId`/`wManagerId` van en las dependencias para que la siembra NO sea de un solo
+  // disparo: cubre el remonte y también el `form.reset` de `handleCreateAnother`, que devuelve el
+  // campo a "" sin cambiar ninguna identidad.
+  useEffect(() => {
+    if (isEdit) return;
+    // Ventana de clasificación: hasta saber el rol no se siembra nada (si no, se escribiría un
+    // valor que después habría que revertir).
+    if (classificationPending) return;
+    if (!selfAssignedField || !selfOption) return;
+
+    if (selfAssignedField === "partner_id" && wPartnerId !== selfOption.value) {
+      form.setValue("partner_id", selfOption.value, { shouldDirty: false, shouldValidate: false });
+    }
+    if (selfAssignedField === "manager_id" && wManagerId !== selfOption.value) {
+      form.setValue("manager_id", selfOption.value, { shouldDirty: false, shouldValidate: false });
+    }
+  }, [isEdit, classificationPending, selfAssignedField, selfOption, wPartnerId, wManagerId, form]);
+
   useEffect(() => {
     if (isEdit) return;
     if (teamCandidatesFetching || teamCandidatesError) return;
@@ -1700,11 +1733,14 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                       noResultsText={t("engagement.noStaffFound")}
                       noAplicaText={t("engagement.noAplica")}
                       options={partnerFieldOptions}
-                      disabled={!teamSelectionResolved}
                       value={field.value || null}
                       onChange={(v) => field.onChange(v ?? "")}
                       showNoAplica={false}
-                      disabled={teamLockPending || partnerLocked}
+                      // Un merge dejó dos atributos `disabled` acá: el de 0722-162 (candidatos
+                      // no confiables) y el de 0810-172 (autoasignación). En JSX gana el último,
+                      // así que la primera condición quedaba inerte en los DOS campos
+                      // obligatorios. Se combinan.
+                      disabled={!teamSelectionResolved || teamLockPending || partnerLocked}
                       helperText={partnerLocked ? t("engagement.selfAssignedLocked") : undefined}
                     />
                   )}
@@ -1739,11 +1775,14 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                       noResultsText={t("engagement.noStaffFound")}
                       noAplicaText={t("engagement.noAplica")}
                       options={managerFieldOptions}
-                      disabled={!teamSelectionResolved}
                       value={field.value || null}
                       onChange={(v) => field.onChange(v ?? "")}
                       showNoAplica={false}
-                      disabled={teamLockPending || managerLocked}
+                      // Un merge dejó dos atributos `disabled` acá: el de 0722-162 (candidatos
+                      // no confiables) y el de 0810-172 (autoasignación). En JSX gana el último,
+                      // así que la primera condición quedaba inerte en los DOS campos
+                      // obligatorios. Se combinan.
+                      disabled={!teamSelectionResolved || teamLockPending || managerLocked}
                       helperText={managerLocked ? t("engagement.selfAssignedLocked") : undefined}
                     />
                   )}
