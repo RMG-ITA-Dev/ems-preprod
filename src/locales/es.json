@@ -1346,6 +1346,22 @@
     "selectedCurrency": "Moneda",
     "selectedSeason": "Temporada",
     "confirmAndCreate": "Confirmar y Crear",
+    "tabs": {
+      "budget": "Líneas de Presupuesto",
+      "payment": "Plan de Pagos y Facturación",
+      "risk": "Evaluación de Riesgos",
+      "staffing": "Requisitos de Staffing",
+      "status": {
+        "notReviewed": "Aún no revisada",
+        "incomplete": "Faltan datos por completar",
+        "approved": "Aprobado",
+        "rejected": "Rechazado",
+        "billingOk": "Cobranza al día",
+        "billingAlert": "Cobranza con alerta de vencimiento",
+        "billingComplete": "Cobranza completa",
+        "billingUnconfigured": "Plan de pagos sin configurar"
+      }
+    },
     "paymentPlan": {
       "title": "Plan de Pagos",
       "exchangeRate": "Tipo de Cambio (BOB)",
