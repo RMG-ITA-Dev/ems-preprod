@@ -90,6 +90,14 @@ interface StaffComboboxProps {
   value: string | null;
   onChange: (value: string | null) => void;
   showNoAplica?: boolean;
+  /**
+   * BUG 0722-162 (review de Codex): se deshabilita mientras los candidatos no sean confiables
+   * —refetch en background tras invalidar, error del RPC, o servicio del encargo sin resolver—
+   * para que no se pueda elegir de un conjunto obsoleto. Se deshabilita el SELECTOR y no el
+   * guardado: en edición, bloquear Guardar impediría editar el resto del encargo (nombre,
+   * fechas, políticas), que no tiene nada que ver con el bloque Equipo.
+   */
+  disabled?: boolean;
 }
 
 function StaffCombobox({
@@ -102,6 +110,7 @@ function StaffCombobox({
   value,
   onChange,
   showNoAplica = true,
+  disabled = false,
 }: StaffComboboxProps) {
   const [open, setOpen] = useState(false);
   const selectedLabel = value ? options.find((o) => o.value === value)?.label : null;
@@ -116,6 +125,7 @@ function StaffCombobox({
               type="button"
               variant="outline"
               role="combobox"
+              disabled={disabled}
               className={cn("w-full justify-between font-normal", !selectedLabel && "text-muted-foreground")}
             >
               {selectedLabel ?? placeholder}
@@ -1632,6 +1642,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                       noResultsText={t("engagement.noStaffFound")}
                       noAplicaText={t("engagement.noAplica")}
                       options={partnerFieldOptions}
+                      disabled={!teamSelectionResolved}
                       value={field.value || null}
                       onChange={(v) => field.onChange(v ?? "")}
                       showNoAplica={false}
@@ -1650,6 +1661,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                       noResultsText={t("engagement.noStaffFound")}
                       noAplicaText={t("engagement.noAplica")}
                       options={sqrFieldOptions}
+                      disabled={!teamSelectionResolved}
                       value={field.value ?? null}
                       onChange={field.onChange}
                     />
@@ -1667,6 +1679,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                       noResultsText={t("engagement.noStaffFound")}
                       noAplicaText={t("engagement.noAplica")}
                       options={managerFieldOptions}
+                      disabled={!teamSelectionResolved}
                       value={field.value || null}
                       onChange={(v) => field.onChange(v ?? "")}
                       showNoAplica={false}
@@ -1685,6 +1698,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                       noResultsText={t("engagement.noStaffFound")}
                       noAplicaText={t("engagement.noAplica")}
                       options={encargadoFieldOptions}
+                      disabled={!teamSelectionResolved}
                       value={field.value ?? null}
                       onChange={field.onChange}
                     />
@@ -1702,6 +1716,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                       noResultsText={t("engagement.noStaffFound")}
                       noAplicaText={t("engagement.noAplica")}
                       options={specialistItFieldOptions}
+                      disabled={!teamSelectionResolved}
                       value={field.value ?? null}
                       onChange={field.onChange}
                     />
@@ -1719,6 +1734,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                       noResultsText={t("engagement.noStaffFound")}
                       noAplicaText={t("engagement.noAplica")}
                       options={specialistTaxFieldOptions}
+                      disabled={!teamSelectionResolved}
                       value={field.value ?? null}
                       onChange={field.onChange}
                     />
