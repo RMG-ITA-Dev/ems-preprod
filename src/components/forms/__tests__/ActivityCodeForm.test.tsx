@@ -69,6 +69,19 @@ const linkedActivity: ActivityCode = {
   service: { service_id: "s1", name: "Auditoría", abbreviation: "AUD", code: 1, allows_rates_activities: true, is_active: true, created_at: "" },
 };
 
+// 0817-177 (review follow-up): one of the 8 legacy codes backfilled to a
+// práctica by the require-practice migration. Predates the {abrev}-A{n}
+// ordinal scheme, so deactivate_service_activity rejects it server-side.
+const legacyActivity: ActivityCode = {
+  activity_id: "act-legacy-adm",
+  activity_code: "ADM",
+  description: "Administration",
+  is_active: true,
+  service_id: "s1",
+  entity_type: "A",
+  service: { service_id: "s1", name: "Auditoría", abbreviation: "AUD", code: 1, allows_rates_activities: true, is_active: true, created_at: "" },
+};
+
 const inactiveLinkedActivity: ActivityCode = {
   activity_id: "act-linked-inactive",
   activity_code: "AUD-AX",
@@ -273,6 +286,23 @@ describe("ActivityCodeForm — edit (0817-177)", () => {
     const payload = updateMutateAsync.mock.calls[0][0];
     expect(payload.data).toEqual({ description: "Audit Planning" });
     expect(payload.data).not.toHaveProperty("service_id");
+  });
+
+  it("hides the deactivate button for a legacy activity code (review 0817-177)", () => {
+    render(<ActivityCodeForm open={true} onOpenChange={vi.fn()} activityCode={legacyActivity} />);
+    expect(screen.queryByTestId("deactivate-button")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("activate-button")).not.toBeInTheDocument();
+  });
+
+  it("still allows saving the description of a legacy activity code", async () => {
+    const user = userEvent.setup();
+    updateMutateAsync.mockResolvedValue({});
+
+    render(<ActivityCodeForm open={true} onOpenChange={vi.fn()} activityCode={legacyActivity} />);
+    await user.click(screen.getByRole("button", { name: "common.saveChanges" }));
+
+    await waitFor(() => expect(updateMutateAsync).toHaveBeenCalled());
+    expect(updateMutateAsync.mock.calls[0][0].data).toEqual({ description: "Administration" });
   });
 });
 

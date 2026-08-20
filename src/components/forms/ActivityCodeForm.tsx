@@ -76,6 +76,12 @@ export function ActivityCodeForm({ open, onOpenChange, activityCode, serviceId, 
   const { t } = useTranslation();
   const isEdit = !!activityCode;
   const isActive = activityCode?.is_active ?? true;
+  // 0817-177 (review follow-up): the 8 legacy codes backfilled to a práctica
+  // (PLN/FLD/REV/DOC/ADM/MTG/TRV/TRN) predate the {abrev}-{entity_type}{n}
+  // ordinal scheme; deactivate_service_activity rejects them (see
+  // 20260820120000_0817-177_guard_legacy_activity_codes.sql), so hide the
+  // "Deactivate" action instead of offering one that always fails.
+  const isOrdinalScheme = !activityCode || /^[A-Z]{2,5}-[A-Z]\d+$/.test(activityCode.activity_code);
 
   const createMutation = useCreateActivityCode();
   const updateMutation = useUpdateActivityCode();
@@ -263,7 +269,7 @@ export function ActivityCodeForm({ open, onOpenChange, activityCode, serviceId, 
                 {t("common.cancel")}
               </Button>
 
-              {isEdit && isActive && (
+              {isEdit && isActive && isOrdinalScheme && (
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
                     <Button type="button" variant="destructive" className="w-full sm:w-auto min-h-[44px] sm:min-h-0" data-testid="deactivate-button">

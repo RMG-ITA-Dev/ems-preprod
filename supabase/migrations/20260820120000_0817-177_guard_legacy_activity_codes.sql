@@ -1,11 +1,12 @@
--- 0817-177 (review follow-up): guard reorder_service_activity and
--- deactivate_service_activity against the 8 legacy activity codes.
+-- 0817-177 (review follow-up): guard all four activity_codes ordinal RPCs
+-- against the 8 legacy activity codes.
 --
 -- 20260818120000_0817-177_require_activity_practice.sql backfilled the 8
 -- pre-service_id codes (PLN/FLD/REV/DOC/ADM/MTG/TRV/TRN) to Auditoría so
 -- activity_codes.service_id could become NOT NULL. Those codes predate the
 -- {abbrev}-{entity_type}{n} ordinal scheme create_service_activity/
--- reorder_service_activity/deactivate_service_activity assume:
+-- reactivate_service_activity/reorder_service_activity/
+-- deactivate_service_activity assume:
 --
 --   - deactivate_service_activity extracts the trailing ordinal with
 --     regexp_replace(...)::integer; a code with no trailing digits (e.g.
@@ -18,9 +19,20 @@
 --     'ADM' to 'AUD-A<n>'. useAdminActivityId (src/hooks/useAdminActivity.ts)
 --     looks up activity_code = 'ADM' by literal value, so that rename breaks
 --     the automatic administrative activity on non-chargeable engagements.
+--   - create_service_activity/reactivate_service_activity count *every*
+--     active row in (service_id, entity_type) to pick the next ordinal.
+--     On a from-scratch install the 8 legacy rows inflate that count, so the
+--     first real activity created in Auditoría gets 'AUD-A9' instead of
+--     'AUD-A1'. reorder_service_activity's temp-code phase assumes the
+--     ordinal-scheme siblings occupy a contiguous 1..v_total range — once a
+--     9th real activity exists, its first temporary rename ('AUD-A9' →
+--     'AUD-A10') collides with an already-active 'AUD-A10', violating
+--     activity_codes_active_code_unique.
 --
--- Fix: both RPCs now reject operating on a legacy (non-ordinal-scheme) code,
--- and exclude any legacy siblings from the renumbered set — so reordering a
+-- Fix: all four RPCs now either reject operating on a legacy
+-- (non-ordinal-scheme) code, or exclude legacy rows from whatever count/set
+-- they compute — so the ordinal scheme stays contiguous from 1 regardless of
+-- how many legacy rows share a (service_id, entity_type), and reordering a
 -- real service-created activity in Auditoría never touches the legacy rows.
 
 -- ────────────────────────────────────────────────────────────────────────────
@@ -201,3 +213,130 @@ $$;
 
 REVOKE ALL ON FUNCTION public.reorder_service_activity(uuid, integer) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.reorder_service_activity(uuid, integer) TO authenticated;
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- create_service_activity — count only ordinal-scheme siblings, so a legacy
+-- row sharing (service_id, entity_type) never inflates the next ordinal.
+-- ────────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.create_service_activity(
+  p_service_id  uuid,
+  p_description text,
+  p_entity_type text DEFAULT 'A'
+) RETURNS public.activity_codes
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_abbrev  text;
+  v_count   integer;
+  v_code    text;
+  v_row     public.activity_codes;
+BEGIN
+  IF NOT public.is_admin() THEN
+    RAISE EXCEPTION 'Permission denied: admin only';
+  END IF;
+
+  IF p_entity_type NOT IN ('A') THEN
+    RAISE EXCEPTION 'Invalid entity_type: %', p_entity_type;
+  END IF;
+
+  -- Lock service row to prevent concurrent inserts for the same service.
+  SELECT abbreviation INTO v_abbrev
+    FROM public.services
+   WHERE service_id = p_service_id AND is_active = true
+   FOR UPDATE;
+
+  IF v_abbrev IS NULL THEN
+    RAISE EXCEPTION 'Service not found, inactive, or has no abbreviation';
+  END IF;
+
+  -- Count existing active, ordinal-scheme activities for this (service,
+  -- entity_type) pair. 0817-177: legacy codes (PLN/FLD/REV/DOC/ADM/MTG/TRV/
+  -- TRN) don't match the {abbrev}-{entity_type}{n} pattern and must not
+  -- count toward the next ordinal.
+  SELECT COUNT(*) INTO v_count
+    FROM public.activity_codes
+   WHERE service_id  = p_service_id
+     AND entity_type = p_entity_type
+     AND is_active   = true
+     AND activity_code ~ ('^' || v_abbrev || '-' || p_entity_type || '[0-9]+$');
+
+  -- No hard cap: 1–9 is a UI recommendation only.
+  v_code := v_abbrev || '-' || p_entity_type || (v_count + 1)::text;
+
+  INSERT INTO public.activity_codes (activity_code, description, is_active, service_id, entity_type)
+  VALUES (v_code, p_description, true, p_service_id, p_entity_type)
+  RETURNING * INTO v_row;
+
+  RETURN v_row;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.create_service_activity(uuid, text, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.create_service_activity(uuid, text, text) TO authenticated;
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- reactivate_service_activity — same ordinal-scheme count fix as
+-- create_service_activity above.
+-- ────────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.reactivate_service_activity(
+  p_activity_id uuid
+) RETURNS public.activity_codes
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_service_id  uuid;
+  v_entity_type text;
+  v_abbrev      text;
+  v_count       integer;
+  v_code        text;
+  v_row         public.activity_codes;
+BEGIN
+  IF NOT public.is_admin() THEN
+    RAISE EXCEPTION 'Permission denied: admin only';
+  END IF;
+
+  -- Lock and fetch the target (and its service row) atomically.
+  SELECT ac.service_id, ac.entity_type, s.abbreviation
+    INTO v_service_id, v_entity_type, v_abbrev
+    FROM public.activity_codes ac
+    JOIN public.services s USING (service_id)
+   WHERE ac.activity_id = p_activity_id AND ac.is_active = false
+   FOR UPDATE OF ac, s;
+
+  IF v_service_id IS NULL THEN
+    RAISE EXCEPTION 'Activity not found, already active, or not service-linked';
+  END IF;
+
+  IF v_abbrev IS NULL THEN
+    RAISE EXCEPTION 'Service has no abbreviation';
+  END IF;
+
+  -- Count active, ordinal-scheme activities for this (service, entity_type)
+  -- pair. 0817-177: excludes legacy codes, same reasoning as
+  -- create_service_activity above.
+  SELECT COUNT(*) INTO v_count
+    FROM public.activity_codes
+   WHERE service_id  = v_service_id
+     AND entity_type = v_entity_type
+     AND is_active   = true
+     AND activity_code ~ ('^' || v_abbrev || '-' || v_entity_type || '[0-9]+$');
+
+  -- No hard cap: 1–9 is a UI recommendation only.
+  v_code := v_abbrev || '-' || v_entity_type || (v_count + 1)::text;
+
+  UPDATE public.activity_codes
+     SET is_active = true,
+         activity_code = v_code
+   WHERE activity_id = p_activity_id
+  RETURNING * INTO v_row;
+
+  RETURN v_row;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.reactivate_service_activity(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.reactivate_service_activity(uuid) TO authenticated;
