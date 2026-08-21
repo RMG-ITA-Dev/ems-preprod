@@ -75,6 +75,25 @@ vi.mock("@/hooks/useCategoryStaff", () => ({
   }),
 }));
 
+// BUG 0722-162: el bloque Equipo pasó a alimentarse de useEngagementTeamCandidates (RPC), así
+// que sin este mock el hook real golpearía Supabase. Partner/Manager no pueden ir vacíos: el
+// submit de este test necesita el botón "Crear Encargo" habilitado (`teamBlocksCreation` lo
+// deshabilita en creación si faltan candidatos), aunque el formulario nunca llegue a elegirlos.
+const stableTeamCandidates = {
+  partnerDirectorOptions: [{ value: "p1", label: "Juan Partner", serviceId: "s1" }],
+  managerRoleOptions: [{ value: "m1", label: "Ana Manager", serviceId: "s1" }],
+  encargadoOptions: [],
+  specialistItOptions: [],
+  specialistTaxOptions: [],
+  hasPartnerDirectorCandidates: true,
+  hasManagerCandidates: true,
+  isLoading: false,
+  isError: false,
+};
+vi.mock("@/hooks/useEngagementTeamCandidates", () => ({
+  useEngagementTeamCandidates: () => stableTeamCandidates,
+}));
+
 vi.mock("@/hooks/mutations", () => ({
   useCreateEngagement: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useUpdateEngagement: () => ({ mutateAsync: vi.fn(), isPending: false }),

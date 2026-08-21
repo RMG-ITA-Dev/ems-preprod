@@ -482,8 +482,11 @@ describe("0625-148 — role-based service restriction", () => {
 
     const partnerSelect = screen.getByLabelText(/engagement\.partner/);
     await user.click(partnerSelect);
-    await waitFor(() => screen.getByRole("option", { name: "Juan Partner" }));
-    await user.click(screen.getByRole("option", { name: "Juan Partner" }));
+    // BUG 0722-162: Socio/Director y SQR comparten el conjunto de candidatos, y el mock de
+    // Popover renderiza todos los popovers a la vez — "Juan Partner" aparece dos veces. El [0]
+    // es el del campo Socio/Director, que va primero (mismo patrón que la prueba de arriba).
+    await waitFor(() => screen.getAllByRole("option", { name: "Juan Partner" }));
+    await user.click(screen.getAllByRole("option", { name: "Juan Partner" })[0]);
 
     const managerSelect = screen.getByLabelText(/engagement\.manager/);
     await user.click(managerSelect);
@@ -549,8 +552,11 @@ describe("0625-148 — role-based service restriction", () => {
 
     const partnerSelect = screen.getByLabelText(/engagement\.partner/);
     await user.click(partnerSelect);
-    await waitFor(() => screen.getByRole("option", { name: "Juan Partner" }));
-    await user.click(screen.getByRole("option", { name: "Juan Partner" }));
+    // BUG 0722-162: Socio/Director y SQR comparten el conjunto de candidatos, y el mock de
+    // Popover renderiza todos los popovers a la vez — "Juan Partner" aparece dos veces. El [0]
+    // es el del campo Socio/Director, que va primero (mismo patrón que la prueba de arriba).
+    await waitFor(() => screen.getAllByRole("option", { name: "Juan Partner" }));
+    await user.click(screen.getAllByRole("option", { name: "Juan Partner" })[0]);
 
     const managerSelect = screen.getByLabelText(/engagement\.manager/);
     await user.click(managerSelect);
