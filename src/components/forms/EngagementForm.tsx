@@ -8,6 +8,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { LoadingButton } from "@/components/ui/loading-button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Calendar } from "@/components/ui/calendar";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
@@ -75,18 +76,20 @@ import {
 import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
 import { useAuthorization } from "@/hooks/useAuthorization";
 import {
   ENGAGEMENT_STATES,
   engagementStateI18nKey,
+  engagementStateBadgeClass,
   effectiveEngagementState,
-  deriveEngagementState,
   EngagementState,
 } from "@/lib/engagementStatus";
 import { getUpcomingClosingDates, getFiscalYearForDate } from "@/lib/fiscalCalculations";
 
 interface StaffComboboxProps {
   label: string;
+  required?: boolean;
   placeholder: string;
   searchPlaceholder: string;
   noResultsText: string;
@@ -110,6 +113,7 @@ interface StaffComboboxProps {
 
 function StaffCombobox({
   label,
+  required = false,
   placeholder,
   searchPlaceholder,
   noResultsText,
@@ -126,7 +130,10 @@ function StaffCombobox({
 
   return (
     <FormItem>
-      <FormLabel>{label}</FormLabel>
+      <FormLabel>
+        {label}
+        {required && <span className="text-destructive"> *</span>}
+      </FormLabel>
       {/* BUG 0810-172: `open` se fuerza a false cuando el campo pasa a deshabilitado. Un botón
           disabled ya no dispara click, pero la clasificación del usuario puede resolverse MIENTRAS
           el popover está abierto — sin esto quedaría abierto y seleccionable sobre un campo
@@ -142,7 +149,9 @@ function StaffCombobox({
               className={cn("w-full justify-between font-normal", !selectedLabel && "text-muted-foreground")}
             >
               {selectedLabel ?? placeholder}
-              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+              {/* 0722-157 (feedback): azul de acento para distinguir de un vistazo que este
+                  control es un combobox de búsqueda (mismo tratamiento que TaxonomyCombobox). */}
+              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 text-info" />
             </Button>
           </FormControl>
         </PopoverTrigger>
@@ -240,7 +249,7 @@ interface EngagementFormProps {
   onDirtyChange?: (dirty: boolean) => void;
   onCancel?: () => void;
   onSaveSuccess?: () => void;
-  onGoToWorkMatrix?: () => void;
+  onGoToWorkMatrix?: (engagementId?: string) => void;
 }
 
 const AUDITORIA_SERVICE_CODE = 1;
@@ -255,8 +264,8 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   // cambio, sin tocar cada sitio.
   //
   // Este archivo ya NO usa el enum legacy: todo sale de `role_key` y de los
-  // permisos. El último resto era `isManager` para el toggle de congelamiento, que
-  // ahora se resuelve por asignación (ver `canFreezeAsManager` más abajo).
+  // permisos. El toggle de congelamiento del Gerente (`isManager`) se eliminó
+  // (0722-157); el estado "Congelado" ahora solo lo fija el Admin.
   const { can, roleKey, isLoading: roleLoading } = useAuthorization();
   const isAdmin = roleKey === "admin";
   const isEdit = !!engagement;
@@ -271,25 +280,12 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   // tenían botón de guardar. No cambia lo que nadie PUEDE hacer — solo deja de
   // ofrecer una edición que no se puede persistir.
   const canEditClosing = can("engagement.update");
-  // FEAT 0602-135: control del estado del encargo.
-  // - Admin: control total (los 9 estados + "Automático").
-  // - Gerente: solo congelar/descongelar (Aprobado ↔ Congelado), y solo cuando el encargo
-  //   ya está Aprobado o Congelado. El resto de estados los gobierna la OT / el Admin.
-  // (canManageEngagementState se define más abajo: necesita `staffRecord` para
-  //  resolver "el gerente DE ESTE encargo").
+  // FEAT 0602-135: control del estado del encargo, ahora en el encabezado de "Información
+  // Básica" — Admin edita con <Select> (los 9 estados + "Automático"); el resto ve un badge
+  // de solo lectura (0722-157: se retira el toggle de congelar/descongelar del Gerente).
   const savedEffectiveState = engagement
     ? effectiveEngagementState(engagement, engagement.work_order)
     : null;
-  const derivedState = engagement
-    ? deriveEngagementState(engagement, engagement.work_order)
-    : null;
-  // El Gerente solo congela/descongela (null→9 o 9→null) cuando el estado DERIVADO de la OT es
-  // Aprobado (4). No puede tocar overrides fijados por el Admin (4/5/6/7/8). Espejo exacto del guard
-  // DB `authorize_engagement_state_override` (evita error de RLS y escalación de permiso).
-  const savedOverride = engagement?.engagement_state_override ?? null;
-  const canManagerFreeze =
-    derivedState === EngagementState.Aprobado &&
-    (savedOverride === null || savedOverride === EngagementState.Congelado);
   // Decisión A: en estados terminales/congelado (6 Cancelado, 7 Finalizado, 9 Congelado) NO se
   // editan las fechas. Excepción: el Admin sí (necesario para reabrir un Finalizado extendiendo la
   // fecha fin — Política 6, Opción 1).
@@ -317,17 +313,6 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     isError: teamCandidatesError,
   } = useEngagementTeamCandidates();
   const { staffRecord, isLoading: currentStaffLoading } = useCurrentStaff();
-
-  // FEAT 0602-135 — congelar/descongelar. Decisión de negocio (2026-07-30): además
-  // del Admin, puede el GERENTE DE ESTE encargo, no cualquier usuario con rol
-  // Gerente. Antes era `isAdmin || isManager` sobre el enum legacy, que habilitaba
-  // el toggle a todo rol mapeado a `manager` (con el espejo de Fase 8 son siete:
-  // manager, ita/tax_manager, it_security_manager, accounting_manager, hr_manager
-  // y risk_supervisor) y sobre CUALQUIER encargo, no solo los suyos.
-  const isEngagementManager =
-    !!staffRecord?.staff_id && staffRecord.staff_id === engagement?.manager_id;
-  const canFreezeAsManager = can("engagement.update") && isEngagementManager;
-  const canManageEngagementState = isAdmin || canFreezeAsManager;
 
   // ── BUG 0810-172: autoasignación y bloqueo del Socio/Director o Gerente en CREACIÓN ─────────
   //
@@ -367,7 +352,11 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   const serviceSelectDisabled = isEdit || roleLoading || !isAdmin;
 
   const activeTaxonomyOptions = useMemo(
-    () => (allTaxonomies ?? []).filter((tx) => tx.is_active || tx.taxonomy_id === engagement?.taxonomy_id),
+    () =>
+      (allTaxonomies ?? [])
+        .filter((tx) => tx.is_active || tx.taxonomy_id === engagement?.taxonomy_id)
+        // 0722-157 (feedback): ordenar por nombre (A-Z), no por código.
+        .sort((a, b) => a.name.localeCompare(b.name)),
     [allTaxonomies, engagement?.taxonomy_id]
   );
 
@@ -451,6 +440,10 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     funcion: string;
     status: string;
     society: string;
+    engagementId: string;
+    // 0722-157 (feedback): "Ir a Matriz de Trabajo" solo tiene sentido para encargos de
+    // Cliente — Administrativa/Capacitación/Control de Calidad no presupuestan horas ahí.
+    isCliente: boolean;
   } | null>(null);
 
   // Policy flags state (outside react-hook-form since they're admin-only)
@@ -688,12 +681,26 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     }
   };
 
+  // 0722-157: scroll + foco al primer campo inválido tras un submit fallido — cubre tanto los
+  // errores del resolver de Zod (pasado como segundo argumento de `form.handleSubmit`) como los
+  // `form.setError` manuales de más abajo. `requestAnimationFrame` espera a que React pinte el
+  // `aria-invalid="true"` antes de buscarlo en el DOM.
+  const formRef = useRef<HTMLFormElement>(null);
+  const focusFirstInvalidField = () => {
+    requestAnimationFrame(() => {
+      const el = formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]');
+      el?.scrollIntoView({ behavior: "smooth", block: "center" });
+      el?.focus();
+    });
+  };
+
   const onSubmit = async (data: FormData) => {
     // BUG #0206-19 + #0220-48: skip for internal engagements; BUG #0602-134: admin has no floor
     if (!isInternal && effectiveMinStartDate && data.start_date && isBefore(startOfDay(data.start_date), effectiveMinStartDate)) {
       form.setError("start_date", {
         message: t("engagement.startDateBeforeCreation"),
       });
+      focusFirstInvalidField();
       return;
     }
 
@@ -702,6 +709,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     // required-code-field checks below.
     if (data.closing_date_option === "Otro" && !data.closing_date_custom) {
       form.setError("closing_date_custom", { message: t("engagement.requiredClosingDateCustom") });
+      focusFirstInvalidField();
       return;
     }
 
@@ -713,7 +721,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       if (data.funcion    === undefined) { form.setError("funcion",     { message: t("engagement.requiredFuncion")    }); missingCodeField = true; }
       if (data.society_id === undefined) { form.setError("society_id", { message: t("engagement.requiredSociety")    }); missingCodeField = true; }
       if (data.closing_date_option === undefined) { form.setError("closing_date_option", { message: t("engagement.requiredClosingDate") }); missingCodeField = true; }
-      if (missingCodeField) return;
+      if (missingCodeField) { focusFirstInvalidField(); return; }
     }
 
     // BUG #0625-151: el contrato escaneado es obligatorio solo para encargos de cliente
@@ -721,6 +729,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     // solo validamos que exista una ruta antes de crear el encargo.
     if (!isEdit && !isInternal && !contractFilePath) {
       setContractError(t("engagement.contractRequired"));
+      focusFirstInvalidField();
       return;
     }
     setContractError(null);
@@ -729,6 +738,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     // satisfy it (unlike other funciones, where it's a valid explicit opt-out).
     if (data.funcion === FUNCION_CLIENTE && (!data.taxonomy_id || data.taxonomy_id === NO_APLICA_VALUE)) {
       form.setError("taxonomy_id", { message: t("engagement.requiredTaxonomyCliente") });
+      focusFirstInvalidField();
       return;
     }
     const taxonomyIdPayload = data.taxonomy_id && data.taxonomy_id !== NO_APLICA_VALUE
@@ -763,8 +773,9 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
           specialist_it_id:    data.specialist_it_id ?? null,
           specialist_tax_id:   data.specialist_tax_id ?? null,
           taxonomy_id:         taxonomyIdPayload,
-          // FEAT 0602-135: solo Admin/Gerente escriben el override manual del estado.
-          ...(canManageEngagementState
+          // FEAT 0602-135 (0722-157: se retira el control del Gerente): solo el Admin
+          // escribe el override manual del estado — el resto no renderiza el control.
+          ...(isAdmin
             ? {
                 engagement_state_override:
                   !data.engagement_state_override || data.engagement_state_override === "auto"
@@ -772,7 +783,10 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                     : Number(data.engagement_state_override),
               }
             : {}),
-          // oficina, practica, funcion, engagement_code, society_id intentionally omitted — immutable after create
+          // 0722-157: Sociedad es editable solo por Admin tras la creación (sin migración,
+          // frontend-only); para el resto se omite del payload, igual que antes para todos.
+          ...(isAdmin ? { society_id: data.society_id as string } : {}),
+          // oficina, practica, funcion, engagement_code intentionally omitted — immutable after create
           ...(canEditClosing && closingDateResolved
             ? {
                 anio_fiscal:          data.anio_fiscal as number,
@@ -850,6 +864,8 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
         funcion: data.funcion != null ? t(FUNCION_LABEL_KEYS[data.funcion]) : "",
         status: t(`status.${data.status}`),
         society: societyOptions.find((s) => s.society_id === data.society_id)?.name ?? "",
+        engagementId: created.engagement_id,
+        isCliente: data.funcion === FUNCION_CLIENTE,
       });
       return;
     }
@@ -1149,11 +1165,12 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   };
 
   const handleGoToWorkMatrix = () => {
+    const engagementId = createdInfo?.engagementId;
     setCreatedInfo(null);
     if (onGoToWorkMatrix) {
-      onGoToWorkMatrix();
+      onGoToWorkMatrix(engagementId);
     } else {
-      navigate("/worksheets");
+      navigate(engagementId ? `/worksheets/new?engagement=${encodeURIComponent(engagementId)}` : "/worksheets/new");
     }
   };
 
@@ -1211,18 +1228,178 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
 
       <div className="bg-card rounded-xl border border-border p-6">
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+          <form ref={formRef} onSubmit={form.handleSubmit(onSubmit, focusFirstInvalidField)} className="space-y-6">
 
             <div className="border border-border bg-background/50 rounded-xl p-8">
-              <div className="space-y-4">
-              <h3 className="font-medium text-lg">{t("common.basicInfo")}</h3>
+              <div className="space-y-6">
+              <div className="flex items-center justify-between gap-4 flex-wrap">
+                <h3 className="font-medium text-lg">{t("common.basicInfo")}</h3>
+                <div className="flex items-center gap-3 flex-wrap">
+                  {/* 0722-157 (feedback): el Código del Encargo se muestra junto al Estado en
+                      el encabezado, en vez de ocupar un lugar en la grilla de Clasificación. */}
+                  {isEdit ? (
+                    <Input
+                      data-testid="engagement-code-readonly"
+                      aria-label={t("engagement.engagementCode")}
+                      value={engagement?.engagement_code ?? ""}
+                      readOnly
+                      disabled
+                      // 0722-157 (feedback): conservar el mismo dorado/warning de la vista de
+                      // creación — antes esta vista solo tenía el borde, sin el relleno/texto.
+                      className="h-8 w-40 font-mono border-warning/40 bg-warning/10 text-warning disabled:!opacity-100"
+                    />
+                  ) : (
+                    <div className="space-y-0.5">
+                      <div
+                        data-testid="engagement-code-preview"
+                        aria-label={t("engagement.engagementCode")}
+                        className="flex h-8 items-center rounded-md border border-warning/30 bg-warning/10 px-3 text-xs"
+                      >
+                        {previewIncomplete ? (
+                          <span className="text-muted-foreground">{t("engagement.engagementCode")}</span>
+                        ) : (
+                          <span className="font-mono text-warning">
+                            {previewCodePrefix}
+                            <span className="text-warning/60">---</span>
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[10px] text-muted-foreground">{t("engagement.codePreviewHelp")}</p>
+                    </div>
+                  )}
+
+                  {/* FEAT 0602-135 (0722-157: movido al encabezado, sin el toggle del Gerente):
+                      Admin edita con <Select> los 9 estados + Automático; el resto ve el badge de
+                      solo lectura, reutilizando el patrón de la tabla de Encargos. */}
+                  {isEdit && isAdmin ? (
+                    <FormField
+                      control={form.control}
+                      name="engagement_state_override"
+                      render={({ field }) => (
+                        <FormItem className="space-y-0">
+                          <Select onValueChange={field.onChange} value={field.value ?? "auto"}>
+                            <FormControl>
+                              <SelectTrigger
+                                className="h-8 w-[180px] [&_svg]:text-info [&_svg]:opacity-100"
+                                aria-label={t("engagement.status")}
+                              >
+                                {/* 0722-157 (feedback): cuando sigue el derivado de la OT
+                                    ("auto"), mostrar el estado real vigente en vez de la
+                                    palabra "Automático" — mucho más claro de un vistazo. */}
+                                <SelectValue>
+                                  {field.value && field.value !== "auto"
+                                    ? t(engagementStateI18nKey(Number(field.value)))
+                                    : savedEffectiveState
+                                      ? t(engagementStateI18nKey(savedEffectiveState))
+                                      : t("engagementState.auto")}
+                                </SelectValue>
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="auto">{t("engagementState.auto")}</SelectItem>
+                              {ENGAGEMENT_STATES.map((s) => (
+                                <SelectItem key={s} value={String(s)}>
+                                  {t(engagementStateI18nKey(s))}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </FormItem>
+                      )}
+                    />
+                  ) : savedEffectiveState ? (
+                    <Badge variant="outline" className={engagementStateBadgeClass(savedEffectiveState)}>
+                      {t(engagementStateI18nKey(savedEffectiveState))}
+                    </Badge>
+                  ) : (
+                    // 0722-157 (feedback): al crear todavía no existe un encargo (ni OT), así
+                    // que "Pendiente" (1) describe mejor el punto de partida que "Automático".
+                    <Badge variant="outline" className={engagementStateBadgeClass(EngagementState.Pendiente)}>
+                      {t(engagementStateI18nKey(EngagementState.Pendiente))}
+                    </Badge>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <FormField
+                  control={form.control}
+                  name="client_id"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t("engagement.client")} <span className="text-destructive">*</span></FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger className="[&_svg]:text-info [&_svg]:opacity-100">
+                            <SelectValue placeholder={t("engagement.selectClient")} />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {clientOptions.map((client) => (
+                            <SelectItem key={client.client_id} value={client.client_id}>
+                              {client.client_legal_name}
+                              {!client.is_active && ` (${t("status.inactive")})`}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField control={form.control} name="society_id" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t("engagement.society")} <span className="text-destructive">*</span></FormLabel>
+                    <Select
+                      disabled={isEdit && !isAdmin}
+                      onValueChange={field.onChange}
+                      value={field.value ?? ""}
+                    >
+                      <FormControl><SelectTrigger className="[&_svg]:text-info [&_svg]:opacity-100"><SelectValue placeholder={t("engagement.selectSociety")} /></SelectTrigger></FormControl>
+                      <SelectContent>
+                        {societyOptions.map((soc) => (
+                          <SelectItem key={soc.society_id} value={soc.society_id}>
+                            {soc.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+
+                <FormField
+                  control={form.control}
+                  name="taxonomy_id"
+                  render={({ field, fieldState }) => (
+                    <FormItem>
+                      <FormLabel>
+                        {t("engagement.taxonomy")}
+                        {form.watch("funcion") === FUNCION_CLIENTE && (
+                          <span className="text-destructive"> *</span>
+                        )}
+                      </FormLabel>
+                      <TaxonomyCombobox
+                        taxonomies={activeTaxonomyOptions}
+                        value={field.value}
+                        onValueChange={field.onChange}
+                        showNoAplica={form.watch("funcion") !== FUNCION_CLIENTE}
+                        aria-invalid={!!fieldState.error}
+                      />
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
                   name="engagement_name"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>{t("engagement.name")} *</FormLabel>
+                      <FormLabel>{t("engagement.name")} <span className="text-destructive">*</span></FormLabel>
                       <FormControl>
                         <Input placeholder="Annual Audit 2024" {...field} />
                       </FormControl>
@@ -1231,48 +1408,247 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                   )}
                 />
 
-                {isEdit ? (
-                  <FormItem>
-                    <FormLabel>{t("engagement.engagementCode")}</FormLabel>
-                    <Input
-                      data-testid="engagement-code-readonly"
-                      value={engagement?.engagement_code ?? ""}
-                      readOnly
-                      disabled
-                      className="font-mono border-warning/40"
-                    />
-                  </FormItem>
-                ) : (
-                  <FormItem>
-                    <FormLabel>{t("engagement.engagementCode")}</FormLabel>
-                    <div
-                      data-testid="engagement-code-preview"
-                      className="flex h-10 items-center rounded-md border border-warning/30 bg-warning/10 px-3 text-sm"
-                    >
-                      {previewIncomplete ? (
-                        <span className="text-muted-foreground">{t("engagement.codePreviewIncomplete")}</span>
-                      ) : (
-                        <span className="font-mono text-warning">
-                          {previewCodePrefix}
-                          <span className="text-warning/60">---</span>
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-muted-foreground">{t("engagement.codePreviewHelp")}</p>
-                  </FormItem>
+                {showContractSection && (
+                  <div className="space-y-2">
+                    <Label className={cn(contractError && "text-destructive")}>
+                      {t("engagement.contractScanned")}
+                      {!isEdit && <span className="text-destructive"> *</span>}
+                    </Label>
+
+                    {!isEdit ? (
+                      <div className="">
+                        {contractFilePath ? (
+                          <div className="flex h-10 items-center gap-2 px-3 border rounded-md bg-muted/50">
+                            <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                            <span className="text-sm truncate flex-1">{contractFileName}</span>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6"
+                              onClick={handleRemoveContractFile}
+                              aria-label={t("engagement.removeContract")}
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        ) : (
+                          <div>
+                            {/* 0722-157 (feedback): the hidden file input still counts as a
+                                sibling for `space-y-*`, which was pushing the Button below the
+                                height of "Nombre del Encargo" — no gap needed since it's hidden. */}
+                            <input
+                              ref={contractFileInputRef}
+                              type="file"
+                              accept="application/pdf"
+                              onChange={handleContractFileSelect}
+                              className="hidden"
+                              id="engagement-contract-upload"
+                            />
+                            <Button
+                              type="button"
+                              variant="outline"
+                              aria-invalid={!!contractError}
+                              onClick={() => contractFileInputRef.current?.click()}
+                              disabled={contractUploading}
+                              className="h-10 w-full justify-start font-normal"
+                            >
+                              <Upload className="h-4 w-4 mr-2 text-info" />
+                              {t("engagement.uploadContract")}
+                            </Button>
+                            {contractUploading && <Progress value={contractProgress} className="h-2 mt-2" />}
+                          </div>
+                        )}
+                        {contractError && (
+                          <p className="text-sm font-medium text-destructive">{contractError}</p>
+                        )}
+                      </div>
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={handleDownloadContract}
+                        disabled={downloadingContract}
+                        className="w-full justify-start font-normal"
+                      >
+                        <FileText className="h-4 w-4 mr-2" />
+                        {t("engagement.downloadContract")}
+                      </Button>
+                    )}
+                  </div>
                 )}
               </div>
+              </div>
 
+            <div className="space-y-6 mt-6">
+              {/* 0722-157 (feedback): se quita el h3 "Fechas" — la sección ya queda clara por
+                  su posición inmediatamente debajo de Información Básica. */}
+              {datesLockedByState && (
+                <p className="text-xs text-muted-foreground">{t("engagement.datesLockedByState")}</p>
+              )}
+              <div className={cn(
+                "grid grid-cols-1 sm:grid-cols-3 gap-4",
+                wClosingOption === "Otro" ? "md:grid-cols-4" : "md:grid-cols-3"
+              )}>
+
+                <FormField
+                  control={form.control}
+                  name="start_date"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-col">
+                      <FormLabel>{t("engagement.startDate")} <span className="text-destructive">*</span></FormLabel>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <FormControl>
+                            <Button
+                              variant="outline"
+                              disabled={datesLockedByState}
+                              className={cn(
+                                "w-full pl-3 text-left font-normal",
+                                !field.value && "text-muted-foreground"
+                              )}
+                            >
+                              {field.value ? format(field.value, "dd/MM/yyyy") : t("common.pickDate")}
+                              <CalendarIcon className="ml-auto h-4 w-4 text-info" />
+                            </Button>
+                          </FormControl>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                          <Calendar
+                            mode="single"
+                            selected={field.value}
+                            onSelect={field.onChange}
+                            disabled={effectiveMinStartDate ? (date) => isBefore(startOfDay(date), effectiveMinStartDate) : undefined}
+                            initialFocus
+                            className="pointer-events-auto"
+                          />
+                        </PopoverContent>
+                      </Popover>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="end_date"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-col">
+                      <FormLabel>{t("engagement.endDate")} <span className="text-destructive">*</span></FormLabel>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <FormControl>
+                            <Button
+                              variant="outline"
+                              disabled={datesLockedByState}
+                              className={cn(
+                                "w-full pl-3 text-left font-normal",
+                                !field.value && "text-muted-foreground"
+                              )}
+                            >
+                              {field.value ? format(field.value, "dd/MM/yyyy") : t("common.pickDate")}
+                              <CalendarIcon className="ml-auto h-4 w-4 text-info" />
+                            </Button>
+                          </FormControl>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                          <Calendar
+                            mode="single"
+                            selected={field.value}
+                            onSelect={field.onChange}
+                            disabled={(date) => {
+                              const startDate = form.getValues("start_date");
+                              if (startDate) return isBefore(startOfDay(date), startOfDay(startDate));
+                              if (minStartDate) return isBefore(startOfDay(date), minStartDate);
+                              return false;
+                            }}
+                            initialFocus
+                            className="pointer-events-auto"
+                          />
+                        </PopoverContent>
+                      </Popover>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField control={form.control} name="closing_date_option" render={({ field }) => (
+                  <FormItem className="flex flex-col">
+                    <FormLabel>{t("engagement.closingDate")} <span className="text-destructive">*</span></FormLabel>
+                    <Select
+                      disabled={isEdit && (!canEditClosing || (overrideOn && !isAdmin) || datesLockedByState)}
+                      onValueChange={field.onChange}
+                      value={field.value ?? ""}
+                    >
+                      <FormControl><SelectTrigger className="[&_svg]:text-info [&_svg]:opacity-100"><SelectValue placeholder={t("engagement.selectClosingDate")} /></SelectTrigger></FormControl>
+                      <SelectContent>
+                        {closingDateOptions.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {format(opt.date, "dd/MM/yyyy")}
+                          </SelectItem>
+                        ))}
+                        <SelectItem value="Otro">{t("engagement.closingDate_otro")}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+
+                {wClosingOption === "Otro" && (
+                  <FormField
+                    control={form.control}
+                    name="closing_date_custom"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-col">
+                        <FormLabel>{t("engagement.closingDateCustom")} <span className="text-destructive">*</span></FormLabel>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <FormControl>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                disabled={isEdit && (!canEditClosing || (overrideOn && !isAdmin) || datesLockedByState)}
+                                className={cn(
+                                  "w-full pl-3 text-left font-normal",
+                                  !field.value && "text-muted-foreground"
+                                )}
+                              >
+                                {field.value ? format(field.value, "dd/MM/yyyy") : t("common.pickDate")}
+                                <CalendarIcon className="ml-auto h-4 w-4 text-info" />
+                              </Button>
+                            </FormControl>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0" align="start">
+                            <Calendar
+                              mode="single"
+                              selected={field.value}
+                              onSelect={field.onChange}
+                              initialFocus
+                              className="pointer-events-auto"
+                            />
+                          </PopoverContent>
+                        </Popover>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
+              </div>
+              </div>
+
+              <div className="mt-8">
+              {/* 0722-157 (feedback): se quita el h3 "Clasificación" — la separación con
+                  Fechas la marca el `mt-8` de este bloque. */}
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                 <FormField control={form.control} name="anio_fiscal" render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{t("engagement.anioFiscal")} *</FormLabel>
+                    <FormLabel>{t("engagement.anioFiscal")} <span className="text-destructive">*</span></FormLabel>
                     {showOverrideSelect ? (
                       <Select
                         onValueChange={(v) => field.onChange(Number(v))}
                         value={field.value ? String(field.value) : ""}
                       >
-                        <FormControl><SelectTrigger><SelectValue placeholder={t("engagement.selectAnioFiscal")} /></SelectTrigger></FormControl>
+                        <FormControl><SelectTrigger className="[&_svg]:text-info [&_svg]:opacity-100"><SelectValue placeholder={t("engagement.selectAnioFiscal")} /></SelectTrigger></FormControl>
                         <SelectContent>
                           {fiscalYearOptions.map((fy) => (
                             <SelectItem key={fy} value={String(fy)}>{fy}</SelectItem>
@@ -1301,13 +1677,13 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
 
                 <FormField control={form.control} name="oficina" render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{t("engagement.oficina")} *</FormLabel>
+                    <FormLabel>{t("engagement.oficina")} <span className="text-destructive">*</span></FormLabel>
                     <Select
                       disabled={isEdit}
                       onValueChange={(v) => field.onChange(Number(v))}
                       value={field.value != null ? String(field.value) : ""}
                     >
-                      <FormControl><SelectTrigger><SelectValue placeholder={t("engagement.selectOficina")} /></SelectTrigger></FormControl>
+                      <FormControl><SelectTrigger className="[&_svg]:text-info [&_svg]:opacity-100"><SelectValue placeholder={t("engagement.selectOficina")} /></SelectTrigger></FormControl>
                       <SelectContent>
                         <SelectItem value="0">{t("engagement.oficina_ambos")}</SelectItem>
                         <SelectItem value="1">{t("engagement.oficina_laPaz")}</SelectItem>
@@ -1320,13 +1696,13 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
 
                 <FormField control={form.control} name="practica" render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{t("engagement.practica")} *</FormLabel>
+                    <FormLabel>{t("engagement.practica")} <span className="text-destructive">*</span></FormLabel>
                     <Select
                       disabled={serviceSelectDisabled}
                       onValueChange={(v) => field.onChange(Number(v))}
                       value={field.value != null ? String(field.value) : ""}
                     >
-                      <FormControl><SelectTrigger><SelectValue placeholder={t("engagement.selectPractica")} /></SelectTrigger></FormControl>
+                      <FormControl><SelectTrigger className="[&_svg]:text-info [&_svg]:opacity-100"><SelectValue placeholder={t("engagement.selectPractica")} /></SelectTrigger></FormControl>
                       <SelectContent>
                         {activeServiceOptions.map((s) => (
                           <SelectItem key={s.code} value={String(s.code)}>
@@ -1341,13 +1717,13 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
 
                 <FormField control={form.control} name="funcion" render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{t("engagement.funcion")} *</FormLabel>
+                    <FormLabel>{t("engagement.funcion")} <span className="text-destructive">*</span></FormLabel>
                     <Select
                       disabled={isEdit}
                       onValueChange={(v) => field.onChange(Number(v))}
                       value={field.value !== undefined ? String(field.value) : ""}
                     >
-                      <FormControl><SelectTrigger><SelectValue placeholder={t("engagement.selectFuncion")} /></SelectTrigger></FormControl>
+                      <FormControl><SelectTrigger className="[&_svg]:text-info [&_svg]:opacity-100"><SelectValue placeholder={t("engagement.selectFuncion")} /></SelectTrigger></FormControl>
                       <SelectContent>
                         <SelectItem value="0">{t("engagement.funcion_adm")}</SelectItem>
                         <SelectItem value="1">{t("engagement.funcion_cli")}</SelectItem>
@@ -1358,364 +1734,8 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                     <FormMessage />
                   </FormItem>
                 )} />
-
-                <FormField control={form.control} name="society_id" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t("engagement.society")} *</FormLabel>
-                    <Select
-                      disabled={isEdit}
-                      onValueChange={field.onChange}
-                      value={field.value ?? ""}
-                    >
-                      <FormControl><SelectTrigger><SelectValue placeholder={t("engagement.selectSociety")} /></SelectTrigger></FormControl>
-                      <SelectContent>
-                        {societyOptions.map((soc) => (
-                          <SelectItem key={soc.society_id} value={soc.society_id}>
-                            {soc.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="client_id"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t("engagement.client")} *</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder={t("engagement.selectClient")} />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {clientOptions.map((client) => (
-                            <SelectItem key={client.client_id} value={client.client_id}>
-                              {client.client_legal_name}
-                              {!client.is_active && ` (${t("status.inactive")})`}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                {/* FEAT 0602-135: control del estado del encargo. "Automático" = derivado de la OT.
-                    El campo `status` legacy queda en 'active' por defecto. */}
-                {isEdit && isAdmin ? (
-                  // Admin: control total de los 9 estados + Automático.
-                  <FormField
-                    control={form.control}
-                    name="engagement_state_override"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{t("engagement.status")}</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value ?? "auto"}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="auto">{t("engagementState.auto")}</SelectItem>
-                            {ENGAGEMENT_STATES.map((s) => (
-                              <SelectItem key={s} value={String(s)}>
-                                {t(engagementStateI18nKey(s))}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                ) : isEdit && canFreezeAsManager ? (
-                  // Gerente: solo congelar/descongelar, habilitado únicamente cuando el encargo
-                  // está Aprobado o Congelado. ON => override 9 (Congelado); OFF => Automático (vuelve a Aprobado).
-                  <FormField
-                    control={form.control}
-                    name="engagement_state_override"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{t("engagement.status")}</FormLabel>
-                        <div className="flex items-center gap-3 h-10">
-                          <Switch
-                            checked={field.value === "9"}
-                            disabled={!canManagerFreeze}
-                            onCheckedChange={(on) => field.onChange(on ? "9" : "auto")}
-                            aria-label={t("engagement.freezeToggle")}
-                          />
-                          <span className="text-sm font-medium">{t("engagement.freezeToggle")}</span>
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                          {canManagerFreeze ? t("engagement.freezeHint") : t("engagement.freezeUnavailable")}
-                        </p>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                ) : (
-                  // Otros roles (o creación): estado efectivo en solo lectura.
-                  <FormItem>
-                    <FormLabel>{t("engagement.status")}</FormLabel>
-                    <div className="flex h-10 items-center rounded-md border border-input bg-muted px-3 text-sm text-muted-foreground">
-                      {savedEffectiveState
-                        ? t(engagementStateI18nKey(savedEffectiveState))
-                        : t("engagementState.auto")}
-                    </div>
-                  </FormItem>
-                )}
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="taxonomy_id"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>
-                        {t("engagement.taxonomy")}
-                        {form.watch("funcion") === FUNCION_CLIENTE && " *"}
-                      </FormLabel>
-                      <TaxonomyCombobox
-                        taxonomies={activeTaxonomyOptions}
-                        value={field.value}
-                        onValueChange={field.onChange}
-                        showNoAplica={form.watch("funcion") !== FUNCION_CLIENTE}
-                      />
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <h3 className="font-medium text-lg">{t("common.dates")}</h3>
-              {datesLockedByState && (
-                <p className="text-xs text-muted-foreground">{t("engagement.datesLockedByState")}</p>
-              )}
-              <div className={cn(
-                "grid grid-cols-1 sm:grid-cols-3 gap-4",
-                wClosingOption === "Otro" ? "md:grid-cols-4" : "md:grid-cols-3"
-              )}>
-
-                <FormField
-                  control={form.control}
-                  name="start_date"
-                  render={({ field }) => (
-                    <FormItem className="flex flex-col">
-                      <FormLabel>{t("engagement.startDate")} *</FormLabel>
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <FormControl>
-                            <Button
-                              variant="outline"
-                              disabled={datesLockedByState}
-                              className={cn(
-                                "w-full pl-3 text-left font-normal",
-                                !field.value && "text-muted-foreground"
-                              )}
-                            >
-                              {field.value ? format(field.value, "dd/MM/yyyy") : t("common.pickDate")}
-                              <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                            </Button>
-                          </FormControl>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="start">
-                          <Calendar
-                            mode="single"
-                            selected={field.value}
-                            onSelect={field.onChange}
-                            disabled={effectiveMinStartDate ? (date) => isBefore(startOfDay(date), effectiveMinStartDate) : undefined}
-                            initialFocus
-                            className="pointer-events-auto"
-                          />
-                        </PopoverContent>
-                      </Popover>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="end_date"
-                  render={({ field }) => (
-                    <FormItem className="flex flex-col">
-                      <FormLabel>{t("engagement.endDate")} *</FormLabel>
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <FormControl>
-                            <Button
-                              variant="outline"
-                              disabled={datesLockedByState}
-                              className={cn(
-                                "w-full pl-3 text-left font-normal",
-                                !field.value && "text-muted-foreground"
-                              )}
-                            >
-                              {field.value ? format(field.value, "dd/MM/yyyy") : t("common.pickDate")}
-                              <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                            </Button>
-                          </FormControl>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="start">
-                          <Calendar
-                            mode="single"
-                            selected={field.value}
-                            onSelect={field.onChange}
-                            disabled={(date) => {
-                              const startDate = form.getValues("start_date");
-                              if (startDate) return isBefore(startOfDay(date), startOfDay(startDate));
-                              if (minStartDate) return isBefore(startOfDay(date), minStartDate);
-                              return false;
-                            }}
-                            initialFocus
-                            className="pointer-events-auto"
-                          />
-                        </PopoverContent>
-                      </Popover>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField control={form.control} name="closing_date_option" render={({ field }) => (
-                  <FormItem className="flex flex-col">
-                    <FormLabel>{t("engagement.closingDate")} *</FormLabel>
-                    <Select
-                      disabled={isEdit && (!canEditClosing || (overrideOn && !isAdmin) || datesLockedByState)}
-                      onValueChange={field.onChange}
-                      value={field.value ?? ""}
-                    >
-                      <FormControl><SelectTrigger><SelectValue placeholder={t("engagement.selectClosingDate")} /></SelectTrigger></FormControl>
-                      <SelectContent>
-                        {closingDateOptions.map((opt) => (
-                          <SelectItem key={opt.value} value={opt.value}>
-                            {format(opt.date, "dd/MM/yyyy")}
-                          </SelectItem>
-                        ))}
-                        <SelectItem value="Otro">{t("engagement.closingDate_otro")}</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-
-                {wClosingOption === "Otro" && (
-                  <FormField
-                    control={form.control}
-                    name="closing_date_custom"
-                    render={({ field }) => (
-                      <FormItem className="flex flex-col">
-                        <FormLabel>{t("engagement.closingDateCustom")} *</FormLabel>
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <FormControl>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                disabled={isEdit && (!canEditClosing || (overrideOn && !isAdmin) || datesLockedByState)}
-                                className={cn(
-                                  "w-full pl-3 text-left font-normal",
-                                  !field.value && "text-muted-foreground"
-                                )}
-                              >
-                                {field.value ? format(field.value, "dd/MM/yyyy") : t("common.pickDate")}
-                                <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                              </Button>
-                            </FormControl>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-auto p-0" align="start">
-                            <Calendar
-                              mode="single"
-                              selected={field.value}
-                              onSelect={field.onChange}
-                              initialFocus
-                              className="pointer-events-auto"
-                            />
-                          </PopoverContent>
-                        </Popover>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                )}
               </div>
               </div>
-
-               {showContractSection && (
-              
-                <div className="mt-4">
-                  <h3 className="font-medium text-lg">
-                    {t("engagement.contractScanned")}{!isEdit && " *"}
-                  </h3>
-
-                  {!isEdit ? (
-                    <div className="">
-                      {contractFilePath ? (
-                        <div className="flex items-center gap-2 p-2 border rounded-md bg-muted/50 max-w-md">
-                          <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                          <span className="text-sm truncate flex-1">{contractFileName}</span>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6"
-                            onClick={handleRemoveContractFile}
-                            aria-label={t("engagement.removeContract")}
-                          >
-                            <X className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      ) : (
-                        <div className="space-y-2 max-w-md">
-                          <input
-                            ref={contractFileInputRef}
-                            type="file"
-                            accept="application/pdf"
-                            onChange={handleContractFileSelect}
-                            className="hidden"
-                            id="engagement-contract-upload"
-                          />
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => contractFileInputRef.current?.click()}
-                            disabled={contractUploading}
-                          >
-                            <Upload className="h-4 w-4 mr-2" />
-                            {t("engagement.uploadContract")}
-                          </Button>
-                          {contractUploading && <Progress value={contractProgress} className="h-2" />}
-                        </div>
-                      )}
-                      {contractError && (
-                        <p className="text-sm font-medium text-destructive">{contractError}</p>
-                      )}
-                    </div>
-                  ) : (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={handleDownloadContract}
-                      disabled={downloadingContract}
-                    >
-                      <FileText className="h-4 w-4 mr-2" />
-                      {t("engagement.downloadContract")}
-                    </Button>
-                  )}
-                </div>
-            )}
             </div>
 
             <div className="border border-border bg-background/50 rounded-xl p-8">
@@ -1727,7 +1747,8 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                   name="partner_id"
                   render={({ field }) => (
                     <StaffCombobox
-                      label={`${t("engagement.partner")} *`}
+                      label={t("engagement.partner")}
+                      required
                       placeholder={t("engagement.selectPartner")}
                       searchPlaceholder={t("engagement.searchStaff")}
                       noResultsText={t("engagement.noStaffFound")}
@@ -1769,7 +1790,8 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                   name="manager_id"
                   render={({ field }) => (
                     <StaffCombobox
-                      label={`${t("engagement.manager")} *`}
+                      label={t("engagement.manager")}
+                      required
                       placeholder={t("engagement.selectManager")}
                       searchPlaceholder={t("engagement.searchStaff")}
                       noResultsText={t("engagement.noStaffFound")}
@@ -1877,6 +1899,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
               <div className="border border-border bg-background/50 rounded-xl p-8">
                 <div className="space-y-4">
                 <h3 className="text-sm font-semibold text-foreground">{t("engagement.timesheetPolicy")}</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="flex items-center justify-between gap-4">
                   <div>
                     <p className="text-sm font-medium">{t("engagement.workOrderRequired")}</p>
@@ -1906,12 +1929,15 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                   <Switch checked={approvalRequired} onCheckedChange={setApprovalRequired} />
                 </div>
                 </div>
+                </div>
               </div>
             )}
 
             {!isEdit && (
               <p className="text-xs text-muted-foreground">{t("engagement.immutabilityHint")}</p>
             )}
+
+            <p className="text-xs text-muted-foreground">{t("engagement.requiredFieldsLegend")}</p>
 
             <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 sm:gap-4 pt-4">
               <Button type="button" variant="cancel" onClick={() => onCancel ? onCancel() : navigate("/engagements")} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
@@ -1944,6 +1970,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
         funcion={createdInfo?.funcion ?? ""}
         status={createdInfo?.status ?? ""}
         society={createdInfo?.society ?? ""}
+        showGoToWorkMatrix={createdInfo?.isCliente ?? false}
         onClose={handleSuccessDialogClose}
         onCreateAnother={handleCreateAnother}
         onGoToWorkMatrix={handleGoToWorkMatrix}

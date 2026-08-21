@@ -22,9 +22,9 @@ const EngagementNew = () => {
     navigate("/engagements");
   };
 
-  const handleGoToWorkMatrix = () => {
+  const handleGoToWorkMatrix = (engagementId?: string) => {
     allowNextNavigation();
-    navigate("/worksheets");
+    navigate(engagementId ? `/worksheets/new?engagement=${encodeURIComponent(engagementId)}` : "/worksheets/new");
   };
 
   return (

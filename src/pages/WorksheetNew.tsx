@@ -1,16 +1,10 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { WorksheetEngagementCombobox } from "@/components/worksheet/WorksheetEngagementCombobox";
 import { Plus, AlertCircle } from "lucide-react";
 import { useEngagementsWithoutWorksheet } from "@/hooks/useWorksheetData";
 import { useCreateWorksheet } from "@/hooks/useWorksheetMutations";
@@ -24,6 +18,7 @@ import { LeavePageDialog } from "@/components/ui/leave-page-dialog";
 const WorksheetNew = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { data: engagements, isLoading } = useEngagementsWithoutWorksheet();
   const { data: currentStaff } = useCurrentStaff();
   const createWorksheet = useCreateWorksheet();
@@ -31,6 +26,20 @@ const WorksheetNew = () => {
   // Guard de creación por permiso vía <PermissionRoute permission="worksheet.create"> en App.tsx.
 
   const [selectedEngagementId, setSelectedEngagementId] = useState<string>("");
+
+  // FEAT 0722-157: preselecciona el encargo pasado por "Ir a Matriz de Trabajo" desde el diálogo
+  // de creación de Encargo. Solo si sigue siendo un candidato válido (activo, sin worksheet, no
+  // terminal/congelado) — un id inválido/obsoleto no preselecciona ni habilita Crear.
+  const preselectEngagement = searchParams.get("engagement");
+  useEffect(() => {
+    if (
+      preselectEngagement &&
+      !selectedEngagementId &&
+      engagements?.some((e) => e.engagement_id === preselectEngagement)
+    ) {
+      setSelectedEngagementId(preselectEngagement);
+    }
+  }, [preselectEngagement, engagements, selectedEngagementId]);
 
   const handleCreate = async () => {
     if (!selectedEngagementId) return;
@@ -86,30 +95,12 @@ const WorksheetNew = () => {
               </Alert>
             ) : (
               <>
-                <Select
+                <WorksheetEngagementCombobox
+                  engagements={engagements ?? []}
                   value={selectedEngagementId}
                   onValueChange={setSelectedEngagementId}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder={t("engagement.selectClient")} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {engagements?.map((eng) => (
-                      <SelectItem key={eng.engagement_id} value={eng.engagement_id} className="group">
-                        <div className="flex flex-col">
-                          <span className="font-medium">
-                            {eng.engagement_code
-                              ? `${eng.engagement_code} - ${eng.engagement_name}`
-                              : eng.engagement_name}
-                          </span>
-                          <span className="text-xs text-muted-foreground group-focus:text-accent-foreground group-data-[highlighted]:text-accent-foreground">
-                            {eng.client?.client_legal_name || "-"}
-                          </span>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  placeholder={t("workMatrix.selectEngagement")}
+                />
 
                 {/* Selected Engagement Preview */}
                 {selectedEngagement && (

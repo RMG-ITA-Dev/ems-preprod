@@ -41,3 +41,38 @@ describe("i18n engagement society keys (FEAT 0714-155)", () => {
     expect((es as any).engagement.immutabilityHint).toMatch(/sociedad/i);
   });
 });
+
+/**
+ * 0722-157: new keys introduced by the Encargo form reorder — the "Clasificación" section
+ * title, the required-fields legend, and the worksheet-engagement combobox's search copy.
+ * Global EN/ES parity is already covered by i18n.parity.test.ts; this only asserts presence.
+ */
+describe("i18n keys for the Encargo form reorder (0722-157)", () => {
+  const ENGAGEMENT_KEYS = ["sectionClassification", "requiredFieldsLegend"] as const;
+
+  for (const key of ENGAGEMENT_KEYS) {
+    it(`EN has engagement.${key}`, () => {
+      expect((en as any).engagement[key]).toBeDefined();
+      expect((en as any).engagement[key].length).toBeGreaterThan(0);
+    });
+
+    it(`ES has engagement.${key}`, () => {
+      expect((es as any).engagement[key]).toBeDefined();
+      expect((es as any).engagement[key].length).toBeGreaterThan(0);
+    });
+  }
+
+  const WORKSHEET_KEYS = ["searchEngagement", "noEngagementResults"] as const;
+
+  for (const key of WORKSHEET_KEYS) {
+    it(`EN has worksheet.${key}`, () => {
+      expect((en as any).worksheet[key]).toBeDefined();
+      expect((en as any).worksheet[key].length).toBeGreaterThan(0);
+    });
+
+    it(`ES has worksheet.${key}`, () => {
+      expect((es as any).worksheet[key]).toBeDefined();
+      expect((es as any).worksheet[key].length).toBeGreaterThan(0);
+    });
+  }
+});

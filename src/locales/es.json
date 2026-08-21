@@ -816,6 +816,8 @@
     "noMatchingTaxonomies": "No se encontraron servicios.",
     "noAplicaTaxonomy":   "No aplica",
     "requiredTaxonomyCliente": "El servicio es requerido para encargos de tipo Cliente",
+    "sectionClassification": "Clasificación",
+    "requiredFieldsLegend": "* Campos obligatorios",
     "assignments": {
       "category": "Categoría",
       "searchStaff": "Buscar personal...",
@@ -830,7 +832,7 @@
         "missingSkills": "Competencias faltantes: {{list}}",
         "belowLevel": "Por debajo del nivel: {{list}}"
       },
-      "title": "Asignaciones de personal",
+      "title": "Asignación de personal",
       "addRow": "Agregar asignación",
       "save": "Guardar asignaciones",
       "discard": "Descartar cambios",
@@ -1610,6 +1612,10 @@
     "copyActivitiesLabel": "{{count}} actividades con horas",
     "copyReplaceWarning": "Esto reemplazará la matriz actual. Puede editar antes de guardar.",
     "copyConfirmButton": "Copiar matriz"
+  },
+  "worksheet": {
+    "searchEngagement": "Buscar encargo...",
+    "noEngagementResults": "No se encontraron encargos."
   },
   "bootstrap": {
     "title": "Complete su Configuración",

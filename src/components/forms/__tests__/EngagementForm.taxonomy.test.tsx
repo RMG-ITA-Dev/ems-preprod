@@ -50,6 +50,8 @@ const mockServices = [
   { service_id: "s1", name: "Auditoría", code: 1, allows_rates_activities: true, is_active: true, created_at: "" },
 ];
 
+// 0722-157: deliberately out of name order ("New" before "Continued") — activeTaxonomyOptions
+// must sort by name (A-Z), per operator feedback superseding the original by-code ordering.
 const mockTaxonomies = [
   { taxonomy_id: "tx-active-1", code: "AA1006", name: "New audit", service_id: null, is_active: true, created_at: "" },
   { taxonomy_id: "tx-active-2", code: "AA1007", name: "Continued audit", service_id: null, is_active: true, created_at: "" },
@@ -171,9 +173,36 @@ describe("EngagementForm — taxonomy combobox filtering (0602-136)", () => {
 
     await waitFor(() => {
       expect(screen.getByText("engagement.noAplicaTaxonomy")).toBeInTheDocument();
-      expect(screen.getByText("AA1006")).toBeInTheDocument();
-      expect(screen.getByText("AA1007")).toBeInTheDocument();
-      expect(screen.queryByText("AA1501")).not.toBeInTheDocument();
+      expect(screen.getByText("New audit")).toBeInTheDocument();
+      expect(screen.getByText("Continued audit")).toBeInTheDocument();
+      expect(screen.queryByText("Old audit")).not.toBeInTheDocument();
+    });
+  });
+
+  // 0722-157: options display only the name (code stays in the searchable `value` — see the
+  // "code search still filters" test below), ordered by name (A-Z) regardless of catalog order.
+  it("create mode: options are ordered by name A-Z ('Continued' before 'New'), not catalog order", async () => {
+    const user = userEvent.setup();
+    render(<EngagementForm />);
+
+    await user.click(screen.getByTestId("taxonomy-combobox-trigger"));
+
+    await waitFor(() => screen.getByText("New audit"));
+    const items = screen.getAllByText(/New audit|Continued audit/);
+    expect(items.map((el) => el.textContent)).toEqual(["Continued audit", "New audit"]);
+  });
+
+  it("create mode: typing a code still filters the (name-only) options", async () => {
+    const user = userEvent.setup();
+    render(<EngagementForm />);
+
+    await user.click(screen.getByTestId("taxonomy-combobox-trigger"));
+    await waitFor(() => screen.getByText("New audit"));
+    await user.type(screen.getByPlaceholderText("engagement.searchTaxonomy"), "AA1007");
+
+    await waitFor(() => {
+      expect(screen.getByText("Continued audit")).toBeInTheDocument();
+      expect(screen.queryByText("New audit")).not.toBeInTheDocument();
     });
   });
 
@@ -181,7 +210,7 @@ describe("EngagementForm — taxonomy combobox filtering (0602-136)", () => {
     render(<EngagementForm engagement={mockEngagementInactiveTaxonomy} />);
     const trigger = screen.getByTestId("taxonomy-combobox-trigger");
     expect(trigger).not.toBeDisabled();
-    expect(trigger).toHaveTextContent("AA1501");
+    expect(trigger).toHaveTextContent("Old audit");
   });
 
   it("funcion=Cliente: 'No aplica' is hidden from the combobox options", async () => {
@@ -192,7 +221,7 @@ describe("EngagementForm — taxonomy combobox filtering (0602-136)", () => {
 
     await waitFor(() => {
       expect(screen.queryByText("engagement.noAplicaTaxonomy")).not.toBeInTheDocument();
-      expect(screen.getByText("AA1006")).toBeInTheDocument();
+      expect(screen.getByText("New audit")).toBeInTheDocument();
     });
   });
 });

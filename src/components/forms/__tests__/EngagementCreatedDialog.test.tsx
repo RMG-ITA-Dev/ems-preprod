@@ -26,6 +26,7 @@ const baseProps = {
   funcion: "engagement.funcion_cli",
   status: "status.active",
   society: "Ruizmier Pelaez S.R.L.", // FEAT 0714-155: resolved society name, not an i18n key
+  showGoToWorkMatrix: true, // 0722-157: caller resolves this from funcion === Cliente
   onClose: vi.fn(),
   onCreateAnother: vi.fn(),
   onGoToWorkMatrix: vi.fn(),
@@ -85,5 +86,16 @@ describe("EngagementCreatedDialog (BUG 0603-140 enhancement)", () => {
     render(<EngagementCreatedDialog {...baseProps} />);
     await user.click(screen.getByRole("button", { name: "engagement.copyCode" }));
     expect(writeSpy).toHaveBeenCalledWith("2027.121.007");
+  });
+
+  // 0722-157 (feedback): la Matriz de Trabajo solo aplica a encargos de función Cliente —
+  // el caller (EngagementForm) resuelve showGoToWorkMatrix a partir de funcion, este
+  // componente solo obedece el flag.
+  it("hides the 'Ir a Matriz de Trabajo' button when showGoToWorkMatrix is false", () => {
+    render(<EngagementCreatedDialog {...baseProps} showGoToWorkMatrix={false} />);
+    expect(screen.queryByRole("button", { name: "engagement.goToWorkMatrix" })).not.toBeInTheDocument();
+    // The other two actions stay unaffected.
+    expect(screen.getByRole("button", { name: "common.close" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "engagement.createAnother" })).toBeInTheDocument();
   });
 });

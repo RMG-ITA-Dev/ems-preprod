@@ -33,10 +33,7 @@ interface TaxonomyComboboxProps {
   disabled?: boolean;
   placeholder?: string;
   showNoAplica?: boolean;
-}
-
-function formatTaxonomyLabel(code: string, name: string): string {
-  return `${code} - ${name}`;
+  "aria-invalid"?: boolean;
 }
 
 export function TaxonomyCombobox({
@@ -46,6 +43,7 @@ export function TaxonomyCombobox({
   disabled = false,
   placeholder,
   showNoAplica = true,
+  "aria-invalid": ariaInvalid,
 }: TaxonomyComboboxProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -60,18 +58,21 @@ export function TaxonomyCombobox({
           variant="outline"
           role="combobox"
           aria-expanded={open}
+          aria-invalid={ariaInvalid}
           disabled={disabled}
           data-testid="taxonomy-combobox-trigger"
           className="w-full justify-between h-10 font-normal"
         >
           <span className="truncate">
             {selected
-              ? formatTaxonomyLabel(selected.code, selected.name)
+              ? selected.name
               : isNoAplica
                 ? t("engagement.noAplicaTaxonomy")
                 : placeholder || t("engagement.selectTaxonomy")}
           </span>
-          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+          {/* 0722-157 (feedback): azul de acento — usado solo por EngagementForm, distingue
+              de un vistazo que este control es un combobox de búsqueda. */}
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 text-info" />
         </Button>
       </PopoverTrigger>
       <PopoverContent className="min-w-[--radix-popover-trigger-width] w-auto max-w-[600px] p-0" align="start">
@@ -112,8 +113,7 @@ export function TaxonomyCombobox({
                       value === tx.taxonomy_id ? "opacity-100" : "opacity-0"
                     )}
                   />
-                  <span className="font-medium">{tx.code}</span>
-                  <span className="opacity-70 ml-2 whitespace-normal">- {tx.name}</span>
+                  <span className="whitespace-normal">{tx.name}</span>
                 </CommandItem>
               ))}
             </CommandGroup>

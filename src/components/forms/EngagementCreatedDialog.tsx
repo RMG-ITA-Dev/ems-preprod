@@ -26,9 +26,12 @@ export interface EngagementCreatedDialogProps {
   funcion: string; // already-translated label (engagement.funcion_*)
   status: string;  // already-translated label (status.*)
   society: string; // FEAT 0714-155: resolved society name (from societyOptions), not an i18n key
+  // 0722-157 (feedback): la Matriz de Trabajo solo aplica a encargos de función Cliente —
+  // Administrativa/Capacitación/Control de Calidad no presupuestan horas ahí.
+  showGoToWorkMatrix: boolean;
   onClose: () => void;          // Close / X → engagements list
   onCreateAnother: () => void;  // Create another → reset form, no navigation
-  onGoToWorkMatrix: () => void; // Go to Work Matrix → /worksheets
+  onGoToWorkMatrix: () => void; // Go to Work Matrix → /worksheets/new?engagement=<id>
 }
 
 export function EngagementCreatedDialog({
@@ -41,6 +44,7 @@ export function EngagementCreatedDialog({
   funcion,
   status,
   society,
+  showGoToWorkMatrix,
   onClose,
   onCreateAnother,
   onGoToWorkMatrix,
@@ -106,9 +110,11 @@ export function EngagementCreatedDialog({
           <Button type="button" variant="cancel" onClick={onClose}>
             {t("common.close")}
           </Button>
-          <Button type="button" variant="outline" onClick={onGoToWorkMatrix}>
-            {t("engagement.goToWorkMatrix")}
-          </Button>
+          {showGoToWorkMatrix && (
+            <Button type="button" variant="outline" onClick={onGoToWorkMatrix}>
+              {t("engagement.goToWorkMatrix")}
+            </Button>
+          )}
           <Button type="button" variant="default" onClick={onCreateAnother}>
             {t("engagement.createAnother")}
           </Button>

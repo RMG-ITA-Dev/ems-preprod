@@ -67,10 +67,15 @@ const mockSocieties = [
   { society_id: "soc-1", name: "Ruizmier Pelaez S.R.L.", is_active: true, created_at: "" },
   { society_id: "soc-2", name: "Ruizmier Juaregui S.R.L.", is_active: true, created_at: "" },
 ];
+// 0722-157: "Ir a Matriz de Trabajo forwards..." exercises funcion=Cliente, which requires a
+// real taxonomy pick (0602-136) — "No aplica" is hidden for Cliente.
+const mockTaxonomies = [
+  { taxonomy_id: "tax-1", code: "T1", name: "Test Taxonomy", service_id: null, is_active: true, created_at: "" },
+];
 vi.mock("@/hooks/useEmsData", () => ({
   useClients:  () => ({ data: stableClientList }),
   useServices: () => ({ data: mockServices }),
-  useTaxonomies: () => ({ data: [] }),
+  useTaxonomies: () => ({ data: mockTaxonomies }),
   useSocieties: () => ({ data: mockSocieties }),
   // Fase 5: EngagementForm now mounts StaffAssignmentsCard in edit mode, which pulls these.
   useEngagementAssignments: () => ({ data: stableAssignments, isLoading: false, isError: false }),
@@ -191,13 +196,22 @@ vi.mock("@/components/ui/popover", () => ({
   PopoverContent: ({ children }: any) => <>{children}</>,
 }));
 
-// Minimal EngagementCreatedDialog mock — renders the "crear otro" button when open (Review 2)
+// Minimal EngagementCreatedDialog mock — renders the "crear otro" button when open (Review 2).
+// 0722-157: honors showGoToWorkMatrix so tests can verify the real hide/show wiring, not just
+// that the callback works once clicked.
 vi.mock("@/components/forms/EngagementCreatedDialog", () => ({
-  EngagementCreatedDialog: ({ open, onCreateAnother }: any) =>
+  EngagementCreatedDialog: ({ open, showGoToWorkMatrix, onCreateAnother, onGoToWorkMatrix }: any) =>
     open ? (
-      <button type="button" onClick={onCreateAnother}>
-        engagement.createAnother
-      </button>
+      <>
+        <button type="button" onClick={onCreateAnother}>
+          engagement.createAnother
+        </button>
+        {showGoToWorkMatrix && (
+          <button type="button" onClick={onGoToWorkMatrix}>
+            engagement.goToWorkMatrix
+          </button>
+        )}
+      </>
     ) : null,
 }));
 
@@ -237,7 +251,7 @@ describe("EngagementForm — catalog-driven practica (0625-149)", () => {
 
   it("renders the practica select label in create mode", () => {
     render(<EngagementForm />);
-    expect(screen.getByText("engagement.practica *")).toBeInTheDocument();
+    expect(screen.getByText((_, el) => el?.textContent === "engagement.practica *")).toBeInTheDocument();
   });
 
   it("code-preview block still present in create mode", () => {
@@ -446,5 +460,142 @@ describe("0625-148 — role-based service restriction", () => {
 
     // FEAT 0714-155: "crear otro" must not carry over the previous engagement's Sociedad.
     expect(screen.getByLabelText(/engagement\.society/)).toHaveTextContent("engagement.selectSociety");
+  }, 15000);
+
+  // 0722-157: "Ir a Matriz de Trabajo" must forward the just-created engagement_id so
+  // /worksheets/new can preselect it instead of making the user search for it again.
+  // 0722-157: the button (and this whole flow) only appears for funcion=Cliente, which in
+  // turn requires a real taxonomy pick (0602-136 — "No aplica" is hidden for Cliente).
+  it("'Ir a Matriz de Trabajo' forwards the created engagement_id (funcion=Cliente)", async () => {
+    const user = userEvent.setup();
+    mockCreateMutateAsync.mockResolvedValue({ engagement_code: "2026.011.001", engagement_id: "eng-abc" });
+    const onGoToWorkMatrix = vi.fn();
+
+    render(<EngagementForm onGoToWorkMatrix={onGoToWorkMatrix} />);
+
+    await user.type(screen.getByLabelText(/engagement\.name/), "Test Engagement Alpha");
+
+    const clientSelect = screen.getByLabelText(/engagement\.client/);
+    await user.click(clientSelect);
+    await waitFor(() => screen.getByRole("option", { name: "Acme Corp" }));
+    await user.click(screen.getByRole("option", { name: "Acme Corp" }));
+
+    const partnerSelect = screen.getByLabelText(/engagement\.partner/);
+    await user.click(partnerSelect);
+    // BUG 0722-162: Socio/Director y SQR comparten el conjunto de candidatos, y el mock de
+    // Popover renderiza todos los popovers a la vez — "Juan Partner" aparece dos veces. El [0]
+    // es el del campo Socio/Director, que va primero (mismo patrón que la prueba de arriba).
+    await waitFor(() => screen.getAllByRole("option", { name: "Juan Partner" }));
+    await user.click(screen.getAllByRole("option", { name: "Juan Partner" })[0]);
+
+    const managerSelect = screen.getByLabelText(/engagement\.manager/);
+    await user.click(managerSelect);
+    await waitFor(() => screen.getByRole("option", { name: "Ana Manager" }));
+    await user.click(screen.getByRole("option", { name: "Ana Manager" }));
+
+    const calendars = screen.getAllByTestId("calendar-mock");
+    fireEvent.change(calendars[0], { target: { value: "2026-10-01" } });
+    fireEvent.change(calendars[1], { target: { value: "2027-09-30" } });
+
+    const oficina = screen.getByLabelText(/engagement\.oficina/);
+    await user.click(oficina);
+    await waitFor(() => screen.getByRole("option", { name: "engagement.oficina_ambos" }));
+    await user.click(screen.getByRole("option", { name: "engagement.oficina_ambos" }));
+
+    const funcion = screen.getByLabelText(/engagement\.funcion/);
+    await user.click(funcion);
+    await waitFor(() => screen.getByRole("option", { name: "engagement.funcion_cli" }));
+    await user.click(screen.getByRole("option", { name: "engagement.funcion_cli" }));
+
+    await user.click(screen.getByTestId("taxonomy-combobox-trigger"));
+    await waitFor(() => screen.getByText("Test Taxonomy"));
+    await user.click(screen.getByText("Test Taxonomy"));
+
+    const society = screen.getByLabelText(/engagement\.society/);
+    await user.click(society);
+    await waitFor(() => screen.getByRole("option", { name: "Ruizmier Pelaez S.R.L." }));
+    await user.click(screen.getByRole("option", { name: "Ruizmier Pelaez S.R.L." }));
+
+    const closingDate = screen.getByRole("combobox", { name: "engagement.closingDate *" });
+    await user.click(closingDate);
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBeGreaterThan(0));
+    await user.click(screen.getAllByRole("option")[0]);
+
+    const contractInput = document.getElementById("engagement-contract-upload") as HTMLInputElement;
+    fireEvent.change(contractInput, { target: { files: [makePdfFile()] } });
+    await waitFor(() => expect(mockContractUpload).toHaveBeenCalledTimes(1));
+
+    await user.click(screen.getByText("engagement.createEngagement"));
+
+    await waitFor(() => {
+      expect(screen.getByText("engagement.goToWorkMatrix")).toBeInTheDocument();
+    });
+    await user.click(screen.getByText("engagement.goToWorkMatrix"));
+
+    expect(onGoToWorkMatrix).toHaveBeenCalledWith("eng-abc");
+  }, 15000);
+
+  // 0722-157: Administrativa/Capacitación/Control de Calidad don't budget hours in the Work
+  // Matrix — the button must not appear at all for a non-Cliente engagement.
+  it("hides 'Ir a Matriz de Trabajo' when the created engagement is funcion=Administrativa", async () => {
+    const user = userEvent.setup();
+    mockCreateMutateAsync.mockResolvedValue({ engagement_code: "2026.011.002", engagement_id: "eng-def" });
+
+    render(<EngagementForm />);
+
+    await user.type(screen.getByLabelText(/engagement\.name/), "Test Engagement Beta");
+
+    const clientSelect = screen.getByLabelText(/engagement\.client/);
+    await user.click(clientSelect);
+    await waitFor(() => screen.getByRole("option", { name: "Acme Corp" }));
+    await user.click(screen.getByRole("option", { name: "Acme Corp" }));
+
+    const partnerSelect = screen.getByLabelText(/engagement\.partner/);
+    await user.click(partnerSelect);
+    // BUG 0722-162: Socio/Director y SQR comparten el conjunto de candidatos, y el mock de
+    // Popover renderiza todos los popovers a la vez — "Juan Partner" aparece dos veces. El [0]
+    // es el del campo Socio/Director, que va primero (mismo patrón que la prueba de arriba).
+    await waitFor(() => screen.getAllByRole("option", { name: "Juan Partner" }));
+    await user.click(screen.getAllByRole("option", { name: "Juan Partner" })[0]);
+
+    const managerSelect = screen.getByLabelText(/engagement\.manager/);
+    await user.click(managerSelect);
+    await waitFor(() => screen.getByRole("option", { name: "Ana Manager" }));
+    await user.click(screen.getByRole("option", { name: "Ana Manager" }));
+
+    const calendars = screen.getAllByTestId("calendar-mock");
+    fireEvent.change(calendars[0], { target: { value: "2026-10-01" } });
+    fireEvent.change(calendars[1], { target: { value: "2027-09-30" } });
+
+    const oficina = screen.getByLabelText(/engagement\.oficina/);
+    await user.click(oficina);
+    await waitFor(() => screen.getByRole("option", { name: "engagement.oficina_ambos" }));
+    await user.click(screen.getByRole("option", { name: "engagement.oficina_ambos" }));
+
+    const funcion = screen.getByLabelText(/engagement\.funcion/);
+    await user.click(funcion);
+    await waitFor(() => screen.getByRole("option", { name: "engagement.funcion_adm" }));
+    await user.click(screen.getByRole("option", { name: "engagement.funcion_adm" }));
+
+    const society = screen.getByLabelText(/engagement\.society/);
+    await user.click(society);
+    await waitFor(() => screen.getByRole("option", { name: "Ruizmier Pelaez S.R.L." }));
+    await user.click(screen.getByRole("option", { name: "Ruizmier Pelaez S.R.L." }));
+
+    const closingDate = screen.getByRole("combobox", { name: "engagement.closingDate *" });
+    await user.click(closingDate);
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBeGreaterThan(0));
+    await user.click(screen.getAllByRole("option")[0]);
+
+    const contractInput = document.getElementById("engagement-contract-upload") as HTMLInputElement;
+    fireEvent.change(contractInput, { target: { files: [makePdfFile()] } });
+    await waitFor(() => expect(mockContractUpload).toHaveBeenCalledTimes(1));
+
+    await user.click(screen.getByText("engagement.createEngagement"));
+
+    await waitFor(() => {
+      expect(screen.getByText("engagement.createAnother")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("engagement.goToWorkMatrix")).not.toBeInTheDocument();
   }, 15000);
 });
