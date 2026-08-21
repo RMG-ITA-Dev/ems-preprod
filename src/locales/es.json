@@ -743,6 +743,7 @@
     "datesLockedByState": "Las fechas no se pueden editar en este estado (Cancelado, Finalizado o Congelado).",
     "selectPartner": "Seleccionar Socio/Director",
     "selectManager": "Seleccionar Gerente/Supervisor",
+    "selfAssignedLocked": "Se te asignó automáticamente",
     "sqr": "SQR (Socio de Control de Calidad)",
     "encargado": "Encargado",
     "specialistIt1": "Especialista TI 1",

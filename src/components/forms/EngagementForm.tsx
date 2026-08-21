@@ -50,9 +50,14 @@ import { useEngagementTeamCandidates } from "@/hooks/useEngagementTeamCandidates
 import {
   filterByService,
   withSavedStaff,
+  withSelfCandidate,
   NO_SERVICE_FILTER,
   type ServiceFilter,
 } from "@/lib/engagementTeamCandidates";
+import {
+  resolveSelfAssignedTeamField,
+  selfCandidateOption,
+} from "@/lib/engagementSelfAssignment";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { useCreateEngagement, useUpdateEngagement, useDeleteEngagement } from "@/hooks/mutations";
 import { Trash2, CalendarIcon, AlertCircle, ChevronsUpDown, Check, Upload, X, FileText } from "lucide-react";
@@ -97,7 +102,10 @@ interface StaffComboboxProps {
    * guardado: en edición, bloquear Guardar impediría editar el resto del encargo (nombre,
    * fechas, políticas), que no tiene nada que ver con el bloque Equipo.
    */
+  // BUG 0810-172: los seis campos comparten este componente, pero solo `partner_id`/`manager_id`
+  // reciben estas dos props — el resto las deja en undefined y se comporta igual que antes.
   disabled?: boolean;
+  helperText?: string;
 }
 
 function StaffCombobox({
@@ -110,6 +118,7 @@ function StaffCombobox({
   value,
   onChange,
   showNoAplica = true,
+  helperText,
   disabled = false,
 }: StaffComboboxProps) {
   const [open, setOpen] = useState(false);
@@ -118,7 +127,11 @@ function StaffCombobox({
   return (
     <FormItem>
       <FormLabel>{label}</FormLabel>
-      <Popover open={open} onOpenChange={setOpen}>
+      {/* BUG 0810-172: `open` se fuerza a false cuando el campo pasa a deshabilitado. Un botón
+          disabled ya no dispara click, pero la clasificación del usuario puede resolverse MIENTRAS
+          el popover está abierto — sin esto quedaría abierto y seleccionable sobre un campo
+          bloqueado. */}
+      <Popover open={disabled ? false : open} onOpenChange={disabled ? undefined : setOpen}>
         <PopoverTrigger asChild>
           <FormControl>
             <Button
@@ -163,6 +176,7 @@ function StaffCombobox({
           </Command>
         </PopoverContent>
       </Popover>
+      {helperText && <p className="text-xs text-muted-foreground">{helperText}</p>}
       <FormMessage />
     </FormItem>
   );
@@ -302,7 +316,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     isFetching: teamCandidatesFetching,
     isError: teamCandidatesError,
   } = useEngagementTeamCandidates();
-  const { staffRecord } = useCurrentStaff();
+  const { staffRecord, isLoading: currentStaffLoading } = useCurrentStaff();
 
   // FEAT 0602-135 — congelar/descongelar. Decisión de negocio (2026-07-30): además
   // del Admin, puede el GERENTE DE ESTE encargo, no cualquier usuario con rol
@@ -314,6 +328,36 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     !!staffRecord?.staff_id && staffRecord.staff_id === engagement?.manager_id;
   const canFreezeAsManager = can("engagement.update") && isEngagementManager;
   const canManageEngagementState = isAdmin || canFreezeAsManager;
+
+  // ── BUG 0810-172: autoasignación y bloqueo del Socio/Director o Gerente en CREACIÓN ─────────
+  //
+  // El discriminador es `role_key`, no la categoría del personal — ver el comentario de cabecera
+  // de src/lib/engagementSelfAssignment.ts, donde está la evidencia que descartó las tres
+  // variantes de "categoría". El guard de BD (trigger `trg_engagements_creator_team`) espeja
+  // exactamente este mapa, así que la UI muestra siempre lo que el backend va a persistir.
+  const classificationPending = roleLoading || currentStaffLoading;
+  const selfAssignedField = resolveSelfAssignedTeamField({
+    isEdit,
+    isAdmin,
+    classificationPending,
+    roleKey,
+    hasStaffRecord: !!staffRecord?.staff_id,
+  });
+  const selfOption = useMemo(
+    () => (selfAssignedField ? selfCandidateOption(staffRecord) : null),
+    // Depende de primitivos y no del objeto `staffRecord`: react-query devuelve una referencia
+    // nueva en cada refetch, y un memo inestable acá se propagaría a los memos de opciones y de
+    // ahí al efecto de siembra (loop de re-render).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selfAssignedField, staffRecord?.staff_id, staffRecord?.first_name, staffRecord?.last_name]
+  );
+  const partnerLocked = selfAssignedField === "partner_id";
+  const managerLocked = selfAssignedField === "manager_id";
+  // Ventana de clasificación: mientras no se sepa el rol, los DOS campos quedan deshabilitados en
+  // creación. Si no, el usuario podría elegir un Gerente y verlo sobrescrito al resolverse su
+  // propio rol. Si la consulta falla, `isLoading` pasa a false y los campos se desbloquean: nunca
+  // queda un bloqueo permanente.
+  const teamLockPending = !isEdit && classificationPending;
 
   const activeServiceOptions = useMemo(
     () => (allServices ?? []).filter((s) => s.is_active || s.code === engagement?.practica),
@@ -879,18 +923,29 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     "specialist_tax_id",
   ]);
 
-  const partnerFieldOptions = useMemo(
-    () => withSavedStaff(filterByService(partnerDirectorOptions, serviceFilter), engagement?.partner, wPartnerId),
-    [partnerDirectorOptions, serviceFilter, engagement?.partner, wPartnerId]
-  );
+  // BUG 0810-172: `withSelfCandidate` va DESPUÉS de todo lo demás y solo en el campo bloqueado.
+  // Al vivir acá dentro resuelve de una vez el label del combobox, el efecto de limpieza de valores
+  // stale (para el que el valor sembrado deja de ser stale) y el aviso de personal faltante.
+  const partnerFieldOptions = useMemo(() => {
+    const base = withSavedStaff(
+      filterByService(partnerDirectorOptions, serviceFilter),
+      engagement?.partner,
+      wPartnerId
+    );
+    return partnerLocked ? withSelfCandidate(base, selfOption) : base;
+  }, [partnerDirectorOptions, serviceFilter, engagement?.partner, wPartnerId, partnerLocked, selfOption]);
   const sqrFieldOptions = useMemo(
     () => withSavedStaff(filterByService(partnerDirectorOptions, serviceFilter), engagement?.sqr, wSqrId),
     [partnerDirectorOptions, serviceFilter, engagement?.sqr, wSqrId]
   );
-  const managerFieldOptions = useMemo(
-    () => withSavedStaff(filterByService(managerRoleOptions, serviceFilter), engagement?.manager, wManagerId),
-    [managerRoleOptions, serviceFilter, engagement?.manager, wManagerId]
-  );
+  const managerFieldOptions = useMemo(() => {
+    const base = withSavedStaff(
+      filterByService(managerRoleOptions, serviceFilter),
+      engagement?.manager,
+      wManagerId
+    );
+    return managerLocked ? withSelfCandidate(base, selfOption) : base;
+  }, [managerRoleOptions, serviceFilter, engagement?.manager, wManagerId, managerLocked, selfOption]);
   const encargadoFieldOptions = useMemo(
     () => withSavedStaff(filterByService(encargadoOptions, serviceFilter), engagement?.encargado, wEncargadoId),
     [encargadoOptions, serviceFilter, engagement?.encargado, wEncargadoId]
@@ -947,8 +1002,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   // pasan la validación de "string no vacío" y `create_engagement_with_code` NO valida alineación
   // staff/servicio, se podía persistir una asignación cruzada. Se bloquea la creación: así el
   // fail-closed deja de ser solo visual y ningún valor retenido llega al backend.
-  const teamBlocksCreation =
-    hasMissingTeamRoles || teamCandidatesError || serviceUnresolved || teamCandidatesFetching;
+  const teamBlocksCreation = hasMissingTeamRoles || teamCandidatesError || serviceUnresolved || teamCandidatesFetching;
 
   // Review de Codex (0722-162): quitar a alguien de `options` NO lo saca del formulario.
   //
@@ -967,6 +1021,39 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   // asignado histórico se preserva a propósito vía `withSavedStaff`), y solo con los candidatos
   // ya cargados y el servicio resuelto — si no, se borrarían valores válidos durante la carga,
   // justo cuando el fail-closed vacía las listas.
+  // ── BUG 0810-172: siembra del campo autoasignado ─────────────────────────────────────────
+  //
+  // `withSelfCandidate` solo agrega al creador a las OPCIONES; el valor de React Hook Form sigue
+  // en su default vacío. Sin esta siembra el campo bloqueado queda vacío y sin salida: el trigger
+  // muestra el placeholder, Zod corta con "Manager is required" antes del onSubmit, y como el
+  // selector está deshabilitado el usuario no puede corregirlo — el trigger de BD
+  // `trg_engagements_creator_team`, que canonizaría el valor, nunca se alcanza.
+  //
+  // `shouldDirty: false`: la autoasignación es del sistema, no una edición del usuario, así que no
+  // debe disparar el aviso de "cambios sin guardar" (usePageLeaveLock / onDirtyChange).
+  //
+  // Corre antes del efecto de limpieza de abajo a propósito: en el primer ciclo el campo está en
+  // "" y la limpieza no lo toca (solo actúa sobre valores truthy); una vez sembrado, el id SÍ está
+  // en `options` gracias a `withSelfCandidate`, así que para la limpieza deja de ser stale.
+  //
+  // `wPartnerId`/`wManagerId` van en las dependencias para que la siembra NO sea de un solo
+  // disparo: cubre el remonte y también el `form.reset` de `handleCreateAnother`, que devuelve el
+  // campo a "" sin cambiar ninguna identidad.
+  useEffect(() => {
+    if (isEdit) return;
+    // Ventana de clasificación: hasta saber el rol no se siembra nada (si no, se escribiría un
+    // valor que después habría que revertir).
+    if (classificationPending) return;
+    if (!selfAssignedField || !selfOption) return;
+
+    if (selfAssignedField === "partner_id" && wPartnerId !== selfOption.value) {
+      form.setValue("partner_id", selfOption.value, { shouldDirty: false, shouldValidate: false });
+    }
+    if (selfAssignedField === "manager_id" && wManagerId !== selfOption.value) {
+      form.setValue("manager_id", selfOption.value, { shouldDirty: false, shouldValidate: false });
+    }
+  }, [isEdit, classificationPending, selfAssignedField, selfOption, wPartnerId, wManagerId, form]);
+
   useEffect(() => {
     if (isEdit) return;
     if (teamCandidatesFetching || teamCandidatesError) return;
@@ -1646,10 +1733,15 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                       noResultsText={t("engagement.noStaffFound")}
                       noAplicaText={t("engagement.noAplica")}
                       options={partnerFieldOptions}
-                      disabled={!teamSelectionResolved}
                       value={field.value || null}
                       onChange={(v) => field.onChange(v ?? "")}
                       showNoAplica={false}
+                      // Un merge dejó dos atributos `disabled` acá: el de 0722-162 (candidatos
+                      // no confiables) y el de 0810-172 (autoasignación). En JSX gana el último,
+                      // así que la primera condición quedaba inerte en los DOS campos
+                      // obligatorios. Se combinan.
+                      disabled={!teamSelectionResolved || teamLockPending || partnerLocked}
+                      helperText={partnerLocked ? t("engagement.selfAssignedLocked") : undefined}
                     />
                   )}
                 />
@@ -1683,10 +1775,15 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                       noResultsText={t("engagement.noStaffFound")}
                       noAplicaText={t("engagement.noAplica")}
                       options={managerFieldOptions}
-                      disabled={!teamSelectionResolved}
                       value={field.value || null}
                       onChange={(v) => field.onChange(v ?? "")}
                       showNoAplica={false}
+                      // Un merge dejó dos atributos `disabled` acá: el de 0722-162 (candidatos
+                      // no confiables) y el de 0810-172 (autoasignación). En JSX gana el último,
+                      // así que la primera condición quedaba inerte en los DOS campos
+                      // obligatorios. Se combinan.
+                      disabled={!teamSelectionResolved || teamLockPending || managerLocked}
+                      helperText={managerLocked ? t("engagement.selfAssignedLocked") : undefined}
                     />
                   )}
                 />
