@@ -20,11 +20,12 @@ if (typeof Element !== "undefined" && !Element.prototype.hasPointerCapture) {
 }
 
 /**
- * 0513-114: ActivityCodeForm
- * - With service: code is read-only; submit invokes create with service_id/entity_type, not typed code.
- * - Without service: code is editable, max 10 chars (accepts AUD-A3, 6 chars).
- * - Service-linked edit: shows deactivate button, not delete.
- * - Legacy edit: shows delete button.
+ * 0817-177: ActivityCodeForm — every activity belongs to a práctica.
+ * - Every activity is service-linked: code is always read-only/auto-generated.
+ * - Create (free selector): práctica required, no "Global" option.
+ * - Create (lockService): práctica fixed/read-only, pre-selected from the
+ *   unified Settings tab's shared selector.
+ * - Edit: práctica always read-only; deactivate/reactivate preserved.
  */
 
 vi.mock("react-i18next", () => ({
@@ -35,12 +36,10 @@ const createMutateAsync = vi.hoisted(() => vi.fn());
 const updateMutateAsync = vi.hoisted(() => vi.fn());
 const deactivateMutateAsync = vi.hoisted(() => vi.fn());
 const reactivateMutateAsync = vi.hoisted(() => vi.fn());
-const deleteMutateAsync = vi.hoisted(() => vi.fn());
 
 vi.mock("@/hooks/mutations", () => ({
   useCreateActivityCode: () => ({ mutateAsync: createMutateAsync, isPending: false }),
   useUpdateActivityCode: () => ({ mutateAsync: updateMutateAsync, isPending: false }),
-  useDeleteActivityCode: () => ({ mutateAsync: deleteMutateAsync, isPending: false }),
   useDeactivateServiceActivity: () => ({ mutateAsync: deactivateMutateAsync, isPending: false }),
   useReactivateServiceActivity: () => ({ mutateAsync: reactivateMutateAsync, isPending: false }),
 }));
@@ -60,15 +59,6 @@ vi.mock("@/hooks/useEmsData", () => ({
 import { ActivityCodeForm } from "@/components/forms/ActivityCodeForm";
 import type { ActivityCode } from "@/hooks/useEmsData";
 
-const legacyActivity: ActivityCode = {
-  activity_id: "act-legacy",
-  activity_code: "100-PLA",
-  description: "Planning",
-  is_active: true,
-  service_id: null,
-  entity_type: "A",
-};
-
 const linkedActivity: ActivityCode = {
   activity_id: "act-linked",
   activity_code: "AUD-A1",
@@ -79,10 +69,35 @@ const linkedActivity: ActivityCode = {
   service: { service_id: "s1", name: "Auditoría", abbreviation: "AUD", code: 1, allows_rates_activities: true, is_active: true, created_at: "" },
 };
 
+// 0817-177 (review follow-up): one of the 8 legacy codes backfilled to a
+// práctica by the require-practice migration. Predates the {abrev}-A{n}
+// ordinal scheme, so deactivate_service_activity rejects it server-side.
+const legacyActivity: ActivityCode = {
+  activity_id: "act-legacy-adm",
+  activity_code: "ADM",
+  description: "Administration",
+  is_active: true,
+  service_id: "s1",
+  entity_type: "A",
+  service: { service_id: "s1", name: "Auditoría", abbreviation: "AUD", code: 1, allows_rates_activities: true, is_active: true, created_at: "" },
+};
+
 const inactiveLinkedActivity: ActivityCode = {
   activity_id: "act-linked-inactive",
   activity_code: "AUD-AX",
   description: "Old Step",
+  is_active: false,
+  service_id: "s1",
+  entity_type: "A",
+  service: { service_id: "s1", name: "Auditoría", abbreviation: "AUD", code: 1, allows_rates_activities: true, is_active: true, created_at: "" },
+};
+
+// 0817-177 (review follow-up): an inactive legacy code — reactivate_service_activity
+// now rejects it server-side rather than assigning it a fresh ordinal code.
+const legacyInactiveActivity: ActivityCode = {
+  activity_id: "act-legacy-adm-inactive",
+  activity_code: "ADM",
+  description: "Administration",
   is_active: false,
   service_id: "s1",
   entity_type: "A",
@@ -100,116 +115,57 @@ function selectNativeValue(value: string) {
 
 // ── Zod schema tests ──────────────────────────────────────────────────────
 
-describe("ActivityCodeForm — Zod schema (0513-114)", () => {
+describe("ActivityCodeForm — Zod schema (0817-177)", () => {
   const schema = z.object({
-    activity_code: z.string().max(10, "Max 10 characters"),
     description: z.string().min(1, "Description is required"),
-    is_active: z.boolean(),
-    service_id: z.string().nullable(),
+    service_id: z.string().min(1, "validation.categoryServiceRequired"),
   });
 
-  it("accepts AUD-A3 (6 chars) as activity_code", () => {
-    const r = schema.safeParse({ activity_code: "AUD-A3", description: "Audit Step 3", is_active: true, service_id: null });
-    expect(r.success).toBe(true);
-  });
-
-  it("rejects activity_code longer than 10 chars", () => {
-    const r = schema.safeParse({ activity_code: "12345678901", description: "Too long", is_active: true, service_id: null });
+  it("rejects an empty service_id (práctica is required)", () => {
+    const r = schema.safeParse({ description: "Audit Step 3", service_id: "" });
     expect(r.success).toBe(false);
+  });
+
+  it("accepts a non-empty service_id", () => {
+    const r = schema.safeParse({ description: "Audit Step 3", service_id: "s1" });
+    expect(r.success).toBe(true);
   });
 
   it("rejects empty description", () => {
-    const r = schema.safeParse({ activity_code: "AUD-A1", description: "", is_active: true, service_id: null });
+    const r = schema.safeParse({ description: "", service_id: "s1" });
     expect(r.success).toBe(false);
-  });
-
-  it("accepts null service_id (legacy activity)", () => {
-    const r = schema.safeParse({ activity_code: "100-PLA", description: "Planning", is_active: true, service_id: null });
-    expect(r.success).toBe(true);
   });
 });
 
-// ── New activity (create) ─────────────────────────────────────────────────
+// ── New activity — free selector (no serviceId/lockService prop) ──────────
 
-describe("ActivityCodeForm — create (0513-114)", () => {
+describe("ActivityCodeForm — create, free selector (0817-177)", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("shows service selector when creating a new activity", () => {
+  it("shows the práctica selector when creating without a locked service", () => {
     render(<ActivityCodeForm open={true} onOpenChange={vi.fn()} activityCode={null} />);
     expect(screen.getByTestId("activity-service-select")).toBeInTheDocument();
+    expect(screen.queryByTestId("activity-service-readonly")).not.toBeInTheDocument();
   });
 
-  it("code field is editable (no readonly testid) when no service is selected", () => {
+  it("there is no 'Global'/unset option in the selector", () => {
     render(<ActivityCodeForm open={true} onOpenChange={vi.fn()} activityCode={null} />);
-    expect(screen.queryByTestId("activity-code-readonly")).not.toBeInTheDocument();
+    expect(screen.queryByText("activity.global")).not.toBeInTheDocument();
   });
 
-  it("code field becomes read-only after selecting a service via native select", async () => {
+  it("code field is always read-only, even before a práctica is selected", () => {
     render(<ActivityCodeForm open={true} onOpenChange={vi.fn()} activityCode={null} />);
-
-    selectNativeValue("s1");
-
-    await waitFor(() =>
-      expect(screen.getByTestId("activity-code-readonly")).toBeInTheDocument()
-    );
     expect(screen.getByTestId("activity-code-readonly")).toBeDisabled();
   });
 
-  it("submit calls createMutation with service_id/entity_type (not typed code) when service selected", async () => {
-    const user = userEvent.setup();
-    createMutateAsync.mockResolvedValue({});
-
-    render(<ActivityCodeForm open={true} onOpenChange={vi.fn()} activityCode={null} />);
-
-    // Select a service via native select (avoids jsdom pointer-capture issue).
-    selectNativeValue("s1");
-
-    await waitFor(() => expect(screen.getByTestId("activity-code-readonly")).toBeInTheDocument());
-
-    // Fill description
-    const descInput = screen.getByPlaceholderText("activity.descriptionPlaceholder");
-    await user.type(descInput, "Audit Step");
-
-    // Submit
-    await user.click(screen.getByRole("button", { name: "activity.createActivity" }));
-
-    await waitFor(() =>
-      expect(createMutateAsync).toHaveBeenCalledWith(
-        expect.objectContaining({
-          service_id: "s1",
-          entity_type: "A",
-          description: "Audit Step",
-        })
-      )
-    );
-  });
-
-  it("submit does NOT include activity_code in the payload when service is selected", async () => {
+  it("submit calls createMutation with service_id/entity_type after selecting a práctica", async () => {
     const user = userEvent.setup();
     createMutateAsync.mockResolvedValue({});
 
     render(<ActivityCodeForm open={true} onOpenChange={vi.fn()} activityCode={null} />);
 
     selectNativeValue("s1");
-    await waitFor(() => expect(screen.getByTestId("activity-code-readonly")).toBeInTheDocument());
-
-    await user.type(screen.getByPlaceholderText("activity.descriptionPlaceholder"), "Review");
-    await user.click(screen.getByRole("button", { name: "activity.createActivity" }));
-
-    await waitFor(() => expect(createMutateAsync).toHaveBeenCalled());
-    expect(createMutateAsync).not.toHaveBeenCalledWith(
-      expect.objectContaining({ activity_code: expect.any(String) })
-    );
-  });
-
-  it("rendering with a serviceId prop pre-selects that práctica, without touching the selector", async () => {
-    const user = userEvent.setup();
-    createMutateAsync.mockResolvedValue({});
-
-    render(<ActivityCodeForm open={true} onOpenChange={vi.fn()} activityCode={null} serviceId="s1" />);
-
-    // Pre-selected: code is already read-only/auto-generated, no native-select change needed.
-    await waitFor(() => expect(screen.getByTestId("activity-code-readonly")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId("activity-code-readonly")).toHaveValue("AUD-A?"));
 
     await user.type(screen.getByPlaceholderText("activity.descriptionPlaceholder"), "Audit Step");
     await user.click(screen.getByRole("button", { name: "activity.createActivity" }));
@@ -220,29 +176,41 @@ describe("ActivityCodeForm — create (0513-114)", () => {
       )
     );
   });
+});
 
-  it("the unset option in the create selector is labeled 'Global' (not 'None') and still submits service_id: null", async () => {
+// ── New activity — lockService (unified Settings tab, 0817-177) ──────────
+
+describe("ActivityCodeForm — create with lockService", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("renders the práctica read-only and pre-selected, without a selector", async () => {
+    render(<ActivityCodeForm open={true} onOpenChange={vi.fn()} activityCode={null} serviceId="s1" lockService />);
+
+    expect(screen.queryByTestId("activity-service-select")).not.toBeInTheDocument();
+    const readonly = screen.getByTestId("activity-service-readonly") as HTMLInputElement;
+    expect(readonly).toBeDisabled();
+    await waitFor(() => expect(readonly.value).toContain("Auditoría"));
+  });
+
+  it("code is already read-only/auto-generated preview without touching anything", async () => {
+    render(<ActivityCodeForm open={true} onOpenChange={vi.fn()} activityCode={null} serviceId="s1" lockService />);
+    await waitFor(() => expect(screen.getByTestId("activity-code-readonly")).toHaveValue("AUD-A?"));
+  });
+
+  it("submit calls createMutation with the locked service_id", async () => {
     const user = userEvent.setup();
     createMutateAsync.mockResolvedValue({});
 
-    render(<ActivityCodeForm open={true} onOpenChange={vi.fn()} activityCode={null} />);
+    render(<ActivityCodeForm open={true} onOpenChange={vi.fn()} activityCode={null} serviceId="s1" lockService />);
+    await waitFor(() => expect(screen.getByTestId("activity-code-readonly")).toHaveValue("AUD-A?"));
 
-    // Radix renders the selected label in both the visible trigger and a hidden
-    // native <option> mirror, so assert presence via count rather than getByText.
-    expect(screen.getAllByText("activity.global").length).toBeGreaterThan(0);
-    expect(screen.queryByText("common.none")).not.toBeInTheDocument();
-
-    await user.type(screen.getByPlaceholderText("activity.descriptionPlaceholder"), "Reunión interna");
-    await user.type(screen.getByPlaceholderText("activity.codePlaceholder"), "003");
+    await user.type(screen.getByPlaceholderText("activity.descriptionPlaceholder"), "Audit Step");
     await user.click(screen.getByRole("button", { name: "activity.createActivity" }));
 
     await waitFor(() =>
       expect(createMutateAsync).toHaveBeenCalledWith(
-        expect.objectContaining({ activity_code: "003", description: "Reunión interna", is_active: true })
+        expect.objectContaining({ service_id: "s1", entity_type: "A", description: "Audit Step" })
       )
-    );
-    expect(createMutateAsync).not.toHaveBeenCalledWith(
-      expect.objectContaining({ service_id: expect.anything() })
     );
   });
 });
@@ -261,7 +229,7 @@ describe("ActivityCodeForm — recommended max hint (0513-114)", () => {
     ];
     render(<ActivityCodeForm open={true} onOpenChange={vi.fn()} activityCode={null} />);
     selectNativeValue("s1");
-    await waitFor(() => expect(screen.getByTestId("activity-code-readonly")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId("activity-code-readonly")).toHaveValue("AUD-A?"));
     expect(screen.queryByTestId("activity-recommended-max")).not.toBeInTheDocument();
   });
 
@@ -293,37 +261,75 @@ describe("ActivityCodeForm — recommended max hint (0513-114)", () => {
   });
 });
 
-// ── Edit service-linked activity ──────────────────────────────────────────
+// ── Edit service-linked activity (every activity, since 0817-177) ────────
 
-describe("ActivityCodeForm — edit service-linked (0513-114)", () => {
+describe("ActivityCodeForm — edit (0817-177)", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("shows deactivate button (not delete) for a service-linked activity", () => {
+  it("shows deactivate button for an active activity", () => {
     render(<ActivityCodeForm open={true} onOpenChange={vi.fn()} activityCode={linkedActivity} />);
     expect(screen.getByTestId("deactivate-button")).toBeInTheDocument();
-    // The delete button (heredada path) must not appear
-    expect(screen.queryByRole("button", { name: /common\.delete/i })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("activate-button")).not.toBeInTheDocument();
   });
 
-  it("code is read-only and shows existing code for a linked activity", () => {
+  it("code is read-only and shows the existing code", () => {
     render(<ActivityCodeForm open={true} onOpenChange={vi.fn()} activityCode={linkedActivity} />);
     const codeInput = screen.getByTestId("activity-code-readonly") as HTMLInputElement;
     expect(codeInput).toBeDisabled();
     expect(codeInput.value).toBe("AUD-A1");
   });
 
-  it("does not show the service selector in edit mode", () => {
+  it("shows the práctica read-only (immutable), not a selector", () => {
     render(<ActivityCodeForm open={true} onOpenChange={vi.fn()} activityCode={linkedActivity} />);
     expect(screen.queryByTestId("activity-service-select")).not.toBeInTheDocument();
+    const readonly = screen.getByTestId("activity-service-readonly") as HTMLInputElement;
+    expect(readonly).toBeDisabled();
+    expect(readonly.value).toContain("Auditoría");
+  });
+
+  it("submit only sends description (práctica never included in the update payload)", async () => {
+    const user = userEvent.setup();
+    updateMutateAsync.mockResolvedValue({});
+
+    render(<ActivityCodeForm open={true} onOpenChange={vi.fn()} activityCode={linkedActivity} />);
+    await user.click(screen.getByRole("button", { name: "common.saveChanges" }));
+
+    await waitFor(() => expect(updateMutateAsync).toHaveBeenCalled());
+    const payload = updateMutateAsync.mock.calls[0][0];
+    expect(payload.data).toEqual({ description: "Audit Planning" });
+    expect(payload.data).not.toHaveProperty("service_id");
+  });
+
+  it("hides the deactivate button for a legacy activity code (review 0817-177)", () => {
+    render(<ActivityCodeForm open={true} onOpenChange={vi.fn()} activityCode={legacyActivity} />);
+    expect(screen.queryByTestId("deactivate-button")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("activate-button")).not.toBeInTheDocument();
+  });
+
+  it("hides the activate button for an inactive legacy activity code (review 0817-177)", () => {
+    render(<ActivityCodeForm open={true} onOpenChange={vi.fn()} activityCode={legacyInactiveActivity} />);
+    expect(screen.queryByTestId("activate-button")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("deactivate-button")).not.toBeInTheDocument();
+  });
+
+  it("still allows saving the description of a legacy activity code", async () => {
+    const user = userEvent.setup();
+    updateMutateAsync.mockResolvedValue({});
+
+    render(<ActivityCodeForm open={true} onOpenChange={vi.fn()} activityCode={legacyActivity} />);
+    await user.click(screen.getByRole("button", { name: "common.saveChanges" }));
+
+    await waitFor(() => expect(updateMutateAsync).toHaveBeenCalled());
+    expect(updateMutateAsync.mock.calls[0][0].data).toEqual({ description: "Administration" });
   });
 });
 
-// ── Reactivate inactive service-linked activity ───────────────────────────
+// ── Reactivate inactive activity ──────────────────────────────────────────
 
-describe("ActivityCodeForm — reactivate inactive service-linked (0513-114)", () => {
+describe("ActivityCodeForm — reactivate inactive (0513-114)", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("shows activate button (not deactivate) for an inactive linked activity", () => {
+  it("shows activate button (not deactivate) for an inactive activity", () => {
     render(<ActivityCodeForm open={true} onOpenChange={vi.fn()} activityCode={inactiveLinkedActivity} />);
     expect(screen.getByTestId("activate-button")).toBeInTheDocument();
     expect(screen.queryByTestId("deactivate-button")).not.toBeInTheDocument();
@@ -336,7 +342,6 @@ describe("ActivityCodeForm — reactivate inactive service-linked (0513-114)", (
     render(<ActivityCodeForm open={true} onOpenChange={vi.fn()} activityCode={inactiveLinkedActivity} />);
 
     await user.click(screen.getByTestId("activate-button"));
-    // AlertDialog action button (label = activity.activate).
     const confirmButtons = await screen.findAllByRole("button", { name: "activity.activate" });
     await user.click(confirmButtons[confirmButtons.length - 1]);
 
@@ -345,50 +350,9 @@ describe("ActivityCodeForm — reactivate inactive service-linked (0513-114)", (
     );
   });
 
-  it("active linked activity still shows deactivate (not activate)", () => {
+  it("active activity still shows deactivate (not activate)", () => {
     render(<ActivityCodeForm open={true} onOpenChange={vi.fn()} activityCode={linkedActivity} />);
     expect(screen.getByTestId("deactivate-button")).toBeInTheDocument();
     expect(screen.queryByTestId("activate-button")).not.toBeInTheDocument();
-  });
-});
-
-// ── Edit legacy (heredada) activity ──────────────────────────────────────
-
-describe("ActivityCodeForm — edit legacy (0513-114)", () => {
-  beforeEach(() => vi.clearAllMocks());
-
-  it("shows delete button (not deactivate) for a legacy activity", () => {
-    render(<ActivityCodeForm open={true} onOpenChange={vi.fn()} activityCode={legacyActivity} />);
-    expect(screen.queryByTestId("deactivate-button")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /common\.delete/i })).toBeInTheDocument();
-  });
-
-  it("code field is editable for legacy activity in edit mode", () => {
-    render(<ActivityCodeForm open={true} onOpenChange={vi.fn()} activityCode={legacyActivity} />);
-    expect(screen.queryByTestId("activity-code-readonly")).not.toBeInTheDocument();
-  });
-
-  it("shows the is_active toggle for legacy activities", () => {
-    render(<ActivityCodeForm open={true} onOpenChange={vi.fn()} activityCode={legacyActivity} />);
-    expect(screen.getByRole("switch")).toBeInTheDocument();
-  });
-
-  it("shows a disabled 'Global' indicator and no selector; submit never sends service_id (immutability unchanged)", async () => {
-    const user = userEvent.setup();
-    updateMutateAsync.mockResolvedValue({});
-
-    render(<ActivityCodeForm open={true} onOpenChange={vi.fn()} activityCode={legacyActivity} />);
-
-    const globalReadonly = screen.getByTestId("activity-service-global-readonly") as HTMLInputElement;
-    expect(globalReadonly).toBeDisabled();
-    expect(globalReadonly.value).toBe("activity.global");
-    expect(screen.queryByTestId("activity-service-select")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("activity-service-readonly")).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "common.saveChanges" }));
-
-    await waitFor(() => expect(updateMutateAsync).toHaveBeenCalled());
-    const payload = updateMutateAsync.mock.calls[0][0];
-    expect(payload.data).not.toHaveProperty("service_id");
   });
 });

@@ -52,6 +52,7 @@
     "close": "Close",
     "notAvailable": "—",
     "partner": "Partner",
+    "manager": "Manager",
     "saving": "Saving...",
     "leavePageDirtyTitle": "You have unsaved changes",
     "leavePageDirtyBody": "If you leave, your changes will be lost.",
@@ -489,7 +490,7 @@
     "description": "Description",
     "status": "Status",
     "service": "Practice",
-    "selectService": "Select practice (optional)",
+    "selectService": "Select practice",
     "selectServiceFilter": "Select practice",
     "serviceDescription": "Link to a practice to auto-generate the code. Leave empty for legacy codes.",
     "codeRequired": "Code is required for legacy activities",
@@ -553,7 +554,8 @@
     "nameRequired": "Name is required",
     "namePlaceholder": "e.g., Auditoría",
     "noDigitsAvailable": "All codes (0–9) are in use. Deactivate a practice to free up a code.",
-    "formDescription": "Manage practice details and availability."
+    "formDescription": "Manage practice details and availability.",
+    "disallowsChildrenNotice": "This practice does not allow categories or activities. Enable \"Requires additional configuration\" and make sure it is active to manage them."
   },
   "taxonomy": {
     "name": "Name",
@@ -741,6 +743,7 @@
     "datesLockedByState": "Dates can't be edited in this state (Cancelled, Finalized, or Frozen).",
     "selectPartner": "Select Partner/Director",
     "selectManager": "Select Manager/Supervisor",
+    "selfAssignedLocked": "Automatically assigned based on your role.",
     "sqr": "SQR (Quality Review Partner)",
     "encargado": "Lead",
     "specialistIt1": "IT Specialist 1",
@@ -882,6 +885,8 @@
     "emailAlreadyRegistered": "This email is already registered. Please sign in instead.",
     "welcomeAdmin": "Welcome, Admin!",
     "missingCategories": "Missing required categories: {{categories}}. Please add them in Settings before creating engagements.",
+    "missingTeamRoles": "No active user has the required roles: {{roles}}. Assign them in Settings → User Roles before creating engagements.",
+    "teamCandidatesLoadError": "Could not load the staff available for the Team section. Please retry; if the problem persists, contact your administrator.",
     "staffDeactivated": "Staff member deactivated (has related records)",
     "accountInactive": "Your account is inactive. Please contact an administrator.",
     "holidayCreated": "Holiday created",
@@ -1233,6 +1238,8 @@
     "statusColumn": "Status",
     "seasonHigh": "High Season",
     "seasonLow": "Low Season",
+    "seasonHighShort": "High",
+    "seasonLowShort": "Low",
     "iva": "IVA",
     "currency": "Currency",
     "budgetLines": "Budget Lines",
@@ -1343,6 +1350,22 @@
     "selectedCurrency": "Currency",
     "selectedSeason": "Season",
     "confirmAndCreate": "Confirm & Create",
+    "tabs": {
+      "budget": "Budget Lines",
+      "payment": "Payment Plan & Billing",
+      "risk": "Risk Assessment",
+      "staffing": "Staffing Requirements",
+      "status": {
+        "notReviewed": "Not yet reviewed",
+        "incomplete": "Missing data to complete",
+        "approved": "Approved",
+        "rejected": "Rejected",
+        "billingOk": "Billing on track",
+        "billingAlert": "Billing alert — payment due soon or overdue",
+        "billingComplete": "Collection complete",
+        "billingUnconfigured": "Payment plan not configured"
+      }
+    },
     "paymentPlan": {
       "title": "Payment Schedule",
       "exchangeRate": "Exchange Rate (BOB)",

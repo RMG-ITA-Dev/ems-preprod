@@ -87,6 +87,23 @@ vi.mock("@/hooks/useCategoryStaff", () => ({
   }),
 }));
 
+// BUG 0722-162: el bloque Equipo pasó a alimentarse de useEngagementTeamCandidates (RPC), así
+// que sin este mock el hook real golpearía Supabase.
+const emptyTeamCandidates = {
+  partnerDirectorOptions: [],
+  managerRoleOptions: [],
+  encargadoOptions: [],
+  specialistItOptions: [],
+  specialistTaxOptions: [],
+  hasPartnerDirectorCandidates: true,
+  hasManagerCandidates: true,
+  isLoading: false,
+  isError: false,
+};
+vi.mock("@/hooks/useEngagementTeamCandidates", () => ({
+  useEngagementTeamCandidates: () => emptyTeamCandidates,
+}));
+
 vi.mock("@/hooks/mutations", () => ({
   useCreateEngagement: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useUpdateEngagement: () => ({ mutateAsync: vi.fn(), isPending: false }),

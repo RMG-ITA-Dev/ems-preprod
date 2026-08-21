@@ -240,6 +240,21 @@
     @apply py-2 px-2;
   }
 
+  /* Barra de scroll horizontal superior para tablas anchas (bug 0722-158).
+     La ALTURA EXPLICITA no es cosmetica: el unico hijo de la franja es un
+     espaciador de 1px, y con height:auto la barra de scroll se dibuja dentro de
+     esa caja de 1px y queda recortada — la franja existe pero no se ve.
+     scrollbar-width/::-webkit-scrollbar la hacen visible tambien donde el SO usa
+     scrollbars superpuestas. */
+  .table-top-scrollbar {
+    height: 12px;
+    scrollbar-width: thin;
+  }
+
+  .table-top-scrollbar::-webkit-scrollbar {
+    height: 10px;
+  }
+
   /* High-density form spacing */
   .form-dense .space-y-4 {
     gap: 0.5rem;

@@ -62,7 +62,7 @@ import { ChangePasswordCard } from "@/components/settings/ChangePasswordCard";
 import { HolidaysManager } from "@/components/settings/HolidaysManager";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Lock, CheckCircle, AlertTriangle, ArrowUp, ArrowDown } from "lucide-react";
+import { Lock, CheckCircle, AlertTriangle, ArrowUp, ArrowDown, Plus, Edit2, Copy } from "lucide-react";
 import { formatFiscalYearEnd } from "@/lib/fiscalYearDisplay";
 import { useHolidayEngagementId } from "@/hooks/useHolidays";
 import { toast } from "sonner";
@@ -104,7 +104,7 @@ const Settings = () => {
   const { data: activityCodes, isLoading: activitiesLoading } = useAllActivityCodes();
   const { data: expenseTypes, isLoading: expenseTypesLoading } = useExpenseTypes();
   const { data: skills, isLoading: skillsLoading } = useSkills();
-  const { data: services, isLoading: servicesLoading } = useServices();
+  const { data: services } = useServices();
   const { data: taxonomies, isLoading: taxonomiesLoading } = useTaxonomies();
   const { data: engagements } = useEngagements();
   const persistedHolidayEngagementId = useHolidayEngagementId();
@@ -113,20 +113,43 @@ const Settings = () => {
   const moveCategoryMutation = useMoveCategory();
   const copyCategoriesMutation = useCopyCategories();
 
-  // ── Category rates: service-scoped filter (default Auditoría) ──────────────
-  const ratesServices = useMemo(
+  // ── Prácticas: single selector shared by the Categorías and Actividades
+  // sub-tabs (0817-177 — unifies what used to be two independent selectors).
+  // Admins see every práctica (incl. inactive) so they can edit/reactivate
+  // them; non-admins only see active, rate-eligible prácticas.
+  const eligibleServices = useMemo(() => {
+    const all = services ?? [];
+    return isAdmin ? all : all.filter((s) => s.is_active && s.allows_rates_activities);
+  }, [services, isAdmin]);
+
+  // Valid copy-categories targets are always active + rate-eligible, regardless
+  // of whether the viewer is an admin (mirrors the pre-unification behavior).
+  const copyableServices = useMemo(
     () => (services ?? []).filter((s) => s.is_active && s.allows_rates_activities),
     [services]
   );
-  const [ratesServiceId, setRatesServiceId] = useState<string>("");
-  useEffect(() => {
-    if (!ratesServiceId && ratesServices.length > 0) {
-      const auditoria = ratesServices.find((s) => s.code === 1) ?? ratesServices[0];
-      setRatesServiceId(auditoria.service_id);
-    }
-  }, [ratesServices, ratesServiceId]);
 
-  const { data: categories, isLoading: categoriesLoading } = useCategories(ratesServiceId || undefined);
+  const [selectedServiceId, setSelectedServiceId] = useState<string>("");
+  useEffect(() => {
+    if (!selectedServiceId && eligibleServices.length > 0) {
+      const auditoria = eligibleServices.find((s) => s.code === 1) ?? eligibleServices[0];
+      setSelectedServiceId(auditoria.service_id);
+    }
+  }, [eligibleServices, selectedServiceId]);
+
+  const currentService = eligibleServices.find((s) => s.service_id === selectedServiceId);
+  // A práctica must be active and rate-eligible to host categories/activities;
+  // admins can still select an inactive/ineligible one to edit it, but child
+  // ABM stays disabled until it qualifies.
+  const canManageChildren = !!currentService?.is_active && !!currentService?.allows_rates_activities;
+  const canCreateActivities = canManageChildren && !!currentService?.abbreviation;
+
+  // Hold off the query entirely while no práctica is selected — passing a
+  // falsy serviceId to useCategories() reads as "all", which would leak
+  // categories from every práctica into this scoped view (0817-177).
+  const { data: categories, isLoading: categoriesLoading } = useCategories(selectedServiceId || undefined, {
+    enabled: !!selectedServiceId,
+  });
 
   // Copy-categories dialog state.
   const [copyDialogOpen, setCopyDialogOpen] = useState(false);
@@ -135,44 +158,39 @@ const Settings = () => {
 
   // Active service-linked activities grouped by service, ordered by code.
   // Used to compute the 1-based position of each row for the ↑/↓ controls.
+  //
+  // 0817-177: excludes the 8 legacy codes (PLN/FLD/REV/DOC/ADM/MTG/TRV/TRN)
+  // backfilled to a práctica by the require-practice migration — they predate
+  // the {ABREV}-A{n} ordinal scheme reorder_service_activity/
+  // deactivate_service_activity assume, and 'ADM' is looked up by literal code
+  // in useAdminActivityId. The RPCs reject/skip them server-side (see
+  // 20260820120000_0817-177_guard_legacy_activity_codes.sql); mirroring that
+  // filter here keeps the client's position/total in sync with what the RPC
+  // will actually renumber, and hides the ↑/↓ controls on the legacy rows
+  // themselves (indexOf returns -1 → pos 0 → no arrows).
   const activeActivitiesByService = useMemo(() => {
     const map = new Map<string, string[]>();
     (activityCodes ?? [])
-      .filter((a) => a.is_active && a.service_id)
+      .filter((a) => a.is_active && a.service_id && /^[A-Z]{2,5}-[A-Z]\d+$/.test(a.activity_code))
       .slice()
       .sort((a, b) => {
         const n = (code: string) => parseInt(code.match(/(\d+)$/)?.[1] ?? "0", 10);
         return n(a.activity_code) - n(b.activity_code);
       })
       .forEach((a) => {
-        const arr = map.get(a.service_id!) ?? [];
+        const arr = map.get(a.service_id) ?? [];
         arr.push(a.activity_id);
-        map.set(a.service_id!, arr);
+        map.set(a.service_id, arr);
       });
     return map;
   }, [activityCodes]);
 
-  // ── Activity codes: práctica-scoped filter (default Auditoría), mirrors the
-  // rates tab's selector, plus a "Global" bucket for unlinked codes ─────────
-  const activityServices = useMemo(
-    () => (services ?? []).filter((s) => s.is_active && s.abbreviation && s.allows_rates_activities),
-    [services]
+  // ── Activity codes: filtered by the shared práctica selector. The "Global"
+  // bucket no longer exists (activity_codes.service_id is NOT NULL, 0817-177).
+  const filteredActivityCodes = useMemo(
+    () => (selectedServiceId ? (activityCodes ?? []).filter((a) => a.service_id === selectedServiceId) : []),
+    [activityCodes, selectedServiceId]
   );
-  const [activityServiceId, setActivityServiceId] = useState<string>("");
-  useEffect(() => {
-    if (!activityServiceId && activityServices.length > 0) {
-      const auditoria = activityServices.find((s) => s.code === 1) ?? activityServices[0];
-      setActivityServiceId(auditoria.service_id);
-    }
-  }, [activityServices, activityServiceId]);
-
-  const filteredActivityCodes = useMemo(() => {
-    if (!activityServiceId) return [];
-    if (activityServiceId === "__global__") {
-      return (activityCodes ?? []).filter((a) => !a.service_id);
-    }
-    return (activityCodes ?? []).filter((a) => a.service_id === activityServiceId);
-  }, [activityCodes, activityServiceId]);
 
   // Controlled tab state
   const [activeTab, setActiveTab] = useState("account");
@@ -199,6 +217,23 @@ const Settings = () => {
 
   const [taxonomyFormOpen, setTaxonomyFormOpen] = useState(false);
   const [selectedTaxonomy, setSelectedTaxonomy] = useState<Taxonomy | null>(null);
+
+  // Prácticas: sub-tab under the unified "services" tab, gated by each
+  // catalog's own read permission.
+  const [servicesSubTab, setServicesSubTab] = useState<"categories" | "activities">(
+    canRatesTab ? "categories" : "activities"
+  );
+  useEffect(() => {
+    if (servicesSubTab === "categories" && !canRatesTab && canActivitiesTab) setServicesSubTab("activities");
+    if (servicesSubTab === "activities" && !canActivitiesTab && canRatesTab) setServicesSubTab("categories");
+  }, [canRatesTab, canActivitiesTab, servicesSubTab]);
+
+  // Switching práctica invalidates whatever category/activity form was mid-edit
+  // for the previous one.
+  useEffect(() => {
+    setCategoryFormOpen(false);
+    setActivityFormOpen(false);
+  }, [selectedServiceId]);
 
   // Settings state
   const [taxRate, setTaxRate] = useState<string>("");
@@ -432,10 +467,12 @@ const Settings = () => {
       render: (row) => {
         // ↑/↓ reorder within the selected service. Categories are a gap-free
         // 1..N sequence, so display_order is the 1-based position.
-        // Wait for ratesServiceId before computing total — otherwise
+        // Wait for selectedServiceId before computing total — otherwise
         // useCategories(undefined) can return ALL services' categories while
-        // pos is per-service, mismatching the bounds check.
-        if (!isAdmin || !ratesServiceId) return null;
+        // pos is per-service, mismatching the bounds check. Reordering is a
+        // child mutation, so it stays off while the práctica can't host
+        // children (canManageChildren), matching create.
+        if (!isAdmin || !selectedServiceId || !canManageChildren) return null;
         const total = (categories ?? []).length;
         const pos = row.display_order;
         if (total < 2) return null;
@@ -484,11 +521,7 @@ const Settings = () => {
       label: t("activity.service"),
       sortable: false,
       mobilePriority: 'secondary',
-      render: (row) => row.service ? (
-        <span className="text-sm">{row.service.name}</span>
-      ) : (
-        <span className="text-muted-foreground text-sm">{t("activity.global")}</span>
-      ),
+      render: (row) => <span className="text-sm">{row.service?.name ?? "—"}</span>,
     },
     {
       key: "is_active",
@@ -515,9 +548,11 @@ const Settings = () => {
       className: "w-24",
       mobilePriority: 'secondary',
       render: (row) => {
-        // ↑/↓ only for active service-linked activities; swap code with the
-        // adjacent sibling of the same service via reorder_service_activity.
-        if (!isAdmin || !row.is_active || !row.service_id) return null;
+        // ↑/↓ only for active activities; swap code with the adjacent sibling
+        // of the same practice via reorder_service_activity. Reordering is a
+        // child mutation, so it stays off while the práctica can't host
+        // children (canManageChildren), matching create.
+        if (!isAdmin || !row.is_active || !canManageChildren) return null;
         const siblings = activeActivitiesByService.get(row.service_id) ?? [];
         const pos = siblings.indexOf(row.activity_id) + 1; // 1-based
         const total = siblings.length;
@@ -555,42 +590,6 @@ const Settings = () => {
           </div>
         );
       },
-    },
-  ];
-
-  // Service columns
-  const serviceColumns: Column<Service>[] = [
-    { key: "code", label: t("service.code"), sortable: true, className: "w-16 font-mono", mobilePriority: 'primary' },
-    { key: "name", label: t("service.name"), sortable: true, mobilePriority: 'primary' },
-    {
-      key: "abbreviation",
-      label: t("service.abbreviation"),
-      sortable: true,
-      className: "font-mono w-20",
-      mobilePriority: 'secondary',
-      render: (row) => row.abbreviation ?? <span className="text-muted-foreground">—</span>,
-    },
-    {
-      key: "allows_rates_activities",
-      label: t("service.allowsRatesActivities"),
-      sortable: true,
-      mobilePriority: 'secondary',
-      render: (row) => (
-        <Badge variant="outline" className={row.allows_rates_activities ? "bg-success/10 text-success border-success/20" : "bg-muted text-muted-foreground"}>
-          {row.allows_rates_activities ? t("common.yes") : t("common.no")}
-        </Badge>
-      ),
-    },
-    {
-      key: "is_active",
-      label: t("service.status"),
-      sortable: true,
-      mobilePriority: 'secondary',
-      render: (row) => (
-        <Badge variant="outline" className={row.is_active ? "bg-success/10 text-success border-success/20" : "bg-muted text-muted-foreground"}>
-          {row.is_active ? t("status.active") : t("status.inactive")}
-        </Badge>
-      ),
     },
   ];
 
@@ -727,7 +726,7 @@ const Settings = () => {
   };
 
   // Copy-categories: available targets are the other rate-bearing services.
-  const copyTargetServices = ratesServices.filter((s) => s.service_id !== ratesServiceId);
+  const copyTargetServices = copyableServices.filter((s) => s.service_id !== selectedServiceId);
 
   const openCopyDialog = () => {
     setCopyTargetId("");
@@ -736,10 +735,10 @@ const Settings = () => {
   };
 
   const handleCopyCategories = async (replace: boolean) => {
-    if (!ratesServiceId || !copyTargetId) return;
+    if (!selectedServiceId || !copyTargetId) return;
     try {
       await copyCategoriesMutation.mutateAsync({
-        sourceServiceId: ratesServiceId,
+        sourceServiceId: selectedServiceId,
         targetServiceId: copyTargetId,
         replace,
       });
@@ -754,8 +753,8 @@ const Settings = () => {
     }
   };
 
-  const ratesServiceName = (id: string) =>
-    ratesServices.find((s) => s.service_id === id)?.name ?? "";
+  const serviceName = (id: string) =>
+    (services ?? []).find((s) => s.service_id === id)?.name ?? "";
 
   return (
     <AppLayout title={t("settings.title")} focusMode={isGlobalTabActive}>
@@ -768,12 +767,6 @@ const Settings = () => {
           {canSkillsTab && (
             <TabsTrigger value="skills">{t("settings.skills")}</TabsTrigger>
           )}
-          {canRatesTab && (
-            <TabsTrigger value="rates">{t("settings.categoryRates")}</TabsTrigger>
-          )}
-          {canActivitiesTab && (
-            <TabsTrigger value="activities">{t("settings.activityCodes")}</TabsTrigger>
-          )}
           {canExpenseTab && (
             <TabsTrigger value="expense-types">{t("settings.expenseTypes")}</TabsTrigger>
           )}
@@ -783,7 +776,7 @@ const Settings = () => {
           {canRolesTab && (
             <TabsTrigger value="roles">{t("settings.userRoles")}</TabsTrigger>
           )}
-          {isAdmin && (
+          {(isAdmin || canRatesTab || canActivitiesTab) && (
             <TabsTrigger value="services">{t("settings.services")}</TabsTrigger>
           )}
           {isAdmin && (
@@ -845,157 +838,226 @@ const Settings = () => {
           </TabsContent>
         )}
 
-        <TabsContent value="rates" className="space-y-6">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <Label htmlFor="ratesServiceFilter">{t("category.service")}</Label>
-              <Select value={ratesServiceId} onValueChange={setRatesServiceId}>
-                <SelectTrigger id="ratesServiceFilter" className="w-56" data-testid="rates-service-filter">
-                  <SelectValue placeholder={t("category.selectService")} />
-                </SelectTrigger>
-                <SelectContent>
-                  {ratesServices.map((s) => (
-                    <SelectItem key={s.service_id} value={s.service_id}>
-                      {s.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            {canRatesWrite && (
-              <Button
-                type="button"
-                variant="outline"
-                onClick={openCopyDialog}
-                disabled={!ratesServiceId || copyTargetServices.length === 0}
-                data-testid="copy-categories-button"
-              >
-                {t("category.copyFromService")}
-              </Button>
-            )}
-          </div>
-          <DataTable
-            data={categories || []}
-            columns={categoryColumns}
-            searchPlaceholder={t("common.search")}
-            searchKeys={["category_name"]}
-            isLoading={categoriesLoading}
-            newButtonLabel={canRatesWrite ? t("category.newCategory") : undefined}
-            onNewClick={canRatesWrite ? () => { setSelectedCategory(null); setCategoryFormOpen(true); } : undefined}
-            onRowClick={canRatesWrite ? (row) => { setSelectedCategory(row); setCategoryFormOpen(true); } : undefined}
-            getRowId={(row) => row.category_id}
-          />
-          <CategoryForm
-            open={categoryFormOpen}
-            onOpenChange={setCategoryFormOpen}
-            category={selectedCategory}
-            serviceId={ratesServiceId}
-          />
-
-          {/* Copy categories from the current service into another */}
-          <AlertDialog open={copyDialogOpen} onOpenChange={setCopyDialogOpen}>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>{t("category.copyFromService")}</AlertDialogTitle>
-                <AlertDialogDescription>
-                  {t("category.copySource", { service: ratesServiceName(ratesServiceId) })}
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-
-              <div className="space-y-2">
-                <Label htmlFor="copyTarget">{t("category.copyTarget")}</Label>
-                <Select
-                  value={copyTargetId}
-                  onValueChange={(v) => { setCopyTargetId(v); setCopyNeedsReplace(false); }}
-                >
-                  <SelectTrigger id="copyTarget" data-testid="copy-target-select">
+        {(isAdmin || canRatesTab || canActivitiesTab) && (
+          <TabsContent value="services" className="space-y-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <Label htmlFor="practiceSelector">{t("category.service")}</Label>
+                <Select value={selectedServiceId} onValueChange={setSelectedServiceId}>
+                  <SelectTrigger
+                    id="practiceSelector"
+                    className="w-56 border-info [&_svg]:text-info [&_svg]:opacity-100"
+                    data-testid="practice-selector"
+                  >
                     <SelectValue placeholder={t("category.selectService")} />
                   </SelectTrigger>
                   <SelectContent>
-                    {copyTargetServices.map((s) => (
+                    {eligibleServices.map((s) => (
                       <SelectItem key={s.service_id} value={s.service_id}>
                         {s.name}
+                        {!s.is_active ? ` (${t("status.inactive")})` : ""}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                {copyNeedsReplace && (
-                  <Alert variant="destructive" data-testid="copy-replace-warning">
-                    <AlertTriangle className="h-4 w-4" />
-                    <AlertDescription>{t("category.copyReplaceWarning")}</AlertDescription>
-                  </Alert>
-                )}
               </div>
-
-              <AlertDialogFooter>
-                <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-                {copyNeedsReplace ? (
+              {isAdmin && (
+                <div className="flex gap-2">
                   <Button
                     type="button"
-                    variant="destructive"
-                    disabled={!copyTargetId || copyCategoriesMutation.isPending}
-                    onClick={() => handleCopyCategories(true)}
-                    data-testid="copy-replace-confirm"
+                    variant="warning"
+                    disabled={!currentService}
+                    onClick={() => { setSelectedService(currentService ?? null); setServiceFormOpen(true); }}
+                    data-testid="edit-practice-button"
                   >
-                    {t("category.copyReplaceConfirm")}
+                    <Edit2 className="h-4 w-4 mr-2" />
+                    {t("service.editService")}
                   </Button>
-                ) : (
-                  <AlertDialogAction
-                    disabled={!copyTargetId || copyCategoriesMutation.isPending}
-                    onClick={(e) => { e.preventDefault(); handleCopyCategories(false); }}
-                    data-testid="copy-confirm"
+                  <Button
+                    type="button"
+                    variant="default"
+                    onClick={() => { setSelectedService(null); setServiceFormOpen(true); }}
+                    data-testid="new-practice-button"
                   >
-                    {t("category.copyConfirm")}
-                  </AlertDialogAction>
-                )}
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        </TabsContent>
+                    <Plus className="h-4 w-4 mr-2" />
+                    {t("service.newService")}
+                  </Button>
+                </div>
+              )}
+            </div>
 
-        <TabsContent value="activities" className="space-y-6">
-          <div className="flex items-center gap-2">
-            <Label htmlFor="activityServiceFilter">{t("activity.service")}</Label>
-            <Select value={activityServiceId} onValueChange={setActivityServiceId}>
-              <SelectTrigger id="activityServiceFilter" className="w-56" data-testid="activity-service-filter">
-                <SelectValue placeholder={t("activity.selectServiceFilter")} />
-              </SelectTrigger>
-              <SelectContent>
-                {activityServices.map((s) => (
-                  <SelectItem key={s.service_id} value={s.service_id}>
-                    {s.name}
-                  </SelectItem>
-                ))}
-                <SelectItem value="__global__">{t("activity.global")}</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <DataTable
-            key={activityServiceId}
-            data={filteredActivityCodes}
-            columns={activityColumns}
-            searchPlaceholder={t("common.search")}
-            searchKeys={["activity_code", "description"]}
-            isLoading={activitiesLoading}
-            newButtonLabel={canActivitiesWrite ? t("activity.newActivity") : undefined}
-            onNewClick={canActivitiesWrite && activityServiceId ? () => { setSelectedActivity(null); setActivityFormOpen(true); } : undefined}
-            onRowClick={canActivitiesWrite ? (row) => { setSelectedActivity(row); setActivityFormOpen(true); } : undefined}
-            getRowId={(row) => row.activity_id}
-            statusFilter={{
-              key: "is_active",
-              options: [
-                { value: "active", label: t("status.active") },
-                { value: "inactive", label: t("status.inactive") },
-              ],
-            }}
-          />
-          <ActivityCodeForm
-            open={activityFormOpen}
-            onOpenChange={setActivityFormOpen}
-            activityCode={selectedActivity}
-            serviceId={activityServiceId && activityServiceId !== "__global__" ? activityServiceId : undefined}
-          />
-        </TabsContent>
+            {!canManageChildren && currentService && (
+              <Alert data-testid="practice-children-disabled-notice">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription>{t("service.disallowsChildrenNotice")}</AlertDescription>
+              </Alert>
+            )}
+
+            <Tabs value={servicesSubTab} onValueChange={(v) => setServicesSubTab(v as "categories" | "activities")}>
+              <TabsList className="h-auto w-full justify-start gap-6 rounded-none border-b border-border bg-transparent p-0">
+                {canRatesTab && (
+                  <TabsTrigger
+                    value="categories"
+                    className="rounded-none border-b-2 border-transparent bg-transparent px-0 pb-3 pt-0 font-medium text-muted-foreground shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
+                  >
+                    {t("settings.categoryRates")}
+                  </TabsTrigger>
+                )}
+                {canActivitiesTab && (
+                  <TabsTrigger
+                    value="activities"
+                    className="rounded-none border-b-2 border-transparent bg-transparent px-0 pb-3 pt-0 font-medium text-muted-foreground shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
+                  >
+                    {t("settings.activityCodes")}
+                  </TabsTrigger>
+                )}
+              </TabsList>
+
+              {canRatesTab && (
+                <TabsContent value="categories" className="space-y-6 mt-6">
+                  <DataTable
+                    key={selectedServiceId}
+                    data={categories || []}
+                    columns={categoryColumns}
+                    searchPlaceholder={t("common.search")}
+                    searchKeys={["category_name"]}
+                    isLoading={categoriesLoading}
+                    newButtonLabel={canRatesWrite && canManageChildren ? t("category.newCategory") : undefined}
+                    onNewClick={canRatesWrite && canManageChildren ? () => { setSelectedCategory(null); setCategoryFormOpen(true); } : undefined}
+                    onRowClick={canRatesWrite && canManageChildren ? (row) => { setSelectedCategory(row); setCategoryFormOpen(true); } : undefined}
+                    getRowId={(row) => row.category_id}
+                    headerActions={
+                      canRatesWrite ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={openCopyDialog}
+                          disabled={!selectedServiceId || !canManageChildren || copyTargetServices.length === 0}
+                          className="w-full sm:w-auto min-h-[44px] sm:min-h-0"
+                          data-testid="copy-categories-button"
+                        >
+                          <Copy className="h-4 w-4 mr-2" />
+                          {t("category.copyFromService")}
+                        </Button>
+                      ) : undefined
+                    }
+                  />
+                  <CategoryForm
+                    open={categoryFormOpen}
+                    onOpenChange={setCategoryFormOpen}
+                    category={selectedCategory}
+                    serviceId={selectedServiceId}
+                    lockService={!selectedCategory}
+                  />
+
+                  {/* Copy categories from the current service into another */}
+                  <AlertDialog open={copyDialogOpen} onOpenChange={setCopyDialogOpen}>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>{t("category.copyFromService")}</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          {t("category.copySource", { service: serviceName(selectedServiceId) })}
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="copyTarget">{t("category.copyTarget")}</Label>
+                        <Select
+                          value={copyTargetId}
+                          onValueChange={(v) => { setCopyTargetId(v); setCopyNeedsReplace(false); }}
+                        >
+                          <SelectTrigger id="copyTarget" data-testid="copy-target-select">
+                            <SelectValue placeholder={t("category.selectService")} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {copyTargetServices.map((s) => (
+                              <SelectItem key={s.service_id} value={s.service_id}>
+                                {s.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {copyNeedsReplace && (
+                          <Alert variant="destructive" data-testid="copy-replace-warning">
+                            <AlertTriangle className="h-4 w-4" />
+                            <AlertDescription>{t("category.copyReplaceWarning")}</AlertDescription>
+                          </Alert>
+                        )}
+                      </div>
+
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+                        {copyNeedsReplace ? (
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            disabled={!copyTargetId || copyCategoriesMutation.isPending}
+                            onClick={() => handleCopyCategories(true)}
+                            data-testid="copy-replace-confirm"
+                          >
+                            {t("category.copyReplaceConfirm")}
+                          </Button>
+                        ) : (
+                          <AlertDialogAction
+                            disabled={!copyTargetId || copyCategoriesMutation.isPending}
+                            onClick={(e) => { e.preventDefault(); handleCopyCategories(false); }}
+                            data-testid="copy-confirm"
+                          >
+                            {t("category.copyConfirm")}
+                          </AlertDialogAction>
+                        )}
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </TabsContent>
+              )}
+
+              {canActivitiesTab && (
+                <TabsContent value="activities" className="space-y-6 mt-6">
+                  {canManageChildren && !canCreateActivities && (
+                    <Alert data-testid="activity-abbreviation-missing-notice">
+                      <AlertTriangle className="h-4 w-4" />
+                      <AlertDescription>{t("activity.abbreviationMissing")}</AlertDescription>
+                    </Alert>
+                  )}
+                  <DataTable
+                    key={selectedServiceId}
+                    data={filteredActivityCodes}
+                    columns={activityColumns}
+                    searchPlaceholder={t("common.search")}
+                    searchKeys={["activity_code", "description"]}
+                    isLoading={activitiesLoading}
+                    newButtonLabel={canActivitiesWrite ? t("activity.newActivity") : undefined}
+                    onNewClick={canActivitiesWrite && canCreateActivities ? () => { setSelectedActivity(null); setActivityFormOpen(true); } : undefined}
+                    onRowClick={canActivitiesWrite && canManageChildren ? (row) => { setSelectedActivity(row); setActivityFormOpen(true); } : undefined}
+                    getRowId={(row) => row.activity_id}
+                    statusFilter={{
+                      key: "is_active",
+                      options: [
+                        { value: "active", label: t("status.active") },
+                        { value: "inactive", label: t("status.inactive") },
+                      ],
+                    }}
+                  />
+                  <ActivityCodeForm
+                    open={activityFormOpen}
+                    onOpenChange={setActivityFormOpen}
+                    activityCode={selectedActivity}
+                    serviceId={selectedServiceId}
+                    lockService={!selectedActivity}
+                  />
+                </TabsContent>
+              )}
+            </Tabs>
+
+            <ServiceForm
+              open={serviceFormOpen}
+              onOpenChange={setServiceFormOpen}
+              service={selectedService}
+              usedCodes={(services || []).map((s) => s.code)}
+            />
+          </TabsContent>
+        )}
 
         <TabsContent value="expense-types" className="space-y-6">
           <DataTable
@@ -1263,35 +1325,6 @@ const Settings = () => {
                 )}
               </CardContent>
             </Card>
-          </TabsContent>
-        )}
-
-        {isAdmin && (
-          <TabsContent value="services" className="space-y-6">
-            <DataTable
-              data={services || []}
-              columns={serviceColumns}
-              searchPlaceholder={t("common.search")}
-              searchKeys={["name"]}
-              isLoading={servicesLoading}
-              newButtonLabel={t("service.newService")}
-              onNewClick={() => { setSelectedService(null); setServiceFormOpen(true); }}
-              onRowClick={(row) => { setSelectedService(row); setServiceFormOpen(true); }}
-              getRowId={(row) => row.service_id}
-              statusFilter={{
-                key: "is_active",
-                options: [
-                  { value: "active", label: t("status.active") },
-                  { value: "inactive", label: t("status.inactive") },
-                ],
-              }}
-            />
-            <ServiceForm
-              open={serviceFormOpen}
-              onOpenChange={setServiceFormOpen}
-              service={selectedService}
-              usedCodes={(services || []).map((s) => s.code)}
-            />
           </TabsContent>
         )}
 

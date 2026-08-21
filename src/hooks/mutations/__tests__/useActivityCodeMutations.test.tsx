@@ -27,42 +27,9 @@ describe("useActivityCodeMutations", () => {
     vi.clearAllMocks();
   });
 
-  // ── Heredada (legacy) path ───────────────────────────────────────────────
-  describe("useCreateActivityCode — heredada (no service_id)", () => {
-    it("calls supabase.from('activity_codes').insert() when no service_id", async () => {
-      const mockSingle = vi.fn().mockResolvedValue({
-        data: { activity_id: "123", activity_code: "AC001", description: "Test" },
-        error: null,
-      });
-      const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
-      const mockInsert = vi.fn().mockReturnValue({ select: mockSelect });
-      vi.mocked(supabase.from).mockReturnValue({ insert: mockInsert } as any);
-
-      const { result } = renderHook(() => useCreateActivityCode(), {
-        wrapper: createWrapper(),
-      });
-
-      result.current.mutate({
-        activity_code: "AC001",
-        description: "Test Activity",
-        is_active: true,
-      });
-
-      await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-      expect(supabase.from).toHaveBeenCalledWith("activity_codes");
-      expect(mockInsert).toHaveBeenCalledWith({
-        activity_code: "AC001",
-        description: "Test Activity",
-        is_active: true,
-      });
-      expect(toast.success).toHaveBeenCalled();
-    });
-  });
-
-  // ── Vinculada (service-linked) path ─────────────────────────────────────
-  describe("useCreateActivityCode — vinculada (with service_id)", () => {
-    it("calls supabase.rpc('create_service_activity') when service_id provided", async () => {
+  // ── Vinculada (service-linked) path — the only path since 0817-177 ──────
+  describe("useCreateActivityCode — vinculada (service_id required)", () => {
+    it("calls supabase.rpc('create_service_activity') with the required service_id", async () => {
       const mockRpc = vi.fn().mockResolvedValue({ data: { activity_id: "456" }, error: null });
       vi.mocked(supabase.rpc).mockImplementation(mockRpc as any);
 

@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -28,6 +28,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { TableTopScrollbar } from "@/components/ui/table-top-scrollbar";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
@@ -49,6 +50,8 @@ const WorksheetList = () => {
   const canCreate = can("worksheet.create");
 
   const [searchQuery, setSearchQuery] = useState("");
+  // Bug 0722-158: el scroller real es el div interno de <Table>.
+  const tableScrollRef = useRef<HTMLDivElement>(null);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [statusFilterOpen, setStatusFilterOpen] = useState(false);
   const [sortColumn, setSortColumn] = useState<SortColumn>(null);
@@ -166,9 +169,13 @@ const WorksheetList = () => {
         </div>
 
         {/* Data Table */}
-        <div className="border border-border rounded-lg overflow-hidden">
-          <div className="overflow-x-auto">
-            <Table className="table-dense">
+        {/* Bug 0722-158: div plano externo que agrupa la franja de scroll con el
+            marco de la tabla. El `overflow-x-auto` que estaba aqui era inerte: su
+            unico hijo es el `w-full` de <Table>; el scroller real es el interno. */}
+        <div>
+          <TableTopScrollbar targetRef={tableScrollRef} />
+          <div className="border border-border rounded-lg overflow-hidden">
+            <Table className="table-dense" containerRef={tableScrollRef}>
               <TableHeader>
                 <TableRow className="bg-muted/50">
                   <TableHead className="w-28 text-center border-r border-border">

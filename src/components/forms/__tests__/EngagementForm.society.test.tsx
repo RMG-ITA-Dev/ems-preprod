@@ -114,6 +114,26 @@ vi.mock("@/hooks/useCategoryStaff", () => ({
   }),
 }));
 
+// BUG 0722-162: el bloque Equipo pasó a alimentarse de useEngagementTeamCandidates (RPC), así
+// que sin este mock el hook real golpearía Supabase.
+// Estos tests hacen submit completo, así que Socio y Gerente deben ser seleccionables.
+// `serviceId: "s1"` es el servicio de Auditoría (code 1) de mockServices: los no-admin lo reciben
+// auto-asignado en creación, y el filtro por servicio descartaría candidatos de otro service_id.
+const stableTeamCandidates = {
+  partnerDirectorOptions: [{ value: "p1", label: "Juan Partner", serviceId: "s1" }],
+  managerRoleOptions: [{ value: "m1", label: "Ana Manager", serviceId: "s1" }],
+  encargadoOptions: [],
+  specialistItOptions: [],
+  specialistTaxOptions: [],
+  hasPartnerDirectorCandidates: true,
+  hasManagerCandidates: true,
+  isLoading: false,
+  isError: false,
+};
+vi.mock("@/hooks/useEngagementTeamCandidates", () => ({
+  useEngagementTeamCandidates: () => stableTeamCandidates,
+}));
+
 const mockUpdateMutateAsync = vi.fn().mockResolvedValue(undefined);
 const mockCreateMutateAsync = vi.fn();
 vi.mock("@/hooks/mutations", () => ({
@@ -289,8 +309,11 @@ describe("EngagementForm — Sociedad required in creation (real submit, FEAT 07
 
     const partnerSelect = screen.getByLabelText(/engagement\.partner/);
     await user.click(partnerSelect);
-    await waitFor(() => screen.getByRole("option", { name: "Juan Partner" }));
-    await user.click(screen.getByRole("option", { name: "Juan Partner" }));
+    // BUG 0722-162: Socio/Director y SQR comparten el conjunto de candidatos (ambos piden Socio
+    // o Director), y el mock de Popover de arriba renderiza todos los popovers a la vez — así que
+    // "Juan Partner" aparece dos veces. El [0] es el del campo Socio/Director, que va primero.
+    await waitFor(() => screen.getAllByRole("option", { name: "Juan Partner" }));
+    await user.click(screen.getAllByRole("option", { name: "Juan Partner" })[0]);
 
     const managerSelect = screen.getByLabelText(/engagement\.manager/);
     await user.click(managerSelect);

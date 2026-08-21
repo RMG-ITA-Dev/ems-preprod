@@ -26,7 +26,11 @@ vi.mock("react-i18next", () => ({
 }));
 
 vi.mock("@/components/layout/AppLayout", () => ({
-  AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  AppLayout: ({ children, focusMode }: { children: React.ReactNode; focusMode?: boolean }) => (
+    <div data-testid="app-layout" data-focus-mode={focusMode}>
+      {children}
+    </div>
+  ),
 }));
 
 let mockRoleKey: string | null = "admin";
@@ -178,6 +182,11 @@ describe("SchedulerL2 loading gate covers ALL SIX queries", () => {
   it("renders the schedule only when every query has resolved", () => {
     renderPage();
     expect(screen.getByTestId("l2gantt")).toBeInTheDocument();
+  });
+
+  it("BUG 0817-174: AppLayout receives focusMode=true", () => {
+    renderPage();
+    expect(screen.getByTestId("app-layout").dataset.focusMode).toBe("true");
   });
 
   it.each([

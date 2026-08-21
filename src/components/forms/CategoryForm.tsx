@@ -73,15 +73,18 @@ interface CategoryFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   category?: Category | null;
-  /** Default service for a new category (the currently filtered service). */
+  /** Default service for a new category (the currently selected práctica). */
   serviceId?: string;
+  /** When true, the práctica is fixed to `serviceId` and rendered read-only on create. */
+  lockService?: boolean;
 }
 
 
-export function CategoryForm({ open, onOpenChange, category, serviceId }: CategoryFormProps) {
+export function CategoryForm({ open, onOpenChange, category, serviceId, lockService }: CategoryFormProps) {
   const { t, i18n } = useTranslation();
   const numericLocale = i18n.language === "es" ? "es" : "en";
   const isEdit = !!category;
+  const isServiceLocked = isEdit || !!lockService;
   const createMutation = useCreateCategory();
   const updateMutation = useUpdateCategory();
   const deleteMutation = useDeleteCategory();
@@ -192,8 +195,10 @@ export function CategoryForm({ open, onOpenChange, category, serviceId }: Catego
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6 mt-6">
-            {/* Service selector — required on create; read-only on edit. */}
-            {isEdit ? (
+            {/* Service selector — required on create; read-only on edit, and also
+                read-only (but pre-filled) when the parent Settings tab locks it
+                to the currently selected práctica. */}
+            {isServiceLocked ? (
               <FormItem>
                 <FormLabel>{t("category.service")}</FormLabel>
                 <Input
