@@ -56,7 +56,7 @@ const EAS_ERROR_I18N_KEY: Record<string, string> = {
   EAS_ENGAGEMENT_RANGE: "engagement.assignments.errors.outOfEngagementRange",
   EAS_HOURS_RANGE: "engagement.assignments.errors.numericRange",
   EAS_ALLOCATION_RANGE: "engagement.assignments.errors.numericRange",
-  EAS_CATEGORY_FOREIGN_SERVICE: "engagement.assignments.errors.categoryForeignService",
+  EAS_CATEGORY_FOREIGN_PRACTICE: "engagement.assignments.errors.categoryForeignService",
   EAS_STAFF_INELIGIBLE: "engagement.assignments.errors.staffIneligible",
   EAS_OVERLAP: "scheduler.errors.overlap",
 };

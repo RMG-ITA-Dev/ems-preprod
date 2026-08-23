@@ -116,7 +116,7 @@ jobs:
       # 🟢 Bug preexistente encontrado en vivo (2026-08-06, dev-scheduler-fase_7): pg_dump
       # envuelve cada dump en un token \restrict/\unrestrict aleatorio que difiere en cada
       # invocación incluso contra un esquema sin cambios. Filtrar por contenido, no posición.
-      - name: Gate — replay converge al fingerprint aceptado (baseline_184 vía consolidado_*)
+      - name: Gate — replay converge al fingerprint aceptado (baseline_184 vía consolidado_renamed_*)
         run: |
           FP=supabase/tests/fixtures/route-fingerprints
           fail=0
@@ -125,13 +125,13 @@ jobs:
           for name in schema catalog_policies catalog_grants catalog_column_grants catalog_routine_grants catalog_storage_buckets; do
             ext="txt"
             [[ "$name" == "schema" ]] && ext="sql"
-            a="$FP/consolidado_${name}.${ext}"
+            a="$FP/consolidado_renamed_${name}.${ext}"
             b="$FP/replay_${name}.${ext}"
             if ! diff <(grep -vE "$RESTRICT" "$a") <(grep -vE "$RESTRICT" "$b"); then
-              echo "::error::replay diverge de consolidado_${name}.${ext} (ver diff arriba)."
+              echo "::error::replay diverge de consolidado_renamed_${name}.${ext} (ver diff arriba)."
               fail=1
             fi
           done
 
           [[ "$fail" -eq 0 ]] || exit 1
-          echo "Gate de replay consolidado: OK (schema, policies, grants, column_grants, routine_grants, storage_buckets)."
+          echo "Gate de replay consolidado (renombrado, Fase 3): OK (schema, policies, grants, column_grants, routine_grants, storage_buckets)."

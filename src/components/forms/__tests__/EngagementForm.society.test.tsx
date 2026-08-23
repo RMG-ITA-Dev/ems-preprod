@@ -67,7 +67,7 @@ vi.mock("@/components/ui/popover", () => ({
 }));
 
 const mockServices = [
-  { service_id: "s1", name: "Auditoría", code: 1, allows_rates_activities: true, is_active: true, created_at: "" },
+  { practica_id: "s1", name: "Auditoría", code: 1, allows_rates_activities: true, is_active: true, created_at: "" },
 ];
 
 // REVIEW FIX: useSocieties() filters is_active=true server-side (unlike useClients/
@@ -118,7 +118,7 @@ vi.mock("@/hooks/useCategoryStaff", () => ({
 // que sin este mock el hook real golpearía Supabase.
 // Estos tests hacen submit completo, así que Socio y Gerente deben ser seleccionables.
 // `serviceId: "s1"` es el servicio de Auditoría (code 1) de mockServices: los no-admin lo reciben
-// auto-asignado en creación, y el filtro por servicio descartaría candidatos de otro service_id.
+// auto-asignado en creación, y el filtro por servicio descartaría candidatos de otro practica_id.
 const stableTeamCandidates = {
   partnerDirectorOptions: [{ value: "p1", label: "Juan Partner", serviceId: "s1" }],
   managerRoleOptions: [{ value: "m1", label: "Ana Manager", serviceId: "s1" }],

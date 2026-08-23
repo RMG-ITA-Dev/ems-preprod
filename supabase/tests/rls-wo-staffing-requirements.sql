@@ -41,16 +41,16 @@ BEGIN;
 -- catálogo de producción sembrado ya existiría; el set consolidado (sin seed) no la
 -- trae, así que se siembra aquí mínimamente. society: staff.society_id es NOT NULL
 -- real (20260812140000), invisible para el shim viejo.
-INSERT INTO public.services (service_id, name, code, abbreviation)
+INSERT INTO public.practicas (practica_id, name, code, abbreviation)
 VALUES ('5e000000-0000-4000-8000-0000000000a1', 'WR Test Practice (Auditoría)', 1, 'AUD')
 ON CONFLICT (code) DO NOTHING;
 
 INSERT INTO public.society (society_id, name)
 VALUES ('50c00000-0000-4000-8000-0000000000a1', 'WR Test Society');
 
-INSERT INTO public.categories (category_id, category_name, service_id) VALUES
+INSERT INTO public.categories (category_id, category_name, practica_id) VALUES
   ('c0000000-0000-4000-8000-0000000000a1', 'WR Test Category',
-   (SELECT service_id FROM public.services WHERE code = 1));
+   (SELECT practica_id FROM public.practicas WHERE code = 1));
 
 INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id) VALUES
   ('c1000000-0000-4000-8000-0000000000a1', 'WR Test Client', 'WR-TAX-001');
@@ -81,18 +81,18 @@ BEGIN
   END IF;
 END $$;
 
-INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, category_id, service_id, society_id) VALUES
-  ('50000000-0000-4000-8000-0000000000a1', 'a0000000-0000-4000-8000-0000000000a1', 'Ann',  'Admin',      'c0000000-0000-4000-8000-0000000000a1', (SELECT service_id FROM public.services WHERE code = 1), '50c00000-0000-4000-8000-0000000000a1'),
-  ('50000000-0000-4000-8000-0000000000a2', 'a0000000-0000-4000-8000-0000000000a2', 'Pat',  'Partner',    'c0000000-0000-4000-8000-0000000000a1', (SELECT service_id FROM public.services WHERE code = 1), '50c00000-0000-4000-8000-0000000000a1'),
-  ('50000000-0000-4000-8000-0000000000a3', 'a0000000-0000-4000-8000-0000000000a3', 'Mel',  'ManagerLead','c0000000-0000-4000-8000-0000000000a1', (SELECT service_id FROM public.services WHERE code = 1), '50c00000-0000-4000-8000-0000000000a1'),
-  ('50000000-0000-4000-8000-0000000000a4', 'a0000000-0000-4000-8000-0000000000a4', 'Sam',  'SQR',        'c0000000-0000-4000-8000-0000000000a1', (SELECT service_id FROM public.services WHERE code = 1), '50c00000-0000-4000-8000-0000000000a1'),
-  ('50000000-0000-4000-8000-0000000000a5', 'a0000000-0000-4000-8000-0000000000a5', 'Val',  'AssignedOnly','c0000000-0000-4000-8000-0000000000a1', (SELECT service_id FROM public.services WHERE code = 1), '50c00000-0000-4000-8000-0000000000a1'),
-  ('50000000-0000-4000-8000-0000000000a6', 'a0000000-0000-4000-8000-0000000000a6', 'Nora', 'Unrelated',  'c0000000-0000-4000-8000-0000000000a1', (SELECT service_id FROM public.services WHERE code = 1), '50c00000-0000-4000-8000-0000000000a1'),
-  ('50000000-0000-4000-8000-0000000000a7', NULL,                                    'Otto', 'ForeignLead','c0000000-0000-4000-8000-0000000000a1', (SELECT service_id FROM public.services WHERE code = 1), '50c00000-0000-4000-8000-0000000000a1'),
+INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, category_id, practica_id, society_id) VALUES
+  ('50000000-0000-4000-8000-0000000000a1', 'a0000000-0000-4000-8000-0000000000a1', 'Ann',  'Admin',      'c0000000-0000-4000-8000-0000000000a1', (SELECT practica_id FROM public.practicas WHERE code = 1), '50c00000-0000-4000-8000-0000000000a1'),
+  ('50000000-0000-4000-8000-0000000000a2', 'a0000000-0000-4000-8000-0000000000a2', 'Pat',  'Partner',    'c0000000-0000-4000-8000-0000000000a1', (SELECT practica_id FROM public.practicas WHERE code = 1), '50c00000-0000-4000-8000-0000000000a1'),
+  ('50000000-0000-4000-8000-0000000000a3', 'a0000000-0000-4000-8000-0000000000a3', 'Mel',  'ManagerLead','c0000000-0000-4000-8000-0000000000a1', (SELECT practica_id FROM public.practicas WHERE code = 1), '50c00000-0000-4000-8000-0000000000a1'),
+  ('50000000-0000-4000-8000-0000000000a4', 'a0000000-0000-4000-8000-0000000000a4', 'Sam',  'SQR',        'c0000000-0000-4000-8000-0000000000a1', (SELECT practica_id FROM public.practicas WHERE code = 1), '50c00000-0000-4000-8000-0000000000a1'),
+  ('50000000-0000-4000-8000-0000000000a5', 'a0000000-0000-4000-8000-0000000000a5', 'Val',  'AssignedOnly','c0000000-0000-4000-8000-0000000000a1', (SELECT practica_id FROM public.practicas WHERE code = 1), '50c00000-0000-4000-8000-0000000000a1'),
+  ('50000000-0000-4000-8000-0000000000a6', 'a0000000-0000-4000-8000-0000000000a6', 'Nora', 'Unrelated',  'c0000000-0000-4000-8000-0000000000a1', (SELECT practica_id FROM public.practicas WHERE code = 1), '50c00000-0000-4000-8000-0000000000a1'),
+  ('50000000-0000-4000-8000-0000000000a7', NULL,                                    'Otto', 'ForeignLead','c0000000-0000-4000-8000-0000000000a1', (SELECT practica_id FROM public.practicas WHERE code = 1), '50c00000-0000-4000-8000-0000000000a1'),
   -- Fase 7 §H: encargado_id / specialist_it_id personas. a10 deliberately gets
   -- NO staff row here — it backs "usuario auth sin fila en staff".
-  ('50000000-0000-4000-8000-0000000000a8', 'a0000000-0000-4000-8000-0000000000a8', 'Eddy', 'Encargado',  'c0000000-0000-4000-8000-0000000000a1', (SELECT service_id FROM public.services WHERE code = 1), '50c00000-0000-4000-8000-0000000000a1'),
-  ('50000000-0000-4000-8000-0000000000a9', 'a0000000-0000-4000-8000-0000000000a9', 'Ivy',  'SpecialistIT','c0000000-0000-4000-8000-0000000000a1', (SELECT service_id FROM public.services WHERE code = 1), '50c00000-0000-4000-8000-0000000000a1');
+  ('50000000-0000-4000-8000-0000000000a8', 'a0000000-0000-4000-8000-0000000000a8', 'Eddy', 'Encargado',  'c0000000-0000-4000-8000-0000000000a1', (SELECT practica_id FROM public.practicas WHERE code = 1), '50c00000-0000-4000-8000-0000000000a1'),
+  ('50000000-0000-4000-8000-0000000000a9', 'a0000000-0000-4000-8000-0000000000a9', 'Ivy',  'SpecialistIT','c0000000-0000-4000-8000-0000000000a1', (SELECT practica_id FROM public.practicas WHERE code = 1), '50c00000-0000-4000-8000-0000000000a1');
 
 -- ON CONFLICT DO UPDATE (not a plain INSERT): on a live Supabase, the auth.users insert above
 -- fires handle_new_user() (20251204051043), which already auto-creates a 'staff' user_roles row

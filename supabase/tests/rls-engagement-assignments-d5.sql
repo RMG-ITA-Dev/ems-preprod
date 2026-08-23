@@ -38,10 +38,10 @@
 BEGIN;
 
 -- ── Fixtures (as postgres; RLS does not bind the table owner) ─────────
--- practica/sociedad dummy: categories.service_id y staff.service_id/society_id son NOT
+-- practica/sociedad dummy: categories.practica_id y staff.practica_id/society_id son NOT
 -- NULL en el esquema real (agregadas por 20260702000002/20260812140000, no existían en el
 -- viejo shim minimalista contra el que corría esta suite antes de la migración cero).
-INSERT INTO public.services (service_id, name, code, abbreviation)
+INSERT INTO public.practicas (practica_id, name, code, abbreviation)
 VALUES ('5e000000-0000-4000-8000-000000000001', 'D5 Test Practice', 9, 'TST');
 
 INSERT INTO public.society (society_id, name)
@@ -60,13 +60,13 @@ INSERT INTO auth.users (id) VALUES
   ('a0000000-0000-4000-8000-00000000000f'),
   ('a0000000-0000-4000-8000-000000000011');
 
-INSERT INTO public.categories (category_id, category_name, service_id)
+INSERT INTO public.categories (category_id, category_name, practica_id)
 VALUES ('c0000000-0000-4000-8000-000000000001', 'D5 Test Category', '5e000000-0000-4000-8000-000000000001');
 
 INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id)
 VALUES ('c1000000-0000-4000-8000-000000000001', 'D5 Test Client', 'D5-TAX-001');
 
-INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, category_id, service_id, society_id) VALUES
+INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, category_id, practica_id, society_id) VALUES
   ('50000000-0000-4000-8000-00000000000a', 'a0000000-0000-4000-8000-00000000000a', 'Pat',  'Partner',       'c0000000-0000-4000-8000-000000000001', '5e000000-0000-4000-8000-000000000001', '50c00000-0000-4000-8000-000000000001'),
   ('50000000-0000-4000-8000-00000000000b', 'a0000000-0000-4000-8000-00000000000b', 'Dana', 'Director',      'c0000000-0000-4000-8000-000000000001', '5e000000-0000-4000-8000-000000000001', '50c00000-0000-4000-8000-000000000001'),
   ('50000000-0000-4000-8000-00000000000c', 'a0000000-0000-4000-8000-00000000000c', 'Mel',  'ManagerLead',   'c0000000-0000-4000-8000-000000000001', '5e000000-0000-4000-8000-000000000001', '50c00000-0000-4000-8000-000000000001'),

@@ -7,7 +7,7 @@ cambio deliberado que implica re-capturar y re-aceptar los fixtures — nunca un
 
 | Herramienta | Versión | Capturada el |
 |---|---|---|
-| Supabase CLI | `2.100.1` | 2026-08-21 (`baseline_184_*`), 2026-08-22/23 (`consolidado_*`) |
+| Supabase CLI | `2.100.1` | 2026-08-21 (`baseline_184_*`), 2026-08-22/23 (`consolidado_renamed_*`, Fase 3 rename) |
 | Imagen `supabase/postgres` | `17.6.1.121` (`PostgreSQL 17.6 on x86_64-pc-linux-gnu`) | ídem |
 | Imagen `supabase/storage-api` | `v1.69.0` | ídem |
 | Node.js | `v25.8.2` | ambiente de autoría |

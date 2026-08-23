@@ -19,24 +19,24 @@ const sql = readFileSync(
 );
 
 describe("activity_codes is_system design (migración cero, informe §5)", () => {
-  it("service_id is nullable, guarded by a CHECK requiring is_system OR service_id NOT NULL", () => {
+  it("practica_id is nullable, guarded by a CHECK requiring is_system OR practica_id NOT NULL", () => {
     const tableBlock = sql.slice(
       sql.indexOf("CREATE TABLE public.activity_codes"),
       sql.indexOf(");", sql.indexOf("CREATE TABLE public.activity_codes")),
     );
-    expect(tableBlock).toMatch(/service_id uuid,/);
-    expect(tableBlock).not.toMatch(/service_id uuid NOT NULL/);
+    expect(tableBlock).toMatch(/practica_id uuid,/);
+    expect(tableBlock).not.toMatch(/practica_id uuid NOT NULL/);
     expect(tableBlock).toMatch(/is_system boolean DEFAULT false NOT NULL/);
     expect(tableBlock).toMatch(
-      /CONSTRAINT activity_codes_service_id_or_system CHECK \(\(is_system OR \(service_id IS NOT NULL\)\)\)/,
+      /CONSTRAINT activity_codes_practica_id_or_system CHECK \(\(is_system OR \(practica_id IS NOT NULL\)\)\)/,
     );
   });
 
-  it("deactivate/reactivate/reorder_service_activity all exclude is_system rows explicitly", () => {
+  it("deactivate/reactivate/reorder_practice_activity all exclude is_system rows explicitly", () => {
     for (const [fn, next] of [
-      ["deactivate_service_activity", "delete_category_for_service"],
-      ["reactivate_service_activity", "recompute_engagement_finalization"],
-      ["reorder_service_activity", "reset_login_attempts"],
+      ["deactivate_practice_activity", "delete_category_for_practice"],
+      ["reactivate_practice_activity", "recompute_engagement_finalization"],
+      ["reorder_practice_activity", "reset_login_attempts"],
     ] as const) {
       const start = sql.indexOf(`CREATE FUNCTION public.${fn}(`);
       expect(start).toBeGreaterThan(-1);
@@ -46,10 +46,10 @@ describe("activity_codes is_system design (migración cero, informe §5)", () =>
     }
   });
 
-  it("create/reactivate_service_activity derive the next ordinal from MAX, never COUNT", () => {
+  it("create/reactivate_practice_activity derive the next ordinal from MAX, never COUNT", () => {
     for (const [fn, next] of [
-      ["create_service_activity", "current_role_key"],
-      ["reactivate_service_activity", "recompute_engagement_finalization"],
+      ["create_practice_activity", "current_role_key"],
+      ["reactivate_practice_activity", "recompute_engagement_finalization"],
     ] as const) {
       const start = sql.indexOf(`CREATE FUNCTION public.${fn}(`);
       expect(start).toBeGreaterThan(-1);

@@ -35,18 +35,18 @@ CREATE POLICY "Admins can insert holidays" ON public.holidays FOR INSERT WITH CH
 
 --
 --
--- Name: services Admins can insert services; Type: POLICY; Schema: public; Owner: -
+-- Name: practicas Admins can insert practicas; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Admins can insert services" ON public.services FOR INSERT TO authenticated WITH CHECK (public.is_admin());
+CREATE POLICY "Admins can insert practicas" ON public.practicas FOR INSERT TO authenticated WITH CHECK (public.is_admin());
 
 
 --
 --
--- Name: taxonomies Admins can insert taxonomies; Type: POLICY; Schema: public; Owner: -
+-- Name: servicios Admins can insert servicios; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Admins can insert taxonomies" ON public.taxonomies FOR INSERT TO authenticated WITH CHECK (public.is_admin());
+CREATE POLICY "Admins can insert servicios" ON public.servicios FOR INSERT TO authenticated WITH CHECK (public.is_admin());
 
 
 --
@@ -163,18 +163,18 @@ CREATE POLICY "Admins can update holidays" ON public.holidays FOR UPDATE USING (
 
 --
 --
--- Name: services Admins can update services; Type: POLICY; Schema: public; Owner: -
+-- Name: practicas Admins can update practicas; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Admins can update services" ON public.services FOR UPDATE TO authenticated USING (public.is_admin()) WITH CHECK (public.is_admin());
+CREATE POLICY "Admins can update practicas" ON public.practicas FOR UPDATE TO authenticated USING (public.is_admin()) WITH CHECK (public.is_admin());
 
 
 --
 --
--- Name: taxonomies Admins can update taxonomies; Type: POLICY; Schema: public; Owner: -
+-- Name: servicios Admins can update servicios; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Admins can update taxonomies" ON public.taxonomies FOR UPDATE TO authenticated USING (public.is_admin()) WITH CHECK (public.is_admin());
+CREATE POLICY "Admins can update servicios" ON public.servicios FOR UPDATE TO authenticated USING (public.is_admin()) WITH CHECK (public.is_admin());
 
 
 --
@@ -345,10 +345,10 @@ CREATE POLICY "Authenticated users can read industries" ON public.industries FOR
 
 --
 --
--- Name: services Authenticated users can read services; Type: POLICY; Schema: public; Owner: -
+-- Name: practicas Authenticated users can read practicas; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Authenticated users can read services" ON public.services FOR SELECT TO authenticated USING (true);
+CREATE POLICY "Authenticated users can read practicas" ON public.practicas FOR SELECT TO authenticated USING (true);
 
 
 --
@@ -385,10 +385,10 @@ CREATE POLICY "Authenticated users can read staff skills" ON public.staff_skills
 
 --
 --
--- Name: taxonomies Authenticated users can read taxonomies; Type: POLICY; Schema: public; Owner: -
+-- Name: servicios Authenticated users can read servicios; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Authenticated users can read taxonomies" ON public.taxonomies FOR SELECT TO authenticated USING (true);
+CREATE POLICY "Authenticated users can read servicios" ON public.servicios FOR SELECT TO authenticated USING (true);
 
 
 --
@@ -1311,10 +1311,10 @@ CREATE POLICY "payment_plan firm read" ON public.wo_payment_plan FOR SELECT TO a
 
 --
 --
--- Name: services; Type: ROW SECURITY; Schema: public; Owner: -
+-- Name: practicas; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
-ALTER TABLE public.services ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.practicas ENABLE ROW LEVEL SECURITY;
 
 --
 --
@@ -1438,10 +1438,10 @@ CREATE POLICY "staff_skills write" ON public.staff_skills TO authenticated USING
 
 --
 --
--- Name: taxonomies; Type: ROW SECURITY; Schema: public; Owner: -
+-- Name: servicios; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
-ALTER TABLE public.taxonomies ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.servicios ENABLE ROW LEVEL SECURITY;
 
 --
 --

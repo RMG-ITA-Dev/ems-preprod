@@ -40,7 +40,7 @@ const WOS_ERROR_I18N_KEY: Record<string, string> = {
   WOS_SKILL_DUPLICATE: "workOrders.staffingRequirements.errors.skillDuplicate",
   WOS_STAFF_COUNT_RANGE: "workOrders.staffingRequirements.errors.staffCountRange",
   WOS_PROFICIENCY_INVALID: "workOrders.staffingRequirements.errors.proficiencyInvalid",
-  WOS_CATEGORY_FOREIGN_SERVICE: "workOrders.staffingRequirements.errors.categoryForeignService",
+  WOS_CATEGORY_FOREIGN_PRACTICE: "workOrders.staffingRequirements.errors.categoryForeignService",
 };
 
 function findWosErrorCode(error: unknown): string | undefined {

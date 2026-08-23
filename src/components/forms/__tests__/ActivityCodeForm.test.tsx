@@ -45,8 +45,8 @@ vi.mock("@/hooks/mutations", () => ({
 }));
 
 const mockServices = [
-  { service_id: "s1", name: "Auditoría", code: 1, abbreviation: "AUD", allows_rates_activities: true, is_active: true, created_at: "" },
-  { service_id: "s2", name: "Consultoría", code: 2, abbreviation: "CON", allows_rates_activities: true, is_active: true, created_at: "" },
+  { practica_id: "s1", name: "Auditoría", code: 1, abbreviation: "AUD", allows_rates_activities: true, is_active: true, created_at: "" },
+  { practica_id: "s2", name: "Consultoría", code: 2, abbreviation: "CON", allows_rates_activities: true, is_active: true, created_at: "" },
 ];
 
 const mockAllActivities = vi.hoisted(() => ({ current: [] as any[] }));
@@ -64,22 +64,24 @@ const linkedActivity: ActivityCode = {
   activity_code: "AUD-A1",
   description: "Audit Planning",
   is_active: true,
-  service_id: "s1",
+  practica_id: "s1",
   entity_type: "A",
-  service: { service_id: "s1", name: "Auditoría", abbreviation: "AUD", code: 1, allows_rates_activities: true, is_active: true, created_at: "" },
+  is_system: false,
+  service: { practica_id: "s1", name: "Auditoría", abbreviation: "AUD", code: 1, allows_rates_activities: true, is_active: true, created_at: "" },
 };
 
 // 0817-177 (review follow-up): one of the 8 legacy codes backfilled to a
 // práctica by the require-practice migration. Predates the {abrev}-A{n}
-// ordinal scheme, so deactivate_service_activity rejects it server-side.
+// ordinal scheme, so deactivate_practice_activity rejects it server-side.
 const legacyActivity: ActivityCode = {
   activity_id: "act-legacy-adm",
   activity_code: "ADM",
   description: "Administration",
   is_active: true,
-  service_id: "s1",
+  practica_id: "s1",
   entity_type: "A",
-  service: { service_id: "s1", name: "Auditoría", abbreviation: "AUD", code: 1, allows_rates_activities: true, is_active: true, created_at: "" },
+  is_system: false,
+  service: { practica_id: "s1", name: "Auditoría", abbreviation: "AUD", code: 1, allows_rates_activities: true, is_active: true, created_at: "" },
 };
 
 const inactiveLinkedActivity: ActivityCode = {
@@ -87,21 +89,23 @@ const inactiveLinkedActivity: ActivityCode = {
   activity_code: "AUD-AX",
   description: "Old Step",
   is_active: false,
-  service_id: "s1",
+  practica_id: "s1",
   entity_type: "A",
-  service: { service_id: "s1", name: "Auditoría", abbreviation: "AUD", code: 1, allows_rates_activities: true, is_active: true, created_at: "" },
+  is_system: false,
+  service: { practica_id: "s1", name: "Auditoría", abbreviation: "AUD", code: 1, allows_rates_activities: true, is_active: true, created_at: "" },
 };
 
-// 0817-177 (review follow-up): an inactive legacy code — reactivate_service_activity
+// 0817-177 (review follow-up): an inactive legacy code — reactivate_practice_activity
 // now rejects it server-side rather than assigning it a fresh ordinal code.
 const legacyInactiveActivity: ActivityCode = {
   activity_id: "act-legacy-adm-inactive",
   activity_code: "ADM",
   description: "Administration",
   is_active: false,
-  service_id: "s1",
+  practica_id: "s1",
   entity_type: "A",
-  service: { service_id: "s1", name: "Auditoría", abbreviation: "AUD", code: 1, allows_rates_activities: true, is_active: true, created_at: "" },
+  is_system: false,
+  service: { practica_id: "s1", name: "Auditoría", abbreviation: "AUD", code: 1, allows_rates_activities: true, is_active: true, created_at: "" },
 };
 
 // Helper: change Radix UI Select via the hidden native <select> element.
@@ -118,21 +122,21 @@ function selectNativeValue(value: string) {
 describe("ActivityCodeForm — Zod schema (0817-177)", () => {
   const schema = z.object({
     description: z.string().min(1, "Description is required"),
-    service_id: z.string().min(1, "validation.categoryServiceRequired"),
+    practica_id: z.string().min(1, "validation.categoryServiceRequired"),
   });
 
-  it("rejects an empty service_id (práctica is required)", () => {
-    const r = schema.safeParse({ description: "Audit Step 3", service_id: "" });
+  it("rejects an empty practica_id (práctica is required)", () => {
+    const r = schema.safeParse({ description: "Audit Step 3", practica_id: "" });
     expect(r.success).toBe(false);
   });
 
-  it("accepts a non-empty service_id", () => {
-    const r = schema.safeParse({ description: "Audit Step 3", service_id: "s1" });
+  it("accepts a non-empty practica_id", () => {
+    const r = schema.safeParse({ description: "Audit Step 3", practica_id: "s1" });
     expect(r.success).toBe(true);
   });
 
   it("rejects empty description", () => {
-    const r = schema.safeParse({ description: "", service_id: "s1" });
+    const r = schema.safeParse({ description: "", practica_id: "s1" });
     expect(r.success).toBe(false);
   });
 });
@@ -158,7 +162,7 @@ describe("ActivityCodeForm — create, free selector (0817-177)", () => {
     expect(screen.getByTestId("activity-code-readonly")).toBeDisabled();
   });
 
-  it("submit calls createMutation with service_id/entity_type after selecting a práctica", async () => {
+  it("submit calls createMutation with practica_id/entity_type after selecting a práctica", async () => {
     const user = userEvent.setup();
     createMutateAsync.mockResolvedValue({});
 
@@ -172,7 +176,7 @@ describe("ActivityCodeForm — create, free selector (0817-177)", () => {
 
     await waitFor(() =>
       expect(createMutateAsync).toHaveBeenCalledWith(
-        expect.objectContaining({ service_id: "s1", entity_type: "A", description: "Audit Step" })
+        expect.objectContaining({ practica_id: "s1", entity_type: "A", description: "Audit Step" })
       )
     );
   });
@@ -197,7 +201,7 @@ describe("ActivityCodeForm — create with lockService", () => {
     await waitFor(() => expect(screen.getByTestId("activity-code-readonly")).toHaveValue("AUD-A?"));
   });
 
-  it("submit calls createMutation with the locked service_id", async () => {
+  it("submit calls createMutation with the locked practica_id", async () => {
     const user = userEvent.setup();
     createMutateAsync.mockResolvedValue({});
 
@@ -209,7 +213,7 @@ describe("ActivityCodeForm — create with lockService", () => {
 
     await waitFor(() =>
       expect(createMutateAsync).toHaveBeenCalledWith(
-        expect.objectContaining({ service_id: "s1", entity_type: "A", description: "Audit Step" })
+        expect.objectContaining({ practica_id: "s1", entity_type: "A", description: "Audit Step" })
       )
     );
   });
@@ -225,7 +229,7 @@ describe("ActivityCodeForm — recommended max hint (0513-114)", () => {
 
   it("does NOT show the hint when the service has fewer than 9 active activities", async () => {
     mockAllActivities.current = [
-      { activity_id: "a1", service_id: "s1", is_active: true, activity_code: "AUD-A1", description: "x", entity_type: "A" },
+      { activity_id: "a1", practica_id: "s1", is_active: true, activity_code: "AUD-A1", description: "x", entity_type: "A" },
     ];
     render(<ActivityCodeForm open={true} onOpenChange={vi.fn()} activityCode={null} />);
     selectNativeValue("s1");
@@ -238,7 +242,7 @@ describe("ActivityCodeForm — recommended max hint (0513-114)", () => {
     createMutateAsync.mockResolvedValue({});
     mockAllActivities.current = Array.from({ length: 9 }, (_, i) => ({
       activity_id: `a${i + 1}`,
-      service_id: "s1",
+      practica_id: "s1",
       is_active: true,
       activity_code: `AUD-A${i + 1}`,
       description: `desc ${i + 1}`,
@@ -255,7 +259,7 @@ describe("ActivityCodeForm — recommended max hint (0513-114)", () => {
 
     await waitFor(() =>
       expect(createMutateAsync).toHaveBeenCalledWith(
-        expect.objectContaining({ service_id: "s1", entity_type: "A", description: "Tenth activity" })
+        expect.objectContaining({ practica_id: "s1", entity_type: "A", description: "Tenth activity" })
       )
     );
   });
@@ -297,7 +301,7 @@ describe("ActivityCodeForm — edit (0817-177)", () => {
     await waitFor(() => expect(updateMutateAsync).toHaveBeenCalled());
     const payload = updateMutateAsync.mock.calls[0][0];
     expect(payload.data).toEqual({ description: "Audit Planning" });
-    expect(payload.data).not.toHaveProperty("service_id");
+    expect(payload.data).not.toHaveProperty("practica_id");
   });
 
   it("hides the deactivate button for a legacy activity code (review 0817-177)", () => {

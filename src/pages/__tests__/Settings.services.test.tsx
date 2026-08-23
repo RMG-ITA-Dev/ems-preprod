@@ -51,8 +51,8 @@ vi.mock("react-router-dom", async () => {
 });
 
 const mockServices = [
-  { service_id: "s1", name: "Auditoría", code: 1, allows_rates_activities: true, is_active: true, created_at: "", abbreviation: "AUD" },
-  { service_id: "s2", name: "Tax", code: 3, allows_rates_activities: true, is_active: false, created_at: "", abbreviation: "TAX" },
+  { practica_id: "s1", name: "Auditoría", code: 1, allows_rates_activities: true, is_active: true, created_at: "", abbreviation: "AUD" },
+  { practica_id: "s2", name: "Tax", code: 3, allows_rates_activities: true, is_active: false, created_at: "", abbreviation: "TAX" },
 ];
 
 vi.mock("@/hooks/useEmsData", () => ({

@@ -14,7 +14,7 @@
 //     state — never as Empty or NaN-contaminated KPIs.
 //
 // Fase 3 (plan v2 §3, issue §11): las categorías se agrupan por
-// `service_id + category_id` (nunca por nombre) — cada fila trae también
+// `practica_id + category_id` (nunca por nombre) — cada fila trae también
 // `serviceId`/`serviceName`/`displayOrder` para que categorías homónimas de
 // servicios distintos nunca se mezclen en la UI.
 

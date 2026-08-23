@@ -22,7 +22,7 @@
 // leyendo `engagement_state_override` + el Work Order gobernante (vista
 // RLS-safe `engagement_wo_state`, 1:1 por engagement_id). "Activo" para
 // gaps/utilización es únicamente el bucket {Aprobado, AprobadoEmergencia}.
-// Además, las categorías se agrupan por `service_id + category_id` (nunca
+// Además, las categorías se agrupan por `practica_id + category_id` (nunca
 // por nombre) para que homónimas de servicios distintos no se mezclen.
 
 import {
@@ -200,7 +200,7 @@ export const TABLE_PK: Record<string, string> = {
   skills: "skill_id",
   categories: "category_id",
   // Fase 3: para poblar serviceId/serviceName en las filas de gaps.
-  services: "service_id",
+  practicas: "practica_id",
 };
 
 // ── Input validation ────────────────────────────────────────────────────
@@ -1052,15 +1052,15 @@ async function readActiveStaffIds(ctx: GapsContext): Promise<Set<string>> {
   return new Set(rows.map((r) => r.staff_id as string));
 }
 
-/** Fase 3 — nombre de servicio por service_id, para poblar
+/** Fase 3 — nombre de servicio por practica_id, para poblar
  *  serviceId/serviceName en cada fila de categoría. */
 async function readServices(ctx: GapsContext): Promise<Map<string, string>> {
   const rows = await readAll(
-    () => ctx.db.from("services").select("service_id, name"),
-    "services",
-    "services"
+    () => ctx.db.from("practicas").select("practica_id, name"),
+    "practicas",
+    "practicas"
   );
-  return new Map(rows.map((r) => [r.service_id as string, (r.name as string) ?? ""]));
+  return new Map(rows.map((r) => [r.practica_id as string, (r.name as string) ?? ""]));
 }
 
 async function readCategories(ctx: GapsContext): Promise<CategoryName[]> {
@@ -1069,7 +1069,7 @@ async function readCategories(ctx: GapsContext): Promise<CategoryName[]> {
       () =>
         ctx.db
           .from("categories")
-          .select("category_id, category_name, service_id, display_order"),
+          .select("category_id, category_name, practica_id, display_order"),
       "categories",
       "categories"
     ),
@@ -1078,8 +1078,8 @@ async function readCategories(ctx: GapsContext): Promise<CategoryName[]> {
   return rows.map((r) => ({
     categoryId: r.category_id as string,
     categoryName: (r.category_name as string) ?? "",
-    serviceId: r.service_id as string,
-    serviceName: serviceNames.get(r.service_id as string) ?? "",
+    serviceId: r.practica_id as string,
+    serviceName: serviceNames.get(r.practica_id as string) ?? "",
     displayOrder: (r.display_order as number) ?? 0,
   }));
 }

@@ -11,8 +11,8 @@
 -- "SAVE_ENGAGEMENT_ASSIGNMENTS RPC: ALL CHECKS PASSED (rolled back)".
 --
 -- Fixture world (all ids carry recognizable reas-test prefixes):
---   CAT_AUD  category, service Auditoría (code 1)
---   CAT_TAX  category, service Tax (code 3) — foreign-service case
+--   CAT_AUD  category, practice Auditoría (code 1)
+--   CAT_TAX  category, practice Tax (code 3) — foreign-practice case
 --   E1  practica=1, manager_id=Mel, sqr_id=Sam, engagement_state_override=NULL,
 --       start_date=2026-01-01, end_date=2026-12-31 (derived state, accepts writes)
 --   E2  practica=1, manager_id=Mel, engagement_state_override=6 (Cancelado)
@@ -28,17 +28,17 @@
 BEGIN;
 
 -- practica code=3 (Tax): el harness solo siembra globalmente code=1; este archivo necesita
--- una segunda práctica para el caso foreign-service (CAT_TAX).
-INSERT INTO public.services (service_id, name, code, abbreviation)
+-- una segunda práctica para el caso foreign-practice (CAT_TAX).
+INSERT INTO public.practicas (practica_id, name, code, abbreviation)
 VALUES ('5e000000-0000-4000-8000-0000000000c3', 'REAS Test Practice (Tax)', 3, 'TAX')
 ON CONFLICT (code) DO NOTHING;
 
 INSERT INTO public.society (society_id, name)
 VALUES ('50c00000-0000-4000-8000-0000000000c1', 'REAS Test Society');
 
-INSERT INTO public.categories (category_id, category_name, service_id) VALUES
-  ('c0000000-0000-4000-8000-0000000000c1', 'REAS Aud Category', (SELECT service_id FROM public.services WHERE code = 1)),
-  ('c0000000-0000-4000-8000-0000000000c2', 'REAS Tax Category', (SELECT service_id FROM public.services WHERE code = 3));
+INSERT INTO public.categories (category_id, category_name, practica_id) VALUES
+  ('c0000000-0000-4000-8000-0000000000c1', 'REAS Aud Category', (SELECT practica_id FROM public.practicas WHERE code = 1)),
+  ('c0000000-0000-4000-8000-0000000000c2', 'REAS Tax Category', (SELECT practica_id FROM public.practicas WHERE code = 3));
 
 INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id) VALUES
   ('c1000000-0000-4000-8000-0000000000c1', 'REAS Test Client', 'REAS-TAX-001');
@@ -59,16 +59,16 @@ BEGIN
   END IF;
 END $$;
 
-INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, category_id, service_id, society_id) VALUES
-  ('50000000-0000-4000-8000-0000000000c1', 'a0000000-0000-4000-8000-0000000000c1', 'Mel',   'ManagerLead', 'c0000000-0000-4000-8000-0000000000c1', (SELECT service_id FROM public.services WHERE code = 1), '50c00000-0000-4000-8000-0000000000c1'),
-  ('50000000-0000-4000-8000-0000000000c2', 'a0000000-0000-4000-8000-0000000000c2', 'Sam',   'SQR',         'c0000000-0000-4000-8000-0000000000c1', (SELECT service_id FROM public.services WHERE code = 1), '50c00000-0000-4000-8000-0000000000c1'),
-  ('50000000-0000-4000-8000-0000000000c3', 'a0000000-0000-4000-8000-0000000000c3', 'Nora',  'Unrelated',   'c0000000-0000-4000-8000-0000000000c1', (SELECT service_id FROM public.services WHERE code = 1), '50c00000-0000-4000-8000-0000000000c1'),
-  ('50000000-0000-4000-8000-0000000000c4', NULL,                                    'Tania', 'Target',      'c0000000-0000-4000-8000-0000000000c1', (SELECT service_id FROM public.services WHERE code = 1), '50c00000-0000-4000-8000-0000000000c1'),
-  ('50000000-0000-4000-8000-0000000000c5', NULL,                                    'Rita',  'Target2',     'c0000000-0000-4000-8000-0000000000c1', (SELECT service_id FROM public.services WHERE code = 1), '50c00000-0000-4000-8000-0000000000c1');
+INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, category_id, practica_id, society_id) VALUES
+  ('50000000-0000-4000-8000-0000000000c1', 'a0000000-0000-4000-8000-0000000000c1', 'Mel',   'ManagerLead', 'c0000000-0000-4000-8000-0000000000c1', (SELECT practica_id FROM public.practicas WHERE code = 1), '50c00000-0000-4000-8000-0000000000c1'),
+  ('50000000-0000-4000-8000-0000000000c2', 'a0000000-0000-4000-8000-0000000000c2', 'Sam',   'SQR',         'c0000000-0000-4000-8000-0000000000c1', (SELECT practica_id FROM public.practicas WHERE code = 1), '50c00000-0000-4000-8000-0000000000c1'),
+  ('50000000-0000-4000-8000-0000000000c3', 'a0000000-0000-4000-8000-0000000000c3', 'Nora',  'Unrelated',   'c0000000-0000-4000-8000-0000000000c1', (SELECT practica_id FROM public.practicas WHERE code = 1), '50c00000-0000-4000-8000-0000000000c1'),
+  ('50000000-0000-4000-8000-0000000000c4', NULL,                                    'Tania', 'Target',      'c0000000-0000-4000-8000-0000000000c1', (SELECT practica_id FROM public.practicas WHERE code = 1), '50c00000-0000-4000-8000-0000000000c1'),
+  ('50000000-0000-4000-8000-0000000000c5', NULL,                                    'Rita',  'Target2',     'c0000000-0000-4000-8000-0000000000c1', (SELECT practica_id FROM public.practicas WHERE code = 1), '50c00000-0000-4000-8000-0000000000c1');
 
 -- Fase 5 O7 fixture: is_schedulable=false -> a NEW assignment for Ivy must be rejected.
-INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, category_id, is_schedulable, service_id, society_id) VALUES
-  ('50000000-0000-4000-8000-0000000000c6', NULL, 'Ivy', 'NotSchedulable', 'c0000000-0000-4000-8000-0000000000c1', false, (SELECT service_id FROM public.services WHERE code = 1), '50c00000-0000-4000-8000-0000000000c1');
+INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, category_id, is_schedulable, practica_id, society_id) VALUES
+  ('50000000-0000-4000-8000-0000000000c6', NULL, 'Ivy', 'NotSchedulable', 'c0000000-0000-4000-8000-0000000000c1', false, (SELECT practica_id FROM public.practicas WHERE code = 1), '50c00000-0000-4000-8000-0000000000c1');
 
 -- ON CONFLICT DO UPDATE: on a live Supabase, handle_new_user() (20251204051043) already
 -- auto-created a 'staff' user_roles row for each new auth.users id above. role_key: RBAC
@@ -362,7 +362,7 @@ BEGIN
   IF NOT v_ok THEN RAISE EXCEPTION 'TEST FAIL — allocation_percent=101 unexpectedly succeeded'; END IF;
   RAISE NOTICE 'PASS — allocation_percent outside (0,100] raises EAS_ALLOCATION_RANGE (0 and 101 probed)';
 
-  -- ── 8. EAS_CATEGORY_FOREIGN_SERVICE (E1 is Auditoría; CAT_TAX is Tax) ─
+  -- ── 8. EAS_CATEGORY_FOREIGN_PRACTICE (E1 is Auditoría; CAT_TAX is Tax) ─
   v_ok := false;
   BEGIN
     PERFORM public.save_engagement_assignments(
@@ -375,12 +375,12 @@ BEGIN
       ARRAY[]::uuid[]
     );
   EXCEPTION WHEN OTHERS THEN
-    IF SQLERRM = 'EAS_CATEGORY_FOREIGN_SERVICE' THEN v_ok := true;
-    ELSE RAISE EXCEPTION 'TEST FAIL — expected EAS_CATEGORY_FOREIGN_SERVICE, got %', SQLERRM;
+    IF SQLERRM = 'EAS_CATEGORY_FOREIGN_PRACTICE' THEN v_ok := true;
+    ELSE RAISE EXCEPTION 'TEST FAIL — expected EAS_CATEGORY_FOREIGN_PRACTICE, got %', SQLERRM;
     END IF;
   END;
   IF NOT v_ok THEN RAISE EXCEPTION 'TEST FAIL — a Tax category on an Auditoría engagement unexpectedly succeeded'; END IF;
-  RAISE NOTICE 'PASS — a category outside the engagement''s service raises EAS_CATEGORY_FOREIGN_SERVICE';
+  RAISE NOTICE 'PASS — a category outside the engagement''s practice raises EAS_CATEGORY_FOREIGN_PRACTICE';
 
   -- ── 9. EAS_OVERLAP, and atomicity: the whole payload rolls back ─────
   SELECT count(*) INTO v_n FROM public.engagement_assignments

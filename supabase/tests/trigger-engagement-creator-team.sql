@@ -35,7 +35,7 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM public.society WHERE is_active) THEN
     RAISE EXCEPTION 'FIXTURE: no hay sociedad activa; el RPC la exige y staff.society_id es NOT NULL.';
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM public.services WHERE code = 1 AND is_active) THEN
+  IF NOT EXISTS (SELECT 1 FROM public.practicas WHERE code = 1 AND is_active) THEN
     RAISE EXCEPTION 'FIXTURE: falta el servicio activo code = 1; el RPC valida la práctica contra él.';
   END IF;
 END $$;
@@ -60,12 +60,12 @@ END $$;
 -- 5 ita_manager llamante · 6 otro Gerente (objetivo) · 7 otro Socio (objetivo)
 -- 8: a propósito SIN ficha de personal (llamante `manager` sin staff vinculado).
 INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, is_active,
-                          service_id, society_id)
+                          practica_id, society_id)
 SELECT ('5ec00000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid,
        ('ec700000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid,
        'ECT', 'Sujeto' || lpad(n::text, 2, '0'),
        true,
-       (SELECT service_id FROM public.services WHERE code = 1 AND is_active LIMIT 1),
+       (SELECT practica_id FROM public.practicas WHERE code = 1 AND is_active LIMIT 1),
        (SELECT society_id FROM public.society WHERE is_active ORDER BY name LIMIT 1)
   FROM generate_series(1, 7) n;
 

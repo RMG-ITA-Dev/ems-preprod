@@ -144,7 +144,7 @@ export function filterByService(
  * histórico deja de ofrecerse: si siguiera en la lista podría volver a seleccionarse y
  * persistirse, y el update path no valida elegibilidad.
  *
- * Se aplica DESPUÉS de `filterByService`: el staff embebido en el encargo no trae `service_id`,
+ * Se aplica DESPUÉS de `filterByService`: el staff embebido en el encargo no trae `practica_id`,
  * y el histórico debe preservarse sin importar el servicio.
  */
 export function withSavedStaff(
@@ -171,7 +171,7 @@ export function withSavedStaff(
  *
  * Se aplica solo al campo que 0810-172 bloquea (`partner_id` o `manager_id`, nunca a los otros
  * cuatro) y DESPUÉS de `filterByService`. Es una excepción DELIBERADA al filtro por servicio: los
- * no-admin reciben `practica` = Auditoría forzada, y un creador cuyo `staff.service_id` sea otro no
+ * no-admin reciben `practica` = Auditoría forzada, y un creador cuyo `staff.practica_id` sea otro no
  * sobreviviría al filtro. Sin esta inyección pasarían tres cosas a la vez, todas malas:
  *
  *   1. `StaffCombobox` no encontraría el id en `options` y mostraría el placeholder en un campo

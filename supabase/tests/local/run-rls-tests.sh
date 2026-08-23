@@ -102,7 +102,7 @@ run supabase/migrations/20251204000006_cero_06_grants.sql
 # suite, para que todas lo compartan sin re-sembrarlo.
 run supabase/tests/local/40-fixture-rbac-catalog.sql
 
-# society/services(code=1): staff.society_id/service_id y categories.service_id son NOT NULL
+# society/practicas(code=1): staff.society_id/practica_id y categories.practica_id son NOT NULL
 # reales; varias suites (rpc-engagement-team-candidates.sql explícitamente lo exige con su
 # propio guard) asumen que el catálogo mínimo de práctica/sociedad ya existe, como pasaría en
 # un ambiente con el seed real de Fase 4 aplicado. Sembrado una sola vez, fuera de la
@@ -111,7 +111,7 @@ psql -v ON_ERROR_STOP=1 -d "$DB" -c "
 INSERT INTO public.society (society_id, name) VALUES
   ('50c00000-0000-4000-8000-000000000000', 'Harness Test Society')
 ON CONFLICT DO NOTHING;
-INSERT INTO public.services (service_id, name, code, abbreviation) VALUES
+INSERT INTO public.practicas (practica_id, name, code, abbreviation) VALUES
   ('5e000000-0000-4000-8000-000000000000', 'Harness Test Practice (Auditoria)', 1, 'AUD')
 ON CONFLICT (code) DO NOTHING;
 "

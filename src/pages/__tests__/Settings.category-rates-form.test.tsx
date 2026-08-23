@@ -66,17 +66,17 @@ const mkCat = (over: Record<string, unknown>) => ({
 
 const catsByService: Record<string, any[]> = {
   [AUD]: [
-    mkCat({ category_id: "a1", category_name: "Socio", service_id: AUD, display_order: 1 }),
-    mkCat({ category_id: "a2", category_name: "Gerente", service_id: AUD, display_order: 2 }),
+    mkCat({ category_id: "a1", category_name: "Socio", practica_id: AUD, display_order: 1 }),
+    mkCat({ category_id: "a2", category_name: "Gerente", practica_id: AUD, display_order: 2 }),
   ],
   [TAX]: [
-    mkCat({ category_id: "t1", category_name: "TaxSenior", service_id: TAX, display_order: 1 }),
+    mkCat({ category_id: "t1", category_name: "TaxSenior", practica_id: TAX, display_order: 1 }),
   ],
 };
 
 const mockServices = [
-  { service_id: AUD, name: "Auditoría", code: 1, allows_rates_activities: true, is_active: true, created_at: "", abbreviation: "AUD" },
-  { service_id: TAX, name: "Tax", code: 3, allows_rates_activities: true, is_active: true, created_at: "", abbreviation: "TAX" },
+  { practica_id: AUD, name: "Auditoría", code: 1, allows_rates_activities: true, is_active: true, created_at: "", abbreviation: "AUD" },
+  { practica_id: TAX, name: "Tax", code: 3, allows_rates_activities: true, is_active: true, created_at: "", abbreviation: "TAX" },
 ];
 
 // Mutable so a test can simulate useServices() resolving AFTER useCategories()

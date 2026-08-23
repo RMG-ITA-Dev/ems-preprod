@@ -4,7 +4,7 @@ import { resolve } from "path";
 
 /**
  * 0625-149 (retargeted por la migración cero, plan §2.5.d): assertions estructurales sobre
- * la tabla `public.services`, sus policies y el RPC de lookup por código de práctica,
+ * la tabla `public.practicas`, sus policies y el RPC de lookup por código de práctica,
  * ahora contra el archivo consolidado. Las aserciones sobre el CONTENIDO del seed original
  * (5 filas: Firmwide/Auditoría/Consultoría/Tax/Growth & Strategy) se retiraron — el
  * catálogo real vigente son las 8 prácticas de bugs/migracion_cero/practicas.md, que
@@ -20,13 +20,13 @@ const policiesSql = readFileSync(
   "utf-8",
 );
 
-describe("services table (migración cero, consolidado)", () => {
-  it("creates the public.services table", () => {
-    expect(sql).toContain("CREATE TABLE public.services");
+describe("practicas table (migración cero, consolidado)", () => {
+  it("creates the public.practicas table", () => {
+    expect(sql).toContain("CREATE TABLE public.practicas");
   });
 
-  it("RPC references public.services (catalog lookup)", () => {
-    expect(sql).toContain("FROM public.services WHERE code = p_practica AND is_active");
+  it("RPC references public.practicas (catalog lookup)", () => {
+    expect(sql).toContain("FROM public.practicas WHERE code = p_practica AND is_active");
   });
 
   it("RPC does NOT use the old static IN (0,1,2,3,4) guard", () => {
@@ -36,24 +36,24 @@ describe("services table (migración cero, consolidado)", () => {
 
   it("INSERT/UPDATE policies reference is_admin()", () => {
     const block = policiesSql.slice(
-      policiesSql.indexOf('"Admins can insert services"'),
-      policiesSql.indexOf('"Admins can update services"') + 200,
+      policiesSql.indexOf('"Admins can insert practicas"'),
+      policiesSql.indexOf('"Admins can update practicas"') + 200,
     );
     expect(block).toContain("public.is_admin()");
   });
 
-  it("has no DELETE policy on services (deactivate-only design)", () => {
-    expect(policiesSql).not.toMatch(/ON public\.services FOR DELETE/);
+  it("has no DELETE policy on practicas (deactivate-only design)", () => {
+    expect(policiesSql).not.toMatch(/ON public\.practicas FOR DELETE/);
   });
 
   it("SELECT policy is open to authenticated", () => {
     expect(policiesSql).toContain(
-      'CREATE POLICY "Authenticated users can read services" ON public.services FOR SELECT TO authenticated USING (true);',
+      'CREATE POLICY "Authenticated users can read practicas" ON public.practicas FOR SELECT TO authenticated USING (true);',
     );
   });
 
   it("CHECK constraint allows code 0-9", () => {
-    expect(sql).toContain("CONSTRAINT services_code_check CHECK (((code >= 0) AND (code <= 9)))");
+    expect(sql).toContain("CONSTRAINT practicas_code_check CHECK (((code >= 0) AND (code <= 9)))");
   });
 
   it("engagements.practica CHECK is 0-9 (superset of the old 0-4)", () => {

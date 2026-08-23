@@ -99,29 +99,29 @@ ALTER TABLE ONLY public.categories
 
 --
 --
--- Name: categories categories_service_category_unique; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: categories categories_practica_category_unique; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.categories
-    ADD CONSTRAINT categories_service_category_unique UNIQUE (service_id, category_id);
+    ADD CONSTRAINT categories_practica_category_unique UNIQUE (practica_id, category_id);
 
 
 --
 --
--- Name: categories categories_service_name_unique; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.categories
-    ADD CONSTRAINT categories_service_name_unique UNIQUE (service_id, category_name);
-
-
---
---
--- Name: categories categories_service_order_unique; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: categories categories_practica_name_unique; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.categories
-    ADD CONSTRAINT categories_service_order_unique UNIQUE (service_id, display_order) DEFERRABLE INITIALLY DEFERRED;
+    ADD CONSTRAINT categories_practica_name_unique UNIQUE (practica_id, category_name);
+
+
+--
+--
+-- Name: categories categories_practica_order_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.categories
+    ADD CONSTRAINT categories_practica_order_unique UNIQUE (practica_id, display_order) DEFERRABLE INITIALLY DEFERRED;
 
 
 --
@@ -315,20 +315,20 @@ ALTER TABLE ONLY public.parametro
 
 --
 --
--- Name: services services_code_key; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: practicas practicas_code_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.services
-    ADD CONSTRAINT services_code_key UNIQUE (code);
+ALTER TABLE ONLY public.practicas
+    ADD CONSTRAINT practicas_code_key UNIQUE (code);
 
 
 --
 --
--- Name: services services_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: practicas practicas_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.services
-    ADD CONSTRAINT services_pkey PRIMARY KEY (service_id);
+ALTER TABLE ONLY public.practicas
+    ADD CONSTRAINT practicas_pkey PRIMARY KEY (practica_id);
 
 
 --
@@ -405,11 +405,11 @@ ALTER TABLE ONLY public.staff_skills
 
 --
 --
--- Name: taxonomies taxonomies_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: servicios servicios_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.taxonomies
-    ADD CONSTRAINT taxonomies_pkey PRIMARY KEY (taxonomy_id);
+ALTER TABLE ONLY public.servicios
+    ADD CONSTRAINT servicios_pkey PRIMARY KEY (taxonomy_id);
 
 
 --
@@ -859,18 +859,18 @@ CREATE INDEX idx_staff_skills_staff ON public.staff_skills USING btree (staff_id
 
 --
 --
--- Name: idx_taxonomies_code_unique; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_servicios_code_unique; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX idx_taxonomies_code_unique ON public.taxonomies USING btree (lower(TRIM(BOTH FROM code)));
+CREATE UNIQUE INDEX idx_servicios_code_unique ON public.servicios USING btree (lower(TRIM(BOTH FROM code)));
 
 
 --
 --
--- Name: idx_taxonomies_service_id; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_servicios_practica_id; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_taxonomies_service_id ON public.taxonomies USING btree (service_id);
+CREATE INDEX idx_servicios_practica_id ON public.servicios USING btree (practica_id);
 
 
 --
@@ -1027,10 +1027,10 @@ CREATE INDEX idx_wo_staffing_requirements_wo ON public.wo_staffing_requirements 
 
 --
 --
--- Name: services_abbreviation_unique; Type: INDEX; Schema: public; Owner: -
+-- Name: practicas_abbreviation_unique; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX services_abbreviation_unique ON public.services USING btree (abbreviation) WHERE (abbreviation IS NOT NULL);
+CREATE UNIQUE INDEX practicas_abbreviation_unique ON public.practicas USING btree (abbreviation) WHERE (abbreviation IS NOT NULL);
 
 
 --

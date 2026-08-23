@@ -2,7 +2,7 @@
  * Filters activity codes to those applicable to an engagement's service.
  *
  * An engagement's service is identified by `engagements.practica` (smallint, matches
- * `services.code`). An activity is linked to a service via `activity_codes.service_id`,
+ * `services.code`). An activity is linked to a service via `activity_codes.practica_id`,
  * exposed here as the embedded `service.code`. Activities with no service link
  * (`service == null`) are "global" (legacy codes like `100-PLA`, plus `ADM`) and are
  * always shown.

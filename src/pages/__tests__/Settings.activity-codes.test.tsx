@@ -54,27 +54,27 @@ const AUD = "svc-aud";
 const CON = "svc-con";
 
 const mockServices = [
-  { service_id: AUD, name: "Auditoría", code: 1, allows_rates_activities: true, is_active: true, created_at: "", abbreviation: "AUD" },
-  { service_id: CON, name: "Consultoría", code: 2, allows_rates_activities: true, is_active: true, created_at: "", abbreviation: "CON" },
+  { practica_id: AUD, name: "Auditoría", code: 1, allows_rates_activities: true, is_active: true, created_at: "", abbreviation: "AUD" },
+  { practica_id: CON, name: "Consultoría", code: 2, allows_rates_activities: true, is_active: true, created_at: "", abbreviation: "CON" },
 ];
 
 const audService = mockServices[0];
 const conService = mockServices[1];
 
-// 0817-177: activity_codes.service_id is NOT NULL — every row is
+// 0817-177: activity_codes.practica_id is NOT NULL — every row is
 // práctica-linked, there is no more "Global" bucket to test.
 const mockActivityCodes = [
-  { activity_id: "a1", activity_code: "AUD-A1", description: "Planificación de auditoría", is_active: true, service_id: AUD, entity_type: "A", service: audService },
-  { activity_id: "a2", activity_code: "AUD-A2", description: "Trabajo de campo", is_active: true, service_id: AUD, entity_type: "A", service: audService },
-  { activity_id: "c1", activity_code: "CON-A1", description: "Diagnóstico inicial", is_active: true, service_id: CON, entity_type: "A", service: conService },
+  { activity_id: "a1", activity_code: "AUD-A1", description: "Planificación de auditoría", is_active: true, practica_id: AUD, entity_type: "A", service: audService },
+  { activity_id: "a2", activity_code: "AUD-A2", description: "Trabajo de campo", is_active: true, practica_id: AUD, entity_type: "A", service: audService },
+  { activity_id: "c1", activity_code: "CON-A1", description: "Diagnóstico inicial", is_active: true, practica_id: CON, entity_type: "A", service: conService },
 ];
 
-// Migración cero (informe §5): ADM is is_system=true with service_id NULL — it
+// Migración cero (informe §5): ADM is is_system=true with practica_id NULL — it
 // can never be práctica-linked, so reorder/deactivate must never treat it as a
 // sibling of any práctica's ordinal-scheme activities.
 const mockActivityCodesWithLegacy = [
   ...mockActivityCodes,
-  { activity_id: "legacy-adm", activity_code: "ADM", description: "Administration", is_active: true, service_id: null, is_system: true, entity_type: "A", service: null },
+  { activity_id: "legacy-adm", activity_code: "ADM", description: "Administration", is_active: true, practica_id: null, is_system: true, entity_type: "A", service: null },
 ];
 
 // Mutable so a test can simulate useServices() not having resolved yet.
@@ -243,7 +243,7 @@ describe("Settings activity-codes (0723-169 / 0817-177)", () => {
 
     await waitFor(() =>
       expect(createActivityMutateAsync).toHaveBeenCalledWith(
-        expect.objectContaining({ service_id: AUD, entity_type: "A", description: "Nueva actividad" })
+        expect.objectContaining({ practica_id: AUD, entity_type: "A", description: "Nueva actividad" })
       )
     );
   });
@@ -252,7 +252,7 @@ describe("Settings activity-codes (0723-169 / 0817-177)", () => {
     const NO_ABBR = "svc-no-abbr";
     mockServicesData = [
       ...mockServices,
-      { service_id: NO_ABBR, name: "SinAbrev", code: 4, allows_rates_activities: true, is_active: true, created_at: "", abbreviation: null },
+      { practica_id: NO_ABBR, name: "SinAbrev", code: 4, allows_rates_activities: true, is_active: true, created_at: "", abbreviation: null },
     ];
     renderSettings();
     const user = userEvent.setup();
@@ -274,7 +274,7 @@ describe("Settings activity-codes (0723-169 / 0817-177)", () => {
     await goToActivities(user);
     await waitFor(() => expect(screen.getByText("Planificación de auditoría")).toBeInTheDocument());
 
-    // ADM is is_system with service_id NULL: it structurally can't match any
+    // ADM is is_system with practica_id NULL: it structurally can't match any
     // práctica selector, so it never enters this service-scoped list — not
     // even to appear with its own arrows hidden.
     expect(screen.queryByText("Administration")).not.toBeInTheDocument();

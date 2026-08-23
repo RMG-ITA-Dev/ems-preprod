@@ -23,7 +23,7 @@ interface TeamCandidateRow {
   staff_id: string;
   display_name: string;
   candidate_group: TeamCandidateGroup | null;
-  service_id: string | null;
+  practica_id: string | null;
 }
 
 export interface UseEngagementTeamCandidatesResult {
@@ -94,7 +94,7 @@ export function useEngagementTeamCandidates(): UseEngagementTeamCandidatesResult
       buckets[row.candidate_group].push({
         value: row.staff_id,
         label: row.display_name,
-        serviceId: row.service_id,
+        serviceId: row.practica_id,
       });
     }
     return buckets;

@@ -5,7 +5,7 @@ import React from "react";
 
 /**
  * BUG 0722-162 — los candidatos del bloque Equipo se filtran por `is_active`, `deleted_at` y
- * `service_id` del personal, así que cualquier alta/edición/baja cambia ese conjunto.
+ * `practica_id` del personal, así que cualquier alta/edición/baja cambia ese conjunto.
  *
  * Sin invalidar `engagement-team-candidates`, un admin que desactiva o mueve de servicio a
  * alguien y vuelve a /engagements/new dentro del staleTime global de 60s (App.tsx) sigue
@@ -83,7 +83,7 @@ describe("mutaciones de personal — invalidación de candidatos del Equipo (072
   });
 
   it("useUpdateStaff invalida engagement-team-candidates", async () => {
-    // Cambiar service_id o is_active mueve a la persona de conjunto.
+    // Cambiar practica_id o is_active mueve a la persona de conjunto.
     const { spy, wrapper } = setup();
     const { result } = renderHook(() => useUpdateStaff(), { wrapper });
 

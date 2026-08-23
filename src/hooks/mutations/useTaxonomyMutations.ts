@@ -10,12 +10,11 @@ export function useCreateTaxonomy() {
     mutationFn: async (data: {
       code: string;
       name: string;
-      service_id: string | null;
+      practica_id: string | null;
       is_active: boolean;
     }) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: result, error } = await (supabase as any)
-        .from("taxonomies")
+      const { data: result, error } = await supabase
+        .from("servicios")
         .insert(data)
         .select()
         .single();
@@ -41,13 +40,12 @@ export function useUpdateTaxonomy() {
       data: Partial<{
         code: string;
         name: string;
-        service_id: string | null;
+        practica_id: string | null;
         is_active: boolean;
       }>;
     }) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: result, error } = await (supabase as any)
-        .from("taxonomies")
+      const { data: result, error } = await supabase
+        .from("servicios")
         .update(data)
         .eq("taxonomy_id", id)
         .select()

@@ -778,34 +778,62 @@
  public       | service_role  | parametro                                      | TRIGGER
  public       | service_role  | parametro                                      | TRUNCATE
  public       | service_role  | parametro                                      | UPDATE
- public       | anon          | services                                       | DELETE
- public       | anon          | services                                       | INSERT
- public       | anon          | services                                       | REFERENCES
- public       | anon          | services                                       | SELECT
- public       | anon          | services                                       | TRIGGER
- public       | anon          | services                                       | TRUNCATE
- public       | anon          | services                                       | UPDATE
- public       | authenticated | services                                       | DELETE
- public       | authenticated | services                                       | INSERT
- public       | authenticated | services                                       | REFERENCES
- public       | authenticated | services                                       | SELECT
- public       | authenticated | services                                       | TRIGGER
- public       | authenticated | services                                       | TRUNCATE
- public       | authenticated | services                                       | UPDATE
- public       | postgres      | services                                       | DELETE
- public       | postgres      | services                                       | INSERT
- public       | postgres      | services                                       | REFERENCES
- public       | postgres      | services                                       | SELECT
- public       | postgres      | services                                       | TRIGGER
- public       | postgres      | services                                       | TRUNCATE
- public       | postgres      | services                                       | UPDATE
- public       | service_role  | services                                       | DELETE
- public       | service_role  | services                                       | INSERT
- public       | service_role  | services                                       | REFERENCES
- public       | service_role  | services                                       | SELECT
- public       | service_role  | services                                       | TRIGGER
- public       | service_role  | services                                       | TRUNCATE
- public       | service_role  | services                                       | UPDATE
+ public       | anon          | practicas                                      | DELETE
+ public       | anon          | practicas                                      | INSERT
+ public       | anon          | practicas                                      | REFERENCES
+ public       | anon          | practicas                                      | SELECT
+ public       | anon          | practicas                                      | TRIGGER
+ public       | anon          | practicas                                      | TRUNCATE
+ public       | anon          | practicas                                      | UPDATE
+ public       | authenticated | practicas                                      | DELETE
+ public       | authenticated | practicas                                      | INSERT
+ public       | authenticated | practicas                                      | REFERENCES
+ public       | authenticated | practicas                                      | SELECT
+ public       | authenticated | practicas                                      | TRIGGER
+ public       | authenticated | practicas                                      | TRUNCATE
+ public       | authenticated | practicas                                      | UPDATE
+ public       | postgres      | practicas                                      | DELETE
+ public       | postgres      | practicas                                      | INSERT
+ public       | postgres      | practicas                                      | REFERENCES
+ public       | postgres      | practicas                                      | SELECT
+ public       | postgres      | practicas                                      | TRIGGER
+ public       | postgres      | practicas                                      | TRUNCATE
+ public       | postgres      | practicas                                      | UPDATE
+ public       | service_role  | practicas                                      | DELETE
+ public       | service_role  | practicas                                      | INSERT
+ public       | service_role  | practicas                                      | REFERENCES
+ public       | service_role  | practicas                                      | SELECT
+ public       | service_role  | practicas                                      | TRIGGER
+ public       | service_role  | practicas                                      | TRUNCATE
+ public       | service_role  | practicas                                      | UPDATE
+ public       | anon          | servicios                                      | DELETE
+ public       | anon          | servicios                                      | INSERT
+ public       | anon          | servicios                                      | REFERENCES
+ public       | anon          | servicios                                      | SELECT
+ public       | anon          | servicios                                      | TRIGGER
+ public       | anon          | servicios                                      | TRUNCATE
+ public       | anon          | servicios                                      | UPDATE
+ public       | authenticated | servicios                                      | DELETE
+ public       | authenticated | servicios                                      | INSERT
+ public       | authenticated | servicios                                      | REFERENCES
+ public       | authenticated | servicios                                      | SELECT
+ public       | authenticated | servicios                                      | TRIGGER
+ public       | authenticated | servicios                                      | TRUNCATE
+ public       | authenticated | servicios                                      | UPDATE
+ public       | postgres      | servicios                                      | DELETE
+ public       | postgres      | servicios                                      | INSERT
+ public       | postgres      | servicios                                      | REFERENCES
+ public       | postgres      | servicios                                      | SELECT
+ public       | postgres      | servicios                                      | TRIGGER
+ public       | postgres      | servicios                                      | TRUNCATE
+ public       | postgres      | servicios                                      | UPDATE
+ public       | service_role  | servicios                                      | DELETE
+ public       | service_role  | servicios                                      | INSERT
+ public       | service_role  | servicios                                      | REFERENCES
+ public       | service_role  | servicios                                      | SELECT
+ public       | service_role  | servicios                                      | TRIGGER
+ public       | service_role  | servicios                                      | TRUNCATE
+ public       | service_role  | servicios                                      | UPDATE
  public       | anon          | skills                                         | DELETE
  public       | anon          | skills                                         | INSERT
  public       | anon          | skills                                         | REFERENCES
@@ -973,34 +1001,6 @@
  public       | service_role  | staff_skills                                   | TRIGGER
  public       | service_role  | staff_skills                                   | TRUNCATE
  public       | service_role  | staff_skills                                   | UPDATE
- public       | anon          | taxonomies                                     | DELETE
- public       | anon          | taxonomies                                     | INSERT
- public       | anon          | taxonomies                                     | REFERENCES
- public       | anon          | taxonomies                                     | SELECT
- public       | anon          | taxonomies                                     | TRIGGER
- public       | anon          | taxonomies                                     | TRUNCATE
- public       | anon          | taxonomies                                     | UPDATE
- public       | authenticated | taxonomies                                     | DELETE
- public       | authenticated | taxonomies                                     | INSERT
- public       | authenticated | taxonomies                                     | REFERENCES
- public       | authenticated | taxonomies                                     | SELECT
- public       | authenticated | taxonomies                                     | TRIGGER
- public       | authenticated | taxonomies                                     | TRUNCATE
- public       | authenticated | taxonomies                                     | UPDATE
- public       | postgres      | taxonomies                                     | DELETE
- public       | postgres      | taxonomies                                     | INSERT
- public       | postgres      | taxonomies                                     | REFERENCES
- public       | postgres      | taxonomies                                     | SELECT
- public       | postgres      | taxonomies                                     | TRIGGER
- public       | postgres      | taxonomies                                     | TRUNCATE
- public       | postgres      | taxonomies                                     | UPDATE
- public       | service_role  | taxonomies                                     | DELETE
- public       | service_role  | taxonomies                                     | INSERT
- public       | service_role  | taxonomies                                     | REFERENCES
- public       | service_role  | taxonomies                                     | SELECT
- public       | service_role  | taxonomies                                     | TRIGGER
- public       | service_role  | taxonomies                                     | TRUNCATE
- public       | service_role  | taxonomies                                     | UPDATE
  public       | anon          | time_entries                                   | DELETE
  public       | anon          | time_entries                                   | INSERT
  public       | anon          | time_entries                                   | REFERENCES

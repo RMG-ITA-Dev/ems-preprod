@@ -138,12 +138,12 @@ const SchedulerL2 = () => {
   const engagementServiceId = useMemo(() => {
     if (!services) return undefined;
     return (
-      services.find((s) => s.code === engagement?.practica)?.service_id ??
-      services.find((s) => s.code === AUDITORIA_SERVICE_CODE)?.service_id
+      services.find((s) => s.code === engagement?.practica)?.practica_id ??
+      services.find((s) => s.code === AUDITORIA_SERVICE_CODE)?.practica_id
     );
   }, [services, engagement?.practica]);
   const categoriesQuery = useCategories(engagementServiceId);
-  // "Resuelto" solo si además se encontró un service_id real (match directo o Auditoría) — nunca
+  // "Resuelto" solo si además se encontró un practica_id real (match directo o Auditoría) — nunca
   // se cae al resultado sin filtrar de useCategories(undefined) como catálogo mostrado.
   const categories = engagementServiceId !== undefined ? categoriesQuery.data : undefined;
 

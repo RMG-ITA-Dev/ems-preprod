@@ -109,12 +109,12 @@ GRANT ALL ON FUNCTION public.can_read_engagement_assignments(p_engagement_id uui
 
 --
 --
--- Name: FUNCTION cascade_service_abbreviation_rename(); Type: ACL; Schema: public; Owner: -
+-- Name: FUNCTION cascade_practice_abbreviation_rename(); Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON FUNCTION public.cascade_service_abbreviation_rename() TO anon;
-GRANT ALL ON FUNCTION public.cascade_service_abbreviation_rename() TO authenticated;
-GRANT ALL ON FUNCTION public.cascade_service_abbreviation_rename() TO service_role;
+GRANT ALL ON FUNCTION public.cascade_practice_abbreviation_rename() TO anon;
+GRANT ALL ON FUNCTION public.cascade_practice_abbreviation_rename() TO authenticated;
+GRANT ALL ON FUNCTION public.cascade_practice_abbreviation_rename() TO service_role;
 
 
 --
@@ -158,13 +158,13 @@ GRANT ALL ON FUNCTION public.check_wo_approved() TO service_role;
 
 --
 --
--- Name: FUNCTION copy_categories_between_services(p_source_service_id uuid, p_target_service_id uuid, p_replace boolean); Type: ACL; Schema: public; Owner: -
+-- Name: FUNCTION copy_categories_between_practices(p_source_practice_id uuid, p_target_practice_id uuid, p_replace boolean); Type: ACL; Schema: public; Owner: -
 --
 
-REVOKE ALL ON FUNCTION public.copy_categories_between_services(p_source_service_id uuid, p_target_service_id uuid, p_replace boolean) FROM PUBLIC;
-GRANT ALL ON FUNCTION public.copy_categories_between_services(p_source_service_id uuid, p_target_service_id uuid, p_replace boolean) TO anon;
-GRANT ALL ON FUNCTION public.copy_categories_between_services(p_source_service_id uuid, p_target_service_id uuid, p_replace boolean) TO authenticated;
-GRANT ALL ON FUNCTION public.copy_categories_between_services(p_source_service_id uuid, p_target_service_id uuid, p_replace boolean) TO service_role;
+REVOKE ALL ON FUNCTION public.copy_categories_between_practices(p_source_practice_id uuid, p_target_practice_id uuid, p_replace boolean) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.copy_categories_between_practices(p_source_practice_id uuid, p_target_practice_id uuid, p_replace boolean) TO anon;
+GRANT ALL ON FUNCTION public.copy_categories_between_practices(p_source_practice_id uuid, p_target_practice_id uuid, p_replace boolean) TO authenticated;
+GRANT ALL ON FUNCTION public.copy_categories_between_practices(p_source_practice_id uuid, p_target_practice_id uuid, p_replace boolean) TO service_role;
 
 
 --
@@ -179,13 +179,13 @@ GRANT ALL ON TABLE public.categories TO service_role;
 
 --
 --
--- Name: FUNCTION create_category_for_service(p_service_id uuid, p_category_name text, p_display_order integer, p_rate_high_bob numeric, p_rate_low_bob numeric, p_rate_high_usd numeric, p_rate_low_usd numeric, p_can_approve_wo boolean, p_can_approve_timesheets boolean, p_default_app_role public.app_role); Type: ACL; Schema: public; Owner: -
+-- Name: FUNCTION create_category_for_practice(p_practice_id uuid, p_category_name text, p_display_order integer, p_rate_high_bob numeric, p_rate_low_bob numeric, p_rate_high_usd numeric, p_rate_low_usd numeric, p_can_approve_wo boolean, p_can_approve_timesheets boolean, p_default_app_role public.app_role); Type: ACL; Schema: public; Owner: -
 --
 
-REVOKE ALL ON FUNCTION public.create_category_for_service(p_service_id uuid, p_category_name text, p_display_order integer, p_rate_high_bob numeric, p_rate_low_bob numeric, p_rate_high_usd numeric, p_rate_low_usd numeric, p_can_approve_wo boolean, p_can_approve_timesheets boolean, p_default_app_role public.app_role) FROM PUBLIC;
-GRANT ALL ON FUNCTION public.create_category_for_service(p_service_id uuid, p_category_name text, p_display_order integer, p_rate_high_bob numeric, p_rate_low_bob numeric, p_rate_high_usd numeric, p_rate_low_usd numeric, p_can_approve_wo boolean, p_can_approve_timesheets boolean, p_default_app_role public.app_role) TO anon;
-GRANT ALL ON FUNCTION public.create_category_for_service(p_service_id uuid, p_category_name text, p_display_order integer, p_rate_high_bob numeric, p_rate_low_bob numeric, p_rate_high_usd numeric, p_rate_low_usd numeric, p_can_approve_wo boolean, p_can_approve_timesheets boolean, p_default_app_role public.app_role) TO authenticated;
-GRANT ALL ON FUNCTION public.create_category_for_service(p_service_id uuid, p_category_name text, p_display_order integer, p_rate_high_bob numeric, p_rate_low_bob numeric, p_rate_high_usd numeric, p_rate_low_usd numeric, p_can_approve_wo boolean, p_can_approve_timesheets boolean, p_default_app_role public.app_role) TO service_role;
+REVOKE ALL ON FUNCTION public.create_category_for_practice(p_practice_id uuid, p_category_name text, p_display_order integer, p_rate_high_bob numeric, p_rate_low_bob numeric, p_rate_high_usd numeric, p_rate_low_usd numeric, p_can_approve_wo boolean, p_can_approve_timesheets boolean, p_default_app_role public.app_role) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.create_category_for_practice(p_practice_id uuid, p_category_name text, p_display_order integer, p_rate_high_bob numeric, p_rate_low_bob numeric, p_rate_high_usd numeric, p_rate_low_usd numeric, p_can_approve_wo boolean, p_can_approve_timesheets boolean, p_default_app_role public.app_role) TO anon;
+GRANT ALL ON FUNCTION public.create_category_for_practice(p_practice_id uuid, p_category_name text, p_display_order integer, p_rate_high_bob numeric, p_rate_low_bob numeric, p_rate_high_usd numeric, p_rate_low_usd numeric, p_can_approve_wo boolean, p_can_approve_timesheets boolean, p_default_app_role public.app_role) TO authenticated;
+GRANT ALL ON FUNCTION public.create_category_for_practice(p_practice_id uuid, p_category_name text, p_display_order integer, p_rate_high_bob numeric, p_rate_low_bob numeric, p_rate_high_usd numeric, p_rate_low_usd numeric, p_can_approve_wo boolean, p_can_approve_timesheets boolean, p_default_app_role public.app_role) TO service_role;
 
 
 --
@@ -221,13 +221,13 @@ GRANT ALL ON TABLE public.activity_codes TO service_role;
 
 --
 --
--- Name: FUNCTION create_service_activity(p_service_id uuid, p_description text, p_entity_type text); Type: ACL; Schema: public; Owner: -
+-- Name: FUNCTION create_practice_activity(p_practice_id uuid, p_description text, p_entity_type text); Type: ACL; Schema: public; Owner: -
 --
 
-REVOKE ALL ON FUNCTION public.create_service_activity(p_service_id uuid, p_description text, p_entity_type text) FROM PUBLIC;
-GRANT ALL ON FUNCTION public.create_service_activity(p_service_id uuid, p_description text, p_entity_type text) TO anon;
-GRANT ALL ON FUNCTION public.create_service_activity(p_service_id uuid, p_description text, p_entity_type text) TO authenticated;
-GRANT ALL ON FUNCTION public.create_service_activity(p_service_id uuid, p_description text, p_entity_type text) TO service_role;
+REVOKE ALL ON FUNCTION public.create_practice_activity(p_practice_id uuid, p_description text, p_entity_type text) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.create_practice_activity(p_practice_id uuid, p_description text, p_entity_type text) TO anon;
+GRANT ALL ON FUNCTION public.create_practice_activity(p_practice_id uuid, p_description text, p_entity_type text) TO authenticated;
+GRANT ALL ON FUNCTION public.create_practice_activity(p_practice_id uuid, p_description text, p_entity_type text) TO service_role;
 
 
 --
@@ -243,24 +243,24 @@ GRANT ALL ON FUNCTION public.current_role_key() TO service_role;
 
 --
 --
--- Name: FUNCTION deactivate_service_activity(p_activity_id uuid); Type: ACL; Schema: public; Owner: -
+-- Name: FUNCTION deactivate_practice_activity(p_activity_id uuid); Type: ACL; Schema: public; Owner: -
 --
 
-REVOKE ALL ON FUNCTION public.deactivate_service_activity(p_activity_id uuid) FROM PUBLIC;
-GRANT ALL ON FUNCTION public.deactivate_service_activity(p_activity_id uuid) TO anon;
-GRANT ALL ON FUNCTION public.deactivate_service_activity(p_activity_id uuid) TO authenticated;
-GRANT ALL ON FUNCTION public.deactivate_service_activity(p_activity_id uuid) TO service_role;
+REVOKE ALL ON FUNCTION public.deactivate_practice_activity(p_activity_id uuid) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.deactivate_practice_activity(p_activity_id uuid) TO anon;
+GRANT ALL ON FUNCTION public.deactivate_practice_activity(p_activity_id uuid) TO authenticated;
+GRANT ALL ON FUNCTION public.deactivate_practice_activity(p_activity_id uuid) TO service_role;
 
 
 --
 --
--- Name: FUNCTION delete_category_for_service(p_category_id uuid); Type: ACL; Schema: public; Owner: -
+-- Name: FUNCTION delete_category_for_practice(p_category_id uuid); Type: ACL; Schema: public; Owner: -
 --
 
-REVOKE ALL ON FUNCTION public.delete_category_for_service(p_category_id uuid) FROM PUBLIC;
-GRANT ALL ON FUNCTION public.delete_category_for_service(p_category_id uuid) TO anon;
-GRANT ALL ON FUNCTION public.delete_category_for_service(p_category_id uuid) TO authenticated;
-GRANT ALL ON FUNCTION public.delete_category_for_service(p_category_id uuid) TO service_role;
+REVOKE ALL ON FUNCTION public.delete_category_for_practice(p_category_id uuid) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.delete_category_for_practice(p_category_id uuid) TO anon;
+GRANT ALL ON FUNCTION public.delete_category_for_practice(p_category_id uuid) TO authenticated;
+GRANT ALL ON FUNCTION public.delete_category_for_practice(p_category_id uuid) TO service_role;
 
 
 --
@@ -275,12 +275,12 @@ GRANT ALL ON FUNCTION public.enforce_activity_default() TO service_role;
 
 --
 --
--- Name: FUNCTION enforce_assignment_service_scope(); Type: ACL; Schema: public; Owner: -
+-- Name: FUNCTION enforce_assignment_practice_scope(); Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON FUNCTION public.enforce_assignment_service_scope() TO anon;
-GRANT ALL ON FUNCTION public.enforce_assignment_service_scope() TO authenticated;
-GRANT ALL ON FUNCTION public.enforce_assignment_service_scope() TO service_role;
+GRANT ALL ON FUNCTION public.enforce_assignment_practice_scope() TO anon;
+GRANT ALL ON FUNCTION public.enforce_assignment_practice_scope() TO authenticated;
+GRANT ALL ON FUNCTION public.enforce_assignment_practice_scope() TO service_role;
 
 
 --
@@ -325,22 +325,22 @@ GRANT ALL ON FUNCTION public.enforce_termination_date() TO service_role;
 
 --
 --
--- Name: FUNCTION enforce_wo_staffing_service_scope(); Type: ACL; Schema: public; Owner: -
+-- Name: FUNCTION enforce_wo_staffing_practice_scope(); Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON FUNCTION public.enforce_wo_staffing_service_scope() TO anon;
-GRANT ALL ON FUNCTION public.enforce_wo_staffing_service_scope() TO authenticated;
-GRANT ALL ON FUNCTION public.enforce_wo_staffing_service_scope() TO service_role;
+GRANT ALL ON FUNCTION public.enforce_wo_staffing_practice_scope() TO anon;
+GRANT ALL ON FUNCTION public.enforce_wo_staffing_practice_scope() TO authenticated;
+GRANT ALL ON FUNCTION public.enforce_wo_staffing_practice_scope() TO service_role;
 
 
 --
 --
--- Name: FUNCTION enforce_worksheet_cell_service_scope(); Type: ACL; Schema: public; Owner: -
+-- Name: FUNCTION enforce_worksheet_cell_practice_scope(); Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON FUNCTION public.enforce_worksheet_cell_service_scope() TO anon;
-GRANT ALL ON FUNCTION public.enforce_worksheet_cell_service_scope() TO authenticated;
-GRANT ALL ON FUNCTION public.enforce_worksheet_cell_service_scope() TO service_role;
+GRANT ALL ON FUNCTION public.enforce_worksheet_cell_practice_scope() TO anon;
+GRANT ALL ON FUNCTION public.enforce_worksheet_cell_practice_scope() TO authenticated;
+GRANT ALL ON FUNCTION public.enforce_worksheet_cell_practice_scope() TO service_role;
 
 
 --
@@ -875,13 +875,13 @@ GRANT ALL ON FUNCTION public.protect_approved_time_entries() TO service_role;
 
 --
 --
--- Name: FUNCTION reactivate_service_activity(p_activity_id uuid); Type: ACL; Schema: public; Owner: -
+-- Name: FUNCTION reactivate_practice_activity(p_activity_id uuid); Type: ACL; Schema: public; Owner: -
 --
 
-REVOKE ALL ON FUNCTION public.reactivate_service_activity(p_activity_id uuid) FROM PUBLIC;
-GRANT ALL ON FUNCTION public.reactivate_service_activity(p_activity_id uuid) TO anon;
-GRANT ALL ON FUNCTION public.reactivate_service_activity(p_activity_id uuid) TO authenticated;
-GRANT ALL ON FUNCTION public.reactivate_service_activity(p_activity_id uuid) TO service_role;
+REVOKE ALL ON FUNCTION public.reactivate_practice_activity(p_activity_id uuid) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.reactivate_practice_activity(p_activity_id uuid) TO anon;
+GRANT ALL ON FUNCTION public.reactivate_practice_activity(p_activity_id uuid) TO authenticated;
+GRANT ALL ON FUNCTION public.reactivate_practice_activity(p_activity_id uuid) TO service_role;
 
 
 --
@@ -905,13 +905,13 @@ GRANT ALL ON FUNCTION public.record_failed_login(p_email text) TO service_role;
 
 --
 --
--- Name: FUNCTION reorder_service_activity(p_activity_id uuid, p_new_position integer); Type: ACL; Schema: public; Owner: -
+-- Name: FUNCTION reorder_practice_activity(p_activity_id uuid, p_new_position integer); Type: ACL; Schema: public; Owner: -
 --
 
-REVOKE ALL ON FUNCTION public.reorder_service_activity(p_activity_id uuid, p_new_position integer) FROM PUBLIC;
-GRANT ALL ON FUNCTION public.reorder_service_activity(p_activity_id uuid, p_new_position integer) TO anon;
-GRANT ALL ON FUNCTION public.reorder_service_activity(p_activity_id uuid, p_new_position integer) TO authenticated;
-GRANT ALL ON FUNCTION public.reorder_service_activity(p_activity_id uuid, p_new_position integer) TO service_role;
+REVOKE ALL ON FUNCTION public.reorder_practice_activity(p_activity_id uuid, p_new_position integer) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.reorder_practice_activity(p_activity_id uuid, p_new_position integer) TO anon;
+GRANT ALL ON FUNCTION public.reorder_practice_activity(p_activity_id uuid, p_new_position integer) TO authenticated;
+GRANT ALL ON FUNCTION public.reorder_practice_activity(p_activity_id uuid, p_new_position integer) TO service_role;
 
 
 --
@@ -1072,13 +1072,13 @@ GRANT ALL ON FUNCTION public.unsubmit_timesheet_safe(p_period_id uuid) TO servic
 
 --
 --
--- Name: FUNCTION update_category_for_service(p_category_id uuid, p_category_name text, p_display_order integer, p_rate_high_bob numeric, p_rate_low_bob numeric, p_rate_high_usd numeric, p_rate_low_usd numeric, p_can_approve_wo boolean, p_can_approve_timesheets boolean, p_default_app_role public.app_role); Type: ACL; Schema: public; Owner: -
+-- Name: FUNCTION update_category_for_practice(p_category_id uuid, p_category_name text, p_display_order integer, p_rate_high_bob numeric, p_rate_low_bob numeric, p_rate_high_usd numeric, p_rate_low_usd numeric, p_can_approve_wo boolean, p_can_approve_timesheets boolean, p_default_app_role public.app_role); Type: ACL; Schema: public; Owner: -
 --
 
-REVOKE ALL ON FUNCTION public.update_category_for_service(p_category_id uuid, p_category_name text, p_display_order integer, p_rate_high_bob numeric, p_rate_low_bob numeric, p_rate_high_usd numeric, p_rate_low_usd numeric, p_can_approve_wo boolean, p_can_approve_timesheets boolean, p_default_app_role public.app_role) FROM PUBLIC;
-GRANT ALL ON FUNCTION public.update_category_for_service(p_category_id uuid, p_category_name text, p_display_order integer, p_rate_high_bob numeric, p_rate_low_bob numeric, p_rate_high_usd numeric, p_rate_low_usd numeric, p_can_approve_wo boolean, p_can_approve_timesheets boolean, p_default_app_role public.app_role) TO anon;
-GRANT ALL ON FUNCTION public.update_category_for_service(p_category_id uuid, p_category_name text, p_display_order integer, p_rate_high_bob numeric, p_rate_low_bob numeric, p_rate_high_usd numeric, p_rate_low_usd numeric, p_can_approve_wo boolean, p_can_approve_timesheets boolean, p_default_app_role public.app_role) TO authenticated;
-GRANT ALL ON FUNCTION public.update_category_for_service(p_category_id uuid, p_category_name text, p_display_order integer, p_rate_high_bob numeric, p_rate_low_bob numeric, p_rate_high_usd numeric, p_rate_low_usd numeric, p_can_approve_wo boolean, p_can_approve_timesheets boolean, p_default_app_role public.app_role) TO service_role;
+REVOKE ALL ON FUNCTION public.update_category_for_practice(p_category_id uuid, p_category_name text, p_display_order integer, p_rate_high_bob numeric, p_rate_low_bob numeric, p_rate_high_usd numeric, p_rate_low_usd numeric, p_can_approve_wo boolean, p_can_approve_timesheets boolean, p_default_app_role public.app_role) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.update_category_for_practice(p_category_id uuid, p_category_name text, p_display_order integer, p_rate_high_bob numeric, p_rate_low_bob numeric, p_rate_high_usd numeric, p_rate_low_usd numeric, p_can_approve_wo boolean, p_can_approve_timesheets boolean, p_default_app_role public.app_role) TO anon;
+GRANT ALL ON FUNCTION public.update_category_for_practice(p_category_id uuid, p_category_name text, p_display_order integer, p_rate_high_bob numeric, p_rate_low_bob numeric, p_rate_high_usd numeric, p_rate_low_usd numeric, p_can_approve_wo boolean, p_can_approve_timesheets boolean, p_default_app_role public.app_role) TO authenticated;
+GRANT ALL ON FUNCTION public.update_category_for_practice(p_category_id uuid, p_category_name text, p_display_order integer, p_rate_high_bob numeric, p_rate_low_bob numeric, p_rate_high_usd numeric, p_rate_low_usd numeric, p_can_approve_wo boolean, p_can_approve_timesheets boolean, p_default_app_role public.app_role) TO service_role;
 
 
 --
@@ -1459,10 +1459,10 @@ GRANT SELECT(society_id) ON TABLE public.staff TO authenticated;
 
 --
 --
--- Name: COLUMN staff.service_id; Type: ACL; Schema: public; Owner: -
+-- Name: COLUMN staff.practica_id; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT SELECT(service_id) ON TABLE public.staff TO authenticated;
+GRANT SELECT(practica_id) ON TABLE public.staff TO authenticated;
 
 
 --
@@ -1547,12 +1547,12 @@ GRANT ALL ON TABLE public.parametro TO service_role;
 
 --
 --
--- Name: TABLE services; Type: ACL; Schema: public; Owner: -
+-- Name: TABLE practicas; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.services TO anon;
-GRANT ALL ON TABLE public.services TO authenticated;
-GRANT ALL ON TABLE public.services TO service_role;
+GRANT ALL ON TABLE public.practicas TO anon;
+GRANT ALL ON TABLE public.practicas TO authenticated;
+GRANT ALL ON TABLE public.practicas TO service_role;
 
 
 --
@@ -1607,12 +1607,12 @@ GRANT ALL ON TABLE public.staff_skills TO service_role;
 
 --
 --
--- Name: TABLE taxonomies; Type: ACL; Schema: public; Owner: -
+-- Name: TABLE servicios; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.taxonomies TO anon;
-GRANT ALL ON TABLE public.taxonomies TO authenticated;
-GRANT ALL ON TABLE public.taxonomies TO service_role;
+GRANT ALL ON TABLE public.servicios TO anon;
+GRANT ALL ON TABLE public.servicios TO authenticated;
+GRANT ALL ON TABLE public.servicios TO service_role;
 
 
 --

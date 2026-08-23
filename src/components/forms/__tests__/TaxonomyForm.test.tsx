@@ -43,7 +43,7 @@ const editTaxonomy: Taxonomy = {
   taxonomy_id: "t2",
   code: "AA1007",
   name: "Continued audit",
-  service_id: null,
+  practica_id: null,
   is_active: true,
   created_at: "",
 };

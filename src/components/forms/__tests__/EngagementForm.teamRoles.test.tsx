@@ -51,8 +51,8 @@ vi.mock("react-i18next", () => ({
 const SVC_AUDIT = "svc-audit";
 const SVC_CONSULT = "svc-consult";
 const mockServices = [
-  { service_id: SVC_AUDIT,   name: "Auditoría",   code: 1, allows_rates_activities: true, is_active: true, created_at: "" },
-  { service_id: SVC_CONSULT, name: "Consultoría", code: 3, allows_rates_activities: true, is_active: true, created_at: "" },
+  { practica_id: SVC_AUDIT,   name: "Auditoría",   code: 1, allows_rates_activities: true, is_active: true, created_at: "" },
+  { practica_id: SVC_CONSULT, name: "Consultoría", code: 3, allows_rates_activities: true, is_active: true, created_at: "" },
 ];
 
 const stableClients = [{ client_id: "c1", client_legal_name: "Acme Corp", is_active: true }];

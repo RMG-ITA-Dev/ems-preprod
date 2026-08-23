@@ -61,7 +61,7 @@ describe("useCurrentStaff", () => {
       last_name: "Doe",
       auth_user_id: "user-123",
       society_id: "soc-1",
-      service_id: "svc-1",
+      practica_id: "svc-1",
       category: { category_id: "1", category_name: "Manager" },
     };
 
@@ -94,16 +94,16 @@ describe("useCurrentStaff", () => {
     expect(mockEq).toHaveBeenCalledWith("auth_user_id", "user-123");
     expect(result.current.staffRecord?.first_name).toBe("John");
     expect(result.current.staffRecord?.last_name).toBe("Doe");
-    // FEAT 0810-173: society_id/service_id are selected and passed through
+    // FEAT 0810-173: society_id/practica_id are selected and passed through
     // in the primary (auth_user_id) lookup.
     const selectArg = mockSelect.mock.calls[0][0] as string;
     expect(selectArg).toContain("society_id");
-    expect(selectArg).toContain("service_id");
+    expect(selectArg).toContain("practica_id");
     expect(result.current.staffRecord?.society_id).toBe("soc-1");
-    expect(result.current.staffRecord?.service_id).toBe("svc-1");
+    expect(result.current.staffRecord?.practica_id).toBe("svc-1");
   });
 
-  it("retains society_id/service_id in the email fallback lookup (FEAT 0810-173)", async () => {
+  it("retains society_id/practica_id in the email fallback lookup (FEAT 0810-173)", async () => {
     const mockUser = { id: "user-123", email: "test@example.com" };
     const mockStaffByEmail = {
       staff_id: "staff-789",
@@ -111,7 +111,7 @@ describe("useCurrentStaff", () => {
       last_name: "Smith",
       auth_user_id: null,
       society_id: "soc-2",
-      service_id: "svc-2",
+      practica_id: "svc-2",
       category: { category_id: "2", category_name: "Senior" },
     };
 
@@ -154,9 +154,9 @@ describe("useCurrentStaff", () => {
 
     const selectArg = fallbackSelect.mock.calls[0][0] as string;
     expect(selectArg).toContain("society_id");
-    expect(selectArg).toContain("service_id");
+    expect(selectArg).toContain("practica_id");
     expect(result.current.staffRecord?.society_id).toBe("soc-2");
-    expect(result.current.staffRecord?.service_id).toBe("svc-2");
+    expect(result.current.staffRecord?.practica_id).toBe("svc-2");
   });
 
   it("returns null when staff record not found", async () => {

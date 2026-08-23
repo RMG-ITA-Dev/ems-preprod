@@ -4,7 +4,7 @@ import { resolve } from "path";
 
 /**
  * 0602-136 (retargeted por la migración cero, plan §2.5.d): assertions estructurales sobre
- * la tabla `public.taxonomies`, sus policies, FKs y el RPC de creación de encargos, ahora
+ * la tabla `public.servicios`, sus policies, FKs y el RPC de creación de encargos, ahora
  * contra los archivos consolidados. La aserción sobre el CONTENIDO del seed original (46
  * filas) se retiró — el catálogo real vigente son las 29 filas de
  * bugs/migracion_cero/practicas.md ("servicios" tras el rename de Fase 3), que llegan en
@@ -28,60 +28,60 @@ const policiesSql = readFileSync(
   "utf-8",
 );
 
-describe("taxonomies table (migración cero, consolidado)", () => {
-  it("creates the public.taxonomies table", () => {
-    expect(sql).toContain("CREATE TABLE public.taxonomies");
+describe("servicios table (migración cero, consolidado)", () => {
+  it("creates the public.servicios table", () => {
+    expect(sql).toContain("CREATE TABLE public.servicios");
   });
 
   it("code has a length CHECK between 1 and 10", () => {
     const tableBlock = sql.slice(
-      sql.indexOf("CREATE TABLE public.taxonomies"),
-      sql.indexOf(");", sql.indexOf("CREATE TABLE public.taxonomies")),
+      sql.indexOf("CREATE TABLE public.servicios"),
+      sql.indexOf(");", sql.indexOf("CREATE TABLE public.servicios")),
     );
     expect(tableBlock).toContain("code character varying(10) NOT NULL");
     expect(tableBlock).toMatch(
-      /CONSTRAINT taxonomies_code_check CHECK \(\(\(char_length\(TRIM\(BOTH FROM code\)\) >= 1\) AND \(char_length\(TRIM\(BOTH FROM code\)\) <= 10\)\)\)/,
+      /CONSTRAINT servicios_code_check CHECK \(\(\(char_length\(TRIM\(BOTH FROM code\)\) >= 1\) AND \(char_length\(TRIM\(BOTH FROM code\)\) <= 10\)\)\)/,
     );
   });
 
   it("has a case-insensitive unique index on code", () => {
     expect(constraintsSql).toContain(
-      "CREATE UNIQUE INDEX idx_taxonomies_code_unique ON public.taxonomies USING btree (lower(TRIM(BOTH FROM code)));",
+      "CREATE UNIQUE INDEX idx_servicios_code_unique ON public.servicios USING btree (lower(TRIM(BOTH FROM code)));",
     );
   });
 
-  it("service_id is a nullable FK to services (independent table)", () => {
+  it("practica_id is a nullable FK to practicas (independent table)", () => {
     const tableBlock = sql.slice(
-      sql.indexOf("CREATE TABLE public.taxonomies"),
-      sql.indexOf(");", sql.indexOf("CREATE TABLE public.taxonomies")),
+      sql.indexOf("CREATE TABLE public.servicios"),
+      sql.indexOf(");", sql.indexOf("CREATE TABLE public.servicios")),
     );
-    expect(tableBlock).toContain("service_id uuid,");
+    expect(tableBlock).toContain("practica_id uuid,");
     expect(fksSql).toContain(
-      "ADD CONSTRAINT taxonomies_service_id_fkey FOREIGN KEY (service_id) REFERENCES public.services(service_id) ON DELETE SET NULL;",
+      "ADD CONSTRAINT servicios_practica_id_fkey FOREIGN KEY (practica_id) REFERENCES public.practicas(practica_id) ON DELETE SET NULL;",
     );
   });
 
   it("INSERT/UPDATE policies reference is_admin()", () => {
     const block = policiesSql.slice(
-      policiesSql.indexOf('"Admins can insert taxonomies"'),
-      policiesSql.indexOf('"Admins can update taxonomies"') + 200,
+      policiesSql.indexOf('"Admins can insert servicios"'),
+      policiesSql.indexOf('"Admins can update servicios"') + 200,
     );
     expect(block).toContain("public.is_admin()");
   });
 
-  it("has no DELETE policy on taxonomies (deactivate-only design)", () => {
-    expect(policiesSql).not.toMatch(/ON public\.taxonomies FOR DELETE/);
+  it("has no DELETE policy on servicios (deactivate-only design)", () => {
+    expect(policiesSql).not.toMatch(/ON public\.servicios FOR DELETE/);
   });
 
   it("SELECT policy is open to authenticated", () => {
     expect(policiesSql).toContain(
-      'CREATE POLICY "Authenticated users can read taxonomies" ON public.taxonomies FOR SELECT TO authenticated USING (true);',
+      'CREATE POLICY "Authenticated users can read servicios" ON public.servicios FOR SELECT TO authenticated USING (true);',
     );
   });
 
-  it("engagements.taxonomy_id is a nullable FK to taxonomies", () => {
+  it("engagements.taxonomy_id is a nullable FK to servicios", () => {
     expect(fksSql).toContain(
-      "ADD CONSTRAINT engagements_taxonomy_id_fkey FOREIGN KEY (taxonomy_id) REFERENCES public.taxonomies(taxonomy_id);",
+      "ADD CONSTRAINT engagements_taxonomy_id_fkey FOREIGN KEY (taxonomy_id) REFERENCES public.servicios(taxonomy_id);",
     );
   });
 
@@ -90,6 +90,6 @@ describe("taxonomies table (migración cero, consolidado)", () => {
   });
 
   it("RPC validates the taxonomy is active when provided", () => {
-    expect(sql).toContain("SELECT 1 FROM public.taxonomies WHERE taxonomy_id = p_taxonomy_id AND is_active");
+    expect(sql).toContain("SELECT 1 FROM public.servicios WHERE taxonomy_id = p_taxonomy_id AND is_active");
   });
 });

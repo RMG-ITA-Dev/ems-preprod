@@ -141,10 +141,10 @@ function baseFixtures(): Fixtures {
     staff: [staffRow(S1)],
     staff_skills: [],
     skills: [],
-    services: [{ service_id: SERVICE_A, name: "Audit" }],
+    practicas: [{ practica_id: SERVICE_A, name: "Audit" }],
     categories: [
-      { category_id: CAT_SR, category_name: "Senior", service_id: SERVICE_A, display_order: 1 },
-      { category_id: CAT_MG, category_name: "Manager", service_id: SERVICE_A, display_order: 2 },
+      { category_id: CAT_SR, category_name: "Senior", practica_id: SERVICE_A, display_order: 1 },
+      { category_id: CAT_MG, category_name: "Manager", practica_id: SERVICE_A, display_order: 2 },
     ],
   };
 }
@@ -989,7 +989,7 @@ describe("keyset pagination (D-P6-13)", () => {
     f.categories = Array.from({ length: 1050 }, (_, i) => ({
       category_id: id("cat", i + 1),
       category_name: `Cat ${String(i + 1).padStart(4, "0")}`,
-      service_id: SERVICE_A,
+      practica_id: SERVICE_A,
       display_order: i + 1,
     }));
     f.wo_staffing_requirements = Array.from({ length: 1050 }, (_, i) => ({
@@ -1048,7 +1048,7 @@ describe("keyset pagination (D-P6-13)", () => {
       skills: "skill_id",
       categories: "category_id",
       // Fase 3: para poblar serviceId/serviceName en las filas de gaps.
-      services: "service_id",
+      practicas: "practica_id",
     });
   });
 });
@@ -1061,7 +1061,7 @@ describe("keyset pagination (D-P6-13)", () => {
 // Fase 3: `engagements` ya no proyecta `status` (reemplazado por
 // `work_order_required`/`engagement_state_override`); se agregan las
 // tablas nuevas `engagement_wo_state` y `services`, y `categories` gana
-// `service_id`.
+// `practica_id`.
 const SCHEMA: Record<string, string[]> = {
   engagements: [
     "engagement_id",
@@ -1098,8 +1098,8 @@ const SCHEMA: Record<string, string[]> = {
   ],
   staff_skills: ["staff_skill_id", "staff_id", "skill_id", "proficiency_level"],
   skills: ["skill_id", "name"],
-  categories: ["category_id", "category_name", "display_order", "service_id"],
-  services: ["service_id", "name"],
+  categories: ["category_id", "category_name", "display_order", "practica_id"],
+  practicas: ["practica_id", "name"],
 };
 
 describe("schema-aware fake + two-page crossing per table (rev. 6 P1-01)", () => {
@@ -1150,11 +1150,11 @@ describe("schema-aware fake + two-page crossing per table (rev. 6 P1-01)", () =>
         { skill_id: id("skl", 2), name: "Tax" },
         { skill_id: id("skl", 3), name: "Audit" },
       ],
-      services: [{ service_id: SERVICE_A, name: "Audit" }],
+      practicas: [{ practica_id: SERVICE_A, name: "Audit" }],
       categories: [
-        { category_id: CAT_SR, category_name: "Senior", service_id: SERVICE_A, display_order: 1 },
-        { category_id: CAT_MG, category_name: "Manager", service_id: SERVICE_A, display_order: 2 },
-        { category_id: id("cat", 3), category_name: "Partner", service_id: SERVICE_A, display_order: 3 },
+        { category_id: CAT_SR, category_name: "Senior", practica_id: SERVICE_A, display_order: 1 },
+        { category_id: CAT_MG, category_name: "Manager", practica_id: SERVICE_A, display_order: 2 },
+        { category_id: id("cat", 3), category_name: "Partner", practica_id: SERVICE_A, display_order: 3 },
       ],
     };
     const options: FakeDbOptions = { serverRowCap: 2, schemaColumns: SCHEMA };

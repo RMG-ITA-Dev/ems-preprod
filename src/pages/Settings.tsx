@@ -133,11 +133,11 @@ const Settings = () => {
   useEffect(() => {
     if (!selectedServiceId && eligibleServices.length > 0) {
       const auditoria = eligibleServices.find((s) => s.code === 1) ?? eligibleServices[0];
-      setSelectedServiceId(auditoria.service_id);
+      setSelectedServiceId(auditoria.practica_id);
     }
   }, [eligibleServices, selectedServiceId]);
 
-  const currentService = eligibleServices.find((s) => s.service_id === selectedServiceId);
+  const currentService = eligibleServices.find((s) => s.practica_id === selectedServiceId);
   // A práctica must be active and rate-eligible to host categories/activities;
   // admins can still select an inactive/ineligible one to edit it, but child
   // ABM stays disabled until it qualifies.
@@ -159,30 +159,30 @@ const Settings = () => {
   // Active service-linked activities grouped by service, ordered by code.
   // Used to compute the 1-based position of each row for the ↑/↓ controls.
   //
-  // ADM is is_system=true with service_id NULL (migración cero, informe §5) — the
-  // service_id filter alone already excludes it, keeping the client's position/total
-  // in sync with what reorder_service_activity/deactivate_service_activity operate on.
+  // ADM is is_system=true with practica_id NULL (migración cero, informe §5) — the
+  // practica_id filter alone already excludes it, keeping the client's position/total
+  // in sync with what reorder_practice_activity/deactivate_practice_activity operate on.
   const activeActivitiesByService = useMemo(() => {
     const map = new Map<string, string[]>();
     (activityCodes ?? [])
-      .filter((a) => a.is_active && a.service_id)
+      .filter((a) => a.is_active && a.practica_id)
       .slice()
       .sort((a, b) => {
         const n = (code: string) => parseInt(code.match(/(\d+)$/)?.[1] ?? "0", 10);
         return n(a.activity_code) - n(b.activity_code);
       })
       .forEach((a) => {
-        const arr = map.get(a.service_id) ?? [];
+        const arr = map.get(a.practica_id) ?? [];
         arr.push(a.activity_id);
-        map.set(a.service_id, arr);
+        map.set(a.practica_id, arr);
       });
     return map;
   }, [activityCodes]);
 
   // ── Activity codes: filtered by the shared práctica selector. The "Global"
-  // bucket no longer exists (activity_codes.service_id is NOT NULL, 0817-177).
+  // bucket no longer exists (activity_codes.practica_id is NOT NULL, 0817-177).
   const filteredActivityCodes = useMemo(
-    () => (selectedServiceId ? (activityCodes ?? []).filter((a) => a.service_id === selectedServiceId) : []),
+    () => (selectedServiceId ? (activityCodes ?? []).filter((a) => a.practica_id === selectedServiceId) : []),
     [activityCodes, selectedServiceId]
   );
 
@@ -511,7 +511,7 @@ const Settings = () => {
     { key: "activity_code", label: t("activity.code"), sortable: true, className: "font-mono w-24", mobilePriority: 'primary' },
     { key: "description", label: t("activity.description"), sortable: true, mobilePriority: 'primary' },
     {
-      key: "service_id",
+      key: "practica_id",
       label: t("activity.service"),
       sortable: false,
       mobilePriority: 'secondary',
@@ -543,11 +543,11 @@ const Settings = () => {
       mobilePriority: 'secondary',
       render: (row) => {
         // ↑/↓ only for active activities; swap code with the adjacent sibling
-        // of the same practice via reorder_service_activity. Reordering is a
+        // of the same practice via reorder_practice_activity. Reordering is a
         // child mutation, so it stays off while the práctica can't host
         // children (canManageChildren), matching create.
         if (!isAdmin || !row.is_active || !canManageChildren) return null;
-        const siblings = activeActivitiesByService.get(row.service_id) ?? [];
+        const siblings = activeActivitiesByService.get(row.practica_id) ?? [];
         const pos = siblings.indexOf(row.activity_id) + 1; // 1-based
         const total = siblings.length;
         if (pos < 1 || total < 2) return null;
@@ -592,12 +592,12 @@ const Settings = () => {
     { key: "code", label: t("taxonomy.code"), sortable: true, className: "w-24 font-mono", mobilePriority: 'primary' },
     { key: "name", label: t("taxonomy.name"), sortable: true, mobilePriority: 'primary' },
     {
-      key: "service_id",
+      key: "practica_id",
       label: t("taxonomy.service"),
       sortable: false,
       mobilePriority: 'secondary',
       render: (row) => {
-        const service = (services || []).find((s) => s.service_id === row.service_id);
+        const service = (services || []).find((s) => s.practica_id === row.practica_id);
         return service ? service.name : t("taxonomy.global");
       },
     },
@@ -720,7 +720,7 @@ const Settings = () => {
   };
 
   // Copy-categories: available targets are the other rate-bearing services.
-  const copyTargetServices = copyableServices.filter((s) => s.service_id !== selectedServiceId);
+  const copyTargetServices = copyableServices.filter((s) => s.practica_id !== selectedServiceId);
 
   const openCopyDialog = () => {
     setCopyTargetId("");
@@ -748,7 +748,7 @@ const Settings = () => {
   };
 
   const serviceName = (id: string) =>
-    (services ?? []).find((s) => s.service_id === id)?.name ?? "";
+    (services ?? []).find((s) => s.practica_id === id)?.name ?? "";
 
   return (
     <AppLayout title={t("settings.title")} focusMode={isGlobalTabActive}>
@@ -847,7 +847,7 @@ const Settings = () => {
                   </SelectTrigger>
                   <SelectContent>
                     {eligibleServices.map((s) => (
-                      <SelectItem key={s.service_id} value={s.service_id}>
+                      <SelectItem key={s.practica_id} value={s.practica_id}>
                         {s.name}
                         {!s.is_active ? ` (${t("status.inactive")})` : ""}
                       </SelectItem>
@@ -965,7 +965,7 @@ const Settings = () => {
                           </SelectTrigger>
                           <SelectContent>
                             {copyTargetServices.map((s) => (
-                              <SelectItem key={s.service_id} value={s.service_id}>
+                              <SelectItem key={s.practica_id} value={s.practica_id}>
                                 {s.name}
                               </SelectItem>
                             ))}

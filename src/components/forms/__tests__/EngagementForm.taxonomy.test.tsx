@@ -47,15 +47,15 @@ vi.mock("react-i18next", () => ({
 }));
 
 const mockServices = [
-  { service_id: "s1", name: "Auditoría", code: 1, allows_rates_activities: true, is_active: true, created_at: "" },
+  { practica_id: "s1", name: "Auditoría", code: 1, allows_rates_activities: true, is_active: true, created_at: "" },
 ];
 
 // 0722-157: deliberately out of name order ("New" before "Continued") — activeTaxonomyOptions
 // must sort by name (A-Z), per operator feedback superseding the original by-code ordering.
 const mockTaxonomies = [
-  { taxonomy_id: "tx-active-1", code: "AA1006", name: "New audit", service_id: null, is_active: true, created_at: "" },
-  { taxonomy_id: "tx-active-2", code: "AA1007", name: "Continued audit", service_id: null, is_active: true, created_at: "" },
-  { taxonomy_id: "tx-inactive", code: "AA1501", name: "Old audit", service_id: null, is_active: false, created_at: "" },
+  { taxonomy_id: "tx-active-1", code: "AA1006", name: "New audit", practica_id: null, is_active: true, created_at: "" },
+  { taxonomy_id: "tx-active-2", code: "AA1007", name: "Continued audit", practica_id: null, is_active: true, created_at: "" },
+  { taxonomy_id: "tx-inactive", code: "AA1501", name: "Old audit", practica_id: null, is_active: false, created_at: "" },
 ];
 
 // Stable references: a fresh [] literal on every call gives StaffAssignmentsCard's

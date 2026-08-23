@@ -117,7 +117,7 @@ describe("useSaveWorkOrderStaffing", () => {
     ["WOS_SKILL_DUPLICATE", "workOrders.staffingRequirements.errors.skillDuplicate"],
     ["WOS_STAFF_COUNT_RANGE", "workOrders.staffingRequirements.errors.staffCountRange"],
     ["WOS_PROFICIENCY_INVALID", "workOrders.staffingRequirements.errors.proficiencyInvalid"],
-    ["WOS_CATEGORY_FOREIGN_SERVICE", "workOrders.staffingRequirements.errors.categoryForeignService"],
+    ["WOS_CATEGORY_FOREIGN_PRACTICE", "workOrders.staffingRequirements.errors.categoryForeignService"],
   ])("known RPC error token %s", (code, i18nKey) => {
     it(`maps to a single translated toast and re-throws so the caller sees the rejection`, async () => {
       vi.mocked(supabase.rpc).mockResolvedValue({ data: null, error: new Error(code) } as never);

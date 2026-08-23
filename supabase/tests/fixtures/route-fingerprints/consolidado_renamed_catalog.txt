@@ -27,14 +27,14 @@
  public     | industries                                     | table    | postgres       | permanent   | heap          | 0 bytes    | 
  public     | migration_run_log                              | table    | postgres       | permanent   | heap          | 8192 bytes | 
  public     | parametro                                      | table    | postgres       | permanent   | heap          | 8192 bytes | 
- public     | services                                       | table    | postgres       | permanent   | heap          | 8192 bytes | 
+ public     | practicas                                      | table    | postgres       | permanent   | heap          | 8192 bytes | 
+ public     | servicios                                      | table    | postgres       | permanent   | heap          | 8192 bytes | 
  public     | skills                                         | table    | postgres       | permanent   | heap          | 8192 bytes | 
  public     | society                                        | table    | postgres       | permanent   | heap          | 8192 bytes | 
  public     | staff                                          | table    | postgres       | permanent   | heap          | 8192 bytes | 
  public     | staff_alert_seen                               | table    | postgres       | permanent   | heap          | 8192 bytes | 
  public     | staff_directory                                | view     | postgres       | permanent   |               | 0 bytes    | 
  public     | staff_skills                                   | table    | postgres       | permanent   | heap          | 8192 bytes | 
- public     | taxonomies                                     | table    | postgres       | permanent   | heap          | 8192 bytes | 
  public     | time_entries                                   | table    | postgres       | permanent   | heap          | 8192 bytes | 
  public     | timer_entries                                  | table    | postgres       | permanent   | heap          | 8192 bytes | 
  public     | timesheet_line_approvals                       | table    | postgres       | permanent   | heap          | 8192 bytes | 

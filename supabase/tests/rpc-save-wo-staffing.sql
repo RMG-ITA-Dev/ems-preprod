@@ -12,8 +12,8 @@
 -- "SAVE_WO_STAFFING RPC: ALL CHECKS PASSED (rolled back)".
 --
 -- Fixture world (all ids carry recognizable rws-test prefixes):
---   CAT_AUD  category, service Auditoría (code 1)
---   CAT_TAX  category, service Tax (code 3) — used for the foreign-service case
+--   CAT_AUD  category, practice Auditoría (code 1)
+--   CAT_TAX  category, practice Tax (code 3) — used for the foreign-practice case
 --   E1  practica=1 (Auditoría), manager_id=Mel, sqr_id=Sam
 --   WO1 on E1, approval_status = Draft (default)
 --   WO2 on E1's sibling E2 (same manager Mel, so authorization is a
@@ -23,17 +23,17 @@
 BEGIN;
 
 -- practica code=3 (Tax): el harness solo siembra globalmente code=1; este archivo necesita
--- una segunda práctica para el caso foreign-service (CAT_TAX).
-INSERT INTO public.services (service_id, name, code, abbreviation)
+-- una segunda práctica para el caso foreign-practice (CAT_TAX).
+INSERT INTO public.practicas (practica_id, name, code, abbreviation)
 VALUES ('5e000000-0000-4000-8000-0000000000b3', 'RWS Test Practice (Tax)', 3, 'TXR')
 ON CONFLICT (code) DO NOTHING;
 
 INSERT INTO public.society (society_id, name)
 VALUES ('50c00000-0000-4000-8000-0000000000b1', 'RWS Test Society');
 
-INSERT INTO public.categories (category_id, category_name, service_id) VALUES
-  ('c0000000-0000-4000-8000-0000000000b1', 'RWS Aud Category', (SELECT service_id FROM public.services WHERE code = 1)),
-  ('c0000000-0000-4000-8000-0000000000b2', 'RWS Tax Category', (SELECT service_id FROM public.services WHERE code = 3));
+INSERT INTO public.categories (category_id, category_name, practica_id) VALUES
+  ('c0000000-0000-4000-8000-0000000000b1', 'RWS Aud Category', (SELECT practica_id FROM public.practicas WHERE code = 1)),
+  ('c0000000-0000-4000-8000-0000000000b2', 'RWS Tax Category', (SELECT practica_id FROM public.practicas WHERE code = 3));
 
 INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id) VALUES
   ('c1000000-0000-4000-8000-0000000000b1', 'RWS Test Client', 'RWS-TAX-001');
@@ -53,10 +53,10 @@ BEGIN
   END IF;
 END $$;
 
-INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, category_id, service_id, society_id) VALUES
-  ('50000000-0000-4000-8000-0000000000b1', 'a0000000-0000-4000-8000-0000000000b1', 'Mel',  'ManagerLead', 'c0000000-0000-4000-8000-0000000000b1', (SELECT service_id FROM public.services WHERE code = 1), '50c00000-0000-4000-8000-0000000000b1'),
-  ('50000000-0000-4000-8000-0000000000b2', 'a0000000-0000-4000-8000-0000000000b2', 'Sam',  'SQR',         'c0000000-0000-4000-8000-0000000000b1', (SELECT service_id FROM public.services WHERE code = 1), '50c00000-0000-4000-8000-0000000000b1'),
-  ('50000000-0000-4000-8000-0000000000b3', 'a0000000-0000-4000-8000-0000000000b3', 'Nora', 'Unrelated',   'c0000000-0000-4000-8000-0000000000b1', (SELECT service_id FROM public.services WHERE code = 1), '50c00000-0000-4000-8000-0000000000b1');
+INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, category_id, practica_id, society_id) VALUES
+  ('50000000-0000-4000-8000-0000000000b1', 'a0000000-0000-4000-8000-0000000000b1', 'Mel',  'ManagerLead', 'c0000000-0000-4000-8000-0000000000b1', (SELECT practica_id FROM public.practicas WHERE code = 1), '50c00000-0000-4000-8000-0000000000b1'),
+  ('50000000-0000-4000-8000-0000000000b2', 'a0000000-0000-4000-8000-0000000000b2', 'Sam',  'SQR',         'c0000000-0000-4000-8000-0000000000b1', (SELECT practica_id FROM public.practicas WHERE code = 1), '50c00000-0000-4000-8000-0000000000b1'),
+  ('50000000-0000-4000-8000-0000000000b3', 'a0000000-0000-4000-8000-0000000000b3', 'Nora', 'Unrelated',   'c0000000-0000-4000-8000-0000000000b1', (SELECT practica_id FROM public.practicas WHERE code = 1), '50c00000-0000-4000-8000-0000000000b1');
 
 -- ON CONFLICT DO UPDATE: on a live Supabase, handle_new_user() (20251204051043) already
 -- auto-created a 'staff' user_roles row for each new auth.users id above. role_key: RBAC
@@ -207,7 +207,7 @@ BEGIN
   IF NOT v_ok THEN RAISE EXCEPTION 'TEST FAIL — staff_count=1000 unexpectedly succeeded'; END IF;
   RAISE NOTICE 'PASS — staff_count outside [1,999] raises WOS_STAFF_COUNT_RANGE (0 and 1000 probed)';
 
-  -- ── 7. WOS_CATEGORY_FOREIGN_SERVICE (E1 is Auditoría; CAT_TAX is Tax) ─
+  -- ── 7. WOS_CATEGORY_FOREIGN_PRACTICE (E1 is Auditoría; CAT_TAX is Tax) ─
   v_ok := false;
   BEGIN
     PERFORM public.save_wo_staffing(
@@ -215,12 +215,12 @@ BEGIN
       jsonb_build_array(jsonb_build_object('category_id', 'c0000000-0000-4000-8000-0000000000b2', 'staff_count', 1, 'skills', '[]'::jsonb))
     );
   EXCEPTION WHEN OTHERS THEN
-    IF SQLERRM = 'WOS_CATEGORY_FOREIGN_SERVICE' THEN v_ok := true;
-    ELSE RAISE EXCEPTION 'TEST FAIL — expected WOS_CATEGORY_FOREIGN_SERVICE, got %', SQLERRM;
+    IF SQLERRM = 'WOS_CATEGORY_FOREIGN_PRACTICE' THEN v_ok := true;
+    ELSE RAISE EXCEPTION 'TEST FAIL — expected WOS_CATEGORY_FOREIGN_PRACTICE, got %', SQLERRM;
     END IF;
   END;
   IF NOT v_ok THEN RAISE EXCEPTION 'TEST FAIL — a Tax category on an Auditoría engagement unexpectedly succeeded'; END IF;
-  RAISE NOTICE 'PASS — a category outside the engagement''s service raises WOS_CATEGORY_FOREIGN_SERVICE';
+  RAISE NOTICE 'PASS — a category outside the engagement''s practice raises WOS_CATEGORY_FOREIGN_PRACTICE';
 
   -- ── 8. WOS_SKILL_DUPLICATE ────────────────────────────────────────────
   v_ok := false;

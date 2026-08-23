@@ -79,8 +79,8 @@ const SKILL_IFRS = "skill-ifrs";
 const SKILL_TAX_LAW = "skill-tax-law";
 
 const staffingCategories = [
-  { category_id: CAT_AUDIT, category_name: "Auditor Senior", service_id: "svc-audit", display_order: 1 },
-  { category_id: CAT_TAX, category_name: "Tax Senior", service_id: "svc-audit", display_order: 2 },
+  { category_id: CAT_AUDIT, category_name: "Auditor Senior", practica_id: "svc-audit", display_order: 1 },
+  { category_id: CAT_TAX, category_name: "Tax Senior", practica_id: "svc-audit", display_order: 2 },
 ] as any;
 
 const activeSkills = [

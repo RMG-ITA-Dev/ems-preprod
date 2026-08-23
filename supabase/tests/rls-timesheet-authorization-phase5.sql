@@ -53,7 +53,7 @@ BEGIN;
 -- Andamiaje agregado por la migración cero: practica/sociedad/actividad/rol RBAC
 -- dummy y las FKs a auth.users, todos NOT NULL/FK reales en el esquema consolidado que
 -- el viejo shim minimalista (contra el que corría esta suite) no tenía en absoluto.
-INSERT INTO public.services (service_id, name, code, abbreviation)
+INSERT INTO public.practicas (practica_id, name, code, abbreviation)
 VALUES ('5e000000-0000-4000-8000-000000000101', 'P5 Test Practice', 8, 'PFV');
 
 INSERT INTO public.society (society_id, name)
@@ -88,10 +88,10 @@ INSERT INTO auth.users (id) VALUES
   ('a0000000-0000-4000-8000-000000000105'),
   ('a0000000-0000-4000-8000-000000000106');
 
-INSERT INTO public.activity_codes (activity_id, activity_code, description, service_id) VALUES
+INSERT INTO public.activity_codes (activity_id, activity_code, description, practica_id) VALUES
   ('ac000000-0000-4000-8000-000000000101', 'PFV-A1', 'P5 Test Activity', '5e000000-0000-4000-8000-000000000101');
 
-INSERT INTO public.categories (category_id, category_name, display_order, can_approve_timesheets, service_id) VALUES
+INSERT INTO public.categories (category_id, category_name, display_order, can_approve_timesheets, practica_id) VALUES
   ('c0000000-0000-4000-8000-000000000121', 'P5 Approver Managers',  20, true, '5e000000-0000-4000-8000-000000000101'),
   ('c0000000-0000-4000-8000-000000000122', 'P5 Submitters',         50, false, '5e000000-0000-4000-8000-000000000101'),
   ('c0000000-0000-4000-8000-000000000123', 'P5 Leads (no approve)', 20, false, '5e000000-0000-4000-8000-000000000101');
@@ -102,7 +102,7 @@ INSERT INTO public.categories (category_id, category_name, display_order, can_ap
 INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id)
 VALUES ('c1000000-0000-4000-8000-000000000101', 'P5 Test Client', 'P5-TAX-001');
 
-INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, category_id, service_id, society_id) VALUES
+INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, category_id, practica_id, society_id) VALUES
   ('50000000-0000-4000-8000-000000000101', 'a0000000-0000-4000-8000-000000000101', 'Tania', 'Target',        'c0000000-0000-4000-8000-000000000122', '5e000000-0000-4000-8000-000000000101', '50c00000-0000-4000-8000-000000000101'),
   ('50000000-0000-4000-8000-000000000102', 'a0000000-0000-4000-8000-000000000102', 'Pola',  'Approver',      'c0000000-0000-4000-8000-000000000121', '5e000000-0000-4000-8000-000000000101', '50c00000-0000-4000-8000-000000000101'),
   ('50000000-0000-4000-8000-000000000103', 'a0000000-0000-4000-8000-000000000103', 'Fede',  'Firmwide',      'c0000000-0000-4000-8000-000000000121', '5e000000-0000-4000-8000-000000000101', '50c00000-0000-4000-8000-000000000101'),

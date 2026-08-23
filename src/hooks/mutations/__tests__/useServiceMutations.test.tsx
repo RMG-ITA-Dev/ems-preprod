@@ -14,7 +14,7 @@ const {
   const mockInsert       = vi.fn(() => ({ select: mockSelect }));
   const mockUpdate       = vi.fn(() => ({ eq: vi.fn(() => ({ select: mockSelect })) }));
   const mockFrom         = vi.fn((table: string) => {
-    if (table === "services") return { insert: mockInsert, update: mockUpdate };
+    if (table === "practicas") return { insert: mockInsert, update: mockUpdate };
     throw new Error(`unexpected table: ${table}`);
   });
   const mockInvalidate   = vi.fn();
@@ -55,13 +55,13 @@ import { useCreateService, useUpdateService } from "@/hooks/mutations/useService
 describe("useCreateService (0625-149)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockSingle.mockResolvedValue({ data: { service_id: "s1", name: "Tax", code: 3 }, error: null });
+    mockSingle.mockResolvedValue({ data: { practica_id: "s1", name: "Tax", code: 3 }, error: null });
   });
 
-  it("calls supabase.from('services').insert().select().single()", async () => {
+  it("calls supabase.from('practicas').insert().select().single()", async () => {
     const mutation = useCreateService();
     await mutation.mutateAsync({ name: "Tax", code: 3, allows_rates_activities: true, is_active: true });
-    expect(mockFrom).toHaveBeenCalledWith("services");
+    expect(mockFrom).toHaveBeenCalledWith("practicas");
     expect(mockInsert).toHaveBeenCalledWith({ name: "Tax", code: 3, allows_rates_activities: true, is_active: true });
   });
 
@@ -81,17 +81,17 @@ describe("useCreateService (0625-149)", () => {
 describe("useUpdateService (0625-149)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockSingle.mockResolvedValue({ data: { service_id: "s1", name: "Tax", code: 3, is_active: false }, error: null });
+    mockSingle.mockResolvedValue({ data: { practica_id: "s1", name: "Tax", code: 3, is_active: false }, error: null });
   });
 
-  it("calls supabase.from('services').update().eq('service_id', id)", async () => {
+  it("calls supabase.from('practicas').update().eq('practica_id', id)", async () => {
     const eqMock = vi.fn(() => ({ select: mockSelect }));
     mockUpdate.mockReturnValue({ eq: eqMock });
     const mutation = useUpdateService();
     await mutation.mutateAsync({ id: "s1", data: { is_active: false } });
-    expect(mockFrom).toHaveBeenCalledWith("services");
+    expect(mockFrom).toHaveBeenCalledWith("practicas");
     expect(mockUpdate).toHaveBeenCalledWith({ is_active: false });
-    expect(eqMock).toHaveBeenCalledWith("service_id", "s1");
+    expect(eqMock).toHaveBeenCalledWith("practica_id", "s1");
   });
 
   it("invalidates ['services'] on success", async () => {

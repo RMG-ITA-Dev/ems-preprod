@@ -1,17 +1,19 @@
 -- ============================================================================
 -- EMS 2.0 Complete Database Schema
--- Generated: 2026-08-21
+-- Generated: 2026-08-23
 -- Method: pg_dump --schema-only --no-owner --no-privileges --schema=public
---         against the local Supabase stack replayed from the 184-migration
---         baseline (bugs/migracion_cero/plan_v2.md §1.7). Intermediate
---         pre-rename snapshot; regenerated again post-rename in Fase 3.7.
+--         against the local Supabase stack replayed from the consolidated +
+--         renamed migration set (bugs/migracion_cero/plan_v2.md §3.7).
+--         Replaces the services/taxonomies vocabulary with practicas/servicios
+--         (Fase 3 rename) and the 184-migration history with the 7
+--         supabase/migrations/*_cero_*.sql files.
 -- ============================================================================
 
 --
 -- PostgreSQL database dump
 --
 
-\restrict ZyjToXWz2u76kVnaH6h4a3K6nLoUcC78tkNGy03igNBrXkeoMO86s5nptRXjYE4
+\restrict FfYZE57R8ExFhx7uGW64wJU9RS8Sb9pOiguU5ZyypeSWx0kPKG9MUV3MwV4BOAz
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 18.4
@@ -566,10 +568,10 @@ $$;
 
 
 --
--- Name: cascade_service_abbreviation_rename(); Type: FUNCTION; Schema: public; Owner: -
+-- Name: cascade_practice_abbreviation_rename(); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.cascade_service_abbreviation_rename() RETURNS trigger
+CREATE FUNCTION public.cascade_practice_abbreviation_rename() RETURNS trigger
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
@@ -582,7 +584,7 @@ BEGIN
     UPDATE public.activity_codes
        SET activity_code = NEW.abbreviation
                         || substring(activity_code FROM length(OLD.abbreviation) + 1)
-     WHERE service_id    = OLD.service_id
+     WHERE practica_id    = OLD.practica_id
        AND activity_code LIKE OLD.abbreviation || '-%';
 
   END IF;
@@ -796,10 +798,10 @@ $$;
 
 
 --
--- Name: copy_categories_between_services(uuid, uuid, boolean); Type: FUNCTION; Schema: public; Owner: -
+-- Name: copy_categories_between_practices(uuid, uuid, boolean); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.copy_categories_between_services(p_source_service_id uuid, p_target_service_id uuid, p_replace boolean DEFAULT false) RETURNS integer
+CREATE FUNCTION public.copy_categories_between_practices(p_source_practice_id uuid, p_target_practice_id uuid, p_replace boolean DEFAULT false) RETURNS integer
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
@@ -816,14 +818,14 @@ BEGIN
     RAISE EXCEPTION 'Permission denied: admin only';
   END IF;
 
-  IF p_source_service_id = p_target_service_id THEN
-    RAISE EXCEPTION 'same_service';
+  IF p_source_practice_id = p_target_practice_id THEN
+    RAISE EXCEPTION 'same_practice';
   END IF;
 
   SELECT is_active, allows_rates_activities
     INTO v_src_active, v_src_allows
-    FROM public.services
-   WHERE service_id = p_source_service_id;
+    FROM public.practicas
+   WHERE practica_id = p_source_practice_id;
 
   IF v_src_active IS NULL THEN
     RAISE EXCEPTION 'source_not_found';
@@ -834,8 +836,8 @@ BEGIN
 
   SELECT is_active, allows_rates_activities
     INTO v_tgt_active, v_tgt_allows
-    FROM public.services
-   WHERE service_id = p_target_service_id
+    FROM public.practicas
+   WHERE practica_id = p_target_practice_id
    FOR UPDATE;
 
   IF v_tgt_active IS NULL THEN
@@ -847,7 +849,7 @@ BEGIN
 
   SELECT COUNT(*) INTO v_target_count
     FROM public.categories
-   WHERE service_id = p_target_service_id;
+   WHERE practica_id = p_target_practice_id;
 
   IF v_target_count > 0 THEN
     IF NOT p_replace THEN
@@ -856,7 +858,7 @@ BEGIN
 
     SELECT COUNT(*) INTO v_referenced
       FROM public.categories c
-     WHERE c.service_id = p_target_service_id
+     WHERE c.practica_id = p_target_practice_id
        AND (
          EXISTS (SELECT 1 FROM public.staff s WHERE s.category_id = c.category_id)
          OR EXISTS (SELECT 1 FROM public.wo_budget_lines b WHERE b.category_id = c.category_id)
@@ -870,21 +872,21 @@ BEGIN
       RAISE EXCEPTION 'target_referenced';
     END IF;
 
-    DELETE FROM public.categories WHERE service_id = p_target_service_id;
+    DELETE FROM public.categories WHERE practica_id = p_target_practice_id;
   END IF;
 
   INSERT INTO public.categories (
-    service_id, category_name, display_order,
+    practica_id, category_name, display_order,
     rate_high_bob, rate_low_bob, rate_high_usd, rate_low_usd,
     can_approve_wo, can_approve_timesheets, default_app_role
   )
-  SELECT p_target_service_id,
+  SELECT p_target_practice_id,
          src.category_name,
          row_number() OVER (ORDER BY src.display_order, src.category_name),
          src.rate_high_bob, src.rate_low_bob, src.rate_high_usd, src.rate_low_usd,
          src.can_approve_wo, src.can_approve_timesheets, src.default_app_role
     FROM public.categories src
-   WHERE src.service_id = p_source_service_id;
+   WHERE src.practica_id = p_source_practice_id;
 
   GET DIAGNOSTICS v_inserted = ROW_COUNT;
   RETURN v_inserted;
@@ -913,16 +915,16 @@ CREATE TABLE public.categories (
     can_approve_wo boolean DEFAULT false,
     can_approve_timesheets boolean DEFAULT false,
     default_app_role public.app_role,
-    service_id uuid NOT NULL,
+    practica_id uuid NOT NULL,
     CONSTRAINT categories_display_order_positive CHECK ((display_order >= 1))
 );
 
 
 --
--- Name: create_category_for_service(uuid, text, integer, numeric, numeric, numeric, numeric, boolean, boolean, public.app_role); Type: FUNCTION; Schema: public; Owner: -
+-- Name: create_category_for_practice(uuid, text, integer, numeric, numeric, numeric, numeric, boolean, boolean, public.app_role); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.create_category_for_service(p_service_id uuid, p_category_name text, p_display_order integer DEFAULT NULL::integer, p_rate_high_bob numeric DEFAULT 0, p_rate_low_bob numeric DEFAULT 0, p_rate_high_usd numeric DEFAULT 0, p_rate_low_usd numeric DEFAULT 0, p_can_approve_wo boolean DEFAULT false, p_can_approve_timesheets boolean DEFAULT false, p_default_app_role public.app_role DEFAULT NULL::public.app_role) RETURNS public.categories
+CREATE FUNCTION public.create_category_for_practice(p_practice_id uuid, p_category_name text, p_display_order integer DEFAULT NULL::integer, p_rate_high_bob numeric DEFAULT 0, p_rate_low_bob numeric DEFAULT 0, p_rate_high_usd numeric DEFAULT 0, p_rate_low_usd numeric DEFAULT 0, p_can_approve_wo boolean DEFAULT false, p_can_approve_timesheets boolean DEFAULT false, p_default_app_role public.app_role DEFAULT NULL::public.app_role) RETURNS public.categories
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
@@ -937,26 +939,26 @@ BEGIN
     RAISE EXCEPTION 'Permission denied: admin only';
   END IF;
 
-  -- Lock the service row to serialize concurrent inserts for the same service.
+  -- Lock the practice row to serialize concurrent inserts for the same practice.
   SELECT is_active, allows_rates_activities
     INTO v_active, v_allows
-    FROM public.services
-   WHERE service_id = p_service_id
+    FROM public.practicas
+   WHERE practica_id = p_practice_id
    FOR UPDATE;
 
   IF v_active IS NULL THEN
-    RAISE EXCEPTION 'Service not found';
+    RAISE EXCEPTION 'Practice not found';
   END IF;
   IF NOT v_active THEN
-    RAISE EXCEPTION 'Service is inactive';
+    RAISE EXCEPTION 'Practice is inactive';
   END IF;
   IF NOT v_allows THEN
-    RAISE EXCEPTION 'Service does not allow rates/categories';
+    RAISE EXCEPTION 'Practice does not allow rates/categories';
   END IF;
 
   SELECT COALESCE(MAX(display_order), 0) INTO v_max
     FROM public.categories
-   WHERE service_id = p_service_id;
+   WHERE practica_id = p_practice_id;
 
   -- Null / out-of-range → append; otherwise clamp to [1, max+1] (gap-free).
   IF p_display_order IS NULL OR p_display_order > v_max + 1 THEN
@@ -970,15 +972,15 @@ BEGIN
   -- Shift existing siblings from the target position onward.
   UPDATE public.categories
      SET display_order = display_order + 1
-   WHERE service_id = p_service_id
+   WHERE practica_id = p_practice_id
      AND display_order >= v_position;
 
   INSERT INTO public.categories (
-    service_id, category_name, display_order,
+    practica_id, category_name, display_order,
     rate_high_bob, rate_low_bob, rate_high_usd, rate_low_usd,
     can_approve_wo, can_approve_timesheets, default_app_role
   ) VALUES (
-    p_service_id, p_category_name, v_position,
+    p_practice_id, p_category_name, v_position,
     p_rate_high_bob, p_rate_low_bob, p_rate_high_usd, p_rate_low_usd,
     p_can_approve_wo, p_can_approve_timesheets, p_default_app_role
   )
@@ -1067,7 +1069,7 @@ BEGIN
     RAISE EXCEPTION 'Oficina inválida: %', p_oficina;
   END IF;
 
-  IF NOT EXISTS (SELECT 1 FROM public.services WHERE code = p_practica AND is_active) THEN
+  IF NOT EXISTS (SELECT 1 FROM public.practicas WHERE code = p_practica AND is_active) THEN
     RAISE EXCEPTION 'Práctica inválida: %', p_practica;
   END IF;
 
@@ -1090,11 +1092,11 @@ BEGIN
     RAISE EXCEPTION 'Sociedad inválida o inactiva: %', p_society_id;
   END IF;
 
-  -- Taxonomy is optional, but if provided it must reference an active row.
+  -- Servicio is optional, but if provided it must reference an active row.
   IF p_taxonomy_id IS NOT NULL AND NOT EXISTS (
-    SELECT 1 FROM public.taxonomies WHERE taxonomy_id = p_taxonomy_id AND is_active
+    SELECT 1 FROM public.servicios WHERE taxonomy_id = p_taxonomy_id AND is_active
   ) THEN
-    RAISE EXCEPTION 'Taxonomía inválida o inactiva: %', p_taxonomy_id;
+    RAISE EXCEPTION 'Servicio inválido o inactivo: %', p_taxonomy_id;
   END IF;
 
   -- Mirrors getFiscalYearForDate (src/lib/fiscalCalculations.ts): fiscal year runs Oct 1 -> Sep 30,
@@ -1181,17 +1183,19 @@ CREATE TABLE public.activity_codes (
     is_active boolean DEFAULT true,
     created_at timestamp with time zone DEFAULT now(),
     default_category_id uuid,
-    service_id uuid NOT NULL,
+    practica_id uuid,
     entity_type text DEFAULT 'A'::text NOT NULL,
-    CONSTRAINT activity_codes_entity_type_check CHECK ((entity_type = 'A'::text))
+    is_system boolean DEFAULT false NOT NULL,
+    CONSTRAINT activity_codes_entity_type_check CHECK ((entity_type = 'A'::text)),
+    CONSTRAINT activity_codes_practica_id_or_system CHECK ((is_system OR (practica_id IS NOT NULL)))
 );
 
 
 --
--- Name: create_service_activity(uuid, text, text); Type: FUNCTION; Schema: public; Owner: -
+-- Name: create_practice_activity(uuid, text, text); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.create_service_activity(p_service_id uuid, p_description text, p_entity_type text DEFAULT 'A'::text) RETURNS public.activity_codes
+CREATE FUNCTION public.create_practice_activity(p_practice_id uuid, p_description text, p_entity_type text DEFAULT 'A'::text) RETURNS public.activity_codes
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
     AS $_$
@@ -1209,35 +1213,36 @@ BEGIN
     RAISE EXCEPTION 'Invalid entity_type: %', p_entity_type;
   END IF;
 
-  -- Lock service row to prevent concurrent inserts for the same service.
+  -- Lock practice row to prevent concurrent inserts for the same practice.
   SELECT abbreviation INTO v_abbrev
-    FROM public.services
-   WHERE service_id = p_service_id AND is_active = true
+    FROM public.practicas
+   WHERE practica_id = p_practice_id AND is_active = true
    FOR UPDATE;
 
   IF v_abbrev IS NULL THEN
-    RAISE EXCEPTION 'Service not found, inactive, or has no abbreviation';
+    RAISE EXCEPTION 'Practice not found, inactive, or has no abbreviation';
   END IF;
 
   -- Highest existing ordinal among active, ordinal-scheme activities for
-  -- this (service, entity_type) pair. 0817-177: legacy codes (PLN/FLD/REV/
-  -- DOC/ADM/MTG/TRV/TRN) don't match the {abbrev}-{entity_type}{n} pattern
-  -- and are excluded. Using MAX (not COUNT) also survives any gap left by an
-  -- environment where a real activity was already created under the old,
-  -- unfiltered count before this guard existed — the next code always beats
-  -- the highest one on record, so it can never collide.
+  -- this (practice, entity_type) pair. System activities (is_system=true,
+  -- e.g. ADM) never have a practica_id, so they can never match p_practice_id
+  -- here regardless of code shape. Using MAX (not COUNT) also survives any
+  -- gap left by an environment where a real activity was already created
+  -- under an unfiltered count before this guard existed — the next code
+  -- always beats the highest one on record, so it can never collide.
   SELECT COALESCE(MAX(substring(activity_code FROM '[0-9]+$')::int), 0) INTO v_max_ordinal
     FROM public.activity_codes
-   WHERE service_id  = p_service_id
+   WHERE practica_id  = p_practice_id
      AND entity_type = p_entity_type
      AND is_active   = true
+     AND is_system   = false
      AND activity_code ~ ('^' || v_abbrev || '-' || p_entity_type || '[0-9]+$');
 
   -- No hard cap: 1–9 is a UI recommendation only.
   v_code := v_abbrev || '-' || p_entity_type || (v_max_ordinal + 1)::text;
 
-  INSERT INTO public.activity_codes (activity_code, description, is_active, service_id, entity_type)
-  VALUES (v_code, p_description, true, p_service_id, p_entity_type)
+  INSERT INTO public.activity_codes (activity_code, description, is_active, practica_id, entity_type)
+  VALUES (v_code, p_description, true, p_practice_id, p_entity_type)
   RETURNING * INTO v_row;
 
   RETURN v_row;
@@ -1258,15 +1263,15 @@ $$;
 
 
 --
--- Name: deactivate_service_activity(uuid); Type: FUNCTION; Schema: public; Owner: -
+-- Name: deactivate_practice_activity(uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.deactivate_service_activity(p_activity_id uuid) RETURNS void
+CREATE FUNCTION public.deactivate_practice_activity(p_activity_id uuid) RETURNS void
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
     AS $_$
 DECLARE
-  v_service_id  uuid;
+  v_practica_id  uuid;
   v_entity_type text;
   v_abbrev      text;
   v_old_code    text;
@@ -1278,26 +1283,20 @@ BEGIN
     RAISE EXCEPTION 'Permission denied: admin only';
   END IF;
 
-  -- Lock and fetch the target activity (and its service row) atomically.
-  SELECT ac.service_id, ac.entity_type, ac.activity_code, s.abbreviation
-    INTO v_service_id, v_entity_type, v_old_code, v_abbrev
+  -- Lock and fetch the target activity (and its practice row) atomically.
+  SELECT ac.practica_id, ac.entity_type, ac.activity_code, s.abbreviation
+    INTO v_practica_id, v_entity_type, v_old_code, v_abbrev
     FROM public.activity_codes ac
-    JOIN public.services s USING (service_id)
-   WHERE ac.activity_id = p_activity_id AND ac.is_active = true
+    JOIN public.practicas s USING (practica_id)
+   WHERE ac.activity_id = p_activity_id AND ac.is_active = true AND ac.is_system = false
    FOR UPDATE OF ac, s;
 
-  IF v_service_id IS NULL THEN
-    RAISE EXCEPTION 'Activity not found, already inactive, or not service-linked';
+  IF v_practica_id IS NULL THEN
+    RAISE EXCEPTION 'Activity not found, already inactive, or not practice-linked';
   END IF;
 
   IF v_abbrev IS NULL THEN
-    RAISE EXCEPTION 'Service has no abbreviation';
-  END IF;
-
-  -- 0817-177: legacy codes (PLN/FLD/REV/DOC/ADM/MTG/TRV/TRN) predate the
-  -- {abbrev}-{entity_type}{n} scheme and have no trailing ordinal to shift.
-  IF v_old_code !~ ('^' || v_abbrev || '-' || v_entity_type || '[0-9]+$') THEN
-    RAISE EXCEPTION 'Activity code % predates the ordinal scheme and cannot be deactivated through this action', v_old_code;
+    RAISE EXCEPTION 'Practice has no abbreviation';
   END IF;
 
   -- Extract current ordinal from code (e.g. AUD-A3 → 3, AUD-A10 → 10).
@@ -1316,7 +1315,7 @@ BEGIN
   FOR rec IN
     SELECT activity_id
       FROM public.activity_codes
-     WHERE service_id  = v_service_id
+     WHERE practica_id  = v_practica_id
        AND entity_type = v_entity_type
        AND is_active   = true
        AND substring(activity_code FROM '[0-9]+$')::int > v_old_ordinal
@@ -1333,40 +1332,40 @@ $_$;
 
 
 --
--- Name: delete_category_for_service(uuid); Type: FUNCTION; Schema: public; Owner: -
+-- Name: delete_category_for_practice(uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.delete_category_for_service(p_category_id uuid) RETURNS void
+CREATE FUNCTION public.delete_category_for_practice(p_category_id uuid) RETURNS void
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
 DECLARE
-  v_service_id uuid;
+  v_practica_id uuid;
   v_pos        integer;
 BEGIN
   IF NOT public.is_admin() THEN
     RAISE EXCEPTION 'Permission denied: admin only';
   END IF;
 
-  -- Lock the target row; capture its service + position for the compaction.
-  SELECT service_id, display_order
-    INTO v_service_id, v_pos
+  -- Lock the target row; capture its practice + position for the compaction.
+  SELECT practica_id, display_order
+    INTO v_practica_id, v_pos
     FROM public.categories
    WHERE category_id = p_category_id
    FOR UPDATE;
 
-  IF v_service_id IS NULL THEN
+  IF v_practica_id IS NULL THEN
     RAISE EXCEPTION 'Category not found';
   END IF;
 
   DELETE FROM public.categories WHERE category_id = p_category_id;
 
   -- Close the gap: everything after the removed position shifts up by one.
-  -- The (service_id, display_order) unique is DEFERRABLE, so the bulk shift is
+  -- The (practica_id, display_order) unique is DEFERRABLE, so the bulk shift is
   -- safe within this transaction.
   UPDATE public.categories
      SET display_order = display_order - 1
-   WHERE service_id = v_service_id
+   WHERE practica_id = v_practica_id
      AND display_order > v_pos;
 END;
 $$;
@@ -1413,17 +1412,17 @@ $$;
 
 
 --
--- Name: enforce_assignment_service_scope(); Type: FUNCTION; Schema: public; Owner: -
+-- Name: enforce_assignment_practice_scope(); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.enforce_assignment_service_scope() RETURNS trigger
+CREATE FUNCTION public.enforce_assignment_practice_scope() RETURNS trigger
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
 DECLARE
   v_practica    smallint;
-  v_service_id  uuid;
-  v_cat_service uuid;
+  v_practica_id  uuid;
+  v_cat_practica uuid;
 BEGIN
   SELECT e.practica INTO v_practica
     FROM public.engagements e
@@ -1433,16 +1432,16 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  SELECT service_id INTO v_service_id
-    FROM public.services
+  SELECT practica_id INTO v_practica_id
+    FROM public.practicas
    WHERE code = v_practica;
 
-  SELECT service_id INTO v_cat_service
+  SELECT practica_id INTO v_cat_practica
     FROM public.categories
    WHERE category_id = NEW.category_id;
 
-  IF v_cat_service IS DISTINCT FROM v_service_id THEN
-    RAISE EXCEPTION 'Category % does not belong to the engagement''s service', NEW.category_id;
+  IF v_cat_practica IS DISTINCT FROM v_practica_id THEN
+    RAISE EXCEPTION 'Category % does not belong to the engagement''s practice', NEW.category_id;
   END IF;
 
   RETURN NEW;
@@ -1639,17 +1638,17 @@ END; $$;
 
 
 --
--- Name: enforce_wo_staffing_service_scope(); Type: FUNCTION; Schema: public; Owner: -
+-- Name: enforce_wo_staffing_practice_scope(); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.enforce_wo_staffing_service_scope() RETURNS trigger
+CREATE FUNCTION public.enforce_wo_staffing_practice_scope() RETURNS trigger
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
 DECLARE
   v_practica    smallint;
-  v_service_id  uuid;
-  v_cat_service uuid;
+  v_practica_id  uuid;
+  v_cat_practica uuid;
 BEGIN
   SELECT e.practica INTO v_practica
     FROM public.work_orders wo
@@ -1661,16 +1660,16 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  SELECT service_id INTO v_service_id
-    FROM public.services
+  SELECT practica_id INTO v_practica_id
+    FROM public.practicas
    WHERE code = v_practica;
 
-  SELECT service_id INTO v_cat_service
+  SELECT practica_id INTO v_cat_practica
     FROM public.categories
    WHERE category_id = NEW.category_id;
 
-  IF v_cat_service IS DISTINCT FROM v_service_id THEN
-    RAISE EXCEPTION 'Category % does not belong to the work order''s engagement service', NEW.category_id;
+  IF v_cat_practica IS DISTINCT FROM v_practica_id THEN
+    RAISE EXCEPTION 'Category % does not belong to the work order''s engagement practice', NEW.category_id;
   END IF;
 
   RETURN NEW;
@@ -1679,49 +1678,49 @@ $$;
 
 
 --
--- Name: enforce_worksheet_cell_service_scope(); Type: FUNCTION; Schema: public; Owner: -
+-- Name: enforce_worksheet_cell_practice_scope(); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.enforce_worksheet_cell_service_scope() RETURNS trigger
+CREATE FUNCTION public.enforce_worksheet_cell_practice_scope() RETURNS trigger
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
 DECLARE
   v_practica    smallint;
-  v_service_id  uuid;
-  v_cat_service uuid;
-  v_act_service uuid;
+  v_practica_id  uuid;
+  v_cat_practica uuid;
+  v_act_practica uuid;
 BEGIN
   SELECT e.practica INTO v_practica
     FROM public.activity_worksheets aw
     JOIN public.engagements e ON e.engagement_id = aw.engagement_id
    WHERE aw.id = NEW.worksheet_id;
 
-  -- Legacy engagements with no assigned service are not scoped by this rule;
-  -- the UI already limits them to no categories (categories.service_id is NOT NULL).
+  -- Legacy engagements with no assigned practice are not scoped by this rule;
+  -- the UI already limits them to no categories (categories.practica_id is NOT NULL).
   IF v_practica IS NULL THEN
     RETURN NEW;
   END IF;
 
-  SELECT service_id INTO v_service_id
-    FROM public.services
+  SELECT practica_id INTO v_practica_id
+    FROM public.practicas
    WHERE code = v_practica;
 
-  SELECT service_id INTO v_cat_service
+  SELECT practica_id INTO v_cat_practica
     FROM public.categories
    WHERE category_id = NEW.category_id;
 
-  IF v_cat_service IS DISTINCT FROM v_service_id THEN
-    RAISE EXCEPTION 'Category % does not belong to the engagement''s service', NEW.category_id;
+  IF v_cat_practica IS DISTINCT FROM v_practica_id THEN
+    RAISE EXCEPTION 'Category % does not belong to the engagement''s practice', NEW.category_id;
   END IF;
 
-  SELECT service_id INTO v_act_service
+  SELECT practica_id INTO v_act_practica
     FROM public.activity_codes
    WHERE activity_id = NEW.activity_id;
 
-  -- NULL activity service_id = global activity (e.g. 100-PLA, ADM), valid for every service.
-  IF v_act_service IS NOT NULL AND v_act_service <> v_service_id THEN
-    RAISE EXCEPTION 'Activity % does not belong to the engagement''s service', NEW.activity_id;
+  -- NULL activity practica_id = global activity (e.g. 100-PLA, ADM), valid for every practice.
+  IF v_act_practica IS NOT NULL AND v_act_practica <> v_practica_id THEN
+    RAISE EXCEPTION 'Activity % does not belong to the engagement''s practice', NEW.activity_id;
   END IF;
 
   RETURN NEW;
@@ -2668,7 +2667,7 @@ $$;
 -- Name: get_engagement_team_candidates(); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.get_engagement_team_candidates() RETURNS TABLE(staff_id uuid, display_name text, candidate_group text, service_id uuid)
+CREATE FUNCTION public.get_engagement_team_candidates() RETURNS TABLE(staff_id uuid, display_name text, candidate_group text, practica_id uuid)
     LANGUAGE sql STABLE SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
@@ -2693,7 +2692,7 @@ CREATE FUNCTION public.get_engagement_team_candidates() RETURNS TABLE(staff_id u
            WHEN 'tax_assistant' THEN 'specialist_tax'
          END AS candidate_group,
          -- El cliente refina por el servicio del encargo sin volver a pedir datos.
-         s.service_id
+         s.practica_id
     FROM public.staff s
     -- INNER JOIN: excluye al personal sin cuenta vinculada (staff.auth_user_id es nullable
     -- por diseño — se vincula por email vía trigger) y, con el IN de abajo, a quien tenga
@@ -3577,7 +3576,7 @@ CREATE FUNCTION public.move_category(p_category_id uuid, p_new_position integer)
     SET search_path TO 'public'
     AS $$
 DECLARE
-  v_service_id uuid;
+  v_practica_id uuid;
   v_old_pos    integer;
   v_total      integer;
 BEGIN
@@ -3585,19 +3584,19 @@ BEGIN
     RAISE EXCEPTION 'Permission denied: admin only';
   END IF;
 
-  SELECT service_id, display_order
-    INTO v_service_id, v_old_pos
+  SELECT practica_id, display_order
+    INTO v_practica_id, v_old_pos
     FROM public.categories
    WHERE category_id = p_category_id
    FOR UPDATE;
 
-  IF v_service_id IS NULL THEN
+  IF v_practica_id IS NULL THEN
     RAISE EXCEPTION 'Category not found';
   END IF;
 
   SELECT COUNT(*) INTO v_total
     FROM public.categories
-   WHERE service_id = v_service_id;
+   WHERE practica_id = v_practica_id;
 
   IF p_new_position < 1 OR p_new_position > v_total THEN
     RAISE EXCEPTION 'Position % out of range (1-%)', p_new_position, v_total;
@@ -3610,13 +3609,13 @@ BEGIN
   IF p_new_position < v_old_pos THEN
     UPDATE public.categories
        SET display_order = display_order + 1
-     WHERE service_id = v_service_id
+     WHERE practica_id = v_practica_id
        AND display_order >= p_new_position
        AND display_order <  v_old_pos;
   ELSE
     UPDATE public.categories
        SET display_order = display_order - 1
-     WHERE service_id = v_service_id
+     WHERE practica_id = v_practica_id
        AND display_order >  v_old_pos
        AND display_order <= p_new_position;
   END IF;
@@ -3829,15 +3828,15 @@ $$;
 
 
 --
--- Name: reactivate_service_activity(uuid); Type: FUNCTION; Schema: public; Owner: -
+-- Name: reactivate_practice_activity(uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.reactivate_service_activity(p_activity_id uuid) RETURNS public.activity_codes
+CREATE FUNCTION public.reactivate_practice_activity(p_activity_id uuid) RETURNS public.activity_codes
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
     AS $_$
 DECLARE
-  v_service_id   uuid;
+  v_practica_id   uuid;
   v_entity_type  text;
   v_abbrev       text;
   v_old_code     text;
@@ -3849,39 +3848,29 @@ BEGIN
     RAISE EXCEPTION 'Permission denied: admin only';
   END IF;
 
-  -- Lock and fetch the target (and its service row) atomically.
-  SELECT ac.service_id, ac.entity_type, ac.activity_code, s.abbreviation
-    INTO v_service_id, v_entity_type, v_old_code, v_abbrev
+  -- Lock and fetch the target (and its practice row) atomically.
+  SELECT ac.practica_id, ac.entity_type, ac.activity_code, s.abbreviation
+    INTO v_practica_id, v_entity_type, v_old_code, v_abbrev
     FROM public.activity_codes ac
-    JOIN public.services s USING (service_id)
-   WHERE ac.activity_id = p_activity_id AND ac.is_active = false
+    JOIN public.practicas s USING (practica_id)
+   WHERE ac.activity_id = p_activity_id AND ac.is_active = false AND ac.is_system = false
    FOR UPDATE OF ac, s;
 
-  IF v_service_id IS NULL THEN
-    RAISE EXCEPTION 'Activity not found, already active, or not service-linked';
+  IF v_practica_id IS NULL THEN
+    RAISE EXCEPTION 'Activity not found, already active, or not practice-linked';
   END IF;
 
   IF v_abbrev IS NULL THEN
-    RAISE EXCEPTION 'Service has no abbreviation';
-  END IF;
-
-  -- 0817-177: legacy codes (PLN/FLD/REV/DOC/ADM/MTG/TRV/TRN) predate the
-  -- {abbrev}-{entity_type}{n} scheme; reactivating one must never assign it
-  -- a fresh ordinal code (e.g. 'ADM' → 'AUD-A<n>' would break
-  -- useAdminActivityId's literal lookup), so reject it with a clear error
-  -- instead — same posture as deactivate_service_activity/
-  -- reorder_service_activity for these codes.
-  IF v_old_code !~ ('^' || v_abbrev || '-' || v_entity_type || '[0-9]+$') THEN
-    RAISE EXCEPTION 'Activity code % predates the ordinal scheme and cannot be reactivated through this action', v_old_code;
+    RAISE EXCEPTION 'Practice has no abbreviation';
   END IF;
 
   -- Highest existing ordinal among active, ordinal-scheme activities for
-  -- this (service, entity_type) pair — same MAX-based derivation as
-  -- create_service_activity, so a code assigned before this guard existed
+  -- this (practice, entity_type) pair — same MAX-based derivation as
+  -- create_practice_activity, so a code assigned before this guard existed
   -- can never collide with the one generated here.
   SELECT COALESCE(MAX(substring(activity_code FROM '[0-9]+$')::int), 0) INTO v_max_ordinal
     FROM public.activity_codes
-   WHERE service_id  = v_service_id
+   WHERE practica_id  = v_practica_id
      AND entity_type = v_entity_type
      AND is_active   = true
      AND activity_code ~ ('^' || v_abbrev || '-' || v_entity_type || '[0-9]+$');
@@ -4070,15 +4059,15 @@ $_$;
 
 
 --
--- Name: reorder_service_activity(uuid, integer); Type: FUNCTION; Schema: public; Owner: -
+-- Name: reorder_practice_activity(uuid, integer); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.reorder_service_activity(p_activity_id uuid, p_new_position integer) RETURNS void
+CREATE FUNCTION public.reorder_practice_activity(p_activity_id uuid, p_new_position integer) RETURNS void
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
     AS $_$
 DECLARE
-  v_service_id  uuid;
+  v_practica_id  uuid;
   v_entity_type text;
   v_abbrev      text;
   v_code        text;
@@ -4090,35 +4079,28 @@ BEGIN
     RAISE EXCEPTION 'Permission denied: admin only';
   END IF;
 
-  -- Fetch and lock the target activity (and its service row) atomically.
-  SELECT ac.service_id, ac.entity_type, ac.activity_code, s.abbreviation
-    INTO v_service_id, v_entity_type, v_code, v_abbrev
+  -- Fetch and lock the target activity (and its practice row) atomically.
+  SELECT ac.practica_id, ac.entity_type, ac.activity_code, s.abbreviation
+    INTO v_practica_id, v_entity_type, v_code, v_abbrev
     FROM public.activity_codes ac
-    JOIN public.services s USING (service_id)
-   WHERE ac.activity_id = p_activity_id AND ac.is_active = true
+    JOIN public.practicas s USING (practica_id)
+   WHERE ac.activity_id = p_activity_id AND ac.is_active = true AND ac.is_system = false
    FOR UPDATE OF ac, s;
 
-  IF v_service_id IS NULL THEN
-    RAISE EXCEPTION 'Activity not found or not an active service-linked activity';
+  IF v_practica_id IS NULL THEN
+    RAISE EXCEPTION 'Activity not found or not an active practice-linked activity';
   END IF;
 
   IF v_abbrev IS NULL THEN
-    RAISE EXCEPTION 'Service has no abbreviation';
+    RAISE EXCEPTION 'Practice has no abbreviation';
   END IF;
 
-  -- 0817-177: legacy codes (PLN/FLD/REV/DOC/ADM/MTG/TRV/TRN) predate the
-  -- {abbrev}-{entity_type}{n} scheme this RPC renumbers; renaming them (e.g.
-  -- 'ADM' → 'AUD-A<n>') would break useAdminActivityId's literal lookup.
-  IF v_code !~ ('^' || v_abbrev || '-' || v_entity_type || '[0-9]+$') THEN
-    RAISE EXCEPTION 'Activity code % predates the ordinal scheme and cannot be reordered', v_code;
-  END IF;
-
-  -- Lock every active, ordinal-scheme sibling of this (service, entity_type)
+  -- Lock every active, ordinal-scheme sibling of this (practice, entity_type)
   -- before reading the ordered set (FOR UPDATE cannot be combined with
   -- array_agg). Legacy siblings are excluded so they're never renumbered.
   PERFORM 1
     FROM public.activity_codes
-   WHERE service_id  = v_service_id
+   WHERE practica_id  = v_practica_id
      AND entity_type = v_entity_type
      AND is_active   = true
      AND activity_code ~ ('^' || v_abbrev || '-' || v_entity_type || '[0-9]+$')
@@ -4127,7 +4109,7 @@ BEGIN
   SELECT array_agg(activity_id ORDER BY substring(activity_code FROM '[0-9]+$')::int)
     INTO v_ids
     FROM public.activity_codes
-   WHERE service_id  = v_service_id
+   WHERE practica_id  = v_practica_id
      AND entity_type = v_entity_type
      AND is_active   = true
      AND activity_code ~ ('^' || v_abbrev || '-' || v_entity_type || '[0-9]+$');
@@ -4259,8 +4241,8 @@ DECLARE
   v_practica        smallint;
   v_eng_start       date;
   v_eng_end         date;
-  v_service_id      uuid;
-  v_cat_service     uuid;
+  v_practica_id      uuid;
+  v_cat_practica     uuid;
   v_row             jsonb;
   v_assignment_id   uuid;
   v_staff_id        uuid;
@@ -4303,7 +4285,7 @@ BEGIN
   END IF;
 
   IF v_practica IS NOT NULL THEN
-    SELECT service_id INTO v_service_id FROM public.services WHERE code = v_practica;
+    SELECT practica_id INTO v_practica_id FROM public.practicas WHERE code = v_practica;
   END IF;
 
   -- 4. Validar TODO el payload antes de escribir nada.
@@ -4351,10 +4333,10 @@ BEGIN
         USING DETAIL = jsonb_build_object('allocation_percent', v_allocation)::text;
     END IF;
 
-    IF v_service_id IS NOT NULL THEN
-      SELECT service_id INTO v_cat_service FROM public.categories WHERE category_id = v_category_id;
-      IF v_cat_service IS DISTINCT FROM v_service_id THEN
-        RAISE EXCEPTION 'EAS_CATEGORY_FOREIGN_SERVICE'
+    IF v_practica_id IS NOT NULL THEN
+      SELECT practica_id INTO v_cat_practica FROM public.categories WHERE category_id = v_category_id;
+      IF v_cat_practica IS DISTINCT FROM v_practica_id THEN
+        RAISE EXCEPTION 'EAS_CATEGORY_FOREIGN_PRACTICE'
           USING DETAIL = jsonb_build_object('category_id', v_category_id)::text;
       END IF;
     END IF;
@@ -4494,8 +4476,8 @@ DECLARE
   v_engagement_id uuid;
   v_status        text;
   v_practica      smallint;
-  v_service_id    uuid;
-  v_cat_service   uuid;
+  v_practica_id    uuid;
+  v_cat_practica   uuid;
   v_category_id   uuid;
   v_staff_count   int;
   v_req           jsonb;
@@ -4535,7 +4517,7 @@ BEGIN
   --    legado sin servicio asignado, mismo precedente que los triggers de C2).
   SELECT e.practica INTO v_practica FROM public.engagements e WHERE e.engagement_id = v_engagement_id;
   IF v_practica IS NOT NULL THEN
-    SELECT service_id INTO v_service_id FROM public.services WHERE code = v_practica;
+    SELECT practica_id INTO v_practica_id FROM public.practicas WHERE code = v_practica;
   END IF;
 
   -- 4. Validar TODO el payload antes de tocar ninguna fila (todo-o-nada).
@@ -4560,10 +4542,10 @@ BEGIN
         USING DETAIL = jsonb_build_object('category_id', v_category_id, 'staff_count', v_staff_count)::text;
     END IF;
 
-    IF v_service_id IS NOT NULL THEN
-      SELECT service_id INTO v_cat_service FROM public.categories WHERE category_id = v_category_id;
-      IF v_cat_service IS DISTINCT FROM v_service_id THEN
-        RAISE EXCEPTION 'WOS_CATEGORY_FOREIGN_SERVICE'
+    IF v_practica_id IS NOT NULL THEN
+      SELECT practica_id INTO v_cat_practica FROM public.categories WHERE category_id = v_category_id;
+      IF v_cat_practica IS DISTINCT FROM v_practica_id THEN
+        RAISE EXCEPTION 'WOS_CATEGORY_FOREIGN_PRACTICE'
           USING DETAIL = jsonb_build_object('category_id', v_category_id)::text;
       END IF;
     END IF;
@@ -5311,15 +5293,15 @@ $$;
 
 
 --
--- Name: update_category_for_service(uuid, text, integer, numeric, numeric, numeric, numeric, boolean, boolean, public.app_role); Type: FUNCTION; Schema: public; Owner: -
+-- Name: update_category_for_practice(uuid, text, integer, numeric, numeric, numeric, numeric, boolean, boolean, public.app_role); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.update_category_for_service(p_category_id uuid, p_category_name text, p_display_order integer, p_rate_high_bob numeric, p_rate_low_bob numeric, p_rate_high_usd numeric, p_rate_low_usd numeric, p_can_approve_wo boolean, p_can_approve_timesheets boolean, p_default_app_role public.app_role) RETURNS public.categories
+CREATE FUNCTION public.update_category_for_practice(p_category_id uuid, p_category_name text, p_display_order integer, p_rate_high_bob numeric, p_rate_low_bob numeric, p_rate_high_usd numeric, p_rate_low_usd numeric, p_can_approve_wo boolean, p_can_approve_timesheets boolean, p_default_app_role public.app_role) RETURNS public.categories
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
 DECLARE
-  v_service_id uuid;
+  v_practica_id uuid;
   v_old_pos    integer;
   v_total      integer;
   v_new_pos    integer;
@@ -5330,19 +5312,19 @@ BEGIN
   END IF;
 
   -- Lock the target category.
-  SELECT service_id, display_order
-    INTO v_service_id, v_old_pos
+  SELECT practica_id, display_order
+    INTO v_practica_id, v_old_pos
     FROM public.categories
    WHERE category_id = p_category_id
    FOR UPDATE;
 
-  IF v_service_id IS NULL THEN
+  IF v_practica_id IS NULL THEN
     RAISE EXCEPTION 'Category not found';
   END IF;
 
   SELECT COUNT(*) INTO v_total
     FROM public.categories
-   WHERE service_id = v_service_id;
+   WHERE practica_id = v_practica_id;
 
   -- Clamp requested order to the valid range.
   v_new_pos := GREATEST(1, LEAST(COALESCE(p_display_order, v_old_pos), v_total));
@@ -5352,14 +5334,14 @@ BEGIN
       -- Moving up: push the block [new, old-1] down by one.
       UPDATE public.categories
          SET display_order = display_order + 1
-       WHERE service_id = v_service_id
+       WHERE practica_id = v_practica_id
          AND display_order >= v_new_pos
          AND display_order <  v_old_pos;
     ELSE
       -- Moving down: pull the block [old+1, new] up by one.
       UPDATE public.categories
          SET display_order = display_order - 1
-       WHERE service_id = v_service_id
+       WHERE practica_id = v_practica_id
          AND display_order >  v_old_pos
          AND display_order <= v_new_pos;
     END IF;
@@ -5944,7 +5926,8 @@ CREATE TABLE public.staff (
     is_blocked boolean DEFAULT false NOT NULL,
     is_schedulable boolean DEFAULT true NOT NULL,
     society_id uuid NOT NULL,
-    service_id uuid NOT NULL,
+    practica_id uuid NOT NULL,
+    target_utilization_percent numeric DEFAULT 85 NOT NULL,
     CONSTRAINT chk_termination_after_hire CHECK (((termination_date IS NULL) OR (hire_date IS NULL) OR (termination_date >= hire_date))),
     CONSTRAINT staff_city_check CHECK (((city)::text = ANY ((ARRAY['La Paz'::character varying, 'Santa Cruz'::character varying])::text[])))
 );
@@ -6118,19 +6101,36 @@ CREATE TABLE public.parametro (
 
 
 --
--- Name: services; Type: TABLE; Schema: public; Owner: -
+-- Name: practicas; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.services (
-    service_id uuid DEFAULT gen_random_uuid() NOT NULL,
+CREATE TABLE public.practicas (
+    practica_id uuid DEFAULT gen_random_uuid() NOT NULL,
     name text NOT NULL,
     code smallint NOT NULL,
     allows_rates_activities boolean DEFAULT false NOT NULL,
     is_active boolean DEFAULT true NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     abbreviation text,
-    CONSTRAINT services_abbreviation_check CHECK ((abbreviation ~ '^[A-Z]{2,5}$'::text)),
-    CONSTRAINT services_code_check CHECK (((code >= 0) AND (code <= 9)))
+    CONSTRAINT practicas_abbreviation_check CHECK ((abbreviation ~ '^[A-Z]{2,5}$'::text)),
+    CONSTRAINT practicas_code_check CHECK (((code >= 0) AND (code <= 9)))
+);
+
+
+--
+-- Name: servicios; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.servicios (
+    taxonomy_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    code character varying(10) NOT NULL,
+    name text NOT NULL,
+    practica_id uuid,
+    is_active boolean DEFAULT true NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT servicios_code_check CHECK (((char_length(TRIM(BOTH FROM code)) >= 1) AND (char_length(TRIM(BOTH FROM code)) <= 10))),
+    CONSTRAINT servicios_name_check CHECK ((TRIM(BOTH FROM name) <> ''::text))
 );
 
 
@@ -6208,23 +6208,6 @@ CREATE TABLE public.staff_skills (
     created_at timestamp with time zone DEFAULT now(),
     updated_at timestamp with time zone DEFAULT now(),
     CONSTRAINT staff_skills_proficiency_level_check CHECK (((proficiency_level)::text = ANY ((ARRAY['Beginner'::character varying, 'Intermediate'::character varying, 'Advanced'::character varying])::text[])))
-);
-
-
---
--- Name: taxonomies; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.taxonomies (
-    taxonomy_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    code character varying(10) NOT NULL,
-    name text NOT NULL,
-    service_id uuid,
-    is_active boolean DEFAULT true NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT taxonomies_code_check CHECK (((char_length(TRIM(BOTH FROM code)) >= 1) AND (char_length(TRIM(BOTH FROM code)) <= 10))),
-    CONSTRAINT taxonomies_name_check CHECK ((TRIM(BOTH FROM name) <> ''::text))
 );
 
 
@@ -6750,27 +6733,27 @@ ALTER TABLE ONLY public.categories
 
 
 --
--- Name: categories categories_service_category_unique; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: categories categories_practica_category_unique; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.categories
-    ADD CONSTRAINT categories_service_category_unique UNIQUE (service_id, category_id);
+    ADD CONSTRAINT categories_practica_category_unique UNIQUE (practica_id, category_id);
 
 
 --
--- Name: categories categories_service_name_unique; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.categories
-    ADD CONSTRAINT categories_service_name_unique UNIQUE (service_id, category_name);
-
-
---
--- Name: categories categories_service_order_unique; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: categories categories_practica_name_unique; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.categories
-    ADD CONSTRAINT categories_service_order_unique UNIQUE (service_id, display_order) DEFERRABLE INITIALLY DEFERRED;
+    ADD CONSTRAINT categories_practica_name_unique UNIQUE (practica_id, category_name);
+
+
+--
+-- Name: categories categories_practica_order_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.categories
+    ADD CONSTRAINT categories_practica_order_unique UNIQUE (practica_id, display_order) DEFERRABLE INITIALLY DEFERRED;
 
 
 --
@@ -6942,19 +6925,27 @@ ALTER TABLE ONLY public.parametro
 
 
 --
--- Name: services services_code_key; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: practicas practicas_code_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.services
-    ADD CONSTRAINT services_code_key UNIQUE (code);
+ALTER TABLE ONLY public.practicas
+    ADD CONSTRAINT practicas_code_key UNIQUE (code);
 
 
 --
--- Name: services services_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: practicas practicas_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.services
-    ADD CONSTRAINT services_pkey PRIMARY KEY (service_id);
+ALTER TABLE ONLY public.practicas
+    ADD CONSTRAINT practicas_pkey PRIMARY KEY (practica_id);
+
+
+--
+-- Name: servicios servicios_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.servicios
+    ADD CONSTRAINT servicios_pkey PRIMARY KEY (taxonomy_id);
 
 
 --
@@ -7019,14 +7010,6 @@ ALTER TABLE ONLY public.staff_skills
 
 ALTER TABLE ONLY public.staff_skills
     ADD CONSTRAINT staff_skills_staff_id_skill_id_key UNIQUE (staff_id, skill_id);
-
-
---
--- Name: taxonomies taxonomies_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.taxonomies
-    ADD CONSTRAINT taxonomies_pkey PRIMARY KEY (taxonomy_id);
 
 
 --
@@ -7387,6 +7370,20 @@ CREATE UNIQUE INDEX idx_one_running_timer_per_staff ON public.timer_entries USIN
 
 
 --
+-- Name: idx_servicios_code_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_servicios_code_unique ON public.servicios USING btree (lower(TRIM(BOTH FROM code)));
+
+
+--
+-- Name: idx_servicios_practica_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_servicios_practica_id ON public.servicios USING btree (practica_id);
+
+
+--
 -- Name: idx_skills_name_unique; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -7419,20 +7416,6 @@ CREATE INDEX idx_staff_skills_skill ON public.staff_skills USING btree (skill_id
 --
 
 CREATE INDEX idx_staff_skills_staff ON public.staff_skills USING btree (staff_id);
-
-
---
--- Name: idx_taxonomies_code_unique; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX idx_taxonomies_code_unique ON public.taxonomies USING btree (lower(TRIM(BOTH FROM code)));
-
-
---
--- Name: idx_taxonomies_service_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_taxonomies_service_id ON public.taxonomies USING btree (service_id);
 
 
 --
@@ -7569,10 +7552,10 @@ CREATE INDEX idx_wo_staffing_requirements_wo ON public.wo_staffing_requirements 
 
 
 --
--- Name: services_abbreviation_unique; Type: INDEX; Schema: public; Owner: -
+-- Name: practicas_abbreviation_unique; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX services_abbreviation_unique ON public.services USING btree (abbreviation) WHERE (abbreviation IS NOT NULL);
+CREATE UNIQUE INDEX practicas_abbreviation_unique ON public.practicas USING btree (abbreviation) WHERE (abbreviation IS NOT NULL);
 
 
 --
@@ -7723,10 +7706,10 @@ CREATE TRIGGER trg_authz_roles_updated_at BEFORE UPDATE ON public.authorization_
 
 
 --
--- Name: services trg_cascade_abbreviation_rename; Type: TRIGGER; Schema: public; Owner: -
+-- Name: practicas trg_cascade_abbreviation_rename; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER trg_cascade_abbreviation_rename AFTER UPDATE OF abbreviation ON public.services FOR EACH ROW EXECUTE FUNCTION public.cascade_service_abbreviation_rename();
+CREATE TRIGGER trg_cascade_abbreviation_rename AFTER UPDATE OF abbreviation ON public.practicas FOR EACH ROW EXECUTE FUNCTION public.cascade_practice_abbreviation_rename();
 
 
 --
@@ -7758,10 +7741,10 @@ CREATE TRIGGER trg_enforce_activity_default BEFORE INSERT OR UPDATE ON public.ti
 
 
 --
--- Name: engagement_assignments trg_enforce_assignment_service_scope; Type: TRIGGER; Schema: public; Owner: -
+-- Name: engagement_assignments trg_enforce_assignment_practice_scope; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER trg_enforce_assignment_service_scope BEFORE INSERT OR UPDATE ON public.engagement_assignments FOR EACH ROW EXECUTE FUNCTION public.enforce_assignment_service_scope();
+CREATE TRIGGER trg_enforce_assignment_practice_scope BEFORE INSERT OR UPDATE ON public.engagement_assignments FOR EACH ROW EXECUTE FUNCTION public.enforce_assignment_practice_scope();
 
 
 --
@@ -7772,17 +7755,17 @@ CREATE TRIGGER trg_enforce_termination_date BEFORE INSERT OR UPDATE ON public.ti
 
 
 --
--- Name: wo_staffing_requirements trg_enforce_wo_staffing_service_scope; Type: TRIGGER; Schema: public; Owner: -
+-- Name: wo_staffing_requirements trg_enforce_wo_staffing_practice_scope; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER trg_enforce_wo_staffing_service_scope BEFORE INSERT OR UPDATE ON public.wo_staffing_requirements FOR EACH ROW EXECUTE FUNCTION public.enforce_wo_staffing_service_scope();
+CREATE TRIGGER trg_enforce_wo_staffing_practice_scope BEFORE INSERT OR UPDATE ON public.wo_staffing_requirements FOR EACH ROW EXECUTE FUNCTION public.enforce_wo_staffing_practice_scope();
 
 
 --
--- Name: activity_worksheet_cells trg_enforce_worksheet_cell_service_scope; Type: TRIGGER; Schema: public; Owner: -
+-- Name: activity_worksheet_cells trg_enforce_worksheet_cell_practice_scope; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER trg_enforce_worksheet_cell_service_scope BEFORE INSERT OR UPDATE ON public.activity_worksheet_cells FOR EACH ROW EXECUTE FUNCTION public.enforce_worksheet_cell_service_scope();
+CREATE TRIGGER trg_enforce_worksheet_cell_practice_scope BEFORE INSERT OR UPDATE ON public.activity_worksheet_cells FOR EACH ROW EXECUTE FUNCTION public.enforce_worksheet_cell_practice_scope();
 
 
 --
@@ -8011,11 +7994,11 @@ ALTER TABLE ONLY public.activity_codes
 
 
 --
--- Name: activity_codes activity_codes_service_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: activity_codes activity_codes_practica_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.activity_codes
-    ADD CONSTRAINT activity_codes_service_id_fkey FOREIGN KEY (service_id) REFERENCES public.services(service_id) ON DELETE RESTRICT;
+    ADD CONSTRAINT activity_codes_practica_id_fkey FOREIGN KEY (practica_id) REFERENCES public.practicas(practica_id) ON DELETE RESTRICT;
 
 
 --
@@ -8083,11 +8066,11 @@ ALTER TABLE ONLY public.authorization_role_permissions
 
 
 --
--- Name: categories categories_service_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: categories categories_practica_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.categories
-    ADD CONSTRAINT categories_service_id_fkey FOREIGN KEY (service_id) REFERENCES public.services(service_id) ON DELETE RESTRICT;
+    ADD CONSTRAINT categories_practica_id_fkey FOREIGN KEY (practica_id) REFERENCES public.practicas(practica_id) ON DELETE RESTRICT;
 
 
 --
@@ -8207,7 +8190,7 @@ ALTER TABLE ONLY public.engagements
 --
 
 ALTER TABLE ONLY public.engagements
-    ADD CONSTRAINT engagements_taxonomy_id_fkey FOREIGN KEY (taxonomy_id) REFERENCES public.taxonomies(taxonomy_id);
+    ADD CONSTRAINT engagements_taxonomy_id_fkey FOREIGN KEY (taxonomy_id) REFERENCES public.servicios(taxonomy_id);
 
 
 --
@@ -8307,6 +8290,14 @@ ALTER TABLE ONLY public.holidays
 
 
 --
+-- Name: servicios servicios_practica_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.servicios
+    ADD CONSTRAINT servicios_practica_id_fkey FOREIGN KEY (practica_id) REFERENCES public.practicas(practica_id) ON DELETE SET NULL;
+
+
+--
 -- Name: staff_alert_seen staff_alert_seen_staff_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -8331,19 +8322,19 @@ ALTER TABLE ONLY public.staff
 
 
 --
--- Name: staff staff_service_category_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: staff staff_practica_category_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.staff
-    ADD CONSTRAINT staff_service_category_fk FOREIGN KEY (service_id, category_id) REFERENCES public.categories(service_id, category_id);
+    ADD CONSTRAINT staff_practica_category_fk FOREIGN KEY (practica_id, category_id) REFERENCES public.categories(practica_id, category_id);
 
 
 --
--- Name: staff staff_service_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: staff staff_practica_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.staff
-    ADD CONSTRAINT staff_service_id_fkey FOREIGN KEY (service_id) REFERENCES public.services(service_id) ON DELETE RESTRICT;
+    ADD CONSTRAINT staff_practica_id_fkey FOREIGN KEY (practica_id) REFERENCES public.practicas(practica_id) ON DELETE RESTRICT;
 
 
 --
@@ -8368,14 +8359,6 @@ ALTER TABLE ONLY public.staff_skills
 
 ALTER TABLE ONLY public.staff
     ADD CONSTRAINT staff_society_id_fkey FOREIGN KEY (society_id) REFERENCES public.society(society_id) ON DELETE RESTRICT;
-
-
---
--- Name: taxonomies taxonomies_service_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.taxonomies
-    ADD CONSTRAINT taxonomies_service_id_fkey FOREIGN KEY (service_id) REFERENCES public.services(service_id) ON DELETE SET NULL;
 
 
 --
@@ -8650,17 +8633,17 @@ CREATE POLICY "Admins can insert holidays" ON public.holidays FOR INSERT WITH CH
 
 
 --
--- Name: services Admins can insert services; Type: POLICY; Schema: public; Owner: -
+-- Name: practicas Admins can insert practicas; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Admins can insert services" ON public.services FOR INSERT TO authenticated WITH CHECK (public.is_admin());
+CREATE POLICY "Admins can insert practicas" ON public.practicas FOR INSERT TO authenticated WITH CHECK (public.is_admin());
 
 
 --
--- Name: taxonomies Admins can insert taxonomies; Type: POLICY; Schema: public; Owner: -
+-- Name: servicios Admins can insert servicios; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Admins can insert taxonomies" ON public.taxonomies FOR INSERT TO authenticated WITH CHECK (public.is_admin());
+CREATE POLICY "Admins can insert servicios" ON public.servicios FOR INSERT TO authenticated WITH CHECK (public.is_admin());
 
 
 --
@@ -8762,17 +8745,17 @@ CREATE POLICY "Admins can update holidays" ON public.holidays FOR UPDATE USING (
 
 
 --
--- Name: services Admins can update services; Type: POLICY; Schema: public; Owner: -
+-- Name: practicas Admins can update practicas; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Admins can update services" ON public.services FOR UPDATE TO authenticated USING (public.is_admin()) WITH CHECK (public.is_admin());
+CREATE POLICY "Admins can update practicas" ON public.practicas FOR UPDATE TO authenticated USING (public.is_admin()) WITH CHECK (public.is_admin());
 
 
 --
--- Name: taxonomies Admins can update taxonomies; Type: POLICY; Schema: public; Owner: -
+-- Name: servicios Admins can update servicios; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Admins can update taxonomies" ON public.taxonomies FOR UPDATE TO authenticated USING (public.is_admin()) WITH CHECK (public.is_admin());
+CREATE POLICY "Admins can update servicios" ON public.servicios FOR UPDATE TO authenticated USING (public.is_admin()) WITH CHECK (public.is_admin());
 
 
 --
@@ -8922,10 +8905,17 @@ CREATE POLICY "Authenticated users can read industries" ON public.industries FOR
 
 
 --
--- Name: services Authenticated users can read services; Type: POLICY; Schema: public; Owner: -
+-- Name: practicas Authenticated users can read practicas; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Authenticated users can read services" ON public.services FOR SELECT TO authenticated USING (true);
+CREATE POLICY "Authenticated users can read practicas" ON public.practicas FOR SELECT TO authenticated USING (true);
+
+
+--
+-- Name: servicios Authenticated users can read servicios; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "Authenticated users can read servicios" ON public.servicios FOR SELECT TO authenticated USING (true);
 
 
 --
@@ -8954,13 +8944,6 @@ CREATE POLICY "Authenticated users can read staff" ON public.staff FOR SELECT TO
 --
 
 CREATE POLICY "Authenticated users can read staff skills" ON public.staff_skills FOR SELECT TO authenticated USING (true);
-
-
---
--- Name: taxonomies Authenticated users can read taxonomies; Type: POLICY; Schema: public; Owner: -
---
-
-CREATE POLICY "Authenticated users can read taxonomies" ON public.taxonomies FOR SELECT TO authenticated USING (true);
 
 
 --
@@ -9778,10 +9761,16 @@ CREATE POLICY "payment_plan firm read" ON public.wo_payment_plan FOR SELECT TO a
 
 
 --
--- Name: services; Type: ROW SECURITY; Schema: public; Owner: -
+-- Name: practicas; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
-ALTER TABLE public.services ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.practicas ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: servicios; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.servicios ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: skills; Type: ROW SECURITY; Schema: public; Owner: -
@@ -9887,12 +9876,6 @@ ALTER TABLE public.staff_skills ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "staff_skills write" ON public.staff_skills TO authenticated USING (public.has_permission('staff.update'::text)) WITH CHECK (public.has_permission('staff.update'::text));
 
-
---
--- Name: taxonomies; Type: ROW SECURITY; Schema: public; Owner: -
---
-
-ALTER TABLE public.taxonomies ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: time_entries time_entries delete; Type: POLICY; Schema: public; Owner: -
@@ -10118,5 +10101,5 @@ CREATE POLICY "worksheets firm read" ON public.activity_worksheets FOR SELECT TO
 -- PostgreSQL database dump complete
 --
 
-\unrestrict ZyjToXWz2u76kVnaH6h4a3K6nLoUcC78tkNGy03igNBrXkeoMO86s5nptRXjYE4
+\unrestrict FfYZE57R8ExFhx7uGW64wJU9RS8Sb9pOiguU5ZyypeSWx0kPKG9MUV3MwV4BOAz
 

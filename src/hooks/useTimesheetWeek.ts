@@ -219,7 +219,7 @@ export function useTimesheetWeek(weekStartDate: Date, workDays: number = 5): Tim
     queryFn: async () => {
       const { data, error } = await supabase
         .from("activity_codes")
-        .select("*, service:services(code)")
+        .select("*, service:practicas(code)")
         .eq("is_active", true);
 
       if (error) throw error;

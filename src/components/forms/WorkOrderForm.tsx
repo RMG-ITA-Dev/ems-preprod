@@ -888,7 +888,7 @@ export function WorkOrderForm({
               ...r,
               categoryId,
               categoryName: category?.category_name ?? null,
-              categoryServiceId: category?.service_id ?? null,
+              categoryServiceId: category?.practica_id ?? null,
             }
           : r
       )),
@@ -1423,7 +1423,7 @@ export function WorkOrderForm({
                         ? {
                             category_id: req.categoryId as string,
                             category_name: req.categoryName ?? req.categoryId ?? "",
-                            service_id: req.categoryServiceId ?? "",
+                            practica_id: req.categoryServiceId ?? "",
                             display_order: Number.MAX_SAFE_INTEGER,
                           } as Category
                         : null;

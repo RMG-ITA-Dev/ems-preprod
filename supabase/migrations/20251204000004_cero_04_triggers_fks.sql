@@ -145,10 +145,10 @@ CREATE TRIGGER trg_authz_roles_updated_at BEFORE UPDATE ON public.authorization_
 
 --
 --
--- Name: services trg_cascade_abbreviation_rename; Type: TRIGGER; Schema: public; Owner: -
+-- Name: practicas trg_cascade_abbreviation_rename; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER trg_cascade_abbreviation_rename AFTER UPDATE OF abbreviation ON public.services FOR EACH ROW EXECUTE FUNCTION public.cascade_service_abbreviation_rename();
+CREATE TRIGGER trg_cascade_abbreviation_rename AFTER UPDATE OF abbreviation ON public.practicas FOR EACH ROW EXECUTE FUNCTION public.cascade_practice_abbreviation_rename();
 
 
 --
@@ -185,10 +185,10 @@ CREATE TRIGGER trg_enforce_activity_default BEFORE INSERT OR UPDATE ON public.ti
 
 --
 --
--- Name: engagement_assignments trg_enforce_assignment_service_scope; Type: TRIGGER; Schema: public; Owner: -
+-- Name: engagement_assignments trg_enforce_assignment_practice_scope; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER trg_enforce_assignment_service_scope BEFORE INSERT OR UPDATE ON public.engagement_assignments FOR EACH ROW EXECUTE FUNCTION public.enforce_assignment_service_scope();
+CREATE TRIGGER trg_enforce_assignment_practice_scope BEFORE INSERT OR UPDATE ON public.engagement_assignments FOR EACH ROW EXECUTE FUNCTION public.enforce_assignment_practice_scope();
 
 
 --
@@ -201,18 +201,18 @@ CREATE TRIGGER trg_enforce_termination_date BEFORE INSERT OR UPDATE ON public.ti
 
 --
 --
--- Name: wo_staffing_requirements trg_enforce_wo_staffing_service_scope; Type: TRIGGER; Schema: public; Owner: -
+-- Name: wo_staffing_requirements trg_enforce_wo_staffing_practice_scope; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER trg_enforce_wo_staffing_service_scope BEFORE INSERT OR UPDATE ON public.wo_staffing_requirements FOR EACH ROW EXECUTE FUNCTION public.enforce_wo_staffing_service_scope();
+CREATE TRIGGER trg_enforce_wo_staffing_practice_scope BEFORE INSERT OR UPDATE ON public.wo_staffing_requirements FOR EACH ROW EXECUTE FUNCTION public.enforce_wo_staffing_practice_scope();
 
 
 --
 --
--- Name: activity_worksheet_cells trg_enforce_worksheet_cell_service_scope; Type: TRIGGER; Schema: public; Owner: -
+-- Name: activity_worksheet_cells trg_enforce_worksheet_cell_practice_scope; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER trg_enforce_worksheet_cell_service_scope BEFORE INSERT OR UPDATE ON public.activity_worksheet_cells FOR EACH ROW EXECUTE FUNCTION public.enforce_worksheet_cell_service_scope();
+CREATE TRIGGER trg_enforce_worksheet_cell_practice_scope BEFORE INSERT OR UPDATE ON public.activity_worksheet_cells FOR EACH ROW EXECUTE FUNCTION public.enforce_worksheet_cell_practice_scope();
 
 
 --
@@ -474,11 +474,11 @@ ALTER TABLE ONLY public.activity_codes
 
 --
 --
--- Name: activity_codes activity_codes_service_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: activity_codes activity_codes_practica_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.activity_codes
-    ADD CONSTRAINT activity_codes_service_id_fkey FOREIGN KEY (service_id) REFERENCES public.services(service_id) ON DELETE RESTRICT;
+    ADD CONSTRAINT activity_codes_practica_id_fkey FOREIGN KEY (practica_id) REFERENCES public.practicas(practica_id) ON DELETE RESTRICT;
 
 
 --
@@ -555,11 +555,11 @@ ALTER TABLE ONLY public.authorization_role_permissions
 
 --
 --
--- Name: categories categories_service_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: categories categories_practica_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.categories
-    ADD CONSTRAINT categories_service_id_fkey FOREIGN KEY (service_id) REFERENCES public.services(service_id) ON DELETE RESTRICT;
+    ADD CONSTRAINT categories_practica_id_fkey FOREIGN KEY (practica_id) REFERENCES public.practicas(practica_id) ON DELETE RESTRICT;
 
 
 --
@@ -694,7 +694,7 @@ ALTER TABLE ONLY public.engagements
 --
 
 ALTER TABLE ONLY public.engagements
-    ADD CONSTRAINT engagements_taxonomy_id_fkey FOREIGN KEY (taxonomy_id) REFERENCES public.taxonomies(taxonomy_id);
+    ADD CONSTRAINT engagements_taxonomy_id_fkey FOREIGN KEY (taxonomy_id) REFERENCES public.servicios(taxonomy_id);
 
 
 --
@@ -834,20 +834,20 @@ ALTER TABLE ONLY public.staff
 
 --
 --
--- Name: staff staff_service_category_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: staff staff_practica_category_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.staff
-    ADD CONSTRAINT staff_service_category_fk FOREIGN KEY (service_id, category_id) REFERENCES public.categories(service_id, category_id);
+    ADD CONSTRAINT staff_practica_category_fk FOREIGN KEY (practica_id, category_id) REFERENCES public.categories(practica_id, category_id);
 
 
 --
 --
--- Name: staff staff_service_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: staff staff_practica_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.staff
-    ADD CONSTRAINT staff_service_id_fkey FOREIGN KEY (service_id) REFERENCES public.services(service_id) ON DELETE RESTRICT;
+    ADD CONSTRAINT staff_practica_id_fkey FOREIGN KEY (practica_id) REFERENCES public.practicas(practica_id) ON DELETE RESTRICT;
 
 
 --
@@ -879,11 +879,11 @@ ALTER TABLE ONLY public.staff
 
 --
 --
--- Name: taxonomies taxonomies_service_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: servicios servicios_practica_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.taxonomies
-    ADD CONSTRAINT taxonomies_service_id_fkey FOREIGN KEY (service_id) REFERENCES public.services(service_id) ON DELETE SET NULL;
+ALTER TABLE ONLY public.servicios
+    ADD CONSTRAINT servicios_practica_id_fkey FOREIGN KEY (practica_id) REFERENCES public.practicas(practica_id) ON DELETE SET NULL;
 
 
 --

@@ -49,7 +49,7 @@ const GLOBAL_SERVICE_VALUE = "__global__";
 type FormData = {
   code: string;
   name: string;
-  service_id: string | null;
+  practica_id: string | null;
   is_active: boolean;
 };
 
@@ -80,7 +80,7 @@ export function TaxonomyForm({ open, onOpenChange, taxonomy, usedCodes }: Taxono
       .max(10, t("taxonomy.codeTooLong"))
       .refine((v) => !otherCodes.includes(v.toLowerCase()), t("taxonomy.codeInUse")),
     name: z.string().min(1, t("taxonomy.nameRequired")),
-    service_id: z.string().nullable(),
+    practica_id: z.string().nullable(),
     is_active: z.boolean(),
   });
 
@@ -95,7 +95,7 @@ export function TaxonomyForm({ open, onOpenChange, taxonomy, usedCodes }: Taxono
     defaultValues: {
       code: "",
       name: "",
-      service_id: null,
+      practica_id: null,
       is_active: true,
     },
   });
@@ -105,7 +105,7 @@ export function TaxonomyForm({ open, onOpenChange, taxonomy, usedCodes }: Taxono
       form.reset({
         code: taxonomy?.code ?? "",
         name: taxonomy?.name ?? "",
-        service_id: taxonomy?.service_id ?? null,
+        practica_id: taxonomy?.practica_id ?? null,
         is_active: taxonomy?.is_active ?? true,
       });
       setDeactivateOpen(false);
@@ -117,7 +117,7 @@ export function TaxonomyForm({ open, onOpenChange, taxonomy, usedCodes }: Taxono
     const payload = {
       code: data.code.trim(),
       name: data.name.trim(),
-      service_id: data.service_id,
+      practica_id: data.practica_id,
       is_active: data.is_active,
     };
     if (isEdit && taxonomy) {
@@ -192,7 +192,7 @@ export function TaxonomyForm({ open, onOpenChange, taxonomy, usedCodes }: Taxono
 
               <FormField
                 control={form.control}
-                name="service_id"
+                name="practica_id"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>{t("taxonomy.service")}</FormLabel>
@@ -208,7 +208,7 @@ export function TaxonomyForm({ open, onOpenChange, taxonomy, usedCodes }: Taxono
                       <SelectContent>
                         <SelectItem value={GLOBAL_SERVICE_VALUE}>{t("taxonomy.global")}</SelectItem>
                         {(allServices ?? []).map((s) => (
-                          <SelectItem key={s.service_id} value={s.service_id}>
+                          <SelectItem key={s.practica_id} value={s.practica_id}>
                             {s.name}
                           </SelectItem>
                         ))}

@@ -55,7 +55,7 @@ type AppRole = Database["public"]["Enums"]["app_role"];
 // (el payload sigue enviando el valor existente sin cambios).
 
 const formSchema = z.object({
-  service_id: z.string().min(1, "validation.categoryServiceRequired"),
+  practica_id: z.string().min(1, "validation.categoryServiceRequired"),
   category_name: z.string().min(1, "Category name is required"),
   display_order: z.coerce.number().int().min(1),
   rate_high_bob: z.coerce.number().positive("Rate must be greater than 0"),
@@ -100,13 +100,13 @@ export function CategoryForm({ open, onOpenChange, category, serviceId, lockServ
   const { data: allCategories } = useCategories();
   const nextOrderFor = (sid: string) =>
     (allCategories ?? [])
-      .filter((c) => c.service_id === sid)
+      .filter((c) => c.practica_id === sid)
       .reduce((max, c) => Math.max(max, c.display_order), 0) + 1;
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      service_id: "",
+      practica_id: "",
       category_name: "",
       display_order: 1,
       rate_high_bob: undefined as unknown as number,
@@ -121,9 +121,9 @@ export function CategoryForm({ open, onOpenChange, category, serviceId, lockServ
 
   useEffect(() => {
     if (open) {
-      const defaultService = category?.service_id || serviceId || "";
+      const defaultService = category?.practica_id || serviceId || "";
       form.reset({
-        service_id: defaultService,
+        practica_id: defaultService,
         category_name: category?.category_name || "",
         display_order:
           category?.display_order ?? (defaultService ? nextOrderFor(defaultService) : 1),
@@ -146,15 +146,15 @@ export function CategoryForm({ open, onOpenChange, category, serviceId, lockServ
   useEffect(() => {
     if (!open || isEdit) return;
     if (form.formState.dirtyFields.display_order) return;
-    const sid = form.getValues("service_id");
+    const sid = form.getValues("practica_id");
     if (sid) {
       form.setValue("display_order", nextOrderFor(sid));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, isEdit, allCategories]);
 
-  const currentServiceId = form.watch("service_id");
-  const currentService = activeServices.find((s) => s.service_id === currentServiceId)
+  const currentServiceId = form.watch("practica_id");
+  const currentService = activeServices.find((s) => s.practica_id === currentServiceId)
     ?? (category?.service ?? null);
 
   const onSubmit = async (data: FormData) => {
@@ -173,7 +173,7 @@ export function CategoryForm({ open, onOpenChange, category, serviceId, lockServ
       // Service is immutable on edit — never included in the update payload.
       await updateMutation.mutateAsync({ id: category.category_id, data: payload });
     } else {
-      await createMutation.mutateAsync({ service_id: data.service_id, ...payload });
+      await createMutation.mutateAsync({ practica_id: data.practica_id, ...payload });
     }
     onOpenChange(false);
     form.reset();
@@ -211,7 +211,7 @@ export function CategoryForm({ open, onOpenChange, category, serviceId, lockServ
             ) : (
               <FormField
                 control={form.control}
-                name="service_id"
+                name="practica_id"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>{t("category.service")} *</FormLabel>
@@ -229,7 +229,7 @@ export function CategoryForm({ open, onOpenChange, category, serviceId, lockServ
                       </FormControl>
                       <SelectContent>
                         {activeServices.map((s) => (
-                          <SelectItem key={s.service_id} value={s.service_id}>
+                          <SelectItem key={s.practica_id} value={s.practica_id}>
                             {s.name}
                           </SelectItem>
                         ))}

@@ -41,20 +41,20 @@ const SOCIETIES = [
 ];
 
 const SERVICES = [
-  { service_id: "svc-firmwide", name: "Firmwide", code: 0, allows_rates_activities: false, is_active: true, created_at: "2026-01-01" },
-  { service_id: "svc-auditoria", name: "Auditoría", code: 1, allows_rates_activities: true, is_active: true, created_at: "2026-01-01" },
-  { service_id: "svc-consultoria", name: "Consultoría", code: 2, allows_rates_activities: true, is_active: true, created_at: "2026-01-01" },
+  { practica_id: "svc-firmwide", name: "Firmwide", code: 0, allows_rates_activities: false, is_active: true, created_at: "2026-01-01" },
+  { practica_id: "svc-auditoria", name: "Auditoría", code: 1, allows_rates_activities: true, is_active: true, created_at: "2026-01-01" },
+  { practica_id: "svc-consultoria", name: "Consultoría", code: 2, allows_rates_activities: true, is_active: true, created_at: "2026-01-01" },
   // Práctica inactiva — solo debe aparecer si un staff en edición ya la tiene asignada.
-  { service_id: "svc-inactive", name: "Servicios Relacionados", code: 7, allows_rates_activities: true, is_active: false, created_at: "2026-01-01" },
+  { practica_id: "svc-inactive", name: "Servicios Relacionados", code: 7, allows_rates_activities: true, is_active: false, created_at: "2026-01-01" },
 ];
 
-const CATEGORIES_BY_SERVICE: Record<string, Array<{ category_id: string; category_name: string; service_id: string; display_order: number }>> = {
+const CATEGORIES_BY_SERVICE: Record<string, Array<{ category_id: string; category_name: string; practica_id: string; display_order: number }>> = {
   "svc-auditoria": [
-    { category_id: "cat-aud-1", category_name: "Socio Auditoría", service_id: "svc-auditoria", display_order: 1 },
-    { category_id: "cat-aud-2", category_name: "Senior Auditoría", service_id: "svc-auditoria", display_order: 2 },
+    { category_id: "cat-aud-1", category_name: "Socio Auditoría", practica_id: "svc-auditoria", display_order: 1 },
+    { category_id: "cat-aud-2", category_name: "Senior Auditoría", practica_id: "svc-auditoria", display_order: 2 },
   ],
   "svc-consultoria": [
-    { category_id: "cat-cons-1", category_name: "Socio Consultoría", service_id: "svc-consultoria", display_order: 1 },
+    { category_id: "cat-cons-1", category_name: "Socio Consultoría", practica_id: "svc-consultoria", display_order: 1 },
   ],
 };
 
@@ -214,7 +214,7 @@ const baseStaff: StaffFull = {
   aud_reg_number: null,
   category_id: "cat-aud-1",
   society_id: "soc-pelaez",
-  service_id: "svc-auditoria",
+  practica_id: "svc-auditoria",
   city: "La Paz",
   is_active: true,
   is_blocked: false,
@@ -373,7 +373,7 @@ describe("StaffForm — sociedad y práctica (FEAT 0810-173)", () => {
   });
 
   it("6) edición hidrata society/practice/category guardados; una práctica inactiva asignada se preserva", async () => {
-    const { container } = renderEditForm({ service_id: "svc-inactive", category_id: "" });
+    const { container } = renderEditForm({ practica_id: "svc-inactive", category_id: "" });
 
     await waitFor(() => {
       expect(practiceSelect(container).value).toBe("svc-inactive");
@@ -385,7 +385,7 @@ describe("StaffForm — sociedad y práctica (FEAT 0810-173)", () => {
     expect(societySelect(container).value).toBe("soc-pelaez");
   });
 
-  it("7) submit envía society_id + service_id + category_id", async () => {
+  it("7) submit envía society_id + practica_id + category_id", async () => {
     const { container } = renderEditForm();
 
     await waitFor(() => {
@@ -397,10 +397,10 @@ describe("StaffForm — sociedad y práctica (FEAT 0810-173)", () => {
     await waitFor(() => expect(updateMutateAsync).toHaveBeenCalled());
     const callArg = updateMutateAsync.mock.calls[0][0] as {
       id: string;
-      data: { society_id: string; service_id: string; category_id: string };
+      data: { society_id: string; practica_id: string; category_id: string };
     };
     expect(callArg.data.society_id).toBe("soc-pelaez");
-    expect(callArg.data.service_id).toBe("svc-auditoria");
+    expect(callArg.data.practica_id).toBe("svc-auditoria");
     expect(callArg.data.category_id).toBe("cat-aud-1");
   });
 

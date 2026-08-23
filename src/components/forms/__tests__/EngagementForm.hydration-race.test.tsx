@@ -83,7 +83,7 @@ vi.mock("@/components/ui/popover", () => ({
 }));
 
 const mockServices = [
-  { service_id: "s1", name: "Auditoría", code: 1, allows_rates_activities: true, is_active: true, created_at: "" },
+  { practica_id: "s1", name: "Auditoría", code: 1, allows_rates_activities: true, is_active: true, created_at: "" },
 ];
 
 const mockSocieties = [
