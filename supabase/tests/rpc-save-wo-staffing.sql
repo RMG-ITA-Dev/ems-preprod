@@ -22,6 +22,15 @@
 
 BEGIN;
 
+-- practica code=3 (Tax): el harness solo siembra globalmente code=1; este archivo necesita
+-- una segunda práctica para el caso foreign-service (CAT_TAX).
+INSERT INTO public.services (service_id, name, code, abbreviation)
+VALUES ('5e000000-0000-4000-8000-0000000000b3', 'RWS Test Practice (Tax)', 3, 'TXR')
+ON CONFLICT (code) DO NOTHING;
+
+INSERT INTO public.society (society_id, name)
+VALUES ('50c00000-0000-4000-8000-0000000000b1', 'RWS Test Society');
+
 INSERT INTO public.categories (category_id, category_name, service_id) VALUES
   ('c0000000-0000-4000-8000-0000000000b1', 'RWS Aud Category', (SELECT service_id FROM public.services WHERE code = 1)),
   ('c0000000-0000-4000-8000-0000000000b2', 'RWS Tax Category', (SELECT service_id FROM public.services WHERE code = 3));
@@ -44,18 +53,19 @@ BEGIN
   END IF;
 END $$;
 
-INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, category_id) VALUES
-  ('50000000-0000-4000-8000-0000000000b1', 'a0000000-0000-4000-8000-0000000000b1', 'Mel',  'ManagerLead', 'c0000000-0000-4000-8000-0000000000b1'),
-  ('50000000-0000-4000-8000-0000000000b2', 'a0000000-0000-4000-8000-0000000000b2', 'Sam',  'SQR',         'c0000000-0000-4000-8000-0000000000b1'),
-  ('50000000-0000-4000-8000-0000000000b3', 'a0000000-0000-4000-8000-0000000000b3', 'Nora', 'Unrelated',   'c0000000-0000-4000-8000-0000000000b1');
+INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, category_id, service_id, society_id) VALUES
+  ('50000000-0000-4000-8000-0000000000b1', 'a0000000-0000-4000-8000-0000000000b1', 'Mel',  'ManagerLead', 'c0000000-0000-4000-8000-0000000000b1', (SELECT service_id FROM public.services WHERE code = 1), '50c00000-0000-4000-8000-0000000000b1'),
+  ('50000000-0000-4000-8000-0000000000b2', 'a0000000-0000-4000-8000-0000000000b2', 'Sam',  'SQR',         'c0000000-0000-4000-8000-0000000000b1', (SELECT service_id FROM public.services WHERE code = 1), '50c00000-0000-4000-8000-0000000000b1'),
+  ('50000000-0000-4000-8000-0000000000b3', 'a0000000-0000-4000-8000-0000000000b3', 'Nora', 'Unrelated',   'c0000000-0000-4000-8000-0000000000b1', (SELECT service_id FROM public.services WHERE code = 1), '50c00000-0000-4000-8000-0000000000b1');
 
 -- ON CONFLICT DO UPDATE: on a live Supabase, handle_new_user() (20251204051043) already
--- auto-created a 'staff' user_roles row for each new auth.users id above.
-INSERT INTO public.user_roles (user_id, role) VALUES
-  ('a0000000-0000-4000-8000-0000000000b1', 'manager'),
-  ('a0000000-0000-4000-8000-0000000000b2', 'sqr'),
-  ('a0000000-0000-4000-8000-0000000000b3', 'staff')
-ON CONFLICT (user_id) DO UPDATE SET role = EXCLUDED.role;
+-- auto-created a 'staff' user_roles row for each new auth.users id above. role_key: RBAC
+-- real (sembrado globalmente por el harness).
+INSERT INTO public.user_roles (user_id, role, role_key) VALUES
+  ('a0000000-0000-4000-8000-0000000000b1', 'manager', 'manager'),
+  ('a0000000-0000-4000-8000-0000000000b2', 'sqr', 'sqr'),
+  ('a0000000-0000-4000-8000-0000000000b3', 'staff', 'assistant')
+ON CONFLICT (user_id) DO UPDATE SET role = EXCLUDED.role, role_key = EXCLUDED.role_key;
 
 -- fecha_cierre is NOT NULL with no DEFAULT on a live Supabase (20260702000000) — the local shim
 -- has no such column at all, so this must be supplied explicitly to work in both environments.

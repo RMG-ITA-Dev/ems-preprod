@@ -256,9 +256,9 @@ BEGIN
       ON CONFLICT (id) DO NOTHING;
     END IF;
 
-    INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, category_id) VALUES
-      (v_staff, v_auth, 'Resp', 'Probe', v_cat),
-      (v_bystander, v_bystander_auth, 'NotResp', 'Probe', v_cat);
+    INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, category_id, service_id, society_id) VALUES
+      (v_staff, v_auth, 'Resp', 'Probe', v_cat, (SELECT service_id FROM public.services WHERE code = 1), (SELECT society_id FROM public.society LIMIT 1)),
+      (v_bystander, v_bystander_auth, 'NotResp', 'Probe', v_cat, (SELECT service_id FROM public.services WHERE code = 1), (SELECT society_id FROM public.society LIMIT 1));
 
     PERFORM set_config('request.jwt.claims', json_build_object('sub', v_auth, 'role', 'authenticated')::text, true);
 

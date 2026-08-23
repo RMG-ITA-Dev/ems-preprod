@@ -27,6 +27,15 @@
 
 BEGIN;
 
+-- practica code=3 (Tax): el harness solo siembra globalmente code=1; este archivo necesita
+-- una segunda práctica para el caso foreign-service (CAT_TAX).
+INSERT INTO public.services (service_id, name, code, abbreviation)
+VALUES ('5e000000-0000-4000-8000-0000000000c3', 'REAS Test Practice (Tax)', 3, 'TAX')
+ON CONFLICT (code) DO NOTHING;
+
+INSERT INTO public.society (society_id, name)
+VALUES ('50c00000-0000-4000-8000-0000000000c1', 'REAS Test Society');
+
 INSERT INTO public.categories (category_id, category_name, service_id) VALUES
   ('c0000000-0000-4000-8000-0000000000c1', 'REAS Aud Category', (SELECT service_id FROM public.services WHERE code = 1)),
   ('c0000000-0000-4000-8000-0000000000c2', 'REAS Tax Category', (SELECT service_id FROM public.services WHERE code = 3));
@@ -50,24 +59,26 @@ BEGIN
   END IF;
 END $$;
 
-INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, category_id) VALUES
-  ('50000000-0000-4000-8000-0000000000c1', 'a0000000-0000-4000-8000-0000000000c1', 'Mel',   'ManagerLead', 'c0000000-0000-4000-8000-0000000000c1'),
-  ('50000000-0000-4000-8000-0000000000c2', 'a0000000-0000-4000-8000-0000000000c2', 'Sam',   'SQR',         'c0000000-0000-4000-8000-0000000000c1'),
-  ('50000000-0000-4000-8000-0000000000c3', 'a0000000-0000-4000-8000-0000000000c3', 'Nora',  'Unrelated',   'c0000000-0000-4000-8000-0000000000c1'),
-  ('50000000-0000-4000-8000-0000000000c4', NULL,                                    'Tania', 'Target',      'c0000000-0000-4000-8000-0000000000c1'),
-  ('50000000-0000-4000-8000-0000000000c5', NULL,                                    'Rita',  'Target2',     'c0000000-0000-4000-8000-0000000000c1');
+INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, category_id, service_id, society_id) VALUES
+  ('50000000-0000-4000-8000-0000000000c1', 'a0000000-0000-4000-8000-0000000000c1', 'Mel',   'ManagerLead', 'c0000000-0000-4000-8000-0000000000c1', (SELECT service_id FROM public.services WHERE code = 1), '50c00000-0000-4000-8000-0000000000c1'),
+  ('50000000-0000-4000-8000-0000000000c2', 'a0000000-0000-4000-8000-0000000000c2', 'Sam',   'SQR',         'c0000000-0000-4000-8000-0000000000c1', (SELECT service_id FROM public.services WHERE code = 1), '50c00000-0000-4000-8000-0000000000c1'),
+  ('50000000-0000-4000-8000-0000000000c3', 'a0000000-0000-4000-8000-0000000000c3', 'Nora',  'Unrelated',   'c0000000-0000-4000-8000-0000000000c1', (SELECT service_id FROM public.services WHERE code = 1), '50c00000-0000-4000-8000-0000000000c1'),
+  ('50000000-0000-4000-8000-0000000000c4', NULL,                                    'Tania', 'Target',      'c0000000-0000-4000-8000-0000000000c1', (SELECT service_id FROM public.services WHERE code = 1), '50c00000-0000-4000-8000-0000000000c1'),
+  ('50000000-0000-4000-8000-0000000000c5', NULL,                                    'Rita',  'Target2',     'c0000000-0000-4000-8000-0000000000c1', (SELECT service_id FROM public.services WHERE code = 1), '50c00000-0000-4000-8000-0000000000c1');
 
 -- Fase 5 O7 fixture: is_schedulable=false -> a NEW assignment for Ivy must be rejected.
-INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, category_id, is_schedulable) VALUES
-  ('50000000-0000-4000-8000-0000000000c6', NULL, 'Ivy', 'NotSchedulable', 'c0000000-0000-4000-8000-0000000000c1', false);
+INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, category_id, is_schedulable, service_id, society_id) VALUES
+  ('50000000-0000-4000-8000-0000000000c6', NULL, 'Ivy', 'NotSchedulable', 'c0000000-0000-4000-8000-0000000000c1', false, (SELECT service_id FROM public.services WHERE code = 1), '50c00000-0000-4000-8000-0000000000c1');
 
 -- ON CONFLICT DO UPDATE: on a live Supabase, handle_new_user() (20251204051043) already
--- auto-created a 'staff' user_roles row for each new auth.users id above.
-INSERT INTO public.user_roles (user_id, role) VALUES
-  ('a0000000-0000-4000-8000-0000000000c1', 'manager'),
-  ('a0000000-0000-4000-8000-0000000000c2', 'sqr'),
-  ('a0000000-0000-4000-8000-0000000000c3', 'staff')
-ON CONFLICT (user_id) DO UPDATE SET role = EXCLUDED.role;
+-- auto-created a 'staff' user_roles row for each new auth.users id above. role_key: RBAC
+-- real (sembrado globalmente por el harness) — has_firmwide_assignment_visibility()/etc.
+-- filtran por role_key, no por el enum legacy.
+INSERT INTO public.user_roles (user_id, role, role_key) VALUES
+  ('a0000000-0000-4000-8000-0000000000c1', 'manager', 'manager'),
+  ('a0000000-0000-4000-8000-0000000000c2', 'sqr', 'sqr'),
+  ('a0000000-0000-4000-8000-0000000000c3', 'staff', 'assistant')
+ON CONFLICT (user_id) DO UPDATE SET role = EXCLUDED.role, role_key = EXCLUDED.role_key;
 
 -- fecha_cierre is NOT NULL with no DEFAULT on a live Supabase (20260702000000) — the local shim
 -- has no such column at all, so this must be supplied explicitly to work in both environments.

@@ -5,6 +5,31 @@
 > `supabase/migrations/*_cero_*.sql` no puede expresar por sí solo — la evidencia de que
 > nada se perdió al reemplazar las 184 migraciones originales por el set consolidado.
 
+## -1. HALLAZGO CRÍTICO — catálogo RBAC ausente del alcance de seed de Fase 4
+
+**Requiere decisión del operador antes de cerrar Fase 4.** El catálogo de autorización
+(`authorization_roles` — 23 roles, `authorization_permissions` — 84 permisos,
+`authorization_role_permissions` — 737 concesiones) fue sembrado en el historial original
+como **datos**, en la migración `20260724010000_authz_fase2_seed.sql` (más el backfill de
+`user_roles.role_key`). Es correcto que la migración cero no lo haya arrastrado como
+migración de esquema — es dato, no DDL, igual que cualquier otro seed — pero **`plan_v2.md`
+§4.2 tampoco lo incluye en la lista de archivos de seed de Fase 4** (`cero_10`..`cero_15`).
+
+Sin este catálogo poblado, en cualquier ambiente reseteado desde el set consolidado:
+`has_permission()`, `has_firmwide_assignment_visibility()`, `get_timesheet_approvers()` y
+`get_engagement_team_candidates()` quedan **permanentemente rotas** (el catálogo de
+permisos está vacío, ninguna concesión existe). Esto se descubrió recién al ejercitar el
+harness RLS reescrito (§2.5.b) contra el esquema real completo — el harness anterior nunca
+lo necesitó porque sus shims mínimos no llegaban a esa profundidad.
+
+**Mitigación aplicada solo para el harness de CI** (no para Fase 4): se copió el contenido
+íntegro de `20260724010000_authz_fase2_seed.sql` a
+`supabase/tests/local/40-fixture-rbac-catalog.sql`, y `run-rls-tests.sh` lo aplica una sola
+vez antes de correr las suites de aserciones. **Esto no sustituye la decisión pendiente**:
+Fase 4 necesita su propio archivo de seed para este catálogo (p.ej.
+`cero_16_seed_authorization_rbac.sql`), con el mismo contenido u otro que el operador
+confirme, antes de poder considerar completo el reset de Test.
+
 ## 0. Hallazgos de autoría durante el armado del set consolidado (Fase 2.1)
 
 - **`SET check_function_bodies = false;` / `SET row_security = off;`**: pg_dump los antepone a
@@ -120,6 +145,54 @@ confirmación del operador antes de fijar la lista cerrada de esta sección y es
 Fase 4**: `AUTH_MAX_FAILED_ATTEMPTS`, `DAILY_LIMIT`, `WEEKLY_LIMIT`, `TS_AUTO_SAVE_SECONDS`,
 `TS_WORK_DAYS`, `reporting_periods`. No se ha escrito ningún seed todavía; esta sección se
 completa (lista cerrada + valores) cuando el operador confirme qué hacer con esas 6.
+
+## 4ter. Reescritura del harness RLS (plan §2.5.b) — drift de seguridad encontrado y corregido
+
+Las 4 lanes anteriores (rollout histórico, drift, failure-path, shim de servicio del
+Scheduler Fase 2) se retiraron; el harness ahora aplica el set consolidado UNA vez
+(`00-shim-auth.sql` + `cero_01`..`cero_06`, más el catálogo RBAC de §-1) sobre una base
+scratch y corre las 8 suites de aserciones existentes (`rls-*.sql`, `rpc-*.sql`,
+`schema-convergence-assertions.sql`, `trigger-engagement-creator-team.sql`). Es la primera
+vez que estas suites corren contra el esquema real completo — antes usaban shims mínimos
+que nunca llegaban a ejercitar ciertas políticas. Eso destapó dos discrepancias reales entre
+lo que los tests asumían y el sistema actual, ambas corregidas actualizando las aserciones
+(nunca el esquema) tras confirmar contra las políticas/funciones reales:
+
+- **`rls-engagement-assignments-d5.sql`** — la persona "Sofia" (senior, `manager_id`
+  estructural de un encargo sin asignación) se diseñó para probar que la adjacencia
+  estructural sin rol no otorga acceso (PR #222 finding 2). Una política posterior real,
+  `ea_select_responsible` / `is_engagement_responsible()`, sí le concede acceso legítimo por
+  ser personal responsable (una de 6 columnas: manager_id/partner_id/sqr_id/encargado_id/
+  specialist_it_id/specialist_tax_id) — ya no es una brecha, es una concesión nombrada y
+  acotada, cubierta además por `schema-convergence-assertions.sql` (G7). Se actualizó la
+  aserción de Sofia a "ve exactamente su encargo responsable, nada más", y el escenario de
+  escalación original se reconstruyó con Ximena (sin ningún vínculo con el encargo) para
+  seguir probando el vector real que finding-2 cerraba.
+- **`vw_staffing_alerts`** — el mismo archivo asumía denegación dura a `authenticated`
+  (PR #222 finding 1). Una migración posterior restauró el grant a `authenticated` con
+  `security_invoker=true` (ya verificado explícitamente por `schema-convergence-assertions.sql`),
+  dejando que el filtrado ocurra por las RLS del caller en vez de por ausencia de grant. Se
+  actualizó la aserción para esa vista específica; `anon` sigue denegado sin cambios.
+- **`get_timesheet_approvers()`** ya no lee `categories.can_approve_timesheets` (el diseño
+  que `rls-timesheet-authorization-phase5.sql` asumía) — resuelve vía el catálogo RBAC real
+  (`authorization_role_permissions.permission_key = 'timesheet_approval.approve'`). La
+  persona "Pola" (aprobadora estructural con rol legacy 'staff') se ajustó para reflejar la
+  distinción real entre el enum legacy `role` (la strandea de `has_role()`) y `role_key`
+  (de donde cuelga la concesión real). La persona "Lidia" ("líder descalificado") pasó a
+  `role_key = NULL` — con el catálogo real, todo `role_key='manager'` tiene el permiso sin
+  distinción de categoría, así que la única forma de reproducir "rol manager pero
+  descalificado" es no tener `role_key` resuelto (estado real, contemplado por el propio
+  backfill de `20260724010000`).
+- **`role_key = 'staff'` no existe en el catálogo real** — el enum legacy `role='staff'`
+  mapea a `role_key='assistant'` (backfill de `20260724010000`). Los fixtures que
+  necesitaban un persona "sin privilegios especiales" se ajustaron a `role_key='assistant'`
+  donde importaba (o se dejó `NULL` donde la ausencia de concesión era el punto, como
+  Lidia).
+
+Ninguno de estos cambios tocó una política, función o grant del esquema — son correcciones
+a aserciones de test que habían quedado desactualizadas frente a decisiones de diseño
+posteriores al momento en que se escribieron, nunca antes detectadas porque el harness
+anterior no las ejercitaba.
 
 ## 5. Nota de estructura de archivos (ajuste de corte, plan §2.1)
 

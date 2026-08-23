@@ -12,7 +12,25 @@ SET row_security = off;
 -- Name: pg_cron; Type: EXTENSION; Schema: -; Owner: -
 --
 
-CREATE EXTENSION IF NOT EXISTS pg_cron WITH SCHEMA pg_catalog;
+-- Guardado (no en el dump original): pg_cron es una extensión de plataforma, no siempre
+-- disponible (p.ej. el contenedor postgres:16 liso del harness RLS de CI no la trae), y
+-- aun cuando está disponible, pg_cron solo puede instalarse en la base fijada por
+-- cron.database_name (en el stack local Supabase, "postgres") — cualquier otra base
+-- (como la de este mismo harness) recibe "can only create extension in database
+-- postgres" al intentarlo, verificado en vivo. Mismo patrón defensivo que ya usa la app
+-- en tiempo de ejecución para cron.schedule() (ver finalize_all_stale_timers() en
+-- cero_02). Sobre el Supabase real de Test/producción la extensión se instala en la base
+-- correcta y esto se comporta idéntico a la sentencia sin guardar.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_cron') THEN
+    BEGIN
+      EXECUTE 'CREATE EXTENSION IF NOT EXISTS pg_cron WITH SCHEMA pg_catalog';
+    EXCEPTION WHEN OTHERS THEN
+      RAISE NOTICE 'pg_cron no se pudo instalar en esta base (%); se omite.', SQLERRM;
+    END;
+  END IF;
+END $$;
 
 
 --
