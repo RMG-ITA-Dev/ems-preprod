@@ -7,7 +7,13 @@
 
 ## -1. HALLAZGO CRÍTICO — catálogo RBAC ausente del alcance de seed de Fase 4
 
-**Requiere decisión del operador antes de cerrar Fase 4.** El catálogo de autorización
+**Resuelto por el operador (2026-08-23): SÍ se agrega a Fase 4** como
+`cero_16_seed_authorization_rbac.sql`, con el mismo contenido íntegro que
+`20260724010000_authz_fase2_seed.sql` (igual al fixture ya usado en el harness de CI,
+`supabase/tests/local/40-fixture-rbac-catalog.sql`). Queda pendiente solo la escritura del
+archivo en Fase 4; el hallazgo original queda documentado abajo tal como se descubrió.
+
+El catálogo de autorización
 (`authorization_roles` — 23 roles, `authorization_permissions` — 84 permisos,
 `authorization_role_permissions` — 737 concesiones) fue sembrado en el historial original
 como **datos**, en la migración `20260724010000_authz_fase2_seed.sql` (más el backfill de
@@ -91,7 +97,7 @@ se disparan en runtime, no al aplicar la migración): 11 archivos sobre el árbo
 | `20260217233439` | La fila ADM existe antes del upsert self-healing | No aplica — la migración entera (upsert self-healing de ADM) no pasa al set (informe §5); ADM se siembra una sola vez con `is_system=true` en Fase 4 |
 | `20260224065444` | Idempotencia de una migración de backup vía `migration_run_log` | No aplica — mecanismo de rollout de un historial que ya no existe |
 | `20260224065512` | Existen las categorías en español esperadas (Socio/Gerente/...) | Resuelto por diseño: el seed de Fase 4 las siembra directamente (gap 1 de §3.2 del informe, cerrado) |
-| `20260224065539` | Sin roles duplicados por usuario; existe al menos un admin; ninguna categoría con `default_app_role` NULL | Duplicados: los impide la PK/UNIQUE de `user_roles`. Admin: lo garantiza el trigger `handle_new_user` sobre el bootstrap (§4.2.1 del plan). `default_app_role` NULL: punto de captura §0.5.1 — el seed de categorías de Fase 4 no puede dejar ninguna fila en NULL |
+| `20260224065539` | Sin roles duplicados por usuario; existe al menos un admin; ninguna categoría con `default_app_role` NULL | Duplicados: los impide la PK/UNIQUE de `user_roles`. Admin: lo garantiza el trigger `handle_new_user` sobre el bootstrap (§4.2.1 del plan). `default_app_role` NULL: la columna es nullable en el esquema (sin `NOT NULL`) — este fail-fast era una validación puntual de un momento del historial, no una invariante estructural permanente. Pero el seed de Fase 4 sí termina satisfaciéndolo en la práctica: el operador cerró el mapeo por nombre de categoría (`practicas.md`, columna "Rol por Defecto") para las 61 filas — 61/61 con rol, cero NULL |
 | `20260716120000`, `20260720120000`, `20260720194653` (3 variantes del mismo guard) | `engagement_assignments.category_id` sin NULLs antes de aplicar NOT NULL | Estructural: la columna ya nace NOT NULL en el set consolidado; sin datos preexistentes no hay NULLs que backfillear |
 | `20260727110000` | El default de `engagement_assignments.status` no derivó de 'PROPOSED' | Detector de drift entre migraciones, no un invariante de negocio permanente — el default final queda fijo directamente en el CREATE TABLE consolidado |
 | `20260818120000` | `activity_codes.service_id` sin NULLs antes de aplicar NOT NULL | Superado por el diseño `is_system` (plan §2.2.1): la constraint final ya no es un NOT NULL simple, es `CHECK (is_system OR service_id IS NOT NULL)` — permite exactamente la única fila que antes hubiera hecho fallar este guard (ADM) |
@@ -140,11 +146,24 @@ intencional de consolidación, no como dato inventado.
 
 Reconciliación ejecutada sobre el stack local baseline: 20 filas reales vs. las 14 documentadas en
 `datos_maestros.md` (detalle completo en `bugs/migracion_cero/autoria/global-settings-reconciliation.md`,
-gitignored). Las 14 coinciden exactamente. **6 claves extra sin decisión aún — pendiente
-confirmación del operador antes de fijar la lista cerrada de esta sección y escribir el seed de
-Fase 4**: `AUTH_MAX_FAILED_ATTEMPTS`, `DAILY_LIMIT`, `WEEKLY_LIMIT`, `TS_AUTO_SAVE_SECONDS`,
-`TS_WORK_DAYS`, `reporting_periods`. No se ha escrito ningún seed todavía; esta sección se
-completa (lista cerrada + valores) cuando el operador confirme qué hacer con esas 6.
+gitignored). Las 14 coinciden exactamente.
+
+**Lista cerrada de las 6 claves extra — decisión del operador (2026-08-23)**, tras verificar por
+grep qué consume cada una en `src/`/`supabase/functions/`:
+
+| Clave | Valor | Consumidor real | Decisión |
+|---|---|---|---|
+| `AUTH_MAX_FAILED_ATTEMPTS` | `5` | `record_failed_login()` (con fallback a 5) | **Se siembra** |
+| `TS_WORK_DAYS` | `5` | `useTimesheetPolicies.ts` (con fallback) | **Se siembra** |
+| `TS_AUTO_SAVE_SECONDS` | `3` | `useTimesheetPolicies.ts` (con fallback) | **Se siembra** |
+| `DAILY_LIMIT` | `10` | Ninguno — duplica `DAILY_MAX=10`, ya sembrada | **Se descarta** (legacy) |
+| `WEEKLY_LIMIT` | `50` | Ninguno — duplica `WEEKLY_MAX=50`, ya sembrada | **Se descarta** (legacy) |
+| `reporting_periods` | JSON (calendario + fiscal Bolivia) | Ninguno | **Se descarta** (legacy) |
+
+Las 3 que se siembran ya tienen fallback hardcodeado en el código si la clave faltara; se siembran
+igual para que la configuración quede explícita en vez de depender de un default implícito, igual
+criterio que el resto de las claves documentadas. `cero_15_seed_global_settings.sql` (Fase 4) usa
+esta tabla como lista final — 14 claves de `datos_maestros.md` + estas 3 = 17 claves sembradas.
 
 ## 4ter. Reescritura del harness RLS (plan §2.5.b) — drift de seguridad encontrado y corregido
 
