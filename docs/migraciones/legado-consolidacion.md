@@ -5,19 +5,143 @@
 > `supabase/migrations/*_cero_*.sql` no puede expresar por sí solo — la evidencia de que
 > nada se perdió al reemplazar las 184 migraciones originales por el set consolidado.
 
+## 0. Hallazgos de autoría durante el armado del set consolidado (Fase 2.1)
+
+- **`SET check_function_bodies = false;` / `SET row_security = off;`**: pg_dump los antepone a
+  todo dump de esquema; sin ellos, funciones `LANGUAGE sql` que referencian otra función creada
+  más adelante en el mismo archivo (p.ej. `can_approve_wo_risk()` → `is_admin()`, orden real de
+  `dump_full_baseline.sql`) fallan con `function ... does not exist` al aplicar. Se agregan al
+  inicio de cada archivo `_cero_*` que crea objetos.
+- **`ALTER DEFAULT PRIVILEGES ... IN SCHEMA public` (6 sentencias, roles `postgres` y
+  `supabase_admin`)**: presentes en `dump_full_baseline.sql` pero NO creadas por ninguna de las
+  184 migraciones — son parte del bootstrap de plataforma del esquema `public` (igual que el
+  esquema mismo). Aplicarlas como el rol `postgres` que corre las migraciones falla con
+  `permission denied to change default privileges` para las de `FOR ROLE supabase_admin`. Se
+  eliminaron de `cero_06_grants.sql`; no hacen falta porque ya existen antes de que corra
+  cualquier migración de la app.
+- **`ALTER DEFAULT PRIVILEGES ... IN SCHEMA cron`**: a diferencia del caso anterior, esta SÍ es
+  delta real (ausente del stack vanilla sin migraciones, presente tras el replay de las 184) —
+  la instala automáticamente Postgres/Supabase como efecto colateral de
+  `CREATE EXTENSION pg_cron` (`cero_01`). No requiere ninguna sentencia explícita propia; se
+  reproduce sola en cualquier replay que incluya esa extensión.
+- **Metodología de separación auth/storage (§2.1-b)**: se capturó un dump "vanilla" de
+  auth/storage/realtime/cron/extensions sobre un stack con CERO migraciones de la app
+  (`bugs/migracion_cero/autoria/vanilla_platform_no_migrations.sql`) y se comparó contra el mismo
+  recorte tomado del stack baseline_184
+  (`bugs/migracion_cero/autoria/baseline184_platform_schemas.sql`). El diff
+  (`bugs/migracion_cero/autoria/auth-storage-delta.diff`, 115 líneas) es exactamente lo que pasó a
+  `cero_07_auth_storage.sql`: 3 triggers sobre `auth.users`, 7 policies sobre `storage.objects`, y
+  el ALTER DEFAULT PRIVILEGES de `cron` ya explicado (sin acción). Sin este diff dirigido, una
+  extracción ingenua del dump completo habría intentado recrear infraestructura de plataforma que
+  ya existe antes de cualquier migración (tablas core de `auth.*`/`storage.*`, `realtime.*`,
+  funciones de `extensions.*`).
+
 ## 1. Operaciones sobre datos no capturables por dump (`DISABLE TRIGGER`)
 
-_Pendiente — se completa en Fase 2 (§2.3 del plan)._
+Verificado por grep sobre el árbol pre-borrado de 184 migraciones (`git show 0ca06e3c`): exactamente
+2 archivos, ambos backfills puntuales sobre datos operativos que no existen en una base nueva.
+
+1. `20260218023625_ee35a838-e97e-4356-8de2-7d4986d8d114.sql` (Bug 0213-31) deshabilita
+   `trg_validate_timer_duration` en `timer_entries` y `trg_protect_approved_time_entries` en
+   `time_entries` para capar entradas de más de 8h ya cargadas, sin que los triggers de validación
+   bloqueen el UPDATE de corrección; las reactiva al final. No aplica a una base nueva: no hay
+   filas de `time_entries`/`timer_entries` que corregir (el seed de Fase 4 no siembra ninguna).
+2. `20260813120000_0714-155_add_firma_to_engagements.sql` deshabilita
+   `update_engagements_updated_at` en `engagements` mientras corre un backfill de `society_id`
+   (encargos cuyo cliente es la propia sociedad autofacturándose) y un default histórico, para que
+   el backfill no pise el `updated_at` real de cada fila. No aplica a una base nueva: el propio DO
+   block detecta `engagements` vacía y sale sin hacer nada (mismo criterio que el seed sin datos
+   demo).
+
+Ninguna de las dos deja lógica de negocio permanente: son operaciones de una sola vez sobre datos
+preexistentes en Dev 2.0, ya ejecutadas ahí. El set consolidado no las reproduce.
 
 ## 2. Validaciones fail-fast (`DO $$ ... RAISE EXCEPTION`)
 
-_Pendiente — se completa en Fase 2 (§2.3 del plan)._
+Enumeradas filtrando bloques `DO $$` reales de excepciones dentro de cuerpos de función (que solo
+se disparan en runtime, no al aplicar la migración): 11 archivos sobre el árbol pre-borrado.
+
+| Migración | Invariante que valida | Vigencia en el set consolidado |
+|---|---|---|
+| `20260217233439` | La fila ADM existe antes del upsert self-healing | No aplica — la migración entera (upsert self-healing de ADM) no pasa al set (informe §5); ADM se siembra una sola vez con `is_system=true` en Fase 4 |
+| `20260224065444` | Idempotencia de una migración de backup vía `migration_run_log` | No aplica — mecanismo de rollout de un historial que ya no existe |
+| `20260224065512` | Existen las categorías en español esperadas (Socio/Gerente/...) | Resuelto por diseño: el seed de Fase 4 las siembra directamente (gap 1 de §3.2 del informe, cerrado) |
+| `20260224065539` | Sin roles duplicados por usuario; existe al menos un admin; ninguna categoría con `default_app_role` NULL | Duplicados: los impide la PK/UNIQUE de `user_roles`. Admin: lo garantiza el trigger `handle_new_user` sobre el bootstrap (§4.2.1 del plan). `default_app_role` NULL: punto de captura §0.5.1 — el seed de categorías de Fase 4 no puede dejar ninguna fila en NULL |
+| `20260716120000`, `20260720120000`, `20260720194653` (3 variantes del mismo guard) | `engagement_assignments.category_id` sin NULLs antes de aplicar NOT NULL | Estructural: la columna ya nace NOT NULL en el set consolidado; sin datos preexistentes no hay NULLs que backfillear |
+| `20260727110000` | El default de `engagement_assignments.status` no derivó de 'PROPOSED' | Detector de drift entre migraciones, no un invariante de negocio permanente — el default final queda fijo directamente en el CREATE TABLE consolidado |
+| `20260818120000` | `activity_codes.service_id` sin NULLs antes de aplicar NOT NULL | Superado por el diseño `is_system` (plan §2.2.1): la constraint final ya no es un NOT NULL simple, es `CHECK (is_system OR service_id IS NOT NULL)` — permite exactamente la única fila que antes hubiera hecho fallar este guard (ADM) |
+
+Ningún invariante de negocio permanente se perdió: los que sobreviven ya están expresados como
+NOT NULL/CHECK/UNIQUE en el esquema final, o quedaron resueltos por decisiones de diseño ya
+documentadas en el informe y el plan.
 
 ## 3. Cadena del incidente ADM
 
-_Pendiente — resumen de §5 del informe de consolidación (`bugs/migracion_cero/informe_consolidacion.md`)
-con la semántica nueva de `is_system`. Se completa en Fase 2._
+Resumen de §5 del informe de consolidación, con la semántica nueva de `is_system` ya aplicada:
+
+1. `20251204045534` (seed original) siembra 8 códigos de actividad legacy sin `service_id`
+   (PLN, FLD, REV, DOC, ADM, MTG, TRV, TRN — la columna no existía todavía).
+2. `20260217233439` crea `enforce_activity_default()` y un upsert self-healing de ADM que asume
+   unicidad global de `activity_code`.
+3. `20260629000000` agrega `service_id`/`entity_type` a `activity_codes` y las 4 RPCs de ABM con
+   el esquema ordinal `{ABREV}-A{n}`.
+4. `20260818120000` backfillea los 8 códigos legacy a Auditoría y aplica `service_id NOT NULL`
+   (el guard fail-fast de la tabla de §2 de este documento).
+5. `20260820120000` agrega guards por regex a las 4 RPCs para no tocar los 8 códigos legacy.
+6. `purge_auditoria_legacy_activities.sql` (2026-08-17, ejecutado en Dev 2.0, fuera del árbol de
+   migraciones) borra 17 filas — los 14 códigos `NNN-XXX` cargados a mano más ADM más 2 `AUD-AX`
+   inactivos — sin saber que `global_settings.ADM_ACTIVITY_ID` seguía apuntando a la fila ADM.
+   Incidente: el setting queda huérfano, sin ninguna protección estructural que lo hubiera evitado.
+
+Rediseño aplicado en la consolidación (plan §2.2): ADM deja de ser un código de actividad
+"colgado" de una práctica por convención — pasa a ser explícitamente
+`is_system = true, service_id = NULL`, con un CHECK que hace estructuralmente imposible que
+cualquier otra fila comparta esa combinación por accidente, y las 4 RPCs de ABM ya no pueden
+tocarla (el JOIN con `services` que usan nunca matchea `service_id IS NULL`). El seed de Fase 4 la
+siembra una única vez; ningún flujo de limpieza de catálogo por práctica puede volver a borrarla
+sin querer, porque no pertenece a ninguna práctica que se pueda limpiar.
 
 ## 4. Drift positivo capturado de Dev 2.0 (ausente de las 184 migraciones)
 
-_Pendiente — `staff.target_utilization_percent` (§0.5.6 del plan). Se completa en Fase 2._
+`staff.target_utilization_percent numeric NOT NULL DEFAULT 85` — evidencia completa en
+`bugs/migracion_cero/autoria/staff-capacidad-utilizacion.md` (gitignored) y hunk aceptado en
+`docs/migraciones/DIFF-INTENCIONAL-consolidacion.md` §1. Existe en Dev 2.0 real y en `types.ts`,
+pero ninguna de las 184 migraciones la crea — el replay local nunca pudo capturarla porque nunca
+estuvo en el historial de migraciones, solo se cargó directamente en Dev 2.0 en algún momento no
+versionado. Se incorpora explícitamente en `cero_02_functions_tables_views.sql` como diferencia
+intencional de consolidación, no como dato inventado.
+
+## 4bis. `global_settings` — reconciliación fila por fila (plan §2.4, punto de captura §0.5.2)
+
+Reconciliación ejecutada sobre el stack local baseline: 20 filas reales vs. las 14 documentadas en
+`datos_maestros.md` (detalle completo en `bugs/migracion_cero/autoria/global-settings-reconciliation.md`,
+gitignored). Las 14 coinciden exactamente. **6 claves extra sin decisión aún — pendiente
+confirmación del operador antes de fijar la lista cerrada de esta sección y escribir el seed de
+Fase 4**: `AUTH_MAX_FAILED_ATTEMPTS`, `DAILY_LIMIT`, `WEEKLY_LIMIT`, `TS_AUTO_SAVE_SECONDS`,
+`TS_WORK_DAYS`, `reporting_periods`. No se ha escrito ningún seed todavía; esta sección se
+completa (lista cerrada + valores) cuando el operador confirme qué hacer con esas 6.
+
+## 5. Nota de estructura de archivos (ajuste de corte, plan §2.1)
+
+El plan ilustraba 8 archivos (extensiones/enums, funciones auxiliares, tablas, vistas,
+funciones/triggers, RLS, grants, auth/storage). El corte real terminó en 7, porque pg_dump
+interfolia funciones y tablas por dependencia real — ejemplo: `create_engagement_with_code()`
+referencia la tabla `engagements` creada poco antes, pero `activity_codes` (tabla) se crea mucho
+después de esa misma función en el mismo dump. Separar "funciones" de "tablas" en archivos
+distintos habría roto ese orden topológico sin reordenar todo a mano — exactamente el modo de
+fallar que el informe (§2) advertía evitar releyendo migraciones en vez de confiar en pg_dump. El
+plan mismo autoriza este ajuste ("el corte exacto entre archivos puede ajustarse si una
+dependencia lo exige"). Estructura final:
+
+- `cero_01_extensions_enums.sql` — extensión `pg_cron` + enum types + la secuencia
+  `fund_request_number_seq`.
+- `cero_02_functions_tables_views.sql` — funciones, tablas y vistas interfoliadas en el orden real
+  de pg_dump (incluye los 5 cambios deliberados de §2.2 del plan).
+- `cero_03_constraints_indexes.sql` — constraints (PK/UNIQUE/CHECK) + índices + la regla `_RETURN`
+  de `work_order_summary`.
+- `cero_04_triggers_fks.sql` — triggers + foreign keys.
+- `cero_05_rls_policies.sql` — ENABLE ROW LEVEL SECURITY + policies.
+- `cero_06_grants.sql` — grants de tabla/columna/rutina, incluida la corrección de privilegios
+  heredados del bootstrap de plataforma (`DIFF-INTENCIONAL-consolidacion.md` §3).
+- `cero_07_auth_storage.sql` — estado neto de auth.*/storage.* (triggers sobre `auth.users`,
+  policies de `storage.objects`, filas de `storage.buckets`).
