@@ -1,7 +1,8 @@
 /**
  * Fase 5 write-authorization mirror for engagement assignments — el espejo cliente EXACTO de
  * `is_engagement_responsible(engagement_id)`
- * (`supabase/migrations/20260727100000_scheduler_fase2_rls_grants.sql`), la única regla de
+ * (`supabase/migrations/20251204000002_cero_02_functions_tables_views.sql` tras la migración
+ * cero), la única regla de
  * autorización que la RPC `save_engagement_assignments` aplica:
  *
  *   is_admin() OR is_engagement_responsible(engagement_id)

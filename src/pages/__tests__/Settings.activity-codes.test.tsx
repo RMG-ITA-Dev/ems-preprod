@@ -69,12 +69,12 @@ const mockActivityCodes = [
   { activity_id: "c1", activity_code: "CON-A1", description: "Diagnóstico inicial", is_active: true, service_id: CON, entity_type: "A", service: conService },
 ];
 
-// 0817-177 (review follow-up): the require-practice migration backfilled 8
-// pre-service_id legacy codes to Auditoría. They predate the {abrev}-A{n}
-// ordinal scheme, so reorder/deactivate must never treat them as a sibling.
+// Migración cero (informe §5): ADM is is_system=true with service_id NULL — it
+// can never be práctica-linked, so reorder/deactivate must never treat it as a
+// sibling of any práctica's ordinal-scheme activities.
 const mockActivityCodesWithLegacy = [
   ...mockActivityCodes,
-  { activity_id: "legacy-adm", activity_code: "ADM", description: "Administration", is_active: true, service_id: AUD, entity_type: "A", service: audService },
+  { activity_id: "legacy-adm", activity_code: "ADM", description: "Administration", is_active: true, service_id: null, is_system: true, entity_type: "A", service: null },
 ];
 
 // Mutable so a test can simulate useServices() not having resolved yet.
@@ -267,16 +267,18 @@ describe("Settings activity-codes (0723-169 / 0817-177)", () => {
     expect(screen.queryByText("activity.newActivity")).not.toBeInTheDocument();
   });
 
-  it("hides reorder arrows on a legacy activity code and excludes it from siblings' position/total (review 0817-177)", async () => {
+  it("never shows the is_system ADM code in the Actividades tab (migración cero, informe §5)", async () => {
     mockActivityCodesData = mockActivityCodesWithLegacy;
     renderSettings();
     const user = userEvent.setup();
     await goToActivities(user);
     await waitFor(() => expect(screen.getByText("Planificación de auditoría")).toBeInTheDocument());
-    expect(screen.getByText("Administration")).toBeInTheDocument();
 
-    // Only the two ordinal-scheme activities (AUD-A1, AUD-A2) get arrows —
-    // the legacy 'ADM' row is excluded entirely, not just its own arrows.
+    // ADM is is_system with service_id NULL: it structurally can't match any
+    // práctica selector, so it never enters this service-scoped list — not
+    // even to appear with its own arrows hidden.
+    expect(screen.queryByText("Administration")).not.toBeInTheDocument();
+
     const upButtons = screen.getAllByLabelText("activity.moveUp");
     const downButtons = screen.getAllByLabelText("activity.moveDown");
     expect(upButtons).toHaveLength(2);

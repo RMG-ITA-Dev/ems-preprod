@@ -121,7 +121,7 @@ export function hydrateFromPersisted(
 
 // ---------------------------------------------------------------------------
 // Payload de guardado (forma exacta que valida save_wo_staffing, ver
-// supabase/migrations/20260727120000_scheduler_fase2_rpc_save_wo_staffing.sql)
+// supabase/migrations/20251204000002_cero_02_functions_tables_views.sql tras la migración cero)
 // ---------------------------------------------------------------------------
 
 export interface StaffingPayloadSkill {

@@ -19,7 +19,7 @@
 // ya es la autoridad del `isAdmin` del formulario.
 //
 // Este mapa es ESPEJO del CASE de `enforce_engagement_creator_team()`
-// (supabase/migrations/20260817130000_0810-172_enforce_engagement_creator_team.sql). Si se toca uno,
+// (supabase/migrations/20251204000002_cero_02_functions_tables_views.sql tras la migración cero). Si se toca uno,
 // tocar el otro: el test de coherencia estructural de engagementSelfAssignment.test.ts lo verifica
 // además contra `ROLE_KEY_TO_GROUP` de engagementTeamCandidates.ts, así que un rol que se autoasigne
 // a un campo para el que no es candidato elegible rompe la suite.
