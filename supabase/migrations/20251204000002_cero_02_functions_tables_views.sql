@@ -1818,6 +1818,26 @@ BEGIN
 END;
 $$;
 
+-- Trabajo programado (recuperado — no aparecía en ningún cero_*, hallazgo de review de
+-- PR #310): en el historial original (20260217035038) corría cada 15 minutos. Es dato de
+-- cron.job, no esquema, por eso el fingerprint del plan (pg_dump schema-only + catálogos de
+-- policies/grants) nunca lo capturó y la omisión pasó todos los gates en silencio. Guardado
+-- igual que la instalación de la extensión en cero_01: si pg_cron no quedó instalado en esta
+-- base (p.ej. el harness de CI sin la extensión), se omite en vez de romper el replay.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
+    IF EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'finalize-stale-timers') THEN
+      PERFORM cron.unschedule('finalize-stale-timers');
+    END IF;
+    PERFORM cron.schedule(
+      'finalize-stale-timers',
+      '*/15 * * * *',
+      'SELECT finalize_all_stale_timers()'
+    );
+  END IF;
+END $$;
+
 
 --
 --
@@ -1842,6 +1862,24 @@ BEGIN
   RETURN v_count;
 END;
 $$;
+
+-- Trabajo programado (recuperado — no aparecía en ningún cero_*, hallazgo de review de
+-- PR #310): en el historial original (20260714000000_estado_encargo_0602-135.sql) corría
+-- diario, '30 4 * * *' UTC ≈ 00:30 America/La_Paz. Misma razón y mismo guard defensivo que
+-- el de finalize-stale-timers más arriba (dato de cron.job, invisible al fingerprint).
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
+    IF EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'finalize-engagements') THEN
+      PERFORM cron.unschedule('finalize-engagements');
+    END IF;
+    PERFORM cron.schedule(
+      'finalize-engagements',
+      '30 4 * * *',
+      $cron$SELECT public.finalize_due_engagements();$cron$
+    );
+  END IF;
+END $$;
 
 
 --

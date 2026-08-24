@@ -70,6 +70,16 @@ if ! [[ "$PROJECT_REF" =~ ^[a-z0-9]{20}$ ]]; then
 fi
 
 # --- 1. Cargar el .env indicado (sin imprimir nada de su contenido) -----------------------
+# Limpiar antes los alias "públicos" (URL/anon key) y los alias de las credenciales fuertes:
+# si esta misma shell corrió el script antes contra OTRO proyecto, esos nombres pueden seguir
+# exportados con el valor viejo y taparían lo que este $ENV_FILE define bajo un alias distinto
+# (hallazgo de review de PR #310 — resolve_alias() de más abajo siempre mira primero el nombre
+# canónico). SUPABASE_DB_URL y SUPABASE_SERVICE_ROLE_KEY (los 2 nombres canónicos de las
+# credenciales fuertes) se dejan intactos a propósito: pinearlos pre-exportados antes de invocar
+# el script sigue siendo válido (ver cabecera), y quedan validados contra PROJECT_REF más abajo.
+unset SUPABASE_URL API_URL VITE_SUPABASE_URL
+unset SUPABASE_ANON_KEY ANON_KEY SUPABASE_PUBLISHABLE_KEY VITE_SUPABASE_PUBLISHABLE_KEY
+unset DB_URL SERVICE_ROLE_KEY SUPABASE_SECRET_KEY
 set -a
 # shellcheck disable=SC1090
 source "$ENV_FILE"
@@ -123,22 +133,40 @@ prompt_secret SUPABASE_DB_URL "Connection string de Postgres (Session pooler)" |
 prompt_secret SUPABASE_SERVICE_ROLE_KEY "service_role / secret key" || exit 1
 
 # Verificación no-secreta: el project-ref debe aparecer en la URL de conexión (substring),
-# sin imprimir la URL completa (que contiene el password).
+# sin imprimir la URL completa (que contiene el password). SUPABASE_URL se valida igual —
+# es la que usa verify-auth-bootstrap.sh para la Admin API; sin este chequeo, un valor
+# heredado de otro proyecto en la misma shell pasaría inadvertido (review de PR #310).
 if [[ "$SUPABASE_DB_URL" != *"$PROJECT_REF"* ]]; then
   echo "FATAL: SUPABASE_DB_URL de '$ENV_FILE' no contiene el project-ref '$PROJECT_REF' — ¿archivo de env equivocado?" >&2
   exit 1
 fi
-echo "PASS — SUPABASE_DB_URL de '$ENV_FILE' referencia el project-ref esperado."
+if [[ "$SUPABASE_URL" != *"$PROJECT_REF"* ]]; then
+  echo "FATAL: SUPABASE_URL ('$SUPABASE_URL') no contiene el project-ref '$PROJECT_REF' — ¿variable heredada de otro proyecto en esta misma shell?" >&2
+  exit 1
+fi
+echo "PASS — SUPABASE_DB_URL y SUPABASE_URL de '$ENV_FILE' referencian el project-ref esperado."
 
 # --- 2. Linkear al proyecto y verificar que sea el correcto ------------------------------
-LINKED_FILE="supabase/.temp/linked-project.json"
-if [[ -f "$LINKED_FILE" ]] && grep -q "\"ref\":\"${PROJECT_REF}\"" "$LINKED_FILE"; then
+# La CLI escribe el ref linkeado en uno de dos formatos según versión/estado: texto plano en
+# supabase/.temp/project-ref, o JSON en supabase/.temp/linked-project.json. Los scripts de
+# Ruta C (ya eliminados) chequeaban ambos, texto plano primero — este debe hacer lo mismo:
+# mirar solo el JSON aborta el reset después de un link exitoso si la CLI usa el otro formato
+# (review de PR #310, confirmado contra docs/migraciones/HANDOFF-ruta-c.md).
+current_linked_ref() {
+  if [[ -f supabase/.temp/project-ref ]]; then
+    tr -d '[:space:]' < supabase/.temp/project-ref
+  elif [[ -f supabase/.temp/linked-project.json ]]; then
+    sed -n 's/.*"ref"[[:space:]]*:[[:space:]]*"\([a-z0-9]*\)".*/\1/p' supabase/.temp/linked-project.json
+  fi
+}
+
+if [[ "$(current_linked_ref)" == "$PROJECT_REF" ]]; then
   echo "PASS — ya está linkeado a ${PROJECT_REF}."
 else
   echo "── supabase link --project-ref ${PROJECT_REF}"
   supabase link --project-ref "$PROJECT_REF"
-  grep -q "\"ref\":\"${PROJECT_REF}\"" "$LINKED_FILE" || {
-    echo "FATAL: tras 'supabase link', ${LINKED_FILE} no referencia ${PROJECT_REF}." >&2
+  [[ "$(current_linked_ref)" == "$PROJECT_REF" ]] || {
+    echo "FATAL: tras 'supabase link', ningún archivo en supabase/.temp/ referencia ${PROJECT_REF}." >&2
     exit 1
   }
 fi
