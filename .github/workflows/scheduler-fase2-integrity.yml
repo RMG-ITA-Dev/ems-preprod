@@ -23,7 +23,9 @@ name: Scheduler Integrity — Fase 2
 #     converger al fingerprint aceptado de baseline_184 módulo los hunks documentados en
 #     docs/migraciones/DIFF-INTENCIONAL-consolidacion.md. Reemplaza route-parity (Rutas A/C
 #     del Scheduler Fase 2, ya cerrado — la muerte del preseed es criterio de éxito del
-#     informe de consolidación §2.1). Necesita el Supabase CLI real + Docker.
+#     informe de consolidación §2.1). Necesita el Supabase CLI real + Docker. Desde Fase 4
+#     (plan §4.3), también aplica los 7 seeds _cero_1x_ (no tocan DDL, el gate de fingerprint
+#     no cambia) y corre verify-seed.sql + verify-auth-bootstrap.sh como pasos finales.
 
 on:
   push:
@@ -135,3 +137,19 @@ jobs:
 
           [[ "$fail" -eq 0 ]] || exit 1
           echo "Gate de replay consolidado (renombrado, Fase 3): OK (schema, policies, grants, column_grants, routine_grants, storage_buckets)."
+
+      # Fase 4 (plan §4.3): los 7 archivos _cero_1x_seed_* no tocan DDL — el gate de arriba ya
+      # prueba que el fingerprint no cambió. Esto verifica los DATOS: conteos, ADM/is_system,
+      # ADM_ACTIVITY_ID, default_app_role 61/61, cero datos demo, feriados vs generador.
+      - name: Verificar datos del seed de Fase 4 (verify-seed.sql)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -v ON_ERROR_STOP=1 \
+            -f supabase/tests/local/verify-seed.sql
+
+      # Fase 4 (plan §4.3.4ter): el bootstrap admin escribe directo en auth.*, esquema
+      # gestionado por GoTrue — el replay + verify-seed.sql solo prueban que las filas existen
+      # con las columnas declaradas, no que GoTrue pueda autenticar contra ellas. Este es el
+      # gate real: Admin API set-password -> login por password -> get_my_staff_id() con el
+      # access_token real -> exactamente 1 fila admin en user_roles.
+      - name: Verificar bootstrap de Auth end-to-end (verify-auth-bootstrap.sh)
+        run: bash supabase/tests/local/verify-auth-bootstrap.sh

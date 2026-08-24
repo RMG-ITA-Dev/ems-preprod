@@ -10,8 +10,9 @@
 **Resuelto por el operador (2026-08-23): SÍ se agrega a Fase 4** como
 `cero_16_seed_authorization_rbac.sql`, con el mismo contenido íntegro que
 `20260724010000_authz_fase2_seed.sql` (igual al fixture ya usado en el harness de CI,
-`supabase/tests/local/40-fixture-rbac-catalog.sql`). Queda pendiente solo la escritura del
-archivo en Fase 4; el hallazgo original queda documentado abajo tal como se descubrió.
+`supabase/tests/local/40-fixture-rbac-catalog.sql`). **Escrito (PR-4,
+`supabase/migrations/20251204001007_cero_16_seed_authorization_rbac.sql`)** — el hallazgo
+original queda documentado abajo tal como se descubrió.
 
 El catálogo de autorización
 (`authorization_roles` — 23 roles, `authorization_permissions` — 84 permisos,
