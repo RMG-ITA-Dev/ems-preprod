@@ -1850,4 +1850,3 @@ REVOKE EXECUTE ON FUNCTION public.resolve_wo_req_skill_engagement_id(p_requireme
 REVOKE EXECUTE ON FUNCTION public.save_engagement_assignments(p_engagement_id uuid, p_upserts jsonb, p_deleted_ids uuid[]) FROM anon, service_role;
 REVOKE EXECUTE ON FUNCTION public.save_wo_staffing(p_wo_id uuid, p_requirements jsonb) FROM anon, service_role;
 REVOKE EXECUTE ON FUNCTION public.staff_id_number_conflict(p_id_number text, p_exclude_staff_id uuid) FROM anon;
-

@@ -52,10 +52,6 @@
  postgres      | auth         | custom_oauth_providers                         | created_at                   | REFERENCES
  postgres      | auth         | custom_oauth_providers                         | created_at                   | SELECT
  postgres      | auth         | custom_oauth_providers                         | created_at                   | UPDATE
- postgres      | auth         | custom_oauth_providers                         | custom_claims_allowlist      | INSERT
- postgres      | auth         | custom_oauth_providers                         | custom_claims_allowlist      | REFERENCES
- postgres      | auth         | custom_oauth_providers                         | custom_claims_allowlist      | SELECT
- postgres      | auth         | custom_oauth_providers                         | custom_claims_allowlist      | UPDATE
  postgres      | auth         | custom_oauth_providers                         | discovery_cached_at          | INSERT
  postgres      | auth         | custom_oauth_providers                         | discovery_cached_at          | REFERENCES
  postgres      | auth         | custom_oauth_providers                         | discovery_cached_at          | SELECT
@@ -9479,5 +9475,5 @@
  anon          | storage      | vector_indexes                                 | updated_at                   | SELECT
  authenticated | storage      | vector_indexes                                 | updated_at                   | SELECT
  service_role  | storage      | vector_indexes                                 | updated_at                   | SELECT
-(9479 rows)
+(9475 rows)
 

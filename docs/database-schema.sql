@@ -3402,7 +3402,7 @@ CREATE FUNCTION public.is_admin() RETURNS boolean
     SET search_path TO 'public'
     AS $$
   SELECT EXISTS (
-    SELECT 1 FROM user_roles 
+    SELECT 1 FROM user_roles
     WHERE user_id = auth.uid() AND role = 'admin'
   )
 $$;
@@ -3498,7 +3498,7 @@ CREATE FUNCTION public.is_engagement_team_member(p_engagement_id uuid) RETURNS b
     SELECT 1 FROM engagements e
     WHERE e.engagement_id = p_engagement_id
     AND (
-      e.manager_id = get_my_staff_id() 
+      e.manager_id = get_my_staff_id()
       OR e.partner_id = get_my_staff_id()
     )
   )
@@ -5179,12 +5179,12 @@ BEGIN
 
     -- Insert aggregated budget lines from worksheet cells
     INSERT INTO wo_budget_lines (wo_id, category_id, budgeted_hours, standard_rate)
-    SELECT 
+    SELECT
         p_wo_id,
         awc.category_id,
         SUM(awc.budget_hours),
         -- Calculate rate based on currency and season
-        CASE 
+        CASE
             WHEN v_wo.currency = 'USD' AND v_wo.season_mode = 'High' THEN c.rate_high_usd
             WHEN v_wo.currency = 'USD' AND v_wo.season_mode = 'Low' THEN c.rate_low_usd
             WHEN v_wo.currency = 'BOB' AND v_wo.season_mode = 'High' THEN c.rate_high_bob
@@ -5436,20 +5436,20 @@ BEGIN
   SELECT setting_value INTO allowed_domain
   FROM public.global_settings
   WHERE setting_key = 'ALLOWED_EMAIL_DOMAIN';
-  
+
   -- If no setting found or empty, allow all domains
   IF allowed_domain IS NULL OR allowed_domain = '' THEN
     RETURN NEW;
   END IF;
-  
+
   -- Extract domain from email
   user_domain := split_part(NEW.email, '@', 2);
-  
+
   -- Check if domain matches (case-insensitive)
   IF lower(user_domain) != lower(allowed_domain) THEN
     RAISE EXCEPTION 'Registration restricted to @% emails only', allowed_domain;
   END IF;
-  
+
   RETURN NEW;
 END;
 $$;
@@ -10102,4 +10102,3 @@ CREATE POLICY "worksheets firm read" ON public.activity_worksheets FOR SELECT TO
 --
 
 \unrestrict FfYZE57R8ExFhx7uGW64wJU9RS8Sb9pOiguU5ZyypeSWx0kPKG9MUV3MwV4BOAz
-
