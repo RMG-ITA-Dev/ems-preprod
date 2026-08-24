@@ -75,8 +75,19 @@ BEGIN
   RAISE NOTICE 'PASS — global_settings.ADM_ACTIVITY_ID resuelve a la fila ADM';
 
   SELECT count(*) INTO n FROM public.global_settings;
-  IF n <> 17 THEN RAISE EXCEPTION 'FAIL — global_settings: esperado 17 claves, encontrado %', n; END IF;
-  RAISE NOTICE 'PASS — global_settings: 17 claves';
+  IF n <> 19 THEN RAISE EXCEPTION 'FAIL — global_settings: esperado 19 claves, encontrado %', n; END IF;
+  RAISE NOTICE 'PASS — global_settings: 19 claves';
+
+  -- LANGUAGE/ALLOW_WEEKEND_TRACKING (hallazgo de review de PR #310): Settings.handleSaveSettings
+  -- las escribe siempre vía una mutación update-only — sin estas 2 filas, cualquier guardado de
+  -- Configuración fallaba en cuanto llegaba a la primera de las dos.
+  IF NOT EXISTS (SELECT 1 FROM public.global_settings WHERE setting_key = 'LANGUAGE') THEN
+    RAISE EXCEPTION 'FAIL — falta la clave LANGUAGE (rompe Settings.handleSaveSettings)';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.global_settings WHERE setting_key = 'ALLOW_WEEKEND_TRACKING') THEN
+    RAISE EXCEPTION 'FAIL — falta la clave ALLOW_WEEKEND_TRACKING (rompe Settings.handleSaveSettings)';
+  END IF;
+  RAISE NOTICE 'PASS — LANGUAGE y ALLOW_WEEKEND_TRACKING presentes';
 
   IF NOT EXISTS (SELECT 1 FROM public.global_settings WHERE setting_key = 'HOLIDAY_ENGAGEMENT_ID' AND setting_value = '') THEN
     RAISE EXCEPTION 'FAIL — HOLIDAY_ENGAGEMENT_ID debe existir y estar vacío por diseño';

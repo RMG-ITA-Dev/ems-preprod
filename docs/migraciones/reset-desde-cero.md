@@ -81,9 +81,10 @@ Todo sale del dashboard de Supabase (`supabase.com/dashboard`), proyecto objetiv
    que el script continúe. No hay flag para saltarla.
 6. `supabase db reset --linked` — borra todo y reaplica las 14 migraciones.
 7. Verifica convergencia (`migration list --linked`, `db push --dry-run --linked`).
-8. Corre `verify-seed.sql` contra la base real (23 chequeos: conteos, ADM/is_system,
+8. Corre `verify-seed.sql` contra la base real (24 chequeos: conteos, ADM/is_system,
    `ADM_ACTIVITY_ID`, 61/61 `default_app_role`, feriados vs generador, cero datos demo,
-   bootstrap completo, cron jobs `finalize-stale-timers`/`finalize-engagements` activos).
+   bootstrap completo, cron jobs `finalize-stale-timers`/`finalize-engagements` activos,
+   `LANGUAGE`/`ALLOW_WEEKEND_TRACKING` presentes).
 9. Corre `verify-auth-bootstrap.sh` (Admin API → login por password → `get_my_staff_id()` →
    1 fila admin) — el gate real del INSERT en `auth.users`/`auth.identities`. **Este paso fija
    por Admin API una contraseña temporal de patrón conocido en la cuenta admin real** (ver

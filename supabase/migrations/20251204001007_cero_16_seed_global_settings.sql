@@ -1,8 +1,14 @@
--- Migración cero — Fase 4 (plan §4.1/§4.2): seed de global_settings, 17 claves.
+-- Migración cero — Fase 4 (plan §4.1/§4.2): seed de global_settings, 19 claves.
 -- Lista cerrada por el operador 2026-08-23 (docs/migraciones/legado-consolidacion.md §4bis):
 -- 14 claves de bugs/migracion_cero/datos_maestros.md + AUTH_MAX_FAILED_ATTEMPTS/TS_WORK_DAYS/
 -- TS_AUTO_SAVE_SECONDS (tienen consumidor real en el código). DAILY_LIMIT/WEEKLY_LIMIT/
 -- reporting_periods se descartan como legacy sin consumidor.
+-- LANGUAGE/ALLOW_WEEKEND_TRACKING sumadas después (hallazgo de review de PR #310): faltaban en
+-- la lista cerrada original — no estaban ni en datos_maestros.md ni en la reconciliación de
+-- §1.6.c (que solo comparó contra el replay local, no contra Dev 2.0 real) — pero
+-- Settings.handleSaveSettings las escribe siempre con una mutación update-only; sin la fila,
+-- CUALQUIER guardado de Configuración fallaba en cuanto llegaba a esa clave. Defaults = el
+-- mismo fallback que ya usa el código si la clave faltara (Settings.tsx).
 --
 -- Depende de cero_11 (ADM_ACTIVITY_ID resuelve por sub-select de la fila ADM sembrada ahí).
 -- Corre DESPUÉS de cero_14 (admin bootstrap): mientras ALLOWED_EMAIL_DOMAIN no exista,
@@ -25,7 +31,9 @@ INSERT INTO public.global_settings (setting_key, setting_value, description) VAL
   ('AUTH_MAX_FAILED_ATTEMPTS',  '5',                       'Failed login attempts allowed before the account is locked'),
   ('TS_WORK_DAYS',              '5',                      'Number of work days per week (5 = Mon-Fri, 6 = Mon-Sat)'),
   ('TS_AUTO_SAVE_SECONDS',      '3',                      'Debounce delay for auto-saving time entries in seconds'),
-  ('HOLIDAY_ENGAGEMENT_ID',     '',                       'Engagement ID allowed for time entries on holiday dates')
+  ('HOLIDAY_ENGAGEMENT_ID',     '',                       'Engagement ID allowed for time entries on holiday dates'),
+  ('LANGUAGE',                  'en',                     'UI language (en/es)'),
+  ('ALLOW_WEEKEND_TRACKING',    'false',                  'Whether Saturday/Sunday count as work days for timesheet limits')
 ON CONFLICT (setting_key) DO NOTHING;
 
 -- ADM_ACTIVITY_ID vía sub-select de la fila ADM (is_system=true) sembrada en cero_11 — nunca

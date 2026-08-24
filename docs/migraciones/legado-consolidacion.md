@@ -168,8 +168,20 @@ grep qué consume cada una en `src/`/`supabase/functions/`:
 
 Las 3 que se siembran ya tienen fallback hardcodeado en el código si la clave faltara; se siembran
 igual para que la configuración quede explícita en vez de depender de un default implícito, igual
-criterio que el resto de las claves documentadas. `cero_16_seed_global_settings.sql` (Fase 4) usa
-esta tabla como lista final — 14 claves de `datos_maestros.md` + estas 3 = 17 claves sembradas.
+criterio que el resto de las claves documentadas.
+
+**Corrección (hallazgo de review de PR #310, 2026-08-24):** esta reconciliación se hizo contra el
+replay local de las 184 migraciones + preseed (§1.6.c), no contra Dev 2.0 real — igual que
+`staff.target_utilization_percent` (§4), hay estado que solo existe en un ambiente real y nunca
+quedó versionado en ninguna migración ni en el preseed. `LANGUAGE` y `ALLOW_WEEKEND_TRACKING` son
+exactamente ese caso: no aparecían en las 20 filas de este documento porque tampoco existían en el
+replay local, pero `Settings.handleSaveSettings` (`src/pages/Settings.tsx`) las escribe siempre
+con una mutación `update`-only (`useUpdateGlobalSetting`) — sin la fila, cualquier guardado de
+Configuración fallaba en cuanto llegaba a la primera de las dos, silenciosamente (el `catch` de
+`handleSaveSettings` traga el error). Se agregan a la lista cerrada con el mismo default que ya
+usa el código como fallback (`LANGUAGE='en'`, `ALLOW_WEEKEND_TRACKING='false'`).
+`cero_16_seed_global_settings.sql` (Fase 4) usa esta tabla como lista final — 14 claves de
+`datos_maestros.md` + las 3 de arriba + estas 2 = **19 claves sembradas**.
 
 ## 4ter. Reescritura del harness RLS (plan §2.5.b) — drift de seguridad encontrado y corregido
 

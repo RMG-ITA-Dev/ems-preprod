@@ -58,10 +58,14 @@ const formSchema = z.object({
   practica_id: z.string().min(1, "validation.categoryServiceRequired"),
   category_name: z.string().min(1, "Category name is required"),
   display_order: z.coerce.number().int().min(1),
-  rate_high_bob: z.coerce.number().positive("Rate must be greater than 0"),
-  rate_low_bob: z.coerce.number().positive("Rate must be greater than 0"),
-  rate_high_usd: z.coerce.number().positive("Rate must be greater than 0"),
-  rate_low_usd: z.coerce.number().positive("Rate must be greater than 0"),
+  // .nonnegative() (no .positive()): el catálogo maestro real siembra 0 en las 4 tarifas de
+  // la categoría "Pasante" de varias prácticas (hallazgo de review de PR #310) — es el dato
+  // correcto (sin tarifa), no un placeholder, así que el formulario debe poder editar esas
+  // filas sin exigir un valor mayor a cero.
+  rate_high_bob: z.coerce.number().nonnegative("Rate cannot be negative"),
+  rate_low_bob: z.coerce.number().nonnegative("Rate cannot be negative"),
+  rate_high_usd: z.coerce.number().nonnegative("Rate cannot be negative"),
+  rate_low_usd: z.coerce.number().nonnegative("Rate cannot be negative"),
   can_approve_wo: z.boolean().default(false),
   can_approve_timesheets: z.boolean().default(false),
   default_app_role: z.string().optional(),
