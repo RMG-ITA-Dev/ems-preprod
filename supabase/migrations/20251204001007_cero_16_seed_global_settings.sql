@@ -5,7 +5,7 @@
 -- reporting_periods se descartan como legacy sin consumidor.
 --
 -- Depende de cero_11 (ADM_ACTIVITY_ID resuelve por sub-select de la fila ADM sembrada ahí).
--- Corre DESPUÉS de cero_13 (admin bootstrap): mientras ALLOWED_EMAIL_DOMAIN no exista,
+-- Corre DESPUÉS de cero_14 (admin bootstrap): mientras ALLOWED_EMAIL_DOMAIN no exista,
 -- validate_email_domain() no bloquea el INSERT en auth.users del bootstrap (plan §4.2.1.3).
 -- HOLIDAY_ENGAGEMENT_ID queda vacío por diseño (no existe todavía el encargo de feriados).
 

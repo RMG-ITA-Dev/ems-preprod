@@ -2,7 +2,7 @@
 -- activity_codes (24 + ADM). Fuente: bugs/migracion_cero/practicas.md /
 -- bugs/practicas/Configuracion_Practicas_EMS.md, columna "Rol por Defecto" ya cerrada
 -- (bugs/migracion_cero/autoria/default_app_role.md — 61/61 filas con rol, cero NULL).
--- Depende de: nada (practicas es la base de este archivo). cero_13/cero_14 dependen de este.
+-- Depende de: nada (practicas es la base de este archivo). cero_14/cero_15 dependen de este.
 
 -- 1. Practicas (8) — códigos 0-7. Firmwide no tiene categorías propias, por eso
 -- allows_rates_activities queda en false para ella; las 7 restantes sí ofrecen tarifas y

@@ -1,6 +1,6 @@
 -- Verificación de datos del seed de Fase 4 (bugs/migracion_cero/plan_v2.md §4.3).
 -- Corre contra un stack con el set consolidado renombrado + los 7 archivos de seed
--- (cero_10..cero_16) ya replayados desde volumen limpio, SIN intervención manual.
+-- (cero_10..cero_16, orden real: 10,11,12,13-rbac,14-bootstrap,15-holidays,16-global_settings) ya replayados desde volumen limpio, SIN intervención manual.
 --
 -- Uso: psql "$DB_URL" -v ON_ERROR_STOP=1 -f supabase/tests/local/verify-seed.sql
 --

@@ -5,6 +5,15 @@
 -- has_permission()/has_firmwide_assignment_visibility()/get_timesheet_approvers()/
 -- get_engagement_team_candidates() quedan permanentemente rotas en cualquier reset.
 --
+-- Corre ANTES de cero_14 (admin bootstrap) — hallazgo real del primer replay [EXEC]
+-- (2026-08-23): handle_new_user() inserta user_roles(role_key='admin'), y esa columna tiene
+-- FK a authorization_roles(role_key) (cero_04). Si el catálogo RBAC no existe todavía, el
+-- INSERT en auth.users de cero_14 dispara el trigger y revienta con
+-- "insert or update on table user_roles violates foreign key constraint
+-- user_roles_role_key_fkey" — el catálogo (23 roles, incluido 'admin') debe existir antes de
+-- que nazca el primer usuario. No depende de society/practicas/servicios; puede ir tan
+-- temprano como el orden de dependencias permita.
+--
 -- =====================================================================
 -- Roles & Permisos — FASE 1 (tanda 2): SEED de la matriz + role_key en user_roles
 -- GENERADO automáticamente desde "Matriz de roles.md" (parser validado: 23/84/737, conteos por rol OK). No editar a mano.
@@ -869,10 +878,12 @@ insert into public.authorization_role_permissions (role_key, permission_key, sco
 on conflict (role_key, permission_key) do update set scope_key = excluded.scope_key;
 
 -- D) role_key en user_roles: la columna ya existe en el esquema consolidado (cero_02/cero_03,
--- no via ALTER histórico) y handle_new_user() ya escribe role_key='admin' para el bootstrap —
--- este bloque queda idéntico al original por fidelidad a la decisión del operador; es un
--- no-op seguro (ADD COLUMN IF NOT EXISTS sobre columna existente; UPDATE ... WHERE role_key IS
--- NULL no toca la fila del bootstrap, que ya nace con role_key asignado por el trigger).
+-- no via ALTER histórico) — este bloque queda idéntico al original por fidelidad a la decisión
+-- del operador; es un no-op seguro. En este punto del orden (ANTES de cero_14) user_roles está
+-- vacía (nadie se registró todavía), así que el ADD COLUMN IF NOT EXISTS no tiene nada que
+-- alterar y el UPDATE ... WHERE role_key IS NULL no toca ninguna fila — el backfill real de
+-- este bloque solo aplicaría sobre un historial preexistente, que no es el caso de un reset
+-- desde cero.
 alter table public.user_roles add column if not exists role_key text
   references public.authorization_roles(role_key);
 

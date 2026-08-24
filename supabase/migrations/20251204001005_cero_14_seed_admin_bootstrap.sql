@@ -5,10 +5,12 @@
 -- solo este replay. Persona real (Neil Graneros, Socio de Auditoría) — decisión del operador
 -- 2026-08-21 (plan §0.1), no un actor sintético.
 --
--- Depende de: cero_10 (society), cero_11 (practicas/categories). Debe ir ANTES de cero_14
--- (holidays.created_by referencia el staff sembrado acá) y ANTES de cero_15
--- (global_settings vacía en este punto es lo que hace inofensivo a validate_email_domain,
--- ver punto 3 abajo).
+-- Depende de: cero_10 (society), cero_11 (practicas/categories), cero_13 (catálogo RBAC —
+-- handle_new_user() inserta user_roles.role_key='admin', que tiene FK a
+-- authorization_roles.role_key; sin cero_13 antes, este INSERT revienta la FK — hallazgo real
+-- del primer replay [EXEC], 2026-08-23). Debe ir ANTES de cero_15 (holidays.created_by
+-- referencia el staff sembrado acá) y ANTES de cero_16 (global_settings vacía en este punto es
+-- lo que hace inofensivo a validate_email_domain, ver punto 3 abajo).
 --
 -- Contraseña: NUNCA se commitea. encrypted_password es un hash aleatorio inutilizable — el
 -- operador la establece post-reset (plan §4.2.1.5 / §7.3).

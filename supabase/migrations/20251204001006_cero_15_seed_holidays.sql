@@ -10,7 +10,7 @@
 -- "(Adicional)" exigido por §0.1, así NATIONAL_HOLIDAY_NAMES nunca las puede colisionar
 -- ni el botón "Generar" las toca.
 --
--- created_by: sub-select del staff del bootstrap (cero_13) por email — depende de cero_13.
+-- created_by: sub-select del staff del bootstrap (cero_14) por email — depende de cero_14.
 
 INSERT INTO public.holidays (holiday_date, holiday_name, oficina, created_by)
 SELECT v.holiday_date::date, v.holiday_name, v.oficina, s.staff_id

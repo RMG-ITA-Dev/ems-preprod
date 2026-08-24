@@ -8,11 +8,16 @@
 ## -1. HALLAZGO CRÍTICO — catálogo RBAC ausente del alcance de seed de Fase 4
 
 **Resuelto por el operador (2026-08-23): SÍ se agrega a Fase 4** como
-`cero_16_seed_authorization_rbac.sql`, con el mismo contenido íntegro que
+`cero_13_seed_authorization_rbac.sql`, con el mismo contenido íntegro que
 `20260724010000_authz_fase2_seed.sql` (igual al fixture ya usado en el harness de CI,
 `supabase/tests/local/40-fixture-rbac-catalog.sql`). **Escrito (PR-4,
-`supabase/migrations/20251204001007_cero_16_seed_authorization_rbac.sql`)** — el hallazgo
+`supabase/migrations/20251204001004_cero_13_seed_authorization_rbac.sql`)** — el hallazgo
 original queda documentado abajo tal como se descubrió.
+**Reordenado (2026-08-23, primer replay [EXEC]):** originalmente escrito como el último seed
+(`cero_16`), pero `handle_new_user()` inserta `user_roles.role_key='admin'` con FK a
+`authorization_roles.role_key` — sin el catálogo RBAC ya poblado, el INSERT en `auth.users` del
+bootstrap admin revienta esa FK. El catálogo RBAC pasó a `cero_13` (antes del bootstrap, ahora
+`cero_14`); holidays y global_settings corrieron un número: `cero_15`/`cero_16`.
 
 El catálogo de autorización
 (`authorization_roles` — 23 roles, `authorization_permissions` — 84 permisos,
@@ -163,7 +168,7 @@ grep qué consume cada una en `src/`/`supabase/functions/`:
 
 Las 3 que se siembran ya tienen fallback hardcodeado en el código si la clave faltara; se siembran
 igual para que la configuración quede explícita en vez de depender de un default implícito, igual
-criterio que el resto de las claves documentadas. `cero_15_seed_global_settings.sql` (Fase 4) usa
+criterio que el resto de las claves documentadas. `cero_16_seed_global_settings.sql` (Fase 4) usa
 esta tabla como lista final — 14 claves de `datos_maestros.md` + estas 3 = 17 claves sembradas.
 
 ## 4ter. Reescritura del harness RLS (plan §2.5.b) — drift de seguridad encontrado y corregido

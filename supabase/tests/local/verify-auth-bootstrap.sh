@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Smoke automatizado del bootstrap de Auth (plan §4.3.4ter, bugs/migracion_cero/plan_v2.md).
 #
-# cero_13_seed_admin_bootstrap.sql inserta directamente en auth.users/auth.identities —
+# cero_14_seed_admin_bootstrap.sql inserta directamente en auth.users/auth.identities —
 # esquema gestionado por GoTrue, que puede cambiar de forma no documentada entre versiones.
 # El replay + capture-route-fingerprint.sh solo prueban que las filas existen con las columnas
 # que el archivo declaró; NO prueban que GoTrue pueda autenticar contra esas filas (un NULL en
@@ -60,7 +60,7 @@ ADMIN_HTTP_CODE="$(printf '%s' "$ADMIN_RESP" | tail -1)"
 ADMIN_BODY="$(printf '%s' "$ADMIN_RESP" | sed '$d')"
 if [[ "$ADMIN_HTTP_CODE" != "200" ]]; then
   echo "FAIL — Admin API no pudo fijar la contraseña (HTTP ${ADMIN_HTTP_CODE}): ${ADMIN_BODY}" >&2
-  echo "       Típicamente indica que el INSERT de cero_13 dejó una columna text de GoTrue en NULL en vez de ''." >&2
+  echo "       Típicamente indica que el INSERT de cero_14 dejó una columna text de GoTrue en NULL en vez de ''." >&2
   exit 1
 fi
 echo "PASS — contraseña temporal fijada por Admin API (HTTP 200)"
