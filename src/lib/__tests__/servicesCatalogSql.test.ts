@@ -3,36 +3,30 @@ import { readFileSync } from "fs";
 import { resolve } from "path";
 
 /**
- * 0625-149: Static assertions on the services catalog migration file.
- * Guards against accidental drift in the migration content.
+ * 0625-149 (retargeted por la migración cero, plan §2.5.d): assertions estructurales sobre
+ * la tabla `public.practicas`, sus policies y el RPC de lookup por código de práctica,
+ * ahora contra el archivo consolidado. Las aserciones sobre el CONTENIDO del seed original
+ * (5 filas: Firmwide/Auditoría/Consultoría/Tax/Growth & Strategy) se retiraron — el
+ * catálogo real vigente son las 8 prácticas de bugs/migracion_cero/practicas.md, que
+ * llegan en Fase 4 como datos, no como parte de esta migración de esquema.
  */
 
-const migrationPath = resolve(
-  __dirname,
-  "../../../supabase/migrations/20260626000000_create_services_catalog.sql"
+const sql = readFileSync(
+  resolve(process.cwd(), "supabase/migrations/20251204000002_cero_02_functions_tables_views.sql"),
+  "utf-8",
 );
-const sql = readFileSync(migrationPath, "utf-8");
+const policiesSql = readFileSync(
+  resolve(process.cwd(), "supabase/migrations/20251204000005_cero_05_rls_policies.sql"),
+  "utf-8",
+);
 
-describe("services catalog migration (0625-149)", () => {
-  it("creates the public.services table", () => {
-    expect(sql).toContain("CREATE TABLE IF NOT EXISTS public.services");
+describe("practicas table (migración cero, consolidado)", () => {
+  it("creates the public.practicas table", () => {
+    expect(sql).toContain("CREATE TABLE public.practicas");
   });
 
-  it("seeds Tax (not TAX)", () => {
-    expect(sql).toContain("'Tax'");
-    expect(sql).not.toContain("'TAX'");
-  });
-
-  it("seeds all five rows (Firmwide, Auditoría, Consultoría, Tax, Growth & Strategy)", () => {
-    expect(sql).toContain("'Firmwide'");
-    expect(sql).toContain("'Auditoría'");
-    expect(sql).toContain("'Consultoría'");
-    expect(sql).toContain("'Tax'");
-    expect(sql).toContain("'Growth & Strategy'");
-  });
-
-  it("RPC references public.services (catalog lookup)", () => {
-    expect(sql).toContain("FROM public.services WHERE code = p_practica AND is_active");
+  it("RPC references public.practicas (catalog lookup)", () => {
+    expect(sql).toContain("FROM public.practicas WHERE code = p_practica AND is_active");
   });
 
   it("RPC does NOT use the old static IN (0,1,2,3,4) guard", () => {
@@ -41,23 +35,28 @@ describe("services catalog migration (0625-149)", () => {
   });
 
   it("INSERT/UPDATE policies reference is_admin()", () => {
-    expect(sql).toContain("public.is_admin()");
+    const block = policiesSql.slice(
+      policiesSql.indexOf('"Admins can insert practicas"'),
+      policiesSql.indexOf('"Admins can update practicas"') + 200,
+    );
+    expect(block).toContain("public.is_admin()");
   });
 
-  it("has no DELETE policy (deactivate-only design)", () => {
-    expect(sql).not.toContain("FOR DELETE");
+  it("has no DELETE policy on practicas (deactivate-only design)", () => {
+    expect(policiesSql).not.toMatch(/ON public\.practicas FOR DELETE/);
   });
 
   it("SELECT policy is open to authenticated", () => {
-    expect(sql).toContain("FOR SELECT");
-    expect(sql).toContain("USING (true)");
+    expect(policiesSql).toContain(
+      'CREATE POLICY "Authenticated users can read practicas" ON public.practicas FOR SELECT TO authenticated USING (true);',
+    );
   });
 
-  it("CHECK constraint allows 0–9", () => {
-    expect(sql).toContain("CHECK (code BETWEEN 0 AND 9)");
+  it("CHECK constraint allows code 0-9", () => {
+    expect(sql).toContain("CONSTRAINT practicas_code_check CHECK (((code >= 0) AND (code <= 9)))");
   });
 
-  it("new engagements practica CHECK is BETWEEN 0 AND 9 (superset of old 0-4)", () => {
-    expect(sql).toContain("CHECK (practica BETWEEN 0 AND 9)");
+  it("engagements.practica CHECK is 0-9 (superset of the old 0-4)", () => {
+    expect(sql).toContain("CONSTRAINT chk_engagements_practica CHECK (((practica >= 0) AND (practica <= 9)))");
   });
 });

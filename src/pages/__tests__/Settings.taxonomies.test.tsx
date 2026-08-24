@@ -35,12 +35,12 @@ vi.mock("react-router-dom", async () => {
 });
 
 const mockServices = [
-  { service_id: "s1", name: "Auditoría", code: 1, allows_rates_activities: true, is_active: true, created_at: "" },
+  { practica_id: "s1", name: "Auditoría", code: 1, allows_rates_activities: true, is_active: true, created_at: "" },
 ];
 
 const mockTaxonomies = [
-  { taxonomy_id: "t1", code: "AA1006", name: "New audit", service_id: null, is_active: true, created_at: "" },
-  { taxonomy_id: "t2", code: "AA1007", name: "Continued audit", service_id: null, is_active: false, created_at: "" },
+  { taxonomy_id: "t1", code: "AA1006", name: "New audit", practica_id: null, is_active: true, created_at: "" },
+  { taxonomy_id: "t2", code: "AA1007", name: "Continued audit", practica_id: null, is_active: false, created_at: "" },
 ];
 
 vi.mock("@/hooks/useEmsData", () => ({

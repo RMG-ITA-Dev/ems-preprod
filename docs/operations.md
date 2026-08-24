@@ -62,7 +62,7 @@ Activation order: migrate the target Supabase → verify schema/RLS contract →
 
 - Supabase project ID: `ugqxfnrxvksiltwxzist`
 - 9 Edge Functions (inventory below)
-- 177 timestamped migrations in `supabase/migrations/` (post-convergence: `dev-scheduler` + `feat/roles-permisos` + 3 RLS/RPC-drift fixes found during the convergence review, `merge/dev-scheduler-roles-permisos`; 131 on `development` before this merge lands, 143 on `dev-scheduler` alone — see `bugs/scheduler/plan_merge_sche_rolper.md`)
+- 14 migrations in `supabase/migrations/` — the consolidated "migración cero" set (`bugs/migracion_cero/plan_v2.md`), which replaced the prior 184-migration history: 7 schema files (`20251204000001..7_cero_01..07_*.sql`, renamed `services→practicas` / `taxonomies→servicios`) + 7 production-seed files (`20251204001001..7_cero_10..16_*.sql`, no demo data). Verified against the pre-consolidation baseline fingerprint — see `docs/migraciones/legado-consolidacion.md` and `docs/migraciones/DIFF-INTENCIONAL-consolidacion.md` for the accepted diff and rationale.
 - Key RPC functions: `submit_timesheet_safe(p_period_id uuid, p_staff_id uuid, p_engagement_ids uuid[], p_activity_ids uuid[], p_is_auto_approved boolean) returns jsonb` (5-arg signature; the old 4-arg overload was dropped in `20260716000000`; errors include `EMPTY_ENGAGEMENTS` and `ARRAY_LENGTH_MISMATCH`), `get_staff_assignment_segments(p_staff_id uuid, p_week_start date, p_week_end date) returns table(engagement_id uuid, start_date date, end_date date)` (Scheduler Fase 2/5/6 — canonical Monday `week_start`, span ≤ 6 days, `SECURITY DEFINER`), `assign_user_role_atomic()`, `update_timesheet_minmax_settings()`
 
 ### Edge Function Inventory

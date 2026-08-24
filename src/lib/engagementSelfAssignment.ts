@@ -8,7 +8,7 @@
 //     por colapsar siete role_key en `manager`) y quedó NULLABLE tras FASE 3c: CategoryForm ya no
 //     lo edita, así que toda categoría creada desde entonces guarda null.
 //   · `categories.category_name`   — es TEXTO LIBRE editable por el usuario (sin enum ni check
-//     constraint; `create_category_for_service(p_category_name text, …)`), está sembrado en inglés
+//     constraint; `create_category_for_practice(p_category_name text, …)`), está sembrado en inglés
 //     ('Partner'/'Manager', 20251204045534) Y en español ('Socio'/'Gerente', 20260130231039), y se
 //     duplica por servicio. Renombrar una categoría cambiaría en silencio a quién se le fuerza la
 //     asignación: inaceptable para un guard de base de datos.
@@ -19,7 +19,7 @@
 // ya es la autoridad del `isAdmin` del formulario.
 //
 // Este mapa es ESPEJO del CASE de `enforce_engagement_creator_team()`
-// (supabase/migrations/20260817130000_0810-172_enforce_engagement_creator_team.sql). Si se toca uno,
+// (supabase/migrations/20251204000002_cero_02_functions_tables_views.sql tras la migración cero). Si se toca uno,
 // tocar el otro: el test de coherencia estructural de engagementSelfAssignment.test.ts lo verifica
 // además contra `ROLE_KEY_TO_GROUP` de engagementTeamCandidates.ts, así que un rol que se autoasigne
 // a un campo para el que no es candidato elegible rompe la suite.
@@ -86,7 +86,7 @@ export function resolveSelfAssignedTeamField({
  *
  * Se construye desde `useCurrentStaff` y no desde el RPC de candidatos porque el creador puede no
  * figurar en la lista YA FILTRADA POR SERVICIO (los no-admin reciben `practica` = Auditoría
- * forzada, y su `staff.service_id` puede ser otro). `serviceId: null` es deliberado: esta opción se
+ * forzada, y su `staff.practica_id` puede ser otro). `serviceId: null` es deliberado: esta opción se
  * inyecta DESPUÉS del filtro por servicio, igual que el histórico de `withSavedStaff`.
  */
 export function selfCandidateOption(

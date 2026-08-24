@@ -71,9 +71,9 @@ describe("useEmsData hooks", () => {
       expect(result.current.data).toEqual(mockCategories);
     });
 
-    it("scopes to a service via .eq('service_id', serviceId) when a serviceId is given", async () => {
+    it("scopes to a service via .eq('practica_id', serviceId) when a serviceId is given", async () => {
       const mockCategories = [
-        { category_id: "1", category_name: "Socio", display_order: 1, service_id: "svc-aud" },
+        { category_id: "1", category_name: "Socio", display_order: 1, practica_id: "svc-aud" },
       ];
 
       const mockOrder = vi.fn().mockResolvedValue({ data: mockCategories, error: null });
@@ -88,7 +88,7 @@ describe("useEmsData hooks", () => {
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
       expect(supabase.from).toHaveBeenCalledWith("categories");
-      expect(mockEq).toHaveBeenCalledWith("service_id", "svc-aud");
+      expect(mockEq).toHaveBeenCalledWith("practica_id", "svc-aud");
       expect(mockOrder).toHaveBeenCalledWith("display_order");
       expect(result.current.data).toEqual(mockCategories);
     });
@@ -143,7 +143,7 @@ describe("useEmsData hooks", () => {
           last_name: "Doe",
           is_active: true,
           society_id: "soc-1",
-          service_id: "svc-1",
+          practica_id: "svc-1",
           category: { category_id: "1", category_name: "Partner" },
         },
       ];
@@ -165,12 +165,12 @@ describe("useEmsData hooks", () => {
       expect(supabase.from).toHaveBeenCalledWith("staff");
       expect(mockEq).toHaveBeenCalledWith("is_active", true);
       expect(result.current.data?.[0].category?.category_name).toBe("Partner");
-      // FEAT 0810-173: society_id/service_id are selected and passed through.
+      // FEAT 0810-173: society_id/practica_id are selected and passed through.
       const selectArg = mockSelect.mock.calls[0][0] as string;
       expect(selectArg).toContain("society_id");
-      expect(selectArg).toContain("service_id");
+      expect(selectArg).toContain("practica_id");
       expect(result.current.data?.[0].society_id).toBe("soc-1");
-      expect(result.current.data?.[0].service_id).toBe("svc-1");
+      expect(result.current.data?.[0].practica_id).toBe("svc-1");
     });
   });
 
@@ -283,12 +283,12 @@ describe("useEmsData hooks", () => {
 
   describe("useAllActivityCodes (0513-114 / 0817-177)", () => {
     it("fetches ALL activity codes without is_active filter (for admin)", async () => {
-      // 0817-177: activity_codes.service_id is NOT NULL — every row is
+      // 0817-177: activity_codes.practica_id is NOT NULL — every row is
       // practice-linked, there is no more "Global" bucket.
       const mockCodes = [
-        { activity_id: "1", activity_code: "AUD-A1", description: "Planning", is_active: true, service_id: "s1", entity_type: "A", service: { service_id: "s1", name: "Auditoría", abbreviation: "AUD" } },
-        { activity_id: "2", activity_code: "AUD-AX", description: "Old Step", is_active: false, service_id: "s1", entity_type: "A", service: { service_id: "s1", name: "Auditoría", abbreviation: "AUD" } },
-        { activity_id: "3", activity_code: "TAX-A1", description: "Tax Review", is_active: true, service_id: "s2", entity_type: "A", service: { service_id: "s2", name: "Tax", abbreviation: "TAX" } },
+        { activity_id: "1", activity_code: "AUD-A1", description: "Planning", is_active: true, practica_id: "s1", entity_type: "A", service: { practica_id: "s1", name: "Auditoría", abbreviation: "AUD" } },
+        { activity_id: "2", activity_code: "AUD-AX", description: "Old Step", is_active: false, practica_id: "s1", entity_type: "A", service: { practica_id: "s1", name: "Auditoría", abbreviation: "AUD" } },
+        { activity_id: "3", activity_code: "TAX-A1", description: "Tax Review", is_active: true, practica_id: "s2", entity_type: "A", service: { practica_id: "s2", name: "Tax", abbreviation: "TAX" } },
       ];
 
       const mockSelect = vi.fn().mockResolvedValue({ data: mockCodes, error: null });
@@ -427,7 +427,7 @@ describe("useWorkOrderStaffingRequirements (Fase 4)", () => {
         wo_id: "wo-1",
         category_id: "cat-2",
         staff_count: 1,
-        category: { category_id: "cat-2", category_name: "Manager", service_id: "svc-1", display_order: 2 },
+        category: { category_id: "cat-2", category_name: "Manager", practica_id: "svc-1", display_order: 2 },
         requirement_skills: [
           { id: "rs-2", skill_id: "s2", min_proficiency_level: "Beginner", skill: { skill_id: "s2", name: "Zebra", is_active: true } },
           { id: "rs-1", skill_id: "s1", min_proficiency_level: "Advanced", skill: { skill_id: "s1", name: "Alpha", is_active: true } },
@@ -438,7 +438,7 @@ describe("useWorkOrderStaffingRequirements (Fase 4)", () => {
         wo_id: "wo-1",
         category_id: "cat-1",
         staff_count: 2,
-        category: { category_id: "cat-1", category_name: "Senior", service_id: "svc-1", display_order: 1 },
+        category: { category_id: "cat-1", category_name: "Senior", practica_id: "svc-1", display_order: 1 },
         requirement_skills: [],
       },
     ]);

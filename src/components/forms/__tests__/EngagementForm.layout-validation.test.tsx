@@ -44,7 +44,7 @@ vi.mock("react-i18next", () => ({
 }));
 
 const mockServices = [
-  { service_id: "s1", name: "Auditoría", code: 1, allows_rates_activities: true, is_active: true, created_at: "" },
+  { practica_id: "s1", name: "Auditoría", code: 1, allows_rates_activities: true, is_active: true, created_at: "" },
 ];
 const mockClients = [{ client_id: "client-1", client_legal_name: "Test Client", is_active: true }];
 const mockSocieties = [{ society_id: "soc-1", name: "Ruizmier Pelaez S.R.L.", is_active: true, created_at: "" }];

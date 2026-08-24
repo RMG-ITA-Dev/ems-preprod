@@ -307,7 +307,7 @@ const WorkOrderEdit = () => {
   }, [staffingRows]);
 
   // Engagement's service, resolved the same way as WorksheetEdit.tsx: practica ->
-  // services.code -> service_id. practica === null (legacy engagement, no service
+  // services.code -> practica_id. practica === null (legacy engagement, no service
   // assigned) intentionally leaves staffing unscoped (matches save_wo_staffing,
   // which skips the cross-service check when the engagement has no practica).
   const practica = workOrder?.engagement?.practica ?? null;
@@ -321,7 +321,7 @@ const WorkOrderEdit = () => {
   const staffingCategories = useMemo(() => {
     if (!categories) return [];
     if (practica === null) return categories;
-    return categories.filter((c) => c.service_id === engagementService?.service_id);
+    return categories.filter((c) => c.practica_id === engagementService?.practica_id);
   }, [categories, practica, engagementService]);
   // null = no cross-service check (practica === null, see above). Otherwise the
   // exact allow-list validateStaffing enforces, including for historical rows
@@ -974,7 +974,7 @@ const WorkOrderEdit = () => {
           staffingLoading={staffingLoading}
           staffingError={staffingIsError}
           staffingServiceResolved={staffingServiceResolved}
-          staffingServiceId={engagementService?.service_id ?? null}
+          staffingServiceId={engagementService?.practica_id ?? null}
           staffingFocusSignal={staffingFocusSignal}
           riskFocusSignal={riskFocusSignal}
           paymentFocusSignal={paymentFocusSignal}

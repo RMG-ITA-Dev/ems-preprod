@@ -13,17 +13,17 @@ function invalidateActivityCodes(queryClient: ReturnType<typeof useQueryClient>)
 export function useCreateActivityCode() {
   const queryClient = useQueryClient();
   return useMutation({
-    // 0817-177: every activity belongs to a practice — service_id is required
-    // and creation always delegates code generation to create_service_activity.
+    // 0817-177: every activity belongs to a practice — practica_id is required
+    // and creation always delegates code generation to create_practice_activity.
     mutationFn: async (data: {
-      service_id: string;
+      practica_id: string;
       description: string;
       entity_type?: string;
     }) => {
       const { data: result, error } = await supabase.rpc(
-        "create_service_activity",
+        "create_practice_activity",
         {
-          p_service_id:  data.service_id,
+          p_practice_id:  data.practica_id,
           p_description: data.description,
           p_entity_type: data.entity_type ?? "A",
         }
@@ -85,7 +85,7 @@ export function useDeactivateServiceActivity() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (activityId: string) => {
-      const { error } = await supabase.rpc("deactivate_service_activity", {
+      const { error } = await supabase.rpc("deactivate_practice_activity", {
         p_activity_id: activityId,
       });
       if (error) throw error;
@@ -102,7 +102,7 @@ export function useReactivateServiceActivity() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (activityId: string) => {
-      const { error } = await supabase.rpc("reactivate_service_activity", {
+      const { error } = await supabase.rpc("reactivate_practice_activity", {
         p_activity_id: activityId,
       });
       if (error) throw error;
@@ -125,7 +125,7 @@ export function useReorderServiceActivity() {
       activityId: string;
       newPosition: number;
     }) => {
-      const { error } = await supabase.rpc("reorder_service_activity", {
+      const { error } = await supabase.rpc("reorder_practice_activity", {
         p_activity_id: activityId,
         p_new_position: newPosition,
       });

@@ -83,7 +83,7 @@ export function ServiceForm({ open, onOpenChange, service, usedCodes }: ServiceF
   // activity codes keep their prefix and the RPCs would build a NULL code.
   const { data: allActivities } = useAllActivityCodes();
   const hasLinkedActivities =
-    isEdit && (allActivities ?? []).some((a) => a.service_id === service?.service_id);
+    isEdit && (allActivities ?? []).some((a) => a.practica_id === service?.practica_id);
 
   const [deactivateOpen, setDeactivateOpen] = useState(false);
   const [pendingData, setPendingData] = useState<FormData | null>(null);
@@ -129,7 +129,7 @@ export function ServiceForm({ open, onOpenChange, service, usedCodes }: ServiceF
     const abbreviation = data.abbreviation.trim() || null;
     if (isEdit && service) {
       await updateMutation.mutateAsync({
-        id: service.service_id,
+        id: service.practica_id,
         data: {
           name: data.name,
           abbreviation,

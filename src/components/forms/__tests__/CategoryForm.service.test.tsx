@@ -33,14 +33,14 @@ vi.mock("@/hooks/mutations", () => ({
 }));
 
 const mockServices = [
-  { service_id: "s1", name: "Auditoría", code: 1, abbreviation: "AUD", allows_rates_activities: true, is_active: true, created_at: "" },
-  { service_id: "s2", name: "Tax", code: 3, abbreviation: "TAX", allows_rates_activities: true, is_active: true, created_at: "" },
-  { service_id: "s0", name: "Firmwide", code: 0, abbreviation: "FIR", allows_rates_activities: false, is_active: true, created_at: "" },
+  { practica_id: "s1", name: "Auditoría", code: 1, abbreviation: "AUD", allows_rates_activities: true, is_active: true, created_at: "" },
+  { practica_id: "s2", name: "Tax", code: 3, abbreviation: "TAX", allows_rates_activities: true, is_active: true, created_at: "" },
+  { practica_id: "s0", name: "Firmwide", code: 0, abbreviation: "FIR", allows_rates_activities: false, is_active: true, created_at: "" },
 ];
 
 const mockAllCategories = [
-  { category_id: "c1", category_name: "Socio", service_id: "s1", display_order: 1, rate_high_bob: 200, rate_low_bob: 150, rate_high_usd: 30, rate_low_usd: 25, can_approve_wo: true, can_approve_timesheets: true, default_app_role: null },
-  { category_id: "c2", category_name: "Gerente", service_id: "s1", display_order: 2, rate_high_bob: 150, rate_low_bob: 100, rate_high_usd: 25, rate_low_usd: 20, can_approve_wo: false, can_approve_timesheets: true, default_app_role: null },
+  { category_id: "c1", category_name: "Socio", practica_id: "s1", display_order: 1, rate_high_bob: 200, rate_low_bob: 150, rate_high_usd: 30, rate_low_usd: 25, can_approve_wo: true, can_approve_timesheets: true, default_app_role: null },
+  { category_id: "c2", category_name: "Gerente", practica_id: "s1", display_order: 2, rate_high_bob: 150, rate_low_bob: 100, rate_high_usd: 25, rate_low_usd: 20, can_approve_wo: false, can_approve_timesheets: true, default_app_role: null },
 ];
 
 // Mutable so a test can simulate useCategories() resolving AFTER the form opens.
@@ -57,7 +57,7 @@ import type { Category } from "@/hooks/useEmsData";
 const editCategory: Category = {
   category_id: "c1",
   category_name: "Socio",
-  service_id: "s1",
+  practica_id: "s1",
   display_order: 1,
   rate_high_bob: 200,
   rate_low_bob: 150,
@@ -72,18 +72,18 @@ const editCategory: Category = {
 // ── Zod schema: service is required on create ──────────────────────────────
 describe("CategoryForm — service required (0702-152)", () => {
   const schema = z.object({
-    service_id: z.string().min(1, "validation.categoryServiceRequired"),
+    practica_id: z.string().min(1, "validation.categoryServiceRequired"),
     category_name: z.string().min(1),
     display_order: z.coerce.number().int().min(1),
   });
 
-  it("rejects an empty service_id", () => {
-    const r = schema.safeParse({ service_id: "", category_name: "Socio", display_order: 1 });
+  it("rejects an empty practica_id", () => {
+    const r = schema.safeParse({ practica_id: "", category_name: "Socio", display_order: 1 });
     expect(r.success).toBe(false);
   });
 
-  it("accepts a non-empty service_id", () => {
-    const r = schema.safeParse({ service_id: "s1", category_name: "Socio", display_order: 1 });
+  it("accepts a non-empty practica_id", () => {
+    const r = schema.safeParse({ practica_id: "s1", category_name: "Socio", display_order: 1 });
     expect(r.success).toBe(true);
   });
 });

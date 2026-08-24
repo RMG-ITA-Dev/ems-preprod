@@ -19,7 +19,7 @@ import {
 } from "@/lib/engagementAssignments";
 
 // Fase 5 — thin wrapper de la RPC transaccional `save_engagement_assignments`
-// (supabase/migrations/20260727130000_scheduler_fase2_rpc_save_engagement_assignments.sql,
+// (supabase/migrations/20251204000002_cero_02_functions_tables_views.sql tras la migración cero,
 // enmendada en bugs/scheduler/fase_5/plan_v2.md). UNA sola llamada por operación: el diff
 // (soft-delete/update/insert) se computa client-side con el helper puro y se envía completo — la
 // BD hace atómicamente soft-delete -> update -> insert -> overlap, y revierte TODO si algo falla
@@ -56,7 +56,7 @@ const EAS_ERROR_I18N_KEY: Record<string, string> = {
   EAS_ENGAGEMENT_RANGE: "engagement.assignments.errors.outOfEngagementRange",
   EAS_HOURS_RANGE: "engagement.assignments.errors.numericRange",
   EAS_ALLOCATION_RANGE: "engagement.assignments.errors.numericRange",
-  EAS_CATEGORY_FOREIGN_SERVICE: "engagement.assignments.errors.categoryForeignService",
+  EAS_CATEGORY_FOREIGN_PRACTICE: "engagement.assignments.errors.categoryForeignService",
   EAS_STAFF_INELIGIBLE: "engagement.assignments.errors.staffIneligible",
   EAS_OVERLAP: "scheduler.errors.overlap",
 };

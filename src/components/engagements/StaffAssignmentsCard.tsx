@@ -290,13 +290,13 @@ export function StaffAssignmentsCard({ engagement, onDirtyChange }: StaffAssignm
   const engagementServiceId = useMemo(() => {
     if (!services) return undefined;
     return (
-      services.find((s) => s.code === engagement.practica)?.service_id ??
-      services.find((s) => s.code === AUDITORIA_SERVICE_CODE)?.service_id
+      services.find((s) => s.code === engagement.practica)?.practica_id ??
+      services.find((s) => s.code === AUDITORIA_SERVICE_CODE)?.practica_id
     );
   }, [services, engagement.practica]);
   const categoriesQuery = useCategories(engagementServiceId);
   // "Resuelto" exige además que la query scoped haya TERMINADO con éxito (review de Fase 5,
-  // Iteración 3) — no alcanza con que el service_id ya esté disponible: mientras
+  // Iteración 3) — no alcanza con que el practica_id ya esté disponible: mientras
   // `categoriesQuery` sigue en vuelo (o si falla), `categoriesResolved` se quedaba en `true` con
   // datos vacíos, marcando cualquier fila persistida como "categoría ajena" por error. Un
   // ambiente sin Auditoría en el catálogo (engagementServiceId nunca resuelve, no debería

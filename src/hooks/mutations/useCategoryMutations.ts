@@ -11,7 +11,7 @@ export function useCreateCategory() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (data: {
-      service_id: string;
+      practica_id: string;
       category_name: string;
       display_order?: number;
       rate_high_bob: number;
@@ -23,10 +23,8 @@ export function useCreateCategory() {
       default_app_role?: AppRole | null;
     }) => {
       // Position/shift handled transactionally in the DB (service-scoped order).
-      // Cast: RPC signatures land in types.ts after the next Lovable regen.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: result, error } = await (supabase as any).rpc("create_category_for_service", {
-        p_service_id: data.service_id,
+      const { data: result, error } = await supabase.rpc("create_category_for_practice", {
+        p_practice_id: data.practica_id,
         p_category_name: data.category_name,
         p_display_order: data.display_order ?? null,
         p_rate_high_bob: data.rate_high_bob,
@@ -70,8 +68,7 @@ export function useUpdateCategory() {
     }) => {
       // Service is immutable on edit — never sent. Order changes reorder within
       // the same service transactionally.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: result, error } = await (supabase as any).rpc("update_category_for_service", {
+      const { data: result, error } = await supabase.rpc("update_category_for_practice", {
         p_category_id: id,
         p_category_name: data.category_name,
         p_display_order: data.display_order,
@@ -100,8 +97,7 @@ export function useDeleteCategory() {
     mutationFn: async (id: string) => {
       // Delete via RPC so the per-service order is compacted (gap-free 1..N).
       // A direct delete would leave a hole at the removed position.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error } = await (supabase as any).rpc("delete_category_for_service", {
+      const { error } = await supabase.rpc("delete_category_for_practice", {
         p_category_id: id,
       });
       if (error) throw error;
@@ -114,7 +110,7 @@ export function useDeleteCategory() {
   });
 }
 
-// Position-based reorder within a service (mirrors reorder_service_activity).
+// Position-based reorder within a service (mirrors reorder_practice_activity).
 export function useMoveCategory() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -125,8 +121,7 @@ export function useMoveCategory() {
       categoryId: string;
       newPosition: number;
     }) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error } = await (supabase as any).rpc("move_category", {
+      const { error } = await supabase.rpc("move_category", {
         p_category_id: categoryId,
         p_new_position: newPosition,
       });
@@ -153,10 +148,9 @@ export function useCopyCategories() {
       targetServiceId: string;
       replace?: boolean;
     }) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await (supabase as any).rpc("copy_categories_between_services", {
-        p_source_service_id: sourceServiceId,
-        p_target_service_id: targetServiceId,
+      const { data, error } = await supabase.rpc("copy_categories_between_practices", {
+        p_source_practice_id: sourceServiceId,
+        p_target_practice_id: targetServiceId,
         p_replace: replace ?? false,
       });
       if (error) throw error;
@@ -175,7 +169,7 @@ export function useCopyCategories() {
         toast.error(i18n.t("category.targetReferenced"));
         return;
       }
-      if (msg.includes("same_service")) {
+      if (msg.includes("same_practice")) {
         toast.error(i18n.t("category.sameService"));
         return;
       }

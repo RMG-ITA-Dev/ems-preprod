@@ -84,7 +84,7 @@ const createFormSchema = (t: TFunction, isEdit: boolean = false, previousIsActiv
     initials: z.string().max(4, t("validation.initialsMax4")).optional(),
     email: z.string().min(1, t("validation.emailRequired")).email(t("validation.emailInvalid")),
     society_id: z.string().min(1, t("validation.societyRequired")),
-    service_id: z.string().min(1, t("validation.practiceRequired")),
+    practica_id: z.string().min(1, t("validation.practiceRequired")),
     category_id: z.string().min(1, t("validation.categoryRequired")),
     city: z.string().min(1, t("validation.cityRequired")),
     id_number: z.string().min(1, t("validation.idNumberRequired")),
@@ -244,7 +244,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
       initials: "",
       email: prefillEmail || "",
       society_id: "",
-      service_id: "",
+      practica_id: "",
       category_id: "",
       city: "",
       id_number: "",
@@ -263,7 +263,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
 
   // Categoría se filtra por la práctica elegida (FEAT 0810-173). Sin práctica
   // seleccionada, no se listan categorías.
-  const watchedServiceId = form.watch("service_id");
+  const watchedServiceId = form.watch("practica_id");
   const { data: categories, isLoading: categoriesLoading } = useCategories(watchedServiceId || undefined);
 
   // Práctica excluye Firmwide (allows_rates_activities=false) para altas nuevas.
@@ -271,12 +271,12 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
   // se preserva en la lista para no bloquear ediciones no relacionadas.
   const practiceOptions = useMemo(() => {
     const active = (services ?? []).filter((s) => s.is_active && s.allows_rates_activities);
-    if (isEdit && staff?.service_id && !active.some((s) => s.service_id === staff.service_id)) {
-      const assigned = (services ?? []).find((s) => s.service_id === staff.service_id);
+    if (isEdit && staff?.practica_id && !active.some((s) => s.practica_id === staff.practica_id)) {
+      const assigned = (services ?? []).find((s) => s.practica_id === staff.practica_id);
       if (assigned) return [...active, assigned];
     }
     return active;
-  }, [services, isEdit, staff?.service_id]);
+  }, [services, isEdit, staff?.practica_id]);
 
   useEffect(() => {
     if (staff) {
@@ -295,7 +295,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
         initials: staff.initials || "",
         email: staff.email || "",
         society_id: staff.society_id || "",
-        service_id: staff.service_id || "",
+        practica_id: staff.practica_id || "",
         category_id: staff.category_id || "",
         city: staff.city || "",
         id_number: staff.id_number || "",
@@ -453,7 +453,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
       initials: data.initials || undefined,
       email: data.email,
       society_id: data.society_id,
-      service_id: data.service_id,
+      practica_id: data.practica_id,
       category_id: data.category_id,
       city: data.city,
       id_number: data.id_number,
@@ -808,7 +808,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
 
                 <FormField
                   control={form.control}
-                  name="service_id"
+                  name="practica_id"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>{t("staff.practice")} *</FormLabel>
@@ -828,7 +828,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
                         </FormControl>
                         <SelectContent>
                           {practiceOptions.map((svc) => (
-                            <SelectItem key={svc.service_id} value={svc.service_id}>
+                            <SelectItem key={svc.practica_id} value={svc.practica_id}>
                               {svc.name}
                             </SelectItem>
                           ))}

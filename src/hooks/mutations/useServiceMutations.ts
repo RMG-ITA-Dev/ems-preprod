@@ -14,9 +14,8 @@ export function useCreateService() {
       allows_rates_activities: boolean;
       is_active: boolean;
     }) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: result, error } = await (supabase as any)
-        .from("services")
+      const { data: result, error } = await supabase
+        .from("practicas")
         .insert(data)
         .select()
         .single();
@@ -47,11 +46,10 @@ export function useUpdateService() {
         is_active: boolean;
       }>;
     }) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: result, error } = await (supabase as any)
-        .from("services")
+      const { data: result, error } = await supabase
+        .from("practicas")
         .update(data)
-        .eq("service_id", id)
+        .eq("practica_id", id)
         .select()
         .single();
       if (error) throw error;

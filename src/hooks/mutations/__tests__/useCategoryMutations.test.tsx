@@ -30,14 +30,14 @@ describe("useCategoryMutations", () => {
   });
 
   describe("useCreateCategory", () => {
-    it("routes to create_category_for_service RPC with service_id and order", async () => {
+    it("routes to create_category_for_practice RPC with practica_id and order", async () => {
       const mockRpc = vi.fn().mockResolvedValue({ data: { category_id: "1" }, error: null });
       vi.mocked(supabase.rpc).mockImplementation(mockRpc as any);
 
       const { result } = renderHook(() => useCreateCategory(), { wrapper: createWrapper() });
 
       result.current.mutate({
-        service_id: "svc-aud",
+        practica_id: "svc-aud",
         category_name: "Manager",
         display_order: 3,
         rate_high_bob: 500,
@@ -52,9 +52,9 @@ describe("useCategoryMutations", () => {
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
       expect(supabase.rpc).toHaveBeenCalledWith(
-        "create_category_for_service",
+        "create_category_for_practice",
         expect.objectContaining({
-          p_service_id: "svc-aud",
+          p_practice_id: "svc-aud",
           p_category_name: "Manager",
           p_display_order: 3,
           p_rate_high_bob: 500,
@@ -71,7 +71,7 @@ describe("useCategoryMutations", () => {
       const { result } = renderHook(() => useCreateCategory(), { wrapper: createWrapper() });
 
       result.current.mutate({
-        service_id: "svc-aud",
+        practica_id: "svc-aud",
         category_name: "Senior",
         rate_high_bob: 1,
         rate_low_bob: 1,
@@ -82,14 +82,14 @@ describe("useCategoryMutations", () => {
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
       expect(supabase.rpc).toHaveBeenCalledWith(
-        "create_category_for_service",
+        "create_category_for_practice",
         expect.objectContaining({ p_display_order: null })
       );
     });
   });
 
   describe("useUpdateCategory", () => {
-    it("routes to update_category_for_service RPC (never sends a service)", async () => {
+    it("routes to update_category_for_practice RPC (never sends a service)", async () => {
       const mockRpc = vi.fn().mockResolvedValue({ data: { category_id: "1" }, error: null });
       vi.mocked(supabase.rpc).mockImplementation(mockRpc as any);
 
@@ -113,7 +113,7 @@ describe("useCategoryMutations", () => {
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
       expect(supabase.rpc).toHaveBeenCalledWith(
-        "update_category_for_service",
+        "update_category_for_practice",
         expect.objectContaining({
           p_category_id: "cat-1",
           p_category_name: "Senior Manager",
@@ -122,13 +122,13 @@ describe("useCategoryMutations", () => {
       );
       // The service is immutable — no service param may be sent.
       const payload = mockRpc.mock.calls[0][1];
-      expect(payload).not.toHaveProperty("p_service_id");
+      expect(payload).not.toHaveProperty("p_practice_id");
       expect(toast.success).toHaveBeenCalled();
     });
   });
 
   describe("useDeleteCategory", () => {
-    it("routes to delete_category_for_service RPC (compacts order, no hole)", async () => {
+    it("routes to delete_category_for_practice RPC (compacts order, no hole)", async () => {
       const mockRpc = vi.fn().mockResolvedValue({ data: null, error: null });
       vi.mocked(supabase.rpc).mockImplementation(mockRpc as any);
 
@@ -138,7 +138,7 @@ describe("useCategoryMutations", () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-      expect(supabase.rpc).toHaveBeenCalledWith("delete_category_for_service", {
+      expect(supabase.rpc).toHaveBeenCalledWith("delete_category_for_practice", {
         p_category_id: "cat-123",
       });
       expect(toast.success).toHaveBeenCalled();
@@ -165,7 +165,7 @@ describe("useCategoryMutations", () => {
   });
 
   describe("useCopyCategories", () => {
-    it("routes to copy_categories_between_services with source, target and replace", async () => {
+    it("routes to copy_categories_between_practices with source, target and replace", async () => {
       const mockRpc = vi.fn().mockResolvedValue({ data: 5, error: null });
       vi.mocked(supabase.rpc).mockImplementation(mockRpc as any);
 
@@ -175,9 +175,9 @@ describe("useCategoryMutations", () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-      expect(supabase.rpc).toHaveBeenCalledWith("copy_categories_between_services", {
-        p_source_service_id: "svc-aud",
-        p_target_service_id: "svc-tax",
+      expect(supabase.rpc).toHaveBeenCalledWith("copy_categories_between_practices", {
+        p_source_practice_id: "svc-aud",
+        p_target_practice_id: "svc-tax",
         p_replace: true,
       });
       expect(toast.success).toHaveBeenCalled();

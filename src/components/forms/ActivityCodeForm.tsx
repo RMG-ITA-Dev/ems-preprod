@@ -57,7 +57,7 @@ const RECOMMENDED_MAX_ACTIVITIES = 9;
 
 const formSchema = z.object({
   description: z.string().min(1, "Description is required"),
-  service_id: z.string().min(1, "validation.categoryServiceRequired"),
+  practica_id: z.string().min(1, "validation.categoryServiceRequired"),
 });
 
 type FormData = z.infer<typeof formSchema>;
@@ -78,11 +78,11 @@ export function ActivityCodeForm({ open, onOpenChange, activityCode, serviceId, 
   const isActive = activityCode?.is_active ?? true;
   // 0817-177 (review follow-up): the 8 legacy codes backfilled to a práctica
   // (PLN/FLD/REV/DOC/ADM/MTG/TRV/TRN) predate the {abrev}-{entity_type}{n}
-  // ordinal scheme; deactivate_service_activity/reactivate_service_activity
+  // ordinal scheme; deactivate_practice_activity/reactivate_practice_activity
   // reject them (see 20260820120000_0817-177_guard_legacy_activity_codes.sql),
   // so hide "Deactivate"/"Activate" instead of offering actions that always
   // fail. Matches both the active ordinal suffix (digits, e.g. AUD-A1) and
-  // the inactive marker deactivate_service_activity assigns (AUD-AX) — an
+  // the inactive marker deactivate_practice_activity assigns (AUD-AX) — an
   // inactive real activity must still show "Activate".
   const isOrdinalScheme = !activityCode || /^[A-Z]{2,5}-[A-Z](\d+|X)$/.test(activityCode.activity_code);
 
@@ -102,20 +102,20 @@ export function ActivityCodeForm({ open, onOpenChange, activityCode, serviceId, 
     resolver: zodResolver(formSchema),
     defaultValues: {
       description: "",
-      service_id: "",
+      practica_id: "",
     },
   });
 
   const { data: allActivities } = useAllActivityCodes();
 
-  const watchedServiceId = form.watch("service_id");
-  const selectedService = activeServices.find((s) => s.service_id === watchedServiceId)
+  const watchedServiceId = form.watch("practica_id");
+  const selectedService = activeServices.find((s) => s.practica_id === watchedServiceId)
     ?? (activityCode?.service ?? null);
 
   // Active activities already linked to the selected service (for the soft
   // recommendation note when creating a new one).
   const activeCountForService = watchedServiceId
-    ? (allActivities ?? []).filter((a) => a.service_id === watchedServiceId && a.is_active).length
+    ? (allActivities ?? []).filter((a) => a.practica_id === watchedServiceId && a.is_active).length
     : 0;
 
   // Derive a preview code for a NEW activity.
@@ -128,7 +128,7 @@ export function ActivityCodeForm({ open, onOpenChange, activityCode, serviceId, 
     if (open) {
       form.reset({
         description: activityCode?.description || "",
-        service_id: activityCode?.service_id || serviceId || "",
+        practica_id: activityCode?.practica_id || serviceId || "",
       });
     }
   }, [open, activityCode, serviceId, form]);
@@ -143,7 +143,7 @@ export function ActivityCodeForm({ open, onOpenChange, activityCode, serviceId, 
       });
     } else {
       await createMutation.mutateAsync({
-        service_id: data.service_id,
+        practica_id: data.practica_id,
         description: data.description,
         entity_type: "A",
       });
@@ -193,7 +193,7 @@ export function ActivityCodeForm({ open, onOpenChange, activityCode, serviceId, 
             {!isEdit && !isNewLocked && (
               <FormField
                 control={form.control}
-                name="service_id"
+                name="practica_id"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>{t("activity.service")} *</FormLabel>
@@ -205,7 +205,7 @@ export function ActivityCodeForm({ open, onOpenChange, activityCode, serviceId, 
                       </FormControl>
                       <SelectContent>
                         {activeServices.map((s) => (
-                          <SelectItem key={s.service_id} value={s.service_id}>
+                          <SelectItem key={s.practica_id} value={s.practica_id}>
                             {s.name} ({s.abbreviation})
                           </SelectItem>
                         ))}

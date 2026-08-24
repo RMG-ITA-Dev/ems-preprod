@@ -41,15 +41,15 @@ vi.mock("@/hooks/usePageLeaveLock", () => ({
 }));
 
 const SERVICE_AUDIT = {
-  service_id: "svc-audit",
+  practica_id: "svc-audit",
   code: 100,
   name: "Audit",
   allows_rates_activities: true,
   is_active: true,
   created_at: "",
 };
-const CAT_AUDIT = { category_id: "cat-audit", category_name: "Auditor", service_id: "svc-audit", display_order: 1 };
-const CAT_TAX = { category_id: "cat-tax", category_name: "Tax", service_id: "svc-tax", display_order: 1 };
+const CAT_AUDIT = { category_id: "cat-audit", category_name: "Auditor", practica_id: "svc-audit", display_order: 1 };
+const CAT_TAX = { category_id: "cat-tax", category_name: "Tax", practica_id: "svc-tax", display_order: 1 };
 const SKILL_IFRS = { skill_id: "skill-1", name: "IFRS", category: "Technical" };
 
 const mockWorkOrder = {

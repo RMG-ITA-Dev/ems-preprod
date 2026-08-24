@@ -14,7 +14,7 @@ export type StaffingProficiencyLevel = "Beginner" | "Intermediate" | "Advanced";
 export interface Category {
   category_id: string;
   category_name: string;
-  service_id: string;
+  practica_id: string;
   rate_high_bob: number;
   rate_low_bob: number;
   rate_high_usd: number;
@@ -42,7 +42,7 @@ export interface Staff {
   initials: string | null;
   category_id: string | null;
   society_id: string;
-  service_id: string;
+  practica_id: string;
   is_active: boolean;
   city: string | null;
   hire_date?: string | null;
@@ -232,15 +232,16 @@ export interface ActivityCode {
   activity_code: string;
   description: string;
   is_active: boolean;
-  // 0817-177: activity_codes.service_id is NOT NULL — every activity belongs
-  // to a practice (the "Global" bucket was removed).
-  service_id: string;
+  // Migración cero (§2.2.1): practica_id es NULL exactamente para la fila de
+  // sistema (is_system=true, p.ej. ADM) — CHECK (is_system OR practica_id IS NOT NULL).
+  practica_id: string | null;
+  is_system: boolean;
   entity_type: string;
   service?: Service;
 }
 
 export interface Service {
-  service_id: string;
+  practica_id: string;
   name: string;
   code: number;
   allows_rates_activities: boolean;
@@ -253,7 +254,7 @@ export interface Taxonomy {
   taxonomy_id: string;
   code: string;
   name: string;
-  service_id: string | null;
+  practica_id: string | null;
   is_active: boolean;
   created_at: string;
 }
@@ -297,9 +298,8 @@ export function useServices() {
   return useQuery({
     queryKey: ['services'],
     queryFn: async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await (supabase as any)
-        .from('services')
+      const { data, error } = await supabase
+        .from('practicas')
         .select('*')
         .order('code');
       if (error) throw error;
@@ -330,9 +330,8 @@ export function useTaxonomies() {
   return useQuery({
     queryKey: ['taxonomies'],
     queryFn: async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await (supabase as any)
-        .from('taxonomies')
+      const { data, error } = await supabase
+        .from('servicios')
         .select('*')
         .order('code');
       if (error) throw error;
@@ -353,7 +352,7 @@ export function useCategories(serviceId?: string, options?: { enabled?: boolean 
     queryFn: async () => {
       let query = supabase.from('categories').select('*');
       if (serviceId) {
-        query = query.eq('service_id', serviceId);
+        query = query.eq('practica_id', serviceId);
       }
       const { data, error } = await query.order('display_order');
       if (error) throw error;
@@ -395,7 +394,7 @@ export function useStaff() {
           initials,
           category_id,
           society_id,
-          service_id,
+          practica_id,
           city,
           is_active,
           category:categories!staff_category_id_fkey(*)
@@ -538,7 +537,7 @@ export function useWorkOrderStaffingRequirements(workOrderId: string | undefined
         .from("wo_staffing_requirements")
         .select(
           "id, wo_id, category_id, staff_count, " +
-            "category:categories(category_id, category_name, service_id, display_order), " +
+            "category:categories(category_id, category_name, practica_id, display_order), " +
             "requirement_skills:wo_staffing_requirement_skills(id, skill_id, min_proficiency_level, skill:skills(skill_id, name, category, is_active))"
         )
         .eq("wo_id", workOrderId)
@@ -649,7 +648,7 @@ export function useActiveStaffWithSkills() {
           initials,
           category_id,
           society_id,
-          service_id,
+          practica_id,
           city,
           is_active,
           is_schedulable,
@@ -733,7 +732,7 @@ export function useEngagements() {
           encargado:staff!engagements_encargado_id_fkey(staff_id, first_name, last_name, short_name, initials, category_id, city, is_active),
           specialist_it:staff!engagements_specialist_it_id_fkey(staff_id, first_name, last_name, short_name, initials, category_id, city, is_active),
           specialist_tax:staff!engagements_specialist_tax_id_fkey(staff_id, first_name, last_name, short_name, initials, category_id, city, is_active),
-          taxonomy:taxonomies(*),
+          taxonomy:servicios(*),
           society:society(*)
         `)
         .order('created_at', { ascending: false });
@@ -840,7 +839,7 @@ export function useActivityCodes() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('activity_codes')
-        .select('*, service:services(code)')
+        .select('*, service:practicas(practica_id, name, code, allows_rates_activities, is_active, created_at, abbreviation)')
         .eq('is_active', true);
       if (error) throw error;
       const suffix = (code: string) => parseInt(code.match(/(\d+)$/)?.[1] ?? '0', 10);
@@ -860,7 +859,7 @@ export function useAllActivityCodes() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('activity_codes')
-        .select('*, service:services(service_id, name, abbreviation)');
+        .select('*, service:practicas(practica_id, name, code, allows_rates_activities, is_active, created_at, abbreviation)');
       if (error) throw error;
       const suffix = (code: string) => parseInt(code.match(/(\d+)$/)?.[1] ?? '0', 10);
       const prefix = (code: string) => code.replace(/\d+$/, '');

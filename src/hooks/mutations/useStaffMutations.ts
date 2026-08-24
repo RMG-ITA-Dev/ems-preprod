@@ -53,8 +53,8 @@ export function useCreateStaff() {
       initials?: string;
       email?: string;
       category_id?: string;
-      society_id?: string;
-      service_id?: string;
+      society_id: string;
+      practica_id: string;
       city?: string;
       id_number?: string;
       aud_reg_number?: string;
@@ -84,7 +84,7 @@ export function useCreateStaff() {
       // and bounce back to /bootstrap.
       await queryClient.invalidateQueries({ queryKey: ["current_staff"] });
       // BUG 0722-162: los candidatos del bloque Equipo del encargo se filtran por is_active,
-      // deleted_at y service_id del personal, así que cualquier alta/baja/edición cambia ese
+      // deleted_at y practica_id del personal, así que cualquier alta/baja/edición cambia ese
       // conjunto. Sin invalidar, el formulario reusa el set viejo durante el staleTime global
       // de 60s (App.tsx) y podría ofrecer a alguien ya desactivado o de otro servicio.
       queryClient.invalidateQueries({ queryKey: ["engagement-team-candidates"] });
@@ -110,7 +110,7 @@ export function useUpdateStaff() {
         email: string;
         category_id: string;
         society_id: string;
-        service_id: string;
+        practica_id: string;
         city: string;
         id_number: string;
         aud_reg_number: string;

@@ -76,7 +76,7 @@ const makeQC = () =>
 const baseCategory = {
   category_id: "cat-1",
   category_name: "Socio",
-  service_id: "svc-aud",
+  practica_id: "svc-aud",
   display_order: 1,
   rate_high_bob: 200,
   rate_low_bob: 150,

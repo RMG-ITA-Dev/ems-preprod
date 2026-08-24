@@ -190,7 +190,7 @@ describe("withSavedStaff", () => {
 
 describe("composición usada por EngagementForm: withSavedStaff(filterByService(...))", () => {
   it("el histórico sobrevive al filtro por servicio aunque sea de otro servicio", () => {
-    // El staff embebido en el engagement no trae service_id, así que el merge va DESPUÉS
+    // El staff embebido en el engagement no trae practica_id, así que el merge va DESPUÉS
     // del filtro — si fuera antes, el propio filtro lo descartaría.
     const options = [opt("a", "Ana", "svc-audit")];
     const saved = { staff_id: "otro", first_name: "Otro", last_name: "Servicio" };

@@ -907,7 +907,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
 
   // ── BUG 0722-162: opciones del bloque Equipo ──────────────────────────────────────────
   // Cada campo ofrece SOLO los roles que le corresponden (el RPC ya filtró por rol) y además se
-  // restringe al servicio del encargo. `practica` es el CODE del servicio, así que el service_id
+  // restringe al servicio del encargo. `practica` es el CODE del servicio, así que el practica_id
   // se resuelve contra el catálogo ya cargado. Reutiliza el `wPractica` del watch de arriba, y es
   // reactivo: si el Admin cambia el servicio, los seis selectores se re-filtran sin pedir datos.
   // Tres estados, no dos (review de Greptile): sin `practica` no hay servicio que aplicar y se
@@ -918,7 +918,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     if (wPractica == null) return NO_SERVICE_FILTER;
     return {
       apply: true,
-      serviceId: (allServices ?? []).find((s) => s.code === wPractica)?.service_id ?? null,
+      serviceId: (allServices ?? []).find((s) => s.code === wPractica)?.practica_id ?? null,
     };
   }, [allServices, wPractica]);
 

@@ -42,7 +42,7 @@ BEGIN
   END IF;
 END $$;
 
--- Guard: 20260812140000 dejó staff.society_id y staff.service_id como NOT NULL sin default, así
+-- Guard: 20260812140000 dejó staff.society_id y staff.practica_id como NOT NULL sin default, así
 -- que el fixture necesita valores reales de ambos catálogos. Si faltaran, el INSERT de abajo
 -- abortaría con un error de NOT NULL poco informativo — mejor fallar acá diciendo qué falta.
 DO $$
@@ -50,8 +50,8 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM public.society) THEN
     RAISE EXCEPTION 'FIXTURE: no hay filas en public.society y staff.society_id es NOT NULL.';
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM public.services WHERE code = 1) THEN
-    RAISE EXCEPTION 'FIXTURE: falta el servicio code = 1 y staff.service_id es NOT NULL.';
+  IF NOT EXISTS (SELECT 1 FROM public.practicas WHERE code = 1) THEN
+    RAISE EXCEPTION 'FIXTURE: falta el servicio code = 1 y staff.practica_id es NOT NULL.';
   END IF;
 END $$;
 
@@ -66,12 +66,12 @@ END $$;
 --
 -- El apellido lleva el número para que el ORDER BY del RPC sea determinista y verificable.
 INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, is_active,
-                          service_id, society_id)
+                          practica_id, society_id)
 SELECT ('51c00000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid,
        ('a1c00000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid,
        'ETC', 'Sujeto' || lpad(n::text, 2, '0'),
        true,
-       (SELECT service_id FROM public.services WHERE code = 1),
+       (SELECT practica_id FROM public.practicas WHERE code = 1),
        (SELECT society_id FROM public.society ORDER BY name LIMIT 1)
   FROM generate_series(1, 27) n;
 
@@ -308,10 +308,10 @@ BEGIN
     CROSS JOIN LATERAL unnest(pr.proargnames) WITH ORDINALITY AS p(name, ord)
    WHERE pr.oid = 'public.get_engagement_team_candidates()'::regprocedure;
 
-  IF v_cols <> ARRAY['staff_id', 'display_name', 'candidate_group', 'service_id'] THEN
+  IF v_cols <> ARRAY['staff_id', 'display_name', 'candidate_group', 'practica_id'] THEN
     RAISE EXCEPTION 'FAIL: la firma de salida cambió (%). No debe exponer email, auth_user_id ni role_key.', v_cols;
   END IF;
-  RAISE NOTICE 'OK 6: la salida es exactamente staff_id/display_name/candidate_group/service_id';
+  RAISE NOTICE 'OK 6: la salida es exactamente staff_id/display_name/candidate_group/practica_id';
   RAISE NOTICE 'ENGAGEMENT_TEAM_CANDIDATES RPC: ALL CHECKS PASSED (rolled back)';
 END $$;
 

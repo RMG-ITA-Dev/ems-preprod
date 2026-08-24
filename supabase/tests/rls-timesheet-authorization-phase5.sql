@@ -50,10 +50,51 @@
 BEGIN;
 
 -- ── Fixtures (as postgres; SECURITY DEFINER owner is RLS-exempt) ──────
-INSERT INTO public.categories (category_id, category_name, display_order, can_approve_timesheets) VALUES
-  ('c0000000-0000-4000-8000-000000000121', 'P5 Approver Managers',  20, true),
-  ('c0000000-0000-4000-8000-000000000122', 'P5 Submitters',         50, false),
-  ('c0000000-0000-4000-8000-000000000123', 'P5 Leads (no approve)', 20, false);
+-- Andamiaje agregado por la migración cero: practica/sociedad/actividad/rol RBAC
+-- dummy y las FKs a auth.users, todos NOT NULL/FK reales en el esquema consolidado que
+-- el viejo shim minimalista (contra el que corría esta suite) no tenía en absoluto.
+INSERT INTO public.practicas (practica_id, name, code, abbreviation)
+VALUES ('5e000000-0000-4000-8000-000000000101', 'P5 Test Practice', 8, 'PFV');
+
+INSERT INTO public.society (society_id, name)
+VALUES ('50c00000-0000-4000-8000-000000000101', 'P5 Test Society');
+
+-- ON CONFLICT DO NOTHING: run-rls-tests.sh ya sembró el catálogo RBAC real completo
+-- (40-fixture-rbac-catalog.sql, 23 roles + 84 permisos + 737 concesiones) antes de esta
+-- transacción. NO existe un role_key 'staff' en ese catálogo real — el enum legacy
+-- `role = 'staff'` mapea a role_key 'assistant' (ver el backfill de
+-- 20260724010000_authz_fase2_seed.sql) — así que no se siembra acá.
+INSERT INTO public.authorization_roles (role_key, label_key) VALUES
+  ('semisenior', 'authz.role.semisenior'),
+  ('partner', 'authz.role.partner'),
+  ('manager', 'authz.role.manager')
+ON CONFLICT (role_key) DO NOTHING;
+
+-- get_timesheet_approvers() ya NO lee categories.can_approve_timesheets (el diseño que
+-- este fixture asumía originalmente) — resuelve la aprobación vía el catálogo RBAC real:
+-- authorization_role_permissions ya trae ('manager','timesheet_approval.approve',
+-- 'assigned_engagements') de fábrica (sembrado arriba). Pola (check 5) prueba
+-- exactamente la brecha entre el enum legacy y el RBAC nuevo: su user_roles.role queda
+-- 'staff' (la strandea de los chequeos legacy has_role()), pero su role_key es 'manager'
+-- (la concesión real de aprobación cuelga de ahí) — el "heal" ya no pasa por
+-- categories.can_approve_timesheets (huérfano para esta RPC, aunque la columna sigue
+-- existiendo en categories para otros usos), pasa por la distinción role vs. role_key.
+
+INSERT INTO auth.users (id) VALUES
+  ('a0000000-0000-4000-8000-000000000101'),
+  ('a0000000-0000-4000-8000-000000000102'),
+  ('a0000000-0000-4000-8000-000000000103'),
+  ('a0000000-0000-4000-8000-000000000104'),
+  ('a0000000-0000-4000-8000-000000000105'),
+  ('a0000000-0000-4000-8000-000000000106');
+
+INSERT INTO public.activity_codes (activity_id, activity_code, description, practica_id) VALUES
+  ('ac000000-0000-4000-8000-000000000101', 'PFV-A1', 'P5 Test Activity', '5e000000-0000-4000-8000-000000000101');
+
+INSERT INTO public.categories (category_id, category_name, display_order, can_approve_timesheets, practica_id) VALUES
+  ('c0000000-0000-4000-8000-000000000121', 'P5 Approver Managers',  20, true, '5e000000-0000-4000-8000-000000000101'),
+  ('c0000000-0000-4000-8000-000000000122', 'P5 Submitters',         50, false, '5e000000-0000-4000-8000-000000000101'),
+  ('c0000000-0000-4000-8000-000000000123', 'P5 Leads (no approve)', 20, false, '5e000000-0000-4000-8000-000000000101');
 -- display_order set EXPLICITLY on both tiers: the shim column defaults to 0,
 -- and implicit defaults would make approver.display_order < submitter's
 -- unsatisfiable (check 5 would fail mysteriously).
@@ -61,43 +102,62 @@ INSERT INTO public.categories (category_id, category_name, display_order, can_ap
 INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id)
 VALUES ('c1000000-0000-4000-8000-000000000101', 'P5 Test Client', 'P5-TAX-001');
 
-INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, category_id) VALUES
-  ('50000000-0000-4000-8000-000000000101', 'a0000000-0000-4000-8000-000000000101', 'Tania', 'Target',        'c0000000-0000-4000-8000-000000000122'),
-  ('50000000-0000-4000-8000-000000000102', 'a0000000-0000-4000-8000-000000000102', 'Pola',  'Approver',      'c0000000-0000-4000-8000-000000000121'),
-  ('50000000-0000-4000-8000-000000000103', 'a0000000-0000-4000-8000-000000000103', 'Fede',  'Firmwide',      'c0000000-0000-4000-8000-000000000121'),
-  ('50000000-0000-4000-8000-000000000104', 'a0000000-0000-4000-8000-000000000104', 'Selma', 'Staffrole',     'c0000000-0000-4000-8000-000000000122'),
-  ('50000000-0000-4000-8000-000000000105', 'a0000000-0000-4000-8000-000000000105', 'Mara',  'Managernotlead','c0000000-0000-4000-8000-000000000122'),
-  ('50000000-0000-4000-8000-000000000106', 'a0000000-0000-4000-8000-000000000106', 'Lidia', 'Leadnoapprove', 'c0000000-0000-4000-8000-000000000123'),
-  ('50000000-0000-4000-8000-000000000107', NULL,                                   'Olga',  'Otherlead',     'c0000000-0000-4000-8000-000000000122');
+INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, category_id, practica_id, society_id) VALUES
+  ('50000000-0000-4000-8000-000000000101', 'a0000000-0000-4000-8000-000000000101', 'Tania', 'Target',        'c0000000-0000-4000-8000-000000000122', '5e000000-0000-4000-8000-000000000101', '50c00000-0000-4000-8000-000000000101'),
+  ('50000000-0000-4000-8000-000000000102', 'a0000000-0000-4000-8000-000000000102', 'Pola',  'Approver',      'c0000000-0000-4000-8000-000000000121', '5e000000-0000-4000-8000-000000000101', '50c00000-0000-4000-8000-000000000101'),
+  ('50000000-0000-4000-8000-000000000103', 'a0000000-0000-4000-8000-000000000103', 'Fede',  'Firmwide',      'c0000000-0000-4000-8000-000000000121', '5e000000-0000-4000-8000-000000000101', '50c00000-0000-4000-8000-000000000101'),
+  ('50000000-0000-4000-8000-000000000104', 'a0000000-0000-4000-8000-000000000104', 'Selma', 'Staffrole',     'c0000000-0000-4000-8000-000000000122', '5e000000-0000-4000-8000-000000000101', '50c00000-0000-4000-8000-000000000101'),
+  ('50000000-0000-4000-8000-000000000105', 'a0000000-0000-4000-8000-000000000105', 'Mara',  'Managernotlead','c0000000-0000-4000-8000-000000000122', '5e000000-0000-4000-8000-000000000101', '50c00000-0000-4000-8000-000000000101'),
+  ('50000000-0000-4000-8000-000000000106', 'a0000000-0000-4000-8000-000000000106', 'Lidia', 'Leadnoapprove', 'c0000000-0000-4000-8000-000000000123', '5e000000-0000-4000-8000-000000000101', '50c00000-0000-4000-8000-000000000101'),
+  ('50000000-0000-4000-8000-000000000107', NULL,                                   'Olga',  'Otherlead',     'c0000000-0000-4000-8000-000000000122', '5e000000-0000-4000-8000-000000000101', '50c00000-0000-4000-8000-000000000101');
 
-INSERT INTO public.user_roles (user_id, role) VALUES
-  ('a0000000-0000-4000-8000-000000000101', 'semisenior'),
-  ('a0000000-0000-4000-8000-000000000102', 'staff'),
-  ('a0000000-0000-4000-8000-000000000103', 'partner'),
-  ('a0000000-0000-4000-8000-000000000104', 'staff'),
-  ('a0000000-0000-4000-8000-000000000105', 'manager'),
-  ('a0000000-0000-4000-8000-000000000106', 'manager');
+-- Pola (102): role legacy 'staff' (strandea has_role()/checks legacy), role_key 'manager'
+-- (de ahí cuelga la concesión real timesheet_approval.approve — ver nota de arriba).
+-- Selma (104): role_key 'assistant' — mapeo real del backfill para role legacy 'staff'
+-- (20260724010000); su check 2 solo depende de v_is_self, no de permisos de aprobador.
+INSERT INTO public.user_roles (user_id, role, role_key) VALUES
+  ('a0000000-0000-4000-8000-000000000101', 'semisenior', 'semisenior'),
+  ('a0000000-0000-4000-8000-000000000102', 'staff', 'manager'),
+  ('a0000000-0000-4000-8000-000000000103', 'partner', 'partner'),
+  ('a0000000-0000-4000-8000-000000000104', 'staff', 'assistant'),
+  ('a0000000-0000-4000-8000-000000000105', 'manager', 'manager');
 
-INSERT INTO public.engagements (engagement_id, client_id, engagement_name, manager_id) VALUES
-  ('e0000000-0000-4000-8000-000000000101', 'c1000000-0000-4000-8000-000000000101', 'P5 E1', '50000000-0000-4000-8000-000000000102'),
-  ('e0000000-0000-4000-8000-000000000102', 'c1000000-0000-4000-8000-000000000101', 'P5 E2', '50000000-0000-4000-8000-000000000107'),
-  ('e0000000-0000-4000-8000-000000000103', 'c1000000-0000-4000-8000-000000000101', 'P5 E3', '50000000-0000-4000-8000-000000000102'),
-  ('e0000000-0000-4000-8000-000000000104', 'c1000000-0000-4000-8000-000000000101', 'P5 E4', '50000000-0000-4000-8000-000000000102'),
-  ('e0000000-0000-4000-8000-000000000105', 'c1000000-0000-4000-8000-000000000101', 'P5 E5', '50000000-0000-4000-8000-000000000102'),
-  ('e0000000-0000-4000-8000-000000000106', 'c1000000-0000-4000-8000-000000000101', 'P5 E6', '50000000-0000-4000-8000-000000000106'),
-  ('e0000000-0000-4000-8000-000000000107', 'c1000000-0000-4000-8000-000000000101', 'P5 E7', '50000000-0000-4000-8000-000000000107'),
-  ('e0000000-0000-4000-8000-000000000108', 'c1000000-0000-4000-8000-000000000101', 'P5 E8', '50000000-0000-4000-8000-000000000107'),
+-- Lidia (106): role_key NULL a propósito. El catálogo RBAC real concede
+-- timesheet_approval.approve a TODO role_key='manager' sin distinción de categoría — ya
+-- no hay forma de ser "role manager pero descalificado" vía role_key (la nuance vivía en
+-- categories.can_approve_timesheets, huérfana para esta RPC). role_key NULL preserva la
+-- intención original del check 12 (líder estructural que NO debe aprobar) y es un estado
+-- real y contemplado: el propio backfill de 20260724010000 deja NULL a quien no matchea
+-- ningún role legacy conocido — el JOIN de get_timesheet_approvers() con
+-- authorization_role_permissions nunca matchea NULL, así que queda excluida sin más.
+INSERT INTO public.user_roles (user_id, role, role_key)
+VALUES ('a0000000-0000-4000-8000-000000000106', 'manager', NULL);
+
+-- fecha_cierre NOT NULL y work_order_required default TRUE son reales en el esquema
+-- consolidado (invisibles para el viejo shim). work_order_required=false explícito:
+-- esta suite prueba get_staff_assignment_segments(), no el gate de aprobación de OT —
+-- con el default TRUE, trg_check_wo_approved rechazaría cada INSERT de time_entries de
+-- abajo por falta de una Work Order aprobada, algo ajeno a lo que se está probando aquí.
+INSERT INTO public.engagements (engagement_id, client_id, engagement_name, manager_id, fecha_cierre, work_order_required) VALUES
+  ('e0000000-0000-4000-8000-000000000101', 'c1000000-0000-4000-8000-000000000101', 'P5 E1', '50000000-0000-4000-8000-000000000102', '2026-12-31', false),
+  ('e0000000-0000-4000-8000-000000000102', 'c1000000-0000-4000-8000-000000000101', 'P5 E2', '50000000-0000-4000-8000-000000000107', '2026-12-31', false),
+  ('e0000000-0000-4000-8000-000000000103', 'c1000000-0000-4000-8000-000000000101', 'P5 E3', '50000000-0000-4000-8000-000000000102', '2026-12-31', false),
+  ('e0000000-0000-4000-8000-000000000104', 'c1000000-0000-4000-8000-000000000101', 'P5 E4', '50000000-0000-4000-8000-000000000102', '2026-12-31', false),
+  ('e0000000-0000-4000-8000-000000000105', 'c1000000-0000-4000-8000-000000000101', 'P5 E5', '50000000-0000-4000-8000-000000000102', '2026-12-31', false),
+  ('e0000000-0000-4000-8000-000000000106', 'c1000000-0000-4000-8000-000000000101', 'P5 E6', '50000000-0000-4000-8000-000000000106', '2026-12-31', false),
+  ('e0000000-0000-4000-8000-000000000107', 'c1000000-0000-4000-8000-000000000101', 'P5 E7', '50000000-0000-4000-8000-000000000107', '2026-12-31', false),
+  ('e0000000-0000-4000-8000-000000000108', 'c1000000-0000-4000-8000-000000000101', 'P5 E8', '50000000-0000-4000-8000-000000000107', '2026-12-31', false),
   -- E9/E10: led by P-A, for the PR #224 forecast + orphan-period controls
-  ('e0000000-0000-4000-8000-000000000109', 'c1000000-0000-4000-8000-000000000101', 'P5 E9', '50000000-0000-4000-8000-000000000102'),
-  ('e0000000-0000-4000-8000-000000000110', 'c1000000-0000-4000-8000-000000000101', 'P5 E10', '50000000-0000-4000-8000-000000000102');
+  ('e0000000-0000-4000-8000-000000000109', 'c1000000-0000-4000-8000-000000000101', 'P5 E9', '50000000-0000-4000-8000-000000000102', '2026-12-31', false),
+  ('e0000000-0000-4000-8000-000000000110', 'c1000000-0000-4000-8000-000000000101', 'P5 E10', '50000000-0000-4000-8000-000000000102', '2026-12-31', false);
 
 -- timesheet_periods for the target: W1 (the probed week), W2, and a DECOY
 -- period for a different week (used by the E10 orphan-period control — an
 -- in-week actual entry whose period_id is NOT the viewed week's period).
-INSERT INTO public.timesheet_periods (period_id, staff_id, week_start_date) VALUES
-  ('b0000000-0000-4000-8000-000000000101', '50000000-0000-4000-8000-000000000101', '2026-07-06'),  -- W1 canonical
-  ('b0000000-0000-4000-8000-000000000102', '50000000-0000-4000-8000-000000000101', '2026-10-05'),  -- W2 canonical
-  ('b0000000-0000-4000-8000-000000000103', '50000000-0000-4000-8000-000000000101', '2026-06-29');  -- DECOY (wrong week)
+INSERT INTO public.timesheet_periods (period_id, staff_id, week_start_date, week_number, year) VALUES
+  ('b0000000-0000-4000-8000-000000000101', '50000000-0000-4000-8000-000000000101', '2026-07-06', 28, 2026),  -- W1 canonical
+  ('b0000000-0000-4000-8000-000000000102', '50000000-0000-4000-8000-000000000101', '2026-10-05', 41, 2026),  -- W2 canonical
+  ('b0000000-0000-4000-8000-000000000103', '50000000-0000-4000-8000-000000000101', '2026-06-29', 27, 2026);  -- DECOY (wrong week)
 
 INSERT INTO public.engagement_assignments
   (assignment_id, engagement_id, staff_id, category_id, start_date, end_date, deleted_at) VALUES
@@ -121,29 +181,31 @@ INSERT INTO public.engagement_assignments
 -- week and is_forecast = false, so the approver-arm evidence guard admits them
 -- (PR #224 P1-01). The forecast and orphan-period rows below differ ONLY in the
 -- guarded dimension, so their controls are non-vacuous.
-INSERT INTO public.time_entries (time_id, staff_id, engagement_id, date_worked, hours_logged, period_id, is_forecast) VALUES
+-- activity_id NOT NULL con FK real a activity_codes (invisible para el shim viejo): todas
+-- las filas usan la actividad dummy sembrada arriba, irrelevante para lo que se prueba.
+INSERT INTO public.time_entries (time_id, staff_id, engagement_id, date_worked, hours_logged, period_id, is_forecast, activity_id) VALUES
   -- W1: E1 positive Mon + Wed (led by P-A -> returned)
-  ('d0000000-0000-4000-8000-000000000101', '50000000-0000-4000-8000-000000000101', 'e0000000-0000-4000-8000-000000000101', '2026-07-06', 8, 'b0000000-0000-4000-8000-000000000101', false),
-  ('d0000000-0000-4000-8000-000000000102', '50000000-0000-4000-8000-000000000101', 'e0000000-0000-4000-8000-000000000101', '2026-07-08', 8, 'b0000000-0000-4000-8000-000000000101', false),
+  ('d0000000-0000-4000-8000-000000000101', '50000000-0000-4000-8000-000000000101', 'e0000000-0000-4000-8000-000000000101', '2026-07-06', 8, 'b0000000-0000-4000-8000-000000000101', false, 'ac000000-0000-4000-8000-000000000101'),
+  ('d0000000-0000-4000-8000-000000000102', '50000000-0000-4000-8000-000000000101', 'e0000000-0000-4000-8000-000000000101', '2026-07-08', 8, 'b0000000-0000-4000-8000-000000000101', false, 'ac000000-0000-4000-8000-000000000101'),
   -- W1: E2 positive Monday (unled -> only the leadership conjunct zeroes it)
-  ('d0000000-0000-4000-8000-000000000103', '50000000-0000-4000-8000-000000000101', 'e0000000-0000-4000-8000-000000000102', '2026-07-06', 4, 'b0000000-0000-4000-8000-000000000101', false),
+  ('d0000000-0000-4000-8000-000000000103', '50000000-0000-4000-8000-000000000101', 'e0000000-0000-4000-8000-000000000102', '2026-07-06', 4, 'b0000000-0000-4000-8000-000000000101', false, 'ac000000-0000-4000-8000-000000000101'),
   -- W1: E3 — deliberately NO entries anywhere (entry-existence control)
   -- W1: E4 positive SATURDAY only (inside [Mon,+7d), outside [Mon,Fri])
-  ('d0000000-0000-4000-8000-000000000104', '50000000-0000-4000-8000-000000000101', 'e0000000-0000-4000-8000-000000000104', '2026-07-11', 4, 'b0000000-0000-4000-8000-000000000101', false),
+  ('d0000000-0000-4000-8000-000000000104', '50000000-0000-4000-8000-000000000101', 'e0000000-0000-4000-8000-000000000104', '2026-07-11', 4, 'b0000000-0000-4000-8000-000000000101', false, 'ac000000-0000-4000-8000-000000000101'),
   -- W1: E5 zero-hour Tuesday (hours_logged > 0 control)
-  ('d0000000-0000-4000-8000-000000000105', '50000000-0000-4000-8000-000000000101', 'e0000000-0000-4000-8000-000000000105', '2026-07-07', 0, 'b0000000-0000-4000-8000-000000000101', false),
+  ('d0000000-0000-4000-8000-000000000105', '50000000-0000-4000-8000-000000000101', 'e0000000-0000-4000-8000-000000000105', '2026-07-07', 0, 'b0000000-0000-4000-8000-000000000101', false, 'ac000000-0000-4000-8000-000000000101'),
   -- W1: E6 positive Monday on the disqualified lead's engagement (check 12)
-  ('d0000000-0000-4000-8000-000000000106', '50000000-0000-4000-8000-000000000101', 'e0000000-0000-4000-8000-000000000106', '2026-07-06', 4, 'b0000000-0000-4000-8000-000000000101', false),
+  ('d0000000-0000-4000-8000-000000000106', '50000000-0000-4000-8000-000000000101', 'e0000000-0000-4000-8000-000000000106', '2026-07-06', 4, 'b0000000-0000-4000-8000-000000000101', false, 'ac000000-0000-4000-8000-000000000101'),
   -- W2: E1 positive Tuesday — admits P-A for W2 while the E1 segment
   -- (ending Sep 30) does not cover W2 (approver success+empty, check 9)
-  ('d0000000-0000-4000-8000-000000000107', '50000000-0000-4000-8000-000000000101', 'e0000000-0000-4000-8000-000000000101', '2026-10-06', 8, 'b0000000-0000-4000-8000-000000000102', false),
+  ('d0000000-0000-4000-8000-000000000107', '50000000-0000-4000-8000-000000000101', 'e0000000-0000-4000-8000-000000000101', '2026-10-06', 8, 'b0000000-0000-4000-8000-000000000102', false, 'ac000000-0000-4000-8000-000000000101'),
   -- W1: E9 positive Monday but is_forecast = TRUE (forecast-evidence control,
   -- PR #224 P1-01): every other conjunct passes (led, overlapping assignment,
   -- in-interval, hours>0, correct period) — only is_forecast zeroes it.
-  ('d0000000-0000-4000-8000-000000000109', '50000000-0000-4000-8000-000000000101', 'e0000000-0000-4000-8000-000000000109', '2026-07-06', 6, 'b0000000-0000-4000-8000-000000000101', true),
+  ('d0000000-0000-4000-8000-000000000109', '50000000-0000-4000-8000-000000000101', 'e0000000-0000-4000-8000-000000000109', '2026-07-06', 6, 'b0000000-0000-4000-8000-000000000101', true, 'ac000000-0000-4000-8000-000000000101'),
   -- W1: E10 positive Monday ACTUAL, but period_id = the DECOY period, not W1's
   -- (orphan-period control, PR #224 P1-01): only the period_id bind zeroes it.
-  ('d0000000-0000-4000-8000-000000000110', '50000000-0000-4000-8000-000000000101', 'e0000000-0000-4000-8000-000000000110', '2026-07-06', 5, 'b0000000-0000-4000-8000-000000000103', false);
+  ('d0000000-0000-4000-8000-000000000110', '50000000-0000-4000-8000-000000000101', 'e0000000-0000-4000-8000-000000000110', '2026-07-06', 5, 'b0000000-0000-4000-8000-000000000103', false, 'ac000000-0000-4000-8000-000000000101');
 
 -- ── Impersonation helper (temp; vanishes with the session) ────────────
 CREATE FUNCTION pg_temp.impersonate(p_sub text) RETURNS void

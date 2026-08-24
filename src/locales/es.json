@@ -1631,6 +1631,7 @@
     "practiceRequired": "La práctica es requerida",
     "categoryRequired": "La categoría es requerida",
     "categoryServiceRequired": "La práctica es requerida",
+    "categoryRateNonNegative": "La tarifa no puede ser negativa",
     "cityRequired": "La ciudad es requerida",
     "idNumberRequired": "El número de CI es requerido",
     "hireDateRequired": "La fecha de ingreso es requerida",

@@ -32,8 +32,8 @@ const row = (
   staff_id: string,
   display_name: string,
   candidate_group: string | null,
-  service_id: string | null = "svc-audit"
-) => ({ staff_id, display_name, candidate_group, service_id });
+  practica_id: string | null = "svc-audit"
+) => ({ staff_id, display_name, candidate_group, practica_id });
 
 // Un candidato por grupo, en el orden por apellido que devuelve el RPC.
 const FULL_SET = [

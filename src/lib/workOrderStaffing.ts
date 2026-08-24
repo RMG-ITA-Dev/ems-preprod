@@ -69,7 +69,7 @@ export interface PersistedStaffingRequirement {
   staff_count: number;
   category?: {
     category_name?: string | null;
-    service_id?: string | null;
+    practica_id?: string | null;
   } | null;
   requirement_skills: PersistedStaffingRequirementSkill[];
 }
@@ -107,7 +107,7 @@ export function hydrateFromPersisted(
     categoryId: row.category_id,
     staffCount: row.staff_count,
     categoryName: row.category?.category_name ?? null,
-    categoryServiceId: row.category?.service_id ?? null,
+    categoryServiceId: row.category?.practica_id ?? null,
     skills: row.requirement_skills.map((rs) => ({
       clientKey: rs.id,
       persistedId: rs.id,
@@ -121,7 +121,7 @@ export function hydrateFromPersisted(
 
 // ---------------------------------------------------------------------------
 // Payload de guardado (forma exacta que valida save_wo_staffing, ver
-// supabase/migrations/20260727120000_scheduler_fase2_rpc_save_wo_staffing.sql)
+// supabase/migrations/20251204000002_cero_02_functions_tables_views.sql tras la migración cero)
 // ---------------------------------------------------------------------------
 
 export interface StaffingPayloadSkill {

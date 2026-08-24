@@ -75,8 +75,8 @@ vi.mock("@/hooks/useWorksheetMutations", () => ({
 vi.mock("@/hooks/useEmsData", () => ({
   useCategories: () => ({
     data: [
-      { category_id: "cat-1", category_name: "Category 1", service_id: "svc-1", display_order: 1 },
-      { category_id: "cat-2", category_name: "Category 2", service_id: "svc-1", display_order: 2 },
+      { category_id: "cat-1", category_name: "Category 1", practica_id: "svc-1", display_order: 1 },
+      { category_id: "cat-2", category_name: "Category 2", practica_id: "svc-1", display_order: 2 },
     ],
     isLoading: false,
   }),
@@ -89,14 +89,14 @@ vi.mock("@/hooks/useEmsData", () => ({
   }),
   useAllActivityCodes: () => ({
     data: [
-      { activity_id: "act-1", activity_code: "ACT-1", description: "Activity 1", is_active: true, service_id: "svc-1" },
-      { activity_id: "act-2", activity_code: "ACT-2", description: "Activity 2", is_active: true, service_id: "svc-1" },
+      { activity_id: "act-1", activity_code: "ACT-1", description: "Activity 1", is_active: true, practica_id: "svc-1" },
+      { activity_id: "act-2", activity_code: "ACT-2", description: "Activity 2", is_active: true, practica_id: "svc-1" },
     ],
     isLoading: false,
   }),
   useSetting: () => "0.13",
   useServices: () => ({
-    data: [{ service_id: "svc-1", name: "Auditoría", code: 1, is_active: true, allows_rates_activities: true, created_at: "" }],
+    data: [{ practica_id: "svc-1", name: "Auditoría", code: 1, is_active: true, allows_rates_activities: true, created_at: "" }],
   }),
 }));
 

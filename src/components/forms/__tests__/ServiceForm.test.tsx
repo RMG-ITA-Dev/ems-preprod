@@ -41,7 +41,7 @@ import { ServiceForm } from "@/components/forms/ServiceForm";
 import type { Service } from "@/hooks/useEmsData";
 
 const editService: Service = {
-  service_id: "s3",
+  practica_id: "s3",
   name: "Tax",
   code: 3,
   abbreviation: "TAX",
@@ -254,7 +254,7 @@ describe("ServiceForm — abbreviation field (0513-114)", () => {
   it("blocks clearing the abbreviation when the service has linked activities (R21)", async () => {
     const user = userEvent.setup();
     mockAllActivities.current = [
-      { activity_id: "a1", service_id: "s3", is_active: true, activity_code: "TAX-A1", description: "x", entity_type: "A" },
+      { activity_id: "a1", practica_id: "s3", is_active: true, activity_code: "TAX-A1", description: "x", entity_type: "A" },
     ];
     render(
       <ServiceForm open={true} onOpenChange={vi.fn()} service={editService} usedCodes={usedCodes_0_to_4} />

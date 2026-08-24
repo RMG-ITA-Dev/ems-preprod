@@ -1,2 +1,0 @@
--- See supabase/migrations/20260720120000_engagement_assignments_category_id_backfill.sql for full commentary.
--- This applies that file verbatim.

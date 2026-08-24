@@ -46,9 +46,9 @@ vi.mock("react-i18next", () => ({
 }));
 
 const mockServices = [
-  { service_id: "s1", name: "Auditoría",         code: 1, allows_rates_activities: true,  is_active: true,  created_at: "" },
-  { service_id: "s2", name: "Tax",               code: 3, allows_rates_activities: true,  is_active: true,  created_at: "" },
-  { service_id: "s3", name: "Firmwide (inactivo)", code: 0, allows_rates_activities: false, is_active: false, created_at: "" },
+  { practica_id: "s1", name: "Auditoría",         code: 1, allows_rates_activities: true,  is_active: true,  created_at: "" },
+  { practica_id: "s2", name: "Tax",               code: 3, allows_rates_activities: true,  is_active: true,  created_at: "" },
+  { practica_id: "s3", name: "Firmwide (inactivo)", code: 0, allows_rates_activities: false, is_active: false, created_at: "" },
 ];
 
 // Module-level controllable create mock (Review 2 — test #5)
@@ -70,7 +70,7 @@ const mockSocieties = [
 // 0722-157: "Ir a Matriz de Trabajo forwards..." exercises funcion=Cliente, which requires a
 // real taxonomy pick (0602-136) — "No aplica" is hidden for Cliente.
 const mockTaxonomies = [
-  { taxonomy_id: "tax-1", code: "T1", name: "Test Taxonomy", service_id: null, is_active: true, created_at: "" },
+  { taxonomy_id: "tax-1", code: "T1", name: "Test Taxonomy", practica_id: null, is_active: true, created_at: "" },
 ];
 vi.mock("@/hooks/useEmsData", () => ({
   useClients:  () => ({ data: stableClientList }),
@@ -121,7 +121,7 @@ vi.mock("@/hooks/useCategoryStaff", () => ({
 // que sin este mock el hook real golpearía Supabase.
 // Estos tests hacen submit completo, así que Socio y Gerente deben ser seleccionables.
 // `serviceId: "s1"` es el servicio de Auditoría (code 1) de mockServices: los no-admin lo reciben
-// auto-asignado en creación, y el filtro por servicio descartaría candidatos de otro service_id.
+// auto-asignado en creación, y el filtro por servicio descartaría candidatos de otro practica_id.
 const stableTeamCandidates = {
   partnerDirectorOptions: [{ value: "p1", label: "Juan Partner", serviceId: "s1" }],
   managerRoleOptions: [{ value: "m1", label: "Ana Manager", serviceId: "s1" }],

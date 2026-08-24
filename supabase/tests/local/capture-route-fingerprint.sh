@@ -12,11 +12,20 @@
 #        capture-route-fingerprint.sh ruta_b
 #        capture-route-fingerprint.sh ruta_c
 #
-# Writes 4 files to supabase/tests/fixtures/route-fingerprints/<prefix>_*:
-#   <prefix>_schema.sql            pg_dump --schema-only (DDL, no owners/privileges)
-#   <prefix>_catalog.txt           \d+ (relation listing)
-#   <prefix>_catalog_policies.txt  pg_policies (public schema)
-#   <prefix>_catalog_grants.txt    information_schema.role_table_grants (public schema)
+# Writes 7 files to supabase/tests/fixtures/route-fingerprints/<prefix>_*:
+#   <prefix>_schema.sql                  pg_dump --schema-only (DDL, no owners/privileges)
+#   <prefix>_catalog.txt                 \d+ (relation listing)
+#   <prefix>_catalog_policies.txt        pg_policies (public, storage, auth schemas)
+#   <prefix>_catalog_grants.txt          information_schema.role_table_grants (public, storage, auth)
+#   <prefix>_catalog_column_grants.txt   information_schema.column_privileges (public, storage, auth)
+#   <prefix>_catalog_routine_grants.txt  function ACLs by signature, from pg_proc/aclexplode
+#   <prefix>_catalog_storage_buckets.txt storage.buckets rows (data, invisible to a schema-only dump)
+#
+# Coverage note (2026-08-21): the dump itself already covers auth/storage schemas (no schema
+# filter on pg_dump), but policies/grants used to be filtered to `public` only — invisible blind
+# spots were storage.objects policies, the column-level grants behind staff's PII hardening
+# (20260730080000, 20260806000000, 0810-173), function EXECUTE ACLs, and storage.buckets config
+# rows. All widened/added below so the consolidation can't silently drop any of those controls.
 #
 # DB_URL defaults to the standard local Supabase Docker stack; override to point at a different
 # disposable stack (e.g. a Ruta C worktree using the same project_id/containers).
@@ -50,15 +59,39 @@ psql "$DB_URL" -o "$OUT_DIR/${PREFIX}_catalog.txt" -c "\d+"
 psql "$DB_URL" -o "$OUT_DIR/${PREFIX}_catalog_policies.txt" -c "
   SELECT schemaname, tablename, policyname, cmd, qual, with_check
     FROM pg_policies
-   WHERE schemaname = 'public'
-   ORDER BY tablename, policyname;
+   WHERE schemaname IN ('public','storage','auth')
+   ORDER BY schemaname, tablename, policyname;
 "
 
 psql "$DB_URL" -o "$OUT_DIR/${PREFIX}_catalog_grants.txt" -c "
-  SELECT grantee, table_name, privilege_type
+  SELECT table_schema, grantee, table_name, privilege_type
     FROM information_schema.role_table_grants
-   WHERE table_schema = 'public'
-   ORDER BY table_name, grantee, privilege_type;
+   WHERE table_schema IN ('public','storage','auth')
+   ORDER BY table_schema, table_name, grantee, privilege_type;
+"
+
+psql "$DB_URL" -o "$OUT_DIR/${PREFIX}_catalog_column_grants.txt" -c "
+  SELECT grantee, table_schema, table_name, column_name, privilege_type
+    FROM information_schema.column_privileges
+   WHERE table_schema IN ('public','storage','auth')
+   ORDER BY table_schema, table_name, column_name, grantee, privilege_type;
+"
+
+psql "$DB_URL" -o "$OUT_DIR/${PREFIX}_catalog_routine_grants.txt" -c "
+  SELECT n.nspname, p.proname,
+         pg_get_function_identity_arguments(p.oid) AS args,
+         pg_get_userbyid(a.grantee) AS grantee, a.privilege_type
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    CROSS JOIN LATERAL aclexplode(p.proacl) a
+   WHERE n.nspname IN ('public','storage','auth')
+   ORDER BY 1, 2, 3, 4, 5;
+"
+
+psql "$DB_URL" -o "$OUT_DIR/${PREFIX}_catalog_storage_buckets.txt" -c "
+  SELECT id, name, public, file_size_limit, allowed_mime_types
+    FROM storage.buckets
+   ORDER BY id;
 "
 
 echo "Fingerprint '$PREFIX' captured in $OUT_DIR:"

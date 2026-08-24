@@ -7,26 +7,25 @@ name: Scheduler Integrity — Fase 2
 # mismo path, en ramas distintas, chocan al converger. Ver bugs/scheduler/fase_2/plan_v2.md
 # para el hallazgo completo (2026-07-30).
 #
-# Fase 2 del Scheduler (bugs/scheduler/fase_2/plan_v2.md). Two independent jobs:
+# Reescrito para la migración cero (bugs/migracion_cero/plan_v2.md §2.5.a). Two independent
+# jobs:
 #
-#   rls-migration-tests — fast, self-contained (postgres:16 service container, no Docker
-#     Compose beyond the container itself). Runs supabase/tests/local/run-rls-tests.sh, the
-#     same harness validated locally throughout Fase 2 (npm run test:rls): 4 lanes —
-#     Phase 3 → D5 → Phase 5 → corrective (idempotent), drift-repair, loud-abort failure
-#     paths, and Fase 2's own C1-C4 convergence lane (RLS matrix + both RPCs + schema
-#     assertions). This job has been run end to end against this exact workflow's steps
-#     before being committed.
+#   rls-migration-tests — fast, self-contained (postgres:17 service container, no Docker
+#     Compose beyond the container itself). Runs supabase/tests/local/run-rls-tests.sh:
+#     aplica el set consolidado (cero_01..cero_06 + el catálogo RBAC real) una sola vez
+#     sobre una base scratch y corre las 8 suites de aserciones existentes (RLS, ambas RPCs,
+#     schema-convergence, trigger). Reemplaza las 4 lanes históricas (rollout/drift/
+#     failure-path/shim de servicio) que probaban la mecánica de un historial de migraciones
+#     puntuales que ya no existe — ver docs/migraciones/legado-consolidacion.md §4ter.
 #
-#   route-parity — the plan's central acceptance criterion: Rutas A and C must converge to
-#     an identical schema/RLS/grants fingerprint. Needs the real Supabase CLI + Docker (the
-#     harness above deliberately does NOT need either). Mirrors, step for step, the manual
-#     procedure validated by the operator in EMS_Dev_Local and documented in
-#     docs/scheduler/fase_2/scheduler-fase-2-rutas-locales.md §3-4 and
-#     docs/scheduler/fase_2/scheduler-fase-2-verificacion.md ("Ruta C — corrida completa...",
-#     "C1-C4 — escritas, corregidas en vivo..."). Unlike the job above, this one could NOT be
-#     dry-run before committing (no Docker/Supabase CLI in the authoring environment) — if it
-#     fails on its first real run, compare its steps against those two docs before assuming
-#     the schema itself regressed.
+#   consolidated-replay — el criterio de aceptación central de la migración cero: el set
+#     consolidado, aplicado solo (sin preseed ni parche alguno) sobre una base vacía, debe
+#     converger al fingerprint aceptado de baseline_184 módulo los hunks documentados en
+#     docs/migraciones/DIFF-INTENCIONAL-consolidacion.md. Reemplaza route-parity (Rutas A/C
+#     del Scheduler Fase 2, ya cerrado — la muerte del preseed es criterio de éxito del
+#     informe de consolidación §2.1). Necesita el Supabase CLI real + Docker. Desde Fase 4
+#     (plan §4.3), también aplica los 7 seeds _cero_1x_ (no tocan DDL, el gate de fingerprint
+#     no cambia) y corre verify-seed.sql + verify-auth-bootstrap.sh como pasos finales.
 
 on:
   push:
@@ -36,9 +35,6 @@ on:
       - 'supabase/tests/**'
       - '.github/workflows/scheduler-fase2-integrity.yml'
   pull_request:
-    # Fase 7 (plan v2 §E.3): the final dev-scheduler -> development PR must
-    # trigger this workflow too — it's path-filtered to migrations/tests and
-    # the PR touches both.
     branches: ['main', 'development']
     paths:
       - 'supabase/migrations/**'
@@ -51,7 +47,10 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        # postgres:16 rechazaba GRANT ... MAINTAIN ... (privilegio nuevo en Postgres 17,
+        # que sí aparece en cero_06_grants.sql — dumpeado desde el stack real 17.6) con
+        # "unrecognized privilege type" — hallazgo real del primer run de CI (2026-08-24).
+        image: postgres:17
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -74,29 +73,28 @@ jobs:
       - name: Runner db-name validator self-test (hostile names rejected)
         run: bash supabase/tests/local/run-rls-tests.sh --self-test
 
-      - name: Run the RLS/scheduler test harness (4 lanes)
+      - name: Run the RLS/RPC/schema-convergence/trigger assertion suites (consolidated set)
         run: bash supabase/tests/local/run-rls-tests.sh
 
-  route-parity:
+  consolidated-replay:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout (full history — origin/sruizmier-scheduler-v3 must be reachable for the Ruta C worktree)
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@v4
 
+      # Versión pineada (nunca `version: latest`): los fixtures de fingerprint son
+      # sensibles a la versión exacta del CLI (formato de pg_dump, imagen de Postgres,
+      # esquema de GoTrue). Ver supabase/tests/fixtures/route-fingerprints/VERSIONS.md —
+      # subir esta versión es un cambio deliberado que implica re-capturar y re-aceptar los
+      # fixtures, nunca un drift silencioso.
       - uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 2.100.1
 
       # 🟢 Bug preexistente encontrado en vivo (2026-08-06, dev-scheduler-fase_7): el runner de
       # Ubuntu trae `pg_dump` 16.x por defecto, pero el stack local de Supabase corre Postgres
       # 17.6 — pg_dump se niega a volcar un servidor con una versión mayor que la suya
-      # ("aborting because of server version mismatch"). capture-route-fingerprint.sh nunca lo
-      # vio localmente porque el Docker del operador tenía un pg_dump más nuevo instalado.
-      # Se instala el cliente 17 del repositorio oficial de PGDG y se lo prioriza en el PATH
-      # para el resto del job — cubre tanto la captura de Ruta A como la de Ruta C (mismo
-      # runner, mismo pg_dump, el script se copia sin cambios al worktree).
+      # ("aborting because of server version mismatch"). Se instala el cliente 17 del
+      # repositorio oficial de PGDG y se lo prioriza en el PATH para el resto del job.
       - name: Install postgresql-client-17 (pg_dump must match the local Supabase server, 17.6)
         run: |
           sudo apt-get update
@@ -105,134 +103,78 @@ jobs:
           sudo apt-get install -y postgresql-client-17
           echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
 
-      # 🟢 Bug preexistente encontrado en vivo (2026-08-06, dev-scheduler-fase_7): sobre un
-      # volumen Docker recién creado (siempre el caso en un runner de GitHub Actions),
-      # `supabase start` aplica automáticamente todas las migraciones pendientes al arrancar,
-      # incluida la fail-fast de categorías en español de 20260224065512 — antes de que el
-      # paso "Ruta A — apply" (que sabe cachear ese fallo esperado y aplicar el parche de
-      # preseed-development-gaps.sh) llegue a ejecutarse. Nunca se vio localmente porque el
-      # Docker del operador reutiliza un volumen ya inicializado entre corridas. Se sortea
-      # ocultando `supabase/migrations/` durante el `start`, para que el CLI arranque con una
-      # base vacía y el control de cuándo se aplican las migraciones vuelva a ser 100% del
-      # script, como asume su diseño original (ver su propio header).
-      - name: supabase start (one Docker stack, reused for both routes — same project_id ⇒ same containers)
-        run: |
-          mv supabase/migrations supabase/migrations.bak
-          supabase start
-          mv supabase/migrations.bak supabase/migrations
+      # A diferencia del route-parity histórico, el set consolidado no necesita el truco de
+      # esconder supabase/migrations/: no hay ninguna migración fail-fast que espere un parche
+      # ad-hoc (la muerte del preseed es criterio de éxito, informe §2.1). Si `start` no las
+      # aplica solo, es un regresión real, no un caso esperado.
+      - name: supabase start (aplica el set consolidado limpio, sin preseed)
+        run: supabase start
 
-      # ── Ruta A: pure chronological replay of every migration already on this branch
-      #    (170 historical + C1-C4 + 1 (is_schedulable grant) = 174, +3 more RLS/RPC-drift fixes
-      #    found during the convergence review (role_key on has_firmwide_assignment_visibility(),
-      #    stale permissive policy on skills, permission gate on get_all_user_roles()) = 177 —
-      #    see bugs/scheduler/plan_merge_sche_rolper.md G4a and
-      #    docs/scheduler/roles_permisos_merge/review.md iteraciones 2 y 4), via the same pre-seed
-      #    script validated locally.
-      - name: Ruta A — apply (pre-seed handles the 2 known development-only gaps)
-        run: bash supabase/tests/local/preseed-development-gaps.sh
-
-      - name: Ruta A — verify convergence (0 pending)
+      - name: Verificar convergencia (7 migraciones aplicadas, 0 pendientes)
         run: |
           supabase migration list --local
           supabase db push --dry-run --include-all --local
 
-      - name: Ruta A — capture fingerprint
-        run: bash supabase/tests/local/capture-route-fingerprint.sh ruta_a
+      - name: Capturar fingerprint del replay
+        run: bash supabase/tests/local/capture-route-fingerprint.sh replay
 
-      # ── Ruta C: base + the 8 historical scheduler migrations FIRST (72+8=80, from
-      #    origin/sruizmier-scheduler-v3, which predates development's 59 migrations and
-      #    C1-C4), synthetic seed, THEN the remaining files copied in and pushed as a
-      #    second batch — reproducing development's migrations landing chronologically
-      #    "late" relative to the scheduler's already-applied migrations (the mechanism
-      #    behind G1 in plan_v2.md). This exact 80-then-+N split is the one already run
-      #    and verified manually (see scheduler-fase-2-verificacion.md, "Ruta C —
-      #    corrida completa..." and the C1-C4 section); it is NOT equivalent to copying
-      #    all remaining files in from the start, which would collapse into Ruta A.
-      #    Post-merge (dev-scheduler + feat/roles-permisos, plan_merge_sche_rolper.md G4a):
-      #    stage 1 is still 80 (unchanged, sruizmier-scheduler-v3 didn't move); stage 2 now
-      #    copies 97 files (177 total − 80), not 63.
-      - name: Ruta C — set up worktree (72 base + 8 scheduler)
-        run: |
-          git fetch origin sruizmier-scheduler-v3
-          git worktree add ../route-c-scratch origin/sruizmier-scheduler-v3
-          mkdir -p ../route-c-scratch/supabase/tests/local ../route-c-scratch/supabase/tests/fixtures
-          cp supabase/tests/local/preseed-development-gaps.sh ../route-c-scratch/supabase/tests/local/
-          cp supabase/tests/local/capture-route-fingerprint.sh ../route-c-scratch/supabase/tests/local/
-          cp supabase/tests/fixtures/route-c-synthetic-seed.sql ../route-c-scratch/supabase/tests/fixtures/
+      # Sube el fingerprint del replay como artifact SIEMPRE (incluso si el gate de abajo
+      # falla) — hallazgo real (2026-08-24): un diff de plataforma (imagen de auth) entre
+      # el runner de CI y un Docker local no se puede reproducir localmente de forma
+      # confiable para re-capturar `consolidado_renamed_*`. Con este artifact, re-aceptar
+      # un fixture nuevo es bajar este zip, no perseguir el mismatch a ciegas.
+      - name: Subir fingerprint del replay como artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: route-fingerprint-replay
+          path: supabase/tests/fixtures/route-fingerprints/replay_*
+          retention-days: 14
 
-      - name: Ruta C — stage 1 apply (80 files; resets the shared stack)
-        working-directory: ../route-c-scratch
-        run: bash supabase/tests/local/preseed-development-gaps.sh
-
-      - name: Ruta C — stage 1 verify (80 applied, 0 pending)
-        working-directory: ../route-c-scratch
-        run: |
-          supabase migration list --local
-          supabase db push --dry-run --include-all --local
-
-      - name: Ruta C — synthetic seed (before development's migrations land)
-        run: |
-          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
-            -v ON_ERROR_STOP=1 -f ../route-c-scratch/supabase/tests/fixtures/route-c-synthetic-seed.sql
-
-      - name: Ruta C — stage 2 (copy the remaining files, push as a second batch)
-        run: |
-          comm -13 \
-            <(ls ../route-c-scratch/supabase/migrations | sort) \
-            <(ls supabase/migrations | sort) \
-            > /tmp/remaining_migrations.txt
-          while read -r f; do
-            cp "supabase/migrations/$f" "../route-c-scratch/supabase/migrations/$f"
-          done < /tmp/remaining_migrations.txt
-          cd ../route-c-scratch
-          supabase db push --include-all --local
-
-      - name: Ruta C — verify convergence (177 applied, 0 pending)
-        working-directory: ../route-c-scratch
-        run: |
-          supabase migration list --local
-          supabase db push --dry-run --include-all --local
-
-      - name: Ruta C — capture fingerprint
-        working-directory: ../route-c-scratch
-        run: bash supabase/tests/local/capture-route-fingerprint.sh ruta_c
-
-      - name: Copy Ruta C fingerprint back for diffing (captured relative to the worktree's own repo root)
-        run: cp ../route-c-scratch/supabase/tests/fixtures/route-fingerprints/ruta_c_* supabase/tests/fixtures/route-fingerprints/
-
-      # ── Gate: the plan's central acceptance criterion. catalog.txt (physical relation
-      #    sizes) is deliberately NOT compared — it differs by seed-data bloat alone, not
-      #    schema (see scheduler-fase-2-verificacion.md's Ruta A vs B diff for precedent).
-      - name: Gate — Ruta A and Ruta C must converge (schema, RLS policies, grants)
+      # 🟢 Bug preexistente encontrado en vivo (2026-08-06, dev-scheduler-fase_7): pg_dump
+      # envuelve cada dump en un token \restrict/\unrestrict aleatorio que difiere en cada
+      # invocación incluso contra un esquema sin cambios. Filtrar por contenido, no posición.
+      #
+      # 🟢 Segundo filtro (hallazgo real, primer run de CI contra este workflow, 2026-08-24):
+      # las particiones diarias de realtime.messages_YYYY_MM_DD rotan por calendario —
+      # documentado en docs/migraciones/DIFF-INTENCIONAL-consolidacion.md §2 como ruido
+      # esperado, pero el filtro nunca se agregó a este script (solo se aplicaba a mano en
+      # verificaciones manuales). Sin él, el gate falla apenas pasa un día entre la captura
+      # del fixture aceptado y el run del CI.
+      - name: Gate — replay converge al fingerprint aceptado (baseline_184 vía consolidado_renamed_*)
         run: |
           FP=supabase/tests/fixtures/route-fingerprints
           fail=0
+          RESTRICT='^\\(un)?restrict '
+          PARTITION_NOISE='messages_[0-9]{4}_[0-9]{2}_[0-9]{2}'
 
-          # 🟢 Bug preexistente encontrado en vivo (2026-08-06, dev-scheduler-fase_7): pg_dump
-          # wraps every dump in a random \restrict/\unrestrict token pair that differs on every
-          # invocation even against an unchanged schema. `tail -n +2 | head -n -1` assumed the
-          # pair sits on line 1 and the true last line — pg_dump 17 actually precedes \restrict
-          # with 3 header comment lines ("--" / "-- PostgreSQL database dump" / "--"), and a
-          # trailing line follows \unrestrict, so positional stripping missed both. Filtering by
-          # content instead of position is robust to that regardless of pg_dump's exact header
-          # shape in whatever version ends up installed.
-          if ! diff <(grep -vE '^\\(un)?restrict ' "$FP/ruta_a_schema.sql") \
-                    <(grep -vE '^\\(un)?restrict ' "$FP/ruta_c_schema.sql"); then
-            echo "::error::Ruta A and Ruta C schema fingerprints diverge (see diff above)."
-            fail=1
-          fi
-          if ! diff "$FP/ruta_a_catalog_policies.txt" "$FP/ruta_c_catalog_policies.txt"; then
-            echo "::error::Ruta A and Ruta C RLS policies diverge."
-            fail=1
-          fi
-          if ! diff "$FP/ruta_a_catalog_grants.txt" "$FP/ruta_c_catalog_grants.txt"; then
-            echo "::error::Ruta A and Ruta C grants diverge."
-            fail=1
-          fi
+          for name in schema catalog_policies catalog_grants catalog_column_grants catalog_routine_grants catalog_storage_buckets; do
+            ext="txt"
+            [[ "$name" == "schema" ]] && ext="sql"
+            a="$FP/consolidado_renamed_${name}.${ext}"
+            b="$FP/replay_${name}.${ext}"
+            if ! diff <(grep -vE "$RESTRICT" "$a" | grep -vE "$PARTITION_NOISE") \
+                      <(grep -vE "$RESTRICT" "$b" | grep -vE "$PARTITION_NOISE"); then
+              echo "::error::replay diverge de consolidado_renamed_${name}.${ext} (ver diff arriba)."
+              fail=1
+            fi
+          done
 
           [[ "$fail" -eq 0 ]] || exit 1
-          echo "Route parity gate passed: Ruta A = Ruta C (schema, RLS policies, grants)."
+          echo "Gate de replay consolidado (renombrado, Fase 3): OK (schema, policies, grants, column_grants, routine_grants, storage_buckets)."
 
-      - name: Clean up worktree
-        if: always()
-        run: git worktree remove ../route-c-scratch --force || true
+      # Fase 4 (plan §4.3): los 7 archivos _cero_1x_seed_* no tocan DDL — el gate de arriba ya
+      # prueba que el fingerprint no cambió. Esto verifica los DATOS: conteos, ADM/is_system,
+      # ADM_ACTIVITY_ID, default_app_role 61/61, cero datos demo, feriados vs generador.
+      - name: Verificar datos del seed de Fase 4 (verify-seed.sql)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -v ON_ERROR_STOP=1 \
+            -f supabase/tests/local/verify-seed.sql
+
+      # Fase 4 (plan §4.3.4ter): el bootstrap admin escribe directo en auth.*, esquema
+      # gestionado por GoTrue — el replay + verify-seed.sql solo prueban que las filas existen
+      # con las columnas declaradas, no que GoTrue pueda autenticar contra ellas. Este es el
+      # gate real: Admin API set-password -> login por password -> get_my_staff_id() con el
+      # access_token real -> exactamente 1 fila admin en user_roles.
+      - name: Verificar bootstrap de Auth end-to-end (verify-auth-bootstrap.sh)
+        run: bash supabase/tests/local/verify-auth-bootstrap.sh

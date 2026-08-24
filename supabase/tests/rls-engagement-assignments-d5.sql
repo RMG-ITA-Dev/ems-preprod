@@ -38,37 +38,76 @@
 BEGIN;
 
 -- ── Fixtures (as postgres; RLS does not bind the table owner) ─────────
-INSERT INTO public.categories (category_id, category_name)
-VALUES ('c0000000-0000-4000-8000-000000000001', 'D5 Test Category');
+-- practica/sociedad dummy: categories.practica_id y staff.practica_id/society_id son NOT
+-- NULL en el esquema real (agregadas por 20260702000002/20260812140000, no existían en el
+-- viejo shim minimalista contra el que corría esta suite antes de la migración cero).
+INSERT INTO public.practicas (practica_id, name, code, abbreviation)
+VALUES ('5e000000-0000-4000-8000-000000000001', 'D5 Test Practice', 9, 'TST');
+
+INSERT INTO public.society (society_id, name)
+VALUES ('50c00000-0000-4000-8000-000000000001', 'D5 Test Society');
+
+-- staff.auth_user_id y user_roles.user_id tienen FK real a auth.users (cero_04) — el shim
+-- crea la tabla (00-shim-auth.sql) pero no las filas; cada auth_user_id/user_id usado abajo
+-- necesita su fila aquí primero.
+INSERT INTO auth.users (id) VALUES
+  ('a0000000-0000-4000-8000-000000000009'),
+  ('a0000000-0000-4000-8000-00000000000a'),
+  ('a0000000-0000-4000-8000-00000000000b'),
+  ('a0000000-0000-4000-8000-00000000000c'),
+  ('a0000000-0000-4000-8000-00000000000d'),
+  ('a0000000-0000-4000-8000-00000000000e'),
+  ('a0000000-0000-4000-8000-00000000000f'),
+  ('a0000000-0000-4000-8000-000000000011');
+
+INSERT INTO public.categories (category_id, category_name, practica_id)
+VALUES ('c0000000-0000-4000-8000-000000000001', 'D5 Test Category', '5e000000-0000-4000-8000-000000000001');
 
 INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id)
 VALUES ('c1000000-0000-4000-8000-000000000001', 'D5 Test Client', 'D5-TAX-001');
 
-INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, category_id) VALUES
-  ('50000000-0000-4000-8000-00000000000a', 'a0000000-0000-4000-8000-00000000000a', 'Pat',  'Partner',       'c0000000-0000-4000-8000-000000000001'),
-  ('50000000-0000-4000-8000-00000000000b', 'a0000000-0000-4000-8000-00000000000b', 'Dana', 'Director',      'c0000000-0000-4000-8000-000000000001'),
-  ('50000000-0000-4000-8000-00000000000c', 'a0000000-0000-4000-8000-00000000000c', 'Mel',  'ManagerLead',   'c0000000-0000-4000-8000-000000000001'),
-  ('50000000-0000-4000-8000-00000000000d', 'a0000000-0000-4000-8000-00000000000d', 'Max',  'ManagerStaffed','c0000000-0000-4000-8000-000000000001'),
-  ('50000000-0000-4000-8000-00000000000e', 'a0000000-0000-4000-8000-00000000000e', 'Sam',  'Senior',        'c0000000-0000-4000-8000-000000000001'),
-  ('50000000-0000-4000-8000-00000000000f', 'a0000000-0000-4000-8000-00000000000f', 'Ximena','Semisenior',   'c0000000-0000-4000-8000-000000000001'),
-  ('50000000-0000-4000-8000-000000000010', NULL, 'Olga', 'OtherLead', 'c0000000-0000-4000-8000-000000000001'),
-  ('50000000-0000-4000-8000-000000000011', 'a0000000-0000-4000-8000-000000000011', 'Sofia','SeniorLead',    'c0000000-0000-4000-8000-000000000001');
+INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, category_id, practica_id, society_id) VALUES
+  ('50000000-0000-4000-8000-00000000000a', 'a0000000-0000-4000-8000-00000000000a', 'Pat',  'Partner',       'c0000000-0000-4000-8000-000000000001', '5e000000-0000-4000-8000-000000000001', '50c00000-0000-4000-8000-000000000001'),
+  ('50000000-0000-4000-8000-00000000000b', 'a0000000-0000-4000-8000-00000000000b', 'Dana', 'Director',      'c0000000-0000-4000-8000-000000000001', '5e000000-0000-4000-8000-000000000001', '50c00000-0000-4000-8000-000000000001'),
+  ('50000000-0000-4000-8000-00000000000c', 'a0000000-0000-4000-8000-00000000000c', 'Mel',  'ManagerLead',   'c0000000-0000-4000-8000-000000000001', '5e000000-0000-4000-8000-000000000001', '50c00000-0000-4000-8000-000000000001'),
+  ('50000000-0000-4000-8000-00000000000d', 'a0000000-0000-4000-8000-00000000000d', 'Max',  'ManagerStaffed','c0000000-0000-4000-8000-000000000001', '5e000000-0000-4000-8000-000000000001', '50c00000-0000-4000-8000-000000000001'),
+  ('50000000-0000-4000-8000-00000000000e', 'a0000000-0000-4000-8000-00000000000e', 'Sam',  'Senior',        'c0000000-0000-4000-8000-000000000001', '5e000000-0000-4000-8000-000000000001', '50c00000-0000-4000-8000-000000000001'),
+  ('50000000-0000-4000-8000-00000000000f', 'a0000000-0000-4000-8000-00000000000f', 'Ximena','Semisenior',   'c0000000-0000-4000-8000-000000000001', '5e000000-0000-4000-8000-000000000001', '50c00000-0000-4000-8000-000000000001'),
+  ('50000000-0000-4000-8000-000000000010', NULL, 'Olga', 'OtherLead', 'c0000000-0000-4000-8000-000000000001', '5e000000-0000-4000-8000-000000000001', '50c00000-0000-4000-8000-000000000001'),
+  ('50000000-0000-4000-8000-000000000011', 'a0000000-0000-4000-8000-000000000011', 'Sofia','SeniorLead',    'c0000000-0000-4000-8000-000000000001', '5e000000-0000-4000-8000-000000000001', '50c00000-0000-4000-8000-000000000001');
 
-INSERT INTO public.user_roles (user_id, role) VALUES
-  ('a0000000-0000-4000-8000-000000000009', 'admin'),
-  ('a0000000-0000-4000-8000-00000000000a', 'partner'),
-  ('a0000000-0000-4000-8000-00000000000b', 'director'),
-  ('a0000000-0000-4000-8000-00000000000c', 'manager'),
-  ('a0000000-0000-4000-8000-00000000000d', 'manager'),
-  ('a0000000-0000-4000-8000-00000000000e', 'senior'),
-  ('a0000000-0000-4000-8000-00000000000f', 'semisenior'),
-  ('a0000000-0000-4000-8000-000000000011', 'senior');
+-- Catálogo RBAC (authorization_roles): user_roles.role_key es FK a esta tabla, y
+-- has_firmwide_assignment_visibility() filtra por role_key, no por el enum legacy `role` —
+-- ningún seed de Fase 4 del plan cubre este catálogo todavía (hallazgo a resolver antes de
+-- cerrar esa fase); acá alcanza con los role_key que este fixture usa.
+-- ON CONFLICT DO NOTHING: run-rls-tests.sh ya sembró el catálogo RBAC real completo
+-- (40-fixture-rbac-catalog.sql, 23 roles) antes de esta transacción; estos 6 ya existen
+-- ahí. Se deja el INSERT explícito para que el archivo siga siendo autocontenido si
+-- alguna vez se corre de forma aislada.
+INSERT INTO public.authorization_roles (role_key, label_key) VALUES
+  ('admin', 'authz.role.admin'),
+  ('partner', 'authz.role.partner'),
+  ('director', 'authz.role.director'),
+  ('manager', 'authz.role.manager'),
+  ('senior', 'authz.role.senior'),
+  ('semisenior', 'authz.role.semisenior')
+ON CONFLICT (role_key) DO NOTHING;
+
+INSERT INTO public.user_roles (user_id, role, role_key) VALUES
+  ('a0000000-0000-4000-8000-000000000009', 'admin', 'admin'),
+  ('a0000000-0000-4000-8000-00000000000a', 'partner', 'partner'),
+  ('a0000000-0000-4000-8000-00000000000b', 'director', 'director'),
+  ('a0000000-0000-4000-8000-00000000000c', 'manager', 'manager'),
+  ('a0000000-0000-4000-8000-00000000000d', 'manager', 'manager'),
+  ('a0000000-0000-4000-8000-00000000000e', 'senior', 'senior'),
+  ('a0000000-0000-4000-8000-00000000000f', 'semisenior', 'semisenior'),
+  ('a0000000-0000-4000-8000-000000000011', 'senior', 'senior');
 -- 'a0000000-...-0000000000ff' (no-role user) gets no user_roles row.
 
-INSERT INTO public.engagements (engagement_id, client_id, engagement_name, manager_id) VALUES
-  ('e0000000-0000-4000-8000-000000000001', 'c1000000-0000-4000-8000-000000000001', 'D5 E1', '50000000-0000-4000-8000-00000000000c'),
-  ('e0000000-0000-4000-8000-000000000002', 'c1000000-0000-4000-8000-000000000001', 'D5 E2', '50000000-0000-4000-8000-000000000010'),
-  ('e0000000-0000-4000-8000-000000000003', 'c1000000-0000-4000-8000-000000000001', 'D5 E3', '50000000-0000-4000-8000-000000000011');
+INSERT INTO public.engagements (engagement_id, client_id, engagement_name, manager_id, fecha_cierre) VALUES
+  ('e0000000-0000-4000-8000-000000000001', 'c1000000-0000-4000-8000-000000000001', 'D5 E1', '50000000-0000-4000-8000-00000000000c', '2026-12-31'),
+  ('e0000000-0000-4000-8000-000000000002', 'c1000000-0000-4000-8000-000000000001', 'D5 E2', '50000000-0000-4000-8000-000000000010', '2026-12-31'),
+  ('e0000000-0000-4000-8000-000000000003', 'c1000000-0000-4000-8000-000000000001', 'D5 E3', '50000000-0000-4000-8000-000000000011', '2026-12-31');
 
 INSERT INTO public.engagement_assignments
   (assignment_id, engagement_id, staff_id, category_id, start_date, end_date, deleted_at) VALUES
@@ -150,15 +189,33 @@ BEGIN
   IF n <> 0 THEN RAISE EXCEPTION 'D5 RLS FAIL — senior cross-engagement leakage: % E2 rows visible (deleted assignment must grant nothing)', n; END IF;
   RAISE NOTICE 'PASS — senior sees assigned engagement (E1) only, deleted E2 assignment grants nothing';
 
-  -- Non-manager structural lead (PR #222 finding 2): Sofia has role
-  -- senior, holds NO assignment, but is E3's manager_id. Under Phase
-  -- 3's ea_team_manage FOR ALL (or an un-gated lead rule) she would
-  -- see E3's row; under D5 she must see nothing.
+  -- Non-manager structural lead (originally PR #222 finding 2): Sofia has role
+  -- senior, holds NO assignment, but is E3's manager_id. Under D5 (this
+  -- migration) that structural link alone granted nothing — the assertion
+  -- below used to expect 0 rows.
+  --
+  -- UPDATED (migración cero, verificado contra el esquema real por primera vez —
+  -- el harness anterior nunca llegó a ejercitar esto porque su shim minimalista no
+  -- tenía is_engagement_responsible()): una política posterior y deliberada,
+  -- ea_select_responsible / is_engagement_responsible(), concede acceso legítimo a
+  -- cualquiera de las 6 columnas de personal responsable de un encargo (manager_id,
+  -- partner_id, sqr_id, encargado_id, specialist_it_id, specialist_tax_id) —
+  -- independientemente del rol. Sofia, como manager_id de E3, cae exactamente en esa
+  -- vía por diseño: esto ya NO es la brecha de finding-2 (adjacencia estructural sin
+  -- ningún control), es una concesión de autorización nombrada y acotada a esas 6
+  -- columnas — cubierta y validada explícitamente por
+  -- supabase/tests/schema-convergence-assertions.sql (G7, incluye el caso negativo
+  -- "deniega a quien no es responsable"). Se actualiza la aserción para reflejar el
+  -- acceso legítimo en vez de mantener una expectativa que ya no describe el sistema
+  -- real.
   PERFORM pg_temp.impersonate('a0000000-0000-4000-8000-000000000011');
   SELECT count(*) INTO n FROM public.engagement_assignments
-   WHERE engagement_id IN ('e0000000-0000-4000-8000-000000000001','e0000000-0000-4000-8000-000000000002','e0000000-0000-4000-8000-000000000003');
-  IF n <> 0 THEN RAISE EXCEPTION 'D5 RLS FAIL — non-manager structural lead: expected 0 rows, got % (FOR ALL / un-gated lead policy leaking)', n; END IF;
-  RAISE NOTICE 'PASS — senior-role structural lead of E3 sees nothing';
+   WHERE engagement_id = 'e0000000-0000-4000-8000-000000000003';
+  IF n <> 1 THEN RAISE EXCEPTION 'D5 RLS FAIL — responsible-personnel structural lead: expected 1 row (E3, via is_engagement_responsible), got %', n; END IF;
+  SELECT count(*) INTO n FROM public.engagement_assignments
+   WHERE engagement_id IN ('e0000000-0000-4000-8000-000000000001','e0000000-0000-4000-8000-000000000002');
+  IF n <> 0 THEN RAISE EXCEPTION 'D5 RLS FAIL — responsible-personnel structural lead: leaked % row(s) outside E3 (must stay scoped to engagements where she is actually responsible)', n; END IF;
+  RAISE NOTICE 'PASS — senior-role structural lead of E3 sees exactly E3 (is_engagement_responsible), nothing beyond it';
 
   -- Roles outside the D5 matrix
   PERFORM pg_temp.impersonate('a0000000-0000-4000-8000-00000000000f');
@@ -188,16 +245,23 @@ BEGIN
   RAISE NOTICE 'PASS — manager write on foreign engagement matches zero rows';
 
   -- ── P1 escalation regression (PR #222 adversarial verification) ────
-  -- Sofia: senior role, structural manager_id of E3, NO assignment.
-  -- The reported exploit: (1) SELECT denied → (2) structural INSERT of
-  -- an assignment for HERSELF → (3) has_assignment_on_engagement flips
-  -- true → (4) full engagement visibility + row-referencing writes.
-  -- The write policies now conjoin can_read_engagement_assignments(),
-  -- so step (2) must fail and every later step must stay denied.
-  PERFORM pg_temp.impersonate('a0000000-0000-4000-8000-000000000011');
+  -- Persona cambiada de Sofia a Ximena (migración cero): Sofia ya NO sirve para este
+  -- escenario — is_engagement_responsible() la hace legítimamente responsable de E3 (ver
+  -- el bloque de arriba), así que un intento de self-grant de su parte sería un
+  -- verdadero-positivo esperado, no una fuga. El vector original (adjacencia
+  -- estructural SIN ningún control legítimo) sigue vigente y sigue necesitando probarse
+  -- — Ximena (semisenior, asignada a E1, sin ningún vínculo con E3: no es team member,
+  -- no es responsable por ninguna de las 6 columnas) es la persona correcta hoy para
+  -- ejercitarlo. Reported exploit shape (sin cambios): (1) SELECT denied → (2)
+  -- structural INSERT of an assignment for HERSELF → (3) has_assignment_on_engagement
+  -- flips true → (4) full engagement visibility + row-referencing writes. The write
+  -- policies conjoin can_read_engagement_assignments() (OR is_engagement_responsible(),
+  -- que en este caso también da false), so step (2) must fail and every later step must
+  -- stay denied.
+  PERFORM pg_temp.impersonate('a0000000-0000-4000-8000-00000000000f');
 
-  -- (1) SELECT denied — already asserted above; re-checked after the
-  --     attempts below.
+  -- (1) SELECT denied — already asserted above ("semisenior ... denied"); re-checked
+  --     after the attempts below.
 
   -- (2) Self-assignment INSERT must be rejected by RLS WITH CHECK.
   denied := false;
@@ -205,14 +269,14 @@ BEGIN
     INSERT INTO public.engagement_assignments
       (assignment_id, engagement_id, staff_id, category_id, start_date, end_date)
     VALUES
-      ('aa000000-0000-4000-8000-000000000008', 'e0000000-0000-4000-8000-000000000003', '50000000-0000-4000-8000-000000000011', 'c0000000-0000-4000-8000-000000000001', '2026-02-01', '2026-11-30');
+      ('aa000000-0000-4000-8000-000000000008', 'e0000000-0000-4000-8000-000000000003', '50000000-0000-4000-8000-00000000000f', 'c0000000-0000-4000-8000-000000000001', '2026-02-01', '2026-11-30');
   EXCEPTION WHEN insufficient_privilege THEN
     denied := true;
   END;
   IF NOT denied THEN
-    RAISE EXCEPTION 'D5 RLS FAIL — self-grant escalation OPEN: read-denied structural lead inserted their own assignment';
+    RAISE EXCEPTION 'D5 RLS FAIL — self-grant escalation OPEN: read-denied outsider inserted their own assignment';
   END IF;
-  RAISE NOTICE 'PASS — self-assignment INSERT rejected for read-denied structural lead';
+  RAISE NOTICE 'PASS — self-assignment INSERT rejected for read-denied outsider';
 
   -- (2b) The real client write shape (useEngagementAssignmentMutations):
   --      upsert keyed on assignment_id → INSERT ON CONFLICT DO UPDATE.
@@ -222,7 +286,7 @@ BEGIN
     INSERT INTO public.engagement_assignments
       (assignment_id, engagement_id, staff_id, category_id, start_date, end_date, deleted_at)
     VALUES
-      ('aa000000-0000-4000-8000-000000000008', 'e0000000-0000-4000-8000-000000000003', '50000000-0000-4000-8000-000000000011', 'c0000000-0000-4000-8000-000000000001', '2026-02-01', '2026-11-30', NULL)
+      ('aa000000-0000-4000-8000-000000000008', 'e0000000-0000-4000-8000-000000000003', '50000000-0000-4000-8000-00000000000f', 'c0000000-0000-4000-8000-000000000001', '2026-02-01', '2026-11-30', NULL)
     ON CONFLICT (assignment_id) DO UPDATE SET deleted_at = NULL;
   EXCEPTION WHEN insufficient_privilege THEN
     denied := true;
@@ -232,8 +296,8 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS — self-assignment upsert (client shape) rejected';
 
-  -- (2c) Inserting anyone else is equally rejected — out-of-matrix
-  --      structural leads cannot write at all (migration section E).
+  -- (2c) Inserting anyone else is equally rejected — an outsider with no
+  --      team/responsible link cannot write at all.
   denied := false;
   BEGIN
     INSERT INTO public.engagement_assignments
@@ -244,26 +308,29 @@ BEGIN
     denied := true;
   END;
   IF NOT denied THEN
-    RAISE EXCEPTION 'D5 RLS FAIL — out-of-matrix structural lead can still INSERT (escalation primitive intact)';
+    RAISE EXCEPTION 'D5 RLS FAIL — outsider can still INSERT for someone else (escalation primitive intact)';
   END IF;
-  RAISE NOTICE 'PASS — out-of-matrix structural lead cannot INSERT at all';
+  RAISE NOTICE 'PASS — outsider cannot INSERT at all';
 
-  -- (5) Post-attempt state: SELECT, UPDATE, DELETE all still denied.
+  -- (5) Post-attempt state: SELECT, UPDATE, DELETE all still denied. Ximena has zero
+  -- SELECT visibility even over her own E1 assignment row (semisenior is outside the
+  -- D5 matrix for ea_select_assigned, which requires role 'senior') — already
+  -- established above ("semisenior ... denied"); re-asserted here unchanged.
   SELECT count(*) INTO n FROM public.engagement_assignments
    WHERE engagement_id IN ('e0000000-0000-4000-8000-000000000001','e0000000-0000-4000-8000-000000000002','e0000000-0000-4000-8000-000000000003');
-  IF n <> 0 THEN RAISE EXCEPTION 'D5 RLS FAIL — escalation attempts changed SELECT visibility (% rows)', n; END IF;
+  IF n <> 0 THEN RAISE EXCEPTION 'D5 RLS FAIL — escalation attempts changed SELECT visibility (% unexpected rows)', n; END IF;
   UPDATE public.engagement_assignments SET notes = 'd5-probe'
    WHERE assignment_id = 'aa000000-0000-4000-8000-000000000006';
   GET DIAGNOSTICS n = ROW_COUNT;
-  IF n <> 0 THEN RAISE EXCEPTION 'D5 RLS FAIL — out-of-matrix structural lead updated a row post-attempt'; END IF;
+  IF n <> 0 THEN RAISE EXCEPTION 'D5 RLS FAIL — outsider updated a row post-attempt'; END IF;
   UPDATE public.engagement_assignments SET deleted_at = now()
    WHERE engagement_id = 'e0000000-0000-4000-8000-000000000003';
   GET DIAGNOSTICS n = ROW_COUNT;
-  IF n <> 0 THEN RAISE EXCEPTION 'D5 RLS FAIL — out-of-matrix structural lead blind soft-delete matched % rows', n; END IF;
+  IF n <> 0 THEN RAISE EXCEPTION 'D5 RLS FAIL — outsider blind soft-delete matched % rows', n; END IF;
   DELETE FROM public.engagement_assignments
    WHERE engagement_id = 'e0000000-0000-4000-8000-000000000003';
   GET DIAGNOSTICS n = ROW_COUNT;
-  IF n <> 0 THEN RAISE EXCEPTION 'D5 RLS FAIL — out-of-matrix structural lead deleted % rows', n; END IF;
+  IF n <> 0 THEN RAISE EXCEPTION 'D5 RLS FAIL — outsider deleted % rows', n; END IF;
   RAISE NOTICE 'PASS — escalation closed: SELECT/UPDATE/soft-delete/DELETE all denied after attempts';
 
   -- Positive control: the Engagement Form write path is intact for an
@@ -287,8 +354,16 @@ BEGIN
   IF n <> 1 THEN RAISE EXCEPTION 'D5 RLS FAIL — manager-lead upsert (conflict-update branch) broken'; END IF;
   RAISE NOTICE 'PASS — manager-lead client-shape upsert works (insert + conflict-update)';
 
-  -- Scheduler-v2 staffing views (PR #222 finding 1): API roles must be
+  -- Scheduler-v2 staffing views (originally PR #222 finding 1): API roles must be
   -- hard-denied. Probed as authenticated here; anon is probed below.
+  --
+  -- UPDATED (migración cero): vw_staffing_alerts es una excepción deliberada y
+  -- posterior — supabase/tests/schema-convergence-assertions.sql ya la verifica
+  -- explícitamente ("vw_staffing_alerts GRANT to authenticated not restored" es un FAIL
+  -- ahí, es decir, el grant a authenticated DEBE existir), con `security_invoker=true`
+  -- para que la fila filtre por las RLS del caller, no un hard-deny de tabla. anon sigue
+  -- denegado (probado más abajo, sin cambios). El harness anterior nunca ejercitó esto
+  -- porque su shim minimalista no creaba esta vista en absoluto.
   FOREACH v IN ARRAY ARRAY[
     'vw_engagement_staffing_summary',
     'vw_staffing_alerts',
@@ -304,10 +379,17 @@ BEGIN
     EXCEPTION WHEN insufficient_privilege THEN
       denied := true;
     END;
-    IF NOT denied THEN
-      RAISE EXCEPTION 'D5 RLS FAIL — view % still readable by authenticated (% rows)', v, n;
+    IF v = 'vw_staffing_alerts' THEN
+      IF denied THEN
+        RAISE EXCEPTION 'D5 RLS FAIL — view % unexpectedly hard-denied to authenticated (grant restoration regressed)', v;
+      END IF;
+      RAISE NOTICE 'PASS — view % readable by authenticated (security_invoker, grant restored by design)', v;
+    ELSE
+      IF NOT denied THEN
+        RAISE EXCEPTION 'D5 RLS FAIL — view % still readable by authenticated (% rows)', v, n;
+      END IF;
+      RAISE NOTICE 'PASS — view % denied to authenticated', v;
     END IF;
-    RAISE NOTICE 'PASS — view % denied to authenticated', v;
   END LOOP;
 
   -- Anon probes: table grant revoked → hard permission error; the

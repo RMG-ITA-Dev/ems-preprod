@@ -94,13 +94,13 @@ const ENGAGEMENT: Engagement = {
 } as Engagement;
 
 const SERVICES = [
-  { service_id: "svc-aud", name: "Auditoría", code: 1, allows_rates_activities: true, is_active: true, created_at: "" },
-  { service_id: "svc-tax", name: "Tax", code: 3, allows_rates_activities: true, is_active: true, created_at: "" },
+  { practica_id: "svc-aud", name: "Auditoría", code: 1, allows_rates_activities: true, is_active: true, created_at: "" },
+  { practica_id: "svc-tax", name: "Tax", code: 3, allows_rates_activities: true, is_active: true, created_at: "" },
 ];
-const CATEGORIES = [{ category_id: "cat-1", category_name: "Cat One", service_id: "svc-aud", rate_high_bob: 0, rate_low_bob: 0, rate_high_usd: 0, rate_low_usd: 0, display_order: 1, can_approve_wo: false, can_approve_timesheets: false, default_app_role: null }];
+const CATEGORIES = [{ category_id: "cat-1", category_name: "Cat One", practica_id: "svc-aud", rate_high_bob: 0, rate_low_bob: 0, rate_high_usd: 0, rate_low_usd: 0, display_order: 1, can_approve_wo: false, can_approve_timesheets: false, default_app_role: null }];
 // Solo para el test M1 (fallback a Auditoría vs. catálogo global): una categoría que SOLO
 // existe en otro servicio — nunca debe aparecer si la resolución cae correctamente en Auditoría.
-const CATEGORIES_TAX = [{ category_id: "cat-tax-1", category_name: "Tax Category", service_id: "svc-tax", rate_high_bob: 0, rate_low_bob: 0, rate_high_usd: 0, rate_low_usd: 0, display_order: 1, can_approve_wo: false, can_approve_timesheets: false, default_app_role: null }];
+const CATEGORIES_TAX = [{ category_id: "cat-tax-1", category_name: "Tax Category", practica_id: "svc-tax", rate_high_bob: 0, rate_low_bob: 0, rate_high_usd: 0, rate_low_usd: 0, display_order: 1, can_approve_wo: false, can_approve_timesheets: false, default_app_role: null }];
 const CATEGORIES_GLOBAL = [...CATEGORIES, ...CATEGORIES_TAX];
 const STAFF_ACTIVE = { staff_id: "staff-1", first_name: "Ana", last_name: "Alvarez", short_name: null, initials: "AA", category_id: "cat-1", city: null, is_active: true, is_schedulable: true, category: CATEGORIES[0], staff_skills: [] };
 const STAFF_NOT_SCHEDULABLE = { staff_id: "staff-2", first_name: "Ivy", last_name: "NotSched", short_name: null, initials: "IN", category_id: "cat-1", city: null, is_active: true, is_schedulable: false, category: CATEGORIES[0], staff_skills: [] };

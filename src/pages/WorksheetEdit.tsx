@@ -104,13 +104,13 @@ const WorksheetEdit = () => {
   const practica = worksheet?.engagement?.practica ?? null;
 
   const engagementServiceId = useMemo(
-    () => (services ?? []).find((s) => s.code === practica)?.service_id,
+    () => (services ?? []).find((s) => s.code === practica)?.practica_id,
     [services, practica]
   );
 
   const scopedCategories = useMemo(() => {
     if (!categories) return categories;
-    return categories.filter((c) => c.service_id === engagementServiceId);
+    return categories.filter((c) => c.practica_id === engagementServiceId);
   }, [categories, engagementServiceId]);
 
   const scopedActivities = useMemo(
@@ -133,7 +133,7 @@ const WorksheetEdit = () => {
   // active ones shown in the grid via `useActivityCodes()`, which already
   // excludes inactive rows server-side) so historical hours on an activity
   // later marked inactive aren't silently dropped by an unrelated save.
-  // Matches on the raw `service_id` FK directly (no `services.code` round-trip
+  // Matches on the raw `practica_id` FK directly (no `services.code` round-trip
   // needed).
   const scopedCategoryIdsForSave = useMemo(() => {
     if (engagementServiceId === undefined || !scopedCategories) return undefined;
@@ -144,7 +144,7 @@ const WorksheetEdit = () => {
     if (engagementServiceId === undefined || !allActivityCodes) return undefined;
     return new Set(
       allActivityCodes
-        .filter((a) => a.service_id == null || a.service_id === engagementServiceId)
+        .filter((a) => a.practica_id == null || a.practica_id === engagementServiceId)
         .map((a) => a.activity_id)
     );
   }, [allActivityCodes, engagementServiceId]);

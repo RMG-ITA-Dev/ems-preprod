@@ -21,7 +21,7 @@
 --                                            part 2 (is_engagement_responsible
 --                                            / engagement_accepts_assignment_writes
 --                                            behavior)
---   copy_categories_between_services      -> part 1, check 8 (structural: the
+--   copy_categories_between_practices      -> part 1, check 8 (structural: the
 --   extendida a 6 referrers                 6 referrer tables appear in the
 --                                            function body; the shim carries
 --                                            no wo_budget_lines/activity_*
@@ -145,19 +145,19 @@ BEGIN
     RAISE NOTICE 'PASS — vw_staffing_alerts: security_invoker=true, authenticated restored, anon revoked';
   END IF;
 
-  -- 7. Service-scope backstop triggers exist on both scheduler tables (G3)
+  -- 7. Practice-scope backstop triggers exist on both scheduler tables (G3)
   SELECT count(*) INTO n FROM pg_trigger
    WHERE tgrelid = 'public.wo_staffing_requirements'::regclass
-     AND tgname = 'trg_enforce_wo_staffing_service_scope' AND NOT tgisinternal;
-  IF n <> 1 THEN RAISE EXCEPTION 'CONVERGENCE FAIL — trg_enforce_wo_staffing_service_scope missing on wo_staffing_requirements'; END IF;
+     AND tgname = 'trg_enforce_wo_staffing_practice_scope' AND NOT tgisinternal;
+  IF n <> 1 THEN RAISE EXCEPTION 'CONVERGENCE FAIL — trg_enforce_wo_staffing_practice_scope missing on wo_staffing_requirements'; END IF;
 
   SELECT count(*) INTO n FROM pg_trigger
    WHERE tgrelid = 'public.engagement_assignments'::regclass
-     AND tgname = 'trg_enforce_assignment_service_scope' AND NOT tgisinternal;
-  IF n <> 1 THEN RAISE EXCEPTION 'CONVERGENCE FAIL — trg_enforce_assignment_service_scope missing on engagement_assignments'; END IF;
-  RAISE NOTICE 'PASS — service-scope backstop triggers present on both tables (G3)';
+     AND tgname = 'trg_enforce_assignment_practice_scope' AND NOT tgisinternal;
+  IF n <> 1 THEN RAISE EXCEPTION 'CONVERGENCE FAIL — trg_enforce_assignment_practice_scope missing on engagement_assignments'; END IF;
+  RAISE NOTICE 'PASS — practice-scope backstop triggers present on both tables (G3)';
 
-  -- 8. copy_categories_between_services extended to the 2 new referrers
+  -- 8. copy_categories_between_practices extended to the 2 new referrers
   --    (structural: the function body mentions both new tables; the full
   --    behavioral path — target_referenced block — needs wo_budget_lines/
   --    activity_worksheet_cells/activity_codes fixtures this shim doesn't
@@ -165,14 +165,14 @@ BEGIN
   SELECT pg_get_functiondef(p.oid) INTO v_def
     FROM pg_proc p
     JOIN pg_namespace ns ON ns.oid = p.pronamespace
-   WHERE ns.nspname = 'public' AND p.proname = 'copy_categories_between_services';
+   WHERE ns.nspname = 'public' AND p.proname = 'copy_categories_between_practices';
   IF v_def IS NULL THEN
-    RAISE EXCEPTION 'CONVERGENCE FAIL — copy_categories_between_services not found';
+    RAISE EXCEPTION 'CONVERGENCE FAIL — copy_categories_between_practices not found';
   END IF;
   IF v_def NOT LIKE '%wo_staffing_requirements%' OR v_def NOT LIKE '%engagement_assignments%' THEN
-    RAISE EXCEPTION 'CONVERGENCE FAIL — copy_categories_between_services guard does not reference both new referrers';
+    RAISE EXCEPTION 'CONVERGENCE FAIL — copy_categories_between_practices guard does not reference both new referrers';
   END IF;
-  RAISE NOTICE 'PASS — copy_categories_between_services references both new referrer tables (structural check)';
+  RAISE NOTICE 'PASS — copy_categories_between_practices references both new referrer tables (structural check)';
 
   -- 9. Fase 5 O6: la normalización de práctica legada corrió — cero engagements
   --    con practica IS NULL sobreviven a la migración de convergencia.
@@ -202,8 +202,8 @@ DECLARE
   v_state  smallint;
   v_ok     boolean;
 BEGIN
-  INSERT INTO public.categories (category_id, category_name, service_id) VALUES
-    (v_cat, 'Convergence Behavior Category', (SELECT service_id FROM public.services WHERE code = 1));
+  INSERT INTO public.categories (category_id, category_name, practica_id) VALUES
+    (v_cat, 'Convergence Behavior Category', (SELECT practica_id FROM public.practicas WHERE code = 1));
   INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id) VALUES
     (v_client, 'Convergence Behavior Client', 'CONV-TAX-001');
   -- fecha_cierre is NOT NULL with no DEFAULT on a live Supabase (20260702000000) — the local shim
@@ -256,9 +256,9 @@ BEGIN
       ON CONFLICT (id) DO NOTHING;
     END IF;
 
-    INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, category_id) VALUES
-      (v_staff, v_auth, 'Resp', 'Probe', v_cat),
-      (v_bystander, v_bystander_auth, 'NotResp', 'Probe', v_cat);
+    INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, category_id, practica_id, society_id) VALUES
+      (v_staff, v_auth, 'Resp', 'Probe', v_cat, (SELECT practica_id FROM public.practicas WHERE code = 1), (SELECT society_id FROM public.society LIMIT 1)),
+      (v_bystander, v_bystander_auth, 'NotResp', 'Probe', v_cat, (SELECT practica_id FROM public.practicas WHERE code = 1), (SELECT society_id FROM public.society LIMIT 1));
 
     PERFORM set_config('request.jwt.claims', json_build_object('sub', v_auth, 'role', 'authenticated')::text, true);
 

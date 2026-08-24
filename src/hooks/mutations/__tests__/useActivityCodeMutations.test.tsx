@@ -28,8 +28,8 @@ describe("useActivityCodeMutations", () => {
   });
 
   // ── Vinculada (service-linked) path — the only path since 0817-177 ──────
-  describe("useCreateActivityCode — vinculada (service_id required)", () => {
-    it("calls supabase.rpc('create_service_activity') with the required service_id", async () => {
+  describe("useCreateActivityCode — vinculada (practica_id required)", () => {
+    it("calls supabase.rpc('create_practice_activity') with the required practica_id", async () => {
       const mockRpc = vi.fn().mockResolvedValue({ data: { activity_id: "456" }, error: null });
       vi.mocked(supabase.rpc).mockImplementation(mockRpc as any);
 
@@ -38,22 +38,22 @@ describe("useActivityCodeMutations", () => {
       });
 
       result.current.mutate({
-        service_id: "svc-uuid",
+        practica_id: "svc-uuid",
         description: "Audit Planning",
         entity_type: "A",
       });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-      expect(supabase.rpc).toHaveBeenCalledWith("create_service_activity", {
-        p_service_id:  "svc-uuid",
+      expect(supabase.rpc).toHaveBeenCalledWith("create_practice_activity", {
+        p_practice_id:  "svc-uuid",
         p_description: "Audit Planning",
         p_entity_type: "A",
       });
       expect(toast.success).toHaveBeenCalled();
     });
 
-    it("does NOT call supabase.from() when service_id is provided", async () => {
+    it("does NOT call supabase.from() when practica_id is provided", async () => {
       const mockRpc = vi.fn().mockResolvedValue({ data: { activity_id: "456" }, error: null });
       vi.mocked(supabase.rpc).mockImplementation(mockRpc as any);
 
@@ -62,7 +62,7 @@ describe("useActivityCodeMutations", () => {
       });
 
       result.current.mutate({
-        service_id: "svc-uuid",
+        practica_id: "svc-uuid",
         description: "Review",
         entity_type: "A",
       });
@@ -126,7 +126,7 @@ describe("useActivityCodeMutations", () => {
 
   // ── useDeactivateServiceActivity ─────────────────────────────────────────
   describe("useDeactivateServiceActivity", () => {
-    it("calls supabase.rpc('deactivate_service_activity') with the activity id", async () => {
+    it("calls supabase.rpc('deactivate_practice_activity') with the activity id", async () => {
       const mockRpc = vi.fn().mockResolvedValue({ data: null, error: null });
       vi.mocked(supabase.rpc).mockImplementation(mockRpc as any);
 
@@ -138,7 +138,7 @@ describe("useActivityCodeMutations", () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-      expect(supabase.rpc).toHaveBeenCalledWith("deactivate_service_activity", {
+      expect(supabase.rpc).toHaveBeenCalledWith("deactivate_practice_activity", {
         p_activity_id: "activity-uuid",
       });
       expect(toast.success).toHaveBeenCalled();
@@ -147,7 +147,7 @@ describe("useActivityCodeMutations", () => {
 
   // ── useReactivateServiceActivity ─────────────────────────────────────────
   describe("useReactivateServiceActivity", () => {
-    it("calls supabase.rpc('reactivate_service_activity') with the activity id", async () => {
+    it("calls supabase.rpc('reactivate_practice_activity') with the activity id", async () => {
       const mockRpc = vi.fn().mockResolvedValue({ data: null, error: null });
       vi.mocked(supabase.rpc).mockImplementation(mockRpc as any);
 
@@ -159,7 +159,7 @@ describe("useActivityCodeMutations", () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-      expect(supabase.rpc).toHaveBeenCalledWith("reactivate_service_activity", {
+      expect(supabase.rpc).toHaveBeenCalledWith("reactivate_practice_activity", {
         p_activity_id: "activity-uuid",
       });
       expect(toast.success).toHaveBeenCalled();
@@ -168,7 +168,7 @@ describe("useActivityCodeMutations", () => {
 
   // ── useReorderServiceActivity ────────────────────────────────────────────
   describe("useReorderServiceActivity", () => {
-    it("calls supabase.rpc('reorder_service_activity') with activity id and position", async () => {
+    it("calls supabase.rpc('reorder_practice_activity') with activity id and position", async () => {
       const mockRpc = vi.fn().mockResolvedValue({ data: null, error: null });
       vi.mocked(supabase.rpc).mockImplementation(mockRpc as any);
 
@@ -180,7 +180,7 @@ describe("useActivityCodeMutations", () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-      expect(supabase.rpc).toHaveBeenCalledWith("reorder_service_activity", {
+      expect(supabase.rpc).toHaveBeenCalledWith("reorder_practice_activity", {
         p_activity_id: "activity-uuid",
         p_new_position: 3,
       });

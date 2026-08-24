@@ -3,81 +3,93 @@ import { readFileSync } from "fs";
 import { resolve } from "path";
 
 /**
- * 0602-136: Static assertions on the taxonomies catalog migration file.
- * Guards against accidental drift in the migration content.
+ * 0602-136 (retargeted por la migración cero, plan §2.5.d): assertions estructurales sobre
+ * la tabla `public.servicios`, sus policies, FKs y el RPC de creación de encargos, ahora
+ * contra los archivos consolidados. La aserción sobre el CONTENIDO del seed original (46
+ * filas) se retiró — el catálogo real vigente son las 29 filas de
+ * bugs/migracion_cero/practicas.md ("servicios" tras el rename de Fase 3), que llegan en
+ * Fase 4 como datos, no como parte de esta migración de esquema.
  */
 
-const migrationPath = resolve(
-  __dirname,
-  "../../../supabase/migrations/20260707000000_create_taxonomies_catalog.sql"
+const sql = readFileSync(
+  resolve(process.cwd(), "supabase/migrations/20251204000002_cero_02_functions_tables_views.sql"),
+  "utf-8",
 );
-const sql = readFileSync(migrationPath, "utf-8").replace(/\r\n/g, "\n");
+const constraintsSql = readFileSync(
+  resolve(process.cwd(), "supabase/migrations/20251204000003_cero_03_constraints_indexes.sql"),
+  "utf-8",
+);
+const fksSql = readFileSync(
+  resolve(process.cwd(), "supabase/migrations/20251204000004_cero_04_triggers_fks.sql"),
+  "utf-8",
+);
+const policiesSql = readFileSync(
+  resolve(process.cwd(), "supabase/migrations/20251204000005_cero_05_rls_policies.sql"),
+  "utf-8",
+);
 
-describe("taxonomies catalog migration (0602-136)", () => {
-  it("creates the public.taxonomies table", () => {
-    expect(sql).toContain("CREATE TABLE IF NOT EXISTS public.taxonomies");
+describe("servicios table (migración cero, consolidado)", () => {
+  it("creates the public.servicios table", () => {
+    expect(sql).toContain("CREATE TABLE public.servicios");
   });
 
-  it("code is varchar(10) with a length CHECK", () => {
-    expect(sql).toContain("code        varchar(10) NOT NULL CHECK (char_length(trim(code)) BETWEEN 1 AND 10)");
+  it("code has a length CHECK between 1 and 10", () => {
+    const tableBlock = sql.slice(
+      sql.indexOf("CREATE TABLE public.servicios"),
+      sql.indexOf(");", sql.indexOf("CREATE TABLE public.servicios")),
+    );
+    expect(tableBlock).toContain("code character varying(10) NOT NULL");
+    expect(tableBlock).toMatch(
+      /CONSTRAINT servicios_code_check CHECK \(\(\(char_length\(TRIM\(BOTH FROM code\)\) >= 1\) AND \(char_length\(TRIM\(BOTH FROM code\)\) <= 10\)\)\)/,
+    );
   });
 
   it("has a case-insensitive unique index on code", () => {
-    expect(sql).toContain("CREATE UNIQUE INDEX IF NOT EXISTS idx_taxonomies_code_unique");
-    expect(sql).toContain("ON public.taxonomies (lower(trim(code)))");
+    expect(constraintsSql).toContain(
+      "CREATE UNIQUE INDEX idx_servicios_code_unique ON public.servicios USING btree (lower(TRIM(BOTH FROM code)));",
+    );
   });
 
-  it("service_id is a nullable FK to services (independent table)", () => {
-    expect(sql).toContain("service_id  uuid        NULL REFERENCES public.services(service_id)");
-  });
-
-  it("does NOT alter or reuse the services table", () => {
-    expect(sql).not.toContain("CREATE TABLE public.services");
-    expect(sql).not.toContain("ALTER TABLE public.services");
+  it("practica_id is a nullable FK to practicas (independent table)", () => {
+    const tableBlock = sql.slice(
+      sql.indexOf("CREATE TABLE public.servicios"),
+      sql.indexOf(");", sql.indexOf("CREATE TABLE public.servicios")),
+    );
+    expect(tableBlock).toContain("practica_id uuid,");
+    expect(fksSql).toContain(
+      "ADD CONSTRAINT servicios_practica_id_fkey FOREIGN KEY (practica_id) REFERENCES public.practicas(practica_id) ON DELETE SET NULL;",
+    );
   });
 
   it("INSERT/UPDATE policies reference is_admin()", () => {
-    expect(sql).toContain("public.is_admin()");
+    const block = policiesSql.slice(
+      policiesSql.indexOf('"Admins can insert servicios"'),
+      policiesSql.indexOf('"Admins can update servicios"') + 200,
+    );
+    expect(block).toContain("public.is_admin()");
   });
 
-  it("has no DELETE policy (deactivate-only design)", () => {
-    expect(sql).not.toContain("FOR DELETE");
+  it("has no DELETE policy on servicios (deactivate-only design)", () => {
+    expect(policiesSql).not.toMatch(/ON public\.servicios FOR DELETE/);
   });
 
   it("SELECT policy is open to authenticated", () => {
-    expect(sql).toContain('CREATE POLICY "Authenticated users can read taxonomies"');
-    expect(sql).toContain("USING (true)");
-  });
-
-  it("seeds 46 global, active taxonomies", () => {
-    const matches = sql.match(/', NULL, true\)/g) ?? [];
-    expect(matches.length).toBe(46);
-    expect(sql).toContain("'AA1006'");
-    expect(sql).toContain("'DM1010'");
-  });
-
-  it("adds engagements.taxonomy_id as a nullable FK (no backfill)", () => {
-    expect(sql).toContain(
-      "ADD COLUMN IF NOT EXISTS taxonomy_id uuid REFERENCES public.taxonomies(taxonomy_id)"
+    expect(policiesSql).toContain(
+      'CREATE POLICY "Authenticated users can read servicios" ON public.servicios FOR SELECT TO authenticated USING (true);',
     );
   });
 
-  it("RPC signature includes p_taxonomy_id with a default of NULL", () => {
-    expect(sql).toContain("p_taxonomy_id          uuid DEFAULT NULL");
+  it("engagements.taxonomy_id is a nullable FK to servicios", () => {
+    expect(fksSql).toContain(
+      "ADD CONSTRAINT engagements_taxonomy_id_fkey FOREIGN KEY (taxonomy_id) REFERENCES public.servicios(taxonomy_id);",
+    );
+  });
+
+  it("create_engagement_with_code takes p_taxonomy_id with a default of NULL", () => {
+    expect(sql).toContain("p_taxonomy_id uuid DEFAULT NULL::uuid) RETURNS public.engagements");
   });
 
   it("RPC validates the taxonomy is active when provided", () => {
-    expect(sql).toContain("SELECT 1 FROM public.taxonomies WHERE taxonomy_id = p_taxonomy_id AND is_active");
-  });
-
-  it("RPC inserts taxonomy_id into engagements", () => {
-    expect(sql).toContain("taxonomy_id\n  ) VALUES (");
-    expect(sql).toContain("p_taxonomy_id\n  ) RETURNING * INTO v_engagement;");
-  });
-
-  it("GRANT/REVOKE reference the updated 22-arg signature (ending in p_taxonomy_id)", () => {
-    expect(sql).toContain(
-      "date, boolean, uuid, uuid, uuid, uuid, text, uuid"
-    );
+    expect(sql).toContain("SELECT 1 FROM public.servicios WHERE taxonomy_id = p_taxonomy_id AND is_active");
   });
 });

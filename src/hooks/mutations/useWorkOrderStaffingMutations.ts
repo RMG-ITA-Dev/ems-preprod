@@ -10,8 +10,8 @@ import {
   type StaffingRequirementInput,
 } from "@/lib/workOrderStaffing";
 
-// save_wo_staffing (Fase 2, supabase/migrations/20260727120000_...) no está
-// todavía en src/integrations/supabase/types.ts — se invoca con el mismo
+// save_wo_staffing (Fase 2, migración cero: supabase/migrations/20251204000002_cero_02_functions_tables_views.sql)
+// no está todavía en src/integrations/supabase/types.ts — se invoca con el mismo
 // escape (supabase as any) que development ya usa para tablas/RPCs aún no
 // tipadas (ver useEmsData.ts). No existe un export `supabaseUntyped` en
 // @/integrations/supabase/client; el cast se acota aquí, en el borde de la
@@ -40,7 +40,7 @@ const WOS_ERROR_I18N_KEY: Record<string, string> = {
   WOS_SKILL_DUPLICATE: "workOrders.staffingRequirements.errors.skillDuplicate",
   WOS_STAFF_COUNT_RANGE: "workOrders.staffingRequirements.errors.staffCountRange",
   WOS_PROFICIENCY_INVALID: "workOrders.staffingRequirements.errors.proficiencyInvalid",
-  WOS_CATEGORY_FOREIGN_SERVICE: "workOrders.staffingRequirements.errors.categoryForeignService",
+  WOS_CATEGORY_FOREIGN_PRACTICE: "workOrders.staffingRequirements.errors.categoryForeignService",
 };
 
 function findWosErrorCode(error: unknown): string | undefined {

@@ -29,7 +29,7 @@ vi.mock("@/hooks/useEmsData", () => ({
       {
         category_id: "cat-1",
         category_name: "Socio",
-        service_id: "svc-1",
+        practica_id: "svc-1",
         rate_high_bob: 200,
         rate_low_bob: 150,
         rate_high_usd: 30,
@@ -47,7 +47,7 @@ vi.mock("@/hooks/useEmsData", () => ({
   }),
   useServices: () => ({
     data: [
-      { service_id: "svc-1", name: "Auditoría", code: 1, allows_rates_activities: true, is_active: true, created_at: "2026-01-01" },
+      { practica_id: "svc-1", name: "Auditoría", code: 1, allows_rates_activities: true, is_active: true, created_at: "2026-01-01" },
     ],
   }),
 }));
@@ -250,7 +250,7 @@ const baseStaff: StaffFull = {
   aud_reg_number: null,
   category_id: "cat-1",
   society_id: "soc-1",
-  service_id: "svc-1",
+  practica_id: "svc-1",
   city: "La Paz",
   is_active: true,
   is_blocked: false,

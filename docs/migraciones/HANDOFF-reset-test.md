@@ -1,6 +1,14 @@
 # Handoff — Reset y reconstrucción de "Test" desde cero
 
-Script: `supabase/tests/local/preseed-development-gaps-linked.sh`
+> **OBSOLETO (migración cero, Fase 3 — 2026-08-23).** Este procedimiento depende de
+> `preseed-development-gaps-linked.sh` y del historial de 184 migraciones, ambos eliminados por
+> `bugs/migracion_cero/plan_v2.md` (PR-2, §2.5.c). El set consolidado + renombrado
+> (`supabase/migrations/*_cero_*.sql`) aplica limpio sobre una base vacía sin parches de pre-seed —
+> el reset real de Test es la Fase 7 del plan, documentada en
+> `docs/migraciones/reset-desde-cero.md` una vez ejecutada. Se conserva este archivo solo como
+> referencia histórica del procedimiento anterior; no seguirlo contra ningún ambiente.
+
+Script (histórico, ya no existe en el árbol): `supabase/tests/local/preseed-development-gaps-linked.sh`
 
 Vacía el proyecto Supabase **"Test"** (`slkqdcwwvmjtcbakajib`) y lo reconstruye desde cero: aplica
 todas las migraciones con los parches de pre-seed, restaura grants + RLS, despliega las edge functions

@@ -10,7 +10,7 @@ import { screen, waitFor, fireEvent } from "@testing-library/react";
  * reversed).
  * - No manual "Filtrar por servicio" selector.
  * - Grid receives only categories/activities of the engagement's service
- *   (global, service_id/service === null activities are always included).
+ *   (global, practica_id/service === null activities are always included).
  * - Save purges any stray out-of-service cells.
  * - Applying a copy ignores out-of-service cells from the source worksheet.
  * - An engagement with no service (practica === null) shows an informational
@@ -67,9 +67,9 @@ const TAX = "svc-tax";
 vi.mock("@/hooks/useEmsData", () => ({
   useCategories: () => ({
     data: [
-      { category_id: "cat-aud-1", category_name: "Socio", service_id: AUD, display_order: 1 },
-      { category_id: "cat-aud-2", category_name: "Gerente", service_id: AUD, display_order: 2 },
-      { category_id: "cat-tax-1", category_name: "TaxSenior", service_id: TAX, display_order: 1 },
+      { category_id: "cat-aud-1", category_name: "Socio", practica_id: AUD, display_order: 1 },
+      { category_id: "cat-aud-2", category_name: "Gerente", practica_id: AUD, display_order: 2 },
+      { category_id: "cat-tax-1", category_name: "TaxSenior", practica_id: TAX, display_order: 1 },
     ],
     isLoading: false,
   }),
@@ -81,22 +81,22 @@ vi.mock("@/hooks/useEmsData", () => ({
     ],
     isLoading: false,
   }),
-  // Same set as useActivityCodes, but keyed by the raw service_id FK (as the
+  // Same set as useActivityCodes, but keyed by the raw practica_id FK (as the
   // real query returns) instead of the nested service.code — this is what
   // the save/copy allow-list scopes against.
   useAllActivityCodes: () => ({
     data: [
-      { activity_id: "act-global", activity_code: "100-PLA", description: "Planificación", is_active: true, service_id: null },
-      { activity_id: "act-aud-1", activity_code: "AUD-A1", description: "Aud activity", is_active: true, service_id: AUD },
-      { activity_id: "act-con-1", activity_code: "CON-A1", description: "Con activity", is_active: true, service_id: "svc-con" },
+      { activity_id: "act-global", activity_code: "100-PLA", description: "Planificación", is_active: true, practica_id: null },
+      { activity_id: "act-aud-1", activity_code: "AUD-A1", description: "Aud activity", is_active: true, practica_id: AUD },
+      { activity_id: "act-con-1", activity_code: "CON-A1", description: "Con activity", is_active: true, practica_id: "svc-con" },
     ],
     isLoading: false,
   }),
   useSetting: () => "0.13",
   useServices: () => ({
     data: [
-      { service_id: AUD, name: "Auditoría", code: 1, is_active: true, allows_rates_activities: true, created_at: "" },
-      { service_id: TAX, name: "Tax", code: 3, is_active: true, allows_rates_activities: true, created_at: "" },
+      { practica_id: AUD, name: "Auditoría", code: 1, is_active: true, allows_rates_activities: true, created_at: "" },
+      { practica_id: TAX, name: "Tax", code: 3, is_active: true, allows_rates_activities: true, created_at: "" },
     ],
   }),
 }));

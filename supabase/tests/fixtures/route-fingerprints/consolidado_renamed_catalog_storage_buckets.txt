@@ -1,0 +1,6 @@
+          id          |         name         | public | file_size_limit |                allowed_mime_types                 
+----------------------+----------------------+--------+-----------------+---------------------------------------------------
+ engagement-contracts | engagement-contracts | f      |         5242880 | {application/pdf}
+ expense-receipts     | expense-receipts     | f      |         5242880 | {image/jpeg,image/png,image/webp,application/pdf}
+(2 rows)
+

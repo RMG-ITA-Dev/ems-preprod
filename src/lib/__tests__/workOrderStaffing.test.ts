@@ -82,7 +82,7 @@ describe("hydrateFromPersisted", () => {
       id: "req-db-1",
       category_id: CAT_A,
       staff_count: 1,
-      category: { category_name: "Auditor histórico", service_id: "svc-retired" },
+      category: { category_name: "Auditor histórico", practica_id: "svc-retired" },
       requirement_skills: [],
     }]);
     expect(result.categoryName).toBe("Auditor histórico");

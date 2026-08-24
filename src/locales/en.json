@@ -1631,6 +1631,7 @@
     "practiceRequired": "Practice is required",
     "categoryRequired": "Category is required",
     "categoryServiceRequired": "Practice is required",
+    "categoryRateNonNegative": "Rate cannot be negative",
     "cityRequired": "City is required",
     "idNumberRequired": "ID number is required",
     "hireDateRequired": "Hire date is required",
