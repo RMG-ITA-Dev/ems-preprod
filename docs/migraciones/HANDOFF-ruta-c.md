@@ -1,12 +1,20 @@
 # Handoff — Reconstrucción de "Test" por Ruta C
 
+> **OBSOLETO (migración cero).** Ruta C ya estaba descartada antes de abrir
+> `bugs/migracion_cero/plan_v2.md` (informe de consolidación §2.1: "la comparación Ruta A vs
+> Ruta C pierde sentido, Ruta C ya estaba descartada") y sus scripts
+> (`route-c-stage1.sh`, `route-c-post-reset.sh`, `route-c-diff-fingerprints.sh`) se eliminaron
+> en PR-2 (plan §2.5.c). El reset real de Test es la Fase 7 del plan, documentada en
+> `docs/migraciones/reset-desde-cero.md` una vez ejecutada. Se conserva este archivo solo como
+> referencia histórica; no seguirlo contra ningún ambiente.
+
 Camino **alterno** para aplicar las migraciones: en vez de correrlas en orden cronológico (Ruta A),
 aterrizan **primero las 80 de la base** (`sruizmier-scheduler-v3`) y luego las **97 restantes** encima
 (= 177). Deja "Test" (`slkqdcwwvmjtcbakajib`) usable, igual que el camino directo.
 
 **Destructivo** — solo contra Test. Requiere backup verificado.
 
-Scripts: `supabase/tests/local/route-c-stage1.sh` y `route-c-post-reset.sh`.
+Scripts (histórico, ya no existen en el árbol): `supabase/tests/local/route-c-stage1.sh` y `route-c-post-reset.sh`.
 
 ---
 
