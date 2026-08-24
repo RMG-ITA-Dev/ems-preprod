@@ -10,7 +10,7 @@ name: Scheduler Integrity — Fase 2
 # Reescrito para la migración cero (bugs/migracion_cero/plan_v2.md §2.5.a). Two independent
 # jobs:
 #
-#   rls-migration-tests — fast, self-contained (postgres:16 service container, no Docker
+#   rls-migration-tests — fast, self-contained (postgres:17 service container, no Docker
 #     Compose beyond the container itself). Runs supabase/tests/local/run-rls-tests.sh:
 #     aplica el set consolidado (cero_01..cero_06 + el catálogo RBAC real) una sola vez
 #     sobre una base scratch y corre las 8 suites de aserciones existentes (RLS, ambas RPCs,
@@ -47,7 +47,10 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        # postgres:16 rechazaba GRANT ... MAINTAIN ... (privilegio nuevo en Postgres 17,
+        # que sí aparece en cero_06_grants.sql — dumpeado desde el stack real 17.6) con
+        # "unrecognized privilege type" — hallazgo real del primer run de CI (2026-08-24).
+        image: postgres:17
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -115,21 +118,43 @@ jobs:
       - name: Capturar fingerprint del replay
         run: bash supabase/tests/local/capture-route-fingerprint.sh replay
 
+      # Sube el fingerprint del replay como artifact SIEMPRE (incluso si el gate de abajo
+      # falla) — hallazgo real (2026-08-24): un diff de plataforma (imagen de auth) entre
+      # el runner de CI y un Docker local no se puede reproducir localmente de forma
+      # confiable para re-capturar `consolidado_renamed_*`. Con este artifact, re-aceptar
+      # un fixture nuevo es bajar este zip, no perseguir el mismatch a ciegas.
+      - name: Subir fingerprint del replay como artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: route-fingerprint-replay
+          path: supabase/tests/fixtures/route-fingerprints/replay_*
+          retention-days: 14
+
       # 🟢 Bug preexistente encontrado en vivo (2026-08-06, dev-scheduler-fase_7): pg_dump
       # envuelve cada dump en un token \restrict/\unrestrict aleatorio que difiere en cada
       # invocación incluso contra un esquema sin cambios. Filtrar por contenido, no posición.
+      #
+      # 🟢 Segundo filtro (hallazgo real, primer run de CI contra este workflow, 2026-08-24):
+      # las particiones diarias de realtime.messages_YYYY_MM_DD rotan por calendario —
+      # documentado en docs/migraciones/DIFF-INTENCIONAL-consolidacion.md §2 como ruido
+      # esperado, pero el filtro nunca se agregó a este script (solo se aplicaba a mano en
+      # verificaciones manuales). Sin él, el gate falla apenas pasa un día entre la captura
+      # del fixture aceptado y el run del CI.
       - name: Gate — replay converge al fingerprint aceptado (baseline_184 vía consolidado_renamed_*)
         run: |
           FP=supabase/tests/fixtures/route-fingerprints
           fail=0
           RESTRICT='^\\(un)?restrict '
+          PARTITION_NOISE='messages_[0-9]{4}_[0-9]{2}_[0-9]{2}'
 
           for name in schema catalog_policies catalog_grants catalog_column_grants catalog_routine_grants catalog_storage_buckets; do
             ext="txt"
             [[ "$name" == "schema" ]] && ext="sql"
             a="$FP/consolidado_renamed_${name}.${ext}"
             b="$FP/replay_${name}.${ext}"
-            if ! diff <(grep -vE "$RESTRICT" "$a") <(grep -vE "$RESTRICT" "$b"); then
+            if ! diff <(grep -vE "$RESTRICT" "$a" | grep -vE "$PARTITION_NOISE") \
+                      <(grep -vE "$RESTRICT" "$b" | grep -vE "$PARTITION_NOISE"); then
               echo "::error::replay diverge de consolidado_renamed_${name}.${ext} (ver diff arriba)."
               fail=1
             fi
