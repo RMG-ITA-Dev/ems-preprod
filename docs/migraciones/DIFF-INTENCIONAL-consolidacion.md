@@ -24,6 +24,17 @@ consolidación más el drift positivo de §0.5.6:
 3. **`staff.target_utilization_percent numeric NOT NULL DEFAULT 85`** — drift positivo capturado
    de Dev 2.0 real (§0.5.6): existe ahí y en `types.ts`, pero ninguna de las 184 migraciones lo
    crea, así que el baseline del replay local nunca pudo verlo.
+4. **`authorization_roles.legacy_app_role`** — mismo tipo de drift que el punto anterior,
+   encontrado tarde (2026-08-24, probando `admin_set_user_role_key()` en Test después de la
+   migración cero): ninguna de las 184 migraciones ni el fixture de CI
+   (`supabase/tests/local/40-fixture-rbac-catalog.sql`) poblaban esta columna al insertar los
+   23 roles — quedaba `NULL` para todos, lo que hace que `admin_set_user_role_key()` devuelva
+   `ROLE_NOT_MAPPED` para cualquier rol elegido (bug funcional real, no solo diff de
+   fingerprint: rompe el cambio de rol de usuarios en cualquier ambiente reseteado con el set
+   consolidado). El valor real vive en Dev 2.0 (verificado por el operador con `SELECT
+   role_key, legacy_app_role FROM authorization_roles`) y se agregó al `INSERT` de
+   `cero_13_seed_authorization_rbac.sql` y al fixture de CI, ambos con los 23 valores reales
+   de Dev 2.0.
 
 `enforce_activity_default()` **no tiene hunk**: su cuerpo final (post-`20260719000000`) ya no
 menciona "actividad global legacy" en ningún comentario — esa redacción quedó superada por una

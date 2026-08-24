@@ -21,31 +21,35 @@
 -- Conteos objetivo: 23 roles, 84 permisos, 737 concesiones.
 -- =====================================================================
 
--- A) Roles (23)
-insert into public.authorization_roles (role_key, label_key, display_order, is_system) values
-  ('admin', 'authz.role.admin', 0, true),
-  ('it_security_manager', 'authz.role.it_security_manager', 1, false),
-  ('senior_partner', 'authz.role.senior_partner', 2, false),
-  ('partner', 'authz.role.partner', 3, false),
-  ('sqr', 'authz.role.sqr', 4, false),
-  ('director', 'authz.role.director', 5, false),
-  ('manager', 'authz.role.manager', 6, false),
-  ('senior', 'authz.role.senior', 7, false),
-  ('semisenior', 'authz.role.semisenior', 8, false),
-  ('assistant', 'authz.role.assistant', 9, false),
-  ('ita_manager', 'authz.role.ita_manager', 10, false),
-  ('ita_senior', 'authz.role.ita_senior', 11, false),
-  ('ita_assistant', 'authz.role.ita_assistant', 12, false),
-  ('tax_manager', 'authz.role.tax_manager', 13, false),
-  ('tax_senior', 'authz.role.tax_senior', 14, false),
-  ('tax_assistant', 'authz.role.tax_assistant', 15, false),
-  ('accounting_manager', 'authz.role.accounting_manager', 16, false),
-  ('accounting_analyst', 'authz.role.accounting_analyst', 17, false),
-  ('collections_analyst', 'authz.role.collections_analyst', 18, false),
-  ('risk_partner', 'authz.role.risk_partner', 19, false),
-  ('risk_supervisor', 'authz.role.risk_supervisor', 20, false),
-  ('hr_manager', 'authz.role.hr_manager', 21, false),
-  ('hr_analyst', 'authz.role.hr_analyst', 22, false)
+-- A) Roles (23). legacy_app_role: nivel jerárquico equivalente para las policies RLS que aún
+-- usan has_role() — drift real de Dev 2.0 (igual que staff.target_utilization_percent, ver
+-- docs/migraciones/DIFF-INTENCIONAL-consolidacion.md §1), nunca creado por ninguna de las 184
+-- migraciones ni por este seed hasta ahora. Sin esto, admin_set_user_role_key() devuelve
+-- ROLE_NOT_MAPPED para los 23 roles (hallazgo real en Test, 2026-08-24).
+insert into public.authorization_roles (role_key, label_key, display_order, is_system, legacy_app_role) values
+  ('admin', 'authz.role.admin', 0, true, 'admin'),
+  ('it_security_manager', 'authz.role.it_security_manager', 1, false, 'manager'),
+  ('senior_partner', 'authz.role.senior_partner', 2, false, 'partner'),
+  ('partner', 'authz.role.partner', 3, false, 'partner'),
+  ('sqr', 'authz.role.sqr', 4, false, 'sqr'),
+  ('director', 'authz.role.director', 5, false, 'director'),
+  ('manager', 'authz.role.manager', 6, false, 'manager'),
+  ('senior', 'authz.role.senior', 7, false, 'senior'),
+  ('semisenior', 'authz.role.semisenior', 8, false, 'semisenior'),
+  ('assistant', 'authz.role.assistant', 9, false, 'staff'),
+  ('ita_manager', 'authz.role.ita_manager', 10, false, 'manager'),
+  ('ita_senior', 'authz.role.ita_senior', 11, false, 'senior'),
+  ('ita_assistant', 'authz.role.ita_assistant', 12, false, 'staff'),
+  ('tax_manager', 'authz.role.tax_manager', 13, false, 'manager'),
+  ('tax_senior', 'authz.role.tax_senior', 14, false, 'senior'),
+  ('tax_assistant', 'authz.role.tax_assistant', 15, false, 'staff'),
+  ('accounting_manager', 'authz.role.accounting_manager', 16, false, 'manager'),
+  ('accounting_analyst', 'authz.role.accounting_analyst', 17, false, 'senior'),
+  ('collections_analyst', 'authz.role.collections_analyst', 18, false, 'senior'),
+  ('risk_partner', 'authz.role.risk_partner', 19, false, 'partner'),
+  ('risk_supervisor', 'authz.role.risk_supervisor', 20, false, 'manager'),
+  ('hr_manager', 'authz.role.hr_manager', 21, false, 'manager'),
+  ('hr_analyst', 'authz.role.hr_analyst', 22, false, 'senior')
 on conflict (role_key) do nothing;
 
 -- B) Permisos (84)
