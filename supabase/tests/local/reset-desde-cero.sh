@@ -87,6 +87,17 @@ fi
 _pre_DB_URL="${DB_URL:-}"
 _pre_SERVICE_ROLE_KEY="${SERVICE_ROLE_KEY:-}"
 _pre_SUPABASE_SECRET_KEY="${SUPABASE_SECRET_KEY:-}"
+# PROJECT_REF/ENV_FILE son variables de CONTROL del script, ya parseadas de los argumentos de
+# línea de comandos y validadas (línea ~67) antes de llegar acá — no del .env. Si el archivo
+# indicado por --env-file también define alguna de las dos por casualidad (p.ej. alguien guarda
+# "PROJECT_REF=..." en su .env de conveniencia, un nombre muy natural dado que es literal el
+# nombre del flag), `source` la pisaría, y todo lo que sigue (validaciones, `supabase link`, el
+# prompt de confirmación, el reset destructivo) usaría el valor del archivo en vez del que el
+# operador tipeó y que ya pasó la validación de formato (hallazgo de review de PR #310) — sin
+# ninguna señal visible de que el cambio ocurrió, porque el propio prompt de confirmación solo
+# muestra el valor ya pisado. Se capturan acá y se restauran después del source.
+_cli_PROJECT_REF="$PROJECT_REF"
+_cli_ENV_FILE="$ENV_FILE"
 unset SUPABASE_URL API_URL VITE_SUPABASE_URL
 unset SUPABASE_ANON_KEY ANON_KEY SUPABASE_PUBLISHABLE_KEY VITE_SUPABASE_PUBLISHABLE_KEY
 unset DB_URL SERVICE_ROLE_KEY SUPABASE_SECRET_KEY
@@ -94,6 +105,9 @@ set -a
 # shellcheck disable=SC1090
 source "$ENV_FILE"
 set +a
+PROJECT_REF="$_cli_PROJECT_REF"
+ENV_FILE="$_cli_ENV_FILE"
+unset _cli_PROJECT_REF _cli_ENV_FILE
 
 # El $ENV_FILE pudo haber definido DB_URL/SERVICE_ROLE_KEY/SUPABASE_SECRET_KEY — se descartan
 # sin usarlos (las 2 credenciales fuertes nunca vienen del archivo, sea por su nombre canónico

@@ -1,8 +1,9 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { Button } from "@/components/ui/button";
 import { LoadingButton } from "@/components/ui/loading-button";
 import { Input } from "@/components/ui/input";
@@ -54,24 +55,30 @@ type AppRole = Database["public"]["Enums"]["app_role"];
 // ya no dicta el rol — Opción C). La columna y el valor se conservan intactos
 // (el payload sigue enviando el valor existente sin cambios).
 
-const formSchema = z.object({
-  practica_id: z.string().min(1, "validation.categoryServiceRequired"),
-  category_name: z.string().min(1, "Category name is required"),
-  display_order: z.coerce.number().int().min(1),
-  // .nonnegative() (no .positive()): el catálogo maestro real siembra 0 en las 4 tarifas de
-  // la categoría "Pasante" de varias prácticas (hallazgo de review de PR #310) — es el dato
-  // correcto (sin tarifa), no un placeholder, así que el formulario debe poder editar esas
-  // filas sin exigir un valor mayor a cero.
-  rate_high_bob: z.coerce.number().nonnegative("Rate cannot be negative"),
-  rate_low_bob: z.coerce.number().nonnegative("Rate cannot be negative"),
-  rate_high_usd: z.coerce.number().nonnegative("Rate cannot be negative"),
-  rate_low_usd: z.coerce.number().nonnegative("Rate cannot be negative"),
-  can_approve_wo: z.boolean().default(false),
-  can_approve_timesheets: z.boolean().default(false),
-  default_app_role: z.string().optional(),
-});
+// Factory function (no un objeto módulo-level): las 4 tarifas necesitan t() para traducir su
+// mensaje de error (hallazgo de review de PR #310 — FormMessage muestra `error.message` tal
+// cual, sin traducir, así que una key sin resolver o un string en inglés se ve igual en
+// cualquier locale). practica_id/category_name quedan como estaban — fuera del alcance de este
+// fix puntual.
+const createFormSchema = (t: TFunction) =>
+  z.object({
+    practica_id: z.string().min(1, "validation.categoryServiceRequired"),
+    category_name: z.string().min(1, "Category name is required"),
+    display_order: z.coerce.number().int().min(1),
+    // .nonnegative() (no .positive()): el catálogo maestro real siembra 0 en las 4 tarifas de
+    // la categoría "Pasante" de varias prácticas (hallazgo de review de PR #310) — es el dato
+    // correcto (sin tarifa), no un placeholder, así que el formulario debe poder editar esas
+    // filas sin exigir un valor mayor a cero.
+    rate_high_bob: z.coerce.number().nonnegative(t("validation.categoryRateNonNegative")),
+    rate_low_bob: z.coerce.number().nonnegative(t("validation.categoryRateNonNegative")),
+    rate_high_usd: z.coerce.number().nonnegative(t("validation.categoryRateNonNegative")),
+    rate_low_usd: z.coerce.number().nonnegative(t("validation.categoryRateNonNegative")),
+    can_approve_wo: z.boolean().default(false),
+    can_approve_timesheets: z.boolean().default(false),
+    default_app_role: z.string().optional(),
+  });
 
-type FormData = z.infer<typeof formSchema>;
+type FormData = z.infer<ReturnType<typeof createFormSchema>>;
 
 interface CategoryFormProps {
   open: boolean;
@@ -106,6 +113,8 @@ export function CategoryForm({ open, onOpenChange, category, serviceId, lockServ
     (allCategories ?? [])
       .filter((c) => c.practica_id === sid)
       .reduce((max, c) => Math.max(max, c.display_order), 0) + 1;
+
+  const formSchema = useMemo(() => createFormSchema(t), [t]);
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
