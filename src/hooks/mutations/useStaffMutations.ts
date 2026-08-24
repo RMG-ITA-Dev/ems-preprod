@@ -53,8 +53,8 @@ export function useCreateStaff() {
       initials?: string;
       email?: string;
       category_id?: string;
-      society_id?: string;
-      practica_id?: string;
+      society_id: string;
+      practica_id: string;
       city?: string;
       id_number?: string;
       aud_reg_number?: string;

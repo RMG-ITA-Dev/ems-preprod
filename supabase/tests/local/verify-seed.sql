@@ -212,5 +212,32 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS — 2 puentes extra sembrados con el sufijo protegido "(Adicional)"';
 
+  -- 9. Cron jobs finalize-* (plan §2.1/§2.2; hallazgo de review de PR #310: cron.job es dato,
+  -- invisible al fingerprint schema-only, así que su ausencia había pasado todos los gates en
+  -- verde). Guardado con to_regclass porque pg_cron puede no estar instalado en este stack
+  -- (mismo patrón que el guard de auth.* más arriba).
+  IF to_regclass('cron.job') IS NOT NULL THEN
+    PERFORM 1 FROM cron.job
+     WHERE jobname = 'finalize-stale-timers'
+       AND schedule = '*/15 * * * *'
+       AND command = 'SELECT finalize_all_stale_timers()'
+       AND active;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'FAIL — cron.job: falta (o difiere) el job finalize-stale-timers';
+    END IF;
+
+    PERFORM 1 FROM cron.job
+     WHERE jobname = 'finalize-engagements'
+       AND schedule = '30 4 * * *'
+       AND command = 'SELECT public.finalize_due_engagements();'
+       AND active;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'FAIL — cron.job: falta (o difiere) el job finalize-engagements';
+    END IF;
+    RAISE NOTICE 'PASS — cron.job: finalize-stale-timers (*/15 * * * *) y finalize-engagements (30 4 * * *) activos';
+  ELSE
+    RAISE NOTICE 'SKIP — extensión pg_cron no instalada en este stack (cron.job no existe)';
+  END IF;
+
   RAISE NOTICE 'VERIFY-SEED: ALL CHECKS PASSED';
 END $$;

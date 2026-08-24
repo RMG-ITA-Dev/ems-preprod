@@ -77,6 +77,16 @@ fi
 # canónico). SUPABASE_DB_URL y SUPABASE_SERVICE_ROLE_KEY (los 2 nombres canónicos de las
 # credenciales fuertes) se dejan intactos a propósito: pinearlos pre-exportados antes de invocar
 # el script sigue siendo válido (ver cabecera), y quedan validados contra PROJECT_REF más abajo.
+#
+# Los ALIAS de las credenciales fuertes (DB_URL, SERVICE_ROLE_KEY, SUPABASE_SECRET_KEY) son un
+# caso aparte: la cabecera promete que esas 2 credenciales "nunca se leen de un archivo", pero
+# si el operador las pre-exportó bajo esos alias (válido) y el $ENV_FILE también los define
+# (nunca debería, pero source no distingue), source pisaría el pre-export con el del archivo.
+# Se guardan acá para restaurarlos después del source y así descartar lo que el archivo haya
+# puesto bajo esos nombres, sin perder un pre-export legítimo (hallazgo de review de PR #310).
+_pre_DB_URL="${DB_URL:-}"
+_pre_SERVICE_ROLE_KEY="${SERVICE_ROLE_KEY:-}"
+_pre_SUPABASE_SECRET_KEY="${SUPABASE_SECRET_KEY:-}"
 unset SUPABASE_URL API_URL VITE_SUPABASE_URL
 unset SUPABASE_ANON_KEY ANON_KEY SUPABASE_PUBLISHABLE_KEY VITE_SUPABASE_PUBLISHABLE_KEY
 unset DB_URL SERVICE_ROLE_KEY SUPABASE_SECRET_KEY
@@ -84,6 +94,15 @@ set -a
 # shellcheck disable=SC1090
 source "$ENV_FILE"
 set +a
+
+# El $ENV_FILE pudo haber definido DB_URL/SERVICE_ROLE_KEY/SUPABASE_SECRET_KEY — se descartan
+# sin usarlos (las 2 credenciales fuertes nunca vienen del archivo, sea por su nombre canónico
+# o por alias) y se restaura el pre-export del operador, si existía.
+unset DB_URL SERVICE_ROLE_KEY SUPABASE_SECRET_KEY
+[[ -n "$_pre_DB_URL" ]] && export DB_URL="$_pre_DB_URL"
+[[ -n "$_pre_SERVICE_ROLE_KEY" ]] && export SERVICE_ROLE_KEY="$_pre_SERVICE_ROLE_KEY"
+[[ -n "$_pre_SUPABASE_SECRET_KEY" ]] && export SUPABASE_SECRET_KEY="$_pre_SUPABASE_SECRET_KEY"
+unset _pre_DB_URL _pre_SERVICE_ROLE_KEY _pre_SUPABASE_SECRET_KEY
 
 resolve_alias() {
   # Copia la primera variable no vacía de la lista de alias a la variable canónica, sin

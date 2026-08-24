@@ -46,6 +46,8 @@ describe("useStaffMutations", () => {
       result.current.mutate({
         first_name: "John",
         last_name: "Doe",
+        society_id: "soc-1",
+        practica_id: "svc-1",
       });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
@@ -54,6 +56,8 @@ describe("useStaffMutations", () => {
       expect(mockInsert).toHaveBeenCalledWith({
         first_name: "John",
         last_name: "Doe",
+        society_id: "soc-1",
+        practica_id: "svc-1",
       });
       expect(toast.success).toHaveBeenCalled();
     });
@@ -79,6 +83,8 @@ describe("useStaffMutations", () => {
       result.current.mutate({
         first_name: "John",
         last_name: "Doe",
+        society_id: "soc-1",
+        practica_id: "svc-1",
         email: "john@example.com",
         category_id: "cat-1",
         is_active: true,

@@ -839,7 +839,7 @@ export function useActivityCodes() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('activity_codes')
-        .select('*, service:practicas(code)')
+        .select('*, service:practicas(practica_id, name, code, allows_rates_activities, is_active, created_at, abbreviation)')
         .eq('is_active', true);
       if (error) throw error;
       const suffix = (code: string) => parseInt(code.match(/(\d+)$/)?.[1] ?? '0', 10);
@@ -859,7 +859,7 @@ export function useAllActivityCodes() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('activity_codes')
-        .select('*, service:practicas(practica_id, name, abbreviation)');
+        .select('*, service:practicas(practica_id, name, code, allows_rates_activities, is_active, created_at, abbreviation)');
       if (error) throw error;
       const suffix = (code: string) => parseInt(code.match(/(\d+)$/)?.[1] ?? '0', 10);
       const prefix = (code: string) => code.replace(/\d+$/, '');

@@ -95,3 +95,32 @@ antes de que corra cualquier migración nuestra, idéntico en cualquier ambiente
 aplicarlos como el rol que ejecuta las migraciones falla con `permission denied to change
 default privileges` para los de `FOR ROLE supabase_admin`. Detalle completo en
 `docs/migraciones/legado-consolidacion.md` §0.
+
+## 5. Ruido de plataforma entre el runner de CI y un Docker local (Fase 3+, no es un hunk de las migraciones)
+
+Documentado originalmente solo en `supabase/tests/fixtures/route-fingerprints/VERSIONS.md`
+("Hallazgo real", 2026-08-24) — se traslada aquí por consistencia con el resto de este
+documento (hallazgo de review de PR #310: todo diff aceptado debe quedar registrado acá, no
+solo en `VERSIONS.md`, para cumplir plan §2.6.6).
+
+Al comparar `consolidado_renamed_*` (capturado localmente) contra el replay real del job
+`consolidated-replay` corriendo en un runner de GitHub Actions, aparecieron 3 diffs que no
+tocan ningún `cero_01`..`cero_16` ni el rename de Fase 3 — son ruido de la imagen/versión de
+plataforma entre un Docker local (Windows) y el runner real, aun pineando la misma versión del
+Supabase CLI (`2.100.1`):
+
+1. **`pg_graphql`**: habilitada en el runner real, aparece como stub "not enabled" en el Docker
+   local.
+2. **Funciones de Storage** (`storage.foldername`, `storage.filename`, `storage.extension`,
+   `storage.get_size_by_bucket`): cuerpo con formato de texto distinto entre plataformas (mismo
+   comportamiento, texto fuente diferente).
+3. **`auth.custom_oauth_providers.custom_claims_allowlist`**: columna presente en el runner
+   real, ausente en el Docker local reproducido.
+
+Un Docker local con la misma versión de CLI pineada no reprodujo el estado del runner real ni
+purgando todas las imágenes cacheadas y forzando un `supabase start` limpio — es una diferencia
+de la plataforma subyacente (imagen de Postgres/GoTrue del runner de GitHub Actions vs. Docker
+Desktop local), no de las migraciones de este set. Por eso, desde 2026-08-24,
+`consolidado_renamed_*` se recaptura directamente desde el artifact `route-fingerprint-replay`
+que el propio job sube en cada corrida (nunca desde una réplica local) — ver `VERSIONS.md` para
+el procedimiento de re-aceptación.

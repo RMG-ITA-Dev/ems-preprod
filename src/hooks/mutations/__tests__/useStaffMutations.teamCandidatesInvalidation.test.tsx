@@ -73,7 +73,12 @@ describe("mutaciones de personal — invalidación de candidatos del Equipo (072
     const { spy, wrapper } = setup();
     const { result } = renderHook(() => useCreateStaff(), { wrapper });
 
-    await result.current.mutateAsync({ first_name: "Ana", last_name: "Nueva" });
+    await result.current.mutateAsync({
+      first_name: "Ana",
+      last_name: "Nueva",
+      society_id: "soc-1",
+      practica_id: "svc-1",
+    });
 
     await waitFor(() => expect(invalidatedKeys(spy)).toContain(TEAM_KEY));
     // Sin pisar lo que ya invalidaba.

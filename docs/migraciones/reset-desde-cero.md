@@ -81,11 +81,15 @@ Todo sale del dashboard de Supabase (`supabase.com/dashboard`), proyecto objetiv
    que el script continúe. No hay flag para saltarla.
 6. `supabase db reset --linked` — borra todo y reaplica las 14 migraciones.
 7. Verifica convergencia (`migration list --linked`, `db push --dry-run --linked`).
-8. Corre `verify-seed.sql` contra la base real (22 chequeos: conteos, ADM/is_system,
+8. Corre `verify-seed.sql` contra la base real (23 chequeos: conteos, ADM/is_system,
    `ADM_ACTIVITY_ID`, 61/61 `default_app_role`, feriados vs generador, cero datos demo,
-   bootstrap completo).
+   bootstrap completo, cron jobs `finalize-stale-timers`/`finalize-engagements` activos).
 9. Corre `verify-auth-bootstrap.sh` (Admin API → login por password → `get_my_staff_id()` →
-   1 fila admin) — el gate real del INSERT en `auth.users`/`auth.identities`.
+   1 fila admin) — el gate real del INSERT en `auth.users`/`auth.identities`. **Este paso fija
+   por Admin API una contraseña temporal de patrón conocido en la cuenta admin real** (ver
+   advertencia en §5) — se acepta esa exposición a cambio de probar el login real contra el
+   ambiente real, no solo el esquema. Se mitiga fijando una contraseña real inmediatamente
+   después (§5), paso que ya era obligatorio.
 
 Si cualquier paso falla, el script se detiene ahí (`set -euo pipefail`) — no sigue a ciegas.
 
@@ -127,13 +131,20 @@ Vas a ver, en orden:
 Si algo falla, pegá el error completo a quien te esté ayudando — no reintentes por tu cuenta
 si falla a mitad del `db reset` (ver troubleshooting, §6).
 
-## 5. Después del script: activar al admin y probar la app
+## 5. Después del script: activar al admin y probar la app — PASO NO OPCIONAL
 
-El script deja todo aplicado y verificado por API/psql, pero el usuario admin del seed
-(`neilgraneros@ruizmier.com`) nace con una **contraseña aleatoria e inutilizable a
-propósito** — nadie la conoce. Hay que fijarle una real:
+**Advertencia (fuga aceptada y ya mitigada por este mismo paso):** el seed (`cero_14`) inserta
+al admin con una contraseña aleatoria e inutilizable — hasta ahí, nadie la conoce. Pero el
+paso 9 del script (`verify-auth-bootstrap.sh`, §3) la **sobreescribe** con una contraseña
+temporal de patrón conocido (`verify-bootstrap-<epoch>-<pid>!Aa1`) para probar el login real
+contra el ambiente real. Al terminar el script, la cuenta admin **ya no tiene** la contraseña
+inutilizable del seed — tiene esa temporal, reconstruible por cualquiera que sepa
+aproximadamente cuándo corrió el script. Esto es un compromiso aceptado (el mismo camino que
+recorre un usuario real, no solo el esquema), y su mitigación es este paso: no es una
+recomendación, es **obligatorio ejecutarlo inmediatamente** después de que el script termine —
+mientras no se haga, el ambiente recién reseteado tiene un admin con contraseña conocida activa.
 
-**a) Fijar la contraseña** (necesita la service_role/secret key otra vez — Settings → API):
+**a) Fijar la contraseña real** (necesita la service_role/secret key otra vez — Settings → API):
 
 ```bash
 read -s -p "service_role/secret key: " SUPABASE_SERVICE_ROLE_KEY
