@@ -34,7 +34,7 @@
 --   WS1 (E1, wo=WO_DRAFT), WS2 (E1, wo=WO_APPROVED), WS3 (E_NOPRACTICE, wo=NULL)
 --   WS4 (E1, wo=WO_DRAFT2), WS5 (E1, wo=WO_APPROVED2), WS6 (E_BADPRACTICA, wo=NULL)
 --
--- Group C re-sources the actual migration file (via \i, resolved relative to this
+-- Group C re-sources the actual migration file (via \ir, resolved relative to this
 -- script's own directory) after seeding stray rows, instead of duplicating its
 -- cleanup predicate — so this suite exercises the real on-disk migration, not a
 -- hand-copied stand-in that could silently drift from it (review.md iteración 1, #6).
@@ -134,13 +134,16 @@ INSERT INTO public.activity_worksheet_cells (worksheet_id, category_id, activity
 ALTER TABLE public.activity_worksheet_cells ENABLE TRIGGER trg_enforce_worksheet_cell_practice_scope;
 
 -- Re-run the actual on-disk migration's cleanup (step 1), resync (step 2), and
--- trigger/RPC redefinition (steps 3-4) against this fixture data. Resolved
--- relative to this script's own directory by psql. CREATE TEMP TABLE / DROP
+-- trigger/RPC redefinition (steps 3-4) against this fixture data. \ir (not
+-- \i) resolves the relative path against this script's own directory rather
+-- than the client's cwd — run-rls-tests.sh invokes psql from the repo root,
+-- so \i's cwd-relative resolution sends it outside the repo entirely (CI
+-- finding, 2026-08-25: "No such file or directory"). CREATE TEMP TABLE / DROP
 -- TABLE / CREATE OR REPLACE FUNCTION are all safe to run again within a fresh
 -- session — nothing here is scoped to just WS4/WS5, but at this point in the
 -- suite no other activity_worksheet_cells rows exist yet (Groups A/B insert
 -- theirs afterward), so the migration's DELETE only touches this fixture data.
-\i ../migrations/20260825120000_0825-183_worksheet_activity_practice_scope.sql
+\ir ../migrations/20260825120000_0825-183_worksheet_activity_practice_scope.sql
 
 DO $$
 DECLARE
