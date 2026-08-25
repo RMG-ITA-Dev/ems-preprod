@@ -1611,7 +1611,11 @@
     "copyTotalHoursLabel": "horas en total",
     "copyActivitiesLabel": "{{count}} actividades con horas",
     "copyReplaceWarning": "Esto reemplazará la matriz actual. Puede editar antes de guardar.",
-    "copyConfirmButton": "Copiar matriz"
+    "copyConfirmButton": "Copiar matriz",
+    "copyUnavailable": "Copiar no está disponible: no se pudieron cargar los datos de actividades/categorías.",
+    "errorPracticeRequired": "Este encargo no tiene una práctica asignada; la matriz no se puede guardar con horas.",
+    "errorCategoryOutOfScope": "Una de las categorías no pertenece a la práctica de este encargo.",
+    "errorActivityOutOfScope": "Una de las actividades no pertenece a la práctica de este encargo."
   },
   "worksheet": {
     "searchEngagement": "Buscar encargo...",

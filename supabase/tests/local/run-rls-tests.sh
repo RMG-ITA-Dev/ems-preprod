@@ -92,6 +92,13 @@ run supabase/migrations/20251204000004_cero_04_triggers_fks.sql
 run supabase/migrations/20251204000005_cero_05_rls_policies.sql
 run supabase/migrations/20251204000006_cero_06_grants.sql
 
+# 0825-183: primera migración incremental posterior al set consolidado —
+# endurece enforce_worksheet_cell_practice_scope/batch_upsert_worksheet_cells.
+# El paso de limpieza de históricos es un no-op aquí (no hay datos aún en este
+# punto del bootstrap); lo que importa para el harness es el CREATE OR REPLACE
+# de ambas funciones, ejercitado por rpc-worksheet-activity-practice-scope.sql.
+run supabase/migrations/20260825120000_0825-183_worksheet_activity_practice_scope.sql
+
 # Catálogo RBAC (authorization_roles/permissions/role_permissions): dato real de producción,
 # copiado verbatim de la migración histórica 20260724010000_authz_fase2_seed.sql (23 roles/84
 # permisos/737 concesiones) — ninguna migración _cero_* lo siembra (es dato, no esquema) y el
@@ -135,7 +142,8 @@ assert_suite supabase/tests/rls-wo-staffing-requirements.sql 'WO STAFFING RLS: A
 assert_suite supabase/tests/rpc-engagement-team-candidates.sql 'ENGAGEMENT_TEAM_CANDIDATES RPC: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-save-engagement-assignments.sql 'SAVE_ENGAGEMENT_ASSIGNMENTS RPC: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-save-wo-staffing.sql 'SAVE_WO_STAFFING RPC: ALL CHECKS PASSED'
+assert_suite supabase/tests/rpc-worksheet-activity-practice-scope.sql 'WORKSHEET ACTIVITY PRACTICE SCOPE: ALL CHECKS PASSED'
 assert_suite supabase/tests/schema-convergence-assertions.sql 'SCHEMA CONVERGENCE: ALL CHECKS PASSED'
 assert_suite supabase/tests/trigger-engagement-creator-team.sql 'TRIGGER ENGAGEMENT CREATOR TEAM: ALL CHECKS PASSED'
 
-echo "OK: set consolidado (cero_01..cero_06) aplicado sobre base scratch; las 8 suites de RLS/RPC/schema-convergence/trigger pasaron"
+echo "OK: set consolidado (cero_01..cero_06) aplicado sobre base scratch; las 9 suites de RLS/RPC/schema-convergence/trigger pasaron"

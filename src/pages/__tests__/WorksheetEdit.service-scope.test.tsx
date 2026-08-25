@@ -9,12 +9,15 @@ import { screen, waitFor, fireEvent } from "@testing-library/react";
  * every service with an optional manual filter (0702-152's contract, now
  * reversed).
  * - No manual "Filtrar por servicio" selector.
- * - Grid receives only categories/activities of the engagement's service
- *   (global, practica_id/service === null activities are always included).
- * - Save purges any stray out-of-service cells.
+ * - Grid receives only categories/activities of the engagement's own service.
+ * - 0825-183: unlike Timesheet/Tracker, global/system activities (ADM,
+ *   practica_id === null) are NEVER included in the matrix — every cell must
+ *   belong to the engagement's own practice.
+ * - Save purges any stray out-of-service cell (wrong category, wrong-practice
+ *   activity, or global/system activity).
  * - Applying a copy ignores out-of-service cells from the source worksheet.
  * - An engagement with no service (practica === null) shows an informational
- *   alert and no categories.
+ *   alert, no categories/activities, and purges every historical cell on save.
  */
 
 Object.defineProperty(window, "matchMedia", {
@@ -75,20 +78,23 @@ vi.mock("@/hooks/useEmsData", () => ({
   }),
   useActivityCodes: () => ({
     data: [
-      { activity_id: "act-global", activity_code: "100-PLA", description: "Planificación", is_active: true, service: null },
-      { activity_id: "act-aud-1", activity_code: "AUD-A1", description: "Aud activity", is_active: true, service: { code: 1 } },
-      { activity_id: "act-con-1", activity_code: "CON-A1", description: "Con activity", is_active: true, service: { code: 2 } },
+      { activity_id: "act-global", activity_code: "ADM", description: "Administrative", is_active: true, practica_id: null, is_system: true, service: null },
+      { activity_id: "act-aud-1", activity_code: "AUD-A1", description: "Aud activity", is_active: true, practica_id: AUD, is_system: false, service: { code: 1 } },
+      { activity_id: "act-con-1", activity_code: "CON-A1", description: "Con activity", is_active: true, practica_id: "svc-con", is_system: false, service: { code: 2 } },
     ],
     isLoading: false,
   }),
-  // Same set as useActivityCodes, but keyed by the raw practica_id FK (as the
-  // real query returns) instead of the nested service.code — this is what
-  // the save/copy allow-list scopes against.
+  // Same set as useActivityCodes, but this is what the save/copy allow-list
+  // scopes against directly (matrix filter reads practica_id/is_system, not
+  // the nested service.code).
   useAllActivityCodes: () => ({
     data: [
-      { activity_id: "act-global", activity_code: "100-PLA", description: "Planificación", is_active: true, practica_id: null },
-      { activity_id: "act-aud-1", activity_code: "AUD-A1", description: "Aud activity", is_active: true, practica_id: AUD },
-      { activity_id: "act-con-1", activity_code: "CON-A1", description: "Con activity", is_active: true, practica_id: "svc-con" },
+      { activity_id: "act-global", activity_code: "ADM", description: "Administrative", is_active: true, practica_id: null, is_system: true },
+      { activity_id: "act-aud-1", activity_code: "AUD-A1", description: "Aud activity", is_active: true, practica_id: AUD, is_system: false },
+      { activity_id: "act-con-1", activity_code: "CON-A1", description: "Con activity", is_active: true, practica_id: "svc-con", is_system: false },
+      // Inactive but still Auditoría-scoped: not shown in the grid (useActivityCodes
+      // excludes it), but historical hours on it must survive a save (0825-183).
+      { activity_id: "act-aud-inactive", activity_code: "AUD-A9", description: "Retired aud activity", is_active: false, practica_id: AUD, is_system: false },
     ],
     isLoading: false,
   }),
@@ -190,6 +196,15 @@ vi.mock("@/components/worksheet/CopyFromEngagementDialog", () => ({
             created_at: "",
             updated_at: "",
           },
+          {
+            id: "copy-3",
+            worksheet_id: "src",
+            category_id: "cat-aud-1",
+            activity_id: "act-global",
+            budget_hours: 4,
+            created_at: "",
+            updated_at: "",
+          },
         ])
       }
     >
@@ -214,10 +229,14 @@ function makeWorksheet(overrides: object = {}) {
       partner: null,
       manager: null,
     },
-    // One in-scope (Auditoría) cell and one out-of-scope (Tax) cell.
+    // One in-scope (Auditoría) cell, one out-of-scope category (Tax), one
+    // out-of-scope activity (ADM/global, 0825-183), and one in-scope-but-now-
+    // inactive activity (historical hours that must survive a save).
     cells: [
       { id: "c1", worksheet_id: "ws-1", category_id: "cat-aud-1", activity_id: "act-aud-1", budget_hours: 5, created_at: "", updated_at: "" },
       { id: "c2", worksheet_id: "ws-1", category_id: "cat-tax-1", activity_id: "act-aud-1", budget_hours: 3, created_at: "", updated_at: "" },
+      { id: "c3", worksheet_id: "ws-1", category_id: "cat-aud-1", activity_id: "act-global", budget_hours: 2, created_at: "", updated_at: "" },
+      { id: "c4", worksheet_id: "ws-1", category_id: "cat-aud-1", activity_id: "act-aud-inactive", budget_hours: 4, created_at: "", updated_at: "" },
     ],
     ...overrides,
   };
@@ -245,9 +264,9 @@ describe("WorksheetEdit — service scope (0714-154)", () => {
     expect(screen.queryByTestId("row-cat-tax-1")).not.toBeInTheDocument();
   });
 
-  it("shows global activities plus the engagement's service activities, excluding other services", () => {
+  it("0825-183: shows only the engagement's own practice activities, excluding ADM/global/other-service ones", () => {
     customRender(<WorksheetEdit />);
-    expect(screen.getByTestId("activity-act-global")).toBeInTheDocument();
+    expect(screen.queryByTestId("activity-act-global")).not.toBeInTheDocument();
     expect(screen.getByTestId("activity-act-aud-1")).toBeInTheDocument();
     expect(screen.queryByTestId("activity-act-con-1")).not.toBeInTheDocument();
   });
@@ -274,6 +293,20 @@ describe("WorksheetEdit — service scope (0714-154)", () => {
     );
     expect(inScope).toBeDefined();
     expect(inScope.budget_hours).toBe(5);
+
+    // 0825-183: the pre-existing ADM/global cell (c3) must also be purged.
+    const globalActivityCell = payload.cells.find(
+      (c: any) => c.activity_id === "act-global"
+    );
+    expect(globalActivityCell).toBeUndefined();
+
+    // 0825-183: an inactive-but-still-Auditoría activity (c4) is not shown in the
+    // grid but must be preserved on save (historical hours).
+    const inactiveInScope = payload.cells.find(
+      (c: any) => c.activity_id === "act-aud-inactive"
+    );
+    expect(inactiveInScope).toBeDefined();
+    expect(inactiveInScope.budget_hours).toBe(4);
   });
 
   it("ignores out-of-service cells when applying a copy", async () => {
@@ -299,6 +332,12 @@ describe("WorksheetEdit — service scope (0714-154)", () => {
     );
     expect(copiedInScope).toBeDefined();
     expect(copiedInScope.budget_hours).toBe(9);
+
+    // 0825-183: a copied cell targeting the ADM/global activity must also be ignored.
+    const copiedGlobalActivity = payload.cells.find(
+      (c: any) => c.activity_id === "act-global"
+    );
+    expect(copiedGlobalActivity).toBeUndefined();
   });
 
   it("shows an informational alert and no categories when the engagement has no service", () => {
@@ -321,5 +360,38 @@ describe("WorksheetEdit — service scope (0714-154)", () => {
     expect(screen.getByTestId("worksheet-no-service-alert")).toBeInTheDocument();
     expect(screen.queryByTestId("row-cat-aud-1")).not.toBeInTheDocument();
     expect(screen.queryByTestId("worksheet-grid")).not.toBeInTheDocument();
+  });
+
+  it("0825-183: purges every historical cell on save when the engagement has no service", async () => {
+    mockUseWorksheetById.mockReturnValue({
+      data: makeWorksheet({
+        engagement: {
+          engagement_code: "TST-002",
+          engagement_name: "No Service Engagement",
+          practica: null,
+          client: { client_legal_name: "Test Client", industry: null },
+          partner: null,
+          manager: null,
+        },
+      }),
+      isLoading: false,
+    });
+
+    customRender(<WorksheetEdit />);
+
+    // The grid/copy button are hidden for a no-service engagement, so notes
+    // are the only way to produce an unsaved change and exercise Save.
+    fireEvent.change(screen.getByPlaceholderText("workMatrix.notesPlaceholder"), {
+      target: { value: "updated notes" },
+    });
+
+    const saveButton = screen.getByRole("button", { name: /common.save/ });
+    await waitFor(() => expect(saveButton).toBeEnabled());
+    fireEvent.click(saveButton);
+
+    await waitFor(() => expect(mockBatchUpsertCells).toHaveBeenCalled());
+
+    const payload = mockBatchUpsertCells.mock.calls[0][0];
+    expect(payload.cells).toEqual([]);
   });
 });
