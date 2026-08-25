@@ -9,7 +9,9 @@
 //
 // La autoridad ahora es `user_roles.role_key` (catálogo de 23 roles), no la categoría del
 // personal: FASE 3c quitó `default_app_role` del formulario de categorías justamente porque la
-// categoría ya no dicta el rol. Como `useStaff()` no expone `auth_user_id` (PII excluido a
+// categoría ya no dicta el rol. 0820-182 devolvió un selector de rol a ese formulario, pero como
+// SUGERENCIA (`default_role_key`, confirmada a mano en StaffForm) — la autoridad sigue siendo
+// `user_roles.role_key`. Como `useStaff()` no expone `auth_user_id` (PII excluido a
 // propósito), el cruce personal↔rol se hace del lado del servidor —
 // `get_engagement_team_candidates()` — y este módulo solo contiene la parte pura y testeable:
 // el mapa campo→grupo, el mapa role_key→grupo (espejo del CASE del RPC), el filtro por servicio

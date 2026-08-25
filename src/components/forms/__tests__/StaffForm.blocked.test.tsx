@@ -39,6 +39,7 @@ vi.mock("@/hooks/useEmsData", () => ({
         can_approve_wo: false,
         can_approve_timesheets: false,
         default_app_role: null,
+        default_role_key: null,
       },
     ],
   }),
@@ -64,6 +65,8 @@ vi.mock("@/hooks/mutations", () => ({
 
 vi.mock("@/hooks/useUserRoles", () => ({
   useUpdateUserRole: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  // 0820-182: StaffForm consume useUpdateUserRoleKey para el sync categoría→rol.
+  useUpdateUserRoleKey: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
 // Controlled isAdmin — toggled per test via the `adminOverride` variable.

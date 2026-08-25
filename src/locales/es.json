@@ -470,7 +470,7 @@
     "canApproveTimesheets": "Puede Aprobar Hojas de Tiempo",
     "canApproveTimesheetsHelp": "El personal en esta categoría puede aprobar hojas de tiempo de personal de menor rango",
     "defaultAppRole": "Rol de App Predeterminado",
-    "defaultAppRoleHelp": "Rol asignado a nuevos usuarios vinculados a esta categoría",
+    "defaultAppRoleHelp": "Rol sugerido al vincular un usuario de esta categoría - siempre editable en Roles de Usuario",
     "service": "Práctica",
     "selectService": "Seleccionar práctica",
     "serviceReadOnly": "La práctica no se puede cambiar. Para mover una categoría, elimínela y créela nuevamente en la práctica correcta.",

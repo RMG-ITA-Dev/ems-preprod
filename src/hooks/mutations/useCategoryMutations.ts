@@ -21,8 +21,12 @@ export function useCreateCategory() {
       can_approve_wo?: boolean;
       can_approve_timesheets?: boolean;
       default_app_role?: AppRole | null;
+      default_role_key?: string | null;
     }) => {
       // Position/shift handled transactionally in the DB (service-scoped order).
+      // 0820-182: `p_default_role_key` aún no está en types.ts (Lovable lo regenera tras
+      // aplicar la migración), de ahí el `as never` — mismo patrón que useUserRoles y
+      // useAuthorizationRoles. Retirar el casteo cuando types.ts se regenere.
       const { data: result, error } = await supabase.rpc("create_category_for_practice", {
         p_practice_id: data.practica_id,
         p_category_name: data.category_name,
@@ -34,7 +38,8 @@ export function useCreateCategory() {
         p_can_approve_wo: data.can_approve_wo ?? false,
         p_can_approve_timesheets: data.can_approve_timesheets ?? false,
         p_default_app_role: data.default_app_role ?? null,
-      });
+        p_default_role_key: data.default_role_key ?? null,
+      } as never);
       if (error) throw error;
       return result;
     },
@@ -64,6 +69,7 @@ export function useUpdateCategory() {
         can_approve_wo: boolean;
         can_approve_timesheets: boolean;
         default_app_role: AppRole | null;
+        default_role_key: string | null;
       };
     }) => {
       // Service is immutable on edit — never sent. Order changes reorder within
@@ -79,7 +85,8 @@ export function useUpdateCategory() {
         p_can_approve_wo: data.can_approve_wo,
         p_can_approve_timesheets: data.can_approve_timesheets,
         p_default_app_role: data.default_app_role,
-      });
+        p_default_role_key: data.default_role_key,
+      } as never);
       if (error) throw error;
       return result;
     },

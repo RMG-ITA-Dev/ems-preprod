@@ -23,6 +23,16 @@ export interface Category {
   can_approve_wo: boolean;
   can_approve_timesheets: boolean;
   default_app_role: string | null;
+  /**
+   * 0820-182: rol del catálogo `authorization_roles` que la categoría SUGIERE al
+   * vincular un usuario. Es una sugerencia editable, no una asignación — a diferencia
+   * de `default_app_role`, que es el enum legacy y colapsa siete role_key en `manager`.
+   *
+   * Opcional a propósito mientras dure la transición: `useCategories` hace `select('*')`,
+   * así que contra una BD donde la migración 20260825000000 todavía no corrió la columna
+   * literalmente no viene. Volverla requerida cuando Lovable regenere types.ts.
+   */
+  default_role_key?: string | null;
   service?: Service;
 }
 

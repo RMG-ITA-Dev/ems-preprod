@@ -6,7 +6,9 @@
 //
 //   · `categories.default_app_role` — es el enum LEGACY `app_role` (el mismo que 0722-162 rechazó
 //     por colapsar siete role_key en `manager`) y quedó NULLABLE tras FASE 3c: CategoryForm ya no
-//     lo edita, así que toda categoría creada desde entonces guarda null.
+//     lo edita, así que toda categoría creada desde entonces guarda null. (0820-182 agregó
+//     `categories.default_role_key`, que sí usa el catálogo — pero es una SUGERENCIA editable
+//     por categoría, no una autoridad: sigue sin servir como guard de base de datos.)
 //   · `categories.category_name`   — es TEXTO LIBRE editable por el usuario (sin enum ni check
 //     constraint; `create_category_for_practice(p_category_name text, …)`), está sembrado en inglés
 //     ('Partner'/'Manager', 20251204045534) Y en español ('Socio'/'Gerente', 20260130231039), y se

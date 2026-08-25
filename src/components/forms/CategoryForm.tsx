@@ -44,6 +44,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Category } from "@/hooks/useEmsData";
 import { useServices, useCategories } from "@/hooks/useEmsData";
+import { useAuthorizationRoles } from "@/hooks/useAuthorizationRoles";
 import { useCreateCategory, useUpdateCategory, useDeleteCategory } from "@/hooks/mutations";
 import { Trash2 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -51,9 +52,20 @@ import { Database } from "@/integrations/supabase/types";
 
 type AppRole = Database["public"]["Enums"]["app_role"];
 
-// FASE 3c: el control de default_app_role se quitó del formulario (la categoría
-// ya no dicta el rol — Opción C). La columna y el valor se conservan intactos
-// (el payload sigue enviando el valor existente sin cambios).
+const NO_DEFAULT_ROLE = "__none__";
+
+// 0820-182: el rol predeterminado vuelve al formulario, pero apuntando al catálogo
+// `authorization_roles` (23 roles) en vez del enum legacy `app_role` que se usaba antes
+// de FASE 3c — ese enum colapsa siete role_key distintos en `manager` (bug 0722-162), así
+// que restaurarlo tal cual habría reintroducido ese defecto.
+//
+// Semántica: la categoría SUGIERE, no dicta (decisión P4 de docs/plan-roles-permisos.md).
+// El rol efectivo se sigue gestionando en Configuración → Roles de Usuario.
+//
+// `admin` se excluye a propósito: es un rol técnico/de seguridad, y sugerirlo por
+// categoría sería una vía de escalada de privilegios. `default_app_role` se conserva
+// intacto — el payload lo arrastra sin cambios, porque lo leen las políticas RLS legacy.
+const isSuggestableRole = (roleKey: string) => roleKey !== "admin";
 
 // Factory function (no un objeto módulo-level): las 4 tarifas necesitan t() para traducir su
 // mensaje de error (hallazgo de review de PR #310 — FormMessage muestra `error.message` tal
@@ -76,6 +88,7 @@ const createFormSchema = (t: TFunction) =>
     can_approve_wo: z.boolean().default(false),
     can_approve_timesheets: z.boolean().default(false),
     default_app_role: z.string().optional(),
+    default_role_key: z.string().optional(),
   });
 
 type FormData = z.infer<ReturnType<typeof createFormSchema>>;
@@ -107,6 +120,23 @@ export function CategoryForm({ open, onOpenChange, category, serviceId, lockServ
     (s) => s.is_active && s.allows_rates_activities
   );
 
+  // 0820-182: catálogo de roles asignables. El hook ya filtra is_active y ordena por
+  // display_order; acá solo se quita `admin` (ver isSuggestableRole).
+  const { data: catalogRoles } = useAuthorizationRoles();
+  const suggestableRoles = (catalogRoles ?? []).filter((r) => isSuggestableRole(r.role_key));
+
+  // El catálogo trae su propia label_key ("authz.role.*"). Se cae a las claves del enum
+  // legacy y al role_key crudo, igual que UserRolesManager.getRoleLabel.
+  const getRoleLabel = (roleKey: string): string => {
+    const catalogKey = `authz.role.${roleKey}`;
+    const catalogLabel = t(catalogKey);
+    if (catalogLabel !== catalogKey) return catalogLabel;
+
+    const legacyKey = `userRoles.roles.${roleKey}`;
+    const legacyLabel = t(legacyKey);
+    return legacyLabel !== legacyKey ? legacyLabel : roleKey;
+  };
+
   // All categories (cached) — used to derive the next display_order per service.
   const { data: allCategories } = useCategories();
   const nextOrderFor = (sid: string) =>
@@ -128,7 +158,8 @@ export function CategoryForm({ open, onOpenChange, category, serviceId, lockServ
       rate_low_usd: undefined as unknown as number,
       can_approve_wo: false,
       can_approve_timesheets: false,
-      default_app_role: "__none__",
+      default_app_role: NO_DEFAULT_ROLE,
+      default_role_key: NO_DEFAULT_ROLE,
     },
   });
 
@@ -146,7 +177,8 @@ export function CategoryForm({ open, onOpenChange, category, serviceId, lockServ
         rate_low_usd: category?.rate_low_usd ?? (undefined as unknown as number),
         can_approve_wo: category?.can_approve_wo || false,
         can_approve_timesheets: category?.can_approve_timesheets || false,
-        default_app_role: category?.default_app_role || "__none__",
+        default_app_role: category?.default_app_role || NO_DEFAULT_ROLE,
+        default_role_key: category?.default_role_key || NO_DEFAULT_ROLE,
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -180,7 +212,10 @@ export function CategoryForm({ open, onOpenChange, category, serviceId, lockServ
       rate_low_usd: data.rate_low_usd,
       can_approve_wo: data.can_approve_wo,
       can_approve_timesheets: data.can_approve_timesheets,
-      default_app_role: (data.default_app_role === "__none__" ? null : data.default_app_role as AppRole) ?? null,
+      // `default_app_role` se arrastra sin cambios (el formulario ya no lo edita);
+      // `default_role_key` es el campo vivo. El centinela nunca debe llegar a la BD.
+      default_app_role: (data.default_app_role === NO_DEFAULT_ROLE ? null : data.default_app_role as AppRole) ?? null,
+      default_role_key: (data.default_role_key === NO_DEFAULT_ROLE ? null : data.default_role_key) ?? null,
     };
     if (isEdit && category) {
       // Service is immutable on edit — never included in the update payload.
@@ -359,7 +394,39 @@ export function CategoryForm({ open, onOpenChange, category, serviceId, lockServ
             {/* Permissions Section */}
             <div className="space-y-4 pt-4 border-t border-border">
               <h4 className="font-medium text-sm text-muted-foreground">{t("category.permissions")}</h4>
-              
+
+              <FormField
+                control={form.control}
+                name="default_role_key"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t("category.defaultAppRole")}</FormLabel>
+                    <Select
+                      onValueChange={field.onChange}
+                      value={field.value || NO_DEFAULT_ROLE}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder={t("form.selectOption")} />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value={NO_DEFAULT_ROLE}>{t("common.none")}</SelectItem>
+                        {suggestableRoles.map((role) => (
+                          <SelectItem key={role.role_key} value={role.role_key}>
+                            {getRoleLabel(role.role_key)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormDescription>
+                      {t("category.defaultAppRoleHelp")}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
               <FormField
                 control={form.control}
                 name="can_approve_wo"
