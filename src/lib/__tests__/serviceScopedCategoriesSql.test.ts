@@ -146,3 +146,105 @@ describe("practice-scoped categories (migración cero, consolidado)", () => {
     }
   });
 });
+
+/**
+ * 0820-182 — `categories.default_role_key` (rol sugerido por categoría).
+ *
+ * OJO con el alcance: las aserciones de arriba leen el set consolidado
+ * (`cero_02`..`cero_06`) y siguen siendo válidas — es la baseline histórica. Pero la
+ * migración de este bug redefine dos de esas RPC en un archivo APARTE, así que nada de
+ * lo de arriba vería la firma nueva. De ahí este bloque con su propio readFileSync: sin
+ * él, las aserciones estructurales envejecerían en silencio.
+ */
+const defaultRoleKeySql = readFileSync(
+  resolve(process.cwd(), "supabase/migrations/20260825000000_category_default_role_key.sql"),
+  "utf-8",
+);
+
+describe("categories.default_role_key (0820-182)", () => {
+  it("adds the column idempotently and FKs it to the authorization_roles catalog", () => {
+    expect(defaultRoleKeySql).toMatch(
+      /ALTER TABLE public\.categories\s+ADD COLUMN IF NOT EXISTS default_role_key text;/,
+    );
+    // El FK al catálogo es lo que impide guardar un role_key inexistente: sin él, la
+    // "sugerencia" podría apuntar a un rol que ya no existe.
+    expect(defaultRoleKeySql).toMatch(
+      /ADD CONSTRAINT categories_default_role_key_fkey\s+FOREIGN KEY \(default_role_key\)\s+REFERENCES public\.authorization_roles\(role_key\)/,
+    );
+    // Idempotencia: se puede re-pegar la migración completa sin chocar con 42710.
+    expect(defaultRoleKeySql).toContain(
+      "DROP CONSTRAINT IF EXISTS categories_default_role_key_fkey",
+    );
+  });
+
+  it.each(["create_category_for_practice", "update_category_for_practice"])(
+    "%s is DROPped before being recreated, never CREATE OR REPLACE (guard anti-PGRST203)",
+    (name) => {
+      // Agregar un parámetro con CREATE OR REPLACE no reemplaza la función: crea una
+      // SOBRECARGA, y con dos firmas visibles PostgREST no puede resolver la llamada
+      // (PGRST203) — rompiendo crear/editar CUALQUIER categoría, no solo el campo nuevo.
+      const dropIdx = defaultRoleKeySql.indexOf(`DROP FUNCTION IF EXISTS public.${name}(`);
+      const createIdx = defaultRoleKeySql.indexOf(`CREATE FUNCTION public.${name}(`);
+      expect(dropIdx).toBeGreaterThan(-1);
+      expect(createIdx).toBeGreaterThan(-1);
+      expect(dropIdx).toBeLessThan(createIdx);
+      expect(defaultRoleKeySql).not.toContain(`CREATE OR REPLACE FUNCTION public.${name}(`);
+    },
+  );
+
+  it.each(["create_category_for_practice", "update_category_for_practice"])(
+    "%s takes p_default_role_key and keeps its is_admin() guard",
+    (name) => {
+      const start = defaultRoleKeySql.indexOf(`CREATE FUNCTION public.${name}(`);
+      const end = defaultRoleKeySql.indexOf("\n$$;", start);
+      const body = defaultRoleKeySql.slice(start, end);
+      expect(body).toContain("p_default_role_key text DEFAULT NULL::text");
+      expect(body).toContain("default_role_key");
+      // El cuerpo se copió a mano desde cero_02: el riesgo real es perder el gate.
+      expect(body).toContain("IF NOT public.is_admin() THEN");
+    },
+  );
+
+  it("create_category_for_practice still enforces practicas.allows_rates_activities", () => {
+    const start = defaultRoleKeySql.indexOf("CREATE FUNCTION public.create_category_for_practice(");
+    const body = defaultRoleKeySql.slice(start, defaultRoleKeySql.indexOf("\n$$;", start));
+    expect(body).toContain("allows_rates_activities");
+    expect(body).toContain("Practice does not allow rates/categories");
+  });
+
+  it.each(["create_category_for_practice", "update_category_for_practice"])(
+    "%s re-issues its grants with the new signature (DROP FUNCTION drops the ACL)",
+    (name) => {
+      for (const role of ["anon", "authenticated", "service_role"]) {
+        expect(defaultRoleKeySql).toMatch(
+          new RegExp(`GRANT ALL ON FUNCTION public\\.${name}\\([\\s\\S]*?\\) TO ${role};`),
+        );
+      }
+      expect(defaultRoleKeySql).toMatch(
+        new RegExp(`REVOKE ALL ON FUNCTION public\\.${name}\\([\\s\\S]*?\\) FROM PUBLIC;`),
+      );
+    },
+  );
+
+  it("copy_categories_between_practices clones default_role_key", () => {
+    // El INSERT..SELECT es explícito por columnas: omitir la nueva haría que copiar una
+    // práctica perdiera el rol sugerido en silencio.
+    const start = defaultRoleKeySql.indexOf(
+      "CREATE OR REPLACE FUNCTION public.copy_categories_between_practices(",
+    );
+    expect(start).toBeGreaterThan(-1);
+    const body = defaultRoleKeySql.slice(start);
+    expect(body).toMatch(/can_approve_wo, can_approve_timesheets, default_app_role, default_role_key/);
+    expect(body).toMatch(/src\.can_approve_timesheets, src\.default_app_role, src\.default_role_key/);
+  });
+
+  it("backfills only where the legacy→catalog mapping is unambiguous", () => {
+    // `manager` lo comparten 7 role_key, `senior` 6, `partner` 3 y `staff` 3. Sin el
+    // guard de unicidad el backfill inventaría un rol y sugeriría permisos incorrectos.
+    const start = defaultRoleKeySql.indexOf("UPDATE public.categories c");
+    const body = defaultRoleKeySql.slice(start, defaultRoleKeySql.indexOf(";", start));
+    expect(body).toContain("ar.legacy_app_role = c.default_app_role");
+    expect(body).toContain("c.default_role_key IS NULL");
+    expect(body).toMatch(/count\(\*\) FROM public\.authorization_roles a2[\s\S]*?\) = 1/);
+  });
+});
