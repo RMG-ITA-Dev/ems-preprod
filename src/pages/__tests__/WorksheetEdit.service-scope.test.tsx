@@ -394,4 +394,29 @@ describe("WorksheetEdit — service scope (0714-154)", () => {
     const payload = mockBatchUpsertCells.mock.calls[0][0];
     expect(payload.cells).toEqual([]);
   });
+
+  it("0825-183 (review.md iteración 2, #2): hides Create Work Order when the engagement's practica code doesn't resolve", () => {
+    mockUseWorksheetById.mockReturnValue({
+      data: makeWorksheet({
+        wo_id: null,
+        work_order: null,
+        engagement: {
+          engagement_code: "TST-003",
+          engagement_name: "Unresolved Practica Engagement",
+          // code 9 has no matching entry in the useServices mock above (only
+          // codes 1/AUD and 3/TAX exist) — engagementServiceId resolves to
+          // undefined even though practica != null.
+          practica: 9,
+          client: { client_legal_name: "Test Client", industry: null },
+          partner: null,
+          manager: null,
+        },
+      }),
+      isLoading: false,
+    });
+
+    customRender(<WorksheetEdit />);
+
+    expect(screen.queryByRole("button", { name: /workMatrix.createWorkOrder/ })).not.toBeInTheDocument();
+  });
 });

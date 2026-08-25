@@ -308,16 +308,21 @@ const WorksheetEdit = () => {
     Rejected: "workOrders.status.rejected",
   };
 
-  // practica != null: sync_worksheet_to_wo_budget aggregates every stored cell
-  // regardless of service, but the grid is hidden for no-service worksheets —
-  // block WO creation from budget lines the user can't see or validate
-  // (review.md iteración 11).
+  // sync_worksheet_to_wo_budget aggregates every stored cell regardless of
+  // service, but the grid is hidden/empty whenever the practice isn't fully
+  // resolved — block WO creation from budget lines the user can't see or
+  // validate. practica == null is the no-service case (review.md iteración
+  // 11); engagementServiceId === undefined while practica != null is the
+  // "practica code doesn't resolve" case — before 0825-183 the grid always
+  // showed global activities here so this was unreachable, but the new
+  // strict practice filter leaves it empty too (review.md iteración 2, #2).
   const canCreateWorkOrder =
     can("work_order.create") &&
     !hasWorkOrder &&
     worksheet?.status === "draft" &&
     !hasUnsavedChanges &&
-    practica != null;
+    practica != null &&
+    engagementServiceId !== undefined;
 
   // Copy must never run without a resolved allow-list to filter against — unlike
   // save (which safely keeps existing cells as-is when the catalog/mapping isn't
