@@ -59,7 +59,7 @@ INSERT INTO public.activity_codes (activity_id, activity_code, description, prac
   ('a0100000-0000-4000-8000-0000000000ac', 'WAP-AUD', 'WAP Aud Activity', (SELECT practica_id FROM public.practicas WHERE code = 1), false, true),
   ('a0100000-0000-4000-8000-0000000000ad', 'WAP-OTR', 'WAP Other Activity', (SELECT practica_id FROM public.practicas WHERE code = 5), false, true),
   ('a0100000-0000-4000-8000-0000000000ae', 'WAP-ADM', 'WAP Admin (system)', NULL, true, true),
-  ('a0100000-0000-4000-8000-0000000000af', 'WAP-AUD-SYS', 'WAP Aud Activity (system, same practica)', (SELECT practica_id FROM public.practicas WHERE code = 1), true, true);
+  ('a0100000-0000-4000-8000-0000000000af', 'WAP-AUDS', 'WAP Aud Activity (system, same practica)', (SELECT practica_id FROM public.practicas WHERE code = 1), true, true);
 
 INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id) VALUES
   ('c1000000-0000-4000-8000-0000000000ac', 'WAP Test Client', 'WAP-TAX-001');

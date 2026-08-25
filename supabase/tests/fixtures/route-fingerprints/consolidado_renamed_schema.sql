@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict b93LstuyfpgyfoCtrcYgz4OEdFkGdyc7IKtF9ljyDHUI3QvpCkc2ZgyuJFexE9F
+\restrict sShamiAOHNghswSHWxr0VArJlpogH9HLeXWhHzKKeDK3wbxNrMWjiwJxVJZ9IvV
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.11 (Ubuntu 17.11-1.pgdg24.04+2)
@@ -1129,10 +1129,15 @@ CREATE FUNCTION public.batch_upsert_worksheet_cells(p_worksheet_id uuid, p_cells
     AS $$
 declare
   v_engagement_id uuid;
+  v_practica      smallint;
+  v_practica_id   uuid;
+  v_invalid_count integer;
 begin
-  select engagement_id into v_engagement_id
-    from public.activity_worksheets
-   where id = p_worksheet_id;
+  select aw.engagement_id, e.practica
+    into v_engagement_id, v_practica
+    from public.activity_worksheets aw
+    join public.engagements e on e.engagement_id = aw.engagement_id
+   where aw.id = p_worksheet_id;
 
   if v_engagement_id is null then
     raise exception 'Worksheet not found: %', p_worksheet_id;
@@ -1141,6 +1146,51 @@ begin
   if not (public.is_admin() or public.is_engagement_team_member(v_engagement_id)) then
     raise exception 'Permission denied: not a team member of this engagement'
       using errcode = 'insufficient_privilege';
+  end if;
+
+  if jsonb_array_length(p_cells) > 0 then
+    if v_practica is null then
+      raise exception using
+        message = 'WORKSHEET_PRACTICE_REQUIRED',
+        detail = format('worksheet_id=%s reason=no_practica', p_worksheet_id);
+    end if;
+
+    select practica_id into v_practica_id
+      from public.practicas
+     where code = v_practica;
+
+    -- Same precedence as the trigger: an unresolved practica code is treated
+    -- the same as no practica at all (review.md iteración 1, #3).
+    if v_practica_id is null then
+      raise exception using
+        message = 'WORKSHEET_PRACTICE_REQUIRED',
+        detail = format('worksheet_id=%s reason=unresolved_practica_code practica_code=%s', p_worksheet_id, v_practica);
+    end if;
+
+    select count(*) into v_invalid_count
+      from jsonb_array_elements(p_cells) as elem
+      left join public.categories c on c.category_id = (elem->>'category_id')::uuid
+     where c.practica_id is distinct from v_practica_id;
+
+    if v_invalid_count > 0 then
+      raise exception using
+        message = 'WORKSHEET_CATEGORY_OUT_OF_SCOPE',
+        detail = format('worksheet_id=%s', p_worksheet_id);
+    end if;
+
+    -- is_system is checked independently of practica_id, same rule as the
+    -- trigger (review.md iteración 1, #2).
+    select count(*) into v_invalid_count
+      from jsonb_array_elements(p_cells) as elem
+      left join public.activity_codes a on a.activity_id = (elem->>'activity_id')::uuid
+     where a.practica_id is distinct from v_practica_id
+        or a.is_system is not false;
+
+    if v_invalid_count > 0 then
+      raise exception using
+        message = 'WORKSHEET_ACTIVITY_OUT_OF_SCOPE',
+        detail = format('worksheet_id=%s', p_worksheet_id);
+    end if;
   end if;
 
   delete from public.activity_worksheet_cells where worksheet_id = p_worksheet_id;
@@ -2392,41 +2442,60 @@ CREATE FUNCTION public.enforce_worksheet_cell_practice_scope() RETURNS trigger
     SET search_path TO 'public'
     AS $$
 DECLARE
-  v_practica    smallint;
-  v_practica_id  uuid;
-  v_cat_practica uuid;
-  v_act_practica uuid;
+  v_practica       smallint;
+  v_practica_id    uuid;
+  v_cat_practica   uuid;
+  v_act_practica   uuid;
+  v_act_is_system  boolean;
 BEGIN
   SELECT e.practica INTO v_practica
     FROM public.activity_worksheets aw
     JOIN public.engagements e ON e.engagement_id = aw.engagement_id
    WHERE aw.id = NEW.worksheet_id;
 
-  -- Legacy engagements with no assigned practice are not scoped by this rule;
-  -- the UI already limits them to no categories (categories.practica_id is NOT NULL).
+  -- A worksheet whose engagement has no assigned practice accepts no cells at
+  -- all (the frontend keeps the grid empty and purges any payload — 0825-183).
   IF v_practica IS NULL THEN
-    RETURN NEW;
+    RAISE EXCEPTION USING
+      MESSAGE = 'WORKSHEET_PRACTICE_REQUIRED',
+      DETAIL = format('worksheet_id=%s reason=no_practica', NEW.worksheet_id);
   END IF;
 
   SELECT practica_id INTO v_practica_id
     FROM public.practicas
    WHERE code = v_practica;
 
+  -- A practica code that doesn't resolve to any practicas row is just as
+  -- unusable as no practica at all — same precedence, same code (review.md
+  -- iteración 1, #3).
+  IF v_practica_id IS NULL THEN
+    RAISE EXCEPTION USING
+      MESSAGE = 'WORKSHEET_PRACTICE_REQUIRED',
+      DETAIL = format('worksheet_id=%s reason=unresolved_practica_code practica_code=%s', NEW.worksheet_id, v_practica);
+  END IF;
+
   SELECT practica_id INTO v_cat_practica
     FROM public.categories
    WHERE category_id = NEW.category_id;
 
   IF v_cat_practica IS DISTINCT FROM v_practica_id THEN
-    RAISE EXCEPTION 'Category % does not belong to the engagement''s practice', NEW.category_id;
+    RAISE EXCEPTION USING
+      MESSAGE = 'WORKSHEET_CATEGORY_OUT_OF_SCOPE',
+      DETAIL = format('worksheet_id=%s category_id=%s', NEW.worksheet_id, NEW.category_id);
   END IF;
 
-  SELECT practica_id INTO v_act_practica
+  SELECT practica_id, is_system INTO v_act_practica, v_act_is_system
     FROM public.activity_codes
    WHERE activity_id = NEW.activity_id;
 
-  -- NULL activity practica_id = global activity (e.g. 100-PLA, ADM), valid for every practice.
-  IF v_act_practica IS NOT NULL AND v_act_practica <> v_practica_id THEN
-    RAISE EXCEPTION 'Activity % does not belong to the engagement''s practice', NEW.activity_id;
+  -- Global/system activities (practica_id IS NULL, e.g. ADM) no longer qualify
+  -- as valid for any practice, and is_system is checked independently of
+  -- practica_id so a hypothetical system activity carrying the engagement's own
+  -- practica_id is still rejected (0825-183; review.md iteración 1, #2).
+  IF v_act_practica IS DISTINCT FROM v_practica_id OR v_act_is_system IS NOT FALSE THEN
+    RAISE EXCEPTION USING
+      MESSAGE = 'WORKSHEET_ACTIVITY_OUT_OF_SCOPE',
+      DETAIL = format('worksheet_id=%s activity_id=%s', NEW.worksheet_id, NEW.activity_id);
   END IF;
 
   RETURN NEW;
@@ -9771,22 +9840,6 @@ PARTITION BY RANGE (inserted_at);
 
 
 --
--- Name: messages_2026_08_23; Type: TABLE; Schema: realtime; Owner: -
---
-
-CREATE TABLE realtime.messages_2026_08_23 (
-    topic text NOT NULL,
-    extension text NOT NULL,
-    payload jsonb,
-    event text,
-    private boolean DEFAULT false,
-    updated_at timestamp without time zone DEFAULT now() NOT NULL,
-    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
-    id uuid DEFAULT gen_random_uuid() NOT NULL
-);
-
-
---
 -- Name: messages_2026_08_24; Type: TABLE; Schema: realtime; Owner: -
 --
 
@@ -9839,6 +9892,22 @@ CREATE TABLE realtime.messages_2026_08_26 (
 --
 
 CREATE TABLE realtime.messages_2026_08_27 (
+    topic text NOT NULL,
+    extension text NOT NULL,
+    payload jsonb,
+    event text,
+    private boolean DEFAULT false,
+    updated_at timestamp without time zone DEFAULT now() NOT NULL,
+    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL
+);
+
+
+--
+-- Name: messages_2026_08_28; Type: TABLE; Schema: realtime; Owner: -
+--
+
+CREATE TABLE realtime.messages_2026_08_28 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -10131,13 +10200,6 @@ CREATE TABLE supabase_migrations.schema_migrations (
 
 
 --
--- Name: messages_2026_08_23; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_08_23 FOR VALUES FROM ('2026-08-23 00:00:00') TO ('2026-08-24 00:00:00');
-
-
---
 -- Name: messages_2026_08_24; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
@@ -10163,6 +10225,13 @@ ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_08_26
 --
 
 ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_08_27 FOR VALUES FROM ('2026-08-27 00:00:00') TO ('2026-08-28 00:00:00');
+
+
+--
+-- Name: messages_2026_08_28; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_08_28 FOR VALUES FROM ('2026-08-28 00:00:00') TO ('2026-08-29 00:00:00');
 
 
 --
@@ -11004,14 +11073,6 @@ ALTER TABLE ONLY realtime.messages
 
 
 --
--- Name: messages_2026_08_23 messages_2026_08_23_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_08_23
-    ADD CONSTRAINT messages_2026_08_23_pkey PRIMARY KEY (id, inserted_at);
-
-
---
 -- Name: messages_2026_08_24 messages_2026_08_24_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
@@ -11041,6 +11102,14 @@ ALTER TABLE ONLY realtime.messages_2026_08_26
 
 ALTER TABLE ONLY realtime.messages_2026_08_27
     ADD CONSTRAINT messages_2026_08_27_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_08_28 messages_2026_08_28_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_08_28
+    ADD CONSTRAINT messages_2026_08_28_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
@@ -11977,13 +12046,6 @@ CREATE INDEX messages_inserted_at_topic_index ON ONLY realtime.messages USING bt
 
 
 --
--- Name: messages_2026_08_23_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_08_23_inserted_at_topic_idx ON realtime.messages_2026_08_23 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
 -- Name: messages_2026_08_24_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
@@ -12009,6 +12071,13 @@ CREATE INDEX messages_2026_08_26_inserted_at_topic_idx ON realtime.messages_2026
 --
 
 CREATE INDEX messages_2026_08_27_inserted_at_topic_idx ON realtime.messages_2026_08_27 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_08_28_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_08_28_inserted_at_topic_idx ON realtime.messages_2026_08_28 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
@@ -12110,20 +12179,6 @@ CREATE INDEX supabase_functions_hooks_request_id_idx ON supabase_functions.hooks
 
 
 --
--- Name: messages_2026_08_23_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_08_23_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_08_23_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_08_23_pkey;
-
-
---
 -- Name: messages_2026_08_24_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
@@ -12177,6 +12232,20 @@ ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.
 --
 
 ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_08_27_pkey;
+
+
+--
+-- Name: messages_2026_08_28_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_08_28_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_08_28_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_08_28_pkey;
 
 
 --
@@ -15277,5 +15346,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict b93LstuyfpgyfoCtrcYgz4OEdFkGdyc7IKtF9ljyDHUI3QvpCkc2ZgyuJFexE9F
+\unrestrict sShamiAOHNghswSHWxr0VArJlpogH9HLeXWhHzKKeDK3wbxNrMWjiwJxVJZ9IvV
 
