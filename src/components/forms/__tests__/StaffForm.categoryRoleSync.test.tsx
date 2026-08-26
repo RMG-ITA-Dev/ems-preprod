@@ -66,6 +66,20 @@ const CATEGORIES = [
     default_role_key: "ita_manager",
   },
   {
+    // Solo alcanzable por datos heredados: el desplegable no ofrece `admin` y la columna
+    // tiene un CHECK que lo prohíbe. Existe en el fixture para probar que, aun así,
+    // StaffForm no lo ofrece.
+    category_id: "cat-admin",
+    category_name: "Administración",
+    practica_id: "svc-1",
+    rate_high_bob: 0, rate_low_bob: 0, rate_high_usd: 0, rate_low_usd: 0,
+    display_order: 4,
+    can_approve_wo: false,
+    can_approve_timesheets: false,
+    default_app_role: null,
+    default_role_key: "admin",
+  },
+  {
     category_id: "cat-sin-rol",
     category_name: "Pasante",
     practica_id: "svc-1",
@@ -432,7 +446,21 @@ describe("StaffForm — sync categoría→rol (0820-182)", () => {
     expect(updateRoleKeyMutateAsync).not.toHaveBeenCalled();
   });
 
-  it("Test 11: descartar el diálogo (Escape/click afuera) equivale a omitir", async () => {
+  it("Test 11: nunca ofrece `admin`, aunque la categoría lo tenga guardado", async () => {
+    // Escalada de privilegios: sin este guard, mover a alguien a una categoría cuyo
+    // default_role_key quedó en `admin` (p. ej. backfilleado desde el enum legacy en una
+    // base actualizada) ofrecería convertirlo en administrador.
+    const user = userEvent.setup();
+    renderForm();
+
+    await changeCategoryAndSave(user, "cat-admin");
+
+    await waitFor(() => expect(onSaveSuccess).toHaveBeenCalled());
+    expect(screen.queryByText("staff.syncRoleTitle")).toBeNull();
+    expect(updateRoleKeyMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("Test 12: descartar el diálogo (Escape/click afuera) equivale a omitir", async () => {
     const user = userEvent.setup();
     renderForm();
 
@@ -443,7 +471,7 @@ describe("StaffForm — sync categoría→rol (0820-182)", () => {
     await waitFor(() => expect(onSaveSuccess).toHaveBeenCalledTimes(1));
   });
 
-  it("Test 12: con la mutación en vuelo, no se puede descartar ni omitir", async () => {
+  it("Test 13: con la mutación en vuelo, no se puede descartar ni omitir", async () => {
     // Una vez confirmado, la mutación no se puede cancelar. Sin este guard, Escape /
     // Omitir llamarían finishSave() y después el confirm lo llamaría OTRA vez al
     // resolver: doble onSaveSuccess, y el formulario desmontado con el request en vuelo.
@@ -464,7 +492,7 @@ describe("StaffForm — sync categoría→rol (0820-182)", () => {
     expect(onSaveSuccess).not.toHaveBeenCalled();
   });
 
-  it("Test 10: si falla el guardado de competencias, corta ANTES del diálogo", async () => {
+  it("Test 14: si falla el guardado de competencias, corta ANTES del diálogo", async () => {
     // El orden importa: no se debe ofrecer sincronizar un rol sobre un guardado
     // incompleto. Protege el  temprano del handler de submit. Se usa el camino
     // de borrado porque no depende de rellenar un campo nuevo.

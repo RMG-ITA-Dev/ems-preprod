@@ -257,6 +257,33 @@ describe("categories.default_role_key (0820-182)", () => {
     expect(body).toMatch(/src\.can_approve_timesheets, src\.default_app_role, src\.default_role_key/);
   });
 
+  it("never backfills, and structurally forbids, an `admin` suggestion", () => {
+    // El formulario ANTERIOR a FASE 3c permitía elegir `admin`, así que una base
+    // actualizada puede tener default_app_role = 'admin'; y como ningún otro role_key
+    // mapea a ese enum, el guard de unicidad lo daría por inequívoco. Backfillearlo
+    // reintroduciría por datos lo que la UI prohíbe: sugerir `admin` por categoría
+    // convierte un cambio de categoría en escalada de privilegios.
+    const backfill = defaultRoleKeySql.slice(
+      defaultRoleKeySql.indexOf("UPDATE public.categories c"),
+    );
+    expect(backfill.slice(0, backfill.indexOf(";"))).toContain("ar.role_key <> 'admin'");
+
+    // Saneamiento de filas preexistentes: sin esto, re-aplicar la migración sobre una base
+    // donde ya corrió una versión sin el filtro haría fallar el CHECK de abajo.
+    expect(defaultRoleKeySql).toMatch(
+      /UPDATE public\.categories\s+SET default_role_key = NULL\s+WHERE default_role_key = 'admin';/,
+    );
+
+    // El invariante a nivel de esquema: los filtros de UI son de cliente y un bundle
+    // viejo, un RPC a mano o un restore podrían saltárselos.
+    expect(defaultRoleKeySql).toContain(
+      "DROP CONSTRAINT IF EXISTS categories_default_role_key_not_admin",
+    );
+    expect(defaultRoleKeySql).toMatch(
+      /ADD CONSTRAINT categories_default_role_key_not_admin\s+CHECK \(default_role_key IS DISTINCT FROM 'admin'\)/,
+    );
+  });
+
   it("backfills only where the legacy→catalog mapping is unambiguous", () => {
     // `manager` lo comparten 7 role_key, `senior` 6, `partner` 3 y `staff` 3. Sin el
     // guard de unicidad el backfill inventaría un rol y sugeriría permisos incorrectos.

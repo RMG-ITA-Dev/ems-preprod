@@ -54,6 +54,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useAuthorization } from "@/hooks/useAuthorization";
 import { useUpdateUserRoleKey } from "@/hooks/useUserRoles";
+import { isSuggestableRoleKey } from "@/lib/categoryRoleSuggestion";
 import { PROFICIENCY_LEVELS, type ProficiencyLevel } from "@/integrations/supabase/customTypes";
 import { formatFullDate, fromISODateString } from "@/lib/timesheetUtils";
 
@@ -572,7 +573,13 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
       //       un rol sin user_role.update vería un diálogo condenado a fallar NOT_ADMIN.
       if (staff.auth_user_id && staff.category_id !== data.category_id && can("user_role.update")) {
         const newCategory = categories?.find((c) => c.category_id === data.category_id);
-        const targetRoleKey = newCategory?.default_role_key ?? null;
+        const suggested = newCategory?.default_role_key ?? null;
+        // `admin` nunca se ofrece, venga de donde venga el valor. El filtro del
+        // desplegable de categorías impide ELEGIRLO, pero un default_role_key que llegue
+        // por otra vía (backfill desde el enum legacy, un RPC a mano, un restore) llegaría
+        // hasta acá — y este es el punto donde el rol se aplica de verdad, así que sería
+        // escalada de privilegios por cambio de categoría. La BD lo refuerza con un CHECK.
+        const targetRoleKey = isSuggestableRoleKey(suggested) ? suggested : null;
 
         if (targetRoleKey) {
           const { data: roleData } = await supabase

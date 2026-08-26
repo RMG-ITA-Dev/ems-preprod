@@ -45,6 +45,7 @@ import {
 import { Category } from "@/hooks/useEmsData";
 import { useServices, useCategories } from "@/hooks/useEmsData";
 import { useAuthorizationRoles } from "@/hooks/useAuthorizationRoles";
+import { isSuggestableRoleKey } from "@/lib/categoryRoleSuggestion";
 import { useCreateCategory, useUpdateCategory, useDeleteCategory } from "@/hooks/mutations";
 import { Trash2 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -62,10 +63,9 @@ const NO_DEFAULT_ROLE = "__none__";
 // Semántica: la categoría SUGIERE, no dicta (decisión P4 de docs/plan-roles-permisos.md).
 // El rol efectivo se sigue gestionando en Configuración → Roles de Usuario.
 //
-// `admin` se excluye a propósito: es un rol técnico/de seguridad, y sugerirlo por
-// categoría sería una vía de escalada de privilegios. `default_app_role` se conserva
-// intacto — el payload lo arrastra sin cambios, porque lo leen las políticas RLS legacy.
-const isSuggestableRole = (roleKey: string) => roleKey !== "admin";
+// `admin` se excluye vía isSuggestableRoleKey (regla compartida con StaffForm y reforzada
+// por un CHECK en la columna). `default_app_role` se conserva intacto — el payload lo
+// arrastra sin cambios, porque lo leen las políticas RLS legacy.
 
 // Factory function (no un objeto módulo-level): las 4 tarifas necesitan t() para traducir su
 // mensaje de error (hallazgo de review de PR #310 — FormMessage muestra `error.message` tal
@@ -121,9 +121,9 @@ export function CategoryForm({ open, onOpenChange, category, serviceId, lockServ
   );
 
   // 0820-182: catálogo de roles asignables. El hook ya filtra is_active y ordena por
-  // display_order; acá solo se quita `admin` (ver isSuggestableRole).
+  // display_order; acá solo se quita `admin` (ver isSuggestableRoleKey).
   const { data: catalogRoles } = useAuthorizationRoles();
-  const suggestableRoles = (catalogRoles ?? []).filter((r) => isSuggestableRole(r.role_key));
+  const suggestableRoles = (catalogRoles ?? []).filter((r) => isSuggestableRoleKey(r.role_key));
 
   // El catálogo trae su propia label_key ("authz.role.*"). Se cae a las claves del enum
   // legacy y al role_key crudo, igual que UserRolesManager.getRoleLabel.
