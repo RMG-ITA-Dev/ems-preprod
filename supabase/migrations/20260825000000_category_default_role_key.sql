@@ -168,7 +168,19 @@ CREATE FUNCTION public.update_category_for_practice(
   p_can_approve_wo boolean,
   p_can_approve_timesheets boolean,
   p_default_app_role public.app_role,
-  p_default_role_key text DEFAULT NULL::text
+  -- SIN DEFAULT, a diferencia de la función de creación. Acá el parámetro es
+  -- obligatorio como los otros diez: el contrato de esta RPC es de REEMPLAZO TOTAL
+  -- (ni `p_default_app_role` tiene default).
+  --
+  -- Si tuviera `DEFAULT NULL`, un bundle viejo de navegador —abierto desde antes del
+  -- deploy— seguiría mandando las 10 claves previas: PostgREST resolvería igual esta
+  -- función, Postgres aplicaría el default y editar cualquier tarifa BORRARÍA la
+  -- sugerencia de rol en silencio. Sin default, esa llamada falla ruidosamente con
+  -- PGRST202 y el usuario recarga. Fallar fuerte es preferible a perder datos callado.
+  --
+  -- Tampoco se usa COALESCE(p_default_role_key, default_role_key) para "preservar":
+  -- eso haría imposible volver a "Ninguno", que es una elección legítima.
+  p_default_role_key text
 ) RETURNS public.categories
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'

@@ -198,12 +198,31 @@ describe("categories.default_role_key (0820-182)", () => {
       const start = defaultRoleKeySql.indexOf(`CREATE FUNCTION public.${name}(`);
       const end = defaultRoleKeySql.indexOf("\n$$;", start);
       const body = defaultRoleKeySql.slice(start, end);
-      expect(body).toContain("p_default_role_key text DEFAULT NULL::text");
+      expect(body).toContain("p_default_role_key text");
       expect(body).toContain("default_role_key");
       // El cuerpo se copió a mano desde cero_02: el riesgo real es perder el gate.
       expect(body).toContain("IF NOT public.is_admin() THEN");
     },
   );
+
+  it("only the create RPC defaults p_default_role_key; update requires it", () => {
+    // Asimetría deliberada. En update el contrato es de REEMPLAZO TOTAL (ningún otro
+    // parámetro tiene default, tampoco `p_default_app_role`). Con `DEFAULT NULL`, un
+    // bundle viejo que siguiera mandando las 10 claves previas resolvería igual esta
+    // función y borraría la sugerencia de rol en silencio al editar cualquier tarifa;
+    // sin default, esa llamada falla ruidosamente con PGRST202.
+    const signature = (name: string) => {
+      const start = defaultRoleKeySql.indexOf(`CREATE FUNCTION public.${name}(`);
+      return defaultRoleKeySql.slice(start, defaultRoleKeySql.indexOf(") RETURNS", start));
+    };
+
+    expect(signature("create_category_for_practice")).toContain(
+      "p_default_role_key text DEFAULT NULL::text",
+    );
+    expect(signature("update_category_for_practice")).not.toContain(
+      "p_default_role_key text DEFAULT",
+    );
+  });
 
   it("create_category_for_practice still enforces practicas.allows_rates_activities", () => {
     const start = defaultRoleKeySql.indexOf("CREATE FUNCTION public.create_category_for_practice(");

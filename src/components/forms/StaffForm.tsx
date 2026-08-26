@@ -1314,7 +1314,17 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
       </Dialog>
 
       {/* Role Sync Dialog (BUG 0820-182) — la categoría propone, el admin decide */}
-      <Dialog open={showSyncDialog} onOpenChange={(open) => !open && onSkipSync()}>
+      {/* El guard de isPending es el mismo patrón que el diálogo de desbloqueo de abajo:
+          una vez confirmado, la mutación no se puede cancelar, así que permitir Escape /
+          click afuera / Omitir dispararía finishSave() una segunda vez (doble
+          onSaveSuccess o doble navigate) y desmontaría el formulario con el request en
+          vuelo. */}
+      <Dialog
+        open={showSyncDialog}
+        onOpenChange={(open) => {
+          if (!open && !updateRoleKeyMutation.isPending) onSkipSync();
+        }}
+      >
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -1328,7 +1338,11 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="flex-col sm:flex-row gap-2">
-            <Button variant="cancel" onClick={onSkipSync}>
+            <Button
+              variant="cancel"
+              onClick={onSkipSync}
+              disabled={updateRoleKeyMutation.isPending}
+            >
               {t("staff.syncRoleSkip")}
             </Button>
             <LoadingButton onClick={onConfirmSync} loading={updateRoleKeyMutation.isPending}>

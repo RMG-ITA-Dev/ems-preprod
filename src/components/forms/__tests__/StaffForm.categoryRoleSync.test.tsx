@@ -101,8 +101,16 @@ vi.mock("@/hooks/mutations", () => ({
   useDeleteStaffCompetency: () => ({ mutateAsync: deleteCompetencyMutateAsync, isPending: false }),
 }));
 
+// isPending controlable: los tests del guard necesitan el diálogo abierto con la mutación
+// "en vuelo" sin depender de timing real.
+let roleKeyPending = false;
 vi.mock("@/hooks/useUserRoles", () => ({
-  useUpdateUserRoleKey: () => ({ mutateAsync: updateRoleKeyMutateAsync, isPending: false }),
+  useUpdateUserRoleKey: () => ({
+    mutateAsync: updateRoleKeyMutateAsync,
+    get isPending() {
+      return roleKeyPending;
+    },
+  }),
 }));
 
 // Gate de permiso controlable por test: /staff/:id solo exige staff.read, así que un rol
@@ -165,8 +173,25 @@ vi.mock("@/components/ui/switch", () => ({
 }));
 
 vi.mock("@/components/ui/dialog", () => ({
-  Dialog: ({ open, children }: { open?: boolean; children?: React.ReactNode }) =>
-    open ? <>{children}</> : null,
+  // Se expone un botón que llama a onOpenChange(false): es el equivalente testeable de
+  // Escape / click afuera, que es justo el camino que el guard de isPending debe cortar.
+  Dialog: ({
+    open,
+    onOpenChange,
+    children,
+  }: {
+    open?: boolean;
+    onOpenChange?: (open: boolean) => void;
+    children?: React.ReactNode;
+  }) =>
+    open ? (
+      <>
+        <button type="button" data-testid="dialog-dismiss" onClick={() => onOpenChange?.(false)}>
+          dismiss
+        </button>
+        {children}
+      </>
+    ) : null,
   DialogContent: ({ children }: { children?: React.ReactNode }) => <div role="dialog">{children}</div>,
   DialogHeader: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
   DialogTitle: ({ children }: { children?: React.ReactNode }) => <h2>{children}</h2>,
@@ -210,6 +235,7 @@ let currentRoleKey: string | null = "assistant";
 beforeEach(() => {
   vi.clearAllMocks();
   canUpdateRoles = true;
+  roleKeyPending = false;
   currentRoleKey = "assistant";
   updateStaffMutateAsync.mockResolvedValue({});
   createCompetencyMutateAsync.mockResolvedValue({});
@@ -404,6 +430,38 @@ describe("StaffForm — sync categoría→rol (0820-182)", () => {
     await waitFor(() => expect(onSaveSuccess).toHaveBeenCalled());
     expect(screen.queryByText("staff.syncRoleTitle")).toBeNull();
     expect(updateRoleKeyMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("Test 11: descartar el diálogo (Escape/click afuera) equivale a omitir", async () => {
+    const user = userEvent.setup();
+    renderForm();
+
+    await changeCategoryAndSave(user, "cat-gerente");
+    await user.click(await screen.findByTestId("dialog-dismiss"));
+
+    expect(updateRoleKeyMutateAsync).not.toHaveBeenCalled();
+    await waitFor(() => expect(onSaveSuccess).toHaveBeenCalledTimes(1));
+  });
+
+  it("Test 12: con la mutación en vuelo, no se puede descartar ni omitir", async () => {
+    // Una vez confirmado, la mutación no se puede cancelar. Sin este guard, Escape /
+    // Omitir llamarían finishSave() y después el confirm lo llamaría OTRA vez al
+    // resolver: doble onSaveSuccess, y el formulario desmontado con el request en vuelo.
+    roleKeyPending = true;
+    const user = userEvent.setup();
+    renderForm();
+
+    await changeCategoryAndSave(user, "cat-gerente");
+    expect(await screen.findByText("staff.syncRoleTitle")).toBeTruthy();
+
+    // Omitir está deshabilitado...
+    const skip = screen.getByText("staff.syncRoleSkip").closest("button");
+    expect(skip).toBeDisabled();
+
+    // ...y descartar no hace nada: el diálogo sigue abierto y no se completó el guardado.
+    await user.click(screen.getByTestId("dialog-dismiss"));
+    expect(screen.queryByText("staff.syncRoleTitle")).toBeTruthy();
+    expect(onSaveSuccess).not.toHaveBeenCalled();
   });
 
   it("Test 10: si falla el guardado de competencias, corta ANTES del diálogo", async () => {
