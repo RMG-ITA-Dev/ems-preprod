@@ -252,8 +252,6 @@ interface EngagementFormProps {
   onGoToWorkMatrix?: (engagementId?: string) => void;
 }
 
-const AUDITORIA_SERVICE_CODE = 1;
-
 export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSuccess, onGoToWorkMatrix }: EngagementFormProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -268,11 +266,18 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   // (0722-157); el estado "Congelado" ahora solo lo fija el Admin.
   const { can, roleKey, isLoading: roleLoading } = useAuthorization();
   const isAdmin = roleKey === "admin";
+  // BUG 0817-180: Super Admin (role_key admin) y Senior Partner eligen sociedad/practica/oficina
+  // libres al crear; el resto queda clasificado por su ficha. Espejo exacto del trigger de BD
+  // `enforce_engagement_profile_scope` — si se toca uno, tocar el otro.
+  const canChooseProfileScopeFreely = roleKey === "admin" || roleKey === "senior_partner";
   const isEdit = !!engagement;
   // Al editar, el guardado exige engagement.update; al crear, la ruta ya gatea engagement.create.
   const canSave = !isEdit || can("engagement.update");
   // BUG #0604-143: closing date (and the FY it derives) may be edited by Admin/Gerente/Socio/Director;
   // oficina/practica/funcion/engagement_code remain fully immutable after create.
+  // BUG 0817-180: sociedad se suma a la lista de campos con edición restringida tras la creación
+  // (solo Admin, ver el Select de society_id más abajo) — oficina/práctica siguen sin excepción
+  // de rol, ahora también reforzado por el trigger de BD `enforce_engagement_profile_scope`.
   // Editar la fecha de cierre es parte de editar el encargo, así que se decide por
   // el mismo permiso que habilita el guardado (`canSave`, más abajo). Antes era una
   // banda del enum legacy (admin||manager||partner||director), que habilitaba el
@@ -297,7 +302,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       savedEffectiveState === EngagementState.Congelado);
 
   const { data: clients } = useClients();
-  const { data: allServices } = useServices();
+  const { data: allServices, isLoading: servicesLoading } = useServices();
   const { data: allTaxonomies } = useTaxonomies();
   const { data: societies } = useSocieties();
   // BUG 0722-162: los seis selectores del bloque Equipo se alimentan de `role_key`, no de la
@@ -313,6 +318,46 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     isError: teamCandidatesError,
   } = useEngagementTeamCandidates();
   const { staffRecord, isLoading: currentStaffLoading } = useCurrentStaff();
+
+  // ── BUG 0817-180: sociedad/práctica/oficina derivadas de la ficha del creador restringido ────
+  //
+  // Espejo de `enforce_engagement_profile_scope` en BD: para todo role_key distinto de
+  // admin/senior_partner, estos tres campos NO son una elección — se derivan de
+  // staff.society_id/practica_id/city, tal cual estén (incluida una práctica Firmwide si así
+  // está la ficha, decisión del operador OQ5). `undefined` cuando la ficha o el catálogo no
+  // resuelven (fail-closed): nunca se inventa un valor.
+  const derivedSocietyId = staffRecord?.society_id ?? undefined;
+  const derivedOficina = useMemo<number | undefined>(() => {
+    if (staffRecord?.city === "La Paz") return 1;
+    if (staffRecord?.city === "Santa Cruz") return 2;
+    return undefined;
+  }, [staffRecord?.city]);
+  const derivedPractica = useMemo<number | undefined>(
+    () =>
+      (allServices ?? []).find(
+        (s) => s.practica_id === staffRecord?.practica_id && s.is_active
+      )?.code,
+    [allServices, staffRecord?.practica_id]
+  );
+  // Ventana de carga propia de la tríada (distinta de `classificationPending` de más abajo, que
+  // gobierna el bloque Equipo): además del rol/ficha, `derivedPractica` depende del catálogo de
+  // servicios — sin esperarlo, un catálogo aún cargando se leería como "práctica no resoluble" y
+  // bloquearía a un creador con ficha completa.
+  const profileLoading = !isEdit && !canChooseProfileScopeFreely && (roleLoading || currentStaffLoading || servicesLoading);
+  const missingProfileFields: string[] = [];
+  if (!isEdit && !canChooseProfileScopeFreely && !profileLoading) {
+    if (!staffRecord?.staff_id) {
+      missingProfileFields.push(t("engagement.profileMissingStaff"));
+    } else {
+      if (derivedSocietyId == null) missingProfileFields.push(t("engagement.society"));
+      if (derivedOficina == null) missingProfileFields.push(t("engagement.oficina"));
+      if (derivedPractica == null) missingProfileFields.push(t("engagement.practica"));
+    }
+  }
+  // Fail-closed: durante la carga tampoco se permite enviar, aunque todavía no se afirme qué
+  // falta (evita el Alert parpadeando falso mientras el catálogo/ficha resuelven).
+  const profileBlocksCreation =
+    !isEdit && !canChooseProfileScopeFreely && (profileLoading || missingProfileFields.length > 0);
 
   // ── BUG 0810-172: autoasignación y bloqueo del Socio/Director o Gerente en CREACIÓN ─────────
   //
@@ -349,7 +394,9 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     [allServices, engagement?.practica]
   );
 
-  const serviceSelectDisabled = isEdit || roleLoading || !isAdmin;
+  // BUG 0817-180: en creación, práctica queda libre solo para admin/senior_partner (espejo del
+  // guard de BD); en edición sigue inmutable para todos (sin cambios).
+  const serviceSelectDisabled = isEdit || !canChooseProfileScopeFreely;
 
   const activeTaxonomyOptions = useMemo(
     () =>
@@ -472,12 +519,29 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   // Destructure isDirty before effects that depend on it
   const { isDirty } = form.formState;
 
-  // 0625-148: auto-assign Auditoría (code=1) for non-admin users in create mode
+  // BUG 0817-180 (reemplaza 0625-148): siembra sociedad/práctica/oficina desde la ficha del
+  // creador restringido — nunca antes de que rol, ficha y catálogo de servicios resuelvan, para
+  // no pisar una elección válida en plena carrera de carga. `shouldDirty: false`: es clasificación
+  // del sistema, no una edición del usuario.
   useEffect(() => {
-    if (isEdit || isAdmin || roleLoading || !allServices) return;
-    if (form.getValues("practica") === AUDITORIA_SERVICE_CODE) return;
-    form.setValue("practica", AUDITORIA_SERVICE_CODE, { shouldDirty: false, shouldValidate: true });
-  }, [isAdmin, roleLoading, isEdit, allServices, form]);
+    if (isEdit || canChooseProfileScopeFreely || profileLoading) return;
+    // shouldValidate se omite a propósito: oficina/practica/society_id son `.optional()` a nivel
+    // Zod (lo obligatorio se revisa a mano en onSubmit vía form.setError, como el resto de la
+    // tríada), y disparar el resolver acá solo agregaba una vuelta de validación asíncrona
+    // innecesaria — que además reabría una ventana donde `isDirty` se recalculaba ignorando
+    // `shouldDirty: false` (ver EngagementForm.selfAssignment.test.tsx, "la siembra no marca el
+    // formulario como sucio"). Mismo criterio que el efecto de año fiscal derivado (más abajo,
+    // `shouldValidate: false`).
+    if (derivedSocietyId !== undefined && form.getValues("society_id") !== derivedSocietyId) {
+      form.setValue("society_id", derivedSocietyId, { shouldDirty: false, shouldValidate: false });
+    }
+    if (derivedPractica !== undefined && form.getValues("practica") !== derivedPractica) {
+      form.setValue("practica", derivedPractica, { shouldDirty: false, shouldValidate: false });
+    }
+    if (derivedOficina !== undefined && form.getValues("oficina") !== derivedOficina) {
+      form.setValue("oficina", derivedOficina, { shouldDirty: false, shouldValidate: false });
+    }
+  }, [isEdit, canChooseProfileScopeFreely, profileLoading, derivedSocietyId, derivedPractica, derivedOficina, form]);
 
   useEffect(() => {
     if (
@@ -1130,11 +1194,11 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     form.reset({
       engagement_name: "",
       anio_fiscal: suggestFiscalYear(),
-      oficina: undefined,
-      practica: isAdmin ? undefined : AUDITORIA_SERVICE_CODE,
+      oficina: canChooseProfileScopeFreely ? undefined : derivedOficina,
+      practica: canChooseProfileScopeFreely ? undefined : derivedPractica,
       funcion: undefined,
       taxonomy_id: undefined,
-      society_id: undefined,
+      society_id: canChooseProfileScopeFreely ? undefined : derivedSocietyId,
       client_id: "",
       partner_id: "",
       manager_id: "",
@@ -1222,6 +1286,17 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
             {t("messages.missingTeamRoles", { roles: missingTeamRoles.join(", ") })}
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* BUG 0817-180: perfil incompleto para el creador restringido — fail-closed, con el
+          detalle de qué falta en su ficha de personal. */}
+      {missingProfileFields.length > 0 && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            {t("messages.profileIncompleteForEngagement", { fields: missingProfileFields.join(", ") })}
           </AlertDescription>
         </Alert>
       )}
@@ -1352,7 +1427,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                   <FormItem>
                     <FormLabel>{t("engagement.society")} <span className="text-destructive">*</span></FormLabel>
                     <Select
-                      disabled={isEdit && !isAdmin}
+                      disabled={isEdit ? !isAdmin : !canChooseProfileScopeFreely}
                       onValueChange={field.onChange}
                       value={field.value ?? ""}
                     >
@@ -1365,6 +1440,11 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                         ))}
                       </SelectContent>
                     </Select>
+                    {/* BUG 0817-180: el creador restringido ve estos tres campos pre-llenados
+                        y bloqueados — la elección libre es solo de admin/senior_partner. */}
+                    {!isEdit && !canChooseProfileScopeFreely && (
+                      <p className="text-xs text-muted-foreground">{t("engagement.profileScopeHint")}</p>
+                    )}
                     <FormMessage />
                   </FormItem>
                 )} />
@@ -1679,7 +1759,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                   <FormItem>
                     <FormLabel>{t("engagement.oficina")} <span className="text-destructive">*</span></FormLabel>
                     <Select
-                      disabled={isEdit}
+                      disabled={isEdit || !canChooseProfileScopeFreely}
                       onValueChange={(v) => field.onChange(Number(v))}
                       value={field.value != null ? String(field.value) : ""}
                     >
@@ -1690,6 +1770,9 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                         <SelectItem value="2">{t("engagement.oficina_santaCruz")}</SelectItem>
                       </SelectContent>
                     </Select>
+                    {!isEdit && !canChooseProfileScopeFreely && (
+                      <p className="text-xs text-muted-foreground">{t("engagement.profileScopeHint")}</p>
+                    )}
                     <FormMessage />
                   </FormItem>
                 )} />
@@ -1711,6 +1794,9 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                         ))}
                       </SelectContent>
                     </Select>
+                    {!isEdit && !canChooseProfileScopeFreely && (
+                      <p className="text-xs text-muted-foreground">{t("engagement.profileScopeHint")}</p>
+                    )}
                     <FormMessage />
                   </FormItem>
                 )} />
@@ -1949,7 +2035,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                   variant="default"
                   className="w-full sm:w-auto min-h-[44px] sm:min-h-0"
                   loading={createMutation.isPending || updateMutation.isPending}
-                  disabled={teamBlocksCreation && !isEdit}
+                  disabled={(teamBlocksCreation && !isEdit) || profileBlocksCreation}
                 >
                   {isEdit ? t("common.saveChanges") : t("engagement.createEngagement")}
                 </LoadingButton>

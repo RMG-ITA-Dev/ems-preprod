@@ -59,12 +59,20 @@ const mockServices = [
 
 const stableClients = [{ client_id: "c1", client_legal_name: "Acme Corp", is_active: true }];
 const stableEmpty: never[] = [];
+// BUG 0817-180: debe existir una entrada para "soc-1" (el society_id de mockStaffRecord más
+// abajo). Verificado empíricamente: con `useSocieties` vacío, el Select de Sociedad no tiene
+// ningún <SelectItem> que coincida con el valor sembrado por la ficha, y el formulario queda
+// `isDirty: true` (dirtyFields: { society_id: true }) pese al `shouldDirty: false` de la
+// siembra — no reproducible en aislamiento con un <input> nativo, así que parece un efecto de
+// reconciliación específico de Radix Select con un `value` sin opción correspondiente. Con la
+// opción presente (como acá) no ocurre.
+const mockSocieties = [{ society_id: "soc-1", name: "Sociedad Uno", is_active: true, created_at: "" }];
 
 vi.mock("@/hooks/useEmsData", () => ({
   useClients: () => ({ data: stableClients }),
   useServices: () => ({ data: mockServices }),
   useTaxonomies: () => ({ data: stableEmpty }),
-  useSocieties: () => ({ data: stableEmpty }),
+  useSocieties: () => ({ data: mockSocieties }),
   useEngagementAssignments: () => ({ data: stableEmpty, isLoading: false, isError: false }),
   useEngagementAggregatedRequirements: () => ({ data: stableEmpty }),
   useActiveStaffWithSkills: () => ({ data: stableEmpty }),
@@ -72,7 +80,13 @@ vi.mock("@/hooks/useEmsData", () => ({
 }));
 
 // ── Identidad del usuario actual (mutable) ─────────────────────────────────────────────────────
-let mockStaffRecord: { staff_id: string; first_name: string; last_name: string } | null = null;
+// BUG 0817-180: society_id/practica_id/city completos por default — esta suite ejercita
+// autoasignación/bloqueo de equipo (0810-172), no el guard de perfil (0817-180); sin un perfil
+// completo, `profileBlocksCreation` deshabilitaría el botón Crear en tests que no lo esperan.
+// society_id es arbitrario (el front no lo valida contra el catálogo); practica_id = SVC_AUDIT
+// (code 1 en mockServices) y city = "La Paz" resuelven práctica=1 / oficina=1.
+type MockStaffRecord = { staff_id: string; first_name: string; last_name: string; society_id: string; practica_id: string; city: string };
+let mockStaffRecord: MockStaffRecord | null = null;
 let mockStaffLoading = false;
 vi.mock("@/hooks/useCurrentStaff", () => ({
   useCurrentStaff: () => ({ staffRecord: mockStaffRecord, isLoading: mockStaffLoading }),
@@ -193,7 +207,7 @@ describe("EngagementForm — autoasignación y bloqueo del creador (0810-172)", 
     vi.clearAllMocks();
     mockRoleKey = "manager";
     mockRoleLoading = false;
-    mockStaffRecord = { staff_id: GERENTE.value, first_name: "Gala", last_name: "Gerente" };
+    mockStaffRecord = { staff_id: GERENTE.value, first_name: "Gala", last_name: "Gerente", society_id: "soc-1", practica_id: SVC_AUDIT, city: "La Paz" };
     mockStaffLoading = false;
     resetCandidates();
   });
@@ -226,7 +240,7 @@ describe("EngagementForm — autoasignación y bloqueo del creador (0810-172)", 
 
   it("Socio: se autoasigna en Socio/Director y Gerente sigue libre", async () => {
     mockRoleKey = "partner";
-    mockStaffRecord = { staff_id: SOCIO.value, first_name: "Sonia", last_name: "Socia" };
+    mockStaffRecord = { staff_id: SOCIO.value, first_name: "Sonia", last_name: "Socia", society_id: "soc-1", practica_id: SVC_AUDIT, city: "La Paz" };
     render(<EngagementForm />);
 
     await waitFor(() => expect(getTriggerByText(SOCIO.label)).toBeInTheDocument());
@@ -236,7 +250,7 @@ describe("EngagementForm — autoasignación y bloqueo del creador (0810-172)", 
 
   it("Director: se autoasigna en Socio/Director (decisión del operador 2026-08-17)", async () => {
     mockRoleKey = "director";
-    mockStaffRecord = { staff_id: DIRECTOR.value, first_name: "Dario", last_name: "Director" };
+    mockStaffRecord = { staff_id: DIRECTOR.value, first_name: "Dario", last_name: "Director", society_id: "soc-1", practica_id: SVC_AUDIT, city: "La Paz" };
     render(<EngagementForm />);
 
     await waitFor(() => expect(getTriggerByText(DIRECTOR.label)).toBeInTheDocument());
@@ -299,7 +313,7 @@ describe("EngagementForm — autoasignación y bloqueo del creador (0810-172)", 
     expect(getTriggerByText("engagement.selectManager")).not.toBeDisabled();
   });
 
-  it("sin staff vinculado no autoasigna ni bloquea (protege a los tests hermanos)", async () => {
+  it("sin staff vinculado no autoasigna ni bloquea el campo de equipo (protege a los tests hermanos), pero BUG 0817-180 bloquea la creación por perfil incompleto", async () => {
     mockStaffRecord = null;
     render(<EngagementForm />);
 
@@ -308,6 +322,9 @@ describe("EngagementForm — autoasignación y bloqueo del creador (0810-172)", 
     });
     expect(getTriggerByText("engagement.selectManager")).not.toBeDisabled();
     expect(screen.queryByText("engagement.selfAssignedLocked")).toBeNull();
+    // BUG 0817-180: sin ficha de personal, sociedad/práctica/oficina no tienen de dónde
+    // derivarse — fail-closed, independiente del bloque Equipo que este test ejercita.
+    expect(screen.getByText("engagement.createEngagement").closest("button")).toBeDisabled();
   });
 
   // ── #8: ventana de clasificación ──────────────────────────────────────────────────────────
@@ -428,7 +445,7 @@ describe("EngagementForm — autoasignación y bloqueo del creador (0810-172)", 
   // ── #13: los otros cuatro campos no se tocan ──────────────────────────────────────────────
   it("SQR no se bloquea aunque comparta el grupo de candidatura con Socio/Director", async () => {
     mockRoleKey = "partner";
-    mockStaffRecord = { staff_id: SOCIO.value, first_name: "Sonia", last_name: "Socia" };
+    mockStaffRecord = { staff_id: SOCIO.value, first_name: "Sonia", last_name: "Socia", society_id: "soc-1", practica_id: SVC_AUDIT, city: "La Paz" };
     render(<EngagementForm />);
 
     await waitFor(() => expect(getTriggerByText(SOCIO.label)).toBeInTheDocument());

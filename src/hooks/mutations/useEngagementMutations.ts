@@ -91,6 +91,9 @@ export function useUpdateEngagement() {
         client_id: string;
         // FEAT 0722-157: solo el Admin puede editar la Sociedad tras la creación — el
         // gate está en EngagementForm.tsx (society_id se omite del payload para no-admin).
+        // BUG 0817-180: reforzado en BD por el trigger `enforce_engagement_profile_scope`
+        // (society_id admin-only en UPDATE; oficina/practica inmutables para todos, sin
+        // excepción de rol — no cambia este payload, que ya los omitía).
         society_id: string;
         partner_id: string;
         manager_id: string;

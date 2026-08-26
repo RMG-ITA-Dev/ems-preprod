@@ -91,6 +91,7 @@ run supabase/migrations/20251204000003_cero_03_constraints_indexes.sql
 run supabase/migrations/20251204000004_cero_04_triggers_fks.sql
 run supabase/migrations/20251204000005_cero_05_rls_policies.sql
 run supabase/migrations/20251204000006_cero_06_grants.sql
+run supabase/migrations/20260826162100_0817-180_enforce_engagement_profile_scope.sql
 
 # Catálogo RBAC (authorization_roles/permissions/role_permissions): dato real de producción,
 # copiado verbatim de la migración histórica 20260724010000_authz_fase2_seed.sql (23 roles/84
@@ -137,5 +138,6 @@ assert_suite supabase/tests/rpc-save-engagement-assignments.sql 'SAVE_ENGAGEMENT
 assert_suite supabase/tests/rpc-save-wo-staffing.sql 'SAVE_WO_STAFFING RPC: ALL CHECKS PASSED'
 assert_suite supabase/tests/schema-convergence-assertions.sql 'SCHEMA CONVERGENCE: ALL CHECKS PASSED'
 assert_suite supabase/tests/trigger-engagement-creator-team.sql 'TRIGGER ENGAGEMENT CREATOR TEAM: ALL CHECKS PASSED'
+assert_suite supabase/tests/trigger-engagement-profile-scope.sql 'PROFILE SCOPE: ALL CHECKS PASSED'
 
-echo "OK: set consolidado (cero_01..cero_06) aplicado sobre base scratch; las 8 suites de RLS/RPC/schema-convergence/trigger pasaron"
+echo "OK: set consolidado (cero_01..cero_06) + migracion 0817-180 aplicados sobre base scratch; las 9 suites de RLS/RPC/schema-convergence/trigger pasaron"

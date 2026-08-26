@@ -86,9 +86,11 @@ vi.mock("@/hooks/useEmsData", () => ({
 
 // BUG #0625-151 added useCurrentStaff (→ useAuth) to EngagementForm; mock it so the
 // component doesn't require a real AuthProvider.
-vi.mock("@/hooks/useCurrentStaff", () => ({
-  useCurrentStaff: () => ({ staffRecord: null }),
-}));
+// BUG 0817-180: controllable (vi.fn(), like useUserRole below) — defaults to a complete
+// profile (society_id="soc-1" Ruizmier Pelaez, practica_id="s1" Auditoría code=1, city="La
+// Paz" -> oficina 1) so the non-admin "0625-148" suite exercises a creator whose ficha
+// resolves cleanly, matching what those tests already assumed as the auto-filled practica.
+vi.mock("@/hooks/useCurrentStaff", () => ({ useCurrentStaff: vi.fn() }));
 
 // BUG #0625-151: creating a client (non-internal) engagement uploads a scanned contract via
 // Supabase Storage before submit. Stub Storage so the upload resolves in tests.
@@ -160,10 +162,6 @@ vi.mock("@/hooks/useAuthorization", async () => {
   };
 });
 
-vi.mock("@/hooks/useCurrentStaff", () => ({
-  useCurrentStaff: () => ({ staffRecord: null }),
-}));
-
 // 0625-151: creating a non-internal engagement now requires an uploaded contract file.
 const mockContractUpload = vi.fn().mockResolvedValue({ data: { path: "contracts/1-abc.pdf" }, error: null });
 vi.mock("@/integrations/supabase/client", () => ({
@@ -216,8 +214,16 @@ vi.mock("@/components/forms/EngagementCreatedDialog", () => ({
 }));
 
 import { useUserRole } from "@/hooks/useUserRole";
+import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { EngagementForm } from "@/components/forms/EngagementForm";
 import type { Engagement } from "@/hooks/useEmsData";
+
+const completeStaffRecord = {
+  staff_id: "staff-self",
+  society_id: "soc-1",
+  practica_id: "s1",
+  city: "La Paz",
+};
 
 // Edit-mode engagement whose service (code=0) is now inactive
 const mockEngagementInactiveService: Engagement = {
@@ -247,6 +253,7 @@ describe("EngagementForm — catalog-driven practica (0625-149)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(useUserRole).mockReturnValue({ isAdmin: false, isLoading: false } as any);
+    vi.mocked(useCurrentStaff).mockReturnValue({ staffRecord: completeStaffRecord } as any);
   });
 
   it("renders the practica select label in create mode", () => {
@@ -313,6 +320,9 @@ describe("0625-148 — role-based service restriction", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(useUserRole).mockReturnValue({ isAdmin: false, isLoading: false } as any);
+    // BUG 0817-180: sociedad/practica/oficina de un creador no-admin ahora se derivan de su
+    // ficha (ya no hay elección libre ni el default fijo de Auditoría de 0625-148).
+    vi.mocked(useCurrentStaff).mockReturnValue({ staffRecord: completeStaffRecord } as any);
   });
 
   it("non-admin: practica select is visible but disabled", async () => {
@@ -331,29 +341,29 @@ describe("0625-148 — role-based service restriction", () => {
     });
   });
 
-  // Review 1: fill oficina + funcion, then assert preview text pins practica digit to 1
-  it("non-admin: code preview uses digit 1 for practica once other fields filled", async () => {
+  // Review 1 (actualizado por BUG 0817-180): oficina ya no es de elección libre para un
+  // creador no-admin — se deriva de staff.city ("La Paz" -> 1), igual que practica. Solo
+  // funcion sigue siendo un select libre (fuera del alcance de 0817-180).
+  it("non-admin: code preview uses digit 1 for practica and oficina (from the staff record) once funcion is filled", async () => {
     const user = userEvent.setup();
     render(<EngagementForm />);
 
-    // Wait for practica auto-assignment (code=1 → "Auditoría")
+    // Wait for practica/oficina auto-assignment from the staff record (code=1 "Auditoría" /
+    // city "La Paz" -> oficina 1).
     const practica = screen.getByLabelText(/engagement\.practica/);
     await waitFor(() => expect(practica).toHaveTextContent("Auditoría"));
-
-    // Select oficina = Ambos (value 0)
     const oficina = screen.getByLabelText(/engagement\.oficina/);
-    await user.click(oficina);
-    await waitFor(() => screen.getByRole("option", { name: "engagement.oficina_ambos" }));
-    await user.click(screen.getByRole("option", { name: "engagement.oficina_ambos" }));
+    await waitFor(() => expect(oficina).toBeDisabled());
+    expect(oficina).toHaveTextContent("engagement.oficina_laPaz");
 
-    // Select funcion = funcion_cli (value 1)
+    // Select funcion = funcion_cli (value 1) — still a free choice for everyone.
     const funcion = screen.getByLabelText(/engagement\.funcion/);
     await user.click(funcion);
     await waitFor(() => screen.getByRole("option", { name: "engagement.funcion_cli" }));
     await user.click(screen.getByRole("option", { name: "engagement.funcion_cli" }));
 
     // 0604-143: the preview also requires a closing date; pick whichever option comes first.
-    // anio_fiscal is auto-defaulted; oficina=0, practica=1, funcion=1 → "YYYY.011.---"
+    // anio_fiscal is auto-defaulted; oficina=1, practica=1, funcion=1 → "YYYY.111.---"
     const closingDate = screen.getByRole("combobox", { name: "engagement.closingDate *" });
     await user.click(closingDate);
     await waitFor(() => expect(screen.getAllByRole("option").length).toBeGreaterThan(0));
@@ -361,7 +371,7 @@ describe("0625-148 — role-based service restriction", () => {
 
     const preview = screen.getByTestId("engagement-code-preview");
     await waitFor(() => {
-      expect(preview).toHaveTextContent(/\d{4}\.011\.---/);
+      expect(preview).toHaveTextContent(/\d{4}\.111\.---/);
     });
   });
 
@@ -377,7 +387,7 @@ describe("0625-148 — role-based service restriction", () => {
   // Review 2: wire create mutation, submit a valid form, click "crear otro", assert reset state
   // Extended timeout: drives many sequential Selects (client/partner/manager/oficina/funcion/
   // closingDate) plus the create-and-reset round trip, which is slow with real timers.
-  it("non-admin 'crear otro': after reset, practica shows Auditoría and select is disabled", async () => {
+  it("non-admin 'crear otro': after reset, practica/oficina/sociedad are re-seeded from the ficha and disabled", async () => {
     const user = userEvent.setup();
     mockCreateMutateAsync.mockResolvedValue({ engagement_code: "2026.011.001" });
 
@@ -412,23 +422,16 @@ describe("0625-148 — role-based service restriction", () => {
     fireEvent.change(calendars[0], { target: { value: "2026-10-01" } });
     fireEvent.change(calendars[1], { target: { value: "2027-09-30" } });
 
-    // Select oficina (Ambos = 0)
-    const oficina = screen.getByLabelText(/engagement\.oficina/);
-    await user.click(oficina);
-    await waitFor(() => screen.getByRole("option", { name: "engagement.oficina_ambos" }));
-    await user.click(screen.getByRole("option", { name: "engagement.oficina_ambos" }));
+    // BUG 0817-180: oficina y sociedad ya no son de elección libre para un no-admin — vienen
+    // pre-llenadas y deshabilitadas desde la ficha (oficina "La Paz" -> 1, soc-1).
+    await waitFor(() => expect(screen.getByLabelText(/engagement\.oficina/)).toBeDisabled());
+    await waitFor(() => expect(screen.getByLabelText(/engagement\.society/)).toHaveTextContent("Ruizmier Pelaez S.R.L."));
 
     // Select funcion (funcion_adm = 0 — avoids the Cliente-only taxonomy requirement below)
     const funcion = screen.getByLabelText(/engagement\.funcion/);
     await user.click(funcion);
     await waitFor(() => screen.getByRole("option", { name: "engagement.funcion_adm" }));
     await user.click(screen.getByRole("option", { name: "engagement.funcion_adm" }));
-
-    // FEAT 0714-155: Sociedad is required on create, mirroring oficina/practica/funcion.
-    const society = screen.getByLabelText(/engagement\.society/);
-    await user.click(society);
-    await waitFor(() => screen.getByRole("option", { name: "Ruizmier Pelaez S.R.L." }));
-    await user.click(screen.getByRole("option", { name: "Ruizmier Pelaez S.R.L." }));
 
     // 0604-143: closing date is required before the form can be submitted.
     const closingDate = screen.getByRole("combobox", { name: "engagement.closingDate *" });
@@ -449,7 +452,7 @@ describe("0625-148 — role-based service restriction", () => {
       expect(screen.getByText("engagement.createAnother")).toBeInTheDocument();
     });
 
-    // handleCreateAnother: resets form with practica = AUDITORIA_SERVICE_CODE (1)
+    // handleCreateAnother: resets form, then re-seeds practica/oficina/sociedad from the ficha
     await user.click(screen.getByText("engagement.createAnother"));
 
     const practica = screen.getByLabelText(/engagement\.practica/);
@@ -458,8 +461,11 @@ describe("0625-148 — role-based service restriction", () => {
       expect(practica).toBeDisabled();
     });
 
-    // FEAT 0714-155: "crear otro" must not carry over the previous engagement's Sociedad.
-    expect(screen.getByLabelText(/engagement\.society/)).toHaveTextContent("engagement.selectSociety");
+    // BUG 0817-180: "crear otro" re-siembra sociedad/oficina desde la ficha — a diferencia del
+    // comportamiento pre-0817-180 (elección libre reseteada a vacío), un creador restringido
+    // nunca queda sin estos tres campos.
+    expect(screen.getByLabelText(/engagement\.society/)).toHaveTextContent("Ruizmier Pelaez S.R.L.");
+    expect(screen.getByLabelText(/engagement\.oficina/)).toHaveTextContent("engagement.oficina_laPaz");
   }, 15000);
 
   // 0722-157: "Ir a Matriz de Trabajo" must forward the just-created engagement_id so
@@ -497,10 +503,10 @@ describe("0625-148 — role-based service restriction", () => {
     fireEvent.change(calendars[0], { target: { value: "2026-10-01" } });
     fireEvent.change(calendars[1], { target: { value: "2027-09-30" } });
 
-    const oficina = screen.getByLabelText(/engagement\.oficina/);
-    await user.click(oficina);
-    await waitFor(() => screen.getByRole("option", { name: "engagement.oficina_ambos" }));
-    await user.click(screen.getByRole("option", { name: "engagement.oficina_ambos" }));
+    // BUG 0817-180: oficina y sociedad ya no son de elección libre para un no-admin — vienen
+    // pre-llenadas y deshabilitadas desde la ficha (oficina "La Paz" -> 1, soc-1).
+    await waitFor(() => expect(screen.getByLabelText(/engagement\.oficina/)).toBeDisabled());
+    await waitFor(() => expect(screen.getByLabelText(/engagement\.society/)).toHaveTextContent("Ruizmier Pelaez S.R.L."));
 
     const funcion = screen.getByLabelText(/engagement\.funcion/);
     await user.click(funcion);
@@ -510,11 +516,6 @@ describe("0625-148 — role-based service restriction", () => {
     await user.click(screen.getByTestId("taxonomy-combobox-trigger"));
     await waitFor(() => screen.getByText("Test Taxonomy"));
     await user.click(screen.getByText("Test Taxonomy"));
-
-    const society = screen.getByLabelText(/engagement\.society/);
-    await user.click(society);
-    await waitFor(() => screen.getByRole("option", { name: "Ruizmier Pelaez S.R.L." }));
-    await user.click(screen.getByRole("option", { name: "Ruizmier Pelaez S.R.L." }));
 
     const closingDate = screen.getByRole("combobox", { name: "engagement.closingDate *" });
     await user.click(closingDate);
@@ -567,20 +568,15 @@ describe("0625-148 — role-based service restriction", () => {
     fireEvent.change(calendars[0], { target: { value: "2026-10-01" } });
     fireEvent.change(calendars[1], { target: { value: "2027-09-30" } });
 
-    const oficina = screen.getByLabelText(/engagement\.oficina/);
-    await user.click(oficina);
-    await waitFor(() => screen.getByRole("option", { name: "engagement.oficina_ambos" }));
-    await user.click(screen.getByRole("option", { name: "engagement.oficina_ambos" }));
+    // BUG 0817-180: oficina y sociedad ya no son de elección libre para un no-admin — vienen
+    // pre-llenadas y deshabilitadas desde la ficha (oficina "La Paz" -> 1, soc-1).
+    await waitFor(() => expect(screen.getByLabelText(/engagement\.oficina/)).toBeDisabled());
+    await waitFor(() => expect(screen.getByLabelText(/engagement\.society/)).toHaveTextContent("Ruizmier Pelaez S.R.L."));
 
     const funcion = screen.getByLabelText(/engagement\.funcion/);
     await user.click(funcion);
     await waitFor(() => screen.getByRole("option", { name: "engagement.funcion_adm" }));
     await user.click(screen.getByRole("option", { name: "engagement.funcion_adm" }));
-
-    const society = screen.getByLabelText(/engagement\.society/);
-    await user.click(society);
-    await waitFor(() => screen.getByRole("option", { name: "Ruizmier Pelaez S.R.L." }));
-    await user.click(screen.getByRole("option", { name: "Ruizmier Pelaez S.R.L." }));
 
     const closingDate = screen.getByRole("combobox", { name: "engagement.closingDate *" });
     await user.click(closingDate);

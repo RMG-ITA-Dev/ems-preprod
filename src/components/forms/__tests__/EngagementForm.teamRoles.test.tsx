@@ -61,19 +61,34 @@ const stableEmpty: never[] = [];
 // Mutable para poder simular un catálogo que no resuelve la práctica (fail-closed).
 let mockServicesData: typeof mockServices | undefined = mockServices;
 
+// BUG 0817-180: debe incluir "soc-1", el society_id usado por `mockStaffRecordForProfile` más
+// abajo — un Select de Sociedad sin <SelectItem> para el valor sembrado deja el formulario
+// `isDirty` pese al `shouldDirty: false` de la siembra (ver el mismo fix en
+// EngagementForm.selfAssignment.test.tsx).
+const mockSocieties = [{ society_id: "soc-1", name: "Sociedad Uno", is_active: true, created_at: "" }];
+
 vi.mock("@/hooks/useEmsData", () => ({
   useClients: () => ({ data: stableClients }),
   useServices: () => ({ data: mockServicesData }),
   useTaxonomies: () => ({ data: stableEmpty }),
-  useSocieties: () => ({ data: stableEmpty }),
+  useSocieties: () => ({ data: mockSocieties }),
   useEngagementAssignments: () => ({ data: stableEmpty, isLoading: false, isError: false }),
   useEngagementAggregatedRequirements: () => ({ data: stableEmpty }),
   useActiveStaffWithSkills: () => ({ data: stableEmpty }),
   useCategories: () => ({ data: stableEmpty }),
 }));
 
+// BUG 0817-180: `staffRecord` mutable, null por default. OJO — no basta con "cualquier perfil
+// completo": role_key "manager" (el que usa `mockIsAdmin=false` en este archivo) también
+// autoasigna manager_id (BUG 0810-172, ver src/lib/engagementSelfAssignment.ts) en cuanto
+// `staffRecord.staff_id` existe, lo que activaría de rebote una función AJENA al alcance de esta
+// suite (0722-162, filtrado del bloque Equipo) y rompería los tests que asumen el campo Gerente
+// libre con su placeholder. Por eso el default es null (igual que antes de 0817-180) y solo los
+// dos tests que ejercitan el guard de perfil piden una ficha completa, vía `mockRoleKeyOverride`
+// = "ita_manager" (tiene engagement.create pero NO está en el mapa de autoasignación).
+let mockStaffRecordForProfile: { staff_id: string; society_id: string; practica_id: string; city: string } | null = null;
 vi.mock("@/hooks/useCurrentStaff", () => ({
-  useCurrentStaff: () => ({ staffRecord: null }),
+  useCurrentStaff: () => ({ staffRecord: mockStaffRecordForProfile }),
 }));
 
 vi.mock("@/integrations/supabase/client", () => ({
@@ -97,10 +112,13 @@ vi.mock("@/components/engagements/StaffAssignmentsCard", () => ({
 }));
 
 let mockIsAdmin = false;
+// BUG 0817-180: solo para los dos tests que ejercitan el guard de perfil, sin afectar al resto
+// (que sigue leyendo mockIsAdmin, sin cambios).
+let mockRoleKeyOverride: string | null = null;
 vi.mock("@/hooks/useAuthorization", () => ({
   useAuthorization: () => ({
     can: () => true,
-    roleKey: mockIsAdmin ? "admin" : "manager",
+    roleKey: mockRoleKeyOverride ?? (mockIsAdmin ? "admin" : "manager"),
     isLoading: false,
   }),
 }));
@@ -228,6 +246,8 @@ describe("EngagementForm — elegibilidad por rol en el bloque Equipo (0722-162)
   beforeEach(() => {
     vi.clearAllMocks();
     mockIsAdmin = false;
+    mockRoleKeyOverride = null;
+    mockStaffRecordForProfile = null;
     mockServicesData = mockServices;
     resetCandidates();
   });
@@ -558,8 +578,13 @@ describe("EngagementForm — elegibilidad por rol en el bloque Equipo (0722-162)
   it("en creación avisa por falta de personal cuando el servicio no tiene candidatos", async () => {
     mockCandidates.partnerDirectorOptions = [opt("p9", "Pablo Consultoria", SVC_CONSULT)];
     mockCandidates.managerRoleOptions = [opt("m9", "Mora Consultoria", SVC_CONSULT)];
+    // BUG 0817-180: practica ya no se auto-asigna a ciegas — se deriva de la ficha del creador.
+    // "ita_manager" tiene engagement.create pero NO está en el mapa de autoasignación de
+    // 0810-172 (a diferencia de "manager"), así que no interfiere con lo que este archivo
+    // ejercita (0722-162): resuelve a code 1 (Auditoría), igual que antes.
+    mockRoleKeyOverride = "ita_manager";
+    mockStaffRecordForProfile = { staff_id: "staff-ita", society_id: "soc-1", practica_id: SVC_AUDIT, city: "La Paz" };
     render(<EngagementForm />);
-    // No-admin ⇒ practica se auto-asigna a code 1 (Auditoría) por efecto.
     await waitFor(() =>
       expect(screen.getByText(/messages\.missingTeamRoles/)).toBeInTheDocument()
     );
@@ -604,7 +629,11 @@ describe("EngagementForm — elegibilidad por rol en el bloque Equipo (0722-162)
   });
 
   it("con el servicio resuelto el Equipo no bloquea el botón de crear", async () => {
-    // Guard contra over-blocking del cambio de arriba.
+    // Guard contra over-blocking del cambio de arriba. BUG 0817-180: perfil completo (mismo
+    // criterio que el test anterior) para que el guard de perfil no sea el que bloquee el botón
+    // — lo que este test aísla es específicamente el bloque Equipo (0722-162).
+    mockRoleKeyOverride = "ita_manager";
+    mockStaffRecordForProfile = { staff_id: "staff-ita", society_id: "soc-1", practica_id: SVC_AUDIT, city: "La Paz" };
     render(<EngagementForm />);
     await waitFor(() =>
       expect(screen.getByText("engagement.createEngagement").closest("button")).not.toBeDisabled()
