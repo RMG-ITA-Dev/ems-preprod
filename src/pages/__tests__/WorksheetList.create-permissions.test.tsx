@@ -32,11 +32,18 @@ vi.mock("@/hooks/useWorksheetMutations", () => ({
   useCreateWorkOrderFromWorksheet: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useCreateWorksheet: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
+// 0825-183: canCreateWorkOrder also requires the engagement's practica code
+// to resolve to a real practicas/services row — mockWorksheet.engagement.practica
+// is 1, so useServices must return a matching code, or engagementServiceId stays
+// undefined and the button is (correctly) hidden regardless of permissions.
 vi.mock("@/hooks/useEmsData", () => ({
   useCategories: () => ({ data: [], isLoading: false }),
   useActivityCodes: () => ({ data: [], isLoading: false }),
   useAllActivityCodes: () => ({ data: [], isLoading: false }),
-  useServices: () => ({ data: [], isLoading: false }),
+  useServices: () => ({
+    data: [{ practica_id: "svc-1", name: "Auditoría", code: 1, allows_rates_activities: true, is_active: true }],
+    isLoading: false,
+  }),
   useSetting: () => "0.13",
 }));
 vi.mock("@/hooks/useCurrentStaff", () => ({

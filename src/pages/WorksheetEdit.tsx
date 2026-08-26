@@ -17,7 +17,7 @@ import { useBatchUpsertCells, useUpdateWorksheet, useCreateWorkOrderFromWorkshee
 import { useCategories, useActivityCodes, useAllActivityCodes, useSetting, useServices } from "@/hooks/useEmsData";
 import { WorksheetGrid } from "@/components/worksheet/WorksheetGrid";
 import { CopyFromEngagementDialog } from "@/components/worksheet/CopyFromEngagementDialog";
-import { filterActivitiesByService } from "@/lib/activityFilters";
+import { filterWorksheetActivitiesByPractice } from "@/lib/activityFilters";
 import { WorksheetCell } from "@/hooks/useWorksheetData";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -113,41 +113,53 @@ const WorksheetEdit = () => {
     return categories.filter((c) => c.practica_id === engagementServiceId);
   }, [categories, engagementServiceId]);
 
+  // 0825-183: unlike Timesheet/Tracker, the matrix never shows global/system
+  // activities (e.g. ADM) — every cell must belong to the engagement's own
+  // practice, so this uses the strict matrix-only filter instead of the
+  // shared filterActivitiesByService.
   const scopedActivities = useMemo(
-    () => filterActivitiesByService(activeActivities, practica),
-    [activeActivities, practica]
+    () => filterWorksheetActivitiesByPractice(activeActivities, engagementServiceId),
+    [activeActivities, engagementServiceId]
   );
 
-  // Destructive allow-lists for save/copy. `undefined` = scoping doesn't apply
-  // (engagement has no resolved service, OR the category/activity catalog isn't
-  // actually loaded — which includes a query error, not just the initial
-  // loading window already covered by `isLoading` above) — callers must keep
-  // every existing cell rather than purge, since the cleanup migration also
-  // leaves these no-service worksheets untouched. Guarding on the raw
-  // `categories`/`allActivityCodes` query data (not just `engagementServiceId`)
-  // matters because React Query's `isLoading` only reflects the *first* fetch:
-  // once a query settles into an error state, `isLoading` is false but `data`
-  // stays `undefined` forever, and `(data ?? [])` would otherwise silently read
-  // as "empty catalog" and wipe every cell on the next save (review.md
-  // iteración 10). When defined, built from ALL activity codes (not just the
-  // active ones shown in the grid via `useActivityCodes()`, which already
-  // excludes inactive rows server-side) so historical hours on an activity
-  // later marked inactive aren't silently dropped by an unrelated save.
-  // Matches on the raw `practica_id` FK directly (no `services.code` round-trip
-  // needed).
+  // Destructive allow-lists for save/copy. Two distinct "no scope" states:
+  //   - `practica == null` (no service assigned to the engagement at all) is a
+  //     deliberate, terminal state (0825-183): the matrix is empty and every
+  //     save purges any historical cell, so this yields an EMPTY Set — no
+  //     cell can ever pass the allow-list.
+  //   - `engagementServiceId === undefined` while `practica != null`, OR the
+  //     category/activity catalog isn't actually loaded — which includes a
+  //     query error, not just the initial loading window already covered by
+  //     `isLoading` above — means the service mapping/catalog failed to
+  //     resolve. This yields `undefined`: callers must keep every existing
+  //     cell rather than purge, since we can't tell what's in/out of scope.
+  //     Guarding on the raw `categories`/`allActivityCodes` query data (not
+  //     just `engagementServiceId`) matters because React Query's `isLoading`
+  //     only reflects the *first* fetch: once a query settles into an error
+  //     state, `isLoading` is false but `data` stays `undefined` forever, and
+  //     `(data ?? [])` would otherwise silently read as "empty catalog" and
+  //     wipe every cell on the next save (review.md iteración 10).
+  // When defined, built from ALL activity codes (not just the active ones
+  // shown in the grid via `useActivityCodes()`, which already excludes
+  // inactive rows server-side) so historical hours on an activity later
+  // marked inactive aren't silently dropped by an unrelated save. Matches on
+  // the raw `practica_id`/`is_system` fields directly (no `services.code`
+  // round-trip needed), same rule as the strict matrix filter above.
   const scopedCategoryIdsForSave = useMemo(() => {
+    if (practica == null) return new Set<string>();
     if (engagementServiceId === undefined || !scopedCategories) return undefined;
     return new Set(scopedCategories.map((c) => c.category_id));
-  }, [scopedCategories, engagementServiceId]);
+  }, [practica, scopedCategories, engagementServiceId]);
 
   const scopedActivityIdsForSave = useMemo(() => {
+    if (practica == null) return new Set<string>();
     if (engagementServiceId === undefined || !allActivityCodes) return undefined;
     return new Set(
       allActivityCodes
-        .filter((a) => a.practica_id == null || a.practica_id === engagementServiceId)
+        .filter((a) => !a.is_system && a.practica_id === engagementServiceId)
         .map((a) => a.activity_id)
     );
-  }, [allActivityCodes, engagementServiceId]);
+  }, [practica, allActivityCodes, engagementServiceId]);
 
   const handleCellChange = useCallback(
     (categoryId: string, activityId: string, hours: number) => {
@@ -179,10 +191,10 @@ const WorksheetEdit = () => {
       existingCellsMap.set(key, hours);
     });
 
-    // Only persist cells that belong to the engagement's service. This purges
-    // any stray out-of-service cells left over from before this fix. When the
-    // engagement has no resolved service, the allow-lists are `undefined` and
-    // every existing cell is kept as-is (no scope to purge against).
+    // Only persist cells in scope for the engagement's practice — see the two
+    // "no scope" states documented above `scopedCategoryIdsForSave`: no practica
+    // purges everything (empty Set), catalog/mapping not resolved keeps every
+    // existing cell as-is (`undefined`, no scope to purge against).
     // Convert to array
     existingCellsMap.forEach((hours, key) => {
       const [categoryId, activityId] = key.split("|");
@@ -296,18 +308,36 @@ const WorksheetEdit = () => {
     Rejected: "workOrders.status.rejected",
   };
 
-  // practica != null: sync_worksheet_to_wo_budget aggregates every stored cell
-  // regardless of service, but the grid is hidden for no-service worksheets —
-  // block WO creation from budget lines the user can't see or validate
-  // (review.md iteración 11).
+  // sync_worksheet_to_wo_budget aggregates every stored cell regardless of
+  // service, but the grid is hidden/empty whenever the practice isn't fully
+  // resolved — block WO creation from budget lines the user can't see or
+  // validate. practica == null is the no-service case (review.md iteración
+  // 11); engagementServiceId === undefined while practica != null is the
+  // "practica code doesn't resolve" case — before 0825-183 the grid always
+  // showed global activities here so this was unreachable, but the new
+  // strict practice filter leaves it empty too (review.md iteración 2, #2).
   const canCreateWorkOrder =
     can("work_order.create") &&
     !hasWorkOrder &&
     worksheet?.status === "draft" &&
     !hasUnsavedChanges &&
-    practica != null;
+    practica != null &&
+    engagementServiceId !== undefined;
+
+  // Copy must never run without a resolved allow-list to filter against — unlike
+  // save (which safely keeps existing cells as-is when the catalog/mapping isn't
+  // resolved), accepting a source worksheet's cells unfiltered would let
+  // out-of-scope cells in. The plan requires blocking copy outright in that
+  // error state, not just skipping the filter (review.md iteración 1, #4).
+  const copyBlockedByUnresolvedScope =
+    practica != null && (scopedCategoryIdsForSave === undefined || scopedActivityIdsForSave === undefined);
 
   const handleApplyCopy = (sourceCells: WorksheetCell[]) => {
+    if (copyBlockedByUnresolvedScope) {
+      logger.error("Blocked copy-from-engagement: category/activity catalog not resolved");
+      return;
+    }
+
     const newLocalCells = new Map<string, number>();
 
     // Only load copied cells that belong to the engagement's service (no-op
@@ -402,6 +432,8 @@ const WorksheetEdit = () => {
               <Button
                 variant="secondary"
                 onClick={() => setShowCopyDialog(true)}
+                disabled={copyBlockedByUnresolvedScope}
+                title={copyBlockedByUnresolvedScope ? t("workMatrix.copyUnavailable") : undefined}
               >
                 <Copy className="h-4 w-4 mr-2" />
                 {t("workMatrix.copyFromEngagement")}
