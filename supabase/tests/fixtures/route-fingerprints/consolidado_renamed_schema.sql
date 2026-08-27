@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict aSKBdrXXVog6qimLZ5ftLDD1FJo8Lj2z1xfOAN9h92q4DYLjKJ3zynzi8maZmhN
+\restrict ZgG7trtBW0CqBauJfVz6IdQFVeTMgbaJRIlrRyD8Jwuoy91IKDwRF7ql0GfmRPl
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.11 (Ubuntu 17.11-1.pgdg24.04+2)
@@ -3572,7 +3572,9 @@ CREATE FUNCTION public.get_engagement_team_candidates() RETURNS TABLE(staff_id u
            WHEN 'tax_senior'    THEN 'specialist_tax'
            WHEN 'tax_assistant' THEN 'specialist_tax'
          END AS candidate_group,
-         -- El cliente refina por el servicio del encargo sin volver a pedir datos.
+         -- practica_id expuesto por compatibilidad de firma; el cliente ya no filtra por
+         -- servicio (0817-180, 2026-08-27 — se eliminó filterByService: la elegibilidad de
+         -- equipo depende únicamente del rol).
          s.practica_id
     FROM public.staff s
     -- INNER JOIN: excluye al personal sin cuenta vinculada (staff.auth_user_id es nullable
@@ -15459,5 +15461,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict aSKBdrXXVog6qimLZ5ftLDD1FJo8Lj2z1xfOAN9h92q4DYLjKJ3zynzi8maZmhN
+\unrestrict ZgG7trtBW0CqBauJfVz6IdQFVeTMgbaJRIlrRyD8Jwuoy91IKDwRF7ql0GfmRPl
 
