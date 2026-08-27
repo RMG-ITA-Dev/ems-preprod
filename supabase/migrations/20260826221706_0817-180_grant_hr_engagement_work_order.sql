@@ -21,6 +21,20 @@
 -- El valor de scope_key no rama la lógica en estas funciones (solo importa que el permiso
 -- exista); se usa 'assigned_engagements' por consistencia con `manager`, no porque el código
 -- lo lea explícitamente.
+--
+-- hr_analyst: SOLO engagement.create/read/update (review de 0817-180, 2026-08-27). El resto de
+-- los permisos de arriba dependen de is_assigned_to_engagement() (partner_id/manager_id/sqr_id/
+-- encargado_id — cero_02:3468) para el scope 'assigned_engagements': worksheet.create/work_order.
+-- create exigen esa asignación en el propio INSERT (cero_05:1671/1522), y worksheet.read/
+-- work_order.read la exigen en su política "assigned read" (cero_05:1687/1637); ídem
+-- timesheet_approval vía can_approve_timesheet_line()/get_timesheet_approvers(). hr_analyst está
+-- deliberadamente EXCLUIDO tanto de get_engagement_team_candidates() como de
+-- enforce_engagement_creator_team() (decisión del operador, 2026-08-27: "se deja FUERA a
+-- propósito, igual que el resto de los *_analyst") y por lo tanto nunca puede quedar asignado a
+-- ninguna de esas cuatro columnas — ni siquiera en el encargo que él mismo crea. Otorgarle esos
+-- permisos sería letra muerta. engagement.create/read/update SÍ son ejercitables sin asignación,
+-- vía las políticas "engagements creator read"/"engagements creator update" (cero_05:870/878),
+-- que solo exigen ser el creador (created_by_staff_id).
 INSERT INTO public.authorization_role_permissions (role_key, permission_key, scope_key) VALUES
   ('hr_manager', 'engagement.create', 'assigned_engagements'),
   ('hr_manager', 'engagement.read',   'assigned_engagements'),
@@ -38,17 +52,7 @@ INSERT INTO public.authorization_role_permissions (role_key, permission_key, sco
 
   ('hr_analyst', 'engagement.create', 'assigned_engagements'),
   ('hr_analyst', 'engagement.read',   'assigned_engagements'),
-  ('hr_analyst', 'engagement.update', 'assigned_engagements'),
-  ('hr_analyst', 'worksheet.read',    'assigned_engagements'),
-  ('hr_analyst', 'worksheet.create',  'assigned_engagements'),
-  ('hr_analyst', 'work_order.read',                  'assigned_engagements'),
-  ('hr_analyst', 'work_order.create',                'assigned_engagements'),
-  ('hr_analyst', 'work_order.update',                'assigned_engagements'),
-  ('hr_analyst', 'work_order.payment_plan.approve',  'assigned_engagements'),
-  ('hr_analyst', 'work_order.risk.approve',          'assigned_engagements'),
-  ('hr_analyst', 'timesheet_approval.read',          'assigned_engagements'),
-  ('hr_analyst', 'timesheet_approval.approve',       'assigned_engagements'),
-  ('hr_analyst', 'timesheet_approval.reject',        'assigned_engagements')
+  ('hr_analyst', 'engagement.update', 'assigned_engagements')
 ON CONFLICT (role_key, permission_key) DO UPDATE SET scope_key = EXCLUDED.scope_key;
 
 
@@ -95,7 +99,9 @@ CREATE OR REPLACE FUNCTION public.get_engagement_team_candidates() RETURNS TABLE
            WHEN 'tax_senior'    THEN 'specialist_tax'
            WHEN 'tax_assistant' THEN 'specialist_tax'
          END AS candidate_group,
-         -- El cliente refina por el servicio del encargo sin volver a pedir datos.
+         -- practica_id expuesto por compatibilidad de firma; el cliente ya no filtra por
+         -- servicio (0817-180, 2026-08-27 — se eliminó filterByService: la elegibilidad de
+         -- equipo depende únicamente del rol).
          s.practica_id
     FROM public.staff s
     -- INNER JOIN: excluye al personal sin cuenta vinculada (staff.auth_user_id es nullable

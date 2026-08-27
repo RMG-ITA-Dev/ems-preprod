@@ -62,8 +62,14 @@ INSERT INTO public.society (society_id, name, is_active) VALUES
   ('5ec90000-0000-4000-8000-00000000000a', 'EPS Sociedad A', true),
   ('5ec90000-0000-4000-8000-00000000000b', 'EPS Sociedad B', true);
 
+-- code=1 ya lo siembra run-rls-tests.sh a nivel global (fuera de toda transacción de suite, para
+-- rpc-engagement-team-candidates.sql) ANTES de que esta suite arranque — el ON CONFLICT (code) DO
+-- NOTHING de abajo lo hubiera descartado en silencio si intentáramos reinsertarlo con nuestro
+-- propio practica_id, dejando la ficha de personal de más abajo apuntando a un practica_id
+-- inexistente (hallazgo real de CI, 2026-08-27). Se reutiliza el que ya existe.
+SELECT practica_id AS v_practica_1 FROM public.practicas WHERE code = 1 \gset
+
 INSERT INTO public.practicas (practica_id, name, code, abbreviation, is_active) VALUES
-  ('5ec90000-0000-4000-8000-000000000001', 'EPS Auditoria',  1, 'EPA', true),
   ('5ec90000-0000-4000-8000-000000000003', 'EPS Tax',        3, 'EPT', true),
   ('5ec90000-0000-4000-8000-000000000005', 'EPS Inactiva',   5, 'EPI', false),
   ('5ec90000-0000-4000-8000-000000000000', 'EPS Firmwide',   0, 'EPF', true)
@@ -79,16 +85,16 @@ INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, is_acti
                           practica_id, society_id, city)
 VALUES
   ('5ec80000-0000-4000-8000-000000000001', 'ec900000-0000-4000-8000-000000000001',
-   'EPS', 'Sujeto01', true, '5ec90000-0000-4000-8000-000000000001',
+   'EPS', 'Sujeto01', true, :'v_practica_1',
    '5ec90000-0000-4000-8000-00000000000a', 'La Paz'),
   ('5ec80000-0000-4000-8000-000000000003', 'ec900000-0000-4000-8000-000000000003',
-   'EPS', 'Sujeto03', true, '5ec90000-0000-4000-8000-000000000001',
+   'EPS', 'Sujeto03', true, :'v_practica_1',
    '5ec90000-0000-4000-8000-00000000000a', NULL),
   ('5ec80000-0000-4000-8000-000000000004', 'ec900000-0000-4000-8000-000000000004',
-   'EPS', 'Sujeto04', true, '5ec90000-0000-4000-8000-000000000001',
+   'EPS', 'Sujeto04', true, :'v_practica_1',
    '5ec90000-0000-4000-8000-00000000000a', 'La Paz'),
   ('5ec80000-0000-4000-8000-000000000005', 'ec900000-0000-4000-8000-000000000005',
-   'EPS', 'Sujeto05', true, '5ec90000-0000-4000-8000-000000000001',
+   'EPS', 'Sujeto05', true, :'v_practica_1',
    '5ec90000-0000-4000-8000-00000000000a', 'La Paz');
 -- Sujeto 2 (subject sin ficha) deliberadamente NO tiene fila en staff.
 

@@ -448,9 +448,10 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
 
   const initializedEngagementIdRef = useRef<string | null>(null);
 
-  // NOTA (BUG 0722-162): el aviso de personal faltante del bloque Equipo se calcula MÁS ABAJO,
-  // después de los memos de opciones — necesita las listas YA FILTRADAS POR SERVICIO. Ver el
-  // bloque "aviso de personal faltante" junto a `partnerFieldOptions`.
+  // NOTA (BUG 0722-162, actualizado 0817-180): el aviso de personal faltante del bloque Equipo se
+  // calcula MÁS ABAJO, después de los memos de opciones de cada campo — ya no hay filtro por
+  // servicio que aplicarles (eliminado en 0817-180), pero el aviso sigue necesitando las listas
+  // YA RESUELTAS. Ver el bloque "aviso de personal faltante" junto a `partnerFieldOptions`.
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),

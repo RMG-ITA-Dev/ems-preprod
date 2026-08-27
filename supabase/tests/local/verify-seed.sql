@@ -56,8 +56,12 @@ BEGIN
   SELECT count(*) INTO n FROM public.authorization_permissions;
   IF n <> 84 THEN RAISE EXCEPTION 'FAIL — authorization_permissions: esperado 84, encontrado %', n; END IF;
   SELECT count(*) INTO n FROM public.authorization_role_permissions;
-  IF n <> 737 THEN RAISE EXCEPTION 'FAIL — authorization_role_permissions: esperado 737, encontrado %', n; END IF;
-  RAISE NOTICE 'PASS — catálogo RBAC: 23 roles / 84 permisos / 737 concesiones';
+  -- 737 del seed histórico (20260724010000_authz_fase2_seed.sql) + 16 de
+  -- 20260826221706_0817-180_grant_hr_engagement_work_order.sql (13 hr_manager + 3 hr_analyst:
+  -- solo engagement.create/read/update — el resto quedaría inutilizable, ver comentario de
+  -- esa migración sobre is_assigned_to_engagement()).
+  IF n <> 753 THEN RAISE EXCEPTION 'FAIL — authorization_role_permissions: esperado 753, encontrado %', n; END IF;
+  RAISE NOTICE 'PASS — catálogo RBAC: 23 roles / 84 permisos / 753 concesiones';
 
   -- 2. ADM como actividad de sistema (informe §5, plan §2.2.1).
   SELECT activity_id INTO v_adm_id FROM public.activity_codes
