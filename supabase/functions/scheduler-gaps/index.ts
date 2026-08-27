@@ -23,6 +23,7 @@ import {
 const staticAllowedOrigins = [
   Deno.env.get("FRONTEND_URL") || "",
   "https://ugqxfnrxvksiltwxzist.lovableproject.com",
+  "https://ems-test.up.railway.app",
   "https://ruizmier.dev",
   "https://www.ruizmier.dev",
   "http://localhost:5173",
