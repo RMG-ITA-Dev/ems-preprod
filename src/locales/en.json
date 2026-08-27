@@ -1614,7 +1614,11 @@
     "copyTotalHoursLabel": "total hours",
     "copyActivitiesLabel": "{{count}} activities with hours",
     "copyReplaceWarning": "This will replace the current matrix. You can still edit before saving.",
-    "copyConfirmButton": "Copy matrix"
+    "copyConfirmButton": "Copy matrix",
+    "copyUnavailable": "Copy is unavailable: activity/category data could not be loaded.",
+    "errorPracticeRequired": "This engagement has no practice assigned; the matrix cannot be saved with hours.",
+    "errorCategoryOutOfScope": "One of the categories does not belong to this engagement's practice.",
+    "errorActivityOutOfScope": "One of the activities does not belong to this engagement's practice."
   },
   "worksheet": {
     "searchEngagement": "Search engagement...",

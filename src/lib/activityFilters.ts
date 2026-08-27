@@ -34,6 +34,27 @@ export function filterActivitiesByService<
 }
 
 /**
+ * Filters activity codes for the work-order budget matrix (WorksheetEdit).
+ *
+ * Unlike `filterActivitiesByService` above, global/system activities (`is_system`,
+ * e.g. `ADM`) are never valid here — a matrix cell must always belong to the
+ * engagement's own practice (0825-183). Timesheet/Tracker keep using
+ * `filterActivitiesByService`, where those same activities are intentionally global.
+ *
+ * Rules:
+ * - An activity is included only when its `practica_id` matches `practiceId` exactly
+ *   and it is not a system activity.
+ * - A null/undefined `practiceId` (engagement has no practice, or the practice
+ *   mapping hasn't resolved) yields an empty list — there is no valid activity to show.
+ */
+export function filterWorksheetActivitiesByPractice<
+  T extends { practica_id: string | null; is_system: boolean }
+>(activities: T[], practiceId: string | null | undefined): T[] {
+  if (!practiceId) return [];
+  return activities.filter((act) => !act.is_system && act.practica_id === practiceId);
+}
+
+/**
  * Numeric-aware comparator for activity codes.
  * Sorts by prefix (alphabetical) then by numeric suffix so that
  * AUD-A2 < AUD-A10 < AUD-A11 (instead of the lexicographic AUD-A10 < AUD-A2).

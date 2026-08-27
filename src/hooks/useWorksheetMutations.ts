@@ -24,6 +24,22 @@ interface UpsertCellInput {
   budget_hours: number;
 }
 
+// 0825-183: the practice-scope trigger/RPC (enforce_worksheet_cell_practice_scope,
+// batch_upsert_worksheet_cells) raise these exact codes as MESSAGE, with
+// diagnostic ids in DETAIL — never interpolated into MESSAGE. Matched by exact
+// equality (after trimming) only, so an unrelated error containing one of these
+// strings as a substring doesn't get mismatched (review.md iteración 1, #5).
+const WORKSHEET_CELL_ERROR_I18N_KEYS: Record<string, string> = {
+  WORKSHEET_PRACTICE_REQUIRED: "workMatrix.errorPracticeRequired",
+  WORKSHEET_CATEGORY_OUT_OF_SCOPE: "workMatrix.errorCategoryOutOfScope",
+  WORKSHEET_ACTIVITY_OUT_OF_SCOPE: "workMatrix.errorActivityOutOfScope",
+};
+
+export function translateWorksheetCellsErrorKey(message: string | undefined | null): string | null {
+  if (!message) return null;
+  return WORKSHEET_CELL_ERROR_I18N_KEYS[message.trim()] ?? null;
+}
+
 interface DeleteCellInput {
   worksheet_id: string;
   category_id: string;
@@ -174,8 +190,11 @@ export function useBatchUpsertCells() {
       toast.success(t("messages.updateSuccess", { entity: t("workMatrix.title") }));
     },
     onError: (error) => {
+      // Log the full error object (not just message) so DETAIL/hint survive for
+      // diagnosis, even though only the bare code drives the toast (0825-183).
       logger.error("Error saving worksheet cells:", error);
-      toast.error(t("messages.updateError", { entity: t("workMatrix.title") }));
+      const i18nKey = translateWorksheetCellsErrorKey(error.message);
+      toast.error(i18nKey ? t(i18nKey) : t("messages.updateError", { entity: t("workMatrix.title") }));
     },
   });
 }
