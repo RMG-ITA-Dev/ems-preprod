@@ -136,8 +136,9 @@ assert_suite supabase/tests/rls-wo-staffing-requirements.sql 'WO STAFFING RLS: A
 assert_suite supabase/tests/rpc-engagement-team-candidates.sql 'ENGAGEMENT_TEAM_CANDIDATES RPC: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-save-engagement-assignments.sql 'SAVE_ENGAGEMENT_ASSIGNMENTS RPC: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-save-wo-staffing.sql 'SAVE_WO_STAFFING RPC: ALL CHECKS PASSED'
+assert_suite supabase/tests/rpc-worksheet-activity-practice-scope.sql 'WORKSHEET ACTIVITY PRACTICE SCOPE: ALL CHECKS PASSED'
 assert_suite supabase/tests/schema-convergence-assertions.sql 'SCHEMA CONVERGENCE: ALL CHECKS PASSED'
 assert_suite supabase/tests/trigger-engagement-creator-team.sql 'TRIGGER ENGAGEMENT CREATOR TEAM: ALL CHECKS PASSED'
 assert_suite supabase/tests/trigger-engagement-profile-scope.sql 'PROFILE SCOPE: ALL CHECKS PASSED'
 
-echo "OK: set consolidado (cero_01..cero_06) + migracion 0817-180 aplicados sobre base scratch; las 9 suites de RLS/RPC/schema-convergence/trigger pasaron"
+echo "OK: set consolidado (cero_01..cero_06) + migracion 0817-180 aplicados sobre base scratch; las 10 suites de RLS/RPC/schema-convergence/trigger pasaron"
