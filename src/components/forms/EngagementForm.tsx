@@ -49,11 +49,8 @@ import { TaxonomyCombobox, NO_APLICA_VALUE } from "@/components/forms/TaxonomyCo
 import { Engagement, useClients, useServices, useTaxonomies, useSocieties } from "@/hooks/useEmsData";
 import { useEngagementTeamCandidates } from "@/hooks/useEngagementTeamCandidates";
 import {
-  filterByService,
   withSavedStaff,
   withSelfCandidate,
-  NO_SERVICE_FILTER,
-  type ServiceFilter,
 } from "@/lib/engagementTeamCandidates";
 import {
   resolveSelfAssignedTeamField,
@@ -270,6 +267,10 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   // libres al crear; el resto queda clasificado por su ficha. Espejo exacto del trigger de BD
   // `enforce_engagement_profile_scope` — si se toca uno, tocar el otro.
   const canChooseProfileScopeFreely = roleKey === "admin" || roleKey === "senior_partner";
+  // Función: por default todo creador queda fijo en Cliente (no elige). Solo Admin y Talento
+  // Humano (Gerente/Analista) eligen las 4 — TH crea encargos Administrativa/Capacitación para
+  // el personal, así que necesita el mismo control total que Admin en este campo.
+  const canChooseFuncionFreely = roleKey === "admin" || roleKey === "hr_manager" || roleKey === "hr_analyst";
   const isEdit = !!engagement;
   // Al editar, el guardado exige engagement.update; al crear, la ruta ya gatea engagement.create.
   const canSave = !isEdit || can("engagement.update");
@@ -542,6 +543,16 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       form.setValue("oficina", derivedOficina, { shouldDirty: false, shouldValidate: false });
     }
   }, [isEdit, canChooseProfileScopeFreely, profileLoading, derivedSocietyId, derivedPractica, derivedOficina, form]);
+
+  // Función: el creador sin elección libre queda fijo en Cliente — nunca una elección, así que
+  // no espera a ningún catálogo (a diferencia de la tríada de arriba). `shouldValidate: false`
+  // por el mismo motivo que la siembra de sociedad/práctica/oficina.
+  useEffect(() => {
+    if (isEdit || canChooseFuncionFreely) return;
+    if (form.getValues("funcion") !== FUNCION_CLIENTE) {
+      form.setValue("funcion", FUNCION_CLIENTE, { shouldDirty: false, shouldValidate: false });
+    }
+  }, [isEdit, canChooseFuncionFreely, form]);
 
   useEffect(() => {
     if (
@@ -969,32 +980,24 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     ? null
     : `${wAnio}.${wOficina}${wPractica}${wFuncion}.`;
 
-  // ── BUG 0722-162: opciones del bloque Equipo ──────────────────────────────────────────
-  // Cada campo ofrece SOLO los roles que le corresponden (el RPC ya filtró por rol) y además se
-  // restringe al servicio del encargo. `practica` es el CODE del servicio, así que el practica_id
-  // se resuelve contra el catálogo ya cargado. Reutiliza el `wPractica` del watch de arriba, y es
-  // reactivo: si el Admin cambia el servicio, los seis selectores se re-filtran sin pedir datos.
-  // Tres estados, no dos (review de Greptile): sin `practica` no hay servicio que aplicar y se
-  // filtra solo por rol; con `practica` resuelta se restringe a ese servicio; y con `practica`
-  // pero sin resolver (catálogo cargando/fallado, o code inexistente) se va a FAIL-CLOSED —
-  // lista vacía — para no ofrecer personal de otros servicios en esa ventana.
-  const serviceFilter = useMemo<ServiceFilter>(() => {
-    if (wPractica == null) return NO_SERVICE_FILTER;
-    return {
-      apply: true,
-      serviceId: (allServices ?? []).find((s) => s.code === wPractica)?.practica_id ?? null,
-    };
-  }, [allServices, wPractica]);
-
-  // `withSavedStaff` se aplica DESPUÉS del filtro por servicio: un asignado histórico que ya no
-  // califica (por rol o por servicio) debe seguir viéndose en SU campo, o `StaffCombobox` no
-  // encontraría el id en `options` y mostraría el placeholder en un campo obligatorio que sí está
-  // lleno. Mismo patrón que societyOptions / clientOptions / activeServiceOptions.
+  // ── BUG 0722-162, revertido 2026-08-27 (decisión del operador): opciones del bloque Equipo ──
+  // Cada campo ofrece SOLO los roles que le corresponden (el RPC ya filtró por rol) — SIN
+  // restringir además por la práctica del encargo. La firma solo tiene 4 Socios y ninguno está
+  // "asignado" a una práctica en particular (todos manejan de todo), así que filtrar Socio/
+  // Director/SQR/Gerente/Encargado/Especialistas por coincidencia de práctica dejaba esos campos
+  // vacíos para cualquier creador cuya práctica de ficha no tuviera un Socio con esa misma
+  // práctica — no solo para Talento Humano. La elegibilidad depende ÚNICAMENTE del rol
+  // (candidate_group), nunca de la práctica del creador ni de la del candidato.
   //
-  // Review de Codex: se le pasa el VALOR VIGENTE del campo. El merge existe para no perder de
-  // vista lo guardado, no para volver elegible a alguien que no califica — en cuanto el editor
-  // elige un reemplazo válido, el histórico deja de ofrecerse (si no, podría re-seleccionarse y
-  // persistirse, y el update path no valida elegibilidad). De ahí el watch de los cuatro campos
+  // `withSavedStaff` se aplica igual que antes: un asignado histórico que ya no califica por rol
+  // debe seguir viéndose en SU campo, o `StaffCombobox` no encontraría el id en `options` y
+  // mostraría el placeholder en un campo obligatorio que sí está lleno. Mismo patrón que
+  // societyOptions / clientOptions / activeServiceOptions.
+  //
+  // Review de Codex (0722-162): se le pasa el VALOR VIGENTE del campo. El merge existe para no
+  // perder de vista lo guardado, no para volver elegible a alguien que no califica — en cuanto el
+  // editor elige un reemplazo válido, el histórico deja de ofrecerse (si no, podría re-seleccionarse
+  // y persistirse, y el update path no valida elegibilidad). De ahí el watch de los cuatro campos
   // opcionales; partner_id y manager_id ya vienen del watch de más arriba.
   const [wSqrId, wEncargadoId, wSpecialistItId, wSpecialistTaxId] = form.watch([
     "sqr_id",
@@ -1004,39 +1007,30 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   ]);
 
   // BUG 0810-172: `withSelfCandidate` va DESPUÉS de todo lo demás y solo en el campo bloqueado.
-  // Al vivir acá dentro resuelve de una vez el label del combobox, el efecto de limpieza de valores
-  // stale (para el que el valor sembrado deja de ser stale) y el aviso de personal faltante.
+  // Al vivir acá dentro resuelve de una vez el label del combobox y el aviso de personal faltante.
   const partnerFieldOptions = useMemo(() => {
-    const base = withSavedStaff(
-      filterByService(partnerDirectorOptions, serviceFilter),
-      engagement?.partner,
-      wPartnerId
-    );
+    const base = withSavedStaff(partnerDirectorOptions, engagement?.partner, wPartnerId);
     return partnerLocked ? withSelfCandidate(base, selfOption) : base;
-  }, [partnerDirectorOptions, serviceFilter, engagement?.partner, wPartnerId, partnerLocked, selfOption]);
+  }, [partnerDirectorOptions, engagement?.partner, wPartnerId, partnerLocked, selfOption]);
   const sqrFieldOptions = useMemo(
-    () => withSavedStaff(filterByService(partnerDirectorOptions, serviceFilter), engagement?.sqr, wSqrId),
-    [partnerDirectorOptions, serviceFilter, engagement?.sqr, wSqrId]
+    () => withSavedStaff(partnerDirectorOptions, engagement?.sqr, wSqrId),
+    [partnerDirectorOptions, engagement?.sqr, wSqrId]
   );
   const managerFieldOptions = useMemo(() => {
-    const base = withSavedStaff(
-      filterByService(managerRoleOptions, serviceFilter),
-      engagement?.manager,
-      wManagerId
-    );
+    const base = withSavedStaff(managerRoleOptions, engagement?.manager, wManagerId);
     return managerLocked ? withSelfCandidate(base, selfOption) : base;
-  }, [managerRoleOptions, serviceFilter, engagement?.manager, wManagerId, managerLocked, selfOption]);
+  }, [managerRoleOptions, engagement?.manager, wManagerId, managerLocked, selfOption]);
   const encargadoFieldOptions = useMemo(
-    () => withSavedStaff(filterByService(encargadoOptions, serviceFilter), engagement?.encargado, wEncargadoId),
-    [encargadoOptions, serviceFilter, engagement?.encargado, wEncargadoId]
+    () => withSavedStaff(encargadoOptions, engagement?.encargado, wEncargadoId),
+    [encargadoOptions, engagement?.encargado, wEncargadoId]
   );
   const specialistItFieldOptions = useMemo(
-    () => withSavedStaff(filterByService(specialistItOptions, serviceFilter), engagement?.specialist_it, wSpecialistItId),
-    [specialistItOptions, serviceFilter, engagement?.specialist_it, wSpecialistItId]
+    () => withSavedStaff(specialistItOptions, engagement?.specialist_it, wSpecialistItId),
+    [specialistItOptions, engagement?.specialist_it, wSpecialistItId]
   );
   const specialistTaxFieldOptions = useMemo(
-    () => withSavedStaff(filterByService(specialistTaxOptions, serviceFilter), engagement?.specialist_tax, wSpecialistTaxId),
-    [specialistTaxOptions, serviceFilter, engagement?.specialist_tax, wSpecialistTaxId]
+    () => withSavedStaff(specialistTaxOptions, engagement?.specialist_tax, wSpecialistTaxId),
+    [specialistTaxOptions, engagement?.specialist_tax, wSpecialistTaxId]
   );
 
   // ── Aviso de personal faltante (los dos campos obligatorios) ─────────────────────────────
@@ -1050,24 +1044,17 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   // a asignar roles que quizá ya existen. Solo se concluye "falta personal" sobre una respuesta
   // exitosa; el error se informa aparte y mientras carga no se afirma nada.
   //
-  // Review de Codex #3: se mide sobre las listas YA FILTRADAS POR SERVICIO, no sobre los flags
-  // globales del hook. Si existe un Socio en Consultoría pero ninguno en Auditoría, el flag
-  // global es true mientras `partnerFieldOptions` está vacío: el aviso quedaba suprimido y Crear
-  // habilitado, dejando un campo obligatorio imposible de llenar y sin explicación. Se exige
-  // además que el servicio esté RESUELTO — durante el fail-closed del catálogo las listas están
-  // vacías por otra razón y afirmar "falta personal" sería otra vez engañoso.
-  // Hay `practica` elegida pero el catálogo no la resuelve (cargando, fallado, o el code no está
-  // en el catálogo): estado INDETERMINADO — no se sabe a qué servicio pertenece el encargo.
-  const serviceUnresolved = serviceFilter.apply && serviceFilter.serviceId == null;
-
+  // Review de Codex #2 (0722-162): "sin candidatos" y "no se pudieron cargar los candidatos" NO
+  // son lo mismo — el hook devuelve buckets vacíos también cuando el RPC falla, y tratar eso como
+  // "faltan roles" manda al usuario a asignar roles que quizá ya existen.
+  //
   // Review de Codex: se mira `isFetching`, no `isLoading`. Con datos en cache TanStack devuelve
   // isLoading:false y refetchea por detrás sirviendo el conjunto VIEJO — y como las mutaciones de
   // personal y de roles ahora invalidan esta query, ese refetch al montar es el camino normal, no
   // la excepción. Hasta que la respuesta llegue, los candidatos no son confiables: no se afirma
   // nada y no se deja crear (`refetchOnWindowFocus/Reconnect` están en false, así que esto no
   // produce parpadeos espontáneos — solo cubre la carga real).
-  const teamSelectionResolved =
-    !teamCandidatesFetching && !teamCandidatesError && !serviceUnresolved;
+  const teamSelectionResolved = !teamCandidatesFetching && !teamCandidatesError;
   const missingTeamRoles: string[] = [];
   if (teamSelectionResolved) {
     if (partnerFieldOptions.length === 0) missingTeamRoles.push(t("engagement.partner"));
@@ -1075,32 +1062,8 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   }
   const hasMissingTeamRoles = missingTeamRoles.length > 0;
 
-  // Review de Greptile: con el servicio indeterminado, el `useEffect` de limpieza se saltea a
-  // propósito — podría ser un glitch transitorio del catálogo y borrar selecciones válidas sería
-  // peor que el problema. Pero entonces quedaban tres cosas a la vez: selectores vacíos por el
-  // fail-closed, valores retenidos en React Hook Form, y Crear habilitado. Como esos valores
-  // pasan la validación de "string no vacío" y `create_engagement_with_code` NO valida alineación
-  // staff/servicio, se podía persistir una asignación cruzada. Se bloquea la creación: así el
-  // fail-closed deja de ser solo visual y ningún valor retenido llega al backend.
-  const teamBlocksCreation = hasMissingTeamRoles || teamCandidatesError || serviceUnresolved || teamCandidatesFetching;
+  const teamBlocksCreation = hasMissingTeamRoles || teamCandidatesError || teamCandidatesFetching;
 
-  // Review de Codex (0722-162): quitar a alguien de `options` NO lo saca del formulario.
-  //
-  // En creación el Admin puede elegir personal ANTES de fijar la práctica (sin servicio elegido
-  // solo se filtra por rol) y después cambiar el servicio. Los memos de arriba dejan de ofrecer a
-  // esa gente, pero su UUID seguiría en React Hook Form: el combobox mostraría el placeholder, la
-  // validación de "string no vacío" pasaría igual, y `create_engagement_with_code` NO valida
-  // alineación staff/servicio ni el rol de los `*_id` (solo oficina/practica/funcion/año fiscal/
-  // fecha de cierre/sociedad/taxonomía). Se persistiría una asignación cruzada de servicio.
-  //
-  // Por eso, cuando el servicio queda resuelto, se limpia todo valor que dejó de ser elegible.
-  // Los dos campos obligatorios quedan vacíos y el submit los bloquea, así que el usuario tiene
-  // que volver a elegir de forma consciente.
-  //
-  // Guardas: solo en creación (en edición `practica` es inmutable —`serviceSelectDisabled`— y el
-  // asignado histórico se preserva a propósito vía `withSavedStaff`), y solo con los candidatos
-  // ya cargados y el servicio resuelto — si no, se borrarían valores válidos durante la carga,
-  // justo cuando el fail-closed vacía las listas.
   // ── BUG 0810-172: siembra del campo autoasignado ─────────────────────────────────────────
   //
   // `withSelfCandidate` solo agrega al creador a las OPCIONES; el valor de React Hook Form sigue
@@ -1111,10 +1074,6 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   //
   // `shouldDirty: false`: la autoasignación es del sistema, no una edición del usuario, así que no
   // debe disparar el aviso de "cambios sin guardar" (usePageLeaveLock / onDirtyChange).
-  //
-  // Corre antes del efecto de limpieza de abajo a propósito: en el primer ciclo el campo está en
-  // "" y la limpieza no lo toca (solo actúa sobre valores truthy); una vez sembrado, el id SÍ está
-  // en `options` gracias a `withSelfCandidate`, así que para la limpieza deja de ser stale.
   //
   // `wPartnerId`/`wManagerId` van en las dependencias para que la siembra NO sea de un solo
   // disparo: cubre el remonte y también el `form.reset` de `handleCreateAnother`, que devuelve el
@@ -1133,48 +1092,6 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       form.setValue("manager_id", selfOption.value, { shouldDirty: false, shouldValidate: false });
     }
   }, [isEdit, classificationPending, selfAssignedField, selfOption, wPartnerId, wManagerId, form]);
-
-  useEffect(() => {
-    if (isEdit) return;
-    if (teamCandidatesFetching || teamCandidatesError) return;
-    if (!serviceFilter.apply || serviceFilter.serviceId == null) return;
-
-    const isStale = (current: string | null | undefined, options: { value: string }[]) =>
-      !!current && !options.some((o) => o.value === current);
-
-    // Obligatorios: se vacían con "" (lo que espera el `min(1)` del schema para marcar faltante).
-    if (isStale(form.getValues("partner_id"), partnerFieldOptions)) {
-      form.setValue("partner_id", "", { shouldDirty: false, shouldValidate: false });
-    }
-    if (isStale(form.getValues("manager_id"), managerFieldOptions)) {
-      form.setValue("manager_id", "", { shouldDirty: false, shouldValidate: false });
-    }
-    // Opcionales: null es su "No Aplica".
-    if (isStale(form.getValues("sqr_id"), sqrFieldOptions)) {
-      form.setValue("sqr_id", null, { shouldDirty: false, shouldValidate: false });
-    }
-    if (isStale(form.getValues("encargado_id"), encargadoFieldOptions)) {
-      form.setValue("encargado_id", null, { shouldDirty: false, shouldValidate: false });
-    }
-    if (isStale(form.getValues("specialist_it_id"), specialistItFieldOptions)) {
-      form.setValue("specialist_it_id", null, { shouldDirty: false, shouldValidate: false });
-    }
-    if (isStale(form.getValues("specialist_tax_id"), specialistTaxFieldOptions)) {
-      form.setValue("specialist_tax_id", null, { shouldDirty: false, shouldValidate: false });
-    }
-  }, [
-    isEdit,
-    teamCandidatesFetching,
-    teamCandidatesError,
-    serviceFilter,
-    partnerFieldOptions,
-    sqrFieldOptions,
-    managerFieldOptions,
-    encargadoFieldOptions,
-    specialistItFieldOptions,
-    specialistTaxFieldOptions,
-    form,
-  ]);
 
   // Defer navigation until the success modal is dismissed (Close button or `X`), so
   // the user always sees the assigned code before leaving the form.
@@ -1196,7 +1113,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       anio_fiscal: suggestFiscalYear(),
       oficina: canChooseProfileScopeFreely ? undefined : derivedOficina,
       practica: canChooseProfileScopeFreely ? undefined : derivedPractica,
-      funcion: undefined,
+      funcion: canChooseFuncionFreely ? undefined : FUNCION_CLIENTE,
       taxonomy_id: undefined,
       society_id: canChooseProfileScopeFreely ? undefined : derivedSocietyId,
       client_id: "",
@@ -1274,7 +1191,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
           abajo. Un fallo de carga importa igual o más en edición: los selectores quedan vacíos
           (solo `withSavedStaff` rescata al asignado actual), así que el editor no puede elegir
           reemplazo — y sin este mensaje no tendría ninguna explicación de por qué. */}
-      {(teamCandidatesError || serviceUnresolved) && (
+      {teamCandidatesError && (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>{t("messages.teamCandidatesLoadError")}</AlertDescription>
@@ -1805,7 +1722,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                   <FormItem>
                     <FormLabel>{t("engagement.funcion")} <span className="text-destructive">*</span></FormLabel>
                     <Select
-                      disabled={isEdit}
+                      disabled={isEdit || !canChooseFuncionFreely}
                       onValueChange={(v) => field.onChange(Number(v))}
                       value={field.value !== undefined ? String(field.value) : ""}
                     >

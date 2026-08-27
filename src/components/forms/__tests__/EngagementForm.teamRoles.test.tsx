@@ -1,7 +1,6 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@/test/utils";
-import { within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 /**
@@ -13,6 +12,17 @@ import userEvent from "@testing-library/user-event";
  * Mapa verificado (decisiones del operador 2026-08-17):
  *   Socio/Director y SQR → partner, director   |  Gerente/Supervisor → manager
  *   Encargado → senior, semisenior             |  Especialistas → ita_* / tax_*
+ *
+ * ACTUALIZADO 2026-08-27 (decisión del operador): el filtro ADICIONAL por práctica/servicio del
+ * encargo (que este mismo archivo probaba en su versión original) se retiró — la firma tiene 4
+ * Socios que manejan de todo, ninguno "asignado" a una práctica en particular, así que ese filtro
+ * dejaba Socio/Director/SQR/Gerente/Encargado/Especialistas vacíos para cualquier creador cuya
+ * práctica de ficha no tuviera un candidato con esa misma práctica — no solo para Talento Humano.
+ * La elegibilidad depende ÚNICAMENTE del rol (lo que este archivo sigue cubriendo). Los tests que
+ * ejercitaban específicamente el filtro por servicio (restricción por practica_id, fail-closed por
+ * servicio sin resolver, limpieza de valores al cambiar de práctica) se eliminaron junto con el
+ * código que probaban — ver EngagementForm.tsx (`serviceFilter`/`filterByService`, removidos) y
+ * src/lib/engagementTeamCandidates.ts (`filterByService`/`ServiceFilter`, removidos).
  */
 
 // Radix Popover/Command necesitan estas APIs en JSDOM
@@ -339,34 +349,6 @@ describe("EngagementForm — elegibilidad por rol en el bloque Equipo (0722-162)
     expect(screen.queryByText("engagement.selectEncargado")).toBeNull();
   });
 
-  // ── #7 y #8: filtro por servicio ────────────────────────────────────────────────────────
-  it("restringe al servicio del encargo: un Socio de otro servicio no aparece", async () => {
-    const otroServicio = opt("p2", "Pedro OtroServicio", SVC_CONSULT);
-    mockCandidates.partnerDirectorOptions = [SOCIO, otroServicio];
-    // Modo edición: `practica: 1` viene del encargo, así que el servicio queda determinado
-    // (SVC_AUDIT) sin depender del efecto de auto-asignación de los no-admin.
-    render(<EngagementForm engagement={baseEngagement} />);
-    // El form.reset del encargo corre en un efecto; esperar a que se haya aplicado.
-    await waitFor(() =>
-      expect(screen.getByDisplayValue("Auditoría Acme 2026")).toBeInTheDocument()
-    );
-    const listbox = await openCombobox("engagement.selectSqr");
-    expect(listbox).toHaveTextContent(SOCIO.label);
-    expect(listbox).not.toHaveTextContent(otroServicio.label);
-  });
-
-  it("sin práctica elegida (admin en creación) no filtra por servicio, pero sí por rol", async () => {
-    mockIsAdmin = true;
-    const otroServicio = opt("p2", "Pedro OtroServicio", SVC_CONSULT);
-    mockCandidates.partnerDirectorOptions = [SOCIO, otroServicio];
-    render(<EngagementForm />);
-    const listbox = await openCombobox("engagement.selectPartner");
-    expect(listbox).toHaveTextContent(SOCIO.label);
-    expect(listbox).toHaveTextContent(otroServicio.label);
-    // El filtro por rol sigue vigente.
-    expect(listbox).not.toHaveTextContent(GERENTE.label);
-  });
-
   // ── #9: merge del valor histórico ───────────────────────────────────────────────────────
   it("en edición conserva visible al asignado histórico que ya no califica", async () => {
     // Caso real: partner_id apunta a alguien sin role_key, así que el RPC no lo devuelve.
@@ -433,86 +415,6 @@ describe("EngagementForm — elegibilidad por rol en el bloque Equipo (0722-162)
     expectOnly(await openCombobox("engagement.selectSqr"), [SOCIO.label, DIRECTOR.label]);
   });
 
-  // ── Review de Greptile: servicio sin resolver ⇒ fail-closed, no lista completa ───────────
-  it("si el catálogo no resuelve la práctica, los selectores quedan deshabilitados", async () => {
-    // El encargo tiene practica = 1 (Auditoría) pero el catálogo solo trae el code 3. Antes,
-    // `engagementServiceId` caía a null y eso DESACTIVABA el filtro, ofreciendo personal de
-    // cualquier servicio; una selección hecha en esa ventana se guardaba contra el servicio
-    // equivocado. Ahora es fail-closed Y el selector no se puede abrir (review de Codex): con
-    // los candidatos no confiables no debe poder elegirse nada.
-    mockServicesData = [mockServices[1]]; // solo Consultoría (code 3)
-    render(<EngagementForm engagement={baseEngagement} />);
-    await waitFor(() =>
-      expect(getTriggerByText("engagement.selectSqr")).toBeDisabled()
-    );
-  });
-
-  // ── Review de Codex: valores rancios al cambiar de servicio ──────────────────────────────
-  //
-  // OJO con la forma de aserción: mirar el trigger NO sirve. Sin limpiar el formulario, el
-  // trigger igual muestra el placeholder — porque `StaffCombobox` resuelve la etiqueta con
-  // `options.find(...)` y el UUID rancio ya no está en `options`. Ese es justamente el bug:
-  // el campo se ve vacío mientras el valor sigue en React Hook Form. Hay que inspeccionar el
-  // VALOR: en un campo opcional se ve por el check de `No Aplica`, que solo está marcado
-  // cuando el valor es null.
-  const noAplicaCheck = (listbox: HTMLElement) =>
-    within(listbox).getByText("engagement.noAplica").closest("[role='option']")?.querySelector("svg");
-
-  it("cambiar el servicio limpia el VALOR del personal que dejó de ser elegible", async () => {
-    // Admin en creación: sin práctica no se filtra por servicio, así que puede elegir a alguien
-    // de Consultoría y después fijar la práctica en Auditoría. Sin la limpieza, su UUID quedaría
-    // en RHF y `create_engagement_with_code` no valida alineación staff/servicio: se persistiría
-    // una asignación cruzada.
-    mockIsAdmin = true;
-    const seniorConsult = opt("sc", "Sonia Consultoria", SVC_CONSULT);
-    mockCandidates.encargadoOptions = [SENIOR, seniorConsult];
-    const user = userEvent.setup();
-    render(<EngagementForm />);
-
-    // 1) Sin práctica, el Senior de Consultoría se ofrece y se elige.
-    await openCombobox("engagement.selectEncargado");
-    await user.click(await screen.findByText(seniorConsult.label));
-    await waitFor(() => expect(getTriggerByText(seniorConsult.label)).toBeInTheDocument());
-    // Con un valor elegido, `No Aplica` NO está marcado.
-    expect(noAplicaCheck(await openCombobox(seniorConsult.label))).toHaveClass("opacity-0");
-    await user.keyboard("{Escape}");
-
-    // 2) El Admin fija la práctica en Auditoría.
-    await user.click(screen.getByLabelText(/engagement\.practica/));
-    await user.click(await screen.findByRole("option", { name: "Auditoría" }));
-
-    // 3) Esperar a que el filtro se haya aplicado — señal: el trigger volvió al placeholder.
-    //    (Ojo: esto pasa CON y SIN el fix, así que no alcanza como aserción; ver abajo.)
-    //    No abrir el popover dentro del waitFor: cada reintento lo abriría de nuevo.
-    await waitFor(() =>
-      expect(screen.getByText("engagement.selectEncargado")).toBeInTheDocument()
-    );
-
-    // Y acá la aserción que sí distingue: el VALOR quedó en null, así que `No Aplica` está
-    // marcado. Sin la limpieza el UUID rancio seguiría en RHF y el check estaría en opacity-0.
-    expect(noAplicaCheck(await openCombobox("engagement.selectEncargado"))).toHaveClass(
-      "opacity-100"
-    );
-  });
-
-  it("cambiar el servicio NO limpia a quien sigue siendo elegible", async () => {
-    // Guard contra over-clearing: el efecto solo debe tocar los valores que dejaron de calificar.
-    mockIsAdmin = true;
-    const user = userEvent.setup();
-    render(<EngagementForm />);
-
-    // SENIOR es de Auditoría, así que sobrevive a fijar la práctica en Auditoría.
-    await openCombobox("engagement.selectEncargado");
-    await user.click(await screen.findByText(SENIOR.label));
-    await waitFor(() => expect(getTriggerByText(SENIOR.label)).toBeInTheDocument());
-
-    await user.click(screen.getByLabelText(/engagement\.practica/));
-    await user.click(await screen.findByRole("option", { name: "Auditoría" }));
-
-    await waitFor(() => expect(getTriggerByText(SENIOR.label)).toBeInTheDocument());
-    expect(noAplicaCheck(await openCombobox(SENIOR.label))).toHaveClass("opacity-0");
-  });
-
   // ── Review de Codex: el aviso debe dirigir a roles, no a categorías ─────────────────────
   it("sin candidatos obligatorios avisa por ROLES, no por categorías", async () => {
     // Seguir el mensaje viejo ("agregue categorías en Configuración") no habilitaba nada: la
@@ -558,87 +460,6 @@ describe("EngagementForm — elegibilidad por rol en el bloque Equipo (0722-162)
     render(<EngagementForm engagement={baseEngagement} />);
     expect(screen.getByText(/messages\.teamCandidatesLoadError/)).toBeInTheDocument();
     expect(screen.queryByText(/messages\.missingTeamRoles/)).toBeNull();
-  });
-
-  // ── Review de Codex: el aviso se mide sobre las listas FILTRADAS POR SERVICIO ────────────
-  it("avisa cuando hay candidatos globales pero ninguno en el servicio del encargo", async () => {
-    // Existe un Socio y un Gerente, pero en Consultoría; el encargo es de Auditoría. Con flags
-    // globales el aviso quedaba suprimido y Crear habilitado, dejando dos campos obligatorios
-    // imposibles de llenar y sin ninguna explicación.
-    mockCandidates.partnerDirectorOptions = [opt("p9", "Pablo Consultoria", SVC_CONSULT)];
-    mockCandidates.managerRoleOptions = [opt("m9", "Mora Consultoria", SVC_CONSULT)];
-    render(<EngagementForm engagement={{ ...baseEngagement, partner_id: null, manager_id: null }} />);
-    await waitFor(() =>
-      expect(screen.getByDisplayValue("Auditoría Acme 2026")).toBeInTheDocument()
-    );
-    // baseEngagement.practica = 1 ⇒ servicio Auditoría, así que ninguno de los dos califica.
-    expect(await openCombobox("engagement.selectPartner")).not.toHaveTextContent("Pablo Consultoria");
-  });
-
-  it("en creación avisa por falta de personal cuando el servicio no tiene candidatos", async () => {
-    mockCandidates.partnerDirectorOptions = [opt("p9", "Pablo Consultoria", SVC_CONSULT)];
-    mockCandidates.managerRoleOptions = [opt("m9", "Mora Consultoria", SVC_CONSULT)];
-    // BUG 0817-180: practica ya no se auto-asigna a ciegas — se deriva de la ficha del creador.
-    // "ita_manager" tiene engagement.create pero NO está en el mapa de autoasignación de
-    // 0810-172 (a diferencia de "manager"), así que no interfiere con lo que este archivo
-    // ejercita (0722-162): resuelve a code 1 (Auditoría), igual que antes.
-    mockRoleKeyOverride = "ita_manager";
-    mockStaffRecordForProfile = { staff_id: "staff-ita", society_id: "soc-1", practica_id: SVC_AUDIT, city: "La Paz" };
-    render(<EngagementForm />);
-    await waitFor(() =>
-      expect(screen.getByText(/messages\.missingTeamRoles/)).toBeInTheDocument()
-    );
-  });
-
-  it("mientras el servicio no está resuelto no afirma que falte personal", async () => {
-    // Fail-closed del catálogo: las listas están vacías por otra razón, así que afirmar "falta
-    // personal" sería tan engañoso como el caso del RPC caído.
-    mockServicesData = [mockServices[1]]; // el code 1 del encargo no resuelve
-    render(<EngagementForm engagement={{ ...baseEngagement, partner_id: null, manager_id: null }} />);
-    await waitFor(() =>
-      expect(screen.getByDisplayValue("Auditoría Acme 2026")).toBeInTheDocument()
-    );
-    expect(screen.queryByText(/messages\.missingTeamRoles/)).toBeNull();
-  });
-
-  // ── Review de Greptile: servicio indeterminado no debe permitir persistir ─────────────────
-  it("si el catálogo deja de resolver la práctica, bloquea la creación y avisa", async () => {
-    // El fail-closed vacía los selectores, pero los valores ya elegidos siguen en React Hook Form
-    // y pasan la validación de "string no vacío". Como create_engagement_with_code NO valida
-    // alineación staff/servicio, hay que bloquear el submit — vaciar la lista no alcanza.
-    // Los valores NO se limpian a propósito: el catálogo puede volver, y borrar selecciones
-    // válidas sería peor que el problema.
-    mockIsAdmin = true; // el Admin elige la práctica a mano
-    const user = userEvent.setup();
-    const { rerender } = render(<EngagementForm />);
-
-    // 1) Con el catálogo completo elige Consultoría (code 3) y todo está habilitado.
-    await user.click(screen.getByLabelText(/engagement\.practica/));
-    await user.click(await screen.findByRole("option", { name: "Consultoría" }));
-    expect(screen.queryByText(/messages\.teamCandidatesLoadError/)).toBeNull();
-
-    // 2) El catálogo deja de traer ese servicio (refetch/falla): la práctica ya no resuelve.
-    mockServicesData = [mockServices[0]]; // solo Auditoría (code 1)
-    rerender(<EngagementForm />);
-
-    // 3) Aviso visible y submit bloqueado: ningún valor retenido puede llegar al backend.
-    await waitFor(() =>
-      expect(screen.getByText(/messages\.teamCandidatesLoadError/)).toBeInTheDocument()
-    );
-    expect(screen.getByText("engagement.createEngagement").closest("button")).toBeDisabled();
-  });
-
-  it("con el servicio resuelto el Equipo no bloquea el botón de crear", async () => {
-    // Guard contra over-blocking del cambio de arriba. BUG 0817-180: perfil completo (mismo
-    // criterio que el test anterior) para que el guard de perfil no sea el que bloquee el botón
-    // — lo que este test aísla es específicamente el bloque Equipo (0722-162).
-    mockRoleKeyOverride = "ita_manager";
-    mockStaffRecordForProfile = { staff_id: "staff-ita", society_id: "soc-1", practica_id: SVC_AUDIT, city: "La Paz" };
-    render(<EngagementForm />);
-    await waitFor(() =>
-      expect(screen.getByText("engagement.createEngagement").closest("button")).not.toBeDisabled()
-    );
-    expect(screen.queryByText(/messages\.teamCandidatesLoadError/)).toBeNull();
   });
 
   it("mientras refetchea en background no afirma que falten roles ni deja crear", () => {

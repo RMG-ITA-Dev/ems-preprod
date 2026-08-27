@@ -72,7 +72,10 @@ const SOCIETY_B = { society_id: "soc-b", name: "Sociedad B", is_active: true, cr
 const mockSocieties = [SOCIETY_A, SOCIETY_B];
 
 const stableClients = [{ client_id: "client-1", client_legal_name: "Test Client", is_active: true }];
-const stableTaxonomies: never[] = [];
+// Función queda fija en Cliente para un creador restringido (cambio suelto, 2026-08-26) —
+// Cliente exige una taxonomía real (0602-136, "No aplica" queda oculto), así que el fixture
+// de submit completo la necesita.
+const mockTaxonomies = [{ taxonomy_id: "tax-1", code: "T1", name: "Test Taxonomy", practica_id: null, is_active: true, created_at: "" }];
 const stableAssignments: never[] = [];
 const stableAggregatedReqs: never[] = [];
 const stableActiveStaff: never[] = [];
@@ -80,7 +83,7 @@ const stableCategories: never[] = [];
 vi.mock("@/hooks/useEmsData", () => ({
   useClients: () => ({ data: stableClients }),
   useServices: () => ({ data: mockServices }),
-  useTaxonomies: () => ({ data: stableTaxonomies }),
+  useTaxonomies: () => ({ data: mockTaxonomies }),
   useSocieties: () => ({ data: mockSocieties }),
   useEngagementAssignments: () => ({ data: stableAssignments, isLoading: false, isError: false }),
   useEngagementAggregatedRequirements: () => ({ data: stableAggregatedReqs }),
@@ -304,10 +307,12 @@ describe("EngagementForm — profile-scoped sociedad/práctica/oficina (BUG 0817
     fireEvent.change(calendars[0], { target: { value: "2026-10-01" } });
     fireEvent.change(calendars[1], { target: { value: "2027-09-30" } });
 
-    const funcion = screen.getByLabelText(/engagement\.funcion/);
-    await user.click(funcion);
-    await waitFor(() => screen.getByRole("option", { name: "engagement.funcion_adm" }));
-    await user.click(screen.getByRole("option", { name: "engagement.funcion_adm" }));
+    // Cambio suelto 2026-08-26: función también queda fija (Cliente) para un creador
+    // restringido — no hace falta seleccionarla; Cliente exige una taxonomía real (0602-136).
+    expect(screen.getByLabelText(/engagement\.funcion/)).toHaveTextContent("engagement.funcion_cli");
+    await user.click(screen.getByTestId("taxonomy-combobox-trigger"));
+    await waitFor(() => screen.getByText("Test Taxonomy"));
+    await user.click(screen.getByText("Test Taxonomy"));
 
     const closingDate = screen.getByRole("combobox", { name: "engagement.closingDate *" });
     await user.click(closingDate);

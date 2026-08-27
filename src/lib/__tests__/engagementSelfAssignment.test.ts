@@ -40,6 +40,10 @@ describe("resolveSelfAssignedTeamField — roles que SÍ se autoasignan", () => 
   it("director → partner_id (el campo es 'Socio/Director'; decisión del operador 2026-08-17)", () => {
     expect(resolveSelfAssignedTeamField({ ...base, roleKey: "director" })).toBe("partner_id");
   });
+
+  it("hr_manager → manager_id (0817-180: TH se comporta como cualquier otro Gerente, decisión del operador 2026-08-27)", () => {
+    expect(resolveSelfAssignedTeamField({ ...base, roleKey: "hr_manager" })).toBe("manager_id");
+  });
 });
 
 describe("resolveSelfAssignedTeamField — exenciones", () => {
@@ -74,8 +78,8 @@ describe("resolveSelfAssignedTeamField — exenciones", () => {
 });
 
 describe("resolveSelfAssignedTeamField — roles NO autoasignables", () => {
-  // Los 19 role_key restantes del catálogo de 23 (admin/partner/director/manager se cubren arriba).
-  // Esta lista es la que impide que un rol se cuele por descuido al tocar el mapa.
+  // Los 18 role_key restantes del catálogo de 23 (admin/partner/director/manager/hr_manager se
+  // cubren arriba). Esta lista es la que impide que un rol se cuele por descuido al tocar el mapa.
   it.each([
     ["senior"],
     ["semisenior"],
@@ -94,7 +98,6 @@ describe("resolveSelfAssignedTeamField — roles NO autoasignables", () => {
     ["accounting_manager"],
     ["accounting_analyst"],
     ["collections_analyst"],
-    ["hr_manager"],
     ["hr_analyst"],
   ])("%s no se autoasigna a ningún campo", (roleKey) => {
     expect(resolveSelfAssignedTeamField({ ...base, roleKey })).toBeNull();

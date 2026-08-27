@@ -53,10 +53,9 @@ export interface UseEngagementTeamCandidatesResult {
   isError: boolean;
 }
 
-// A propósito NO se exponen flags tipo `hasPartnerDirectorCandidates`: serían GLOBALES, sin el
-// filtro por servicio que aplica el formulario, y usarlos para decidir el aviso de "falta
-// personal" da falsos negativos (existe un Socio en otro servicio ⇒ flag true, pero el selector
-// del encargo está vacío). El aviso se deriva de las listas ya filtradas — ver EngagementForm.
+// A propósito NO se exponen flags tipo `hasPartnerDirectorCandidates`: EngagementForm ya deriva
+// el aviso de "falta personal" directamente de la longitud de estos mismos arrays, así que un
+// flag aparte solo duplicaría esa cuenta sin agregar información.
 
 const EMPTY: TeamCandidateOption[] = [];
 

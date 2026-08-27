@@ -1,5 +1,5 @@
 import React from "react";
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@/test/utils";
 import userEvent from "@testing-library/user-event";
 
@@ -115,10 +115,15 @@ vi.mock("@/hooks/useUserRole", () => ({
   useUserRole: () => ({ isAdmin: false }),
 }));
 
+// Cambio suelto (2026-08-26): Función ahora también queda fija en Cliente para un creador
+// restringido, así que un rol "manager" en creación nunca deja `funcion` sin elegir — mutable
+// para que el único test que necesita `funcion` verdaderamente sin definir (línea ~168, "No
+// aplica" visible) pueda usar `admin` en su lugar, sin afectar al resto de la suite.
+let mockRoleKey = "manager";
 vi.mock("@/hooks/useAuthorization", () => ({
   // Estos tests mockean isAdmin: false; con isAdmin derivado de role_key,
   // roleKey debe ser NO-admin para seguir ejercitando el mismo caso.
-  useAuthorization: () => ({ can: () => true, roleKey: "manager" }),
+  useAuthorization: () => ({ can: () => true, roleKey: mockRoleKey }),
 }));
 
 vi.mock("@/hooks/useCurrentStaff", () => ({
@@ -160,12 +165,20 @@ const mockEngagementLegacyNullTaxonomy: Engagement = {
 };
 
 describe("EngagementForm — taxonomy combobox filtering (0602-136)", () => {
+  beforeEach(() => {
+    mockRoleKey = "manager";
+  });
+
   it("renders the taxonomy field label without asterisk when funcion is unset", () => {
     render(<EngagementForm />);
     expect(screen.getByText("engagement.taxonomy")).toBeInTheDocument();
   });
 
   it("create mode: opening the combobox shows only active taxonomies plus 'No aplica'", async () => {
+    // Cambio suelto (2026-08-26): con 'manager' función ya viene fija en Cliente en creación,
+    // que oculta "No aplica" a propósito (0602-136) — este test necesita función SIN definir,
+    // así que pasa a admin (con elección libre) para seguir probando lo que probaba.
+    mockRoleKey = "admin";
     const user = userEvent.setup();
     render(<EngagementForm />);
 
