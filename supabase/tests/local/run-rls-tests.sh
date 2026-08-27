@@ -91,6 +91,20 @@ run supabase/migrations/20251204000003_cero_03_constraints_indexes.sql
 run supabase/migrations/20251204000004_cero_04_triggers_fks.sql
 run supabase/migrations/20251204000005_cero_05_rls_policies.sql
 run supabase/migrations/20251204000006_cero_06_grants.sql
+
+# Catálogo RBAC (authorization_roles/permissions/role_permissions): dato real de producción,
+# copiado verbatim de la migración histórica 20260724010000_authz_fase2_seed.sql (23 roles/84
+# permisos/737 concesiones) — ninguna migración _cero_* lo siembra (es dato, no esquema) y el
+# seed de Fase 4 del plan tampoco lo cubre todavía (hallazgo documentado en
+# docs/migraciones/legado-consolidacion.md). Varias suites de aserciones dependen de
+# has_permission()/has_firmwide_assignment_visibility(), que leen este catálogo — sin él, esas
+# suites no pueden ejercitar nada real. Se aplica una sola vez, fuera de la transacción de cada
+# suite, para que todas lo compartan sin re-sembrarlo. Debe cargarse ANTES de cualquier
+# migración incremental que inserte en authorization_role_permissions (0817-180 más abajo): esa
+# tabla tiene FK a authorization_permissions, que este fixture es quien siembra en el harness —
+# en producción esa fila ya existe de antes (hallazgo real de CI, 2026-08-27).
+run supabase/tests/local/40-fixture-rbac-catalog.sql
+
 run supabase/migrations/20260826162100_0817-180_enforce_engagement_profile_scope.sql
 run supabase/migrations/20260826221706_0817-180_grant_hr_engagement_work_order.sql
 
@@ -100,16 +114,6 @@ run supabase/migrations/20260826221706_0817-180_grant_hr_engagement_work_order.s
 # punto del bootstrap); lo que importa para el harness es el CREATE OR REPLACE
 # de ambas funciones, ejercitado por rpc-worksheet-activity-practice-scope.sql.
 run supabase/migrations/20260825120000_0825-183_worksheet_activity_practice_scope.sql
-
-# Catálogo RBAC (authorization_roles/permissions/role_permissions): dato real de producción,
-# copiado verbatim de la migración histórica 20260724010000_authz_fase2_seed.sql (23 roles/84
-# permisos/737 concesiones) — ninguna migración _cero_* lo siembra (es dato, no esquema) y el
-# seed de Fase 4 del plan tampoco lo cubre todavía (hallazgo documentado en
-# docs/migraciones/legado-consolidacion.md). Varias suites de aserciones dependen de
-# has_permission()/has_firmwide_assignment_visibility(), que leen este catálogo — sin él, esas
-# suites no pueden ejercitar nada real. Se aplica una sola vez, fuera de la transacción de cada
-# suite, para que todas lo compartan sin re-sembrarlo.
-run supabase/tests/local/40-fixture-rbac-catalog.sql
 
 # society/practicas(code=1): staff.society_id/practica_id y categories.practica_id son NOT NULL
 # reales; varias suites (rpc-engagement-team-candidates.sql explícitamente lo exige con su
