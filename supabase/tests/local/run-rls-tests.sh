@@ -92,6 +92,7 @@ run supabase/migrations/20251204000004_cero_04_triggers_fks.sql
 run supabase/migrations/20251204000005_cero_05_rls_policies.sql
 run supabase/migrations/20251204000006_cero_06_grants.sql
 run supabase/migrations/20260826162100_0817-180_enforce_engagement_profile_scope.sql
+run supabase/migrations/20260826221706_0817-180_grant_hr_engagement_work_order.sql
 
 # 0825-183: primera migración incremental posterior al set consolidado —
 # endurece enforce_worksheet_cell_practice_scope/batch_upsert_worksheet_cells.
