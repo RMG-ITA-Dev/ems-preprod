@@ -34,6 +34,12 @@ export type AuthorizationStatus = "loading" | "error" | "no-role" | "ready";
 export interface UseAuthorizationResult {
   status: AuthorizationStatus;
   isLoading: boolean;
+  /**
+   * Hay un fetch en curso, INCLUIDO el refetch en background que sirve datos cacheados
+   * (`isLoading` queda en `false` en ese caso). Ver el mismo criterio en
+   * `useEngagementTeamCandidates`/`profileLoading` de EngagementForm.tsx.
+   */
+  isFetching: boolean;
   isError: boolean;
   /** role_key del usuario (o null si no tiene rol asignado). */
   roleKey: string | null;
@@ -50,7 +56,7 @@ export interface UseAuthorizationResult {
 export function useAuthorization(): UseAuthorizationResult {
   const { user } = useAuth();
 
-  const { data, isLoading, isError, refetch } = useQuery({
+  const { data, isLoading, isFetching, isError, refetch } = useQuery({
     queryKey: ["authz_context", user?.id],
     queryFn: async (): Promise<AuthorizationContext> => {
       // NOTA: get_my_authorization_context aún no está en types.ts (se regenera
@@ -106,6 +112,7 @@ export function useAuthorization(): UseAuthorizationResult {
   return {
     status,
     isLoading,
+    isFetching,
     isError,
     roleKey: data?.role_key ?? null,
     can,

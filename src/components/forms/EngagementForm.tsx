@@ -261,7 +261,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   // Este archivo ya NO usa el enum legacy: todo sale de `role_key` y de los
   // permisos. El toggle de congelamiento del Gerente (`isManager`) se eliminó
   // (0722-157); el estado "Congelado" ahora solo lo fija el Admin.
-  const { can, roleKey, isLoading: roleLoading } = useAuthorization();
+  const { can, roleKey, isLoading: roleLoading, isFetching: roleFetching } = useAuthorization();
   const isAdmin = roleKey === "admin";
   // BUG 0817-180: Super Admin (role_key admin) y Senior Partner eligen sociedad/practica/oficina
   // libres al crear; el resto queda clasificado por su ficha. Espejo exacto del trigger de BD
@@ -303,7 +303,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       savedEffectiveState === EngagementState.Congelado);
 
   const { data: clients } = useClients();
-  const { data: allServices, isLoading: servicesLoading } = useServices();
+  const { data: allServices, isLoading: servicesLoading, isFetching: servicesFetching } = useServices();
   const { data: allTaxonomies } = useTaxonomies();
   const { data: societies } = useSocieties();
   // BUG 0722-162: los seis selectores del bloque Equipo se alimentan de `role_key`, no de la
@@ -318,7 +318,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     isFetching: teamCandidatesFetching,
     isError: teamCandidatesError,
   } = useEngagementTeamCandidates();
-  const { staffRecord, isLoading: currentStaffLoading } = useCurrentStaff();
+  const { staffRecord, isLoading: currentStaffLoading, isFetching: currentStaffFetching } = useCurrentStaff();
 
   // ── BUG 0817-180: sociedad/práctica/oficina derivadas de la ficha del creador restringido ────
   //
@@ -344,7 +344,17 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   // gobierna el bloque Equipo): además del rol/ficha, `derivedPractica` depende del catálogo de
   // servicios — sin esperarlo, un catálogo aún cargando se leería como "práctica no resoluble" y
   // bloquearía a un creador con ficha completa.
-  const profileLoading = !isEdit && !canChooseProfileScopeFreely && (roleLoading || currentStaffLoading || servicesLoading);
+  //
+  // Review de Codex (0817-180, 2026-08-28): `isLoading` no alcanza — con datos en cache, TanStack
+  // devuelve `isLoading: false` y refetchea por detrás (p.ej. tras `useUpdateStaff` invalidando
+  // `current_staff`), así que la tríada se sembraría con la ficha VIEJA y el trigger de BD
+  // rechazaría el submit. Se suma `isFetching` de los tres hooks, mismo criterio ya aplicado en
+  // `useEngagementTeamCandidates` para el bloque Equipo (0722-162).
+  const profileLoading =
+    !isEdit &&
+    !canChooseProfileScopeFreely &&
+    (roleLoading || currentStaffLoading || servicesLoading ||
+      roleFetching || currentStaffFetching || servicesFetching);
   const missingProfileFields: string[] = [];
   if (!isEdit && !canChooseProfileScopeFreely && !profileLoading) {
     if (!staffRecord?.staff_id) {
