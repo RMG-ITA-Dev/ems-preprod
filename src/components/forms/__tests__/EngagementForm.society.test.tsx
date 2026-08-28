@@ -159,13 +159,24 @@ vi.mock("@/hooks/useAuthorization", async () => {
   };
 });
 
-vi.mock("@/hooks/useCurrentStaff", () => ({
-  useCurrentStaff: () => ({ staffRecord: null }),
-}));
+// BUG 0817-180: sociedad/practica/oficina de un creador restringido se derivan de su ficha.
+// Perfil completo por default (society_id=soc-active-1, practica_id=s1 -> Auditoría code 1,
+// city="La Paz" -> oficina 1) para que las suites ambientales de este archivo (que no ejercitan
+// 0817-180 directamente) sigan viendo el comportamiento pre-existente de un creador no-admin con
+// ficha en regla. Los tests que sí ejercitan 0817-180 sobrescriben el mock por caso.
+vi.mock("@/hooks/useCurrentStaff", () => ({ useCurrentStaff: vi.fn() }));
 
 import { useUserRole } from "@/hooks/useUserRole";
+import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { EngagementForm } from "@/components/forms/EngagementForm";
 import type { Engagement } from "@/hooks/useEmsData";
+
+const completeStaffRecord = {
+  staff_id: "staff-self",
+  society_id: "soc-active-1",
+  practica_id: "s1",
+  city: "La Paz",
+};
 
 const mockEngagementWithSociety: Engagement = {
   engagement_id: "eng-soc-1",
@@ -209,6 +220,7 @@ describe("EngagementForm — Sociedad select (FEAT 0714-155)", () => {
   beforeEach(() => {
     mockUpdateMutateAsync.mockClear();
     vi.mocked(useUserRole).mockReturnValue({ isAdmin: false, isLoading: false } as any);
+    vi.mocked(useCurrentStaff).mockReturnValue({ staffRecord: completeStaffRecord } as any);
   });
 
   it("renders the label with an asterisk", () => {
@@ -216,8 +228,11 @@ describe("EngagementForm — Sociedad select (FEAT 0714-155)", () => {
     expect(screen.getByText((_, el) => el?.textContent === "engagement.society *")).toBeInTheDocument();
   });
 
-  it("create mode: opening the select lists only active societies", async () => {
+  // BUG 0817-180: solo admin/senior_partner eligen sociedad libremente en creación — este
+  // mock de useAuthorization solo modela admin/manager, así que se ejercita con admin.
+  it("create mode (admin, free choice): opening the select lists only active societies", async () => {
     const user = userEvent.setup();
+    vi.mocked(useUserRole).mockReturnValue({ isAdmin: true, isLoading: false } as any);
     render(<EngagementForm />);
 
     await user.click(screen.getByLabelText(/engagement\.society/));
@@ -227,6 +242,14 @@ describe("EngagementForm — Sociedad select (FEAT 0714-155)", () => {
       expect(screen.getByRole("option", { name: "Ruizmier Juaregui S.R.L." })).toBeInTheDocument();
       expect(screen.queryByRole("option", { name: "Old Society S.R.L." })).not.toBeInTheDocument();
     });
+  });
+
+  // BUG 0817-180: el creador restringido (no admin/senior_partner) no elige — su ficha decide.
+  it("create mode (non-privileged, complete profile): Sociedad is pre-filled from the staff record and disabled", () => {
+    render(<EngagementForm />);
+    const societySelect = screen.getByLabelText(/engagement\.society/);
+    expect(societySelect).toBeDisabled();
+    expect(societySelect).toHaveTextContent("Ruizmier Pelaez S.R.L.");
   });
 
   it("edit mode: the select is disabled (immutable after create, like oficina/practica/funcion)", () => {
@@ -287,7 +310,11 @@ describe("EngagementForm — Sociedad select (FEAT 0714-155)", () => {
 describe("EngagementForm — Sociedad required in creation (real submit, FEAT 0714-155)", () => {
   beforeEach(() => {
     mockCreateMutateAsync.mockClear();
-    vi.mocked(useUserRole).mockReturnValue({ isAdmin: false, isLoading: false } as any);
+    // BUG 0817-180: solo admin/senior_partner eligen sociedad/practica/oficina libres en
+    // creación — un manager ya no puede "dejar Sociedad sin seleccionar" (viene de su ficha).
+    // Este mock de useAuthorization solo modela admin/manager, así que se ejercita con admin.
+    vi.mocked(useUserRole).mockReturnValue({ isAdmin: true, isLoading: false } as any);
+    vi.mocked(useCurrentStaff).mockReturnValue({ staffRecord: completeStaffRecord } as any);
   });
 
   // REVIEW FIX: the previous version of this describe block only re-implemented the

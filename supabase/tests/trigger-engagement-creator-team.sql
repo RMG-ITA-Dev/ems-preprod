@@ -15,6 +15,9 @@
 --
 -- Qué se cubre:
 --   1. Gerente que manda el manager_id de otro por el RPC ⇒ persiste el propio; partner_id intacto.
+--   1c. hr_manager se comporta igual que Gerente en manager_id (BUG 0817-180, decisión del
+--       operador 2026-08-27: "no hagamos casos especiales" — Talento Humano ya tiene
+--       engagement.create real, sin necesidad de grant temporal dentro de esta transacción).
 --   2. Socio que manda el partner_id de otro ⇒ persiste el propio; manager_id intacto.
 --   3. Director se comporta como Socio (mismo campo).
 --   4. La misma canonización en un INSERT DIRECTO a la tabla, no solo por el RPC.
@@ -26,6 +29,24 @@
 --  10. El trigger es BEFORE INSERT ROW, y el RPC sigue teniendo exactamente 1 firma.
 --
 -- Fixture: todos los ids llevan el prefijo ect- reconocible (ect = engagement creator team).
+--
+-- ACTUALIZADO por BUG 0817-180 (trigger `enforce_engagement_profile_scope`, misma tabla, mismo
+-- evento INSERT): el nuevo guard exige (a) `engagement.create` para cualquier INSERT autenticado
+-- — antes el RPC SECURITY DEFINER lo saltaba — y (b) para role_key fuera de admin/senior_partner,
+-- que society_id/practica/oficina coincidan con la ficha del creador. Consecuencias sobre este
+-- fixture:
+--   - Los 7 sujetos con ficha ahora necesitan `city` (antes ausente): `create_eng()` siempre manda
+--     p_oficina=1, así que se fija 'La Paz' (-> oficina 1) para los 7.
+--   - `partner`/`director` no tienen `engagement.create` en el seed real (solo admin/manager/
+--     ita_manager/tax_manager) — antes invisible porque el RPC saltaba la RLS. Se les concede acá,
+--     DENTRO de esta transacción que siempre hace ROLLBACK, para seguir ejercitando la canonización
+--     de Socio/Director sin tocar la matriz de permisos real (decisión del operador en 0817-180,
+--     OQ2/OQ6: no tocar el seed de producción).
+--   - CHECK 7 (Gerente sin ficha) cambia de "pasa igual, sin canonizar" a "se rechaza": 0817-180 es
+--     fail-closed para un creador restringido sin ficha vinculada.
+--   - CHECK 4 (INSERT directo) ahora manda también society_id/oficina/practica coincidentes con la
+--     ficha del sujeto 1, o el guard nuevo lo rechazaría antes de llegar a la canonización que este
+--     check en realidad prueba.
 
 BEGIN;
 
@@ -50,7 +71,8 @@ BEGIN
     SELECT ('ec700000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid,
            '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
            'ect-test-' || n || '@ruizmier.com', 'x', now(), now(), now(), '{}'::jsonb, '{}'::jsonb
-      FROM generate_series(1, 8) n
+      -- 9: hr_manager llamante (BUG 0817-180, CHECK 1c).
+      FROM generate_series(1, 9) n
     ON CONFLICT (id) DO NOTHING;
   END IF;
 END $$;
@@ -59,15 +81,36 @@ END $$;
 -- 1 Gerente llamante · 2 Socio llamante · 3 Director llamante · 4 admin llamante
 -- 5 ita_manager llamante · 6 otro Gerente (objetivo) · 7 otro Socio (objetivo)
 -- 8: a propósito SIN ficha de personal (llamante `manager` sin staff vinculado).
+-- 9: hr_manager llamante (BUG 0817-180, CHECK 1c) — necesita ficha completa, igual que 1..7.
 INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, is_active,
-                          practica_id, society_id)
+                          practica_id, society_id, city)
 SELECT ('5ec00000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid,
        ('ec700000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid,
        'ECT', 'Sujeto' || lpad(n::text, 2, '0'),
        true,
        (SELECT practica_id FROM public.practicas WHERE code = 1 AND is_active LIMIT 1),
-       (SELECT society_id FROM public.society WHERE is_active ORDER BY name LIMIT 1)
-  FROM generate_series(1, 7) n;
+       (SELECT society_id FROM public.society WHERE is_active ORDER BY name LIMIT 1),
+       -- BUG 0817-180: 'La Paz' -> oficina 1, lo que `pg_temp.create_eng()` ya manda como
+       -- p_oficina para los sujetos con ficha.
+       'La Paz'
+  FROM generate_series(1, 7) n
+UNION ALL
+SELECT ('5ec00000-0000-4000-8000-' || lpad(9::text, 12, '0'))::uuid,
+       ('ec700000-0000-4000-8000-' || lpad(9::text, 12, '0'))::uuid,
+       'ECT', 'Sujeto09',
+       true,
+       (SELECT practica_id FROM public.practicas WHERE code = 1 AND is_active LIMIT 1),
+       (SELECT society_id FROM public.society WHERE is_active ORDER BY name LIMIT 1),
+       'La Paz';
+
+-- BUG 0817-180: partner/director no tienen `engagement.create` en el seed real (solo admin/
+-- manager/ita_manager/tax_manager) — el nuevo trigger lo exige incluso para el RPC (antes lo
+-- saltaba via SECURITY DEFINER). Se concede acá, solo dentro de esta transacción (ROLLBACK al
+-- final), para seguir probando la canonización de Socio/Director sin tocar la matriz real.
+INSERT INTO public.authorization_role_permissions (role_key, permission_key, scope_key)
+VALUES ('partner', 'engagement.create', 'assigned_engagements'),
+       ('director', 'engagement.create', 'assigned_engagements')
+ON CONFLICT (role_key, permission_key) DO NOTHING;
 
 INSERT INTO public.user_roles (user_id, role_key) VALUES
   ('ec700000-0000-4000-8000-000000000001', 'manager'),
@@ -78,7 +121,10 @@ INSERT INTO public.user_roles (user_id, role_key) VALUES
   ('ec700000-0000-4000-8000-000000000006', 'manager'),
   ('ec700000-0000-4000-8000-000000000007', 'partner'),
   -- 8: rol Gerente pero sin ficha de personal ⇒ get_my_staff_id() devuelve NULL.
-  ('ec700000-0000-4000-8000-000000000008', 'manager')
+  ('ec700000-0000-4000-8000-000000000008', 'manager'),
+  -- 9: hr_manager llamante (BUG 0817-180, CHECK 1c) — ya tiene engagement.create real, sin
+  -- necesidad del grant temporal que sí hace falta para partner/director más abajo.
+  ('ec700000-0000-4000-8000-000000000009', 'hr_manager')
 ON CONFLICT (user_id) DO UPDATE SET role_key = EXCLUDED.role_key;
 
 -- ── Cliente del fixture ────────────────────────────────────────────────────────────────────────
@@ -184,6 +230,28 @@ BEGIN
   RAISE NOTICE 'CHECK 1 OK: Gerente canonizado en manager_id, partner_id intacto.';
 END $$;
 
+-- ── #1c: hr_manager ⇒ se canoniza manager_id, igual que Gerente ───────────────────────────────
+-- BUG 0817-180 (2026-08-27): decisión del operador de no tratar a Talento Humano como caso
+-- especial. hr_manager ya tiene engagement.create en la matriz real (grant previo de 0817-180),
+-- así que a diferencia de partner/director más abajo no necesita ningún grant temporal acá.
+DO $$
+DECLARE v_eng public.engagements;
+BEGIN
+  PERFORM pg_temp.impersonate(pg_temp.u(9));
+  -- Manda deliberadamente al OTRO Gerente (6) y a un Socio cualquiera (7).
+  v_eng := pg_temp.create_eng('ECT hr_manager manda a otro', pg_temp.s(7), pg_temp.s(6));
+
+  IF v_eng.manager_id IS DISTINCT FROM pg_temp.s(9) THEN
+    RAISE EXCEPTION 'CHECK 1c: manager_id debía canonizarse al llamante (%), es %',
+      pg_temp.s(9), v_eng.manager_id;
+  END IF;
+  IF v_eng.partner_id IS DISTINCT FROM pg_temp.s(7) THEN
+    RAISE EXCEPTION 'CHECK 1c: partner_id NO debía tocarse, esperaba % y es %',
+      pg_temp.s(7), v_eng.partner_id;
+  END IF;
+  RAISE NOTICE 'CHECK 1c OK: hr_manager canonizado en manager_id igual que Gerente, partner_id intacto.';
+END $$;
+
 -- ── #2: Socio ⇒ se canoniza partner_id; manager_id intacto ─────────────────────────────────────
 DO $$
 DECLARE v_eng public.engagements;
@@ -259,21 +327,28 @@ BEGIN
 END $$;
 
 -- ── #7: llamante con rol Gerente pero SIN staff vinculado ─────────────────────────────────────
+-- BUG 0817-180: antes esto pasaba intacto (fail-open de enforce_engagement_creator_team, que solo
+-- canoniza y no bloquea). El trigger nuevo es fail-closed: un creador restringido sin ficha
+-- vinculada no puede resolver sociedad/practica/oficina, así que la creación se rechaza.
 DO $$
 DECLARE v_eng public.engagements;
+    v_raised boolean := false;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(8));
   IF public.get_my_staff_id() IS NOT NULL THEN
     RAISE EXCEPTION 'FIXTURE 7: el sujeto 8 no debía tener ficha de personal.';
   END IF;
 
-  v_eng := pg_temp.create_eng('ECT Gerente sin ficha', pg_temp.s(7), pg_temp.s(6));
+  BEGIN
+    v_eng := pg_temp.create_eng('ECT Gerente sin ficha', pg_temp.s(7), pg_temp.s(6));
+  EXCEPTION WHEN insufficient_privilege THEN
+    v_raised := true;
+  END;
 
-  IF v_eng.manager_id IS DISTINCT FROM pg_temp.s(6) THEN
-    RAISE EXCEPTION 'CHECK 7: sin staff vinculado el payload queda intacto; esperaba % y quedó %',
-      pg_temp.s(6), v_eng.manager_id;
+  IF NOT v_raised THEN
+    RAISE EXCEPTION 'CHECK 7: sin staff vinculado 0817-180 debe rechazar la creación (fail-closed), pero no se levantó ninguna excepción.';
   END IF;
-  RAISE NOTICE 'CHECK 7 OK: sin staff vinculado no se canoniza (y no se rompe la creación).';
+  RAISE NOTICE 'CHECK 7 OK: sin staff vinculado la creación se rechaza (BUG 0817-180, fail-closed).';
 END $$;
 
 -- ── #4: INSERT DIRECTO por REST, no solo por el RPC ───────────────────────────────────────────
@@ -284,8 +359,16 @@ BEGIN
   -- `manager` tiene engagement.create, así que la policy "engagements write insert" lo permite.
   -- fecha_cierre NOT NULL sin default (20260702000000): el RPC de los demás checks lo resuelve
   -- solo; este INSERT directo lo pasa a mano igual que el resto del fixture (2026-03-31).
-  INSERT INTO public.engagements (client_id, engagement_name, partner_id, manager_id, fecha_cierre)
-  VALUES ('c1c00000-0000-4000-8000-000000000001', 'ECT Insert directo', pg_temp.s(7), pg_temp.s(6), '2026-03-31')
+  -- BUG 0817-180: society_id/oficina/practica ahora deben coincidir con la ficha del sujeto 1
+  -- (society_id del fixture, code=1, oficina=1 por 'La Paz') o el nuevo trigger de perfil los
+  -- rechazaría antes de llegar a la canonización que este check en realidad prueba.
+  INSERT INTO public.engagements (client_id, engagement_name, partner_id, manager_id, fecha_cierre, society_id, oficina, practica)
+  VALUES (
+    'c1c00000-0000-4000-8000-000000000001', 'ECT Insert directo', pg_temp.s(7), pg_temp.s(6), '2026-03-31',
+    (SELECT society_id FROM public.society WHERE is_active ORDER BY name LIMIT 1),
+    1,
+    1
+  )
   RETURNING manager_id INTO v_manager;
 
   IF v_manager IS DISTINCT FROM pg_temp.s(1) THEN

@@ -142,9 +142,8 @@ describe("useEngagementTeamCandidates", () => {
     expect(result.current.isFetching).toBe(false);
   });
 
-  // Review de Codex: el hook NO expone flags de "hay candidatos". Serían globales, sin el filtro
-  // por servicio del formulario, y usarlos para el aviso de "falta personal" da falsos negativos.
-  // El aviso se deriva de las listas ya filtradas, en EngagementForm.
+  // Review de Codex: el hook NO expone flags de "hay candidatos" — EngagementForm deriva el
+  // aviso de "falta personal" directamente de la longitud de estos mismos arrays.
   it("no expone flags globales de presencia de candidatos", async () => {
     const { result } = await renderWith(FULL_SET);
     expect(result.current).not.toHaveProperty("hasPartnerDirectorCandidates");

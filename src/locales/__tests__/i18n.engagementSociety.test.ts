@@ -76,3 +76,35 @@ describe("i18n keys for the Encargo form reorder (0722-157)", () => {
     });
   }
 });
+
+/**
+ * BUG 0817-180: sociedad/práctica/oficina se restringen a la ficha del creador restringido —
+ * hint de "asignado por tu ficha" en los tres selects, y el detalle de perfil incompleto.
+ */
+describe("i18n keys for the restricted-creator profile scope (BUG 0817-180)", () => {
+  const ENGAGEMENT_KEYS = ["profileScopeHint", "profileMissingStaff"] as const;
+
+  for (const key of ENGAGEMENT_KEYS) {
+    it(`EN has engagement.${key}`, () => {
+      expect((en as any).engagement[key]).toBeDefined();
+      expect(typeof (en as any).engagement[key]).toBe("string");
+      expect((en as any).engagement[key].length).toBeGreaterThan(0);
+    });
+
+    it(`ES has engagement.${key}`, () => {
+      expect((es as any).engagement[key]).toBeDefined();
+      expect(typeof (es as any).engagement[key]).toBe("string");
+      expect((es as any).engagement[key].length).toBeGreaterThan(0);
+    });
+  }
+
+  it("EN has messages.profileIncompleteForEngagement with a {{fields}} placeholder", () => {
+    expect((en as any).messages.profileIncompleteForEngagement).toBeDefined();
+    expect((en as any).messages.profileIncompleteForEngagement).toMatch(/\{\{fields\}\}/);
+  });
+
+  it("ES has messages.profileIncompleteForEngagement with a {{fields}} placeholder", () => {
+    expect((es as any).messages.profileIncompleteForEngagement).toBeDefined();
+    expect((es as any).messages.profileIncompleteForEngagement).toMatch(/\{\{fields\}\}/);
+  });
+});

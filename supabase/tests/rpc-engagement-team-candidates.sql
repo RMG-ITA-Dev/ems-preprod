@@ -15,13 +15,17 @@
 -- final "ENGAGEMENT_TEAM_CANDIDATES RPC: ALL CHECKS PASSED (rolled back)".
 --
 -- Qué se cubre:
---   1. Los 11 role_key elegibles caen en su grupo (uno por rol).
+--   1. Los 12 role_key elegibles caen en su grupo (uno por rol).
 --   2. Roles NO elegibles se excluyen: sqr, admin, assistant, senior_partner, risk_partner,
---      it_security_manager, accounting_manager, hr_manager, risk_supervisor y los *_analyst.
+--      it_security_manager, accounting_manager, hr_analyst, risk_supervisor y los *_analyst.
 --   3. Personal inactivo / soft-deleted / sin auth_user_id / con role_key NULL se excluye.
 --   4. Un authorization_roles con is_active = false deja de aportar candidatos.
 --   5. El gate: engagement.create O engagement.update habilitan; sin ninguno → 0 filas.
 --   6. La forma del resultado no expone email, auth_user_id ni role_key.
+--
+-- ACTUALIZADO por BUG 0817-180 (decisión del operador, 2026-08-27): hr_manager se agregó al
+-- grupo 'manager' — "no hagamos casos especiales", Talento Humano gestiona sus encargos igual
+-- que cualquier otro Gerente. hr_analyst se queda fuera, igual que el resto de los `*_analyst`.
 --
 -- Fixture: todos los ids llevan el prefijo etc- reconocible (etc = engagement team candidates).
 
@@ -75,7 +79,8 @@ SELECT ('51c00000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid,
        (SELECT society_id FROM public.society ORDER BY name LIMIT 1)
   FROM generate_series(1, 27) n;
 
--- Roles: 1..11 elegibles (en el orden de ROLE_KEY_TO_GROUP), 12..24 NO elegibles.
+-- Roles: 1..11 y 22 elegibles (12 en total; el 22 = hr_manager, fuera de rango porque 0817-180
+-- lo sumó después sin renumerar el fixture), 12..21 y 23 NO elegibles, 24 NULL.
 INSERT INTO public.user_roles (user_id, role_key)
 VALUES
   -- elegibles
@@ -101,6 +106,7 @@ VALUES
   ('a1c00000-0000-4000-8000-000000000019', 'accounting_manager'),
   ('a1c00000-0000-4000-8000-000000000020', 'accounting_analyst'),
   ('a1c00000-0000-4000-8000-000000000021', 'collections_analyst'),
+  -- elegible (BUG 0817-180, 2026-08-27): hr_manager se agregó al grupo 'manager'.
   ('a1c00000-0000-4000-8000-000000000022', 'hr_manager'),
   ('a1c00000-0000-4000-8000-000000000023', 'hr_analyst'),
   -- 24: role_key NULL (backfill no lo alcanzó) → debe excluirse
@@ -175,7 +181,7 @@ DECLARE
 BEGIN
   PERFORM pg_temp.impersonate('a1c00000-0000-4000-8000-000000000028');  -- engagement.create
 
-  -- ── 1. Los 11 role_key elegibles caen en su grupo ────────────────────────────────────────
+  -- ── 1. Los 12 role_key elegibles caen en su grupo ────────────────────────────────────────
   FOR v_role, v_staff, v_group IN
     SELECT * FROM (VALUES
       ('partner',       '51c00000-0000-4000-8000-000000000001'::uuid, 'partner_director'),
@@ -188,7 +194,9 @@ BEGIN
       ('ita_assistant', '51c00000-0000-4000-8000-000000000008'::uuid, 'specialist_it'),
       ('tax_manager',   '51c00000-0000-4000-8000-000000000009'::uuid, 'specialist_tax'),
       ('tax_senior',    '51c00000-0000-4000-8000-000000000010'::uuid, 'specialist_tax'),
-      ('tax_assistant', '51c00000-0000-4000-8000-000000000011'::uuid, 'specialist_tax')
+      ('tax_assistant', '51c00000-0000-4000-8000-000000000011'::uuid, 'specialist_tax'),
+      -- BUG 0817-180 (2026-08-27): hr_manager cae en el mismo grupo que manager.
+      ('hr_manager',    '51c00000-0000-4000-8000-000000000022'::uuid, 'manager')
     ) t(role_key, staff_id, expected_group)
   LOOP
     SELECT count(*) INTO v_count
@@ -199,7 +207,7 @@ BEGIN
         v_role, v_group, v_count;
     END IF;
   END LOOP;
-  RAISE NOTICE 'OK 1: los 11 role_key elegibles caen en su grupo de candidatura';
+  RAISE NOTICE 'OK 1: los 12 role_key elegibles caen en su grupo de candidatura';
 
   -- ── 2. Roles NO elegibles se excluyen ────────────────────────────────────────────────────
   FOR v_role, v_staff IN
@@ -214,7 +222,6 @@ BEGIN
       ('accounting_manager',  '51c00000-0000-4000-8000-000000000019'::uuid),
       ('accounting_analyst',  '51c00000-0000-4000-8000-000000000020'::uuid),
       ('collections_analyst', '51c00000-0000-4000-8000-000000000021'::uuid),
-      ('hr_manager',          '51c00000-0000-4000-8000-000000000022'::uuid),
       ('hr_analyst',          '51c00000-0000-4000-8000-000000000023'::uuid)
     ) t(role_key, staff_id)
   LOOP
@@ -223,7 +230,7 @@ BEGIN
       RAISE EXCEPTION 'FAIL: role_key % NO es elegible y aun así aparece', v_role;
     END IF;
   END LOOP;
-  RAISE NOTICE 'OK 2: los 12 role_key no elegibles quedan fuera (incluidos sqr y admin)';
+  RAISE NOTICE 'OK 2: los 11 role_key no elegibles quedan fuera (incluidos sqr y admin)';
 
   -- ── 3. Casos negativos de la ficha de personal ───────────────────────────────────────────
   FOR v_role, v_staff IN
@@ -254,14 +261,14 @@ BEGIN
   END IF;
 
   SELECT count(*) INTO v_count FROM public.get_engagement_team_candidates();
-  IF v_count <> 11 THEN
-    RAISE EXCEPTION 'FAIL: un caller con engagement.create debía ver 11 candidatos, vio %', v_count;
+  IF v_count <> 12 THEN
+    RAISE EXCEPTION 'FAIL: un caller con engagement.create debía ver 12 candidatos, vio %', v_count;
   END IF;
 
   PERFORM pg_temp.impersonate('a1c00000-0000-4000-8000-000000000029');  -- engagement.update
   SELECT count(*) INTO v_count FROM public.get_engagement_team_candidates();
-  IF v_count <> 11 THEN
-    RAISE EXCEPTION 'FAIL: un caller con engagement.update debía ver 11 candidatos, vio %', v_count;
+  IF v_count <> 12 THEN
+    RAISE EXCEPTION 'FAIL: un caller con engagement.update debía ver 12 candidatos, vio %', v_count;
   END IF;
 
   PERFORM pg_temp.impersonate('a1c00000-0000-4000-8000-000000000030');  -- sin ninguno de los dos

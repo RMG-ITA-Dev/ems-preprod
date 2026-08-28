@@ -92,13 +92,6 @@ run supabase/migrations/20251204000004_cero_04_triggers_fks.sql
 run supabase/migrations/20251204000005_cero_05_rls_policies.sql
 run supabase/migrations/20251204000006_cero_06_grants.sql
 
-# 0825-183: primera migración incremental posterior al set consolidado —
-# endurece enforce_worksheet_cell_practice_scope/batch_upsert_worksheet_cells.
-# El paso de limpieza de históricos es un no-op aquí (no hay datos aún en este
-# punto del bootstrap); lo que importa para el harness es el CREATE OR REPLACE
-# de ambas funciones, ejercitado por rpc-worksheet-activity-practice-scope.sql.
-run supabase/migrations/20260825120000_0825-183_worksheet_activity_practice_scope.sql
-
 # Catálogo RBAC (authorization_roles/permissions/role_permissions): dato real de producción,
 # copiado verbatim de la migración histórica 20260724010000_authz_fase2_seed.sql (23 roles/84
 # permisos/737 concesiones) — ninguna migración _cero_* lo siembra (es dato, no esquema) y el
@@ -106,8 +99,21 @@ run supabase/migrations/20260825120000_0825-183_worksheet_activity_practice_scop
 # docs/migraciones/legado-consolidacion.md). Varias suites de aserciones dependen de
 # has_permission()/has_firmwide_assignment_visibility(), que leen este catálogo — sin él, esas
 # suites no pueden ejercitar nada real. Se aplica una sola vez, fuera de la transacción de cada
-# suite, para que todas lo compartan sin re-sembrarlo.
+# suite, para que todas lo compartan sin re-sembrarlo. Debe cargarse ANTES de cualquier
+# migración incremental que inserte en authorization_role_permissions (0817-180 más abajo): esa
+# tabla tiene FK a authorization_permissions, que este fixture es quien siembra en el harness —
+# en producción esa fila ya existe de antes (hallazgo real de CI, 2026-08-27).
 run supabase/tests/local/40-fixture-rbac-catalog.sql
+
+run supabase/migrations/20260826162100_0817-180_enforce_engagement_profile_scope.sql
+run supabase/migrations/20260826221706_0817-180_grant_hr_engagement_work_order.sql
+
+# 0825-183: primera migración incremental posterior al set consolidado —
+# endurece enforce_worksheet_cell_practice_scope/batch_upsert_worksheet_cells.
+# El paso de limpieza de históricos es un no-op aquí (no hay datos aún en este
+# punto del bootstrap); lo que importa para el harness es el CREATE OR REPLACE
+# de ambas funciones, ejercitado por rpc-worksheet-activity-practice-scope.sql.
+run supabase/migrations/20260825120000_0825-183_worksheet_activity_practice_scope.sql
 
 # society/practicas(code=1): staff.society_id/practica_id y categories.practica_id son NOT NULL
 # reales; varias suites (rpc-engagement-team-candidates.sql explícitamente lo exige con su
@@ -145,5 +151,6 @@ assert_suite supabase/tests/rpc-save-wo-staffing.sql 'SAVE_WO_STAFFING RPC: ALL 
 assert_suite supabase/tests/rpc-worksheet-activity-practice-scope.sql 'WORKSHEET ACTIVITY PRACTICE SCOPE: ALL CHECKS PASSED'
 assert_suite supabase/tests/schema-convergence-assertions.sql 'SCHEMA CONVERGENCE: ALL CHECKS PASSED'
 assert_suite supabase/tests/trigger-engagement-creator-team.sql 'TRIGGER ENGAGEMENT CREATOR TEAM: ALL CHECKS PASSED'
+assert_suite supabase/tests/trigger-engagement-profile-scope.sql 'PROFILE SCOPE: ALL CHECKS PASSED'
 
-echo "OK: set consolidado (cero_01..cero_06) aplicado sobre base scratch; las 9 suites de RLS/RPC/schema-convergence/trigger pasaron"
+echo "OK: set consolidado (cero_01..cero_06) + migraciones 0825-183 y 0817-180 aplicadas sobre base scratch; las 10 suites de RLS/RPC/schema-convergence/trigger pasaron"

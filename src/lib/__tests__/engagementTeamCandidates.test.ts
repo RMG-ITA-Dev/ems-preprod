@@ -3,12 +3,9 @@ import {
   TEAM_FIELD_GROUPS,
   ROLE_KEY_TO_GROUP,
   ELIGIBLE_ROLE_KEYS,
-  filterByService,
   withSavedStaff,
   withSelfCandidate,
-  NO_SERVICE_FILTER,
   TeamCandidateOption,
-  ServiceFilter,
 } from "@/lib/engagementTeamCandidates";
 
 /**
@@ -17,6 +14,10 @@ import {
  * Estos tests fijan el mapeo decidido (packet + decisiones del operador 2026-08-17) y las dos
  * transformaciones puras que usa EngagementForm. La aserción más importante es la de los roles
  * NO mapeados: es la que impide que un rol se cuele por descuido al tocar el mapa.
+ *
+ * ACTUALIZADO 2026-08-27 (decisión del operador): el filtro adicional por práctica/servicio
+ * (`filterByService`/`ServiceFilter`/`NO_SERVICE_FILTER`) se retiró del módulo — la elegibilidad
+ * depende únicamente del rol. Sus tests se eliminaron junto con el código.
  */
 
 const opt = (value: string, label: string, serviceId: string | null): TeamCandidateOption => ({
@@ -54,11 +55,12 @@ describe("TEAM_FIELD_GROUPS — mapa campo → grupo de candidatura", () => {
 });
 
 describe("ROLE_KEY_TO_GROUP — mapa role_key → grupo (espejo del CASE del RPC)", () => {
-  it("mapea los 11 role_key elegibles a su grupo", () => {
+  it("mapea los 12 role_key elegibles a su grupo", () => {
     expect(ROLE_KEY_TO_GROUP).toEqual({
       partner: "partner_director",
       director: "partner_director",
       manager: "manager",
+      hr_manager: "manager",
       senior: "encargado",
       semisenior: "encargado",
       ita_manager: "specialist_it",
@@ -68,7 +70,14 @@ describe("ROLE_KEY_TO_GROUP — mapa role_key → grupo (espejo del CASE del RPC
       tax_senior: "specialist_tax",
       tax_assistant: "specialist_tax",
     });
-    expect(ELIGIBLE_ROLE_KEYS).toHaveLength(11);
+    expect(ELIGIBLE_ROLE_KEYS).toHaveLength(12);
+  });
+
+  // BUG 0817-180 (2026-08-27): hr_manager se agregó al grupo "manager" — decisión del operador
+  // de no tratar a Talento Humano como caso especial. hr_analyst se queda FUERA a propósito,
+  // igual que el resto de los `*_analyst` de la lista de abajo.
+  it("hr_manager cae en el mismo grupo que manager", () => {
+    expect(ROLE_KEY_TO_GROUP.hr_manager).toBe(ROLE_KEY_TO_GROUP.manager);
   });
 
   // Esta es la red de seguridad del fix: cada rol de acá abajo estuvo considerado y quedó
@@ -80,13 +89,12 @@ describe("ROLE_KEY_TO_GROUP — mapa role_key → grupo (espejo del CASE del RPC
     ["viewer", "sin rol operativo"],
     ["senior_partner", "solo el rol base partner es elegible"],
     ["risk_partner", "solo el rol base partner es elegible"],
-    ["risk_supervisor", "Gerente/Supervisor pide solo `manager`"],
+    ["risk_supervisor", "Gerente/Supervisor pide solo `manager` (y, desde 0817-180, `hr_manager`)"],
     ["it_security_manager", "seguridad TI interna, no Especialista TI del encargo"],
-    ["accounting_manager", "Gerente/Supervisor pide solo `manager`"],
+    ["accounting_manager", "Gerente/Supervisor pide solo `manager` (y, desde 0817-180, `hr_manager`)"],
     ["accounting_analyst", "Encargado pide solo senior/semisenior"],
     ["collections_analyst", "Encargado pide solo senior/semisenior"],
-    ["hr_manager", "Gerente/Supervisor pide solo `manager`"],
-    ["hr_analyst", "Encargado pide solo senior/semisenior"],
+    ["hr_analyst", "Encargado pide solo senior/semisenior — hr_manager es el único hr_* elegible"],
   ])("no mapea %s (%s)", (roleKey) => {
     expect(ROLE_KEY_TO_GROUP[roleKey]).toBeUndefined();
   });
@@ -101,50 +109,6 @@ describe("ROLE_KEY_TO_GROUP — mapa role_key → grupo (espejo del CASE del RPC
     const fieldGroups = new Set(Object.values(TEAM_FIELD_GROUPS));
     const roleGroups = new Set(Object.values(ROLE_KEY_TO_GROUP));
     expect([...roleGroups].sort()).toEqual([...fieldGroups].sort());
-  });
-});
-
-describe("filterByService", () => {
-  const options = [
-    opt("a", "Ana Auditoria", "svc-audit"),
-    opt("b", "Beto Consultoria", "svc-consult"),
-    opt("c", "Carla Auditoria", "svc-audit"),
-  ];
-  const resolved = (serviceId: string): ServiceFilter => ({ apply: true, serviceId });
-
-  it("devuelve solo los candidatos del servicio pedido", () => {
-    expect(filterByService(options, resolved("svc-audit")).map((o) => o.value)).toEqual(["a", "c"]);
-  });
-
-  it("sin práctica elegida devuelve la lista intacta (solo filtra por rol)", () => {
-    expect(filterByService(options, NO_SERVICE_FILTER)).toEqual(options);
-    expect(filterByService(options, { apply: false, serviceId: null })).toEqual(options);
-  });
-
-  // Review de Greptile: el caso que antes ensanchaba el conjunto. Con `practica` elegida pero el
-  // catálogo de servicios sin resolver (cargando, fallado, o code inexistente) NO debe ofrecerse
-  // personal de otros servicios — una selección hecha en esa ventana se guardaría mal.
-  it("con práctica elegida y servicio SIN resolver va a fail-closed, no a la lista completa", () => {
-    expect(filterByService(options, { apply: true, serviceId: null })).toEqual([]);
-  });
-
-  it("con un servicio sin coincidencias devuelve [] y NO la lista completa", () => {
-    expect(filterByService(options, resolved("svc-inexistente"))).toEqual([]);
-  });
-
-  it("preserva el orden de entrada (el RPC ya ordenó por apellido)", () => {
-    const same = [opt("z", "Zulema", "s1"), opt("a", "Ana", "s1")];
-    expect(filterByService(same, resolved("s1")).map((o) => o.value)).toEqual(["z", "a"]);
-  });
-
-  it("un candidato con serviceId null solo pasa cuando no se filtra por servicio", () => {
-    const withNull = [opt("n", "Sin servicio", null)];
-    expect(filterByService(withNull, NO_SERVICE_FILTER)).toEqual(withNull);
-    expect(filterByService(withNull, resolved("svc-audit"))).toEqual([]);
-  });
-
-  it("NO_SERVICE_FILTER no aplica filtro", () => {
-    expect(NO_SERVICE_FILTER.apply).toBe(false);
   });
 });
 
@@ -188,32 +152,6 @@ describe("withSavedStaff", () => {
   });
 });
 
-describe("composición usada por EngagementForm: withSavedStaff(filterByService(...))", () => {
-  it("el histórico sobrevive al filtro por servicio aunque sea de otro servicio", () => {
-    // El staff embebido en el engagement no trae practica_id, así que el merge va DESPUÉS
-    // del filtro — si fuera antes, el propio filtro lo descartaría.
-    const options = [opt("a", "Ana", "svc-audit")];
-    const saved = { staff_id: "otro", first_name: "Otro", last_name: "Servicio" };
-    const result = withSavedStaff(
-      filterByService(options, { apply: true, serviceId: "svc-audit" }),
-      saved,
-      "otro"
-    );
-    expect(result.map((o) => o.value)).toEqual(["a", "otro"]);
-  });
-
-  it("en edición el histórico se ve incluso con el catálogo de servicios sin resolver", () => {
-    // fail-closed vacía la lista, pero el asignado guardado no debe desaparecer de su campo.
-    const saved = { staff_id: "hist", first_name: "Hugo", last_name: "Historico" };
-    const result = withSavedStaff(
-      filterByService([opt("a", "Ana", "svc-audit")], { apply: true, serviceId: null }),
-      saved,
-      "hist"
-    );
-    expect(result.map((o) => o.value)).toEqual(["hist"]);
-  });
-});
-
 describe("withSelfCandidate — BUG 0810-172", () => {
   const self = opt("me", "Gala Gerente", null);
 
@@ -238,8 +176,8 @@ describe("withSelfCandidate — BUG 0810-172", () => {
   });
 
   it("funciona sobre una lista vacía: el campo bloqueado nunca queda sin su opción", () => {
-    // Es el escenario que evita el formulario sin salida: el filtro por servicio dejó la lista
-    // vacía, pero el campo autoasignado igual puede mostrar al creador.
+    // Es el escenario que evita el formulario sin salida: sin candidatos elegibles por rol, el
+    // campo autoasignado igual puede mostrar al creador.
     expect(withSelfCandidate([], self)).toEqual([self]);
   });
 
@@ -251,14 +189,5 @@ describe("withSelfCandidate — BUG 0810-172", () => {
       "Caro",
       "Gala Gerente",
     ]);
-  });
-
-  it("compuesto como en EngagementForm: sobrevive al filtro por servicio que lo excluiría", () => {
-    // El creador es de Consultoría y el encargo es de Auditoría (los no-admin reciben Auditoría
-    // forzada). filterByService lo descartaría; la inyección posterior lo repone.
-    const options = [opt("a", "Ana", "svc-audit"), opt("me", "Gala Gerente", "svc-consult")];
-    const filtered = filterByService(options, { apply: true, serviceId: "svc-audit" });
-    expect(filtered.map((o) => o.value)).toEqual(["a"]);
-    expect(withSelfCandidate(filtered, self).map((o) => o.value)).toEqual(["a", "me"]);
   });
 });

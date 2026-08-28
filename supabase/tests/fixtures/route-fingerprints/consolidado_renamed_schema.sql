@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict sShamiAOHNghswSHWxr0VArJlpogH9HLeXWhHzKKeDK3wbxNrMWjiwJxVJZ9IvV
+\restrict ZgG7trtBW0CqBauJfVz6IdQFVeTMgbaJRIlrRyD8Jwuoy91IKDwRF7ql0GfmRPl
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.11 (Ubuntu 17.11-1.pgdg24.04+2)
@@ -2245,14 +2245,15 @@ BEGIN
   -- ESPEJO de src/lib/engagementSelfAssignment.ts (SELF_ASSIGN_PARTNER_ROLE_KEYS /
   -- SELF_ASSIGN_MANAGER_ROLE_KEYS). Si se toca uno, tocar el otro.
   --
-  -- Solo los roles BASE, igual que el mapa de candidatos de 0722-162. Quedan deliberadamente FUERA
-  -- (sin restricción alguna): ita_manager y tax_manager — que sí tienen engagement.create pero
-  -- pertenecen a los grupos specialist_it/specialist_tax y por lo tanto no son candidatos elegibles
-  -- para el campo Gerente — más senior_partner, risk_partner, risk_supervisor,
-  -- it_security_manager, accounting_*, hr_*, sqr, senior, semisenior y assistant.
+  -- Solo los roles BASE, igual que el mapa de candidatos de 0722-162, MÁS hr_manager (0817-180,
+  -- 2026-08-27). Quedan deliberadamente FUERA (sin restricción alguna): ita_manager y tax_manager
+  -- — que sí tienen engagement.create pero pertenecen a los grupos specialist_it/specialist_tax y
+  -- por lo tanto no son candidatos elegibles para el campo Gerente — más senior_partner,
+  -- risk_partner, risk_supervisor, it_security_manager, accounting_*, hr_analyst, sqr, senior,
+  -- semisenior y assistant.
   IF v_role IN ('partner', 'director') THEN
     NEW.partner_id := v_staff;
-  ELSIF v_role = 'manager' THEN
+  ELSIF v_role IN ('manager', 'hr_manager') THEN
     NEW.manager_id := v_staff;
   END IF;
 
@@ -2265,7 +2266,7 @@ $$;
 -- Name: FUNCTION enforce_engagement_creator_team(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.enforce_engagement_creator_team() IS 'BUG 0810-172: en la CREACIÓN de un encargo canoniza partner_id/manager_id al staff del llamante según su role_key (partner/director -> partner_id; manager -> manager_id). Exentos: role_key admin, inserts sin auth.uid() (seeds/service_role) y llamantes sin staff vinculado. Espejo de src/lib/engagementSelfAssignment.ts. Solo INSERT: el UPDATE no aplica esta regla.';
+COMMENT ON FUNCTION public.enforce_engagement_creator_team() IS 'BUG 0810-172 (actualizado 0817-180, 2026-08-27): en la CREACIÓN de un encargo canoniza partner_id/manager_id al staff del llamante según su role_key (partner/director -> partner_id; manager/hr_manager -> manager_id). Exentos: role_key admin, inserts sin auth.uid() (seeds/service_role) y llamantes sin staff vinculado. Espejo de src/lib/engagementSelfAssignment.ts. Solo INSERT: el UPDATE no aplica esta regla.';
 
 
 --
@@ -2318,6 +2319,108 @@ BEGIN
   RETURN NEW;
 END;
 $$;
+
+
+--
+-- Name: enforce_engagement_profile_scope(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.enforce_engagement_profile_scope() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_role          text;
+  v_staff_id      uuid;
+  v_society_id    uuid;
+  v_practica_id   uuid;
+  v_city          text;
+  v_practica_code smallint;
+  v_oficina       smallint;
+BEGIN
+  -- Sin identidad autenticada no hay perfil que comparar: seeds, imports, migraciones y
+  -- cualquier operación con service_role pasan intactas.
+  IF auth.uid() IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  v_role := public.current_role_key();
+
+  IF TG_OP = 'INSERT' THEN
+    -- El RPC create_engagement_with_code es SECURITY DEFINER y saltea la RLS de INSERT
+    -- ("engagements write insert" exige engagement.create); replicar el mismo chequeo acá cierra
+    -- ese hueco tanto para el RPC como para un INSERT REST directo.
+    IF NOT public.has_permission('engagement.create') THEN
+      RAISE EXCEPTION 'FORBIDDEN: falta el permiso engagement.create'
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
+
+    -- Super Admin (role_key = 'admin') y Senior Partner eligen sociedad/practica/oficina libres.
+    -- senior_partner no tiene engagement.create en el seed vigente (decisión del operador,
+    -- 0817-180 OQ2/OQ6): el chequeo de arriba ya lo rechaza antes de llegar acá, pero la exención
+    -- queda escrita por corrección — cumple la letra del bug aunque hoy sea inalcanzable.
+    IF v_role IS DISTINCT FROM 'admin' AND v_role IS DISTINCT FROM 'senior_partner' THEN
+      SELECT s.staff_id, s.society_id, s.practica_id, s.city
+        INTO v_staff_id, v_society_id, v_practica_id, v_city
+        FROM public.staff s
+       WHERE s.staff_id = public.get_my_staff_id();
+
+      IF v_staff_id IS NULL OR v_society_id IS NULL OR v_practica_id IS NULL OR v_city IS NULL THEN
+        RAISE EXCEPTION 'FORBIDDEN: tu ficha de personal no tiene sociedad, practica u oficina configuradas — no se puede crear el encargo'
+          USING ERRCODE = 'insufficient_privilege';
+      END IF;
+
+      SELECT p.code INTO v_practica_code
+        FROM public.practicas p
+       WHERE p.practica_id = v_practica_id AND p.is_active;
+
+      IF v_practica_code IS NULL THEN
+        RAISE EXCEPTION 'FORBIDDEN: la practica de tu ficha de personal no esta activa en el catalogo'
+          USING ERRCODE = 'insufficient_privilege';
+      END IF;
+
+      v_oficina := CASE v_city WHEN 'La Paz' THEN 1 WHEN 'Santa Cruz' THEN 2 ELSE NULL END;
+
+      IF NEW.society_id IS DISTINCT FROM v_society_id
+         OR NEW.practica  IS DISTINCT FROM v_practica_code
+         OR NEW.oficina   IS DISTINCT FROM v_oficina
+      THEN
+        RAISE EXCEPTION 'FORBIDDEN: sociedad/practica/oficina del encargo deben coincidir exactamente con tu ficha de personal'
+          USING ERRCODE = 'insufficient_privilege';
+      END IF;
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  -- TG_OP = 'UPDATE'. Solo se inspecciona el CAMBIO de estas tres columnas (IS DISTINCT FROM
+  -- contra OLD) — un update que no las toca (nombre, fechas, equipo, etc.) nunca entra acá, así
+  -- que no bloquea actualizaciones legítimas de encargos ajenos.
+
+  -- 0722-157, sin cambios: society_id lo sigue editando solo admin tras la creación.
+  IF NEW.society_id IS DISTINCT FROM OLD.society_id AND v_role IS DISTINCT FROM 'admin' THEN
+    RAISE EXCEPTION 'FORBIDDEN: solo Admin puede modificar la sociedad de un encargo existente'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  -- Ninguna UI ha ofrecido nunca editar oficina/practica a nadie (disabled={isEdit} sin
+  -- excepción de rol) — el guard de BD no abre una vía nueva que la UI nunca tuvo, ni siquiera
+  -- para admin: cambiarlas desincronizaría engagement_code de sus dígitos.
+  IF NEW.oficina IS DISTINCT FROM OLD.oficina OR NEW.practica IS DISTINCT FROM OLD.practica THEN
+    RAISE EXCEPTION 'FORBIDDEN: oficina y practica son inmutables una vez creado el encargo'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION enforce_engagement_profile_scope(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.enforce_engagement_profile_scope() IS 'BUG 0817-180: en INSERT exige engagement.create y, para role_key distinto de admin/senior_partner, que society_id/practica/oficina coincidan con la ficha del creador (staff.society_id/practica_id->code/city->1|2); perfil incompleto o practica inactiva rechaza (fail-closed). En UPDATE, asimetrico: society_id solo lo edita admin (0722-157); oficina/practica quedan inmutables para todos. Exento: auth.uid() IS NULL (seeds/migraciones/service_role).';
 
 
 --
@@ -3448,15 +3551,18 @@ CREATE FUNCTION public.get_engagement_team_candidates() RETURNS TABLE(staff_id u
     AS $$
   SELECT s.staff_id,
          (s.first_name || ' ' || s.last_name)::text AS display_name,
-         -- Solo el ROL BASE de cada nivel (decisión de negocio 2026-08-17). Fuera:
-         -- senior_partner, risk_partner, risk_supervisor, it_security_manager,
-         -- accounting_*, hr_*, collections_analyst, sqr, assistant, viewer y admin.
+         -- Solo el ROL BASE de cada nivel (decisión de negocio 2026-08-17), MÁS hr_manager
+         -- (0817-180, decisión del operador 2026-08-27: TH se comporta como cualquier otro
+         -- Gerente, sin caso especial). Fuera: senior_partner, risk_partner, risk_supervisor,
+         -- it_security_manager, accounting_*, hr_analyst, collections_analyst, sqr, assistant,
+         -- viewer y admin.
          -- Este CASE está espejado en src/lib/engagementTeamCandidates.ts
          -- (ROLE_KEY_TO_GROUP); si se toca uno, tocar el otro.
          CASE ur.role_key
            WHEN 'partner'       THEN 'partner_director'
            WHEN 'director'      THEN 'partner_director'
            WHEN 'manager'       THEN 'manager'
+           WHEN 'hr_manager'    THEN 'manager'
            WHEN 'senior'        THEN 'encargado'
            WHEN 'semisenior'    THEN 'encargado'
            WHEN 'ita_manager'   THEN 'specialist_it'
@@ -3466,7 +3572,9 @@ CREATE FUNCTION public.get_engagement_team_candidates() RETURNS TABLE(staff_id u
            WHEN 'tax_senior'    THEN 'specialist_tax'
            WHEN 'tax_assistant' THEN 'specialist_tax'
          END AS candidate_group,
-         -- El cliente refina por el servicio del encargo sin volver a pedir datos.
+         -- practica_id expuesto por compatibilidad de firma; el cliente ya no filtra por
+         -- servicio (0817-180, 2026-08-27 — se eliminó filterByService: la elegibilidad de
+         -- equipo depende únicamente del rol).
          s.practica_id
     FROM public.staff s
     -- INNER JOIN: excluye al personal sin cuenta vinculada (staff.auth_user_id es nullable
@@ -3479,7 +3587,7 @@ CREATE FUNCTION public.get_engagement_team_candidates() RETURNS TABLE(staff_id u
      AND s.is_active
      AND s.deleted_at IS NULL
      AND ar.is_active
-     AND ur.role_key IN ('partner','director','manager','senior','semisenior',
+     AND ur.role_key IN ('partner','director','manager','hr_manager','senior','semisenior',
                          'ita_manager','ita_senior','ita_assistant',
                          'tax_manager','tax_senior','tax_assistant')
    ORDER BY s.last_name, s.first_name;
@@ -3490,7 +3598,7 @@ $$;
 -- Name: FUNCTION get_engagement_team_candidates(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.get_engagement_team_candidates() IS 'BUG 0722-162: candidatos elegibles por campo del bloque Equipo del encargo. Agrupa role_key en 5 grupos de candidatura (partner_director, manager, encargado, specialist_it, specialist_tax) y NO expone email, auth_user_id ni el role_key crudo. Gateada por engagement.create OR engagement.update, así que cubre creación y edición con un solo RPC.';
+COMMENT ON FUNCTION public.get_engagement_team_candidates() IS 'BUG 0722-162 (actualizado 0817-180, 2026-08-27): candidatos elegibles por campo del bloque Equipo del encargo. Agrupa role_key en 5 grupos de candidatura (partner_director, manager, encargado, specialist_it, specialist_tax) y NO expone email, auth_user_id ni el role_key crudo. hr_manager se agregó al grupo manager (decisión del operador: TH se comporta como cualquier otro Gerente). Gateada por engagement.create OR engagement.update, así que cubre creación y edición con un solo RPC.';
 
 
 --
@@ -9840,38 +9948,6 @@ PARTITION BY RANGE (inserted_at);
 
 
 --
--- Name: messages_2026_08_24; Type: TABLE; Schema: realtime; Owner: -
---
-
-CREATE TABLE realtime.messages_2026_08_24 (
-    topic text NOT NULL,
-    extension text NOT NULL,
-    payload jsonb,
-    event text,
-    private boolean DEFAULT false,
-    updated_at timestamp without time zone DEFAULT now() NOT NULL,
-    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
-    id uuid DEFAULT gen_random_uuid() NOT NULL
-);
-
-
---
--- Name: messages_2026_08_25; Type: TABLE; Schema: realtime; Owner: -
---
-
-CREATE TABLE realtime.messages_2026_08_25 (
-    topic text NOT NULL,
-    extension text NOT NULL,
-    payload jsonb,
-    event text,
-    private boolean DEFAULT false,
-    updated_at timestamp without time zone DEFAULT now() NOT NULL,
-    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
-    id uuid DEFAULT gen_random_uuid() NOT NULL
-);
-
-
---
 -- Name: messages_2026_08_26; Type: TABLE; Schema: realtime; Owner: -
 --
 
@@ -9908,6 +9984,38 @@ CREATE TABLE realtime.messages_2026_08_27 (
 --
 
 CREATE TABLE realtime.messages_2026_08_28 (
+    topic text NOT NULL,
+    extension text NOT NULL,
+    payload jsonb,
+    event text,
+    private boolean DEFAULT false,
+    updated_at timestamp without time zone DEFAULT now() NOT NULL,
+    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL
+);
+
+
+--
+-- Name: messages_2026_08_29; Type: TABLE; Schema: realtime; Owner: -
+--
+
+CREATE TABLE realtime.messages_2026_08_29 (
+    topic text NOT NULL,
+    extension text NOT NULL,
+    payload jsonb,
+    event text,
+    private boolean DEFAULT false,
+    updated_at timestamp without time zone DEFAULT now() NOT NULL,
+    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL
+);
+
+
+--
+-- Name: messages_2026_08_30; Type: TABLE; Schema: realtime; Owner: -
+--
+
+CREATE TABLE realtime.messages_2026_08_30 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -10200,20 +10308,6 @@ CREATE TABLE supabase_migrations.schema_migrations (
 
 
 --
--- Name: messages_2026_08_24; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_08_24 FOR VALUES FROM ('2026-08-24 00:00:00') TO ('2026-08-25 00:00:00');
-
-
---
--- Name: messages_2026_08_25; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_08_25 FOR VALUES FROM ('2026-08-25 00:00:00') TO ('2026-08-26 00:00:00');
-
-
---
 -- Name: messages_2026_08_26; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
@@ -10232,6 +10326,20 @@ ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_08_27
 --
 
 ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_08_28 FOR VALUES FROM ('2026-08-28 00:00:00') TO ('2026-08-29 00:00:00');
+
+
+--
+-- Name: messages_2026_08_29; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_08_29 FOR VALUES FROM ('2026-08-29 00:00:00') TO ('2026-08-30 00:00:00');
+
+
+--
+-- Name: messages_2026_08_30; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_08_30 FOR VALUES FROM ('2026-08-30 00:00:00') TO ('2026-08-31 00:00:00');
 
 
 --
@@ -11073,22 +11181,6 @@ ALTER TABLE ONLY realtime.messages
 
 
 --
--- Name: messages_2026_08_24 messages_2026_08_24_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_08_24
-    ADD CONSTRAINT messages_2026_08_24_pkey PRIMARY KEY (id, inserted_at);
-
-
---
--- Name: messages_2026_08_25 messages_2026_08_25_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_08_25
-    ADD CONSTRAINT messages_2026_08_25_pkey PRIMARY KEY (id, inserted_at);
-
-
---
 -- Name: messages_2026_08_26 messages_2026_08_26_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
@@ -11110,6 +11202,22 @@ ALTER TABLE ONLY realtime.messages_2026_08_27
 
 ALTER TABLE ONLY realtime.messages_2026_08_28
     ADD CONSTRAINT messages_2026_08_28_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_08_29 messages_2026_08_29_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_08_29
+    ADD CONSTRAINT messages_2026_08_29_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_08_30 messages_2026_08_30_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_08_30
+    ADD CONSTRAINT messages_2026_08_30_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
@@ -12046,20 +12154,6 @@ CREATE INDEX messages_inserted_at_topic_index ON ONLY realtime.messages USING bt
 
 
 --
--- Name: messages_2026_08_24_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_08_24_inserted_at_topic_idx ON realtime.messages_2026_08_24 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
--- Name: messages_2026_08_25_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_08_25_inserted_at_topic_idx ON realtime.messages_2026_08_25 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
 -- Name: messages_2026_08_26_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
@@ -12078,6 +12172,20 @@ CREATE INDEX messages_2026_08_27_inserted_at_topic_idx ON realtime.messages_2026
 --
 
 CREATE INDEX messages_2026_08_28_inserted_at_topic_idx ON realtime.messages_2026_08_28 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_08_29_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_08_29_inserted_at_topic_idx ON realtime.messages_2026_08_29 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_08_30_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_08_30_inserted_at_topic_idx ON realtime.messages_2026_08_30 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
@@ -12179,34 +12287,6 @@ CREATE INDEX supabase_functions_hooks_request_id_idx ON supabase_functions.hooks
 
 
 --
--- Name: messages_2026_08_24_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_08_24_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_08_24_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_08_24_pkey;
-
-
---
--- Name: messages_2026_08_25_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_08_25_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_08_25_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_08_25_pkey;
-
-
---
 -- Name: messages_2026_08_26_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
@@ -12246,6 +12326,34 @@ ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.
 --
 
 ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_08_28_pkey;
+
+
+--
+-- Name: messages_2026_08_29_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_08_29_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_08_29_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_08_29_pkey;
+
+
+--
+-- Name: messages_2026_08_30_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_08_30_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_08_30_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_08_30_pkey;
 
 
 --
@@ -12491,6 +12599,13 @@ CREATE TRIGGER trg_engagements_created_by BEFORE INSERT OR UPDATE ON public.enga
 --
 
 CREATE TRIGGER trg_engagements_creator_team BEFORE INSERT ON public.engagements FOR EACH ROW EXECUTE FUNCTION public.enforce_engagement_creator_team();
+
+
+--
+-- Name: engagements trg_engagements_profile_scope; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_engagements_profile_scope BEFORE INSERT OR UPDATE ON public.engagements FOR EACH ROW EXECUTE FUNCTION public.enforce_engagement_profile_scope();
 
 
 --
@@ -15346,5 +15461,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict sShamiAOHNghswSHWxr0VArJlpogH9HLeXWhHzKKeDK3wbxNrMWjiwJxVJZ9IvV
+\unrestrict ZgG7trtBW0CqBauJfVz6IdQFVeTMgbaJRIlrRyD8Jwuoy91IKDwRF7ql0GfmRPl
 
