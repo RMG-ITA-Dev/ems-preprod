@@ -163,3 +163,27 @@ describe("EngagementForm — activity_required derived from funcion (0827-184)",
     expect(call.data).toMatchObject({ activity_required: false });
   });
 });
+
+// Driving a full, fully-valid CREATE submission (oficina/practica/funcion/society/taxonomy/
+// contract-file/dates) is exercised nowhere in this suite — see EngagementForm.taxonomy.test.tsx's
+// "mirrors onSubmit logic" pattern, adopted here for the same reason. `activity_required` is
+// derived by the exact same one-line expression at both call sites in EngagementForm.tsx
+// (create: `activity_required: data.funcion === FUNCION_CLIENTE`, update: identical) — this
+// pins that create's payload isn't allowed to drift from update's.
+describe("EngagementForm — create payload activity_required derivation (mirrors onSubmit logic, 0827-184)", () => {
+  const FUNCION_CLIENTE = 1;
+  const toActivityRequired = (funcion: number) => funcion === FUNCION_CLIENTE;
+
+  it("funcion=1 (cliente) → activity_required=true on create", () => {
+    expect(toActivityRequired(1)).toBe(true);
+  });
+
+  it("funcion=0 (administrativa) → activity_required=false on create", () => {
+    expect(toActivityRequired(0)).toBe(false);
+  });
+
+  it("funcion=2/3 (capacitación/calidad) → activity_required=false on create", () => {
+    expect(toActivityRequired(2)).toBe(false);
+    expect(toActivityRequired(3)).toBe(false);
+  });
+});

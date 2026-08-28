@@ -454,9 +454,12 @@ const TimeSheet = () => {
     if (engagementActivityPairs.length === 0) return;
 
     // BUG 0227-67: Block submit if any activity-required engagement has empty/invalid activity
+    // 0827-184: anchored on funcion, not the stored activity_required flag (same rule as
+    // activityNotRequiredIds/handleEngagementChange) — funcion == null fails closed like
+    // funcion === 1 (activity required), it must not be treated as ADM-exempt.
     const invalidActivityRow = entries.some(entry => {
       const eng = engagements.find(e => e.engagement_id === entry.engagement_id);
-      const isActRequired = eng?.activity_required ?? true;
+      const isActRequired = eng?.funcion == null || eng.funcion === 1;
       return isActRequired && (!entry.activity_id || entry.activity_id === adminActivityId);
     });
     if (invalidActivityRow) {

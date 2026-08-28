@@ -9,8 +9,13 @@ import { normalizeActivityForEngagement } from "@/lib/timesheetActivityRules";
 
 const ADM_ID = "adm-activity-uuid";
 
-const INTERNAL_ENG = { engagement_id: "eng-internal", activity_required: false };
-const CLIENT_ENG = { engagement_id: "eng-client", activity_required: true };
+// engagements.funcion: 0 administrativa, 1 cliente (0827-184). `activityRequired` below is
+// derived the same way TimesheetGrid.handleEngagementChange does it — funcion == null || funcion
+// === 1 — not read from a stored activity_required flag.
+const INTERNAL_ENG = { engagement_id: "eng-internal", funcion: 0 };
+const CLIENT_ENG = { engagement_id: "eng-client", funcion: 1 };
+
+const activityRequiredFor = (funcion: number) => funcion == null || funcion === 1;
 
 describe("TimesheetGrid activity transitions", () => {
   it("internal engagement auto-assigns admin activity", () => {
@@ -18,7 +23,7 @@ describe("TimesheetGrid activity transitions", () => {
       engagementId: INTERNAL_ENG.engagement_id,
       currentActivityId: "",
       adminActivityId: ADM_ID,
-      activityRequired: INTERNAL_ENG.activity_required,
+      activityRequired: activityRequiredFor(INTERNAL_ENG.funcion),
     });
     expect(result.nextActivityId).toBe(ADM_ID);
   });
@@ -29,7 +34,7 @@ describe("TimesheetGrid activity transitions", () => {
       engagementId: CLIENT_ENG.engagement_id,
       currentActivityId: ADM_ID,
       adminActivityId: ADM_ID,
-      activityRequired: CLIENT_ENG.activity_required,
+      activityRequired: activityRequiredFor(CLIENT_ENG.funcion),
     });
     expect(result.nextActivityId).toBe("");
     expect(result.wasCleared).toBe(true);
@@ -40,7 +45,7 @@ describe("TimesheetGrid activity transitions", () => {
       engagementId: CLIENT_ENG.engagement_id,
       currentActivityId: "",
       adminActivityId: ADM_ID,
-      activityRequired: CLIENT_ENG.activity_required,
+      activityRequired: activityRequiredFor(CLIENT_ENG.funcion),
     });
     // Empty activityId triggers the disable condition in TimesheetGrid line 826:
     // !row.activityId && !isActivityNotRequired
@@ -52,7 +57,7 @@ describe("TimesheetGrid activity transitions", () => {
       engagementId: INTERNAL_ENG.engagement_id,
       currentActivityId: "some-client-activity",
       adminActivityId: ADM_ID,
-      activityRequired: INTERNAL_ENG.activity_required,
+      activityRequired: activityRequiredFor(INTERNAL_ENG.funcion),
     });
     expect(result.nextActivityId).toBe(ADM_ID);
   });

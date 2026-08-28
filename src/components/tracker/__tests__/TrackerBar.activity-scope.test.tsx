@@ -14,6 +14,7 @@ vi.mock("react-i18next", () => ({
 const ENGAGEMENTS = [
   { engagement_id: "eng-client", engagement_code: "E-CLI", engagement_name: "Client Eng", funcion: 1, practica: 1 },
   { engagement_id: "eng-adm", engagement_code: "E-ADM", engagement_name: "Admin Eng", funcion: 0, practica: null },
+  { engagement_id: "eng-legacy", engagement_code: "E-LEG", engagement_name: "Legacy Eng", funcion: null, practica: 1 },
 ];
 
 vi.mock("@/hooks/useApprovedEngagements", () => ({
@@ -91,7 +92,7 @@ vi.mock("@/components/ui/select", () => ({
 
 function optionValues(select: HTMLSelectElement): string[] {
   return within(select)
-    .getAllByRole("option")
+    .queryAllByRole("option")
     .map((o) => (o as HTMLOptionElement).value)
     .filter((v) => v !== "");
 }
@@ -129,5 +130,18 @@ describe("TrackerBar activity scope (BUG 0827-184)", () => {
     render(<TrackerBar {...baseProps} onActivityChange={onActivityChange} />);
     fireEvent.change(screen.getByTestId("engagement-select"), { target: { value: "eng-adm" } });
     expect(onActivityChange).toHaveBeenCalledWith("adm-1");
+  });
+
+  it("no engagement selected: activity selector disabled", () => {
+    render(<TrackerBar {...baseProps} />);
+    const activitySelect = screen.getByTestId("activity-select") as HTMLSelectElement;
+    expect(activitySelect).toBeDisabled();
+  });
+
+  it("funcion=null (legacy, unset): activity selector disabled and fails closed", () => {
+    render(<TrackerBar {...baseProps} engagementId="eng-legacy" />);
+    const activitySelect = screen.getByTestId("activity-select") as HTMLSelectElement;
+    expect(activitySelect).toBeDisabled();
+    expect(optionValues(activitySelect)).toEqual([]);
   });
 });

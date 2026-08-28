@@ -16,6 +16,7 @@ vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn(), warning: v
 const ENGAGEMENTS = [
   { engagement_id: "eng-client", engagement_code: "E-CLI", engagement_name: "Client Eng", funcion: 1, practica: 1 },
   { engagement_id: "eng-adm", engagement_code: "E-ADM", engagement_name: "Admin Eng", funcion: 0, practica: null },
+  { engagement_id: "eng-legacy", engagement_code: "E-LEG", engagement_name: "Legacy Eng", funcion: null, practica: 1 },
 ];
 
 vi.mock("@/hooks/useManualEntryEngagements", () => ({
@@ -93,7 +94,7 @@ vi.mock("@/components/ui/select", () => ({
 
 function optionValues(select: HTMLSelectElement): string[] {
   return within(select)
-    .getAllByRole("option")
+    .queryAllByRole("option")
     .map((o) => (o as HTMLOptionElement).value)
     .filter((v) => v !== "");
 }
@@ -115,5 +116,20 @@ describe("ManualEntryDialog activity scope (BUG 0827-184)", () => {
     const activitySelect = screen.getByTestId("activity-select") as HTMLSelectElement;
     expect(activitySelect).toBeDisabled();
     expect(activitySelect.value).toBe("adm-1");
+  });
+
+  it("no engagement selected: activity selector disabled", () => {
+    render(<ManualEntryDialog open onOpenChange={vi.fn()} onSubmit={vi.fn()} />);
+    const activitySelect = screen.getByTestId("activity-select") as HTMLSelectElement;
+    expect(activitySelect).toBeDisabled();
+  });
+
+  it("funcion=null (legacy, unset): activity selector disabled and fails closed", () => {
+    render(<ManualEntryDialog open onOpenChange={vi.fn()} onSubmit={vi.fn()} />);
+    fireEvent.change(screen.getByTestId("engagement-select"), { target: { value: "eng-legacy" } });
+
+    const activitySelect = screen.getByTestId("activity-select") as HTMLSelectElement;
+    expect(activitySelect).toBeDisabled();
+    expect(optionValues(activitySelect)).toEqual([]);
   });
 });

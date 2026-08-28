@@ -1,5 +1,6 @@
 // engagements.funcion: 0 administrativa, 1 cliente, 2 capacitación, 3 calidad (0827-184).
 const FUNCION_CLIENTE = 1;
+const FUNCIONES_ADMINISTRATIVAS = new Set([0, 2, 3]);
 
 /**
  * Filters activity codes to those applicable to an engagement, anchored on
@@ -10,8 +11,10 @@ const FUNCION_CLIENTE = 1;
  * - `funcion === 1` (cliente): only activities whose service code matches the engagement's
  *   `practica`, excluding system activities (e.g. ADM) and other practices. `practica == null`
  *   yields an empty list.
- * - `funcion` anything else (0/2/3 — administrativa/capacitación/calidad): only the system
- *   activity (ADM) is valid.
+ * - `funcion` 0/2/3 (administrativa/capacitación/calidad): only the system activity (ADM)
+ *   is valid.
+ * - Any other `funcion` value (not 0/1/2/3 — outside the DB's `CHECK` constraint): fail-closed,
+ *   no activities, same as `funcion == null`.
  * - The currently-selected activity is always kept visible even if it no longer matches
  *   (e.g. the engagement's funcion/practica changed), so the Select never renders blank.
  */
@@ -33,9 +36,12 @@ export function filterActivitiesForEngagement<
         act.activity_id === currentActivityId,
     );
   }
-  return activities.filter(
-    (act) => act.is_system || act.activity_id === currentActivityId,
-  );
+  if (FUNCIONES_ADMINISTRATIVAS.has(funcion)) {
+    return activities.filter(
+      (act) => act.is_system || act.activity_id === currentActivityId,
+    );
+  }
+  return activities.filter((act) => act.activity_id === currentActivityId);
 }
 
 /**

@@ -126,7 +126,12 @@ export function TrackerBar({
             <Select
               value={engagementId ? (activityId || "") : ""}
               onValueChange={(val) => onActivityChange(val || null)}
-              disabled={isRunning || !engagementId || !!isActivityNotRequired}
+              disabled={
+                isRunning
+                || !engagementId
+                || selectedEngagement?.funcion == null
+                || !!isActivityNotRequired
+              }
             >
               <SelectTrigger className="h-10">
                 <SelectValue placeholder={t("tracker.selectActivity")}>

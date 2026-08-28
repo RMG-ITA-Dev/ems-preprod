@@ -228,9 +228,11 @@ describe("TimesheetGrid activity scope (BUG 0827-184)", () => {
     expect(optionValues).toEqual(["adm-1"]);
   });
 
-  it("funcion=null (legacy, unset): fails closed — no new activity offered, not auto-ADM", () => {
+  it("funcion=null (legacy, unset): disabled and fails closed — no new activity offered, not auto-ADM", () => {
     // Stale saved entry from before funcion was cleared/unset — must stay visible (never go
-    // blank on an existing row) but no other activity, and NOT ADM, is offered instead.
+    // blank on an existing row) but no other activity, and NOT ADM, is offered instead. The
+    // selector itself is disabled (funcion=null is excluded from activityNotRequiredIds, but
+    // TimesheetGrid disables separately whenever funcion is unresolved).
     const eng = makeEngagement({ engagement_id: "eng-legacy", funcion: null, practica: 1 });
     render(
       <TimesheetGrid
@@ -241,9 +243,7 @@ describe("TimesheetGrid activity scope (BUG 0827-184)", () => {
       />
     );
     const select = screen.getByTestId("activity-select") as HTMLSelectElement;
-    // Not driven into the auto-ADM disabled state (funcion=null is excluded from
-    // activityNotRequiredIds) — but the option list still fails closed to just the stale value.
-    expect(select).not.toBeDisabled();
+    expect(select).toBeDisabled();
     const optionValues = within(select)
       .getAllByRole("option")
       .map((o) => (o as HTMLOptionElement).value);

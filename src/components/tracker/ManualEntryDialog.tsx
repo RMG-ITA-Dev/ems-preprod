@@ -179,6 +179,9 @@ export function ManualEntryDialog({
 
   const selectedEng = engagements.find(e => e.engagement_id === engagementId);
   const isActNotReq = !!selectedEng && selectedEng.funcion != null && selectedEng.funcion !== 1;
+  // 0827-184: fail-closed without an engagement or with funcion == null (legacy, unset),
+  // same rule as the Timesheet grid — not just the auto-ADM (isActNotReq) case.
+  const isActivitySelectDisabled = !engagementId || selectedEng?.funcion == null || isActNotReq;
   const visibleActivities = filterActivitiesForEngagement(
     activeActivities,
     selectedEng?.funcion,
@@ -303,7 +306,7 @@ export function ManualEntryDialog({
           {/* Activity */}
           <div className="space-y-2">
             <Label>{t("tracker.activity")}</Label>
-            <Select value={activityId} onValueChange={setActivityId} disabled={isActNotReq}>
+            <Select value={activityId} onValueChange={setActivityId} disabled={isActivitySelectDisabled}>
               <SelectTrigger>
                 <SelectValue placeholder={t("tracker.selectActivity")} />
               </SelectTrigger>

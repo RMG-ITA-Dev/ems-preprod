@@ -437,7 +437,6 @@ export function TimesheetGrid({
     // Auto-assign ADM activity for activity-not-required engagements.
     // 0827-184: anchored on funcion, not the stored activity_required flag. funcion == null
     // (legacy, unset) is NOT auto-ADM — it fails closed like funcion === 1 (activity required).
-    const isActivityNotRequired = activityNotRequiredIds?.has(engagementId);
     const engagementObj = engagements.find(e => e.engagement_id === engagementId);
     const activityRequired = engagementObj?.funcion == null || engagementObj.funcion === 1;
     const { nextActivityId } = normalizeActivityForEngagement({
@@ -842,7 +841,12 @@ export function TimesheetGrid({
                   <Select
                     value={row.activityId}
                     onValueChange={(val) => handleActivityChange(row.id, val)}
-                    disabled={isRowLocked || !row.engagementId || (activityNotRequiredIds?.has(row.engagementId) ?? false)}
+                    disabled={
+                      isRowLocked
+                      || !row.engagementId
+                      || (activityNotRequiredIds?.has(row.engagementId) ?? false)
+                      || funcionByEngagement.get(row.engagementId) == null
+                    }
                   >
                     <SelectTrigger className="border-0 bg-transparent focus:ring-1">
                       <SelectValue placeholder={

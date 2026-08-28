@@ -58,6 +58,7 @@ import { Switch } from "@/components/ui/switch";
 import { useTimerEntries, useUpdateTimerEntry, useDeleteTimerEntry } from "@/hooks/useTimerEntries";
 import { useEngagements, useActivityCodes } from "@/hooks/useEmsData";
 import { useApprovedEngagements } from "@/hooks/useApprovedEngagements";
+import { useAdminActivityId } from "@/hooks/useAdminActivity";
 import { useLanguage } from "@/hooks/useLanguage";
 // toast imported at top of file
 import { cn } from "@/lib/utils";
@@ -74,6 +75,7 @@ const TrackerEdit = () => {
   const { data: activityCodes } = useActivityCodes();
   const updateEntry = useUpdateTimerEntry();
   const deleteEntry = useDeleteTimerEntry();
+  const adminActivityId = useAdminActivityId();
 
   const entry = entries?.find(e => e.timer_id === id);
   const isImported = Boolean(entry?.is_imported) || Boolean(entry?.imported_to_time_id);
@@ -216,23 +218,37 @@ const TrackerEdit = () => {
     return activityCodes.filter(a => a.is_active || a.activity_id === entry?.activity_id);
   }, [activityCodes, entry?.activity_id]);
 
+  const selectedEngagement = activeEngagements.find(e => e.engagement_id === engagementId);
+  // 0827-184: anchored on funcion, not activity_required. funcion == null (legacy, unset)
+  // fails closed like funcion === 1 (activity required) — it must not auto-assign ADM.
+  const isActivityNotRequired =
+    !!selectedEngagement && selectedEngagement.funcion != null && selectedEngagement.funcion !== 1;
+  const isActivitySelectDisabled =
+    isImported || !engagementId || selectedEngagement?.funcion == null || isActivityNotRequired;
+
   // Restrict to the selected engagement's practice per funcion (0827-184); keep current selection.
   const visibleActivities = useMemo(() => {
-    const selectedEng = activeEngagements.find(e => e.engagement_id === engagementId);
     return filterActivitiesForEngagement(
       activeActivities,
-      selectedEng?.funcion,
-      selectedEng?.practica,
+      selectedEngagement?.funcion,
+      selectedEngagement?.practica,
       activityId || undefined,
     );
-  }, [activeActivities, activeEngagements, engagementId, activityId]);
+  }, [activeActivities, selectedEngagement, activityId]);
 
   const handleEngagementChange = (newEngagementId: string) => {
     const newEng = activeEngagements.find(e => e.engagement_id === newEngagementId);
-    const newPractica = newEng?.practica ?? null;
-    const currentAct = (activityCodes || []).find(a => a.activity_id === activityId);
-    if (currentAct?.service != null && currentAct.service.code !== newPractica) {
+    const newIsActivityNotRequired = !!newEng && newEng.funcion != null && newEng.funcion !== 1;
+    if (newIsActivityNotRequired && adminActivityId) {
+      setActivityId(adminActivityId);
+    } else if (newIsActivityNotRequired) {
       setActivityId("");
+    } else {
+      const newPractica = newEng?.practica ?? null;
+      const currentAct = (activityCodes || []).find(a => a.activity_id === activityId);
+      if (currentAct?.service != null && currentAct.service.code !== newPractica) {
+        setActivityId("");
+      }
     }
     setEngagementId(newEngagementId);
   };
@@ -506,7 +522,7 @@ const TrackerEdit = () => {
               {/* Activity */}
               <div className="space-y-2">
                 <Label>{t("tracker.activity")}</Label>
-                <Select value={activityId} onValueChange={setActivityId} disabled={isImported}>
+                <Select value={activityId} onValueChange={setActivityId} disabled={isActivitySelectDisabled}>
                   <SelectTrigger>
                     <SelectValue placeholder={t("tracker.selectActivity")} />
                   </SelectTrigger>

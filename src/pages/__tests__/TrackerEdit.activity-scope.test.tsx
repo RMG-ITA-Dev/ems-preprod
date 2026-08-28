@@ -55,6 +55,9 @@ vi.mock("@/hooks/useTimerEntries", () => ({
 const ENGAGEMENTS = [
   { engagement_id: "eng-client", engagement_code: "E-CLI", engagement_name: "Client Eng", funcion: 1, practica: 1 },
   { engagement_id: "eng-adm", engagement_code: "E-ADM", engagement_name: "Admin Eng", funcion: 0, practica: null },
+  // practica=3 (not 1, unlike aud-1's service) so switching from eng-client clears the
+  // stale activityId instead of accidentally keeping it via a matching practica.
+  { engagement_id: "eng-legacy", engagement_code: "E-LEG", engagement_name: "Legacy Eng", funcion: null, practica: 3 },
 ];
 
 vi.mock("@/hooks/useEmsData", () => ({
@@ -70,6 +73,10 @@ vi.mock("@/hooks/useEmsData", () => ({
 
 vi.mock("@/hooks/useApprovedEngagements", () => ({
   useApprovedEngagements: () => ({ data: ENGAGEMENTS }),
+}));
+
+vi.mock("@/hooks/useAdminActivity", () => ({
+  useAdminActivityId: () => "adm-1",
 }));
 
 // Simplified native <select> so options are directly queryable in jsdom.
@@ -106,7 +113,7 @@ import TrackerEdit from "../TrackerEdit";
 
 function optionValues(select: HTMLSelectElement): string[] {
   return within(select)
-    .getAllByRole("option")
+    .queryAllByRole("option")
     .map((o) => (o as HTMLOptionElement).value)
     .filter((v) => v !== "");
 }
@@ -115,13 +122,24 @@ describe("TrackerEdit activity scope (BUG 0827-184)", () => {
   it("funcion=1 (cliente): only the matching practica's activities, ADM excluded", () => {
     render(<TrackerEdit />);
     const [, activitySelect] = screen.getAllByTestId("ui-select") as HTMLSelectElement[];
+    expect(activitySelect).not.toBeDisabled();
     expect(optionValues(activitySelect)).toEqual(["aud-1"]);
   });
 
-  it("funcion=0 (administrativa): only ADM offered after switching engagement", () => {
+  it("funcion=0 (administrativa): only ADM offered, selector disabled, ADM auto-assigned", () => {
     render(<TrackerEdit />);
     const [engagementSelect, activitySelect] = screen.getAllByTestId("ui-select") as HTMLSelectElement[];
     fireEvent.change(engagementSelect, { target: { value: "eng-adm" } });
+    expect(activitySelect).toBeDisabled();
+    expect(activitySelect.value).toBe("adm-1");
     expect(optionValues(activitySelect)).toEqual(["adm-1"]);
+  });
+
+  it("funcion=null (legacy, unset): activity selector disabled and fails closed", () => {
+    render(<TrackerEdit />);
+    const [engagementSelect, activitySelect] = screen.getAllByTestId("ui-select") as HTMLSelectElement[];
+    fireEvent.change(engagementSelect, { target: { value: "eng-legacy" } });
+    expect(activitySelect).toBeDisabled();
+    expect(optionValues(activitySelect)).toEqual([]);
   });
 });
