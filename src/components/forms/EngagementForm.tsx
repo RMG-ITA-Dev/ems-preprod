@@ -261,7 +261,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   // Este archivo ya NO usa el enum legacy: todo sale de `role_key` y de los
   // permisos. El toggle de congelamiento del Gerente (`isManager`) se eliminó
   // (0722-157); el estado "Congelado" ahora solo lo fija el Admin.
-  const { can, roleKey, isLoading: roleLoading, isFetching: roleFetching } = useAuthorization();
+  const { can, roleKey, isLoading: roleLoading, isFetching: roleFetching, isError: roleError } = useAuthorization();
   const isAdmin = roleKey === "admin";
   // BUG 0817-180: Super Admin (role_key admin) y Senior Partner eligen sociedad/practica/oficina
   // libres al crear; el resto queda clasificado por su ficha. Espejo exacto del trigger de BD
@@ -303,7 +303,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       savedEffectiveState === EngagementState.Congelado);
 
   const { data: clients } = useClients();
-  const { data: allServices, isLoading: servicesLoading, isFetching: servicesFetching } = useServices();
+  const { data: allServices, isLoading: servicesLoading, isFetching: servicesFetching, isError: servicesError } = useServices();
   const { data: allTaxonomies } = useTaxonomies();
   const { data: societies } = useSocieties();
   // BUG 0722-162: los seis selectores del bloque Equipo se alimentan de `role_key`, no de la
@@ -318,7 +318,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     isFetching: teamCandidatesFetching,
     isError: teamCandidatesError,
   } = useEngagementTeamCandidates();
-  const { staffRecord, isLoading: currentStaffLoading, isFetching: currentStaffFetching } = useCurrentStaff();
+  const { staffRecord, isLoading: currentStaffLoading, isFetching: currentStaffFetching, isError: currentStaffError } = useCurrentStaff();
 
   // ── BUG 0817-180: sociedad/práctica/oficina derivadas de la ficha del creador restringido ────
   //
@@ -355,8 +355,15 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     !canChooseProfileScopeFreely &&
     (roleLoading || currentStaffLoading || servicesLoading ||
       roleFetching || currentStaffFetching || servicesFetching);
+  // Review de Codex (0817-180, 2026-08-28): un error de red/servidor en cualquiera de las tres
+  // queries (agotado el `retry: 1` global, sin refetch automático — `App.tsx`) deja los derivados
+  // en `undefined`, indistinguible de una ficha real incompleta. Se separa para no decirle al
+  // usuario "te falta un dato en tu ficha" cuando en realidad fue un fallo de carga — mismo
+  // criterio que `teamCandidatesError` para el bloque Equipo.
+  const profileError =
+    !isEdit && !canChooseProfileScopeFreely && (roleError || currentStaffError || servicesError);
   const missingProfileFields: string[] = [];
-  if (!isEdit && !canChooseProfileScopeFreely && !profileLoading) {
+  if (!isEdit && !canChooseProfileScopeFreely && !profileLoading && !profileError) {
     if (!staffRecord?.staff_id) {
       missingProfileFields.push(t("engagement.profileMissingStaff"));
     } else {
@@ -368,7 +375,9 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   // Fail-closed: durante la carga tampoco se permite enviar, aunque todavía no se afirme qué
   // falta (evita el Alert parpadeando falso mientras el catálogo/ficha resuelven).
   const profileBlocksCreation =
-    !isEdit && !canChooseProfileScopeFreely && (profileLoading || missingProfileFields.length > 0);
+    !isEdit &&
+    !canChooseProfileScopeFreely &&
+    (profileLoading || profileError || missingProfileFields.length > 0);
 
   // ── BUG 0810-172: autoasignación y bloqueo del Socio/Director o Gerente en CREACIÓN ─────────
   //
@@ -1215,6 +1224,16 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
           <AlertDescription>
             {t("messages.missingTeamRoles", { roles: missingTeamRoles.join(", ") })}
           </AlertDescription>
+        </Alert>
+      )}
+
+      {/* BUG 0817-180 (review de Codex, 2026-08-28): fallo de carga del rol/ficha/catálogo — se
+          muestra aparte de "perfil incompleto" para no acusar a la ficha de un problema técnico
+          pasajero. Mismo patrón que `teamCandidatesError` arriba. */}
+      {profileError && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{t("messages.profileLoadError")}</AlertDescription>
         </Alert>
       )}
 

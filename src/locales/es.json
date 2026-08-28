@@ -890,6 +890,7 @@
     "missingTeamRoles": "Ningún usuario activo tiene los roles requeridos: {{roles}}. Asígnelos en Configuración → Roles de Usuario antes de crear encargos.",
     "teamCandidatesLoadError": "No se pudo cargar el personal disponible para el Equipo. Reintente; si el problema persiste, avise al administrador.",
     "profileIncompleteForEngagement": "A tu ficha de personal le falta información requerida para crear este encargo: {{fields}}. Contacta a tu administrador para completarla.",
+    "profileLoadError": "No se pudo cargar tu ficha de personal o el catálogo de prácticas. Reintenta; si el problema persiste, avisa a tu administrador.",
     "staffDeactivated": "Miembro del personal desactivado (tiene registros relacionados)",
     "accountInactive": "Su cuenta está inactiva. Contacte al administrador.",
     "holidayCreated": "Feriado creado",
