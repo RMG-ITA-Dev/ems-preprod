@@ -239,11 +239,15 @@ const TimeSheet = () => {
 
   const hasWeekHolidays = holidayMap.size > 0;
 
-  // Compute activityNotRequiredIds from engagement data
+  // Compute activityNotRequiredIds from engagement data.
+  // Anchored on funcion (0827-184): funcion 0/2/3 (administrativa/capacitación/calidad)
+  // always auto-assigns ADM, regardless of the stored activity_required flag.
+  // funcion === null (legacy, unset) is intentionally EXCLUDED here — it must fail-closed
+  // (empty selector, no auto-ADM), not be treated as an administrative engagement.
   const activityNotRequiredIds = useMemo(() => {
     const ids = new Set<string>();
     engagements.forEach(e => {
-      if (!e.activity_required) ids.add(e.engagement_id);
+      if (e.funcion != null && e.funcion !== 1) ids.add(e.engagement_id);
     });
     return ids;
   }, [engagements]);

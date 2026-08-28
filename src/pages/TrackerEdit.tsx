@@ -61,7 +61,7 @@ import { useApprovedEngagements } from "@/hooks/useApprovedEngagements";
 import { useLanguage } from "@/hooks/useLanguage";
 // toast imported at top of file
 import { cn } from "@/lib/utils";
-import { filterActivitiesByService } from "@/lib/activityFilters";
+import { filterActivitiesForEngagement } from "@/lib/activityFilters";
 
 const TrackerEdit = () => {
   const { id } = useParams<{ id: string }>();
@@ -216,10 +216,15 @@ const TrackerEdit = () => {
     return activityCodes.filter(a => a.is_active || a.activity_id === entry?.activity_id);
   }, [activityCodes, entry?.activity_id]);
 
-  // Restrict to the selected engagement's service (+ global activities); keep current selection.
+  // Restrict to the selected engagement's practice per funcion (0827-184); keep current selection.
   const visibleActivities = useMemo(() => {
     const selectedEng = activeEngagements.find(e => e.engagement_id === engagementId);
-    return filterActivitiesByService(activeActivities, selectedEng?.practica, activityId || undefined);
+    return filterActivitiesForEngagement(
+      activeActivities,
+      selectedEng?.funcion,
+      selectedEng?.practica,
+      activityId || undefined,
+    );
   }, [activeActivities, activeEngagements, engagementId, activityId]);
 
   const handleEngagementChange = (newEngagementId: string) => {

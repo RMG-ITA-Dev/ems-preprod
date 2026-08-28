@@ -29,7 +29,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { normalizeActivityForEngagement } from "@/lib/timesheetActivityRules";
-import { filterActivitiesByService } from "@/lib/activityFilters";
+import { filterActivitiesForEngagement } from "@/lib/activityFilters";
 import { toast } from "sonner";
 import { logger } from "@/lib/logger";
 
@@ -434,10 +434,12 @@ export function TimesheetGrid({
     const currentRow = rows.find(r => r.id === rowId);
     if (!currentRow) return;
 
-    // Auto-assign ADM activity for activity-not-required engagements
+    // Auto-assign ADM activity for activity-not-required engagements.
+    // 0827-184: anchored on funcion, not the stored activity_required flag. funcion == null
+    // (legacy, unset) is NOT auto-ADM — it fails closed like funcion === 1 (activity required).
     const isActivityNotRequired = activityNotRequiredIds?.has(engagementId);
     const engagementObj = engagements.find(e => e.engagement_id === engagementId);
-    const activityRequired = engagementObj?.activity_required ?? true;
+    const activityRequired = engagementObj?.funcion == null || engagementObj.funcion === 1;
     const { nextActivityId } = normalizeActivityForEngagement({
       engagementId,
       currentActivityId: currentRow.activityId,
@@ -711,6 +713,13 @@ export function TimesheetGrid({
     return map;
   }, [engagements]);
 
+  // Map engagement → funcion (0827-184) to filter activities per row.
+  const funcionByEngagement = useMemo(() => {
+    const map = new Map<string, number | null>();
+    engagements.forEach(e => map.set(e.engagement_id, e.funcion));
+    return map;
+  }, [engagements]);
+
 
   // Get approval status for a specific (engagement, activity) pair
   const getApprovalStatus = (engagementId: string, activityId: string) => {
@@ -833,18 +842,19 @@ export function TimesheetGrid({
                   <Select
                     value={row.activityId}
                     onValueChange={(val) => handleActivityChange(row.id, val)}
-                    disabled={isRowLocked || (activityNotRequiredIds?.has(row.engagementId) ?? false)}
+                    disabled={isRowLocked || !row.engagementId || (activityNotRequiredIds?.has(row.engagementId) ?? false)}
                   >
                     <SelectTrigger className="border-0 bg-transparent focus:ring-1">
                       <SelectValue placeholder={
                         activityNotRequiredIds?.has(row.engagementId)
-                          ? "ADM - Administrative"
+                          ? t("timesheet.admActivityPlaceholder")
                           : t("timesheet.selectActivity")
                       } />
                     </SelectTrigger>
                     <SelectContent>
-                      {filterActivitiesByService(
+                      {filterActivitiesForEngagement(
                         activities,
+                        funcionByEngagement.get(row.engagementId),
                         practicaByEngagement.get(row.engagementId),
                         row.activityId,
                       ).map((act) => {

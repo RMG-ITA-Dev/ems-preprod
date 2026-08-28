@@ -13,7 +13,7 @@ import { EngagementCombobox } from "@/components/tracker/EngagementCombobox";
 import { useActivityCodes } from "@/hooks/useEmsData";
 import { useApprovedEngagements } from "@/hooks/useApprovedEngagements";
 import { useAdminActivityId } from "@/hooks/useAdminActivity";
-import { filterActivitiesByService } from "@/lib/activityFilters";
+import { filterActivitiesForEngagement } from "@/lib/activityFilters";
 import { cn } from "@/lib/utils";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle } from "lucide-react";
@@ -64,10 +64,14 @@ export function TrackerBar({
   const activeActivities = activityCodes.filter((a) => a.is_active);
 
   const selectedEngagement = engagements.find(e => e.engagement_id === engagementId);
-  const isActivityNotRequired = selectedEngagement && !selectedEngagement.activity_required;
+  // 0827-184: anchored on funcion, not activity_required. funcion == null (legacy, unset)
+  // fails closed like funcion === 1 (activity required) — it must not auto-assign ADM.
+  const isActivityNotRequired =
+    !!selectedEngagement && selectedEngagement.funcion != null && selectedEngagement.funcion !== 1;
   const selectedActivity = activeActivities.find(a => a.activity_id === activityId);
-  const visibleActivities = filterActivitiesByService(
+  const visibleActivities = filterActivitiesForEngagement(
     activeActivities,
+    selectedEngagement?.funcion,
     selectedEngagement?.practica,
     activityId ?? undefined,
   );
@@ -103,9 +107,10 @@ export function TrackerBar({
               onValueChange={(val) => {
                 const eng = engagements.find(e => e.engagement_id === val);
                 onEngagementChange(val || null);
-                if (eng && !eng.activity_required && adminActivityId) {
+                const engIsActivityNotRequired = !!eng && eng.funcion != null && eng.funcion !== 1;
+                if (engIsActivityNotRequired && adminActivityId) {
                   onActivityChange(adminActivityId);
-                } else if (eng && !eng.activity_required) {
+                } else if (engIsActivityNotRequired) {
                   onActivityChange(null);
                 } else if (eng && selectedActivity?.service != null && selectedActivity.service.code !== eng.practica) {
                   onActivityChange(null);

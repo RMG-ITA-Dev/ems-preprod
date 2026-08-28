@@ -30,7 +30,7 @@ import { CalendarIcon } from "lucide-react";
 import { useActivityCodes } from "@/hooks/useEmsData";
 import { useManualEntryEngagements } from "@/hooks/useManualEntryEngagements";
 import { useAdminActivityId } from "@/hooks/useAdminActivity";
-import { filterActivitiesByService } from "@/lib/activityFilters";
+import { filterActivitiesForEngagement } from "@/lib/activityFilters";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -144,7 +144,9 @@ export function ManualEntryDialog({
 
   const handleSubmit = () => {
     const selectedEng = engagements.find(e => e.engagement_id === engagementId);
-    const isActNotReq = selectedEng && !selectedEng.activity_required;
+    // 0827-184: anchored on funcion, not activity_required. funcion == null (legacy, unset)
+    // fails closed like funcion === 1 (activity required) — it must not auto-assign ADM.
+    const isActNotReq = !!selectedEng && selectedEng.funcion != null && selectedEng.funcion !== 1;
     const effectiveActivityId = isActNotReq && adminActivityId ? adminActivityId : activityId;
     if (!engagementId || !effectiveActivityId) return;
     if (!engagements.some(e => e.engagement_id === engagementId)) {
@@ -176,8 +178,13 @@ export function ManualEntryDialog({
   };
 
   const selectedEng = engagements.find(e => e.engagement_id === engagementId);
-  const isActNotReq = selectedEng && !selectedEng.activity_required;
-  const visibleActivities = filterActivitiesByService(activeActivities, selectedEng?.practica, activityId || undefined);
+  const isActNotReq = !!selectedEng && selectedEng.funcion != null && selectedEng.funcion !== 1;
+  const visibleActivities = filterActivitiesForEngagement(
+    activeActivities,
+    selectedEng?.funcion,
+    selectedEng?.practica,
+    activityId || undefined,
+  );
   const canSubmit = engagementId && (activityId || (isActNotReq && adminActivityId)) && hours > 0 && (!useExplicitTimes || (startTime && endTime));
 
   return (
@@ -282,7 +289,8 @@ export function ManualEntryDialog({
               onValueChange={(val) => {
                 setEngagementId(val);
                 const eng = engagements.find(e => e.engagement_id === val);
-                if (eng && !eng.activity_required && adminActivityId) {
+                const engIsActivityNotRequired = !!eng && eng.funcion != null && eng.funcion !== 1;
+                if (engIsActivityNotRequired && adminActivityId) {
                   setActivityId(adminActivityId);
                 } else {
                   setActivityId("");
@@ -295,7 +303,7 @@ export function ManualEntryDialog({
           {/* Activity */}
           <div className="space-y-2">
             <Label>{t("tracker.activity")}</Label>
-            <Select value={activityId} onValueChange={setActivityId} disabled={!!(selectedEng && !selectedEng.activity_required)}>
+            <Select value={activityId} onValueChange={setActivityId} disabled={isActNotReq}>
               <SelectTrigger>
                 <SelectValue placeholder={t("tracker.selectActivity")} />
               </SelectTrigger>

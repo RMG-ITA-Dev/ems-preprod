@@ -448,7 +448,6 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
 
   // Policy flags state (outside react-hook-form since they're admin-only)
   const [workOrderRequired, setWorkOrderRequired] = useState(engagement?.work_order_required ?? true);
-  const [activityRequired, setActivityRequired] = useState(engagement?.activity_required ?? true);
   const [isInternal, setIsInternal] = useState(engagement?.is_internal ?? false);
   const [approvalRequired, setApprovalRequired] = useState(engagement?.approval_required ?? true);
   // BUG #0604-143: admin-only manual override of the derived Año Fiscal.
@@ -516,7 +515,6 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
         closing_date_custom: closingDateOption === "Otro" && storedClosing ? parseDateLocal(storedClosing) : undefined,
       });
       setWorkOrderRequired(engagement.work_order_required ?? true);
-      setActivityRequired(engagement.activity_required ?? true);
       setIsInternal(engagement.is_internal ?? false);
       setApprovalRequired(engagement.approval_required ?? true);
       setOverrideOn(engagement.anio_fiscal_override ?? false);
@@ -765,7 +763,9 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
           end_date:            data.end_date   ? format(data.end_date,   "yyyy-MM-dd") : undefined,
           status:              data.status,
           work_order_required: workOrderRequired,
-          activity_required:   activityRequired,
+          // 0827-184: derived read-only from funcion (immutable after create), not an
+          // independently-editable flag — see the read-only Switch below.
+          activity_required:   data.funcion === FUNCION_CLIENTE,
           is_internal:         isInternal,
           approval_required:   approvalRequired,
           sqr_id:              data.sqr_id ?? null,
@@ -830,7 +830,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       fecha_cierre:        format(closingDateResolved, "yyyy-MM-dd"),
       anio_fiscal_override: effectiveOverride,
       work_order_required: workOrderRequired,
-      activity_required:   activityRequired,
+      activity_required:   data.funcion === FUNCION_CLIENTE,
       is_internal:         isInternal,
       approval_required:   approvalRequired,
       sqr_id:              data.sqr_id ?? null,
@@ -1149,7 +1149,6 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       start_date: startOfDay(new Date()),
     });
     setWorkOrderRequired(true);
-    setActivityRequired(true);
     setIsInternal(false);
     setApprovalRequired(true);
     setOverrideOn(false);
@@ -1912,7 +1911,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                     <p className="text-sm font-medium">{t("engagement.activityRequired")}</p>
                     <p className="text-xs text-muted-foreground">{t("engagement.activityRequiredHelp")}</p>
                   </div>
-                  <Switch checked={activityRequired} onCheckedChange={setActivityRequired} />
+                  <Switch checked={wFuncion === FUNCION_CLIENTE} disabled />
                 </div>
                 <div className="flex items-center justify-between gap-4">
                   <div>
