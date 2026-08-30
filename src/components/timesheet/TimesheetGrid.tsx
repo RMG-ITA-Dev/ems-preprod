@@ -445,12 +445,20 @@ export function TimesheetGrid({
       adminActivityId: adminActivityId ?? null,
       activityRequired,
     });
-    // Clear the carried-over activity if it belongs to a different service than the new engagement.
+    // 0827-184: validate the carried-over activity against the real rule
+    // (filterActivitiesForEngagement, without a currentActivityId to preserve) instead of a
+    // manual service-code comparison — that comparison never cleared a stale activity whose
+    // service happened to still match the new practica on a funcion == null (legacy, unset)
+    // engagement, defeating its fail-closed guarantee (the selector showed disabled, but the
+    // hour cells and submit stayed open because row.activityId was non-empty).
     let activityId = nextActivityId;
     if (activityId) {
-      const act = activities.find(a => a.activity_id === activityId);
-      const newPractica = engagementObj?.practica ?? null;
-      if (act?.service != null && act.service.code !== newPractica) {
+      const stillValid = filterActivitiesForEngagement(
+        activities,
+        engagementObj?.funcion,
+        engagementObj?.practica,
+      ).some(a => a.activity_id === activityId);
+      if (!stillValid) {
         activityId = "";
       }
     }
