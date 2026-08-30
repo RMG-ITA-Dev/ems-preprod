@@ -144,4 +144,21 @@ describe("TrackerBar activity scope (BUG 0827-184)", () => {
     expect(activitySelect).toBeDisabled();
     expect(optionValues(activitySelect)).toEqual([]);
   });
+
+  // Codex review (iteración 2): ADM (is_system, service == null) survived a switch into a
+  // funcion === 1 (cliente) engagement because the old clearing check only compared
+  // service.code, which is never set on a system activity.
+  it("switching from an administrativa engagement (ADM selected) to a cliente engagement clears the stale ADM activity", () => {
+    const onActivityChange = vi.fn();
+    render(
+      <TrackerBar
+        {...baseProps}
+        engagementId="eng-adm"
+        activityId="adm-1"
+        onActivityChange={onActivityChange}
+      />
+    );
+    fireEvent.change(screen.getByTestId("engagement-select"), { target: { value: "eng-client" } });
+    expect(onActivityChange).toHaveBeenCalledWith(null);
+  });
 });

@@ -142,4 +142,22 @@ describe("TrackerEdit activity scope (BUG 0827-184)", () => {
     expect(activitySelect).toBeDisabled();
     expect(optionValues(activitySelect)).toEqual([]);
   });
+
+  // Codex review (iteración 2): ADM (is_system, service == null) survived a switch into a
+  // funcion === 1 (cliente) engagement because the old clearing check only compared
+  // service.code, which is never set on a system activity.
+  it("switching from an administrativa engagement (ADM selected) to a cliente engagement clears the stale ADM activity", () => {
+    render(<TrackerEdit />);
+    const [engagementSelect, activitySelect] = screen.getAllByTestId("ui-select") as HTMLSelectElement[];
+    fireEvent.change(engagementSelect, { target: { value: "eng-adm" } });
+    expect(activitySelect.value).toBe("adm-1");
+    fireEvent.change(engagementSelect, { target: { value: "eng-client" } });
+    // The stale ADM activity must no longer be offered — if it hadn't been cleared,
+    // filterActivitiesForEngagement's "always preserve the current selection" rule would
+    // still list it. (Not asserting `.value` here: jsdom falls back a native <select> with
+    // no matching <option value=""> to its first option, so an emptied value would
+    // misleadingly read back as "aud-1" even though the underlying state is correctly "".)
+    expect(optionValues(activitySelect)).toEqual(["aud-1"]);
+    expect(optionValues(activitySelect)).not.toContain("adm-1");
+  });
 });

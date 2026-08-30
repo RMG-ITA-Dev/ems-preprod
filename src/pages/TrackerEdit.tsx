@@ -244,9 +244,17 @@ const TrackerEdit = () => {
     } else if (newIsActivityNotRequired) {
       setActivityId("");
     } else {
-      const newPractica = newEng?.practica ?? null;
-      const currentAct = (activityCodes || []).find(a => a.activity_id === activityId);
-      if (currentAct?.service != null && currentAct.service.code !== newPractica) {
+      // 0827-184: validate the carried-over activity against the real rule
+      // (filterActivitiesForEngagement, without a currentActivityId to preserve) instead of
+      // a manual service-code comparison — that comparison never caught a stale system
+      // activity (e.g. ADM, service == null) surviving a switch into a funcion === 1
+      // (cliente) engagement.
+      const stillValid = !!activityId && filterActivitiesForEngagement(
+        activeActivities,
+        newEng?.funcion,
+        newEng?.practica,
+      ).some(a => a.activity_id === activityId);
+      if (!stillValid) {
         setActivityId("");
       }
     }

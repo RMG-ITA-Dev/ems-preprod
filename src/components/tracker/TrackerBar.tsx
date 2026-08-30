@@ -112,8 +112,20 @@ export function TrackerBar({
                   onActivityChange(adminActivityId);
                 } else if (engIsActivityNotRequired) {
                   onActivityChange(null);
-                } else if (eng && selectedActivity?.service != null && selectedActivity.service.code !== eng.practica) {
-                  onActivityChange(null);
+                } else {
+                  // 0827-184: validate the carried-over activity against the real rule
+                  // (filterActivitiesForEngagement, without a currentActivityId to preserve)
+                  // instead of a manual service-code comparison — that comparison never
+                  // caught a stale system activity (e.g. ADM, service == null) surviving a
+                  // switch into a funcion === 1 (cliente) engagement.
+                  const stillValid = !!activityId && filterActivitiesForEngagement(
+                    activeActivities,
+                    eng?.funcion,
+                    eng?.practica,
+                  ).some(a => a.activity_id === activityId);
+                  if (!stillValid) {
+                    onActivityChange(null);
+                  }
                 }
               }}
               disabled={isRunning}
