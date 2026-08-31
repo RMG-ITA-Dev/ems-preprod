@@ -59,6 +59,8 @@ CREATE FUNCTION public.list_loggable_engagements()
        -- Group B: override manual Aprobado/Emergencia (4/5), cargable aunque la OT no lo esté.
        OR e.engagement_state_override IN (4, 5)
      )
+   -- Paridad con las queries que reemplaza (Tracker/Carga Manual ordenaban created_at DESC).
+   ORDER BY e.created_at DESC, e.engagement_id
 $$;
 
 COMMENT ON FUNCTION public.list_loggable_engagements() IS 'BUG 0828-186: encargos elegibles para cargar horas (Hoja de Tiempo/Tracker/Carga Manual), sin filtrar por asignación -- alcance decidido por el operador. Gateado por time_entry.create. No sustituye is_assigned_to_engagement/is_assigned_to_client (fuera de alcance de este issue).';

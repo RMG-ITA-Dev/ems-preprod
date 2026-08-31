@@ -140,4 +140,22 @@ describe("useTimesheetWeek — engagement visibility (BUG 0828-186)", () => {
     await waitFor(() => expect(result.current.engagements).toHaveLength(1));
     expect(result.current.engagements[0].engagement_id).toBe("eng-ov4");
   });
+
+  // Review 0828-186: the previous Group A/B queries ordered by created_at DESC; the RPC now
+  // owns that ordering (ORDER BY created_at DESC in the migration). This guards that the JS
+  // layer (map/filter in useLoggableEngagements) doesn't reorder what the RPC returns.
+  it("preserves the order returned by the RPC", async () => {
+    setupMocks([
+      makeRow({ engagement_id: "eng-newest" }),
+      makeRow({ engagement_id: "eng-older" }),
+    ]);
+    const { result } = renderHook(() => useTimesheetWeek(new Date("2026-08-24")), {
+      wrapper: createWrapper(),
+    });
+    await waitFor(() => expect(result.current.engagements).toHaveLength(2));
+    expect(result.current.engagements.map((e) => e.engagement_id)).toEqual([
+      "eng-newest",
+      "eng-older",
+    ]);
+  });
 });

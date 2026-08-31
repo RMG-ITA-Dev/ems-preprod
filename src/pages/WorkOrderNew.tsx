@@ -101,7 +101,20 @@ const WorkOrderNew = () => {
     }
   }, [engagementIdParam, availableEngagements, selectedEngagementId]);
 
-  const selectedEngagement = engagements?.find((e) => e.engagement_id === selectedEngagementId);
+  // BUG 0828-186 review: si el encargo elegido deja de estar en la lista filtrada (ej. otro
+  // usuario le creó una OT en un refetch de fondo), se limpia la selección para no dejar
+  // habilitado el formulario ni el envío con un id que ya no es elegible.
+  useEffect(() => {
+    if (
+      selectedEngagementId &&
+      availableEngagements &&
+      !availableEngagements.some((e) => e.engagement_id === selectedEngagementId)
+    ) {
+      setSelectedEngagementId("");
+    }
+  }, [selectedEngagementId, availableEngagements]);
+
+  const selectedEngagement = availableEngagements?.find((e) => e.engagement_id === selectedEngagementId);
 
   // Check if selected engagement has a worksheet
   const { data: existingWorksheet } = useWorksheetByEngagementId(selectedEngagementId || undefined);
