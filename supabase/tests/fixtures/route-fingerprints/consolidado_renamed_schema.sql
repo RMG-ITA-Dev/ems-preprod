@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict oiX6HTD7oq0lxVyfagWzmZhU4OcPZ4VacfZ9MLFisOTVlboGSv24feCTL4P8obr
+\restrict zfMehopdsbTpEdJlkOhg0pXgcaJWEMXmiAvdcrcUwrd8P9uDbmXmGBE9ed8kX3C
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.11 (Ubuntu 17.11-1.pgdg24.04+2)
@@ -4454,13 +4454,17 @@ $$;
 -- Name: list_loggable_engagements(); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.list_loggable_engagements() RETURNS TABLE(engagement_id uuid, engagement_code character varying, engagement_name character varying, activity_required boolean, work_order_required boolean, is_internal boolean, practica smallint, start_date date, end_date date, engagement_state_override smallint, client_id uuid, client_legal_name character varying)
+CREATE FUNCTION public.list_loggable_engagements() RETURNS TABLE(engagement_id uuid, engagement_code character varying, engagement_name character varying, activity_required boolean, work_order_required boolean, is_internal boolean, practica smallint, funcion smallint, start_date date, end_date date, engagement_state_override smallint, client_id uuid, client_legal_name character varying)
     LANGUAGE sql STABLE SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
+  -- funcion (0827-184, mergeado tras crear este RPC): 0 administrativa, 1 cliente,
+  -- 2 capacitación, 3 calidad. Los selectores de actividad (filterActivitiesForEngagement)
+  -- lo necesitan para decidir si el encargo requiere actividad -- viajaba en el SELECT
+  -- directo a `engagements` que este RPC reemplazó, así que debe seguir viajando aquí.
   SELECT e.engagement_id, e.engagement_code, e.engagement_name,
          e.activity_required, e.work_order_required, e.is_internal,
-         e.practica, e.start_date, e.end_date, e.engagement_state_override,
+         e.practica, e.funcion, e.start_date, e.end_date, e.engagement_state_override,
          e.client_id, c.client_legal_name
     FROM public.engagements e
     LEFT JOIN public.clients c ON c.client_id = e.client_id
@@ -15506,5 +15510,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict oiX6HTD7oq0lxVyfagWzmZhU4OcPZ4VacfZ9MLFisOTVlboGSv24feCTL4P8obr
+\unrestrict zfMehopdsbTpEdJlkOhg0pXgcaJWEMXmiAvdcrcUwrd8P9uDbmXmGBE9ed8kX3C
 
