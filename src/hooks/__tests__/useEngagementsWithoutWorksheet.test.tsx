@@ -8,6 +8,8 @@ import React from "react";
  * current user ("creado por mí"), still excluding ones that already have a worksheet and
  * terminal/frozen overrides. The query must wait for the current staff to resolve (it's part
  * of the WHERE clause) and key its cache by staff so switching users doesn't leak state.
+ * Admin is exempt from the creator filter (decisión del operador, 2026-08-31): admin already
+ * has firm-wide visibility elsewhere via RLS, so this filter shouldn't narrow it further.
  */
 
 const mockFrom = vi.fn();
@@ -24,6 +26,11 @@ vi.mock("../useCurrentStaff", () => ({
     staffRecord: staffRef.staffId ? { staff_id: staffRef.staffId } : undefined,
     isLoading: staffRef.isLoading,
   }),
+}));
+
+const authRef = vi.hoisted(() => ({ roleKey: "manager" as string | null, isLoading: false }));
+vi.mock("../useAuthorization", () => ({
+  useAuthorization: () => ({ roleKey: authRef.roleKey, isLoading: authRef.isLoading }),
 }));
 
 import { useEngagementsWithoutWorksheet } from "../useWorksheetData";
@@ -71,11 +78,22 @@ describe("useEngagementsWithoutWorksheet", () => {
     vi.clearAllMocks();
     staffRef.staffId = "s1";
     staffRef.isLoading = false;
+    authRef.roleKey = "manager";
+    authRef.isLoading = false;
   });
 
   it("does not query before the current staff resolves", () => {
     staffRef.staffId = undefined;
     staffRef.isLoading = true;
+    setupMocks([]);
+
+    renderHook(() => useEngagementsWithoutWorksheet(), { wrapper: createWrapper() });
+
+    expect(mockFrom).not.toHaveBeenCalled();
+  });
+
+  it("does not query before the authorization context resolves", () => {
+    authRef.isLoading = true;
     setupMocks([]);
 
     renderHook(() => useEngagementsWithoutWorksheet(), { wrapper: createWrapper() });
@@ -116,5 +134,19 @@ describe("useEngagementsWithoutWorksheet", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(result.current.data).toEqual([]);
+  });
+
+  it("admin sees engagements created by someone else (no creator filter)", async () => {
+    authRef.roleKey = "admin";
+    setupMocks([makeEngagement({ engagement_id: "eng-other", created_by_staff_id: "someone-else" })]);
+
+    const { result } = renderHook(() => useEngagementsWithoutWorksheet(), { wrapper: createWrapper() });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    const engagementsCall = mockFrom.mock.results.find(
+      (r, i) => mockFrom.mock.calls[i][0] === "engagements"
+    )!.value;
+    expect(engagementsCall.eq).not.toHaveBeenCalledWith("created_by_staff_id", expect.anything());
+    expect(result.current.data).toHaveLength(1);
   });
 });

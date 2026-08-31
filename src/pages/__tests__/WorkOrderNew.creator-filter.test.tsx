@@ -120,11 +120,12 @@ vi.mock("@/hooks/useUserRole", () => ({
   useUserRole: () => ({ isAdmin: false, isPartner: false, isDirector: false, isManager: true, isLoading: false }),
 }));
 
+const authRef = vi.hoisted(() => ({ roleKey: "manager" as string }));
 vi.mock("@/hooks/useAuthorization", () => ({
   useAuthorization: () => ({
     can: () => true,
     scope: () => "assigned_engagements",
-    roleKey: "manager",
+    roleKey: authRef.roleKey,
     isLoading: false,
   }),
 }));
@@ -168,6 +169,7 @@ describe("WorkOrderNew — creator filter (BUG 0828-186 Punto D)", () => {
     mockSearchParams = new URLSearchParams();
     engagementsRef.current = [];
     workOrdersRef.current = [];
+    authRef.roleKey = "manager";
   });
 
   it("includes an active engagement created by the current user with no existing work order", async () => {
@@ -228,5 +230,16 @@ describe("WorkOrderNew — creator filter (BUG 0828-186 Punto D)", () => {
     // Still on the "select an engagement" step -- the WorkOrderForm never mounted.
     expect(await screen.findByText("workOrders.selectEngagement")).toBeInTheDocument();
     expect(screen.queryByText("OTH.01")).not.toBeInTheDocument();
+  });
+
+  it("admin sees an engagement created by someone else (no creator filter)", async () => {
+    authRef.roleKey = "admin";
+    engagementsRef.current = [
+      makeEngagement({ engagement_id: "eng-other", engagement_code: "OTH.01", created_by_staff_id: OTHER_STAFF_ID }),
+    ];
+    await openEngagementSelect();
+
+    const options = await screen.findAllByRole("option");
+    expect(options.some((o) => o.textContent?.includes("OTH.01"))).toBe(true);
   });
 });
