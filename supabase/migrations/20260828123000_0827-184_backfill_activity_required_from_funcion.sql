@@ -1,0 +1,26 @@
+-- 0827-184: backfill activity_required from funcion for existing engagements.
+--
+-- Context: the front-end fix for 0827-184 anchors the timesheet/tracker activity
+-- selector on engagements.funcion instead of the admin-only activity_required flag,
+-- and the EngagementForm Switch that used to edit that flag independently is now
+-- read-only, derived from funcion (activity_required = (funcion = 1) on every
+-- create/update going forward).
+--
+-- Risk without this backfill (plan_v2.md, Regression Risk #1, Open Question #1):
+-- the existing enforce_activity_default trigger (cero_02:1313) still reads the
+-- STORED activity_required column. A pre-existing funcion=1 (cliente) engagement
+-- whose stored activity_required is false — the exact mismatch this bug reports —
+-- would keep having ADM force-assigned by the trigger on any future save, silently
+-- overwriting the user's practice-scoped activity pick, until someone happens to
+-- re-edit that engagement in EngagementForm (which would then persist the correct
+-- derived value). This one-statement backfill corrects the column for every
+-- already-affected row up front instead of relying on that side effect.
+--
+-- Scope: only touches funcion IS NOT NULL rows — funcion IS NULL (legacy, unset)
+-- engagements are intentionally left as-is; they fail closed in the front-end fix
+-- (empty activity selector, no auto-ADM) rather than assuming either value here.
+--
+-- Per repo convention this migration is authored here but run/tested in
+-- ../EMS_Dev_Supabase/, not in this repo (aurora-engage-pro is linked to Lovable).
+
+UPDATE public.engagements SET activity_required = (funcion = 1) WHERE funcion IS NOT NULL;

@@ -33,7 +33,8 @@ export interface TimeEntry {
 
 // BUG 0828-186: tipo movido a useLoggableEngagements.ts (compartido con useApprovedEngagements
 // y useManualEntryEngagements); se reexporta con este nombre porque varios módulos ya importan
-// `ApprovedEngagement` desde este archivo.
+// `ApprovedEngagement` desde este archivo. Incluye `funcion` (0827-184, ver ese campo en
+// LoggableEngagement) para que TimesheetGrid/TimeSheet.tsx sigan funcionando tras el merge.
 export type ApprovedEngagement = LoggableEngagement;
 
 export interface ActivityCode {
@@ -41,6 +42,7 @@ export interface ActivityCode {
   activity_code: string;
   description: string;
   is_active: boolean;
+  is_system: boolean;
   service?: { code: number } | null;
 }
 

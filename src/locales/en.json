@@ -1135,6 +1135,7 @@
     "searchEngagement": "Search engagement...",
     "noMatchingEngagements": "No matching engagements.",
     "selectActivity": "Select activity",
+    "admActivityPlaceholder": "ADM - Administrative",
     "weekDays": {
       "mon": "Mon",
       "tue": "Tue",

@@ -21,6 +21,7 @@ import { useSubmitTimesheet, useUnsubmitTimesheet, useCopyPreviousWeek, useCopyT
 import { isTimesheetError } from "@/lib/timesheetErrors";
 import { useStaffAssignmentSegments } from "@/hooks/scheduler/useStaffAssignmentSegments";
 import { countUnauthorizedEntries } from "@/lib/timesheetAssignmentAdvisory";
+import { filterActivitiesForEngagement } from "@/lib/activityFilters";
 import {
   AlertDialog,
   AlertDialogContent,
@@ -239,11 +240,15 @@ const TimeSheet = () => {
 
   const hasWeekHolidays = holidayMap.size > 0;
 
-  // Compute activityNotRequiredIds from engagement data
+  // Compute activityNotRequiredIds from engagement data.
+  // Anchored on funcion (0827-184): funcion 0/2/3 (administrativa/capacitación/calidad)
+  // always auto-assigns ADM, regardless of the stored activity_required flag.
+  // funcion === null (legacy, unset) is intentionally EXCLUDED here — it must fail-closed
+  // (empty selector, no auto-ADM), not be treated as an administrative engagement.
   const activityNotRequiredIds = useMemo(() => {
     const ids = new Set<string>();
     engagements.forEach(e => {
-      if (!e.activity_required) ids.add(e.engagement_id);
+      if (e.funcion != null && e.funcion !== 1) ids.add(e.engagement_id);
     });
     return ids;
   }, [engagements]);
@@ -450,10 +455,20 @@ const TimeSheet = () => {
     if (engagementActivityPairs.length === 0) return;
 
     // BUG 0227-67: Block submit if any activity-required engagement has empty/invalid activity
+    // 0827-184: anchored on funcion, not the stored activity_required flag (same rule as
+    // activityNotRequiredIds/handleEngagementChange) — funcion == null fails closed like
+    // funcion === 1 (activity required), it must not be treated as ADM-exempt.
+    // 0827-184 review#15: validate against the canonical filter (no currentActivityId) instead
+    // of only rejecting empty/ADM — a stale activity from another practica (or left over from a
+    // funcion that changed to null) is non-empty and non-ADM, so it slipped through this guard
+    // while still displayed/editable in the grid.
     const invalidActivityRow = entries.some(entry => {
       const eng = engagements.find(e => e.engagement_id === entry.engagement_id);
-      const isActRequired = eng?.activity_required ?? true;
-      return isActRequired && (!entry.activity_id || entry.activity_id === adminActivityId);
+      const isActRequired = eng?.funcion == null || eng.funcion === 1;
+      if (!isActRequired) return false;
+      if (!entry.activity_id) return true;
+      const validActivities = filterActivitiesForEngagement(activities, eng?.funcion, eng?.practica);
+      return !validActivities.some(a => a.activity_id === entry.activity_id);
     });
     if (invalidActivityRow) {
       toast.error(t("timesheet.invalidActivityRow"));
