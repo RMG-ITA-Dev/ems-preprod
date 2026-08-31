@@ -120,6 +120,12 @@ run supabase/migrations/20260825120000_0825-183_worksheet_activity_practice_scop
 # asignación. Ejercitado por rls-0828-186-loggable-engagements-rpc.sql.
 run supabase/migrations/20260831013000_0828-186_list_loggable_engagements_rpc.sql
 
+# 0828-186 (review Iteración 4): RPC list_own_timer_engagement_labels() -- respaldo de
+# Tracker History (useTimerEntries) cuando el embed normal `engagement:engagements(...)` cae
+# a null por RLS de asignación, incluyendo encargos que dejaron de ser cargables después de
+# registrada la hora. Ejercitado por rls-0828-186-own-timer-engagement-labels.sql.
+run supabase/migrations/20260831020000_0828-186_list_own_timer_engagement_labels_rpc.sql
+
 # society/practicas(code=1): staff.society_id/practica_id y categories.practica_id son NOT NULL
 # reales; varias suites (rpc-engagement-team-candidates.sql explícitamente lo exige con su
 # propio guard) asumen que el catálogo mínimo de práctica/sociedad ya existe, como pasaría en
@@ -158,5 +164,6 @@ assert_suite supabase/tests/schema-convergence-assertions.sql 'SCHEMA CONVERGENC
 assert_suite supabase/tests/trigger-engagement-creator-team.sql 'TRIGGER ENGAGEMENT CREATOR TEAM: ALL CHECKS PASSED'
 assert_suite supabase/tests/trigger-engagement-profile-scope.sql 'PROFILE SCOPE: ALL CHECKS PASSED'
 assert_suite supabase/tests/rls-0828-186-loggable-engagements-rpc.sql 'LOGGABLE ENGAGEMENTS RPC: ALL CHECKS PASSED'
+assert_suite supabase/tests/rls-0828-186-own-timer-engagement-labels.sql 'OWN TIMER ENGAGEMENT LABELS RPC: ALL CHECKS PASSED'
 
-echo "OK: set consolidado (cero_01..cero_06) + migraciones 0825-183, 0817-180 y 0828-186 aplicadas sobre base scratch; las 11 suites de RLS/RPC/schema-convergence/trigger pasaron"
+echo "OK: set consolidado (cero_01..cero_06) + migraciones 0825-183, 0817-180 y 0828-186 aplicadas sobre base scratch; las 12 suites de RLS/RPC/schema-convergence/trigger pasaron"

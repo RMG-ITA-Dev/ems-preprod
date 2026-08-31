@@ -26,17 +26,23 @@ export interface TimerEntry {
   };
 }
 
-// BUG 0828-186 follow-up (review iter. 3): el embed `engagement:engagements(...)` sigue sujeto
-// a la RLS normal por asignación, pero desde este bug el Tracker permite cargar horas en
-// encargos no asignados (vía list_loggable_engagements). Para esas filas el embed llega null;
-// se completa nombre/código con el mismo RPC ya usado para el selector, sin abrir la RLS general.
+// BUG 0828-186 follow-up (review iter. 3/4): el embed `engagement:engagements(...)` sigue
+// sujeto a la RLS normal por asignación, pero desde este bug el Tracker permite cargar horas
+// en encargos no asignados (vía list_loggable_engagements). Para esas filas el embed llega
+// null. Iteración 3 lo resolvía reutilizando list_loggable_engagements(), pero esa función
+// filtra por elegibilidad ACTUAL -- si el encargo deja de ser cargable después de haberse
+// registrado la hora, el nombre volvía a quedar en blanco (review iter. 4). Se usa en su lugar
+// list_own_timer_engagement_labels(), que resuelve por PERTENENCIA del registro (ya existe un
+// timer_entries propio con ese engagement_id), sin filtro de elegibilidad.
 async function backfillMissingEngagementNames<
   T extends { engagement_id: string; engagement?: { engagement_name: string; engagement_code: string | null } | null }
 >(rows: T[]): Promise<T[]> {
-  const hasMissing = rows.some((r) => !r.engagement);
-  if (!hasMissing) return rows;
+  const missingIds = Array.from(new Set(rows.filter((r) => !r.engagement).map((r) => r.engagement_id)));
+  if (missingIds.length === 0) return rows;
 
-  const { data, error } = await supabase.rpc('list_loggable_engagements' as never);
+  const { data, error } = await supabase.rpc('list_own_timer_engagement_labels' as never, {
+    p_engagement_ids: missingIds,
+  } as never);
   if (error || !data) return rows;
 
   const byId = new Map<string, { engagement_name: string; engagement_code: string | null }>();
