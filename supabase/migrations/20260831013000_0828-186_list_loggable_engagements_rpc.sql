@@ -44,8 +44,10 @@ CREATE FUNCTION public.list_loggable_engagements()
     LEFT JOIN public.clients c ON c.client_id = e.client_id
    WHERE public.has_permission('time_entry.create')
      AND e.status = 'active'
-     -- Overrides 6 Cancelado, 7 Finalizado, 8 Rechazado, 9 Congelado: nunca cargables.
-     AND (e.engagement_state_override IS NULL OR e.engagement_state_override NOT IN (6, 7, 8, 9))
+     -- Regla de check_wo_approved()/engagement_allows_hours_or_requests(): con override manual
+     -- presente, SOLO 4 (Aprobado) y 5 (Aprobado Emergencia) permiten cargar horas -- el resto
+     -- (1 Pendiente, 2 AprobadoSocio, 3 AprobadoRiesgos, 6/7/8/9) bloquea, sin importar OT.
+     AND (e.engagement_state_override IS NULL OR e.engagement_state_override IN (4, 5))
      AND (
        -- Group A: encargo con Orden de Trabajo Aprobada (y Riesgos no Rechazado).
        EXISTS (

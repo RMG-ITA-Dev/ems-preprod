@@ -3,7 +3,7 @@
 --
 -- Cubre el núcleo del fix: el RPC de selectores de carga de horas (Hoja de Tiempo, Tracker,
 -- Carga Manual) debe listar los encargos elegibles SIN filtrar por asignación -- decisión
--- del operador (2026-08-30). El caller de todos los checks (a)-(d) NO es partner/manager/
+-- del operador (2026-08-30). El caller de todos los checks (a)-(d), (f) NO es partner/manager/
 -- sqr/encargado de ningún encargo del fixture, ni tiene fila en engagement_assignments: si
 -- apareciera algún encargo, es porque el RPC no filtra por asignación (correcto). El check
 -- (e) prueba el gate por permiso: sin time_entry.create, la lista es vacía aunque existan
@@ -102,7 +102,14 @@ INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engag
   ('70828186-0000-4000-8000-000000000007', '60828186-0000-4000-8000-000000000001',
    'Override Rechazado 0828186', 'LE-07', 'active', false, 8, '2026-12-31'),
   ('70828186-0000-4000-8000-000000000008', '60828186-0000-4000-8000-000000000001',
-   'Override Congelado 0828186', 'LE-08', 'active', false, 9, '2026-12-31')
+   'Override Congelado 0828186', 'LE-08', 'active', false, 9, '2026-12-31'),
+  -- (f) Overrides 1/2/3 sobre encargos que de otro modo calificarían por Group A/B -- el
+  -- override manual (no solo 4/5 positivo) también debe bloquear, igual que check_wo_approved()
+  -- y engagement_allows_hours_or_requests() (review Iteración 2, 0828-186).
+  ('70828186-0000-4000-8000-000000000009', '60828186-0000-4000-8000-000000000001',
+   'Override Pendiente sobre OT Aprobada 0828186', 'LE-09', 'active', true, 1, '2026-12-31'),
+  ('70828186-0000-4000-8000-000000000010', '60828186-0000-4000-8000-000000000001',
+   'Override AprobadoRiesgos sobre Administrativo 0828186', 'LE-10', 'active', false, 3, '2026-12-31')
 ON CONFLICT (engagement_id) DO NOTHING;
 
 INSERT INTO public.work_orders (wo_id, engagement_id, currency, season_mode,
@@ -110,7 +117,9 @@ INSERT INTO public.work_orders (wo_id, engagement_id, currency, season_mode,
   ('80828186-0000-4000-8000-000000000001', '70828186-0000-4000-8000-000000000001',
    'BOB', 'High', 'Approved', 'Approved'),
   ('80828186-0000-4000-8000-000000000002', '70828186-0000-4000-8000-000000000004',
-   'BOB', 'High', 'Pending_Approval', 'Pending')
+   'BOB', 'High', 'Pending_Approval', 'Pending'),
+  ('80828186-0000-4000-8000-000000000003', '70828186-0000-4000-8000-000000000009',
+   'BOB', 'High', 'Approved', 'Approved')
 ON CONFLICT (wo_id) DO NOTHING;
 
 CREATE FUNCTION pg_temp.impersonate(p_sub text) RETURNS void
@@ -168,6 +177,19 @@ BEGIN
     END IF;
   END LOOP;
   RAISE NOTICE 'OK (d): overrides 6/7/8/9 quedan excluidos';
+
+  -- ── (f) Overrides 1/2/3 -- excluidos aunque califiquen por Group A/B ─────────────────────
+  PERFORM 1 FROM public.list_loggable_engagements() e
+   WHERE e.engagement_id = '70828186-0000-4000-8000-000000000009';
+  IF FOUND THEN
+    RAISE EXCEPTION 'FAIL (f): encargo con override 1 (Pendiente) apareció pese a tener OT Aprobada';
+  END IF;
+  PERFORM 1 FROM public.list_loggable_engagements() e
+   WHERE e.engagement_id = '70828186-0000-4000-8000-000000000010';
+  IF FOUND THEN
+    RAISE EXCEPTION 'FAIL (f): encargo con override 3 (AprobadoRiesgos) apareció pese a ser administrativo';
+  END IF;
+  RAISE NOTICE 'OK (f): overrides 1/2/3 quedan excluidos aunque OT esté aprobada o el encargo sea administrativo';
 
   -- ── (e) Sin time_entry.create -- lista vacía aunque existan encargos elegibles ───────────
   PERFORM pg_temp.impersonate('a0828186-0000-4000-8000-000000000002');  -- hr_analyst, SIN time_entry.create
