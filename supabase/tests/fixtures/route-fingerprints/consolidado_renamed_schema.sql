@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict zfMehopdsbTpEdJlkOhg0pXgcaJWEMXmiAvdcrcUwrd8P9uDbmXmGBE9ed8kX3C
+\restrict 2b0hnJdbZC7hGeXzyLTSg2QeHB3tZaL5phsroP1ncrHSj1jf7L26BYNfY1798Nn
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.11 (Ubuntu 17.11-1.pgdg24.04+2)
@@ -4497,6 +4497,32 @@ $$;
 --
 
 COMMENT ON FUNCTION public.list_loggable_engagements() IS 'BUG 0828-186: encargos elegibles para cargar horas (Hoja de Tiempo/Tracker/Carga Manual), sin filtrar por asignación -- alcance decidido por el operador. Gateado por time_entry.create. No sustituye is_assigned_to_engagement/is_assigned_to_client (fuera de alcance de este issue).';
+
+
+--
+-- Name: list_own_timer_engagement_labels(uuid[]); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.list_own_timer_engagement_labels(p_engagement_ids uuid[]) RETURNS TABLE(engagement_id uuid, engagement_code character varying, engagement_name character varying)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT e.engagement_id, e.engagement_code, e.engagement_name
+    FROM public.engagements e
+   WHERE e.engagement_id = ANY(p_engagement_ids)
+     AND EXISTS (
+       SELECT 1 FROM public.timer_entries te
+        WHERE te.engagement_id = e.engagement_id
+          AND te.staff_id = public.get_my_staff_id()
+     )
+$$;
+
+
+--
+-- Name: FUNCTION list_own_timer_engagement_labels(p_engagement_ids uuid[]); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.list_own_timer_engagement_labels(p_engagement_ids uuid[]) IS 'BUG 0828-186 (Iteración 4): resuelve engagement_name/engagement_code por pertenencia (el caller ya tiene un timer_entries propio con ese engagement_id), sin filtrar por elegibilidad actual -- a diferencia de list_loggable_engagements(). Respaldo para Tracker History cuando el embed normal cae a null por RLS de asignación.';
 
 
 --
@@ -15510,5 +15536,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict zfMehopdsbTpEdJlkOhg0pXgcaJWEMXmiAvdcrcUwrd8P9uDbmXmGBE9ed8kX3C
+\unrestrict 2b0hnJdbZC7hGeXzyLTSg2QeHB3tZaL5phsroP1ncrHSj1jf7L26BYNfY1798Nn
 

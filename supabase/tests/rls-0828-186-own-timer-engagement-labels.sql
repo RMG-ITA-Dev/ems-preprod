@@ -87,10 +87,11 @@ INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engag
   -- no cubre porque lo excluye del WHERE. El caller A ya tiene un timer_entries acá.
   ('70828186-0000-4000-8000-000000000012', '60828186-0000-4000-8000-000000000011',
    'Finalizado Post-Registro 0828186', 'LE-12', 'active', false, 7, '2026-12-31'),
-  -- (c) status inactivo -- también fuera de list_loggable_engagements(). Caller A también
+  -- (c) status distinto de 'active' (engagements_status_check solo admite active/pending/
+  -- completed/cancelled) -- también fuera de list_loggable_engagements(). Caller A también
   -- tiene timer_entries acá.
   ('70828186-0000-4000-8000-000000000013', '60828186-0000-4000-8000-000000000011',
-   'Inactivo Post-Registro 0828186', 'LE-13', 'inactive', false, NULL, '2026-12-31'),
+   'Cancelado Post-Registro 0828186', 'LE-13', 'cancelled', false, NULL, '2026-12-31'),
   -- (d) Encargo que el caller A NUNCA registró -- no debe aparecer aunque exista y sea
   -- cargable (la función no es un sustituto del selector, solo resuelve pertenencia).
   ('70828186-0000-4000-8000-000000000014', '60828186-0000-4000-8000-000000000011',
@@ -169,13 +170,13 @@ BEGIN
   END IF;
   RAISE NOTICE 'OK (b): encargo que dejó de ser cargable (override 7) sigue resolviendo nombre por pertenencia';
 
-  -- ── (c) Encargo con status inactivo DESPUÉS del registro -- debe aparecer igual ─────────
+  -- ── (c) Encargo con status cancelled DESPUÉS del registro -- debe aparecer igual ─────────
   PERFORM 1 FROM public.list_own_timer_engagement_labels(v_ids) l
    WHERE l.engagement_id = '70828186-0000-4000-8000-000000000013';
   IF NOT FOUND THEN
-    RAISE EXCEPTION 'FAIL (c): encargo inactivo post-registro no resolvió nombre';
+    RAISE EXCEPTION 'FAIL (c): encargo cancelado post-registro no resolvió nombre';
   END IF;
-  RAISE NOTICE 'OK (c): encargo inactivo post-registro sigue resolviendo nombre por pertenencia';
+  RAISE NOTICE 'OK (c): encargo cancelado post-registro sigue resolviendo nombre por pertenencia';
 
   -- ── (d) Encargo que el caller A nunca registró -- NO debe aparecer aunque exista y sea
   -- cargable (no es un sustituto del selector) ─────────────────────────────────────────────
