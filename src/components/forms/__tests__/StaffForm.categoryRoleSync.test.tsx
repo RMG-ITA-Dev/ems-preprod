@@ -374,9 +374,11 @@ describe("StaffForm — sync categoría→rol (0820-182)", () => {
     await user.click(await screen.findByText("staff.syncRoleConfirm"));
 
     await waitFor(() => expect(updateRoleKeyMutateAsync).toHaveBeenCalled());
+    // Se manda el STAFF, no el usuario ni el rol ya resueltos: la RPC deriva la cuenta y
+    // revalida la sugerencia de la categoría vigente con las filas bloqueadas.
     expect(updateRoleKeyMutateAsync).toHaveBeenCalledWith({
-      userId: "auth-user-123",
-      newRoleKey: "ita_manager",
+      staffId: "staff-abc",
+      expectedRoleKey: "ita_manager",
       // El RPC lo deja en user_lifecycle_audit_log.reason.
       reason: "Category change sync",
     });

@@ -153,17 +153,22 @@ export function useSyncUserRoleFromCategory() {
 
   return useMutation({
     mutationFn: async ({
-      userId,
-      newRoleKey,
+      staffId,
+      expectedRoleKey,
       reason,
-    }: { userId: string; newRoleKey: string; reason?: string }) => {
+    }: { staffId: string; expectedRoleKey: string; reason?: string }) => {
+      // Se manda el STAFF, no el usuario: la RPC deriva la cuenta vinculada y verifica que
+      // la categoría vigente siga sugiriendo `expectedRoleKey`, todo con las filas
+      // bloqueadas. Mandar el usuario y el rol ya resueltos dejaba pasar cambios de otro
+      // admin hechos mientras el diálogo estaba abierto.
+      //
       // NOTA: sync_user_role_from_category aún no está en types.ts (se regenera vía
       // Lovable tras aplicar la migración). Hasta entonces casteamos el nombre.
       const { data, error } = await supabase.rpc(
         "sync_user_role_from_category" as never,
         {
-          p_target_user_id: userId,
-          p_new_role_key: newRoleKey,
+          p_staff_id: staffId,
+          p_expected_role_key: expectedRoleKey,
           p_reason: reason || null,
         } as never
       );
@@ -188,6 +193,14 @@ export function useSyncUserRoleFromCategory() {
       if (code === "ADMIN_PROTECTED") {
         // El destino se volvió admin entre que se abrió el diálogo y se confirmó.
         toast.info(t("staff.adminRoleProtected"));
+      } else if (
+        code === "CATEGORY_SUGGESTION_CHANGED" ||
+        code === "STAFF_NOT_LINKED" ||
+        code === "STAFF_NOT_FOUND"
+      ) {
+        // Otro admin cambió la categoría, su sugerencia o el vínculo de cuenta mientras el
+        // diálogo estaba abierto: no se aplica nada y se explica por qué.
+        toast.info(t("staff.syncRoleStale"));
       } else if (code === "LAST_ADMIN") {
         toast.error(t("userRoles.lastAdminBlocked"));
       } else if (code === "SELF_CHANGE") {

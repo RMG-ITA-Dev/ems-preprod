@@ -240,7 +240,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
   // (categories.default_role_key); nunca lo aplica sola. Se restaura el flujo que FASE 3c
   // eliminó, pero sobre role_key (catálogo authorization_roles) en vez del enum legacy.
   const [showSyncDialog, setShowSyncDialog] = useState(false);
-  const [syncData, setSyncData] = useState<{ userId: string; newRoleKey: string } | null>(null);
+  const [syncData, setSyncData] = useState<{ staffId: string; newRoleKey: string } | null>(null);
 
   // Pending hours dialog state
   const [pendingWeeks, setPendingWeeks] = useState<PendingWeek[]>([]);
@@ -403,8 +403,8 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
       // pasa, la RPC responde ADMIN_PROTECTED y el hook muestra el aviso.
       try {
         await syncRoleMutation.mutateAsync({
-          userId: syncData.userId,
-          newRoleKey: syncData.newRoleKey,
+          staffId: syncData.staffId,
+          expectedRoleKey: syncData.newRoleKey,
           // El RPC deja este texto en user_lifecycle_audit_log.reason, así que el cambio
           // queda trazado como venido de un cambio de categoría y no de Roles de Usuario.
           reason: "Category change sync",
@@ -625,7 +625,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
             // Nunca se degrada un admin de forma automática: se avisa y se sigue.
             toast.info(t("staff.adminRoleProtected"));
           } else if (current.roleKey !== targetRoleKey) {
-            setSyncData({ userId: staff.auth_user_id, newRoleKey: targetRoleKey });
+            setSyncData({ staffId: staff.staff_id, newRoleKey: targetRoleKey });
             setShowSyncDialog(true);
             return; // Detiene la navegación hasta que el usuario resuelva el diálogo.
           }

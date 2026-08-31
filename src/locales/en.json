@@ -642,6 +642,7 @@
     "syncRoleConfirm": "Sync Role",
     "syncRoleSkip": "Skip",
     "roleSynced": "User role synchronized successfully",
+    "syncRoleStale": "The category or its suggested role changed meanwhile - the role was left unchanged",
     "roleSyncError": "Failed to sync user role",
     "adminRoleProtected": "User is an Admin. Role was not demoted automatically.",
     "accountSecurity": "Account Security",

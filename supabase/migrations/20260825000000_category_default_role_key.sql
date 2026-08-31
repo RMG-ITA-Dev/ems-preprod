@@ -389,39 +389,84 @@ $$;
 --   · el FOR UPDATE sobre la fila — cubre además el UPDATE DIRECTO a user_roles que la
 --     policy "Admins can manage all roles" permite, y que no pasa por ningún RPC.
 CREATE OR REPLACE FUNCTION public.sync_user_role_from_category(
-  p_target_user_id uuid,
-  p_new_role_key text,
+  p_staff_id uuid,
+  p_expected_role_key text,
   p_reason text DEFAULT NULL::text
 ) RETURNS jsonb
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
 declare
+  v_auth_user_id     uuid;
+  v_category_id      uuid;
+  v_suggested        text;
   v_current_role_key text;
-  v_found            boolean;
 begin
+  -- Recibe el STAFF, no el usuario ni el rol ya resueltos. Esa es la diferencia: el rol a
+  -- aplicar tiene que ser el que la categoría VIGENTE de ese staff sugiere, verificado con
+  -- las filas bloqueadas. Con la firma anterior —(user_id, role_key)— la función no miraba
+  -- ninguna categoría, así que si otro admin cambiaba la categoría del staff, rompía el
+  -- vínculo de cuenta o editaba la sugerencia de la categoría destino mientras el diálogo
+  -- estaba abierto, se aplicaba igual un rol que ya no correspondía a nada.
+  --
+  -- `p_expected_role_key` es lo que el admin CONFIRMÓ en el diálogo. Si la sugerencia
+  -- cambió en el medio, se rechaza en vez de aplicar la nueva: nadie debe terminar con un
+  -- rol que no vio.
+
   -- `admin` no es un rol sugerible por categoría (ver categories_default_role_key_not_admin).
   -- El CHECK ya impide guardarlo, pero esta función es una entrada pública: se rechaza acá
   -- también, para que no exista ningún camino de escalada vía sincronización.
-  if p_new_role_key = 'admin' then
+  if p_expected_role_key is null or p_expected_role_key = 'admin' then
     return jsonb_build_object('success', false, 'code', 'ADMIN_TARGET_FORBIDDEN',
       'message', 'A category may not suggest the admin role');
   end if;
 
   perform pg_advisory_xact_lock(67890);
 
-  select role_key, true into v_current_role_key, v_found
-    from user_roles
-   where user_id = p_target_user_id
+  -- Se bloquea el staff: de acá en adelante nadie le cambia la categoría ni el vínculo de
+  -- cuenta hasta que esta transacción termine.
+  select auth_user_id, category_id
+    into v_auth_user_id, v_category_id
+    from staff
+   where staff_id = p_staff_id
    for update;
 
-  if not v_found then
+  if not found then
+    return jsonb_build_object('success', false, 'code', 'STAFF_NOT_FOUND',
+      'message', 'Staff not found');
+  end if;
+
+  if v_auth_user_id is null then
+    return jsonb_build_object('success', false, 'code', 'STAFF_NOT_LINKED',
+      'message', 'Staff has no linked account');
+  end if;
+
+  -- Y se bloquea la categoría, porque su sugerencia es parte de la precondición.
+  select default_role_key into v_suggested
+    from categories
+   where category_id = v_category_id
+   for update;
+
+  -- `is distinct from` cubre los tres casos de una vez: la categoría cambió, la sugerencia
+  -- se editó, o la categoría dejó de sugerir algo (NULL).
+  if v_suggested is distinct from p_expected_role_key then
+    return jsonb_build_object('success', false, 'code', 'CATEGORY_SUGGESTION_CHANGED',
+      'message', 'The category no longer suggests the confirmed role',
+      'expected_role_key', p_expected_role_key, 'current_role_key', v_suggested);
+  end if;
+
+  select role_key into v_current_role_key
+    from user_roles
+   where user_id = v_auth_user_id
+   for update;
+
+  if not found then
     return jsonb_build_object('success', false, 'code', 'USER_NOT_FOUND',
       'message', 'User role not found');
   end if;
 
-  -- El invariante, evaluado con la fila bloqueada: de acá al UPDATE nadie puede promover
-  -- a esta persona a admin sin esperar a que esta transacción termine.
+  -- El invariante, evaluado con las filas bloqueadas: de acá al UPDATE nadie puede
+  -- promover a esta persona a admin sin esperar a que esta transacción termine.
   if v_current_role_key = 'admin' then
     return jsonb_build_object('success', false, 'code', 'ADMIN_PROTECTED',
       'message', 'Category sync never demotes an admin');
@@ -429,12 +474,12 @@ begin
 
   -- Delegación: los candados siguen tomados por esta transacción, así que la relectura de
   -- admin_set_user_role_key ve exactamente lo que se validó arriba.
-  return public.admin_set_user_role_key(p_target_user_id, p_new_role_key, p_reason);
+  return public.admin_set_user_role_key(v_auth_user_id, p_expected_role_key, p_reason);
 end;
 $$;
 
 COMMENT ON FUNCTION public.sync_user_role_from_category(uuid, text, text) IS
-  'Aplica el rol sugerido por una categoría (BUG 0820-182). Delega en admin_set_user_role_key, agregando dos precondiciones que esa función no tiene y que este flujo sí promete: nunca degradar a un admin, y nunca asignar admin. Se evalúan con la fila de user_roles bloqueada, de modo que la garantía es atómica y no una carrera del cliente.';
+  'Aplica a un staff el rol que su categoría VIGENTE sugiere (BUG 0820-182). Recibe el staff, no el usuario ni el rol ya resueltos, y verifica con las filas bloqueadas que el vínculo de cuenta y la sugerencia de la categoría sigan siendo los que el admin confirmó. Delega en admin_set_user_role_key agregando dos precondiciones que esa función no tiene y que este flujo sí promete: nunca degradar a un admin, y nunca asignar admin. Todo con candados, de modo que las garantías son atómicas y no carreras del cliente.';
 
 REVOKE ALL ON FUNCTION public.sync_user_role_from_category(uuid, text, text) FROM PUBLIC;
 GRANT ALL ON FUNCTION public.sync_user_role_from_category(uuid, text, text) TO anon;

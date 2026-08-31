@@ -293,13 +293,56 @@ describe("sync_user_role_from_category (0820-182)", () => {
     return defaultRoleKeySql.slice(start, defaultRoleKeySql.indexOf("\n$$;", start));
   };
 
+  it("recibe el STAFF, no el usuario ni el rol ya resueltos", () => {
+    // Con la firma anterior —(user_id, role_key)— la función no miraba ninguna categoría,
+    // pese a su nombre: si otro admin cambiaba la categoría del staff, rompía el vínculo de
+    // cuenta o editaba la sugerencia mientras el diálogo estaba abierto, se aplicaba igual
+    // un rol que ya no correspondía a nada.
+    const signature = defaultRoleKeySql.slice(
+      defaultRoleKeySql.indexOf("CREATE OR REPLACE FUNCTION public.sync_user_role_from_category("),
+      defaultRoleKeySql.indexOf(") RETURNS jsonb"),
+    );
+    expect(signature).toContain("p_staff_id uuid");
+    expect(signature).toContain("p_expected_role_key text");
+    expect(signature).not.toContain("p_target_user_id");
+  });
+
+  it("deriva la cuenta vinculada del staff bloqueado", () => {
+    const fn = body();
+    expect(fn).toMatch(/select auth_user_id, category_id[\s\S]*?from staff[\s\S]*?for update/);
+    expect(fn).toContain("STAFF_NOT_LINKED");
+    expect(fn).toContain("STAFF_NOT_FOUND");
+    // El rol se aplica al usuario DERIVADO, no a uno recibido por parámetro.
+    expect(fn).toContain("admin_set_user_role_key(v_auth_user_id, p_expected_role_key, p_reason)");
+  });
+
+  it("rechaza si la categoría ya no sugiere el rol confirmado", () => {
+    const fn = body();
+    // `is distinct from` cubre los tres casos: la categoría cambió, la sugerencia se editó,
+    // o dejó de sugerir algo (NULL).
+    expect(fn).toMatch(/select default_role_key[\s\S]*?from categories[\s\S]*?for update/);
+    expect(fn).toContain("v_suggested is distinct from p_expected_role_key");
+    expect(fn).toContain("CATEGORY_SUGGESTION_CHANGED");
+    // Rechazar, no aplicar la sugerencia nueva: nadie debe terminar con un rol que no vio.
+    expect(fn).not.toContain("admin_set_user_role_key(v_auth_user_id, v_suggested");
+  });
+
+  it("bloquea staff y categoría antes de validar", () => {
+    const fn = body();
+    const lock = fn.indexOf("pg_advisory_xact_lock(67890)");
+    const staffLock = fn.indexOf("from staff");
+    const check = fn.indexOf("v_suggested is distinct from");
+    expect(lock).toBeLessThan(staffLock);
+    expect(staffLock).toBeLessThan(check);
+  });
+
   it("toma los candados ANTES de leer el rol", () => {
     const fn = body();
     // 67890 es el mismo advisory lock que toman admin_set_user_role y
     // admin_set_user_role_key como primera instrucción: sin él, un cambio de rol por RPC
     // podría colarse entre la validación y la escritura.
     const lock = fn.indexOf("pg_advisory_xact_lock(67890)");
-    const read = fn.indexOf("select role_key");
+    const read = fn.indexOf("select role_key into v_current_role_key");
     expect(lock).toBeGreaterThan(-1);
     expect(read).toBeGreaterThan(lock);
     // FOR UPDATE sobre la fila: cubre el UPDATE DIRECTO a user_roles que permite la policy
@@ -309,7 +352,7 @@ describe("sync_user_role_from_category (0820-182)", () => {
 
   it("rechaza degradar a un admin, con la fila ya bloqueada", () => {
     const fn = body();
-    const read = fn.indexOf("select role_key");
+    const read = fn.indexOf("select role_key into v_current_role_key");
     const guard = fn.indexOf("v_current_role_key = 'admin'");
     expect(guard).toBeGreaterThan(read);
     expect(fn).toContain("ADMIN_PROTECTED");
