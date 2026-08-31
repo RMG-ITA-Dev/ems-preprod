@@ -103,3 +103,46 @@ describe("authorization_roles.legacy_app_role — mapeo restaurado", () => {
     expect(restoreSql).toContain("where ar.role_key = m.role_key;");
   });
 });
+
+/**
+ * El backfill de `categories.default_role_key` vive en ESTA migración, no en la que crea
+ * la columna (20260825000000), porque depende del mapeo restaurado arriba. Puesto allá
+ * corría antes de que `legacy_app_role` existiera, así que en una base replayada desde las
+ * consolidadas era un no-op permanente: las categorías sembradas se quedaban sin las
+ * sugerencias inequívocas que sí obtenía una base actualizada. Es decir, el mismo set de
+ * migraciones dejaba datos distintos según el historial de la base.
+ */
+describe("backfill de categories.default_role_key (0820-182)", () => {
+  const backfill = (): string => {
+    const start = restoreSql.indexOf("UPDATE public.categories c");
+    expect(start).toBeGreaterThan(-1);
+    return restoreSql.slice(start, restoreSql.indexOf(";", start));
+  };
+
+  it("corre DESPUÉS del UPDATE que puebla legacy_app_role", () => {
+    // Es la razón de ser de su ubicación: al revés no encontraría nada.
+    const mapping = restoreSql.indexOf("set legacy_app_role = m.legacy::app_role");
+    const categories = restoreSql.indexOf("UPDATE public.categories c");
+    expect(mapping).toBeGreaterThan(-1);
+    expect(categories).toBeGreaterThan(mapping);
+  });
+
+  it("no pisa una sugerencia ya elegida a mano", () => {
+    expect(backfill()).toContain("c.default_role_key IS NULL");
+  });
+
+  it("excluye `admin`, que reintroduciría la escalada por categoría", () => {
+    // El formulario anterior a FASE 3c permitía elegirlo, así que una base actualizada
+    // puede tener default_app_role = 'admin' — y ningún otro role_key mapea a ese enum,
+    // de modo que el guard de unicidad lo daría por inequívoco.
+    expect(backfill()).toContain("ar.role_key <> 'admin'");
+  });
+
+  it("no inventa un rol donde varios role_key comparten el espejo legacy", () => {
+    // `manager` lo comparten 7 role_key, `senior` 6, `partner` 3 y `staff` 3: para esas
+    // categorías la intención no se puede deducir y quedan en NULL a propósito.
+    expect(backfill()).toMatch(
+      /count\(\*\) FROM public\.authorization_roles a2[\s\S]*?\) = 1/,
+    );
+  });
+});

@@ -79,3 +79,36 @@ BEGIN
     RAISE EXCEPTION 'authorization_roles activos sin legacy_app_role: %', v_missing;
   END IF;
 END $$;
+
+-- ---------------------------------------------------------------------
+-- Backfill de categories.default_role_key (BUG 0820-182)
+-- ---------------------------------------------------------------------
+-- Vive ACÁ y no en 20260825000000 —donde nace la columna— porque DEPENDE del mapeo de
+-- arriba. Puesto allá corría antes de que legacy_app_role existiera, así que en una base
+-- replayada desde las consolidadas era un no-op permanente: las categorías sembradas se
+-- quedaban sin las sugerencias inequívocas que sí obtenía una base actualizada. El mismo
+-- set de migraciones producía datos distintos según el historial de la base.
+--
+-- Tres salvaguardas, cada una tapa algo distinto:
+--   · `IS NULL`      — no pisa una sugerencia ya elegida a mano.
+--   · `<> 'admin'`   — el formulario ANTERIOR a FASE 3c permitía elegir `admin`, así que
+--                      una base actualizada puede tener categorías con
+--                      default_app_role = 'admin'; y como ningún otro role_key mapea a
+--                      ese enum, el guard de unicidad lo daría por inequívoco. Copiarlo
+--                      reintroduciría por datos lo que la UI prohíbe. (Sin este filtro el
+--                      CHECK categories_default_role_key_not_admin haría fallar la
+--                      migración — que es exactamente lo que debe pasar.)
+--   · `count(*) = 1` — no inventa un rol donde varios role_key comparten el mismo espejo
+--                      legacy: `manager` lo comparten 7, `senior` 6, `partner` 3 y
+--                      `staff` 3. Solo director/sqr/semisenior quedan como 1:1 una vez
+--                      excluido admin, así que se espera que toque POCAS filas. Es el
+--                      resultado correcto para un campo de sugerencia opcional, no un
+--                      backfill incompleto.
+UPDATE public.categories c
+   SET default_role_key = ar.role_key
+  FROM public.authorization_roles ar
+ WHERE ar.legacy_app_role = c.default_app_role
+   AND c.default_role_key IS NULL
+   AND ar.role_key <> 'admin'
+   AND (SELECT count(*) FROM public.authorization_roles a2
+         WHERE a2.legacy_app_role = c.default_app_role) = 1;

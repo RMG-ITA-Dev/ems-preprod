@@ -245,12 +245,19 @@ beforeAll(() => {
 
 /** Rol actual del usuario vinculado, que StaffForm lee de `user_roles`. */
 let currentRoleKey: string | null = "assistant";
+/** Cuando está definido, la SEGUNDA lectura devuelve este valor (simula una carrera). */
+let roleKeyOnSecondRead: string | null | undefined;
+let roleLookupFails = false;
+let roleLookupCalls = 0;
 
 beforeEach(() => {
   vi.clearAllMocks();
   canUpdateRoles = true;
   roleKeyPending = false;
   currentRoleKey = "assistant";
+  roleKeyOnSecondRead = undefined;
+  roleLookupFails = false;
+  roleLookupCalls = 0;
   updateStaffMutateAsync.mockResolvedValue({});
   createCompetencyMutateAsync.mockResolvedValue({});
   deleteCompetencyMutateAsync.mockResolvedValue({});
@@ -262,7 +269,20 @@ beforeEach(() => {
       return {
         select: () => ({
           eq: () => ({
-            single: () => Promise.resolve({ data: { role_key: currentRoleKey }, error: null }),
+            // StaffForm usa maybeSingle: cero filas es un estado posible, no una excepción.
+            maybeSingle: () => {
+              roleLookupCalls += 1;
+              if (roleLookupFails) {
+                return Promise.resolve({ data: null, error: { message: "boom" } });
+              }
+              // Permite simular que otro admin cambió el rol entre la lectura del submit
+              // y la del confirm (la segunda llamada devuelve otro valor).
+              const value =
+                roleLookupCalls > 1 && roleKeyOnSecondRead !== undefined
+                  ? roleKeyOnSecondRead
+                  : currentRoleKey;
+              return Promise.resolve({ data: { role_key: value }, error: null });
+            },
           }),
         }),
       } as any;
@@ -457,6 +477,49 @@ describe("StaffForm — sync categoría→rol (0820-182)", () => {
 
     await waitFor(() => expect(onSaveSuccess).toHaveBeenCalled());
     expect(screen.queryByText("staff.syncRoleTitle")).toBeNull();
+    expect(updateRoleKeyMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("Test 15: si falla la lectura del rol actual, no ofrece nada (fail closed)", async () => {
+    // Antes el error se descartaba y roleData quedaba null, que se leía como "el rol
+    // difiere" → abría el diálogo. Con el usuario destino siendo admin, eso ofrecía
+    // degradarlo: la protección de admin se saltaba sola ante un fallo de red o de RLS.
+    roleLookupFails = true;
+    const user = userEvent.setup();
+    renderForm();
+
+    await changeCategoryAndSave(user, "cat-gerente");
+
+    await waitFor(() => expect(onSaveSuccess).toHaveBeenCalled());
+    expect(screen.queryByText("staff.syncRoleTitle")).toBeNull();
+    expect(updateRoleKeyMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("Test 16: si el destino se volvió admin mientras el diálogo estaba abierto, no lo degrada", async () => {
+    // El chequeo del submit puede quedar viejo: otro admin pudo promover a esta persona.
+    // `admin_set_user_role_key` solo protege al ÚLTIMO admin, no a cualquiera, así que sin
+    // releer el rol la sincronización por categoría degradaría a un administrador.
+    roleKeyOnSecondRead = "admin";
+    const user = userEvent.setup();
+    renderForm();
+
+    await changeCategoryAndSave(user, "cat-gerente");
+    await user.click(await screen.findByText("staff.syncRoleConfirm"));
+
+    await waitFor(() => expect(toast.info).toHaveBeenCalledWith("staff.adminRoleProtected"));
+    expect(updateRoleKeyMutateAsync).not.toHaveBeenCalled();
+    await waitFor(() => expect(onSaveSuccess).toHaveBeenCalled());
+  });
+
+  it("Test 17: si otro admin ya lo dejó en el rol sugerido, no vuelve a mutar", async () => {
+    roleKeyOnSecondRead = "ita_manager";
+    const user = userEvent.setup();
+    renderForm();
+
+    await changeCategoryAndSave(user, "cat-gerente");
+    await user.click(await screen.findByText("staff.syncRoleConfirm"));
+
+    await waitFor(() => expect(onSaveSuccess).toHaveBeenCalled());
     expect(updateRoleKeyMutateAsync).not.toHaveBeenCalled();
   });
 

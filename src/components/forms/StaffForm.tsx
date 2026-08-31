@@ -365,8 +365,67 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
     }
   };
 
+  /**
+   * Lee el `role_key` vigente del usuario vinculado.
+   *
+   * Devuelve `{ ok: false }` ante CUALQUIER problema —error de RLS/red, o cero filas— en
+   * vez de colapsarlo a "sin rol". La diferencia importa: si esto devolviera null y se
+   * tratara como "el rol difiere", un lookup fallido saltearía la protección de admin y
+   * ofrecería degradar a un administrador. Ante la duda, no se ofrece nada.
+   */
+  const readCurrentRoleKey = async (
+    userId: string,
+  ): Promise<{ ok: true; roleKey: string | null } | { ok: false }> => {
+    // maybeSingle (no single): cero filas es un estado posible —un staff vinculado cuya
+    // fila de user_roles se borró— y no debe llegar como excepción.
+    const { data, error } = await supabase
+      .from("user_roles")
+      .select("role_key")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (error || !data) {
+      console.error("[StaffForm] user_roles lookup failed:", error);
+      return { ok: false };
+    }
+    return { ok: true, roleKey: data.role_key ?? null };
+  };
+
   const onConfirmSync = async () => {
     if (syncData) {
+      // Se relee el rol JUSTO antes de mutar. El chequeo del submit puede haber quedado
+      // viejo: otro admin pudo promover a esta persona mientras el diálogo estaba abierto,
+      // y `admin_set_user_role_key` solo protege al ÚLTIMO admin, no a cualquiera — así
+      // que sin esto la sincronización por categoría podría degradar a un administrador,
+      // que es justo lo que promete no hacer.
+      //
+      // No es atómico: queda una ventana de milisegundos entre esta lectura y el RPC.
+      // Cerrarla del todo exigiría mover la precondición al servidor (un parámetro nuevo
+      // en admin_set_user_role_key); no se hizo acá porque ese RPC es el que asigna TODOS
+      // los roles y Gestión de Roles sí debe poder degradar a un admin.
+      const current = await readCurrentRoleKey(syncData.userId);
+
+      if (!current.ok) {
+        toast.error(t("staff.roleSyncError"));
+        setShowSyncDialog(false);
+        finishSave();
+        return;
+      }
+
+      if (current.roleKey === "admin" && syncData.newRoleKey !== "admin") {
+        toast.info(t("staff.adminRoleProtected"));
+        setShowSyncDialog(false);
+        finishSave();
+        return;
+      }
+
+      if (current.roleKey === syncData.newRoleKey) {
+        // Otro admin ya lo dejó en el rol sugerido: nada que hacer.
+        setShowSyncDialog(false);
+        finishSave();
+        return;
+      }
+
       try {
         await updateRoleKeyMutation.mutateAsync({
           userId: syncData.userId,
@@ -582,16 +641,15 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
         const targetRoleKey = isSuggestableRoleKey(suggested) ? suggested : null;
 
         if (targetRoleKey) {
-          const { data: roleData } = await supabase
-            .from("user_roles")
-            .select("role_key")
-            .eq("user_id", staff.auth_user_id)
-            .single();
+          const current = await readCurrentRoleKey(staff.auth_user_id);
 
-          if (roleData?.role_key === "admin" && targetRoleKey !== "admin") {
+          if (!current.ok) {
+            // Fail closed: sin saber el rol vigente no se puede garantizar la protección
+            // de admin, así que no se ofrece nada. El staff ya se guardó.
+          } else if (current.roleKey === "admin" && targetRoleKey !== "admin") {
             // Nunca se degrada un admin de forma automática: se avisa y se sigue.
             toast.info(t("staff.adminRoleProtected"));
-          } else if (roleData?.role_key !== targetRoleKey) {
+          } else if (current.roleKey !== targetRoleKey) {
             setSyncData({ userId: staff.auth_user_id, newRoleKey: targetRoleKey });
             setShowSyncDialog(true);
             return; // Detiene la navegación hasta que el usuario resuelva el diálogo.

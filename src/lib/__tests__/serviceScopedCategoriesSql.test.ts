@@ -257,25 +257,10 @@ describe("categories.default_role_key (0820-182)", () => {
     expect(body).toMatch(/src\.can_approve_timesheets, src\.default_app_role, src\.default_role_key/);
   });
 
-  it("never backfills, and structurally forbids, an `admin` suggestion", () => {
-    // El formulario ANTERIOR a FASE 3c permitía elegir `admin`, así que una base
-    // actualizada puede tener default_app_role = 'admin'; y como ningún otro role_key
-    // mapea a ese enum, el guard de unicidad lo daría por inequívoco. Backfillearlo
-    // reintroduciría por datos lo que la UI prohíbe: sugerir `admin` por categoría
-    // convierte un cambio de categoría en escalada de privilegios.
-    const backfill = defaultRoleKeySql.slice(
-      defaultRoleKeySql.indexOf("UPDATE public.categories c"),
-    );
-    expect(backfill.slice(0, backfill.indexOf(";"))).toContain("ar.role_key <> 'admin'");
-
-    // Saneamiento de filas preexistentes: sin esto, re-aplicar la migración sobre una base
-    // donde ya corrió una versión sin el filtro haría fallar el CHECK de abajo.
-    expect(defaultRoleKeySql).toMatch(
-      /UPDATE public\.categories\s+SET default_role_key = NULL\s+WHERE default_role_key = 'admin';/,
-    );
-
-    // El invariante a nivel de esquema: los filtros de UI son de cliente y un bundle
-    // viejo, un RPC a mano o un restore podrían saltárselos.
+  it("structurally forbids an `admin` suggestion, before any backfill can run", () => {
+    // Sugerir `admin` por categoría convierte un cambio de categoría en escalada de
+    // privilegios. Los filtros de UI son de cliente; el CHECK no se puede saltear con un
+    // bundle viejo, un RPC a mano o un restore.
     expect(defaultRoleKeySql).toContain(
       "DROP CONSTRAINT IF EXISTS categories_default_role_key_not_admin",
     );
@@ -284,13 +269,9 @@ describe("categories.default_role_key (0820-182)", () => {
     );
   });
 
-  it("backfills only where the legacy→catalog mapping is unambiguous", () => {
-    // `manager` lo comparten 7 role_key, `senior` 6, `partner` 3 y `staff` 3. Sin el
-    // guard de unicidad el backfill inventaría un rol y sugeriría permisos incorrectos.
-    const start = defaultRoleKeySql.indexOf("UPDATE public.categories c");
-    const body = defaultRoleKeySql.slice(start, defaultRoleKeySql.indexOf(";", start));
-    expect(body).toContain("ar.legacy_app_role = c.default_app_role");
-    expect(body).toContain("c.default_role_key IS NULL");
-    expect(body).toMatch(/count\(\*\) FROM public\.authorization_roles a2[\s\S]*?\) = 1/);
+  it("no hace el backfill: eso depende del mapeo y vive en 20260825000100", () => {
+    // Puesto acá corría antes de que authorization_roles.legacy_app_role existiera, así
+    // que en una base replayada desde las consolidadas era un no-op permanente.
+    expect(defaultRoleKeySql).not.toContain("ar.legacy_app_role = c.default_app_role");
   });
 });

@@ -42,44 +42,13 @@ ALTER TABLE public.categories
   ON DELETE SET NULL;
 
 -- ---------------------------------------------------------------------
--- 2) Backfill conservador desde el enum legacy
+-- 2) El invariante: una categoría nunca puede sugerir `admin`
 -- ---------------------------------------------------------------------
--- Solo donde el mapeo legacy → catálogo es INEQUÍVOCO. El guard `= 1` es el
--- punto central: `manager` lo comparten 7 role_key, `senior` 6, `partner` 3 y
--- `staff` 3, así que para esas categorías NO se puede deducir la intención y se
--- dejan en NULL a propósito. Solo admin/director/sqr/semisenior son 1:1, de modo
--- que se espera que este UPDATE toque pocas filas — es el resultado correcto
--- para un campo de sugerencia opcional, no un backfill incompleto.
---
--- Nota de orden: depende de que authorization_roles.legacy_app_role esté
--- poblado. En el mirror lo está; en un replay desde cero lo restaura la
--- migración 20260825000100, que corre DESPUÉS, así que ahí este UPDATE es un
--- no-op deliberado.
--- `admin` se excluye explícitamente. El formulario ANTERIOR a FASE 3c sí permitía
--- elegirlo, así que una base actualizada puede tener categorías con
--- default_app_role = 'admin'; y como ningún otro role_key mapea a ese enum, el guard de
--- unicidad de abajo lo daría por inequívoco y lo backfillearía. Eso reintroduciría por
--- datos justo lo que la UI nueva prohíbe: sugerir `admin` por categoría convierte un
--- cambio de categoría en una vía de escalada de privilegios.
-UPDATE public.categories c
-   SET default_role_key = ar.role_key
-  FROM public.authorization_roles ar
- WHERE ar.legacy_app_role = c.default_app_role
-   AND c.default_role_key IS NULL
-   AND ar.role_key <> 'admin'
-   AND (SELECT count(*) FROM public.authorization_roles a2
-         WHERE a2.legacy_app_role = c.default_app_role) = 1;
-
--- Saneamiento: limpia cualquier sugerencia `admin` que ya existiera. Importa para la
--- idempotencia — si una versión previa de esta migración llegó a correr con el backfill
--- sin excluir `admin`, esas filas están ahí y el CHECK de abajo fallaría al crearse.
-UPDATE public.categories
-   SET default_role_key = NULL
- WHERE default_role_key = 'admin';
-
--- El invariante, a nivel de esquema. El filtro del desplegable y el guard de StaffForm
--- son de cliente: un bundle viejo, un RPC llamado a mano o un restore podrían saltárselos.
--- Esto no.
+-- Sugerir `admin` por categoría convertiría un cambio de categoría en una vía de
+-- escalada de privilegios. El filtro del desplegable y el guard de StaffForm son de
+-- cliente: un bundle viejo, un RPC llamado a mano o un restore podrían saltárselos.
+-- Esto no. Se crea ANTES del backfill (que vive en 20260825000100) a propósito: si ese
+-- backfill intentara alguna vez asignar `admin`, la migración falla en vez de pasar.
 ALTER TABLE public.categories
   DROP CONSTRAINT IF EXISTS categories_default_role_key_not_admin;
 
