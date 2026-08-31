@@ -29,6 +29,7 @@ import {
 import { WorkOrderForm, BudgetLineInput, ExpenseBudgetInput } from "@/components/forms/WorkOrderForm";
 import { useEngagements, useSetting, useCategories, useWorkOrders } from "@/hooks/useEmsData";
 import { useWorksheetByEngagementId } from "@/hooks/useWorksheetData";
+import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { useCreateWorkOrder, useCreateBudgetLine, useCreateExpenseBudget, useUpsertPaymentPlan, useBatchUpsertInstallments } from "@/hooks/mutations";
 import { toast } from "sonner";
 import { useAuthorization } from "@/hooks/useAuthorization";
@@ -50,6 +51,7 @@ const WorkOrderNew = () => {
   const { data: engagements, isLoading: engagementsLoading } = useEngagements();
   const { data: categories } = useCategories();
   const { data: workOrders } = useWorkOrders();
+  const { staffRecord, isLoading: staffLoading } = useCurrentStaff();
   const globalTaxRate = useSetting("TAX_RATE");
 
   const createWorkOrder = useCreateWorkOrder();
@@ -58,7 +60,7 @@ const WorkOrderNew = () => {
   const upsertPaymentPlan = useUpsertPaymentPlan();
   const batchUpsertInstallments = useBatchUpsertInstallments();
 
-  const [selectedEngagementId, setSelectedEngagementId] = useState(engagementIdParam || "");
+  const [selectedEngagementId, setSelectedEngagementId] = useState("");
   const [currency, setCurrency] = useState<"USD" | "BOB" | "USDT">("BOB");
   const [seasonMode, setSeasonMode] = useState<"High" | "Low">("High");
   const [adjustmentAmount, setAdjustmentAmount] = useState(0);
@@ -75,11 +77,28 @@ const WorkOrderNew = () => {
   // Get list of engagement IDs that already have work orders
   const engagementsWithWorkOrders = workOrders?.map((wo) => wo.engagement_id) || [];
 
-  // Filter to active engagements WITHOUT existing work orders
+  // Filter to active engagements, without existing work orders, created by the current
+  // user (BUG 0828-186 Punto D: "creado por mí", no responsable directo).
+  const staffId = staffRecord?.staff_id;
   const availableEngagements = engagements?.filter(
-    (e) => e.status === "active" && !engagementsWithWorkOrders.includes(e.engagement_id)
+    (e) =>
+      e.status === "active" &&
+      !engagementsWithWorkOrders.includes(e.engagement_id) &&
+      e.created_by_staff_id === staffId
   );
-  
+
+  // BUG 0828-186: valida la preselección ?engagement= contra la lista ya filtrada -- un id
+  // ajeno, inactivo o con OT existente no debe colarse por URL.
+  useEffect(() => {
+    if (
+      engagementIdParam &&
+      !selectedEngagementId &&
+      availableEngagements?.some((e) => e.engagement_id === engagementIdParam)
+    ) {
+      setSelectedEngagementId(engagementIdParam);
+    }
+  }, [engagementIdParam, availableEngagements, selectedEngagementId]);
+
   const selectedEngagement = engagements?.find((e) => e.engagement_id === selectedEngagementId);
 
   // Check if selected engagement has a worksheet
@@ -205,7 +224,7 @@ const WorkOrderNew = () => {
                   FALSE, así que se caía al select con el desplegable vacío y sin
                   explicación (reportado 2026-07-31 por un Socio sin encargos
                   asignados). Ahora: cargando / sin encargos disponibles / lista. */}
-              {engagementsLoading ? (
+              {engagementsLoading || staffLoading ? (
                 <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
               ) : !availableEngagements?.length ? (
                 <Alert>

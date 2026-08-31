@@ -129,6 +129,11 @@ export interface Engagement {
   specialist_it_id: string | null;
   specialist_tax_id: string | null;
   contract_file_path: string | null;
+  // BUG 0828-186 (Punto D): autor del encargo, para el filtro "creado por mí" en Nueva OT /
+  // Nueva Hoja de Trabajo. NULL en encargos históricos anteriores al trigger
+  // set_engagement_created_by. Opcional (como engagement_state_override abajo) para no
+  // exigirlo en fixtures/queries que no lo seleccionan.
+  created_by_staff_id?: string | null;
   // FEAT 0602-135: override manual del estado del encargo (1..9). NULL = derivado de la OT.
   engagement_state_override?: number | null;
   taxonomy_id: string | null;

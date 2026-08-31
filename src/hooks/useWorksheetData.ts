@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Category, ActivityCode, Engagement } from "./useEmsData";
 import { isHiddenFromActivePickers } from "@/lib/engagementStatus";
+import { useCurrentStaff } from "./useCurrentStaff";
 
 export interface Worksheet {
   id: string;
@@ -160,12 +161,16 @@ export function useWorksheetById(id: string | undefined) {
   });
 }
 
-// Fetch engagements that don't have a worksheet yet
+// Fetch engagements that don't have a worksheet yet, created by the current user
+// (BUG 0828-186 Punto D: "creado por mí", no responsable directo).
 export function useEngagementsWithoutWorksheet() {
+  const { staffRecord, isLoading: staffLoading } = useCurrentStaff();
+  const staffId = staffRecord?.staff_id;
+
   return useQuery({
-    queryKey: ["engagements-without-worksheet"],
+    queryKey: ["engagements-without-worksheet", staffId],
     queryFn: async () => {
-      // Get all active engagements
+      // Get all active engagements created by the current user
       const { data: engagements, error: engError } = await supabase
         .from("engagements")
         .select(`
@@ -174,6 +179,7 @@ export function useEngagementsWithoutWorksheet() {
           engagement_code,
           status,
           engagement_state_override,
+          created_by_staff_id,
           client:clients (
             client_id,
             client_legal_name
@@ -191,7 +197,8 @@ export function useEngagementsWithoutWorksheet() {
             short_name
           )
         `)
-        .eq("status", "active");
+        .eq("status", "active")
+        .eq("created_by_staff_id", staffId);
 
       if (engError) throw engError;
 
@@ -212,6 +219,7 @@ export function useEngagementsWithoutWorksheet() {
           !isHiddenFromActivePickers((e as { engagement_state_override?: number | null }).engagement_state_override)
       ) as Engagement[];
     },
+    enabled: !staffLoading && !!staffId,
   });
 }
 

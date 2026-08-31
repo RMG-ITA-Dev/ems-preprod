@@ -107,6 +107,11 @@ const Settings = () => {
   const { data: services } = useServices();
   const { data: taxonomies, isLoading: taxonomiesLoading } = useTaxonomies();
   const { data: engagements } = useEngagements();
+  // BUG 0828-186 (Punto C): el encargo de Feriados debe ser administrativo/interno de la
+  // firma -- el selector solo ofrece candidatos con is_internal=true. El lookup del
+  // encargo ya configurado (línea ~1188, advertencia approval_required) sigue usando la
+  // lista completa para no perder la advertencia de una configuración previa no interna.
+  const holidayEngagementOptions = engagements?.filter((eng) => eng.is_internal === true);
   const persistedHolidayEngagementId = useHolidayEngagementId();
   const updateSettingMutation = useUpdateGlobalSetting();
   const reorderActivityMutation = useReorderServiceActivity();
@@ -1164,7 +1169,7 @@ const Settings = () => {
                           <SelectValue placeholder={t("timesheet.selectEngagement")} />
                         </SelectTrigger>
                         <SelectContent>
-                          {engagements?.map((eng) => (
+                          {holidayEngagementOptions?.map((eng) => (
                             <SelectItem key={eng.engagement_id} value={eng.engagement_id}>
                               <span className="font-mono text-xs opacity-60 mr-2">
                                 {eng.engagement_code}
