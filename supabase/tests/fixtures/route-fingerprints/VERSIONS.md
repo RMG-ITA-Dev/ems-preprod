@@ -7,7 +7,7 @@ cambio deliberado que implica re-capturar y re-aceptar los fixtures — nunca un
 
 | Herramienta | Versión | Capturada el |
 |---|---|---|
-| Supabase CLI | `2.100.1` | 2026-08-21 (`baseline_184_*`), 2026-08-22/23 (captura local descartada), 2026-08-24 (`consolidado_renamed_*` vigente, vía runner de CI), 2026-08-25 (`consolidado_renamed_schema.sql` re-aceptado, vía runner de CI, 0825-183), 2026-08-27 (`consolidado_renamed_schema.sql` + `consolidado_renamed_catalog_routine_grants.txt` re-aceptados, vía runner de CI, 0817-180) |
+| Supabase CLI | `2.100.1` | 2026-08-21 (`baseline_184_*`), 2026-08-22/23 (captura local descartada), 2026-08-24 (`consolidado_renamed_*` vigente, vía runner de CI), 2026-08-25 (`consolidado_renamed_schema.sql` re-aceptado, vía runner de CI, 0825-183), 2026-08-27 (`consolidado_renamed_schema.sql` + `consolidado_renamed_catalog_routine_grants.txt` re-aceptados, vía runner de CI, 0817-180), 2026-08-31 (`consolidado_renamed_schema.sql` + `consolidado_renamed_catalog_routine_grants.txt` re-aceptados, vía runner de CI, 0828-186 — nueva función `list_loggable_engagements()` y sus grants EXECUTE) |
 | Imagen `supabase/postgres` | `17.6` (server), `pg_dump 17.11 (Ubuntu 17.11-1.pgdg24.04+2)` | 2026-08-24 |
 | Node.js | `v25.8.2` | ambiente de autoría (baseline_184 solamente) |
 | npm | `11.12.1` | ambiente de autoría (baseline_184 solamente) |
