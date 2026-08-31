@@ -2,8 +2,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toISODateString, getWorkDays } from "@/lib/timesheetUtils";
 import { getFiscalWeekNumber } from "@/lib/fiscalCalculations";
-import { canLogHours, type EngagementState } from "@/lib/engagementStatus";
 import { useCurrentStaff } from "./useCurrentStaff";
+import { useLoggableEngagements, type LoggableEngagement } from "./useLoggableEngagements";
 import { useEffect } from "react";
 
 // Types
@@ -31,23 +31,11 @@ export interface TimeEntry {
   is_forecast: boolean;
 }
 
-export interface ApprovedEngagement {
-  engagement_id: string;
-  engagement_code: string | null;
-  engagement_name: string;
-  activity_required: boolean;
-  work_order_required: boolean;
-  is_internal: boolean;
-  practica: number | null;     // service code (matches services.code) — for activity filtering
-  funcion: number | null;      // 0 administrativa, 1 cliente, 2 capacitación, 3 calidad (0827-184)
-  start_date: string | null;   // BUG 0220-63
-  end_date: string | null;     // BUG 0220-63
-  engagement_state_override?: number | null;  // FEAT 0602-135: override manual del estado
-  client: {
-    client_id: string;
-    client_legal_name: string;
-  } | null;
-}
+// BUG 0828-186: tipo movido a useLoggableEngagements.ts (compartido con useApprovedEngagements
+// y useManualEntryEngagements); se reexporta con este nombre porque varios módulos ya importan
+// `ApprovedEngagement` desde este archivo. Incluye `funcion` (0827-184, ver ese campo en
+// LoggableEngagement) para que TimesheetGrid/TimeSheet.tsx sigan funcionando tras el merge.
+export type ApprovedEngagement = LoggableEngagement;
 
 export interface ActivityCode {
   activity_id: string;
@@ -137,80 +125,9 @@ export function useTimesheetWeek(weekStartDate: Date, workDays: number = 5): Tim
     enabled: !!staffId && !staffLoading,
   });
 
-  // BUG #19: Fetch engagements eligible for timesheet (two-filter: eligibility + visibility)
-  const engagementsQuery = useQuery({
-    queryKey: ["approved-engagements", staffId],
-    queryFn: async () => {
-      if (!staffId) return [];
-
-      // Group A: Active engagements with approved WOs (existing logic)
-      const { data: workOrders, error: woError } = await supabase
-        .from("work_orders")
-        .select("engagement_id, risk_status")
-        .eq("approval_status", "Approved");
-      if (woError) throw woError;
-
-      // FEAT 0602-135: excluir OT con Riesgos rechazado (estado 8, no cargable; el gate DB lo bloquea).
-      const approvedEngagementIds =
-        workOrders
-          ?.filter((wo) => (wo as { risk_status?: string | null }).risk_status !== "Rejected")
-          .map((wo) => wo.engagement_id) || [];
-
-      let groupA: ApprovedEngagement[] = [];
-      if (approvedEngagementIds.length > 0) {
-        const { data, error } = await supabase
-          .from("engagements")
-          .select(`
-            engagement_id, engagement_code, engagement_name,
-            activity_required, work_order_required, is_internal, practica, funcion,
-            start_date, end_date, engagement_state_override,
-            client:clients!client_id(client_id, client_legal_name)
-          `)
-          .in("engagement_id", approvedEngagementIds)
-          .eq("status", "active");
-        if (error) throw error;
-        groupA = (data || []) as ApprovedEngagement[];
-      }
-
-      // Group B: Active engagements where work_order_required = false
-      // Visibility: is_internal=true (all staff) OR assigned (partner/manager) OR admin
-      const { data: isAdminResult } = await supabase.rpc("is_admin");
-      const isAdmin = !!isAdminResult;
-
-      let groupBQuery = supabase
-        .from("engagements")
-        .select(`
-          engagement_id, engagement_code, engagement_name,
-          activity_required, work_order_required, is_internal, practica, funcion,
-          start_date, end_date, engagement_state_override,
-          client:clients!client_id(client_id, client_legal_name)
-        `)
-        // FEAT 0602-135: administrativos (sin OT) O con override manual Aprobado/Emergencia (4/5).
-        .or("work_order_required.eq.false,engagement_state_override.in.(4,5)")
-        .eq("status", "active");
-
-      if (!isAdmin) {
-        // FEAT 0602-135: override 4/5 (aprobado manual) visible para todo el staff, como una OT aprobada.
-        groupBQuery = groupBQuery.or(
-          `is_internal.eq.true,partner_id.eq.${staffId},manager_id.eq.${staffId},engagement_state_override.in.(4,5)`
-        );
-      }
-
-      const { data: groupBData, error: groupBError } = await groupBQuery;
-      if (groupBError) throw groupBError;
-      const groupB = (groupBData || []) as ApprovedEngagement[];
-
-      // Merge and deduplicate by engagement_id
-      const merged = new Map<string, ApprovedEngagement>();
-      for (const e of groupA) merged.set(e.engagement_id, e);
-      for (const e of groupB) merged.set(e.engagement_id, e);
-
-      // FEAT 0602-135: excluir encargos cuyo override manual impide cargar horas
-      // (6 Cancelado, 7 Finalizado, 9 Congelado, u otro no-cargable).
-      return Array.from(merged.values()).filter(
-        (e) => e.engagement_state_override == null || canLogHours(e.engagement_state_override as EngagementState),
-      );
-    },
+  // BUG 0828-186: encargos elegibles para cargar horas, vía el RPC list_loggable_engagements
+  // (SECURITY DEFINER, gateado por time_entry.create) -- sin filtro de asignación por diseño.
+  const engagementsQuery = useLoggableEngagements(["approved-engagements", staffId], {
     enabled: !!staffId,
     staleTime: 5 * 60 * 1000,
   });

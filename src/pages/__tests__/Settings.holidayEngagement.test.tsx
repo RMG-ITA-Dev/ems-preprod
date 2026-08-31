@@ -1,5 +1,5 @@
 import React from "react";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { vi } from "vitest";
 import { render, screen } from "@/test/utils";
 import userEvent from "@testing-library/user-event";
@@ -54,21 +54,30 @@ vi.mock("react-router-dom", async () => {
   return { ...actual, useNavigate: () => vi.fn() };
 });
 
+// BUG 0828-186 (Punto C): el encargo de Feriados debe ser administrativo/interno de la
+// firma -- ambos fixtures son is_internal=true porque estas pruebas (0526-122) cubren un
+// eje ortogonal (approval_required); el filtro is_internal se cubre en el describe de abajo.
 const engagementNoApproval = {
   engagement_id: "eng-no-approval",
   engagement_code: "NA.01",
   engagement_name: "No Approval Engagement",
   approval_required: false,
+  is_internal: true,
 };
 const engagementWithApproval = {
   engagement_id: "eng-approval",
   engagement_code: "A.01",
   engagement_name: "Approval Required Engagement",
   approval_required: true,
+  is_internal: true,
 };
 
 const settingsRef = vi.hoisted(() => ({
   current: [] as { setting_key: string; setting_value: string }[],
+}));
+
+const engagementsRef = vi.hoisted(() => ({
+  current: [] as { engagement_id: string; engagement_code: string; engagement_name: string; approval_required: boolean; is_internal: boolean }[],
 }));
 
 vi.mock("@/hooks/useEmsData", () => ({
@@ -80,7 +89,7 @@ vi.mock("@/hooks/useEmsData", () => ({
   useExpenseTypes: () => ({ data: [], isLoading: false }),
   useSkills: () => ({ data: [], isLoading: false }),
   useTaxonomies: () => ({ data: [], isLoading: false }),
-  useEngagements: () => ({ data: [engagementNoApproval, engagementWithApproval] }),
+  useEngagements: () => ({ data: engagementsRef.current }),
   useServices: () => ({ data: [], isLoading: false }),
 }));
 
@@ -148,6 +157,10 @@ async function openGlobalSettingsTab() {
 }
 
 describe("Settings — holiday engagement approval warning (BUG 0526-122)", () => {
+  beforeEach(() => {
+    engagementsRef.current = [engagementNoApproval, engagementWithApproval];
+  });
+
   it("shows a warning when the configured engagement has approval_required=false", async () => {
     settingsRef.current = [{ setting_key: "HOLIDAY_ENGAGEMENT_ID", setting_value: "eng-no-approval" }];
     await openGlobalSettingsTab();
@@ -171,5 +184,42 @@ describe("Settings — holiday engagement approval warning (BUG 0526-122)", () =
     await user.click(trigger!);
     const options = await screen.findAllByRole("option");
     expect(options.some((o) => o.textContent?.includes("NA.01"))).toBe(true);
+  });
+});
+
+/**
+ * BUG 0828-186 (Punto C): el selector de Feriados solo debe ofrecer encargos administrativos
+ * (is_internal=true) como candidatos -- un cliente de la firma no debería poder marcarse como
+ * el "encargo de Feriados". Distinto del eje approval_required cubierto arriba (0526-122).
+ */
+const engagementInternal = {
+  engagement_id: "eng-internal",
+  engagement_code: "INT.01",
+  engagement_name: "Feriados y Licencias",
+  approval_required: true,
+  is_internal: true,
+};
+const engagementExternal = {
+  engagement_id: "eng-external",
+  engagement_code: "EXT.01",
+  engagement_name: "Auditoria Cliente X",
+  approval_required: true,
+  is_internal: false,
+};
+
+describe("Settings — holiday engagement is_internal filter (BUG 0828-186)", () => {
+  beforeEach(() => {
+    engagementsRef.current = [engagementInternal, engagementExternal];
+  });
+
+  it("only offers is_internal=true engagements as holiday selector options", async () => {
+    const user = await openGlobalSettingsTab();
+
+    const trigger = document.getElementById("holidayEngagement");
+    await user.click(trigger!);
+    const options = await screen.findAllByRole("option");
+
+    expect(options.some((o) => o.textContent?.includes("INT.01"))).toBe(true);
+    expect(options.some((o) => o.textContent?.includes("EXT.01"))).toBe(false);
   });
 });

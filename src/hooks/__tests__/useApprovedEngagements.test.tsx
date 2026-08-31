@@ -3,13 +3,20 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 
-// Mock supabase client
-const mockFrom = vi.fn();
+/**
+ * BUG 0828-186: useApprovedEngagements moved from two hand-rolled RLS-filtered queries
+ * (Group A/B + partner/manager visibility OR-clause) to the RPC list_loggable_engagements()
+ * (SECURITY DEFINER, gated by time_entry.create, no assignment filter by design). These
+ * tests replace the old partner/manager-visibility assertions with: the hook calls the RPC,
+ * excludes internal engagements (Tracker-only), maps the flat row into `client`, and
+ * re-applies isLoggable client-side as a second line of defense alongside the RPC's own
+ * override exclusion.
+ */
+
 const mockRpc = vi.fn();
 
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
-    from: (...args: any[]) => mockFrom(...args),
     rpc: (...args: any[]) => mockRpc(...args),
   },
 }));
@@ -23,31 +30,29 @@ function createWrapper() {
   );
 }
 
-// Helper to build a chainable query builder mock
-function chainBuilder(data: any[] | null, error: any = null) {
-  const obj: any = {};
-  const methods = ["select", "eq", "in", "or", "order", "not", "is", "gte", "lte"];
-  for (const m of methods) {
-    obj[m] = vi.fn().mockReturnValue(obj);
-  }
-  // Terminal: when awaited, returns { data, error }
-  obj.then = (resolve: any) => resolve({ data, error });
-  return obj;
-}
-
-function makeEngagement(overrides: Partial<any> = {}) {
+function makeRow(overrides: Partial<any> = {}) {
   return {
     engagement_id: overrides.engagement_id || crypto.randomUUID(),
-    engagement_name: overrides.engagement_name || "Test",
-    engagement_code: overrides.engagement_code || "T-001",
-    status: overrides.status || "active",
-    is_internal: overrides.is_internal ?? false,
-    work_order_required: overrides.work_order_required ?? true,
+    engagement_code: "T-001",
+    engagement_name: "Test",
     activity_required: true,
+    work_order_required: overrides.work_order_required ?? true,
+    is_internal: overrides.is_internal ?? false,
+    practica: 1,
+    start_date: null,
+    end_date: null,
+    engagement_state_override: overrides.engagement_state_override ?? null,
     client_id: "c1",
-    created_at: new Date().toISOString(),
+    client_legal_name: "Cliente Demo",
     ...overrides,
   };
+}
+
+function setupMocks(rows: any[]) {
+  mockRpc.mockImplementation((fn: string) => {
+    if (fn === "list_loggable_engagements") return Promise.resolve({ data: rows, error: null });
+    return Promise.resolve({ data: null, error: null });
+  });
 }
 
 describe("useApprovedEngagements", () => {
@@ -55,203 +60,63 @@ describe("useApprovedEngagements", () => {
     vi.clearAllMocks();
   });
 
-  function setupMocks(opts: {
-    woEngagementIds?: string[];
-    groupAEngagements?: any[];
-    groupBEngagements?: any[];
-    isAdmin?: boolean;
-    myStaffId?: string | null;
-  }) {
-    const {
-      woEngagementIds = [],
-      groupAEngagements = [],
-      groupBEngagements = [],
-      isAdmin = true,
-      myStaffId = "staff-1",
-    } = opts;
-
-    let fromCallCount = 0;
-
-    mockFrom.mockImplementation((table: string) => {
-      if (table === "work_orders") {
-        return chainBuilder(woEngagementIds.map(id => ({ engagement_id: id })));
-      }
-      if (table === "engagements") {
-        fromCallCount++;
-        if (fromCallCount === 1 && woEngagementIds.length > 0) {
-          // Group A
-          return chainBuilder(groupAEngagements);
-        }
-        // Group B
-        return chainBuilder(groupBEngagements);
-      }
-      return chainBuilder([]);
-    });
-
-    mockRpc.mockImplementation((fn: string) => {
-      if (fn === "is_admin") return Promise.resolve({ data: isAdmin, error: null });
-      if (fn === "get_my_staff_id") return Promise.resolve({ data: myStaffId, error: null });
-      return Promise.resolve({ data: null, error: null });
-    });
-  }
-
-  // T1: excludes internal engagements from Group A
-  it("excludes internal engagements from Group A", async () => {
-    const internalEng = makeEngagement({ engagement_id: "eng-internal", is_internal: true });
-    setupMocks({
-      woEngagementIds: ["eng-internal"],
-      groupAEngagements: [], // filter should exclude it, so DB returns empty
-      groupBEngagements: [],
-    });
-
+  it("calls the list_loggable_engagements RPC", async () => {
+    setupMocks([]);
     const { result } = renderHook(() => useApprovedEngagements(), { wrapper: createWrapper() });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-    expect(result.current.data).toEqual([]);
-    // Verify .eq("is_internal", false) was called on the engagements query
-    const engCall = mockFrom.mock.calls.find(c => c[0] === "engagements");
-    expect(engCall).toBeDefined();
+    expect(mockRpc).toHaveBeenCalledWith("list_loggable_engagements");
   });
 
-  // T2: excludes internal engagements from Group B
-  it("excludes internal engagements from Group B", async () => {
-    setupMocks({
-      woEngagementIds: [],
-      groupAEngagements: [],
-      groupBEngagements: [], // is_internal=false filter excludes internal ones at DB level
-    });
-
+  it("excludes internal engagements (Tracker-only)", async () => {
+    setupMocks([makeRow({ engagement_id: "eng-internal", is_internal: true })]);
     const { result } = renderHook(() => useApprovedEngagements(), { wrapper: createWrapper() });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
     expect(result.current.data).toEqual([]);
   });
 
-  // T3: includes active client engagement from Group A
-  it("includes active client engagement from Group A", async () => {
-    const clientEng = makeEngagement({ engagement_id: "eng-client", is_internal: false });
-    setupMocks({
-      woEngagementIds: ["eng-client"],
-      groupAEngagements: [clientEng],
-      groupBEngagements: [],
-    });
-
+  it("includes a non-internal active engagement returned by the RPC", async () => {
+    setupMocks([makeRow({ engagement_id: "eng-client", is_internal: false })]);
     const { result } = renderHook(() => useApprovedEngagements(), { wrapper: createWrapper() });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
     expect(result.current.data).toHaveLength(1);
     expect(result.current.data![0].engagement_id).toBe("eng-client");
   });
 
-  // T4: includes active client engagement from Group B
-  it("includes active client engagement from Group B", async () => {
-    const clientEng = makeEngagement({
-      engagement_id: "eng-b",
-      is_internal: false,
-      work_order_required: false,
-    });
-    setupMocks({
-      woEngagementIds: [],
-      groupAEngagements: [],
-      groupBEngagements: [clientEng],
-    });
-
+  it("maps client_id/client_legal_name into a nested client object", async () => {
+    setupMocks([makeRow({ engagement_id: "eng-1", client_id: "c9", client_legal_name: "Acme" })]);
     const { result } = renderHook(() => useApprovedEngagements(), { wrapper: createWrapper() });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-    expect(result.current.data).toHaveLength(1);
-    expect(result.current.data![0].engagement_id).toBe("eng-b");
+    expect(result.current.data![0].client).toEqual({ client_id: "c9", client_legal_name: "Acme" });
   });
 
-  // T5: deduplicates across groups
-  it("deduplicates across groups", async () => {
-    const sharedEng = makeEngagement({ engagement_id: "eng-shared", is_internal: false });
-    setupMocks({
-      woEngagementIds: ["eng-shared"],
-      groupAEngagements: [sharedEng],
-      groupBEngagements: [sharedEng],
-    });
-
+  it("returns empty array when the RPC returns no rows (e.g. no time_entry.create)", async () => {
+    setupMocks([]);
     const { result } = renderHook(() => useApprovedEngagements(), { wrapper: createWrapper() });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-    expect(result.current.data).toHaveLength(1);
-  });
-
-  // T6: non-admin visibility restricted to partner/manager
-  it("non-admin visibility restricted to partner/manager", async () => {
-    // Non-admin, engagement where user is neither partner nor manager -> excluded by OR clause
-    setupMocks({
-      woEngagementIds: [],
-      groupAEngagements: [],
-      groupBEngagements: [], // DB returns empty because OR clause filters out
-      isAdmin: false,
-      myStaffId: "staff-other",
-    });
-
-    const { result } = renderHook(() => useApprovedEngagements(), { wrapper: createWrapper() });
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
     expect(result.current.data).toEqual([]);
   });
 
-  // T7: returns empty array when no eligible engagements
-  it("returns empty array when no eligible engagements", async () => {
-    setupMocks({
-      woEngagementIds: [],
-      groupAEngagements: [],
-      groupBEngagements: [],
-    });
-
-    const { result } = renderHook(() => useApprovedEngagements(), { wrapper: createWrapper() });
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-    expect(result.current.data).toEqual([]);
-  });
-
-  // T8: excludes closed/inactive engagements
-  it("excludes closed/inactive engagements", async () => {
-    // A closed engagement with approved WO -> status='active' filter at DB level excludes it
-    setupMocks({
-      woEngagementIds: ["eng-closed"],
-      groupAEngagements: [], // DB returns empty because status != 'active'
-      groupBEngagements: [],
-    });
-
-    const { result } = renderHook(() => useApprovedEngagements(), { wrapper: createWrapper() });
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-    expect(result.current.data).toEqual([]);
-  });
-
-  // T9 (FEAT 0602-135): includes engagement approved via manual override 4/5 (no approved WO)
+  // FEAT 0602-135: includes engagement approved via manual override 4/5 (no approved WO)
   it("includes engagement with manual override Aprobado/Emergencia (4/5)", async () => {
-    const overridden = makeEngagement({
-      engagement_id: "eng-ov4",
-      is_internal: false,
-      engagement_state_override: 4,
-    });
-    setupMocks({ woEngagementIds: [], groupAEngagements: [], groupBEngagements: [overridden] });
-
+    setupMocks([makeRow({ engagement_id: "eng-ov4", engagement_state_override: 4 })]);
     const { result } = renderHook(() => useApprovedEngagements(), { wrapper: createWrapper() });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
     expect(result.current.data).toHaveLength(1);
     expect(result.current.data![0].engagement_id).toBe("eng-ov4");
   });
 
-  // T10 (FEAT 0602-135): isLoggable excludes terminal/non-loggable overrides (6/7/9)
+  // FEAT 0602-135: isLoggable excludes terminal/non-loggable overrides (6/7/9), re-applied
+  // client-side alongside the RPC's own WHERE-clause exclusion.
   it("excludes engagement with terminal override (Cancelado/Finalizado/Congelado)", async () => {
-    const frozen = makeEngagement({
-      engagement_id: "eng-frozen",
-      is_internal: false,
-      engagement_state_override: 9,
-    });
-    setupMocks({ woEngagementIds: [], groupAEngagements: [], groupBEngagements: [frozen] });
-
+    setupMocks([makeRow({ engagement_id: "eng-frozen", engagement_state_override: 9 })]);
     const { result } = renderHook(() => useApprovedEngagements(), { wrapper: createWrapper() });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
     expect(result.current.data).toEqual([]);
+  });
+
+  it("surfaces RPC errors", async () => {
+    mockRpc.mockResolvedValue({ data: null, error: new Error("boom") });
+    const { result } = renderHook(() => useApprovedEngagements(), { wrapper: createWrapper() });
+    await waitFor(() => expect(result.current.isError).toBe(true));
   });
 });
