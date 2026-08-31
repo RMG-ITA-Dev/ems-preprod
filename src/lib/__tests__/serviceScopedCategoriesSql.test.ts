@@ -366,7 +366,7 @@ describe("sync_user_role_from_category (0820-182)", () => {
     // admin_set_user_role_key como primera instrucción: sin él, un cambio de rol por RPC
     // podría colarse entre la validación y la escritura.
     const lock = fn.indexOf("pg_advisory_xact_lock(67890)");
-    const read = fn.indexOf("select role_key into v_current_role_key");
+    const read = fn.indexOf("select role_key, role into");
     expect(lock).toBeGreaterThan(-1);
     expect(read).toBeGreaterThan(lock);
     // FOR UPDATE sobre la fila: cubre el UPDATE DIRECTO a user_roles que permite la policy
@@ -376,10 +376,21 @@ describe("sync_user_role_from_category (0820-182)", () => {
 
   it("rechaza degradar a un admin, con la fila ya bloqueada", () => {
     const fn = body();
-    const read = fn.indexOf("select role_key into v_current_role_key");
+    const read = fn.indexOf("select role_key, role into");
     const guard = fn.indexOf("v_current_role_key = 'admin'");
     expect(guard).toBeGreaterThan(read);
     expect(fn).toContain("ADMIN_PROTECTED");
+  });
+
+  it("reconoce al admin por CUALQUIERA de las dos representaciones", () => {
+    // El RPC deprecado admin_set_user_role sigue concedido y escribe SOLO el enum, así que
+    // existe el estado role='admin' con role_key nulo o desfasado. Mirar solo role_key
+    // dejaría a ese admin fuera del guard, y la delegación pisaría ambas columnas — el
+    // LAST_ADMIN de admin_set_user_role_key tampoco lo frenaría, porque cuenta por role_key.
+    // Es además el mismo criterio que ya usa el guard del llamante de esta función.
+    const fn = body();
+    expect(fn).toContain("select role_key, role into v_current_role_key, v_current_role");
+    expect(fn).toContain("v_current_role_key = 'admin' or v_current_role = 'admin'");
   });
 
   it("rechaza asignar `admin` como rol sugerido", () => {
@@ -392,7 +403,9 @@ describe("sync_user_role_from_category (0820-182)", () => {
     // espejo del enum legacy y de la auditoría, que se irían separando con el tiempo.
     expect(fn).toContain("return public.admin_set_user_role_key(");
     expect(fn).not.toContain("insert into user_lifecycle_audit_log");
-    expect(fn).not.toContain("LAST_ADMIN");
+    // Se busca el literal SQL entrecomillado, no la palabra: los comentarios de esta
+    // función mencionan LAST_ADMIN para explicar por qué NO se reimplementa acá.
+    expect(fn).not.toContain("'LAST_ADMIN'");
   });
 
   it("no modifica admin_set_user_role_key", () => {

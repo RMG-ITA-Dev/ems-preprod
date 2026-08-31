@@ -402,6 +402,7 @@ declare
   v_category_id      uuid;
   v_suggested        text;
   v_current_role_key text;
+  v_current_role     app_role;
 begin
   -- AUTORIZACIÓN PRIMERO, antes de tomar candados y antes de leer cualquier fila.
   --
@@ -480,7 +481,7 @@ begin
       'expected_role_key', p_expected_role_key, 'current_role_key', v_suggested);
   end if;
 
-  select role_key into v_current_role_key
+  select role_key, role into v_current_role_key, v_current_role
     from user_roles
    where user_id = v_auth_user_id
    for update;
@@ -492,7 +493,13 @@ begin
 
   -- El invariante, evaluado con las filas bloqueadas: de acá al UPDATE nadie puede
   -- promover a esta persona a admin sin esperar a que esta transacción termine.
-  if v_current_role_key = 'admin' then
+  --
+  -- Se miran LAS DOS representaciones, igual que el guard del llamante de más arriba. Un
+  -- admin puede tener `role = 'admin'` con `role_key` nulo o desfasado: el RPC deprecado
+  -- `admin_set_user_role` sigue concedido y escribe SOLO el enum. Mirar únicamente
+  -- `role_key` lo dejaría fuera del guard, y la delegación pisaría ambas columnas — y el
+  -- LAST_ADMIN de admin_set_user_role_key tampoco lo frenaría, porque cuenta por role_key.
+  if v_current_role_key = 'admin' or v_current_role = 'admin' then
     return jsonb_build_object('success', false, 'code', 'ADMIN_PROTECTED',
       'message', 'Category sync never demotes an admin');
   end if;
