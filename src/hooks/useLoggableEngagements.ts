@@ -16,6 +16,11 @@ export interface LoggableEngagement {
   work_order_required: boolean;
   is_internal: boolean;
   practica: number | null;
+  // 0827-184: 0 administrativa, 1 cliente, 2 capacitación, 3 calidad. Consumido por
+  // filterActivitiesForEngagement/TimesheetGrid/TrackerBar/ManualEntryDialog/TrackerEdit para
+  // decidir si un encargo requiere actividad -- debe viajar por el RPC igual que antes viajaba
+  // en el SELECT directo a `engagements` que este bug reemplazó.
+  funcion: number | null;
   start_date: string | null;
   end_date: string | null;
   engagement_state_override?: number | null;
@@ -33,6 +38,7 @@ interface LoggableEngagementRow {
   work_order_required: boolean;
   is_internal: boolean;
   practica: number | null;
+  funcion: number | null;
   start_date: string | null;
   end_date: string | null;
   engagement_state_override: number | null;
@@ -49,6 +55,7 @@ function toLoggableEngagement(row: LoggableEngagementRow): LoggableEngagement {
     work_order_required: row.work_order_required,
     is_internal: row.is_internal,
     practica: row.practica,
+    funcion: row.funcion,
     start_date: row.start_date,
     end_date: row.end_date,
     engagement_state_override: row.engagement_state_override,
