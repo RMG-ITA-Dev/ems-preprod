@@ -250,4 +250,26 @@ describe("TimesheetGrid activity scope (BUG 0827-184)", () => {
     expect(optionValues).toEqual(["aud-1"]);
     expect(optionValues).not.toContain("adm-1");
   });
+
+  // review#15 (iteration 4): the Select preserves a stale activity for display on any
+  // row (locked or not) so it never goes blank, but an EDITABLE row must not let the
+  // hour cells stay open (and thus autosave/submit) with an activity from another
+  // practica — that's the same fail-closed guarantee funcion=null already gets.
+  it("funcion=1 (cliente), editable row with a stale activity from another practica: hour cells stay disabled", () => {
+    const eng = makeEngagement({ engagement_id: "eng-client", funcion: 1, practica: 1 });
+    render(
+      <TimesheetGrid
+        {...baseProps}
+        entries={[makeEntry({ engagement_id: "eng-client", activity_id: "tax-1" })]}
+        engagements={[eng]}
+        activityNotRequiredIds={activityNotRequiredIdsFor([eng])}
+      />
+    );
+    // Still shown for display (never blanks an existing row) ...
+    const select = screen.getByTestId("activity-select") as HTMLSelectElement;
+    expect(select.value).toBe("tax-1");
+    // ... but "tax-1" is service code 3, not this engagement's practica (1), so the
+    // hour cells must stay locked until a valid activity is chosen.
+    screen.getAllByRole("textbox").forEach((input) => expect(input).toBeDisabled());
+  });
 });

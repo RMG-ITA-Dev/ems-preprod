@@ -764,8 +764,10 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
           status:              data.status,
           work_order_required: workOrderRequired,
           // 0827-184: derived read-only from funcion (immutable after create), not an
-          // independently-editable flag — see the read-only Switch below.
-          activity_required:   data.funcion === FUNCION_CLIENTE,
+          // independently-editable flag — see the read-only Switch below. Omitted when
+          // funcion is unset (legacy row) so an unrelated edit doesn't stomp the value the
+          // backfill deliberately left untouched (`WHERE funcion IS NOT NULL`).
+          ...(data.funcion != null ? { activity_required: data.funcion === FUNCION_CLIENTE } : {}),
           is_internal:         isInternal,
           approval_required:   approvalRequired,
           sqr_id:              data.sqr_id ?? null,

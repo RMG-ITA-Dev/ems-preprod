@@ -21,6 +21,7 @@ import { useSubmitTimesheet, useUnsubmitTimesheet, useCopyPreviousWeek, useCopyT
 import { isTimesheetError } from "@/lib/timesheetErrors";
 import { useStaffAssignmentSegments } from "@/hooks/scheduler/useStaffAssignmentSegments";
 import { countUnauthorizedEntries } from "@/lib/timesheetAssignmentAdvisory";
+import { filterActivitiesForEngagement } from "@/lib/activityFilters";
 import {
   AlertDialog,
   AlertDialogContent,
@@ -457,10 +458,17 @@ const TimeSheet = () => {
     // 0827-184: anchored on funcion, not the stored activity_required flag (same rule as
     // activityNotRequiredIds/handleEngagementChange) — funcion == null fails closed like
     // funcion === 1 (activity required), it must not be treated as ADM-exempt.
+    // 0827-184 review#15: validate against the canonical filter (no currentActivityId) instead
+    // of only rejecting empty/ADM — a stale activity from another practica (or left over from a
+    // funcion that changed to null) is non-empty and non-ADM, so it slipped through this guard
+    // while still displayed/editable in the grid.
     const invalidActivityRow = entries.some(entry => {
       const eng = engagements.find(e => e.engagement_id === entry.engagement_id);
       const isActRequired = eng?.funcion == null || eng.funcion === 1;
-      return isActRequired && (!entry.activity_id || entry.activity_id === adminActivityId);
+      if (!isActRequired) return false;
+      if (!entry.activity_id) return true;
+      const validActivities = filterActivitiesForEngagement(activities, eng?.funcion, eng?.practica);
+      return !validActivities.some(a => a.activity_id === entry.activity_id);
     });
     if (invalidActivityRow) {
       toast.error(t("timesheet.invalidActivityRow"));

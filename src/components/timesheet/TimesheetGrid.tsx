@@ -825,6 +825,20 @@ export function TimesheetGrid({
               const rowApproval = getApprovalStatus(row.engagementId, row.activityId);
               const isRowApproved = rowApproval?.status === "approved";
               const isRowLocked = isLocked || isRowApproved;
+              // 0827-184 review#15: the Select preserves row.activityId for display even when it
+              // no longer matches the engagement's funcion/practica (e.g. stale cross-practica
+              // activity, or funcion reset to null), so an editable row can look "selected" while
+              // holding an invalid activity. Cross-check against the canonical filter (without
+              // preserving) to keep hour cells locked until a valid activity is chosen.
+              const isActivityInvalidForEngagement =
+                !isRowLocked &&
+                !!row.engagementId &&
+                !!row.activityId &&
+                !filterActivitiesForEngagement(
+                  activities,
+                  funcionByEngagement.get(row.engagementId),
+                  practicaByEngagement.get(row.engagementId),
+                ).some((act) => act.activity_id === row.activityId);
               return (
               <tr
                 key={row.id}
@@ -901,7 +915,7 @@ export function TimesheetGrid({
                   const isAfterEngEnd = !!(engDates?.end && dateStr > engDates.end);
                   const isOutOfEngagementRange = isBeforeEngStart || isAfterEngEnd;
                   const isDisabled =
-                    isRowLocked || isDayLockedByHire || isDayLockedByTermination || isHolidayBlocked || isAdmMissing || isOutOfEngagementRange || !row.engagementId || (!row.activityId && !isActivityNotRequired);
+                    isRowLocked || isDayLockedByHire || isDayLockedByTermination || isHolidayBlocked || isAdmMissing || isOutOfEngagementRange || !row.engagementId || (!row.activityId && !isActivityNotRequired) || isActivityInvalidForEngagement;
 
                   // Fase 6: advisory no bloqueante (bugs/scheduler/fase_6). INVARIANTE: nunca
                   // entra en isDisabled ni en ningún guard de guardado. Se excluyen las ramas

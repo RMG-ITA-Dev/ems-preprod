@@ -162,6 +162,21 @@ describe("EngagementForm — activity_required derived from funcion (0827-184)",
     const [[call]] = mockUpdateMutateAsync.mock.calls;
     expect(call.data).toMatchObject({ activity_required: false });
   });
+
+  // review#15 (0827-184, iteration 4): a legacy engagement with funcion unset must not have
+  // activity_required forced to false on an unrelated edit — the backfill migration
+  // deliberately left these rows untouched (`WHERE funcion IS NOT NULL`), and a stray
+  // `false` here would make the DB trigger start auto-forcing ADM on future time entries.
+  it("funcion=null (legacy, unset): update payload omits activity_required instead of forcing false", async () => {
+    const user = userEvent.setup();
+    render(<EngagementForm engagement={{ ...baseEngagement, funcion: null }} />);
+
+    await user.click(screen.getByRole("button", { name: "common.saveChanges" }));
+
+    await waitFor(() => expect(mockUpdateMutateAsync).toHaveBeenCalled());
+    const [[call]] = mockUpdateMutateAsync.mock.calls;
+    expect(call.data).not.toHaveProperty("activity_required");
+  });
 });
 
 // Driving a full, fully-valid CREATE submission (oficina/practica/funcion/society/taxonomy/
