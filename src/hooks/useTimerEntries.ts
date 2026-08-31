@@ -19,21 +19,42 @@ export interface TimerEntry {
   engagement?: {
     engagement_name: string;
     engagement_code: string | null;
-  };
+  } | null;
   activity?: {
     activity_code: string;
     description: string;
   };
 }
 
+// BUG 0828-186 follow-up (review iter. 3): el embed `engagement:engagements(...)` sigue sujeto
+// a la RLS normal por asignación, pero desde este bug el Tracker permite cargar horas en
+// encargos no asignados (vía list_loggable_engagements). Para esas filas el embed llega null;
+// se completa nombre/código con el mismo RPC ya usado para el selector, sin abrir la RLS general.
+async function backfillMissingEngagementNames<
+  T extends { engagement_id: string; engagement?: { engagement_name: string; engagement_code: string | null } | null }
+>(rows: T[]): Promise<T[]> {
+  const hasMissing = rows.some((r) => !r.engagement);
+  if (!hasMissing) return rows;
+
+  const { data, error } = await supabase.rpc('list_loggable_engagements' as never);
+  if (error || !data) return rows;
+
+  const byId = new Map<string, { engagement_name: string; engagement_code: string | null }>();
+  for (const row of data as { engagement_id: string; engagement_name: string; engagement_code: string | null }[]) {
+    byId.set(row.engagement_id, { engagement_name: row.engagement_name, engagement_code: row.engagement_code });
+  }
+
+  return rows.map((r) => (r.engagement ? r : { ...r, engagement: byId.get(r.engagement_id) ?? r.engagement }));
+}
+
 export function useTimerEntries() {
   const { staffRecord } = useCurrentStaff();
-  
+
   return useQuery({
     queryKey: ['timer_entries', staffRecord?.staff_id],
     queryFn: async () => {
       if (!staffRecord?.staff_id) return [];
-      
+
       const { data, error } = await supabase
         .from('timer_entries')
         .select(`
@@ -43,9 +64,9 @@ export function useTimerEntries() {
         `)
         .eq('staff_id', staffRecord.staff_id)
         .order('started_at', { ascending: false });
-      
+
       if (error) throw error;
-      return data as TimerEntry[];
+      return backfillMissingEngagementNames(data as TimerEntry[]);
     },
     enabled: !!staffRecord?.staff_id,
   });
@@ -246,7 +267,9 @@ export function useRunningTimerEntry() {
         .maybeSingle();
 
       if (error) throw error;
-      return data as TimerEntry | null;
+      if (!data) return null;
+      const [withEngagement] = await backfillMissingEngagementNames([data as TimerEntry]);
+      return withEngagement;
     },
     enabled: !!staffRecord?.staff_id,
   });
