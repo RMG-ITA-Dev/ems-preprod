@@ -1135,6 +1135,7 @@
     "searchEngagement": "Buscar encargo...",
     "noMatchingEngagements": "No se encontraron encargos.",
     "selectActivity": "Seleccionar actividad",
+    "admActivityPlaceholder": "ADM - Administrativa",
     "weekDays": {
       "mon": "Lun",
       "tue": "Mar",

@@ -39,6 +39,7 @@ export interface ApprovedEngagement {
   work_order_required: boolean;
   is_internal: boolean;
   practica: number | null;     // service code (matches services.code) — for activity filtering
+  funcion: number | null;      // 0 administrativa, 1 cliente, 2 capacitación, 3 calidad (0827-184)
   start_date: string | null;   // BUG 0220-63
   end_date: string | null;     // BUG 0220-63
   engagement_state_override?: number | null;  // FEAT 0602-135: override manual del estado
@@ -53,6 +54,7 @@ export interface ActivityCode {
   activity_code: string;
   description: string;
   is_active: boolean;
+  is_system: boolean;
   service?: { code: number } | null;
 }
 
@@ -160,7 +162,7 @@ export function useTimesheetWeek(weekStartDate: Date, workDays: number = 5): Tim
           .from("engagements")
           .select(`
             engagement_id, engagement_code, engagement_name,
-            activity_required, work_order_required, is_internal, practica,
+            activity_required, work_order_required, is_internal, practica, funcion,
             start_date, end_date, engagement_state_override,
             client:clients!client_id(client_id, client_legal_name)
           `)
@@ -179,7 +181,7 @@ export function useTimesheetWeek(weekStartDate: Date, workDays: number = 5): Tim
         .from("engagements")
         .select(`
           engagement_id, engagement_code, engagement_name,
-          activity_required, work_order_required, is_internal, practica,
+          activity_required, work_order_required, is_internal, practica, funcion,
           start_date, end_date, engagement_state_override,
           client:clients!client_id(client_id, client_legal_name)
         `)

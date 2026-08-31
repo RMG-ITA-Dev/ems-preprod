@@ -33,6 +33,8 @@ function eng(
     activity_required: false,
     work_order_required: false,
     is_internal: false,
+    practica: null,
+    funcion: null,
     start_date: null,
     end_date: null,
     client: clientName ? { client_id: id, client_legal_name: clientName } : null,
