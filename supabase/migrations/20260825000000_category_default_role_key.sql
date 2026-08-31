@@ -365,3 +365,78 @@ BEGIN
   RETURN v_inserted;
 END;
 $$;
+
+-- ---------------------------------------------------------------------
+-- 7) RPC de sincronización categoría→rol, con la precondición ATÓMICA
+-- ---------------------------------------------------------------------
+-- El invariante que promete este flujo es "la sincronización por categoría NUNCA degrada
+-- a un administrador". Chequearlo en el cliente no alcanza: entre la lectura y la
+-- escritura otro admin puede promover a esa persona, y `admin_set_user_role_key` protege
+-- solo al ÚLTIMO admin, no a cualquiera. La precondición tiene que evaluarse dentro de la
+-- misma transacción que escribe.
+--
+-- Esta función NO duplica la lógica de admin_set_user_role_key —delega en ella— para no
+-- tener dos copias de los guards de NOT_ADMIN / SELF_CHANGE / LAST_ADMIN / validación de
+-- catálogo / auditoría, que se irían separando con el tiempo. Y NO se le agrega un
+-- parámetro a esa función porque es la que asigna TODOS los roles del sistema: Gestión de
+-- Roles sí debe poder degradar a un admin, y tocar su firma pondría en riesgo eso.
+--
+-- La atomicidad sale de dos candados tomados ANTES de leer:
+--   · el advisory lock 67890 — el mismo que toman admin_set_user_role y
+--     admin_set_user_role_key como primera instrucción, así que cualquier cambio de rol
+--     por RPC queda serializado con esta lectura. Es re-entrante en la misma transacción,
+--     de modo que la llamada anidada de más abajo no se bloquea a sí misma.
+--   · el FOR UPDATE sobre la fila — cubre además el UPDATE DIRECTO a user_roles que la
+--     policy "Admins can manage all roles" permite, y que no pasa por ningún RPC.
+CREATE OR REPLACE FUNCTION public.sync_user_role_from_category(
+  p_target_user_id uuid,
+  p_new_role_key text,
+  p_reason text DEFAULT NULL::text
+) RETURNS jsonb
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+declare
+  v_current_role_key text;
+  v_found            boolean;
+begin
+  -- `admin` no es un rol sugerible por categoría (ver categories_default_role_key_not_admin).
+  -- El CHECK ya impide guardarlo, pero esta función es una entrada pública: se rechaza acá
+  -- también, para que no exista ningún camino de escalada vía sincronización.
+  if p_new_role_key = 'admin' then
+    return jsonb_build_object('success', false, 'code', 'ADMIN_TARGET_FORBIDDEN',
+      'message', 'A category may not suggest the admin role');
+  end if;
+
+  perform pg_advisory_xact_lock(67890);
+
+  select role_key, true into v_current_role_key, v_found
+    from user_roles
+   where user_id = p_target_user_id
+   for update;
+
+  if not v_found then
+    return jsonb_build_object('success', false, 'code', 'USER_NOT_FOUND',
+      'message', 'User role not found');
+  end if;
+
+  -- El invariante, evaluado con la fila bloqueada: de acá al UPDATE nadie puede promover
+  -- a esta persona a admin sin esperar a que esta transacción termine.
+  if v_current_role_key = 'admin' then
+    return jsonb_build_object('success', false, 'code', 'ADMIN_PROTECTED',
+      'message', 'Category sync never demotes an admin');
+  end if;
+
+  -- Delegación: los candados siguen tomados por esta transacción, así que la relectura de
+  -- admin_set_user_role_key ve exactamente lo que se validó arriba.
+  return public.admin_set_user_role_key(p_target_user_id, p_new_role_key, p_reason);
+end;
+$$;
+
+COMMENT ON FUNCTION public.sync_user_role_from_category(uuid, text, text) IS
+  'Aplica el rol sugerido por una categoría (BUG 0820-182). Delega en admin_set_user_role_key, agregando dos precondiciones que esa función no tiene y que este flujo sí promete: nunca degradar a un admin, y nunca asignar admin. Se evalúan con la fila de user_roles bloqueada, de modo que la garantía es atómica y no una carrera del cliente.';
+
+REVOKE ALL ON FUNCTION public.sync_user_role_from_category(uuid, text, text) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.sync_user_role_from_category(uuid, text, text) TO anon;
+GRANT ALL ON FUNCTION public.sync_user_role_from_category(uuid, text, text) TO authenticated;
+GRANT ALL ON FUNCTION public.sync_user_role_from_category(uuid, text, text) TO service_role;

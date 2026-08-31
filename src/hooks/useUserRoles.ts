@@ -136,6 +136,77 @@ export function useUpdateUserRoleKey() {
   });
 }
 
+/**
+ * BUG 0820-182 — aplica el rol SUGERIDO por una categoría.
+ *
+ * No usa `useUpdateUserRoleKey` porque este flujo promete algo que
+ * `admin_set_user_role_key` no garantiza: no degradar a NINGÚN admin (esa función protege
+ * solo al último). Chequearlo en el cliente es una carrera —otro admin puede promover al
+ * destino entre la lectura y la escritura—, así que la precondición se evalúa dentro de la
+ * transacción, con la fila bloqueada, en `sync_user_role_from_category`. Esa RPC delega en
+ * `admin_set_user_role_key`, de modo que los guards de NOT_ADMIN / SELF_CHANGE /
+ * LAST_ADMIN, el espejo del enum legacy y la auditoría son los mismos.
+ */
+export function useSyncUserRoleFromCategory() {
+  const queryClient = useQueryClient();
+  const { t } = useTranslation();
+
+  return useMutation({
+    mutationFn: async ({
+      userId,
+      newRoleKey,
+      reason,
+    }: { userId: string; newRoleKey: string; reason?: string }) => {
+      // NOTA: sync_user_role_from_category aún no está en types.ts (se regenera vía
+      // Lovable tras aplicar la migración). Hasta entonces casteamos el nombre.
+      const { data, error } = await supabase.rpc(
+        "sync_user_role_from_category" as never,
+        {
+          p_target_user_id: userId,
+          p_new_role_key: newRoleKey,
+          p_reason: reason || null,
+        } as never
+      );
+
+      if (error) throw error;
+      const result = data as unknown as { success: boolean; code: string; message: string };
+      if (!result.success) {
+        throw new Error(result.code);
+      }
+      return result;
+    },
+    onSuccess: () => {
+      // Mismas invalidaciones que useUpdateUserRoleKey: el rol efectivo cambió, y con él
+      // el set de candidatos del Equipo del encargo (BUG 0722-162).
+      queryClient.invalidateQueries({ queryKey: ["all_user_roles"] });
+      queryClient.invalidateQueries({ queryKey: ["authz_context"] });
+      queryClient.invalidateQueries({ queryKey: ["engagement-team-candidates"] });
+      toast.success(t("userRoles.roleUpdated"));
+    },
+    onError: (error) => {
+      const code = error.message;
+      if (code === "ADMIN_PROTECTED") {
+        // El destino se volvió admin entre que se abrió el diálogo y se confirmó.
+        toast.info(t("staff.adminRoleProtected"));
+      } else if (code === "LAST_ADMIN") {
+        toast.error(t("userRoles.lastAdminBlocked"));
+      } else if (code === "SELF_CHANGE") {
+        toast.error(t("userRoles.cannotChangeSelf"));
+      } else if (code === "NOT_ADMIN") {
+        toast.error(t("userRoles.notAdmin"));
+      } else if (
+        code === "INVALID_ROLE" ||
+        code === "ROLE_NOT_MAPPED" ||
+        code === "ADMIN_TARGET_FORBIDDEN"
+      ) {
+        toast.error(t("userRoles.invalidRole"));
+      } else {
+        toast.error(t("staff.roleSyncError"), { description: error.message });
+      }
+    },
+  });
+}
+
 export function useDeleteAuthUser() {
   const queryClient = useQueryClient();
   const { t } = useTranslation();

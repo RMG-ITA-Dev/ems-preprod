@@ -65,8 +65,10 @@ vi.mock("@/hooks/mutations", () => ({
 
 vi.mock("@/hooks/useUserRoles", () => ({
   useUpdateUserRole: () => ({ mutateAsync: vi.fn(), isPending: false }),
-  // 0820-182: StaffForm consume useUpdateUserRoleKey para el sync categoría→rol.
+  // 0820-182: StaffForm consume useSyncUserRoleFromCategory para el sync categoría→rol
+  // (la RPC que aplica la precondición de admin de forma atómica).
   useUpdateUserRoleKey: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useSyncUserRoleFromCategory: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
 // Controlled isAdmin — toggled per test via the `adminOverride` variable.

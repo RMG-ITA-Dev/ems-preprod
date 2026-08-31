@@ -53,7 +53,7 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useAuthorization } from "@/hooks/useAuthorization";
-import { useUpdateUserRoleKey } from "@/hooks/useUserRoles";
+import { useSyncUserRoleFromCategory } from "@/hooks/useUserRoles";
 import { isSuggestableRoleKey } from "@/lib/categoryRoleSuggestion";
 import { PROFICIENCY_LEVELS, type ProficiencyLevel } from "@/integrations/supabase/customTypes";
 import { formatFullDate, fromISODateString } from "@/lib/timesheetUtils";
@@ -218,7 +218,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
   const createCompetency = useCreateStaffCompetency();
   const updateCompetency = useUpdateStaffCompetency();
   const deleteCompetency = useDeleteStaffCompetency();
-  const updateRoleKeyMutation = useUpdateUserRoleKey();
+  const syncRoleMutation = useSyncUserRoleFromCategory();
 
   // 0820-182: mismo fallback que UserRolesManager.getRoleLabel — el catálogo trae su
   // label_key ("authz.role.*"); se cae a las claves del enum legacy y al role_key crudo
@@ -366,12 +366,15 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
   };
 
   /**
-   * Lee el `role_key` vigente del usuario vinculado.
+   * Lee el `role_key` vigente del usuario vinculado, solo para decidir si vale la pena
+   * OFRECER la sincronización. La garantía de fondo no depende de esta lectura: la aplica
+   * `sync_user_role_from_category` dentro de su transacción.
    *
    * Devuelve `{ ok: false }` ante CUALQUIER problema —error de RLS/red, o cero filas— en
    * vez de colapsarlo a "sin rol". La diferencia importa: si esto devolviera null y se
-   * tratara como "el rol difiere", un lookup fallido saltearía la protección de admin y
-   * ofrecería degradar a un administrador. Ante la duda, no se ofrece nada.
+   * tratara como "el rol difiere", un lookup fallido abriría el diálogo sobre un admin y
+   * le propondría al usuario una degradación que la BD va a rechazar. Ante la duda, no se
+   * ofrece nada.
    */
   const readCurrentRoleKey = async (
     userId: string,
@@ -393,41 +396,13 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
 
   const onConfirmSync = async () => {
     if (syncData) {
-      // Se relee el rol JUSTO antes de mutar. El chequeo del submit puede haber quedado
-      // viejo: otro admin pudo promover a esta persona mientras el diálogo estaba abierto,
-      // y `admin_set_user_role_key` solo protege al ÚLTIMO admin, no a cualquiera — así
-      // que sin esto la sincronización por categoría podría degradar a un administrador,
-      // que es justo lo que promete no hacer.
-      //
-      // No es atómico: queda una ventana de milisegundos entre esta lectura y el RPC.
-      // Cerrarla del todo exigiría mover la precondición al servidor (un parámetro nuevo
-      // en admin_set_user_role_key); no se hizo acá porque ese RPC es el que asigna TODOS
-      // los roles y Gestión de Roles sí debe poder degradar a un admin.
-      const current = await readCurrentRoleKey(syncData.userId);
-
-      if (!current.ok) {
-        toast.error(t("staff.roleSyncError"));
-        setShowSyncDialog(false);
-        finishSave();
-        return;
-      }
-
-      if (current.roleKey === "admin" && syncData.newRoleKey !== "admin") {
-        toast.info(t("staff.adminRoleProtected"));
-        setShowSyncDialog(false);
-        finishSave();
-        return;
-      }
-
-      if (current.roleKey === syncData.newRoleKey) {
-        // Otro admin ya lo dejó en el rol sugerido: nada que hacer.
-        setShowSyncDialog(false);
-        finishSave();
-        return;
-      }
-
+      // No hace falta releer el rol acá: `sync_user_role_from_category` evalúa la
+      // precondición ("nunca degradar a un admin") DENTRO de la transacción, con la fila de
+      // user_roles bloqueada. Un chequeo de cliente antes de la llamada sería una carrera
+      // —otro admin puede promover al destino en el medio— y además redundante: si eso
+      // pasa, la RPC responde ADMIN_PROTECTED y el hook muestra el aviso.
       try {
-        await updateRoleKeyMutation.mutateAsync({
+        await syncRoleMutation.mutateAsync({
           userId: syncData.userId,
           newRoleKey: syncData.newRoleKey,
           // El RPC deja este texto en user_lifecycle_audit_log.reason, así que el cambio
@@ -435,9 +410,9 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
           reason: "Category change sync",
         });
       } catch {
-        // useUpdateUserRoleKey ya muestra el toast de error traducido por código
-        // (LAST_ADMIN / SELF_CHANGE / INVALID_ROLE / ...). El staff YA se guardó: el
-        // fallo del rol no debe retener al usuario en el formulario.
+        // El hook ya muestra el toast traducido por código (ADMIN_PROTECTED / LAST_ADMIN /
+        // SELF_CHANGE / INVALID_ROLE / ...). El staff YA se guardó: el fallo del rol no
+        // debe retener al usuario en el formulario.
       }
     }
     setShowSyncDialog(false);
@@ -1387,7 +1362,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
       <Dialog
         open={showSyncDialog}
         onOpenChange={(open) => {
-          if (!open && !updateRoleKeyMutation.isPending) onSkipSync();
+          if (!open && !syncRoleMutation.isPending) onSkipSync();
         }}
       >
         <DialogContent className="max-w-md">
@@ -1406,11 +1381,11 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
             <Button
               variant="cancel"
               onClick={onSkipSync}
-              disabled={updateRoleKeyMutation.isPending}
+              disabled={syncRoleMutation.isPending}
             >
               {t("staff.syncRoleSkip")}
             </Button>
-            <LoadingButton onClick={onConfirmSync} loading={updateRoleKeyMutation.isPending}>
+            <LoadingButton onClick={onConfirmSync} loading={syncRoleMutation.isPending}>
               {t("staff.syncRoleConfirm")}
             </LoadingButton>
           </DialogFooter>

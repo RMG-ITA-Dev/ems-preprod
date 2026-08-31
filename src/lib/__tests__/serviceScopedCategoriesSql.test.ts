@@ -275,3 +275,76 @@ describe("categories.default_role_key (0820-182)", () => {
     expect(defaultRoleKeySql).not.toContain("ar.legacy_app_role = c.default_app_role");
   });
 });
+
+/**
+ * `sync_user_role_from_category` — la precondición atómica del flujo de sincronización.
+ *
+ * El invariante que promete el flujo es "la sincronización por categoría NUNCA degrada a un
+ * administrador". Un chequeo de cliente no puede garantizarlo: entre la lectura y la
+ * escritura otro admin puede promover al destino, y `admin_set_user_role_key` protege solo
+ * al ÚLTIMO admin. De ahí que la precondición viva en SQL, con la fila bloqueada.
+ */
+describe("sync_user_role_from_category (0820-182)", () => {
+  const body = (): string => {
+    const start = defaultRoleKeySql.indexOf(
+      "CREATE OR REPLACE FUNCTION public.sync_user_role_from_category(",
+    );
+    expect(start).toBeGreaterThan(-1);
+    return defaultRoleKeySql.slice(start, defaultRoleKeySql.indexOf("\n$$;", start));
+  };
+
+  it("toma los candados ANTES de leer el rol", () => {
+    const fn = body();
+    // 67890 es el mismo advisory lock que toman admin_set_user_role y
+    // admin_set_user_role_key como primera instrucción: sin él, un cambio de rol por RPC
+    // podría colarse entre la validación y la escritura.
+    const lock = fn.indexOf("pg_advisory_xact_lock(67890)");
+    const read = fn.indexOf("select role_key");
+    expect(lock).toBeGreaterThan(-1);
+    expect(read).toBeGreaterThan(lock);
+    // FOR UPDATE sobre la fila: cubre el UPDATE DIRECTO a user_roles que permite la policy
+    // "Admins can manage all roles" y que no pasa por ningún RPC.
+    expect(fn).toContain("for update");
+  });
+
+  it("rechaza degradar a un admin, con la fila ya bloqueada", () => {
+    const fn = body();
+    const read = fn.indexOf("select role_key");
+    const guard = fn.indexOf("v_current_role_key = 'admin'");
+    expect(guard).toBeGreaterThan(read);
+    expect(fn).toContain("ADMIN_PROTECTED");
+  });
+
+  it("rechaza asignar `admin` como rol sugerido", () => {
+    expect(body()).toContain("ADMIN_TARGET_FORBIDDEN");
+  });
+
+  it("delega en admin_set_user_role_key en vez de duplicar sus guards", () => {
+    const fn = body();
+    // Delegar es lo que evita dos copias de NOT_ADMIN / SELF_CHANGE / LAST_ADMIN, del
+    // espejo del enum legacy y de la auditoría, que se irían separando con el tiempo.
+    expect(fn).toContain("return public.admin_set_user_role_key(");
+    expect(fn).not.toContain("insert into user_lifecycle_audit_log");
+    expect(fn).not.toContain("LAST_ADMIN");
+  });
+
+  it("no modifica admin_set_user_role_key", () => {
+    // Esa función asigna TODOS los roles del sistema y Gestión de Roles sí debe poder
+    // degradar a un admin: cambiarle la firma o los guards pondría eso en riesgo.
+    expect(defaultRoleKeySql).not.toContain(
+      "CREATE FUNCTION public.admin_set_user_role_key(",
+    );
+    expect(defaultRoleKeySql).not.toContain("DROP FUNCTION IF EXISTS public.admin_set_user_role_key");
+  });
+
+  it("repone sus grants", () => {
+    for (const role of ["anon", "authenticated", "service_role"]) {
+      expect(defaultRoleKeySql).toContain(
+        `GRANT ALL ON FUNCTION public.sync_user_role_from_category(uuid, text, text) TO ${role};`,
+      );
+    }
+    expect(defaultRoleKeySql).toContain(
+      "REVOKE ALL ON FUNCTION public.sync_user_role_from_category(uuid, text, text) FROM PUBLIC;",
+    );
+  });
+});

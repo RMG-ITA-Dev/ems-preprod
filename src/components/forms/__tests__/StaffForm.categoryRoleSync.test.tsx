@@ -119,7 +119,7 @@ vi.mock("@/hooks/mutations", () => ({
 // "en vuelo" sin depender de timing real.
 let roleKeyPending = false;
 vi.mock("@/hooks/useUserRoles", () => ({
-  useUpdateUserRoleKey: () => ({
+  useSyncUserRoleFromCategory: () => ({
     mutateAsync: updateRoleKeyMutateAsync,
     get isPending() {
       return roleKeyPending;
@@ -495,32 +495,24 @@ describe("StaffForm — sync categoría→rol (0820-182)", () => {
     expect(updateRoleKeyMutateAsync).not.toHaveBeenCalled();
   });
 
-  it("Test 16: si el destino se volvió admin mientras el diálogo estaba abierto, no lo degrada", async () => {
-    // El chequeo del submit puede quedar viejo: otro admin pudo promover a esta persona.
-    // `admin_set_user_role_key` solo protege al ÚLTIMO admin, no a cualquiera, así que sin
-    // releer el rol la sincronización por categoría degradaría a un administrador.
+  it("Test 16: la precondición de admin la aplica la RPC, no el cliente", async () => {
+    // Antes se releía el rol antes de mutar, lo que seguía siendo una carrera: otro admin
+    // podía promover al destino en la ventana entre la lectura y la escritura.
+    // `sync_user_role_from_category` evalúa la precondición con la fila bloqueada, así que
+    // el cliente ya NO debe interponer su propio chequeo — solo llamar y reportar.
+    // Se simula la respuesta ADMIN_PROTECTED del servidor.
     roleKeyOnSecondRead = "admin";
+    updateRoleKeyMutateAsync.mockRejectedValueOnce(new Error("ADMIN_PROTECTED"));
     const user = userEvent.setup();
     renderForm();
 
     await changeCategoryAndSave(user, "cat-gerente");
     await user.click(await screen.findByText("staff.syncRoleConfirm"));
 
-    await waitFor(() => expect(toast.info).toHaveBeenCalledWith("staff.adminRoleProtected"));
-    expect(updateRoleKeyMutateAsync).not.toHaveBeenCalled();
+    // Se llamó a la RPC (no se cortó del lado del cliente)...
+    await waitFor(() => expect(updateRoleKeyMutateAsync).toHaveBeenCalled());
+    // ...y el rechazo del servidor no retiene al usuario: el staff ya se guardó.
     await waitFor(() => expect(onSaveSuccess).toHaveBeenCalled());
-  });
-
-  it("Test 17: si otro admin ya lo dejó en el rol sugerido, no vuelve a mutar", async () => {
-    roleKeyOnSecondRead = "ita_manager";
-    const user = userEvent.setup();
-    renderForm();
-
-    await changeCategoryAndSave(user, "cat-gerente");
-    await user.click(await screen.findByText("staff.syncRoleConfirm"));
-
-    await waitFor(() => expect(onSaveSuccess).toHaveBeenCalled());
-    expect(updateRoleKeyMutateAsync).not.toHaveBeenCalled();
   });
 
   it("Test 12: descartar el diálogo (Escape/click afuera) equivale a omitir", async () => {
