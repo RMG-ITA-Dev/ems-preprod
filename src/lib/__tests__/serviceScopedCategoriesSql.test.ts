@@ -293,6 +293,30 @@ describe("sync_user_role_from_category (0820-182)", () => {
     return defaultRoleKeySql.slice(start, defaultRoleKeySql.indexOf("\n$$;", start));
   };
 
+  it("autoriza ANTES de tomar candados y de leer cualquier fila", () => {
+    // Es SECURITY DEFINER (saltea RLS) y está concedida a authenticated y anon, así que sin
+    // este guard las respuestas eran un oráculo: ADMIN_PROTECTED vs NOT_ADMIN revelaba si
+    // la cuenta de un staff es administradora, y STAFF_NOT_LINKED si tiene cuenta
+    // vinculada — dato que staff_directory excluye por ser PII. Y los candados se tomaban
+    // antes de autorizar, habilitando contención a cualquier autenticado.
+    const fn = body();
+    const guard = fn.indexOf("if not v_is_admin then");
+    const lock = fn.indexOf("pg_advisory_xact_lock(67890)");
+    const firstRead = fn.indexOf("from staff");
+
+    expect(guard).toBeGreaterThan(-1);
+    expect(fn).toContain("NOT_ADMIN");
+    expect(guard).toBeLessThan(lock);
+    expect(guard).toBeLessThan(firstRead);
+  });
+
+  it("usa el mismo predicado de admin que la función a la que delega", () => {
+    // is_admin() mira SOLO el enum legacy; admin_set_user_role_key acepta role_key O el
+    // enum, a propósito, para no bloquear a un admin que aún no tiene role_key. Si este
+    // guard usara is_admin() sería más estricto que la delegación y rechazaría a ese admin.
+    expect(body()).toContain("(role_key = 'admin' or role = 'admin')");
+  });
+
   it("recibe el STAFF, no el usuario ni el rol ya resueltos", () => {
     // Con la firma anterior —(user_id, role_key)— la función no miraba ninguna categoría,
     // pese a su nombre: si otro admin cambiaba la categoría del staff, rompía el vínculo de

@@ -397,11 +397,36 @@ CREATE OR REPLACE FUNCTION public.sync_user_role_from_category(
     SET search_path TO 'public'
     AS $$
 declare
+  v_is_admin         boolean;
   v_auth_user_id     uuid;
   v_category_id      uuid;
   v_suggested        text;
   v_current_role_key text;
 begin
+  -- AUTORIZACIÓN PRIMERO, antes de tomar candados y antes de leer cualquier fila.
+  --
+  -- Es SECURITY DEFINER, así que saltea RLS: sin este guard un autenticado cualquiera
+  -- —o `anon`, que también tiene el GRANT— podía usar las respuestas como oráculo.
+  -- ADMIN_PROTECTED vs NOT_ADMIN revelaba si la cuenta de un staff es administradora, y
+  -- STAFF_NOT_LINKED revelaba si tiene cuenta vinculada, dato que `staff_directory`
+  -- excluye a propósito por ser PII. Encima los candados se tomaban antes de autorizar,
+  -- así que cualquiera podía provocar contención llamando en loop.
+  --
+  -- El predicado replica el de admin_set_user_role_key (role_key O el enum legacy) en vez
+  -- de usar is_admin(), que mira solo el enum: con is_admin() este guard sería MÁS
+  -- estricto que la función a la que delega y rechazaría a un admin que todavía no tiene
+  -- role_key. Acá solo debe cortar temprano a quien la delegación ya iba a rechazar.
+  select exists (
+    select 1 from user_roles
+    where user_id = auth.uid()
+      and (role_key = 'admin' or role = 'admin')
+  ) into v_is_admin;
+
+  if not v_is_admin then
+    return jsonb_build_object('success', false, 'code', 'NOT_ADMIN',
+      'message', 'Only admins can change roles');
+  end if;
+
   -- Recibe el STAFF, no el usuario ni el rol ya resueltos. Esa es la diferencia: el rol a
   -- aplicar tiene que ser el que la categoría VIGENTE de ese staff sugiere, verificado con
   -- las filas bloqueadas. Con la firma anterior —(user_id, role_key)— la función no miraba
