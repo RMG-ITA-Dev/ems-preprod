@@ -213,7 +213,7 @@ BEGIN
     (v_e_term, v_client, 'Convergence E-terminal', 7, '2026-09-30'), -- Finalizado -> locked
     (v_e_null, v_client, 'Convergence E-null', NULL, '2026-09-30');  -- no override -> writable
 
-  -- engagement_accepts_assignment_writes: true for 1..5/8/NULL, false for 6/7/9.
+  -- engagement_accepts_assignment_writes: true for 1..5/8/NULL, false for 6/7 (0817-179 retiró el 9).
   IF NOT public.engagement_accepts_assignment_writes(v_e_open) THEN
     RAISE EXCEPTION 'CONVERGENCE FAIL — engagement_accepts_assignment_writes(override=1) should be true';
   END IF;
@@ -223,7 +223,7 @@ BEGIN
   IF NOT public.engagement_accepts_assignment_writes(v_e_null) THEN
     RAISE EXCEPTION 'CONVERGENCE FAIL — engagement_accepts_assignment_writes(override=NULL) should be true';
   END IF;
-  FOR v_state IN SELECT unnest(ARRAY[6, 9]) LOOP
+  FOR v_state IN SELECT unnest(ARRAY[6]) LOOP
     UPDATE public.engagements SET engagement_state_override = v_state WHERE engagement_id = v_e_term;
     IF public.engagement_accepts_assignment_writes(v_e_term) THEN
       RAISE EXCEPTION 'CONVERGENCE FAIL — engagement_accepts_assignment_writes(override=%) should be false', v_state;
@@ -234,7 +234,17 @@ BEGIN
   IF NOT public.engagement_accepts_assignment_writes('99999999-0000-4000-8000-000000000000'::uuid) THEN
     RAISE EXCEPTION 'CONVERGENCE FAIL — engagement_accepts_assignment_writes on a missing engagement should default true';
   END IF;
-  RAISE NOTICE 'PASS — engagement_accepts_assignment_writes: true for {1,5,8,NULL,missing}, false for {6,7,9} (G4)';
+  RAISE NOTICE 'PASS — engagement_accepts_assignment_writes: true for {1,5,8,NULL,missing}, false for {6,7} (G4)';
+
+  -- BUG 0817-179: el estado 9 Congelado se retiró. El CHECK de la columna es lo que lo hace
+  -- inalcanzable (borrarlo solo del enum de TypeScript lo esconde, no lo elimina).
+  BEGIN
+    UPDATE public.engagements SET engagement_state_override = 9 WHERE engagement_id = v_e_term;
+    RAISE EXCEPTION 'CONVERGENCE FAIL — engagement_state_override = 9 debe ser rechazado por engagements_state_override_check (0817-179)';
+  EXCEPTION WHEN check_violation THEN
+    NULL;  -- esperado
+  END;
+  RAISE NOTICE 'PASS — engagement_state_override = 9 rechazado por CHECK 1..8 (0817-179)';
 
   -- is_engagement_responsible: true for each of the 6 columns individually
   -- (via the real function, impersonated), false for someone linked to none.

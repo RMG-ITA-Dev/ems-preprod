@@ -6,7 +6,7 @@ import React from "react";
 /**
  * BUG 0828-186 (Punto D): "Nueva Hoja de Trabajo" must only offer engagements CREATED BY the
  * current user ("creado por mí"), still excluding ones that already have a worksheet and
- * terminal/frozen overrides. The query must wait for the current staff to resolve (it's part
+ * terminal overrides (6/7). The query must wait for the current staff to resolve (it's part
  * of the WHERE clause) and key its cache by staff so switching users doesn't leak state.
  * Admin is exempt from the creator filter (decisión del operador, 2026-08-31): admin already
  * has firm-wide visibility elsewhere via RLS, so this filter shouldn't narrow it further.
@@ -127,8 +127,8 @@ describe("useEngagementsWithoutWorksheet", () => {
     expect(result.current.data![0].engagement_id).toBe("eng-no-ws");
   });
 
-  it("excludes engagements with a terminal/frozen override (6/7/9)", async () => {
-    setupMocks([makeEngagement({ engagement_id: "eng-frozen", engagement_state_override: 9 })]);
+  it("excludes engagements with a terminal override (6/7)", async () => {
+    setupMocks([makeEngagement({ engagement_id: "eng-terminal", engagement_state_override: 7 })]);
 
     const { result } = renderHook(() => useEngagementsWithoutWorksheet(), { wrapper: createWrapper() });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));

@@ -289,8 +289,7 @@
     "inactive": "Inactive",
     "pending": "Pending",
     "completed": "Completed",
-    "cancelled": "Cancelled",
-    "frozen": "Frozen"
+    "cancelled": "Cancelled"
   },
   "engagementState": {
     "1": "Pending",
@@ -301,7 +300,6 @@
     "6": "Cancelled",
     "7": "Finalized",
     "8": "Rejected",
-    "9": "Frozen",
     "auto": "Automatic (from WO)"
   },
   "settings": {
@@ -737,10 +735,7 @@
     "searchPlaceholder": "Search by code, name, or client...",
     "selectClient": "Select a client",
     "selectStatus": "Select status",
-    "freezeToggle": "Freeze engagement",
-    "freezeHint": "Turning this on blocks logging hours and expense requests; turning it off returns it to Approved.",
-    "freezeUnavailable": "Only available when the engagement is Approved.",
-    "datesLockedByState": "Dates can't be edited in this state (Cancelled, Finalized, or Frozen).",
+    "datesLockedByState": "Dates can't be edited in this state (Cancelled or Finalized).",
     "selectPartner": "Select Partner/Director",
     "selectManager": "Select Manager/Supervisor",
     "selfAssignedLocked": "Automatically assigned based on your role.",

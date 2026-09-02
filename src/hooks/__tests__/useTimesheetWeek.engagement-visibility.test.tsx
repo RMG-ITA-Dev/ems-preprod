@@ -123,8 +123,8 @@ describe("useTimesheetWeek — engagement visibility (BUG 0828-186)", () => {
     expect(mockFrom).not.toHaveBeenCalledWith("work_orders");
   });
 
-  it("excludes engagements with a terminal/frozen override (6/7/8/9)", async () => {
-    setupMocks([makeRow({ engagement_id: "eng-frozen", engagement_state_override: 7 })]);
+  it("excludes engagements with a terminal override (6/7/8)", async () => {
+    setupMocks([makeRow({ engagement_id: "eng-terminal", engagement_state_override: 7 })]);
     const { result } = renderHook(() => useTimesheetWeek(new Date("2026-08-24")), {
       wrapper: createWrapper(),
     });

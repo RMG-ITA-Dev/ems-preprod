@@ -260,7 +260,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   //
   // Este archivo ya NO usa el enum legacy: todo sale de `role_key` y de los
   // permisos. El toggle de congelamiento del Gerente (`isManager`) se eliminó
-  // (0722-157); el estado "Congelado" ahora solo lo fija el Admin.
+  // (0722-157); el estado "Congelado" se retiró del sistema (0817-179).
   const { can, roleKey, isLoading: roleLoading, isFetching: roleFetching, isError: roleError } = useAuthorization();
   const isAdmin = roleKey === "admin";
   // BUG 0817-180: Super Admin (role_key admin) y Senior Partner eligen sociedad/practica/oficina
@@ -287,20 +287,19 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   // ofrecer una edición que no se puede persistir.
   const canEditClosing = can("engagement.update");
   // FEAT 0602-135: control del estado del encargo, ahora en el encabezado de "Información
-  // Básica" — Admin edita con <Select> (los 9 estados + "Automático"); el resto ve un badge
+  // Básica" — Admin edita con <Select> (los 8 estados + "Automático"); el resto ve un badge
   // de solo lectura (0722-157: se retira el toggle de congelar/descongelar del Gerente).
   const savedEffectiveState = engagement
     ? effectiveEngagementState(engagement, engagement.work_order)
     : null;
-  // Decisión A: en estados terminales/congelado (6 Cancelado, 7 Finalizado, 9 Congelado) NO se
+  // Decisión A: en estados terminales (6 Cancelado, 7 Finalizado) NO se
   // editan las fechas. Excepción: el Admin sí (necesario para reabrir un Finalizado extendiendo la
   // fecha fin — Política 6, Opción 1).
   const datesLockedByState =
     isEdit &&
     !isAdmin &&
     (savedEffectiveState === EngagementState.Cancelado ||
-      savedEffectiveState === EngagementState.Finalizado ||
-      savedEffectiveState === EngagementState.Congelado);
+      savedEffectiveState === EngagementState.Finalizado);
 
   const { data: clients } = useClients();
   const { data: allServices, isLoading: servicesLoading, isFetching: servicesFetching, isError: servicesError } = useServices();
@@ -1292,7 +1291,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                   )}
 
                   {/* FEAT 0602-135 (0722-157: movido al encabezado, sin el toggle del Gerente):
-                      Admin edita con <Select> los 9 estados + Automático; el resto ve el badge de
+                      Admin edita con <Select> los 8 estados + Automático; el resto ve el badge de
                       solo lectura, reutilizando el patrón de la tabla de Encargos. */}
                   {isEdit && isAdmin ? (
                     <FormField

@@ -4,7 +4,7 @@
 // window is the current quarter ± 3 months.
 //
 // Fase 3 (plan v2 §1, §4): statusFilter usa el bucket del estado
-// efectivo (incluye "frozen" para Congelado, sin equivalente legacy).
+// efectivo (BUG 0817-179: el bucket "frozen" se retiró con el estado 9).
 // `canView` usa el predicado compartido `canSeePlanning`.
 
 import { useCallback, useEffect, useMemo } from "react";
@@ -53,7 +53,6 @@ const STATUS_VALUES = [
   "pending",
   "completed",
   "cancelled",
-  "frozen",
 ] as const;
 type StatusFilter = (typeof STATUS_VALUES)[number];
 
@@ -333,7 +332,6 @@ const SchedulerL1 = () => {
               <ToggleGroupItem value="pending">{t("status.pending")}</ToggleGroupItem>
               <ToggleGroupItem value="completed">{t("status.completed")}</ToggleGroupItem>
               <ToggleGroupItem value="cancelled">{t("status.cancelled")}</ToggleGroupItem>
-              <ToggleGroupItem value="frozen">{t("status.frozen")}</ToggleGroupItem>
             </ToggleGroup>
             <FilterCombobox
               options={partnerOptions}

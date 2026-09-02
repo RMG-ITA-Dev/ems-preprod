@@ -289,8 +289,7 @@
     "inactive": "Inactivo",
     "pending": "Pendiente",
     "completed": "Completado",
-    "cancelled": "Cancelado",
-    "frozen": "Congelado"
+    "cancelled": "Cancelado"
   },
   "engagementState": {
     "1": "Pendiente",
@@ -301,7 +300,6 @@
     "6": "Cancelado",
     "7": "Finalizado",
     "8": "Rechazado",
-    "9": "Congelado",
     "auto": "Automático (según OT)"
   },
   "settings": {
@@ -737,10 +735,7 @@
     "searchPlaceholder": "Buscar por código, nombre, o cliente...",
     "selectClient": "Seleccionar un cliente",
     "selectStatus": "Seleccionar estado",
-    "freezeToggle": "Congelar encargo",
-    "freezeHint": "Activar bloquea la carga de horas y solicitudes de gastos; desactivar lo devuelve a Aprobado.",
-    "freezeUnavailable": "Solo disponible cuando el encargo está Aprobado.",
-    "datesLockedByState": "Las fechas no se pueden editar en este estado (Cancelado, Finalizado o Congelado).",
+    "datesLockedByState": "Las fechas no se pueden editar en este estado (Cancelado o Finalizado).",
     "selectPartner": "Seleccionar Socio/Director",
     "selectManager": "Seleccionar Gerente/Supervisor",
     "selfAssignedLocked": "Se te asignó automáticamente",

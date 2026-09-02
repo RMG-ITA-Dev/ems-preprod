@@ -91,14 +91,6 @@
   border: 1px dashed hsl(var(--border));
   color: hsl(var(--muted-foreground));
 }
-/* Fase 3 (plan v2 §1): estado efectivo 9 Congelado — bucket nuevo, sin
-   equivalente en el enum legacy de 4 valores. Mismo token que el badge de
-   texto (engagementStateBadgeClass en engagementStatus.ts: bg-info/…). */
-.sch-gantt .wx-bar.ems-status-frozen {
-  background: hsl(var(--info) / 0.15);
-  border: 1px dashed hsl(var(--info));
-  color: hsl(var(--foreground));
-}
 
 /* ── EMS bar types: L2 staff load + leadership identity (D2) ──────────── */
 

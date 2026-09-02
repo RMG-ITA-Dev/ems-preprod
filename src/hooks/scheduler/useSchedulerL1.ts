@@ -3,8 +3,8 @@
 // SchedulerUnavailableError), never swallow to [].
 //
 // Fase 3 (plan v2 §1): statusFilter filtra por el BUCKET del estado
-// efectivo (activo/pendiente/completado/cancelado/congelado), calculado
-// server-side desde el estado numérico 1-9 — nunca contra la columna
+// efectivo (activo/pendiente/completado/cancelado), calculado
+// server-side desde el estado numérico 1-8 — nunca contra la columna
 // legacy `engagements.status`.
 
 import { useQuery } from "@tanstack/react-query";
@@ -22,7 +22,6 @@ export type SchedulerL1StatusFilter =
   | "pending"
   | "completed"
   | "cancelled"
-  | "frozen"
   | "all";
 
 export interface SchedulerL1Input {

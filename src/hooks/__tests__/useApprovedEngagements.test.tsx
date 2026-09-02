@@ -105,10 +105,10 @@ describe("useApprovedEngagements", () => {
     expect(result.current.data![0].engagement_id).toBe("eng-ov4");
   });
 
-  // FEAT 0602-135: isLoggable excludes terminal/non-loggable overrides (6/7/9), re-applied
+  // FEAT 0602-135: isLoggable excludes terminal/non-loggable overrides (6/7), re-applied
   // client-side alongside the RPC's own WHERE-clause exclusion.
-  it("excludes engagement with terminal override (Cancelado/Finalizado/Congelado)", async () => {
-    setupMocks([makeRow({ engagement_id: "eng-frozen", engagement_state_override: 9 })]);
+  it("excludes engagement with terminal override (Cancelado/Finalizado)", async () => {
+    setupMocks([makeRow({ engagement_id: "eng-terminal", engagement_state_override: 6 })]);
     const { result } = renderHook(() => useApprovedEngagements(), { wrapper: createWrapper() });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data).toEqual([]);

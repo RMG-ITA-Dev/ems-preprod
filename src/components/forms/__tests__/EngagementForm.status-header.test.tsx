@@ -5,8 +5,9 @@ import userEvent from "@testing-library/user-event";
 
 /**
  * FEAT 0722-157: the engagement-state control moves from the field grid into the
- * "Información Básica" header. Admin keeps full control via an editable <Select> (the 9
- * states + "Automático"); every other role — including the Gerente, who previously had a
+ * "Información Básica" header. Admin keeps full control via an editable <Select> (the 8
+ * states + "Automático" — BUG 0817-179 retiró el 9 Congelado); every other role — including
+ * the Gerente, who previously had a
  * congelar/descongelar toggle here — now only sees a read-only badge, reusing the same
  * `engagementStateBadgeClass` pattern as the Encargos table (Engagements.tsx). Removing the
  * Gerente's toggle is a deliberate, operator-authorized functional deviation (plan_v2.md §1),
@@ -152,6 +153,24 @@ describe("EngagementForm — engagement-state header control (0722-157)", () => 
     expect(screen.getByRole("combobox", { name: "engagement.status" })).toBeInTheDocument();
   });
 
+  // BUG 0817-179: el estado 9 Congelado se retiró del sistema. El <Select> del Admin se
+  // alimenta de ENGAGEMENT_STATES, así que debe ofrecer "Automático" + los 8 estados vigentes
+  // y ninguna opción para el 9.
+  it("edit mode, Admin: the state Select offers Automático + the 8 states, never Congelado (9)", async () => {
+    mockUseUserRole.mockReturnValue({ isAdmin: true });
+    render(<EngagementForm engagement={mockApprovedEngagement} />);
+
+    await userEvent.click(screen.getByRole("combobox", { name: "engagement.status" }));
+    await waitFor(() =>
+      expect(screen.getByRole("option", { name: "engagementState.auto" })).toBeInTheDocument()
+    );
+
+    for (const s of [1, 2, 3, 4, 5, 6, 7, 8]) {
+      expect(screen.getByRole("option", { name: `engagementState.${s}` })).toBeInTheDocument();
+    }
+    expect(screen.queryByRole("option", { name: "engagementState.9" })).not.toBeInTheDocument();
+  });
+
   it("edit mode, Admin: does not render the Gerente freeze toggle", () => {
     mockUseUserRole.mockReturnValue({ isAdmin: true });
     render(<EngagementForm engagement={mockApprovedEngagement} />);
@@ -203,19 +222,21 @@ describe("EngagementForm — engagement-state header control (0722-157)", () => 
     expect(screen.getByText("engagementState.1")).toBeInTheDocument();
   });
 
+  // BUG 0817-179: este caso elegía el 9 Congelado como "otro estado"; retirado el 9, usa
+  // el 6 Cancelado (manual/terminal, el análogo vigente más cercano).
   it("Admin picking a different state from the header Select sends it in the update payload", async () => {
     mockUseUserRole.mockReturnValue({ isAdmin: true });
     const user = userEvent.setup();
     render(<EngagementForm engagement={mockApprovedEngagement} />);
 
     await user.click(screen.getByRole("combobox", { name: "engagement.status" }));
-    await waitFor(() => screen.getByRole("option", { name: "engagementState.9" }));
-    await user.click(screen.getByRole("option", { name: "engagementState.9" }));
+    await waitFor(() => screen.getByRole("option", { name: "engagementState.6" }));
+    await user.click(screen.getByRole("option", { name: "engagementState.6" }));
 
     await user.click(screen.getByRole("button", { name: "common.saveChanges" }));
 
     await waitFor(() => expect(mockUpdateMutateAsync).toHaveBeenCalled());
     const [[call]] = mockUpdateMutateAsync.mock.calls;
-    expect(call.data).toMatchObject({ engagement_state_override: 9 });
+    expect(call.data).toMatchObject({ engagement_state_override: 6 });
   });
 });
