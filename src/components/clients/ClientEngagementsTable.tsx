@@ -2,7 +2,8 @@ import { useCallback, useMemo, useState } from "react";
 import { parseDateLocal } from "@/lib/timesheetUtils";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import { useEngagements, useStaff, type Engagement } from "@/hooks/useEmsData";
+import { useStaff, type Engagement } from "@/hooks/useEmsData";
+import { usePortfolioEngagements } from "@/hooks/usePortfolioEngagements";
 import { useAuthorization } from "@/hooks/useAuthorization";
 import { useCategoryStaff } from "@/hooks/useCategoryStaff";
 import {
@@ -43,7 +44,7 @@ type SortDirection = "asc" | "desc" | null;
 export function ClientEngagementsTable({ clientId }: ClientEngagementsTableProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { data: engagements, isLoading } = useEngagements();
+  const { data: engagements, isLoading } = usePortfolioEngagements();
   const { data: staff } = useStaff();
   const { partners, managers } = useCategoryStaff();
   const { can } = useAuthorization();

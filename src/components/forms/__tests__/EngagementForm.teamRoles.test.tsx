@@ -93,9 +93,14 @@ vi.mock("@/hooks/useEmsData", () => ({
 // autoasigna manager_id (BUG 0810-172, ver src/lib/engagementSelfAssignment.ts) en cuanto
 // `staffRecord.staff_id` existe, lo que activaría de rebote una función AJENA al alcance de esta
 // suite (0722-162, filtrado del bloque Equipo) y rompería los tests que asumen el campo Gerente
-// libre con su placeholder. Por eso el default es null (igual que antes de 0817-180) y solo los
-// dos tests que ejercitan el guard de perfil piden una ficha completa, vía `mockRoleKeyOverride`
-// = "ita_manager" (tiene engagement.create pero NO está en el mapa de autoasignación).
+// libre con su placeholder. Por eso el default es null y `mockRoleKeyOverride` existe para que un
+// test puntual pida una ficha completa sin heredar ese efecto de rebote.
+//
+// ACTUALIZADO 0828-185: `ita_manager`/`tax_manager` YA NO sirven como rol "neutral" para eso —
+// desde este fix también están en SELF_ASSIGN_MANAGER_ROLE_KEYS (se autoasignan a manager_id
+// igual que Gerente). Ningún test de este archivo usa `mockRoleKeyOverride` hoy; si se necesitara
+// un rol con `engagement.create` que siga sin autoasignarse, usar `admin` (vía `mockIsAdmin`) en
+// vez de `mockRoleKeyOverride`.
 let mockStaffRecordForProfile: { staff_id: string; society_id: string; practica_id: string; city: string } | null = null;
 vi.mock("@/hooks/useCurrentStaff", () => ({
   useCurrentStaff: () => ({ staffRecord: mockStaffRecordForProfile }),

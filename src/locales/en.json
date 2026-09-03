@@ -820,6 +820,11 @@
     "requiredTaxonomyCliente": "Service is required for Client engagements",
     "sectionClassification": "Classification",
     "requiredFieldsLegend": "* Required fields",
+    "unavailable": "This engagement is not available to you. It may have been reassigned, or you may not have access to it.",
+    "loadError": "We couldn't load this engagement. Please try again.",
+    "retry": "Retry",
+    "readOnlyNotice": "You can view this engagement, but you don't have permission to edit it.",
+    "managerCannotBeSpecialist": "The Manager/Supervisor cannot also be an IT or Tax Specialist on the same engagement.",
     "assignments": {
       "category": "Category",
       "searchStaff": "Search staff...",

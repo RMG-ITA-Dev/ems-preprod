@@ -85,18 +85,18 @@ ON CONFLICT (user_id) DO UPDATE SET role = EXCLUDED.role, role_key = EXCLUDED.ro
 -- work_orders.engagement_id is UNIQUE (one WO per engagement), so each WO
 -- fixture below needs its own engagement — all practica=1 (Auditoría),
 -- manager_id=Mel, so Mel is a team member of every one of them.
-INSERT INTO public.engagements (engagement_id, client_id, engagement_name, manager_id, practica, fecha_cierre) VALUES
-  ('e0000000-0000-4000-8000-0000000000ac', 'c1000000-0000-4000-8000-0000000000ac', 'WAP E1 (Draft)', '50000000-0000-4000-8000-0000000000ac', 1, '2026-09-30'),
-  ('e0000000-0000-4000-8000-0000000000ad', 'c1000000-0000-4000-8000-0000000000ac', 'WAP E2 (Approved)', '50000000-0000-4000-8000-0000000000ac', 1, '2026-09-30'),
-  ('e0000000-0000-4000-8000-0000000000ae', 'c1000000-0000-4000-8000-0000000000ac', 'WAP E No Practice', '50000000-0000-4000-8000-0000000000ac', NULL, '2026-09-30'),
-  ('e0000000-0000-4000-8000-0000000000af', 'c1000000-0000-4000-8000-0000000000ac', 'WAP E4 (Draft2)', '50000000-0000-4000-8000-0000000000ac', 1, '2026-09-30'),
-  ('e0000000-0000-4000-8000-0000000000b0', 'c1000000-0000-4000-8000-0000000000ac', 'WAP E5 (Approved2)', '50000000-0000-4000-8000-0000000000ac', 1, '2026-09-30'),
+INSERT INTO public.engagements (engagement_id, client_id, engagement_name, manager_id, practica, fecha_cierre, society_id) VALUES
+  ('e0000000-0000-4000-8000-0000000000ac', 'c1000000-0000-4000-8000-0000000000ac', 'WAP E1 (Draft)', '50000000-0000-4000-8000-0000000000ac', 1, '2026-09-30', (SELECT society_id FROM public.society ORDER BY name LIMIT 1)),
+  ('e0000000-0000-4000-8000-0000000000ad', 'c1000000-0000-4000-8000-0000000000ac', 'WAP E2 (Approved)', '50000000-0000-4000-8000-0000000000ac', 1, '2026-09-30', (SELECT society_id FROM public.society ORDER BY name LIMIT 1)),
+  ('e0000000-0000-4000-8000-0000000000ae', 'c1000000-0000-4000-8000-0000000000ac', 'WAP E No Practice', '50000000-0000-4000-8000-0000000000ac', NULL, '2026-09-30', (SELECT society_id FROM public.society ORDER BY name LIMIT 1)),
+  ('e0000000-0000-4000-8000-0000000000af', 'c1000000-0000-4000-8000-0000000000ac', 'WAP E4 (Draft2)', '50000000-0000-4000-8000-0000000000ac', 1, '2026-09-30', (SELECT society_id FROM public.society ORDER BY name LIMIT 1)),
+  ('e0000000-0000-4000-8000-0000000000b0', 'c1000000-0000-4000-8000-0000000000ac', 'WAP E5 (Approved2)', '50000000-0000-4000-8000-0000000000ac', 1, '2026-09-30', (SELECT society_id FROM public.society ORDER BY name LIMIT 1)),
   -- practica=9 passes chk_engagements_practica (range 0-9) but no practicas row
   -- has code=9 in this fixture world — the "unresolvable" case (review.md
   -- iteración 1, #3). Direct INSERT bypasses create_engagement_with_code's own
   -- "practica must exist and be active" validation, which is exactly the gap
   -- this suite needs to exercise at the trigger/RPC layer.
-  ('e0000000-0000-4000-8000-0000000000b1', 'c1000000-0000-4000-8000-0000000000ac', 'WAP E Bad Practica', '50000000-0000-4000-8000-0000000000ac', 9, '2026-09-30');
+  ('e0000000-0000-4000-8000-0000000000b1', 'c1000000-0000-4000-8000-0000000000ac', 'WAP E Bad Practica', '50000000-0000-4000-8000-0000000000ac', 9, '2026-09-30', (SELECT society_id FROM public.society ORDER BY name LIMIT 1));
 
 INSERT INTO public.work_orders (wo_id, engagement_id, currency, season_mode, approval_status) VALUES
   ('40000000-0000-4000-8000-0000000000ac', 'e0000000-0000-4000-8000-0000000000ac', 'BOB', 'High', 'Draft'),

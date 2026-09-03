@@ -190,6 +190,14 @@ ON CONFLICT (client_id) DO NOTHING;
 
 -- 4. engagements — traduce society_id y taxonomy_id (servicios); el resto son UUID de staff
 --    ya copiados en el paso 2, se preservan tal cual
+--
+-- BUG 0828-185: engagements.society_id pasa a NOT NULL en el destino. Es dato de PRUEBA (Dev
+-- 2.0 y Test, nunca producción), así que se corrige en origen antes del INSERT de abajo, igual
+-- que cualquier otro dato de prueba incompleto — sin guarda adicional.
+UPDATE dev2_import.engagements
+   SET society_id = (SELECT society_id FROM dev2_import.society WHERE name = 'Ruizmier Pelaez S.R.L.')
+ WHERE society_id IS NULL;
+
 INSERT INTO public.engagements (
   engagement_id, client_id, engagement_name, engagement_code, partner_id, manager_id,
   start_date, end_date, status, created_at, updated_at, work_order_required,

@@ -82,9 +82,9 @@ ON CONFLICT (user_id) DO UPDATE SET role = EXCLUDED.role, role_key = EXCLUDED.ro
 
 -- fecha_cierre is NOT NULL with no DEFAULT on a live Supabase (20260702000000) — the local shim
 -- has no such column at all, so this must be supplied explicitly to work in both environments.
-INSERT INTO public.engagements (engagement_id, client_id, engagement_name, manager_id, sqr_id, practica, engagement_state_override, fecha_cierre, start_date, end_date) VALUES
-  ('e0000000-0000-4000-8000-0000000000c1', 'c1000000-0000-4000-8000-0000000000c1', 'REAS E1', '50000000-0000-4000-8000-0000000000c1', '50000000-0000-4000-8000-0000000000c2', 1, NULL, '2026-09-30', '2026-01-01', '2026-12-31'),
-  ('e0000000-0000-4000-8000-0000000000c2', 'c1000000-0000-4000-8000-0000000000c1', 'REAS E2 (cancelled)', '50000000-0000-4000-8000-0000000000c1', NULL, 1, 6, '2026-09-30', '2026-01-01', '2026-12-31');
+INSERT INTO public.engagements (engagement_id, client_id, engagement_name, manager_id, sqr_id, practica, engagement_state_override, fecha_cierre, start_date, end_date, society_id) VALUES
+  ('e0000000-0000-4000-8000-0000000000c1', 'c1000000-0000-4000-8000-0000000000c1', 'REAS E1', '50000000-0000-4000-8000-0000000000c1', '50000000-0000-4000-8000-0000000000c2', 1, NULL, '2026-09-30', '2026-01-01', '2026-12-31', (SELECT society_id FROM public.society ORDER BY name LIMIT 1)),
+  ('e0000000-0000-4000-8000-0000000000c2', 'c1000000-0000-4000-8000-0000000000c1', 'REAS E2 (cancelled)', '50000000-0000-4000-8000-0000000000c1', NULL, 1, 6, '2026-09-30', '2026-01-01', '2026-12-31', (SELECT society_id FROM public.society ORDER BY name LIMIT 1));
 
 CREATE FUNCTION pg_temp.impersonate(p_sub text) RETURNS void
 LANGUAGE sql AS $$

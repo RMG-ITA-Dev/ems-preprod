@@ -15,9 +15,10 @@
 -- final "ENGAGEMENT_TEAM_CANDIDATES RPC: ALL CHECKS PASSED (rolled back)".
 --
 -- Qué se cubre:
---   1. Los 12 role_key elegibles caen en su grupo (uno por rol).
---   2. Roles NO elegibles se excluyen: sqr, admin, assistant, senior_partner, risk_partner,
---      it_security_manager, accounting_manager, hr_analyst, risk_supervisor y los *_analyst.
+--   1. Los 14 role_key elegibles caen en (al menos) su grupo primario de candidatura.
+--   1b. ita_manager/tax_manager caen ADEMÁS en el grupo 'manager' (doble grupo, 0828-185).
+--   2. Roles NO elegibles se excluyen: sqr, admin, assistant, risk_supervisor,
+--      it_security_manager, accounting_manager, hr_analyst y los *_analyst.
 --   3. Personal inactivo / soft-deleted / sin auth_user_id / con role_key NULL se excluye.
 --   4. Un authorization_roles con is_active = false deja de aportar candidatos.
 --   5. El gate: engagement.create O engagement.update habilitan; sin ninguno → 0 filas.
@@ -26,6 +27,13 @@
 -- ACTUALIZADO por BUG 0817-180 (decisión del operador, 2026-08-27): hr_manager se agregó al
 -- grupo 'manager' — "no hagamos casos especiales", Talento Humano gestiona sus encargos igual
 -- que cualquier otro Gerente. hr_analyst se queda fuera, igual que el resto de los `*_analyst`.
+--
+-- ACTUALIZADO por BUG 0828-185 (plan_v2 §c.5a): ROLE_KEY_TO_GROUPS pasa a MULTI-VALOR.
+-- senior_partner/risk_partner (staff 15/16 del fixture, antes en la lista de "no elegibles")
+-- se suman a partner_director -- visibilidad firm-wide, pero antes excluidos del bloque Equipo.
+-- ita_manager/tax_manager (staff 6/9) ahora caen en DOS grupos: su especialidad de siempre Y,
+-- además, 'manager' -- un Especialista TI/Impuestos puede actuar como Gerente de cualquier
+-- encargo. El total de filas elegibles pasa de 12 a 16 (14 role_key, 2 de ellos con 2 filas).
 --
 -- Fixture: todos los ids llevan el prefijo etc- reconocible (etc = engagement team candidates).
 
@@ -79,8 +87,9 @@ SELECT ('51c00000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid,
        (SELECT society_id FROM public.society ORDER BY name LIMIT 1)
   FROM generate_series(1, 27) n;
 
--- Roles: 1..11 y 22 elegibles (12 en total; el 22 = hr_manager, fuera de rango porque 0817-180
--- lo sumó después sin renumerar el fixture), 12..21 y 23 NO elegibles, 24 NULL.
+-- Roles: 1..11, 22 (hr_manager, 0817-180) y ahora 15/16 (senior_partner/risk_partner, 0828-185,
+-- antes en la lista de "no elegibles") elegibles (14 role_key en total), 12..14 (sqr/admin/
+-- assistant), 17..21 y 23 NO elegibles, 24 NULL.
 INSERT INTO public.user_roles (user_id, role_key)
 VALUES
   -- elegibles
@@ -181,7 +190,7 @@ DECLARE
 BEGIN
   PERFORM pg_temp.impersonate('a1c00000-0000-4000-8000-000000000028');  -- engagement.create
 
-  -- ── 1. Los 12 role_key elegibles caen en su grupo ────────────────────────────────────────
+  -- ── 1. Los 14 role_key elegibles caen en (al menos) su grupo primario ────────────────────
   FOR v_role, v_staff, v_group IN
     SELECT * FROM (VALUES
       ('partner',       '51c00000-0000-4000-8000-000000000001'::uuid, 'partner_director'),
@@ -196,7 +205,11 @@ BEGIN
       ('tax_senior',    '51c00000-0000-4000-8000-000000000010'::uuid, 'specialist_tax'),
       ('tax_assistant', '51c00000-0000-4000-8000-000000000011'::uuid, 'specialist_tax'),
       -- BUG 0817-180 (2026-08-27): hr_manager cae en el mismo grupo que manager.
-      ('hr_manager',    '51c00000-0000-4000-8000-000000000022'::uuid, 'manager')
+      ('hr_manager',    '51c00000-0000-4000-8000-000000000022'::uuid, 'manager'),
+      -- BUG 0828-185: senior_partner/risk_partner se suman a partner_director (staff 15/16,
+      -- reutilizados del fixture -- antes estaban en la lista de "no elegibles").
+      ('senior_partner','51c00000-0000-4000-8000-000000000015'::uuid, 'partner_director'),
+      ('risk_partner',  '51c00000-0000-4000-8000-000000000016'::uuid, 'partner_director')
     ) t(role_key, staff_id, expected_group)
   LOOP
     SELECT count(*) INTO v_count
@@ -207,7 +220,24 @@ BEGIN
         v_role, v_group, v_count;
     END IF;
   END LOOP;
-  RAISE NOTICE 'OK 1: los 12 role_key elegibles caen en su grupo de candidatura';
+  RAISE NOTICE 'OK 1: los 14 role_key elegibles caen en su grupo primario de candidatura';
+
+  -- ── 1b. ita_manager/tax_manager caen ADEMÁS en el grupo 'manager' (0828-185) ─────────────
+  FOR v_role, v_staff IN
+    SELECT * FROM (VALUES
+      ('ita_manager', '51c00000-0000-4000-8000-000000000006'::uuid),
+      ('tax_manager', '51c00000-0000-4000-8000-000000000009'::uuid)
+    ) t(role_key, staff_id)
+  LOOP
+    SELECT count(*) INTO v_count
+      FROM public.get_engagement_team_candidates() c
+     WHERE c.staff_id = v_staff AND c.candidate_group = 'manager';
+    IF v_count <> 1 THEN
+      RAISE EXCEPTION 'FAIL: role_key % debía aparecer TAMBIÉN en el grupo manager (filas: %)',
+        v_role, v_count;
+    END IF;
+  END LOOP;
+  RAISE NOTICE 'OK 1b: ita_manager/tax_manager aparecen también en el grupo manager (doble grupo, 0828-185)';
 
   -- ── 2. Roles NO elegibles se excluyen ────────────────────────────────────────────────────
   FOR v_role, v_staff IN
@@ -215,8 +245,6 @@ BEGIN
       ('sqr',                 '51c00000-0000-4000-8000-000000000012'::uuid),
       ('admin',               '51c00000-0000-4000-8000-000000000013'::uuid),
       ('assistant',           '51c00000-0000-4000-8000-000000000014'::uuid),
-      ('senior_partner',      '51c00000-0000-4000-8000-000000000015'::uuid),
-      ('risk_partner',        '51c00000-0000-4000-8000-000000000016'::uuid),
       ('risk_supervisor',     '51c00000-0000-4000-8000-000000000017'::uuid),
       ('it_security_manager', '51c00000-0000-4000-8000-000000000018'::uuid),
       ('accounting_manager',  '51c00000-0000-4000-8000-000000000019'::uuid),
@@ -230,7 +258,7 @@ BEGIN
       RAISE EXCEPTION 'FAIL: role_key % NO es elegible y aun así aparece', v_role;
     END IF;
   END LOOP;
-  RAISE NOTICE 'OK 2: los 11 role_key no elegibles quedan fuera (incluidos sqr y admin)';
+  RAISE NOTICE 'OK 2: los 9 role_key no elegibles quedan fuera (incluidos sqr y admin)';
 
   -- ── 3. Casos negativos de la ficha de personal ───────────────────────────────────────────
   FOR v_role, v_staff IN
@@ -250,7 +278,7 @@ BEGIN
 
   -- ── 5. El gate de permisos ───────────────────────────────────────────────────────────────
   -- Guarda del fixture: si alguien le diera ficha de personal a los callers, se contarían a sí
-  -- mismos (sus roles *_manager son elegibles) y el 11 de abajo dejaría de ser el número real.
+  -- mismos (sus roles *_manager son elegibles) y el 16 de abajo dejaría de ser el número real.
   -- Este chequeo falla con un mensaje claro antes que la aserción de conteo.
   PERFORM 1 FROM public.get_engagement_team_candidates() c
    WHERE c.staff_id IN ('51c00000-0000-4000-8000-000000000028',
@@ -261,14 +289,14 @@ BEGIN
   END IF;
 
   SELECT count(*) INTO v_count FROM public.get_engagement_team_candidates();
-  IF v_count <> 12 THEN
-    RAISE EXCEPTION 'FAIL: un caller con engagement.create debía ver 12 candidatos, vio %', v_count;
+  IF v_count <> 16 THEN
+    RAISE EXCEPTION 'FAIL: un caller con engagement.create debía ver 16 filas (14 role_key, ita/tax con 2 c/u), vio %', v_count;
   END IF;
 
   PERFORM pg_temp.impersonate('a1c00000-0000-4000-8000-000000000029');  -- engagement.update
   SELECT count(*) INTO v_count FROM public.get_engagement_team_candidates();
-  IF v_count <> 12 THEN
-    RAISE EXCEPTION 'FAIL: un caller con engagement.update debía ver 12 candidatos, vio %', v_count;
+  IF v_count <> 16 THEN
+    RAISE EXCEPTION 'FAIL: un caller con engagement.update debía ver 16 filas (14 role_key, ita/tax con 2 c/u), vio %', v_count;
   END IF;
 
   PERFORM pg_temp.impersonate('a1c00000-0000-4000-8000-000000000030');  -- sin ninguno de los dos

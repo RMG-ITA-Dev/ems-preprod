@@ -274,6 +274,15 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   const isEdit = !!engagement;
   // Al editar, el guardado exige engagement.update; al crear, la ruta ya gatea engagement.create.
   const canSave = !isEdit || can("engagement.update");
+  // BUG 0828-185 (plan_v2 §c.3): esta pantalla se llega vía la ruta /engagements/:id, gateada
+  // solo por engagement.read -- un caller sin engagement.update (p.ej. quien ve el encargo por
+  // own_society/own_management del nuevo portafolio) hasta ahora veía todos los campos
+  // interactivamente editables pese a no tener botón de Guardar. `readOnly` deshabilita los
+  // campos del encargo y del bloque Equipo y muestra un aviso explícito; Cancelar, la descarga
+  // del contrato autorizada y StaffAssignmentsCard (autorización propia del Scheduler) siguen
+  // intactos. Equivale a `!canSave` (canSave ya es exactamente `can("engagement.update")` en
+  // edición) -- se deriva aparte por trazabilidad con la decisión del operador.
+  const readOnly = isEdit && !can("engagement.update");
   // BUG #0604-143: closing date (and the FY it derives) may be edited by Admin/Gerente/Socio/Director;
   // oficina/practica/funcion/engagement_code remain fully immutable after create.
   // BUG 0817-180: sociedad se suma a la lista de campos con edición restringida tras la creación
@@ -838,6 +847,15 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       ? data.taxonomy_id
       : null;
 
+    // BUG 0828-185 (plan_v0 §5b): el mismo staff no puede ser a la vez Gerente y Especialista
+    // TI/Impuestos del mismo encargo. Guard final -- defensa en profundidad además del filtro de
+    // opciones de arriba y la CHECK de BD -- válido tanto en creación como en edición.
+    if (data.manager_id && (data.manager_id === data.specialist_it_id || data.manager_id === data.specialist_tax_id)) {
+      form.setError("manager_id", { message: t("engagement.managerCannotBeSpecialist") });
+      focusFirstInvalidField();
+      return;
+    }
+
     // Resolve the closing date from the submitted values: standard option carries its
     // "yyyy-MM-dd" value; "Otro" carries the picked custom date.
     const resolveClosing = (): Date | null =>
@@ -1038,21 +1056,42 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     () => withSavedStaff(partnerDirectorOptions, engagement?.sqr, wSqrId),
     [partnerDirectorOptions, engagement?.sqr, wSqrId]
   );
+  // BUG 0828-185 (plan_v0 §5b): el mismo staff no puede ser a la vez Gerente y Especialista TI/
+  // Impuestos del MISMO encargo (CHECK chk_engagements_manager_not_specialist en BD). Se excluye
+  // en las opciones ANTES de `withSelfCandidate` -- si el creador autoasignado como Gerente ya
+  // estuviera elegido como especialista, igual se re-ofrece por la siembra, pero el guard de
+  // `onSubmit` de más abajo es el freno real; esto es la primera línea, no la única.
   const managerFieldOptions = useMemo(() => {
-    const base = withSavedStaff(managerRoleOptions, engagement?.manager, wManagerId);
+    const base = withSavedStaff(managerRoleOptions, engagement?.manager, wManagerId).filter(
+      (o) => o.value !== wSpecialistItId && o.value !== wSpecialistTaxId
+    );
     return managerLocked ? withSelfCandidate(base, selfOption) : base;
-  }, [managerRoleOptions, engagement?.manager, wManagerId, managerLocked, selfOption]);
+  }, [
+    managerRoleOptions,
+    engagement?.manager,
+    wManagerId,
+    managerLocked,
+    selfOption,
+    wSpecialistItId,
+    wSpecialistTaxId,
+  ]);
   const encargadoFieldOptions = useMemo(
     () => withSavedStaff(encargadoOptions, engagement?.encargado, wEncargadoId),
     [encargadoOptions, engagement?.encargado, wEncargadoId]
   );
   const specialistItFieldOptions = useMemo(
-    () => withSavedStaff(specialistItOptions, engagement?.specialist_it, wSpecialistItId),
-    [specialistItOptions, engagement?.specialist_it, wSpecialistItId]
+    () =>
+      withSavedStaff(specialistItOptions, engagement?.specialist_it, wSpecialistItId).filter(
+        (o) => o.value !== wManagerId
+      ),
+    [specialistItOptions, engagement?.specialist_it, wSpecialistItId, wManagerId]
   );
   const specialistTaxFieldOptions = useMemo(
-    () => withSavedStaff(specialistTaxOptions, engagement?.specialist_tax, wSpecialistTaxId),
-    [specialistTaxOptions, engagement?.specialist_tax, wSpecialistTaxId]
+    () =>
+      withSavedStaff(specialistTaxOptions, engagement?.specialist_tax, wSpecialistTaxId).filter(
+        (o) => o.value !== wManagerId
+      ),
+    [specialistTaxOptions, engagement?.specialist_tax, wSpecialistTaxId, wManagerId]
   );
 
   // ── Aviso de personal faltante (los dos campos obligatorios) ─────────────────────────────
@@ -1182,7 +1221,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
         <h1 className="text-lg font-semibold">
           {isEdit ? t("engagement.editEngagement") : t("engagement.newEngagement")}
         </h1>
-        {isEdit && (
+        {isEdit && !readOnly && (
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button variant="destructive">
@@ -1246,6 +1285,15 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
           <AlertDescription>
             {t("messages.profileIncompleteForEngagement", { fields: missingProfileFields.join(", ") })}
           </AlertDescription>
+        </Alert>
+      )}
+
+      {/* BUG 0828-185: aviso explícito de solo-lectura -- antes el único indicio era la
+          ausencia del botón Guardar, con todos los campos igual interactivos. */}
+      {readOnly && (
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{t("engagement.readOnlyNotice")}</AlertDescription>
         </Alert>
       )}
 
@@ -1351,7 +1399,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>{t("engagement.client")} <span className="text-destructive">*</span></FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
+                      <Select disabled={readOnly} onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger className="[&_svg]:text-info [&_svg]:opacity-100">
                             <SelectValue placeholder={t("engagement.selectClient")} />
@@ -1375,7 +1423,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                   <FormItem>
                     <FormLabel>{t("engagement.society")} <span className="text-destructive">*</span></FormLabel>
                     <Select
-                      disabled={isEdit ? !isAdmin : !canChooseProfileScopeFreely}
+                      disabled={isEdit ? (!isAdmin || readOnly) : !canChooseProfileScopeFreely}
                       onValueChange={field.onChange}
                       value={field.value ?? ""}
                     >
@@ -1414,6 +1462,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                         onValueChange={field.onChange}
                         showNoAplica={form.watch("funcion") !== FUNCION_CLIENTE}
                         aria-invalid={!!fieldState.error}
+                        disabled={readOnly}
                       />
                       <FormMessage />
                     </FormItem>
@@ -1429,7 +1478,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                     <FormItem>
                       <FormLabel>{t("engagement.name")} <span className="text-destructive">*</span></FormLabel>
                       <FormControl>
-                        <Input placeholder="Annual Audit 2024" {...field} />
+                        <Input placeholder="Annual Audit 2024" disabled={readOnly} {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -1530,7 +1579,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                           <FormControl>
                             <Button
                               variant="outline"
-                              disabled={datesLockedByState}
+                              disabled={datesLockedByState || readOnly}
                               className={cn(
                                 "w-full pl-3 text-left font-normal",
                                 !field.value && "text-muted-foreground"
@@ -1568,7 +1617,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                           <FormControl>
                             <Button
                               variant="outline"
-                              disabled={datesLockedByState}
+                              disabled={datesLockedByState || readOnly}
                               className={cn(
                                 "w-full pl-3 text-left font-normal",
                                 !field.value && "text-muted-foreground"
@@ -1795,7 +1844,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                       // no confiables) y el de 0810-172 (autoasignación). En JSX gana el último,
                       // así que la primera condición quedaba inerte en los DOS campos
                       // obligatorios. Se combinan.
-                      disabled={!teamSelectionResolved || teamLockPending || partnerLocked}
+                      disabled={!teamSelectionResolved || teamLockPending || partnerLocked || readOnly}
                       helperText={partnerLocked ? t("engagement.selfAssignedLocked") : undefined}
                     />
                   )}
@@ -1812,7 +1861,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                       noResultsText={t("engagement.noStaffFound")}
                       noAplicaText={t("engagement.noAplica")}
                       options={sqrFieldOptions}
-                      disabled={!teamSelectionResolved}
+                      disabled={!teamSelectionResolved || readOnly}
                       value={field.value ?? null}
                       onChange={field.onChange}
                     />
@@ -1838,7 +1887,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                       // no confiables) y el de 0810-172 (autoasignación). En JSX gana el último,
                       // así que la primera condición quedaba inerte en los DOS campos
                       // obligatorios. Se combinan.
-                      disabled={!teamSelectionResolved || teamLockPending || managerLocked}
+                      disabled={!teamSelectionResolved || teamLockPending || managerLocked || readOnly}
                       helperText={managerLocked ? t("engagement.selfAssignedLocked") : undefined}
                     />
                   )}
@@ -1855,7 +1904,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                       noResultsText={t("engagement.noStaffFound")}
                       noAplicaText={t("engagement.noAplica")}
                       options={encargadoFieldOptions}
-                      disabled={!teamSelectionResolved}
+                      disabled={!teamSelectionResolved || readOnly}
                       value={field.value ?? null}
                       onChange={field.onChange}
                     />
@@ -1873,7 +1922,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                       noResultsText={t("engagement.noStaffFound")}
                       noAplicaText={t("engagement.noAplica")}
                       options={specialistItFieldOptions}
-                      disabled={!teamSelectionResolved}
+                      disabled={!teamSelectionResolved || readOnly}
                       value={field.value ?? null}
                       onChange={field.onChange}
                     />
@@ -1891,7 +1940,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                       noResultsText={t("engagement.noStaffFound")}
                       noAplicaText={t("engagement.noAplica")}
                       options={specialistTaxFieldOptions}
-                      disabled={!teamSelectionResolved}
+                      disabled={!teamSelectionResolved || readOnly}
                       value={field.value ?? null}
                       onChange={field.onChange}
                     />
