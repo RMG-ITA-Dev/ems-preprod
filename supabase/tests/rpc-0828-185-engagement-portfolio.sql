@@ -111,6 +111,14 @@ ON CONFLICT (client_id) DO NOTHING;
 -- E7: sociedad Norte, creado por hr_analyst (08) -- creator, único que debe ver.
 -- O1/O2/O3: sociedad Norte, creados por el partner (05) con created_at explícito y espaciado --
 --     fixture de orden determinístico.
+-- trg_engagements_created_by (BEFORE INSERT, set_engagement_created_by()) pisa
+-- created_by_staff_id con get_my_staff_id() SIEMPRE -- a diferencia de
+-- enforce_engagement_creator_team()/enforce_engagement_profile_scope() no tiene excepción
+-- para auth.uid() IS NULL. Sin esto, el valor explícito de cada fila de abajo quedaría en
+-- NULL (el fixture corre sin impersonar) y rompería el bucket "creator" (E6/E7). Mismo
+-- patrón ya usado en rpc-worksheet-activity-practice-scope.sql:122-134.
+ALTER TABLE public.engagements DISABLE TRIGGER trg_engagements_created_by;
+
 INSERT INTO public.engagements (engagement_id, client_id, engagement_name, status, fecha_cierre,
                                  society_id, created_by_staff_id,
                                  partner_id, manager_id, sqr_id, encargado_id,
@@ -157,6 +165,8 @@ INSERT INTO public.engagements (engagement_id, client_id, engagement_name, statu
    'PEP O3 orden', 'active', '2026-12-31',
    '5a828185-0000-4000-8000-000000000001', '50828185-0000-4000-8000-000000000005',
    NULL, NULL, NULL, NULL, NULL, NULL, '2026-08-01T00:00:00Z');
+
+ALTER TABLE public.engagements ENABLE TRIGGER trg_engagements_created_by;
 
 INSERT INTO public.work_orders (wo_id, engagement_id, currency, season_mode, approval_status,
                                 approved_at, risk_status) VALUES
