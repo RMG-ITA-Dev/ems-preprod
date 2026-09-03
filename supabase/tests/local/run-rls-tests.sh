@@ -126,6 +126,18 @@ run supabase/migrations/20260831013000_0828-186_list_loggable_engagements_rpc.sq
 # registrada la hora. Ejercitado por rls-0828-186-own-timer-engagement-labels.sql.
 run supabase/migrations/20260831020000_0828-186_list_own_timer_engagement_labels_rpc.sql
 
+# 0828-185: RPC list_portfolio_engagements() -- Encargos/EngagementEdit/ClientEngagementsTable
+# muestran solo lo creado por el usuario (mas los buckets firm/own_society/own_management por
+# role_key), en vez de cualquier encargo donde figure como partner/manager/sqr/encargado.
+# Ejercitado por rpc-0828-185-engagement-portfolio.sql.
+run supabase/migrations/20260902163000_0828-185_engagement_portfolio_visibility_rpc.sql
+
+# 0828-185: society_id NOT NULL + indice, CHECK manager_id <> especialista, y
+# ROLE_KEY_TO_GROUPS multi-valor (get_engagement_team_candidates/enforce_engagement_creator_team).
+# Ejercitado por rpc-0828-185-engagement-portfolio.sql, rpc-engagement-team-candidates.sql,
+# trigger-engagement-creator-team.sql y schema-convergence-assertions.sql.
+run supabase/migrations/20260902163500_0828-185_engagement_team_and_society_integrity.sql
+
 # society/practicas(code=1): staff.society_id/practica_id y categories.practica_id son NOT NULL
 # reales; varias suites (rpc-engagement-team-candidates.sql explícitamente lo exige con su
 # propio guard) asumen que el catálogo mínimo de práctica/sociedad ya existe, como pasaría en
@@ -165,5 +177,6 @@ assert_suite supabase/tests/trigger-engagement-creator-team.sql 'TRIGGER ENGAGEM
 assert_suite supabase/tests/trigger-engagement-profile-scope.sql 'PROFILE SCOPE: ALL CHECKS PASSED'
 assert_suite supabase/tests/rls-0828-186-loggable-engagements-rpc.sql 'LOGGABLE ENGAGEMENTS RPC: ALL CHECKS PASSED'
 assert_suite supabase/tests/rls-0828-186-own-timer-engagement-labels.sql 'OWN TIMER ENGAGEMENT LABELS RPC: ALL CHECKS PASSED'
+assert_suite supabase/tests/rpc-0828-185-engagement-portfolio.sql 'PORTFOLIO ENGAGEMENTS RPC: ALL CHECKS PASSED'
 
-echo "OK: set consolidado (cero_01..cero_06) + migraciones 0825-183, 0817-180 y 0828-186 aplicadas sobre base scratch; las 12 suites de RLS/RPC/schema-convergence/trigger pasaron"
+echo "OK: set consolidado (cero_01..cero_06) + migraciones 0825-183, 0817-180, 0828-186 y 0828-185 aplicadas sobre base scratch; las 13 suites de RLS/RPC/schema-convergence/trigger pasaron"

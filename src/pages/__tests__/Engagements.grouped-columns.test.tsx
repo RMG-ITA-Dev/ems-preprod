@@ -51,8 +51,11 @@ const { engagementRows } = vi.hoisted(() => ({
 }));
 
 vi.mock("@/hooks/useEmsData", () => ({
-  useEngagements: () => ({ data: engagementRows, isLoading: false }),
   useSocieties: () => ({ data: [{ society_id: "s1", name: "Ruizmier Pelaez S.R.L." }] }),
+}));
+// BUG 0828-185: Engagements.tsx pasó de useEngagements() a usePortfolioEngagements().
+vi.mock("@/hooks/usePortfolioEngagements", () => ({
+  usePortfolioEngagements: () => ({ data: engagementRows, isLoading: false }),
 }));
 
 vi.mock("@/hooks/useCategoryStaff", () => ({

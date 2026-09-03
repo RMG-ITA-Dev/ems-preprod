@@ -22,9 +22,12 @@ vi.mock("@/hooks/useAuthorization", () => ({
 }));
 
 vi.mock("@/hooks/useEmsData", () => ({
-  useEngagements: () => ({ data: [], isLoading: false }),
   useStaff: () => ({ data: [] }),
   useSocieties: () => ({ data: [] }),
+}));
+// BUG 0828-185: Engagements.tsx pasó de useEngagements() a usePortfolioEngagements().
+vi.mock("@/hooks/usePortfolioEngagements", () => ({
+  usePortfolioEngagements: () => ({ data: [], isLoading: false }),
 }));
 vi.mock("@/hooks/useCategoryStaff", () => ({
   useCategoryStaff: () => ({ partnerOptions: [], managerOptions: [], partners: [], managers: [] }),

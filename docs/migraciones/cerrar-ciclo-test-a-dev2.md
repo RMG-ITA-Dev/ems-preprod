@@ -159,6 +159,14 @@ LEFT JOIN test_import.industries di ON di.industry_id = c.industry_id
 LEFT JOIN public.industries ti ON lower(trim(ti.industry_name)) = lower(trim(di.industry_name))
 ON CONFLICT (client_id) DO NOTHING;
 
+-- BUG 0828-185: engagements.society_id pasa a NOT NULL en el destino. Es dato de PRUEBA (Test
+-- y Dev 2.0, nunca producción — el ambiente que sale a producción arranca sin ningún encargo,
+-- ver Paso 1 más arriba), así que se corrige en origen antes del INSERT de abajo, igual que
+-- cualquier otro dato de prueba incompleto — sin guarda adicional.
+UPDATE test_import.engagements
+   SET society_id = (SELECT society_id FROM test_import.society WHERE name = 'Ruizmier Pelaez S.R.L.')
+ WHERE society_id IS NULL;
+
 INSERT INTO public.engagements (
   engagement_id, client_id, engagement_name, engagement_code, partner_id, manager_id,
   start_date, end_date, status, created_at, updated_at, work_order_required,

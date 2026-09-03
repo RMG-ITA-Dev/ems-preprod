@@ -22,11 +22,14 @@
 --   3. Director se comporta como Socio (mismo campo).
 --   4. La misma canonización en un INSERT DIRECTO a la tabla, no solo por el RPC.
 --   5. admin (role_key) ⇒ los valores enviados se preservan, sin reescritura.
---   6. ita_manager / tax_manager ⇒ sin restricción (decisión del operador 2026-08-17).
+--   6. ita_manager / tax_manager ⇒ se canonizan en manager_id, igual que Gerente
+--      (BUG 0828-185, decisión del operador: se agregan al campo Gerente/Supervisor).
 --   7. Llamante sin staff vinculado ⇒ payload intacto, sin error.
 --   8. UPDATE ⇒ la regla NO aplica (el trigger es solo de creación).
 --   9. trg_engagements_created_by sigue registrando created_by_staff_id.
 --  10. El trigger es BEFORE INSERT ROW, y el RPC sigue teniendo exactamente 1 firma.
+--  11. manager_id = specialist_it_id/specialist_tax_id ⇒ rechazado por
+--      chk_engagements_manager_not_specialist (BUG 0828-185, plan_v0 §5b).
 --
 -- Fixture: todos los ids llevan el prefijo ect- reconocible (ect = engagement creator team).
 --
@@ -72,7 +75,8 @@ BEGIN
            '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
            'ect-test-' || n || '@ruizmier.com', 'x', now(), now(), now(), '{}'::jsonb, '{}'::jsonb
       -- 9: hr_manager llamante (BUG 0817-180, CHECK 1c).
-      FROM generate_series(1, 9) n
+      -- 10: tax_manager llamante (BUG 0828-185, CHECK 6b).
+      FROM generate_series(1, 10) n
     ON CONFLICT (id) DO NOTHING;
   END IF;
 END $$;
@@ -82,6 +86,7 @@ END $$;
 -- 5 ita_manager llamante · 6 otro Gerente (objetivo) · 7 otro Socio (objetivo)
 -- 8: a propósito SIN ficha de personal (llamante `manager` sin staff vinculado).
 -- 9: hr_manager llamante (BUG 0817-180, CHECK 1c) — necesita ficha completa, igual que 1..7.
+-- 10: tax_manager llamante (BUG 0828-185, CHECK 6b) — ídem.
 INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, is_active,
                           practica_id, society_id, city)
 SELECT ('5ec00000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid,
@@ -95,13 +100,14 @@ SELECT ('5ec00000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid,
        'La Paz'
   FROM generate_series(1, 7) n
 UNION ALL
-SELECT ('5ec00000-0000-4000-8000-' || lpad(9::text, 12, '0'))::uuid,
-       ('ec700000-0000-4000-8000-' || lpad(9::text, 12, '0'))::uuid,
-       'ECT', 'Sujeto09',
+SELECT ('5ec00000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid,
+       ('ec700000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid,
+       'ECT', 'Sujeto' || lpad(n::text, 2, '0'),
        true,
        (SELECT practica_id FROM public.practicas WHERE code = 1 AND is_active LIMIT 1),
        (SELECT society_id FROM public.society WHERE is_active ORDER BY name LIMIT 1),
-       'La Paz';
+       'La Paz'
+  FROM generate_series(9, 10) n;
 
 -- BUG 0817-180: partner/director no tienen `engagement.create` en el seed real (solo admin/
 -- manager/ita_manager/tax_manager) — el nuevo trigger lo exige incluso para el RPC (antes lo
@@ -124,7 +130,10 @@ INSERT INTO public.user_roles (user_id, role_key) VALUES
   ('ec700000-0000-4000-8000-000000000008', 'manager'),
   -- 9: hr_manager llamante (BUG 0817-180, CHECK 1c) — ya tiene engagement.create real, sin
   -- necesidad del grant temporal que sí hace falta para partner/director más abajo.
-  ('ec700000-0000-4000-8000-000000000009', 'hr_manager')
+  ('ec700000-0000-4000-8000-000000000009', 'hr_manager'),
+  -- 10: tax_manager llamante (BUG 0828-185, CHECK 6b) — ya tiene engagement.create real
+  -- (20260724010000), igual que ita_manager (5).
+  ('ec700000-0000-4000-8000-000000000010', 'tax_manager')
 ON CONFLICT (user_id) DO UPDATE SET role_key = EXCLUDED.role_key;
 
 -- ── Cliente del fixture ────────────────────────────────────────────────────────────────────────
@@ -312,18 +321,40 @@ BEGIN
   RAISE NOTICE 'CHECK 5 OK: el admin conserva los valores enviados.';
 END $$;
 
--- ── #6: ita_manager sin restricción ───────────────────────────────────────────────────────────
+-- ── #6: ita_manager ⇒ se canoniza manager_id (BUG 0828-185: ampliación de autoasignación) ──────
 DO $$
 DECLARE v_eng public.engagements;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(5));
-  v_eng := pg_temp.create_eng('ECT ita_manager sin restriccion', pg_temp.s(7), pg_temp.s(6));
+  v_eng := pg_temp.create_eng('ECT ita_manager manda a otro', pg_temp.s(7), pg_temp.s(6));
 
-  IF v_eng.partner_id IS DISTINCT FROM pg_temp.s(7) OR v_eng.manager_id IS DISTINCT FROM pg_temp.s(6) THEN
-    RAISE EXCEPTION 'CHECK 6: ita_manager no está en el mapa y no debía reescribirse nada; quedó %/%',
-      v_eng.partner_id, v_eng.manager_id;
+  IF v_eng.manager_id IS DISTINCT FROM pg_temp.s(5) THEN
+    RAISE EXCEPTION 'CHECK 6: manager_id debía canonizarse al llamante ita_manager (%), es %',
+      pg_temp.s(5), v_eng.manager_id;
   END IF;
-  RAISE NOTICE 'CHECK 6 OK: ita_manager crea sin restricción (decisión del operador).';
+  IF v_eng.partner_id IS DISTINCT FROM pg_temp.s(7) THEN
+    RAISE EXCEPTION 'CHECK 6: partner_id NO debía tocarse, esperaba % y es %',
+      pg_temp.s(7), v_eng.partner_id;
+  END IF;
+  RAISE NOTICE 'CHECK 6 OK: ita_manager canonizado en manager_id (BUG 0828-185), partner_id intacto.';
+END $$;
+
+-- ── #6b: tax_manager ⇒ se canoniza manager_id, igual que ita_manager (BUG 0828-185) ────────────
+DO $$
+DECLARE v_eng public.engagements;
+BEGIN
+  PERFORM pg_temp.impersonate(pg_temp.u(10));
+  v_eng := pg_temp.create_eng('ECT tax_manager manda a otro', pg_temp.s(7), pg_temp.s(6));
+
+  IF v_eng.manager_id IS DISTINCT FROM pg_temp.s(10) THEN
+    RAISE EXCEPTION 'CHECK 6b: manager_id debía canonizarse al llamante tax_manager (%), es %',
+      pg_temp.s(10), v_eng.manager_id;
+  END IF;
+  IF v_eng.partner_id IS DISTINCT FROM pg_temp.s(7) THEN
+    RAISE EXCEPTION 'CHECK 6b: partner_id NO debía tocarse, esperaba % y es %',
+      pg_temp.s(7), v_eng.partner_id;
+  END IF;
+  RAISE NOTICE 'CHECK 6b OK: tax_manager canonizado en manager_id (BUG 0828-185), partner_id intacto.';
 END $$;
 
 -- ── #7: llamante con rol Gerente pero SIN staff vinculado ─────────────────────────────────────
@@ -392,6 +423,33 @@ BEGIN
       pg_temp.s(1), v_created_by;
   END IF;
   RAISE NOTICE 'CHECK 9 OK: el trigger de created_by_staff_id sigue funcionando junto al nuevo.';
+END $$;
+
+-- ── #11: manager_id = specialist_it_id ⇒ rechazado por el CHECK (BUG 0828-185, plan_v0 §5b) ─────
+-- manager_id se manda NULL a propósito: el trigger de arriba lo canoniza al llamante (Gerente,
+-- sujeto 1) ANTES de que se valide la declarative CHECK constraint sobre la fila final -- así se
+-- prueba la interacción real trigger+constraint, no solo el constraint aislado.
+DO $$
+DECLARE v_raised boolean := false;
+BEGIN
+  PERFORM pg_temp.impersonate(pg_temp.u(1));
+  BEGIN
+    INSERT INTO public.engagements (client_id, engagement_name, manager_id, specialist_it_id, fecha_cierre, society_id, oficina, practica)
+    VALUES (
+      'c1c00000-0000-4000-8000-000000000001', 'ECT Manager=Especialista IT', NULL, pg_temp.s(1), '2026-03-31',
+      (SELECT society_id FROM public.society WHERE is_active ORDER BY name LIMIT 1),
+      1,
+      1
+    );
+  EXCEPTION WHEN check_violation THEN
+    v_raised := true;
+  END;
+
+  IF NOT v_raised THEN
+    RAISE EXCEPTION 'CHECK 11: manager_id canonizado (%) igual a specialist_it_id debía rechazarse por chk_engagements_manager_not_specialist.',
+      pg_temp.s(1);
+  END IF;
+  RAISE NOTICE 'CHECK 11 OK: manager_id = specialist_it_id se rechaza (chk_engagements_manager_not_specialist, BUG 0828-185).';
 END $$;
 
 RESET ROLE;

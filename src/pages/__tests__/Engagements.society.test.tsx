@@ -67,8 +67,11 @@ const mockEngagements = [
 ];
 
 vi.mock("@/hooks/useEmsData", () => ({
-  useEngagements: () => ({ data: mockEngagements, isLoading: false }),
   useSocieties: () => ({ data: mockSocieties }),
+}));
+// BUG 0828-185: Engagements.tsx pasó de useEngagements() a usePortfolioEngagements().
+vi.mock("@/hooks/usePortfolioEngagements", () => ({
+  usePortfolioEngagements: () => ({ data: mockEngagements, isLoading: false }),
 }));
 
 let capturedProps: any = null;
