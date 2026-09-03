@@ -226,14 +226,17 @@ BEGIN
   IF NOT pg_temp.has_eng(v_result, pg_temp.s(1)) THEN
     RAISE EXCEPTION 'FAIL: partner debía ver E1 (su sociedad, creado por otro) vía own_society';
   END IF;
+  IF NOT pg_temp.has_eng(v_result, pg_temp.s(7)) THEN
+    RAISE EXCEPTION 'FAIL: partner debía ver E7 (su sociedad, creado por hr_analyst) vía own_society';
+  END IF;
   IF pg_temp.has_eng(v_result, pg_temp.s(2)) THEN
     RAISE EXCEPTION 'FAIL: partner NO debía ver E2 (otra sociedad) pese a figurar como partner_id ahí';
   END IF;
-  IF jsonb_array_length(v_result) <> 5 THEN
-    RAISE EXCEPTION 'FAIL: partner debía ver 5 encargos (E1,E3,O1,O2,O3 -- todos de su sociedad), vio %',
+  IF jsonb_array_length(v_result) <> 6 THEN
+    RAISE EXCEPTION 'FAIL: partner debía ver 6 encargos (E1,E3,E7,O1,O2,O3 -- todos de su sociedad), vio %',
       jsonb_array_length(v_result);
   END IF;
-  RAISE NOTICE 'OK 2: partner ve su sociedad (incl. creados por otros) y no la otra sociedad pese a estar asignado ahí';
+  RAISE NOTICE 'OK 2: partner ve su sociedad (incl. creados por otros, incl. E7 creado por hr_analyst) y no la otra sociedad pese a estar asignado ahí';
 END $$;
 
 -- ── 3. sqr SINTÉTICO: mismo bucket own_society que partner ──────────────────────────────────
@@ -408,7 +411,7 @@ END $$;
 RESET ROLE;
 
 -- ── 11. No-escalation: la policy "engagements read" NO se tocó ──────────────────────────────
--- Se corre bajo el mismo caller (partner) para comparar contra §2: el RPC le mostró 5 encargos
+-- Se corre bajo el mismo caller (partner) para comparar contra §2: el RPC le mostró 6 encargos
 -- (own_society), pero el SELECT directo -- gobernado por la policy real de la tabla, sin tocar
 -- en este fix -- debe seguir mostrando solo lo que ya mostraba: E2 (asignado como partner_id,
 -- aunque de otra sociedad -- bug preexistente y AJENO a este fix) y E3 (creador + asignado).
