@@ -42,6 +42,7 @@ Deno.serve(async (req) => {
       work_order_required: false,
       activity_required: false,
       fecha_cierre: "2026-09-30",
+      society_id: societyId,
     }).select().single();
 
     const { data: engB } = await supabase.from("engagements").insert({
@@ -50,6 +51,7 @@ Deno.serve(async (req) => {
       work_order_required: false,
       activity_required: false,
       fecha_cierre: "2026-09-30",
+      society_id: societyId,
     }).select().single();
 
     // Create staff
@@ -112,6 +114,7 @@ Deno.serve(async (req) => {
       activity_required: false,
       fecha_cierre: "2026-09-30",
       approval_required: approvalRequired,
+      society_id: societyId,
     }).select().single();
 
     const { data: otherEng } = await supabase.from("engagements").insert({
@@ -121,6 +124,7 @@ Deno.serve(async (req) => {
       activity_required: false,
       fecha_cierre: "2026-09-30",
       approval_required: true,
+      society_id: societyId,
     }).select().single();
 
     const { data: staff } = await supabase.from("staff").insert({
