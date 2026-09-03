@@ -428,15 +428,24 @@ RESET ROLE;
 -- NUNCA E1 (ni asignado ni creador): si esto empezara a aparecer, "engagements read" se habría
 -- ampliado -- justo lo que el RPC dedicado existe para evitar.
 DO $$
-DECLARE v_count integer;
+DECLARE
+  v_count   integer;
+  v_matched uuid[];
 BEGIN
   SET LOCAL ROLE authenticated;
   PERFORM pg_temp.impersonate(pg_temp.u(5));
 
-  SELECT count(*) INTO v_count FROM public.engagements
+  SELECT count(*), array_agg(engagement_id ORDER BY engagement_id) INTO v_count, v_matched
+    FROM public.engagements
    WHERE engagement_id IN (pg_temp.s(1), pg_temp.s(2), pg_temp.s(3));
   IF v_count <> 2 THEN
-    RAISE EXCEPTION 'FAIL (NO-ESCALATION): el SELECT directo como partner debía ver 2 de los 3 (E2,E3), vio %', v_count;
+    -- DIAGNÓSTICO (review.md iteración 3, #hallazgo pendiente de confirmar): ninguna de las 3
+    -- policies de SELECT sobre engagements (engagements read / engagements creator read / Staff
+    -- can view fund request engagements) debería, según el fixture y el código fuente, mostrarle
+    -- E1 a partner. Se listan los ids que SÍ matchearon para diagnosticar sin adivinar un cambio
+    -- de RLS a ciegas -- esa policy está explícitamente fuera de alcance de este fix (plan_v2 §b).
+    RAISE EXCEPTION 'FAIL (NO-ESCALATION): el SELECT directo como partner debía ver 2 de los 3 (E2=%, E3=%), vio % -- ids matched: %',
+      pg_temp.s(2), pg_temp.s(3), v_count, v_matched;
   END IF;
 
   PERFORM 1 FROM public.engagements WHERE engagement_id = pg_temp.s(1);
