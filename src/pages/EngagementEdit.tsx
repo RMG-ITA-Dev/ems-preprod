@@ -15,7 +15,7 @@ const EngagementEdit = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const { data: engagements, isLoading } = usePortfolioEngagements();
+  const { data: engagements, isLoading, isError, refetch } = usePortfolioEngagements();
   const [isDirty, setIsDirty] = useState(false);
   const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty });
 
@@ -37,6 +37,30 @@ const EngagementEdit = () => {
         <div className="space-y-6">
           <Skeleton className="h-10 w-64" />
           <Skeleton className="h-96 w-full" />
+        </div>
+      </AppLayout>
+    );
+  }
+
+  // REVIEW 0828-185 (iteración 2, #2): un error transitorio del RPC (red, timeout) también deja
+  // `engagement` en `undefined` -- sin esta rama se mostraría como "no disponible" igual que un
+  // id fuera de portafolio, cuando en realidad conviene reintentar en vez de mandar a Encargos.
+  if (isError) {
+    return (
+      <AppLayout title={t("nav.engagements")} focusMode>
+        <div className="space-y-4">
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{t("engagement.loadError")}</AlertDescription>
+          </Alert>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => refetch()}>
+              {t("engagement.retry")}
+            </Button>
+            <Button variant="cancel" onClick={() => navigate("/engagements")}>
+              {t("common.cancel")}
+            </Button>
+          </div>
         </div>
       </AppLayout>
     );

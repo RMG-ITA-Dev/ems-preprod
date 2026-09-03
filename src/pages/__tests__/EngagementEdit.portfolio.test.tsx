@@ -32,8 +32,15 @@ vi.mock("@/hooks/usePageLeaveLock", () => ({
 
 let mockEngagements: Array<{ engagement_id: string }> | undefined;
 let mockIsLoading = false;
+let mockIsError = false;
+const mockRefetch = vi.fn();
 vi.mock("@/hooks/usePortfolioEngagements", () => ({
-  usePortfolioEngagements: () => ({ data: mockEngagements, isLoading: mockIsLoading }),
+  usePortfolioEngagements: () => ({
+    data: mockEngagements,
+    isLoading: mockIsLoading,
+    isError: mockIsError,
+    refetch: mockRefetch,
+  }),
 }));
 
 const mockEngagementFormProps = vi.fn();
@@ -60,6 +67,7 @@ describe("EngagementEdit — deep-link fuera del portafolio (0828-185)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockIsLoading = false;
+    mockIsError = false;
     mockEngagements = [{ engagement_id: "eng-visible" } as any];
   });
 
@@ -97,5 +105,36 @@ describe("EngagementEdit — deep-link fuera del portafolio (0828-185)", () => {
     renderAt("cualquier-id");
     expect(screen.getByText("engagement.unavailable")).toBeInTheDocument();
     expect(mockEngagementFormProps).not.toHaveBeenCalled();
+  });
+
+  // REVIEW 0828-185 (iteración 2, #2): un error transitorio del RPC (red, timeout) deja
+  // `engagement` en `undefined` igual que un id fuera de portafolio -- sin distinguirlo, un
+  // fallo de red se vería igual que "no tenés acceso", cuando conviene reintentar.
+  it("error del RPC: muestra el mensaje reintentable, NUNCA el aviso de no-disponible ni el formulario", () => {
+    mockIsError = true;
+    mockEngagements = undefined;
+    renderAt("eng-visible");
+    expect(screen.getByText("engagement.loadError")).toBeInTheDocument();
+    expect(screen.queryByText("engagement.unavailable")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("engagement-form-stub")).not.toBeInTheDocument();
+    expect(mockEngagementFormProps).not.toHaveBeenCalled();
+  });
+
+  it("error del RPC: el botón Reintentar llama a refetch()", async () => {
+    const user = userEvent.setup();
+    mockIsError = true;
+    mockEngagements = undefined;
+    renderAt("eng-visible");
+    await user.click(screen.getByText("engagement.retry"));
+    expect(mockRefetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("error del RPC: el botón Cancelar navega de vuelta a /engagements", async () => {
+    const user = userEvent.setup();
+    mockIsError = true;
+    mockEngagements = undefined;
+    renderAt("eng-visible");
+    await user.click(screen.getByText("common.cancel"));
+    expect(mockNavigate).toHaveBeenCalledWith("/engagements");
   });
 });
