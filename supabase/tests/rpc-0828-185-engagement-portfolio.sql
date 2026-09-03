@@ -23,8 +23,10 @@
 --      necesita, y los seis staff embebidos SIN PII (email/id_number/aud_reg_number/
 --      auth_user_id/role_key).
 --  10. Orden determinístico: created_at DESC, engagement_id de desempate.
---  11. No-escalation: un SELECT directo a `engagements` como partner sigue mostrando solo lo
---      que la policy "engagements read" ya mostraba antes de este fix (no se tocó la RLS).
+--  11. No-escalation: las policies de SELECT sobre `engagements` ("engagements read"/"engagements
+--      creator read") conservan su definición SQL exacta -- 0828-185 no las re-escopó. (No es un
+--      chequeo de comportamiento real: `engagements` no tiene ENABLE ROW LEVEL SECURITY en ningún
+--      ambiente conocido, incl. Test -- verificado 2026-09-03; hallazgo aparte, fuera de alcance.)
 --
 -- Fixture: todos los ids llevan el prefijo 828185 reconocible.
 
@@ -420,39 +422,48 @@ END $$;
 
 RESET ROLE;
 
--- ── 11. No-escalation: la policy "engagements read" NO se tocó ──────────────────────────────
--- Se corre bajo el mismo caller (partner) para comparar contra §2: el RPC le mostró 6 encargos
--- (own_society), pero el SELECT directo -- gobernado por la policy real de la tabla, sin tocar
--- en este fix -- debe seguir mostrando solo lo que ya mostraba: E2 (asignado como partner_id,
--- aunque de otra sociedad -- bug preexistente y AJENO a este fix) y E3 (creador + asignado).
--- NUNCA E1 (ni asignado ni creador): si esto empezara a aparecer, "engagements read" se habría
--- ampliado -- justo lo que el RPC dedicado existe para evitar.
+-- ── 11. No-escalation: las policies de SELECT sobre engagements NO se tocaron ───────────────
+-- HALLAZGO CONFIRMADO (review.md iteración 3): `public.engagements` nunca tuvo
+-- `ENABLE ROW LEVEL SECURITY` -- ni en cero_05_rls_policies.sql, ni en el baseline_184 real
+-- (pg_dump de producción, 2026-08-24), ni en el Test real (verificado 2026-09-03). Las 6
+-- policies existen pero están inertes: cualquier SELECT directo ve TODAS las filas sin
+-- importar el caller, independientemente de lo que diga esta rama. Un assert de conteo/
+-- visibilidad real (como el que había acá antes) nunca puede pasar mientras ese hueco exista,
+-- y arreglarlo está fuera de alcance de este fix -- es su propio ticket (habilitar RLS en
+-- `engagements` cambia de golpe el comportamiento de las 5 pantallas que plan_v0 §1 dejó
+-- deliberadamente intactas). Lo que SÍ puede y debe verificar este fix: que no tocó el TEXTO
+-- de las policies "engagements read"/"engagements creator read" ni agregó una nueva policy de
+-- SELECT -- la garantía real de "no amplió la RLS" que plan_v2 §b promete, expresada de forma
+-- que no dependa de un enforcement que hoy no existe.
 DO $$
 DECLARE
-  v_count   integer;
-  v_matched uuid[];
+  v_policy_count integer;
+  v_read_qual    text;
+  v_creator_qual text;
 BEGIN
-  SET LOCAL ROLE authenticated;
-  PERFORM pg_temp.impersonate(pg_temp.u(5));
-
-  SELECT count(*), array_agg(engagement_id ORDER BY engagement_id) INTO v_count, v_matched
-    FROM public.engagements
-   WHERE engagement_id IN (pg_temp.s(1), pg_temp.s(2), pg_temp.s(3));
-  IF v_count <> 2 THEN
-    -- DIAGNÓSTICO (review.md iteración 3, #hallazgo pendiente de confirmar): ninguna de las 3
-    -- policies de SELECT sobre engagements (engagements read / engagements creator read / Staff
-    -- can view fund request engagements) debería, según el fixture y el código fuente, mostrarle
-    -- E1 a partner. Se listan los ids que SÍ matchearon para diagnosticar sin adivinar un cambio
-    -- de RLS a ciegas -- esa policy está explícitamente fuera de alcance de este fix (plan_v2 §b).
-    RAISE EXCEPTION 'FAIL (NO-ESCALATION): el SELECT directo como partner debía ver 2 de los 3 (E2=%, E3=%), vio % -- ids matched: %',
-      pg_temp.s(2), pg_temp.s(3), v_count, v_matched;
+  SELECT count(*) INTO v_policy_count
+    FROM pg_policies
+   WHERE schemaname = 'public' AND tablename = 'engagements' AND cmd = 'SELECT';
+  IF v_policy_count <> 3 THEN
+    RAISE EXCEPTION 'FAIL (NO-ESCALATION): se esperaban exactamente 3 policies de SELECT sobre engagements (read/creator read/fund request), hay %', v_policy_count;
   END IF;
 
-  PERFORM 1 FROM public.engagements WHERE engagement_id = pg_temp.s(1);
-  IF FOUND THEN
-    RAISE EXCEPTION 'FAIL (NO-ESCALATION): "engagements read" se amplió -- partner ve E1 por SELECT directo sin ser creador ni estar asignado';
+  SELECT qual INTO v_read_qual FROM pg_policies
+   WHERE schemaname = 'public' AND tablename = 'engagements' AND policyname = 'engagements read';
+  IF v_read_qual IS NULL
+     OR v_read_qual NOT LIKE '%is_assigned_to_engagement(engagement_id)%'
+     OR v_read_qual NOT LIKE '%permission_scope(''engagement.read''::text) <> ''assigned_engagements''::text%' THEN
+    RAISE EXCEPTION 'FAIL (NO-ESCALATION): "engagements read" cambió de forma -- 0828-185 no debe re-escoparla. qual actual: %', v_read_qual;
   END IF;
-  RAISE NOTICE 'OK 11: el SELECT directo a engagements sigue gobernado por la policy sin tocar -- no se amplió la RLS';
+
+  SELECT qual INTO v_creator_qual FROM pg_policies
+   WHERE schemaname = 'public' AND tablename = 'engagements' AND policyname = 'engagements creator read';
+  IF v_creator_qual IS NULL
+     OR v_creator_qual NOT LIKE '%created_by_staff_id = get_my_staff_id()%' THEN
+    RAISE EXCEPTION 'FAIL (NO-ESCALATION): "engagements creator read" cambió de forma. qual actual: %', v_creator_qual;
+  END IF;
+
+  RAISE NOTICE 'OK 11: las policies de SELECT sobre engagements conservan su forma original -- 0828-185 no las tocó (ver nota sobre RLS inerte arriba)';
 END $$;
 
 DO $$
