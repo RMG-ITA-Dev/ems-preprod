@@ -52,41 +52,47 @@ export const TEAM_FIELD_GROUPS: Record<TeamFieldName, TeamCandidateGroup> = {
   specialist_tax_id: "specialist_tax",
 };
 
-// Espejo EXACTO del CASE de get_engagement_team_candidates(). Está duplicado por necesidad —
-// el filtro real tiene que ocurrir en la BD (no se puede confiar en el cliente), y acá se
-// necesita para tipar/rutear. La mitigación de la duplicación es cobertura: los tests recorren
-// los 12 roles en ambos lados.
+// Espejo EXACTO del mapeo (role_key, candidate_group) de get_engagement_team_candidates().
+// Está duplicado por necesidad — el filtro real tiene que ocurrir en la BD (no se puede confiar
+// en el cliente), y acá se necesita para tipar/rutear. La mitigación de la duplicación es
+// cobertura: los tests recorren los 14 roles en ambos lados.
 //
-// Solo el ROL BASE de cada nivel es elegible (decisión de negocio 2026-08-17):
-//   · Socio/Director y SQR → `partner`, `director`. Fuera: `senior_partner`, `risk_partner`.
-//   · Gerente             → `manager`, y también `hr_manager` (0817-180, decisión del operador
-//                           2026-08-27: "no hagamos casos especiales" — Talento Humano gestiona
-//                           sus encargos igual que cualquier otro Gerente). Fuera: los cinco
-//                           managers especializados restantes (`ita_manager`, `tax_manager`,
-//                           `it_security_manager`, `accounting_manager`, `risk_supervisor`).
+// Solo el ROL BASE de cada nivel es elegible (decisión de negocio 2026-08-17), con dos
+// ampliaciones del operador (BUG 0828-185):
+//   · Socio/Director y SQR → `partner`, `director`, y desde 0828-185 también `senior_partner`/
+//                           `risk_partner` (visibilidad firm-wide, antes excluidos del bloque
+//                           Equipo pese a eso).
+//   · Gerente             → `manager`, `hr_manager` (0817-180: "no hagamos casos especiales") y
+//                           desde 0828-185 también `ita_manager`/`tax_manager` — un Especialista
+//                           TI/Impuestos puede además actuar como Gerente de CUALQUIER encargo,
+//                           no solo del suyo. Fuera: `it_security_manager`, `accounting_manager`,
+//                           `risk_supervisor`.
 //   · Encargado           → `senior`, `semisenior`. Fuera: `ita_senior`, `tax_senior` y los
 //                           tres `*_analyst` (incluido `hr_analyst`: mismo criterio que
 //                           `accounting_analyst`/`collections_analyst`, ninguno es candidato).
-//   · Especialistas       → las tres familias `ita_*` / `tax_*` completas.
+//   · Especialistas       → las tres familias `ita_*` / `tax_*` completas — `ita_manager`/
+//                           `tax_manager` caen ADEMÁS en su especialidad (doble grupo).
 // `admin` queda fuera de los seis campos: es un rol técnico, no de negocio. A quien figure como
 // `admin` siendo Socio/Director/Gerente se le asigna su role_key real en Settings.
-export const ROLE_KEY_TO_GROUP: Record<string, TeamCandidateGroup> = {
-  partner: "partner_director",
-  director: "partner_director",
-  manager: "manager",
-  hr_manager: "manager",
-  senior: "encargado",
-  semisenior: "encargado",
-  ita_manager: "specialist_it",
-  ita_senior: "specialist_it",
-  ita_assistant: "specialist_it",
-  tax_manager: "specialist_tax",
-  tax_senior: "specialist_tax",
-  tax_assistant: "specialist_tax",
+export const ROLE_KEY_TO_GROUPS: Record<string, readonly TeamCandidateGroup[]> = {
+  partner: ["partner_director"],
+  director: ["partner_director"],
+  senior_partner: ["partner_director"],
+  risk_partner: ["partner_director"],
+  manager: ["manager"],
+  hr_manager: ["manager"],
+  senior: ["encargado"],
+  semisenior: ["encargado"],
+  ita_manager: ["specialist_it", "manager"],
+  ita_senior: ["specialist_it"],
+  ita_assistant: ["specialist_it"],
+  tax_manager: ["specialist_tax", "manager"],
+  tax_senior: ["specialist_tax"],
+  tax_assistant: ["specialist_tax"],
 };
 
-/** Los `role_key` elegibles, en el orden del mapa. Espeja el `IN (...)` del RPC. */
-export const ELIGIBLE_ROLE_KEYS = Object.keys(ROLE_KEY_TO_GROUP);
+/** Los `role_key` elegibles, en el orden del mapa. Espeja el JOIN de mapeo del RPC. */
+export const ELIGIBLE_ROLE_KEYS = Object.keys(ROLE_KEY_TO_GROUPS);
 
 /**
  * Opción de combobox de personal. `serviceId` es la práctica del candidato tal como la devuelve

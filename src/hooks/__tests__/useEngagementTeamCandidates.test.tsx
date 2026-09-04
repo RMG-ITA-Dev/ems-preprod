@@ -100,6 +100,18 @@ describe("useEngagementTeamCandidates", () => {
     expect(result.current.managerRoleOptions.map((o) => o.value)).toEqual(["z", "a"]);
   });
 
+  // BUG 0828-185: ita_manager/tax_manager caen en DOS grupos de candidatura (su especialidad y
+  // 'manager') — el RPC devuelve una fila por (staff, group), así que el mismo staff_id aparece
+  // en ambos buckets del hook.
+  it("un staff con dos filas (una por grupo) aparece en ambos buckets — ita_manager/tax_manager", async () => {
+    const { result } = await renderWith([
+      row("dual1", "Iggy Itamanager", "specialist_it"),
+      row("dual1", "Iggy Itamanager", "manager"),
+    ]);
+    expect(result.current.specialistItOptions.map((o) => o.value)).toEqual(["dual1"]);
+    expect(result.current.managerRoleOptions.map((o) => o.value)).toEqual(["dual1"]);
+  });
+
   it("omite filas con candidate_group nulo o desconocido", async () => {
     const { result } = await renderWith([
       row("ok", "Valido Valido", "manager"),

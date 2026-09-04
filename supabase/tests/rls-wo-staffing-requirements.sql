@@ -125,12 +125,14 @@ ON CONFLICT (user_id) DO UPDATE SET role = EXCLUDED.role, role_key = EXCLUDED.ro
 -- has no such column at all, so this must be supplied explicitly to work in both environments.
 -- Fase 7 §H: encargado_id/specialist_it_id on E1 back the Eddy/Ivy personas
 -- below (30-shim-service-scope.sql adds these columns to the local harness).
-INSERT INTO public.engagements (engagement_id, client_id, engagement_name, manager_id, sqr_id, encargado_id, specialist_it_id, practica, fecha_cierre) VALUES
+INSERT INTO public.engagements (engagement_id, client_id, engagement_name, manager_id, sqr_id, encargado_id, specialist_it_id, practica, fecha_cierre, society_id) VALUES
   ('e0000000-0000-4000-8000-0000000000a1', 'c1000000-0000-4000-8000-0000000000a1', 'WR E1',
    '50000000-0000-4000-8000-0000000000a3', '50000000-0000-4000-8000-0000000000a4',
-   '50000000-0000-4000-8000-0000000000a8', '50000000-0000-4000-8000-0000000000a9', 1, '2026-09-30'),
+   '50000000-0000-4000-8000-0000000000a8', '50000000-0000-4000-8000-0000000000a9', 1, '2026-09-30',
+   (SELECT society_id FROM public.society ORDER BY name LIMIT 1)),
   ('e0000000-0000-4000-8000-0000000000a2', 'c1000000-0000-4000-8000-0000000000a1', 'WR E2 (foreign)',
-   '50000000-0000-4000-8000-0000000000a7', NULL, NULL, NULL, 1, '2026-09-30');
+   '50000000-0000-4000-8000-0000000000a7', NULL, NULL, NULL, 1, '2026-09-30',
+   (SELECT society_id FROM public.society ORDER BY name LIMIT 1));
 
 -- currency/season_mode are NOT NULL with no DEFAULT (20251204045534) — must be supplied explicitly.
 INSERT INTO public.work_orders (wo_id, engagement_id, currency, season_mode) VALUES

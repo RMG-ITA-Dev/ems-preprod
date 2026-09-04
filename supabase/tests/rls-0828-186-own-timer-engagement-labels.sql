@@ -79,23 +79,23 @@ ON CONFLICT (client_id) DO NOTHING;
 -- timer_entries, no de engagement_assignments.
 INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engagement_code,
                                  status, work_order_required, engagement_state_override,
-                                 fecha_cierre) VALUES
+                                 fecha_cierre, society_id) VALUES
   -- (a) Actualmente cargable (caso ya cubierto por list_loggable_engagements, control).
   ('70828186-0000-4000-8000-000000000011', '60828186-0000-4000-8000-000000000011',
-   'Loggable Ahora 0828186', 'LE-11', 'active', false, NULL, '2026-12-31'),
+   'Loggable Ahora 0828186', 'LE-11', 'active', false, NULL, '2026-12-31', (SELECT society_id FROM public.society ORDER BY name LIMIT 1)),
   -- (b) YA NO cargable: override Finalizado (7) -- el caso que list_loggable_engagements()
   -- no cubre porque lo excluye del WHERE. El caller A ya tiene un timer_entries acá.
   ('70828186-0000-4000-8000-000000000012', '60828186-0000-4000-8000-000000000011',
-   'Finalizado Post-Registro 0828186', 'LE-12', 'active', false, 7, '2026-12-31'),
+   'Finalizado Post-Registro 0828186', 'LE-12', 'active', false, 7, '2026-12-31', (SELECT society_id FROM public.society ORDER BY name LIMIT 1)),
   -- (c) status distinto de 'active' (engagements_status_check solo admite active/pending/
   -- completed/cancelled) -- también fuera de list_loggable_engagements(). Caller A también
   -- tiene timer_entries acá.
   ('70828186-0000-4000-8000-000000000013', '60828186-0000-4000-8000-000000000011',
-   'Cancelado Post-Registro 0828186', 'LE-13', 'cancelled', false, NULL, '2026-12-31'),
+   'Cancelado Post-Registro 0828186', 'LE-13', 'cancelled', false, NULL, '2026-12-31', (SELECT society_id FROM public.society ORDER BY name LIMIT 1)),
   -- (d) Encargo que el caller A NUNCA registró -- no debe aparecer aunque exista y sea
   -- cargable (la función no es un sustituto del selector, solo resuelve pertenencia).
   ('70828186-0000-4000-8000-000000000014', '60828186-0000-4000-8000-000000000011',
-   'Nunca Registrado 0828186', 'LE-14', 'active', false, NULL, '2026-12-31')
+   'Nunca Registrado 0828186', 'LE-14', 'active', false, NULL, '2026-12-31', (SELECT society_id FROM public.society ORDER BY name LIMIT 1))
 ON CONFLICT (engagement_id) DO NOTHING;
 
 -- run-rls-tests.sh solo aplica cero_01..cero_06 (esquema), no cero_11 (seed de

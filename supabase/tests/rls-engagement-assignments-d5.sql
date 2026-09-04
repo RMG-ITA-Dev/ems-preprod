@@ -104,10 +104,10 @@ INSERT INTO public.user_roles (user_id, role, role_key) VALUES
   ('a0000000-0000-4000-8000-000000000011', 'senior', 'senior');
 -- 'a0000000-...-0000000000ff' (no-role user) gets no user_roles row.
 
-INSERT INTO public.engagements (engagement_id, client_id, engagement_name, manager_id, fecha_cierre) VALUES
-  ('e0000000-0000-4000-8000-000000000001', 'c1000000-0000-4000-8000-000000000001', 'D5 E1', '50000000-0000-4000-8000-00000000000c', '2026-12-31'),
-  ('e0000000-0000-4000-8000-000000000002', 'c1000000-0000-4000-8000-000000000001', 'D5 E2', '50000000-0000-4000-8000-000000000010', '2026-12-31'),
-  ('e0000000-0000-4000-8000-000000000003', 'c1000000-0000-4000-8000-000000000001', 'D5 E3', '50000000-0000-4000-8000-000000000011', '2026-12-31');
+INSERT INTO public.engagements (engagement_id, client_id, engagement_name, manager_id, fecha_cierre, society_id) VALUES
+  ('e0000000-0000-4000-8000-000000000001', 'c1000000-0000-4000-8000-000000000001', 'D5 E1', '50000000-0000-4000-8000-00000000000c', '2026-12-31', (SELECT society_id FROM public.society ORDER BY name LIMIT 1)),
+  ('e0000000-0000-4000-8000-000000000002', 'c1000000-0000-4000-8000-000000000001', 'D5 E2', '50000000-0000-4000-8000-000000000010', '2026-12-31', (SELECT society_id FROM public.society ORDER BY name LIMIT 1)),
+  ('e0000000-0000-4000-8000-000000000003', 'c1000000-0000-4000-8000-000000000001', 'D5 E3', '50000000-0000-4000-8000-000000000011', '2026-12-31', (SELECT society_id FROM public.society ORDER BY name LIMIT 1));
 
 INSERT INTO public.engagement_assignments
   (assignment_id, engagement_id, staff_id, category_id, start_date, end_date, deleted_at) VALUES

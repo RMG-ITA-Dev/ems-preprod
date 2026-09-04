@@ -80,34 +80,36 @@ ON CONFLICT (client_id) DO NOTHING;
 -- filtra por asignación.
 INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engagement_code,
                                  status, work_order_required, engagement_state_override,
-                                 fecha_cierre) VALUES
+                                 fecha_cierre, society_id) VALUES
   -- (a) OT Aprobada, sin override -- debe aparecer aunque el caller no esté asignado.
   ('70828186-0000-4000-8000-000000000001', '60828186-0000-4000-8000-000000000001',
-   'OT Aprobada 0828186', 'LE-01', 'active', true, NULL, '2026-12-31'),
+   'OT Aprobada 0828186', 'LE-01', 'active', true, NULL, '2026-12-31', (SELECT society_id FROM public.society ORDER BY name LIMIT 1)),
   -- (b1) Administrativo (sin OT requerida) -- debe aparecer.
   ('70828186-0000-4000-8000-000000000002', '60828186-0000-4000-8000-000000000001',
-   'Administrativo 0828186', 'LE-02', 'active', false, NULL, '2026-12-31'),
+   'Administrativo 0828186', 'LE-02', 'active', false, NULL, '2026-12-31', (SELECT society_id FROM public.society ORDER BY name LIMIT 1)),
   -- (b2) Override manual Aprobado (4), OT no aprobada -- debe aparecer.
   ('70828186-0000-4000-8000-000000000003', '60828186-0000-4000-8000-000000000001',
-   'Override Aprobado 0828186', 'LE-03', 'active', true, 4, '2026-12-31'),
+   'Override Aprobado 0828186', 'LE-03', 'active', true, 4, '2026-12-31', (SELECT society_id FROM public.society ORDER BY name LIMIT 1)),
   -- (c) OT Pendiente de aprobación, sin override -- NO debe aparecer.
   ('70828186-0000-4000-8000-000000000004', '60828186-0000-4000-8000-000000000001',
-   'OT Pendiente 0828186', 'LE-04', 'active', true, NULL, '2026-12-31'),
+   'OT Pendiente 0828186', 'LE-04', 'active', true, NULL, '2026-12-31', (SELECT society_id FROM public.society ORDER BY name LIMIT 1)),
   -- (d) Overrides terminales/no-cargables sobre un encargo admin (que de otro modo
   -- calificaría por Group B) -- ninguno debe aparecer: el override manda sobre todo lo demás.
   ('70828186-0000-4000-8000-000000000005', '60828186-0000-4000-8000-000000000001',
-   'Override Cancelado 0828186', 'LE-05', 'active', false, 6, '2026-12-31'),
+   'Override Cancelado 0828186', 'LE-05', 'active', false, 6, '2026-12-31', (SELECT society_id FROM public.society ORDER BY name LIMIT 1)),
   ('70828186-0000-4000-8000-000000000006', '60828186-0000-4000-8000-000000000001',
-   'Override Finalizado 0828186', 'LE-06', 'active', false, 7, '2026-12-31'),
+   'Override Finalizado 0828186', 'LE-06', 'active', false, 7, '2026-12-31', (SELECT society_id FROM public.society ORDER BY name LIMIT 1)),
   ('70828186-0000-4000-8000-000000000007', '60828186-0000-4000-8000-000000000001',
-   'Override Rechazado 0828186', 'LE-07', 'active', false, 8, '2026-12-31'),
+   'Override Rechazado 0828186', 'LE-07', 'active', false, 8, '2026-12-31', (SELECT society_id FROM public.society ORDER BY name LIMIT 1)),
+  ('70828186-0000-4000-8000-000000000008', '60828186-0000-4000-8000-000000000001',
+   'Override Congelado 0828186', 'LE-08', 'active', false, 9, '2026-12-31', (SELECT society_id FROM public.society ORDER BY name LIMIT 1)),
   -- (f) Overrides 1/2/3 sobre encargos que de otro modo calificarían por Group A/B -- el
   -- override manual (no solo 4/5 positivo) también debe bloquear, igual que check_wo_approved()
   -- y engagement_allows_hours_or_requests() (review Iteración 2, 0828-186).
   ('70828186-0000-4000-8000-000000000009', '60828186-0000-4000-8000-000000000001',
-   'Override Pendiente sobre OT Aprobada 0828186', 'LE-09', 'active', true, 1, '2026-12-31'),
+   'Override Pendiente sobre OT Aprobada 0828186', 'LE-09', 'active', true, 1, '2026-12-31', (SELECT society_id FROM public.society ORDER BY name LIMIT 1)),
   ('70828186-0000-4000-8000-000000000010', '60828186-0000-4000-8000-000000000001',
-   'Override AprobadoRiesgos sobre Administrativo 0828186', 'LE-10', 'active', false, 3, '2026-12-31')
+   'Override AprobadoRiesgos sobre Administrativo 0828186', 'LE-10', 'active', false, 3, '2026-12-31', (SELECT society_id FROM public.society ORDER BY name LIMIT 1))
 ON CONFLICT (engagement_id) DO NOTHING;
 
 INSERT INTO public.work_orders (wo_id, engagement_id, currency, season_mode,

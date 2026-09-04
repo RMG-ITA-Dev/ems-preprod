@@ -815,6 +815,11 @@
     "requiredTaxonomyCliente": "El servicio es requerido para encargos de tipo Cliente",
     "sectionClassification": "Clasificación",
     "requiredFieldsLegend": "* Campos obligatorios",
+    "unavailable": "Este encargo no está disponible para usted. Puede haber sido reasignado, o quizás no tiene acceso a él.",
+    "loadError": "No pudimos cargar este encargo. Por favor, intente de nuevo.",
+    "retry": "Reintentar",
+    "readOnlyNotice": "Puede ver este encargo, pero no tiene permiso para editarlo.",
+    "managerCannotBeSpecialist": "El Gerente/Supervisor no puede ser a la vez Especialista TI o de Impuestos del mismo encargo.",
     "assignments": {
       "category": "Categoría",
       "searchStaff": "Buscar personal...",

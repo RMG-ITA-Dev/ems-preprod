@@ -181,6 +181,25 @@ BEGIN
     RAISE EXCEPTION 'CONVERGENCE FAIL — % engagement(s) still have practica IS NULL after the Auditoría backfill (Fase 5 O6)', n;
   END IF;
   RAISE NOTICE 'PASS — no engagements remain with practica IS NULL (Fase 5 O6 backfill to Auditoría applied)';
+
+  -- 10. BUG 0828-185: society_id NOT NULL (own_society del RPC list_portfolio_engagements
+  --     necesita comparar sociedades reales) y el CHECK manager_id <> especialista, validado
+  --     (no NOT VALID) tras la remediación de la propia migración.
+  SELECT count(*) INTO n FROM pg_attribute
+   WHERE attrelid = 'public.engagements'::regclass
+     AND attname = 'society_id' AND attnotnull AND NOT attisdropped;
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'CONVERGENCE FAIL — engagements.society_id debe ser NOT NULL (BUG 0828-185)';
+  END IF;
+
+  SELECT count(*) INTO n FROM pg_constraint
+   WHERE conrelid = 'public.engagements'::regclass
+     AND conname = 'chk_engagements_manager_not_specialist'
+     AND contype = 'c' AND convalidated;
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'CONVERGENCE FAIL — falta (o no está validado) chk_engagements_manager_not_specialist en engagements (BUG 0828-185)';
+  END IF;
+  RAISE NOTICE 'PASS — engagements.society_id es NOT NULL y chk_engagements_manager_not_specialist está presente y validado (BUG 0828-185)';
 END $$;
 
 -- =====================================================================
@@ -208,10 +227,10 @@ BEGIN
     (v_client, 'Convergence Behavior Client', 'CONV-TAX-001');
   -- fecha_cierre is NOT NULL with no DEFAULT on a live Supabase (20260702000000) — the local shim
   -- has no such column at all, so this must be supplied explicitly to work in both environments.
-  INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engagement_state_override, fecha_cierre) VALUES
-    (v_e_open, v_client, 'Convergence E-open', 1, '2026-09-30'),   -- derived state 1..5/8 -> writable
-    (v_e_term, v_client, 'Convergence E-terminal', 7, '2026-09-30'), -- Finalizado -> locked
-    (v_e_null, v_client, 'Convergence E-null', NULL, '2026-09-30');  -- no override -> writable
+  INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engagement_state_override, fecha_cierre, society_id) VALUES
+    (v_e_open, v_client, 'Convergence E-open', 1, '2026-09-30', (SELECT society_id FROM public.society ORDER BY name LIMIT 1)),   -- derived state 1..5/8 -> writable
+    (v_e_term, v_client, 'Convergence E-terminal', 7, '2026-09-30', (SELECT society_id FROM public.society ORDER BY name LIMIT 1)), -- Finalizado -> locked
+    (v_e_null, v_client, 'Convergence E-null', NULL, '2026-09-30', (SELECT society_id FROM public.society ORDER BY name LIMIT 1));  -- no override -> writable
 
   -- engagement_accepts_assignment_writes: true for 1..5/8/NULL, false for 6/7 (0817-179 retiró el 9).
   IF NOT public.engagement_accepts_assignment_writes(v_e_open) THEN

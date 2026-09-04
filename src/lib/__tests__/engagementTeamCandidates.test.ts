@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   TEAM_FIELD_GROUPS,
-  ROLE_KEY_TO_GROUP,
+  ROLE_KEY_TO_GROUPS,
   ELIGIBLE_ROLE_KEYS,
   withSavedStaff,
   withSelfCandidate,
@@ -54,30 +54,53 @@ describe("TEAM_FIELD_GROUPS — mapa campo → grupo de candidatura", () => {
   });
 });
 
-describe("ROLE_KEY_TO_GROUP — mapa role_key → grupo (espejo del CASE del RPC)", () => {
-  it("mapea los 12 role_key elegibles a su grupo", () => {
-    expect(ROLE_KEY_TO_GROUP).toEqual({
-      partner: "partner_director",
-      director: "partner_director",
-      manager: "manager",
-      hr_manager: "manager",
-      senior: "encargado",
-      semisenior: "encargado",
-      ita_manager: "specialist_it",
-      ita_senior: "specialist_it",
-      ita_assistant: "specialist_it",
-      tax_manager: "specialist_tax",
-      tax_senior: "specialist_tax",
-      tax_assistant: "specialist_tax",
+describe("ROLE_KEY_TO_GROUPS — mapa role_key → grupo(s) (espejo del mapeo del RPC)", () => {
+  it("mapea los 14 role_key elegibles a su(s) grupo(s)", () => {
+    expect(ROLE_KEY_TO_GROUPS).toEqual({
+      partner: ["partner_director"],
+      director: ["partner_director"],
+      senior_partner: ["partner_director"],
+      risk_partner: ["partner_director"],
+      manager: ["manager"],
+      hr_manager: ["manager"],
+      senior: ["encargado"],
+      semisenior: ["encargado"],
+      ita_manager: ["specialist_it", "manager"],
+      ita_senior: ["specialist_it"],
+      ita_assistant: ["specialist_it"],
+      tax_manager: ["specialist_tax", "manager"],
+      tax_senior: ["specialist_tax"],
+      tax_assistant: ["specialist_tax"],
     });
-    expect(ELIGIBLE_ROLE_KEYS).toHaveLength(12);
+    expect(ELIGIBLE_ROLE_KEYS).toHaveLength(14);
   });
 
   // BUG 0817-180 (2026-08-27): hr_manager se agregó al grupo "manager" — decisión del operador
   // de no tratar a Talento Humano como caso especial. hr_analyst se queda FUERA a propósito,
   // igual que el resto de los `*_analyst` de la lista de abajo.
   it("hr_manager cae en el mismo grupo que manager", () => {
-    expect(ROLE_KEY_TO_GROUP.hr_manager).toBe(ROLE_KEY_TO_GROUP.manager);
+    expect(ROLE_KEY_TO_GROUPS.hr_manager).toEqual(ROLE_KEY_TO_GROUPS.manager);
+  });
+
+  // BUG 0828-185: senior_partner/risk_partner se suman a partner_director (visibilidad
+  // firm-wide, antes excluidos del bloque Equipo); ita_manager/tax_manager caen ADEMÁS en
+  // 'manager' (doble grupo) — un Especialista puede además actuar como Gerente de cualquier
+  // encargo, no solo del suyo.
+  it("senior_partner/risk_partner caen en partner_director, igual que partner/director", () => {
+    expect(ROLE_KEY_TO_GROUPS.senior_partner).toEqual(ROLE_KEY_TO_GROUPS.partner);
+    expect(ROLE_KEY_TO_GROUPS.risk_partner).toEqual(ROLE_KEY_TO_GROUPS.partner);
+  });
+
+  it("ita_manager/tax_manager caen en su especialidad Y ADEMÁS en manager", () => {
+    expect(ROLE_KEY_TO_GROUPS.ita_manager).toContain("specialist_it");
+    expect(ROLE_KEY_TO_GROUPS.ita_manager).toContain("manager");
+    expect(ROLE_KEY_TO_GROUPS.tax_manager).toContain("specialist_tax");
+    expect(ROLE_KEY_TO_GROUPS.tax_manager).toContain("manager");
+    // El resto de las familias ita_*/tax_* se queda en un solo grupo.
+    expect(ROLE_KEY_TO_GROUPS.ita_senior).toEqual(["specialist_it"]);
+    expect(ROLE_KEY_TO_GROUPS.ita_assistant).toEqual(["specialist_it"]);
+    expect(ROLE_KEY_TO_GROUPS.tax_senior).toEqual(["specialist_tax"]);
+    expect(ROLE_KEY_TO_GROUPS.tax_assistant).toEqual(["specialist_tax"]);
   });
 
   // Esta es la red de seguridad del fix: cada rol de acá abajo estuvo considerado y quedó
@@ -87,27 +110,25 @@ describe("ROLE_KEY_TO_GROUP — mapa role_key → grupo (espejo del CASE del RPC
     ["admin", "rol técnico, no de negocio"],
     ["assistant", "no es Encargado"],
     ["viewer", "sin rol operativo"],
-    ["senior_partner", "solo el rol base partner es elegible"],
-    ["risk_partner", "solo el rol base partner es elegible"],
-    ["risk_supervisor", "Gerente/Supervisor pide solo `manager` (y, desde 0817-180, `hr_manager`)"],
+    ["risk_supervisor", "Gerente/Supervisor pide solo `manager`/`hr_manager`/`ita_manager`/`tax_manager`"],
     ["it_security_manager", "seguridad TI interna, no Especialista TI del encargo"],
-    ["accounting_manager", "Gerente/Supervisor pide solo `manager` (y, desde 0817-180, `hr_manager`)"],
+    ["accounting_manager", "Gerente/Supervisor pide solo `manager`/`hr_manager`/`ita_manager`/`tax_manager`"],
     ["accounting_analyst", "Encargado pide solo senior/semisenior"],
     ["collections_analyst", "Encargado pide solo senior/semisenior"],
     ["hr_analyst", "Encargado pide solo senior/semisenior — hr_manager es el único hr_* elegible"],
   ])("no mapea %s (%s)", (roleKey) => {
-    expect(ROLE_KEY_TO_GROUP[roleKey]).toBeUndefined();
+    expect(ROLE_KEY_TO_GROUPS[roleKey]).toBeUndefined();
   });
 
   it("los role_key legacy specialist_it/specialist_tax no existen en el catálogo de 23", () => {
     // El backfill de 20260724010000 los mandó a NULL; las familias reales son ita_*/tax_*.
-    expect(ROLE_KEY_TO_GROUP["specialist_it"]).toBeUndefined();
-    expect(ROLE_KEY_TO_GROUP["specialist_tax"]).toBeUndefined();
+    expect(ROLE_KEY_TO_GROUPS["specialist_it"]).toBeUndefined();
+    expect(ROLE_KEY_TO_GROUPS["specialist_tax"]).toBeUndefined();
   });
 
   it("todo grupo del mapa de roles es un grupo alcanzable desde algún campo", () => {
     const fieldGroups = new Set(Object.values(TEAM_FIELD_GROUPS));
-    const roleGroups = new Set(Object.values(ROLE_KEY_TO_GROUP));
+    const roleGroups = new Set(Object.values(ROLE_KEY_TO_GROUPS).flat());
     expect([...roleGroups].sort()).toEqual([...fieldGroups].sort());
   });
 });

@@ -3,8 +3,11 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { EngagementForm } from "@/components/forms/EngagementForm";
-import { useEngagements } from "@/hooks/useEmsData";
+import { usePortfolioEngagements } from "@/hooks/usePortfolioEngagements";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { AlertCircle } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";
 import { LeavePageDialog } from "@/components/ui/leave-page-dialog";
 
@@ -12,7 +15,7 @@ const EngagementEdit = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const { data: engagements, isLoading } = useEngagements();
+  const { data: engagements, isLoading, isError, refetch } = usePortfolioEngagements();
   const [isDirty, setIsDirty] = useState(false);
   const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty });
 
@@ -34,6 +37,51 @@ const EngagementEdit = () => {
         <div className="space-y-6">
           <Skeleton className="h-10 w-64" />
           <Skeleton className="h-96 w-full" />
+        </div>
+      </AppLayout>
+    );
+  }
+
+  // REVIEW 0828-185 (iteración 2, #2): un error transitorio del RPC (red, timeout) también deja
+  // `engagement` en `undefined` -- sin esta rama se mostraría como "no disponible" igual que un
+  // id fuera de portafolio, cuando en realidad conviene reintentar en vez de mandar a Encargos.
+  if (isError) {
+    return (
+      <AppLayout title={t("nav.engagements")} focusMode>
+        <div className="space-y-4">
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{t("engagement.loadError")}</AlertDescription>
+          </Alert>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => refetch()}>
+              {t("engagement.retry")}
+            </Button>
+            <Button variant="cancel" onClick={() => navigate("/engagements")}>
+              {t("common.cancel")}
+            </Button>
+          </div>
+        </div>
+      </AppLayout>
+    );
+  }
+
+  // BUG 0828-185: usePortfolioEngagements() ya no incluye cualquier encargo donde el usuario
+  // esté asignado, solo lo que le corresponde por rol/creación -- un deep-link a un id fuera de
+  // ese portafolio ahora es común (antes era solo un id inexistente). Sin esta rama,
+  // `engagement` llega `undefined` a EngagementForm, que lo interpreta como modo CREACIÓN
+  // silencioso -- nunca debe pasar para una ruta /engagements/:id.
+  if (!engagement) {
+    return (
+      <AppLayout title={t("nav.engagements")} focusMode>
+        <div className="space-y-4">
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{t("engagement.unavailable")}</AlertDescription>
+          </Alert>
+          <Button variant="cancel" onClick={() => navigate("/engagements")}>
+            {t("common.cancel")}
+          </Button>
         </div>
       </AppLayout>
     );
