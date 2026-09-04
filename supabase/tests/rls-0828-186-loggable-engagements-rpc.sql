@@ -101,8 +101,6 @@ INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engag
    'Override Finalizado 0828186', 'LE-06', 'active', false, 7, '2026-12-31', (SELECT society_id FROM public.society ORDER BY name LIMIT 1)),
   ('70828186-0000-4000-8000-000000000007', '60828186-0000-4000-8000-000000000001',
    'Override Rechazado 0828186', 'LE-07', 'active', false, 8, '2026-12-31', (SELECT society_id FROM public.society ORDER BY name LIMIT 1)),
-  ('70828186-0000-4000-8000-000000000008', '60828186-0000-4000-8000-000000000001',
-   'Override Congelado 0828186', 'LE-08', 'active', false, 9, '2026-12-31', (SELECT society_id FROM public.society ORDER BY name LIMIT 1)),
   -- (f) Overrides 1/2/3 sobre encargos que de otro modo calificarían por Group A/B -- el
   -- override manual (no solo 4/5 positivo) también debe bloquear, igual que check_wo_approved()
   -- y engagement_allows_hours_or_requests() (review Iteración 2, 0828-186).
