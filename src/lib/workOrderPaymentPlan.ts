@@ -1,5 +1,5 @@
 import { getBoliviaNationalHolidays } from './boliviaHolidays';
-import type { PaymentInstallmentInput, PaymentInstallmentStatus } from '@/types/workOrderPaymentPlan';
+import type { ExchangeRateMode, PaymentInstallmentInput, PaymentInstallmentStatus } from '@/types/workOrderPaymentPlan';
 
 // Returns a new Date that is `days` business days after `start`.
 // Skips weekends and Bolivia national holidays.
@@ -134,4 +134,42 @@ export function computeBillingIndicator(
     isPaymentDueSoonOrOverdue(installment, 7),
   );
   return hasPaymentAtRisk ? 'red' : 'green';
+}
+
+// 0722-156b (Fase 2): freeze windows for the two per-installment exchange rate
+// snapshots, based ONLY on the persisted `status` column — never on
+// getEffectiveInstallmentStatus's screen-only Overdue. A persisted 'Overdue' can only
+// be reached from 'Invoiced' (see STATUS_TRANSITIONS in WorkOrderPaymentPlanSection),
+// so "status left Pending" and "was ever Invoiced" are equivalent here.
+export function isInvoiceRateEditable(status: PaymentInstallmentStatus): boolean {
+  return status === 'Pending';
+}
+
+export function isPaymentRateEditable(status: PaymentInstallmentStatus): boolean {
+  return status !== 'Completed';
+}
+
+// Derived amount shown in Bs next to a cuota's invoice/payment cell — never persisted
+// (plan_v2.md Proposed Fix §3): `amount` (original currency) × the applicable TC.
+export function computeConvertedAmount(amount: number | null, rate: number | null): number | null {
+  if (amount == null || rate == null) return null;
+  return parseFloat((amount * rate).toFixed(2));
+}
+
+// Modo Fijo: el TC de creacion del plan se aplica tal cual a las 2 columnas de TC de
+// TODAS las cuotas AUN EDITABLES (por estado persistido); una cuota ya congelada
+// conserva su valor guardado sin cambios, para que el UPDATE sincronizado sea un no-op
+// para el trigger de freeze (nunca reintenta reescribir un TC ya congelado con un valor
+// distinto). Modo Variable: cada cuota mantiene su captura independiente, sin cambios.
+export function applyExchangeRateMode(
+  mode: ExchangeRateMode,
+  planExchangeRate: number | null,
+  installments: PaymentInstallmentInput[],
+): PaymentInstallmentInput[] {
+  if (mode !== 'fijo') return installments;
+  return installments.map((inst) => ({
+    ...inst,
+    invoice_exchange_rate: isInvoiceRateEditable(inst.status) ? planExchangeRate : inst.invoice_exchange_rate,
+    payment_exchange_rate: isPaymentRateEditable(inst.status) ? planExchangeRate : inst.payment_exchange_rate,
+  }));
 }

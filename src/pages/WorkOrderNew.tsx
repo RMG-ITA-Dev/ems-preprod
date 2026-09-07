@@ -34,6 +34,7 @@ import { useCreateWorkOrder, useCreateBudgetLine, useCreateExpenseBudget, useUps
 import { toast } from "sonner";
 import { useAuthorization } from "@/hooks/useAuthorization";
 import type { PaymentPlanInput, PaymentInstallmentInput } from "@/types/workOrderPaymentPlan";
+import { applyExchangeRateMode } from "@/lib/workOrderPaymentPlan";
 
 const WorkOrderNew = () => {
   const { t } = useTranslation();
@@ -204,15 +205,18 @@ const WorkOrderNew = () => {
 
       // Persist payment plan if any installments were configured
       if (paymentInstallments.length > 0) {
+        const mode = paymentPlan?.exchange_rate_mode ?? "fijo";
+        const exchangeRate = paymentPlan?.exchange_rate ?? null;
         const savedPlan = await upsertPaymentPlan.mutateAsync({
           wo_id: wo.wo_id,
-          exchange_rate: paymentPlan?.exchange_rate ?? null,
+          exchange_rate: exchangeRate,
           payment_days: paymentPlan?.payment_days ?? 30,
+          exchange_rate_mode: mode,
         });
         await batchUpsertInstallments.mutateAsync({
           planId: savedPlan.plan_id,
           woId: wo.wo_id,
-          installments: paymentInstallments,
+          installments: applyExchangeRateMode(mode, exchangeRate, paymentInstallments),
         });
       }
 
@@ -367,7 +371,11 @@ const WorkOrderNew = () => {
             paymentPlan={paymentPlan}
             paymentInstallments={paymentInstallments}
             isAdminDateEditable={false}
-            isStatusEditable={isAdmin || roleKey === "collections_analyst"}
+            // 0722-156b (Amendment 2026-09-07): Cobranza/Estado/TC por cuota son el registro de
+            // lo que efectivamente pasa post-aprobacion -- una OT recien creada siempre esta
+            // Draft, asi que nunca son editables aca (evita ademas depender de un boton
+            // "Guardar" que WorkOrderForm no ofrece fuera de Draft/socioCorrecting).
+            isStatusEditable={false}
             onPaymentPlanChange={setPaymentPlan}
             onPaymentInstallmentsChange={setPaymentInstallments}
           />

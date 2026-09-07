@@ -16,6 +16,13 @@ vi.mock("react-i18next", () => ({
 vi.mock("@/hooks/mutations", () => ({
   useUpdateInstallmentStatus: () => ({ mutate: vi.fn(), isPending: false }),
   useUpdateCollectionDate: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useUpdateInstallmentExchangeRate: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
+// WorkOrderPaymentPlanSection now calls useLatestExchangeRate (0722-156b Fase 2) —
+// unrelated to this suite's Fase-1-and-earlier coverage, so stub it out with no data.
+vi.mock("@/hooks/useExchangeRate", () => ({
+  useLatestExchangeRate: () => ({ data: null }),
 }));
 
 // Radix Select requires PointerEvent APIs not available in jsdom
@@ -131,6 +138,8 @@ function makeInstallment(overrides: Partial<PaymentInstallmentInput> = {}): Paym
     percentage:               100,
     amount:                   null,
     status:                   "Pending" as PaymentInstallmentStatus,
+    invoice_exchange_rate:    null,
+    payment_exchange_rate:    null,
     ...overrides,
   };
 }

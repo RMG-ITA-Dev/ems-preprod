@@ -1,8 +1,38 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { createMutationErrorHandler } from "@/lib/error-handler";
+import { createMutationErrorHandler, handleError } from "@/lib/error-handler";
+import i18n from "@/i18n";
 import type { PaymentPlanInput, PaymentInstallmentInput, PaymentInstallmentStatus } from "@/types/workOrderPaymentPlan";
 import { computePaymentDate } from "@/lib/workOrderPaymentPlan";
+
+// 0722-156b (Fase 2): trg_wo_payment_plan_guard_exchange_rate / trg_wo_payment_
+// installments_guard_exchange_rate (migración 20260905172820) rechazan un cambio de
+// TC fuera de su ventana editable con un mensaje que empieza con este token —
+// mapeado a un toast traducido en vez del genérico de createMutationErrorHandler,
+// para una carrera entre pestañas (ej. la OT se aprobó en otra pestaña mientras esta
+// tenía el plan abierto para edición).
+const EXCHANGE_RATE_LOCKED_TOKEN = "EXCHANGE_RATE_LOCKED";
+
+function isExchangeRateLockedError(error: unknown): boolean {
+  const message = error instanceof Error
+    ? error.message
+    : typeof error === "object" && error !== null && typeof (error as { message?: unknown }).message === "string"
+      ? (error as { message: string }).message
+      : String(error);
+  return message.includes(EXCHANGE_RATE_LOCKED_TOKEN);
+}
+
+function handlePaymentPlanError(error: unknown, operation: string): void {
+  if (isExchangeRateLockedError(error)) {
+    toast.error(i18n.t("workOrders.paymentPlan.errorExchangeRateLocked"));
+    return;
+  }
+  handleError(error, {
+    toastTitle: `Error ${operation}`,
+    context: { operation },
+  });
+}
 
 // Create or update the plan header row.
 export function useUpsertPaymentPlan() {
@@ -17,18 +47,25 @@ export function useUpsertPaymentPlan() {
             wo_id: plan.wo_id,
             exchange_rate: plan.exchange_rate,
             payment_days: plan.payment_days,
+            exchange_rate_mode: plan.exchange_rate_mode,
           },
           { onConflict: "wo_id" }
         )
         .select()
         .single();
       if (error) throw error;
-      return data as { plan_id: string; wo_id: string; exchange_rate: number | null; payment_days: number };
+      return data as unknown as {
+        plan_id: string;
+        wo_id: string;
+        exchange_rate: number | null;
+        payment_days: number;
+        exchange_rate_mode: PaymentPlanInput["exchange_rate_mode"];
+      };
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["work_order", variables.wo_id] });
     },
-    onError: createMutationErrorHandler("upserting payment plan"),
+    onError: (error: unknown) => handlePaymentPlanError(error, "upserting payment plan"),
   });
 }
 
@@ -58,6 +95,8 @@ export function useBatchUpsertInstallments() {
         percentage: inst.percentage,
         amount: inst.amount,
         status: inst.status,
+        invoice_exchange_rate: inst.invoice_exchange_rate,
+        payment_exchange_rate: inst.payment_exchange_rate,
       });
 
       // Existing rows: update by installment_id (avoids renumber → PK conflict)
@@ -105,7 +144,7 @@ export function useBatchUpsertInstallments() {
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
     },
-    onError: createMutationErrorHandler("saving payment installments"),
+    onError: (error: unknown) => handlePaymentPlanError(error, "saving payment installments"),
   });
 }
 
@@ -123,12 +162,21 @@ export function useUpdateInstallmentStatus() {
       prevStatus,
       woId,
       paymentDays,
+      invoiceExchangeRate,
+      paymentExchangeRate,
     }: {
       installmentId: string;
       newStatus: PaymentInstallmentStatus;
       prevStatus?: PaymentInstallmentStatus;
       woId: string;
       paymentDays?: number;
+      // 0722-156b: snapshot de TC capturado en el mismo UPDATE que la transición de
+      // estado (escritura atómica) — invoiceExchangeRate al llegar a "Invoiced",
+      // paymentExchangeRate al llegar a "Completed". El trigger de freeze evalúa
+      // OLD.status, así que sigue permitiendo este snapshot en la MISMA transición
+      // que deja la cuota congelada.
+      invoiceExchangeRate?: number | null;
+      paymentExchangeRate?: number | null;
     }) => {
       const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/La_Paz" }).format(new Date());
       const updates: Record<string, unknown> = { status: newStatus };
@@ -140,8 +188,9 @@ export function useUpdateInstallmentStatus() {
           if (paymentDays != null) {
             updates.collection_payment_date = computePaymentDate(today, paymentDays);
           }
+          updates.invoice_exchange_rate = invoiceExchangeRate ?? null;
         }
-        // Manual Overdue→Invoiced revert: keep existing collection dates in DB
+        // Manual Overdue→Invoiced revert: keep existing collection dates + invoice TC in DB
       }
       if (newStatus === "Pending") {
         updates.collection_invoice_date = null;
@@ -149,6 +198,7 @@ export function useUpdateInstallmentStatus() {
       }
       if (newStatus === "Completed") {
         updates.payment_date_actual = today;
+        updates.payment_exchange_rate = paymentExchangeRate ?? null;
       }
       if (newStatus === "Overdue") {
         updates.payment_date_actual = null;
@@ -163,7 +213,7 @@ export function useUpdateInstallmentStatus() {
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
     },
-    onError: createMutationErrorHandler("updating installment status"),
+    onError: (error: unknown) => handlePaymentPlanError(error, "updating installment status"),
   });
 }
 
@@ -212,6 +262,39 @@ export function useUpdateCollectionDate() {
       queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
     },
     onError: createMutationErrorHandler("updating collection date"),
+  });
+}
+
+// 0722-156b (Fase 2, Amendment 2026-09-07): TC Facturación/Pago por cuota solo se
+// habilitan (isStatusEditable) una vez que la OT está Approved — momento en el que ya
+// no existe un botón "Guardar" de página (WorkOrderForm solo lo renderiza en Draft /
+// socioCorrecting). Sin un guardado directo, un valor tecleado ahí quedaba atrapado en
+// memoria para siempre (bug reportado 2026-09-07: "Sin guardar" pegado sin salida).
+// Mismo patrón que useUpdateCollectionDate: persiste una sola columna, de inmediato.
+export function useUpdateInstallmentExchangeRate() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      installmentId,
+      field,
+      value,
+      woId,
+    }: {
+      installmentId: string;
+      field: "invoice_exchange_rate" | "payment_exchange_rate";
+      value: number | null;
+      woId: string;
+    }) => {
+      const { error } = await supabase
+        .from("wo_payment_installments")
+        .update({ [field]: value })
+        .eq("installment_id", installmentId);
+      if (error) throw error;
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
+    },
+    onError: (error: unknown) => handlePaymentPlanError(error, "updating installment exchange rate"),
   });
 }
 

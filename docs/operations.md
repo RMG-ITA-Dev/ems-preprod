@@ -61,7 +61,7 @@ Activation order: migrate the target Supabase → verify schema/RLS contract →
 ## Backend (Lovable Cloud)
 
 - Supabase project ID: `ugqxfnrxvksiltwxzist`
-- 9 Edge Functions (inventory below)
+- 10 Edge Functions (inventory below)
 - 15 migrations in `supabase/migrations/`: 14 are the consolidated "migración cero" set (`bugs/migracion_cero/plan_v2.md`), which replaced the prior 184-migration history: 7 schema files (`20251204000001..7_cero_01..07_*.sql`, renamed `services→practicas` / `taxonomies→servicios`) + 7 production-seed files (`20251204001001..7_cero_10..16_*.sql`, no demo data). Verified against the pre-consolidation baseline fingerprint — see `docs/migraciones/legado-consolidacion.md` and `docs/migraciones/DIFF-INTENCIONAL-consolidacion.md` for the accepted diff and rationale. The 15th is the first incremental migration applied on top of that set, `20260825120000_0825-183_worksheet_activity_practice_scope.sql` (bug 0825-183: strict practice scope for worksheet matrix cells).
 - Key RPC functions: `submit_timesheet_safe(p_period_id uuid, p_staff_id uuid, p_engagement_ids uuid[], p_activity_ids uuid[], p_is_auto_approved boolean) returns jsonb` (5-arg signature; the old 4-arg overload was dropped in `20260716000000`; errors include `EMPTY_ENGAGEMENTS` and `ARRAY_LENGTH_MISMATCH`), `get_staff_assignment_segments(p_staff_id uuid, p_week_start date, p_week_end date) returns table(engagement_id uuid, start_date date, end_date date)` (Scheduler Fase 2/5/6 — canonical Monday `week_start`, span ≤ 6 days, `SECURITY DEFINER`), `assign_user_role_atomic()`, `update_timesheet_minmax_settings()`
 
@@ -71,6 +71,7 @@ Activation order: migrate the target Supabase → verify schema/RLS contract →
 |----------|---------|
 | `assign-user-role` | Atomic first-user-admin role assignment during bootstrap |
 | `dashboard-data` | Aggregates dashboard analytics (utilization, hours, budget vs actual) |
+| `exchange-rate-sync` | Fetches the TC Ruizmier microservice (USD/BOB oficial BCB) and upserts `exchange_rate_history`; sync mode is unauthenticated by design (future Railway cron), test mode is admin-gated in-handler (BUG 0722-156, Fase 1) |
 | `manage-auth-user` | Auth user management (create, update, delete) |
 | `secure-signin` | Sole legitimate caller of the account-lockout RPCs (`check_login_allowed`, `record_failed_login`); fronts sign-in so `anon` can no longer trip lockout directly (BUG 0514-115) |
 | `scheduler-data` | Scheduler L1/staff-load/staff-timeline read-only queries, scoped by role visibility and effective engagement state (Fase 3) |

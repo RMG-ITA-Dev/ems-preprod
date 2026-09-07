@@ -24,18 +24,24 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { useUpdateInstallmentStatus, useUpdateCollectionDate } from "@/hooks/mutations";
+import { useUpdateInstallmentStatus, useUpdateCollectionDate, useUpdateInstallmentExchangeRate } from "@/hooks/mutations";
+import { useLatestExchangeRate } from "@/hooks/useExchangeRate";
 import {
   distributePercentages,
   computeAmount,
   computePaymentDate,
   isAlertDue,
   getEffectiveInstallmentStatus,
+  isInvoiceRateEditable,
+  isPaymentRateEditable,
+  computeConvertedAmount,
+  applyExchangeRateMode,
 } from "@/lib/workOrderPaymentPlan";
 import type {
   PaymentPlanInput,
   PaymentInstallmentInput,
   PaymentInstallmentStatus,
+  ExchangeRateMode,
 } from "@/types/workOrderPaymentPlan";
 
 interface WorkOrderPaymentPlanSectionProps {
@@ -97,6 +103,9 @@ export function WorkOrderPaymentPlanSection({
   const numericLocale = i18n.language?.startsWith("es") ? "es" : "en";
   const updateStatus = useUpdateInstallmentStatus();
   const updateCollectionDate = useUpdateCollectionDate();
+  const updateInstallmentExchangeRate = useUpdateInstallmentExchangeRate();
+  const latestRate = useLatestExchangeRate();
+  const latestBuyRate = latestRate.data?.compra ?? null;
   const [pendingChange, setPendingChange] = useState<{
     idx: number;
     newStatus: "Invoiced" | "Completed" | "Overdue";
@@ -106,9 +115,15 @@ export function WorkOrderPaymentPlanSection({
     newDate: string;
   } | null>(null);
 
-  const currentPlan = plan ?? { wo_id: woId, exchange_rate: null, payment_days: 30 };
+  const currentPlan = plan ?? { wo_id: woId, exchange_rate: null, payment_days: 30, exchange_rate_mode: "fijo" as ExchangeRateMode };
   const numInstallments = installments.length;
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/La_Paz" }).format(new Date());
+
+  const formatRate = (rate: number) =>
+    Number(rate).toLocaleString(numericLocale === "es" ? "es-BO" : "en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 6,
+    });
 
   const getEffectiveStatus = getEffectiveInstallmentStatus;
 
@@ -138,7 +153,38 @@ export function WorkOrderPaymentPlanSection({
   };
 
   const handleExchangeRateChange = (val: number) => {
-    onPlanChange({ ...currentPlan, exchange_rate: val > 0 ? val : null });
+    const updatedPlan = { ...currentPlan, exchange_rate: val > 0 ? val : null };
+    onPlanChange(updatedPlan);
+    // Modo Fijo: el TC de creacion se re-sincroniza a las 2 columnas de TC de toda
+    // cuota aun editable (una ya congelada conserva su valor guardado sin cambios).
+    if (updatedPlan.exchange_rate_mode === "fijo") {
+      onInstallmentsChange(applyExchangeRateMode("fijo", updatedPlan.exchange_rate, installments));
+    }
+  };
+
+  // 0722-156b: cambiar de modo re-sincroniza (Fijo) o inicializa los campos aun sin
+  // valor (Variable, con el ultimo TC de compra conocido — nunca pisa un valor ya
+  // capturado por el usuario o ya congelado).
+  const handleModeChange = (mode: ExchangeRateMode) => {
+    const updatedPlan = { ...currentPlan, exchange_rate_mode: mode };
+    onPlanChange(updatedPlan);
+    if (mode === "fijo") {
+      onInstallmentsChange(applyExchangeRateMode("fijo", updatedPlan.exchange_rate, installments));
+    } else {
+      onInstallmentsChange(
+        installments.map((inst) => ({
+          ...inst,
+          invoice_exchange_rate:
+            isInvoiceRateEditable(inst.status) && inst.invoice_exchange_rate == null
+              ? latestBuyRate
+              : inst.invoice_exchange_rate,
+          payment_exchange_rate:
+            isPaymentRateEditable(inst.status) && inst.payment_exchange_rate == null
+              ? latestBuyRate
+              : inst.payment_exchange_rate,
+        })),
+      );
+    }
   };
 
   // Auto-initialize to 1 installment only for brand-new WOs (woId is empty string).
@@ -148,6 +194,21 @@ export function WorkOrderPaymentPlanSection({
       handleNumInstallmentsChange(1);
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Autocompleta el TC de creacion con el ultimo TC de compra conocido mientras este
+  // vacio y editable. Sin ref de "una sola vez": ese candado permanente se quedaba
+  // trabado si corria antes de que useLatestExchangeRate resolviera, o si una
+  // rehidratacion posterior del work order (useWorkOrderById) volvia a pisar el plan
+  // local con el valor null que todavia esta en la DB (BUG reportado 2026-09-05: la
+  // caja de creacion se quedaba en 0 pese a que la referencia ya mostraba el TC
+  // vigente). El propio chequeo `exchange_rate != null` ya evita reintentos una vez
+  // que hay un valor (autocompletado o tecleado por el usuario).
+  useEffect(() => {
+    if (currentPlan.exchange_rate != null) return;
+    if (!isEditable || latestBuyRate == null) return;
+    onPlanChange({ ...currentPlan, exchange_rate: latestBuyRate });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPlan.exchange_rate, isEditable, latestBuyRate]);
 
   // When feeWithTax changes (e.g. adjustment edited), recompute stored amounts so
   // the saved value matches what the table displays. Guard via ref to avoid loops.
@@ -180,6 +241,7 @@ export function WorkOrderPaymentPlanSection({
 
     if (count > current) {
       const percentages = distributePercentages(count);
+      const initialRate = currentPlan.exchange_rate_mode === "fijo" ? currentPlan.exchange_rate : latestBuyRate;
       const added: PaymentInstallmentInput[] = Array.from(
         { length: count - current },
         (_, i) => ({
@@ -194,6 +256,8 @@ export function WorkOrderPaymentPlanSection({
           percentage: percentages[current + i],
           amount: computeAmount(percentages[current + i], feeWithTax),
           status: "Pending" as PaymentInstallmentStatus,
+          invoice_exchange_rate: initialRate,
+          payment_exchange_rate: initialRate,
         }),
       );
       // Redistribute existing percentages and append new ones
@@ -247,6 +311,21 @@ export function WorkOrderPaymentPlanSection({
     );
   };
 
+  // 0722-156b: solo relevantes en modo Variable (en Fijo la celda es de solo lectura,
+  // reflejando el TC de creacion) — el freeze real lo aplica el trigger de DB sobre
+  // la columna status persistida, `disabled` aca es solo UX.
+  const handleInvoiceRateChange = (idx: number, val: number) => {
+    onInstallmentsChange(
+      installments.map((inst, i) => (i === idx ? { ...inst, invoice_exchange_rate: val > 0 ? val : null } : inst)),
+    );
+  };
+
+  const handlePaymentRateChange = (idx: number, val: number) => {
+    onInstallmentsChange(
+      installments.map((inst, i) => (i === idx ? { ...inst, payment_exchange_rate: val > 0 ? val : null } : inst)),
+    );
+  };
+
   const handleCollectionInvoiceDateChange = (idx: number, value: string) => {
     onInstallmentsChange(
       installments.map((inst, i) => {
@@ -287,6 +366,11 @@ export function WorkOrderPaymentPlanSection({
         prevStatus: inst.status as PaymentInstallmentStatus,
         woId,
         paymentDays: currentPlan.payment_days,
+        // 0722-156b: snapshot atomico del TC vigente en el local state al momento
+        // de confirmar la transicion — el trigger de freeze evalua OLD.status, asi
+        // que esto sigue permitido en la MISMA transicion que congela la cuota.
+        invoiceExchangeRate: newStatus === "Invoiced" ? inst.invoice_exchange_rate : undefined,
+        paymentExchangeRate: newStatus === "Completed" ? inst.payment_exchange_rate : undefined,
       });
     }
   };
@@ -318,6 +402,11 @@ export function WorkOrderPaymentPlanSection({
     });
   };
 
+  // Los importes derivados de facturacion/pago SIEMPRE estan en Bs (el TC convierte a
+  // Bs sin importar la moneda de la OT) — formato es-BO fijo, no el locale de `currency`.
+  const formatBob = (amount: number) =>
+    Number(amount).toLocaleString("es-BO", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+
   return (
     <>
     <Card>
@@ -340,7 +429,7 @@ export function WorkOrderPaymentPlanSection({
       <CardContent className="space-y-4">
         {/* Header fields */}
         <div className="flex flex-wrap gap-4">
-          {/* Tipo de Cambio — only for non-BOB currencies */}
+          {/* Tipo de Cambio (creacion) — only for non-BOB currencies */}
           {currency !== "BOB" && (
             <div className="flex flex-col gap-1 min-w-[150px]">
               <Label>{t("workOrders.paymentPlan.exchangeRate")}</Label>
@@ -354,6 +443,42 @@ export function WorkOrderPaymentPlanSection({
                 className="w-full"
                 data-testid="payment-plan-exchange-rate"
               />
+              {latestBuyRate != null && (
+                <p className="text-xs text-muted-foreground">
+                  {t("workOrders.paymentPlan.currentBuyRateReference", { value: formatRate(latestBuyRate) })}
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Modo TC (Fijo/Variable) — only for non-BOB currencies */}
+          {currency !== "BOB" && (
+            <div className="flex flex-col gap-1 min-w-[220px]">
+              <Label>{t("workOrders.paymentPlan.exchangeRateMode")}</Label>
+              <div role="group" aria-label={t("workOrders.paymentPlan.exchangeRateMode")} className="flex gap-2">
+                <Button
+                  type="button"
+                  variant={currentPlan.exchange_rate_mode === "fijo" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => handleModeChange("fijo")}
+                  disabled={!isEditable}
+                  data-testid="payment-plan-exchange-rate-mode-fijo"
+                  aria-pressed={currentPlan.exchange_rate_mode === "fijo"}
+                >
+                  {t("workOrders.paymentPlan.exchangeRateModeFijo")}
+                </Button>
+                <Button
+                  type="button"
+                  variant={currentPlan.exchange_rate_mode === "variable" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => handleModeChange("variable")}
+                  disabled={!isEditable}
+                  data-testid="payment-plan-exchange-rate-mode-variable"
+                  aria-pressed={currentPlan.exchange_rate_mode === "variable"}
+                >
+                  {t("workOrders.paymentPlan.exchangeRateModeVariable")}
+                </Button>
+              </div>
             </div>
           )}
 
@@ -422,12 +547,27 @@ export function WorkOrderPaymentPlanSection({
                   <th rowSpan={2} className="text-right py-3 px-3 font-medium min-w-[115px] align-bottom border-b">
                     {t("workOrders.paymentPlan.amount")} ({currency})
                   </th>
+                  {currency !== "BOB" && (
+                    <th colSpan={2} className="text-center py-2 px-3 font-medium border-b border-l border-r border-border/50 bg-muted/20 text-muted-foreground text-xs uppercase tracking-wide">
+                      {t("workOrders.paymentPlan.exchangeRate")}
+                    </th>
+                  )}
                   <th colSpan={3} className="text-center py-2 px-3 font-medium border-b border-l border-r border-border/50 bg-muted/20 text-muted-foreground text-xs uppercase tracking-wide">
                     {t("workOrders.paymentPlan.collectionTitle")}
                   </th>
                   <th rowSpan={2} className="w-8 border-b" />
                 </tr>
                 <tr className="text-muted-foreground">
+                  {currency !== "BOB" && (
+                    <>
+                      <th className="text-left py-2 px-3 font-medium text-xs min-w-[130px] border-b border-l border-border/50 bg-muted/10">
+                        {t("workOrders.paymentPlan.invoiceExchangeRate")}
+                      </th>
+                      <th className="text-left py-2 px-3 font-medium text-xs min-w-[130px] border-b border-r border-border/50 bg-muted/10">
+                        {t("workOrders.paymentPlan.paymentExchangeRate")}
+                      </th>
+                    </>
+                  )}
                   <th className="text-left py-2 px-3 font-medium text-xs min-w-[120px] border-b border-l border-border/50 bg-muted/10">
                     {t("workOrders.paymentPlan.collectionInvoiceDate")}
                   </th>
@@ -477,6 +617,95 @@ export function WorkOrderPaymentPlanSection({
                       <td className="py-3 px-3 text-right font-mono border-b border-border/50">
                         {formatAmount(instAmount)}
                       </td>
+                      {/* Tipo de Cambio group — only for non-BOB currencies */}
+                      {currency !== "BOB" && (
+                        <>
+                          <td className="py-3 px-3 border-b border-l border-border/50 bg-muted/10">
+                            {currentPlan.exchange_rate_mode === "fijo" ? (
+                              <span className="text-muted-foreground font-mono text-xs" data-testid="installment-invoice-rate-readonly">
+                                {inst.invoice_exchange_rate != null ? formatRate(inst.invoice_exchange_rate) : "—"}
+                              </span>
+                            ) : (
+                              <NumericInput
+                                decimals={6}
+                                locale={numericLocale}
+                                min={0}
+                                value={inst.invoice_exchange_rate ?? 0}
+                                onChange={(val) => handleInvoiceRateChange(idx, val)}
+                                onBlur={() => {
+                                  // Guardado directo e inmediato (0722-156b Amendment 2026-09-07):
+                                  // este campo solo se habilita con la OT ya Aprobada, momento en el
+                                  // que WorkOrderForm ya no ofrece un boton "Guardar" de pagina --
+                                  // sin esto el valor quedaba atrapado en memoria para siempre.
+                                  if (inst.installment_id) {
+                                    updateInstallmentExchangeRate.mutate({
+                                      installmentId: inst.installment_id,
+                                      field: "invoice_exchange_rate",
+                                      value: inst.invoice_exchange_rate,
+                                      woId,
+                                    });
+                                  }
+                                }}
+                                disabled={!isStatusEditable || !isInvoiceRateEditable(inst.status)}
+                                className="w-full h-8"
+                                data-testid="installment-invoice-rate"
+                              />
+                            )}
+                            {latestBuyRate != null && (
+                              <p className="text-[10px] text-muted-foreground mt-0.5">
+                                {t("workOrders.paymentPlan.currentBuyRateShort", { value: formatRate(latestBuyRate) })}
+                              </p>
+                            )}
+                            {inst.invoice_exchange_rate != null && (
+                              <p className="text-[10px] text-muted-foreground">
+                                {t("workOrders.paymentPlan.invoiceAmountBob", {
+                                  value: formatBob(computeConvertedAmount(instAmount, inst.invoice_exchange_rate) ?? 0),
+                                })}
+                              </p>
+                            )}
+                          </td>
+                          <td className="py-3 px-3 border-b border-r border-border/50 bg-muted/10">
+                            {currentPlan.exchange_rate_mode === "fijo" ? (
+                              <span className="text-muted-foreground font-mono text-xs" data-testid="installment-payment-rate-readonly">
+                                {inst.payment_exchange_rate != null ? formatRate(inst.payment_exchange_rate) : "—"}
+                              </span>
+                            ) : (
+                              <NumericInput
+                                decimals={6}
+                                locale={numericLocale}
+                                min={0}
+                                value={inst.payment_exchange_rate ?? 0}
+                                onChange={(val) => handlePaymentRateChange(idx, val)}
+                                onBlur={() => {
+                                  if (inst.installment_id) {
+                                    updateInstallmentExchangeRate.mutate({
+                                      installmentId: inst.installment_id,
+                                      field: "payment_exchange_rate",
+                                      value: inst.payment_exchange_rate,
+                                      woId,
+                                    });
+                                  }
+                                }}
+                                disabled={!isStatusEditable || !isPaymentRateEditable(inst.status)}
+                                className="w-full h-8"
+                                data-testid="installment-payment-rate"
+                              />
+                            )}
+                            {latestBuyRate != null && (
+                              <p className="text-[10px] text-muted-foreground mt-0.5">
+                                {t("workOrders.paymentPlan.currentBuyRateShort", { value: formatRate(latestBuyRate) })}
+                              </p>
+                            )}
+                            {inst.payment_exchange_rate != null && (
+                              <p className="text-[10px] text-muted-foreground">
+                                {t("workOrders.paymentPlan.paymentAmountBob", {
+                                  value: formatBob(computeConvertedAmount(instAmount, inst.payment_exchange_rate) ?? 0),
+                                })}
+                              </p>
+                            )}
+                          </td>
+                        </>
+                      )}
                       {/* Cobranza group */}
                       <td className="py-3 px-3 border-b border-l border-border/50 bg-muted/10">
                         {isStatusEditable ? (
@@ -588,7 +817,7 @@ export function WorkOrderPaymentPlanSection({
                   <td className="py-3 px-3 text-right font-mono">
                     {formatAmount(totalAmount)}
                   </td>
-                  <td colSpan={4} />
+                  <td colSpan={currency !== "BOB" ? 6 : 4} />
                 </tr>
               </tfoot>
             </table>

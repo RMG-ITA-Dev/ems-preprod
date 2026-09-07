@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import { RunningTimerChip } from "@/components/tracker/RunningTimerChip";
+import { ExchangeRateIndicator } from "@/components/layout/ExchangeRateIndicator";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
 
 interface AppHeaderProps {
@@ -76,9 +77,10 @@ export function AppHeader({ title = "Dashboard", focusMode }: AppHeaderProps) {
         </span>
       </div>
 
-      {/* Right zone: running timer chip + bell + purple user name + avatar dropdown */}
+      {/* Right zone: running timer chip + exchange rate + bell + purple user name + avatar dropdown */}
       <div className="flex items-center gap-3 justify-self-end min-w-0">
         <RunningTimerChip />
+        <ExchangeRateIndicator />
         <NotificationsPanel />
         <div className="hidden sm:block">
           <ThemeToggle />

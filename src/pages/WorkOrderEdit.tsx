@@ -59,6 +59,7 @@ import {
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { isSchedulerEnabled } from "@/lib/schedulerFeature";
 import type { PaymentPlanInput, PaymentInstallmentInput } from "@/types/workOrderPaymentPlan";
+import { applyExchangeRateMode } from "@/lib/workOrderPaymentPlan";
 import { useWorksheetByEngagementId } from "@/hooks/useWorksheetData";
 import { useResyncWorksheetToWorkOrder } from "@/hooks/useWorksheetMutations";
 import { toast } from "sonner";
@@ -242,6 +243,7 @@ const WorkOrderEdit = () => {
           wo_id: workOrder.payment_plan.wo_id,
           exchange_rate: workOrder.payment_plan.exchange_rate,
           payment_days: workOrder.payment_plan.payment_days,
+          exchange_rate_mode: workOrder.payment_plan.exchange_rate_mode as PaymentPlanInput["exchange_rate_mode"],
         };
         const installs: PaymentInstallmentInput[] = (workOrder.payment_plan.installments ?? [])
           .sort((a, b) => a.installment_number - b.installment_number)
@@ -258,6 +260,8 @@ const WorkOrderEdit = () => {
             percentage: Number(i.percentage),
             amount: i.amount !== null ? Number(i.amount) : null,
             status: i.status as PaymentInstallmentInput["status"],
+            invoice_exchange_rate: i.invoice_exchange_rate !== null ? Number(i.invoice_exchange_rate) : null,
+            payment_exchange_rate: i.payment_exchange_rate !== null ? Number(i.payment_exchange_rate) : null,
           }));
         setPaymentPlan(plan);
         setPaymentInstallments(installs);
@@ -562,25 +566,31 @@ const WorkOrderEdit = () => {
 
     // Persist payment plan
     if (paymentInstallments.length > 0) {
+      const mode = paymentPlan?.exchange_rate_mode ?? "fijo";
+      const exchangeRate = paymentPlan?.exchange_rate ?? null;
       const savedPlan = await upsertPaymentPlan.mutateAsync({
         plan_id: paymentPlan?.plan_id,
         wo_id: workOrder.wo_id,
-        exchange_rate: paymentPlan?.exchange_rate ?? null,
+        exchange_rate: exchangeRate,
         payment_days: paymentPlan?.payment_days ?? 30,
+        exchange_rate_mode: mode,
       });
+      const syncedInstallments = applyExchangeRateMode(mode, exchangeRate, paymentInstallments);
       await batchUpsertInstallments.mutateAsync({
         planId: savedPlan.plan_id,
         woId: workOrder.wo_id,
-        installments: paymentInstallments,
+        installments: syncedInstallments,
       });
       const updatedPlan: PaymentPlanInput = {
         plan_id: savedPlan.plan_id,
         wo_id: savedPlan.wo_id,
         exchange_rate: savedPlan.exchange_rate,
         payment_days: savedPlan.payment_days,
+        exchange_rate_mode: savedPlan.exchange_rate_mode,
       };
+      setPaymentInstallments(syncedInstallments);
       setOriginalPaymentPlan(updatedPlan);
-      setOriginalInstallments(JSON.parse(JSON.stringify(paymentInstallments)));
+      setOriginalInstallments(JSON.parse(JSON.stringify(syncedInstallments)));
     } else if (paymentPlan?.plan_id) {
       // All installments removed → delete the plan (cascades to installments)
       await deletePaymentPlan.mutateAsync({
@@ -960,7 +970,11 @@ const WorkOrderEdit = () => {
           paymentPlan={paymentPlan}
           paymentInstallments={paymentInstallments}
           isAdminDateEditable={(approvalStatus === "Draft" || approvalStatus === "Rejected") && can("work_order.payment_plan.approve")}
-          isStatusEditable={isAdmin || roleKey === "collections_analyst"}
+          // 0722-156b (Amendment 2026-09-07): Cobranza/Estado/TC por cuota son el registro de
+          // lo que efectivamente pasa -- solo tiene sentido, y solo hay boton "Guardar" de
+          // pagina, una vez que la OT esta Approved (antes de eso, define el "contrato":
+          // TC de creacion, modo, dias, cuotas, fecha/porcentaje acordados).
+          isStatusEditable={(isAdmin || roleKey === "collections_analyst") && approvalStatus === "Approved"}
           isPaymentPlanDirty={
             JSON.stringify(paymentInstallments) !== JSON.stringify(originalInstallments) ||
             JSON.stringify(paymentPlan) !== JSON.stringify(originalPaymentPlan)

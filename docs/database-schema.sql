@@ -5586,6 +5586,76 @@ COMMENT ON FUNCTION public.wo_in_my_fund_request(p_wo_id uuid) IS 'True si la OT
 
 
 --
+-- Name: wo_payment_installments_guard_exchange_rate(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.wo_payment_installments_guard_exchange_rate() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_approval_status text;
+BEGIN
+  IF NEW.invoice_exchange_rate IS DISTINCT FROM OLD.invoice_exchange_rate
+     OR NEW.payment_exchange_rate IS DISTINCT FROM OLD.payment_exchange_rate THEN
+    SELECT approval_status INTO v_approval_status
+    FROM public.work_orders
+    WHERE wo_id = NEW.wo_id;
+  END IF;
+
+  IF NEW.invoice_exchange_rate IS DISTINCT FROM OLD.invoice_exchange_rate THEN
+    IF OLD.status <> 'Pending' THEN
+      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de facturacion de esta cuota ya esta congelado';
+    END IF;
+    IF v_approval_status IS DISTINCT FROM 'Approved' THEN
+      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de facturacion solo puede capturarse una vez que la orden de trabajo fue aprobada';
+    END IF;
+  END IF;
+
+  IF NEW.payment_exchange_rate IS DISTINCT FROM OLD.payment_exchange_rate THEN
+    IF OLD.status = 'Completed' THEN
+      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de pago de esta cuota ya esta congelado';
+    END IF;
+    IF v_approval_status IS DISTINCT FROM 'Approved' THEN
+      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de pago solo puede capturarse una vez que la orden de trabajo fue aprobada';
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: wo_payment_plan_guard_exchange_rate(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.wo_payment_plan_guard_exchange_rate() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_approval_status text;
+BEGIN
+  IF NEW.exchange_rate IS NOT DISTINCT FROM OLD.exchange_rate
+     AND NEW.exchange_rate_mode IS NOT DISTINCT FROM OLD.exchange_rate_mode THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT approval_status INTO v_approval_status
+  FROM public.work_orders
+  WHERE wo_id = NEW.wo_id;
+
+  IF v_approval_status = 'Approved' THEN
+    RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio del plan de pagos no puede modificarse: la orden de trabajo ya fue aprobada';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: activity_worksheet_cells; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -5837,6 +5907,32 @@ CREATE VIEW public.engagement_wo_state WITH (security_invoker='false') AS
     approved_at,
     risk_status
    FROM public.work_orders;
+
+
+--
+-- Name: exchange_rate_history; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.exchange_rate_history (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    fecha_vigencia date NOT NULL,
+    compra numeric NOT NULL,
+    venta numeric NOT NULL,
+    moneda text DEFAULT 'USD/BOB'::text NOT NULL,
+    fuente text NOT NULL,
+    regimen text,
+    version_metodologia text,
+    canal text NOT NULL,
+    fecha_publicacion date,
+    actualizado_en timestamp with time zone NOT NULL,
+    estado text NOT NULL,
+    fetched_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT exchange_rate_history_canal_check CHECK ((canal = ANY (ARRAY['bcb-web'::text, 'bcb-soap'::text]))),
+    CONSTRAINT exchange_rate_history_compra_check CHECK ((compra > (0)::numeric)),
+    CONSTRAINT exchange_rate_history_estado_check CHECK ((estado = ANY (ARRAY['vigente'::text, 'stale'::text]))),
+    CONSTRAINT exchange_rate_history_venta_check CHECK ((venta > (0)::numeric))
+);
 
 
 --
@@ -6582,6 +6678,10 @@ CREATE TABLE public.wo_payment_installments (
     status text DEFAULT 'Pending'::text NOT NULL,
     created_at timestamp with time zone DEFAULT now(),
     updated_at timestamp with time zone DEFAULT now(),
+    invoice_exchange_rate numeric,
+    payment_exchange_rate numeric,
+    CONSTRAINT wo_payment_installments_invoice_exchange_rate_check CHECK (((invoice_exchange_rate IS NULL) OR (invoice_exchange_rate > (0)::numeric))),
+    CONSTRAINT wo_payment_installments_payment_exchange_rate_check CHECK (((payment_exchange_rate IS NULL) OR (payment_exchange_rate > (0)::numeric))),
     CONSTRAINT wo_payment_installments_status_check CHECK ((status = ANY (ARRAY['Pending'::text, 'Invoiced'::text, 'Completed'::text, 'Overdue'::text])))
 );
 
@@ -6596,7 +6696,9 @@ CREATE TABLE public.wo_payment_plan (
     exchange_rate numeric,
     payment_days integer DEFAULT 30 NOT NULL,
     created_at timestamp with time zone DEFAULT now(),
-    updated_at timestamp with time zone DEFAULT now()
+    updated_at timestamp with time zone DEFAULT now(),
+    exchange_rate_mode text DEFAULT 'fijo'::text NOT NULL,
+    CONSTRAINT wo_payment_plan_exchange_rate_mode_check CHECK ((exchange_rate_mode = ANY (ARRAY['fijo'::text, 'variable'::text])))
 );
 
 
@@ -7682,6 +7784,20 @@ CREATE TRIGGER tr_fund_requests_touch BEFORE UPDATE ON public.fund_requests FOR 
 --
 
 CREATE TRIGGER tr_wo_guard_risk_approval BEFORE UPDATE ON public.work_orders FOR EACH ROW EXECUTE FUNCTION public.wo_guard_risk_approval();
+
+
+--
+-- Name: wo_payment_installments trg_wo_payment_installments_guard_exchange_rate; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_wo_payment_installments_guard_exchange_rate BEFORE UPDATE ON public.wo_payment_installments FOR EACH ROW EXECUTE FUNCTION public.wo_payment_installments_guard_exchange_rate();
+
+
+--
+-- Name: wo_payment_plan trg_wo_payment_plan_guard_exchange_rate; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_wo_payment_plan_guard_exchange_rate BEFORE UPDATE ON public.wo_payment_plan FOR EACH ROW EXECUTE FUNCTION public.wo_payment_plan_guard_exchange_rate();
 
 
 --

@@ -8,6 +8,10 @@ import {
   isAlertDue,
   getEffectiveInstallmentStatus,
   computeBillingIndicator,
+  isInvoiceRateEditable,
+  isPaymentRateEditable,
+  computeConvertedAmount,
+  applyExchangeRateMode,
 } from "../workOrderPaymentPlan";
 import type { PaymentInstallmentInput } from "@/types/workOrderPaymentPlan";
 
@@ -54,6 +58,8 @@ function baseInstallment(overrides: Partial<PaymentInstallmentInput> = {}): Paym
     percentage: 100,
     amount: null,
     status: "Pending",
+    invoice_exchange_rate: null,
+    payment_exchange_rate: null,
     ...overrides,
   };
 }
@@ -471,5 +477,97 @@ describe("computeBillingIndicator", () => {
       ];
       expect(computeBillingIndicator(installments)).toBe("complete");
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 0722-156b (Fase 2): TC fijo/variable helpers
+// ---------------------------------------------------------------------------
+
+describe("isInvoiceRateEditable (persisted status only, never getEffectiveInstallmentStatus)", () => {
+  it("editable only while Pending", () => {
+    expect(isInvoiceRateEditable("Pending")).toBe(true);
+  });
+
+  it("frozen once Invoiced", () => {
+    expect(isInvoiceRateEditable("Invoiced")).toBe(false);
+  });
+
+  it("stays frozen after a manual revert to a persisted Overdue (only reachable from Invoiced)", () => {
+    expect(isInvoiceRateEditable("Overdue")).toBe(false);
+  });
+
+  it("frozen once Completed", () => {
+    expect(isInvoiceRateEditable("Completed")).toBe(false);
+  });
+});
+
+describe("isPaymentRateEditable (persisted status only)", () => {
+  it("editable while Pending", () => {
+    expect(isPaymentRateEditable("Pending")).toBe(true);
+  });
+
+  it("editable while Invoiced", () => {
+    expect(isPaymentRateEditable("Invoiced")).toBe(true);
+  });
+
+  it("editable during a persisted post-invoice Overdue (operator decision: same window as Invoiced)", () => {
+    expect(isPaymentRateEditable("Overdue")).toBe(true);
+  });
+
+  it("frozen once Completed", () => {
+    expect(isPaymentRateEditable("Completed")).toBe(false);
+  });
+});
+
+describe("computeConvertedAmount (derived Bs amount, never persisted)", () => {
+  it("multiplies amount by rate, rounded to 2 decimals", () => {
+    expect(computeConvertedAmount(500, 6.95)).toBe(3475);
+  });
+
+  it("returns null when amount is null (no invented conversion)", () => {
+    expect(computeConvertedAmount(null, 6.95)).toBeNull();
+  });
+
+  it("returns null when rate is null (exchange_rate_history empty -> no conversion shown)", () => {
+    expect(computeConvertedAmount(500, null)).toBeNull();
+  });
+});
+
+describe("applyExchangeRateMode (modo Fijo sync — no-op for an already-frozen field)", () => {
+  it("modo Variable: returns installments unchanged (independent per-cuota capture)", () => {
+    const installments = [
+      baseInstallment({ status: "Pending", invoice_exchange_rate: 6.95, payment_exchange_rate: null }),
+    ];
+    expect(applyExchangeRateMode("variable", 7.0, installments)).toEqual(installments);
+  });
+
+  it("modo Fijo: syncs both TC columns to the plan rate for a still-editable (Pending) installment", () => {
+    const installments = [
+      baseInstallment({ status: "Pending", invoice_exchange_rate: 6.95, payment_exchange_rate: 6.95 }),
+    ];
+    const result = applyExchangeRateMode("fijo", 7.0, installments);
+    expect(result[0].invoice_exchange_rate).toBe(7.0);
+    expect(result[0].payment_exchange_rate).toBe(7.0);
+  });
+
+  it("modo Fijo: leaves an already-frozen invoice_exchange_rate (Invoiced) untouched, syncs the still-editable payment_exchange_rate", () => {
+    const installments = [
+      baseInstallment({ status: "Invoiced", invoice_exchange_rate: 6.95, payment_exchange_rate: null }),
+    ];
+    const result = applyExchangeRateMode("fijo", 7.0, installments);
+    // Frozen: stays at its original value, never force-synced to the new plan rate —
+    // this is what makes the resulting batch upsert a no-op for the DB freeze trigger.
+    expect(result[0].invoice_exchange_rate).toBe(6.95);
+    expect(result[0].payment_exchange_rate).toBe(7.0);
+  });
+
+  it("modo Fijo: leaves an already-frozen payment_exchange_rate (Completed) untouched", () => {
+    const installments = [
+      baseInstallment({ status: "Completed", invoice_exchange_rate: 6.95, payment_exchange_rate: 6.98 }),
+    ];
+    const result = applyExchangeRateMode("fijo", 7.0, installments);
+    expect(result[0].invoice_exchange_rate).toBe(6.95);
+    expect(result[0].payment_exchange_rate).toBe(6.98);
   });
 });
