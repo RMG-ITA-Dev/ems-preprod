@@ -62,7 +62,12 @@ const ENGAGEMENT: ApprovedEngagement = {
   activity_required: true,
   work_order_required: false,
   is_internal: false,
-  practica: null,
+  // 0827-184 review#15: funcion=1 requires a matching practica for the fixture's activity
+  // to be considered valid (filterActivitiesForEngagement) — practica=null would make the
+  // grid's fail-closed activity-validity guard disable every cell, which isn't what these
+  // advisory tests are about.
+  practica: 1,
+  funcion: 1,
   start_date: null,
   end_date: null,
   client: null,
@@ -73,6 +78,8 @@ const ACTIVITY: ActivityCode = {
   activity_code: "A01",
   description: "Activity 1",
   is_active: true,
+  is_system: false,
+  service: { code: 1 },
 };
 
 const makeEntry = (overrides: Partial<TimeEntry> = {}): TimeEntry => ({

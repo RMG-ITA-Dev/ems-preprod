@@ -46,8 +46,11 @@ const mockEngagement = {
 };
 
 vi.mock("@/hooks/useEmsData", () => ({
-  useEngagements: () => ({ data: [mockEngagement], isLoading: false }),
   useStaff: () => ({ data: [] }),
+}));
+// BUG 0828-185: ClientEngagementsTable.tsx pasó de useEngagements() a usePortfolioEngagements().
+vi.mock("@/hooks/usePortfolioEngagements", () => ({
+  usePortfolioEngagements: () => ({ data: [mockEngagement], isLoading: false }),
 }));
 vi.mock("@/hooks/useCategoryStaff", () => ({
   useCategoryStaff: () => ({ partners: [], managers: [] }),

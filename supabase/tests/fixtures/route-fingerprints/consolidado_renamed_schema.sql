@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict b93LstuyfpgyfoCtrcYgz4OEdFkGdyc7IKtF9ljyDHUI3QvpCkc2ZgyuJFexE9F
+\restrict wNIil36w83ZXarkF2kLRuBe5zSvLCrig1F7tALkhQudTLqd4YmZBdvPasacLCQR
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.11 (Ubuntu 17.11-1.pgdg24.04+2)
@@ -1129,10 +1129,15 @@ CREATE FUNCTION public.batch_upsert_worksheet_cells(p_worksheet_id uuid, p_cells
     AS $$
 declare
   v_engagement_id uuid;
+  v_practica      smallint;
+  v_practica_id   uuid;
+  v_invalid_count integer;
 begin
-  select engagement_id into v_engagement_id
-    from public.activity_worksheets
-   where id = p_worksheet_id;
+  select aw.engagement_id, e.practica
+    into v_engagement_id, v_practica
+    from public.activity_worksheets aw
+    join public.engagements e on e.engagement_id = aw.engagement_id
+   where aw.id = p_worksheet_id;
 
   if v_engagement_id is null then
     raise exception 'Worksheet not found: %', p_worksheet_id;
@@ -1141,6 +1146,51 @@ begin
   if not (public.is_admin() or public.is_engagement_team_member(v_engagement_id)) then
     raise exception 'Permission denied: not a team member of this engagement'
       using errcode = 'insufficient_privilege';
+  end if;
+
+  if jsonb_array_length(p_cells) > 0 then
+    if v_practica is null then
+      raise exception using
+        message = 'WORKSHEET_PRACTICE_REQUIRED',
+        detail = format('worksheet_id=%s reason=no_practica', p_worksheet_id);
+    end if;
+
+    select practica_id into v_practica_id
+      from public.practicas
+     where code = v_practica;
+
+    -- Same precedence as the trigger: an unresolved practica code is treated
+    -- the same as no practica at all (review.md iteración 1, #3).
+    if v_practica_id is null then
+      raise exception using
+        message = 'WORKSHEET_PRACTICE_REQUIRED',
+        detail = format('worksheet_id=%s reason=unresolved_practica_code practica_code=%s', p_worksheet_id, v_practica);
+    end if;
+
+    select count(*) into v_invalid_count
+      from jsonb_array_elements(p_cells) as elem
+      left join public.categories c on c.category_id = (elem->>'category_id')::uuid
+     where c.practica_id is distinct from v_practica_id;
+
+    if v_invalid_count > 0 then
+      raise exception using
+        message = 'WORKSHEET_CATEGORY_OUT_OF_SCOPE',
+        detail = format('worksheet_id=%s', p_worksheet_id);
+    end if;
+
+    -- is_system is checked independently of practica_id, same rule as the
+    -- trigger (review.md iteración 1, #2).
+    select count(*) into v_invalid_count
+      from jsonb_array_elements(p_cells) as elem
+      left join public.activity_codes a on a.activity_id = (elem->>'activity_id')::uuid
+     where a.practica_id is distinct from v_practica_id
+        or a.is_system is not false;
+
+    if v_invalid_count > 0 then
+      raise exception using
+        message = 'WORKSHEET_ACTIVITY_OUT_OF_SCOPE',
+        detail = format('worksheet_id=%s', p_worksheet_id);
+    end if;
   end if;
 
   delete from public.activity_worksheet_cells where worksheet_id = p_worksheet_id;
@@ -1731,8 +1781,9 @@ CREATE TABLE public.engagements (
     taxonomy_id uuid,
     engagement_state_override smallint,
     created_by_staff_id uuid,
-    society_id uuid,
+    society_id uuid NOT NULL,
     CONSTRAINT chk_engagements_funcion CHECK ((funcion = ANY (ARRAY[0, 1, 2, 3]))),
+    CONSTRAINT chk_engagements_manager_not_specialist CHECK (((manager_id IS NULL) OR ((manager_id IS DISTINCT FROM specialist_it_id) AND (manager_id IS DISTINCT FROM specialist_tax_id)))),
     CONSTRAINT chk_engagements_oficina CHECK ((oficina = ANY (ARRAY[0, 1, 2]))),
     CONSTRAINT chk_engagements_practica CHECK (((practica >= 0) AND (practica <= 9))),
     CONSTRAINT engagements_state_override_check CHECK (((engagement_state_override IS NULL) OR ((engagement_state_override >= 1) AND (engagement_state_override <= 9)))),
@@ -1752,6 +1803,13 @@ COMMENT ON COLUMN public.engagements.engagement_state_override IS 'FEAT 0602-135
 --
 
 COMMENT ON COLUMN public.engagements.created_by_staff_id IS 'Staff que creó el encargo. La puebla un trigger desde get_my_staff_id(); no la envía el cliente HTTP. Da a su autor lectura y edición aunque no figure entre los 4 campos de asignación. NULL en las filas previas a esta migración.';
+
+
+--
+-- Name: CONSTRAINT chk_engagements_manager_not_specialist ON engagements; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON CONSTRAINT chk_engagements_manager_not_specialist ON public.engagements IS 'BUG 0828-185 (plan_v0 §5b): la misma persona no puede ser a la vez manager_id y specialist_it_id/specialist_tax_id del mismo encargo. Validado contra los datos existentes (remediados arriba en esta misma migración), no NOT VALID.';
 
 
 --
@@ -2195,14 +2253,14 @@ BEGIN
   -- ESPEJO de src/lib/engagementSelfAssignment.ts (SELF_ASSIGN_PARTNER_ROLE_KEYS /
   -- SELF_ASSIGN_MANAGER_ROLE_KEYS). Si se toca uno, tocar el otro.
   --
-  -- Solo los roles BASE, igual que el mapa de candidatos de 0722-162. Quedan deliberadamente FUERA
-  -- (sin restricción alguna): ita_manager y tax_manager — que sí tienen engagement.create pero
-  -- pertenecen a los grupos specialist_it/specialist_tax y por lo tanto no son candidatos elegibles
-  -- para el campo Gerente — más senior_partner, risk_partner, risk_supervisor,
-  -- it_security_manager, accounting_*, hr_*, sqr, senior, semisenior y assistant.
+  -- BUG 0828-185: ita_manager/tax_manager se agregan al campo Gerente/Supervisor -- ya tienen
+  -- engagement.create y ya eran candidatos de Especialista; ahora también se autoasignan como
+  -- manager_id igual que Gerente/hr_manager. Quedan deliberadamente FUERA del campo Socio/
+  -- Director (sin cambios): senior_partner, risk_partner, risk_supervisor, it_security_manager,
+  -- accounting_*, hr_analyst, sqr, senior, semisenior y assistant.
   IF v_role IN ('partner', 'director') THEN
     NEW.partner_id := v_staff;
-  ELSIF v_role = 'manager' THEN
+  ELSIF v_role IN ('manager', 'hr_manager', 'ita_manager', 'tax_manager') THEN
     NEW.manager_id := v_staff;
   END IF;
 
@@ -2215,7 +2273,7 @@ $$;
 -- Name: FUNCTION enforce_engagement_creator_team(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.enforce_engagement_creator_team() IS 'BUG 0810-172: en la CREACIÓN de un encargo canoniza partner_id/manager_id al staff del llamante según su role_key (partner/director -> partner_id; manager -> manager_id). Exentos: role_key admin, inserts sin auth.uid() (seeds/service_role) y llamantes sin staff vinculado. Espejo de src/lib/engagementSelfAssignment.ts. Solo INSERT: el UPDATE no aplica esta regla.';
+COMMENT ON FUNCTION public.enforce_engagement_creator_team() IS 'BUG 0810-172 (actualizado 0817-180 y 0828-185): en la CREACIÓN de un encargo canoniza partner_id/manager_id al staff del llamante según su role_key (partner/director -> partner_id; manager/hr_manager/ita_manager/tax_manager -> manager_id). Exentos: role_key admin, inserts sin auth.uid() (seeds/service_role) y llamantes sin staff vinculado. Espejo de src/lib/engagementSelfAssignment.ts. Solo INSERT: el UPDATE no aplica esta regla.';
 
 
 --
@@ -2268,6 +2326,108 @@ BEGIN
   RETURN NEW;
 END;
 $$;
+
+
+--
+-- Name: enforce_engagement_profile_scope(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.enforce_engagement_profile_scope() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_role          text;
+  v_staff_id      uuid;
+  v_society_id    uuid;
+  v_practica_id   uuid;
+  v_city          text;
+  v_practica_code smallint;
+  v_oficina       smallint;
+BEGIN
+  -- Sin identidad autenticada no hay perfil que comparar: seeds, imports, migraciones y
+  -- cualquier operación con service_role pasan intactas.
+  IF auth.uid() IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  v_role := public.current_role_key();
+
+  IF TG_OP = 'INSERT' THEN
+    -- El RPC create_engagement_with_code es SECURITY DEFINER y saltea la RLS de INSERT
+    -- ("engagements write insert" exige engagement.create); replicar el mismo chequeo acá cierra
+    -- ese hueco tanto para el RPC como para un INSERT REST directo.
+    IF NOT public.has_permission('engagement.create') THEN
+      RAISE EXCEPTION 'FORBIDDEN: falta el permiso engagement.create'
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
+
+    -- Super Admin (role_key = 'admin') y Senior Partner eligen sociedad/practica/oficina libres.
+    -- senior_partner no tiene engagement.create en el seed vigente (decisión del operador,
+    -- 0817-180 OQ2/OQ6): el chequeo de arriba ya lo rechaza antes de llegar acá, pero la exención
+    -- queda escrita por corrección — cumple la letra del bug aunque hoy sea inalcanzable.
+    IF v_role IS DISTINCT FROM 'admin' AND v_role IS DISTINCT FROM 'senior_partner' THEN
+      SELECT s.staff_id, s.society_id, s.practica_id, s.city
+        INTO v_staff_id, v_society_id, v_practica_id, v_city
+        FROM public.staff s
+       WHERE s.staff_id = public.get_my_staff_id();
+
+      IF v_staff_id IS NULL OR v_society_id IS NULL OR v_practica_id IS NULL OR v_city IS NULL THEN
+        RAISE EXCEPTION 'FORBIDDEN: tu ficha de personal no tiene sociedad, practica u oficina configuradas — no se puede crear el encargo'
+          USING ERRCODE = 'insufficient_privilege';
+      END IF;
+
+      SELECT p.code INTO v_practica_code
+        FROM public.practicas p
+       WHERE p.practica_id = v_practica_id AND p.is_active;
+
+      IF v_practica_code IS NULL THEN
+        RAISE EXCEPTION 'FORBIDDEN: la practica de tu ficha de personal no esta activa en el catalogo'
+          USING ERRCODE = 'insufficient_privilege';
+      END IF;
+
+      v_oficina := CASE v_city WHEN 'La Paz' THEN 1 WHEN 'Santa Cruz' THEN 2 ELSE NULL END;
+
+      IF NEW.society_id IS DISTINCT FROM v_society_id
+         OR NEW.practica  IS DISTINCT FROM v_practica_code
+         OR NEW.oficina   IS DISTINCT FROM v_oficina
+      THEN
+        RAISE EXCEPTION 'FORBIDDEN: sociedad/practica/oficina del encargo deben coincidir exactamente con tu ficha de personal'
+          USING ERRCODE = 'insufficient_privilege';
+      END IF;
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  -- TG_OP = 'UPDATE'. Solo se inspecciona el CAMBIO de estas tres columnas (IS DISTINCT FROM
+  -- contra OLD) — un update que no las toca (nombre, fechas, equipo, etc.) nunca entra acá, así
+  -- que no bloquea actualizaciones legítimas de encargos ajenos.
+
+  -- 0722-157, sin cambios: society_id lo sigue editando solo admin tras la creación.
+  IF NEW.society_id IS DISTINCT FROM OLD.society_id AND v_role IS DISTINCT FROM 'admin' THEN
+    RAISE EXCEPTION 'FORBIDDEN: solo Admin puede modificar la sociedad de un encargo existente'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  -- Ninguna UI ha ofrecido nunca editar oficina/practica a nadie (disabled={isEdit} sin
+  -- excepción de rol) — el guard de BD no abre una vía nueva que la UI nunca tuvo, ni siquiera
+  -- para admin: cambiarlas desincronizaría engagement_code de sus dígitos.
+  IF NEW.oficina IS DISTINCT FROM OLD.oficina OR NEW.practica IS DISTINCT FROM OLD.practica THEN
+    RAISE EXCEPTION 'FORBIDDEN: oficina y practica son inmutables una vez creado el encargo'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION enforce_engagement_profile_scope(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.enforce_engagement_profile_scope() IS 'BUG 0817-180: en INSERT exige engagement.create y, para role_key distinto de admin/senior_partner, que society_id/practica/oficina coincidan con la ficha del creador (staff.society_id/practica_id->code/city->1|2); perfil incompleto o practica inactiva rechaza (fail-closed). En UPDATE, asimetrico: society_id solo lo edita admin (0722-157); oficina/practica quedan inmutables para todos. Exento: auth.uid() IS NULL (seeds/migraciones/service_role).';
 
 
 --
@@ -2392,41 +2552,60 @@ CREATE FUNCTION public.enforce_worksheet_cell_practice_scope() RETURNS trigger
     SET search_path TO 'public'
     AS $$
 DECLARE
-  v_practica    smallint;
-  v_practica_id  uuid;
-  v_cat_practica uuid;
-  v_act_practica uuid;
+  v_practica       smallint;
+  v_practica_id    uuid;
+  v_cat_practica   uuid;
+  v_act_practica   uuid;
+  v_act_is_system  boolean;
 BEGIN
   SELECT e.practica INTO v_practica
     FROM public.activity_worksheets aw
     JOIN public.engagements e ON e.engagement_id = aw.engagement_id
    WHERE aw.id = NEW.worksheet_id;
 
-  -- Legacy engagements with no assigned practice are not scoped by this rule;
-  -- the UI already limits them to no categories (categories.practica_id is NOT NULL).
+  -- A worksheet whose engagement has no assigned practice accepts no cells at
+  -- all (the frontend keeps the grid empty and purges any payload — 0825-183).
   IF v_practica IS NULL THEN
-    RETURN NEW;
+    RAISE EXCEPTION USING
+      MESSAGE = 'WORKSHEET_PRACTICE_REQUIRED',
+      DETAIL = format('worksheet_id=%s reason=no_practica', NEW.worksheet_id);
   END IF;
 
   SELECT practica_id INTO v_practica_id
     FROM public.practicas
    WHERE code = v_practica;
 
+  -- A practica code that doesn't resolve to any practicas row is just as
+  -- unusable as no practica at all — same precedence, same code (review.md
+  -- iteración 1, #3).
+  IF v_practica_id IS NULL THEN
+    RAISE EXCEPTION USING
+      MESSAGE = 'WORKSHEET_PRACTICE_REQUIRED',
+      DETAIL = format('worksheet_id=%s reason=unresolved_practica_code practica_code=%s', NEW.worksheet_id, v_practica);
+  END IF;
+
   SELECT practica_id INTO v_cat_practica
     FROM public.categories
    WHERE category_id = NEW.category_id;
 
   IF v_cat_practica IS DISTINCT FROM v_practica_id THEN
-    RAISE EXCEPTION 'Category % does not belong to the engagement''s practice', NEW.category_id;
+    RAISE EXCEPTION USING
+      MESSAGE = 'WORKSHEET_CATEGORY_OUT_OF_SCOPE',
+      DETAIL = format('worksheet_id=%s category_id=%s', NEW.worksheet_id, NEW.category_id);
   END IF;
 
-  SELECT practica_id INTO v_act_practica
+  SELECT practica_id, is_system INTO v_act_practica, v_act_is_system
     FROM public.activity_codes
    WHERE activity_id = NEW.activity_id;
 
-  -- NULL activity practica_id = global activity (e.g. 100-PLA, ADM), valid for every practice.
-  IF v_act_practica IS NOT NULL AND v_act_practica <> v_practica_id THEN
-    RAISE EXCEPTION 'Activity % does not belong to the engagement''s practice', NEW.activity_id;
+  -- Global/system activities (practica_id IS NULL, e.g. ADM) no longer qualify
+  -- as valid for any practice, and is_system is checked independently of
+  -- practica_id so a hypothetical system activity carrying the engagement's own
+  -- practica_id is still rejected (0825-183; review.md iteración 1, #2).
+  IF v_act_practica IS DISTINCT FROM v_practica_id OR v_act_is_system IS NOT FALSE THEN
+    RAISE EXCEPTION USING
+      MESSAGE = 'WORKSHEET_ACTIVITY_OUT_OF_SCOPE',
+      DETAIL = format('worksheet_id=%s activity_id=%s', NEW.worksheet_id, NEW.activity_id);
   END IF;
 
   RETURN NEW;
@@ -3379,40 +3558,42 @@ CREATE FUNCTION public.get_engagement_team_candidates() RETURNS TABLE(staff_id u
     AS $$
   SELECT s.staff_id,
          (s.first_name || ' ' || s.last_name)::text AS display_name,
-         -- Solo el ROL BASE de cada nivel (decisión de negocio 2026-08-17). Fuera:
-         -- senior_partner, risk_partner, risk_supervisor, it_security_manager,
-         -- accounting_*, hr_*, collections_analyst, sqr, assistant, viewer y admin.
-         -- Este CASE está espejado en src/lib/engagementTeamCandidates.ts
-         -- (ROLE_KEY_TO_GROUP); si se toca uno, tocar el otro.
-         CASE ur.role_key
-           WHEN 'partner'       THEN 'partner_director'
-           WHEN 'director'      THEN 'partner_director'
-           WHEN 'manager'       THEN 'manager'
-           WHEN 'senior'        THEN 'encargado'
-           WHEN 'semisenior'    THEN 'encargado'
-           WHEN 'ita_manager'   THEN 'specialist_it'
-           WHEN 'ita_senior'    THEN 'specialist_it'
-           WHEN 'ita_assistant' THEN 'specialist_it'
-           WHEN 'tax_manager'   THEN 'specialist_tax'
-           WHEN 'tax_senior'    THEN 'specialist_tax'
-           WHEN 'tax_assistant' THEN 'specialist_tax'
-         END AS candidate_group,
-         -- El cliente refina por el servicio del encargo sin volver a pedir datos.
+         g.candidate_group,
          s.practica_id
     FROM public.staff s
     -- INNER JOIN: excluye al personal sin cuenta vinculada (staff.auth_user_id es nullable
-    -- por diseño — se vincula por email vía trigger) y, con el IN de abajo, a quien tenga
-    -- role_key NULL. Es el comportamiento decidido: sin rol asignado no hay elegibilidad.
+    -- por diseño) y, junto con el JOIN de mapeo de abajo, a quien tenga role_key NULL o no
+    -- elegible. Espejo de src/lib/engagementTeamCandidates.ts (ROLE_KEY_TO_GROUPS); si se
+    -- toca uno, tocar el otro.
     JOIN public.user_roles ur          ON ur.user_id  = s.auth_user_id
     JOIN public.authorization_roles ar ON ar.role_key = ur.role_key
+    JOIN (VALUES
+           ('partner',        'partner_director'),
+           ('director',       'partner_director'),
+           -- BUG 0828-185: amplía el pool de Socio/Director/SQR -- antes excluidos pese a
+           -- visibilidad firm-wide.
+           ('senior_partner', 'partner_director'),
+           ('risk_partner',   'partner_director'),
+           ('manager',        'manager'),
+           ('hr_manager',     'manager'),
+           ('senior',         'encargado'),
+           ('semisenior',     'encargado'),
+           -- BUG 0828-185: ita_manager/tax_manager quedan en DOS grupos -- su propia
+           -- especialidad y, además, Gerente/Supervisor.
+           ('ita_manager',    'specialist_it'),
+           ('ita_manager',    'manager'),
+           ('ita_senior',     'specialist_it'),
+           ('ita_assistant',  'specialist_it'),
+           ('tax_manager',    'specialist_tax'),
+           ('tax_manager',    'manager'),
+           ('tax_senior',     'specialist_tax'),
+           ('tax_assistant',  'specialist_tax')
+         ) AS g(role_key, candidate_group) ON g.role_key = ur.role_key
    WHERE (public.has_permission('engagement.create')
           OR public.has_permission('engagement.update'))
      AND s.is_active
      AND s.deleted_at IS NULL
      AND ar.is_active
-     AND ur.role_key IN ('partner','director','manager','senior','semisenior',
-                         'ita_manager','ita_senior','ita_assistant',
-                         'tax_manager','tax_senior','tax_assistant')
    ORDER BY s.last_name, s.first_name;
 $$;
 
@@ -3421,7 +3602,7 @@ $$;
 -- Name: FUNCTION get_engagement_team_candidates(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.get_engagement_team_candidates() IS 'BUG 0722-162: candidatos elegibles por campo del bloque Equipo del encargo. Agrupa role_key en 5 grupos de candidatura (partner_director, manager, encargado, specialist_it, specialist_tax) y NO expone email, auth_user_id ni el role_key crudo. Gateada por engagement.create OR engagement.update, así que cubre creación y edición con un solo RPC.';
+COMMENT ON FUNCTION public.get_engagement_team_candidates() IS 'BUG 0722-162 (actualizado 0817-180 y 0828-185): candidatos elegibles por campo del bloque Equipo del encargo. Agrupa role_key en 5 grupos de candidatura (partner_director, manager, encargado, specialist_it, specialist_tax) vía un mapeo (role_key, candidate_group) que admite MÚLTIPLES grupos por rol -- ita_manager/tax_manager caen en su especialidad Y en manager; senior_partner/risk_partner se agregaron a partner_director. NO expone email, auth_user_id ni el role_key crudo. Gateada por engagement.create OR engagement.update.';
 
 
 --
@@ -4271,6 +4452,193 @@ BEGIN
   RETURN NEW;
 END;
 $$;
+
+
+--
+-- Name: list_loggable_engagements(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.list_loggable_engagements() RETURNS TABLE(engagement_id uuid, engagement_code character varying, engagement_name character varying, activity_required boolean, work_order_required boolean, is_internal boolean, practica smallint, funcion smallint, start_date date, end_date date, engagement_state_override smallint, client_id uuid, client_legal_name character varying)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  -- funcion (0827-184, mergeado tras crear este RPC): 0 administrativa, 1 cliente,
+  -- 2 capacitación, 3 calidad. Los selectores de actividad (filterActivitiesForEngagement)
+  -- lo necesitan para decidir si el encargo requiere actividad -- viajaba en el SELECT
+  -- directo a `engagements` que este RPC reemplazó, así que debe seguir viajando aquí.
+  SELECT e.engagement_id, e.engagement_code, e.engagement_name,
+         e.activity_required, e.work_order_required, e.is_internal,
+         e.practica, e.funcion, e.start_date, e.end_date, e.engagement_state_override,
+         e.client_id, c.client_legal_name
+    FROM public.engagements e
+    LEFT JOIN public.clients c ON c.client_id = e.client_id
+   WHERE public.has_permission('time_entry.create')
+     AND e.status = 'active'
+     -- Regla de check_wo_approved()/engagement_allows_hours_or_requests(): con override manual
+     -- presente, SOLO 4 (Aprobado) y 5 (Aprobado Emergencia) permiten cargar horas -- el resto
+     -- (1 Pendiente, 2 AprobadoSocio, 3 AprobadoRiesgos, 6/7/8/9) bloquea, sin importar OT.
+     AND (e.engagement_state_override IS NULL OR e.engagement_state_override IN (4, 5))
+     AND (
+       -- Group A: encargo con Orden de Trabajo Aprobada (y Riesgos no Rechazado).
+       EXISTS (
+         SELECT 1 FROM public.work_orders wo
+          WHERE wo.engagement_id = e.engagement_id
+            AND wo.approval_status = 'Approved'
+            AND COALESCE(wo.risk_status, '') <> 'Rejected'
+       )
+       -- Group B: administrativo (sin OT requerida).
+       OR e.work_order_required = false
+       -- Group B: override manual Aprobado/Emergencia (4/5), cargable aunque la OT no lo esté.
+       OR e.engagement_state_override IN (4, 5)
+     )
+   -- Paridad con las queries que reemplaza (Tracker/Carga Manual ordenaban created_at DESC).
+   ORDER BY e.created_at DESC, e.engagement_id
+$$;
+
+
+--
+-- Name: FUNCTION list_loggable_engagements(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.list_loggable_engagements() IS 'BUG 0828-186: encargos elegibles para cargar horas (Hoja de Tiempo/Tracker/Carga Manual), sin filtrar por asignación -- alcance decidido por el operador. Gateado por time_entry.create. No sustituye is_assigned_to_engagement/is_assigned_to_client (fuera de alcance de este issue).';
+
+
+--
+-- Name: list_own_timer_engagement_labels(uuid[]); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.list_own_timer_engagement_labels(p_engagement_ids uuid[]) RETURNS TABLE(engagement_id uuid, engagement_code character varying, engagement_name character varying)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT e.engagement_id, e.engagement_code, e.engagement_name
+    FROM public.engagements e
+   WHERE e.engagement_id = ANY(p_engagement_ids)
+     AND EXISTS (
+       SELECT 1 FROM public.timer_entries te
+        WHERE te.engagement_id = e.engagement_id
+          AND te.staff_id = public.get_my_staff_id()
+     )
+$$;
+
+
+--
+-- Name: FUNCTION list_own_timer_engagement_labels(p_engagement_ids uuid[]); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.list_own_timer_engagement_labels(p_engagement_ids uuid[]) IS 'BUG 0828-186 (Iteración 4): resuelve engagement_name/engagement_code por pertenencia (el caller ya tiene un timer_entries propio con ese engagement_id), sin filtrar por elegibilidad actual -- a diferencia de list_loggable_engagements(). Respaldo para Tracker History cuando el embed normal cae a null por RLS de asignación.';
+
+
+--
+-- Name: list_portfolio_engagements(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.list_portfolio_engagements() RETURNS jsonb
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  WITH caller AS (
+    SELECT public.get_my_staff_id() AS staff_id,
+           public.current_role_key() AS role_key
+  ),
+  caller_staff AS (
+    SELECT s.society_id
+      FROM public.staff s, caller c
+     WHERE s.staff_id = c.staff_id
+  )
+  SELECT COALESCE(
+    jsonb_agg(
+      jsonb_build_object(
+        'engagement_id',              e.engagement_id,
+        'client_id',                  e.client_id,
+        'engagement_name',            e.engagement_name,
+        'engagement_code',            e.engagement_code,
+        'partner_id',                 e.partner_id,
+        'manager_id',                 e.manager_id,
+        'status',                     e.status,
+        'start_date',                 e.start_date,
+        'end_date',                   e.end_date,
+        'created_at',                 e.created_at,
+        'work_order_required',        e.work_order_required,
+        'activity_required',          e.activity_required,
+        'is_internal',                e.is_internal,
+        'approval_required',          e.approval_required,
+        'oficina',                    e.oficina,
+        'practica',                   e.practica,
+        'anio_fiscal',                e.anio_fiscal,
+        'funcion',                    e.funcion,
+        'fecha_cierre',               e.fecha_cierre,
+        'anio_fiscal_override',       e.anio_fiscal_override,
+        'sqr_id',                     e.sqr_id,
+        'encargado_id',               e.encargado_id,
+        'specialist_it_id',           e.specialist_it_id,
+        'specialist_tax_id',          e.specialist_tax_id,
+        'contract_file_path',         e.contract_file_path,
+        'created_by_staff_id',        e.created_by_staff_id,
+        'engagement_state_override',  e.engagement_state_override,
+        'taxonomy_id',                e.taxonomy_id,
+        'society_id',                 e.society_id,
+        'client', jsonb_build_object(
+          'client_id',          c.client_id,
+          'client_legal_name',  c.client_legal_name
+        ),
+        'partner',        CASE WHEN sp.staff_id   IS NULL THEN NULL ELSE to_jsonb(sp)   END,
+        'manager',        CASE WHEN sm.staff_id   IS NULL THEN NULL ELSE to_jsonb(sm)   END,
+        'sqr',            CASE WHEN sq.staff_id   IS NULL THEN NULL ELSE to_jsonb(sq)   END,
+        'encargado',      CASE WHEN se.staff_id   IS NULL THEN NULL ELSE to_jsonb(se)   END,
+        'specialist_it',  CASE WHEN sit.staff_id  IS NULL THEN NULL ELSE to_jsonb(sit)  END,
+        'specialist_tax', CASE WHEN stax.staff_id IS NULL THEN NULL ELSE to_jsonb(stax) END,
+        'society',        CASE WHEN soc.society_id IS NULL THEN NULL ELSE jsonb_build_object(
+          'society_id',  soc.society_id,
+          'name',        soc.name,
+          'is_active',   soc.is_active,
+          'created_at',  soc.created_at
+        ) END,
+        'work_order',     CASE WHEN wo.engagement_id IS NULL THEN NULL ELSE jsonb_build_object(
+          'approval_status', wo.approval_status,
+          'approved_at',     wo.approved_at,
+          'risk_status',     wo.risk_status
+        ) END
+      )
+      ORDER BY e.created_at DESC NULLS LAST, e.engagement_id
+    ),
+    '[]'::jsonb
+  )
+    FROM public.engagements e
+    CROSS JOIN caller
+    LEFT JOIN caller_staff cs ON true
+    JOIN public.clients c ON c.client_id = e.client_id
+    LEFT JOIN (SELECT staff_id, first_name, last_name, short_name, initials, category_id, city, is_active FROM public.staff) sp   ON sp.staff_id   = e.partner_id
+    LEFT JOIN (SELECT staff_id, first_name, last_name, short_name, initials, category_id, city, is_active FROM public.staff) sm   ON sm.staff_id   = e.manager_id
+    LEFT JOIN (SELECT staff_id, first_name, last_name, short_name, initials, category_id, city, is_active FROM public.staff) sq   ON sq.staff_id   = e.sqr_id
+    LEFT JOIN (SELECT staff_id, first_name, last_name, short_name, initials, category_id, city, is_active FROM public.staff) se   ON se.staff_id   = e.encargado_id
+    LEFT JOIN (SELECT staff_id, first_name, last_name, short_name, initials, category_id, city, is_active FROM public.staff) sit  ON sit.staff_id  = e.specialist_it_id
+    LEFT JOIN (SELECT staff_id, first_name, last_name, short_name, initials, category_id, city, is_active FROM public.staff) stax ON stax.staff_id = e.specialist_tax_id
+    LEFT JOIN public.society soc ON soc.society_id = e.society_id
+    LEFT JOIN public.work_orders wo ON wo.engagement_id = e.engagement_id
+   WHERE public.has_permission('engagement.read')
+     AND (
+       -- 1. firm: ve todos los encargos.
+       caller.role_key IN ('admin', 'it_security_manager', 'senior_partner', 'risk_partner')
+       -- 2. own_society: mismos encargos de SU sociedad, incluidos los creados por otros.
+       OR (caller.role_key IN ('partner', 'sqr', 'director')
+           AND e.society_id IS NOT NULL
+           AND e.society_id = cs.society_id)
+       -- 3. own_management: donde figura como manager_id, incluidos los creados por otros.
+       OR (caller.role_key IN ('manager', 'ita_manager', 'tax_manager', 'hr_manager')
+           AND caller.staff_id IS NOT NULL
+           AND e.manager_id = caller.staff_id)
+       -- 4. creator: cualquier rol ve lo que creó (paridad con la policy "engagements creator read").
+       OR (caller.staff_id IS NOT NULL AND e.created_by_staff_id = caller.staff_id)
+     )
+$$;
+
+
+--
+-- Name: FUNCTION list_portfolio_engagements(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.list_portfolio_engagements() IS 'BUG 0828-185: encargos visibles en Encargos.tsx/EngagementEdit.tsx/ClientEngagementsTable.tsx bajo la regla "por ahora, solo lo que creé", salvo los roles firm-wide (todos) y own_society/own_management (partner/sqr/director por sociedad; manager/ita_manager/tax_manager/hr_manager por manager_id) -- ver plan_v2 bugs/0828-185. Buckets HARDCODEADOS por role_key, sin nuevo permission_key/scope_key. NO reemplaza is_assigned_to_engagement()/is_assigned_to_client() ni la policy "engagements read": nunca debe ampliarse a firm-wide sin pasar por la RLS real.';
 
 
 --
@@ -9771,10 +10139,10 @@ PARTITION BY RANGE (inserted_at);
 
 
 --
--- Name: messages_2026_08_23; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_2026_09_02; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_08_23 (
+CREATE TABLE realtime.messages_2026_09_02 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -9787,10 +10155,10 @@ CREATE TABLE realtime.messages_2026_08_23 (
 
 
 --
--- Name: messages_2026_08_24; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_2026_09_03; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_08_24 (
+CREATE TABLE realtime.messages_2026_09_03 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -9803,10 +10171,10 @@ CREATE TABLE realtime.messages_2026_08_24 (
 
 
 --
--- Name: messages_2026_08_25; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_2026_09_04; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_08_25 (
+CREATE TABLE realtime.messages_2026_09_04 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -9819,10 +10187,10 @@ CREATE TABLE realtime.messages_2026_08_25 (
 
 
 --
--- Name: messages_2026_08_26; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_2026_09_05; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_08_26 (
+CREATE TABLE realtime.messages_2026_09_05 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -9835,10 +10203,10 @@ CREATE TABLE realtime.messages_2026_08_26 (
 
 
 --
--- Name: messages_2026_08_27; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_2026_09_06; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_08_27 (
+CREATE TABLE realtime.messages_2026_09_06 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -10131,38 +10499,38 @@ CREATE TABLE supabase_migrations.schema_migrations (
 
 
 --
--- Name: messages_2026_08_23; Type: TABLE ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_09_02; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_08_23 FOR VALUES FROM ('2026-08-23 00:00:00') TO ('2026-08-24 00:00:00');
-
-
---
--- Name: messages_2026_08_24; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_08_24 FOR VALUES FROM ('2026-08-24 00:00:00') TO ('2026-08-25 00:00:00');
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_02 FOR VALUES FROM ('2026-09-02 00:00:00') TO ('2026-09-03 00:00:00');
 
 
 --
--- Name: messages_2026_08_25; Type: TABLE ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_09_03; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_08_25 FOR VALUES FROM ('2026-08-25 00:00:00') TO ('2026-08-26 00:00:00');
-
-
---
--- Name: messages_2026_08_26; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_08_26 FOR VALUES FROM ('2026-08-26 00:00:00') TO ('2026-08-27 00:00:00');
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_03 FOR VALUES FROM ('2026-09-03 00:00:00') TO ('2026-09-04 00:00:00');
 
 
 --
--- Name: messages_2026_08_27; Type: TABLE ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_09_04; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_08_27 FOR VALUES FROM ('2026-08-27 00:00:00') TO ('2026-08-28 00:00:00');
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_04 FOR VALUES FROM ('2026-09-04 00:00:00') TO ('2026-09-05 00:00:00');
+
+
+--
+-- Name: messages_2026_09_05; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_05 FOR VALUES FROM ('2026-09-05 00:00:00') TO ('2026-09-06 00:00:00');
+
+
+--
+-- Name: messages_2026_09_06; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_06 FOR VALUES FROM ('2026-09-06 00:00:00') TO ('2026-09-07 00:00:00');
 
 
 --
@@ -11004,43 +11372,43 @@ ALTER TABLE ONLY realtime.messages
 
 
 --
--- Name: messages_2026_08_23 messages_2026_08_23_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+-- Name: messages_2026_09_02 messages_2026_09_02_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages_2026_08_23
-    ADD CONSTRAINT messages_2026_08_23_pkey PRIMARY KEY (id, inserted_at);
-
-
---
--- Name: messages_2026_08_24 messages_2026_08_24_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_08_24
-    ADD CONSTRAINT messages_2026_08_24_pkey PRIMARY KEY (id, inserted_at);
+ALTER TABLE ONLY realtime.messages_2026_09_02
+    ADD CONSTRAINT messages_2026_09_02_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
--- Name: messages_2026_08_25 messages_2026_08_25_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+-- Name: messages_2026_09_03 messages_2026_09_03_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages_2026_08_25
-    ADD CONSTRAINT messages_2026_08_25_pkey PRIMARY KEY (id, inserted_at);
-
-
---
--- Name: messages_2026_08_26 messages_2026_08_26_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_08_26
-    ADD CONSTRAINT messages_2026_08_26_pkey PRIMARY KEY (id, inserted_at);
+ALTER TABLE ONLY realtime.messages_2026_09_03
+    ADD CONSTRAINT messages_2026_09_03_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
--- Name: messages_2026_08_27 messages_2026_08_27_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+-- Name: messages_2026_09_04 messages_2026_09_04_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages_2026_08_27
-    ADD CONSTRAINT messages_2026_08_27_pkey PRIMARY KEY (id, inserted_at);
+ALTER TABLE ONLY realtime.messages_2026_09_04
+    ADD CONSTRAINT messages_2026_09_04_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_09_05 messages_2026_09_05_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_09_05
+    ADD CONSTRAINT messages_2026_09_05_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_09_06 messages_2026_09_06_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_09_06
+    ADD CONSTRAINT messages_2026_09_06_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
@@ -11704,6 +12072,13 @@ CREATE INDEX idx_engagements_partner_status ON public.engagements USING btree (p
 
 
 --
+-- Name: idx_engagements_society; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_engagements_society ON public.engagements USING btree (society_id);
+
+
+--
 -- Name: idx_fr_created_at; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -11977,38 +12352,38 @@ CREATE INDEX messages_inserted_at_topic_index ON ONLY realtime.messages USING bt
 
 
 --
--- Name: messages_2026_08_23_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+-- Name: messages_2026_09_02_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
-CREATE INDEX messages_2026_08_23_inserted_at_topic_idx ON realtime.messages_2026_08_23 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
--- Name: messages_2026_08_24_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_08_24_inserted_at_topic_idx ON realtime.messages_2026_08_24 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+CREATE INDEX messages_2026_09_02_inserted_at_topic_idx ON realtime.messages_2026_09_02 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
--- Name: messages_2026_08_25_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+-- Name: messages_2026_09_03_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
-CREATE INDEX messages_2026_08_25_inserted_at_topic_idx ON realtime.messages_2026_08_25 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
--- Name: messages_2026_08_26_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_08_26_inserted_at_topic_idx ON realtime.messages_2026_08_26 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+CREATE INDEX messages_2026_09_03_inserted_at_topic_idx ON realtime.messages_2026_09_03 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
--- Name: messages_2026_08_27_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+-- Name: messages_2026_09_04_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
-CREATE INDEX messages_2026_08_27_inserted_at_topic_idx ON realtime.messages_2026_08_27 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+CREATE INDEX messages_2026_09_04_inserted_at_topic_idx ON realtime.messages_2026_09_04 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_09_05_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_09_05_inserted_at_topic_idx ON realtime.messages_2026_09_05 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_09_06_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_09_06_inserted_at_topic_idx ON realtime.messages_2026_09_06 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
@@ -12110,73 +12485,73 @@ CREATE INDEX supabase_functions_hooks_request_id_idx ON supabase_functions.hooks
 
 
 --
--- Name: messages_2026_08_23_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_09_02_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_08_23_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_08_23_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_08_23_pkey;
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_02_inserted_at_topic_idx;
 
 
 --
--- Name: messages_2026_08_24_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_09_02_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_08_24_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_08_24_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_08_24_pkey;
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_02_pkey;
 
 
 --
--- Name: messages_2026_08_25_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_09_03_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_08_25_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_08_25_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_08_25_pkey;
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_03_inserted_at_topic_idx;
 
 
 --
--- Name: messages_2026_08_26_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_09_03_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_08_26_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_08_26_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_08_26_pkey;
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_03_pkey;
 
 
 --
--- Name: messages_2026_08_27_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_09_04_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_08_27_inserted_at_topic_idx;
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_04_inserted_at_topic_idx;
 
 
 --
--- Name: messages_2026_08_27_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_09_04_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_08_27_pkey;
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_04_pkey;
+
+
+--
+-- Name: messages_2026_09_05_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_05_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_09_05_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_05_pkey;
+
+
+--
+-- Name: messages_2026_09_06_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_06_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_09_06_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_06_pkey;
 
 
 --
@@ -12422,6 +12797,13 @@ CREATE TRIGGER trg_engagements_created_by BEFORE INSERT OR UPDATE ON public.enga
 --
 
 CREATE TRIGGER trg_engagements_creator_team BEFORE INSERT ON public.engagements FOR EACH ROW EXECUTE FUNCTION public.enforce_engagement_creator_team();
+
+
+--
+-- Name: engagements trg_engagements_profile_scope; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_engagements_profile_scope BEFORE INSERT OR UPDATE ON public.engagements FOR EACH ROW EXECUTE FUNCTION public.enforce_engagement_profile_scope();
 
 
 --
@@ -15277,5 +15659,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict b93LstuyfpgyfoCtrcYgz4OEdFkGdyc7IKtF9ljyDHUI3QvpCkc2ZgyuJFexE9F
+\unrestrict wNIil36w83ZXarkF2kLRuBe5zSvLCrig1F7tALkhQudTLqd4YmZBdvPasacLCQR
 

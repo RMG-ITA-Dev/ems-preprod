@@ -61,6 +61,8 @@ const ENGAGEMENT: ApprovedEngagement = {
   activity_required: true,
   work_order_required: false,
   is_internal: false,
+  practica: null,
+  funcion: 1,
   start_date: null,
   end_date: null,
   client: null,
@@ -71,6 +73,7 @@ const ACTIVITY: ActivityCode = {
   activity_code: "A01",
   description: "Activity 1",
   is_active: true,
+  is_system: false,
 };
 
 const makeEntry = (overrides: Partial<TimeEntry> = {}): TimeEntry => ({

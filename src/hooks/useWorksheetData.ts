@@ -2,6 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Category, ActivityCode, Engagement } from "./useEmsData";
 import { isHiddenFromActivePickers } from "@/lib/engagementStatus";
+import { useCurrentStaff } from "./useCurrentStaff";
+import { useAuthorization } from "./useAuthorization";
 
 export interface Worksheet {
   id: string;
@@ -160,13 +162,21 @@ export function useWorksheetById(id: string | undefined) {
   });
 }
 
-// Fetch engagements that don't have a worksheet yet
+// Fetch engagements that don't have a worksheet yet, created by the current user
+// (BUG 0828-186 Punto D: "creado por mí", no responsable directo). Admin ve todos
+// (decisión del operador, 2026-08-31): ya tiene visibilidad de firma completa por RLS, así
+// que el filtro de autor no debe limitarlo.
 export function useEngagementsWithoutWorksheet() {
+  const { staffRecord, isLoading: staffLoading } = useCurrentStaff();
+  const { roleKey, isLoading: authLoading } = useAuthorization();
+  const staffId = staffRecord?.staff_id;
+  const isAdmin = roleKey === "admin";
+
   return useQuery({
-    queryKey: ["engagements-without-worksheet"],
+    queryKey: ["engagements-without-worksheet", staffId, isAdmin],
     queryFn: async () => {
-      // Get all active engagements
-      const { data: engagements, error: engError } = await supabase
+      // Get all active engagements, scoped to the current user unless they're admin.
+      let query = supabase
         .from("engagements")
         .select(`
           engagement_id,
@@ -174,6 +184,7 @@ export function useEngagementsWithoutWorksheet() {
           engagement_code,
           status,
           engagement_state_override,
+          created_by_staff_id,
           client:clients (
             client_id,
             client_legal_name
@@ -192,6 +203,12 @@ export function useEngagementsWithoutWorksheet() {
           )
         `)
         .eq("status", "active");
+
+      if (!isAdmin) {
+        query = query.eq("created_by_staff_id", staffId);
+      }
+
+      const { data: engagements, error: engError } = await query;
 
       if (engError) throw engError;
 
@@ -212,6 +229,7 @@ export function useEngagementsWithoutWorksheet() {
           !isHiddenFromActivePickers((e as { engagement_state_override?: number | null }).engagement_state_override)
       ) as Engagement[];
     },
+    enabled: !staffLoading && !!staffId && !authLoading,
   });
 }
 

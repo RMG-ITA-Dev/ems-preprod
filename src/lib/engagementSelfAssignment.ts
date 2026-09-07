@@ -23,7 +23,7 @@
 // Este mapa es ESPEJO del CASE de `enforce_engagement_creator_team()`
 // (supabase/migrations/20251204000002_cero_02_functions_tables_views.sql tras la migración cero). Si se toca uno,
 // tocar el otro: el test de coherencia estructural de engagementSelfAssignment.test.ts lo verifica
-// además contra `ROLE_KEY_TO_GROUP` de engagementTeamCandidates.ts, así que un rol que se autoasigne
+// además contra `ROLE_KEY_TO_GROUPS` de engagementTeamCandidates.ts, así que un rol que se autoasigne
 // a un campo para el que no es candidato elegible rompe la suite.
 //
 // CONSECUENCIA DECLARADA (plan_v2 §Open Questions #1): `engagement.create` lo tienen hoy solo
@@ -40,8 +40,16 @@ export type SelfAssignedField = "partner_id" | "manager_id" | null;
 /** `role_key` que se autoasignan al campo Socio/Director. Subconjunto del grupo partner_director. */
 export const SELF_ASSIGN_PARTNER_ROLE_KEYS = ["partner", "director"] as const;
 
-/** `role_key` que se autoasignan al campo Gerente/Supervisor. Solo el rol base. */
-export const SELF_ASSIGN_MANAGER_ROLE_KEYS = ["manager"] as const;
+/**
+ * `role_key` que se autoasignan al campo Gerente/Supervisor. El rol base, más `hr_manager`
+ * (0817-180, decisión del operador 2026-08-27: "no hagamos casos especiales" — Talento Humano
+ * crea su encargo y queda autoasignado como manager_id igual que cualquier otro Gerente, así
+ * que puede aparecer como aprobador de las horas que se le carguen) y, desde 0828-185,
+ * `ita_manager`/`tax_manager` — ya tienen `engagement.create` y ya eran candidatos de
+ * Especialista; ahora también se autoasignan como manager_id igual que Gerente, en línea con
+ * que 0828-185 los suma al grupo de candidatura 'manager' (doble grupo).
+ */
+export const SELF_ASSIGN_MANAGER_ROLE_KEYS = ["manager", "hr_manager", "ita_manager", "tax_manager"] as const;
 
 export interface SelfAssignmentInput {
   /** En edición no se autoasigna ni se bloquea: el packet pide la regla solo en creación. */

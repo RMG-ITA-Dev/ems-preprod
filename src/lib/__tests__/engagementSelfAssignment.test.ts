@@ -6,7 +6,7 @@ import {
   SELF_ASSIGN_MANAGER_ROLE_KEYS,
   type SelfAssignmentInput,
 } from "@/lib/engagementSelfAssignment";
-import { ROLE_KEY_TO_GROUP, TEAM_FIELD_GROUPS } from "@/lib/engagementTeamCandidates";
+import { ROLE_KEY_TO_GROUPS, TEAM_FIELD_GROUPS } from "@/lib/engagementTeamCandidates";
 
 /**
  * BUG 0810-172 — autoasignación y bloqueo del Socio/Director o Gerente al crear un encargo.
@@ -39,6 +39,15 @@ describe("resolveSelfAssignedTeamField — roles que SÍ se autoasignan", () => 
 
   it("director → partner_id (el campo es 'Socio/Director'; decisión del operador 2026-08-17)", () => {
     expect(resolveSelfAssignedTeamField({ ...base, roleKey: "director" })).toBe("partner_id");
+  });
+
+  it("hr_manager → manager_id (0817-180: TH se comporta como cualquier otro Gerente, decisión del operador 2026-08-27)", () => {
+    expect(resolveSelfAssignedTeamField({ ...base, roleKey: "hr_manager" })).toBe("manager_id");
+  });
+
+  it("ita_manager/tax_manager → manager_id (0828-185: se agregan al campo Gerente/Supervisor)", () => {
+    expect(resolveSelfAssignedTeamField({ ...base, roleKey: "ita_manager" })).toBe("manager_id");
+    expect(resolveSelfAssignedTeamField({ ...base, roleKey: "tax_manager" })).toBe("manager_id");
   });
 });
 
@@ -74,8 +83,9 @@ describe("resolveSelfAssignedTeamField — exenciones", () => {
 });
 
 describe("resolveSelfAssignedTeamField — roles NO autoasignables", () => {
-  // Los 19 role_key restantes del catálogo de 23 (admin/partner/director/manager se cubren arriba).
-  // Esta lista es la que impide que un rol se cuele por descuido al tocar el mapa.
+  // Los 16 role_key restantes del catálogo de 23 (admin/partner/director/manager/hr_manager/
+  // ita_manager/tax_manager se cubren arriba). Esta lista es la que impide que un rol se cuele
+  // por descuido al tocar el mapa.
   it.each([
     ["senior"],
     ["semisenior"],
@@ -85,28 +95,27 @@ describe("resolveSelfAssignedTeamField — roles NO autoasignables", () => {
     ["risk_partner"],
     ["risk_supervisor"],
     ["it_security_manager"],
-    ["ita_manager"],
     ["ita_senior"],
     ["ita_assistant"],
-    ["tax_manager"],
     ["tax_senior"],
     ["tax_assistant"],
     ["accounting_manager"],
     ["accounting_analyst"],
     ["collections_analyst"],
-    ["hr_manager"],
     ["hr_analyst"],
   ])("%s no se autoasigna a ningún campo", (roleKey) => {
     expect(resolveSelfAssignedTeamField({ ...base, roleKey })).toBeNull();
   });
 
-  it("ita_manager y tax_manager pueden crear encargos pero NO se autoasignan (decisión 2026-08-17)", () => {
-    // Tienen engagement.create (20260724010000_authz_fase2_seed.sql) pero pertenecen a los grupos
-    // specialist_it / specialist_tax, así que no son candidatos del campo Gerente.
-    expect(resolveSelfAssignedTeamField({ ...base, roleKey: "ita_manager" })).toBeNull();
-    expect(resolveSelfAssignedTeamField({ ...base, roleKey: "tax_manager" })).toBeNull();
-    expect(ROLE_KEY_TO_GROUP.ita_manager).toBe("specialist_it");
-    expect(ROLE_KEY_TO_GROUP.tax_manager).toBe("specialist_tax");
+  it("ita_manager/tax_manager se autoasignan a manager_id (0828-185) y siguen siendo candidatos de Especialista", () => {
+    // Tienen engagement.create (20260724010000_authz_fase2_seed.sql) y, desde 0828-185, caen en
+    // DOS grupos de candidatura: su especialidad de siempre Y, además, 'manager'.
+    expect(resolveSelfAssignedTeamField({ ...base, roleKey: "ita_manager" })).toBe("manager_id");
+    expect(resolveSelfAssignedTeamField({ ...base, roleKey: "tax_manager" })).toBe("manager_id");
+    expect(ROLE_KEY_TO_GROUPS.ita_manager).toContain("specialist_it");
+    expect(ROLE_KEY_TO_GROUPS.ita_manager).toContain("manager");
+    expect(ROLE_KEY_TO_GROUPS.tax_manager).toContain("specialist_tax");
+    expect(ROLE_KEY_TO_GROUPS.tax_manager).toContain("manager");
   });
 });
 
@@ -116,23 +125,25 @@ describe("coherencia estructural con la elegibilidad de 0722-162", () => {
   // mostrando el placeholder (el id no estaría en `options`) y el usuario no podría hacer nada.
   it("todo rol autoasignado al campo Socio/Director es candidato de ese campo", () => {
     for (const roleKey of SELF_ASSIGN_PARTNER_ROLE_KEYS) {
-      expect(ROLE_KEY_TO_GROUP[roleKey], `${roleKey} debe ser candidato de partner_id`).toBe(
-        TEAM_FIELD_GROUPS.partner_id
-      );
+      expect(
+        ROLE_KEY_TO_GROUPS[roleKey],
+        `${roleKey} debe ser candidato de partner_id`
+      ).toContain(TEAM_FIELD_GROUPS.partner_id);
     }
   });
 
   it("todo rol autoasignado al campo Gerente es candidato de ese campo", () => {
     for (const roleKey of SELF_ASSIGN_MANAGER_ROLE_KEYS) {
-      expect(ROLE_KEY_TO_GROUP[roleKey], `${roleKey} debe ser candidato de manager_id`).toBe(
-        TEAM_FIELD_GROUPS.manager_id
-      );
+      expect(
+        ROLE_KEY_TO_GROUPS[roleKey],
+        `${roleKey} debe ser candidato de manager_id`
+      ).toContain(TEAM_FIELD_GROUPS.manager_id);
     }
   });
 
   it("todo rol autoasignable existe en el catálogo de roles elegibles", () => {
     for (const roleKey of [...SELF_ASSIGN_PARTNER_ROLE_KEYS, ...SELF_ASSIGN_MANAGER_ROLE_KEYS]) {
-      expect(ROLE_KEY_TO_GROUP, `${roleKey} no está en ROLE_KEY_TO_GROUP`).toHaveProperty(roleKey);
+      expect(ROLE_KEY_TO_GROUPS, `${roleKey} no está en ROLE_KEY_TO_GROUPS`).toHaveProperty(roleKey);
     }
   });
 
@@ -145,8 +156,8 @@ describe("coherencia estructural con la elegibilidad de 0722-162", () => {
 
   it("`sqr` y `admin` no se autoasignan, igual que en 0722-162", () => {
     expect(resolveSelfAssignedTeamField({ ...base, roleKey: "sqr" })).toBeNull();
-    expect(ROLE_KEY_TO_GROUP).not.toHaveProperty("sqr");
-    expect(ROLE_KEY_TO_GROUP).not.toHaveProperty("admin");
+    expect(ROLE_KEY_TO_GROUPS).not.toHaveProperty("sqr");
+    expect(ROLE_KEY_TO_GROUPS).not.toHaveProperty("admin");
   });
 });
 

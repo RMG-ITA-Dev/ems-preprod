@@ -99,8 +99,44 @@ run supabase/migrations/20251204000006_cero_06_grants.sql
 # docs/migraciones/legado-consolidacion.md). Varias suites de aserciones dependen de
 # has_permission()/has_firmwide_assignment_visibility(), que leen este catálogo — sin él, esas
 # suites no pueden ejercitar nada real. Se aplica una sola vez, fuera de la transacción de cada
-# suite, para que todas lo compartan sin re-sembrarlo.
+# suite, para que todas lo compartan sin re-sembrarlo. Debe cargarse ANTES de cualquier
+# migración incremental que inserte en authorization_role_permissions (0817-180 más abajo): esa
+# tabla tiene FK a authorization_permissions, que este fixture es quien siembra en el harness —
+# en producción esa fila ya existe de antes (hallazgo real de CI, 2026-08-27).
 run supabase/tests/local/40-fixture-rbac-catalog.sql
+
+run supabase/migrations/20260826162100_0817-180_enforce_engagement_profile_scope.sql
+run supabase/migrations/20260826221706_0817-180_grant_hr_engagement_work_order.sql
+
+# 0825-183: primera migración incremental posterior al set consolidado —
+# endurece enforce_worksheet_cell_practice_scope/batch_upsert_worksheet_cells.
+# El paso de limpieza de históricos es un no-op aquí (no hay datos aún en este
+# punto del bootstrap); lo que importa para el harness es el CREATE OR REPLACE
+# de ambas funciones, ejercitado por rpc-worksheet-activity-practice-scope.sql.
+run supabase/migrations/20260825120000_0825-183_worksheet_activity_practice_scope.sql
+
+# 0828-186: RPC list_loggable_engagements() -- selectores de carga de horas (Hoja de
+# Tiempo/Tracker/Carga Manual) muestran todos los encargos elegibles sin filtrar por
+# asignación. Ejercitado por rls-0828-186-loggable-engagements-rpc.sql.
+run supabase/migrations/20260831013000_0828-186_list_loggable_engagements_rpc.sql
+
+# 0828-186 (review Iteración 4): RPC list_own_timer_engagement_labels() -- respaldo de
+# Tracker History (useTimerEntries) cuando el embed normal `engagement:engagements(...)` cae
+# a null por RLS de asignación, incluyendo encargos que dejaron de ser cargables después de
+# registrada la hora. Ejercitado por rls-0828-186-own-timer-engagement-labels.sql.
+run supabase/migrations/20260831020000_0828-186_list_own_timer_engagement_labels_rpc.sql
+
+# 0828-185: RPC list_portfolio_engagements() -- Encargos/EngagementEdit/ClientEngagementsTable
+# muestran solo lo creado por el usuario (mas los buckets firm/own_society/own_management por
+# role_key), en vez de cualquier encargo donde figure como partner/manager/sqr/encargado.
+# Ejercitado por rpc-0828-185-engagement-portfolio.sql.
+run supabase/migrations/20260902163000_0828-185_engagement_portfolio_visibility_rpc.sql
+
+# 0828-185: society_id NOT NULL + indice, CHECK manager_id <> especialista, y
+# ROLE_KEY_TO_GROUPS multi-valor (get_engagement_team_candidates/enforce_engagement_creator_team).
+# Ejercitado por rpc-0828-185-engagement-portfolio.sql, rpc-engagement-team-candidates.sql,
+# trigger-engagement-creator-team.sql y schema-convergence-assertions.sql.
+run supabase/migrations/20260902163500_0828-185_engagement_team_and_society_integrity.sql
 
 # society/practicas(code=1): staff.society_id/practica_id y categories.practica_id son NOT NULL
 # reales; varias suites (rpc-engagement-team-candidates.sql explícitamente lo exige con su
@@ -135,7 +171,12 @@ assert_suite supabase/tests/rls-wo-staffing-requirements.sql 'WO STAFFING RLS: A
 assert_suite supabase/tests/rpc-engagement-team-candidates.sql 'ENGAGEMENT_TEAM_CANDIDATES RPC: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-save-engagement-assignments.sql 'SAVE_ENGAGEMENT_ASSIGNMENTS RPC: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-save-wo-staffing.sql 'SAVE_WO_STAFFING RPC: ALL CHECKS PASSED'
+assert_suite supabase/tests/rpc-worksheet-activity-practice-scope.sql 'WORKSHEET ACTIVITY PRACTICE SCOPE: ALL CHECKS PASSED'
 assert_suite supabase/tests/schema-convergence-assertions.sql 'SCHEMA CONVERGENCE: ALL CHECKS PASSED'
 assert_suite supabase/tests/trigger-engagement-creator-team.sql 'TRIGGER ENGAGEMENT CREATOR TEAM: ALL CHECKS PASSED'
+assert_suite supabase/tests/trigger-engagement-profile-scope.sql 'PROFILE SCOPE: ALL CHECKS PASSED'
+assert_suite supabase/tests/rls-0828-186-loggable-engagements-rpc.sql 'LOGGABLE ENGAGEMENTS RPC: ALL CHECKS PASSED'
+assert_suite supabase/tests/rls-0828-186-own-timer-engagement-labels.sql 'OWN TIMER ENGAGEMENT LABELS RPC: ALL CHECKS PASSED'
+assert_suite supabase/tests/rpc-0828-185-engagement-portfolio.sql 'PORTFOLIO ENGAGEMENTS RPC: ALL CHECKS PASSED'
 
-echo "OK: set consolidado (cero_01..cero_06) aplicado sobre base scratch; las 8 suites de RLS/RPC/schema-convergence/trigger pasaron"
+echo "OK: set consolidado (cero_01..cero_06) + migraciones 0825-183, 0817-180, 0828-186 y 0828-185 aplicadas sobre base scratch; las 13 suites de RLS/RPC/schema-convergence/trigger pasaron"

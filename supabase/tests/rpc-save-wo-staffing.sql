@@ -69,9 +69,9 @@ ON CONFLICT (user_id) DO UPDATE SET role = EXCLUDED.role, role_key = EXCLUDED.ro
 
 -- fecha_cierre is NOT NULL with no DEFAULT on a live Supabase (20260702000000) — the local shim
 -- has no such column at all, so this must be supplied explicitly to work in both environments.
-INSERT INTO public.engagements (engagement_id, client_id, engagement_name, manager_id, sqr_id, practica, fecha_cierre) VALUES
-  ('e0000000-0000-4000-8000-0000000000b1', 'c1000000-0000-4000-8000-0000000000b1', 'RWS E1', '50000000-0000-4000-8000-0000000000b1', '50000000-0000-4000-8000-0000000000b2', 1, '2026-09-30'),
-  ('e0000000-0000-4000-8000-0000000000b2', 'c1000000-0000-4000-8000-0000000000b1', 'RWS E2 (locked)', '50000000-0000-4000-8000-0000000000b1', NULL, 1, '2026-09-30');
+INSERT INTO public.engagements (engagement_id, client_id, engagement_name, manager_id, sqr_id, practica, fecha_cierre, society_id) VALUES
+  ('e0000000-0000-4000-8000-0000000000b1', 'c1000000-0000-4000-8000-0000000000b1', 'RWS E1', '50000000-0000-4000-8000-0000000000b1', '50000000-0000-4000-8000-0000000000b2', 1, '2026-09-30', (SELECT society_id FROM public.society ORDER BY name LIMIT 1)),
+  ('e0000000-0000-4000-8000-0000000000b2', 'c1000000-0000-4000-8000-0000000000b1', 'RWS E2 (locked)', '50000000-0000-4000-8000-0000000000b1', NULL, 1, '2026-09-30', (SELECT society_id FROM public.society ORDER BY name LIMIT 1));
 
 -- currency/season_mode are NOT NULL with no DEFAULT (20251204045534) — must be supplied explicitly.
 INSERT INTO public.work_orders (wo_id, engagement_id, currency, season_mode, approval_status) VALUES

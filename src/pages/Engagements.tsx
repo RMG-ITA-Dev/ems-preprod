@@ -5,7 +5,8 @@ import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Badge } from "@/components/ui/badge";
 
-import { useEngagements, useSocieties, Engagement } from "@/hooks/useEmsData";
+import { useSocieties, Engagement } from "@/hooks/useEmsData";
+import { usePortfolioEngagements } from "@/hooks/usePortfolioEngagements";
 import { useCategoryStaff } from "@/hooks/useCategoryStaff";
 import { DataTable, Column } from "@/components/data-table/DataTable";
 import { useNavigate } from "react-router-dom";
@@ -28,7 +29,7 @@ interface EngagementRow extends Engagement {
 const Engagements = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { data: engagements, isLoading } = useEngagements();
+  const { data: engagements, isLoading } = usePortfolioEngagements();
   const { data: societies } = useSocieties();
   const { partnerOptions, managerOptions } = useCategoryStaff();
   const { can } = useAuthorization();

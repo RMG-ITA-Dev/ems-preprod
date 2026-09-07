@@ -5,6 +5,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const allowedOrigins = [
   Deno.env.get("FRONTEND_URL") || "",
   "https://ugqxfnrxvksiltwxzist.lovableproject.com",
+  "https://ems-test.up.railway.app",
   "http://localhost:5173",
   "http://localhost:8080",
 ].filter(Boolean);

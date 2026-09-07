@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { normalizeActivityForEngagement } from "@/lib/timesheetActivityRules";
+import { filterActivitiesForEngagement } from "@/lib/activityFilters";
 
 /**
  * Component-level transition tests for TimesheetGrid activity behavior.
@@ -9,8 +10,13 @@ import { normalizeActivityForEngagement } from "@/lib/timesheetActivityRules";
 
 const ADM_ID = "adm-activity-uuid";
 
-const INTERNAL_ENG = { engagement_id: "eng-internal", activity_required: false };
-const CLIENT_ENG = { engagement_id: "eng-client", activity_required: true };
+// engagements.funcion: 0 administrativa, 1 cliente (0827-184). `activityRequired` below is
+// derived the same way TimesheetGrid.handleEngagementChange does it — funcion == null || funcion
+// === 1 — not read from a stored activity_required flag.
+const INTERNAL_ENG = { engagement_id: "eng-internal", funcion: 0 };
+const CLIENT_ENG = { engagement_id: "eng-client", funcion: 1 };
+
+const activityRequiredFor = (funcion: number) => funcion == null || funcion === 1;
 
 describe("TimesheetGrid activity transitions", () => {
   it("internal engagement auto-assigns admin activity", () => {
@@ -18,7 +24,7 @@ describe("TimesheetGrid activity transitions", () => {
       engagementId: INTERNAL_ENG.engagement_id,
       currentActivityId: "",
       adminActivityId: ADM_ID,
-      activityRequired: INTERNAL_ENG.activity_required,
+      activityRequired: activityRequiredFor(INTERNAL_ENG.funcion),
     });
     expect(result.nextActivityId).toBe(ADM_ID);
   });
@@ -29,7 +35,7 @@ describe("TimesheetGrid activity transitions", () => {
       engagementId: CLIENT_ENG.engagement_id,
       currentActivityId: ADM_ID,
       adminActivityId: ADM_ID,
-      activityRequired: CLIENT_ENG.activity_required,
+      activityRequired: activityRequiredFor(CLIENT_ENG.funcion),
     });
     expect(result.nextActivityId).toBe("");
     expect(result.wasCleared).toBe(true);
@@ -40,7 +46,7 @@ describe("TimesheetGrid activity transitions", () => {
       engagementId: CLIENT_ENG.engagement_id,
       currentActivityId: "",
       adminActivityId: ADM_ID,
-      activityRequired: CLIENT_ENG.activity_required,
+      activityRequired: activityRequiredFor(CLIENT_ENG.funcion),
     });
     // Empty activityId triggers the disable condition in TimesheetGrid line 826:
     // !row.activityId && !isActivityNotRequired
@@ -52,9 +58,57 @@ describe("TimesheetGrid activity transitions", () => {
       engagementId: INTERNAL_ENG.engagement_id,
       currentActivityId: "some-client-activity",
       adminActivityId: ADM_ID,
-      activityRequired: INTERNAL_ENG.activity_required,
+      activityRequired: activityRequiredFor(INTERNAL_ENG.funcion),
     });
     expect(result.nextActivityId).toBe(ADM_ID);
+  });
+});
+
+// Review iteración 3 (0827-184): handleEngagementChange's full activity resolution is
+// normalizeActivityForEngagement followed by a validity check against
+// filterActivitiesForEngagement (without preserving the current selection) — the same combined
+// check applied in TrackerBar/TrackerEdit's fix for the equivalent stale-activity bug. This
+// mirrors that resolution to pin the regression a review caught: an activity carried over from
+// the previous engagement was NOT cleared when the new engagement's funcion was null (legacy,
+// unset) as long as its service happened to still match the new practica — defeating the
+// fail-closed rule for legacy engagements even though the Select itself showed disabled.
+describe("handleEngagementChange resolved activity validity (0827-184, iteración 3)", () => {
+  const AUD_1 = { activity_id: "aud-1", is_system: false, service: { code: 1 } };
+  const ADM = { activity_id: ADM_ID, is_system: true, service: null as { code: number } | null };
+  const ACTIVITIES = [AUD_1, ADM];
+
+  function resolveActivity(
+    funcion: number | null,
+    practica: number | null,
+    currentActivityId: string,
+  ): string {
+    const { nextActivityId } = normalizeActivityForEngagement({
+      engagementId: "eng-x",
+      currentActivityId,
+      adminActivityId: ADM_ID,
+      activityRequired: funcion == null || funcion === 1,
+    });
+    if (!nextActivityId) return nextActivityId;
+    const stillValid = filterActivitiesForEngagement(ACTIVITIES, funcion, practica).some(
+      (a) => a.activity_id === nextActivityId,
+    );
+    return stillValid ? nextActivityId : "";
+  }
+
+  it("clears a practica-matching activity when the new engagement's funcion is null (legacy, unset)", () => {
+    expect(resolveActivity(null, 1, "aud-1")).toBe("");
+  });
+
+  it("keeps a practica-matching activity when the new engagement is funcion === 1 (cliente)", () => {
+    expect(resolveActivity(1, 1, "aud-1")).toBe("aud-1");
+  });
+
+  it("clears a practica-mismatching activity when the new engagement is funcion === 1 (cliente)", () => {
+    expect(resolveActivity(1, 2, "aud-1")).toBe("");
+  });
+
+  it("keeps ADM when the new engagement is funcion 0/2/3 (administrativa/capacitación/calidad)", () => {
+    expect(resolveActivity(0, null, ADM_ID)).toBe(ADM_ID);
   });
 });
 

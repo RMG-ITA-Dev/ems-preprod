@@ -72,6 +72,25 @@ vi.mock("@/hooks/useWorksheetMutations", () => ({
   useCreateWorkOrderFromWorksheet: () => ({ mutateAsync: mockCreateWOFromWorksheet, isPending: false }),
 }));
 
+const defaultActivityCodesResult = {
+  data: [
+    { activity_id: "act-1", activity_code: "ACT-1", description: "Activity 1", is_active: true, practica_id: "svc-1", is_system: false, service: { code: 1 } },
+    { activity_id: "act-2", activity_code: "ACT-2", description: "Activity 2", is_active: true, practica_id: "svc-1", is_system: false, service: { code: 1 } },
+  ],
+  isLoading: false,
+};
+const defaultAllActivityCodesResult = {
+  data: [
+    { activity_id: "act-1", activity_code: "ACT-1", description: "Activity 1", is_active: true, practica_id: "svc-1", is_system: false },
+    { activity_id: "act-2", activity_code: "ACT-2", description: "Activity 2", is_active: true, practica_id: "svc-1", is_system: false },
+  ],
+  isLoading: false,
+};
+// Overridable so the "catalog failed to resolve" regression test (0825-183,
+// review.md iteración 1, #4) can simulate a settled query-error state
+// (isLoading: false, data: undefined) without touching the other tests here.
+const mockUseAllActivityCodes = vi.fn(() => defaultAllActivityCodesResult);
+
 vi.mock("@/hooks/useEmsData", () => ({
   useCategories: () => ({
     data: [
@@ -80,20 +99,8 @@ vi.mock("@/hooks/useEmsData", () => ({
     ],
     isLoading: false,
   }),
-  useActivityCodes: () => ({
-    data: [
-      { activity_id: "act-1", activity_code: "ACT-1", description: "Activity 1", is_active: true, service: { code: 1 } },
-      { activity_id: "act-2", activity_code: "ACT-2", description: "Activity 2", is_active: true, service: { code: 1 } },
-    ],
-    isLoading: false,
-  }),
-  useAllActivityCodes: () => ({
-    data: [
-      { activity_id: "act-1", activity_code: "ACT-1", description: "Activity 1", is_active: true, practica_id: "svc-1" },
-      { activity_id: "act-2", activity_code: "ACT-2", description: "Activity 2", is_active: true, practica_id: "svc-1" },
-    ],
-    isLoading: false,
-  }),
+  useActivityCodes: () => defaultActivityCodesResult,
+  useAllActivityCodes: () => mockUseAllActivityCodes(),
   useSetting: () => "0.13",
   useServices: () => ({
     data: [{ practica_id: "svc-1", name: "Auditoría", code: 1, is_active: true, allows_rates_activities: true, created_at: "" }],
@@ -179,6 +186,8 @@ describe("WorksheetEdit — Copy from Engagement Flow", () => {
     mockUpdateWorksheet.mockClear();
     mockCreateWOFromWorksheet.mockClear();
     mockUseWorksheets.mockReturnValue({ data: makeSourceWorksheets(), isLoading: false });
+    mockUseAllActivityCodes.mockReset();
+    mockUseAllActivityCodes.mockReturnValue(defaultAllActivityCodesResult);
   });
 
   describe("Copy Button Visibility", () => {
@@ -497,6 +506,38 @@ describe("WorksheetEdit — Copy from Engagement Flow", () => {
 
       const copyButton = screen.queryByRole("button", { name: /workMatrix.copyFromEngagement/ });
       expect(copyButton).not.toBeInTheDocument();
+    });
+  });
+
+  describe("Copy Blocked When Catalog Unresolved (0825-183)", () => {
+    it("disables the Copy button when the activity catalog failed to resolve", () => {
+      mockUseWorksheetById.mockReturnValue({
+        data: makeWorksheet({ status: "draft" }),
+        isLoading: false,
+      });
+      // Settled query-error state: isLoading is false but data stayed undefined
+      // (see the scopedActivityIdsForSave comment in WorksheetEdit.tsx).
+      mockUseAllActivityCodes.mockReturnValue({ data: undefined, isLoading: false });
+
+      customRender(<WorksheetEdit />);
+
+      const copyButton = screen.getByRole("button", { name: /workMatrix.copyFromEngagement/ });
+      expect(copyButton).toBeDisabled();
+    });
+
+    it("clicking a disabled Copy button never opens the dialog or applies unfiltered cells", () => {
+      mockUseWorksheetById.mockReturnValue({
+        data: makeWorksheet({ status: "draft" }),
+        isLoading: false,
+      });
+      mockUseAllActivityCodes.mockReturnValue({ data: undefined, isLoading: false });
+
+      customRender(<WorksheetEdit />);
+
+      const copyButton = screen.getByRole("button", { name: /workMatrix.copyFromEngagement/ });
+      fireEvent.click(copyButton);
+
+      expect(screen.queryByText(/workMatrix.copyDialogTitle/)).not.toBeInTheDocument();
     });
   });
 });
