@@ -517,6 +517,49 @@ describe("StaffForm — sync categoría→rol (0820-182)", () => {
     await waitFor(() => expect(onSaveSuccess).toHaveBeenCalled());
   });
 
+  it("Test 18: tras un fallo de competencias, el reintento SÍ ofrece la sincronización", async () => {
+    // useUpdateStaff invalida staff_full, así que StaffEdit refetchea y le pasa a este
+    // formulario el staff YA guardado —con la categoría nueva— mientras sigue abierto,
+    // porque el fallo de competencias hace `return` sin navegar. Comparando contra
+    // `staff.category_id` el reintento veía "no cambió nada" y el diálogo no aparecía más.
+    deleteCompetencyMutateAsync.mockRejectedValueOnce(new Error("boom"));
+    const user = userEvent.setup();
+    const { rerender } = renderForm({
+      staff_skills: [
+        {
+          staff_skill_id: "ss-1",
+          skill_id: "skill-1",
+          proficiency_level: "Beginner",
+          last_evaluated_date: "2026-01-01",
+        },
+      ] as StaffFull["staff_skills"],
+    });
+
+    await user.click(await screen.findByLabelText("staff.competencies.remove"));
+    await changeCategoryAndSave(user, "cat-gerente");
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith("staff.competencies.errors.partialSave"),
+    );
+    expect(screen.queryByText("staff.syncRoleTitle")).toBeNull();
+
+    // El refetch llega: mismo staff_id, categoría ya guardada. Es el paso que rompía todo.
+    rerender(
+      <QueryClientProvider client={makeQC()}>
+        <StaffForm
+          staff={{ ...baseStaff, category_id: "cat-gerente", staff_skills: [] }}
+          onSaveSuccess={onSaveSuccess}
+          onCancel={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    // Reintento: el guardado de competencias ya no falla.
+    await user.click(screen.getByText("common.saveChanges"));
+
+    expect(await screen.findByText("staff.syncRoleTitle")).toBeTruthy();
+  });
+
   it("Test 12: descartar el diálogo (Escape/click afuera) equivale a omitir", async () => {
     const user = userEvent.setup();
     renderForm();

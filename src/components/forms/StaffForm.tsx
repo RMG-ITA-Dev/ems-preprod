@@ -236,6 +236,20 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
   // Tracks skill_ids of competencies that existed when the edit form was loaded
   const originalSkillIds = useRef<Set<string>>(new Set());
 
+  // 0820-182: la categoría con la que se ABRIÓ esta sesión de edición.
+  //
+  // No se puede usar `staff.category_id` para detectar el cambio, porque el prop se
+  // refresca en medio del guardado: useUpdateStaff invalida `staff_full`, StaffEdit
+  // refetchea y le pasa el staff YA guardado — todo mientras el formulario sigue abierto,
+  // porque un fallo de competencias hace `return` sin navegar. En el reintento
+  // `staff.category_id` ya vale la categoría nueva, la comparación da false y el diálogo de
+  // sincronización no se ofrece nunca.
+  //
+  // Se ancla por `staff_id` (no por identidad del objeto) justamente para que ese refetch
+  // no lo pise.
+  const originalCategoryId = useRef<string | null>(null);
+  const seededStaffId = useRef<string | null>(null);
+
   // 0820-182: diálogo de sincronización categoría -> rol. La categoría PROPONE un rol
   // (categories.default_role_key); nunca lo aplica sola. Se restaura el flujo que FASE 3c
   // eliminó, pero sobre role_key (catálogo authorization_roles) en vez del enum legacy.
@@ -299,6 +313,13 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
     }
     return active;
   }, [services, isEdit, staff?.practica_id]);
+
+  useEffect(() => {
+    if (staff && seededStaffId.current !== staff.staff_id) {
+      seededStaffId.current = staff.staff_id;
+      originalCategoryId.current = staff.category_id;
+    }
+  }, [staff]);
 
   useEffect(() => {
     if (staff) {
@@ -599,13 +620,20 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
       // todas necesarias:
       //  1-2. solo en edición y solo si el staff tiene cuenta vinculada (sin auth_user_id
       //       no hay rol que sincronizar);
-      //  3.   solo si la categoría realmente cambió;
+      //  3.   solo si la categoría cambió respecto a la que tenía al ABRIR el formulario
+      //       (ver originalCategoryId: comparar contra `staff.category_id` fallaba en el
+      //       reintento posterior a un fallo de competencias, porque el prop ya venía
+      //       refrescado con la categoría recién guardada);
       //  4.   solo si la categoría destino sugiere algo (default_role_key no nulo);
       //  5.   solo si difiere del rol actual, para no molestar sin necesidad;
       //  6.   solo si quien edita puede cambiar roles. Esta última es nueva respecto al
       //       flujo original: /staff/:id exige staff.read, no admin, así que sin el gate
       //       un rol sin user_role.update vería un diálogo condenado a fallar NOT_ADMIN.
-      if (staff.auth_user_id && staff.category_id !== data.category_id && can("user_role.update")) {
+      if (
+        staff.auth_user_id &&
+        originalCategoryId.current !== data.category_id &&
+        can("user_role.update")
+      ) {
         const newCategory = categories?.find((c) => c.category_id === data.category_id);
         const suggested = newCategory?.default_role_key ?? null;
         // `admin` nunca se ofrece, venga de donde venga el valor. El filtro del
