@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict pnVhQTabX7mKgQdfzsQ8nxn8xQrA8ESTkzOo9RkuLFxXEufUa9KWFukjFtf3woA
+\restrict sdFb620Btgw1UDzIPkUiwHJRgT5kqrmDdIapCGX0shdgFJq2FX8xLKDigXiSv13
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.11 (Ubuntu 17.11-1.pgdg24.04+2)
@@ -6353,6 +6353,100 @@ COMMENT ON FUNCTION public.sync_user_role_from_category(p_staff_id uuid, p_expec
 
 
 --
+-- Name: wo_payment_installments; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.wo_payment_installments (
+    installment_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    plan_id uuid NOT NULL,
+    wo_id uuid NOT NULL,
+    installment_number integer NOT NULL,
+    agreed_invoice_date date,
+    agreed_payment_date date,
+    collection_invoice_date date,
+    collection_payment_date date,
+    payment_date_actual date,
+    percentage numeric DEFAULT 0 NOT NULL,
+    amount numeric,
+    status text DEFAULT 'Pending'::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now(),
+    updated_at timestamp with time zone DEFAULT now(),
+    invoice_exchange_rate numeric,
+    payment_exchange_rate numeric,
+    CONSTRAINT wo_payment_installments_invoice_exchange_rate_check CHECK (((invoice_exchange_rate IS NULL) OR (invoice_exchange_rate > (0)::numeric))),
+    CONSTRAINT wo_payment_installments_payment_exchange_rate_check CHECK (((payment_exchange_rate IS NULL) OR (payment_exchange_rate > (0)::numeric))),
+    CONSTRAINT wo_payment_installments_status_check CHECK ((status = ANY (ARRAY['Pending'::text, 'Invoiced'::text, 'Completed'::text, 'Overdue'::text])))
+);
+
+
+--
+-- Name: sync_wo_payment_installments(uuid, uuid, jsonb); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.sync_wo_payment_installments(p_plan_id uuid, p_wo_id uuid, p_installments jsonb) RETURNS SETOF public.wo_payment_installments
+    LANGUAGE plpgsql
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_kept_ids uuid[];
+BEGIN
+  SELECT array_agg((row_data->>'installment_id')::uuid)
+  INTO v_kept_ids
+  FROM jsonb_array_elements(p_installments) AS row_data
+  WHERE row_data->>'installment_id' IS NOT NULL;
+
+  -- Borra huerfanos PRIMERO, para que una fila renumerada no choque contra el UNIQUE
+  -- (plan_id, installment_number) de una fila vieja que todavia no se borro -- mismo
+  -- orden que ya usaba useBatchUpsertInstallments, ahora atomico con el paso de abajo.
+  IF v_kept_ids IS NOT NULL AND array_length(v_kept_ids, 1) > 0 THEN
+    DELETE FROM public.wo_payment_installments
+    WHERE plan_id = p_plan_id AND installment_id <> ALL (v_kept_ids);
+  ELSE
+    DELETE FROM public.wo_payment_installments
+    WHERE plan_id = p_plan_id;
+  END IF;
+
+  RETURN QUERY
+  INSERT INTO public.wo_payment_installments AS w (
+    installment_id, plan_id, wo_id, installment_number,
+    agreed_invoice_date, agreed_payment_date,
+    collection_invoice_date, collection_payment_date, payment_date_actual,
+    percentage, amount, status, invoice_exchange_rate, payment_exchange_rate
+  )
+  SELECT
+    COALESCE((row_data->>'installment_id')::uuid, gen_random_uuid()),
+    p_plan_id,
+    p_wo_id,
+    (row_data->>'installment_number')::integer,
+    (row_data->>'agreed_invoice_date')::date,
+    (row_data->>'agreed_payment_date')::date,
+    (row_data->>'collection_invoice_date')::date,
+    (row_data->>'collection_payment_date')::date,
+    (row_data->>'payment_date_actual')::date,
+    (row_data->>'percentage')::numeric,
+    (row_data->>'amount')::numeric,
+    row_data->>'status',
+    (row_data->>'invoice_exchange_rate')::numeric,
+    (row_data->>'payment_exchange_rate')::numeric
+  FROM jsonb_array_elements(p_installments) AS row_data
+  ON CONFLICT (installment_id) DO UPDATE SET
+    installment_number = EXCLUDED.installment_number,
+    agreed_invoice_date = EXCLUDED.agreed_invoice_date,
+    agreed_payment_date = EXCLUDED.agreed_payment_date,
+    collection_invoice_date = EXCLUDED.collection_invoice_date,
+    collection_payment_date = EXCLUDED.collection_payment_date,
+    payment_date_actual = EXCLUDED.payment_date_actual,
+    percentage = EXCLUDED.percentage,
+    amount = EXCLUDED.amount,
+    status = EXCLUDED.status,
+    invoice_exchange_rate = EXCLUDED.invoice_exchange_rate,
+    payment_exchange_rate = EXCLUDED.payment_exchange_rate
+  RETURNING w.*;
+END;
+$$;
+
+
+--
 -- Name: sync_worksheet_to_wo_budget(uuid, uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -6819,6 +6913,19 @@ DECLARE
   v_exchange_rate_mode text;
   v_legal_transition boolean;
 BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF EXISTS (SELECT 1 FROM public.wo_payment_installments WHERE installment_id = NEW.installment_id) THEN
+      -- No es una insercion real -- resolvera como UPDATE por conflicto; el BEFORE
+      -- UPDATE real que Postgres dispara a continuacion para esta misma fila aplica
+      -- el resto de este guard con el OLD correcto.
+      RETURN NEW;
+    END IF;
+    IF NEW.status <> 'Pending' THEN
+      RAISE EXCEPTION 'INSTALLMENT_LOCKED: una cuota nueva debe crearse en estado Pending';
+    END IF;
+    RETURN NEW;
+  END IF;
+
   IF NEW.status IS DISTINCT FROM OLD.status THEN
     v_legal_transition := CASE OLD.status
       WHEN 'Pending'   THEN NEW.status = 'Invoiced'
@@ -6831,12 +6938,6 @@ BEGIN
     END IF;
   END IF;
 
-  -- MUST FIX review iteracion 2 #1/#3 (decision del operador 2026-09-07: "si una cuota
-  -- ya esta facturada, no se puede modificar o eliminar de ninguna manera"): una vez
-  -- que status sale de 'Pending', percentage/amount/installment_number tambien quedan
-  -- congelados -- no solo las 2 columnas de TC. Sin esto, agregar/quitar cuotas del
-  -- plan podia redistribuir el porcentaje de una cuota ya facturada, desalineandolo
-  -- del TC ya congelado (que se calculo sobre el porcentaje original).
   IF OLD.status <> 'Pending' AND (
     NEW.percentage IS DISTINCT FROM OLD.percentage
     OR NEW.amount IS DISTINCT FROM OLD.amount
@@ -10321,33 +10422,6 @@ CREATE TABLE public.wo_expense_budget (
 
 
 --
--- Name: wo_payment_installments; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.wo_payment_installments (
-    installment_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    plan_id uuid NOT NULL,
-    wo_id uuid NOT NULL,
-    installment_number integer NOT NULL,
-    agreed_invoice_date date,
-    agreed_payment_date date,
-    collection_invoice_date date,
-    collection_payment_date date,
-    payment_date_actual date,
-    percentage numeric DEFAULT 0 NOT NULL,
-    amount numeric,
-    status text DEFAULT 'Pending'::text NOT NULL,
-    created_at timestamp with time zone DEFAULT now(),
-    updated_at timestamp with time zone DEFAULT now(),
-    invoice_exchange_rate numeric,
-    payment_exchange_rate numeric,
-    CONSTRAINT wo_payment_installments_invoice_exchange_rate_check CHECK (((invoice_exchange_rate IS NULL) OR (invoice_exchange_rate > (0)::numeric))),
-    CONSTRAINT wo_payment_installments_payment_exchange_rate_check CHECK (((payment_exchange_rate IS NULL) OR (payment_exchange_rate > (0)::numeric))),
-    CONSTRAINT wo_payment_installments_status_check CHECK ((status = ANY (ARRAY['Pending'::text, 'Invoiced'::text, 'Completed'::text, 'Overdue'::text])))
-);
-
-
---
 -- Name: wo_payment_plan; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -13197,7 +13271,7 @@ CREATE TRIGGER trg_wo_payment_installments_guard_delete BEFORE DELETE ON public.
 -- Name: wo_payment_installments trg_wo_payment_installments_guard_exchange_rate; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER trg_wo_payment_installments_guard_exchange_rate BEFORE UPDATE ON public.wo_payment_installments FOR EACH ROW EXECUTE FUNCTION public.wo_payment_installments_guard_exchange_rate();
+CREATE TRIGGER trg_wo_payment_installments_guard_exchange_rate BEFORE INSERT OR UPDATE ON public.wo_payment_installments FOR EACH ROW EXECUTE FUNCTION public.wo_payment_installments_guard_exchange_rate();
 
 
 --
@@ -16011,5 +16085,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict pnVhQTabX7mKgQdfzsQ8nxn8xQrA8ESTkzOo9RkuLFxXEufUa9KWFukjFtf3woA
+\unrestrict sdFb620Btgw1UDzIPkUiwHJRgT5kqrmDdIapCGX0shdgFJq2FX8xLKDigXiSv13
 
