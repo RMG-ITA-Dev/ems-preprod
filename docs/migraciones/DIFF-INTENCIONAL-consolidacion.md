@@ -169,4 +169,3 @@ Todo el diff proviene de la única migración de la rama,
 3. Las listas de estados terminales pasan de `(6, 7, 9)` a `(6, 7)` — en el guard de edición de
    fechas y en el `NOT IN` de la vista que deriva el estado.
 4. El mensaje de la excepción de fechas deja de nombrar «Congelado».
-
