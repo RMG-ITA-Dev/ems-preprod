@@ -1833,6 +1833,22 @@
  service_role  | public       | categories                                     | default_app_role             | REFERENCES
  service_role  | public       | categories                                     | default_app_role             | SELECT
  service_role  | public       | categories                                     | default_app_role             | UPDATE
+ anon          | public       | categories                                     | default_role_key             | INSERT
+ anon          | public       | categories                                     | default_role_key             | REFERENCES
+ anon          | public       | categories                                     | default_role_key             | SELECT
+ anon          | public       | categories                                     | default_role_key             | UPDATE
+ authenticated | public       | categories                                     | default_role_key             | INSERT
+ authenticated | public       | categories                                     | default_role_key             | REFERENCES
+ authenticated | public       | categories                                     | default_role_key             | SELECT
+ authenticated | public       | categories                                     | default_role_key             | UPDATE
+ postgres      | public       | categories                                     | default_role_key             | INSERT
+ postgres      | public       | categories                                     | default_role_key             | REFERENCES
+ postgres      | public       | categories                                     | default_role_key             | SELECT
+ postgres      | public       | categories                                     | default_role_key             | UPDATE
+ service_role  | public       | categories                                     | default_role_key             | INSERT
+ service_role  | public       | categories                                     | default_role_key             | REFERENCES
+ service_role  | public       | categories                                     | default_role_key             | SELECT
+ service_role  | public       | categories                                     | default_role_key             | UPDATE
  anon          | public       | categories                                     | display_order                | INSERT
  anon          | public       | categories                                     | display_order                | REFERENCES
  anon          | public       | categories                                     | display_order                | SELECT
@@ -9475,5 +9491,5 @@
  anon          | storage      | vector_indexes                                 | updated_at                   | SELECT
  authenticated | storage      | vector_indexes                                 | updated_at                   | SELECT
  service_role  | storage      | vector_indexes                                 | updated_at                   | SELECT
-(9475 rows)
+(9491 rows)
 

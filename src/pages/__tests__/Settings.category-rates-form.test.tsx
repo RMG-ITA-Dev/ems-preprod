@@ -61,6 +61,7 @@ const mkCat = (over: Record<string, unknown>) => ({
   can_approve_wo: true,
   can_approve_timesheets: true,
   default_app_role: null,
+  default_role_key: null,
   ...over,
 });
 

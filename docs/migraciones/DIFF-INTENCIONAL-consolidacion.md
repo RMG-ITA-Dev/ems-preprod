@@ -151,7 +151,44 @@ Lo que sí es obligatorio es que el diff sea **enteramente explicable**: si apar
 nadie agregó a propósito, ahí hay drift real y hay que parar. Por eso cada re-aceptación deja acá
 sus hunks.
 
-### 6.1 — 0817-179 (retiro del estado 9 «Congelado»)
+### 6.1 — 0820-182 (`categories.default_role_key` + `sync_user_role_from_category`)
+
+Re-aceptado desde el artifact del run **34163500139** (`headSha` 2c6ce409, 2026-09-07). Tres de
+los seis fixtures gateados divergieron; `catalog_policies`, `catalog_grants` y
+`catalog_storage_buckets` quedaron idénticos.
+
+`consolidado_renamed_schema.sql`:
+
+1. `categories.default_role_key text` + su `COMMENT`, el FK a
+   `authorization_roles(role_key)` (`ON UPDATE CASCADE ON DELETE SET NULL`) y el
+   `CHECK categories_default_role_key_not_admin` — una categoría no puede sugerir `admin`,
+   porque eso convertiría un cambio de categoría en escalada de privilegios.
+2. `create_category_for_practice` y `update_category_for_practice` ganan
+   `p_default_role_key text` (de ahí el cambio de nombre en el encabezado `-- Name: ...` de cada
+   una: la firma es parte del identificador). Se hicieron con `DROP` + `CREATE`, no
+   `CREATE OR REPLACE`: agregar un parámetro crea una SOBRECARGA y con dos firmas visibles
+   PostgREST devuelve `PGRST203`.
+3. `copy_categories_between_practices` clona la columna nueva (dos hunks: la lista de columnas
+   del `INSERT` y el `SELECT`).
+4. `sync_user_role_from_category(uuid, text, text)` — función nueva, `SECURITY DEFINER`, con su
+   `COMMENT`. Aplica el rol que la categoría vigente de un staff sugiere, delegando en
+   `admin_set_user_role_key` y agregando dos precondiciones atómicas que esa función no tiene:
+   nunca degradar a un admin y nunca asignar `admin`.
+
+`consolidado_renamed_catalog_column_grants.txt`: 16 filas nuevas — los 4 privilegios
+(`INSERT`/`REFERENCES`/`SELECT`/`UPDATE`) de `categories.default_role_key` para los 4 roles
+(`anon`, `authenticated`, `postgres`, `service_role`). Se heredan del `GRANT ALL ON TABLE
+public.categories` de `cero_06`; no se otorgaron por columna. Total 9475 → 9491.
+
+`consolidado_renamed_catalog_routine_grants.txt`: las 8 filas de `create/update_category_for_practice`
+cambian de firma (ver hunk 2), y se suman 4 filas de `sync_user_role_from_category`. Total
+514 → 518.
+
+`consolidado_renamed_catalog.txt` **no** se re-aceptó: no está entre los seis fixtures que el gate
+compara, y su diff es ruido de entorno (lista tamaños de tabla, que varían según qué filas insertó
+cada corrida).
+
+### 6.2 — 0817-179 (retiro del estado 9 «Congelado»)
 
 Re-aceptado desde el artifact del run **33889841095** (`headSha` 21575b59, 2026-09-04). Solo
 `consolidado_renamed_schema.sql` divergió (36 líneas); los otros cinco fixtures gateados quedaron

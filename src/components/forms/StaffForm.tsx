@@ -48,11 +48,13 @@ import {
 } from "@/components/ui/dialog";
 import { StaffFull, useCategories, useActiveSkills, useSocieties, useServices } from "@/hooks/useEmsData";
 import { useCreateStaff, useUpdateStaff, useDeleteStaff, useCreateStaffCompetency, useUpdateStaffCompetency, useDeleteStaffCompetency } from "@/hooks/mutations";
-import { Trash2, AlertTriangle, Plus, Lock, LockOpen } from "lucide-react";
+import { Trash2, AlertTriangle, RefreshCw, Plus, Lock, LockOpen } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useAuthorization } from "@/hooks/useAuthorization";
+import { useSyncUserRoleFromCategory } from "@/hooks/useUserRoles";
+import { isSuggestableRoleKey } from "@/lib/categoryRoleSuggestion";
 import { PROFICIENCY_LEVELS, type ProficiencyLevel } from "@/integrations/supabase/customTypes";
 import { formatFullDate, fromISODateString } from "@/lib/timesheetUtils";
 
@@ -216,9 +218,43 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
   const createCompetency = useCreateStaffCompetency();
   const updateCompetency = useUpdateStaffCompetency();
   const deleteCompetency = useDeleteStaffCompetency();
+  const syncRoleMutation = useSyncUserRoleFromCategory();
+
+  // 0820-182: mismo fallback que UserRolesManager.getRoleLabel — el catálogo trae su
+  // label_key ("authz.role.*"); se cae a las claves del enum legacy y al role_key crudo
+  // para que un rol nuevo sin traducción nunca muestre la clave a medio resolver.
+  const getRoleLabel = (roleKey: string): string => {
+    const catalogKey = `authz.role.${roleKey}`;
+    const catalogLabel = t(catalogKey);
+    if (catalogLabel !== catalogKey) return catalogLabel;
+
+    const legacyKey = `userRoles.roles.${roleKey}`;
+    const legacyLabel = t(legacyKey);
+    return legacyLabel !== legacyKey ? legacyLabel : roleKey;
+  };
 
   // Tracks skill_ids of competencies that existed when the edit form was loaded
   const originalSkillIds = useRef<Set<string>>(new Set());
+
+  // 0820-182: la categoría con la que se ABRIÓ esta sesión de edición.
+  //
+  // No se puede usar `staff.category_id` para detectar el cambio, porque el prop se
+  // refresca en medio del guardado: useUpdateStaff invalida `staff_full`, StaffEdit
+  // refetchea y le pasa el staff YA guardado — todo mientras el formulario sigue abierto,
+  // porque un fallo de competencias hace `return` sin navegar. En el reintento
+  // `staff.category_id` ya vale la categoría nueva, la comparación da false y el diálogo de
+  // sincronización no se ofrece nunca.
+  //
+  // Se ancla por `staff_id` (no por identidad del objeto) justamente para que ese refetch
+  // no lo pise.
+  const originalCategoryId = useRef<string | null>(null);
+  const seededStaffId = useRef<string | null>(null);
+
+  // 0820-182: diálogo de sincronización categoría -> rol. La categoría PROPONE un rol
+  // (categories.default_role_key); nunca lo aplica sola. Se restaura el flujo que FASE 3c
+  // eliminó, pero sobre role_key (catálogo authorization_roles) en vez del enum legacy.
+  const [showSyncDialog, setShowSyncDialog] = useState(false);
+  const [syncData, setSyncData] = useState<{ staffId: string; newRoleKey: string } | null>(null);
 
   // Pending hours dialog state
   const [pendingWeeks, setPendingWeeks] = useState<PendingWeek[]>([]);
@@ -279,6 +315,13 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
   }, [services, isEdit, staff?.practica_id]);
 
   useEffect(() => {
+    if (staff && seededStaffId.current !== staff.staff_id) {
+      seededStaffId.current = staff.staff_id;
+      originalCategoryId.current = staff.category_id;
+    }
+  }, [staff]);
+
+  useEffect(() => {
     if (staff) {
       const seededCompetencies = (staff.staff_skills ?? []).map((ss) => ({
         _key: ss.staff_skill_id,
@@ -332,6 +375,75 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
     }
   }, [firstName, lastName, isEdit, currentShortName, currentInitials, form]);
 
+
+  // 0820-182: sale del formulario de la misma forma en los tres caminos (confirmar,
+  // omitir, o que el diálogo nunca se abra), para no duplicar la lógica de navegación.
+  const finishSave = () => {
+    if (onSaveSuccess) {
+      onSaveSuccess();
+    } else {
+      navigate("/staff");
+    }
+  };
+
+  /**
+   * Lee el `role_key` vigente del usuario vinculado, solo para decidir si vale la pena
+   * OFRECER la sincronización. La garantía de fondo no depende de esta lectura: la aplica
+   * `sync_user_role_from_category` dentro de su transacción.
+   *
+   * Devuelve `{ ok: false }` ante CUALQUIER problema —error de RLS/red, o cero filas— en
+   * vez de colapsarlo a "sin rol". La diferencia importa: si esto devolviera null y se
+   * tratara como "el rol difiere", un lookup fallido abriría el diálogo sobre un admin y
+   * le propondría al usuario una degradación que la BD va a rechazar. Ante la duda, no se
+   * ofrece nada.
+   */
+  const readCurrentRoleKey = async (
+    userId: string,
+  ): Promise<{ ok: true; roleKey: string | null } | { ok: false }> => {
+    // maybeSingle (no single): cero filas es un estado posible —un staff vinculado cuya
+    // fila de user_roles se borró— y no debe llegar como excepción.
+    const { data, error } = await supabase
+      .from("user_roles")
+      .select("role_key")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (error || !data) {
+      console.error("[StaffForm] user_roles lookup failed:", error);
+      return { ok: false };
+    }
+    return { ok: true, roleKey: data.role_key ?? null };
+  };
+
+  const onConfirmSync = async () => {
+    if (syncData) {
+      // No hace falta releer el rol acá: `sync_user_role_from_category` evalúa la
+      // precondición ("nunca degradar a un admin") DENTRO de la transacción, con la fila de
+      // user_roles bloqueada. Un chequeo de cliente antes de la llamada sería una carrera
+      // —otro admin puede promover al destino en el medio— y además redundante: si eso
+      // pasa, la RPC responde ADMIN_PROTECTED y el hook muestra el aviso.
+      try {
+        await syncRoleMutation.mutateAsync({
+          staffId: syncData.staffId,
+          expectedRoleKey: syncData.newRoleKey,
+          // El RPC deja este texto en user_lifecycle_audit_log.reason, así que el cambio
+          // queda trazado como venido de un cambio de categoría y no de Roles de Usuario.
+          reason: "Category change sync",
+        });
+      } catch {
+        // El hook ya muestra el toast traducido por código (ADMIN_PROTECTED / LAST_ADMIN /
+        // SELF_CHANGE / INVALID_ROLE / ...). El staff YA se guardó: el fallo del rol no
+        // debe retener al usuario en el formulario.
+      }
+    }
+    setShowSyncDialog(false);
+    finishSave();
+  };
+
+  const onSkipSync = () => {
+    setShowSyncDialog(false);
+    finishSave();
+  };
 
   const handleUnblock = async () => {
     if (!staff) return;
@@ -504,8 +616,49 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
         toast.error(t("staff.competencies.errors.partialSave"));
         return; // Stay on form; do NOT proceed on partial competency save
       }
-      // FASE 3c: se eliminó el sync categoría→rol. La categoría ya no cambia el
-      // rol del usuario (Opción C: el rol directo manda; la categoría es negocio).
+      // 0820-182: la categoría PROPONE un rol; nunca lo aplica sola. Seis condiciones,
+      // todas necesarias:
+      //  1-2. solo en edición y solo si el staff tiene cuenta vinculada (sin auth_user_id
+      //       no hay rol que sincronizar);
+      //  3.   solo si la categoría cambió respecto a la que tenía al ABRIR el formulario
+      //       (ver originalCategoryId: comparar contra `staff.category_id` fallaba en el
+      //       reintento posterior a un fallo de competencias, porque el prop ya venía
+      //       refrescado con la categoría recién guardada);
+      //  4.   solo si la categoría destino sugiere algo (default_role_key no nulo);
+      //  5.   solo si difiere del rol actual, para no molestar sin necesidad;
+      //  6.   solo si quien edita puede cambiar roles. Esta última es nueva respecto al
+      //       flujo original: /staff/:id exige staff.read, no admin, así que sin el gate
+      //       un rol sin user_role.update vería un diálogo condenado a fallar NOT_ADMIN.
+      if (
+        staff.auth_user_id &&
+        originalCategoryId.current !== data.category_id &&
+        can("user_role.update")
+      ) {
+        const newCategory = categories?.find((c) => c.category_id === data.category_id);
+        const suggested = newCategory?.default_role_key ?? null;
+        // `admin` nunca se ofrece, venga de donde venga el valor. El filtro del
+        // desplegable de categorías impide ELEGIRLO, pero un default_role_key que llegue
+        // por otra vía (backfill desde el enum legacy, un RPC a mano, un restore) llegaría
+        // hasta acá — y este es el punto donde el rol se aplica de verdad, así que sería
+        // escalada de privilegios por cambio de categoría. La BD lo refuerza con un CHECK.
+        const targetRoleKey = isSuggestableRoleKey(suggested) ? suggested : null;
+
+        if (targetRoleKey) {
+          const current = await readCurrentRoleKey(staff.auth_user_id);
+
+          if (!current.ok) {
+            // Fail closed: sin saber el rol vigente no se puede garantizar la protección
+            // de admin, así que no se ofrece nada. El staff ya se guardó.
+          } else if (current.roleKey === "admin" && targetRoleKey !== "admin") {
+            // Nunca se degrada un admin de forma automática: se avisa y se sigue.
+            toast.info(t("staff.adminRoleProtected"));
+          } else if (current.roleKey !== targetRoleKey) {
+            setSyncData({ staffId: staff.staff_id, newRoleKey: targetRoleKey });
+            setShowSyncDialog(true);
+            return; // Detiene la navegación hasta que el usuario resuelva el diálogo.
+          }
+        }
+      }
     } else {
       // Create staff first, then insert competencies with rollback on failure
       const newStaff = await createMutation.mutateAsync(payload);
@@ -534,11 +687,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
       }
     }
 
-    if (onSaveSuccess) {
-      onSaveSuccess();
-    } else {
-      navigate("/staff");
-    }
+    finishSave();
   };
 
   const handleDelete = async () => {
@@ -1228,6 +1377,45 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
             >
               {t("staff.reactivateConfirm")}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Role Sync Dialog (BUG 0820-182) — la categoría propone, el admin decide */}
+      {/* El guard de isPending es el mismo patrón que el diálogo de desbloqueo de abajo:
+          una vez confirmado, la mutación no se puede cancelar, así que permitir Escape /
+          click afuera / Omitir dispararía finishSave() una segunda vez (doble
+          onSaveSuccess o doble navigate) y desmontaría el formulario con el request en
+          vuelo. */}
+      <Dialog
+        open={showSyncDialog}
+        onOpenChange={(open) => {
+          if (!open && !syncRoleMutation.isPending) onSkipSync();
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <RefreshCw className="h-5 w-5 text-primary" />
+              {t("staff.syncRoleTitle")}
+            </DialogTitle>
+            <DialogDescription>
+              {t("staff.syncRoleMessage", {
+                role: syncData ? getRoleLabel(syncData.newRoleKey) : "",
+              })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button
+              variant="cancel"
+              onClick={onSkipSync}
+              disabled={syncRoleMutation.isPending}
+            >
+              {t("staff.syncRoleSkip")}
+            </Button>
+            <LoadingButton onClick={onConfirmSync} loading={syncRoleMutation.isPending}>
+              {t("staff.syncRoleConfirm")}
+            </LoadingButton>
           </DialogFooter>
         </DialogContent>
       </Dialog>

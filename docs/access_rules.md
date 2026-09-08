@@ -419,6 +419,15 @@ UPDATE categories SET default_app_role = 'senior' WHERE category_name = 'Senior'
 UPDATE categories SET default_app_role = 'semisenior' WHERE category_name = 'Semi-Senior';
 UPDATE categories SET default_app_role = 'staff' WHERE category_name = 'Asistente';
 
+> **DESCARTADO (2026-08-25, bug 0820-182).** El trigger de abajo nunca se desplegó y no se va
+> a desplegar: sincronizaría el rol de forma automática, que es exactamente lo que la decisión
+> P4 de `plan-roles-permisos.md` (Opción A) descarta — la categoría **propone**, no dicta.
+> Lo que sí existe hoy es equivalente pero con confirmación humana: `categories.default_role_key`
+> (FK al catálogo `authorization_roles`, no al enum legacy de este documento) y un diálogo de
+> confirmación en `StaffForm` que llama a `admin_set_user_role_key` vía `useUpdateUserRoleKey`,
+> con protección de admin y auditoría en `user_lifecycle_audit_log`. Se conserva el SQL de abajo
+> solo como registro del diseño original.
+
 -- Create sync function
 CREATE OR REPLACE FUNCTION sync_user_role_from_staff_category()
 RETURNS TRIGGER AS $$
@@ -466,9 +475,9 @@ EXECUTE FUNCTION sync_user_role_from_staff_category();
 
 - [ ] Add `default_app_role` column to `categories` table
 - [ ] Populate `default_app_role` values for all categories
-- [ ] Create `sync_user_role_from_staff_category()` function
-- [ ] Create `trg_sync_user_role` trigger on `staff` table
-- [ ] Run one-time sync to align existing user roles with staff categories
+- [x] ~~Create `sync_user_role_from_staff_category()` function~~ — DESCARTADO (0820-182): sincronización por UI con confirmación, nunca automática en BD
+- [x] ~~Create `trg_sync_user_role` trigger on `staff` table~~ — DESCARTADO (0820-182), mismo motivo
+- [x] ~~Run one-time sync to align existing user roles with staff categories~~ — DESCARTADO (0820-182): retrofit masivo sin acción confirmada por un admin
 - [ ] Create `is_leadership()` function
 - [ ] Create `is_management()` function
 - [ ] Create `can_view_rates()` function
