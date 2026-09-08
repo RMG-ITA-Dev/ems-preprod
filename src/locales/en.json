@@ -299,8 +299,7 @@
     "inactive": "Inactive",
     "pending": "Pending",
     "completed": "Completed",
-    "cancelled": "Cancelled",
-    "frozen": "Frozen"
+    "cancelled": "Cancelled"
   },
   "engagementState": {
     "1": "Pending",
@@ -311,7 +310,6 @@
     "6": "Cancelled",
     "7": "Finalized",
     "8": "Rejected",
-    "9": "Frozen",
     "auto": "Automatic (from WO)"
   },
   "settings": {
@@ -501,7 +499,7 @@
     "canApproveTimesheets": "Can Approve Timesheets",
     "canApproveTimesheetsHelp": "Staff in this category can approve timesheets from lower-ranked staff",
     "defaultAppRole": "Default App Role",
-    "defaultAppRoleHelp": "Role assigned to new users when linked to this category",
+    "defaultAppRoleHelp": "Suggested role when linking a user in this category - always editable in User Roles",
     "service": "Practice",
     "selectService": "Select practice",
     "serviceReadOnly": "The practice cannot be changed. To move a category, delete it and create it again in the correct practice.",
@@ -673,6 +671,7 @@
     "syncRoleConfirm": "Sync Role",
     "syncRoleSkip": "Skip",
     "roleSynced": "User role synchronized successfully",
+    "syncRoleStale": "The category or its suggested role changed meanwhile - the role was left unchanged",
     "roleSyncError": "Failed to sync user role",
     "adminRoleProtected": "User is an Admin. Role was not demoted automatically.",
     "accountSecurity": "Account Security",
@@ -768,10 +767,7 @@
     "searchPlaceholder": "Search by code, name, or client...",
     "selectClient": "Select a client",
     "selectStatus": "Select status",
-    "freezeToggle": "Freeze engagement",
-    "freezeHint": "Turning this on blocks logging hours and expense requests; turning it off returns it to Approved.",
-    "freezeUnavailable": "Only available when the engagement is Approved.",
-    "datesLockedByState": "Dates can't be edited in this state (Cancelled, Finalized, or Frozen).",
+    "datesLockedByState": "Dates can't be edited in this state (Cancelled or Finalized).",
     "selectPartner": "Select Partner/Director",
     "selectManager": "Select Manager/Supervisor",
     "selfAssignedLocked": "Automatically assigned based on your role.",

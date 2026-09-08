@@ -6,6 +6,7 @@ import {
   canLogHours,
   engagementStateI18nKey,
   ENGAGEMENT_STATES,
+  isHiddenFromActivePickers,
   type EngagementStateInput,
   type WorkOrderStateInput,
 } from "@/lib/engagementStatus";
@@ -14,7 +15,7 @@ import enJson from "@/locales/en.json";
 
 const woRequired: EngagementStateInput = { work_order_required: true };
 
-describe("deriveEngagementState — FEAT 0602-135 (9 estados, flujo paralelo)", () => {
+describe("deriveEngagementState — FEAT 0602-135 (8 estados, flujo paralelo)", () => {
   it("encargo recién creado sin OT → 1 Pendiente", () => {
     expect(deriveEngagementState(woRequired, null)).toBe(EngagementState.Pendiente);
     expect(deriveEngagementState(woRequired, {})).toBe(EngagementState.Pendiente);
@@ -92,14 +93,17 @@ describe("deriveEngagementState — FEAT 0602-135 (9 estados, flujo paralelo)", 
 });
 
 describe("effectiveEngagementState — override manual gana sobre derivado", () => {
-  it("override 9 Congelado gana aunque la OT esté aprobada", () => {
+  // BUG 0817-179: el 9 Congelado se retiró. Ya no es un override válido, así que un 9
+  // remanente NO gana: cae al estado derivado de la OT (degradación fail-open deliberada;
+  // el CHECK 1..8 de la columna es lo que impide que llegue a existir).
+  it("override 9 (estado retirado) es inválido → cae al derivado", () => {
     const eng: EngagementStateInput = { work_order_required: true, engagement_state_override: 9 };
     const wo: WorkOrderStateInput = {
       approval_status: "Approved",
       approved_at: "2026-07-01T00:00:00Z",
       risk_status: "Approved",
     };
-    expect(effectiveEngagementState(eng, wo)).toBe(EngagementState.Congelado);
+    expect(effectiveEngagementState(eng, wo)).toBe(EngagementState.Aprobado);
   });
 
   it("override 6 Cancelado gana sobre un encargo administrativo", () => {
@@ -131,7 +135,6 @@ describe("canLogHours — Política 13: solo 4 Aprobado y 5 Aprobado de emergenc
     [EngagementState.Cancelado, false],
     [EngagementState.Finalizado, false],
     [EngagementState.Rechazado, false],
-    [EngagementState.Congelado, false],
   ])("estado %i → canLogHours=%s", (state, expected) => {
     expect(canLogHours(state as EngagementState)).toBe(expected);
   });
@@ -214,7 +217,7 @@ describe("reenvío tras RECHAZO de Riesgos (P1) — NO cargable hasta que Riesgo
   });
 });
 
-describe("etiquetas i18n de los 9 estados", () => {
+describe("etiquetas i18n de los 8 estados", () => {
   ENGAGEMENT_STATES.forEach((state) => {
     const key = engagementStateI18nKey(state);
     const leaf = key.split(".")[1];
@@ -224,5 +227,36 @@ describe("etiquetas i18n de los 9 estados", () => {
     it(`en.json tiene ${key}`, () => {
       expect((enJson as { engagementState: Record<string, string> }).engagementState[leaf]).toBeDefined();
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// BUG 0817-179 — el estado 9 Congelado quedó retirado del sistema. Estas
+// aserciones son el candado: prueban la ausencia, que el bucle de i18n de
+// arriba (que solo recorre ENGAGEMENT_STATES) no puede detectar por sí solo.
+// ---------------------------------------------------------------------------
+
+describe("BUG 0817-179 — retiro del estado 9 Congelado", () => {
+  it("la máquina expone 8 estados y ninguno es el 9", () => {
+    expect(ENGAGEMENT_STATES).toHaveLength(8);
+    expect(ENGAGEMENT_STATES).not.toContain(9);
+    expect(Math.max(...ENGAGEMENT_STATES)).toBe(EngagementState.Rechazado);
+  });
+
+  it("un override 9 remanente NO oculta el encargo de los selectores activos", () => {
+    expect(isHiddenFromActivePickers(9)).toBe(false);
+    // Los terminales que siguen vigentes sí ocultan.
+    expect(isHiddenFromActivePickers(EngagementState.Cancelado)).toBe(true);
+    expect(isHiddenFromActivePickers(EngagementState.Finalizado)).toBe(true);
+  });
+
+  it("las traducciones ya no definen el estado 9 ni el status 'frozen'", () => {
+    type Locale = { engagementState: Record<string, string>; status: Record<string, string> };
+    const es = esJson as unknown as Locale;
+    const en = enJson as unknown as Locale;
+    expect(es.engagementState["9"]).toBeUndefined();
+    expect(en.engagementState["9"]).toBeUndefined();
+    expect(es.status.frozen).toBeUndefined();
+    expect(en.status.frozen).toBeUndefined();
   });
 });

@@ -1,11 +1,14 @@
 // Fase 3 — copia byte-sincronizada de src/lib/engagementStatus.ts
-// (development, fuente de verdad de la máquina de 9 estados). Las Edge
+// (development, fuente de verdad de la máquina de 8 estados). Las Edge
 // Functions (Deno, unidad de despliegue separada) no pueden importar de
 // src/lib/, así que esta es una copia exacta de deriveEngagementState /
 // effectiveEngagementState, más engagementStateBucket — un bucket de
 // filtrado nuevo que NO existe en el original (necesario porque el
 // statusFilter del cliente sigue siendo un enum de 5 valores, no el estado
-// numérico 1-9 completo).
+// numérico 1-8 completo).
+//
+// BUG 0817-179: el estado 9 Congelado se retiró del sistema (junto con el bucket
+// "frozen"); el CHECK de engagement_state_override acepta 1..8.
 //
 // NO modificar deriveEngagementState/effectiveEngagementState aquí sin
 // aplicar el mismo cambio en src/lib/engagementStatus.ts Y en la copia
@@ -21,7 +24,6 @@ export enum EngagementState {
   Cancelado = 6,
   Finalizado = 7,
   Rechazado = 8,
-  Congelado = 9,
 }
 
 export interface EngagementStateInput {
@@ -38,7 +40,7 @@ export interface WorkOrderStateInput {
 function isValidState(
   value: number | null | undefined
 ): value is EngagementState {
-  return value != null && value >= 1 && value <= 9;
+  return value != null && value >= 1 && value <= 8;
 }
 
 /** Estado DERIVADO de la OT (ignora el override manual). Primera coincidencia gana. */
@@ -103,7 +105,6 @@ export type EngagementStateBucket =
   | "pending"
   | "completed"
   | "cancelled"
-  | "frozen"
   | "unknown";
 
 export function engagementStateBucket(
@@ -122,8 +123,6 @@ export function engagementStateBucket(
     case EngagementState.Cancelado:
     case EngagementState.Rechazado:
       return "cancelled";
-    case EngagementState.Congelado:
-      return "frozen";
     default:
       return "unknown";
   }

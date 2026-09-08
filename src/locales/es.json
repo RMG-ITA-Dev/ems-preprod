@@ -299,8 +299,7 @@
     "inactive": "Inactivo",
     "pending": "Pendiente",
     "completed": "Completado",
-    "cancelled": "Cancelado",
-    "frozen": "Congelado"
+    "cancelled": "Cancelado"
   },
   "engagementState": {
     "1": "Pendiente",
@@ -311,7 +310,6 @@
     "6": "Cancelado",
     "7": "Finalizado",
     "8": "Rechazado",
-    "9": "Congelado",
     "auto": "Automático (según OT)"
   },
   "settings": {
@@ -501,7 +499,7 @@
     "canApproveTimesheets": "Puede Aprobar Hojas de Tiempo",
     "canApproveTimesheetsHelp": "El personal en esta categoría puede aprobar hojas de tiempo de personal de menor rango",
     "defaultAppRole": "Rol de App Predeterminado",
-    "defaultAppRoleHelp": "Rol asignado a nuevos usuarios vinculados a esta categoría",
+    "defaultAppRoleHelp": "Rol sugerido al vincular un usuario de esta categoría - siempre editable en Roles de Usuario",
     "service": "Práctica",
     "selectService": "Seleccionar práctica",
     "serviceReadOnly": "La práctica no se puede cambiar. Para mover una categoría, elimínela y créela nuevamente en la práctica correcta.",
@@ -673,6 +671,7 @@
     "syncRoleConfirm": "Sincronizar Rol",
     "syncRoleSkip": "Omitir",
     "roleSynced": "Rol de usuario sincronizado exitosamente",
+    "syncRoleStale": "La categoría o su rol sugerido cambiaron mientras tanto - el rol quedó sin cambios",
     "roleSyncError": "Error al sincronizar rol de usuario",
     "adminRoleProtected": "El usuario es Admin. El rol no fue degradado automáticamente.",
     "accountSecurity": "Seguridad de cuenta",
@@ -768,10 +767,7 @@
     "searchPlaceholder": "Buscar por código, nombre, o cliente...",
     "selectClient": "Seleccionar un cliente",
     "selectStatus": "Seleccionar estado",
-    "freezeToggle": "Congelar encargo",
-    "freezeHint": "Activar bloquea la carga de horas y solicitudes de gastos; desactivar lo devuelve a Aprobado.",
-    "freezeUnavailable": "Solo disponible cuando el encargo está Aprobado.",
-    "datesLockedByState": "Las fechas no se pueden editar en este estado (Cancelado, Finalizado o Congelado).",
+    "datesLockedByState": "Las fechas no se pueden editar en este estado (Cancelado o Finalizado).",
     "selectPartner": "Seleccionar Socio/Director",
     "selectManager": "Seleccionar Gerente/Supervisor",
     "selfAssignedLocked": "Se te asignó automáticamente",

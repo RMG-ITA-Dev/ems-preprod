@@ -38,6 +38,7 @@ vi.mock("@/hooks/useEmsData", () => ({
         can_approve_wo: false,
         can_approve_timesheets: false,
         default_app_role: null,
+        default_role_key: null,
       },
     ],
   }),
@@ -63,6 +64,10 @@ vi.mock("@/hooks/mutations", () => ({
 
 vi.mock("@/hooks/useUserRoles", () => ({
   useUpdateUserRole: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  // 0820-182: StaffForm consume useSyncUserRoleFromCategory para el sync categoría→rol
+  // (la RPC que aplica la precondición de admin de forma atómica).
+  useUpdateUserRoleKey: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useSyncUserRoleFromCategory: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
 // BUG 0601-132: StaffForm now calls useUserRole to gate the security section.

@@ -243,7 +243,6 @@ const STATUS_FILTERS = new Set([
   "pending",
   "completed",
   "cancelled",
-  "frozen",
   "all",
 ]);
 const MAX_RANGE_DAYS = 730;

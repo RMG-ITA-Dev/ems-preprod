@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict U92hpZLO9iPjd8Sw2LmInWDOaXutaqBRamukf4cjwEZQtzrZy6dQt281E3c2TKT
+\restrict 5Sf83dPBDPGyAo4HLkAL92lOs0G1Abil16D7zE2qhVyHHY6Az6xHuTWTUfDCuME
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.11 (Ubuntu 17.11-1.pgdg24.04+2)
@@ -1072,17 +1072,17 @@ begin
   end if;
 
   -- Decisión A: bloqueo server-side de edición de fechas por no-admin cuando el
-  -- estado actual es terminal (override 6/7/9). Se evalúa aunque el override no
-  -- cambie.
+  -- estado actual es terminal (override 6/7). Se evalúa aunque el override no
+  -- cambie. 0817-179: el 9 salió de la lista junto con el estado.
   if not public.is_admin()
-     and old.engagement_state_override in (6, 7, 9)
+     and old.engagement_state_override in (6, 7)
      and (
        new.start_date    is distinct from old.start_date
        or new.end_date   is distinct from old.end_date
        or new.fecha_cierre is distinct from old.fecha_cierre
      )
   then
-    raise exception 'No autorizado a editar fechas de un encargo Cancelado/Finalizado/Congelado';
+    raise exception 'No autorizado a editar fechas de un encargo Cancelado/Finalizado';
   end if;
 
   -- UPDATE: validación del override solo si cambia.
@@ -1094,19 +1094,9 @@ begin
     return new;
   end if;
 
-  -- Gerente DEL ENCARGO: congelar (null→9) o descongelar (9→null), solo con
-  -- estado derivado Aprobado. Antes: has_role(..., 'manager') sin asignación.
-  if public.has_permission('engagement.update')
-     and new.manager_id = public.get_my_staff_id()
-     and public.engagement_is_approved_state(new.engagement_id, null, new.work_order_required)
-     and (
-       (old.engagement_state_override is null and new.engagement_state_override = 9)
-       or (old.engagement_state_override = 9 and new.engagement_state_override is null)
-     )
-  then
-    return new;
-  end if;
-
+  -- 0817-179: acá vivía la única excepción para no-admin (Gerente DEL encargo congelando o
+  -- descongelando, null<->9). Retirado el estado 9, no queda ningún cambio de override
+  -- permitido a un no-admin, así que se cae directo al rechazo.
   raise exception 'No autorizado a cambiar el estado del encargo (override)';
 end;
 $$;
@@ -1116,7 +1106,7 @@ $$;
 -- Name: FUNCTION authorize_engagement_state_override(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.authorize_engagement_state_override() IS 'Guard del estado del encargo. Admin: control total. Gerente DEL encargo (has_permission(''engagement.update'') + manager_id = get_my_staff_id()): solo congelar/descongelar (null<->9) y solo si el estado derivado es Aprobado.';
+COMMENT ON FUNCTION public.authorize_engagement_state_override() IS 'Guard del estado del encargo. Admin: control total. No-admin: no puede fijar ni cambiar el override, ni editar fechas de un encargo Cancelado/Finalizado (6/7). BUG 0817-179: se retiró el estado 9 Congelado y con él la excepción de congelar/descongelar del Gerente.';
 
 
 --
@@ -1634,13 +1624,13 @@ BEGIN
   INSERT INTO public.categories (
     practica_id, category_name, display_order,
     rate_high_bob, rate_low_bob, rate_high_usd, rate_low_usd,
-    can_approve_wo, can_approve_timesheets, default_app_role
+    can_approve_wo, can_approve_timesheets, default_app_role, default_role_key
   )
   SELECT p_target_practice_id,
          src.category_name,
          row_number() OVER (ORDER BY src.display_order, src.category_name),
          src.rate_high_bob, src.rate_low_bob, src.rate_high_usd, src.rate_low_usd,
-         src.can_approve_wo, src.can_approve_timesheets, src.default_app_role
+         src.can_approve_wo, src.can_approve_timesheets, src.default_app_role, src.default_role_key
     FROM public.categories src
    WHERE src.practica_id = p_source_practice_id;
 
@@ -1672,15 +1662,24 @@ CREATE TABLE public.categories (
     can_approve_timesheets boolean DEFAULT false,
     default_app_role public.app_role,
     practica_id uuid NOT NULL,
+    default_role_key text,
+    CONSTRAINT categories_default_role_key_not_admin CHECK ((default_role_key IS DISTINCT FROM 'admin'::text)),
     CONSTRAINT categories_display_order_positive CHECK ((display_order >= 1))
 );
 
 
 --
--- Name: create_category_for_practice(uuid, text, integer, numeric, numeric, numeric, numeric, boolean, boolean, public.app_role); Type: FUNCTION; Schema: public; Owner: -
+-- Name: COLUMN categories.default_role_key; Type: COMMENT; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.create_category_for_practice(p_practice_id uuid, p_category_name text, p_display_order integer DEFAULT NULL::integer, p_rate_high_bob numeric DEFAULT 0, p_rate_low_bob numeric DEFAULT 0, p_rate_high_usd numeric DEFAULT 0, p_rate_low_usd numeric DEFAULT 0, p_can_approve_wo boolean DEFAULT false, p_can_approve_timesheets boolean DEFAULT false, p_default_app_role public.app_role DEFAULT NULL::public.app_role) RETURNS public.categories
+COMMENT ON COLUMN public.categories.default_role_key IS 'Rol del catálogo authorization_roles que esta categoría SUGIERE al vincular un usuario. Es una sugerencia, no una asignación: el rol efectivo se gestiona en Configuración → Roles de Usuario y siempre puede diferir. NULL = ninguno.';
+
+
+--
+-- Name: create_category_for_practice(uuid, text, integer, numeric, numeric, numeric, numeric, boolean, boolean, public.app_role, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.create_category_for_practice(p_practice_id uuid, p_category_name text, p_display_order integer DEFAULT NULL::integer, p_rate_high_bob numeric DEFAULT 0, p_rate_low_bob numeric DEFAULT 0, p_rate_high_usd numeric DEFAULT 0, p_rate_low_usd numeric DEFAULT 0, p_can_approve_wo boolean DEFAULT false, p_can_approve_timesheets boolean DEFAULT false, p_default_app_role public.app_role DEFAULT NULL::public.app_role, p_default_role_key text DEFAULT NULL::text) RETURNS public.categories
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
@@ -1734,11 +1733,11 @@ BEGIN
   INSERT INTO public.categories (
     practica_id, category_name, display_order,
     rate_high_bob, rate_low_bob, rate_high_usd, rate_low_usd,
-    can_approve_wo, can_approve_timesheets, default_app_role
+    can_approve_wo, can_approve_timesheets, default_app_role, default_role_key
   ) VALUES (
     p_practice_id, p_category_name, v_position,
     p_rate_high_bob, p_rate_low_bob, p_rate_high_usd, p_rate_low_usd,
-    p_can_approve_wo, p_can_approve_timesheets, p_default_app_role
+    p_can_approve_wo, p_can_approve_timesheets, p_default_app_role, p_default_role_key
   )
   RETURNING * INTO v_row;
 
@@ -1786,7 +1785,7 @@ CREATE TABLE public.engagements (
     CONSTRAINT chk_engagements_manager_not_specialist CHECK (((manager_id IS NULL) OR ((manager_id IS DISTINCT FROM specialist_it_id) AND (manager_id IS DISTINCT FROM specialist_tax_id)))),
     CONSTRAINT chk_engagements_oficina CHECK ((oficina = ANY (ARRAY[0, 1, 2]))),
     CONSTRAINT chk_engagements_practica CHECK (((practica >= 0) AND (practica <= 9))),
-    CONSTRAINT engagements_state_override_check CHECK (((engagement_state_override IS NULL) OR ((engagement_state_override >= 1) AND (engagement_state_override <= 9)))),
+    CONSTRAINT engagements_state_override_check CHECK (((engagement_state_override IS NULL) OR ((engagement_state_override >= 1) AND (engagement_state_override <= 8)))),
     CONSTRAINT engagements_status_check CHECK (((status)::text = ANY ((ARRAY['active'::character varying, 'pending'::character varying, 'completed'::character varying, 'cancelled'::character varying])::text[])))
 );
 
@@ -1795,7 +1794,7 @@ CREATE TABLE public.engagements (
 -- Name: COLUMN engagements.engagement_state_override; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON COLUMN public.engagements.engagement_state_override IS 'FEAT 0602-135: override manual del estado del encargo (1..9). NULL = derivado de la OT. 6 Cancelado / 7 Finalizado / 9 Congelado son terminales; 7 lo escribe el cron finalize-engagements.';
+COMMENT ON COLUMN public.engagements.engagement_state_override IS 'FEAT 0602-135: override manual del estado del encargo (1..8). NULL = derivado de la OT. 6 Cancelado / 7 Finalizado son terminales; 7 lo escribe el cron finalize-engagements. BUG 0817-179: el 9 Congelado se retiró del sistema.';
 
 
 --
@@ -2622,7 +2621,7 @@ CREATE FUNCTION public.engagement_accepts_assignment_writes(p_engagement_id uuid
     SET search_path TO 'public'
     AS $$
   SELECT COALESCE(
-    (SELECT engagement_state_override NOT IN (6, 7, 9)
+    (SELECT engagement_state_override NOT IN (6, 7)
        FROM public.engagements
       WHERE engagement_id = p_engagement_id),
     true)  -- override NULL (estado derivado 1..5/8) o engagement inexistente ⇒ escribible
@@ -6224,6 +6223,136 @@ $$;
 
 
 --
+-- Name: sync_user_role_from_category(uuid, text, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.sync_user_role_from_category(p_staff_id uuid, p_expected_role_key text, p_reason text DEFAULT NULL::text) RETURNS jsonb
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+declare
+  v_is_admin         boolean;
+  v_auth_user_id     uuid;
+  v_category_id      uuid;
+  v_suggested        text;
+  v_current_role_key text;
+  v_current_role     app_role;
+begin
+  -- AUTORIZACIÓN PRIMERO, antes de tomar candados y antes de leer cualquier fila.
+  --
+  -- Es SECURITY DEFINER, así que saltea RLS: sin este guard un autenticado cualquiera
+  -- —o `anon`, que también tiene el GRANT— podía usar las respuestas como oráculo.
+  -- ADMIN_PROTECTED vs NOT_ADMIN revelaba si la cuenta de un staff es administradora, y
+  -- STAFF_NOT_LINKED revelaba si tiene cuenta vinculada, dato que `staff_directory`
+  -- excluye a propósito por ser PII. Encima los candados se tomaban antes de autorizar,
+  -- así que cualquiera podía provocar contención llamando en loop.
+  --
+  -- El predicado replica el de admin_set_user_role_key (role_key O el enum legacy) en vez
+  -- de usar is_admin(), que mira solo el enum: con is_admin() este guard sería MÁS
+  -- estricto que la función a la que delega y rechazaría a un admin que todavía no tiene
+  -- role_key. Acá solo debe cortar temprano a quien la delegación ya iba a rechazar.
+  select exists (
+    select 1 from user_roles
+    where user_id = auth.uid()
+      and (role_key = 'admin' or role = 'admin')
+  ) into v_is_admin;
+
+  if not v_is_admin then
+    return jsonb_build_object('success', false, 'code', 'NOT_ADMIN',
+      'message', 'Only admins can change roles');
+  end if;
+
+  -- Recibe el STAFF, no el usuario ni el rol ya resueltos. Esa es la diferencia: el rol a
+  -- aplicar tiene que ser el que la categoría VIGENTE de ese staff sugiere, verificado con
+  -- las filas bloqueadas. Con la firma anterior —(user_id, role_key)— la función no miraba
+  -- ninguna categoría, así que si otro admin cambiaba la categoría del staff, rompía el
+  -- vínculo de cuenta o editaba la sugerencia de la categoría destino mientras el diálogo
+  -- estaba abierto, se aplicaba igual un rol que ya no correspondía a nada.
+  --
+  -- `p_expected_role_key` es lo que el admin CONFIRMÓ en el diálogo. Si la sugerencia
+  -- cambió en el medio, se rechaza en vez de aplicar la nueva: nadie debe terminar con un
+  -- rol que no vio.
+
+  -- `admin` no es un rol sugerible por categoría (ver categories_default_role_key_not_admin).
+  -- El CHECK ya impide guardarlo, pero esta función es una entrada pública: se rechaza acá
+  -- también, para que no exista ningún camino de escalada vía sincronización.
+  if p_expected_role_key is null or p_expected_role_key = 'admin' then
+    return jsonb_build_object('success', false, 'code', 'ADMIN_TARGET_FORBIDDEN',
+      'message', 'A category may not suggest the admin role');
+  end if;
+
+  perform pg_advisory_xact_lock(67890);
+
+  -- Se bloquea el staff: de acá en adelante nadie le cambia la categoría ni el vínculo de
+  -- cuenta hasta que esta transacción termine.
+  select auth_user_id, category_id
+    into v_auth_user_id, v_category_id
+    from staff
+   where staff_id = p_staff_id
+   for update;
+
+  if not found then
+    return jsonb_build_object('success', false, 'code', 'STAFF_NOT_FOUND',
+      'message', 'Staff not found');
+  end if;
+
+  if v_auth_user_id is null then
+    return jsonb_build_object('success', false, 'code', 'STAFF_NOT_LINKED',
+      'message', 'Staff has no linked account');
+  end if;
+
+  -- Y se bloquea la categoría, porque su sugerencia es parte de la precondición.
+  select default_role_key into v_suggested
+    from categories
+   where category_id = v_category_id
+   for update;
+
+  -- `is distinct from` cubre los tres casos de una vez: la categoría cambió, la sugerencia
+  -- se editó, o la categoría dejó de sugerir algo (NULL).
+  if v_suggested is distinct from p_expected_role_key then
+    return jsonb_build_object('success', false, 'code', 'CATEGORY_SUGGESTION_CHANGED',
+      'message', 'The category no longer suggests the confirmed role',
+      'expected_role_key', p_expected_role_key, 'current_role_key', v_suggested);
+  end if;
+
+  select role_key, role into v_current_role_key, v_current_role
+    from user_roles
+   where user_id = v_auth_user_id
+   for update;
+
+  if not found then
+    return jsonb_build_object('success', false, 'code', 'USER_NOT_FOUND',
+      'message', 'User role not found');
+  end if;
+
+  -- El invariante, evaluado con las filas bloqueadas: de acá al UPDATE nadie puede
+  -- promover a esta persona a admin sin esperar a que esta transacción termine.
+  --
+  -- Se miran LAS DOS representaciones, igual que el guard del llamante de más arriba. Un
+  -- admin puede tener `role = 'admin'` con `role_key` nulo o desfasado: el RPC deprecado
+  -- `admin_set_user_role` sigue concedido y escribe SOLO el enum. Mirar únicamente
+  -- `role_key` lo dejaría fuera del guard, y la delegación pisaría ambas columnas — y el
+  -- LAST_ADMIN de admin_set_user_role_key tampoco lo frenaría, porque cuenta por role_key.
+  if v_current_role_key = 'admin' or v_current_role = 'admin' then
+    return jsonb_build_object('success', false, 'code', 'ADMIN_PROTECTED',
+      'message', 'Category sync never demotes an admin');
+  end if;
+
+  -- Delegación: los candados siguen tomados por esta transacción, así que la relectura de
+  -- admin_set_user_role_key ve exactamente lo que se validó arriba.
+  return public.admin_set_user_role_key(v_auth_user_id, p_expected_role_key, p_reason);
+end;
+$$;
+
+
+--
+-- Name: FUNCTION sync_user_role_from_category(p_staff_id uuid, p_expected_role_key text, p_reason text); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.sync_user_role_from_category(p_staff_id uuid, p_expected_role_key text, p_reason text) IS 'Aplica a un staff el rol que su categoría VIGENTE sugiere (BUG 0820-182). Recibe el staff, no el usuario ni el rol ya resueltos, y verifica con las filas bloqueadas que el vínculo de cuenta y la sugerencia de la categoría sigan siendo los que el admin confirmó. Delega en admin_set_user_role_key agregando dos precondiciones que esa función no tiene y que este flujo sí promete: nunca degradar a un admin, y nunca asignar admin. Todo con candados, de modo que las garantías son atómicas y no carreras del cliente.';
+
+
+--
 -- Name: sync_worksheet_to_wo_budget(uuid, uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -6367,10 +6496,10 @@ $$;
 
 
 --
--- Name: update_category_for_practice(uuid, text, integer, numeric, numeric, numeric, numeric, boolean, boolean, public.app_role); Type: FUNCTION; Schema: public; Owner: -
+-- Name: update_category_for_practice(uuid, text, integer, numeric, numeric, numeric, numeric, boolean, boolean, public.app_role, text); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.update_category_for_practice(p_category_id uuid, p_category_name text, p_display_order integer, p_rate_high_bob numeric, p_rate_low_bob numeric, p_rate_high_usd numeric, p_rate_low_usd numeric, p_can_approve_wo boolean, p_can_approve_timesheets boolean, p_default_app_role public.app_role) RETURNS public.categories
+CREATE FUNCTION public.update_category_for_practice(p_category_id uuid, p_category_name text, p_display_order integer, p_rate_high_bob numeric, p_rate_low_bob numeric, p_rate_high_usd numeric, p_rate_low_usd numeric, p_can_approve_wo boolean, p_can_approve_timesheets boolean, p_default_app_role public.app_role, p_default_role_key text) RETURNS public.categories
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
@@ -6431,6 +6560,7 @@ BEGIN
          can_approve_wo         = p_can_approve_wo,
          can_approve_timesheets = p_can_approve_timesheets,
          default_app_role       = p_default_app_role,
+         default_role_key       = p_default_role_key,
          updated_at             = now()
    WHERE category_id = p_category_id
    RETURNING * INTO v_row;
@@ -6657,138 +6787,6 @@ $$;
 --
 
 COMMENT ON FUNCTION public.wo_in_my_fund_request(p_wo_id uuid) IS 'True si la OT está incluida en una solicitud de fondos ENVIADA donde el usuario es solicitante, gerente de esa OT, o Contabilidad (expense_settlement.read) con la solicitud en fase contable. Habilita el embed work_order de los selects de fondos sin abrir la tabla base work_orders.';
-
-
---
--- Name: wo_payment_installments_guard_delete(); Type: FUNCTION; Schema: public; Owner: -
---
-
-CREATE FUNCTION public.wo_payment_installments_guard_delete() RETURNS trigger
-    LANGUAGE plpgsql SECURITY DEFINER
-    SET search_path TO 'public'
-    AS $$
-BEGIN
-  IF OLD.status <> 'Pending' THEN
-    RAISE EXCEPTION 'INSTALLMENT_LOCKED: esta cuota ya fue facturada y no puede eliminarse';
-  END IF;
-  RETURN OLD;
-END;
-$$;
-
-
---
--- Name: wo_payment_installments_guard_exchange_rate(); Type: FUNCTION; Schema: public; Owner: -
---
-
-CREATE FUNCTION public.wo_payment_installments_guard_exchange_rate() RETURNS trigger
-    LANGUAGE plpgsql SECURITY DEFINER
-    SET search_path TO 'public'
-    AS $$
-DECLARE
-  v_approval_status text;
-  v_exchange_rate_mode text;
-  v_legal_transition boolean;
-BEGIN
-  IF NEW.status IS DISTINCT FROM OLD.status THEN
-    v_legal_transition := CASE OLD.status
-      WHEN 'Pending'   THEN NEW.status = 'Invoiced'
-      WHEN 'Overdue'   THEN NEW.status = 'Invoiced'
-      WHEN 'Invoiced'  THEN NEW.status IN ('Completed', 'Overdue')
-      ELSE false
-    END;
-    IF NOT v_legal_transition THEN
-      RAISE EXCEPTION 'INVALID_STATUS_TRANSITION: % -> % no es una transicion de estado permitida', OLD.status, NEW.status;
-    END IF;
-  END IF;
-
-  -- MUST FIX review iteracion 2 #1/#3 (decision del operador 2026-09-07: "si una cuota
-  -- ya esta facturada, no se puede modificar o eliminar de ninguna manera"): una vez
-  -- que status sale de 'Pending', percentage/amount/installment_number tambien quedan
-  -- congelados -- no solo las 2 columnas de TC. Sin esto, agregar/quitar cuotas del
-  -- plan podia redistribuir el porcentaje de una cuota ya facturada, desalineandolo
-  -- del TC ya congelado (que se calculo sobre el porcentaje original).
-  IF OLD.status <> 'Pending' AND (
-    NEW.percentage IS DISTINCT FROM OLD.percentage
-    OR NEW.amount IS DISTINCT FROM OLD.amount
-    OR NEW.installment_number IS DISTINCT FROM OLD.installment_number
-  ) THEN
-    RAISE EXCEPTION 'INSTALLMENT_LOCKED: esta cuota ya fue facturada y no puede modificarse (porcentaje/monto/numero)';
-  END IF;
-
-  IF NEW.invoice_exchange_rate IS DISTINCT FROM OLD.invoice_exchange_rate
-     OR NEW.payment_exchange_rate IS DISTINCT FROM OLD.payment_exchange_rate THEN
-    SELECT wo.approval_status, p.exchange_rate_mode
-    INTO v_approval_status, v_exchange_rate_mode
-    FROM public.work_orders wo
-    JOIN public.wo_payment_plan p ON p.wo_id = wo.wo_id
-    WHERE wo.wo_id = NEW.wo_id;
-  END IF;
-
-  IF NEW.invoice_exchange_rate IS DISTINCT FROM OLD.invoice_exchange_rate THEN
-    IF OLD.status <> 'Pending' THEN
-      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de facturacion de esta cuota ya esta congelado';
-    END IF;
-    IF v_exchange_rate_mode = 'variable' AND v_approval_status IS DISTINCT FROM 'Approved' THEN
-      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de facturacion solo puede capturarse una vez que la orden de trabajo fue aprobada';
-    END IF;
-  END IF;
-
-  IF NEW.payment_exchange_rate IS DISTINCT FROM OLD.payment_exchange_rate THEN
-    IF OLD.status = 'Completed' THEN
-      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de pago de esta cuota ya esta congelado';
-    END IF;
-    IF v_exchange_rate_mode = 'variable' THEN
-      IF OLD.status = 'Pending' THEN
-        RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de pago solo puede capturarse una vez facturada la cuota';
-      END IF;
-      IF v_approval_status IS DISTINCT FROM 'Approved' THEN
-        RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de pago solo puede capturarse una vez que la orden de trabajo fue aprobada';
-      END IF;
-    END IF;
-  END IF;
-
-  RETURN NEW;
-END;
-$$;
-
-
---
--- Name: wo_payment_plan_guard_exchange_rate(); Type: FUNCTION; Schema: public; Owner: -
---
-
-CREATE FUNCTION public.wo_payment_plan_guard_exchange_rate() RETURNS trigger
-    LANGUAGE plpgsql SECURITY DEFINER
-    SET search_path TO 'public'
-    AS $$
-DECLARE
-  v_approval_status text;
-  v_has_locked_installment boolean;
-BEGIN
-  IF NEW.exchange_rate IS NOT DISTINCT FROM OLD.exchange_rate
-     AND NEW.exchange_rate_mode IS NOT DISTINCT FROM OLD.exchange_rate_mode THEN
-    RETURN NEW;
-  END IF;
-
-  SELECT approval_status INTO v_approval_status
-  FROM public.work_orders
-  WHERE wo_id = NEW.wo_id;
-
-  IF v_approval_status = 'Approved' THEN
-    RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio del plan de pagos no puede modificarse: la orden de trabajo ya fue aprobada';
-  END IF;
-
-  SELECT EXISTS (
-    SELECT 1 FROM public.wo_payment_installments
-    WHERE plan_id = NEW.plan_id AND status <> 'Pending'
-  ) INTO v_has_locked_installment;
-
-  IF v_has_locked_installment THEN
-    RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio del plan de pagos no puede modificarse: ya existe una cuota facturada con un tipo de cambio congelado';
-  END IF;
-
-  RETURN NEW;
-END;
-$$;
 
 
 --
@@ -9441,32 +9439,6 @@ CREATE VIEW public.engagement_wo_state WITH (security_invoker='false') AS
 
 
 --
--- Name: exchange_rate_history; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.exchange_rate_history (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
-    fecha_vigencia date NOT NULL,
-    compra numeric NOT NULL,
-    venta numeric NOT NULL,
-    moneda text DEFAULT 'USD/BOB'::text NOT NULL,
-    fuente text NOT NULL,
-    regimen text,
-    version_metodologia text,
-    canal text NOT NULL,
-    fecha_publicacion date,
-    actualizado_en timestamp with time zone NOT NULL,
-    estado text NOT NULL,
-    fetched_at timestamp with time zone DEFAULT now() NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT exchange_rate_history_canal_check CHECK ((canal = ANY (ARRAY['bcb-web'::text, 'bcb-soap'::text]))),
-    CONSTRAINT exchange_rate_history_compra_check CHECK ((compra > (0)::numeric)),
-    CONSTRAINT exchange_rate_history_estado_check CHECK ((estado = ANY (ARRAY['vigente'::text, 'stale'::text]))),
-    CONSTRAINT exchange_rate_history_venta_check CHECK ((venta > (0)::numeric))
-);
-
-
---
 -- Name: expense_types; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -10209,10 +10181,6 @@ CREATE TABLE public.wo_payment_installments (
     status text DEFAULT 'Pending'::text NOT NULL,
     created_at timestamp with time zone DEFAULT now(),
     updated_at timestamp with time zone DEFAULT now(),
-    invoice_exchange_rate numeric,
-    payment_exchange_rate numeric,
-    CONSTRAINT wo_payment_installments_invoice_exchange_rate_check CHECK (((invoice_exchange_rate IS NULL) OR (invoice_exchange_rate > (0)::numeric))),
-    CONSTRAINT wo_payment_installments_payment_exchange_rate_check CHECK (((payment_exchange_rate IS NULL) OR (payment_exchange_rate > (0)::numeric))),
     CONSTRAINT wo_payment_installments_status_check CHECK ((status = ANY (ARRAY['Pending'::text, 'Invoiced'::text, 'Completed'::text, 'Overdue'::text])))
 );
 
@@ -10227,9 +10195,7 @@ CREATE TABLE public.wo_payment_plan (
     exchange_rate numeric,
     payment_days integer DEFAULT 30 NOT NULL,
     created_at timestamp with time zone DEFAULT now(),
-    updated_at timestamp with time zone DEFAULT now(),
-    exchange_rate_mode text DEFAULT 'fijo'::text NOT NULL,
-    CONSTRAINT wo_payment_plan_exchange_rate_mode_check CHECK ((exchange_rate_mode = ANY (ARRAY['fijo'::text, 'variable'::text])))
+    updated_at timestamp with time zone DEFAULT now()
 );
 
 
@@ -11141,22 +11107,6 @@ ALTER TABLE ONLY public.engagements
 
 ALTER TABLE ONLY public.engagements
     ADD CONSTRAINT engagements_pkey PRIMARY KEY (engagement_id);
-
-
---
--- Name: exchange_rate_history exchange_rate_history_fecha_vigencia_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.exchange_rate_history
-    ADD CONSTRAINT exchange_rate_history_fecha_vigencia_key UNIQUE (fecha_vigencia);
-
-
---
--- Name: exchange_rate_history exchange_rate_history_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.exchange_rate_history
-    ADD CONSTRAINT exchange_rate_history_pkey PRIMARY KEY (id);
 
 
 --
@@ -13057,27 +13007,6 @@ CREATE TRIGGER trg_validate_timer_duration BEFORE INSERT OR UPDATE ON public.tim
 
 
 --
--- Name: wo_payment_installments trg_wo_payment_installments_guard_delete; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_wo_payment_installments_guard_delete BEFORE DELETE ON public.wo_payment_installments FOR EACH ROW EXECUTE FUNCTION public.wo_payment_installments_guard_delete();
-
-
---
--- Name: wo_payment_installments trg_wo_payment_installments_guard_exchange_rate; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_wo_payment_installments_guard_exchange_rate BEFORE UPDATE ON public.wo_payment_installments FOR EACH ROW EXECUTE FUNCTION public.wo_payment_installments_guard_exchange_rate();
-
-
---
--- Name: wo_payment_plan trg_wo_payment_plan_guard_exchange_rate; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_wo_payment_plan_guard_exchange_rate BEFORE UPDATE ON public.wo_payment_plan FOR EACH ROW EXECUTE FUNCTION public.wo_payment_plan_guard_exchange_rate();
-
-
---
 -- Name: activity_worksheet_cells update_activity_worksheet_cells_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -13475,6 +13404,14 @@ ALTER TABLE ONLY public.authorization_role_permissions
 
 ALTER TABLE ONLY public.authorization_role_permissions
     ADD CONSTRAINT authorization_role_permissions_role_key_fkey FOREIGN KEY (role_key) REFERENCES public.authorization_roles(role_key) ON DELETE CASCADE;
+
+
+--
+-- Name: categories categories_default_role_key_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.categories
+    ADD CONSTRAINT categories_default_role_key_fkey FOREIGN KEY (default_role_key) REFERENCES public.authorization_roles(role_key) ON UPDATE CASCADE ON DELETE SET NULL;
 
 
 --
@@ -14456,13 +14393,6 @@ CREATE POLICY "Authenticated users can read categories" ON public.categories FOR
 
 
 --
--- Name: exchange_rate_history Authenticated users can read exchange rates; Type: POLICY; Schema: public; Owner: -
---
-
-CREATE POLICY "Authenticated users can read exchange rates" ON public.exchange_rate_history FOR SELECT TO authenticated USING (true);
-
-
---
 -- Name: expense_types Authenticated users can read expense types; Type: POLICY; Schema: public; Owner: -
 --
 
@@ -14984,12 +14914,6 @@ CREATE POLICY "engagements write insert" ON public.engagements FOR INSERT TO aut
 
 CREATE POLICY "engagements write update" ON public.engagements FOR UPDATE TO authenticated USING ((public.has_permission('engagement.update'::text) AND ((public.permission_scope('engagement.update'::text) = 'firm'::text) OR public.is_engagement_team_member(engagement_id)))) WITH CHECK ((public.has_permission('engagement.update'::text) AND ((public.permission_scope('engagement.update'::text) = 'firm'::text) OR public.is_engagement_team_member(engagement_id))));
 
-
---
--- Name: exchange_rate_history; Type: ROW SECURITY; Schema: public; Owner: -
---
-
-ALTER TABLE public.exchange_rate_history ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: wo_expense_budget expense_budget assigned read; Type: POLICY; Schema: public; Owner: -
@@ -15873,5 +15797,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict U92hpZLO9iPjd8Sw2LmInWDOaXutaqBRamukf4cjwEZQtzrZy6dQt281E3c2TKT
+\unrestrict 5Sf83dPBDPGyAo4HLkAL92lOs0G1Abil16D7zE2qhVyHHY6Az6xHuTWTUfDCuME
 

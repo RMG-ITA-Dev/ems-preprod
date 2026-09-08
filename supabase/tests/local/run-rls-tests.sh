@@ -126,6 +126,13 @@ run supabase/migrations/20260831013000_0828-186_list_loggable_engagements_rpc.sq
 # registrada la hora. Ejercitado por rls-0828-186-own-timer-engagement-labels.sql.
 run supabase/migrations/20260831020000_0828-186_list_own_timer_engagement_labels_rpc.sql
 
+# 0817-179: retiro del estado 9 Congelado -- backfill 9 -> NULL, CHECK de
+# engagement_state_override narrowed a 1..8, y CREATE OR REPLACE de
+# authorize_engagement_state_override() / engagement_accepts_assignment_writes() sin el 9.
+# Ejercitado por schema-convergence-assertions.sql (verifica que un override 9 sea rechazado
+# con check_violation) y por rls-0828-186-loggable-engagements-rpc.sql.
+run supabase/migrations/20260902120000_0817-179_retire_frozen_engagement_state.sql
+
 # 0828-185: RPC list_portfolio_engagements() -- Encargos/EngagementEdit/ClientEngagementsTable
 # muestran solo lo creado por el usuario (mas los buckets firm/own_society/own_management por
 # role_key), en vez de cualquier encargo donde figure como partner/manager/sqr/encargado.
@@ -137,6 +144,18 @@ run supabase/migrations/20260902163000_0828-185_engagement_portfolio_visibility_
 # Ejercitado por rpc-0828-185-engagement-portfolio.sql, rpc-engagement-team-candidates.sql,
 # trigger-engagement-creator-team.sql y schema-convergence-assertions.sql.
 run supabase/migrations/20260902163500_0828-185_engagement_team_and_society_integrity.sql
+
+# 0820-182: categories.default_role_key (rol que una categoría SUGIERE), su CHECK anti-admin,
+# la firma nueva de create/update_category_for_practice, y el RPC SECURITY DEFINER
+# sync_user_role_from_category. Ejercitado por rpc-0820-182-sync-user-role-from-category.sql.
+run supabase/migrations/20260825000000_category_default_role_key.sql
+
+# 0820-182: restaura authorization_roles.legacy_app_role (la consolidación dejó el UPDATE
+# fuera del seed, y sin el espejo admin_set_user_role_key devuelve ROLE_NOT_MAPPED para TODO
+# rol) + el backfill de categories.default_role_key, que depende de ese mapeo. Va DESPUÉS de
+# 20260825000000 por timestamp, igual que en producción.
+# Ejercitado por rpc-0820-182-sync-user-role-from-category.sql.
+run supabase/migrations/20260825000100_authz_restore_legacy_app_role_mapping.sql
 
 # 0722-156 (Fase 1): tabla exchange_rate_history + seed EXCHANGE_RATE_API_URL. Sin
 # pg_cron/pg_net (scheduling diferido a un cron externo en Railway — ver plan_v2.md
@@ -189,7 +208,8 @@ assert_suite supabase/tests/trigger-engagement-profile-scope.sql 'PROFILE SCOPE:
 assert_suite supabase/tests/rls-0828-186-loggable-engagements-rpc.sql 'LOGGABLE ENGAGEMENTS RPC: ALL CHECKS PASSED'
 assert_suite supabase/tests/rls-0828-186-own-timer-engagement-labels.sql 'OWN TIMER ENGAGEMENT LABELS RPC: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-0828-185-engagement-portfolio.sql 'PORTFOLIO ENGAGEMENTS RPC: ALL CHECKS PASSED'
+assert_suite supabase/tests/rpc-0820-182-sync-user-role-from-category.sql 'SYNC USER ROLE FROM CATEGORY: ALL CHECKS PASSED'
 assert_suite supabase/tests/rls-exchange-rate-history.sql 'EXCHANGE RATE HISTORY RLS: ALL CHECKS PASSED'
 assert_suite supabase/tests/trigger-0722-156b-payment-exchange-rates.sql 'PAYMENT EXCHANGE RATES TRIGGERS: ALL CHECKS PASSED'
 
-echo "OK: set consolidado (cero_01..cero_06) + migraciones 0825-183, 0817-180, 0828-186, 0828-185, 0722-156 y 0722-156b aplicadas sobre base scratch; las 15 suites de RLS/RPC/schema-convergence/trigger pasaron"
+echo "OK: set consolidado (cero_01..cero_06) + migraciones 0825-183, 0817-180, 0828-186, 0828-185, 0817-179, 0820-182, 0722-156 y 0722-156b aplicadas sobre base scratch; las 16 suites de RLS/RPC/schema-convergence/trigger pasaron"

@@ -1833,6 +1833,22 @@
  service_role  | public       | categories                                     | default_app_role             | REFERENCES
  service_role  | public       | categories                                     | default_app_role             | SELECT
  service_role  | public       | categories                                     | default_app_role             | UPDATE
+ anon          | public       | categories                                     | default_role_key             | INSERT
+ anon          | public       | categories                                     | default_role_key             | REFERENCES
+ anon          | public       | categories                                     | default_role_key             | SELECT
+ anon          | public       | categories                                     | default_role_key             | UPDATE
+ authenticated | public       | categories                                     | default_role_key             | INSERT
+ authenticated | public       | categories                                     | default_role_key             | REFERENCES
+ authenticated | public       | categories                                     | default_role_key             | SELECT
+ authenticated | public       | categories                                     | default_role_key             | UPDATE
+ postgres      | public       | categories                                     | default_role_key             | INSERT
+ postgres      | public       | categories                                     | default_role_key             | REFERENCES
+ postgres      | public       | categories                                     | default_role_key             | SELECT
+ postgres      | public       | categories                                     | default_role_key             | UPDATE
+ service_role  | public       | categories                                     | default_role_key             | INSERT
+ service_role  | public       | categories                                     | default_role_key             | REFERENCES
+ service_role  | public       | categories                                     | default_role_key             | SELECT
+ service_role  | public       | categories                                     | default_role_key             | UPDATE
  anon          | public       | categories                                     | display_order                | INSERT
  anon          | public       | categories                                     | display_order                | REFERENCES
  anon          | public       | categories                                     | display_order                | SELECT
@@ -3021,230 +3037,6 @@
  service_role  | public       | engagements                                    | work_order_required          | REFERENCES
  service_role  | public       | engagements                                    | work_order_required          | SELECT
  service_role  | public       | engagements                                    | work_order_required          | UPDATE
- anon          | public       | exchange_rate_history                          | actualizado_en               | INSERT
- anon          | public       | exchange_rate_history                          | actualizado_en               | REFERENCES
- anon          | public       | exchange_rate_history                          | actualizado_en               | SELECT
- anon          | public       | exchange_rate_history                          | actualizado_en               | UPDATE
- authenticated | public       | exchange_rate_history                          | actualizado_en               | INSERT
- authenticated | public       | exchange_rate_history                          | actualizado_en               | REFERENCES
- authenticated | public       | exchange_rate_history                          | actualizado_en               | SELECT
- authenticated | public       | exchange_rate_history                          | actualizado_en               | UPDATE
- postgres      | public       | exchange_rate_history                          | actualizado_en               | INSERT
- postgres      | public       | exchange_rate_history                          | actualizado_en               | REFERENCES
- postgres      | public       | exchange_rate_history                          | actualizado_en               | SELECT
- postgres      | public       | exchange_rate_history                          | actualizado_en               | UPDATE
- service_role  | public       | exchange_rate_history                          | actualizado_en               | INSERT
- service_role  | public       | exchange_rate_history                          | actualizado_en               | REFERENCES
- service_role  | public       | exchange_rate_history                          | actualizado_en               | SELECT
- service_role  | public       | exchange_rate_history                          | actualizado_en               | UPDATE
- anon          | public       | exchange_rate_history                          | canal                        | INSERT
- anon          | public       | exchange_rate_history                          | canal                        | REFERENCES
- anon          | public       | exchange_rate_history                          | canal                        | SELECT
- anon          | public       | exchange_rate_history                          | canal                        | UPDATE
- authenticated | public       | exchange_rate_history                          | canal                        | INSERT
- authenticated | public       | exchange_rate_history                          | canal                        | REFERENCES
- authenticated | public       | exchange_rate_history                          | canal                        | SELECT
- authenticated | public       | exchange_rate_history                          | canal                        | UPDATE
- postgres      | public       | exchange_rate_history                          | canal                        | INSERT
- postgres      | public       | exchange_rate_history                          | canal                        | REFERENCES
- postgres      | public       | exchange_rate_history                          | canal                        | SELECT
- postgres      | public       | exchange_rate_history                          | canal                        | UPDATE
- service_role  | public       | exchange_rate_history                          | canal                        | INSERT
- service_role  | public       | exchange_rate_history                          | canal                        | REFERENCES
- service_role  | public       | exchange_rate_history                          | canal                        | SELECT
- service_role  | public       | exchange_rate_history                          | canal                        | UPDATE
- anon          | public       | exchange_rate_history                          | compra                       | INSERT
- anon          | public       | exchange_rate_history                          | compra                       | REFERENCES
- anon          | public       | exchange_rate_history                          | compra                       | SELECT
- anon          | public       | exchange_rate_history                          | compra                       | UPDATE
- authenticated | public       | exchange_rate_history                          | compra                       | INSERT
- authenticated | public       | exchange_rate_history                          | compra                       | REFERENCES
- authenticated | public       | exchange_rate_history                          | compra                       | SELECT
- authenticated | public       | exchange_rate_history                          | compra                       | UPDATE
- postgres      | public       | exchange_rate_history                          | compra                       | INSERT
- postgres      | public       | exchange_rate_history                          | compra                       | REFERENCES
- postgres      | public       | exchange_rate_history                          | compra                       | SELECT
- postgres      | public       | exchange_rate_history                          | compra                       | UPDATE
- service_role  | public       | exchange_rate_history                          | compra                       | INSERT
- service_role  | public       | exchange_rate_history                          | compra                       | REFERENCES
- service_role  | public       | exchange_rate_history                          | compra                       | SELECT
- service_role  | public       | exchange_rate_history                          | compra                       | UPDATE
- anon          | public       | exchange_rate_history                          | created_at                   | INSERT
- anon          | public       | exchange_rate_history                          | created_at                   | REFERENCES
- anon          | public       | exchange_rate_history                          | created_at                   | SELECT
- anon          | public       | exchange_rate_history                          | created_at                   | UPDATE
- authenticated | public       | exchange_rate_history                          | created_at                   | INSERT
- authenticated | public       | exchange_rate_history                          | created_at                   | REFERENCES
- authenticated | public       | exchange_rate_history                          | created_at                   | SELECT
- authenticated | public       | exchange_rate_history                          | created_at                   | UPDATE
- postgres      | public       | exchange_rate_history                          | created_at                   | INSERT
- postgres      | public       | exchange_rate_history                          | created_at                   | REFERENCES
- postgres      | public       | exchange_rate_history                          | created_at                   | SELECT
- postgres      | public       | exchange_rate_history                          | created_at                   | UPDATE
- service_role  | public       | exchange_rate_history                          | created_at                   | INSERT
- service_role  | public       | exchange_rate_history                          | created_at                   | REFERENCES
- service_role  | public       | exchange_rate_history                          | created_at                   | SELECT
- service_role  | public       | exchange_rate_history                          | created_at                   | UPDATE
- anon          | public       | exchange_rate_history                          | estado                       | INSERT
- anon          | public       | exchange_rate_history                          | estado                       | REFERENCES
- anon          | public       | exchange_rate_history                          | estado                       | SELECT
- anon          | public       | exchange_rate_history                          | estado                       | UPDATE
- authenticated | public       | exchange_rate_history                          | estado                       | INSERT
- authenticated | public       | exchange_rate_history                          | estado                       | REFERENCES
- authenticated | public       | exchange_rate_history                          | estado                       | SELECT
- authenticated | public       | exchange_rate_history                          | estado                       | UPDATE
- postgres      | public       | exchange_rate_history                          | estado                       | INSERT
- postgres      | public       | exchange_rate_history                          | estado                       | REFERENCES
- postgres      | public       | exchange_rate_history                          | estado                       | SELECT
- postgres      | public       | exchange_rate_history                          | estado                       | UPDATE
- service_role  | public       | exchange_rate_history                          | estado                       | INSERT
- service_role  | public       | exchange_rate_history                          | estado                       | REFERENCES
- service_role  | public       | exchange_rate_history                          | estado                       | SELECT
- service_role  | public       | exchange_rate_history                          | estado                       | UPDATE
- anon          | public       | exchange_rate_history                          | fecha_publicacion            | INSERT
- anon          | public       | exchange_rate_history                          | fecha_publicacion            | REFERENCES
- anon          | public       | exchange_rate_history                          | fecha_publicacion            | SELECT
- anon          | public       | exchange_rate_history                          | fecha_publicacion            | UPDATE
- authenticated | public       | exchange_rate_history                          | fecha_publicacion            | INSERT
- authenticated | public       | exchange_rate_history                          | fecha_publicacion            | REFERENCES
- authenticated | public       | exchange_rate_history                          | fecha_publicacion            | SELECT
- authenticated | public       | exchange_rate_history                          | fecha_publicacion            | UPDATE
- postgres      | public       | exchange_rate_history                          | fecha_publicacion            | INSERT
- postgres      | public       | exchange_rate_history                          | fecha_publicacion            | REFERENCES
- postgres      | public       | exchange_rate_history                          | fecha_publicacion            | SELECT
- postgres      | public       | exchange_rate_history                          | fecha_publicacion            | UPDATE
- service_role  | public       | exchange_rate_history                          | fecha_publicacion            | INSERT
- service_role  | public       | exchange_rate_history                          | fecha_publicacion            | REFERENCES
- service_role  | public       | exchange_rate_history                          | fecha_publicacion            | SELECT
- service_role  | public       | exchange_rate_history                          | fecha_publicacion            | UPDATE
- anon          | public       | exchange_rate_history                          | fecha_vigencia               | INSERT
- anon          | public       | exchange_rate_history                          | fecha_vigencia               | REFERENCES
- anon          | public       | exchange_rate_history                          | fecha_vigencia               | SELECT
- anon          | public       | exchange_rate_history                          | fecha_vigencia               | UPDATE
- authenticated | public       | exchange_rate_history                          | fecha_vigencia               | INSERT
- authenticated | public       | exchange_rate_history                          | fecha_vigencia               | REFERENCES
- authenticated | public       | exchange_rate_history                          | fecha_vigencia               | SELECT
- authenticated | public       | exchange_rate_history                          | fecha_vigencia               | UPDATE
- postgres      | public       | exchange_rate_history                          | fecha_vigencia               | INSERT
- postgres      | public       | exchange_rate_history                          | fecha_vigencia               | REFERENCES
- postgres      | public       | exchange_rate_history                          | fecha_vigencia               | SELECT
- postgres      | public       | exchange_rate_history                          | fecha_vigencia               | UPDATE
- service_role  | public       | exchange_rate_history                          | fecha_vigencia               | INSERT
- service_role  | public       | exchange_rate_history                          | fecha_vigencia               | REFERENCES
- service_role  | public       | exchange_rate_history                          | fecha_vigencia               | SELECT
- service_role  | public       | exchange_rate_history                          | fecha_vigencia               | UPDATE
- anon          | public       | exchange_rate_history                          | fetched_at                   | INSERT
- anon          | public       | exchange_rate_history                          | fetched_at                   | REFERENCES
- anon          | public       | exchange_rate_history                          | fetched_at                   | SELECT
- anon          | public       | exchange_rate_history                          | fetched_at                   | UPDATE
- authenticated | public       | exchange_rate_history                          | fetched_at                   | INSERT
- authenticated | public       | exchange_rate_history                          | fetched_at                   | REFERENCES
- authenticated | public       | exchange_rate_history                          | fetched_at                   | SELECT
- authenticated | public       | exchange_rate_history                          | fetched_at                   | UPDATE
- postgres      | public       | exchange_rate_history                          | fetched_at                   | INSERT
- postgres      | public       | exchange_rate_history                          | fetched_at                   | REFERENCES
- postgres      | public       | exchange_rate_history                          | fetched_at                   | SELECT
- postgres      | public       | exchange_rate_history                          | fetched_at                   | UPDATE
- service_role  | public       | exchange_rate_history                          | fetched_at                   | INSERT
- service_role  | public       | exchange_rate_history                          | fetched_at                   | REFERENCES
- service_role  | public       | exchange_rate_history                          | fetched_at                   | SELECT
- service_role  | public       | exchange_rate_history                          | fetched_at                   | UPDATE
- anon          | public       | exchange_rate_history                          | fuente                       | INSERT
- anon          | public       | exchange_rate_history                          | fuente                       | REFERENCES
- anon          | public       | exchange_rate_history                          | fuente                       | SELECT
- anon          | public       | exchange_rate_history                          | fuente                       | UPDATE
- authenticated | public       | exchange_rate_history                          | fuente                       | INSERT
- authenticated | public       | exchange_rate_history                          | fuente                       | REFERENCES
- authenticated | public       | exchange_rate_history                          | fuente                       | SELECT
- authenticated | public       | exchange_rate_history                          | fuente                       | UPDATE
- postgres      | public       | exchange_rate_history                          | fuente                       | INSERT
- postgres      | public       | exchange_rate_history                          | fuente                       | REFERENCES
- postgres      | public       | exchange_rate_history                          | fuente                       | SELECT
- postgres      | public       | exchange_rate_history                          | fuente                       | UPDATE
- service_role  | public       | exchange_rate_history                          | fuente                       | INSERT
- service_role  | public       | exchange_rate_history                          | fuente                       | REFERENCES
- service_role  | public       | exchange_rate_history                          | fuente                       | SELECT
- service_role  | public       | exchange_rate_history                          | fuente                       | UPDATE
- anon          | public       | exchange_rate_history                          | id                           | INSERT
- anon          | public       | exchange_rate_history                          | id                           | REFERENCES
- anon          | public       | exchange_rate_history                          | id                           | SELECT
- anon          | public       | exchange_rate_history                          | id                           | UPDATE
- authenticated | public       | exchange_rate_history                          | id                           | INSERT
- authenticated | public       | exchange_rate_history                          | id                           | REFERENCES
- authenticated | public       | exchange_rate_history                          | id                           | SELECT
- authenticated | public       | exchange_rate_history                          | id                           | UPDATE
- postgres      | public       | exchange_rate_history                          | id                           | INSERT
- postgres      | public       | exchange_rate_history                          | id                           | REFERENCES
- postgres      | public       | exchange_rate_history                          | id                           | SELECT
- postgres      | public       | exchange_rate_history                          | id                           | UPDATE
- service_role  | public       | exchange_rate_history                          | id                           | INSERT
- service_role  | public       | exchange_rate_history                          | id                           | REFERENCES
- service_role  | public       | exchange_rate_history                          | id                           | SELECT
- service_role  | public       | exchange_rate_history                          | id                           | UPDATE
- anon          | public       | exchange_rate_history                          | moneda                       | INSERT
- anon          | public       | exchange_rate_history                          | moneda                       | REFERENCES
- anon          | public       | exchange_rate_history                          | moneda                       | SELECT
- anon          | public       | exchange_rate_history                          | moneda                       | UPDATE
- authenticated | public       | exchange_rate_history                          | moneda                       | INSERT
- authenticated | public       | exchange_rate_history                          | moneda                       | REFERENCES
- authenticated | public       | exchange_rate_history                          | moneda                       | SELECT
- authenticated | public       | exchange_rate_history                          | moneda                       | UPDATE
- postgres      | public       | exchange_rate_history                          | moneda                       | INSERT
- postgres      | public       | exchange_rate_history                          | moneda                       | REFERENCES
- postgres      | public       | exchange_rate_history                          | moneda                       | SELECT
- postgres      | public       | exchange_rate_history                          | moneda                       | UPDATE
- service_role  | public       | exchange_rate_history                          | moneda                       | INSERT
- service_role  | public       | exchange_rate_history                          | moneda                       | REFERENCES
- service_role  | public       | exchange_rate_history                          | moneda                       | SELECT
- service_role  | public       | exchange_rate_history                          | moneda                       | UPDATE
- anon          | public       | exchange_rate_history                          | regimen                      | INSERT
- anon          | public       | exchange_rate_history                          | regimen                      | REFERENCES
- anon          | public       | exchange_rate_history                          | regimen                      | SELECT
- anon          | public       | exchange_rate_history                          | regimen                      | UPDATE
- authenticated | public       | exchange_rate_history                          | regimen                      | INSERT
- authenticated | public       | exchange_rate_history                          | regimen                      | REFERENCES
- authenticated | public       | exchange_rate_history                          | regimen                      | SELECT
- authenticated | public       | exchange_rate_history                          | regimen                      | UPDATE
- postgres      | public       | exchange_rate_history                          | regimen                      | INSERT
- postgres      | public       | exchange_rate_history                          | regimen                      | REFERENCES
- postgres      | public       | exchange_rate_history                          | regimen                      | SELECT
- postgres      | public       | exchange_rate_history                          | regimen                      | UPDATE
- service_role  | public       | exchange_rate_history                          | regimen                      | INSERT
- service_role  | public       | exchange_rate_history                          | regimen                      | REFERENCES
- service_role  | public       | exchange_rate_history                          | regimen                      | SELECT
- service_role  | public       | exchange_rate_history                          | regimen                      | UPDATE
- anon          | public       | exchange_rate_history                          | venta                        | INSERT
- anon          | public       | exchange_rate_history                          | venta                        | REFERENCES
- anon          | public       | exchange_rate_history                          | venta                        | SELECT
- anon          | public       | exchange_rate_history                          | venta                        | UPDATE
- authenticated | public       | exchange_rate_history                          | venta                        | INSERT
- authenticated | public       | exchange_rate_history                          | venta                        | REFERENCES
- authenticated | public       | exchange_rate_history                          | venta                        | SELECT
- authenticated | public       | exchange_rate_history                          | venta                        | UPDATE
- postgres      | public       | exchange_rate_history                          | venta                        | INSERT
- postgres      | public       | exchange_rate_history                          | venta                        | REFERENCES
- postgres      | public       | exchange_rate_history                          | venta                        | SELECT
- postgres      | public       | exchange_rate_history                          | venta                        | UPDATE
- service_role  | public       | exchange_rate_history                          | venta                        | INSERT
- service_role  | public       | exchange_rate_history                          | venta                        | REFERENCES
- service_role  | public       | exchange_rate_history                          | venta                        | SELECT
- service_role  | public       | exchange_rate_history                          | venta                        | UPDATE
- anon          | public       | exchange_rate_history                          | version_metodologia          | INSERT
- anon          | public       | exchange_rate_history                          | version_metodologia          | REFERENCES
- anon          | public       | exchange_rate_history                          | version_metodologia          | SELECT
- anon          | public       | exchange_rate_history                          | version_metodologia          | UPDATE
- authenticated | public       | exchange_rate_history                          | version_metodologia          | INSERT
- authenticated | public       | exchange_rate_history                          | version_metodologia          | REFERENCES
- authenticated | public       | exchange_rate_history                          | version_metodologia          | SELECT
- authenticated | public       | exchange_rate_history                          | version_metodologia          | UPDATE
- postgres      | public       | exchange_rate_history                          | version_metodologia          | INSERT
- postgres      | public       | exchange_rate_history                          | version_metodologia          | REFERENCES
- postgres      | public       | exchange_rate_history                          | version_metodologia          | SELECT
- postgres      | public       | exchange_rate_history                          | version_metodologia          | UPDATE
- service_role  | public       | exchange_rate_history                          | version_metodologia          | INSERT
- service_role  | public       | exchange_rate_history                          | version_metodologia          | REFERENCES
- service_role  | public       | exchange_rate_history                          | version_metodologia          | SELECT
- service_role  | public       | exchange_rate_history                          | version_metodologia          | UPDATE
  anon          | public       | expense_types                                  | created_at                   | INSERT
  anon          | public       | expense_types                                  | created_at                   | REFERENCES
  anon          | public       | expense_types                                  | created_at                   | SELECT
@@ -7952,22 +7744,6 @@
  service_role  | public       | wo_payment_installments                        | installment_number           | REFERENCES
  service_role  | public       | wo_payment_installments                        | installment_number           | SELECT
  service_role  | public       | wo_payment_installments                        | installment_number           | UPDATE
- anon          | public       | wo_payment_installments                        | invoice_exchange_rate        | INSERT
- anon          | public       | wo_payment_installments                        | invoice_exchange_rate        | REFERENCES
- anon          | public       | wo_payment_installments                        | invoice_exchange_rate        | SELECT
- anon          | public       | wo_payment_installments                        | invoice_exchange_rate        | UPDATE
- authenticated | public       | wo_payment_installments                        | invoice_exchange_rate        | INSERT
- authenticated | public       | wo_payment_installments                        | invoice_exchange_rate        | REFERENCES
- authenticated | public       | wo_payment_installments                        | invoice_exchange_rate        | SELECT
- authenticated | public       | wo_payment_installments                        | invoice_exchange_rate        | UPDATE
- postgres      | public       | wo_payment_installments                        | invoice_exchange_rate        | INSERT
- postgres      | public       | wo_payment_installments                        | invoice_exchange_rate        | REFERENCES
- postgres      | public       | wo_payment_installments                        | invoice_exchange_rate        | SELECT
- postgres      | public       | wo_payment_installments                        | invoice_exchange_rate        | UPDATE
- service_role  | public       | wo_payment_installments                        | invoice_exchange_rate        | INSERT
- service_role  | public       | wo_payment_installments                        | invoice_exchange_rate        | REFERENCES
- service_role  | public       | wo_payment_installments                        | invoice_exchange_rate        | SELECT
- service_role  | public       | wo_payment_installments                        | invoice_exchange_rate        | UPDATE
  anon          | public       | wo_payment_installments                        | payment_date_actual          | INSERT
  anon          | public       | wo_payment_installments                        | payment_date_actual          | REFERENCES
  anon          | public       | wo_payment_installments                        | payment_date_actual          | SELECT
@@ -7984,22 +7760,6 @@
  service_role  | public       | wo_payment_installments                        | payment_date_actual          | REFERENCES
  service_role  | public       | wo_payment_installments                        | payment_date_actual          | SELECT
  service_role  | public       | wo_payment_installments                        | payment_date_actual          | UPDATE
- anon          | public       | wo_payment_installments                        | payment_exchange_rate        | INSERT
- anon          | public       | wo_payment_installments                        | payment_exchange_rate        | REFERENCES
- anon          | public       | wo_payment_installments                        | payment_exchange_rate        | SELECT
- anon          | public       | wo_payment_installments                        | payment_exchange_rate        | UPDATE
- authenticated | public       | wo_payment_installments                        | payment_exchange_rate        | INSERT
- authenticated | public       | wo_payment_installments                        | payment_exchange_rate        | REFERENCES
- authenticated | public       | wo_payment_installments                        | payment_exchange_rate        | SELECT
- authenticated | public       | wo_payment_installments                        | payment_exchange_rate        | UPDATE
- postgres      | public       | wo_payment_installments                        | payment_exchange_rate        | INSERT
- postgres      | public       | wo_payment_installments                        | payment_exchange_rate        | REFERENCES
- postgres      | public       | wo_payment_installments                        | payment_exchange_rate        | SELECT
- postgres      | public       | wo_payment_installments                        | payment_exchange_rate        | UPDATE
- service_role  | public       | wo_payment_installments                        | payment_exchange_rate        | INSERT
- service_role  | public       | wo_payment_installments                        | payment_exchange_rate        | REFERENCES
- service_role  | public       | wo_payment_installments                        | payment_exchange_rate        | SELECT
- service_role  | public       | wo_payment_installments                        | payment_exchange_rate        | UPDATE
  anon          | public       | wo_payment_installments                        | percentage                   | INSERT
  anon          | public       | wo_payment_installments                        | percentage                   | REFERENCES
  anon          | public       | wo_payment_installments                        | percentage                   | SELECT
@@ -8112,22 +7872,6 @@
  service_role  | public       | wo_payment_plan                                | exchange_rate                | REFERENCES
  service_role  | public       | wo_payment_plan                                | exchange_rate                | SELECT
  service_role  | public       | wo_payment_plan                                | exchange_rate                | UPDATE
- anon          | public       | wo_payment_plan                                | exchange_rate_mode           | INSERT
- anon          | public       | wo_payment_plan                                | exchange_rate_mode           | REFERENCES
- anon          | public       | wo_payment_plan                                | exchange_rate_mode           | SELECT
- anon          | public       | wo_payment_plan                                | exchange_rate_mode           | UPDATE
- authenticated | public       | wo_payment_plan                                | exchange_rate_mode           | INSERT
- authenticated | public       | wo_payment_plan                                | exchange_rate_mode           | REFERENCES
- authenticated | public       | wo_payment_plan                                | exchange_rate_mode           | SELECT
- authenticated | public       | wo_payment_plan                                | exchange_rate_mode           | UPDATE
- postgres      | public       | wo_payment_plan                                | exchange_rate_mode           | INSERT
- postgres      | public       | wo_payment_plan                                | exchange_rate_mode           | REFERENCES
- postgres      | public       | wo_payment_plan                                | exchange_rate_mode           | SELECT
- postgres      | public       | wo_payment_plan                                | exchange_rate_mode           | UPDATE
- service_role  | public       | wo_payment_plan                                | exchange_rate_mode           | INSERT
- service_role  | public       | wo_payment_plan                                | exchange_rate_mode           | REFERENCES
- service_role  | public       | wo_payment_plan                                | exchange_rate_mode           | SELECT
- service_role  | public       | wo_payment_plan                                | exchange_rate_mode           | UPDATE
  anon          | public       | wo_payment_plan                                | payment_days                 | INSERT
  anon          | public       | wo_payment_plan                                | payment_days                 | REFERENCES
  anon          | public       | wo_payment_plan                                | payment_days                 | SELECT
@@ -9747,5 +9491,5 @@
  anon          | storage      | vector_indexes                                 | updated_at                   | SELECT
  authenticated | storage      | vector_indexes                                 | updated_at                   | SELECT
  service_role  | storage      | vector_indexes                                 | updated_at                   | SELECT
-(9747 rows)
+(9491 rows)
 

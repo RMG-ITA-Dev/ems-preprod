@@ -105,7 +105,7 @@ describe("weekendCellCss", () => {
   });
 });
 
-describe("engagementTaskType (Fase 3: estado efectivo numérico 1-9, plan v2 §1)", () => {
+describe("engagementTaskType (Fase 3: estado efectivo numérico 1-8, plan v2 §1)", () => {
   it("Aprobado(4) y AprobadoEmergencia(5) → ems-status-active", () => {
     expect(engagementTaskType(EngagementState.Aprobado)).toBe("ems-status-active");
     expect(engagementTaskType(EngagementState.AprobadoEmergencia)).toBe("ems-status-active");
@@ -122,8 +122,10 @@ describe("engagementTaskType (Fase 3: estado efectivo numérico 1-9, plan v2 §1
     expect(engagementTaskType(EngagementState.Cancelado)).toBe("ems-status-cancelled");
     expect(engagementTaskType(EngagementState.Rechazado)).toBe("ems-status-cancelled");
   });
-  it("Congelado(9) → ems-status-frozen (bucket nuevo, sin equivalente legacy)", () => {
-    expect(engagementTaskType(EngagementState.Congelado)).toBe("ems-status-frozen");
+  // BUG 0817-179: retirado el estado 9, cae al default junto con cualquier valor desconocido;
+  // la clase ems-status-frozen y su regla CSS también se eliminaron.
+  it("9 (estado retirado) → ems-neutral, ya no ems-status-frozen", () => {
+    expect(engagementTaskType(9 as EngagementState)).toBe("ems-neutral");
   });
   it("estado desconocido/null/undefined → ems-neutral (representación segura)", () => {
     expect(engagementTaskType(null)).toBe("ems-neutral");

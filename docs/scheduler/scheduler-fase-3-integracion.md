@@ -23,12 +23,12 @@ reciente" — ver `supabase/migrations/20251204045534_...sql:99` y
 **Contrato de datos:**
 - `status` — string legacy del engagement (`engagements.status`), conservado solo para diagnóstico. En el
   timeline de staff, `status` es el estado del **assignment**, no del engagement.
-- `engagement_status` — **estado efectivo numérico 1-9** (`EngagementState`), fuente de verdad. `null` si no
+- `engagement_status` — **estado efectivo numérico 1-8** (`EngagementState`), fuente de verdad. `null` si no
   puede derivarse con seguridad.
 
 **Representación en cliente:** los chips reusan `engagementStateI18nKey`/`engagementStateBadgeClass` de
-`development` (`src/lib/engagementStatus.ts`) — los 9 estados se distinguen exactamente, incluido
-`AprobadoEmergencia(5)` y `Congelado(9)`. El color de barra del Gantt se bucketiza vía
+`development` (`src/lib/engagementStatus.ts`) — los 8 estados se distinguen exactamente, incluido
+`AprobadoEmergencia(5)`. El color de barra del Gantt se bucketiza vía
 `engagementTaskType(state)` en `src/lib/schedulerGantt.ts`:
 
 | Estados | Bucket de barra | ¿Activo (utilización/gaps)? |
@@ -37,11 +37,11 @@ reciente" — ver `supabase/migrations/20251204045534_...sql:99` y
 | 1 Pendiente, 2 AprobadoSocio, 3 AprobadoRiesgos | `ems-status-pending` | no |
 | 7 Finalizado | `ems-status-completed` | no |
 | 6 Cancelado, 8 Rechazado | `ems-status-cancelled` | no |
-| 9 Congelado | `ems-status-frozen` (nuevo) | no |
 | desconocido/null | `ems-neutral` | no |
 
-`STATUS_FILTERS` del cliente/servidor se extendió de 5 a 6 valores (`active/pending/completed/cancelled/
-frozen/all`) — filtra por bucket, nunca por la columna legacy.
+`STATUS_FILTERS` del cliente/servidor son 5 valores (`active/pending/completed/cancelled/all`) —
+filtra por bucket, nunca por la columna legacy. BUG 0817-179 retiró el estado 9 Congelado y con él
+el bucket `frozen` (y la clase `ems-status-frozen` con su regla en `gantt-theme.css`).
 
 **`scheduler-gaps`:** las dos ocurrencias hardcodeadas de `.eq("status","active")`
 (`handler.ts:892` y `:1272` en la referencia) se reemplazaron por: leer candidatos (paginado) → resolver

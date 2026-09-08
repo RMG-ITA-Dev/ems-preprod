@@ -146,3 +146,285 @@ describe("practice-scoped categories (migración cero, consolidado)", () => {
     }
   });
 });
+
+/**
+ * 0820-182 — `categories.default_role_key` (rol sugerido por categoría).
+ *
+ * OJO con el alcance: las aserciones de arriba leen el set consolidado
+ * (`cero_02`..`cero_06`) y siguen siendo válidas — es la baseline histórica. Pero la
+ * migración de este bug redefine dos de esas RPC en un archivo APARTE, así que nada de
+ * lo de arriba vería la firma nueva. De ahí este bloque con su propio readFileSync: sin
+ * él, las aserciones estructurales envejecerían en silencio.
+ */
+const defaultRoleKeySql = readFileSync(
+  resolve(process.cwd(), "supabase/migrations/20260825000000_category_default_role_key.sql"),
+  "utf-8",
+);
+
+describe("categories.default_role_key (0820-182)", () => {
+  it("adds the column idempotently and FKs it to the authorization_roles catalog", () => {
+    expect(defaultRoleKeySql).toMatch(
+      /ALTER TABLE public\.categories\s+ADD COLUMN IF NOT EXISTS default_role_key text;/,
+    );
+    // El FK al catálogo es lo que impide guardar un role_key inexistente: sin él, la
+    // "sugerencia" podría apuntar a un rol que ya no existe.
+    expect(defaultRoleKeySql).toMatch(
+      /ADD CONSTRAINT categories_default_role_key_fkey\s+FOREIGN KEY \(default_role_key\)\s+REFERENCES public\.authorization_roles\(role_key\)/,
+    );
+    // Idempotencia: se puede re-pegar la migración completa sin chocar con 42710.
+    expect(defaultRoleKeySql).toContain(
+      "DROP CONSTRAINT IF EXISTS categories_default_role_key_fkey",
+    );
+  });
+
+  it.each(["create_category_for_practice", "update_category_for_practice"])(
+    "%s is DROPped before being recreated, never CREATE OR REPLACE (guard anti-PGRST203)",
+    (name) => {
+      // Agregar un parámetro con CREATE OR REPLACE no reemplaza la función: crea una
+      // SOBRECARGA, y con dos firmas visibles PostgREST no puede resolver la llamada
+      // (PGRST203) — rompiendo crear/editar CUALQUIER categoría, no solo el campo nuevo.
+      const dropIdx = defaultRoleKeySql.indexOf(`DROP FUNCTION IF EXISTS public.${name}(`);
+      const createIdx = defaultRoleKeySql.indexOf(`CREATE FUNCTION public.${name}(`);
+      expect(dropIdx).toBeGreaterThan(-1);
+      expect(createIdx).toBeGreaterThan(-1);
+      expect(dropIdx).toBeLessThan(createIdx);
+      expect(defaultRoleKeySql).not.toContain(`CREATE OR REPLACE FUNCTION public.${name}(`);
+    },
+  );
+
+  it.each(["create_category_for_practice", "update_category_for_practice"])(
+    "%s takes p_default_role_key and keeps its is_admin() guard",
+    (name) => {
+      const start = defaultRoleKeySql.indexOf(`CREATE FUNCTION public.${name}(`);
+      const end = defaultRoleKeySql.indexOf("\n$$;", start);
+      const body = defaultRoleKeySql.slice(start, end);
+      expect(body).toContain("p_default_role_key text");
+      expect(body).toContain("default_role_key");
+      // El cuerpo se copió a mano desde cero_02: el riesgo real es perder el gate.
+      expect(body).toContain("IF NOT public.is_admin() THEN");
+    },
+  );
+
+  it("only the create RPC defaults p_default_role_key; update requires it", () => {
+    // Asimetría deliberada. En update el contrato es de REEMPLAZO TOTAL (ningún otro
+    // parámetro tiene default, tampoco `p_default_app_role`). Con `DEFAULT NULL`, un
+    // bundle viejo que siguiera mandando las 10 claves previas resolvería igual esta
+    // función y borraría la sugerencia de rol en silencio al editar cualquier tarifa;
+    // sin default, esa llamada falla ruidosamente con PGRST202.
+    const signature = (name: string) => {
+      const start = defaultRoleKeySql.indexOf(`CREATE FUNCTION public.${name}(`);
+      return defaultRoleKeySql.slice(start, defaultRoleKeySql.indexOf(") RETURNS", start));
+    };
+
+    expect(signature("create_category_for_practice")).toContain(
+      "p_default_role_key text DEFAULT NULL::text",
+    );
+    expect(signature("update_category_for_practice")).not.toContain(
+      "p_default_role_key text DEFAULT",
+    );
+  });
+
+  it("create_category_for_practice still enforces practicas.allows_rates_activities", () => {
+    const start = defaultRoleKeySql.indexOf("CREATE FUNCTION public.create_category_for_practice(");
+    const body = defaultRoleKeySql.slice(start, defaultRoleKeySql.indexOf("\n$$;", start));
+    expect(body).toContain("allows_rates_activities");
+    expect(body).toContain("Practice does not allow rates/categories");
+  });
+
+  it.each(["create_category_for_practice", "update_category_for_practice"])(
+    "%s re-issues its grants with the new signature (DROP FUNCTION drops the ACL)",
+    (name) => {
+      for (const role of ["anon", "authenticated", "service_role"]) {
+        expect(defaultRoleKeySql).toMatch(
+          new RegExp(`GRANT ALL ON FUNCTION public\\.${name}\\([\\s\\S]*?\\) TO ${role};`),
+        );
+      }
+      expect(defaultRoleKeySql).toMatch(
+        new RegExp(`REVOKE ALL ON FUNCTION public\\.${name}\\([\\s\\S]*?\\) FROM PUBLIC;`),
+      );
+    },
+  );
+
+  it("copy_categories_between_practices clones default_role_key", () => {
+    // El INSERT..SELECT es explícito por columnas: omitir la nueva haría que copiar una
+    // práctica perdiera el rol sugerido en silencio.
+    const start = defaultRoleKeySql.indexOf(
+      "CREATE OR REPLACE FUNCTION public.copy_categories_between_practices(",
+    );
+    expect(start).toBeGreaterThan(-1);
+    const body = defaultRoleKeySql.slice(start);
+    expect(body).toMatch(/can_approve_wo, can_approve_timesheets, default_app_role, default_role_key/);
+    expect(body).toMatch(/src\.can_approve_timesheets, src\.default_app_role, src\.default_role_key/);
+  });
+
+  it("structurally forbids an `admin` suggestion, before any backfill can run", () => {
+    // Sugerir `admin` por categoría convierte un cambio de categoría en escalada de
+    // privilegios. Los filtros de UI son de cliente; el CHECK no se puede saltear con un
+    // bundle viejo, un RPC a mano o un restore.
+    expect(defaultRoleKeySql).toContain(
+      "DROP CONSTRAINT IF EXISTS categories_default_role_key_not_admin",
+    );
+    expect(defaultRoleKeySql).toMatch(
+      /ADD CONSTRAINT categories_default_role_key_not_admin\s+CHECK \(default_role_key IS DISTINCT FROM 'admin'\)/,
+    );
+  });
+
+  it("no hace el backfill: eso depende del mapeo y vive en 20260825000100", () => {
+    // Puesto acá corría antes de que authorization_roles.legacy_app_role existiera, así
+    // que en una base replayada desde las consolidadas era un no-op permanente.
+    expect(defaultRoleKeySql).not.toContain("ar.legacy_app_role = c.default_app_role");
+  });
+});
+
+/**
+ * `sync_user_role_from_category` — la precondición atómica del flujo de sincronización.
+ *
+ * El invariante que promete el flujo es "la sincronización por categoría NUNCA degrada a un
+ * administrador". Un chequeo de cliente no puede garantizarlo: entre la lectura y la
+ * escritura otro admin puede promover al destino, y `admin_set_user_role_key` protege solo
+ * al ÚLTIMO admin. De ahí que la precondición viva en SQL, con la fila bloqueada.
+ */
+describe("sync_user_role_from_category (0820-182)", () => {
+  const body = (): string => {
+    const start = defaultRoleKeySql.indexOf(
+      "CREATE OR REPLACE FUNCTION public.sync_user_role_from_category(",
+    );
+    expect(start).toBeGreaterThan(-1);
+    return defaultRoleKeySql.slice(start, defaultRoleKeySql.indexOf("\n$$;", start));
+  };
+
+  it("autoriza ANTES de tomar candados y de leer cualquier fila", () => {
+    // Es SECURITY DEFINER (saltea RLS) y está concedida a authenticated y anon, así que sin
+    // este guard las respuestas eran un oráculo: ADMIN_PROTECTED vs NOT_ADMIN revelaba si
+    // la cuenta de un staff es administradora, y STAFF_NOT_LINKED si tiene cuenta
+    // vinculada — dato que staff_directory excluye por ser PII. Y los candados se tomaban
+    // antes de autorizar, habilitando contención a cualquier autenticado.
+    const fn = body();
+    const guard = fn.indexOf("if not v_is_admin then");
+    const lock = fn.indexOf("pg_advisory_xact_lock(67890)");
+    const firstRead = fn.indexOf("from staff");
+
+    expect(guard).toBeGreaterThan(-1);
+    expect(fn).toContain("NOT_ADMIN");
+    expect(guard).toBeLessThan(lock);
+    expect(guard).toBeLessThan(firstRead);
+  });
+
+  it("usa el mismo predicado de admin que la función a la que delega", () => {
+    // is_admin() mira SOLO el enum legacy; admin_set_user_role_key acepta role_key O el
+    // enum, a propósito, para no bloquear a un admin que aún no tiene role_key. Si este
+    // guard usara is_admin() sería más estricto que la delegación y rechazaría a ese admin.
+    expect(body()).toContain("(role_key = 'admin' or role = 'admin')");
+  });
+
+  it("recibe el STAFF, no el usuario ni el rol ya resueltos", () => {
+    // Con la firma anterior —(user_id, role_key)— la función no miraba ninguna categoría,
+    // pese a su nombre: si otro admin cambiaba la categoría del staff, rompía el vínculo de
+    // cuenta o editaba la sugerencia mientras el diálogo estaba abierto, se aplicaba igual
+    // un rol que ya no correspondía a nada.
+    const signature = defaultRoleKeySql.slice(
+      defaultRoleKeySql.indexOf("CREATE OR REPLACE FUNCTION public.sync_user_role_from_category("),
+      defaultRoleKeySql.indexOf(") RETURNS jsonb"),
+    );
+    expect(signature).toContain("p_staff_id uuid");
+    expect(signature).toContain("p_expected_role_key text");
+    expect(signature).not.toContain("p_target_user_id");
+  });
+
+  it("deriva la cuenta vinculada del staff bloqueado", () => {
+    const fn = body();
+    expect(fn).toMatch(/select auth_user_id, category_id[\s\S]*?from staff[\s\S]*?for update/);
+    expect(fn).toContain("STAFF_NOT_LINKED");
+    expect(fn).toContain("STAFF_NOT_FOUND");
+    // El rol se aplica al usuario DERIVADO, no a uno recibido por parámetro.
+    expect(fn).toContain("admin_set_user_role_key(v_auth_user_id, p_expected_role_key, p_reason)");
+  });
+
+  it("rechaza si la categoría ya no sugiere el rol confirmado", () => {
+    const fn = body();
+    // `is distinct from` cubre los tres casos: la categoría cambió, la sugerencia se editó,
+    // o dejó de sugerir algo (NULL).
+    expect(fn).toMatch(/select default_role_key[\s\S]*?from categories[\s\S]*?for update/);
+    expect(fn).toContain("v_suggested is distinct from p_expected_role_key");
+    expect(fn).toContain("CATEGORY_SUGGESTION_CHANGED");
+    // Rechazar, no aplicar la sugerencia nueva: nadie debe terminar con un rol que no vio.
+    expect(fn).not.toContain("admin_set_user_role_key(v_auth_user_id, v_suggested");
+  });
+
+  it("bloquea staff y categoría antes de validar", () => {
+    const fn = body();
+    const lock = fn.indexOf("pg_advisory_xact_lock(67890)");
+    const staffLock = fn.indexOf("from staff");
+    const check = fn.indexOf("v_suggested is distinct from");
+    expect(lock).toBeLessThan(staffLock);
+    expect(staffLock).toBeLessThan(check);
+  });
+
+  it("toma los candados ANTES de leer el rol", () => {
+    const fn = body();
+    // 67890 es el mismo advisory lock que toman admin_set_user_role y
+    // admin_set_user_role_key como primera instrucción: sin él, un cambio de rol por RPC
+    // podría colarse entre la validación y la escritura.
+    const lock = fn.indexOf("pg_advisory_xact_lock(67890)");
+    const read = fn.indexOf("select role_key, role into");
+    expect(lock).toBeGreaterThan(-1);
+    expect(read).toBeGreaterThan(lock);
+    // FOR UPDATE sobre la fila: cubre el UPDATE DIRECTO a user_roles que permite la policy
+    // "Admins can manage all roles" y que no pasa por ningún RPC.
+    expect(fn).toContain("for update");
+  });
+
+  it("rechaza degradar a un admin, con la fila ya bloqueada", () => {
+    const fn = body();
+    const read = fn.indexOf("select role_key, role into");
+    const guard = fn.indexOf("v_current_role_key = 'admin'");
+    expect(guard).toBeGreaterThan(read);
+    expect(fn).toContain("ADMIN_PROTECTED");
+  });
+
+  it("reconoce al admin por CUALQUIERA de las dos representaciones", () => {
+    // El RPC deprecado admin_set_user_role sigue concedido y escribe SOLO el enum, así que
+    // existe el estado role='admin' con role_key nulo o desfasado. Mirar solo role_key
+    // dejaría a ese admin fuera del guard, y la delegación pisaría ambas columnas — el
+    // LAST_ADMIN de admin_set_user_role_key tampoco lo frenaría, porque cuenta por role_key.
+    // Es además el mismo criterio que ya usa el guard del llamante de esta función.
+    const fn = body();
+    expect(fn).toContain("select role_key, role into v_current_role_key, v_current_role");
+    expect(fn).toContain("v_current_role_key = 'admin' or v_current_role = 'admin'");
+  });
+
+  it("rechaza asignar `admin` como rol sugerido", () => {
+    expect(body()).toContain("ADMIN_TARGET_FORBIDDEN");
+  });
+
+  it("delega en admin_set_user_role_key en vez de duplicar sus guards", () => {
+    const fn = body();
+    // Delegar es lo que evita dos copias de NOT_ADMIN / SELF_CHANGE / LAST_ADMIN, del
+    // espejo del enum legacy y de la auditoría, que se irían separando con el tiempo.
+    expect(fn).toContain("return public.admin_set_user_role_key(");
+    expect(fn).not.toContain("insert into user_lifecycle_audit_log");
+    // Se busca el literal SQL entrecomillado, no la palabra: los comentarios de esta
+    // función mencionan LAST_ADMIN para explicar por qué NO se reimplementa acá.
+    expect(fn).not.toContain("'LAST_ADMIN'");
+  });
+
+  it("no modifica admin_set_user_role_key", () => {
+    // Esa función asigna TODOS los roles del sistema y Gestión de Roles sí debe poder
+    // degradar a un admin: cambiarle la firma o los guards pondría eso en riesgo.
+    expect(defaultRoleKeySql).not.toContain(
+      "CREATE FUNCTION public.admin_set_user_role_key(",
+    );
+    expect(defaultRoleKeySql).not.toContain("DROP FUNCTION IF EXISTS public.admin_set_user_role_key");
+  });
+
+  it("repone sus grants", () => {
+    for (const role of ["anon", "authenticated", "service_role"]) {
+      expect(defaultRoleKeySql).toContain(
+        `GRANT ALL ON FUNCTION public.sync_user_role_from_category(uuid, text, text) TO ${role};`,
+      );
+    }
+    expect(defaultRoleKeySql).toContain(
+      "REVOKE ALL ON FUNCTION public.sync_user_role_from_category(uuid, text, text) FROM PUBLIC;",
+    );
+  });
+});
