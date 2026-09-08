@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict 5Sf83dPBDPGyAo4HLkAL92lOs0G1Abil16D7zE2qhVyHHY6Az6xHuTWTUfDCuME
+\restrict pnVhQTabX7mKgQdfzsQ8nxn8xQrA8ESTkzOo9RkuLFxXEufUa9KWFukjFtf3woA
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.11 (Ubuntu 17.11-1.pgdg24.04+2)
@@ -6790,6 +6790,138 @@ COMMENT ON FUNCTION public.wo_in_my_fund_request(p_wo_id uuid) IS 'True si la OT
 
 
 --
+-- Name: wo_payment_installments_guard_delete(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.wo_payment_installments_guard_delete() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF OLD.status <> 'Pending' THEN
+    RAISE EXCEPTION 'INSTALLMENT_LOCKED: esta cuota ya fue facturada y no puede eliminarse';
+  END IF;
+  RETURN OLD;
+END;
+$$;
+
+
+--
+-- Name: wo_payment_installments_guard_exchange_rate(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.wo_payment_installments_guard_exchange_rate() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_approval_status text;
+  v_exchange_rate_mode text;
+  v_legal_transition boolean;
+BEGIN
+  IF NEW.status IS DISTINCT FROM OLD.status THEN
+    v_legal_transition := CASE OLD.status
+      WHEN 'Pending'   THEN NEW.status = 'Invoiced'
+      WHEN 'Overdue'   THEN NEW.status = 'Invoiced'
+      WHEN 'Invoiced'  THEN NEW.status IN ('Completed', 'Overdue')
+      ELSE false
+    END;
+    IF NOT v_legal_transition THEN
+      RAISE EXCEPTION 'INVALID_STATUS_TRANSITION: % -> % no es una transicion de estado permitida', OLD.status, NEW.status;
+    END IF;
+  END IF;
+
+  -- MUST FIX review iteracion 2 #1/#3 (decision del operador 2026-09-07: "si una cuota
+  -- ya esta facturada, no se puede modificar o eliminar de ninguna manera"): una vez
+  -- que status sale de 'Pending', percentage/amount/installment_number tambien quedan
+  -- congelados -- no solo las 2 columnas de TC. Sin esto, agregar/quitar cuotas del
+  -- plan podia redistribuir el porcentaje de una cuota ya facturada, desalineandolo
+  -- del TC ya congelado (que se calculo sobre el porcentaje original).
+  IF OLD.status <> 'Pending' AND (
+    NEW.percentage IS DISTINCT FROM OLD.percentage
+    OR NEW.amount IS DISTINCT FROM OLD.amount
+    OR NEW.installment_number IS DISTINCT FROM OLD.installment_number
+  ) THEN
+    RAISE EXCEPTION 'INSTALLMENT_LOCKED: esta cuota ya fue facturada y no puede modificarse (porcentaje/monto/numero)';
+  END IF;
+
+  IF NEW.invoice_exchange_rate IS DISTINCT FROM OLD.invoice_exchange_rate
+     OR NEW.payment_exchange_rate IS DISTINCT FROM OLD.payment_exchange_rate THEN
+    SELECT wo.approval_status, p.exchange_rate_mode
+    INTO v_approval_status, v_exchange_rate_mode
+    FROM public.work_orders wo
+    JOIN public.wo_payment_plan p ON p.wo_id = wo.wo_id
+    WHERE wo.wo_id = NEW.wo_id;
+  END IF;
+
+  IF NEW.invoice_exchange_rate IS DISTINCT FROM OLD.invoice_exchange_rate THEN
+    IF OLD.status <> 'Pending' THEN
+      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de facturacion de esta cuota ya esta congelado';
+    END IF;
+    IF v_exchange_rate_mode = 'variable' AND v_approval_status IS DISTINCT FROM 'Approved' THEN
+      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de facturacion solo puede capturarse una vez que la orden de trabajo fue aprobada';
+    END IF;
+  END IF;
+
+  IF NEW.payment_exchange_rate IS DISTINCT FROM OLD.payment_exchange_rate THEN
+    IF OLD.status = 'Completed' THEN
+      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de pago de esta cuota ya esta congelado';
+    END IF;
+    IF v_exchange_rate_mode = 'variable' THEN
+      IF OLD.status = 'Pending' THEN
+        RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de pago solo puede capturarse una vez facturada la cuota';
+      END IF;
+      IF v_approval_status IS DISTINCT FROM 'Approved' THEN
+        RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de pago solo puede capturarse una vez que la orden de trabajo fue aprobada';
+      END IF;
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: wo_payment_plan_guard_exchange_rate(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.wo_payment_plan_guard_exchange_rate() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_approval_status text;
+  v_has_locked_installment boolean;
+BEGIN
+  IF NEW.exchange_rate IS NOT DISTINCT FROM OLD.exchange_rate
+     AND NEW.exchange_rate_mode IS NOT DISTINCT FROM OLD.exchange_rate_mode THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT approval_status INTO v_approval_status
+  FROM public.work_orders
+  WHERE wo_id = NEW.wo_id;
+
+  IF v_approval_status = 'Approved' THEN
+    RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio del plan de pagos no puede modificarse: la orden de trabajo ya fue aprobada';
+  END IF;
+
+  SELECT EXISTS (
+    SELECT 1 FROM public.wo_payment_installments
+    WHERE plan_id = NEW.plan_id AND status <> 'Pending'
+  ) INTO v_has_locked_installment;
+
+  IF v_has_locked_installment THEN
+    RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio del plan de pagos no puede modificarse: ya existe una cuota facturada con un tipo de cambio congelado';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: apply_rls(jsonb, integer); Type: FUNCTION; Schema: realtime; Owner: -
 --
 
@@ -9439,6 +9571,32 @@ CREATE VIEW public.engagement_wo_state WITH (security_invoker='false') AS
 
 
 --
+-- Name: exchange_rate_history; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.exchange_rate_history (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    fecha_vigencia date NOT NULL,
+    compra numeric NOT NULL,
+    venta numeric NOT NULL,
+    moneda text DEFAULT 'USD/BOB'::text NOT NULL,
+    fuente text NOT NULL,
+    regimen text,
+    version_metodologia text,
+    canal text NOT NULL,
+    fecha_publicacion date,
+    actualizado_en timestamp with time zone NOT NULL,
+    estado text NOT NULL,
+    fetched_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT exchange_rate_history_canal_check CHECK ((canal = ANY (ARRAY['bcb-web'::text, 'bcb-soap'::text]))),
+    CONSTRAINT exchange_rate_history_compra_check CHECK ((compra > (0)::numeric)),
+    CONSTRAINT exchange_rate_history_estado_check CHECK ((estado = ANY (ARRAY['vigente'::text, 'stale'::text]))),
+    CONSTRAINT exchange_rate_history_venta_check CHECK ((venta > (0)::numeric))
+);
+
+
+--
 -- Name: expense_types; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -10181,6 +10339,10 @@ CREATE TABLE public.wo_payment_installments (
     status text DEFAULT 'Pending'::text NOT NULL,
     created_at timestamp with time zone DEFAULT now(),
     updated_at timestamp with time zone DEFAULT now(),
+    invoice_exchange_rate numeric,
+    payment_exchange_rate numeric,
+    CONSTRAINT wo_payment_installments_invoice_exchange_rate_check CHECK (((invoice_exchange_rate IS NULL) OR (invoice_exchange_rate > (0)::numeric))),
+    CONSTRAINT wo_payment_installments_payment_exchange_rate_check CHECK (((payment_exchange_rate IS NULL) OR (payment_exchange_rate > (0)::numeric))),
     CONSTRAINT wo_payment_installments_status_check CHECK ((status = ANY (ARRAY['Pending'::text, 'Invoiced'::text, 'Completed'::text, 'Overdue'::text])))
 );
 
@@ -10195,7 +10357,9 @@ CREATE TABLE public.wo_payment_plan (
     exchange_rate numeric,
     payment_days integer DEFAULT 30 NOT NULL,
     created_at timestamp with time zone DEFAULT now(),
-    updated_at timestamp with time zone DEFAULT now()
+    updated_at timestamp with time zone DEFAULT now(),
+    exchange_rate_mode text DEFAULT 'fijo'::text NOT NULL,
+    CONSTRAINT wo_payment_plan_exchange_rate_mode_check CHECK ((exchange_rate_mode = ANY (ARRAY['fijo'::text, 'variable'::text])))
 );
 
 
@@ -11107,6 +11271,22 @@ ALTER TABLE ONLY public.engagements
 
 ALTER TABLE ONLY public.engagements
     ADD CONSTRAINT engagements_pkey PRIMARY KEY (engagement_id);
+
+
+--
+-- Name: exchange_rate_history exchange_rate_history_fecha_vigencia_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.exchange_rate_history
+    ADD CONSTRAINT exchange_rate_history_fecha_vigencia_key UNIQUE (fecha_vigencia);
+
+
+--
+-- Name: exchange_rate_history exchange_rate_history_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.exchange_rate_history
+    ADD CONSTRAINT exchange_rate_history_pkey PRIMARY KEY (id);
 
 
 --
@@ -13007,6 +13187,27 @@ CREATE TRIGGER trg_validate_timer_duration BEFORE INSERT OR UPDATE ON public.tim
 
 
 --
+-- Name: wo_payment_installments trg_wo_payment_installments_guard_delete; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_wo_payment_installments_guard_delete BEFORE DELETE ON public.wo_payment_installments FOR EACH ROW EXECUTE FUNCTION public.wo_payment_installments_guard_delete();
+
+
+--
+-- Name: wo_payment_installments trg_wo_payment_installments_guard_exchange_rate; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_wo_payment_installments_guard_exchange_rate BEFORE UPDATE ON public.wo_payment_installments FOR EACH ROW EXECUTE FUNCTION public.wo_payment_installments_guard_exchange_rate();
+
+
+--
+-- Name: wo_payment_plan trg_wo_payment_plan_guard_exchange_rate; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_wo_payment_plan_guard_exchange_rate BEFORE UPDATE ON public.wo_payment_plan FOR EACH ROW EXECUTE FUNCTION public.wo_payment_plan_guard_exchange_rate();
+
+
+--
 -- Name: activity_worksheet_cells update_activity_worksheet_cells_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -14393,6 +14594,13 @@ CREATE POLICY "Authenticated users can read categories" ON public.categories FOR
 
 
 --
+-- Name: exchange_rate_history Authenticated users can read exchange rates; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "Authenticated users can read exchange rates" ON public.exchange_rate_history FOR SELECT TO authenticated USING (true);
+
+
+--
 -- Name: expense_types Authenticated users can read expense types; Type: POLICY; Schema: public; Owner: -
 --
 
@@ -14914,6 +15122,12 @@ CREATE POLICY "engagements write insert" ON public.engagements FOR INSERT TO aut
 
 CREATE POLICY "engagements write update" ON public.engagements FOR UPDATE TO authenticated USING ((public.has_permission('engagement.update'::text) AND ((public.permission_scope('engagement.update'::text) = 'firm'::text) OR public.is_engagement_team_member(engagement_id)))) WITH CHECK ((public.has_permission('engagement.update'::text) AND ((public.permission_scope('engagement.update'::text) = 'firm'::text) OR public.is_engagement_team_member(engagement_id))));
 
+
+--
+-- Name: exchange_rate_history; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.exchange_rate_history ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: wo_expense_budget expense_budget assigned read; Type: POLICY; Schema: public; Owner: -
@@ -15797,5 +16011,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 5Sf83dPBDPGyAo4HLkAL92lOs0G1Abil16D7zE2qhVyHHY6Az6xHuTWTUfDCuME
+\unrestrict pnVhQTabX7mKgQdfzsQ8nxn8xQrA8ESTkzOo9RkuLFxXEufUa9KWFukjFtf3woA
 
