@@ -616,7 +616,7 @@ BEGIN
 END $$;
 
 -- ══════════════════════════════════════════════════════════════════════
--- MUST FIX 0722-156b review iteracion 4 #3/#4 — migracion 20260908130000:
+-- MUST FIX 0722-156b review iteracion 4 #3/#4 — migracion 20260905172820 (consolidado):
 --   #3: el guard de freeze solo corria BEFORE UPDATE; un INSERT directo podia crear una
 --       cuota ya Invoiced/Completed con un TC "congelado" arbitrario.
 --   #4: sync_wo_payment_installments() reemplaza el delete+upsert en 2 llamadas
@@ -631,16 +631,38 @@ INSERT INTO public.engagements (engagement_id, client_id, engagement_name, pract
 INSERT INTO public.work_orders (wo_id, engagement_id, currency, season_mode, approval_status) VALUES
   ('40000000-0000-4000-8000-0000000000c5', 'e0000000-0000-4000-8000-0000000000c5', 'USD', 'High', 'Draft');
 
+-- Fixture aparte (E6/WO6), plan/cuota de OTRO plan de pagos, para el hallazgo #1 de la
+-- Iteración 5 (ownership de plan en sync_wo_payment_installments).
+INSERT INTO public.engagements (engagement_id, client_id, engagement_name, practica, fecha_cierre, society_id) VALUES
+  ('e0000000-0000-4000-8000-0000000000c6', 'c1000000-0000-4000-8000-0000000000c1', 'PER E6 (sync RPC ownership)', 1, '2026-09-30', (SELECT society_id FROM public.society WHERE society_id = '50c00000-0000-4000-8000-0000000000c1'));
+
+INSERT INTO public.work_orders (wo_id, engagement_id, currency, season_mode, approval_status) VALUES
+  ('40000000-0000-4000-8000-0000000000c6', 'e0000000-0000-4000-8000-0000000000c6', 'USD', 'High', 'Draft');
+
 DO $$
 DECLARE
   v_plan       uuid;
   v_inst_keep  uuid;
   v_inst_lost  uuid;
+  v_wo_other   uuid := '40000000-0000-4000-8000-0000000000c6';
+  v_plan_other uuid;
+  v_inst_other uuid;
   denied       boolean;
 BEGIN
   INSERT INTO public.wo_payment_plan (wo_id, exchange_rate, payment_days)
   VALUES ('40000000-0000-4000-8000-0000000000c5', 6.96, 30)
   RETURNING plan_id INTO v_plan;
+
+  -- Plan/cuota de OTRO plan de pagos (OT distinta), usado abajo para el hallazgo #1 de
+  -- ownership en sync_wo_payment_installments.
+  INSERT INTO public.wo_payment_plan (wo_id, exchange_rate, payment_days)
+  VALUES (v_wo_other, 6.96, 30)
+  RETURNING plan_id INTO v_plan_other;
+
+  INSERT INTO public.wo_payment_installments
+    (plan_id, wo_id, installment_number, percentage, amount, status, invoice_exchange_rate, payment_exchange_rate)
+  VALUES (v_plan_other, v_wo_other, 1, 100, 500, 'Pending', 6.96, 6.96)
+  RETURNING installment_id INTO v_inst_other;
 
   -- ── #3: INSERT directo de una cuota ya Invoiced/Completed con TC "congelado" ──
   denied := false;
@@ -777,6 +799,48 @@ BEGIN
     RAISE EXCEPTION 'PER FAIL — sync_wo_payment_installments no aplico un cambio valido en una cuota Pending';
   END IF;
   RAISE NOTICE 'PASS — sync_wo_payment_installments aplica cambios validos (camino feliz) sin excepcion';
+
+  -- ── review iteracion 5 #1: sync_wo_payment_installments debe validar ownership de plan ──
+  -- Payload declara v_plan (nuestro plan) pero incluye el installment_id de v_inst_other, que
+  -- pertenece a v_plan_other (otra OT). Sin el guard, el UPDATE por conflicto tocaria el amount
+  -- de esa cuota ajena sin ninguna verificacion.
+  denied := false;
+  BEGIN
+    PERFORM public.sync_wo_payment_installments(
+      v_plan,
+      '40000000-0000-4000-8000-0000000000c5'::uuid,
+      jsonb_build_array(
+        jsonb_build_object(
+          'installment_id', v_inst_keep, 'installment_number', 1, 'percentage', 100, 'amount', 1000,
+          'status', 'Pending', 'invoice_exchange_rate', 6.96, 'payment_exchange_rate', 6.96
+        ),
+        jsonb_build_object(
+          'installment_id', v_inst_other, 'installment_number', 2, 'percentage', 60, 'amount', 999,
+          'status', 'Pending', 'invoice_exchange_rate', 6.96, 'payment_exchange_rate', 6.96
+        )
+      )
+    );
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'INSTALLMENT_PLAN_MISMATCH%' THEN
+      denied := true;
+    ELSE
+      RAISE;
+    END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'PER FAIL — sync_wo_payment_installments acepto un installment_id de otro plan (bypass de ownership)';
+  END IF;
+  RAISE NOTICE 'PASS — sync_wo_payment_installments rechaza (INSTALLMENT_PLAN_MISMATCH) un installment_id que pertenece a otro plan';
+
+  -- La cuota ajena NUNCA debio tocarse -- prueba directa de que el rechazo ocurrio antes de
+  -- cualquier escritura (ni siquiera el DELETE de huerfanos del plan propio se aplico).
+  IF (SELECT amount FROM public.wo_payment_installments WHERE installment_id = v_inst_other) <> 500 THEN
+    RAISE EXCEPTION 'PER FAIL — sync_wo_payment_installments modifico una cuota de otro plan pese al rechazo';
+  END IF;
+  IF (SELECT amount FROM public.wo_payment_installments WHERE installment_id = v_inst_keep) <> 1000 THEN
+    RAISE EXCEPTION 'PER FAIL — sync_wo_payment_installments no fue atomica ante el rechazo de ownership';
+  END IF;
+  RAISE NOTICE 'PASS — el rechazo de ownership no modifica ni la cuota ajena ni las del plan propio';
 
   RAISE NOTICE 'INSTALLMENT INSERT GUARD + SYNC RPC: ALL CHECKS PASSED (rolled back)';
 END $$;

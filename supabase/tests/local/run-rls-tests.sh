@@ -165,15 +165,13 @@ run supabase/migrations/20260905070913_0722-156_add_exchange_rate_history.sql
 # 0722-156b (Fase 2): TC fijo/variable por cuota en el plan de pagos de OT --
 # wo_payment_plan.exchange_rate_mode + wo_payment_installments.invoice_exchange_rate/
 # payment_exchange_rate, con freeze por trigger basado en status/approval_status
-# persistidos. Ejercitado por trigger-0722-156b-payment-exchange-rates.sql.
+# persistidos (BEFORE INSERT OR UPDATE, incl. el guard de transición legal de status) +
+# sync_wo_payment_installments() (delete de huérfanos + upsert del batch de cuotas en una
+# sola transacción, con validación de que las cuotas recibidas pertenezcan al plan_id
+# declarado). Consolidado en un solo archivo (revisiones posteriores de la misma Fase 2 se
+# editan aquí mismo, no en migraciones nuevas, mientras nada de esto se haya aplicado a un
+# Supabase real). Ejercitado por trigger-0722-156b-payment-exchange-rates.sql.
 run supabase/migrations/20260905172820_0722-156b_add_payment_exchange_rates.sql
-
-# 0722-156b (review iteración 4): cierra el bypass del freeze via INSERT directo (el
-# trigger de arriba solo corría BEFORE UPDATE) y agrega sync_wo_payment_installments()
-# para que el delete de huérfanos + el upsert del batch de cuotas sean una sola
-# transacción. Ejercitado por trigger-0722-156b-payment-exchange-rates.sql (mismo
-# archivo, sección agregada al final).
-run supabase/migrations/20260908130000_0722-156b_installment_insert_guard_and_atomic_sync.sql
 
 # society/practicas(code=1): staff.society_id/practica_id y categories.practica_id son NOT NULL
 # reales; varias suites (rpc-engagement-team-candidates.sql explícitamente lo exige con su

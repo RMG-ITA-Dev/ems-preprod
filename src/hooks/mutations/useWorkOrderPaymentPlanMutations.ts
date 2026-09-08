@@ -92,7 +92,7 @@ export function useUpsertPaymentPlan() {
 // transaccion, asi que si el DELETE tenia exito y el upsert posterior fallaba (ej.
 // INSTALLMENT_LOCKED por un feeWithTax que recalculaba el amount de una cuota ya
 // facturada), el DELETE quedaba committeado igual. sync_wo_payment_installments (migracion
-// 20260908130000) hace ambos pasos en una sola funcion -- una sola transaccion, revierte
+// 20260905172820) hace ambos pasos en una sola funcion -- una sola transaccion, revierte
 // todo si cualquier paso falla -- y corre SECURITY INVOKER, asi que las mismas RLS
 // policies de la tabla siguen aplicando exactamente igual.
 export function useBatchUpsertInstallments() {

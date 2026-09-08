@@ -5165,6 +5165,15 @@ BEGIN
   FROM jsonb_array_elements(p_installments) AS row_data
   WHERE row_data->>'installment_id' IS NOT NULL;
 
+  IF v_kept_ids IS NOT NULL AND EXISTS (
+    SELECT 1
+    FROM public.wo_payment_installments existing
+    WHERE existing.installment_id = ANY (v_kept_ids)
+      AND existing.plan_id <> p_plan_id
+  ) THEN
+    RAISE EXCEPTION 'INSTALLMENT_PLAN_MISMATCH: una o mas cuotas del payload no pertenecen al plan de pagos indicado';
+  END IF;
+
   IF v_kept_ids IS NOT NULL AND array_length(v_kept_ids, 1) > 0 THEN
     DELETE FROM public.wo_payment_installments
     WHERE plan_id = p_plan_id AND installment_id <> ALL (v_kept_ids);
