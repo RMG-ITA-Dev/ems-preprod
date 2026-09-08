@@ -160,6 +160,15 @@ describe("fetchProviderRate", () => {
     ["private 192.168.x", "https://192.168.1.5/oficial"],
     ["IPv6 loopback", "https://[::1]/oficial"],
     ["IPv6 link-local", "https://[fe80::1]/oficial"],
+    // MUST FIX review iteracion 6 #2: fe80::/10 es un rango de 64 valores en el primer
+    // grupo (fe80-febf), no solo el literal "fe80:" -- fe90/feb0 caian fuera del chequeo
+    // original.
+    ["IPv6 link-local outside literal fe80 prefix", "https://[fe90::1]/oficial"],
+    ["IPv6 link-local outside literal fe80 prefix (febf)", "https://[feb0::1]/oficial"],
+    // MUST FIX review iteracion 6 #2: IPv4 mapeado a IPv6 (equivalente a 127.0.0.1) no
+    // matcheaba ni el regex de IPv4 ni los prefijos de texto de IPv6.
+    ["IPv4-mapped loopback (dotted)", "https://[::ffff:127.0.0.1]/oficial"],
+    ["IPv4-mapped loopback (hex)", "https://[::ffff:7f00:1]/oficial"],
   ])("rejects %s before calling fetch", async (_label, url) => {
     const fetchSpy = vi.fn();
     globalThis.fetch = fetchSpy as unknown as typeof fetch;

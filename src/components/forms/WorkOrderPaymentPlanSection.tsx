@@ -395,18 +395,37 @@ export function WorkOrderPaymentPlanSection({
     );
   };
 
+  // MUST FIX review iteracion 6 #3: onChange (via onInstallmentsChange, que vive en el
+  // padre) actualiza el estado de forma asincrona; el onBlur de mas abajo, que persiste
+  // el valor con updateInstallmentExchangeRate.mutate(...), corre en el MISMO tick que
+  // un onChange de normalizacion disparado por numeric-input.tsx al perder foco (ej.
+  // limpiar un separador decimal colgado como "7,") -- si el onBlur lee `inst.*` del
+  // closure del ultimo render, todavia no ve ese valor recien normalizado y persiste el
+  // anterior. Este ref se actualiza de forma sincrona en el mismo evento, asi que el
+  // onBlur siempre puede leer el valor mas reciente sin depender de que el re-render ya
+  // haya ocurrido.
+  const pendingRateEditsRef = useRef<Record<string, { invoice?: number | null; payment?: number | null }>>({});
+
   // 0722-156b: solo relevantes en modo Variable (en Fijo la celda es de solo lectura,
   // reflejando el TC de creacion) — el freeze real lo aplica el trigger de DB sobre
   // la columna status persistida, `disabled` aca es solo UX.
   const handleInvoiceRateChange = (idx: number, val: number) => {
+    const inst = installments[idx];
+    const normalized = val > 0 ? val : null;
+    const key = inst.installment_id ?? String(idx);
+    pendingRateEditsRef.current[key] = { ...pendingRateEditsRef.current[key], invoice: normalized };
     onInstallmentsChange(
-      installments.map((inst, i) => (i === idx ? { ...inst, invoice_exchange_rate: val > 0 ? val : null } : inst)),
+      installments.map((i, idx2) => (idx2 === idx ? { ...i, invoice_exchange_rate: normalized } : i)),
     );
   };
 
   const handlePaymentRateChange = (idx: number, val: number) => {
+    const inst = installments[idx];
+    const normalized = val > 0 ? val : null;
+    const key = inst.installment_id ?? String(idx);
+    pendingRateEditsRef.current[key] = { ...pendingRateEditsRef.current[key], payment: normalized };
     onInstallmentsChange(
-      installments.map((inst, i) => (i === idx ? { ...inst, payment_exchange_rate: val > 0 ? val : null } : inst)),
+      installments.map((i, idx2) => (idx2 === idx ? { ...i, payment_exchange_rate: normalized } : i)),
     );
   };
 
@@ -679,7 +698,13 @@ export function WorkOrderPaymentPlanSection({
               </thead>
               <tbody>
                 {installments.map((inst, idx) => {
-                  const instAmount = computeAmount(inst.percentage, feeWithTax);
+                  // MUST FIX review iteracion 6 #5: una cuota bloqueada conserva su
+                  // `amount` congelado (ver el efecto de feeWithTax mas arriba) -- pero
+                  // este monto de pantalla se recalculaba igual desde el fee ACTUAL,
+                  // asi que la conversion a Bs (y la columna de monto) de una cuota ya
+                  // facturada podia divergir del monto realmente congelado tras un
+                  // cambio de fee tardio.
+                  const instAmount = isLocked(inst) ? inst.amount : computeAmount(inst.percentage, feeWithTax);
                   const dateEditable = isEditable || isAdminDateEditable;
                   const effectiveStatus = getEffectiveStatus(inst);
                   const availableOptions = STATUS_TRANSITIONS[effectiveStatus];
@@ -744,10 +769,11 @@ export function WorkOrderPaymentPlanSection({
                                       toast.error(t("workOrders.paymentPlan.validationSavePlanFirst"));
                                       return;
                                     }
+                                    const pending = pendingRateEditsRef.current[inst.installment_id];
                                     updateInstallmentExchangeRate.mutate({
                                       installmentId: inst.installment_id,
                                       field: "invoice_exchange_rate",
-                                      value: inst.invoice_exchange_rate,
+                                      value: pending?.invoice !== undefined ? pending.invoice : inst.invoice_exchange_rate,
                                       woId,
                                     });
                                   }
@@ -788,10 +814,11 @@ export function WorkOrderPaymentPlanSection({
                                       toast.error(t("workOrders.paymentPlan.validationSavePlanFirst"));
                                       return;
                                     }
+                                    const pending = pendingRateEditsRef.current[inst.installment_id];
                                     updateInstallmentExchangeRate.mutate({
                                       installmentId: inst.installment_id,
                                       field: "payment_exchange_rate",
-                                      value: inst.payment_exchange_rate,
+                                      value: pending?.payment !== undefined ? pending.payment : inst.payment_exchange_rate,
                                       woId,
                                     });
                                   }

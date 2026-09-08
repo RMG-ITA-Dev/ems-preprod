@@ -318,10 +318,13 @@ describe("WorkOrderPaymentPlanSection — per-installment TC cells (0722-156b Fa
   // MUST FIX 0722-156b review iteracion 4 #1/#6: las celdas de moneda del repo se
   // muestran sin decimales (docs/operations.md:36) -- formatBob redondeaba a 2.
   it("PEM12b: derived Bs amount with fractional bolivianos renders with zero decimals", () => {
-    // amount = 33.33% of 1000 = 333.3; invoice TC frozen at 6.955 -> 333.3*6.955 = 2318.0715
-    // -> computeConvertedAmount rounds to 2318.07 -> formatBob must round further to 2318 (no decimals).
+    // amount = 33.33% of 1000 = 333.3 (fijado explicitamente: MUST FIX review iteracion 6
+    // #5 -- una cuota Invoiced/locked usa su `amount` ya congelado, no un recalculo en
+    // vivo desde percentage x feeWithTax); invoice TC frozen at 6.955 -> 333.3*6.955 =
+    // 2318.1015 -> computeConvertedAmount redondea a 2318.10 -> formatBob debe redondear
+    // mas a 2318 (sin decimales).
     const installments = [
-      makeInstallment({ status: "Invoiced", percentage: 33.33, invoice_exchange_rate: 6.955, payment_exchange_rate: null }),
+      makeInstallment({ status: "Invoiced", percentage: 33.33, amount: 333.3, invoice_exchange_rate: 6.955, payment_exchange_rate: null }),
     ];
     renderSection({ plan: makePlan({ exchange_rate_mode: "variable" }), installments });
 

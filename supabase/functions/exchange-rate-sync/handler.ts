@@ -120,26 +120,47 @@ export interface FetchResult {
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
+function isBlockedIpv4(a: number, b: number): boolean {
+  if (a === 127) return true; // loopback
+  if (a === 10) return true; // private
+  if (a === 169 && b === 254) return true; // link-local / cloud metadata
+  if (a === 172 && b >= 16 && b <= 31) return true; // private
+  if (a === 192 && b === 168) return true; // private
+  return false;
+}
+
 // MUST FIX review iteracion 2 #8 (defensa en profundidad, complementaria al gate de
 // permiso global_settings.update que ya exige authorizeTestMode): rechaza loopback/
 // link-local (incl. 169.254.169.254, el endpoint de metadata de nube)/rangos privados
 // antes de hacer fetch, para que el modo test no pueda usarse para sondear la red
 // interna del servidor.
+//
+// MUST FIX review iteracion 6 #2: el chequeo de IPv6 solo miraba prefijos de texto
+// literales, dejando pasar 2 formas reales de escribir un host privado: (a) IPv4
+// mapeado a IPv6 (`::ffff:127.0.0.1` o su forma hex `::ffff:7f00:1`, ambas equivalentes
+// a 127.0.0.1) -- se desenvuelven a IPv4 y se re-chequean con isBlockedIpv4; (b)
+// `fe80::/10` (link-local) es un rango de 64 valores posibles en el primer grupo
+// (fe80-febf), no solo el literal "fe80:" -- ningun valor en ese rango admite menos de
+// 4 digitos hex (siempre >= 0x1000), asi que comparar el primer grupo completo cubre
+// el rango entero sin falsos positivos.
 function isBlockedHost(hostname: string): boolean {
   const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
   if (host === "localhost" || host === "0.0.0.0" || host === "::1") return true;
+
   const ipv4 = host.match(/^(\d{1,3})\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/);
-  if (ipv4) {
-    const a = Number(ipv4[1]);
-    const b = Number(ipv4[2]);
-    if (a === 127) return true; // loopback
-    if (a === 10) return true; // private
-    if (a === 169 && b === 254) return true; // link-local / cloud metadata
-    if (a === 172 && b >= 16 && b <= 31) return true; // private
-    if (a === 192 && b === 168) return true; // private
-    return false;
+  if (ipv4) return isBlockedIpv4(Number(ipv4[1]), Number(ipv4[2]));
+
+  const mappedDotted = host.match(/^::ffff:(\d{1,3})\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/);
+  if (mappedDotted) return isBlockedIpv4(Number(mappedDotted[1]), Number(mappedDotted[2]));
+
+  const mappedHex = host.match(/^::ffff:([0-9a-f]{1,4}):[0-9a-f]{1,4}$/);
+  if (mappedHex) {
+    const hi = parseInt(mappedHex[1], 16);
+    return isBlockedIpv4((hi >> 8) & 0xff, hi & 0xff);
   }
-  if (host.startsWith("fe80:")) return true; // IPv6 link-local
+
+  const firstHextet = host.split(":")[0];
+  if (/^fe[89ab][0-9a-f]$/.test(firstHextet)) return true; // IPv6 link-local (fe80::/10)
   if (host.startsWith("fc") || host.startsWith("fd")) return true; // IPv6 unique-local
   return false;
 }

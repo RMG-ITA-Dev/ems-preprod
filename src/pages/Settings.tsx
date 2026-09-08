@@ -1545,7 +1545,11 @@ const Settings = () => {
               <p>{t("settings.exchangeRateTestCompra", { value: exchangeRateTestResult.compra })}</p>
               <p>{t("settings.exchangeRateTestVenta", { value: exchangeRateTestResult.venta })}</p>
               <p>{t("settings.exchangeRateTestEffectiveDate", { date: formatEffectiveDate(exchangeRateTestResult.fecha_vigencia) })}</p>
-              <p>{t("settings.exchangeRateTestStatus", { value: exchangeRateTestResult.estado })}</p>
+              <p>
+                {t("settings.exchangeRateTestStatus", {
+                  value: t(`header.exchangeRate.status.${exchangeRateTestResult.estado}`),
+                })}
+              </p>
               <p>{t("settings.exchangeRateTestChannel", { value: exchangeRateTestResult.canal })}</p>
             </div>
           ) : null}

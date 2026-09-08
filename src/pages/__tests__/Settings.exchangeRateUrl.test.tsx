@@ -243,6 +243,24 @@ describe("Settings — EXCHANGE_RATE_API_URL field (BUG 0722-156, Fase 1)", () =
       expect(screen.queryByText(/2026-08-26/)).not.toBeInTheDocument();
     });
 
+    // MUST FIX review iteracion 6 #6: `estado` ("vigente"/"stale") es un enum crudo del
+    // microservicio -- antes se interpolaba sin traducir, mostrando literalmente
+    // "vigente" incluso en el locale inglés. Debe reusar las mismas claves ya usadas por
+    // el encabezado (header.exchangeRate.status.*), nunca el valor crudo.
+    it("localizes the provider status enum instead of showing the raw value (MUST FIX review iteracion 6 #6)", async () => {
+      functionsInvoke.mockResolvedValueOnce({
+        data: { compra: 11.57, venta: 11.67, fecha_vigencia: "2026-08-26", estado: "vigente", canal: "bcb-web" },
+        error: null,
+      });
+      const user = await openGlobalSettingsTab();
+      await user.clear(getUrlInput());
+      await user.type(getUrlInput(), "https://new.example.com/api");
+      await user.click(screen.getByText("settings.testConnection"));
+
+      await waitFor(() => expect(screen.getByText(/header\.exchangeRate\.status\.vigente/)).toBeInTheDocument());
+      expect(screen.queryByText(/"value":"vigente"/)).not.toBeInTheDocument();
+    });
+
     it("renders a translated generic error in the modal when the failure carries no error code (MUST FIX review iteracion 1 #10: never the raw Spanish server message)", async () => {
       functionsInvoke.mockResolvedValueOnce({
         data: null,

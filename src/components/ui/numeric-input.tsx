@@ -313,8 +313,8 @@ const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps>(
         value={intermediateValue !== null ? intermediateValue : formatValue(value)}
         onChange={handleChange}
         onKeyDown={handleKeyDown}
-        onBlur={handleBlur}
         {...props}
+        onBlur={handleBlur}
       />
     );
   }

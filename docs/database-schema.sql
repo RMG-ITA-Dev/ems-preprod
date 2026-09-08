@@ -5767,6 +5767,18 @@ DECLARE
   v_approval_status text;
   v_has_locked_installment boolean;
 BEGIN
+  IF TG_OP = 'INSERT' THEN
+    SELECT approval_status INTO v_approval_status
+    FROM public.work_orders
+    WHERE wo_id = NEW.wo_id;
+
+    IF v_approval_status = 'Approved' THEN
+      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: no se puede crear un plan de pagos: la orden de trabajo ya fue aprobada';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
   IF NEW.exchange_rate IS NOT DISTINCT FROM OLD.exchange_rate
      AND NEW.exchange_rate_mode IS NOT DISTINCT FROM OLD.exchange_rate_mode THEN
     RETURN NEW;
@@ -7943,7 +7955,7 @@ CREATE TRIGGER trg_wo_payment_installments_guard_delete BEFORE DELETE ON public.
 -- Name: wo_payment_plan trg_wo_payment_plan_guard_exchange_rate; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER trg_wo_payment_plan_guard_exchange_rate BEFORE UPDATE ON public.wo_payment_plan FOR EACH ROW EXECUTE FUNCTION public.wo_payment_plan_guard_exchange_rate();
+CREATE TRIGGER trg_wo_payment_plan_guard_exchange_rate BEFORE INSERT OR UPDATE ON public.wo_payment_plan FOR EACH ROW EXECUTE FUNCTION public.wo_payment_plan_guard_exchange_rate();
 
 
 --

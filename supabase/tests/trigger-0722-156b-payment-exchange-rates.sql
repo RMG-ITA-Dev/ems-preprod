@@ -52,18 +52,26 @@ INSERT INTO public.engagements (engagement_id, client_id, engagement_name, pract
   ('e0000000-0000-4000-8000-0000000000c1', 'c1000000-0000-4000-8000-0000000000c1', 'PER E1 (Draft WO, Fijo)',    1, '2026-09-30', (SELECT society_id FROM public.society WHERE society_id = '50c00000-0000-4000-8000-0000000000c1')),
   ('e0000000-0000-4000-8000-0000000000c2', 'c1000000-0000-4000-8000-0000000000c1', 'PER E2 (Approved WO, Variable)', 1, '2026-09-30', (SELECT society_id FROM public.society WHERE society_id = '50c00000-0000-4000-8000-0000000000c1')),
   ('e0000000-0000-4000-8000-0000000000c3', 'c1000000-0000-4000-8000-0000000000c1', 'PER E3 (Draft WO, Variable)', 1, '2026-09-30', (SELECT society_id FROM public.society WHERE society_id = '50c00000-0000-4000-8000-0000000000c1')),
-  ('e0000000-0000-4000-8000-0000000000c4', 'c1000000-0000-4000-8000-0000000000c1', 'PER E4 (Approved WO, TC nulo)', 1, '2026-09-30', (SELECT society_id FROM public.society WHERE society_id = '50c00000-0000-4000-8000-0000000000c1'));
+  ('e0000000-0000-4000-8000-0000000000c4', 'c1000000-0000-4000-8000-0000000000c1', 'PER E4 (TC nulo)', 1, '2026-09-30', (SELECT society_id FROM public.society WHERE society_id = '50c00000-0000-4000-8000-0000000000c1'));
 
 -- wo_payment_plan.wo_id es UNIQUE (cero_03_constraints_indexes.sql) -- cada OT de arriba
 -- tiene como maximo un plan; el fixture de "TC nulo" mas abajo NO puede reusar c2
 -- (bug preexistente en este archivo: insertaba un 2do plan para c2, que ya tiene
 -- v_plan_approved -- nunca se detecto porque el suite no se habia corrido contra una
--- DB real todavia). Usa c4, su propia OT Approved.
+-- DB real todavia). Usa c4, su propia OT.
+-- MUST FIX review iteracion 6 #1: c2 y c4 se creaban directamente como Approved -- desde
+-- que trg_wo_payment_plan_guard_exchange_rate tambien corre BEFORE INSERT
+-- (20260908150000), el INSERT de sus planes (v_plan_approved / v_plan_null_rate) quedaba
+-- rechazado, porque en la realidad un plan SIEMPRE se crea en Draft y recien despues la
+-- OT se aprueba -- nunca al reves. c2 arranca Draft aca y se aprueba con un UPDATE justo
+-- despues de crear su plan (reflejando la secuencia real, el resto del suite si necesita
+-- que quede Approved); c4 no necesita estar Approved para lo que este fixture ejercita
+-- (preservacion de NULL en el backfill), asi que se deja en Draft sin mas.
 INSERT INTO public.work_orders (wo_id, engagement_id, currency, season_mode, approval_status) VALUES
   ('40000000-0000-4000-8000-0000000000c1', 'e0000000-0000-4000-8000-0000000000c1', 'USD', 'High', 'Draft'),
-  ('40000000-0000-4000-8000-0000000000c2', 'e0000000-0000-4000-8000-0000000000c2', 'USD', 'High', 'Approved'),
+  ('40000000-0000-4000-8000-0000000000c2', 'e0000000-0000-4000-8000-0000000000c2', 'USD', 'High', 'Draft'),
   ('40000000-0000-4000-8000-0000000000c3', 'e0000000-0000-4000-8000-0000000000c3', 'USD', 'High', 'Draft'),
-  ('40000000-0000-4000-8000-0000000000c4', 'e0000000-0000-4000-8000-0000000000c4', 'USD', 'High', 'Approved');
+  ('40000000-0000-4000-8000-0000000000c4', 'e0000000-0000-4000-8000-0000000000c4', 'USD', 'High', 'Draft');
 
 DO $$
 DECLARE
@@ -106,6 +114,10 @@ BEGIN
   INSERT INTO public.wo_payment_plan (wo_id, exchange_rate, payment_days, exchange_rate_mode)
   VALUES ('40000000-0000-4000-8000-0000000000c2', 6.90, 30, 'variable')
   RETURNING plan_id INTO v_plan_approved;
+
+  -- Recien AHORA se aprueba la OT (el plan ya existe, como en la realidad) -- ver
+  -- comentario de la fixture de work_orders mas arriba.
+  UPDATE public.work_orders SET approval_status = 'Approved' WHERE wo_id = '40000000-0000-4000-8000-0000000000c2';
 
   denied := false;
   BEGIN
@@ -843,6 +855,48 @@ BEGIN
   RAISE NOTICE 'PASS — el rechazo de ownership no modifica ni la cuota ajena ni las del plan propio';
 
   RAISE NOTICE 'INSTALLMENT INSERT GUARD + SYNC RPC: ALL CHECKS PASSED (rolled back)';
+END $$;
+
+-- ══════════════════════════════════════════════════════════════════════
+-- MUST FIX 0722-156b review iteracion 6 #1 — migracion 20260908150000:
+--   trg_wo_payment_plan_guard_exchange_rate solo corria BEFORE UPDATE -- una OT ya
+--   Aprobada puede legitimamente no tener ningun plan todavia; sin este guard, un
+--   INSERT directo podia crear uno con TC/modo arbitrario, sin pasar por ninguna
+--   validacion.
+-- Fixture propio (E8/WO8): OT Approved, SIN plan de pagos.
+-- ══════════════════════════════════════════════════════════════════════
+
+INSERT INTO public.engagements (engagement_id, client_id, engagement_name, practica, fecha_cierre, society_id) VALUES
+  ('e0000000-0000-4000-8000-0000000000c8', 'c1000000-0000-4000-8000-0000000000c1', 'PER E8 (Approved WO, sin plan)', 1, '2026-09-30', (SELECT society_id FROM public.society WHERE society_id = '50c00000-0000-4000-8000-0000000000c1'));
+
+INSERT INTO public.work_orders (wo_id, engagement_id, currency, season_mode, approval_status) VALUES
+  ('40000000-0000-4000-8000-0000000000c8', 'e0000000-0000-4000-8000-0000000000c8', 'USD', 'High', 'Approved');
+
+DO $$
+DECLARE
+  denied boolean;
+BEGIN
+  denied := false;
+  BEGIN
+    INSERT INTO public.wo_payment_plan (wo_id, exchange_rate, exchange_rate_mode)
+    VALUES ('40000000-0000-4000-8000-0000000000c8', 6.96, 'fijo');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'EXCHANGE_RATE_LOCKED%' THEN
+      denied := true;
+    ELSE
+      RAISE;
+    END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'PER FAIL — un INSERT directo pudo crear un plan de pagos para una OT ya Aprobada';
+  END IF;
+  RAISE NOTICE 'PASS — INSERT directo de un plan de pagos para una OT ya Aprobada es rechazado (EXCHANGE_RATE_LOCKED)';
+
+  IF EXISTS (SELECT 1 FROM public.wo_payment_plan WHERE wo_id = '40000000-0000-4000-8000-0000000000c8') THEN
+    RAISE EXCEPTION 'PER FAIL — el plan rechazado igual quedo insertado';
+  END IF;
+
+  RAISE NOTICE 'PLAN INSERT GUARD: ALL CHECKS PASSED (rolled back)';
 END $$;
 
 ROLLBACK;
