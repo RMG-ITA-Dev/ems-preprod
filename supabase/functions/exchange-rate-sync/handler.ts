@@ -60,6 +60,47 @@ export interface HandlerResult {
   payload: Record<string, unknown>;
 }
 
+/** Minimal shape of the Supabase client needed to authorize a test-mode request —
+ * deliberately NOT the full supabase-js client type, so a fake can implement it in
+ * Vitest without any Deno-only import. */
+export interface AuthClient {
+  auth: {
+    getUser(token: string): Promise<{ data: { user: unknown } | null; error: unknown }>;
+  };
+  rpc(fn: string, args: Record<string, unknown>): Promise<{ data: unknown; error: unknown }>;
+}
+
+/** MUST FIX review iteracion 1 #6: this authorization check (missing/invalid JWT,
+ * missing global_settings.update permission) previously lived inline in index.ts,
+ * which imports Deno-only modules and could not be unit-tested directly — the SSRF
+ * gate (handleTest fetches a caller-supplied URL) was covered only by manual
+ * post-deploy verification. Extracted here, with no Deno-only imports, so it can be
+ * exercised the same way as validateAndMapRate/fetchProviderRate above. */
+export async function authorizeTestMode(
+  client: AuthClient,
+  authHeader: string | null,
+): Promise<HandlerResult | null> {
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return { status: 401, payload: { error: { code: "unauthorized", message: "Missing Authorization header" } } };
+  }
+  const token = authHeader.replace("Bearer ", "");
+  const { data: userData, error: userError } = await client.auth.getUser(token);
+  if (userError || !userData?.user) {
+    return { status: 401, payload: { error: { code: "unauthorized", message: "Invalid token" } } };
+  }
+
+  // Admin gate: this mode fetches a caller-supplied URL (SSRF surface), so an
+  // authenticated-but-unprivileged caller must not be able to use it as an open proxy.
+  const { data: allowed, error: permError } = await client.rpc("has_permission", {
+    p_permission_key: "global_settings.update",
+  });
+  if (permError || allowed !== true) {
+    return { status: 403, payload: { error: { code: "forbidden", message: "Requires global_settings.update" } } };
+  }
+
+  return null; // authorized — caller proceeds to handleTest
+}
+
 // Deliberately NOT a discriminated union (`{ok:true;row}|{ok:false;error}`): this repo's
 // tsconfig.app.json runs with strictNullChecks:false, under which TypeScript 5.8's control-flow
 // narrowing on an `if (!x.ok)` check does not narrow such a union — every call site would then
@@ -78,6 +119,30 @@ export interface FetchResult {
 }
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+// MUST FIX review iteracion 2 #8 (defensa en profundidad, complementaria al gate de
+// permiso global_settings.update que ya exige authorizeTestMode): rechaza loopback/
+// link-local (incl. 169.254.169.254, el endpoint de metadata de nube)/rangos privados
+// antes de hacer fetch, para que el modo test no pueda usarse para sondear la red
+// interna del servidor.
+function isBlockedHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (host === "localhost" || host === "0.0.0.0" || host === "::1") return true;
+  const ipv4 = host.match(/^(\d{1,3})\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/);
+  if (ipv4) {
+    const a = Number(ipv4[1]);
+    const b = Number(ipv4[2]);
+    if (a === 127) return true; // loopback
+    if (a === 10) return true; // private
+    if (a === 169 && b === 254) return true; // link-local / cloud metadata
+    if (a === 172 && b >= 16 && b <= 31) return true; // private
+    if (a === 192 && b === 168) return true; // private
+    return false;
+  }
+  if (host.startsWith("fe80:")) return true; // IPv6 link-local
+  if (host.startsWith("fc") || host.startsWith("fd")) return true; // IPv6 unique-local
+  return false;
+}
 
 /** Validates and maps the microservice's camelCase response to our snake_case row shape.
  * Rates/currency/channel/status are checked strictly (they drive CHECK constraints and
@@ -149,6 +214,9 @@ export async function fetchProviderRate(url: string): Promise<FetchResult> {
   if (parsed.protocol !== "https:") {
     return { ok: false, error: "URL del microservicio debe ser HTTPS" };
   }
+  if (isBlockedHost(parsed.hostname)) {
+    return { ok: false, error: "URL del microservicio apunta a un host no permitido" };
+  }
 
   let response: Response;
   try {
@@ -186,8 +254,12 @@ export async function handleSync(db: ExchangeRateDb): Promise<HandlerResult> {
     .eq("setting_key", "EXCHANGE_RATE_API_URL")
     .maybeSingle();
   if (settingRes.error) {
+    // MUST FIX review iteracion 2 #6: settingRes.error.message es un mensaje crudo de
+    // Postgres/PostgREST -- se loguea completo server-side (arriba) pero NUNCA viaja al
+    // caller, porque esta funcion corre en modo sync sin autenticacion (verify_jwt=false,
+    // sin chequeo en el handler) y es alcanzable por cualquiera en internet.
     console.error("exchange-rate-sync: could not read EXCHANGE_RATE_API_URL", settingRes.error);
-    return { status: 500, payload: { error: { code: "settings_read_failed", message: settingRes.error.message } } };
+    return { status: 500, payload: { error: { code: "settings_read_failed" } } };
   }
   const url = (settingRes.data as { setting_value?: string } | null)?.setting_value ?? "";
 
@@ -210,7 +282,7 @@ export async function handleSync(db: ExchangeRateDb): Promise<HandlerResult> {
     .maybeSingle();
   if (existingRes.error) {
     console.error("exchange-rate-sync: could not read existing row", existingRes.error);
-    return { status: 500, payload: { error: { code: "history_read_failed", message: existingRes.error.message } } };
+    return { status: 500, payload: { error: { code: "history_read_failed" } } };
   }
 
   if (existingRes.data && rowsEqual(mapped.row, existingRes.data as Record<string, unknown>)) {
@@ -222,7 +294,7 @@ export async function handleSync(db: ExchangeRateDb): Promise<HandlerResult> {
     .upsert(mapped.row as unknown as Record<string, unknown>, { onConflict: "fecha_vigencia" });
   if (upsertRes.error) {
     console.error("exchange-rate-sync: upsert failed", upsertRes.error);
-    return { status: 500, payload: { error: { code: "upsert_failed", message: upsertRes.error.message } } };
+    return { status: 500, payload: { error: { code: "upsert_failed" } } };
   }
 
   return { status: 200, payload: { ...mapped.row, written: true } };

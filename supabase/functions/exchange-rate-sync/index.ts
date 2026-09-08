@@ -8,16 +8,20 @@
 //     by design (verify_jwt=false at the gateway, see supabase/config.toml) precisely so
 //     that works without any change here (plan_v2.md Amendment 2026-09-04 parte 2).
 //   - {mode:"test", url:"..."}: dry-run against the given URL (typed in Settings, possibly
-//     unsaved) — admin-gated IN-HANDLER (has_permission('global_settings.update') via the
-//     caller's own JWT), because an anonymous caller passing an arbitrary URL here would
-//     otherwise turn this public function into an open SSRF proxy.
+//     unsaved) — admin-gated via authorizeTestMode() in handler.ts (has_permission(
+//     'global_settings.update') via the caller's own JWT), because an anonymous caller
+//     passing an arbitrary URL here would otherwise turn this public function into an
+//     open SSRF proxy. authorizeTestMode has no Deno-only imports, so the gate itself is
+//     unit-tested in exchangeRateSyncHandler.test.ts (review iteracion 1 MUST FIX #6) —
+//     only this file's request routing/CORS glue stays untested, verified by direct
+//     invocation after deploy instead.
 //
-// DEPLOYMENT: committing this file configures nothing. Deploy via Lovable chat ("Deploy
-// the exchange-rate-sync edge function") and verify by direct invocation.
+// DEPLOYMENT: committing this file configures nothing by itself — it still needs an
+// actual deploy of the function to whatever Supabase project is the current target.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { handleSync, handleTest, type ExchangeRateDb } from "./handler.ts";
+import { handleSync, handleTest, authorizeTestMode, type ExchangeRateDb } from "./handler.ts";
 
 const staticAllowedOrigins = [
   Deno.env.get("FRONTEND_URL") || "",
@@ -86,34 +90,13 @@ serve(async (req) => {
 
     if (mode === "test") {
       const authHeader = req.headers.get("Authorization");
-      if (!authHeader || !authHeader.startsWith("Bearer ")) {
-        return new Response(
-          JSON.stringify({ error: { code: "unauthorized", message: "Missing Authorization header" } }),
-          { status: 401, headers: jsonHeaders },
-        );
-      }
       const supabaseAnon = createClient(supabaseUrl, supabaseAnonKey, {
-        global: { headers: { Authorization: authHeader } },
+        global: { headers: { Authorization: authHeader ?? "" } },
       });
-      const token = authHeader.replace("Bearer ", "");
-      const { data: userData, error: userError } = await supabaseAnon.auth.getUser(token);
-      if (userError || !userData?.user) {
-        return new Response(
-          JSON.stringify({ error: { code: "unauthorized", message: "Invalid token" } }),
-          { status: 401, headers: jsonHeaders },
-        );
-      }
 
-      // Admin gate: this mode fetches a caller-supplied URL (SSRF surface), so an
-      // authenticated-but-unprivileged caller must not be able to use it as an open proxy.
-      const { data: allowed, error: permError } = await supabaseAnon.rpc("has_permission", {
-        p_permission_key: "global_settings.update",
-      });
-      if (permError || allowed !== true) {
-        return new Response(
-          JSON.stringify({ error: { code: "forbidden", message: "Requires global_settings.update" } }),
-          { status: 403, headers: jsonHeaders },
-        );
+      const authFailure = await authorizeTestMode(supabaseAnon, authHeader);
+      if (authFailure) {
+        return new Response(JSON.stringify(authFailure.payload), { status: authFailure.status, headers: jsonHeaders });
       }
 
       const result = await handleTest((body as { url?: unknown })?.url);

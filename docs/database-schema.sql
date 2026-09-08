@@ -5595,19 +5595,43 @@ CREATE FUNCTION public.wo_payment_installments_guard_exchange_rate() RETURNS tri
     AS $$
 DECLARE
   v_approval_status text;
+  v_exchange_rate_mode text;
+  v_legal_transition boolean;
 BEGIN
+  IF NEW.status IS DISTINCT FROM OLD.status THEN
+    v_legal_transition := CASE OLD.status
+      WHEN 'Pending'   THEN NEW.status = 'Invoiced'
+      WHEN 'Overdue'   THEN NEW.status = 'Invoiced'
+      WHEN 'Invoiced'  THEN NEW.status IN ('Completed', 'Overdue')
+      ELSE false
+    END;
+    IF NOT v_legal_transition THEN
+      RAISE EXCEPTION 'INVALID_STATUS_TRANSITION: % -> % no es una transicion de estado permitida', OLD.status, NEW.status;
+    END IF;
+  END IF;
+
+  IF OLD.status <> 'Pending' AND (
+    NEW.percentage IS DISTINCT FROM OLD.percentage
+    OR NEW.amount IS DISTINCT FROM OLD.amount
+    OR NEW.installment_number IS DISTINCT FROM OLD.installment_number
+  ) THEN
+    RAISE EXCEPTION 'INSTALLMENT_LOCKED: esta cuota ya fue facturada y no puede modificarse (porcentaje/monto/numero)';
+  END IF;
+
   IF NEW.invoice_exchange_rate IS DISTINCT FROM OLD.invoice_exchange_rate
      OR NEW.payment_exchange_rate IS DISTINCT FROM OLD.payment_exchange_rate THEN
-    SELECT approval_status INTO v_approval_status
-    FROM public.work_orders
-    WHERE wo_id = NEW.wo_id;
+    SELECT wo.approval_status, p.exchange_rate_mode
+    INTO v_approval_status, v_exchange_rate_mode
+    FROM public.work_orders wo
+    JOIN public.wo_payment_plan p ON p.wo_id = wo.wo_id
+    WHERE wo.wo_id = NEW.wo_id;
   END IF;
 
   IF NEW.invoice_exchange_rate IS DISTINCT FROM OLD.invoice_exchange_rate THEN
     IF OLD.status <> 'Pending' THEN
       RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de facturacion de esta cuota ya esta congelado';
     END IF;
-    IF v_approval_status IS DISTINCT FROM 'Approved' THEN
+    IF v_exchange_rate_mode = 'variable' AND v_approval_status IS DISTINCT FROM 'Approved' THEN
       RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de facturacion solo puede capturarse una vez que la orden de trabajo fue aprobada';
     END IF;
   END IF;
@@ -5616,12 +5640,34 @@ BEGIN
     IF OLD.status = 'Completed' THEN
       RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de pago de esta cuota ya esta congelado';
     END IF;
-    IF v_approval_status IS DISTINCT FROM 'Approved' THEN
-      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de pago solo puede capturarse una vez que la orden de trabajo fue aprobada';
+    IF v_exchange_rate_mode = 'variable' THEN
+      IF OLD.status = 'Pending' THEN
+        RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de pago solo puede capturarse una vez facturada la cuota';
+      END IF;
+      IF v_approval_status IS DISTINCT FROM 'Approved' THEN
+        RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de pago solo puede capturarse una vez que la orden de trabajo fue aprobada';
+      END IF;
     END IF;
   END IF;
 
   RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: wo_payment_installments_guard_delete(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.wo_payment_installments_guard_delete() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF OLD.status <> 'Pending' THEN
+    RAISE EXCEPTION 'INSTALLMENT_LOCKED: esta cuota ya fue facturada y no puede eliminarse';
+  END IF;
+  RETURN OLD;
 END;
 $$;
 
@@ -5636,6 +5682,7 @@ CREATE FUNCTION public.wo_payment_plan_guard_exchange_rate() RETURNS trigger
     AS $$
 DECLARE
   v_approval_status text;
+  v_has_locked_installment boolean;
 BEGIN
   IF NEW.exchange_rate IS NOT DISTINCT FROM OLD.exchange_rate
      AND NEW.exchange_rate_mode IS NOT DISTINCT FROM OLD.exchange_rate_mode THEN
@@ -5648,6 +5695,15 @@ BEGIN
 
   IF v_approval_status = 'Approved' THEN
     RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio del plan de pagos no puede modificarse: la orden de trabajo ya fue aprobada';
+  END IF;
+
+  SELECT EXISTS (
+    SELECT 1 FROM public.wo_payment_installments
+    WHERE plan_id = NEW.plan_id AND status <> 'Pending'
+  ) INTO v_has_locked_installment;
+
+  IF v_has_locked_installment THEN
+    RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio del plan de pagos no puede modificarse: ya existe una cuota facturada con un tipo de cambio congelado';
   END IF;
 
   RETURN NEW;
@@ -7791,6 +7847,13 @@ CREATE TRIGGER tr_wo_guard_risk_approval BEFORE UPDATE ON public.work_orders FOR
 --
 
 CREATE TRIGGER trg_wo_payment_installments_guard_exchange_rate BEFORE UPDATE ON public.wo_payment_installments FOR EACH ROW EXECUTE FUNCTION public.wo_payment_installments_guard_exchange_rate();
+
+
+--
+-- Name: wo_payment_installments trg_wo_payment_installments_guard_delete; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_wo_payment_installments_guard_delete BEFORE DELETE ON public.wo_payment_installments FOR EACH ROW EXECUTE FUNCTION public.wo_payment_installments_guard_delete();
 
 
 --

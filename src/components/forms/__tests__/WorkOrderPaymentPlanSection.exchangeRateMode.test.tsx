@@ -258,18 +258,21 @@ describe("WorkOrderPaymentPlanSection — per-installment TC cells (0722-156b Fa
     expect(screen.queryByTestId("installment-payment-rate")).not.toBeInTheDocument();
   });
 
-  it("PEM9: modo Variable renders editable NumericInput cells for a Pending installment, auto-initialized with the latest buy rate", () => {
+  it("PEM9: modo Variable renders an editable invoice-TC input for a Pending installment, auto-initialized with the latest buy rate, but keeps the payment-TC input disabled (nothing has been invoiced yet)", () => {
+    // MUST FIX review iteracion 1 #1: el TC de pago no es una captura independiente
+    // valida hasta que la cuota se factura — antes de esta correccion quedaba
+    // habilitado incluso en Pending.
     const installments = [makeInstallment({ status: "Pending", invoice_exchange_rate: 11.57, payment_exchange_rate: 11.57 })];
     renderSection({ plan: makePlan({ exchange_rate_mode: "variable" }), installments });
 
     const invoiceInput = screen.getByTestId("installment-invoice-rate") as HTMLInputElement;
     const paymentInput = screen.getByTestId("installment-payment-rate") as HTMLInputElement;
     expect(invoiceInput.disabled).toBe(false);
-    expect(paymentInput.disabled).toBe(false);
+    expect(paymentInput.disabled).toBe(true);
     expect(Number(invoiceInput.value)).toBe(11.57);
   });
 
-  it("PEM10: modo Variable freezes the invoice TC input once the installment is Invoiced (persisted status), while the payment TC stays editable", () => {
+  it("PEM10: modo Variable freezes the invoice TC input once the installment is Invoiced (persisted status), and the payment TC becomes editable from that point on", () => {
     const installments = [makeInstallment({ status: "Invoiced", invoice_exchange_rate: 6.95, payment_exchange_rate: null })];
     renderSection({ plan: makePlan({ exchange_rate_mode: "variable" }), installments });
 
@@ -277,6 +280,13 @@ describe("WorkOrderPaymentPlanSection — per-installment TC cells (0722-156b Fa
     const paymentInput = screen.getByTestId("installment-payment-rate") as HTMLInputElement;
     expect(invoiceInput.disabled).toBe(true);
     expect(paymentInput.disabled).toBe(false);
+  });
+
+  it("PEM10b: modo Variable keeps the payment TC input editable during a persisted post-invoice Overdue", () => {
+    const installments = [makeInstallment({ status: "Overdue", invoice_exchange_rate: 6.95, payment_exchange_rate: null })];
+    renderSection({ plan: makePlan({ exchange_rate_mode: "variable" }), installments });
+
+    expect((screen.getByTestId("installment-payment-rate") as HTMLInputElement).disabled).toBe(false);
   });
 
   it("PEM11: modo Variable freezes the payment TC input once the installment is Completed", () => {
@@ -388,5 +398,107 @@ describe("WorkOrderPaymentPlanSection — per-installment TC cells (0722-156b Fa
 
       expect(mockUpdateExchangeRate).not.toHaveBeenCalled();
     });
+
+    it("PEM18: no persiste al hacer blur si el plan tiene cambios sin guardar (isPaymentPlanDirty)", () => {
+      mockUpdateExchangeRate.mockClear();
+      const installments = [
+        makeInstallment({ installment_id: "inst-dirty", status: "Pending", invoice_exchange_rate: 11.57 }),
+      ];
+      renderSection({ plan: makePlan({ exchange_rate_mode: "variable" }), installments, isPaymentPlanDirty: true });
+
+      const input = screen.getByTestId("installment-invoice-rate");
+      fireEvent.change(input, { target: { value: "7.02" } });
+      fireEvent.blur(input);
+
+      expect(mockUpdateExchangeRate).not.toHaveBeenCalled();
+    });
+  });
+});
+
+// review iteracion 2 #1/#3 (decision del operador: "si una cuota ya esta facturada, no
+// se puede modificar o eliminar de ninguna manera").
+describe("WorkOrderPaymentPlanSection — cuotas ya facturadas son inmutables (review iteracion 2)", () => {
+  // Todas las cuotas de este describe traen invoice_exchange_rate/payment_exchange_rate
+  // ya sincronizados con el TC del plan (6.96, ver makePlan()) para que el efecto de
+  // auto-sincronizacion (review iteracion 1 #2) no dispare en el montaje y contamine
+  // `mock.calls[0]` antes del click que cada test quiere ejercitar.
+  it("PEM19: el boton de borrar no se muestra para una cuota ya facturada (Invoiced)", () => {
+    const installments = [
+      makeInstallment({ installment_number: 1, status: "Invoiced", invoice_exchange_rate: 6.96, payment_exchange_rate: 6.96 }),
+      makeInstallment({ installment_number: 2, status: "Pending", invoice_exchange_rate: 6.96, payment_exchange_rate: 6.96 }),
+    ];
+    renderSection({ installments });
+
+    expect(screen.queryByTestId("installment-delete-0")).not.toBeInTheDocument();
+    expect(screen.getByTestId("installment-delete-1")).toBeInTheDocument();
+  });
+
+  it("PEM20: reducir la cantidad de cuotas por debajo de las ya facturadas se rechaza sin tocar nada", () => {
+    const onInstallmentsChange = vi.fn();
+    const installments = [
+      makeInstallment({ installment_number: 1, status: "Invoiced", percentage: 100, amount: 1000, invoice_exchange_rate: 6.96, payment_exchange_rate: 6.96 }),
+    ];
+    renderSection({ installments, onInstallmentsChange });
+
+    fireEvent.click(screen.getByTestId("payment-plan-installments-minus"));
+
+    expect(onInstallmentsChange).not.toHaveBeenCalled();
+  });
+
+  it("PEM21: agregar cuotas redistribuye solo el porcentaje de las cuotas Pending, sin tocar la ya facturada", () => {
+    const onInstallmentsChange = vi.fn();
+    const installments = [
+      makeInstallment({ installment_number: 1, status: "Invoiced", percentage: 40, amount: 400, invoice_exchange_rate: 6.96, payment_exchange_rate: 6.96 }),
+      makeInstallment({ installment_number: 2, status: "Pending", percentage: 60, amount: 600, invoice_exchange_rate: 6.96, payment_exchange_rate: 6.96 }),
+    ];
+    renderSection({ installments, feeWithTax: 1000, onInstallmentsChange });
+
+    fireEvent.click(screen.getByTestId("payment-plan-installments-plus"));
+
+    const rows = onInstallmentsChange.mock.calls[0][0] as PaymentInstallmentInput[];
+    const invoiced = rows.find((r) => r.status === "Invoiced")!;
+    expect(invoiced.percentage).toBe(40); // unchanged
+    expect(invoiced.amount).toBe(400); // unchanged
+    const pendingSum = rows.filter((r) => r.status === "Pending").reduce((s, r) => s + r.percentage, 0);
+    expect(Math.abs(pendingSum - 60)).toBeLessThanOrEqual(0.01); // remaining 60% split across Pending rows
+  });
+
+  it("PEM22: quitar cuotas solo remueve filas Pending, nunca la ya facturada", () => {
+    const onInstallmentsChange = vi.fn();
+    const installments = [
+      makeInstallment({ installment_number: 1, status: "Invoiced", percentage: 30, amount: 300, invoice_exchange_rate: 6.96, payment_exchange_rate: 6.96 }),
+      makeInstallment({ installment_number: 2, status: "Pending", percentage: 35, amount: 350, invoice_exchange_rate: 6.96, payment_exchange_rate: 6.96 }),
+      makeInstallment({ installment_number: 3, status: "Pending", percentage: 35, amount: 350, invoice_exchange_rate: 6.96, payment_exchange_rate: 6.96 }),
+    ];
+    renderSection({ installments, feeWithTax: 1000, onInstallmentsChange });
+
+    fireEvent.click(screen.getByTestId("payment-plan-installments-minus"));
+
+    const rows = onInstallmentsChange.mock.calls[0][0] as PaymentInstallmentInput[];
+    expect(rows).toHaveLength(2);
+    expect(rows.some((r) => r.status === "Invoiced")).toBe(true);
+    const pendingRow = rows.find((r) => r.status === "Pending")!;
+    expect(pendingRow.percentage).toBe(70); // remaining 70% on the single surviving Pending row
+  });
+
+  it("PEM23: el TC/modo del plan quedan bloqueados si ya existe alguna cuota facturada, aunque isEditable siga true (revertir aprobacion)", () => {
+    const installments = [
+      makeInstallment({ installment_number: 1, status: "Invoiced", invoice_exchange_rate: 6.96, payment_exchange_rate: 6.96 }),
+    ];
+    renderSection({ installments, isEditable: true });
+
+    expect(screen.getByTestId("payment-plan-exchange-rate")).toBeDisabled();
+    expect(screen.getByTestId("payment-plan-exchange-rate-mode-fijo")).toBeDisabled();
+    expect(screen.getByTestId("payment-plan-exchange-rate-mode-variable")).toBeDisabled();
+  });
+
+  it("PEM24: el TC/modo del plan siguen editables cuando todas las cuotas son Pending", () => {
+    const installments = [
+      makeInstallment({ installment_number: 1, status: "Pending", invoice_exchange_rate: 6.96, payment_exchange_rate: 6.96 }),
+    ];
+    renderSection({ installments, isEditable: true });
+
+    expect(screen.getByTestId("payment-plan-exchange-rate")).not.toBeDisabled();
+    expect(screen.getByTestId("payment-plan-exchange-rate-mode-fijo")).not.toBeDisabled();
   });
 });

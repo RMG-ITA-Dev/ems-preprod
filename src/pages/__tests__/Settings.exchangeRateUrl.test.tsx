@@ -204,9 +204,13 @@ describe("Settings — EXCHANGE_RATE_API_URL field (BUG 0722-156, Fase 1)", () =
       }));
       await waitFor(() => expect(screen.getByText("settings.exchangeRateTestModalTitle")).toBeInTheDocument());
       expect(screen.getByText(/settings\.exchangeRateTestCompra/)).toBeInTheDocument();
+      // MUST FIX review iteracion 1 #8: fecha_vigencia ("2026-08-26") se muestra en
+      // DD/MM/YYYY como el resto de la app, nunca el YYYY-MM-DD crudo del microservicio.
+      expect(screen.getByText(/26\/08\/2026/)).toBeInTheDocument();
+      expect(screen.queryByText(/2026-08-26/)).not.toBeInTheDocument();
     });
 
-    it("renders the translated error in the modal on a failed test call", async () => {
+    it("renders a translated generic error in the modal when the failure carries no error code (MUST FIX review iteracion 1 #10: never the raw Spanish server message)", async () => {
       functionsInvoke.mockResolvedValueOnce({
         data: null,
         error: { message: "El microservicio respondió 500" },
@@ -216,7 +220,24 @@ describe("Settings — EXCHANGE_RATE_API_URL field (BUG 0722-156, Fase 1)", () =
       await user.type(getUrlInput(), "https://new.example.com/api");
       await user.click(screen.getByText("settings.testConnection"));
 
-      await waitFor(() => expect(screen.getByText(/settings\.exchangeRateTestError/)).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByText("settings.exchangeRateError.generic")).toBeInTheDocument());
+      expect(screen.queryByText(/El microservicio respondió/)).not.toBeInTheDocument();
+    });
+
+    it("renders the specific translated error for a known error code (e.g. provider_error), not the raw message", async () => {
+      functionsInvoke.mockResolvedValueOnce({
+        data: null,
+        error: {
+          message: "El microservicio respondió 500",
+          context: { json: () => Promise.resolve({ error: { code: "provider_error", message: "El microservicio respondió 500" } }) },
+        },
+      });
+      const user = await openGlobalSettingsTab();
+      await user.clear(getUrlInput());
+      await user.type(getUrlInput(), "https://new.example.com/api");
+      await user.click(screen.getByText("settings.testConnection"));
+
+      await waitFor(() => expect(screen.getByText("settings.exchangeRateError.provider_error")).toBeInTheDocument());
     });
 
     it("the test flow works without saving first (no mutation call before clicking Probar)", async () => {

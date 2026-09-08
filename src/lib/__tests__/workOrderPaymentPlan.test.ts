@@ -10,6 +10,7 @@ import {
   computeBillingIndicator,
   isInvoiceRateEditable,
   isPaymentRateEditable,
+  isPaymentRateCaptureEditable,
   computeConvertedAmount,
   applyExchangeRateMode,
 } from "../workOrderPaymentPlan";
@@ -167,6 +168,24 @@ describe("distributePercentages", () => {
       const sum = arr.reduce((a, b) => a + b, 0);
       expect(Math.abs(sum - 100)).toBeLessThanOrEqual(0.01);
     }
+  });
+
+  // review iteracion 2 #3: `total` opcional para redistribuir solo el porcentaje
+  // remanente cuando alguna cuota ya facturada queda excluida (no participa de esto).
+  describe("with an explicit `total` (review iteracion 2 #3)", () => {
+    it("distributes an arbitrary remaining total instead of 100", () => {
+      expect(distributePercentages(2, 60)).toEqual([30, 30]);
+    });
+
+    it("last row absorbs the rounding remainder against the given total", () => {
+      const arr = distributePercentages(3, 70);
+      const sum = arr.reduce((a, b) => a + b, 0);
+      expect(Math.abs(sum - 70)).toBeLessThanOrEqual(0.01);
+    });
+
+    it("count=0 returns empty regardless of total", () => {
+      expect(distributePercentages(0, 55)).toEqual([]);
+    });
   });
 });
 
@@ -517,6 +536,27 @@ describe("isPaymentRateEditable (persisted status only)", () => {
 
   it("frozen once Completed", () => {
     expect(isPaymentRateEditable("Completed")).toBe(false);
+  });
+});
+
+// Review iteracion 1 MUST FIX #1: distinta de isPaymentRateEditable de arriba (esa sigue
+// usandose tal cual para el re-sync de modo Fijo). Esta es la ventana de captura real
+// para el input de modo Variable — nunca antes de facturar.
+describe("isPaymentRateCaptureEditable (modo Variable — ventana de captura real)", () => {
+  it("NOT editable while still Pending (nothing invoiced yet)", () => {
+    expect(isPaymentRateCaptureEditable("Pending")).toBe(false);
+  });
+
+  it("editable once Invoiced", () => {
+    expect(isPaymentRateCaptureEditable("Invoiced")).toBe(true);
+  });
+
+  it("editable during a persisted post-invoice Overdue", () => {
+    expect(isPaymentRateCaptureEditable("Overdue")).toBe(true);
+  });
+
+  it("frozen once Completed", () => {
+    expect(isPaymentRateCaptureEditable("Completed")).toBe(false);
   });
 });
 

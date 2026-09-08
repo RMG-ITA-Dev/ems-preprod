@@ -42,7 +42,13 @@
 | File | Why |
 |------|-----|
 | `src/integrations/supabase/types.ts` | Auto-generated from the Supabase schema |
-| `supabase/config.toml` | Managed by Lovable Cloud |
+
+`supabase/config.toml`: no longer Lovable-managed (the team moved off Lovable as the
+backend administrator, 2026-09). The top-level project settings are hand-maintained
+directly in the repo; the per-function `[functions.<name>]` blocks (`dashboard-data`,
+`manage-auth-user`, `secure-signin`, `exchange-rate-sync`, ...) have always been added by
+hand alongside each function's own migration/commit — that was already the practice
+before this note existed, it just wasn't documented here.
 
 ### Scheduler feature flag
 
@@ -62,7 +68,7 @@ Activation order: migrate the target Supabase → verify schema/RLS contract →
 
 - Supabase project ID: `ugqxfnrxvksiltwxzist`
 - 10 Edge Functions (inventory below)
-- 15 migrations in `supabase/migrations/`: 14 are the consolidated "migración cero" set (`bugs/migracion_cero/plan_v2.md`), which replaced the prior 184-migration history: 7 schema files (`20251204000001..7_cero_01..07_*.sql`, renamed `services→practicas` / `taxonomies→servicios`) + 7 production-seed files (`20251204001001..7_cero_10..16_*.sql`, no demo data). Verified against the pre-consolidation baseline fingerprint — see `docs/migraciones/legado-consolidacion.md` and `docs/migraciones/DIFF-INTENCIONAL-consolidacion.md` for the accepted diff and rationale. The 15th is the first incremental migration applied on top of that set, `20260825120000_0825-183_worksheet_activity_practice_scope.sql` (bug 0825-183: strict practice scope for worksheet matrix cells).
+- Migrations in `supabase/migrations/` (run `ls supabase/migrations | sort` for the current count/list — it grows with every incremental bug/feature branch, so it's not tracked as a fixed number here): 14 are the consolidated "migración cero" set (`bugs/migracion_cero/plan_v2.md`), which replaced the prior 184-migration history: 7 schema files (`20251204000001..7_cero_01..07_*.sql`, renamed `services→practicas` / `taxonomies→servicios`) + 7 production-seed files (`20251204001001..7_cero_10..16_*.sql`, no demo data). Verified against the pre-consolidation baseline fingerprint — see `docs/migraciones/legado-consolidacion.md` and `docs/migraciones/DIFF-INTENCIONAL-consolidacion.md` for the accepted diff and rationale. Everything else is an incremental migration applied on top of that set, one per bug/feature ID (e.g. `20260825120000_0825-183_worksheet_activity_practice_scope.sql`).
 - Key RPC functions: `submit_timesheet_safe(p_period_id uuid, p_staff_id uuid, p_engagement_ids uuid[], p_activity_ids uuid[], p_is_auto_approved boolean) returns jsonb` (5-arg signature; the old 4-arg overload was dropped in `20260716000000`; errors include `EMPTY_ENGAGEMENTS` and `ARRAY_LENGTH_MISMATCH`), `get_staff_assignment_segments(p_staff_id uuid, p_week_start date, p_week_end date) returns table(engagement_id uuid, start_date date, end_date date)` (Scheduler Fase 2/5/6 — canonical Monday `week_start`, span ≤ 6 days, `SECURITY DEFINER`), `assign_user_role_atomic()`, `update_timesheet_minmax_settings()`
 
 ### Edge Function Inventory

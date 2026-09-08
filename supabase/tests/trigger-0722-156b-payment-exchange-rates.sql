@@ -11,14 +11,18 @@
 --   - Backfill statement (re-run verbatim here against fixtures inserted to look like
 --     pre-migration rows, since a fresh scratch DB has nothing to backfill at apply time):
 --     copies plan.exchange_rate into both installment columns, preserving NULL.
---   - wo_payment_installments freeze (Amendment 2026-09-07): invoice_exchange_rate /
---     payment_exchange_rate can ONLY change while the owning work order is Approved, in
---     ADDITION to the pre-existing status-based freeze (invoice_exchange_rate editable
---     only while status = 'Pending'; payment_exchange_rate editable while status <>
---     'Completed'). Re-sending an already-frozen value unchanged is a no-op (not
---     rejected); changing status + the still-editable rate in the SAME UPDATE succeeds
---     atomically; a column-unrelated UPDATE (e.g. collection_invoice_date) on an
---     otherwise-frozen row is never rejected.
+--   - wo_payment_installments freeze (Amendment 2026-09-07, refinada en review
+--     iteracion 1): invoice_exchange_rate editable only while status = 'Pending';
+--     payment_exchange_rate editable only while status IN ('Invoiced','Overdue') in
+--     modo Variable (never while still Pending — MUST FIX #1), or while status <>
+--     'Completed' in modo Fijo. The owning-WO-Approved gate applies ONLY in modo
+--     Variable — modo Fijo's resync must keep working in Draft (MUST FIX #3). Illegal
+--     status transitions (e.g. a direct revert Invoiced->Pending) are rejected
+--     (INVALID_STATUS_TRANSITION), closing the 2-step freeze bypass (MUST FIX #4).
+--     Re-sending an already-frozen value unchanged is a no-op (not rejected); changing
+--     status + the still-editable rate in the SAME UPDATE succeeds atomically; a
+--     column-unrelated UPDATE (e.g. collection_invoice_date) on an otherwise-frozen row
+--     is never rejected.
 --   - wo_payment_plan freeze: exchange_rate / exchange_rate_mode rejected once the
 --     owning work order is Approved; unrelated columns (payment_days) on an Approved
 --     plan still save; both still editable while Draft.
@@ -39,15 +43,27 @@ VALUES ('50c00000-0000-4000-8000-0000000000c1', 'PER Test Society');
 INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id) VALUES
   ('c1000000-0000-4000-8000-0000000000c1', 'PER Test Client', 'PER-TAX-001');
 
--- E1/WO1: Draft (plan/mode still editable, TC de cuota bloqueado pese a status=Pending).
--- E2/WO2: Approved (plan/mode frozen; TC de cuota recien se habilita aca).
+-- E1/WO1: Draft, modo Fijo (plan/mode still editable, resync SIN exigir OT Approved).
+-- E2/WO2: Approved, modo Variable (plan/mode frozen; captura por cuota recien se habilita aca).
+-- E3/WO3: Draft, modo Variable (captura por cuota SIGUE bloqueada pese a status=Pending —
+--   wo_payment_plan.wo_id es UNIQUE, asi que un plan Variable en Draft necesita su propia OT,
+--   no puede compartir la c1 que ya tiene el plan Fijo).
 INSERT INTO public.engagements (engagement_id, client_id, engagement_name, practica, fecha_cierre, society_id) VALUES
-  ('e0000000-0000-4000-8000-0000000000c1', 'c1000000-0000-4000-8000-0000000000c1', 'PER E1 (Draft WO)',    1, '2026-09-30', (SELECT society_id FROM public.society WHERE society_id = '50c00000-0000-4000-8000-0000000000c1')),
-  ('e0000000-0000-4000-8000-0000000000c2', 'c1000000-0000-4000-8000-0000000000c1', 'PER E2 (Approved WO)', 1, '2026-09-30', (SELECT society_id FROM public.society WHERE society_id = '50c00000-0000-4000-8000-0000000000c1'));
+  ('e0000000-0000-4000-8000-0000000000c1', 'c1000000-0000-4000-8000-0000000000c1', 'PER E1 (Draft WO, Fijo)',    1, '2026-09-30', (SELECT society_id FROM public.society WHERE society_id = '50c00000-0000-4000-8000-0000000000c1')),
+  ('e0000000-0000-4000-8000-0000000000c2', 'c1000000-0000-4000-8000-0000000000c1', 'PER E2 (Approved WO, Variable)', 1, '2026-09-30', (SELECT society_id FROM public.society WHERE society_id = '50c00000-0000-4000-8000-0000000000c1')),
+  ('e0000000-0000-4000-8000-0000000000c3', 'c1000000-0000-4000-8000-0000000000c1', 'PER E3 (Draft WO, Variable)', 1, '2026-09-30', (SELECT society_id FROM public.society WHERE society_id = '50c00000-0000-4000-8000-0000000000c1')),
+  ('e0000000-0000-4000-8000-0000000000c4', 'c1000000-0000-4000-8000-0000000000c1', 'PER E4 (Approved WO, TC nulo)', 1, '2026-09-30', (SELECT society_id FROM public.society WHERE society_id = '50c00000-0000-4000-8000-0000000000c1'));
 
+-- wo_payment_plan.wo_id es UNIQUE (cero_03_constraints_indexes.sql) -- cada OT de arriba
+-- tiene como maximo un plan; el fixture de "TC nulo" mas abajo NO puede reusar c2
+-- (bug preexistente en este archivo: insertaba un 2do plan para c2, que ya tiene
+-- v_plan_approved -- nunca se detecto porque el suite no se habia corrido contra una
+-- DB real todavia). Usa c4, su propia OT Approved.
 INSERT INTO public.work_orders (wo_id, engagement_id, currency, season_mode, approval_status) VALUES
   ('40000000-0000-4000-8000-0000000000c1', 'e0000000-0000-4000-8000-0000000000c1', 'USD', 'High', 'Draft'),
-  ('40000000-0000-4000-8000-0000000000c2', 'e0000000-0000-4000-8000-0000000000c2', 'USD', 'High', 'Approved');
+  ('40000000-0000-4000-8000-0000000000c2', 'e0000000-0000-4000-8000-0000000000c2', 'USD', 'High', 'Approved'),
+  ('40000000-0000-4000-8000-0000000000c3', 'e0000000-0000-4000-8000-0000000000c3', 'USD', 'High', 'Draft'),
+  ('40000000-0000-4000-8000-0000000000c4', 'e0000000-0000-4000-8000-0000000000c4', 'USD', 'High', 'Approved');
 
 DO $$
 DECLARE
@@ -85,8 +101,10 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS — exchange_rate_mode DEFAULT ''fijo'' se aplica sin especificarlo';
 
-  INSERT INTO public.wo_payment_plan (wo_id, exchange_rate, payment_days)
-  VALUES ('40000000-0000-4000-8000-0000000000c2', 6.90, 30)
+  -- modo 'variable' a proposito: es el unico modo donde el gate de aprobacion (Amendment
+  -- 2026-09-07) rige — en 'fijo' esa columna nunca exige OT Approved (ver seccion Draft).
+  INSERT INTO public.wo_payment_plan (wo_id, exchange_rate, payment_days, exchange_rate_mode)
+  VALUES ('40000000-0000-4000-8000-0000000000c2', 6.90, 30, 'variable')
   RETURNING plan_id INTO v_plan_approved;
 
   denied := false;
@@ -103,9 +121,10 @@ BEGIN
   RAISE NOTICE 'PASS — invoice_exchange_rate rechaza un valor no-positivo (CHECK)';
 
   -- ══════════════════════════════════════════════════════════════════
-  -- Draft bloquea la captura de TC por cuota, AUNQUE status = 'Pending' (Amendment
-  -- 2026-09-07): sin esto, una transicion de estado prematura en una OT sin aprobar
-  -- (ej. un admin saltandose la UI) congelaria el TC en NULL para siempre.
+  -- Modo Fijo en Draft: el re-sync SI debe escribir invoice/payment_exchange_rate sin
+  -- exigir OT Approved (review iteracion 1 #3 — el gate de aprobacion solo aplica a
+  -- modo Variable). Modo Variable en Draft: SI sigue bloqueado (captura independiente
+  -- real, Amendment 2026-09-07).
   -- ══════════════════════════════════════════════════════════════════
 
   INSERT INTO public.wo_payment_installments
@@ -113,41 +132,68 @@ BEGIN
   VALUES (v_plan_draft, '40000000-0000-4000-8000-0000000000c1', 1, 100, 'Pending')
   RETURNING installment_id INTO v_inst_pending;
 
-  denied := false;
-  BEGIN
-    UPDATE public.wo_payment_installments SET invoice_exchange_rate = 6.96 WHERE installment_id = v_inst_pending;
-  EXCEPTION WHEN OTHERS THEN
-    IF SQLERRM LIKE 'EXCHANGE_RATE_LOCKED%' THEN
-      denied := true;
-    ELSE
-      RAISE;
-    END IF;
-  END;
-  IF NOT denied THEN
-    RAISE EXCEPTION 'PER FAIL — invoice_exchange_rate se pudo capturar en una cuota Pending de una OT todavia Draft';
+  -- v_plan_draft esta en modo 'fijo' (DEFAULT) -> el re-sync de Fijo debe pasar sin aprobar.
+  UPDATE public.wo_payment_installments
+  SET invoice_exchange_rate = 6.96, payment_exchange_rate = 6.96
+  WHERE installment_id = v_inst_pending;
+  IF (SELECT invoice_exchange_rate FROM public.wo_payment_installments WHERE installment_id = v_inst_pending) <> 6.96
+     OR (SELECT payment_exchange_rate FROM public.wo_payment_installments WHERE installment_id = v_inst_pending) <> 6.96 THEN
+    RAISE EXCEPTION 'PER FAIL — el re-sync de modo Fijo no pudo escribir invoice/payment_exchange_rate en Draft';
   END IF;
-  RAISE NOTICE 'PASS — invoice_exchange_rate rechaza captura mientras la OT dueña sigue Draft (EXCHANGE_RATE_LOCKED), pese a status = Pending';
+  RAISE NOTICE 'PASS — modo Fijo: invoice/payment_exchange_rate se sincronizan en Draft sin exigir OT Approved';
 
-  denied := false;
+  -- Un plan Draft en modo 'variable' SI sigue exigiendo OT Approved (captura independiente
+  -- real) -- en su propia OT (c3): wo_payment_plan.wo_id es UNIQUE, no puede compartir c1.
+  DECLARE
+    v_plan_draft_var   uuid;
+    v_inst_pending_var uuid;
   BEGIN
-    UPDATE public.wo_payment_installments SET payment_exchange_rate = 6.96 WHERE installment_id = v_inst_pending;
-  EXCEPTION WHEN OTHERS THEN
-    IF SQLERRM LIKE 'EXCHANGE_RATE_LOCKED%' THEN
-      denied := true;
-    ELSE
-      RAISE;
+    INSERT INTO public.wo_payment_plan (wo_id, exchange_rate, payment_days, exchange_rate_mode)
+    VALUES ('40000000-0000-4000-8000-0000000000c3', 6.96, 30, 'variable')
+    RETURNING plan_id INTO v_plan_draft_var;
+
+    INSERT INTO public.wo_payment_installments
+      (plan_id, wo_id, installment_number, percentage, status)
+    VALUES (v_plan_draft_var, '40000000-0000-4000-8000-0000000000c3', 1, 100, 'Pending')
+    RETURNING installment_id INTO v_inst_pending_var;
+
+    denied := false;
+    BEGIN
+      UPDATE public.wo_payment_installments SET invoice_exchange_rate = 6.96 WHERE installment_id = v_inst_pending_var;
+    EXCEPTION WHEN OTHERS THEN
+      IF SQLERRM LIKE 'EXCHANGE_RATE_LOCKED%' THEN
+        denied := true;
+      ELSE
+        RAISE;
+      END IF;
+    END;
+    IF NOT denied THEN
+      RAISE EXCEPTION 'PER FAIL — modo Variable pudo capturar invoice_exchange_rate en Draft (deberia exigir OT Approved)';
     END IF;
+    RAISE NOTICE 'PASS — modo Variable: invoice_exchange_rate sigue rechazado en Draft (EXCHANGE_RATE_LOCKED)';
+
+    denied := false;
+    BEGIN
+      UPDATE public.wo_payment_installments SET payment_exchange_rate = 6.96 WHERE installment_id = v_inst_pending_var;
+    EXCEPTION WHEN OTHERS THEN
+      IF SQLERRM LIKE 'EXCHANGE_RATE_LOCKED%' THEN
+        denied := true;
+      ELSE
+        RAISE;
+      END IF;
+    END;
+    IF NOT denied THEN
+      RAISE EXCEPTION 'PER FAIL — modo Variable pudo capturar payment_exchange_rate en Draft (deberia exigir OT Approved)';
+    END IF;
+    RAISE NOTICE 'PASS — modo Variable: payment_exchange_rate sigue rechazado en Draft (EXCHANGE_RATE_LOCKED)';
   END;
-  IF NOT denied THEN
-    RAISE EXCEPTION 'PER FAIL — payment_exchange_rate se pudo capturar en una cuota de una OT todavia Draft';
-  END IF;
-  RAISE NOTICE 'PASS — payment_exchange_rate rechaza captura mientras la OT dueña sigue Draft (EXCHANGE_RATE_LOCKED)';
 
   -- ══════════════════════════════════════════════════════════════════
   -- Backfill statement (re-run verbatim from the migration against fixtures made to
-  -- look pre-migration: columns forced back to NULL after insert). Corre sobre el plan
-  -- Approved (v_plan_approved/c2): desde el Amendment 2026-09-07 el freeze tambien
-  -- exige OT Approved, y este re-run es un UPDATE real que pasa por ese mismo trigger.
+  -- look pre-migration: columns start as NULL after insert). The real migration ran its
+  -- backfill BEFORE installing the guard. Re-running it against the final schema uses
+  -- a Fixed-mode plan: Variable-mode payment rates intentionally reject a Pending
+  -- installment, which is a post-migration capture rule unrelated to this backfill.
   -- ══════════════════════════════════════════════════════════════════
 
   INSERT INTO public.wo_payment_installments
@@ -155,18 +201,25 @@ BEGIN
   VALUES (v_plan_approved, '40000000-0000-4000-8000-0000000000c2', 1, 100, 'Pending')
   RETURNING installment_id INTO v_inst_pending;
 
-  -- A second plan with NO exchange_rate at all, to assert NULL is preserved, not invented.
+  -- A plan with NO exchange_rate at all (its own OT, c4 -- wo_id es UNIQUE, no puede
+  -- compartir c2), to assert NULL is preserved, not invented.
   DECLARE
+    v_inst_backfill uuid;
     v_plan_null_rate uuid;
     v_inst_null_rate uuid;
   BEGIN
+    INSERT INTO public.wo_payment_installments
+      (plan_id, wo_id, installment_number, percentage, status)
+    VALUES (v_plan_draft, '40000000-0000-4000-8000-0000000000c1', 2, 100, 'Pending')
+    RETURNING installment_id INTO v_inst_backfill;
+
     INSERT INTO public.wo_payment_plan (wo_id, exchange_rate, payment_days)
-    VALUES ('40000000-0000-4000-8000-0000000000c2', NULL, 30)
+    VALUES ('40000000-0000-4000-8000-0000000000c4', NULL, 30)
     RETURNING plan_id INTO v_plan_null_rate;
 
     INSERT INTO public.wo_payment_installments
       (plan_id, wo_id, installment_number, percentage, status)
-    VALUES (v_plan_null_rate, '40000000-0000-4000-8000-0000000000c2', 2, 100, 'Pending')
+    VALUES (v_plan_null_rate, '40000000-0000-4000-8000-0000000000c4', 1, 100, 'Pending')
     RETURNING installment_id INTO v_inst_null_rate;
 
     -- The migration's backfill statement, re-run verbatim against this transaction's own fixtures.
@@ -175,11 +228,11 @@ BEGIN
         payment_exchange_rate = p.exchange_rate
     FROM public.wo_payment_plan p
     WHERE i.plan_id = p.plan_id
-      AND i.installment_id IN (v_inst_pending, v_inst_null_rate);
+      AND i.installment_id IN (v_inst_backfill, v_inst_null_rate);
 
-    IF (SELECT invoice_exchange_rate FROM public.wo_payment_installments WHERE installment_id = v_inst_pending) IS DISTINCT FROM 6.90
-       OR (SELECT payment_exchange_rate FROM public.wo_payment_installments WHERE installment_id = v_inst_pending) IS DISTINCT FROM 6.90 THEN
-      RAISE EXCEPTION 'PER FAIL — backfill no copio el TC del plan (6.90) a la cuota existente';
+    IF (SELECT invoice_exchange_rate FROM public.wo_payment_installments WHERE installment_id = v_inst_backfill) IS DISTINCT FROM 6.96
+       OR (SELECT payment_exchange_rate FROM public.wo_payment_installments WHERE installment_id = v_inst_backfill) IS DISTINCT FROM 6.96 THEN
+      RAISE EXCEPTION 'PER FAIL — backfill no copio el TC del plan (6.96) a la cuota existente';
     END IF;
     RAISE NOTICE 'PASS — backfill copia el TC del plan a invoice/payment_exchange_rate de la cuota existente';
 
@@ -194,7 +247,8 @@ BEGIN
   -- wo_payment_installments freeze — invoice_exchange_rate (OT ya Approved: v_plan_approved/c2)
   -- ══════════════════════════════════════════════════════════════════
 
-  -- Pending + OT Approved: editable (this is also the "synced Fijo-mode write" the app performs).
+  -- Pending + OT Approved + modo Variable: editable (captura independiente habilitada
+  -- tras aprobar; a diferencia del re-sync de Fijo, esto SI es una captura real).
   UPDATE public.wo_payment_installments SET invoice_exchange_rate = 6.97 WHERE installment_id = v_inst_pending;
   IF (SELECT invoice_exchange_rate FROM public.wo_payment_installments WHERE installment_id = v_inst_pending) <> 6.97 THEN
     RAISE EXCEPTION 'PER FAIL — invoice_exchange_rate no se pudo editar en una OT Approved con la cuota Pending';
@@ -263,8 +317,54 @@ BEGIN
   RAISE NOTICE 'PASS — invoice_exchange_rate sigue congelado tras un revert manual a Overdue post-factura';
 
   -- ══════════════════════════════════════════════════════════════════
+  -- MUST FIX review iteracion 1 #4: un UPDATE directo no puede revertir el status a un
+  -- valor anterior del state machine (STATUS_TRANSITIONS en WorkOrderPaymentPlanSection).
+  -- Sin este guard, revertir Invoiced/Overdue -> Pending reabria invoice_exchange_rate
+  -- (su freeze depende de OLD.status <> 'Pending') en un bypass de 2 pasos.
+  -- ══════════════════════════════════════════════════════════════════
+
+  denied := false;
+  BEGIN
+    UPDATE public.wo_payment_installments SET status = 'Pending' WHERE installment_id = v_inst_overdue;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'INVALID_STATUS_TRANSITION%' THEN
+      denied := true;
+    ELSE
+      RAISE;
+    END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'PER FAIL — se pudo revertir directamente el status de Overdue a Pending (bypass del freeze en 2 pasos)';
+  END IF;
+  RAISE NOTICE 'PASS — un UPDATE directo no puede revertir el status a Pending (INVALID_STATUS_TRANSITION)';
+
+  -- Nota: que Overdue -> Invoiced siga siendo una transicion legal (re-facturacion
+  -- manual) ya queda probado mas abajo, como efecto colateral de "Re-invoice Overdue ->
+  -- Invoiced, then complete" — si el guard la bloqueara, ese paso fallaria con una
+  -- excepcion inesperada y todo el bloque abortaria.
+
+  -- ══════════════════════════════════════════════════════════════════
   -- wo_payment_installments freeze — payment_exchange_rate (OT ya Approved)
   -- ══════════════════════════════════════════════════════════════════
+
+  -- MUST FIX review iteracion 1 #1: en modo Variable, payment_exchange_rate NUNCA es
+  -- capturable mientras la cuota sigue Pending (todavia no se facturo nada), aunque la
+  -- OT ya este Approved — antes de esta correccion, el campo quedaba editable en
+  -- pantalla en ese estado. v_inst_pending sigue Pending en este punto del suite.
+  denied := false;
+  BEGIN
+    UPDATE public.wo_payment_installments SET payment_exchange_rate = 6.50 WHERE installment_id = v_inst_pending;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'EXCHANGE_RATE_LOCKED%' THEN
+      denied := true;
+    ELSE
+      RAISE;
+    END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'PER FAIL — payment_exchange_rate se pudo capturar en modo Variable con la cuota todavia Pending';
+  END IF;
+  RAISE NOTICE 'PASS — modo Variable: payment_exchange_rate rechaza captura mientras la cuota sigue Pending, pese a OT Approved';
 
   -- Editable while Overdue (post-invoice) — operator decision: payment TC stays editable
   -- through both Invoiced and a post-invoice persisted Overdue alike.
@@ -301,6 +401,104 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS — payment_exchange_rate rechaza un cambio de valor una vez Completed (EXCHANGE_RATE_LOCKED)';
 
+  -- Completed es terminal: ninguna transicion de status sale de ahi (STATUS_TRANSITIONS.Completed = []).
+  denied := false;
+  BEGIN
+    UPDATE public.wo_payment_installments SET status = 'Invoiced' WHERE installment_id = v_inst_completed;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'INVALID_STATUS_TRANSITION%' THEN
+      denied := true;
+    ELSE
+      RAISE;
+    END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'PER FAIL — se pudo revertir el status de una cuota Completed (deberia ser terminal)';
+  END IF;
+  RAISE NOTICE 'PASS — Completed es terminal: ninguna transicion de status sale de ahi (INVALID_STATUS_TRANSITION)';
+
+  -- ══════════════════════════════════════════════════════════════════
+  -- MUST FIX review iteracion 2 #1/#3 (decision del operador: "si una cuota ya esta
+  -- facturada, no se puede modificar o eliminar de ninguna manera"): percentage/amount/
+  -- installment_number quedan congelados junto con el TC, y el DELETE se rechaza.
+  -- ══════════════════════════════════════════════════════════════════
+
+  denied := false;
+  BEGIN
+    UPDATE public.wo_payment_installments SET percentage = 50 WHERE installment_id = v_inst_completed;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'INSTALLMENT_LOCKED%' THEN
+      denied := true;
+    ELSE
+      RAISE;
+    END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'PER FAIL — percentage se pudo cambiar en una cuota ya facturada (Completed)';
+  END IF;
+  RAISE NOTICE 'PASS — percentage rechaza cambios en una cuota ya facturada (INSTALLMENT_LOCKED)';
+
+  denied := false;
+  BEGIN
+    UPDATE public.wo_payment_installments SET amount = 999 WHERE installment_id = v_inst_completed;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'INSTALLMENT_LOCKED%' THEN
+      denied := true;
+    ELSE
+      RAISE;
+    END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'PER FAIL — amount se pudo cambiar en una cuota ya facturada (Completed)';
+  END IF;
+  RAISE NOTICE 'PASS — amount rechaza cambios en una cuota ya facturada (INSTALLMENT_LOCKED)';
+
+  denied := false;
+  BEGIN
+    UPDATE public.wo_payment_installments SET installment_number = 77 WHERE installment_id = v_inst_completed;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'INSTALLMENT_LOCKED%' THEN
+      denied := true;
+    ELSE
+      RAISE;
+    END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'PER FAIL — installment_number se pudo cambiar en una cuota ya facturada (Completed)';
+  END IF;
+  RAISE NOTICE 'PASS — installment_number rechaza cambios en una cuota ya facturada (INSTALLMENT_LOCKED)';
+
+  -- Sanity: esos mismos campos SI se pueden editar en una cuota todavia Pending
+  -- (v_inst_pending, bajo v_plan_approved) — el guard es especifico de status <> 'Pending'.
+  UPDATE public.wo_payment_installments SET percentage = 42 WHERE installment_id = v_inst_pending;
+  IF (SELECT percentage FROM public.wo_payment_installments WHERE installment_id = v_inst_pending) <> 42 THEN
+    RAISE EXCEPTION 'PER FAIL — percentage no se pudo editar en una cuota todavia Pending';
+  END IF;
+  RAISE NOTICE 'PASS — percentage sigue editable en una cuota todavia Pending';
+
+  -- DELETE de una cuota ya facturada: rechazado.
+  denied := false;
+  BEGIN
+    DELETE FROM public.wo_payment_installments WHERE installment_id = v_inst_completed;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'INSTALLMENT_LOCKED%' THEN
+      denied := true;
+    ELSE
+      RAISE;
+    END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'PER FAIL — se pudo borrar una cuota ya facturada (Completed)';
+  END IF;
+  RAISE NOTICE 'PASS — DELETE rechaza una cuota ya facturada (INSTALLMENT_LOCKED)';
+
+  -- DELETE de una cuota todavia Pending: permitido.
+  DELETE FROM public.wo_payment_installments WHERE installment_id = v_inst_pending;
+  IF EXISTS (SELECT 1 FROM public.wo_payment_installments WHERE installment_id = v_inst_pending) THEN
+    RAISE EXCEPTION 'PER FAIL — no se pudo borrar una cuota todavia Pending';
+  END IF;
+  RAISE NOTICE 'PASS — DELETE permitido en una cuota todavia Pending';
+
   -- NULL is a valid, non-blocking snapshot (exchange_rate_history vacia -> no se exige un TC
   -- manual). Un INSERT no pasa por este trigger (es BEFORE UPDATE), asi que el estado
   -- Draft/Approved de la OT es irrelevante aca -- se inserta bajo la OT Draft a proposito.
@@ -336,9 +534,13 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS — wo_payment_plan.exchange_rate rechaza cambios con la OT dueña Approved (EXCHANGE_RATE_LOCKED)';
 
+  -- v_plan_approved ya esta en modo 'variable' (ver fixture arriba) -- el cambio de
+  -- valor real que ejercita el freeze es volver a 'fijo', no reenviar 'variable'
+  -- (el mismo valor seria un no-op silencioso para el trigger, que compara IS NOT
+  -- DISTINCT FROM, y este test daria PASS por la razon equivocada).
   denied := false;
   BEGIN
-    UPDATE public.wo_payment_plan SET exchange_rate_mode = 'variable' WHERE plan_id = v_plan_approved;
+    UPDATE public.wo_payment_plan SET exchange_rate_mode = 'fijo' WHERE plan_id = v_plan_approved;
   EXCEPTION WHEN OTHERS THEN
     IF SQLERRM LIKE 'EXCHANGE_RATE_LOCKED%' THEN
       denied := true;
@@ -357,6 +559,58 @@ BEGIN
     RAISE EXCEPTION 'PER FAIL — payment_days no se pudo editar en un plan Approved (no deberia frenarlo el freeze de TC)';
   END IF;
   RAISE NOTICE 'PASS — payment_days sigue editable en un plan Approved (freeze es columna por columna)';
+
+  -- ══════════════════════════════════════════════════════════════════
+  -- MUST FIX review iteracion 2 #4 (decision del operador: bloquear): el plan tambien
+  -- queda bloqueado si ya tiene alguna cuota facturada, aunque la OT dueña siga (o haya
+  -- vuelto a) Draft -- ej. revertir aprobacion + intentar cambiar de modo/TC dejaria el
+  -- TC "oficial" del plan desalineado del TC ya aplicado a esa cuota. Se simula
+  -- facturando una cuota bajo v_plan_draft (transicion de status permitida sin importar
+  -- approval_status) y probando el freeze con la OT todavia en Draft.
+  -- ══════════════════════════════════════════════════════════════════
+
+  DECLARE
+    v_inst_draft_invoiced uuid;
+  BEGIN
+    INSERT INTO public.wo_payment_installments
+      (plan_id, wo_id, installment_number, percentage, status)
+    VALUES (v_plan_draft, '40000000-0000-4000-8000-0000000000c1', 5, 100, 'Pending')
+    RETURNING installment_id INTO v_inst_draft_invoiced;
+
+    UPDATE public.wo_payment_installments SET status = 'Invoiced' WHERE installment_id = v_inst_draft_invoiced;
+
+    denied := false;
+    BEGIN
+      UPDATE public.wo_payment_plan SET exchange_rate = 5.55 WHERE plan_id = v_plan_draft;
+    EXCEPTION WHEN OTHERS THEN
+      IF SQLERRM LIKE 'EXCHANGE_RATE_LOCKED%' THEN
+        denied := true;
+      ELSE
+        RAISE;
+      END IF;
+    END;
+    IF NOT denied THEN
+      RAISE EXCEPTION 'PER FAIL — wo_payment_plan.exchange_rate se pudo cambiar pese a tener una cuota ya facturada (OT sigue Draft)';
+    END IF;
+    RAISE NOTICE 'PASS — wo_payment_plan.exchange_rate rechaza cambios si ya existe una cuota facturada, aunque la OT siga Draft (EXCHANGE_RATE_LOCKED)';
+
+    -- v_plan_draft ya esta en modo 'variable' (fixture de mas arriba) -- probar con
+    -- 'fijo' para ejercitar un cambio de valor real, no un no-op.
+    denied := false;
+    BEGIN
+      UPDATE public.wo_payment_plan SET exchange_rate_mode = 'fijo' WHERE plan_id = v_plan_draft;
+    EXCEPTION WHEN OTHERS THEN
+      IF SQLERRM LIKE 'EXCHANGE_RATE_LOCKED%' THEN
+        denied := true;
+      ELSE
+        RAISE;
+      END IF;
+    END;
+    IF NOT denied THEN
+      RAISE EXCEPTION 'PER FAIL — wo_payment_plan.exchange_rate_mode se pudo cambiar pese a tener una cuota ya facturada (OT sigue Draft)';
+    END IF;
+    RAISE NOTICE 'PASS — wo_payment_plan.exchange_rate_mode rechaza cambios si ya existe una cuota facturada, aunque la OT siga Draft (EXCHANGE_RATE_LOCKED)';
+  END;
 
   RAISE NOTICE 'PAYMENT EXCHANGE RATES TRIGGERS: ALL CHECKS PASSED (rolled back)';
 END $$;

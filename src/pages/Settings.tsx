@@ -93,6 +93,25 @@ interface ExchangeRateTestResult {
   fuente: string;
 }
 
+// MUST FIX review iteracion 1 #8: fecha_vigencia llega como YYYY-MM-DD; toda la app usa
+// DD/MM/YYYY (mismo patron que formatEffectiveDate en ExchangeRateIndicator.tsx).
+function formatEffectiveDate(fechaVigencia: string): string {
+  const [y, m, d] = fechaVigencia.split("-");
+  return `${d}/${m}/${y}`;
+}
+
+// MUST FIX review iteracion 1 #10: los codigos de error del handler (exchange-rate-sync)
+// vienen en español fijo ("Campo 'fuente' invalido...") y no deben viajar tal cual a un
+// usuario en ingles. Solo los codigos reconocidos se traducen; cualquier otro (o un
+// error sin `code`, ej. de red antes de llegar al servidor) cae al mensaje generico.
+const KNOWN_EXCHANGE_RATE_ERROR_CODES = new Set([
+  "unauthorized",
+  "forbidden",
+  "missing_url",
+  "provider_error",
+  "invalid_payload",
+]);
+
 const Settings = () => {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
@@ -270,6 +289,7 @@ const Settings = () => {
   const [exchangeRateTestLoading, setExchangeRateTestLoading] = useState(false);
   const [exchangeRateTestSaving, setExchangeRateTestSaving] = useState(false);
   const [exchangeRateTestResult, setExchangeRateTestResult] = useState<ExchangeRateTestResult | null>(null);
+  const [exchangeRateTestErrorCode, setExchangeRateTestErrorCode] = useState<string | null>(null);
   const [exchangeRateTestError, setExchangeRateTestError] = useState<string | null>(null);
 
   const getSetting = useCallback(
@@ -778,6 +798,7 @@ const Settings = () => {
   // exchange-rate-sync's admin-gated test mode — never writes to exchange_rate_history.
   const handleTestExchangeRate = async () => {
     setExchangeRateTestError(null);
+    setExchangeRateTestErrorCode(null);
     setExchangeRateTestResult(null);
     setExchangeRateTestLoading(true);
     try {
@@ -786,23 +807,29 @@ const Settings = () => {
       });
       if (error) {
         let message = error.message;
+        let code: string | undefined;
         const context = (error as { context?: Response }).context;
         if (context && typeof context.json === "function") {
           try {
             const body = await context.json();
             message = body?.error?.message || message;
+            code = body?.error?.code;
           } catch {
             // keep the generic error.message
           }
         }
         setExchangeRateTestError(message);
-      } else if ((data as { error?: { message?: string } } | null)?.error) {
-        setExchangeRateTestError((data as { error: { message: string } }).error.message);
+        setExchangeRateTestErrorCode(code ?? null);
+      } else if ((data as { error?: { message?: string; code?: string } } | null)?.error) {
+        const err = (data as { error: { message: string; code?: string } }).error;
+        setExchangeRateTestError(err.message);
+        setExchangeRateTestErrorCode(err.code ?? null);
       } else {
         setExchangeRateTestResult(data as ExchangeRateTestResult);
       }
     } catch (e) {
       setExchangeRateTestError(e instanceof Error ? e.message : t("messages.error"));
+      setExchangeRateTestErrorCode(null);
     } finally {
       setExchangeRateTestLoading(false);
       setExchangeRateTestOpen(true);
@@ -1500,14 +1527,16 @@ const Settings = () => {
             <Alert variant="destructive">
               <AlertTriangle className="h-4 w-4" />
               <AlertDescription>
-                {t("settings.exchangeRateTestError", { message: exchangeRateTestError })}
+                {exchangeRateTestErrorCode && KNOWN_EXCHANGE_RATE_ERROR_CODES.has(exchangeRateTestErrorCode)
+                  ? t(`settings.exchangeRateError.${exchangeRateTestErrorCode}`)
+                  : t("settings.exchangeRateError.generic")}
               </AlertDescription>
             </Alert>
           ) : exchangeRateTestResult ? (
             <div className="space-y-1 text-sm">
               <p>{t("settings.exchangeRateTestCompra", { value: exchangeRateTestResult.compra })}</p>
               <p>{t("settings.exchangeRateTestVenta", { value: exchangeRateTestResult.venta })}</p>
-              <p>{t("settings.exchangeRateTestEffectiveDate", { date: exchangeRateTestResult.fecha_vigencia })}</p>
+              <p>{t("settings.exchangeRateTestEffectiveDate", { date: formatEffectiveDate(exchangeRateTestResult.fecha_vigencia) })}</p>
               <p>{t("settings.exchangeRateTestStatus", { value: exchangeRateTestResult.estado })}</p>
               <p>{t("settings.exchangeRateTestChannel", { value: exchangeRateTestResult.canal })}</p>
             </div>

@@ -13,19 +13,34 @@ import { computePaymentDate } from "@/lib/workOrderPaymentPlan";
 // para una carrera entre pestañas (ej. la OT se aprobó en otra pestaña mientras esta
 // tenía el plan abierto para edición).
 const EXCHANGE_RATE_LOCKED_TOKEN = "EXCHANGE_RATE_LOCKED";
+// review iteracion 2 #1/#3: trg_wo_payment_installments_guard_delete (BEFORE DELETE) y
+// el guard de percentage/amount/installment_number en trg_wo_payment_installments_
+// guard_exchange_rate rechazan tocar una cuota ya facturada con este mismo token.
+const INSTALLMENT_LOCKED_TOKEN = "INSTALLMENT_LOCKED";
 
-function isExchangeRateLockedError(error: unknown): boolean {
-  const message = error instanceof Error
+function errorMessageOf(error: unknown): string {
+  return error instanceof Error
     ? error.message
     : typeof error === "object" && error !== null && typeof (error as { message?: unknown }).message === "string"
       ? (error as { message: string }).message
       : String(error);
-  return message.includes(EXCHANGE_RATE_LOCKED_TOKEN);
+}
+
+function isExchangeRateLockedError(error: unknown): boolean {
+  return errorMessageOf(error).includes(EXCHANGE_RATE_LOCKED_TOKEN);
+}
+
+function isInstallmentLockedError(error: unknown): boolean {
+  return errorMessageOf(error).includes(INSTALLMENT_LOCKED_TOKEN);
 }
 
 function handlePaymentPlanError(error: unknown, operation: string): void {
   if (isExchangeRateLockedError(error)) {
     toast.error(i18n.t("workOrders.paymentPlan.errorExchangeRateLocked"));
+    return;
+  }
+  if (isInstallmentLockedError(error)) {
+    toast.error(i18n.t("workOrders.paymentPlan.errorInstallmentLocked"));
     return;
   }
   handleError(error, {
@@ -312,6 +327,6 @@ export function useDeleteInstallment() {
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
     },
-    onError: createMutationErrorHandler("deleting installment"),
+    onError: (error: unknown) => handlePaymentPlanError(error, "deleting installment"),
   });
 }

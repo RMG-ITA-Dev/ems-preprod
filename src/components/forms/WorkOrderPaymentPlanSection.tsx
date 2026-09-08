@@ -34,6 +34,7 @@ import {
   getEffectiveInstallmentStatus,
   isInvoiceRateEditable,
   isPaymentRateEditable,
+  isPaymentRateCaptureEditable,
   computeConvertedAmount,
   applyExchangeRateMode,
 } from "@/lib/workOrderPaymentPlan";
@@ -179,7 +180,7 @@ export function WorkOrderPaymentPlanSection({
               ? latestBuyRate
               : inst.invoice_exchange_rate,
           payment_exchange_rate:
-            isPaymentRateEditable(inst.status) && inst.payment_exchange_rate == null
+            isPaymentRateCaptureEditable(inst.status) && inst.payment_exchange_rate == null
               ? latestBuyRate
               : inst.payment_exchange_rate,
         })),
@@ -210,6 +211,51 @@ export function WorkOrderPaymentPlanSection({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPlan.exchange_rate, isEditable, latestBuyRate]);
 
+  // MUST FIX 0722-156b review iteracion 1 #2: el efecto de arriba solo autocompleta
+  // plan.exchange_rate — nunca re-sincronizaba las cuotas ya creadas cuando
+  // useLatestExchangeRate resuelve DESPUES de que las filas ya existian con TC null
+  // (ej. el plan se crea con handleNumInstallmentsChange antes de que la query
+  // resuelva). Sin esto, esas cuotas se quedaban mostrando "—" para siempre. En Fijo,
+  // re-sincroniza con applyExchangeRateMode en cuanto haya TC de creacion; en
+  // Variable, rellena solo los campos aun editables que sigan en null, igual que
+  // handleModeChange ya hace al cambiar de modo.
+  useEffect(() => {
+    if (latestBuyRate == null || !isEditable || installments.length === 0) return;
+    if (currentPlan.exchange_rate_mode === "fijo") {
+      if (currentPlan.exchange_rate == null) return;
+      const needsSync = installments.some(
+        (inst) =>
+          (isInvoiceRateEditable(inst.status) && inst.invoice_exchange_rate == null) ||
+          (isPaymentRateEditable(inst.status) && inst.payment_exchange_rate == null),
+      );
+      if (needsSync) {
+        onInstallmentsChange(applyExchangeRateMode("fijo", currentPlan.exchange_rate, installments));
+      }
+    } else {
+      const needsInit = installments.some(
+        (inst) =>
+          (isInvoiceRateEditable(inst.status) && inst.invoice_exchange_rate == null) ||
+          (isPaymentRateCaptureEditable(inst.status) && inst.payment_exchange_rate == null),
+      );
+      if (needsInit) {
+        onInstallmentsChange(
+          installments.map((inst) => ({
+            ...inst,
+            invoice_exchange_rate:
+              isInvoiceRateEditable(inst.status) && inst.invoice_exchange_rate == null
+                ? latestBuyRate
+                : inst.invoice_exchange_rate,
+            payment_exchange_rate:
+              isPaymentRateCaptureEditable(inst.status) && inst.payment_exchange_rate == null
+                ? latestBuyRate
+                : inst.payment_exchange_rate,
+          })),
+        );
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [latestBuyRate, isEditable, currentPlan.exchange_rate_mode, currentPlan.exchange_rate, installments.length]);
+
   // When feeWithTax changes (e.g. adjustment edited), recompute stored amounts so
   // the saved value matches what the table displays. Guard via ref to avoid loops.
   const prevFeeWithTax = useRef(feeWithTax);
@@ -229,61 +275,81 @@ export function WorkOrderPaymentPlanSection({
 
   // ----- Installment count handler -----
 
+  // MUST FIX review iteracion 2 #1/#3 (decision del operador 2026-09-07: "si una cuota
+  // ya esta facturada, no se puede modificar o eliminar de ninguna manera"): una cuota
+  // con status <> 'Pending' nunca participa de la redistribucion de porcentaje/monto,
+  // nunca se renumera, y nunca puede quedar excluida al reducir la cantidad de cuotas.
+  const isLocked = (inst: PaymentInstallmentInput) => inst.status !== "Pending";
+
+  // MUST FIX review iteracion 2 #4 (decision del operador: bloquear): si ya existe
+  // alguna cuota facturada, el TC/modo del plan tampoco se puede tocar, aunque la OT
+  // haya vuelto a Draft (revertir aprobacion + cambiar de modo dejaria el TC "oficial"
+  // del plan desalineado del TC realmente aplicado a esa cuota). El trigger de DB
+  // (wo_payment_plan_guard_exchange_rate) es la garantia real; esto es solo UX.
+  const planLocked = installments.some(isLocked);
+
   const handleNumInstallmentsChange = (count: number) => {
     if (count < 0 || count > 24) return;
-    // count === 0 clears all installments (user removes the plan)
-    if (count === 0) {
-      onInstallmentsChange([]);
-      return;
-    }
     const current = installments.length;
     if (count === current) return;
 
+    const lockedCount = installments.filter(isLocked).length;
+    if (count < lockedCount) {
+      toast.error(t("workOrders.paymentPlan.validationCannotRemoveInvoiced"));
+      return;
+    }
+
+    const lockedPercentageSum = installments
+      .filter(isLocked)
+      .reduce((s, i) => s + i.percentage, 0);
+    const unlockedTargetCount = count - lockedCount;
+    const unlockedPercentages = distributePercentages(unlockedTargetCount, 100 - lockedPercentageSum);
+
+    let unlockedIdx = 0;
+    const redistribute = (inst: PaymentInstallmentInput): PaymentInstallmentInput => {
+      if (isLocked(inst)) return inst;
+      const pct = unlockedPercentages[unlockedIdx++];
+      return { ...inst, percentage: pct, amount: computeAmount(pct, feeWithTax) };
+    };
+
     if (count > current) {
-      const percentages = distributePercentages(count);
+      const addedCount = count - current;
       const initialRate = currentPlan.exchange_rate_mode === "fijo" ? currentPlan.exchange_rate : latestBuyRate;
-      const added: PaymentInstallmentInput[] = Array.from(
-        { length: count - current },
-        (_, i) => ({
+      const nextNumber = Math.max(0, ...installments.map((i) => i.installment_number)) + 1;
+      const redistributed = installments.map(redistribute);
+      const added: PaymentInstallmentInput[] = Array.from({ length: addedCount }, (_, i) => {
+        const pct = unlockedPercentages[unlockedIdx++];
+        return {
           wo_id: woId,
           plan_id: plan?.plan_id,
-          installment_number: current + i + 1,
+          installment_number: nextNumber + i,
           agreed_invoice_date: null,
           agreed_payment_date: null,
           collection_invoice_date: null,
           collection_payment_date: null,
           payment_date_actual: null,
-          percentage: percentages[current + i],
-          amount: computeAmount(percentages[current + i], feeWithTax),
+          percentage: pct,
+          amount: computeAmount(pct, feeWithTax),
           status: "Pending" as PaymentInstallmentStatus,
           invoice_exchange_rate: initialRate,
           payment_exchange_rate: initialRate,
-        }),
-      );
-      // Redistribute existing percentages and append new ones
-      const newPercentages = distributePercentages(count);
-      const updated = [
-        ...installments.map((inst, idx) => ({
-          ...inst,
-          percentage: newPercentages[idx],
-          amount: computeAmount(newPercentages[idx], feeWithTax),
-        })),
-        ...added.map((inst, i) => ({
-          ...inst,
-          percentage: newPercentages[current + i],
-          amount: computeAmount(newPercentages[current + i], feeWithTax),
-        })),
-      ];
-      onInstallmentsChange(updated);
+        };
+      });
+      onInstallmentsChange([...redistributed, ...added]);
     } else {
-      // Reducing: redistribute percentages for remaining rows
-      const newPercentages = distributePercentages(count);
+      // Reducing: drop Pending rows starting from the END of the array (matches the
+      // prior tail-drop behavior when nothing is locked); a locked row is never a
+      // candidate for dropping — already guaranteed by the lockedCount guard above.
+      let pendingToDrop = current - count;
+      const dropAt = new Set<number>();
+      for (let i = installments.length - 1; i >= 0 && pendingToDrop > 0; i--) {
+        if (!isLocked(installments[i])) {
+          dropAt.add(i);
+          pendingToDrop--;
+        }
+      }
       onInstallmentsChange(
-        installments.slice(0, count).map((inst, idx) => ({
-          ...inst,
-          percentage: newPercentages[idx],
-          amount: computeAmount(newPercentages[idx], feeWithTax),
-        })),
+        installments.filter((_, i) => !dropAt.has(i)).map(redistribute),
       );
     }
   };
@@ -376,19 +442,31 @@ export function WorkOrderPaymentPlanSection({
   };
 
   const handleDeleteRow = (idx: number) => {
+    // MUST FIX review iteracion 2 #1 (decision del operador): una cuota ya facturada no
+    // se puede eliminar de ninguna manera — el trigger BEFORE DELETE de la migracion es
+    // la garantia real; esto evita el viaje redondo innecesario al servidor.
+    if (isLocked(installments[idx])) {
+      toast.error(t("workOrders.paymentPlan.validationCannotRemoveInvoiced"));
+      return;
+    }
     const remaining = installments.filter((_, i) => i !== idx);
     if (remaining.length === 0) {
       onInstallmentsChange([]);
       return;
     }
-    const newPercentages = distributePercentages(remaining.length);
+    const lockedPercentageSum = remaining.filter(isLocked).reduce((s, i) => s + i.percentage, 0);
+    const unlockedCount = remaining.filter((inst) => !isLocked(inst)).length;
+    const unlockedPercentages = distributePercentages(unlockedCount, 100 - lockedPercentageSum);
+    let unlockedIdx = 0;
+    // installment_number deliberately left untouched (including for surviving unlocked
+    // rows) — the visible "N°" column already uses array position, not this field, and
+    // leaving it alone avoids ever touching a locked row's data.
     onInstallmentsChange(
-      remaining.map((inst, i) => ({
-        ...inst,
-        installment_number: i + 1,
-        percentage: newPercentages[i],
-        amount: computeAmount(newPercentages[i], feeWithTax),
-      })),
+      remaining.map((inst) => {
+        if (isLocked(inst)) return inst;
+        const pct = unlockedPercentages[unlockedIdx++];
+        return { ...inst, percentage: pct, amount: computeAmount(pct, feeWithTax) };
+      }),
     );
   };
 
@@ -439,7 +517,7 @@ export function WorkOrderPaymentPlanSection({
                 min={0}
                 value={currentPlan.exchange_rate ?? 0}
                 onChange={handleExchangeRateChange}
-                disabled={!isEditable}
+                disabled={!isEditable || planLocked}
                 className="w-full"
                 data-testid="payment-plan-exchange-rate"
               />
@@ -461,7 +539,7 @@ export function WorkOrderPaymentPlanSection({
                   variant={currentPlan.exchange_rate_mode === "fijo" ? "default" : "outline"}
                   size="sm"
                   onClick={() => handleModeChange("fijo")}
-                  disabled={!isEditable}
+                  disabled={!isEditable || planLocked}
                   data-testid="payment-plan-exchange-rate-mode-fijo"
                   aria-pressed={currentPlan.exchange_rate_mode === "fijo"}
                 >
@@ -472,7 +550,7 @@ export function WorkOrderPaymentPlanSection({
                   variant={currentPlan.exchange_rate_mode === "variable" ? "default" : "outline"}
                   size="sm"
                   onClick={() => handleModeChange("variable")}
-                  disabled={!isEditable}
+                  disabled={!isEditable || planLocked}
                   data-testid="payment-plan-exchange-rate-mode-variable"
                   aria-pressed={currentPlan.exchange_rate_mode === "variable"}
                 >
@@ -506,6 +584,7 @@ export function WorkOrderPaymentPlanSection({
                 className="h-10 w-10 shrink-0"
                 onClick={() => handleNumInstallmentsChange(numInstallments - 1)}
                 disabled={!isEditable || numInstallments <= 0}
+                data-testid="payment-plan-installments-minus"
               >
                 <Minus className="h-4 w-4" />
               </Button>
@@ -519,6 +598,7 @@ export function WorkOrderPaymentPlanSection({
                 className="h-10 w-10 shrink-0"
                 onClick={() => handleNumInstallmentsChange(numInstallments + 1)}
                 disabled={!isEditable || numInstallments >= 24}
+                data-testid="payment-plan-installments-plus"
               >
                 <Plus className="h-4 w-4" />
               </Button>
@@ -594,6 +674,7 @@ export function WorkOrderPaymentPlanSection({
                       <td className="py-3 px-3 border-b border-border/50">
                         <Input
                           type="date"
+                          lang="es-BO"
                           value={inst.agreed_invoice_date ?? ""}
                           onChange={(e) => handleInvoiceDateChange(idx, e.target.value)}
                           disabled={!dateEditable}
@@ -637,7 +718,14 @@ export function WorkOrderPaymentPlanSection({
                                   // este campo solo se habilita con la OT ya Aprobada, momento en el
                                   // que WorkOrderForm ya no ofrece un boton "Guardar" de pagina --
                                   // sin esto el valor quedaba atrapado en memoria para siempre.
+                                  // MUST FIX review iteracion 2 #13: mismo guard que ya usa la fecha
+                                  // de cobro -- no guardar directo si el resto del plan tiene cambios
+                                  // sin guardar todavia (evita que el batch-save posterior pise esto).
                                   if (inst.installment_id) {
+                                    if (isPaymentPlanDirty) {
+                                      toast.error(t("workOrders.paymentPlan.validationSavePlanFirst"));
+                                      return;
+                                    }
                                     updateInstallmentExchangeRate.mutate({
                                       installmentId: inst.installment_id,
                                       field: "invoice_exchange_rate",
@@ -678,6 +766,10 @@ export function WorkOrderPaymentPlanSection({
                                 onChange={(val) => handlePaymentRateChange(idx, val)}
                                 onBlur={() => {
                                   if (inst.installment_id) {
+                                    if (isPaymentPlanDirty) {
+                                      toast.error(t("workOrders.paymentPlan.validationSavePlanFirst"));
+                                      return;
+                                    }
                                     updateInstallmentExchangeRate.mutate({
                                       installmentId: inst.installment_id,
                                       field: "payment_exchange_rate",
@@ -686,7 +778,7 @@ export function WorkOrderPaymentPlanSection({
                                     });
                                   }
                                 }}
-                                disabled={!isStatusEditable || !isPaymentRateEditable(inst.status)}
+                                disabled={!isStatusEditable || !isPaymentRateCaptureEditable(inst.status)}
                                 className="w-full h-8"
                                 data-testid="installment-payment-rate"
                               />
@@ -711,6 +803,7 @@ export function WorkOrderPaymentPlanSection({
                         {isStatusEditable ? (
                           <Input
                             type="date"
+                            lang="es-BO"
                             value={inst.collection_invoice_date ?? ""}
                             onChange={(e) => {
                               if (inst.installment_id && e.target.value) {
@@ -783,13 +876,14 @@ export function WorkOrderPaymentPlanSection({
                         )}
                       </td>
                       <td className="py-3 px-1 border-b border-border/50">
-                        {isEditable && installments.length > 1 && (
+                        {isEditable && installments.length > 1 && !isLocked(inst) && (
                           <Button
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8 text-muted-foreground hover:text-destructive"
                             onClick={() => handleDeleteRow(idx)}
                             type="button"
+                            data-testid={`installment-delete-${idx}`}
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
