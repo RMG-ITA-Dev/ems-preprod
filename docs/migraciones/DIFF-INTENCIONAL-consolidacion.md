@@ -187,3 +187,25 @@ cambian de firma (ver hunk 2), y se suman 4 filas de `sync_user_role_from_catego
 `consolidado_renamed_catalog.txt` **no** se re-aceptó: no está entre los seis fixtures que el gate
 compara, y su diff es ruido de entorno (lista tamaños de tabla, que varían según qué filas insertó
 cada corrida).
+
+### 6.2 — 0817-179 (retiro del estado 9 «Congelado»)
+
+Re-aceptado desde el artifact del run **34241633466** (`headSha` bbc92ab0, 2026-09-08), el
+primero posterior al merge de `development` que trajo 0820-182 — la re-aceptación previa
+(run 33889841095, `headSha` 21575b59) quedó obsoleta con ese merge, porque el fingerprint
+pasó a tener que reflejar los dos juegos de migraciones. Solo
+`consolidado_renamed_schema.sql` divergió (36 líneas); los otros cinco fixtures gateados quedaron
+idénticos — este bug no toca policies, grants ni storage.
+
+Todo el diff proviene de la única migración de la rama,
+`20260902120000_0817-179_retire_frozen_engagement_state.sql`:
+
+1. `engagements_state_override_check`: el rango pasa de `1..9` a `1..8`, y el `COMMENT` de
+   `engagements.engagement_state_override` se actualiza en consecuencia.
+2. `authorize_engagement_state_override()`: desaparece el bloque que era la **única** excepción
+   para un no-admin (el Gerente del encargo congelando/descongelando, `null <-> 9`). Retirado el
+   estado 9, no queda ningún cambio de override permitido a un no-admin, así que la función cae
+   directo al rechazo. Su `COMMENT` se reescribe con esa semántica.
+3. Las listas de estados terminales pasan de `(6, 7, 9)` a `(6, 7)` — en el guard de edición de
+   fechas y en el `NOT IN` de la vista que deriva el estado.
+4. El mensaje de la excepción de fechas deja de nombrar «Congelado».

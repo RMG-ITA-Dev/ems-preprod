@@ -126,6 +126,13 @@ run supabase/migrations/20260831013000_0828-186_list_loggable_engagements_rpc.sq
 # registrada la hora. Ejercitado por rls-0828-186-own-timer-engagement-labels.sql.
 run supabase/migrations/20260831020000_0828-186_list_own_timer_engagement_labels_rpc.sql
 
+# 0817-179: retiro del estado 9 Congelado -- backfill 9 -> NULL, CHECK de
+# engagement_state_override narrowed a 1..8, y CREATE OR REPLACE de
+# authorize_engagement_state_override() / engagement_accepts_assignment_writes() sin el 9.
+# Ejercitado por schema-convergence-assertions.sql (verifica que un override 9 sea rechazado
+# con check_violation) y por rls-0828-186-loggable-engagements-rpc.sql.
+run supabase/migrations/20260902120000_0817-179_retire_frozen_engagement_state.sql
+
 # 0828-185: RPC list_portfolio_engagements() -- Encargos/EngagementEdit/ClientEngagementsTable
 # muestran solo lo creado por el usuario (mas los buckets firm/own_society/own_management por
 # role_key), en vez de cualquier encargo donde figure como partner/manager/sqr/encargado.

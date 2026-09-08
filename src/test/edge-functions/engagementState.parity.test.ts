@@ -1,11 +1,11 @@
 // Fase 3 (plan v2 §1) — prueba de paridad: los dos módulos byte-sincronizados
 // supabase/functions/{scheduler-data,scheduler-gaps}/engagementState.ts deben
 // producir EXACTAMENTE el mismo resultado que la fuente de verdad
-// src/lib/engagementStatus.ts (development) para los 9 estados, y ser
+// src/lib/engagementStatus.ts (development) para los 8 estados, y ser
 // idénticos entre sí (evita que las dos copias diverjan con el tiempo).
 //
 // También cubre los escenarios explícitos del issue: legado "active" con
-// override no activo, AprobadoEmergencia, Congelado, rechazado, cancelado,
+// override no activo, AprobadoEmergencia, rechazado, cancelado,
 // finalizado.
 
 import { describe, it, expect } from "vitest";
@@ -79,10 +79,10 @@ const scenarios: Array<{
 ];
 
 describe("engagementState.ts (scheduler-data / scheduler-gaps) — paridad con src/lib/engagementStatus.ts", () => {
-  it("el enum EngagementState es idéntico (valores 1-9) en las 3 copias", () => {
+  it("el enum EngagementState es idéntico (valores 1-8) en las 3 copias", () => {
     const names = [
       "Pendiente", "AprobadoSocio", "AprobadoRiesgos", "Aprobado", "AprobadoEmergencia",
-      "Cancelado", "Finalizado", "Rechazado", "Congelado",
+      "Cancelado", "Finalizado", "Rechazado",
     ] as const;
     for (const name of names) {
       for (const { name: copyName, mod } of copies) {
@@ -92,6 +92,17 @@ describe("engagementState.ts (scheduler-data / scheduler-gaps) — paridad con s
         ).toBe((DevEngagementState as unknown as Record<string, number>)[name]);
       }
     }
+    // BUG 0817-179: y el miembro retirado no debe reaparecer en ninguna de las 3 copias.
+    for (const { name: copyName, mod } of copies) {
+      expect(
+        (mod.EngagementState as unknown as Record<string, number>).Congelado,
+        `${copyName}.EngagementState.Congelado debe estar retirado (0817-179)`
+      ).toBeUndefined();
+    }
+    expect(
+      (DevEngagementState as unknown as Record<string, number>).Congelado,
+      "src/lib.EngagementState.Congelado debe estar retirado (0817-179)"
+    ).toBeUndefined();
   });
 
   describe.each(copies)("$name/engagementState.ts", ({ mod }) => {
@@ -105,7 +116,7 @@ describe("engagementState.ts (scheduler-data / scheduler-gaps) — paridad con s
       }
     );
 
-    it("effectiveEngagementState: override Congelado(9) gana aunque la OT esté aprobada", () => {
+    it("effectiveEngagementState: override 9 (estado retirado, 0817-179) cae al derivado", () => {
       const eng: EngagementStateInput = { work_order_required: true, engagement_state_override: 9 };
       const wo: WorkOrderStateInput = {
         approval_status: "Approved",
@@ -113,7 +124,7 @@ describe("engagementState.ts (scheduler-data / scheduler-gaps) — paridad con s
         risk_status: "Approved",
       };
       expect(mod.effectiveEngagementState(eng, wo)).toBe(devEffective(eng, wo));
-      expect(mod.effectiveEngagementState(eng, wo)).toBe(DevEngagementState.Congelado);
+      expect(mod.effectiveEngagementState(eng, wo)).toBe(DevEngagementState.Aprobado);
     });
 
     it("effectiveEngagementState: override Cancelado(6) gana sobre administrativo", () => {
@@ -129,11 +140,11 @@ describe("engagementState.ts (scheduler-data / scheduler-gaps) — paridad con s
       expect(mod.effectiveEngagementState(eng, wo)).toBe(DevEngagementState.Finalizado);
     });
 
-    it("effectiveEngagementState: legado 'active' con override NO activo (6/7/9) nunca se cuenta como activo", () => {
+    it("effectiveEngagementState: legado 'active' con override NO activo (6/7) nunca se cuenta como activo", () => {
       // El escenario del issue §10: un engagement con status legacy 'active'
       // pero override en un estado terminal/pausado NUNCA debe bucketizarse
       // como "active" — el bucket depende SOLO del estado efectivo.
-      for (const override of [6, 7, 9] as const) {
+      for (const override of [6, 7] as const) {
         const eng: EngagementStateInput = { work_order_required: true, engagement_state_override: override };
         const wo: WorkOrderStateInput = {
           approval_status: "Approved",
@@ -155,15 +166,15 @@ describe("engagementState.ts (scheduler-data / scheduler-gaps) — paridad con s
     });
 
     it("engagementStateBucket: solo Aprobado(4)/AprobadoEmergencia(5) bucketizan 'active' — coherente con canLogHours", () => {
-      for (let state = 1; state <= 9; state++) {
+      for (let state = 1; state <= 8; state++) {
         const bucket = mod.engagementStateBucket(state as DevEngagementState);
         const isActiveBucket = bucket === "active";
         expect(isActiveBucket).toBe(devCanLogHours(state as DevEngagementState));
       }
     });
 
-    it("engagementStateBucket: Congelado(9) → 'frozen' (bucket propio, sin equivalente legacy)", () => {
-      expect(mod.engagementStateBucket(DevEngagementState.Congelado)).toBe("frozen");
+    it("engagementStateBucket: 9 (estado retirado, 0817-179) → 'unknown'; el bucket 'frozen' ya no existe", () => {
+      expect(mod.engagementStateBucket(9 as DevEngagementState)).toBe("unknown");
     });
 
     it("engagementStateBucket: Rechazado(8) y Cancelado(6) → 'cancelled'", () => {
@@ -186,7 +197,7 @@ describe("engagementState.ts (scheduler-data / scheduler-gaps) — paridad con s
       const [a, b] = copies.map(({ mod }) => mod.deriveEngagementState(s.engagement, s.wo));
       expect(a).toBe(b);
     }
-    for (let state = 1; state <= 9; state++) {
+    for (let state = 1; state <= 8; state++) {
       const [a, b] = copies.map(({ mod }) => mod.engagementStateBucket(state as DevEngagementState));
       expect(a).toBe(b);
     }

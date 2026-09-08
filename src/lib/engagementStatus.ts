@@ -1,5 +1,9 @@
 /**
- * FEAT 0602-135 — Máquina de estados del encargo (9 estados).
+ * FEAT 0602-135 — Máquina de estados del encargo (8 estados).
+ *
+ * BUG 0817-179: el estado 9 Congelado se retiró del sistema. El CHECK de
+ * `engagements.engagement_state_override` acepta 1..8, así que un 9 ya no puede
+ * persistirse; `isValidState` lo rechaza y el estado cae al derivado de la OT.
  *
  * El estado que se muestra al usuario es el "estado efectivo":
  *   estado_efectivo = override_manual (si existe) ?? estado_derivado_de_la_OT
@@ -7,7 +11,7 @@
  * - Los estados 1,2,3,4,5,8 se DERIVAN del estado de la Orden de Trabajo (pistas
  *   independientes Socio + Riesgos + emergencia). No hay secuencia forzada: Riesgos
  *   puede aprobar antes que el Socio (estado 3).
- * - Los estados 6 Cancelado, 7 Finalizado y 9 Congelado son manuales/terminales y se
+ * - Los estados 6 Cancelado y 7 Finalizado son manuales/terminales y se
  *   persisten en engagements.engagement_state_override (el Admin/Gerente los fija, y el
  *   cron de finalizado escribe el 7). El override, si está presente, gana sobre la OT.
  * - Encargos administrativos (work_order_required = false) no tienen OT ni flujo de
@@ -25,7 +29,6 @@ export enum EngagementState {
   Cancelado = 6,
   Finalizado = 7,
   Rechazado = 8,
-  Congelado = 9,
 }
 
 /** Orden de presentación en filtros/listados. */
@@ -38,14 +41,12 @@ export const ENGAGEMENT_STATES: readonly EngagementState[] = [
   EngagementState.Cancelado,
   EngagementState.Finalizado,
   EngagementState.Rechazado,
-  EngagementState.Congelado,
 ];
 
 /** Estados manuales/terminales: los fija el Admin/Gerente (o el cron para el 7). */
 export const MANUAL_STATES: ReadonlySet<EngagementState> = new Set([
   EngagementState.Cancelado,
   EngagementState.Finalizado,
-  EngagementState.Congelado,
 ]);
 
 /**
@@ -66,7 +67,7 @@ export interface WorkOrderStateInput {
 }
 
 function isValidState(value: number | null | undefined): value is EngagementState {
-  return value != null && value >= 1 && value <= 9;
+  return value != null && value >= 1 && value <= 8;
 }
 
 /**
@@ -129,14 +130,13 @@ export function canLogHours(state: EngagementState): boolean {
 
 /**
  * Estados terminales/pausados que se ocultan de los selectores "activos" (Matriz de Trabajo,
- * dashboard): 6 Cancelado, 7 Finalizado, 9 Congelado. Sacan al encargo de la operación aunque su
+ * dashboard): 6 Cancelado, 7 Finalizado. Sacan al encargo de la operación aunque su
  * `status` legacy siga en 'active'. Recibe el override crudo (NULL = no oculto → deriva/activo).
  */
 export function isHiddenFromActivePickers(override: number | null | undefined): boolean {
   return (
     override === EngagementState.Cancelado ||
-    override === EngagementState.Finalizado ||
-    override === EngagementState.Congelado
+    override === EngagementState.Finalizado
   );
 }
 
@@ -157,8 +157,6 @@ export function engagementStateBadgeClass(state: EngagementState): string {
       return "bg-warning/10 text-warning border-warning/20";
     case EngagementState.Rechazado:
       return "bg-destructive/10 text-destructive border-destructive/20";
-    case EngagementState.Congelado:
-      return "bg-info/10 text-info border-info/20";
     case EngagementState.Cancelado:
     case EngagementState.Finalizado:
     default:

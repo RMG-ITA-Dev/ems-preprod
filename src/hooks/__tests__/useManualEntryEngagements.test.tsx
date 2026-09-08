@@ -80,8 +80,8 @@ describe("useManualEntryEngagements", () => {
     expect(result.current.data![0].engagement_id).toBe("eng-client");
   });
 
-  it("excludes engagement with terminal override (Cancelado/Finalizado/Congelado)", async () => {
-    setupMocks([makeRow({ engagement_id: "eng-frozen", engagement_state_override: 6 })]);
+  it("excludes engagement with terminal override (Cancelado/Finalizado)", async () => {
+    setupMocks([makeRow({ engagement_id: "eng-terminal", engagement_state_override: 6 })]);
     const { result } = renderHook(() => useManualEntryEngagements(), { wrapper: createWrapper() });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data).toEqual([]);

@@ -294,10 +294,10 @@ export const SVAR_COMPACT_THRESHOLD_PX = 650;
 //
 // El Scheduler original coloreaba la barra con un enum legacy de 4 valores
 // (active/pending/completed/cancelled). Fase 3 reemplaza esa entrada por el
-// ESTADO EFECTIVO numérico (1-9) de `development` (src/lib/engagementStatus.ts,
-// fuente de verdad) y bucketiza a un color de barra — 9 colores de barra no
+// ESTADO EFECTIVO numérico (1-8) de `development` (src/lib/engagementStatus.ts,
+// fuente de verdad) y bucketiza a un color de barra — 8 colores de barra no
 // son útiles visualmente; el chip de texto (engagementStateI18nKey/
-// engagementStateBadgeClass) sí distingue los 9 exactamente. "Activo" para
+// engagementStateBadgeClass) sí distingue los 8 exactamente. "Activo" para
 // utilización/horas es únicamente {4,5} (canLogHours).
 export function engagementTaskType(
   state: EngagementState | null | undefined
@@ -315,8 +315,6 @@ export function engagementTaskType(
     case EngagementState.Cancelado:
     case EngagementState.Rechazado:
       return "ems-status-cancelled";
-    case EngagementState.Congelado:
-      return "ems-status-frozen";
     default:
       return "ems-neutral";
   }

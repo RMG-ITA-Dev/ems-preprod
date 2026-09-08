@@ -101,8 +101,6 @@ INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engag
    'Override Finalizado 0828186', 'LE-06', 'active', false, 7, '2026-12-31', (SELECT society_id FROM public.society ORDER BY name LIMIT 1)),
   ('70828186-0000-4000-8000-000000000007', '60828186-0000-4000-8000-000000000001',
    'Override Rechazado 0828186', 'LE-07', 'active', false, 8, '2026-12-31', (SELECT society_id FROM public.society ORDER BY name LIMIT 1)),
-  ('70828186-0000-4000-8000-000000000008', '60828186-0000-4000-8000-000000000001',
-   'Override Congelado 0828186', 'LE-08', 'active', false, 9, '2026-12-31', (SELECT society_id FROM public.society ORDER BY name LIMIT 1)),
   -- (f) Overrides 1/2/3 sobre encargos que de otro modo calificarían por Group A/B -- el
   -- override manual (no solo 4/5 positivo) también debe bloquear, igual que check_wo_approved()
   -- y engagement_allows_hours_or_requests() (review Iteración 2, 0828-186).
@@ -165,18 +163,20 @@ BEGIN
   END IF;
   RAISE NOTICE 'OK (c): OT no aprobada / sin override queda excluida';
 
-  -- ── (d) Overrides 6/7/8/9 -- excluidos aunque califiquen por Group B ─────────────────────
-  FOR v_override IN SELECT unnest(ARRAY[6, 7, 8, 9])
+  -- ── (d) Overrides 6/7/8 -- excluidos aunque califiquen por Group B ──────────────────────
+  -- BUG 0817-179: el 9 Congelado se retiró (el CHECK de la columna ahora acepta 1..8), así que
+  -- su fixture LE-08 y esta iteración se cayeron con él.
+  FOR v_override IN SELECT unnest(ARRAY[6, 7, 8])
   LOOP
     PERFORM 1 FROM public.list_loggable_engagements() e
      WHERE e.engagement_id = ('70828186-0000-4000-8000-00000000000' ||
                                CASE v_override WHEN 6 THEN '5' WHEN 7 THEN '6'
-                                                WHEN 8 THEN '7' WHEN 9 THEN '8' END)::uuid;
+                                                WHEN 8 THEN '7' END)::uuid;
     IF FOUND THEN
       RAISE EXCEPTION 'FAIL (d): encargo con override % apareció y no debía', v_override;
     END IF;
   END LOOP;
-  RAISE NOTICE 'OK (d): overrides 6/7/8/9 quedan excluidos';
+  RAISE NOTICE 'OK (d): overrides 6/7/8 quedan excluidos';
 
   -- ── (f) Overrides 1/2/3 -- excluidos aunque califiquen por Group A/B ─────────────────────
   PERFORM 1 FROM public.list_loggable_engagements() e

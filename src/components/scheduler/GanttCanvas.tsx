@@ -83,7 +83,6 @@ export const EMS_TASK_TYPES = [
   "ems-status-pending",
   "ems-status-completed",
   "ems-status-cancelled",
-  "ems-status-frozen",
   "ems-load-1",
   "ems-load-2",
   "ems-load-4",
