@@ -39,8 +39,8 @@ const mockServices = [
 ];
 
 const mockAllCategories = [
-  { category_id: "c1", category_name: "Socio", practica_id: "s1", display_order: 1, rate_high_bob: 200, rate_low_bob: 150, rate_high_usd: 30, rate_low_usd: 25, can_approve_wo: true, can_approve_timesheets: true, default_app_role: null },
-  { category_id: "c2", category_name: "Gerente", practica_id: "s1", display_order: 2, rate_high_bob: 150, rate_low_bob: 100, rate_high_usd: 25, rate_low_usd: 20, can_approve_wo: false, can_approve_timesheets: true, default_app_role: null },
+  { category_id: "c1", category_name: "Socio", practica_id: "s1", display_order: 1, rate_high_bob: 200, rate_low_bob: 150, rate_high_usd: 30, rate_low_usd: 25, can_approve_wo: true, can_approve_timesheets: true, default_app_role: null, default_role_key: null },
+  { category_id: "c2", category_name: "Gerente", practica_id: "s1", display_order: 2, rate_high_bob: 150, rate_low_bob: 100, rate_high_usd: 25, rate_low_usd: 20, can_approve_wo: false, can_approve_timesheets: true, default_app_role: null, default_role_key: null },
 ];
 
 // Mutable so a test can simulate useCategories() resolving AFTER the form opens.
@@ -66,6 +66,7 @@ const editCategory: Category = {
   can_approve_wo: true,
   can_approve_timesheets: true,
   default_app_role: null,
+  default_role_key: null,
   service: mockServices[0] as unknown as Category["service"],
 };
 

@@ -66,7 +66,7 @@ const ENGAGEMENT: Engagement = {
 } as Engagement;
 
 const CATEGORIES = [
-  { category_id: "cat-1", category_name: "Cat One", practica_id: "svc-aud", rate_high_bob: 0, rate_low_bob: 0, rate_high_usd: 0, rate_low_usd: 0, display_order: 1, can_approve_wo: false, can_approve_timesheets: false, default_app_role: null },
+  { category_id: "cat-1", category_name: "Cat One", practica_id: "svc-aud", rate_high_bob: 0, rate_low_bob: 0, rate_high_usd: 0, rate_low_usd: 0, display_order: 1, can_approve_wo: false, can_approve_timesheets: false, default_app_role: null, default_role_key: null },
 ];
 const STAFF_1 = { staff_id: "staff-1", first_name: "Ana", last_name: "Alvarez", short_name: null, initials: "AA", category_id: "cat-1", society_id: "soc-1", practica_id: "svc-aud", city: null, is_active: true, is_schedulable: true, category: CATEGORIES[0], staff_skills: [] };
 const STAFF_2 = { staff_id: "staff-2", first_name: "Beto", last_name: "Bravo", short_name: null, initials: "BB", category_id: "cat-1", society_id: "soc-1", practica_id: "svc-aud", city: null, is_active: true, is_schedulable: true, category: CATEGORIES[0], staff_skills: [] };

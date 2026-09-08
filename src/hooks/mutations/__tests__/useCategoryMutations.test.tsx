@@ -47,6 +47,7 @@ describe("useCategoryMutations", () => {
         can_approve_wo: true,
         can_approve_timesheets: false,
         default_app_role: null,
+        default_role_key: "ita_manager",
       });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
@@ -59,6 +60,10 @@ describe("useCategoryMutations", () => {
           p_display_order: 3,
           p_rate_high_bob: 500,
           p_can_approve_wo: true,
+          // 0820-182: el role_key elegido viaja tal cual, y el espejo legacy sigue yendo
+          // sin cambios (la UI ya no lo edita, solo lo arrastra).
+          p_default_role_key: "ita_manager",
+          p_default_app_role: null,
         })
       );
       expect(toast.success).toHaveBeenCalled();
@@ -107,6 +112,7 @@ describe("useCategoryMutations", () => {
           can_approve_wo: false,
           can_approve_timesheets: true,
           default_app_role: null,
+          default_role_key: "tax_senior",
         },
       });
 
@@ -118,6 +124,8 @@ describe("useCategoryMutations", () => {
           p_category_id: "cat-1",
           p_category_name: "Senior Manager",
           p_display_order: 2,
+          p_default_role_key: "tax_senior",
+          p_default_app_role: null,
         })
       );
       // The service is immutable — no service param may be sent.

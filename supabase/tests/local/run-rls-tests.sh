@@ -138,6 +138,18 @@ run supabase/migrations/20260902163000_0828-185_engagement_portfolio_visibility_
 # trigger-engagement-creator-team.sql y schema-convergence-assertions.sql.
 run supabase/migrations/20260902163500_0828-185_engagement_team_and_society_integrity.sql
 
+# 0820-182: categories.default_role_key (rol que una categoría SUGIERE), su CHECK anti-admin,
+# la firma nueva de create/update_category_for_practice, y el RPC SECURITY DEFINER
+# sync_user_role_from_category. Ejercitado por rpc-0820-182-sync-user-role-from-category.sql.
+run supabase/migrations/20260825000000_category_default_role_key.sql
+
+# 0820-182: restaura authorization_roles.legacy_app_role (la consolidación dejó el UPDATE
+# fuera del seed, y sin el espejo admin_set_user_role_key devuelve ROLE_NOT_MAPPED para TODO
+# rol) + el backfill de categories.default_role_key, que depende de ese mapeo. Va DESPUÉS de
+# 20260825000000 por timestamp, igual que en producción.
+# Ejercitado por rpc-0820-182-sync-user-role-from-category.sql.
+run supabase/migrations/20260825000100_authz_restore_legacy_app_role_mapping.sql
+
 # society/practicas(code=1): staff.society_id/practica_id y categories.practica_id son NOT NULL
 # reales; varias suites (rpc-engagement-team-candidates.sql explícitamente lo exige con su
 # propio guard) asumen que el catálogo mínimo de práctica/sociedad ya existe, como pasaría en
@@ -178,5 +190,6 @@ assert_suite supabase/tests/trigger-engagement-profile-scope.sql 'PROFILE SCOPE:
 assert_suite supabase/tests/rls-0828-186-loggable-engagements-rpc.sql 'LOGGABLE ENGAGEMENTS RPC: ALL CHECKS PASSED'
 assert_suite supabase/tests/rls-0828-186-own-timer-engagement-labels.sql 'OWN TIMER ENGAGEMENT LABELS RPC: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-0828-185-engagement-portfolio.sql 'PORTFOLIO ENGAGEMENTS RPC: ALL CHECKS PASSED'
+assert_suite supabase/tests/rpc-0820-182-sync-user-role-from-category.sql 'SYNC USER ROLE FROM CATEGORY: ALL CHECKS PASSED'
 
 echo "OK: set consolidado (cero_01..cero_06) + migraciones 0825-183, 0817-180, 0828-186 y 0828-185 aplicadas sobre base scratch; las 13 suites de RLS/RPC/schema-convergence/trigger pasaron"
