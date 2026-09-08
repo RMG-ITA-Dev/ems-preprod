@@ -176,6 +176,28 @@ describe("fetchProviderRate", () => {
     expect(result.ok).toBe(true);
   });
 
+  // MUST FIX review iteracion 3 #2/#5: un host público permitido que redirige hacia
+  // adentro (loopback/privado/metadata de nube) no debe seguirse silenciosamente.
+  it("passes redirect:\"error\" to fetch, so a redirect response fails instead of being followed", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true, status: 200, json: () => Promise.resolve(VALID_RESPONSE),
+    });
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+    await fetchProviderRate("https://tc.example.com/oficial");
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "https://tc.example.com/oficial",
+      expect.objectContaining({ redirect: "error" }),
+    );
+  });
+
+  it("returns a controlled error when the provider responds with a redirect (fetch rejects under redirect:\"error\")", async () => {
+    globalThis.fetch = vi.fn().mockRejectedValue(
+      new TypeError("Failed to fetch"),
+    ) as unknown as typeof fetch;
+    const result = await fetchProviderRate("https://tc.example.com/oficial");
+    expect(result.ok).toBe(false);
+  });
+
   it("returns a controlled error on a non-2xx response (e.g. 500)", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({ ok: false, status: 500 }) as unknown as typeof fetch;
     const result = await fetchProviderRate("https://tc.example.com/oficial");

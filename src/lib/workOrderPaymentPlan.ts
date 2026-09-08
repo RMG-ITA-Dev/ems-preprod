@@ -1,5 +1,5 @@
 import { getBoliviaNationalHolidays } from './boliviaHolidays';
-import type { ExchangeRateMode, PaymentInstallmentInput, PaymentInstallmentStatus } from '@/types/workOrderPaymentPlan';
+import type { ExchangeRateMode, PaymentInstallmentInput, PaymentInstallmentStatus, PaymentPlanInput } from '@/types/workOrderPaymentPlan';
 
 // Returns a new Date that is `days` business days after `start`.
 // Skips weekends and Bolivia national holidays.
@@ -171,6 +171,33 @@ export function isPaymentRateCaptureEditable(status: PaymentInstallmentStatus): 
 export function computeConvertedAmount(amount: number | null, rate: number | null): number | null {
   if (amount == null || rate == null) return null;
   return parseFloat((amount * rate).toFixed(2));
+}
+
+// MUST FIX 0722-156b review iteracion 3 #4: invoice_exchange_rate/payment_exchange_rate
+// (modo Variable) se guardan directo en su propio onBlur (Amendment 2026-09-07), sin pasar
+// por el flujo de "Guardar" de pagina -- son autonomos, no parte del "resto" del plan. Si
+// el guard que bloquea ese guardado directo cuando "el resto del plan tiene cambios sin
+// guardar" compara el array de cuotas completo, el propio cambio que el usuario esta
+// tipeando ya se refleja ahi (via onInstallmentsChange) antes de que el blur dispare el
+// guard, y el campo termina bloqueando su propio guardado. Comparar ignorando estos 2
+// campos evita ese autobloqueo, sin dejar de detectar cambios reales pendientes en el
+// resto de la fila (porcentaje, fechas via el batch, etc.).
+function withoutSelfSavingRateFields(inst: PaymentInstallmentInput): Omit<PaymentInstallmentInput, 'invoice_exchange_rate' | 'payment_exchange_rate'> {
+  const { invoice_exchange_rate, payment_exchange_rate, ...rest } = inst;
+  return rest;
+}
+
+export function isPaymentPlanRestDirty(
+  installments: PaymentInstallmentInput[],
+  originalInstallments: PaymentInstallmentInput[],
+  plan: PaymentPlanInput | null,
+  originalPlan: PaymentPlanInput | null,
+): boolean {
+  return (
+    JSON.stringify(installments.map(withoutSelfSavingRateFields)) !==
+      JSON.stringify(originalInstallments.map(withoutSelfSavingRateFields)) ||
+    JSON.stringify(plan) !== JSON.stringify(originalPlan)
+  );
 }
 
 // Modo Fijo: el TC de creacion del plan se aplica tal cual a las 2 columnas de TC de

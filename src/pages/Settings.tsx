@@ -712,11 +712,16 @@ const Settings = () => {
       // Mandatory-HTTPS absolute-URL validation (bug 0722-156) — the same rule the
       // "Probar"/"Guardar" flow relies on (fetchProviderRate rejects non-HTTPS server-side
       // too), checked here so a bad value never reaches global_settings via plain Save.
+      // MUST FIX review iteracion 3 #3: `if (exchangeRateApiUrl)` truthy-check skipped the
+      // mutation entirely when the field was cleared, so an admin could never disable a
+      // configured provider URL through this control — compare against the persisted value
+      // instead (same pattern as holidayEngagementId below), so clearing it persists "".
+      const trimmedExchangeRateApiUrl = exchangeRateApiUrl.trim();
       let exchangeRateApiUrlValue: string | null = null;
-      if (exchangeRateApiUrl) {
+      if (trimmedExchangeRateApiUrl) {
         let parsedUrl: URL;
         try {
-          parsedUrl = new URL(exchangeRateApiUrl.trim());
+          parsedUrl = new URL(trimmedExchangeRateApiUrl);
         } catch {
           toast.error(t("settings.exchangeRateApiUrlInvalid"));
           return;
@@ -725,7 +730,10 @@ const Settings = () => {
           toast.error(t("settings.exchangeRateApiUrlHttpsRequired"));
           return;
         }
-        exchangeRateApiUrlValue = exchangeRateApiUrl.trim();
+      }
+      const persistedExchangeRateApiUrl = getSetting("EXCHANGE_RATE_API_URL") || "";
+      if (trimmedExchangeRateApiUrl !== persistedExchangeRateApiUrl) {
+        exchangeRateApiUrlValue = trimmedExchangeRateApiUrl;
       }
 
       if (taxRate) {

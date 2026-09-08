@@ -52,7 +52,7 @@ export function ExchangeRateIndicator() {
           className="flex items-center gap-1.5 rounded-full border border-border bg-muted/40 px-2.5 py-1 text-xs font-medium text-foreground cursor-default hover:bg-muted/60 transition-colors"
         >
           <ArrowLeftRight className="h-3.5 w-3.5 text-primary" />
-          <span>Bs {formatRate(rate.compra, i18n.language)}</span>
+          <span>{t("header.exchangeRate.compra", { value: formatRate(rate.compra, i18n.language) })}</span>
         </button>
       </TooltipTrigger>
       <TooltipContent side="bottom" className="space-y-0.5">

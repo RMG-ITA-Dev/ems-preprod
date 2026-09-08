@@ -54,6 +54,8 @@ describe("ExchangeRateIndicator", () => {
     expect(screen.getByText("header.exchangeRate.unavailable")).toBeInTheDocument();
   });
 
+  // MUST FIX 0722-156b review iteracion 3 #6/#7: el chip pasa por t("header.exchangeRate.compra",
+  // {value}) en vez de un literal "Bs " hardcodeado — el mock de t() devuelve `key::{opts}`.
   it("always renders the compra chip (no mobile-hidden class)", () => {
     mockUseLatestExchangeRate.mockReturnValue({
       data: { compra: 11.57, venta: 11.67, fecha_vigencia: "2026-08-26", fuente: "Banco Central de Bolivia", estado: "vigente" },
@@ -61,7 +63,7 @@ describe("ExchangeRateIndicator", () => {
       isError: false,
     });
     const { container } = renderIndicator();
-    expect(screen.getByText("Bs 11.57")).toBeInTheDocument();
+    expect(screen.getByText('header.exchangeRate.compra::{"value":"11.57"}')).toBeInTheDocument();
     // The approved feat/tc-ui mockup hid this on mobile via `hidden sm:flex` — the operator
     // decision (2026-09-05) overrides that: the trigger must carry no `hidden` class.
     const trigger = container.querySelector("button");
@@ -75,12 +77,12 @@ describe("ExchangeRateIndicator", () => {
       isError: false,
     });
     const { unmount } = renderIndicator();
-    expect(screen.getByText("Bs 11.57")).toBeInTheDocument();
+    expect(screen.getByText('header.exchangeRate.compra::{"value":"11.57"}')).toBeInTheDocument();
     unmount();
 
     mockLanguage = "es";
     renderIndicator();
-    expect(screen.getByText("Bs 11,57")).toBeInTheDocument();
+    expect(screen.getByText('header.exchangeRate.compra::{"value":"11,57"}')).toBeInTheDocument();
   });
 
   it("reveals venta/fecha/fuente/estado in the tooltip on tap (mobile — no hover)", async () => {
@@ -92,7 +94,7 @@ describe("ExchangeRateIndicator", () => {
     const user = userEvent.setup();
     renderIndicator();
 
-    await user.click(screen.getByText("Bs 11.57"));
+    await user.click(screen.getByText('header.exchangeRate.compra::{"value":"11.57"}'));
 
     // Radix Tooltip renders the content twice (visible popper + a visually-hidden a11y
     // copy for screen readers) — getAllByText, then check the first match's text.
@@ -117,7 +119,7 @@ describe("ExchangeRateIndicator", () => {
     });
     const user = userEvent.setup();
     renderIndicator();
-    await user.click(screen.getByText("Bs 11.57"));
+    await user.click(screen.getByText('header.exchangeRate.compra::{"value":"11.57"}'));
     await waitFor(() => {
       expect(screen.getAllByText("header.exchangeRate.status.stale").length).toBeGreaterThan(0);
     });

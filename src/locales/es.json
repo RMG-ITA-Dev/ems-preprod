@@ -5,6 +5,7 @@
     "notLinkedToStaff": "No vinculado a registro de personal",
     "exchangeRate": {
       "unavailable": "Tipo de cambio no disponible",
+      "compra": "Bs {{value}}",
       "venta": "Tipo de cambio de venta: Bs {{value}}",
       "effectiveDate": "Vigente al {{date}}",
       "status": {

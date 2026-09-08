@@ -218,9 +218,19 @@ export async function fetchProviderRate(url: string): Promise<FetchResult> {
     return { ok: false, error: "URL del microservicio apunta a un host no permitido" };
   }
 
+  // MUST FIX review iteracion 3 #2/#5: isBlockedHost solo mira el hostname literal de la
+  // URL; un fetch normal sigue redirects por defecto, así que un host público permitido
+  // podía redirigir hacia loopback/privado/metadata de nube sin que este chequeo lo viera.
+  // `redirect: "error"` hace que fetch() rechace en cuanto el proveedor responda un 3xx, en
+  // vez de seguirlo — cierra ese bypass sin necesitar resolución de DNS (que requeriría una
+  // API Deno-only, incompatible con que este archivo corra sin cambios bajo Vitest). Un
+  // hostname público que resuelve directamente a una IP privada (DNS rebinding) queda fuera
+  // de esta defensa — mitigado por el gate de permiso `global_settings.update` que ya exige
+  // authorizeTestMode para modo test, y por el hecho de que la URL en modo sync es siempre
+  // la guardada por un admin, nunca la de un llamador anónimo.
   let response: Response;
   try {
-    response = await fetch(parsed.toString());
+    response = await fetch(parsed.toString(), { redirect: "error" });
   } catch (e) {
     return { ok: false, error: `Error de red consultando el microservicio: ${String(e)}` };
   }

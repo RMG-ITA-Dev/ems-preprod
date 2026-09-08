@@ -5,6 +5,7 @@
     "notLinkedToStaff": "Not linked to staff record",
     "exchangeRate": {
       "unavailable": "Exchange rate unavailable",
+      "compra": "Bs {{value}}",
       "venta": "Selling rate: Bs {{value}}",
       "effectiveDate": "Effective {{date}}",
       "status": {

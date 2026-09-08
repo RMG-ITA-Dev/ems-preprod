@@ -59,7 +59,7 @@ import {
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { isSchedulerEnabled } from "@/lib/schedulerFeature";
 import type { PaymentPlanInput, PaymentInstallmentInput } from "@/types/workOrderPaymentPlan";
-import { applyExchangeRateMode } from "@/lib/workOrderPaymentPlan";
+import { applyExchangeRateMode, isPaymentPlanRestDirty } from "@/lib/workOrderPaymentPlan";
 import { useWorksheetByEngagementId } from "@/hooks/useWorksheetData";
 import { useResyncWorksheetToWorkOrder } from "@/hooks/useWorksheetMutations";
 import { toast } from "sonner";
@@ -975,9 +975,13 @@ const WorkOrderEdit = () => {
           // pagina, una vez que la OT esta Approved (antes de eso, define el "contrato":
           // TC de creacion, modo, dias, cuotas, fecha/porcentaje acordados).
           isStatusEditable={(isAdmin || roleKey === "collections_analyst") && approvalStatus === "Approved"}
+          // MUST FIX review iteracion 3 #4: invoice_exchange_rate/payment_exchange_rate se
+          // guardan directo en su propio onBlur (no via el flujo de pagina) -- si se cuentan
+          // en esta comparacion, el propio tipeo del usuario en esos campos se refleja aca
+          // (via onInstallmentsChange) antes de que el blur dispare el guard, bloqueando el
+          // guardado que el guard deberia permitir. Ver isPaymentPlanRestDirty.
           isPaymentPlanDirty={
-            JSON.stringify(paymentInstallments) !== JSON.stringify(originalInstallments) ||
-            JSON.stringify(paymentPlan) !== JSON.stringify(originalPaymentPlan)
+            isPaymentPlanRestDirty(paymentInstallments, originalInstallments, paymentPlan, originalPaymentPlan)
           }
           onPaymentPlanChange={setPaymentPlan}
           onPaymentInstallmentsChange={setPaymentInstallments}

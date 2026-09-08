@@ -13,8 +13,9 @@ import {
   isPaymentRateCaptureEditable,
   computeConvertedAmount,
   applyExchangeRateMode,
+  isPaymentPlanRestDirty,
 } from "../workOrderPaymentPlan";
-import type { PaymentInstallmentInput } from "@/types/workOrderPaymentPlan";
+import type { PaymentInstallmentInput, PaymentPlanInput } from "@/types/workOrderPaymentPlan";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -609,5 +610,52 @@ describe("applyExchangeRateMode (modo Fijo sync — no-op for an already-frozen 
     const result = applyExchangeRateMode("fijo", 7.0, installments);
     expect(result[0].invoice_exchange_rate).toBe(6.95);
     expect(result[0].payment_exchange_rate).toBe(6.98);
+  });
+});
+
+// MUST FIX 0722-156b review iteracion 3 #4: invoice_exchange_rate/payment_exchange_rate
+// se guardan directo en su propio onBlur, no via el flujo de pagina -- no deben contar como
+// "el resto del plan tiene cambios sin guardar", o el propio tipeo del usuario bloquea su
+// propio guardado (bug real encontrado en WorkOrderEdit.tsx).
+describe("isPaymentPlanRestDirty (excluye invoice/payment_exchange_rate, que se auto-guardan)", () => {
+  function basePlan(overrides: Partial<PaymentPlanInput> = {}): PaymentPlanInput {
+    return {
+      plan_id: "plan-id",
+      wo_id: "wo-id",
+      exchange_rate: 6.95,
+      payment_days: 30,
+      exchange_rate_mode: "variable",
+      ...overrides,
+    };
+  }
+
+  it("is false when only invoice_exchange_rate changed (the field's own edit)", () => {
+    const original = [baseInstallment({ status: "Invoiced", invoice_exchange_rate: null })];
+    const edited = [baseInstallment({ status: "Invoiced", invoice_exchange_rate: 7.1 })];
+    expect(isPaymentPlanRestDirty(edited, original, basePlan(), basePlan())).toBe(false);
+  });
+
+  it("is false when only payment_exchange_rate changed (the field's own edit)", () => {
+    const original = [baseInstallment({ status: "Invoiced", payment_exchange_rate: null })];
+    const edited = [baseInstallment({ status: "Invoiced", payment_exchange_rate: 7.2 })];
+    expect(isPaymentPlanRestDirty(edited, original, basePlan(), basePlan())).toBe(false);
+  });
+
+  it("is true when percentage changed (a real pending change elsewhere in the row)", () => {
+    const original = [baseInstallment({ percentage: 100 })];
+    const edited = [baseInstallment({ percentage: 50 })];
+    expect(isPaymentPlanRestDirty(edited, original, basePlan(), basePlan())).toBe(true);
+  });
+
+  it("is true when the plan itself changed (exchange_rate_mode)", () => {
+    const original = [baseInstallment()];
+    expect(
+      isPaymentPlanRestDirty(original, original, basePlan({ exchange_rate_mode: "fijo" }), basePlan()),
+    ).toBe(true);
+  });
+
+  it("is false when nothing changed", () => {
+    const original = [baseInstallment({ invoice_exchange_rate: 6.95, payment_exchange_rate: 6.95 })];
+    expect(isPaymentPlanRestDirty(original, original, basePlan(), basePlan())).toBe(false);
   });
 });

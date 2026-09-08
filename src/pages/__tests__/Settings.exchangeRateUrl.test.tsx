@@ -188,6 +188,39 @@ describe("Settings — EXCHANGE_RATE_API_URL field (BUG 0722-156, Fase 1)", () =
     );
   });
 
+  // MUST FIX review iteracion 3 #3: clearing the field and saving must persist "" (disable
+  // the configured provider), not silently skip the mutation and leave the old URL active.
+  it("persists an empty value when the field is cleared and saved", async () => {
+    const user = await openGlobalSettingsTab();
+    await user.clear(getUrlInput());
+    await user.click(screen.getByText("common.saveChanges"));
+
+    await waitFor(() =>
+      expect(updateSettingMutateAsync).toHaveBeenCalledWith({
+        key: "EXCHANGE_RATE_API_URL",
+        value: "",
+      }),
+    );
+  });
+
+  it("does not re-save the URL when it is untouched (unrelated field change only)", async () => {
+    const user = await openGlobalSettingsTab();
+    // Touch an unrelated field so the tab is dirty and Save proceeds, without editing the URL.
+    const allowedDomainInput = screen.getByLabelText("settings.allowedEmailDomain");
+    await user.clear(allowedDomainInput);
+    await user.type(allowedDomainInput, "ruizmier.com");
+    await user.click(screen.getByText("common.saveChanges"));
+
+    await waitFor(() =>
+      expect(updateSettingMutateAsync).toHaveBeenCalledWith(
+        expect.objectContaining({ key: "ALLOWED_EMAIL_DOMAIN" }),
+      ),
+    );
+    expect(updateSettingMutateAsync).not.toHaveBeenCalledWith(
+      expect.objectContaining({ key: "EXCHANGE_RATE_API_URL" }),
+    );
+  });
+
   describe("'Probar' -> modal -> 'Guardar'", () => {
     it("invokes exchange-rate-sync in test mode with the currently-typed URL and shows the parsed result", async () => {
       functionsInvoke.mockResolvedValueOnce({
