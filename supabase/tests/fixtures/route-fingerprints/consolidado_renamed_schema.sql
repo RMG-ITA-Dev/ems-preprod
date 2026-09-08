@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict wNIil36w83ZXarkF2kLRuBe5zSvLCrig1F7tALkhQudTLqd4YmZBdvPasacLCQR
+\restrict Zc4QK3QLV3xHFPXnidJhucBBlaC0ebEzsXGGLEdkIYJvLM2a0WBRfOhZbb9kcg0
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.11 (Ubuntu 17.11-1.pgdg24.04+2)
@@ -1072,17 +1072,17 @@ begin
   end if;
 
   -- Decisión A: bloqueo server-side de edición de fechas por no-admin cuando el
-  -- estado actual es terminal (override 6/7/9). Se evalúa aunque el override no
-  -- cambie.
+  -- estado actual es terminal (override 6/7). Se evalúa aunque el override no
+  -- cambie. 0817-179: el 9 salió de la lista junto con el estado.
   if not public.is_admin()
-     and old.engagement_state_override in (6, 7, 9)
+     and old.engagement_state_override in (6, 7)
      and (
        new.start_date    is distinct from old.start_date
        or new.end_date   is distinct from old.end_date
        or new.fecha_cierre is distinct from old.fecha_cierre
      )
   then
-    raise exception 'No autorizado a editar fechas de un encargo Cancelado/Finalizado/Congelado';
+    raise exception 'No autorizado a editar fechas de un encargo Cancelado/Finalizado';
   end if;
 
   -- UPDATE: validación del override solo si cambia.
@@ -1094,19 +1094,9 @@ begin
     return new;
   end if;
 
-  -- Gerente DEL ENCARGO: congelar (null→9) o descongelar (9→null), solo con
-  -- estado derivado Aprobado. Antes: has_role(..., 'manager') sin asignación.
-  if public.has_permission('engagement.update')
-     and new.manager_id = public.get_my_staff_id()
-     and public.engagement_is_approved_state(new.engagement_id, null, new.work_order_required)
-     and (
-       (old.engagement_state_override is null and new.engagement_state_override = 9)
-       or (old.engagement_state_override = 9 and new.engagement_state_override is null)
-     )
-  then
-    return new;
-  end if;
-
+  -- 0817-179: acá vivía la única excepción para no-admin (Gerente DEL encargo congelando o
+  -- descongelando, null<->9). Retirado el estado 9, no queda ningún cambio de override
+  -- permitido a un no-admin, así que se cae directo al rechazo.
   raise exception 'No autorizado a cambiar el estado del encargo (override)';
 end;
 $$;
@@ -1116,7 +1106,7 @@ $$;
 -- Name: FUNCTION authorize_engagement_state_override(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.authorize_engagement_state_override() IS 'Guard del estado del encargo. Admin: control total. Gerente DEL encargo (has_permission(''engagement.update'') + manager_id = get_my_staff_id()): solo congelar/descongelar (null<->9) y solo si el estado derivado es Aprobado.';
+COMMENT ON FUNCTION public.authorize_engagement_state_override() IS 'Guard del estado del encargo. Admin: control total. No-admin: no puede fijar ni cambiar el override, ni editar fechas de un encargo Cancelado/Finalizado (6/7). BUG 0817-179: se retiró el estado 9 Congelado y con él la excepción de congelar/descongelar del Gerente.';
 
 
 --
@@ -1786,7 +1776,7 @@ CREATE TABLE public.engagements (
     CONSTRAINT chk_engagements_manager_not_specialist CHECK (((manager_id IS NULL) OR ((manager_id IS DISTINCT FROM specialist_it_id) AND (manager_id IS DISTINCT FROM specialist_tax_id)))),
     CONSTRAINT chk_engagements_oficina CHECK ((oficina = ANY (ARRAY[0, 1, 2]))),
     CONSTRAINT chk_engagements_practica CHECK (((practica >= 0) AND (practica <= 9))),
-    CONSTRAINT engagements_state_override_check CHECK (((engagement_state_override IS NULL) OR ((engagement_state_override >= 1) AND (engagement_state_override <= 9)))),
+    CONSTRAINT engagements_state_override_check CHECK (((engagement_state_override IS NULL) OR ((engagement_state_override >= 1) AND (engagement_state_override <= 8)))),
     CONSTRAINT engagements_status_check CHECK (((status)::text = ANY ((ARRAY['active'::character varying, 'pending'::character varying, 'completed'::character varying, 'cancelled'::character varying])::text[])))
 );
 
@@ -1795,7 +1785,7 @@ CREATE TABLE public.engagements (
 -- Name: COLUMN engagements.engagement_state_override; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON COLUMN public.engagements.engagement_state_override IS 'FEAT 0602-135: override manual del estado del encargo (1..9). NULL = derivado de la OT. 6 Cancelado / 7 Finalizado / 9 Congelado son terminales; 7 lo escribe el cron finalize-engagements.';
+COMMENT ON COLUMN public.engagements.engagement_state_override IS 'FEAT 0602-135: override manual del estado del encargo (1..8). NULL = derivado de la OT. 6 Cancelado / 7 Finalizado son terminales; 7 lo escribe el cron finalize-engagements. BUG 0817-179: el 9 Congelado se retiró del sistema.';
 
 
 --
@@ -2622,7 +2612,7 @@ CREATE FUNCTION public.engagement_accepts_assignment_writes(p_engagement_id uuid
     SET search_path TO 'public'
     AS $$
   SELECT COALESCE(
-    (SELECT engagement_state_override NOT IN (6, 7, 9)
+    (SELECT engagement_state_override NOT IN (6, 7)
        FROM public.engagements
       WHERE engagement_id = p_engagement_id),
     true)  -- override NULL (estado derivado 1..5/8) o engagement inexistente ⇒ escribible
@@ -10139,22 +10129,6 @@ PARTITION BY RANGE (inserted_at);
 
 
 --
--- Name: messages_2026_09_02; Type: TABLE; Schema: realtime; Owner: -
---
-
-CREATE TABLE realtime.messages_2026_09_02 (
-    topic text NOT NULL,
-    extension text NOT NULL,
-    payload jsonb,
-    event text,
-    private boolean DEFAULT false,
-    updated_at timestamp without time zone DEFAULT now() NOT NULL,
-    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
-    id uuid DEFAULT gen_random_uuid() NOT NULL
-);
-
-
---
 -- Name: messages_2026_09_03; Type: TABLE; Schema: realtime; Owner: -
 --
 
@@ -10207,6 +10181,22 @@ CREATE TABLE realtime.messages_2026_09_05 (
 --
 
 CREATE TABLE realtime.messages_2026_09_06 (
+    topic text NOT NULL,
+    extension text NOT NULL,
+    payload jsonb,
+    event text,
+    private boolean DEFAULT false,
+    updated_at timestamp without time zone DEFAULT now() NOT NULL,
+    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL
+);
+
+
+--
+-- Name: messages_2026_09_07; Type: TABLE; Schema: realtime; Owner: -
+--
+
+CREATE TABLE realtime.messages_2026_09_07 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -10499,13 +10489,6 @@ CREATE TABLE supabase_migrations.schema_migrations (
 
 
 --
--- Name: messages_2026_09_02; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_02 FOR VALUES FROM ('2026-09-02 00:00:00') TO ('2026-09-03 00:00:00');
-
-
---
 -- Name: messages_2026_09_03; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
@@ -10531,6 +10514,13 @@ ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_05
 --
 
 ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_06 FOR VALUES FROM ('2026-09-06 00:00:00') TO ('2026-09-07 00:00:00');
+
+
+--
+-- Name: messages_2026_09_07; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_07 FOR VALUES FROM ('2026-09-07 00:00:00') TO ('2026-09-08 00:00:00');
 
 
 --
@@ -11372,14 +11362,6 @@ ALTER TABLE ONLY realtime.messages
 
 
 --
--- Name: messages_2026_09_02 messages_2026_09_02_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_09_02
-    ADD CONSTRAINT messages_2026_09_02_pkey PRIMARY KEY (id, inserted_at);
-
-
---
 -- Name: messages_2026_09_03 messages_2026_09_03_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
@@ -11409,6 +11391,14 @@ ALTER TABLE ONLY realtime.messages_2026_09_05
 
 ALTER TABLE ONLY realtime.messages_2026_09_06
     ADD CONSTRAINT messages_2026_09_06_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_09_07 messages_2026_09_07_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_09_07
+    ADD CONSTRAINT messages_2026_09_07_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
@@ -12352,13 +12342,6 @@ CREATE INDEX messages_inserted_at_topic_index ON ONLY realtime.messages USING bt
 
 
 --
--- Name: messages_2026_09_02_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_09_02_inserted_at_topic_idx ON realtime.messages_2026_09_02 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
 -- Name: messages_2026_09_03_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
@@ -12384,6 +12367,13 @@ CREATE INDEX messages_2026_09_05_inserted_at_topic_idx ON realtime.messages_2026
 --
 
 CREATE INDEX messages_2026_09_06_inserted_at_topic_idx ON realtime.messages_2026_09_06 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_09_07_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_09_07_inserted_at_topic_idx ON realtime.messages_2026_09_07 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
@@ -12485,20 +12475,6 @@ CREATE INDEX supabase_functions_hooks_request_id_idx ON supabase_functions.hooks
 
 
 --
--- Name: messages_2026_09_02_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_02_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_09_02_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_02_pkey;
-
-
---
 -- Name: messages_2026_09_03_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
@@ -12552,6 +12528,20 @@ ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.
 --
 
 ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_06_pkey;
+
+
+--
+-- Name: messages_2026_09_07_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_07_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_09_07_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_07_pkey;
 
 
 --
@@ -15659,5 +15649,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict wNIil36w83ZXarkF2kLRuBe5zSvLCrig1F7tALkhQudTLqd4YmZBdvPasacLCQR
+\unrestrict Zc4QK3QLV3xHFPXnidJhucBBlaC0ebEzsXGGLEdkIYJvLM2a0WBRfOhZbb9kcg0
 

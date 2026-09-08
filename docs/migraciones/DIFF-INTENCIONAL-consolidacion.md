@@ -135,3 +135,38 @@ Desktop local), no de las migraciones de este set. Por eso, desde 2026-08-24,
 `consolidado_renamed_*` se recaptura directamente desde el artifact `route-fingerprint-replay`
 que el propio job sube en cada corrida (nunca desde una réplica local) — ver `VERSIONS.md` para
 el procedimiento de re-aceptación.
+
+---
+
+## 6. Re-aceptaciones posteriores a la consolidación
+
+El gate `consolidated-replay` corre `supabase start`, que aplica **todas** las migraciones del
+directorio — no solo las `cero_*`. Por lo tanto cada migración incremental que toca el esquema
+mueve el fingerprint y obliga a re-aceptar `consolidado_renamed_*`. Es la operación normal, no una
+excepción: el propio job sube el artifact `route-fingerprint-replay` justamente para eso
+(`VERSIONS.md` documenta el procedimiento). El fixture **no** es un contrato de diseño que el
+código deba respetar; es la foto del esquema con la que se comparó la consolidación.
+
+Lo que sí es obligatorio es que el diff sea **enteramente explicable**: si aparece un objeto que
+nadie agregó a propósito, ahí hay drift real y hay que parar. Por eso cada re-aceptación deja acá
+sus hunks.
+
+### 6.1 — 0817-179 (retiro del estado 9 «Congelado»)
+
+Re-aceptado desde el artifact del run **33889841095** (`headSha` 21575b59, 2026-09-04). Solo
+`consolidado_renamed_schema.sql` divergió (36 líneas); los otros cinco fixtures gateados quedaron
+idénticos — este bug no toca policies, grants ni storage.
+
+Todo el diff proviene de la única migración de la rama,
+`20260902120000_0817-179_retire_frozen_engagement_state.sql`:
+
+1. `engagements_state_override_check`: el rango pasa de `1..9` a `1..8`, y el `COMMENT` de
+   `engagements.engagement_state_override` se actualiza en consecuencia.
+2. `authorize_engagement_state_override()`: desaparece el bloque que era la **única** excepción
+   para un no-admin (el Gerente del encargo congelando/descongelando, `null <-> 9`). Retirado el
+   estado 9, no queda ningún cambio de override permitido a un no-admin, así que la función cae
+   directo al rechazo. Su `COMMENT` se reescribe con esa semántica.
+3. Las listas de estados terminales pasan de `(6, 7, 9)` a `(6, 7)` — en el guard de edición de
+   fechas y en el `NOT IN` de la vista que deriva el estado.
+4. El mensaje de la excepción de fechas deja de nombrar «Congelado».
+
