@@ -357,6 +357,7 @@
     "allowedEmailDomain": "Dominio de Correo Permitido",
     "allowedEmailDomainHelp": "Solo los usuarios con este dominio de correo pueden registrarse. Dejar vacío para permitir cualquier dominio.",
     "exchangeRateApiUrl": "URL del Microservicio de Tipo de Cambio",
+    "exchangeRateApiUrlPlaceholder": "https://tc-ruizmier-production.up.railway.app/api/v1/ruizmier-tc/tipo-cambio/oficial",
     "exchangeRateApiUrlHelp": "Endpoint de TC Ruizmier (USD/BOB oficial BCB). Todavía no hay cron automático — usa \"Probar\" y luego \"Guardar\" para actualizar el dato que se muestra en el navbar.",
     "exchangeRateApiUrlInvalid": "Ingresa una URL válida",
     "exchangeRateApiUrlHttpsRequired": "La URL debe usar HTTPS",

@@ -357,6 +357,7 @@
     "allowedEmailDomain": "Allowed Email Domain",
     "allowedEmailDomainHelp": "Only users with this email domain can register. Leave empty to allow any domain.",
     "exchangeRateApiUrl": "Exchange Rate Microservice URL",
+    "exchangeRateApiUrlPlaceholder": "https://tc-ruizmier-production.up.railway.app/api/v1/ruizmier-tc/tipo-cambio/oficial",
     "exchangeRateApiUrlHelp": "TC Ruizmier endpoint (official BCB USD/BOB rate). No automatic cron yet — use \"Test\" then \"Save\" below to update the rate shown in the navbar.",
     "exchangeRateApiUrlInvalid": "Enter a valid URL",
     "exchangeRateApiUrlHttpsRequired": "The URL must use HTTPS",

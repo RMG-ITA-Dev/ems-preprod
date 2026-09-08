@@ -5150,6 +5150,70 @@ $$;
 
 
 --
+-- Name: sync_wo_payment_installments(uuid, uuid, jsonb); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.sync_wo_payment_installments(p_plan_id uuid, p_wo_id uuid, p_installments jsonb) RETURNS SETOF public.wo_payment_installments
+    LANGUAGE plpgsql
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_kept_ids uuid[];
+BEGIN
+  SELECT array_agg((row_data->>'installment_id')::uuid)
+  INTO v_kept_ids
+  FROM jsonb_array_elements(p_installments) AS row_data
+  WHERE row_data->>'installment_id' IS NOT NULL;
+
+  IF v_kept_ids IS NOT NULL AND array_length(v_kept_ids, 1) > 0 THEN
+    DELETE FROM public.wo_payment_installments
+    WHERE plan_id = p_plan_id AND installment_id <> ALL (v_kept_ids);
+  ELSE
+    DELETE FROM public.wo_payment_installments
+    WHERE plan_id = p_plan_id;
+  END IF;
+
+  RETURN QUERY
+  INSERT INTO public.wo_payment_installments AS w (
+    installment_id, plan_id, wo_id, installment_number,
+    agreed_invoice_date, agreed_payment_date,
+    collection_invoice_date, collection_payment_date, payment_date_actual,
+    percentage, amount, status, invoice_exchange_rate, payment_exchange_rate
+  )
+  SELECT
+    COALESCE((row_data->>'installment_id')::uuid, gen_random_uuid()),
+    p_plan_id,
+    p_wo_id,
+    (row_data->>'installment_number')::integer,
+    (row_data->>'agreed_invoice_date')::date,
+    (row_data->>'agreed_payment_date')::date,
+    (row_data->>'collection_invoice_date')::date,
+    (row_data->>'collection_payment_date')::date,
+    (row_data->>'payment_date_actual')::date,
+    (row_data->>'percentage')::numeric,
+    (row_data->>'amount')::numeric,
+    row_data->>'status',
+    (row_data->>'invoice_exchange_rate')::numeric,
+    (row_data->>'payment_exchange_rate')::numeric
+  FROM jsonb_array_elements(p_installments) AS row_data
+  ON CONFLICT (installment_id) DO UPDATE SET
+    installment_number = EXCLUDED.installment_number,
+    agreed_invoice_date = EXCLUDED.agreed_invoice_date,
+    agreed_payment_date = EXCLUDED.agreed_payment_date,
+    collection_invoice_date = EXCLUDED.collection_invoice_date,
+    collection_payment_date = EXCLUDED.collection_payment_date,
+    payment_date_actual = EXCLUDED.payment_date_actual,
+    percentage = EXCLUDED.percentage,
+    amount = EXCLUDED.amount,
+    status = EXCLUDED.status,
+    invoice_exchange_rate = EXCLUDED.invoice_exchange_rate,
+    payment_exchange_rate = EXCLUDED.payment_exchange_rate
+  RETURNING w.*;
+END;
+$$;
+
+
+--
 -- Name: sync_worksheet_to_wo_budget(uuid, uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -5598,6 +5662,16 @@ DECLARE
   v_exchange_rate_mode text;
   v_legal_transition boolean;
 BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF EXISTS (SELECT 1 FROM public.wo_payment_installments WHERE installment_id = NEW.installment_id) THEN
+      RETURN NEW;
+    END IF;
+    IF NEW.status <> 'Pending' THEN
+      RAISE EXCEPTION 'INSTALLMENT_LOCKED: una cuota nueva debe crearse en estado Pending';
+    END IF;
+    RETURN NEW;
+  END IF;
+
   IF NEW.status IS DISTINCT FROM OLD.status THEN
     v_legal_transition := CASE OLD.status
       WHEN 'Pending'   THEN NEW.status = 'Invoiced'
@@ -7846,7 +7920,7 @@ CREATE TRIGGER tr_wo_guard_risk_approval BEFORE UPDATE ON public.work_orders FOR
 -- Name: wo_payment_installments trg_wo_payment_installments_guard_exchange_rate; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER trg_wo_payment_installments_guard_exchange_rate BEFORE UPDATE ON public.wo_payment_installments FOR EACH ROW EXECUTE FUNCTION public.wo_payment_installments_guard_exchange_rate();
+CREATE TRIGGER trg_wo_payment_installments_guard_exchange_rate BEFORE INSERT OR UPDATE ON public.wo_payment_installments FOR EACH ROW EXECUTE FUNCTION public.wo_payment_installments_guard_exchange_rate();
 
 
 --

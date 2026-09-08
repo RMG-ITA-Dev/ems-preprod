@@ -615,4 +615,170 @@ BEGIN
   RAISE NOTICE 'PAYMENT EXCHANGE RATES TRIGGERS: ALL CHECKS PASSED (rolled back)';
 END $$;
 
+-- ══════════════════════════════════════════════════════════════════════
+-- MUST FIX 0722-156b review iteracion 4 #3/#4 — migracion 20260908130000:
+--   #3: el guard de freeze solo corria BEFORE UPDATE; un INSERT directo podia crear una
+--       cuota ya Invoiced/Completed con un TC "congelado" arbitrario.
+--   #4: sync_wo_payment_installments() reemplaza el delete+upsert en 2 llamadas
+--       separadas (frontend) por una unica funcion transaccional: si el upsert falla
+--       (ej. INSTALLMENT_LOCKED), el delete de huerfanos tambien debe revertirse.
+-- Fixture propio (E5/WO5) para no depender de mutaciones del bloque anterior.
+-- ══════════════════════════════════════════════════════════════════════
+
+INSERT INTO public.engagements (engagement_id, client_id, engagement_name, practica, fecha_cierre, society_id) VALUES
+  ('e0000000-0000-4000-8000-0000000000c5', 'c1000000-0000-4000-8000-0000000000c1', 'PER E5 (INSERT guard + sync RPC)', 1, '2026-09-30', (SELECT society_id FROM public.society WHERE society_id = '50c00000-0000-4000-8000-0000000000c1'));
+
+INSERT INTO public.work_orders (wo_id, engagement_id, currency, season_mode, approval_status) VALUES
+  ('40000000-0000-4000-8000-0000000000c5', 'e0000000-0000-4000-8000-0000000000c5', 'USD', 'High', 'Draft');
+
+DO $$
+DECLARE
+  v_plan       uuid;
+  v_inst_keep  uuid;
+  v_inst_lost  uuid;
+  denied       boolean;
+BEGIN
+  INSERT INTO public.wo_payment_plan (wo_id, exchange_rate, payment_days)
+  VALUES ('40000000-0000-4000-8000-0000000000c5', 6.96, 30)
+  RETURNING plan_id INTO v_plan;
+
+  -- ── #3: INSERT directo de una cuota ya Invoiced/Completed con TC "congelado" ──
+  denied := false;
+  BEGIN
+    INSERT INTO public.wo_payment_installments
+      (plan_id, wo_id, installment_number, percentage, amount, status, invoice_exchange_rate, payment_exchange_rate)
+    VALUES (v_plan, '40000000-0000-4000-8000-0000000000c5', 90, 100, 1000, 'Completed', 6.96, 6.96);
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'INSTALLMENT_LOCKED%' THEN
+      denied := true;
+    ELSE
+      RAISE;
+    END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'PER FAIL — un INSERT directo pudo crear una cuota ya Completed con TC congelado (bypass del freeze)';
+  END IF;
+  RAISE NOTICE 'PASS — INSERT directo de una cuota no-Pending es rechazado (INSTALLMENT_LOCKED)';
+
+  -- El comportamiento legitimo de la app (insertar una cuota nueva en Pending, TC
+  -- prellenado) debe seguir funcionando sin cambios.
+  INSERT INTO public.wo_payment_installments
+    (plan_id, wo_id, installment_number, percentage, amount, status, invoice_exchange_rate, payment_exchange_rate)
+  VALUES (v_plan, '40000000-0000-4000-8000-0000000000c5', 1, 40, 400, 'Pending', 6.96, 6.96)
+  RETURNING installment_id INTO v_inst_keep;
+  RAISE NOTICE 'PASS — INSERT de una cuota nueva en Pending (TC prellenado) sigue permitido';
+
+  -- Segunda cuota, que el payload del RPC de abajo NO incluira (queda "huerfana").
+  INSERT INTO public.wo_payment_installments
+    (plan_id, wo_id, installment_number, percentage, amount, status, invoice_exchange_rate, payment_exchange_rate)
+  VALUES (v_plan, '40000000-0000-4000-8000-0000000000c5', 2, 60, 600, 'Pending', 6.96, 6.96)
+  RETURNING installment_id INTO v_inst_lost;
+
+  -- La marca como Invoiced para que quede "bloqueada" (amount ya no se puede tocar).
+  UPDATE public.wo_payment_installments SET status = 'Invoiced' WHERE installment_id = v_inst_lost;
+
+  -- ── #4: sync_wo_payment_installments debe ser atomico ──
+  -- Payload: solo v_inst_keep sobrevive (v_inst_lost queda huerfana -> se borraria) Y
+  -- ademas intenta cambiar el amount de v_inst_lost -- pero v_inst_lost YA NO esta en el
+  -- payload (fue "removida" por el usuario en la misma edicion que cambio el fee), asi
+  -- que el intento real es: el UPDATE de v_inst_keep con un amount distinto simulando un
+  -- cambio de feeWithTax, mientras v_inst_lost (Invoiced, huerfana) intentaria borrarse.
+  -- Para forzar el fallo del UPDATE (no del DELETE), el payload SI incluye v_inst_lost
+  -- pero con un amount distinto al que tiene en DB -- el guard de UPDATE lo rechaza.
+  denied := false;
+  BEGIN
+    PERFORM public.sync_wo_payment_installments(
+      v_plan,
+      '40000000-0000-4000-8000-0000000000c5'::uuid,
+      jsonb_build_array(
+        jsonb_build_object(
+          'installment_id', v_inst_keep, 'installment_number', 1, 'percentage', 40, 'amount', 500,
+          'status', 'Pending', 'invoice_exchange_rate', 6.96, 'payment_exchange_rate', 6.96
+        ),
+        jsonb_build_object(
+          'installment_id', v_inst_lost, 'installment_number', 2, 'percentage', 60, 'amount', 999,
+          'status', 'Invoiced', 'invoice_exchange_rate', 6.96, 'payment_exchange_rate', 6.96
+        )
+      )
+    );
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'INSTALLMENT_LOCKED%' THEN
+      denied := true;
+    ELSE
+      RAISE;
+    END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'PER FAIL — sync_wo_payment_installments acepto cambiar el amount de una cuota Invoiced';
+  END IF;
+  RAISE NOTICE 'PASS — sync_wo_payment_installments rechaza (INSTALLMENT_LOCKED) tocar el amount de una cuota ya facturada';
+
+  -- La cuota "keep" NUNCA debio tocarse (la funcion entera revierte ante el error de la
+  -- otra fila) -- prueba directa de atomicidad: ambas filas siguen exactamente como
+  -- estaban antes de la llamada fallida.
+  IF (SELECT amount FROM public.wo_payment_installments WHERE installment_id = v_inst_keep) <> 400 THEN
+    RAISE EXCEPTION 'PER FAIL — sync_wo_payment_installments no fue atomica: v_inst_keep quedo modificada pese a que la funcion fallo';
+  END IF;
+  IF (SELECT amount FROM public.wo_payment_installments WHERE installment_id = v_inst_lost) <> 600 THEN
+    RAISE EXCEPTION 'PER FAIL — sync_wo_payment_installments no fue atomica: v_inst_lost quedo modificada pese a que la funcion fallo';
+  END IF;
+  RAISE NOTICE 'PASS — sync_wo_payment_installments es atomica: un fallo en cualquier fila revierte TODA la llamada, ninguna fila queda a mitad de camino';
+
+  -- Camino feliz: payload que solo cambia la fila editable (v_inst_keep) y remueve la
+  -- ya facturada del array (representa que el usuario ya no la ve en pantalla) -- debe
+  -- borrarse igual que antes via el mismo mecanismo, siempre que su propio status/monto
+  -- no cambien (nada la esta modificando, solo dejando de listarla). Como v_inst_lost
+  -- sigue Invoiced en DB y el payload no la incluye, el DELETE de huerfanos la afecta;
+  -- eso es exactamente lo que el guard BEFORE DELETE (trg_wo_payment_installments_
+  -- guard_delete) ya cubre — debe rechazarse tambien aca, coherente con "una cuota
+  -- facturada no puede eliminarse de ninguna manera".
+  denied := false;
+  BEGIN
+    PERFORM public.sync_wo_payment_installments(
+      v_plan,
+      '40000000-0000-4000-8000-0000000000c5'::uuid,
+      jsonb_build_array(
+        jsonb_build_object(
+          'installment_id', v_inst_keep, 'installment_number', 1, 'percentage', 100, 'amount', 1000,
+          'status', 'Pending', 'invoice_exchange_rate', 6.96, 'payment_exchange_rate', 6.96
+        )
+      )
+    );
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'INSTALLMENT_LOCKED%' THEN
+      denied := true;
+    ELSE
+      RAISE;
+    END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'PER FAIL — sync_wo_payment_installments pudo borrar (como huerfana) una cuota ya facturada';
+  END IF;
+  RAISE NOTICE 'PASS — sync_wo_payment_installments respeta el guard BEFORE DELETE: no borra una cuota ya facturada aunque quede fuera del payload';
+
+  -- Camino feliz: ambas filas presentes, v_inst_keep con un cambio real (Pending, sigue
+  -- editable), v_inst_lost reenviada IDENTICA a como esta en DB (no-op para el guard de
+  -- la cuota ya facturada) -- debe tener exito sin excepcion.
+  PERFORM public.sync_wo_payment_installments(
+    v_plan,
+    '40000000-0000-4000-8000-0000000000c5'::uuid,
+    jsonb_build_array(
+      jsonb_build_object(
+        'installment_id', v_inst_keep, 'installment_number', 1, 'percentage', 100, 'amount', 1000,
+        'status', 'Pending', 'invoice_exchange_rate', 6.96, 'payment_exchange_rate', 6.96
+      ),
+      jsonb_build_object(
+        'installment_id', v_inst_lost, 'installment_number', 2, 'percentage', 60, 'amount', 600,
+        'status', 'Invoiced', 'invoice_exchange_rate', 6.96, 'payment_exchange_rate', 6.96
+      )
+    )
+  );
+  IF (SELECT amount FROM public.wo_payment_installments WHERE installment_id = v_inst_keep) <> 1000 THEN
+    RAISE EXCEPTION 'PER FAIL — sync_wo_payment_installments no aplico un cambio valido en una cuota Pending';
+  END IF;
+  RAISE NOTICE 'PASS — sync_wo_payment_installments aplica cambios validos (camino feliz) sin excepcion';
+
+  RAISE NOTICE 'INSTALLMENT INSERT GUARD + SYNC RPC: ALL CHECKS PASSED (rolled back)';
+END $$;
+
 ROLLBACK;

@@ -1308,7 +1308,7 @@ const Settings = () => {
                           id="exchangeRateApiUrl"
                           value={exchangeRateApiUrl}
                           onChange={(e) => setExchangeRateApiUrl(e.target.value)}
-                          placeholder="https://tc-ruizmier-production.up.railway.app/api/v1/ruizmier-tc/tipo-cambio/oficial"
+                          placeholder={t("settings.exchangeRateApiUrlPlaceholder")}
                           className="flex-1"
                         />
                         <Button

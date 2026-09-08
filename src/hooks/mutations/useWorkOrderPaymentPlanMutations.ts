@@ -86,6 +86,15 @@ export function useUpsertPaymentPlan() {
 
 // Upsert all installment rows for a plan in one batch.
 // Rows without installment_id are inserted; rows with an id are updated.
+//
+// MUST FIX 0722-156b review iteracion 4 #4: antes, esto borraba huerfanos y despues
+// hacia el upsert en 2 llamadas HTTP separadas a PostgREST -- cada una es su propia
+// transaccion, asi que si el DELETE tenia exito y el upsert posterior fallaba (ej.
+// INSTALLMENT_LOCKED por un feeWithTax que recalculaba el amount de una cuota ya
+// facturada), el DELETE quedaba committeado igual. sync_wo_payment_installments (migracion
+// 20260908130000) hace ambos pasos en una sola funcion -- una sola transaccion, revierte
+// todo si cualquier paso falla -- y corre SECURITY INVOKER, asi que las mismas RLS
+// policies de la tabla siguen aplicando exactamente igual.
 export function useBatchUpsertInstallments() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -98,9 +107,8 @@ export function useBatchUpsertInstallments() {
       woId: string;
       installments: PaymentInstallmentInput[];
     }) => {
-      const baseRow = (inst: PaymentInstallmentInput) => ({
-        plan_id: planId,
-        wo_id: woId,
+      const rows = installments.map((inst) => ({
+        installment_id: inst.installment_id ?? null,
         installment_number: inst.installment_number,
         agreed_invoice_date: inst.agreed_invoice_date,
         agreed_payment_date: inst.agreed_payment_date,
@@ -112,49 +120,18 @@ export function useBatchUpsertInstallments() {
         status: inst.status,
         invoice_exchange_rate: inst.invoice_exchange_rate,
         payment_exchange_rate: inst.payment_exchange_rate,
-      });
+      }));
 
-      // Existing rows: update by installment_id (avoids renumber → PK conflict)
-      const existingRows = installments
-        .filter((inst) => inst.installment_id)
-        .map((inst) => ({ installment_id: inst.installment_id!, ...baseRow(inst) }));
-
-      // New rows: plain insert — Postgres generates the UUID
-      const newRows = installments
-        .filter((inst) => !inst.installment_id)
-        .map((inst) => baseRow(inst));
-
-      // Delete orphans FIRST so renumbered rows don't collide on UNIQUE (plan_id, installment_number).
-      // When all rows are new (user cleared plan and rebuilt), purge all DB rows before inserting.
-      if (existingRows.length > 0) {
-        const keptIds = existingRows.map((r) => r.installment_id);
-        const { error: deleteError } = await supabase
-          .from("wo_payment_installments")
-          .delete()
-          .eq("plan_id", planId)
-          .not("installment_id", "in", `(${keptIds.join(",")})`);
-        if (deleteError) throw deleteError;
-      } else if (newRows.length > 0) {
-        const { error: deleteError } = await supabase
-          .from("wo_payment_installments")
-          .delete()
-          .eq("plan_id", planId);
-        if (deleteError) throw deleteError;
-      }
-
-      if (existingRows.length > 0) {
-        const { error } = await supabase
-          .from("wo_payment_installments")
-          .upsert(existingRows, { onConflict: "installment_id" });
-        if (error) throw error;
-      }
-
-      if (newRows.length > 0) {
-        const { error } = await supabase
-          .from("wo_payment_installments")
-          .insert(newRows);
-        if (error) throw error;
-      }
+      // NOTA: sync_wo_payment_installments aún no está en
+      // src/integrations/supabase/types.ts (se regenera tras aplicar la migración desde
+      // el Supabase real) — mismo escape que usa useTimerEntries() con
+      // list_own_timer_engagement_labels.
+      const { error } = await supabase.rpc("sync_wo_payment_installments" as never, {
+        p_plan_id: planId,
+        p_wo_id: woId,
+        p_installments: rows,
+      } as never);
+      if (error) throw error;
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });

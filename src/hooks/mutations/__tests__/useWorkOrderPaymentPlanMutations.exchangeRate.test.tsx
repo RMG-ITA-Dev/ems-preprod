@@ -77,12 +77,13 @@ describe("useWorkOrderPaymentPlanMutations — exchange rate (0722-156b Fase 2)"
   });
 
   describe("useBatchUpsertInstallments", () => {
-    it("PEX3: rows sent for upsert include invoice_exchange_rate and payment_exchange_rate", async () => {
-      const mockDelete = vi.fn().mockReturnValue({
-        eq: vi.fn().mockReturnValue({ not: vi.fn().mockResolvedValue({ error: null }) }),
-      });
-      const mockUpsertInst = vi.fn().mockResolvedValue({ error: null });
-      vi.mocked(supabase.from).mockReturnValue({ delete: mockDelete, upsert: mockUpsertInst } as any);
+    // MUST FIX 0722-156b review iteracion 4 #4: el delete de huerfanos + el upsert
+    // corrian en 2 llamadas HTTP separadas (2 transacciones distintas) -- un error en
+    // la segunda dejaba la primera committeada igual. Ahora es 1 sola llamada a
+    // sync_wo_payment_installments (1 sola transaccion en el server).
+    it("PEX3: sends the installment rows (incl. invoice/payment_exchange_rate) in a single RPC call", async () => {
+      const mockRpc = vi.fn().mockResolvedValue({ data: [], error: null });
+      vi.mocked(supabase.rpc).mockImplementation(mockRpc);
 
       const { result } = renderHook(() => useBatchUpsertInstallments(), { wrapper: createWrapper() });
       result.current.mutate({
@@ -109,10 +110,49 @@ describe("useWorkOrderPaymentPlanMutations — exchange rate (0722-156b Fase 2)"
       });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      expect(mockUpsertInst).toHaveBeenCalledWith(
-        [expect.objectContaining({ invoice_exchange_rate: 6.96, payment_exchange_rate: 6.96 })],
-        { onConflict: "installment_id" },
+      expect(mockRpc).toHaveBeenCalledTimes(1);
+      expect(mockRpc).toHaveBeenCalledWith(
+        "sync_wo_payment_installments",
+        expect.objectContaining({
+          p_plan_id: "plan-1",
+          p_wo_id: "wo-1",
+          p_installments: [expect.objectContaining({ invoice_exchange_rate: 6.96, payment_exchange_rate: 6.96 })],
+        }),
       );
+    });
+
+    it("PEX3b: INSTALLMENT_LOCKED error from the RPC shows the specific translated toast", async () => {
+      vi.mocked(supabase.rpc).mockResolvedValue({
+        data: null,
+        error: { message: "INSTALLMENT_LOCKED: esta cuota ya fue facturada y no puede modificarse (porcentaje/monto/numero)" },
+      } as any);
+
+      const { result } = renderHook(() => useBatchUpsertInstallments(), { wrapper: createWrapper() });
+      result.current.mutate({
+        planId: "plan-1",
+        woId: "wo-1",
+        installments: [
+          {
+            installment_id: "inst-1",
+            plan_id: "plan-1",
+            wo_id: "wo-1",
+            installment_number: 1,
+            agreed_invoice_date: null,
+            agreed_payment_date: null,
+            collection_invoice_date: null,
+            collection_payment_date: null,
+            payment_date_actual: null,
+            percentage: 100,
+            amount: 1000,
+            status: "Invoiced",
+            invoice_exchange_rate: 6.96,
+            payment_exchange_rate: 6.96,
+          },
+        ],
+      });
+
+      await waitFor(() => expect(result.current.isError).toBe(true));
+      expect(toast.error).toHaveBeenCalledWith("workOrders.paymentPlan.errorInstallmentLocked");
     });
   });
 

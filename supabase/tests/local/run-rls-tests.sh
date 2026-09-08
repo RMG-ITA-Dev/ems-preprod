@@ -168,6 +168,13 @@ run supabase/migrations/20260905070913_0722-156_add_exchange_rate_history.sql
 # persistidos. Ejercitado por trigger-0722-156b-payment-exchange-rates.sql.
 run supabase/migrations/20260905172820_0722-156b_add_payment_exchange_rates.sql
 
+# 0722-156b (review iteración 4): cierra el bypass del freeze via INSERT directo (el
+# trigger de arriba solo corría BEFORE UPDATE) y agrega sync_wo_payment_installments()
+# para que el delete de huérfanos + el upsert del batch de cuotas sean una sola
+# transacción. Ejercitado por trigger-0722-156b-payment-exchange-rates.sql (mismo
+# archivo, sección agregada al final).
+run supabase/migrations/20260908130000_0722-156b_installment_insert_guard_and_atomic_sync.sql
+
 # society/practicas(code=1): staff.society_id/practica_id y categories.practica_id son NOT NULL
 # reales; varias suites (rpc-engagement-team-candidates.sql explícitamente lo exige con su
 # propio guard) asumen que el catálogo mínimo de práctica/sociedad ya existe, como pasaría en

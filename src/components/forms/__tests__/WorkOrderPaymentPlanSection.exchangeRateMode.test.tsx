@@ -207,13 +207,23 @@ describe("WorkOrderPaymentPlanSection — exchange rate mode toggle (0722-156b F
 
   it("PEM6: creation TC autocompletes with the latest buy rate when empty and editable", () => {
     const onPlanChange = vi.fn();
-    renderSection({ plan: makePlan({ exchange_rate: null }), onPlanChange });
+    renderSection({ plan: makePlan({ exchange_rate: null }), installments: [makeInstallment()], onPlanChange });
     expect(onPlanChange).toHaveBeenCalledWith(expect.objectContaining({ exchange_rate: 11.57 }));
   });
 
   it("PEM7: creation TC does NOT autocomplete when not editable (WO already Approved)", () => {
     const onPlanChange = vi.fn();
-    renderSection({ plan: makePlan({ exchange_rate: null }), isEditable: false, onPlanChange });
+    renderSection({ plan: makePlan({ exchange_rate: null }), installments: [makeInstallment()], isEditable: false, onPlanChange });
+    expect(onPlanChange).not.toHaveBeenCalled();
+  });
+
+  // MUST FIX 0722-156b review iteracion 4 #5: sin ninguna cuota todavia, autocompletar
+  // el TC de creacion crea un plan "fantasma" (paymentPlan != originalPaymentPlan en
+  // WorkOrderEdit.tsx) que no se puede ni guardar ni descartar -- ver PEM6 arriba, que
+  // exige >= 1 cuota para que este mismo autocompletado dispare.
+  it("PEM7a: creation TC does NOT autocomplete when there are no installments yet (would create an unsavable phantom plan)", () => {
+    const onPlanChange = vi.fn();
+    renderSection({ plan: makePlan({ exchange_rate: null }), installments: [], onPlanChange });
     expect(onPlanChange).not.toHaveBeenCalled();
   });
 
@@ -226,23 +236,23 @@ describe("WorkOrderPaymentPlanSection — exchange rate mode toggle (0722-156b F
     const onPlanChange = vi.fn();
     // First render: no rate known yet (simulates useLatestExchangeRate still loading).
     latestRateRef.current = null;
-    const { rerenderWith } = renderSectionFull({ plan: makePlan({ exchange_rate: null }), onPlanChange });
+    const { rerenderWith } = renderSectionFull({ plan: makePlan({ exchange_rate: null }), installments: [makeInstallment()], onPlanChange });
     expect(onPlanChange).not.toHaveBeenCalled();
 
     // The query resolves later — the field must still autofill, not stay stuck at 0.
     latestRateRef.current = { compra: 11.57 };
-    rerenderWith({ plan: makePlan({ exchange_rate: null }), onPlanChange });
+    rerenderWith({ plan: makePlan({ exchange_rate: null }), installments: [makeInstallment()], onPlanChange });
     expect(onPlanChange).toHaveBeenCalledWith(expect.objectContaining({ exchange_rate: 11.57 }));
   });
 
   it("PEM7c: creation TC re-fills after an external rehydration resets it back to null (e.g. a stale work-order refetch), instead of staying stuck", () => {
     const onPlanChange = vi.fn();
-    const { rerenderWith } = renderSectionFull({ plan: makePlan({ exchange_rate: 11.57 }), onPlanChange });
+    const { rerenderWith } = renderSectionFull({ plan: makePlan({ exchange_rate: 11.57 }), installments: [makeInstallment()], onPlanChange });
     expect(onPlanChange).not.toHaveBeenCalled(); // already has a value, nothing to fill
 
     // Simulate WorkOrderEdit's hydration effect resetting the local plan back to the
     // (still unsaved) null value from the DB.
-    rerenderWith({ plan: makePlan({ exchange_rate: null }), onPlanChange });
+    rerenderWith({ plan: makePlan({ exchange_rate: null }), installments: [makeInstallment()], onPlanChange });
     expect(onPlanChange).toHaveBeenCalledWith(expect.objectContaining({ exchange_rate: 11.57 }));
   });
 });
@@ -303,6 +313,20 @@ describe("WorkOrderPaymentPlanSection — per-installment TC cells (0722-156b Fa
     renderSection({ plan: makePlan({ exchange_rate_mode: "variable" }), installments });
 
     expect(screen.getByText("workOrders.paymentPlan.invoiceAmountBob:6.950")).toBeInTheDocument();
+  });
+
+  // MUST FIX 0722-156b review iteracion 4 #1/#6: las celdas de moneda del repo se
+  // muestran sin decimales (docs/operations.md:36) -- formatBob redondeaba a 2.
+  it("PEM12b: derived Bs amount with fractional bolivianos renders with zero decimals", () => {
+    // amount = 33.33% of 1000 = 333.3; invoice TC frozen at 6.955 -> 333.3*6.955 = 2318.0715
+    // -> computeConvertedAmount rounds to 2318.07 -> formatBob must round further to 2318 (no decimals).
+    const installments = [
+      makeInstallment({ status: "Invoiced", percentage: 33.33, invoice_exchange_rate: 6.955, payment_exchange_rate: null }),
+    ];
+    renderSection({ plan: makePlan({ exchange_rate_mode: "variable" }), installments });
+
+    expect(screen.getByText("workOrders.paymentPlan.invoiceAmountBob:2.318")).toBeInTheDocument();
+    expect(screen.queryByText(/2[.,]318[.,]07/)).not.toBeInTheDocument();
   });
 
   it("PEM13: TC cells absent entirely for BOB currency", () => {
@@ -500,5 +524,26 @@ describe("WorkOrderPaymentPlanSection — cuotas ya facturadas son inmutables (r
 
     expect(screen.getByTestId("payment-plan-exchange-rate")).not.toBeDisabled();
     expect(screen.getByTestId("payment-plan-exchange-rate-mode-fijo")).not.toBeDisabled();
+  });
+
+  // MUST FIX 0722-156b review iteracion 4 #4: recalcular `amount` de una cuota ya
+  // facturada cuando cambia feeWithTax (ej. se corrige el ajuste tras revertir la
+  // aprobacion) disparaba el guard INSTALLMENT_LOCKED del trigger de DB, rechazando el
+  // guardado completo del plan. Las cuotas Pending si deben recalcularse.
+  it("PEM25: cambiar feeWithTax recalcula amount solo en cuotas Pending, nunca en una ya facturada", () => {
+    const onInstallmentsChange = vi.fn();
+    const installments = [
+      makeInstallment({ installment_number: 1, status: "Invoiced", percentage: 40, amount: 400, invoice_exchange_rate: 6.96, payment_exchange_rate: 6.96 }),
+      makeInstallment({ installment_number: 2, status: "Pending", percentage: 60, amount: 600, invoice_exchange_rate: 6.96, payment_exchange_rate: 6.96 }),
+    ];
+    const { rerenderWith } = renderSectionFull({ installments, feeWithTax: 1000, onInstallmentsChange });
+
+    rerenderWith({ installments, feeWithTax: 2000, onInstallmentsChange });
+
+    const rows = onInstallmentsChange.mock.calls[0][0] as PaymentInstallmentInput[];
+    const invoiced = rows.find((r) => r.status === "Invoiced")!;
+    expect(invoiced.amount).toBe(400); // unchanged — locked
+    const pending = rows.find((r) => r.status === "Pending")!;
+    expect(pending.amount).toBe(1200); // 60% of the new 2000 feeWithTax
   });
 });

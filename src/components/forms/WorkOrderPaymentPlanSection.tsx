@@ -120,6 +120,14 @@ export function WorkOrderPaymentPlanSection({
   const numInstallments = installments.length;
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/La_Paz" }).format(new Date());
 
+  // MUST FIX review iteracion 2 #1/#3 (decision del operador 2026-09-07: "si una cuota
+  // ya esta facturada, no se puede modificar o eliminar de ninguna manera"): una cuota
+  // con status <> 'Pending' nunca participa de la redistribucion de porcentaje/monto,
+  // nunca se renumera, y nunca puede quedar excluida al reducir la cantidad de cuotas.
+  // Declarado antes del efecto de feeWithTax (0722-156b review iteracion 4 #4) porque
+  // ese efecto tambien necesita excluir estas cuotas del recalculo de amount.
+  const isLocked = (inst: PaymentInstallmentInput) => inst.status !== "Pending";
+
   const formatRate = (rate: number) =>
     Number(rate).toLocaleString(numericLocale === "es" ? "es-BO" : "en-US", {
       minimumFractionDigits: 2,
@@ -204,12 +212,22 @@ export function WorkOrderPaymentPlanSection({
   // caja de creacion se quedaba en 0 pese a que la referencia ya mostraba el TC
   // vigente). El propio chequeo `exchange_rate != null` ya evita reintentos una vez
   // que hay un valor (autocompletado o tecleado por el usuario).
+  //
+  // MUST FIX 0722-156b review iteracion 4 #5: este efecto no chequeaba
+  // installments.length -- en una OT existente en Draft (USD/USDT) que todavia no
+  // tiene NINGUN plan de pagos configurado, currentPlan es el objeto de fallback
+  // (plan == null); apenas resolvia el TC de compra, este efecto llamaba a
+  // onPlanChange y volvia "sucia" la pagina (WorkOrderEdit.tsx compara paymentPlan
+  // contra originalPaymentPlan) sin que el usuario hubiera tocado nada -- y como
+  // persistNonRiskChanges solo actua con installments.length > 0 o con un plan_id ya
+  // existente, ese plan sintetico no se podia ni guardar ni descartar. Exigir al
+  // menos 1 cuota antes de autocompletar evita crear un plan "fantasma".
   useEffect(() => {
     if (currentPlan.exchange_rate != null) return;
-    if (!isEditable || latestBuyRate == null) return;
+    if (!isEditable || latestBuyRate == null || installments.length === 0) return;
     onPlanChange({ ...currentPlan, exchange_rate: latestBuyRate });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPlan.exchange_rate, isEditable, latestBuyRate]);
+  }, [currentPlan.exchange_rate, isEditable, latestBuyRate, installments.length]);
 
   // MUST FIX 0722-156b review iteracion 1 #2: el efecto de arriba solo autocompleta
   // plan.exchange_rate — nunca re-sincronizaba las cuotas ya creadas cuando
@@ -258,6 +276,13 @@ export function WorkOrderPaymentPlanSection({
 
   // When feeWithTax changes (e.g. adjustment edited), recompute stored amounts so
   // the saved value matches what the table displays. Guard via ref to avoid loops.
+  //
+  // MUST FIX 0722-156b review iteracion 4 #4: este recalculo tocaba `amount` de TODAS
+  // las cuotas sin filtrar por status -- el trigger de freeze (INSTALLMENT_LOCKED)
+  // rechaza cualquier cambio de amount en una cuota no-Pending, asi que revertir una
+  // OT aprobada con una cuota ya facturada y corregir el ajuste/presupuesto despues
+  // hacia fallar el guardado completo del plan. Las cuotas bloqueadas (isLocked)
+  // conservan su amount ya congelado, igual que ya hace el guard de DB.
   const prevFeeWithTax = useRef(feeWithTax);
   useEffect(() => {
     if (prevFeeWithTax.current === feeWithTax || installments.length === 0) {
@@ -266,20 +291,13 @@ export function WorkOrderPaymentPlanSection({
     }
     prevFeeWithTax.current = feeWithTax;
     onInstallmentsChange(
-      installments.map((inst) => ({
-        ...inst,
-        amount: computeAmount(inst.percentage, feeWithTax),
-      })),
+      installments.map((inst) =>
+        isLocked(inst) ? inst : { ...inst, amount: computeAmount(inst.percentage, feeWithTax) },
+      ),
     );
   }, [feeWithTax]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ----- Installment count handler -----
-
-  // MUST FIX review iteracion 2 #1/#3 (decision del operador 2026-09-07: "si una cuota
-  // ya esta facturada, no se puede modificar o eliminar de ninguna manera"): una cuota
-  // con status <> 'Pending' nunca participa de la redistribucion de porcentaje/monto,
-  // nunca se renumera, y nunca puede quedar excluida al reducir la cantidad de cuotas.
-  const isLocked = (inst: PaymentInstallmentInput) => inst.status !== "Pending";
 
   // MUST FIX review iteracion 2 #4 (decision del operador: bloquear): si ya existe
   // alguna cuota facturada, el TC/modo del plan tampoco se puede tocar, aunque la OT
@@ -483,7 +501,7 @@ export function WorkOrderPaymentPlanSection({
   // Los importes derivados de facturacion/pago SIEMPRE estan en Bs (el TC convierte a
   // Bs sin importar la moneda de la OT) — formato es-BO fijo, no el locale de `currency`.
   const formatBob = (amount: number) =>
-    Number(amount).toLocaleString("es-BO", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+    Number(amount).toLocaleString("es-BO", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 
   return (
     <>
