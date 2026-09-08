@@ -135,3 +135,55 @@ Desktop local), no de las migraciones de este set. Por eso, desde 2026-08-24,
 `consolidado_renamed_*` se recaptura directamente desde el artifact `route-fingerprint-replay`
 que el propio job sube en cada corrida (nunca desde una réplica local) — ver `VERSIONS.md` para
 el procedimiento de re-aceptación.
+
+---
+
+## 6. Re-aceptaciones posteriores a la consolidación
+
+El gate `consolidated-replay` corre `supabase start`, que aplica **todas** las migraciones del
+directorio — no solo las `cero_*`. Por lo tanto cada migración incremental que toca el esquema
+mueve el fingerprint y obliga a re-aceptar `consolidado_renamed_*`. Es la operación normal, no una
+excepción: el propio job sube el artifact `route-fingerprint-replay` justamente para eso
+(`VERSIONS.md` documenta el procedimiento). El fixture **no** es un contrato de diseño que el
+código deba respetar; es la foto del esquema con la que se comparó la consolidación.
+
+Lo que sí es obligatorio es que el diff sea **enteramente explicable**: si aparece un objeto que
+nadie agregó a propósito, ahí hay drift real y hay que parar. Por eso cada re-aceptación deja acá
+sus hunks.
+
+### 6.1 — 0820-182 (`categories.default_role_key` + `sync_user_role_from_category`)
+
+Re-aceptado desde el artifact del run **34163500139** (`headSha` 2c6ce409, 2026-09-07). Tres de
+los seis fixtures gateados divergieron; `catalog_policies`, `catalog_grants` y
+`catalog_storage_buckets` quedaron idénticos.
+
+`consolidado_renamed_schema.sql`:
+
+1. `categories.default_role_key text` + su `COMMENT`, el FK a
+   `authorization_roles(role_key)` (`ON UPDATE CASCADE ON DELETE SET NULL`) y el
+   `CHECK categories_default_role_key_not_admin` — una categoría no puede sugerir `admin`,
+   porque eso convertiría un cambio de categoría en escalada de privilegios.
+2. `create_category_for_practice` y `update_category_for_practice` ganan
+   `p_default_role_key text` (de ahí el cambio de nombre en el encabezado `-- Name: ...` de cada
+   una: la firma es parte del identificador). Se hicieron con `DROP` + `CREATE`, no
+   `CREATE OR REPLACE`: agregar un parámetro crea una SOBRECARGA y con dos firmas visibles
+   PostgREST devuelve `PGRST203`.
+3. `copy_categories_between_practices` clona la columna nueva (dos hunks: la lista de columnas
+   del `INSERT` y el `SELECT`).
+4. `sync_user_role_from_category(uuid, text, text)` — función nueva, `SECURITY DEFINER`, con su
+   `COMMENT`. Aplica el rol que la categoría vigente de un staff sugiere, delegando en
+   `admin_set_user_role_key` y agregando dos precondiciones atómicas que esa función no tiene:
+   nunca degradar a un admin y nunca asignar `admin`.
+
+`consolidado_renamed_catalog_column_grants.txt`: 16 filas nuevas — los 4 privilegios
+(`INSERT`/`REFERENCES`/`SELECT`/`UPDATE`) de `categories.default_role_key` para los 4 roles
+(`anon`, `authenticated`, `postgres`, `service_role`). Se heredan del `GRANT ALL ON TABLE
+public.categories` de `cero_06`; no se otorgaron por columna. Total 9475 → 9491.
+
+`consolidado_renamed_catalog_routine_grants.txt`: las 8 filas de `create/update_category_for_practice`
+cambian de firma (ver hunk 2), y se suman 4 filas de `sync_user_role_from_category`. Total
+514 → 518.
+
+`consolidado_renamed_catalog.txt` **no** se re-aceptó: no está entre los seis fixtures que el gate
+compara, y su diff es ruido de entorno (lista tamaños de tabla, que varían según qué filas insertó
+cada corrida).
