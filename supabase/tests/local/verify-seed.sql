@@ -79,8 +79,16 @@ BEGIN
   RAISE NOTICE 'PASS — global_settings.ADM_ACTIVITY_ID resuelve a la fila ADM';
 
   SELECT count(*) INTO n FROM public.global_settings;
-  IF n <> 19 THEN RAISE EXCEPTION 'FAIL — global_settings: esperado 19 claves, encontrado %', n; END IF;
-  RAISE NOTICE 'PASS — global_settings: 19 claves';
+  IF n <> 20 THEN RAISE EXCEPTION 'FAIL — global_settings: esperado 20 claves, encontrado %', n; END IF;
+  RAISE NOTICE 'PASS — global_settings: 20 claves';
+
+  -- EXCHANGE_RATE_API_URL (0722-156 Fase 1, 20260905070913_0722-156_add_exchange_rate_history.sql):
+  -- endpoint del microservicio TC Ruizmier, seedeado en global_settings (no env var) para que sea
+  -- editable desde Configuración sin redeploy.
+  IF NOT EXISTS (SELECT 1 FROM public.global_settings WHERE setting_key = 'EXCHANGE_RATE_API_URL') THEN
+    RAISE EXCEPTION 'FAIL — falta la clave EXCHANGE_RATE_API_URL (endpoint del microservicio TC Ruizmier)';
+  END IF;
+  RAISE NOTICE 'PASS — EXCHANGE_RATE_API_URL presente';
 
   -- LANGUAGE/ALLOW_WEEKEND_TRACKING (hallazgo de review de PR #310): Settings.handleSaveSettings
   -- las escribe siempre vía una mutación update-only — sin estas 2 filas, cualquier guardado de
