@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict sdFb620Btgw1UDzIPkUiwHJRgT5kqrmDdIapCGX0shdgFJq2FX8xLKDigXiSv13
+\restrict Jusb5Op0iiw1VLYB9cu4uWDhXDsl3RpcTHIafDO17GhHa3MijKnt4jcdm0Mnx1a
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.11 (Ubuntu 17.11-1.pgdg24.04+2)
@@ -6395,6 +6395,15 @@ BEGIN
   FROM jsonb_array_elements(p_installments) AS row_data
   WHERE row_data->>'installment_id' IS NOT NULL;
 
+  IF v_kept_ids IS NOT NULL AND EXISTS (
+    SELECT 1
+    FROM public.wo_payment_installments existing
+    WHERE existing.installment_id = ANY (v_kept_ids)
+      AND existing.plan_id <> p_plan_id
+  ) THEN
+    RAISE EXCEPTION 'INSTALLMENT_PLAN_MISMATCH: una o mas cuotas del payload no pertenecen al plan de pagos indicado';
+  END IF;
+
   -- Borra huerfanos PRIMERO, para que una fila renumerada no choque contra el UNIQUE
   -- (plan_id, installment_number) de una fila vieja que todavia no se borro -- mismo
   -- orden que ya usaba useBatchUpsertInstallments, ahora atomico con el paso de abajo.
@@ -6938,6 +6947,12 @@ BEGIN
     END IF;
   END IF;
 
+  -- MUST FIX review iteracion 2 #1/#3 (decision del operador 2026-09-07: "si una cuota
+  -- ya esta facturada, no se puede modificar o eliminar de ninguna manera"): una vez
+  -- que status sale de 'Pending', percentage/amount/installment_number tambien quedan
+  -- congelados -- no solo las 2 columnas de TC. Sin esto, agregar/quitar cuotas del
+  -- plan podia redistribuir el porcentaje de una cuota ya facturada, desalineandolo
+  -- del TC ya congelado (que se calculo sobre el porcentaje original).
   IF OLD.status <> 'Pending' AND (
     NEW.percentage IS DISTINCT FROM OLD.percentage
     OR NEW.amount IS DISTINCT FROM OLD.amount
@@ -16085,5 +16100,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict sdFb620Btgw1UDzIPkUiwHJRgT5kqrmDdIapCGX0shdgFJq2FX8xLKDigXiSv13
+\unrestrict Jusb5Op0iiw1VLYB9cu4uWDhXDsl3RpcTHIafDO17GhHa3MijKnt4jcdm0Mnx1a
 
