@@ -190,7 +190,10 @@ cada corrida).
 
 ### 6.2 — 0817-179 (retiro del estado 9 «Congelado»)
 
-Re-aceptado desde el artifact del run **33889841095** (`headSha` 21575b59, 2026-09-04). Solo
+Re-aceptado desde el artifact del run **34241633466** (`headSha` bbc92ab0, 2026-09-08), el
+primero posterior al merge de `development` que trajo 0820-182 — la re-aceptación previa
+(run 33889841095, `headSha` 21575b59) quedó obsoleta con ese merge, porque el fingerprint
+pasó a tener que reflejar los dos juegos de migraciones. Solo
 `consolidado_renamed_schema.sql` divergió (36 líneas); los otros cinco fixtures gateados quedaron
 idénticos — este bug no toca policies, grants ni storage.
 
