@@ -143,6 +143,13 @@ function isBlockedIpv4(a: number, b: number): boolean {
 // (fe80-febf), no solo el literal "fe80:" -- ningun valor en ese rango admite menos de
 // 4 digitos hex (siempre >= 0x1000), asi que comparar el primer grupo completo cubre
 // el rango entero sin falsos positivos.
+//
+// MUST FIX review iteracion 8 #1: la forma "IPv4-compatible" (`::a.b.c.d`, legacy, SIN el
+// prefijo `ffff:`) canonicaliza al mismo patron de 2 hextets que la forma mapeada de
+// arriba pero sin ese prefijo -- ej. `new URL("https://[::127.0.0.1]/").hostname` da
+// `[::7f00:1]`, que no matcheaba `mappedHex` (exige "ffff:" literal) ni ningun otro
+// chequeo, dejandolo pasar. Como ambas formas son bit-a-bit identicas para dos hextets
+// finales, se decodifican igual (los 2 octetos altos se re-chequean con isBlockedIpv4).
 function isBlockedHost(hostname: string): boolean {
   const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
   if (host === "localhost" || host === "0.0.0.0" || host === "::1") return true;
@@ -156,6 +163,12 @@ function isBlockedHost(hostname: string): boolean {
   const mappedHex = host.match(/^::ffff:([0-9a-f]{1,4}):[0-9a-f]{1,4}$/);
   if (mappedHex) {
     const hi = parseInt(mappedHex[1], 16);
+    return isBlockedIpv4((hi >> 8) & 0xff, hi & 0xff);
+  }
+
+  const compatHex = host.match(/^::([0-9a-f]{1,4}):[0-9a-f]{1,4}$/);
+  if (compatHex) {
+    const hi = parseInt(compatHex[1], 16);
     return isBlockedIpv4((hi >> 8) & 0xff, hi & 0xff);
   }
 

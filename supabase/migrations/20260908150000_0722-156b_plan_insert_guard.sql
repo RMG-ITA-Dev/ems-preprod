@@ -26,6 +26,13 @@
 -- nunca tiene motivo legitimo para cambiar de OT -- se lo vuelve inmutable directamente,
 -- en vez de solo validar aprobacion contra OLD.wo_id (que cerraria el cambio de TC pero
 -- seguiria permitiendo la reasignacion en si).
+--
+-- MUST FIX review iteracion 8 #2: el branch de INSERT solo rechazaba 'Approved', pero
+-- isEditable (WorkOrderForm.tsx:549) tambien excluye 'Pending_Approval' -- la pantalla
+-- nunca permite crear un plan mientras la OT esta en revision, pero el guard si dejaba
+-- pasar un INSERT directo en ese estado. Se agrega 'Pending_Approval' al mismo chequeo
+-- para que la defensa en profundidad cubra el mismo conjunto de estados no-editables que
+-- ya usa el frontend.
 
 CREATE OR REPLACE FUNCTION public.wo_payment_plan_guard_exchange_rate() RETURNS trigger
     LANGUAGE plpgsql SECURITY DEFINER
@@ -40,8 +47,8 @@ BEGIN
     FROM public.work_orders
     WHERE wo_id = NEW.wo_id;
 
-    IF v_approval_status = 'Approved' THEN
-      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: no se puede crear un plan de pagos: la orden de trabajo ya fue aprobada';
+    IF v_approval_status IN ('Approved', 'Pending_Approval') THEN
+      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: no se puede crear un plan de pagos: la orden de trabajo ya fue aprobada o esta en revision';
     END IF;
 
     RETURN NEW;

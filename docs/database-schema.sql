@@ -5772,8 +5772,8 @@ BEGIN
     FROM public.work_orders
     WHERE wo_id = NEW.wo_id;
 
-    IF v_approval_status = 'Approved' THEN
-      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: no se puede crear un plan de pagos: la orden de trabajo ya fue aprobada';
+    IF v_approval_status IN ('Approved', 'Pending_Approval') THEN
+      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: no se puede crear un plan de pagos: la orden de trabajo ya fue aprobada o esta en revision';
     END IF;
 
     RETURN NEW;

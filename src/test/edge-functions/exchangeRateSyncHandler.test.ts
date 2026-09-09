@@ -173,6 +173,12 @@ describe("fetchProviderRate", () => {
     // matcheaba ni el regex de IPv4 ni los prefijos de texto de IPv6.
     ["IPv4-mapped loopback (dotted)", "https://[::ffff:127.0.0.1]/oficial"],
     ["IPv4-mapped loopback (hex)", "https://[::ffff:7f00:1]/oficial"],
+    // MUST FIX review iteracion 8 #1: forma "IPv4-compatible" (::a.b.c.d, legacy, sin el
+    // prefijo "ffff:") canonicaliza al mismo patron de 2 hextets que la forma mapeada de
+    // arriba pero sin ese prefijo -- new URL("https://[::127.0.0.1]/").hostname da
+    // "[::7f00:1]", que no matcheaba ningun chequeo existente.
+    ["IPv4-compatible loopback (legacy, no ffff prefix)", "https://[::127.0.0.1]/oficial"],
+    ["IPv4-compatible cloud metadata (legacy, no ffff prefix)", "https://[::169.254.169.254]/latest/meta-data/"],
   ])("rejects %s before calling fetch", async (_label, url) => {
     const fetchSpy = vi.fn();
     globalThis.fetch = fetchSpy as unknown as typeof fetch;

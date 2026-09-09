@@ -968,4 +968,46 @@ BEGIN
   RAISE NOTICE 'PLAN WO_ID IMMUTABLE: ALL CHECKS PASSED (rolled back)';
 END $$;
 
+-- ══════════════════════════════════════════════════════════════════════
+-- MUST FIX 0722-156b review iteracion 8 #2 — migracion 20260908150000:
+--   el guard de INSERT solo rechazaba 'Approved', pero isEditable (WorkOrderForm.tsx:549)
+--   tambien excluye 'Pending_Approval' -- la pantalla nunca permite crear un plan
+--   mientras la OT esta en revision, pero el guard dejaba pasar un INSERT directo en ese
+--   estado.
+-- Fixture propio (E10/WO10): OT Pending_Approval, SIN plan de pagos.
+-- ══════════════════════════════════════════════════════════════════════
+
+INSERT INTO public.engagements (engagement_id, client_id, engagement_name, practica, fecha_cierre, society_id) VALUES
+  ('e0000000-0000-4000-8000-0000000000ca', 'c1000000-0000-4000-8000-0000000000c1', 'PER E10 (Pending_Approval WO, sin plan)', 1, '2026-09-30', (SELECT society_id FROM public.society WHERE society_id = '50c00000-0000-4000-8000-0000000000c1'));
+
+INSERT INTO public.work_orders (wo_id, engagement_id, currency, season_mode, approval_status) VALUES
+  ('40000000-0000-4000-8000-0000000000ca', 'e0000000-0000-4000-8000-0000000000ca', 'USD', 'High', 'Pending_Approval');
+
+DO $$
+DECLARE
+  denied boolean;
+BEGIN
+  denied := false;
+  BEGIN
+    INSERT INTO public.wo_payment_plan (wo_id, exchange_rate, exchange_rate_mode)
+    VALUES ('40000000-0000-4000-8000-0000000000ca', 6.96, 'fijo');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'EXCHANGE_RATE_LOCKED%' THEN
+      denied := true;
+    ELSE
+      RAISE;
+    END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'PER FAIL — un INSERT directo pudo crear un plan de pagos para una OT en Pending_Approval';
+  END IF;
+  RAISE NOTICE 'PASS — INSERT directo de un plan de pagos para una OT en Pending_Approval es rechazado (EXCHANGE_RATE_LOCKED)';
+
+  IF EXISTS (SELECT 1 FROM public.wo_payment_plan WHERE wo_id = '40000000-0000-4000-8000-0000000000ca') THEN
+    RAISE EXCEPTION 'PER FAIL — el plan rechazado igual quedo insertado';
+  END IF;
+
+  RAISE NOTICE 'PLAN INSERT GUARD (Pending_Approval): ALL CHECKS PASSED (rolled back)';
+END $$;
+
 ROLLBACK;
