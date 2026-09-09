@@ -14,6 +14,18 @@
 -- (20260905172820, seccion del guard de wo_payment_installments). La UI normal nunca crea
 -- un plan fuera de Draft (isEditable en WorkOrderForm.tsx), asi que esto es alcanzable
 -- solo via un INSERT directo/malformado -- defensa en profundidad, no una regresion de UI.
+--
+-- MUST FIX review iteracion 7 #1: el guard de UPDATE solo resolvia approval_status desde
+-- NEW.wo_id, nunca OLD.wo_id -- wo_id no era inmutable. Un UPDATE que reasignara el plan
+-- de una OT Aprobada hacia una OT Draft (sin cuotas facturadas) MIENTRAS cambia el TC
+-- pasaba el gate (NEW.wo_id resuelve a la OT Draft); un segundo UPDATE que devolviera el
+-- wo_id a la OT Aprobada original, sin tocar exchange_rate/exchange_rate_mode, caia en el
+-- early-return de mas abajo (que solo compara esos 2 campos) y no pasaba por ningun
+-- chequeo -- dejando el TC "oficial" de la OT Aprobada modificado en 2 pasos. Requeria
+-- pertenecer al equipo de ambas OT (la RLS valida wo_id viejo y nuevo), pero un plan
+-- nunca tiene motivo legitimo para cambiar de OT -- se lo vuelve inmutable directamente,
+-- en vez de solo validar aprobacion contra OLD.wo_id (que cerraria el cambio de TC pero
+-- seguiria permitiendo la reasignacion en si).
 
 CREATE OR REPLACE FUNCTION public.wo_payment_plan_guard_exchange_rate() RETURNS trigger
     LANGUAGE plpgsql SECURITY DEFINER
@@ -33,6 +45,10 @@ BEGIN
     END IF;
 
     RETURN NEW;
+  END IF;
+
+  IF NEW.wo_id IS DISTINCT FROM OLD.wo_id THEN
+    RAISE EXCEPTION 'WO_ID_IMMUTABLE: un plan de pagos no puede reasignarse a otra orden de trabajo';
   END IF;
 
   IF NEW.exchange_rate IS NOT DISTINCT FROM OLD.exchange_rate

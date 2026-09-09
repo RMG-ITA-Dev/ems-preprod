@@ -5779,6 +5779,10 @@ BEGIN
     RETURN NEW;
   END IF;
 
+  IF NEW.wo_id IS DISTINCT FROM OLD.wo_id THEN
+    RAISE EXCEPTION 'WO_ID_IMMUTABLE: un plan de pagos no puede reasignarse a otra orden de trabajo';
+  END IF;
+
   IF NEW.exchange_rate IS NOT DISTINCT FROM OLD.exchange_rate
      AND NEW.exchange_rate_mode IS NOT DISTINCT FROM OLD.exchange_rate_mode THEN
     RETURN NEW;

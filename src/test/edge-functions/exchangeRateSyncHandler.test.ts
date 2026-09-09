@@ -113,6 +113,10 @@ describe("validateAndMapRate", () => {
     ["venta missing", { ...VALID_RESPONSE, venta: undefined }],
     ["fuente empty", { ...VALID_RESPONSE, fuente: "  " }],
     ["fechaVigencia not ISO", { ...VALID_RESPONSE, fechaVigencia: "26/08/2026" }],
+    // MUST FIX review iteracion 7 #2: el regex de formato aceptaba una fecha que no
+    // existe en el calendario (el mes solo tiene 28/29 dias).
+    ["fechaVigencia not a real calendar date", { ...VALID_RESPONSE, fechaVigencia: "2026-02-31" }],
+    ["fechaPublicacion not a real calendar date", { ...VALID_RESPONSE, fechaPublicacion: "2026-02-31" }],
     ["canal invalid", { ...VALID_RESPONSE, canal: "bcb-fax" }],
     ["estado invalid", { ...VALID_RESPONSE, estado: "unknown" }],
     ["actualizadoEn missing", { ...VALID_RESPONSE, actualizadoEn: undefined }],
@@ -279,6 +283,26 @@ describe("handleSync", () => {
       estado: "vigente",
     };
     const db = createFakeDb({ settingUrl: "https://tc.example.com/oficial", historyRow: identicalRow });
+    const result = await handleSync(db);
+    expect(result.status).toBe(200);
+    expect(result.payload.written).toBe(false);
+    expect(db.upsertCalls).toHaveLength(0);
+  });
+
+  // MUST FIX review iteracion 7 #3: actualizado_en es timestamptz -- PostgREST normaliza
+  // su representacion al leerlo de vuelta (mismo instante, offset distinto al que mandó
+  // el proveedor). Antes, la comparación de string exacto nunca matcheaba en este caso,
+  // así que TODO sync terminaba en un UPSERT innecesario pese a no haber cambiado nada.
+  it("is still a no-op when actualizado_en represents the same instant with a different offset (PostgREST normalization)", async () => {
+    const normalizedRow: Row = {
+      compra: 11.57, venta: 11.67, moneda: "USD/BOB", fuente: "Banco Central de Bolivia",
+      regimen: "flexible", version_metodologia: "RD BCB 88/2026", canal: "bcb-web",
+      fecha_publicacion: "2026-08-25",
+      // Mismo instante que "2026-08-25T22:34:47.473-04:00" (VALID_RESPONSE), normalizado a UTC.
+      actualizado_en: "2026-08-26T02:34:47.473+00:00",
+      estado: "vigente",
+    };
+    const db = createFakeDb({ settingUrl: "https://tc.example.com/oficial", historyRow: normalizedRow });
     const result = await handleSync(db);
     expect(result.status).toBe(200);
     expect(result.payload.written).toBe(false);

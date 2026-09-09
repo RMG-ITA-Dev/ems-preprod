@@ -899,4 +899,73 @@ BEGIN
   RAISE NOTICE 'PLAN INSERT GUARD: ALL CHECKS PASSED (rolled back)';
 END $$;
 
+-- ══════════════════════════════════════════════════════════════════════
+-- MUST FIX 0722-156b review iteracion 7 #1 — migracion 20260908150000:
+--   wo_id no era inmutable en wo_payment_plan -- un UPDATE podia reasignar el plan de
+--   una OT Aprobada hacia una OT Draft (cambiando el TC de paso) y despues devolverlo
+--   sin tocar el TC, burlando el freeze en 2 pasos (el 2do paso se colaba por el
+--   early-return que solo compara exchange_rate/exchange_rate_mode).
+-- Fixture propio (E9/WO9): OT Draft, SIN plan de pagos -- destino de la reasignacion.
+-- ══════════════════════════════════════════════════════════════════════
+
+INSERT INTO public.engagements (engagement_id, client_id, engagement_name, practica, fecha_cierre, society_id) VALUES
+  ('e0000000-0000-4000-8000-0000000000c9', 'c1000000-0000-4000-8000-0000000000c1', 'PER E9 (Draft WO, sin plan, destino reasignacion)', 1, '2026-09-30', (SELECT society_id FROM public.society WHERE society_id = '50c00000-0000-4000-8000-0000000000c1'));
+
+INSERT INTO public.work_orders (wo_id, engagement_id, currency, season_mode, approval_status) VALUES
+  ('40000000-0000-4000-8000-0000000000c9', 'e0000000-0000-4000-8000-0000000000c9', 'USD', 'High', 'Draft');
+
+DO $$
+DECLARE
+  v_plan_c2 uuid;
+  denied boolean;
+BEGIN
+  SELECT plan_id INTO v_plan_c2 FROM public.wo_payment_plan WHERE wo_id = '40000000-0000-4000-8000-0000000000c2';
+
+  -- Paso 1 del ataque: reasignar el plan de la OT Aprobada (c2) hacia la OT Draft (c9)
+  -- EN EL MISMO UPDATE que cambia el TC -- sin el guard, esto pasaria (NEW.wo_id resuelve
+  -- a una OT Draft, ya no Approved) dejando el plan "de paso" con un TC nuevo.
+  denied := false;
+  BEGIN
+    UPDATE public.wo_payment_plan SET wo_id = '40000000-0000-4000-8000-0000000000c9', exchange_rate = 5.00
+    WHERE plan_id = v_plan_c2;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'WO_ID_IMMUTABLE%' THEN
+      denied := true;
+    ELSE
+      RAISE;
+    END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'PER FAIL — se pudo reasignar el plan de una OT Aprobada hacia otra OT';
+  END IF;
+  RAISE NOTICE 'PASS — reasignar wo_id de un plan es rechazado (WO_ID_IMMUTABLE), incluso combinado con un cambio de TC';
+
+  IF (SELECT wo_id FROM public.wo_payment_plan WHERE plan_id = v_plan_c2) <> '40000000-0000-4000-8000-0000000000c2' THEN
+    RAISE EXCEPTION 'PER FAIL — el plan quedo reasignado pese al rechazo';
+  END IF;
+  IF (SELECT exchange_rate FROM public.wo_payment_plan WHERE plan_id = v_plan_c2) <> 6.90 THEN
+    RAISE EXCEPTION 'PER FAIL — el TC del plan cambio pese al rechazo de la reasignacion';
+  END IF;
+
+  -- Paso 2 del ataque: reasignar SIN tocar el TC -- el paso que antes se colaba por el
+  -- early-return (compara solo exchange_rate/exchange_rate_mode) tambien debe rechazarse.
+  denied := false;
+  BEGIN
+    UPDATE public.wo_payment_plan SET wo_id = '40000000-0000-4000-8000-0000000000c9'
+    WHERE plan_id = v_plan_c2;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'WO_ID_IMMUTABLE%' THEN
+      denied := true;
+    ELSE
+      RAISE;
+    END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'PER FAIL — se pudo reasignar el plan sin tocar el TC (el paso que antes usaba el early-return para colarse)';
+  END IF;
+  RAISE NOTICE 'PASS — reasignar wo_id sin tocar el TC tambien es rechazado (no se cuela por el early-return)';
+
+  RAISE NOTICE 'PLAN WO_ID IMMUTABLE: ALL CHECKS PASSED (rolled back)';
+END $$;
+
 ROLLBACK;

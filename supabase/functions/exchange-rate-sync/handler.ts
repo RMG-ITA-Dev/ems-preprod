@@ -165,6 +165,20 @@ function isBlockedHost(hostname: string): boolean {
   return false;
 }
 
+// MUST FIX review iteracion 7 #2: ISO_DATE solo valida el FORMATO (YYYY-MM-DD), no que la
+// fecha exista en el calendario -- "2026-02-31" pasaba el regex. fecha_vigencia/fecha_
+// publicacion son columnas `date` en Postgres, que si rechazan una fecha de calendario
+// invalida -- pero eso dejaba el modo test (handleTest, sin escritura) reportando exito
+// con un valor que el guardado real (handleSync/upsert) rechazaria despues, confundiendo
+// al admin ("la prueba de conexion dijo que andaba bien"). Se valida aca, antes de
+// aceptar el payload, para que el error aparezca en la prueba misma.
+function isValidCalendarDate(value: string): boolean {
+  if (!ISO_DATE.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
+
 /** Validates and maps the microservice's camelCase response to our snake_case row shape.
  * Rates/currency/channel/status are checked strictly (they drive CHECK constraints and
  * comparison logic); metadata fields (fuente/regimen/versionMetodologia) stay permissive —
@@ -184,8 +198,8 @@ export function validateAndMapRate(raw: unknown): ValidateResult {
   if (typeof r.fuente !== "string" || r.fuente.trim() === "") {
     return { ok: false, error: "Campo 'fuente' inválido o ausente" };
   }
-  if (typeof r.fechaVigencia !== "string" || !ISO_DATE.test(r.fechaVigencia)) {
-    return { ok: false, error: "Campo 'fechaVigencia' inválido o ausente (se espera YYYY-MM-DD)" };
+  if (typeof r.fechaVigencia !== "string" || !isValidCalendarDate(r.fechaVigencia)) {
+    return { ok: false, error: "Campo 'fechaVigencia' inválido o ausente (se espera YYYY-MM-DD, fecha de calendario real)" };
   }
   if (r.canal !== "bcb-web" && r.canal !== "bcb-soap") {
     return { ok: false, error: "Campo 'canal' inválido (se espera 'bcb-web' o 'bcb-soap')" };
@@ -196,8 +210,12 @@ export function validateAndMapRate(raw: unknown): ValidateResult {
   if (typeof r.actualizadoEn !== "string" || r.actualizadoEn.trim() === "") {
     return { ok: false, error: "Campo 'actualizadoEn' inválido o ausente" };
   }
-  if (r.fechaPublicacion !== undefined && r.fechaPublicacion !== null && typeof r.fechaPublicacion !== "string") {
-    return { ok: false, error: "Campo 'fechaPublicacion' inválido" };
+  if (
+    r.fechaPublicacion !== undefined &&
+    r.fechaPublicacion !== null &&
+    (typeof r.fechaPublicacion !== "string" || !isValidCalendarDate(r.fechaPublicacion))
+  ) {
+    return { ok: false, error: "Campo 'fechaPublicacion' inválido (se espera YYYY-MM-DD, fecha de calendario real)" };
   }
 
   return {
@@ -270,8 +288,28 @@ const COMPARE_FIELDS: (keyof ExchangeRateRow)[] = [
   "canal", "fecha_publicacion", "actualizado_en", "estado",
 ];
 
+// MUST FIX review iteracion 7 #3: actualizado_en es `timestamptz` en Postgres -- PostgREST
+// normaliza su representacion al leerlo de vuelta (offset distinto al que el proveedor
+// mando originalmente), asi que comparar como string exacto casi nunca matchea aunque sea
+// el mismo instante, rompiendo el no-op documentado abajo (operator decision 2026-09-04)
+// en la practica: cada sync terminaba en un UPSERT innecesario. Se compara como instante
+// parseado solo para este campo; el resto de COMPARE_FIELDS son texto/numericos sin
+// ambiguedad de formato, se quedan con la comparacion exacta.
+function valuesEqual(field: keyof ExchangeRateRow, existingValue: unknown, fetchedValue: unknown): boolean {
+  const existingNormalized = existingValue ?? null;
+  const fetchedNormalized = fetchedValue ?? null;
+  if (field === "actualizado_en" && typeof existingNormalized === "string" && typeof fetchedNormalized === "string") {
+    const existingMs = new Date(existingNormalized).getTime();
+    const fetchedMs = new Date(fetchedNormalized).getTime();
+    if (!Number.isNaN(existingMs) && !Number.isNaN(fetchedMs)) {
+      return existingMs === fetchedMs;
+    }
+  }
+  return existingNormalized === fetchedNormalized;
+}
+
 function rowsEqual(a: ExchangeRateRow, existing: Record<string, unknown>): boolean {
-  return COMPARE_FIELDS.every((field) => (existing[field] ?? null) === (a[field] ?? null));
+  return COMPARE_FIELDS.every((field) => valuesEqual(field, existing[field], a[field]));
 }
 
 /** Sync mode: reads the saved URL, fetches, and upserts by fecha_vigencia — but ONLY if the
