@@ -255,6 +255,17 @@ describe("WorkOrderPaymentPlanSection — exchange rate mode toggle (0722-156b F
     rerenderWith({ plan: makePlan({ exchange_rate: null }), installments: [makeInstallment()], onPlanChange });
     expect(onPlanChange).toHaveBeenCalledWith(expect.objectContaining({ exchange_rate: 11.57 }));
   });
+
+  // MUST FIX 0722-156b review iteracion 10 #5: este efecto no chequeaba
+  // currency !== "BOB" -- useLatestExchangeRate() no esta filtrado por moneda de la
+  // OT, asi que autocompletaba exchange_rate en CUALQUIER OT en BOB con >= 1 cuota,
+  // marcando "sin guardar" (WorkOrderEdit.tsx compara paymentPlan/originalPaymentPlan
+  // con un JSON.stringify crudo) sin que el usuario tocara nada.
+  it("PEM7d: creation TC does NOT autocomplete for BOB currency, even with installments and a resolved buy rate", () => {
+    const onPlanChange = vi.fn();
+    renderSection({ currency: "BOB", plan: makePlan({ exchange_rate: null }), installments: [makeInstallment()], onPlanChange });
+    expect(onPlanChange).not.toHaveBeenCalled();
+  });
 });
 
 describe("WorkOrderPaymentPlanSection — per-installment TC cells (0722-156b Fase 2)", () => {
@@ -338,6 +349,23 @@ describe("WorkOrderPaymentPlanSection — per-installment TC cells (0722-156b Fa
 
     expect(screen.queryByTestId("installment-invoice-rate")).not.toBeInTheDocument();
     expect(screen.queryByTestId("installment-invoice-rate-readonly")).not.toBeInTheDocument();
+  });
+
+  // MUST FIX 0722-156b review iteracion 10 #5: el efecto de re-sincronizacion/
+  // inicializacion (modo Fijo re-sync, modo Variable init) tampoco chequeaba
+  // currency !== "BOB" -- aunque las celdas no se rendericen para BOB (PEM13), el
+  // efecto igual llamaba a onInstallmentsChange en segundo plano.
+  it("PEM13b: per-installment TC sync/init does NOT fire for BOB currency, even with a null TC and a resolved buy rate", () => {
+    const onInstallmentsChange = vi.fn();
+    const installments = [makeInstallment({ status: "Pending", invoice_exchange_rate: null, payment_exchange_rate: null })];
+    renderSection({
+      currency: "BOB",
+      plan: makePlan({ exchange_rate_mode: "variable" }),
+      installments,
+      onInstallmentsChange,
+    });
+
+    expect(onInstallmentsChange).not.toHaveBeenCalled();
   });
 
   it("PEM14: editing the invoice TC in modo Variable calls onInstallmentsChange with only that row updated", () => {

@@ -112,6 +112,26 @@ const KNOWN_EXCHANGE_RATE_ERROR_CODES = new Set([
   "invalid_payload",
 ]);
 
+// MUST FIX review iteracion 10 #6: extraida de handleTestExchangeRate para que
+// handleSaveAndSeedExchangeRate (el "Guardar" del mismo modal) reuse el mismo mapeo de
+// codigo -> string traducido, en vez de mostrar error.message crudo (potencialmente en
+// ingles o con texto interno del handler) via un toast sin pasar por i18n.
+async function parseExchangeRateFunctionError(error: unknown): Promise<{ message: string; code: string | null }> {
+  let message = error instanceof Error ? error.message : String(error);
+  let code: string | null = null;
+  const context = (error as { context?: Response }).context;
+  if (context && typeof context.json === "function") {
+    try {
+      const body = await context.json();
+      message = body?.error?.message || message;
+      code = body?.error?.code ?? null;
+    } catch {
+      // keep the generic error.message
+    }
+  }
+  return { message, code };
+}
+
 const Settings = () => {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
@@ -814,20 +834,9 @@ const Settings = () => {
         body: { mode: "test", url: exchangeRateApiUrl.trim() },
       });
       if (error) {
-        let message = error.message;
-        let code: string | undefined;
-        const context = (error as { context?: Response }).context;
-        if (context && typeof context.json === "function") {
-          try {
-            const body = await context.json();
-            message = body?.error?.message || message;
-            code = body?.error?.code;
-          } catch {
-            // keep the generic error.message
-          }
-        }
+        const { message, code } = await parseExchangeRateFunctionError(error);
         setExchangeRateTestError(message);
-        setExchangeRateTestErrorCode(code ?? null);
+        setExchangeRateTestErrorCode(code);
       } else if ((data as { error?: { message?: string; code?: string } } | null)?.error) {
         const err = (data as { error: { message: string; code?: string } }).error;
         setExchangeRateTestError(err.message);
@@ -857,7 +866,13 @@ const Settings = () => {
       toast.success(t("settings.exchangeRateSeeded"));
       setExchangeRateTestOpen(false);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : t("messages.error"));
+      // MUST FIX review iteracion 10 #6: antes mostraba e.message crudo via toast (podia
+      // venir en ingles o con texto interno del handler) -- reusa el mismo mapeo de
+      // codigo -> string traducido que ya usa "Probar" (mismo Alert dentro del modal, no
+      // un toast aparte), en vez de un mensaje sin pasar por i18n.
+      const { message, code } = await parseExchangeRateFunctionError(e);
+      setExchangeRateTestError(message);
+      setExchangeRateTestErrorCode(code);
     } finally {
       setExchangeRateTestSaving(false);
     }

@@ -330,6 +330,38 @@ describe("Settings — EXCHANGE_RATE_API_URL field (BUG 0722-156, Fase 1)", () =
       expect(functionsInvoke).toHaveBeenLastCalledWith("exchange-rate-sync", { body: {} });
     });
 
+    // MUST FIX review iteracion 10 #6: un fallo del segundo fetch (modo sync, tras
+    // guardar la URL) mostraba error.message crudo via toast.error, sin pasar por el
+    // mismo mapeo de codigo -> string traducido que ya usa "Probar" en este mismo modal.
+    it("'Guardar' shows the same translated error in the modal when the sync-mode fetch fails, not a raw toast (MUST FIX review iteracion 10 #6)", async () => {
+      functionsInvoke
+        .mockResolvedValueOnce({
+          data: { compra: 11.57, venta: 11.67, fecha_vigencia: "2026-08-26", estado: "vigente", canal: "bcb-web" },
+          error: null,
+        })
+        .mockResolvedValueOnce({
+          data: null,
+          error: {
+            message: "El microservicio respondió 500",
+            context: { json: () => Promise.resolve({ error: { code: "provider_error", message: "El microservicio respondió 500" } }) },
+          },
+        });
+
+      const user = await openGlobalSettingsTab();
+      await user.clear(getUrlInput());
+      await user.type(getUrlInput(), "https://new.example.com/api");
+      await user.click(screen.getByText("settings.testConnection"));
+      await waitFor(() => expect(screen.getByText("settings.exchangeRateTestModalTitle")).toBeInTheDocument());
+
+      await user.click(screen.getByText("settings.exchangeRateSaveAndSeed"));
+
+      await waitFor(() => expect(screen.getByText("settings.exchangeRateError.provider_error")).toBeInTheDocument());
+      expect(screen.queryByText(/El microservicio respondió/)).not.toBeInTheDocument();
+      // Still the same modal (not closed on error) and no toast fired.
+      expect(screen.getByText("settings.exchangeRateTestModalTitle")).toBeInTheDocument();
+      expect(toast.error).not.toHaveBeenCalled();
+    });
+
     it("Cancel/close after Probar persists nothing", async () => {
       functionsInvoke.mockResolvedValueOnce({
         data: { compra: 11.57, venta: 11.67, fecha_vigencia: "2026-08-26", estado: "vigente", canal: "bcb-web" },

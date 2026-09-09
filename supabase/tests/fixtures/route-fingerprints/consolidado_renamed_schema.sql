@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict zAWpIf2Z8WNqXdjiKyIUhjSBwxInfdyHyzdDOGqxJbJOHOamyb9f07uxRbt774V
+\restrict I03dduya3nCqufIh37Xun2jAqvg3RAxPgHa8BQhrvHSkcRenSJwexppzTWPfGa6
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.11 (Ubuntu 17.11-1.pgdg24.04+2)
@@ -6390,6 +6390,13 @@ CREATE FUNCTION public.sync_wo_payment_installments(p_plan_id uuid, p_wo_id uuid
 DECLARE
   v_kept_ids uuid[];
 BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM public.wo_payment_plan
+    WHERE plan_id = p_plan_id AND wo_id = p_wo_id
+  ) THEN
+    RAISE EXCEPTION 'PLAN_WO_MISMATCH: el plan de pagos indicado no pertenece a la orden de trabajo indicada';
+  END IF;
+
   SELECT array_agg((row_data->>'installment_id')::uuid)
   INTO v_kept_ids
   FROM jsonb_array_elements(p_installments) AS row_data
@@ -7015,8 +7022,8 @@ BEGIN
     FROM public.work_orders
     WHERE wo_id = NEW.wo_id;
 
-    IF v_approval_status = 'Approved' THEN
-      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: no se puede crear un plan de pagos: la orden de trabajo ya fue aprobada';
+    IF v_approval_status IN ('Approved', 'Pending_Approval') THEN
+      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: no se puede crear un plan de pagos: la orden de trabajo ya fue aprobada o esta en revision';
     END IF;
 
     RETURN NEW;
@@ -16116,5 +16123,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict zAWpIf2Z8WNqXdjiKyIUhjSBwxInfdyHyzdDOGqxJbJOHOamyb9f07uxRbt774V
+\unrestrict I03dduya3nCqufIh37Xun2jAqvg3RAxPgHa8BQhrvHSkcRenSJwexppzTWPfGa6
 

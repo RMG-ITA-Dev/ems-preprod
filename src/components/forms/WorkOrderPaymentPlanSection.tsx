@@ -222,12 +222,22 @@ export function WorkOrderPaymentPlanSection({
   // persistNonRiskChanges solo actua con installments.length > 0 o con un plan_id ya
   // existente, ese plan sintetico no se podia ni guardar ni descartar. Exigir al
   // menos 1 cuota antes de autocompletar evita crear un plan "fantasma".
+  //
+  // MUST FIX 0722-156b review iteracion 10 #5: tampoco chequeaba currency !== "BOB"
+  // -- el TC (Decision #8 de plan_v2.md) solo aplica a USD/USDT, nunca a BOB, pero
+  // useLatestExchangeRate() no esta filtrado por moneda de la OT, asi que este efecto
+  // igual autocompletaba exchange_rate en una OT en BOB con al menos 1 cuota. Como
+  // WorkOrderEdit.tsx compara paymentPlan contra originalPaymentPlan con un
+  // JSON.stringify crudo (no el mas cuidadoso isPaymentPlanRestDirty), esto marcaba
+  // "sin guardar" a CUALQUIER OT en BOB abierta para editar, sin que el usuario
+  // tocara nada.
   useEffect(() => {
+    if (currency === "BOB") return;
     if (currentPlan.exchange_rate != null) return;
     if (!isEditable || latestBuyRate == null || installments.length === 0) return;
     onPlanChange({ ...currentPlan, exchange_rate: latestBuyRate });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPlan.exchange_rate, isEditable, latestBuyRate, installments.length]);
+  }, [currency, currentPlan.exchange_rate, isEditable, latestBuyRate, installments.length]);
 
   // MUST FIX 0722-156b review iteracion 1 #2: el efecto de arriba solo autocompleta
   // plan.exchange_rate — nunca re-sincronizaba las cuotas ya creadas cuando
@@ -237,7 +247,11 @@ export function WorkOrderPaymentPlanSection({
   // re-sincroniza con applyExchangeRateMode en cuanto haya TC de creacion; en
   // Variable, rellena solo los campos aun editables que sigan en null, igual que
   // handleModeChange ya hace al cambiar de modo.
+  //
+  // MUST FIX 0722-156b review iteracion 10 #5: mismo gate de currency !== "BOB" que
+  // el efecto de arriba -- ver ese comentario.
   useEffect(() => {
+    if (currency === "BOB") return;
     if (latestBuyRate == null || !isEditable || installments.length === 0) return;
     if (currentPlan.exchange_rate_mode === "fijo") {
       if (currentPlan.exchange_rate == null) return;
@@ -272,7 +286,7 @@ export function WorkOrderPaymentPlanSection({
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [latestBuyRate, isEditable, currentPlan.exchange_rate_mode, currentPlan.exchange_rate, installments.length]);
+  }, [currency, latestBuyRate, isEditable, currentPlan.exchange_rate_mode, currentPlan.exchange_rate, installments.length]);
 
   // When feeWithTax changes (e.g. adjustment edited), recompute stored amounts so
   // the saved value matches what the table displays. Guard via ref to avoid loops.
