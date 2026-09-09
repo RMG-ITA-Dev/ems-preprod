@@ -424,21 +424,22 @@ describe("WorkOrderPaymentPlanSection — collection_invoice_date rendering", ()
     expect(screen.getByText("01/08/2026")).toBeInTheDocument();
   });
 
-  // BUG reportado 2026-09-09: aunque isStatusEditable=true, una cuota ya facturada
-  // (status !== 'Pending') no debe permitir seguir editando su fecha de facturacion --
-  // misma regla ya aplicada a porcentaje/monto/TC/borrado (Iteracion 2 del operador).
-  it("PP23b: collection_invoice_date shown as plain text (not an input) for a Completed cuota, even when isStatusEditable=true", () => {
+  // Reportado 2026-09-09 como bug ("sigue editable en Completado") y luego revertido
+  // el mismo dia tras confirmar que es intencional: preexistente a 0722-156b (commit
+  // 0253f93e, 2026-06-29), un mecanismo de CORRECCION admin/collections_analyst
+  // (dialogo + useUpdateCollectionDate) que la base de datos nunca bloquea por status
+  // -- a proposito, para poder corregir la fecha real de facturacion de Contabilidad
+  // aunque la cuota ya haya avanzado o se haya completado. Decision confirmada por el
+  // operador de mantener el comportamiento original (PP22 ya cubria el caso Pending).
+  it("PP23b: collection_invoice_date stays editable for a Completed cuota (intentional correction path, not frozen by status)", () => {
     const installments = [makeInstallment({ status: "Completed", collection_invoice_date: "2026-08-01" })];
     const container = renderSection({ installments, isStatusEditable: true });
-    // Only 1 date input left (agreed_invoice_date) — collection_invoice_date is frozen.
-    expect(container.querySelectorAll('input[type="date"]')).toHaveLength(1);
-    expect(screen.getByText("01/08/2026")).toBeInTheDocument();
+    expect(container.querySelectorAll('input[type="date"]')).toHaveLength(2);
   });
 
-  it("PP23c: collection_invoice_date shown as plain text for an Invoiced (already-billed) cuota too, even when isStatusEditable=true", () => {
+  it("PP23c: collection_invoice_date stays editable for an Invoiced (already-billed) cuota too", () => {
     const installments = [makeInstallment({ status: "Invoiced", collection_invoice_date: "2026-08-01" })];
     const container = renderSection({ installments, isStatusEditable: true });
-    expect(container.querySelectorAll('input[type="date"]')).toHaveLength(1);
-    expect(screen.getByText("01/08/2026")).toBeInTheDocument();
+    expect(container.querySelectorAll('input[type="date"]')).toHaveLength(2);
   });
 });

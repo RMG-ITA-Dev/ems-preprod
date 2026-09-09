@@ -858,14 +858,25 @@ export function WorkOrderPaymentPlanSection({
                         </>
                       )}
                       {/* Cobranza group */}
-                      {/* BUG reportado 2026-09-09: la fecha de facturacion (Cobranza) seguia
-                         editable para una cuota ya Completada -- el gate solo miraba
-                         isStatusEditable (rol + OT Aprobada), nunca el status de la propia
-                         cuota. Se agrega !isLocked(inst) para respetar la misma regla del
-                         operador (Iteracion 2) que ya congela porcentaje/monto/TC/borrado:
-                         "una cuota ya facturada no puede modificarse de ninguna manera". */}
+                      {/* Reportado 2026-09-09 como bug ("sigue editable en Completado") y
+                         corregido con !isLocked(inst) -- REVERTIDO el mismo dia tras
+                         verificar que esto es intencional, no un descuido: preexistente a
+                         0722-156b (commit 0253f93e, "agregar la funcionalidad de
+                         actualizacion de la fecha de cobro", 2026-06-29), con su propio
+                         dialogo de CORRECCION (no de captura -- ver el Dialog de
+                         pendingCollectionDate mas abajo, "admin direct-save") y su propia
+                         mutacion dedicada (useUpdateCollectionDate). A diferencia de
+                         percentage/amount/installment_number/TC (congelados desde la
+                         Iteracion 2), el trigger de la base de datos NUNCA bloquea
+                         collection_invoice_date/collection_payment_date por status --
+                         confirmado leyendo wo_payment_installments_guard_exchange_rate
+                         completo. Es decir, la base de datos permite a proposito corregir
+                         esta fecha en cualquier momento (la fecha registrada al marcar
+                         "Facturado" es cuando alguien toco el boton, no necesariamente la
+                         fecha real de emision de Contabilidad) -- decision confirmada por
+                         el operador de mantener este comportamiento tal como estaba. */}
                       <td className="py-3 px-3 border-b border-l border-border/50 bg-muted/10">
-                        {isStatusEditable && !isLocked(inst) ? (
+                        {isStatusEditable ? (
                           <Input
                             type="date"
                             lang="es-BO"
