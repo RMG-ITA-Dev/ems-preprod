@@ -1010,4 +1010,51 @@ BEGIN
   RAISE NOTICE 'PLAN INSERT GUARD (Pending_Approval): ALL CHECKS PASSED (rolled back)';
 END $$;
 
+-- ══════════════════════════════════════════════════════════════════════
+-- MUST FIX 0722-156b review iteracion 9 #3 — migracion 20260908150000 (consolidada
+-- 2026-09-08, vivia en un archivo aparte 20260908160000 hasta la fusion):
+--   sync_wo_payment_installments validaba que un installment_id EXISTENTE
+--   perteneciera a p_plan_id, pero nunca que p_plan_id perteneciera realmente a
+--   p_wo_id -- RLS autoriza por plan_id (via wo_payment_plan.wo_id real), nunca
+--   por la columna wo_id de la fila que se esta escribiendo.
+-- Reusa fixtures existentes: el plan de E1/c1 (Draft, Fijo) + la OT de E9/c9 (Draft,
+-- sin plan propio) como el wo_id ajeno declarado en el payload.
+-- ══════════════════════════════════════════════════════════════════════
+
+DO $$
+DECLARE
+  v_plan_c1 uuid;
+  denied boolean;
+BEGIN
+  SELECT plan_id INTO v_plan_c1 FROM public.wo_payment_plan WHERE wo_id = '40000000-0000-4000-8000-0000000000c1';
+
+  denied := false;
+  BEGIN
+    PERFORM public.sync_wo_payment_installments(
+      v_plan_c1,
+      '40000000-0000-4000-8000-0000000000c9'::uuid,
+      '[]'::jsonb
+    );
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'PLAN_WO_MISMATCH%' THEN
+      denied := true;
+    ELSE
+      RAISE;
+    END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'PER FAIL — sync_wo_payment_installments acepto un plan_id/wo_id que no corresponden entre si';
+  END IF;
+  RAISE NOTICE 'PASS — sync_wo_payment_installments rechaza (PLAN_WO_MISMATCH) un plan_id que no pertenece al wo_id declarado';
+
+  IF EXISTS (
+    SELECT 1 FROM public.wo_payment_installments
+    WHERE plan_id = v_plan_c1 AND wo_id <> '40000000-0000-4000-8000-0000000000c1'
+  ) THEN
+    RAISE EXCEPTION 'PER FAIL — quedaron cuotas del plan de c1 con un wo_id ajeno pese al rechazo';
+  END IF;
+
+  RAISE NOTICE 'SYNC RPC PLAN/WO OWNERSHIP GUARD: ALL CHECKS PASSED (rolled back)';
+END $$;
+
 ROLLBACK;

@@ -173,10 +173,16 @@ run supabase/migrations/20260905070913_0722-156_add_exchange_rate_history.sql
 # Supabase real). Ejercitado por trigger-0722-156b-payment-exchange-rates.sql.
 run supabase/migrations/20260905172820_0722-156b_add_payment_exchange_rates.sql
 
-# 0722-156b (review iteración 6 #1): trg_wo_payment_plan_guard_exchange_rate solo corría
-# BEFORE UPDATE -- un INSERT directo podía crear un plan de pagos nuevo con TC/modo
-# arbitrario para una OT ya aprobada, sin pasar por ninguna validación. Ejercitado por
-# trigger-0722-156b-payment-exchange-rates.sql (sección agregada al final).
+# 0722-156b (review iteración 6 #1 / iteración 8 #2 / iteración 9 #3):
+# trg_wo_payment_plan_guard_exchange_rate solo corría BEFORE UPDATE -- un INSERT directo
+# podía crear un plan de pagos nuevo con TC/modo arbitrario para una OT ya aprobada o en
+# revisión, sin pasar por ninguna validación. Consolidada acá también la corrección de
+# sync_wo_payment_installments (validaba que un installment_id existente perteneciera a
+# p_plan_id, pero nunca que p_plan_id perteneciera realmente a p_wo_id -- RLS autoriza por
+# plan_id, no por la columna wo_id de la fila) -- vivía en un archivo aparte
+# (20260908160000) hasta que se fusionó acá el 2026-09-08 porque ninguna de las 2 se había
+# aplicado nunca a un Supabase real. Ejercitado por
+# trigger-0722-156b-payment-exchange-rates.sql (secciones agregadas al final).
 run supabase/migrations/20260908150000_0722-156b_plan_insert_guard.sql
 
 # society/practicas(code=1): staff.society_id/practica_id y categories.practica_id son NOT NULL

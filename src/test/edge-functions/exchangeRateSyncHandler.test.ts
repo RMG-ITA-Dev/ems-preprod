@@ -120,6 +120,10 @@ describe("validateAndMapRate", () => {
     ["canal invalid", { ...VALID_RESPONSE, canal: "bcb-fax" }],
     ["estado invalid", { ...VALID_RESPONSE, estado: "unknown" }],
     ["actualizadoEn missing", { ...VALID_RESPONSE, actualizadoEn: undefined }],
+    // MUST FIX review iteracion 9 #4: actualizadoEn solo se validaba como string
+    // no-vacio, no como timestamp real -- un valor no parseable pasaba el modo test
+    // como exitoso, pero el guardado real fallaria al insertar en la columna timestamptz.
+    ["actualizadoEn not a real timestamp", { ...VALID_RESPONSE, actualizadoEn: "not-a-date" }],
   ])("rejects: %s", (_label, payload) => {
     const result = validateAndMapRate(payload);
     expect(result.ok).toBe(false);

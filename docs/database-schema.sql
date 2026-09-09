@@ -5160,6 +5160,13 @@ CREATE FUNCTION public.sync_wo_payment_installments(p_plan_id uuid, p_wo_id uuid
 DECLARE
   v_kept_ids uuid[];
 BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM public.wo_payment_plan
+    WHERE plan_id = p_plan_id AND wo_id = p_wo_id
+  ) THEN
+    RAISE EXCEPTION 'PLAN_WO_MISMATCH: el plan de pagos indicado no pertenece a la orden de trabajo indicada';
+  END IF;
+
   SELECT array_agg((row_data->>'installment_id')::uuid)
   INTO v_kept_ids
   FROM jsonb_array_elements(p_installments) AS row_data

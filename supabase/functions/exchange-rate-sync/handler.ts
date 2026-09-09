@@ -192,6 +192,15 @@ function isValidCalendarDate(value: string): boolean {
   return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
 }
 
+// MUST FIX review iteracion 9 #4: actualizadoEn (timestamptz, no `date`) solo se
+// validaba como string no-vacio -- un valor no parseable (ej. "not-a-date") pasaba el
+// modo test como exitoso, pero el guardado real fallaria despues al intentar insertarlo
+// en la columna timestamptz -- mismo problema que isValidCalendarDate ya corrigio para
+// fechaVigencia/fechaPublicacion (Iteracion 7 #2), aplicado aca al campo que quedo afuera.
+function isValidTimestamp(value: string): boolean {
+  return !Number.isNaN(Date.parse(value));
+}
+
 /** Validates and maps the microservice's camelCase response to our snake_case row shape.
  * Rates/currency/channel/status are checked strictly (they drive CHECK constraints and
  * comparison logic); metadata fields (fuente/regimen/versionMetodologia) stay permissive —
@@ -220,8 +229,8 @@ export function validateAndMapRate(raw: unknown): ValidateResult {
   if (r.estado !== "vigente" && r.estado !== "stale") {
     return { ok: false, error: "Campo 'estado' inválido (se espera 'vigente' o 'stale')" };
   }
-  if (typeof r.actualizadoEn !== "string" || r.actualizadoEn.trim() === "") {
-    return { ok: false, error: "Campo 'actualizadoEn' inválido o ausente" };
+  if (typeof r.actualizadoEn !== "string" || r.actualizadoEn.trim() === "" || !isValidTimestamp(r.actualizadoEn)) {
+    return { ok: false, error: "Campo 'actualizadoEn' inválido o ausente (se espera una fecha/hora real)" };
   }
   if (
     r.fechaPublicacion !== undefined &&
