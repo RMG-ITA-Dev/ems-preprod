@@ -423,4 +423,22 @@ describe("WorkOrderPaymentPlanSection — collection_invoice_date rendering", ()
     expect(container.querySelectorAll('input[type="date"]')).toHaveLength(1);
     expect(screen.getByText("01/08/2026")).toBeInTheDocument();
   });
+
+  // BUG reportado 2026-09-09: aunque isStatusEditable=true, una cuota ya facturada
+  // (status !== 'Pending') no debe permitir seguir editando su fecha de facturacion --
+  // misma regla ya aplicada a porcentaje/monto/TC/borrado (Iteracion 2 del operador).
+  it("PP23b: collection_invoice_date shown as plain text (not an input) for a Completed cuota, even when isStatusEditable=true", () => {
+    const installments = [makeInstallment({ status: "Completed", collection_invoice_date: "2026-08-01" })];
+    const container = renderSection({ installments, isStatusEditable: true });
+    // Only 1 date input left (agreed_invoice_date) — collection_invoice_date is frozen.
+    expect(container.querySelectorAll('input[type="date"]')).toHaveLength(1);
+    expect(screen.getByText("01/08/2026")).toBeInTheDocument();
+  });
+
+  it("PP23c: collection_invoice_date shown as plain text for an Invoiced (already-billed) cuota too, even when isStatusEditable=true", () => {
+    const installments = [makeInstallment({ status: "Invoiced", collection_invoice_date: "2026-08-01" })];
+    const container = renderSection({ installments, isStatusEditable: true });
+    expect(container.querySelectorAll('input[type="date"]')).toHaveLength(1);
+    expect(screen.getByText("01/08/2026")).toBeInTheDocument();
+  });
 });

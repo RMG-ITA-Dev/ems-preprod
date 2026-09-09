@@ -858,8 +858,14 @@ export function WorkOrderPaymentPlanSection({
                         </>
                       )}
                       {/* Cobranza group */}
+                      {/* BUG reportado 2026-09-09: la fecha de facturacion (Cobranza) seguia
+                         editable para una cuota ya Completada -- el gate solo miraba
+                         isStatusEditable (rol + OT Aprobada), nunca el status de la propia
+                         cuota. Se agrega !isLocked(inst) para respetar la misma regla del
+                         operador (Iteracion 2) que ya congela porcentaje/monto/TC/borrado:
+                         "una cuota ya facturada no puede modificarse de ninguna manera". */}
                       <td className="py-3 px-3 border-b border-l border-border/50 bg-muted/10">
-                        {isStatusEditable ? (
+                        {isStatusEditable && !isLocked(inst) ? (
                           <Input
                             type="date"
                             lang="es-BO"
