@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict Jusb5Op0iiw1VLYB9cu4uWDhXDsl3RpcTHIafDO17GhHa3MijKnt4jcdm0Mnx1a
+\restrict zAWpIf2Z8WNqXdjiKyIUhjSBwxInfdyHyzdDOGqxJbJOHOamyb9f07uxRbt774V
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.11 (Ubuntu 17.11-1.pgdg24.04+2)
@@ -7010,6 +7010,22 @@ DECLARE
   v_approval_status text;
   v_has_locked_installment boolean;
 BEGIN
+  IF TG_OP = 'INSERT' THEN
+    SELECT approval_status INTO v_approval_status
+    FROM public.work_orders
+    WHERE wo_id = NEW.wo_id;
+
+    IF v_approval_status = 'Approved' THEN
+      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: no se puede crear un plan de pagos: la orden de trabajo ya fue aprobada';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  IF NEW.wo_id IS DISTINCT FROM OLD.wo_id THEN
+    RAISE EXCEPTION 'WO_ID_IMMUTABLE: un plan de pagos no puede reasignarse a otra orden de trabajo';
+  END IF;
+
   IF NEW.exchange_rate IS NOT DISTINCT FROM OLD.exchange_rate
      AND NEW.exchange_rate_mode IS NOT DISTINCT FROM OLD.exchange_rate_mode THEN
     RETURN NEW;
@@ -10522,22 +10538,6 @@ PARTITION BY RANGE (inserted_at);
 
 
 --
--- Name: messages_2026_09_07; Type: TABLE; Schema: realtime; Owner: -
---
-
-CREATE TABLE realtime.messages_2026_09_07 (
-    topic text NOT NULL,
-    extension text NOT NULL,
-    payload jsonb,
-    event text,
-    private boolean DEFAULT false,
-    updated_at timestamp without time zone DEFAULT now() NOT NULL,
-    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
-    id uuid DEFAULT gen_random_uuid() NOT NULL
-);
-
-
---
 -- Name: messages_2026_09_08; Type: TABLE; Schema: realtime; Owner: -
 --
 
@@ -10590,6 +10590,22 @@ CREATE TABLE realtime.messages_2026_09_10 (
 --
 
 CREATE TABLE realtime.messages_2026_09_11 (
+    topic text NOT NULL,
+    extension text NOT NULL,
+    payload jsonb,
+    event text,
+    private boolean DEFAULT false,
+    updated_at timestamp without time zone DEFAULT now() NOT NULL,
+    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL
+);
+
+
+--
+-- Name: messages_2026_09_12; Type: TABLE; Schema: realtime; Owner: -
+--
+
+CREATE TABLE realtime.messages_2026_09_12 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -10882,13 +10898,6 @@ CREATE TABLE supabase_migrations.schema_migrations (
 
 
 --
--- Name: messages_2026_09_07; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_07 FOR VALUES FROM ('2026-09-07 00:00:00') TO ('2026-09-08 00:00:00');
-
-
---
 -- Name: messages_2026_09_08; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
@@ -10914,6 +10923,13 @@ ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_10
 --
 
 ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_11 FOR VALUES FROM ('2026-09-11 00:00:00') TO ('2026-09-12 00:00:00');
+
+
+--
+-- Name: messages_2026_09_12; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_12 FOR VALUES FROM ('2026-09-12 00:00:00') TO ('2026-09-13 00:00:00');
 
 
 --
@@ -11771,14 +11787,6 @@ ALTER TABLE ONLY realtime.messages
 
 
 --
--- Name: messages_2026_09_07 messages_2026_09_07_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_09_07
-    ADD CONSTRAINT messages_2026_09_07_pkey PRIMARY KEY (id, inserted_at);
-
-
---
 -- Name: messages_2026_09_08 messages_2026_09_08_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
@@ -11808,6 +11816,14 @@ ALTER TABLE ONLY realtime.messages_2026_09_10
 
 ALTER TABLE ONLY realtime.messages_2026_09_11
     ADD CONSTRAINT messages_2026_09_11_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_09_12 messages_2026_09_12_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_09_12
+    ADD CONSTRAINT messages_2026_09_12_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
@@ -12751,13 +12767,6 @@ CREATE INDEX messages_inserted_at_topic_index ON ONLY realtime.messages USING bt
 
 
 --
--- Name: messages_2026_09_07_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_09_07_inserted_at_topic_idx ON realtime.messages_2026_09_07 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
 -- Name: messages_2026_09_08_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
@@ -12783,6 +12792,13 @@ CREATE INDEX messages_2026_09_10_inserted_at_topic_idx ON realtime.messages_2026
 --
 
 CREATE INDEX messages_2026_09_11_inserted_at_topic_idx ON realtime.messages_2026_09_11 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_09_12_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_09_12_inserted_at_topic_idx ON realtime.messages_2026_09_12 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
@@ -12884,20 +12900,6 @@ CREATE INDEX supabase_functions_hooks_request_id_idx ON supabase_functions.hooks
 
 
 --
--- Name: messages_2026_09_07_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_07_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_09_07_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_07_pkey;
-
-
---
 -- Name: messages_2026_09_08_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
@@ -12951,6 +12953,20 @@ ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.
 --
 
 ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_11_pkey;
+
+
+--
+-- Name: messages_2026_09_12_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_12_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_09_12_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_12_pkey;
 
 
 --
@@ -13293,7 +13309,7 @@ CREATE TRIGGER trg_wo_payment_installments_guard_exchange_rate BEFORE INSERT OR 
 -- Name: wo_payment_plan trg_wo_payment_plan_guard_exchange_rate; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER trg_wo_payment_plan_guard_exchange_rate BEFORE UPDATE ON public.wo_payment_plan FOR EACH ROW EXECUTE FUNCTION public.wo_payment_plan_guard_exchange_rate();
+CREATE TRIGGER trg_wo_payment_plan_guard_exchange_rate BEFORE INSERT OR UPDATE ON public.wo_payment_plan FOR EACH ROW EXECUTE FUNCTION public.wo_payment_plan_guard_exchange_rate();
 
 
 --
@@ -16100,5 +16116,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict Jusb5Op0iiw1VLYB9cu4uWDhXDsl3RpcTHIafDO17GhHa3MijKnt4jcdm0Mnx1a
+\unrestrict zAWpIf2Z8WNqXdjiKyIUhjSBwxInfdyHyzdDOGqxJbJOHOamyb9f07uxRbt774V
 
