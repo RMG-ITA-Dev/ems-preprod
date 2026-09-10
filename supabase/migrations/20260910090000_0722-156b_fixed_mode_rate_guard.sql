@@ -82,8 +82,15 @@ BEGIN
     -- dispara -- bypass completo del modelo de autorizacion de la Iteracion 13 por
     -- una via nunca cubierta. No rompe ningun flujo legitimo: isEditable &&
     -- canEditPaymentPlan ya le impide a la UI agregar cuotas una vez Aprobada.
-    IF NOT public.is_admin() AND v_approval_status = 'Approved' THEN
-      RAISE EXCEPTION 'INSTALLMENT_LOCKED: no se pueden agregar cuotas nuevas a un plan de pagos cuya orden de trabajo ya fue aprobada';
+    --
+    -- MUST FIX review iteracion 20 #1 (greptile): el chequeo original solo
+    -- comparaba contra 'Approved' -- una OT en 'Pending_Approval' (enviada a
+    -- revision, esperando al socio) quedaba con el plan de pagos "de solo
+    -- lectura" segun el mismo criterio ya usado en wo_payment_plan_guard_exchange_rate
+    -- (que si bloquea INSERT/DELETE del plan en ambos estados), pero el INSERT de
+    -- una cuota nueva se colaba igual durante esa ventana.
+    IF NOT public.is_admin() AND v_approval_status IN ('Approved', 'Pending_Approval') THEN
+      RAISE EXCEPTION 'INSTALLMENT_LOCKED: no se pueden agregar cuotas nuevas a un plan de pagos cuya orden de trabajo ya fue aprobada o esta en revision';
     END IF;
 
     IF v_exchange_rate_mode = 'fijo' AND (

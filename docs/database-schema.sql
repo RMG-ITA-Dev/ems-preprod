@@ -5699,8 +5699,8 @@ BEGIN
       RAISE EXCEPTION 'INSTALLMENT_WO_MISMATCH: el wo_id de la cuota no coincide con el de su plan de pagos';
     END IF;
 
-    IF NOT public.is_admin() AND v_approval_status = 'Approved' THEN
-      RAISE EXCEPTION 'INSTALLMENT_LOCKED: no se pueden agregar cuotas nuevas a un plan de pagos cuya orden de trabajo ya fue aprobada';
+    IF NOT public.is_admin() AND v_approval_status IN ('Approved', 'Pending_Approval') THEN
+      RAISE EXCEPTION 'INSTALLMENT_LOCKED: no se pueden agregar cuotas nuevas a un plan de pagos cuya orden de trabajo ya fue aprobada o esta en revision';
     END IF;
 
     IF v_exchange_rate_mode = 'fijo' AND (

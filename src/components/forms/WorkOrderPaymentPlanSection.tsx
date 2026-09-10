@@ -310,21 +310,35 @@ export function WorkOrderPaymentPlanSection({
         onInstallmentsChange(applyExchangeRateMode("fijo", currentPlan.exchange_rate, installments));
       }
     } else {
+      // MUST FIX review iteracion 20 #2 (codex): en modo Variable, el TC por cuota
+      // es una captura independiente que el trigger (Iteracion 13) solo acepta con
+      // la OT Aprobada -- una cuota que YA se guardo (tiene installment_id real)
+      // con este campo en null (porque exchange_rate_history estaba vacia al
+      // crearla) no debe autocompletarse mas tarde solo porque latestBuyRate
+      // resolvio: si la OT sigue Draft/en revision, sync_wo_payment_installments
+      // reenvia TODAS las cuotas en cada guardado, y el trigger rechaza (
+      // EXCHANGE_RATE_LOCKED) ese cambio -- bloqueando CUALQUIER guardado
+      // posterior del plan, no solo el de esta cuota. Decision del operador: una
+      // vez guardada/enviada, se muestra el valor que ya tiene (aunque sea null),
+      // nunca uno autocompletado nuevo. Este autocompletado solo debe alcanzar a
+      // filas todavia sin persistir (installment_id ausente -- mismo criterio ya
+      // usado por handleNumInstallmentsChange al crearlas, y por PEM17 para
+      // "no persiste al hacer blur en una fila nueva").
       const needsInit = installments.some(
         (inst) =>
-          (isInvoiceRateEditable(inst.status) && inst.invoice_exchange_rate == null) ||
-          (isPaymentRateCaptureEditable(inst.status) && inst.payment_exchange_rate == null),
+          (!inst.installment_id && isInvoiceRateEditable(inst.status) && inst.invoice_exchange_rate == null) ||
+          (!inst.installment_id && isPaymentRateCaptureEditable(inst.status) && inst.payment_exchange_rate == null),
       );
       if (needsInit) {
         onInstallmentsChange(
           installments.map((inst) => ({
             ...inst,
             invoice_exchange_rate:
-              isInvoiceRateEditable(inst.status) && inst.invoice_exchange_rate == null
+              !inst.installment_id && isInvoiceRateEditable(inst.status) && inst.invoice_exchange_rate == null
                 ? latestBuyRate
                 : inst.invoice_exchange_rate,
             payment_exchange_rate:
-              isPaymentRateCaptureEditable(inst.status) && inst.payment_exchange_rate == null
+              !inst.installment_id && isPaymentRateCaptureEditable(inst.status) && inst.payment_exchange_rate == null
                 ? latestBuyRate
                 : inst.payment_exchange_rate,
           })),

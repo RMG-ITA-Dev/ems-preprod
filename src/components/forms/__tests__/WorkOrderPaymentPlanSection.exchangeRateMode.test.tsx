@@ -394,6 +394,43 @@ describe("WorkOrderPaymentPlanSection — per-installment TC cells (0722-156b Fa
     expect(onInstallmentsChange).not.toHaveBeenCalled();
   });
 
+  // MUST FIX review iteracion 20 #2 (codex), decision del operador: en modo
+  // Variable, una cuota YA GUARDADA (installment_id real) con invoice_exchange_rate
+  // en null nunca debe autocompletarse sola al resolver latestBuyRate -- el trigger
+  // exige la OT Aprobada para ese cambio, y sync_wo_payment_installments reenvia
+  // TODAS las cuotas en cada guardado, asi que un autocompletado silencioso sobre
+  // una fila ya persistida deja el plan entero sin poder guardarse hasta aprobar.
+  // Se muestra el valor que ya tiene (null), nunca uno nuevo.
+  it("PEM13c: modo Variable NO autocompleta invoice_exchange_rate de una cuota YA guardada (installment_id real), aunque latestBuyRate resuelva", () => {
+    const onInstallmentsChange = vi.fn();
+    const installments = [
+      makeInstallment({ installment_id: "inst-already-saved", status: "Pending", invoice_exchange_rate: null }),
+    ];
+    renderSection({
+      plan: makePlan({ exchange_rate_mode: "variable" }),
+      installments,
+      onInstallmentsChange,
+    });
+
+    expect(onInstallmentsChange).not.toHaveBeenCalled();
+  });
+
+  it("PEM13d: modo Variable SI autocompleta invoice_exchange_rate de una cuota nueva todavia sin guardar (sin installment_id)", () => {
+    const onInstallmentsChange = vi.fn();
+    const installments = [
+      makeInstallment({ installment_id: undefined, status: "Pending", invoice_exchange_rate: null }),
+    ];
+    renderSection({
+      plan: makePlan({ exchange_rate_mode: "variable" }),
+      installments,
+      onInstallmentsChange,
+    });
+
+    expect(onInstallmentsChange).toHaveBeenCalledWith([
+      expect.objectContaining({ invoice_exchange_rate: 11.57 }),
+    ]);
+  });
+
   it("PEM14: editing the invoice TC in modo Variable calls onInstallmentsChange with only that row updated", () => {
     const onInstallmentsChange = vi.fn();
     const installments = [
