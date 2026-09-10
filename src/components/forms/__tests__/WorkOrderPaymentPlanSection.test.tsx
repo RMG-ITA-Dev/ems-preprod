@@ -237,10 +237,12 @@ describe("WorkOrderPaymentPlanSection — Tipo de Cambio precision (0722-161)", 
     );
   });
 
-  it("PP27: borrar la tasa a 0 la guarda como null", () => {
+  // Iteración 17/18 (decisión del operador 2026-09-10): NULL sigue siendo válido solo
+  // mientras el plan NUNCA tuvo un TC real -- una vez que tiene un valor real, no se
+  // permite borrarlo a NULL (reemplaza el comportamiento anterior, que sí lo permitía
+  // y podía dejar cuotas ya sincronizadas con un TC viejo desalineado del plan).
+  it("PP27: borrar a 0 una tasa YA real se ignora (no dispara onPlanChange)", () => {
     const onPlanChange = vi.fn();
-    // Hay que partir de una tasa no nula: el campo se pinta con
-    // `exchange_rate ?? 0`, asi que cambiar "0" -> "0" no dispara onChange.
     renderSection({
       currency: "USD",
       plan: { wo_id: "wo-1", exchange_rate: 6.96, payment_days: 30 },
@@ -251,9 +253,7 @@ describe("WorkOrderPaymentPlanSection — Tipo de Cambio precision (0722-161)", 
       target: { value: "0" },
     });
 
-    expect(onPlanChange).toHaveBeenCalledWith(
-      expect.objectContaining({ exchange_rate: null }),
-    );
+    expect(onPlanChange).not.toHaveBeenCalled();
   });
 });
 

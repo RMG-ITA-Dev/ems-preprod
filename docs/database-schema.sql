@@ -5726,6 +5726,16 @@ BEGIN
     IF NOT v_legal_transition THEN
       RAISE EXCEPTION 'INVALID_STATUS_TRANSITION: % -> % no es una transicion de estado permitida', OLD.status, NEW.status;
     END IF;
+
+    IF NOT public.is_admin() THEN
+      SELECT approval_status INTO v_approval_status
+      FROM public.work_orders
+      WHERE wo_id = NEW.wo_id;
+
+      IF v_approval_status IS DISTINCT FROM 'Approved' THEN
+        RAISE EXCEPTION 'INSTALLMENT_LOCKED: la transicion de estado de una cuota solo puede hacerse con la orden de trabajo aprobada';
+      END IF;
+    END IF;
   END IF;
 
   IF OLD.status <> 'Pending' AND (
@@ -5855,6 +5865,10 @@ BEGIN
 
   IF NEW.wo_id IS DISTINCT FROM OLD.wo_id THEN
     RAISE EXCEPTION 'WO_ID_IMMUTABLE: un plan de pagos no puede reasignarse a otra orden de trabajo';
+  END IF;
+
+  IF OLD.exchange_rate IS NOT NULL AND NEW.exchange_rate IS NULL THEN
+    RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio del plan de pagos no puede borrarse una vez establecido';
   END IF;
 
   IF NEW.exchange_rate IS NOT DISTINCT FROM OLD.exchange_rate

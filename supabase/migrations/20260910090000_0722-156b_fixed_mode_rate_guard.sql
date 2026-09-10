@@ -109,6 +109,21 @@ BEGIN
     IF NOT v_legal_transition THEN
       RAISE EXCEPTION 'INVALID_STATUS_TRANSITION: % -> % no es una transicion de estado permitida', OLD.status, NEW.status;
     END IF;
+
+    -- Iteración 17 #2 (codex): la UI (isStatusEditable) exige la OT Aprobada para
+    -- transicionar el estado de una cuota -- la base de datos nunca lo replicaba,
+    -- solo validaba que la transicion fuera legal. Sin esto, un collections_analyst
+    -- (o cualquiera con RLS de escritura sobre esta tabla) podia facturar/completar
+    -- una cuota de una OT todavia en Draft o en revision via un UPDATE directo.
+    IF NOT public.is_admin() THEN
+      SELECT approval_status INTO v_approval_status
+      FROM public.work_orders
+      WHERE wo_id = NEW.wo_id;
+
+      IF v_approval_status IS DISTINCT FROM 'Approved' THEN
+        RAISE EXCEPTION 'INSTALLMENT_LOCKED: la transicion de estado de una cuota solo puede hacerse con la orden de trabajo aprobada';
+      END IF;
+    END IF;
   END IF;
 
   -- MUST FIX review iteracion 2 #1/#3 (decision del operador 2026-09-07: "si una cuota

@@ -108,6 +108,19 @@ BEGIN
     RAISE EXCEPTION 'WO_ID_IMMUTABLE: un plan de pagos no puede reasignarse a otra orden de trabajo';
   END IF;
 
+  -- Iteración 17/18 (decisión del operador 2026-09-10): NULL solo es valido mientras
+  -- el plan NUNCA tuvo un TC real (exchange_rate_history vacia, Decision #7 de
+  -- plan_v2.md) -- una vez que tiene un valor real, no puede borrarse a NULL (para
+  -- corregirlo se sobreescribe con el numero nuevo, nunca hace falta pasar por NULL).
+  -- Sin esto, un plan con cuotas ya sincronizadas a un TC podia quedar en NULL
+  -- mientras las cuotas se quedaban con el TC viejo -- reemplaza el fix original
+  -- (propagar NULL en wo_payment_plan_sync_fixed_installments) por prevenirlo en el
+  -- origen. Sin excepcion de rol, ni siquiera admin -- mismo criterio que
+  -- WO_ID_IMMUTABLE arriba: no hay motivo legitimo para necesitarlo.
+  IF OLD.exchange_rate IS NOT NULL AND NEW.exchange_rate IS NULL THEN
+    RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio del plan de pagos no puede borrarse una vez establecido';
+  END IF;
+
   IF NEW.exchange_rate IS NOT DISTINCT FROM OLD.exchange_rate
      AND NEW.exchange_rate_mode IS NOT DISTINCT FROM OLD.exchange_rate_mode THEN
     RETURN NEW;

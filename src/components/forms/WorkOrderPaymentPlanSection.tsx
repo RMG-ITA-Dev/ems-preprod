@@ -171,7 +171,16 @@ export function WorkOrderPaymentPlanSection({
     );
   };
 
+  // Iteración 17/18 (decisión del operador 2026-09-10): NULL sigue siendo un valor
+  // válido solo mientras el plan NUNCA tuvo un TC real (exchange_rate_history vacía,
+  // Decisión #7 de plan_v2.md) -- pero una vez que el campo tiene un valor real, no se
+  // permite borrarlo a NULL (para corregirlo se tipea el número nuevo encima). Sin
+  // esto, un plan con cuotas ya sincronizadas a un TC podía quedar en NULL mientras las
+  // cuotas se quedaban con el TC viejo -- ver review.md, hallazgo cerrado reemplazando
+  // el fix original (propagar NULL en el trigger de re-sync) por esta prevención en el
+  // origen, replicada también en la base de datos (wo_payment_plan_guard_exchange_rate).
   const handleExchangeRateChange = (val: number) => {
+    if (val <= 0 && currentPlan.exchange_rate != null) return;
     const updatedPlan = { ...currentPlan, exchange_rate: val > 0 ? val : null };
     onPlanChange(updatedPlan);
     // Modo Fijo: el TC de creacion se re-sincroniza a las 2 columnas de TC de toda
@@ -1044,8 +1053,8 @@ export function WorkOrderPaymentPlanSection({
           </DialogTitle>
           <DialogDescription className="pt-2 space-y-2">
             <span className="block">
-              {pendingChange?.newStatus === "Invoiced" && t("workOrders.paymentPlan.confirmInvoicedDesc", { date: today })}
-              {pendingChange?.newStatus === "Completed" && t("workOrders.paymentPlan.confirmCompletedDesc", { date: today })}
+              {pendingChange?.newStatus === "Invoiced" && t("workOrders.paymentPlan.confirmInvoicedDesc", { date: fmtDate(today) })}
+              {pendingChange?.newStatus === "Completed" && t("workOrders.paymentPlan.confirmCompletedDesc", { date: fmtDate(today) })}
               {pendingChange?.newStatus === "Overdue" && t("workOrders.paymentPlan.confirmOverdueDesc")}
             </span>
             {pendingChange?.newStatus !== "Overdue" && (
