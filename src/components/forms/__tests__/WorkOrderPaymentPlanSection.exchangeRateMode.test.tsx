@@ -138,7 +138,7 @@ function baseProps(overrides: Record<string, unknown> = {}) {
     isEditable:              true,
     isStatusEditable:        true,
     isAdminDateEditable:     false,
-    canEditCreationExchangeRate: true,
+    canEditPaymentPlan: true,
     onPlanChange:            vi.fn(),
     onInstallmentsChange:    vi.fn(),
     ...overrides,
@@ -203,8 +203,8 @@ describe("WorkOrderPaymentPlanSection — exchange rate mode toggle (0722-156b F
 
   // Decision del operador 2026-09-10: el TC inicial y el toggle Fijo/Variable quedan
   // reservados al gerente del encargo (o admin) -- isEditable ya no alcanza por si solo.
-  it("PEM4b: toggle buttons AND the creation TC field are disabled when canEditCreationExchangeRate=false, even if isEditable=true (e.g. a socio that isn't the engagement's manager)", () => {
-    renderSection({ isEditable: true, canEditCreationExchangeRate: false });
+  it("PEM4b: toggle buttons AND the creation TC field are disabled when canEditPaymentPlan=false, even if isEditable=true (e.g. a socio that isn't the engagement's manager)", () => {
+    renderSection({ isEditable: true, canEditPaymentPlan: false });
     expect(screen.getByTestId("payment-plan-exchange-rate-mode-fijo")).toBeDisabled();
     expect(screen.getByTestId("payment-plan-exchange-rate-mode-variable")).toBeDisabled();
     expect(screen.getByTestId("payment-plan-exchange-rate")).toBeDisabled();
@@ -226,12 +226,12 @@ describe("WorkOrderPaymentPlanSection — exchange rate mode toggle (0722-156b F
   // -- mismo riesgo ya corregido para BOB (PEM7d): un valor autocompletado que el
   // trigger rechazaria (EXCHANGE_RATE_FORBIDDEN) dejaria la pagina "sucia" sin que el
   // usuario haya tocado nada.
-  it("PEM6b: creation TC does NOT autocomplete when canEditCreationExchangeRate=false, even with installments and a resolved buy rate", () => {
+  it("PEM6b: creation TC does NOT autocomplete when canEditPaymentPlan=false, even with installments and a resolved buy rate", () => {
     const onPlanChange = vi.fn();
     renderSection({
       plan: makePlan({ exchange_rate: null }),
       installments: [makeInstallment()],
-      canEditCreationExchangeRate: false,
+      canEditPaymentPlan: false,
       onPlanChange,
     });
     expect(onPlanChange).not.toHaveBeenCalled();

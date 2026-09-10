@@ -49,6 +49,12 @@ const activeEngagement = {
   engagement_name: "Auditoria",
   client: { client_legal_name: "Cliente Demo" },
   created_by_staff_id: CURRENT_STAFF_ID,
+  // Decision del operador 2026-09-10: solo el gerente del encargo (o admin) puede
+  // crear/editar el plan de pagos -- sin esto, canEditPaymentPlan da false y
+  // WorkOrderNew ya no intenta persistir el plan (paymentInstallments > 0 pero
+  // canEditPaymentPlan false), rompiendo este escenario que asume que quien crea
+  // la OT SÍ puede configurar su plan de pagos.
+  manager_id: CURRENT_STAFF_ID,
 };
 
 const stableCategories: never[] = [];

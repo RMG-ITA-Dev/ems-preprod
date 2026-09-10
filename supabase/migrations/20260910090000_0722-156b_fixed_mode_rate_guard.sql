@@ -150,3 +150,27 @@ BEGIN
   RETURN NEW;
 END;
 $$;
+
+-- Decision del operador 2026-09-10 (misma sesion, tras acotar "Team can manage
+-- payment plans/installments" a solo el gerente del encargo en
+-- 20260908150000_0722-156b_plan_insert_guard.sql): collections_analyst nunca tuvo
+-- NINGUN camino de escritura RLS hacia wo_payment_installments -- la unica policy de
+-- escritura para no-admin era "Team can manage..."/ahora "Manager can manage..."
+-- (nunca colections_analyst, is_engagement_team_member() no lo contempla -- ver
+-- 20260826221706_0817-180_grant_hr_engagement_work_order.sql) y la unica policy
+-- department-scope existente ("payment_installments firm read") es de solo lectura.
+-- Sin esto, isStatusEditable (WorkOrderEdit.tsx: admin O collections_analyst, con la
+-- OT Approved) habilitaba en pantalla 3 capacidades -- transicion de estado,
+-- correccion de fecha de Cobranza, y captura de TC por cuota en modo Variable -- que
+-- en la practica fallaban en silencio (UPDATE de 0 filas, sin error, sin .select()
+-- encadenado en ninguna de las 3 mutaciones) para cualquier collections_analyst.
+-- Se agrega UNA policy de UPDATE (no INSERT/DELETE -- collections_analyst nunca crea
+-- ni borra cuotas, es tarea exclusiva del gerente) para el rol puntual -- el resto de
+-- las reglas (transicion legal de estado, freeze por status, rol/aprobacion para las 2
+-- columnas de TC) ya las aplica el trigger de este mismo archivo, independientemente
+-- de quien pase esta policy.
+CREATE POLICY "Accounting can update payment installments" ON public.wo_payment_installments
+  FOR UPDATE
+  TO authenticated
+  USING (public.current_role_key() = 'collections_analyst')
+  WITH CHECK (public.current_role_key() = 'collections_analyst');

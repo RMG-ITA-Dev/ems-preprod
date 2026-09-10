@@ -9432,27 +9432,38 @@ CREATE POLICY "Team can manage expense budget" ON public.wo_expense_budget TO au
 
 
 --
--- Name: wo_payment_installments Team can manage payment installments; Type: POLICY; Schema: public; Owner: -
+-- Name: wo_payment_installments Accounting can update payment installments; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Team can manage payment installments" ON public.wo_payment_installments TO authenticated USING ((EXISTS ( SELECT 1
+CREATE POLICY "Accounting can update payment installments" ON public.wo_payment_installments FOR UPDATE TO authenticated USING ((public.current_role_key() = 'collections_analyst'::text)) WITH CHECK ((public.current_role_key() = 'collections_analyst'::text));
+
+
+--
+-- Name: wo_payment_installments Manager can manage payment installments; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "Manager can manage payment installments" ON public.wo_payment_installments TO authenticated USING ((EXISTS ( SELECT 1
    FROM (public.wo_payment_plan p
-     JOIN public.work_orders wo ON ((wo.wo_id = p.wo_id)))
-  WHERE ((p.plan_id = wo_payment_installments.plan_id) AND public.is_engagement_team_member(wo.engagement_id))))) WITH CHECK ((EXISTS ( SELECT 1
+     JOIN public.work_orders wo ON ((wo.wo_id = p.wo_id))
+     JOIN public.engagements e ON ((e.engagement_id = wo.engagement_id)))
+  WHERE ((p.plan_id = wo_payment_installments.plan_id) AND (e.manager_id = public.get_my_staff_id()))))) WITH CHECK ((EXISTS ( SELECT 1
    FROM (public.wo_payment_plan p
-     JOIN public.work_orders wo ON ((wo.wo_id = p.wo_id)))
-  WHERE ((p.plan_id = wo_payment_installments.plan_id) AND public.is_engagement_team_member(wo.engagement_id)))));
+     JOIN public.work_orders wo ON ((wo.wo_id = p.wo_id))
+     JOIN public.engagements e ON ((e.engagement_id = wo.engagement_id)))
+  WHERE ((p.plan_id = wo_payment_installments.plan_id) AND (e.manager_id = public.get_my_staff_id())))));
 
 
 --
--- Name: wo_payment_plan Team can manage payment plans; Type: POLICY; Schema: public; Owner: -
+-- Name: wo_payment_plan Manager can manage payment plans; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Team can manage payment plans" ON public.wo_payment_plan TO authenticated USING ((EXISTS ( SELECT 1
-   FROM public.work_orders wo
-  WHERE ((wo.wo_id = wo_payment_plan.wo_id) AND public.is_engagement_team_member(wo.engagement_id))))) WITH CHECK ((EXISTS ( SELECT 1
-   FROM public.work_orders wo
-  WHERE ((wo.wo_id = wo_payment_plan.wo_id) AND public.is_engagement_team_member(wo.engagement_id)))));
+CREATE POLICY "Manager can manage payment plans" ON public.wo_payment_plan TO authenticated USING ((EXISTS ( SELECT 1
+   FROM (public.work_orders wo
+     JOIN public.engagements e ON ((e.engagement_id = wo.engagement_id)))
+  WHERE ((wo.wo_id = wo_payment_plan.wo_id) AND (e.manager_id = public.get_my_staff_id()))))) WITH CHECK ((EXISTS ( SELECT 1
+   FROM (public.work_orders wo
+     JOIN public.engagements e ON ((e.engagement_id = wo.engagement_id)))
+  WHERE ((wo.wo_id = wo_payment_plan.wo_id) AND (e.manager_id = public.get_my_staff_id())))));
 
 
 --

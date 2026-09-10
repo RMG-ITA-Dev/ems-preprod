@@ -437,9 +437,14 @@ const WorkOrderEdit = () => {
   // datos que ya rechaza esto (wo_payment_plan_guard_exchange_rate, migracion
   // 20260908150000) -- este flag solo evita mostrarlo habilitado en pantalla para
   // quien igual lo tendria rechazado al guardar.
+  //
+  // Decision del operador 2026-09-10 (ampliada el mismo dia): ya no es solo el TC --
+  // el mismo gerente-o-admin es el unico que puede editar CUALQUIER parte del plan de
+  // pagos (dias, cuotas, fechas, porcentajes), reflejado tambien en la policy RLS
+  // "Manager can manage payment plans/installments".
   const isEngagementManager =
     !!staffRecord && workOrder?.engagement?.manager_id === staffRecord.staff_id;
-  const canEditCreationExchangeRate = isAdmin || isEngagementManager;
+  const canEditPaymentPlan = isAdmin || isEngagementManager;
   // work_order.submit da scope 'firm' a senior_partner pero 'assigned_engagements' a
   // partner/director (authz_fase2_seed.sql:431-434) — sin acotar, un senior_partner veía
   // el botón habilitado en cualquier OT (y la RLS lo rechazaba salvo que además fuera
@@ -985,7 +990,7 @@ const WorkOrderEdit = () => {
           // pagina, una vez que la OT esta Approved (antes de eso, define el "contrato":
           // TC de creacion, modo, dias, cuotas, fecha/porcentaje acordados).
           isStatusEditable={(isAdmin || roleKey === "collections_analyst") && approvalStatus === "Approved"}
-          canEditCreationExchangeRate={canEditCreationExchangeRate}
+          canEditPaymentPlan={canEditPaymentPlan}
           // MUST FIX review iteracion 3 #4: invoice_exchange_rate/payment_exchange_rate se
           // guardan directo en su propio onBlur (no via el flujo de pagina) -- si se cuentan
           // en esta comparacion, el propio tipeo del usuario en esos campos se refleja aca

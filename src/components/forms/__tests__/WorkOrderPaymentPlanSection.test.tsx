@@ -155,7 +155,7 @@ function renderSection(overrides: Record<string, unknown> = {}) {
     isEditable:              true,
     isStatusEditable:        false,
     isAdminDateEditable:     false,
-    canEditCreationExchangeRate: true,
+    canEditPaymentPlan: true,
     onPlanChange:            vi.fn(),
     onInstallmentsChange:    vi.fn(),
     ...overrides,

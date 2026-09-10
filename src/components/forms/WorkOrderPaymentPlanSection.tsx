@@ -54,11 +54,15 @@ interface WorkOrderPaymentPlanSectionProps {
   isEditable: boolean;
   isStatusEditable: boolean;
   isAdminDateEditable: boolean;
-  // Decision del operador 2026-09-10: solo el gerente del encargo (o un admin) puede
-  // crear/editar el TC inicial y el toggle Fijo/Variable -- "esta parte de TC" no debe
-  // quedar abierta a todo el equipo (isEditable ya lo permitia a socio y gerente por
-  // igual). No afecta payment_days/cuotas/fechas, que siguen bajo isEditable solo.
-  canEditCreationExchangeRate: boolean;
+  // Decision del operador 2026-09-10 (ampliada el mismo dia): solo el gerente del
+  // encargo (o un admin) puede editar el plan de pagos -- TC inicial, toggle
+  // Fijo/Variable, dias habiles, cuotas y sus fechas/porcentajes. Un socio (partner_id),
+  // pese a seguir siendo team member para el resto de la OT, ya NO puede escribir nada
+  // de esta seccion -- reemplaza la primera version de esta decision, que dejaba
+  // payment_days/cuotas/fechas abiertos a todo el equipo bajo isEditable solo. Reflejado
+  // tambien en la policy RLS "Manager can manage payment plans/installments"
+  // (20260908150000_0722-156b_plan_insert_guard.sql).
+  canEditPaymentPlan: boolean;
   isPaymentPlanDirty?: boolean;
   onPlanChange: (plan: PaymentPlanInput) => void;
   onInstallmentsChange: (rows: PaymentInstallmentInput[]) => void;
@@ -101,7 +105,7 @@ export function WorkOrderPaymentPlanSection({
   isEditable,
   isStatusEditable,
   isAdminDateEditable,
-  canEditCreationExchangeRate,
+  canEditPaymentPlan,
   isPaymentPlanDirty = false,
   onPlanChange,
   onInstallmentsChange,
@@ -205,7 +209,7 @@ export function WorkOrderPaymentPlanSection({
   // Auto-initialize to 1 installment only for brand-new WOs (woId is empty string).
   // For existing WOs (woId is a UUID), data comes from DB hydration — don't override.
   useEffect(() => {
-    if (!woId && installments.length === 0 && isEditable) {
+    if (!woId && installments.length === 0 && isEditable && canEditPaymentPlan) {
       handleNumInstallmentsChange(1);
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -238,17 +242,18 @@ export function WorkOrderPaymentPlanSection({
   // "sin guardar" a CUALQUIER OT en BOB abierta para editar, sin que el usuario
   // tocara nada.
   //
-  // Decision del operador 2026-09-10: mismo riesgo con canEditCreationExchangeRate --
-  // si un socio (no gerente del encargo) abre la OT, este efecto no debe autocompletar
-  // un valor que ese usuario no podria guardar (el trigger lo rechazaria con
-  // EXCHANGE_RATE_FORBIDDEN), dejando la pagina "sucia" sin que haya tocado nada.
+  // Decision del operador 2026-09-10: mismo riesgo con canEditPaymentPlan -- si un
+  // socio (no gerente del encargo) abre la OT, este efecto no debe autocompletar un
+  // valor que ese usuario no podria guardar (el trigger lo rechazaria con
+  // EXCHANGE_RATE_FORBIDDEN, y ahora ademas la RLS "Manager can manage payment plans"
+  // rechazaria el UPDATE completo), dejando la pagina "sucia" sin que haya tocado nada.
   useEffect(() => {
     if (currency === "BOB") return;
     if (currentPlan.exchange_rate != null) return;
-    if (!isEditable || !canEditCreationExchangeRate || latestBuyRate == null || installments.length === 0) return;
+    if (!isEditable || !canEditPaymentPlan || latestBuyRate == null || installments.length === 0) return;
     onPlanChange({ ...currentPlan, exchange_rate: latestBuyRate });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currency, currentPlan.exchange_rate, isEditable, canEditCreationExchangeRate, latestBuyRate, installments.length]);
+  }, [currency, currentPlan.exchange_rate, isEditable, canEditPaymentPlan, latestBuyRate, installments.length]);
 
   // MUST FIX 0722-156b review iteracion 1 #2: el efecto de arriba solo autocompleta
   // plan.exchange_rate — nunca re-sincronizaba las cuotas ya creadas cuando
@@ -261,9 +266,14 @@ export function WorkOrderPaymentPlanSection({
   //
   // MUST FIX 0722-156b review iteracion 10 #5: mismo gate de currency !== "BOB" que
   // el efecto de arriba -- ver ese comentario.
+  //
+  // Decision del operador 2026-09-10: mismo gate de canEditPaymentPlan que el efecto
+  // de arriba -- sin esto, un socio que solo puede VER una OT Draft ajena (via "Team
+  // can view payment plans", que si lo sigue permitiendo) veria el plan marcarse
+  // "sucio" apenas resuelve el TC de compra, sin poder ni guardarlo ni descartarlo.
   useEffect(() => {
     if (currency === "BOB") return;
-    if (latestBuyRate == null || !isEditable || installments.length === 0) return;
+    if (latestBuyRate == null || !isEditable || !canEditPaymentPlan || installments.length === 0) return;
     if (currentPlan.exchange_rate_mode === "fijo") {
       if (currentPlan.exchange_rate == null) return;
       const needsSync = installments.some(
@@ -297,7 +307,7 @@ export function WorkOrderPaymentPlanSection({
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currency, latestBuyRate, isEditable, currentPlan.exchange_rate_mode, currentPlan.exchange_rate, installments.length]);
+  }, [currency, latestBuyRate, isEditable, canEditPaymentPlan, currentPlan.exchange_rate_mode, currentPlan.exchange_rate, installments.length]);
 
   // When feeWithTax changes (e.g. adjustment edited), recompute stored amounts so
   // the saved value matches what the table displays. Guard via ref to avoid loops.
@@ -579,7 +589,7 @@ export function WorkOrderPaymentPlanSection({
                 min={0}
                 value={currentPlan.exchange_rate ?? 0}
                 onChange={handleExchangeRateChange}
-                disabled={!isEditable || planLocked || !canEditCreationExchangeRate}
+                disabled={!isEditable || planLocked || !canEditPaymentPlan}
                 className="w-full"
                 data-testid="payment-plan-exchange-rate"
               />
@@ -601,7 +611,7 @@ export function WorkOrderPaymentPlanSection({
                   variant={currentPlan.exchange_rate_mode === "fijo" ? "default" : "outline"}
                   size="sm"
                   onClick={() => handleModeChange("fijo")}
-                  disabled={!isEditable || planLocked || !canEditCreationExchangeRate}
+                  disabled={!isEditable || planLocked || !canEditPaymentPlan}
                   data-testid="payment-plan-exchange-rate-mode-fijo"
                   aria-pressed={currentPlan.exchange_rate_mode === "fijo"}
                 >
@@ -612,7 +622,7 @@ export function WorkOrderPaymentPlanSection({
                   variant={currentPlan.exchange_rate_mode === "variable" ? "default" : "outline"}
                   size="sm"
                   onClick={() => handleModeChange("variable")}
-                  disabled={!isEditable || planLocked || !canEditCreationExchangeRate}
+                  disabled={!isEditable || planLocked || !canEditPaymentPlan}
                   data-testid="payment-plan-exchange-rate-mode-variable"
                   aria-pressed={currentPlan.exchange_rate_mode === "variable"}
                 >
@@ -628,7 +638,7 @@ export function WorkOrderPaymentPlanSection({
             <NumericInput
               value={currentPlan.payment_days}
               onChange={handlePaymentDaysChange}
-              disabled={!isEditable}
+              disabled={!isEditable || !canEditPaymentPlan}
               decimals={0}
               min={1}
               className="w-full"
@@ -645,7 +655,7 @@ export function WorkOrderPaymentPlanSection({
                 size="icon"
                 className="h-10 w-10 shrink-0"
                 onClick={() => handleNumInstallmentsChange(numInstallments - 1)}
-                disabled={!isEditable || numInstallments <= 0}
+                disabled={!isEditable || !canEditPaymentPlan || numInstallments <= 0}
                 data-testid="payment-plan-installments-minus"
               >
                 <Minus className="h-4 w-4" />
@@ -659,7 +669,7 @@ export function WorkOrderPaymentPlanSection({
                 size="icon"
                 className="h-10 w-10 shrink-0"
                 onClick={() => handleNumInstallmentsChange(numInstallments + 1)}
-                disabled={!isEditable || numInstallments >= 24}
+                disabled={!isEditable || !canEditPaymentPlan || numInstallments >= 24}
                 data-testid="payment-plan-installments-plus"
               >
                 <Plus className="h-4 w-4" />
@@ -730,7 +740,10 @@ export function WorkOrderPaymentPlanSection({
                   // facturada podia divergir del monto realmente congelado tras un
                   // cambio de fee tardio.
                   const instAmount = isLocked(inst) ? inst.amount : computeAmount(inst.percentage, feeWithTax);
-                  const dateEditable = isEditable || isAdminDateEditable;
+                  // isAdminDateEditable es un bypass aparte (admin corrigiendo fuera de
+                  // Draft) -- no lo toca la decision 2026-09-10, que solo restringe
+                  // QUIEN puede editar el tramo normal (isEditable) del plan.
+                  const dateEditable = (isEditable && canEditPaymentPlan) || isAdminDateEditable;
                   const effectiveStatus = getEffectiveStatus(inst);
                   const availableOptions = STATUS_TRANSITIONS[effectiveStatus];
 
@@ -757,7 +770,7 @@ export function WorkOrderPaymentPlanSection({
                           locale={numericLocale}
                           value={inst.percentage}
                           onChange={(val) => handlePercentageChange(idx, val)}
-                          disabled={!isEditable}
+                          disabled={!isEditable || !canEditPaymentPlan}
                           min={0}
                           max={100}
                           className="w-full h-8"
@@ -976,7 +989,7 @@ export function WorkOrderPaymentPlanSection({
                         )}
                       </td>
                       <td className="py-3 px-1 border-b border-border/50">
-                        {isEditable && installments.length > 1 && !isLocked(inst) && (
+                        {isEditable && canEditPaymentPlan && installments.length > 1 && !isLocked(inst) && (
                           <Button
                             variant="ghost"
                             size="icon"

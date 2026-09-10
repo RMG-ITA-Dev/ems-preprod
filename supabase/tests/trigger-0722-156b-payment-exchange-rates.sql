@@ -166,18 +166,28 @@ BEGIN
   -- comentario de la fixture de work_orders mas arriba.
   UPDATE public.work_orders SET approval_status = 'Approved' WHERE wo_id = '40000000-0000-4000-8000-0000000000c2';
 
+  -- MUST FIX (fixture, detectado corriendo test:rls por primera vez tras la Iteracion
+  -- 14): v_plan_draft esta en modo 'fijo' con exchange_rate=6.96 -- el guard de
+  -- coincidencia de modo Fijo agregado al branch de INSERT (Iteracion 14 #2,
+  -- 20260910090000) intercepta este INSERT (invoice_exchange_rate=0 <> 6.96) y lanza
+  -- EXCHANGE_RATE_LOCKED (SQLSTATE P0001, condicion raise_exception) ANTES de que el
+  -- CHECK (invoice_exchange_rate > 0) llegue a evaluarse -- el `WHEN check_violation`
+  -- original no lo capturaba, propagando el error sin control. Se acepta la
+  -- denegacion por CUALQUIERA de los 2 mecanismos: el objetivo del test (un TC
+  -- no-positivo nunca queda insertado) se cumple igual, y la coincidencia de modo Fijo
+  -- en si ya tiene su propia cobertura dedicada (fixture E16/WO16, Iteracion 14).
   denied := false;
   BEGIN
     INSERT INTO public.wo_payment_installments
       (plan_id, wo_id, installment_number, percentage, status, invoice_exchange_rate)
     VALUES (v_plan_draft, '40000000-0000-4000-8000-0000000000c1', 99, 1, 'Pending', 0);
-  EXCEPTION WHEN check_violation THEN
+  EXCEPTION WHEN check_violation OR raise_exception THEN
     denied := true;
   END;
   IF NOT denied THEN
     RAISE EXCEPTION 'PER FAIL — invoice_exchange_rate acepto un valor no-positivo (0)';
   END IF;
-  RAISE NOTICE 'PASS — invoice_exchange_rate rechaza un valor no-positivo (CHECK)';
+  RAISE NOTICE 'PASS — invoice_exchange_rate rechaza un valor no-positivo (CHECK o guard de modo Fijo)';
 
   -- ══════════════════════════════════════════════════════════════════
   -- Modo Fijo en Draft: el re-sync SI debe escribir invoice/payment_exchange_rate sin
@@ -186,20 +196,33 @@ BEGIN
   -- real, Amendment 2026-09-07).
   -- ══════════════════════════════════════════════════════════════════
 
+  -- MUST FIX (fixture, detectado corriendo test:rls tras la Iteracion 14): desde
+  -- Iteracion 12 #1 / 14 #2, un INSERT en modo Fijo ya exige que el TC de la cuota
+  -- coincida con el del plan desde el vamos -- ya no existe un "insertar en NULL y
+  -- resincronizar despues con un UPDATE manual" (esa misma coincidencia tambien se
+  -- exige en UPDATE, asi que un UPDATE que lo alejara del valor del plan seria
+  -- rechazado igual). La cuota se crea directamente con el TC del plan; lo que este
+  -- bloque prueba ahora es la propagacion AUTOMATICA de
+  -- wo_payment_plan_sync_fixed_installments (Iteracion 14 #1, AFTER UPDATE en
+  -- wo_payment_plan) cuando el TC del PLAN cambia mientras sigue en Draft -- sin
+  -- exigir OT Approved.
   INSERT INTO public.wo_payment_installments
-    (plan_id, wo_id, installment_number, percentage, status)
-  VALUES (v_plan_draft, '40000000-0000-4000-8000-0000000000c1', 1, 100, 'Pending')
+    (plan_id, wo_id, installment_number, percentage, status, invoice_exchange_rate, payment_exchange_rate)
+  VALUES (v_plan_draft, '40000000-0000-4000-8000-0000000000c1', 1, 100, 'Pending', 6.96, 6.96)
   RETURNING installment_id INTO v_inst_pending;
 
-  -- v_plan_draft esta en modo 'fijo' (DEFAULT) -> el re-sync de Fijo debe pasar sin aprobar.
-  UPDATE public.wo_payment_installments
-  SET invoice_exchange_rate = 6.96, payment_exchange_rate = 6.96
-  WHERE installment_id = v_inst_pending;
-  IF (SELECT invoice_exchange_rate FROM public.wo_payment_installments WHERE installment_id = v_inst_pending) <> 6.96
-     OR (SELECT payment_exchange_rate FROM public.wo_payment_installments WHERE installment_id = v_inst_pending) <> 6.96 THEN
-    RAISE EXCEPTION 'PER FAIL — el re-sync de modo Fijo no pudo escribir invoice/payment_exchange_rate en Draft';
+  -- v_plan_draft esta en modo 'fijo' (DEFAULT) -> cambiar el TC del PLAN en Draft debe
+  -- re-sincronizar esta cuota Pending automaticamente, sin exigir OT Approved.
+  UPDATE public.wo_payment_plan SET exchange_rate = 7.10 WHERE plan_id = v_plan_draft;
+  IF (SELECT invoice_exchange_rate FROM public.wo_payment_installments WHERE installment_id = v_inst_pending) <> 7.10
+     OR (SELECT payment_exchange_rate FROM public.wo_payment_installments WHERE installment_id = v_inst_pending) <> 7.10 THEN
+    RAISE EXCEPTION 'PER FAIL — el re-sync automatico de modo Fijo no propago el nuevo TC del plan a una cuota Pending en Draft';
   END IF;
-  RAISE NOTICE 'PASS — modo Fijo: invoice/payment_exchange_rate se sincronizan en Draft sin exigir OT Approved';
+  RAISE NOTICE 'PASS — modo Fijo: cambiar el TC del plan en Draft re-sincroniza la cuota automaticamente, sin exigir OT Approved';
+
+  -- Vuelve v_plan_draft a 6.96 (re-sincroniza esta cuota de nuevo) -- el resto del
+  -- suite asume ese valor como el TC "oficial" del plan.
+  UPDATE public.wo_payment_plan SET exchange_rate = 6.96 WHERE plan_id = v_plan_draft;
 
   -- Un plan Draft en modo 'variable' SI sigue exigiendo OT Approved (captura independiente
   -- real) -- en su propia OT (c3): wo_payment_plan.wo_id es UNIQUE, no puede compartir c1.
@@ -267,10 +290,19 @@ BEGIN
     v_plan_null_rate uuid;
     v_inst_null_rate uuid;
   BEGIN
+    -- MUST FIX (fixture, detectado corriendo test:rls tras la Iteracion 14): esta fila
+    -- debe simular una cuota PRE-EXISTENTE al backfill (TC en NULL pese a que
+    -- v_plan_draft ya tiene un TC real, 6.96) -- pero el guard de coincidencia de modo
+    -- Fijo en INSERT (Iteracion 12/14) no existia cuando el backfill real corrio (esas
+    -- filas ya estaban en la tabla antes de que este guard se creara), y ahora rechaza
+    -- cualquier INSERT nuevo que no coincida. Se deshabilita el trigger solo para esta
+    -- fila puntual, replicando fielmente una fila que llego antes del guard.
+    ALTER TABLE public.wo_payment_installments DISABLE TRIGGER trg_wo_payment_installments_guard_exchange_rate;
     INSERT INTO public.wo_payment_installments
       (plan_id, wo_id, installment_number, percentage, status)
     VALUES (v_plan_draft, '40000000-0000-4000-8000-0000000000c1', 2, 100, 'Pending')
     RETURNING installment_id INTO v_inst_backfill;
+    ALTER TABLE public.wo_payment_installments ENABLE TRIGGER trg_wo_payment_installments_guard_exchange_rate;
 
     INSERT INTO public.wo_payment_plan (wo_id, exchange_rate, payment_days)
     VALUES ('40000000-0000-4000-8000-0000000000c4', NULL, 30)
@@ -558,13 +590,26 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS — DELETE permitido en una cuota todavia Pending';
 
-  -- NULL is a valid, non-blocking snapshot (exchange_rate_history vacia -> no se exige un TC
-  -- manual). Un INSERT no pasa por este trigger (es BEFORE UPDATE), asi que el estado
-  -- Draft/Approved de la OT es irrelevante aca -- se inserta bajo la OT Draft a proposito.
-  INSERT INTO public.wo_payment_installments
-    (plan_id, wo_id, installment_number, percentage, status, invoice_exchange_rate, payment_exchange_rate)
-  VALUES (v_plan_draft, '40000000-0000-4000-8000-0000000000c1', 4, 100, 'Pending', NULL, NULL);
-  RAISE NOTICE 'PASS — invoice_exchange_rate/payment_exchange_rate en NULL no bloquean el INSERT';
+  -- MUST FIX (fixture, detectado corriendo test:rls tras la Iteracion 14): este
+  -- comentario/aserto asumia el trigger PRE-Iteracion 4 ("un INSERT no pasa por este
+  -- trigger, es BEFORE UPDATE") -- desde Iteracion 4 el trigger SI corre en INSERT, y
+  -- desde Iteracion 12/14 exige en modo Fijo que el TC de una cuota nueva coincida con
+  -- el del plan. v_plan_draft SI tiene un TC real (6.96), asi que NULL ya no coincide
+  -- y debe RECHAZARSE -- NULL nunca significo "coincide con cualquier cosa" en un plan
+  -- con TC ya definido; el caso de NULL genuinamente preservado (plan SIN TC) ya se
+  -- prueba mas arriba con v_plan_null_rate.
+  denied := false;
+  BEGIN
+    INSERT INTO public.wo_payment_installments
+      (plan_id, wo_id, installment_number, percentage, status, invoice_exchange_rate, payment_exchange_rate)
+    VALUES (v_plan_draft, '40000000-0000-4000-8000-0000000000c1', 4, 100, 'Pending', NULL, NULL);
+  EXCEPTION WHEN raise_exception THEN
+    denied := true;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'PER FAIL — invoice_exchange_rate/payment_exchange_rate en NULL se acepto pese a que el plan (v_plan_draft) tiene un TC real (6.96)';
+  END IF;
+  RAISE NOTICE 'PASS — modo Fijo con TC de plan real rechaza NULL (no coincide)';
 
   -- ══════════════════════════════════════════════════════════════════
   -- wo_payment_plan freeze

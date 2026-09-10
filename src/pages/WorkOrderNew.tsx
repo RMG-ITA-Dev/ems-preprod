@@ -122,7 +122,7 @@ const WorkOrderNew = () => {
   // criterio y mismo trigger de base de datos (wo_payment_plan_guard_exchange_rate)
   // que WorkOrderEdit.tsx aplica para una OT existente.
   const isEngagementManager = !!staffId && selectedEngagement?.manager_id === staffId;
-  const canEditCreationExchangeRate = isAdmin || isEngagementManager;
+  const canEditPaymentPlan = isAdmin || isEngagementManager;
 
   // Check if selected engagement has a worksheet
   const { data: existingWorksheet } = useWorksheetByEngagementId(selectedEngagementId || undefined);
@@ -210,8 +210,11 @@ const WorkOrderNew = () => {
         }
       }
 
-      // Persist payment plan if any installments were configured
-      if (paymentInstallments.length > 0) {
+      // Persist payment plan if any installments were configured. canEditPaymentPlan
+      // guards against a non-manager somehow reaching this with installments != 0 (the
+      // section's own auto-init effect already requires it) -- defense in depth, same
+      // criterion as the DB trigger/RLS that would reject this write anyway.
+      if (paymentInstallments.length > 0 && canEditPaymentPlan) {
         const mode = paymentPlan?.exchange_rate_mode ?? "fijo";
         const exchangeRate = paymentPlan?.exchange_rate ?? null;
         const savedPlan = await upsertPaymentPlan.mutateAsync({
@@ -383,7 +386,7 @@ const WorkOrderNew = () => {
             // Draft, asi que nunca son editables aca (evita ademas depender de un boton
             // "Guardar" que WorkOrderForm no ofrece fuera de Draft/socioCorrecting).
             isStatusEditable={false}
-            canEditCreationExchangeRate={canEditCreationExchangeRate}
+            canEditPaymentPlan={canEditPaymentPlan}
             onPaymentPlanChange={setPaymentPlan}
             onPaymentInstallmentsChange={setPaymentInstallments}
           />

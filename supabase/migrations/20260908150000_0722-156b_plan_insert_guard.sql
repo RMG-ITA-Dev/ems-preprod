@@ -282,3 +282,63 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION public.sync_wo_payment_installments(uuid, uuid, jsonb) TO authenticated;
+
+-- Decision del operador 2026-09-10 (misma sesion que el modelo de autorizacion de
+-- Iteracion 13, ver bugs/0722-156/review.md): la policy base "Team can manage payment
+-- plans"/"Team can manage payment installments" (cero_05_rls_policies.sql) autorizaba
+-- ESCRITURA (INSERT/UPDATE/DELETE) a todo el equipo -- manager_id O partner_id, via
+-- is_engagement_team_member() -- desde antes de este ticket. La Iteracion 13 ya habia
+-- cerrado el TC especificamente (trigger, EXCHANGE_RATE_FORBIDDEN) para que un socio no
+-- lo toque, pero dejaba abierto el resto del plan (payment_days/cuotas/fechas) a
+-- cualquier team member "por diseno" (Decision #1 original del Amendment 2026-09-10 de
+-- plan_v2.md). El operador ahora corrige esa premisa: un socio NO debe poder escribir
+-- NADA de wo_payment_plan/wo_payment_installments -- solo el gerente del encargo o un
+-- admin. No se puede editar una policy base ya aplicada a todo ambiente real (cero_05) --
+-- se reemplaza via DROP + CREATE en esta migracion (0722-156b, todavia sin aplicar a
+-- ningun Supabase real). La LECTURA no cambia: "Team can view payment plans"/
+-- "installments" (mismo is_engagement_team_member(), solo SELECT, cero_05:579-592) se
+-- dejan intactas -- un socio sigue viendo el plan de pagos de sus encargos, solo ya no
+-- puede escribirlo. "Admins can manage payment plans/installments" (cero_05:105-113,
+-- solo is_admin()) tampoco se toca -- sigue cubriendo a admin via OR de policies
+-- permisivas, por eso esta policy nueva solo necesita chequear al gerente.
+DROP POLICY IF EXISTS "Team can manage payment plans" ON public.wo_payment_plan;
+CREATE POLICY "Manager can manage payment plans" ON public.wo_payment_plan
+  TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.work_orders wo
+      JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+      WHERE wo.wo_id = wo_payment_plan.wo_id
+        AND e.manager_id = public.get_my_staff_id()
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.work_orders wo
+      JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+      WHERE wo.wo_id = wo_payment_plan.wo_id
+        AND e.manager_id = public.get_my_staff_id()
+    )
+  );
+
+DROP POLICY IF EXISTS "Team can manage payment installments" ON public.wo_payment_installments;
+CREATE POLICY "Manager can manage payment installments" ON public.wo_payment_installments
+  TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.wo_payment_plan p
+      JOIN public.work_orders wo ON wo.wo_id = p.wo_id
+      JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+      WHERE p.plan_id = wo_payment_installments.plan_id
+        AND e.manager_id = public.get_my_staff_id()
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.wo_payment_plan p
+      JOIN public.work_orders wo ON wo.wo_id = p.wo_id
+      JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+      WHERE p.plan_id = wo_payment_installments.plan_id
+        AND e.manager_id = public.get_my_staff_id()
+    )
+  );
