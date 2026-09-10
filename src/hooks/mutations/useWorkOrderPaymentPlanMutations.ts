@@ -300,7 +300,16 @@ export function useUpdateInstallmentExchangeRate() {
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
     },
-    onError: (error: unknown) => handlePaymentPlanError(error, "updating installment exchange rate"),
+    // review iteración 16 #3: onChange ya actualizó paymentInstallments de forma
+    // optimista antes de que este onBlur dispare la mutación -- si falla (red,
+    // INSTALLMENT_LOCKED/EXCHANGE_RATE_LOCKED/FORBIDDEN por una carrera de estado o
+    // rol), el toast solo informa el error pero el valor no persistido seguía en
+    // pantalla; en una OT Approved (sin botón de Guardar de página) quedaba sin forma
+    // de corregirse hasta recargar. Invalidar fuerza un refetch que trae el valor real.
+    onError: (error: unknown, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
+      handlePaymentPlanError(error, "updating installment exchange rate");
+    },
   });
 }
 

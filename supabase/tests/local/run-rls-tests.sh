@@ -202,6 +202,12 @@ run supabase/migrations/20260908150000_0722-156b_plan_insert_guard.sql
 # final).
 run supabase/migrations/20260910090000_0722-156b_fixed_mode_rate_guard.sql
 
+# 0722-156b (review iteración 15/16, greptile + codex): senior_partner/partner nunca
+# debieron tener work_order.create -- el seed cero_13 ya se corrigió para una
+# instalación nueva, pero un ambiente donde ese seed ya corrió antes de la corrección
+# conserva esas 2 filas. DELETE forward-only, no depende de un paso manual por ambiente.
+run supabase/migrations/20260910100000_0722-156b_revoke_wo_create_partner_senior_partner.sql
+
 # society/practicas(code=1): staff.society_id/practica_id y categories.practica_id son NOT NULL
 # reales; varias suites (rpc-engagement-team-candidates.sql explícitamente lo exige con su
 # propio guard) asumen que el catálogo mínimo de práctica/sociedad ya existe, como pasaría en

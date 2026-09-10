@@ -73,6 +73,32 @@ BEGIN
     RETURN NEW;
   END IF;
 
+  -- MUST FIX review iteracion 16 #1 (greptile + codex): la policy RLS "Accounting can
+  -- update payment installments" (mas abajo en este archivo) autoriza a
+  -- collections_analyst a hacer UPDATE de la fila COMPLETA -- ningun chequeo de este
+  -- trigger restringia por columna para ese rol especificamente. Sin este guard, un
+  -- collections_analyst podia reasignar la cuota a otro plan/OT (plan_id/wo_id) o
+  -- tocar fechas/porcentaje/monto "acordados" -- campos que la decision del operador
+  -- 2026-09-10 (ver plan_v2.md, Amendment del mismo dia) reservo exclusivamente al
+  -- gerente del encargo. Se rechaza cualquier cambio a esas columnas hecho por un
+  -- collections_analyst no-admin; status, fechas de Cobranza
+  -- (collection_invoice_date/collection_payment_date/payment_date_actual) e
+  -- invoice_exchange_rate/payment_exchange_rate (ya gateadas mas abajo) quedan sin
+  -- restriccion adicional por este chequeo -- son exactamente las columnas que ese rol
+  -- SI debe poder tocar.
+  IF NOT public.is_admin() AND public.current_role_key() = 'collections_analyst' THEN
+    IF NEW.plan_id IS DISTINCT FROM OLD.plan_id
+       OR NEW.wo_id IS DISTINCT FROM OLD.wo_id
+       OR NEW.agreed_invoice_date IS DISTINCT FROM OLD.agreed_invoice_date
+       OR NEW.agreed_payment_date IS DISTINCT FROM OLD.agreed_payment_date
+       OR NEW.percentage IS DISTINCT FROM OLD.percentage
+       OR NEW.amount IS DISTINCT FROM OLD.amount
+       OR NEW.installment_number IS DISTINCT FROM OLD.installment_number
+    THEN
+      RAISE EXCEPTION 'INSTALLMENT_FIELD_FORBIDDEN: contabilidad solo puede modificar estado, fechas de cobranza y tipo de cambio por cuota';
+    END IF;
+  END IF;
+
   IF NEW.status IS DISTINCT FROM OLD.status THEN
     v_legal_transition := CASE OLD.status
       WHEN 'Pending'   THEN NEW.status = 'Invoiced'

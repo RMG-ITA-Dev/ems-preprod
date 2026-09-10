@@ -5703,6 +5703,19 @@ BEGIN
     RETURN NEW;
   END IF;
 
+  IF NOT public.is_admin() AND public.current_role_key() = 'collections_analyst' THEN
+    IF NEW.plan_id IS DISTINCT FROM OLD.plan_id
+       OR NEW.wo_id IS DISTINCT FROM OLD.wo_id
+       OR NEW.agreed_invoice_date IS DISTINCT FROM OLD.agreed_invoice_date
+       OR NEW.agreed_payment_date IS DISTINCT FROM OLD.agreed_payment_date
+       OR NEW.percentage IS DISTINCT FROM OLD.percentage
+       OR NEW.amount IS DISTINCT FROM OLD.amount
+       OR NEW.installment_number IS DISTINCT FROM OLD.installment_number
+    THEN
+      RAISE EXCEPTION 'INSTALLMENT_FIELD_FORBIDDEN: contabilidad solo puede modificar estado, fechas de cobranza y tipo de cambio por cuota';
+    END IF;
+  END IF;
+
   IF NEW.status IS DISTINCT FROM OLD.status THEN
     v_legal_transition := CASE OLD.status
       WHEN 'Pending'   THEN NEW.status = 'Invoiced'
