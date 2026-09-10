@@ -157,6 +157,23 @@ run supabase/migrations/20260825000000_category_default_role_key.sql
 # Ejercitado por rpc-0820-182-sync-user-role-from-category.sql.
 run supabase/migrations/20260825000100_authz_restore_legacy_app_role_mapping.sql
 
+# Notificaciones: un archivo por CAPA, y en este orden.
+#   01 catalogo     tablas, notify_staff() como porton unico, los 13 contadores,
+#                   get_my_notifications(), la vista legacy con seen_at, RLS y grants.
+#   02 seed         GENERADO por tools/parse-matriz-notificaciones.py. Va segundo por la FK
+#                   a notification_types (y a authorization_roles, de cero_13).
+#   03 disparadores los emisores de los tres modulos con triggers: Fondos, Ordenes de
+#                   Trabajo y Encargos. Sin los tipos sembrados, notify_staff los descarta
+#                   en silencio, asi que va despues del seed.
+# Ejercitado por rpc-notificaciones-fase1.sql (los 11 grupos).
+run supabase/migrations/20260911100000_notificaciones_01_catalogo.sql
+run supabase/migrations/20260911100100_notificaciones_02_seed.sql
+run supabase/migrations/20260911100200_notificaciones_03_disparadores.sql
+
+# Fix del numerador de solicitudes de fondos (lpad truncando). NO es de notificaciones: se
+# encontro probando ese flujo y vive aparte para poder revertirse por separado.
+run supabase/migrations/20260911100500_fund_request_number_lpad.sql
+
 # society/practicas(code=1): staff.society_id/practica_id y categories.practica_id son NOT NULL
 # reales; varias suites (rpc-engagement-team-candidates.sql explícitamente lo exige con su
 # propio guard) asumen que el catálogo mínimo de práctica/sociedad ya existe, como pasaría en
@@ -198,5 +215,6 @@ assert_suite supabase/tests/rls-0828-186-loggable-engagements-rpc.sql 'LOGGABLE 
 assert_suite supabase/tests/rls-0828-186-own-timer-engagement-labels.sql 'OWN TIMER ENGAGEMENT LABELS RPC: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-0828-185-engagement-portfolio.sql 'PORTFOLIO ENGAGEMENTS RPC: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-0820-182-sync-user-role-from-category.sql 'SYNC USER ROLE FROM CATEGORY: ALL CHECKS PASSED'
+assert_suite supabase/tests/rpc-notificaciones-fase1.sql 'NOTIFICACIONES FASE 1: ALL CHECKS PASSED'
 
-echo "OK: set consolidado (cero_01..cero_06) + migraciones 0825-183, 0817-180, 0828-186 y 0828-185 aplicadas sobre base scratch; las 13 suites de RLS/RPC/schema-convergence/trigger pasaron"
+echo "OK: set consolidado (cero_01..cero_06) + migraciones 0825-183, 0817-180, 0828-186, 0828-185 y notificaciones Fase 1 aplicadas sobre base scratch; las 15 suites de RLS/RPC/schema-convergence/trigger pasaron"

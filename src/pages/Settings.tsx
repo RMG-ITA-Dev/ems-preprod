@@ -248,6 +248,10 @@ const Settings = () => {
   const [holidayEngagementId, setHolidayEngagementId] = useState<string>("");
   const [maxFailedAttempts, setMaxFailedAttempts] = useState<string>("");
   const [lockoutMinutes, setLockoutMinutes] = useState<string>("");
+  // Notificaciones: ventana de las alarmas de timesheet. Independiente de
+  // TS_EMPLOYEE_RETRO_DAYS, que gobierna la EDICION de semanas pasadas.
+  const [alertWindowWeeks, setAlertWindowWeeks] = useState<string>("");
+  const [trackingStartDate, setTrackingStartDate] = useState<string>("");
 
   const getSetting = useCallback(
     (key: string) => settings?.find((s) => s.setting_key === key)?.setting_value || "",
@@ -267,6 +271,15 @@ const Settings = () => {
       const compactFontSetting = settings.find((s) => s.setting_key === "COMPACT_FONT");
       if (compactFontSetting) {
         setCompactFont(compactFontSetting.setting_value === "true");
+      }
+      // Se hidrata explicitamente (no via fallback en `value`) porque el guardado compara
+      // contra lo persistido para permitir GUARDAR EL VACIO. Sin esto, guardar sin tocar el
+      // campo borraria la fecha ya configurada.
+      const trackingStartSetting = settings.find(
+        (s) => s.setting_key === "TS_TRACKING_START_DATE"
+      );
+      if (trackingStartSetting) {
+        setTrackingStartDate(trackingStartSetting.setting_value ?? "");
       }
       const emailDomainSetting = settings.find((s) => s.setting_key === "ALLOWED_EMAIL_DOMAIN");
       if (emailDomainSetting) {
@@ -661,6 +674,18 @@ const Settings = () => {
         lockoutMinutesValue = val.toString();
       }
 
+      // Ventana de alarmas: el backend recorta a 1-52 y cae al default ante basura, pero se
+      // valida aca tambien para no persistir un valor que la funcion va a ignorar.
+      let alertWindowValue: string | null = null;
+      if (alertWindowWeeks) {
+        const val = parseInt(alertWindowWeeks, 10);
+        if (isNaN(val) || val < 1 || val > 52) {
+          toast.error(t("settings.alertWindowWeeksRangeError"));
+          return;
+        }
+        alertWindowValue = val.toString();
+      }
+
       if (taxRate) {
         await updateSettingMutation.mutateAsync({ key: "TAX_RATE", value: (parseFloat(taxRate) / 100).toString() });
       }
@@ -715,6 +740,15 @@ const Settings = () => {
       }
       if (lockoutMinutesValue !== null) {
         await updateSettingMutation.mutateAsync({ key: "AUTH_LOCKOUT_MINUTES", value: lockoutMinutesValue });
+      }
+      if (alertWindowValue !== null) {
+        await updateSettingMutation.mutateAsync({ key: "TS_ALERT_WINDOW_WEEKS", value: alertWindowValue });
+      }
+      // Se compara contra lo persistido para poder GUARDAR EL VACIO: dejar el campo en blanco
+      // es la forma de desactivar el recorte por fecha de arranque.
+      const persistedTrackingStart = getSetting("TS_TRACKING_START_DATE") || "";
+      if (trackingStartDate !== persistedTrackingStart) {
+        await updateSettingMutation.mutateAsync({ key: "TS_TRACKING_START_DATE", value: trackingStartDate });
       }
       queryClient.invalidateQueries({ queryKey: ["global_settings"] });
       toast.success(t("messages.settingsSaved"));
@@ -1213,6 +1247,34 @@ const Settings = () => {
                         <span className="text-muted-foreground">%</span>
                       </div>
                       <p className="text-sm text-muted-foreground">{t("settings.taxRateHelp")}</p>
+                    </div>
+
+                    {/* Notificaciones: ventana de las alarmas de timesheet. */}
+                    <div className="space-y-4 py-4 border-b border-border">
+                      <h4 className="font-medium text-sm">{t("settings.notificationsSection")}</h4>
+                      <div className="grid grid-cols-2 gap-6">
+                        <div className="space-y-2">
+                          <Label htmlFor="alertWindowWeeks">{t("settings.alertWindowWeeks")}</Label>
+                          <NumericInput
+                            id="alertWindowWeeks"
+                            value={alertWindowWeeks || getSetting("TS_ALERT_WINDOW_WEEKS") || "4"}
+                            onValueChange={setAlertWindowWeeks}
+                            placeholder="4"
+                            decimals={0}
+                          />
+                          <p className="text-sm text-muted-foreground">{t("settings.alertWindowWeeksHelp")}</p>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="trackingStartDate">{t("settings.trackingStartDate")}</Label>
+                          <Input
+                            id="trackingStartDate"
+                            type="date"
+                            value={trackingStartDate}
+                            onChange={(e) => setTrackingStartDate(e.target.value)}
+                          />
+                          <p className="text-sm text-muted-foreground">{t("settings.trackingStartDateHelp")}</p>
+                        </div>
+                      </div>
                     </div>
 
                     {/* Account Lockout Settings (BUG 0601-132) */}
