@@ -63,13 +63,27 @@ BEGIN
     -- referencia que la fila declara), no por NEW.wo_id -- un wo_id que no coincida
     -- con el wo_id real del plan se rechaza explicitamente en el chequeo de abajo,
     -- en vez de dejar que la fila quede insertada con una referencia inconsistente.
-    SELECT p.wo_id, p.exchange_rate_mode, p.exchange_rate
-    INTO v_plan_wo_id, v_exchange_rate_mode, v_plan_exchange_rate
+    SELECT p.wo_id, p.exchange_rate_mode, p.exchange_rate, wo.approval_status
+    INTO v_plan_wo_id, v_exchange_rate_mode, v_plan_exchange_rate, v_approval_status
     FROM public.wo_payment_plan p
+    JOIN public.work_orders wo ON wo.wo_id = p.wo_id
     WHERE p.plan_id = NEW.plan_id;
 
     IF v_plan_wo_id IS DISTINCT FROM NEW.wo_id THEN
       RAISE EXCEPTION 'INSTALLMENT_WO_MISMATCH: el wo_id de la cuota no coincide con el de su plan de pagos';
+    END IF;
+
+    -- MUST FIX review iteracion 19 #2 (codex): nada en el branch de INSERT
+    -- consultaba approval_status -- en modo Variable, un gerente podia insertar
+    -- directamente una cuota Pending con invoice_exchange_rate/payment_exchange_rate
+    -- arbitrarios en un plan YA Aprobado; los chequeos de rol/aprobacion de esas 2
+    -- columnas (mas abajo) solo corren cuando CAMBIAN en un UPDATE posterior, asi
+    -- que un collections_analyst que solo transiciona status despues nunca los
+    -- dispara -- bypass completo del modelo de autorizacion de la Iteracion 13 por
+    -- una via nunca cubierta. No rompe ningun flujo legitimo: isEditable &&
+    -- canEditPaymentPlan ya le impide a la UI agregar cuotas una vez Aprobada.
+    IF NOT public.is_admin() AND v_approval_status = 'Approved' THEN
+      RAISE EXCEPTION 'INSTALLMENT_LOCKED: no se pueden agregar cuotas nuevas a un plan de pagos cuya orden de trabajo ya fue aprobada';
     END IF;
 
     IF v_exchange_rate_mode = 'fijo' AND (
@@ -157,6 +171,28 @@ BEGIN
 
       IF v_approval_status IS DISTINCT FROM 'Approved' THEN
         RAISE EXCEPTION 'INSTALLMENT_LOCKED: la transicion de estado de una cuota solo puede hacerse con la orden de trabajo aprobada';
+      END IF;
+    END IF;
+  END IF;
+
+  -- MUST FIX review iteracion 19 #1 (codex): la UI (isStatusEditable) exige OT
+  -- Aprobada para TODA la seccion de Cobranza (estado + fechas + TC) -- la base de
+  -- datos solo lo replicaba para la transicion de estado (arriba, Iteracion 17 #2)
+  -- y las 2 columnas de TC (mas abajo), nunca para estas 3 fechas cuando cambian
+  -- solas (sin cambiar status en el mismo UPDATE). Un collections_analyst podia
+  -- registrar fechas de facturacion/pago/cobro de una cuota de una OT todavia en
+  -- Draft o en revision via useUpdateCollectionDate.
+  IF NEW.collection_invoice_date IS DISTINCT FROM OLD.collection_invoice_date
+     OR NEW.collection_payment_date IS DISTINCT FROM OLD.collection_payment_date
+     OR NEW.payment_date_actual IS DISTINCT FROM OLD.payment_date_actual THEN
+    IF NOT public.is_admin() THEN
+      SELECT wo.approval_status INTO v_approval_status
+      FROM public.wo_payment_plan p
+      JOIN public.work_orders wo ON wo.wo_id = p.wo_id
+      WHERE p.plan_id = NEW.plan_id;
+
+      IF v_approval_status IS DISTINCT FROM 'Approved' THEN
+        RAISE EXCEPTION 'INSTALLMENT_LOCKED: las fechas de cobranza de una cuota solo pueden registrarse con la orden de trabajo aprobada';
       END IF;
     END IF;
   END IF;

@@ -5689,13 +5689,18 @@ BEGIN
       RAISE EXCEPTION 'INSTALLMENT_LOCKED: una cuota nueva debe crearse en estado Pending';
     END IF;
 
-    SELECT p.wo_id, p.exchange_rate_mode, p.exchange_rate
-    INTO v_plan_wo_id, v_exchange_rate_mode, v_plan_exchange_rate
+    SELECT p.wo_id, p.exchange_rate_mode, p.exchange_rate, wo.approval_status
+    INTO v_plan_wo_id, v_exchange_rate_mode, v_plan_exchange_rate, v_approval_status
     FROM public.wo_payment_plan p
+    JOIN public.work_orders wo ON wo.wo_id = p.wo_id
     WHERE p.plan_id = NEW.plan_id;
 
     IF v_plan_wo_id IS DISTINCT FROM NEW.wo_id THEN
       RAISE EXCEPTION 'INSTALLMENT_WO_MISMATCH: el wo_id de la cuota no coincide con el de su plan de pagos';
+    END IF;
+
+    IF NOT public.is_admin() AND v_approval_status = 'Approved' THEN
+      RAISE EXCEPTION 'INSTALLMENT_LOCKED: no se pueden agregar cuotas nuevas a un plan de pagos cuya orden de trabajo ya fue aprobada';
     END IF;
 
     IF v_exchange_rate_mode = 'fijo' AND (
@@ -5743,6 +5748,21 @@ BEGIN
 
       IF v_approval_status IS DISTINCT FROM 'Approved' THEN
         RAISE EXCEPTION 'INSTALLMENT_LOCKED: la transicion de estado de una cuota solo puede hacerse con la orden de trabajo aprobada';
+      END IF;
+    END IF;
+  END IF;
+
+  IF NEW.collection_invoice_date IS DISTINCT FROM OLD.collection_invoice_date
+     OR NEW.collection_payment_date IS DISTINCT FROM OLD.collection_payment_date
+     OR NEW.payment_date_actual IS DISTINCT FROM OLD.payment_date_actual THEN
+    IF NOT public.is_admin() THEN
+      SELECT wo.approval_status INTO v_approval_status
+      FROM public.wo_payment_plan p
+      JOIN public.work_orders wo ON wo.wo_id = p.wo_id
+      WHERE p.plan_id = NEW.plan_id;
+
+      IF v_approval_status IS DISTINCT FROM 'Approved' THEN
+        RAISE EXCEPTION 'INSTALLMENT_LOCKED: las fechas de cobranza de una cuota solo pueden registrarse con la orden de trabajo aprobada';
       END IF;
     END IF;
   END IF;
