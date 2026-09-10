@@ -31,3 +31,4 @@ bugs/*
 
 # Supabase CLI local session/project-ref cache
 supabase/.temp/
+supabase/.branches/
