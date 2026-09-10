@@ -5676,6 +5676,7 @@ CREATE FUNCTION public.wo_payment_installments_guard_exchange_rate() RETURNS tri
 DECLARE
   v_approval_status text;
   v_exchange_rate_mode text;
+  v_plan_exchange_rate numeric;
   v_legal_transition boolean;
 BEGIN
   IF TG_OP = 'INSERT' THEN
@@ -5710,8 +5711,8 @@ BEGIN
 
   IF NEW.invoice_exchange_rate IS DISTINCT FROM OLD.invoice_exchange_rate
      OR NEW.payment_exchange_rate IS DISTINCT FROM OLD.payment_exchange_rate THEN
-    SELECT wo.approval_status, p.exchange_rate_mode
-    INTO v_approval_status, v_exchange_rate_mode
+    SELECT wo.approval_status, p.exchange_rate_mode, p.exchange_rate
+    INTO v_approval_status, v_exchange_rate_mode, v_plan_exchange_rate
     FROM public.work_orders wo
     JOIN public.wo_payment_plan p ON p.wo_id = wo.wo_id
     WHERE wo.wo_id = NEW.wo_id;
@@ -5723,6 +5724,9 @@ BEGIN
     END IF;
     IF v_exchange_rate_mode = 'variable' AND v_approval_status IS DISTINCT FROM 'Approved' THEN
       RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de facturacion solo puede capturarse una vez que la orden de trabajo fue aprobada';
+    END IF;
+    IF v_exchange_rate_mode = 'fijo' AND NEW.invoice_exchange_rate IS DISTINCT FROM v_plan_exchange_rate THEN
+      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: en modo fijo, el tipo de cambio de facturacion de la cuota debe coincidir con el del plan';
     END IF;
   END IF;
 
@@ -5737,6 +5741,9 @@ BEGIN
       IF v_approval_status IS DISTINCT FROM 'Approved' THEN
         RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de pago solo puede capturarse una vez que la orden de trabajo fue aprobada';
       END IF;
+    END IF;
+    IF v_exchange_rate_mode = 'fijo' AND NEW.payment_exchange_rate IS DISTINCT FROM v_plan_exchange_rate THEN
+      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: en modo fijo, el tipo de cambio de pago de la cuota debe coincidir con el del plan';
     END IF;
   END IF;
 
@@ -5774,6 +5781,18 @@ DECLARE
   v_approval_status text;
   v_has_locked_installment boolean;
 BEGIN
+  IF TG_OP = 'DELETE' THEN
+    SELECT approval_status INTO v_approval_status
+    FROM public.work_orders
+    WHERE wo_id = OLD.wo_id;
+
+    IF v_approval_status IN ('Approved', 'Pending_Approval') THEN
+      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: no se puede eliminar el plan de pagos: la orden de trabajo ya fue aprobada o esta en revision';
+    END IF;
+
+    RETURN OLD;
+  END IF;
+
   IF TG_OP = 'INSERT' THEN
     SELECT approval_status INTO v_approval_status
     FROM public.work_orders
@@ -7966,7 +7985,7 @@ CREATE TRIGGER trg_wo_payment_installments_guard_delete BEFORE DELETE ON public.
 -- Name: wo_payment_plan trg_wo_payment_plan_guard_exchange_rate; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER trg_wo_payment_plan_guard_exchange_rate BEFORE INSERT OR UPDATE ON public.wo_payment_plan FOR EACH ROW EXECUTE FUNCTION public.wo_payment_plan_guard_exchange_rate();
+CREATE TRIGGER trg_wo_payment_plan_guard_exchange_rate BEFORE INSERT OR UPDATE OR DELETE ON public.wo_payment_plan FOR EACH ROW EXECUTE FUNCTION public.wo_payment_plan_guard_exchange_rate();
 
 
 --

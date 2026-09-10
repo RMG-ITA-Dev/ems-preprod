@@ -40,6 +40,17 @@
 -- porque ninguna de las 2 migraciones se habia aplicado nunca a un Supabase real (regla
 -- del proyecto: minimizar archivos de migracion nuevos por issue, ver
 -- bugs/0722-156/review.md).
+--
+-- MUST FIX review iteracion 12 #2: wo_payment_installments_plan_id_fkey tiene
+-- ON DELETE CASCADE hacia wo_payment_plan; el trigger de este archivo solo corria en
+-- INSERT/UPDATE, y el guard de DELETE de cuotas (wo_payment_installments_guard_delete)
+-- solo rechaza si ALGUNA cuota individual no esta 'Pending'. Con todas las cuotas
+-- 'Pending' (tipico recien aprobada la OT, antes de facturar cualquiera), un DELETE
+-- directo sobre wo_payment_plan (mismo rol de equipo, RLS no chequea approval_status)
+-- borraba el plan Y todas sus cuotas en cascada sin ningun chequeo -- destruyendo el
+-- snapshot de auditoria del TC/modo ya congelado. Se agrega un branch TG_OP = 'DELETE'
+-- con el mismo criterio que el branch de INSERT (rechaza si la OT esta Approved o
+-- Pending_Approval); el trigger pasa a BEFORE INSERT OR UPDATE OR DELETE.
 
 CREATE OR REPLACE FUNCTION public.wo_payment_plan_guard_exchange_rate() RETURNS trigger
     LANGUAGE plpgsql SECURITY DEFINER
@@ -49,6 +60,18 @@ DECLARE
   v_approval_status text;
   v_has_locked_installment boolean;
 BEGIN
+  IF TG_OP = 'DELETE' THEN
+    SELECT approval_status INTO v_approval_status
+    FROM public.work_orders
+    WHERE wo_id = OLD.wo_id;
+
+    IF v_approval_status IN ('Approved', 'Pending_Approval') THEN
+      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: no se puede eliminar el plan de pagos: la orden de trabajo ya fue aprobada o esta en revision';
+    END IF;
+
+    RETURN OLD;
+  END IF;
+
   IF TG_OP = 'INSERT' THEN
     SELECT approval_status INTO v_approval_status
     FROM public.work_orders
@@ -92,7 +115,7 @@ END;
 $$;
 
 DROP TRIGGER IF EXISTS trg_wo_payment_plan_guard_exchange_rate ON public.wo_payment_plan;
-CREATE TRIGGER trg_wo_payment_plan_guard_exchange_rate BEFORE INSERT OR UPDATE ON public.wo_payment_plan
+CREATE TRIGGER trg_wo_payment_plan_guard_exchange_rate BEFORE INSERT OR UPDATE OR DELETE ON public.wo_payment_plan
   FOR EACH ROW EXECUTE FUNCTION public.wo_payment_plan_guard_exchange_rate();
 
 -- MUST FIX review iteracion 9 #3: sync_wo_payment_installments validaba (desde

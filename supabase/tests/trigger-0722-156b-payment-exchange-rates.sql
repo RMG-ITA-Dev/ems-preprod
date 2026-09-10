@@ -1057,4 +1057,161 @@ BEGIN
   RAISE NOTICE 'SYNC RPC PLAN/WO OWNERSHIP GUARD: ALL CHECKS PASSED (rolled back)';
 END $$;
 
+-- ══════════════════════════════════════════════════════════════════════
+-- MUST FIX 0722-156b review iteracion 12 #1 — migracion 20260910090000:
+--   en modo fijo, el chequeo de aprobacion solo se evaluaba en modo variable -- un
+--   UPDATE directo podia poner cualquier valor en invoice_exchange_rate/
+--   payment_exchange_rate de una cuota Pending en modo Fijo, sin pasar por ningun
+--   chequeo, rompiendo la garantia de que toda cuota en Fijo refleja el TC del plan.
+-- Fixture propio (E11/WO11): OT Draft, plan Fijo (TC 6.96), 1 cuota Pending ya
+-- sincronizada con el TC del plan.
+-- ══════════════════════════════════════════════════════════════════════
+
+INSERT INTO public.engagements (engagement_id, client_id, engagement_name, practica, fecha_cierre, society_id) VALUES
+  ('e0000000-0000-4000-8000-0000000000cb', 'c1000000-0000-4000-8000-0000000000c1', 'PER E11 (Fijo, UPDATE directo con TC distinto al del plan)', 1, '2026-09-30', (SELECT society_id FROM public.society WHERE society_id = '50c00000-0000-4000-8000-0000000000c1'));
+
+INSERT INTO public.work_orders (wo_id, engagement_id, currency, season_mode, approval_status) VALUES
+  ('40000000-0000-4000-8000-0000000000cb', 'e0000000-0000-4000-8000-0000000000cb', 'USD', 'High', 'Draft');
+
+DO $$
+DECLARE
+  v_plan_c11 uuid;
+  v_inst_c11 uuid;
+  denied boolean;
+BEGIN
+  INSERT INTO public.wo_payment_plan (wo_id, exchange_rate, exchange_rate_mode)
+  VALUES ('40000000-0000-4000-8000-0000000000cb', 6.96, 'fijo')
+  RETURNING plan_id INTO v_plan_c11;
+
+  INSERT INTO public.wo_payment_installments
+    (plan_id, wo_id, installment_number, percentage, amount, status, invoice_exchange_rate, payment_exchange_rate)
+  VALUES (v_plan_c11, '40000000-0000-4000-8000-0000000000cb', 1, 100, 1000, 'Pending', 6.96, 6.96)
+  RETURNING installment_id INTO v_inst_c11;
+
+  -- invoice_exchange_rate: un UPDATE directo a un valor distinto al del plan debe
+  -- rechazarse, aunque la cuota siga Pending y la OT siga en Draft.
+  denied := false;
+  BEGIN
+    UPDATE public.wo_payment_installments SET invoice_exchange_rate = 7.50 WHERE installment_id = v_inst_c11;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'EXCHANGE_RATE_LOCKED%' THEN
+      denied := true;
+    ELSE
+      RAISE;
+    END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'PER FAIL — en modo fijo, invoice_exchange_rate acepto un valor distinto al del plan';
+  END IF;
+  RAISE NOTICE 'PASS — en modo fijo, invoice_exchange_rate rechaza (EXCHANGE_RATE_LOCKED) un valor distinto al del plan';
+
+  -- payment_exchange_rate: mismo criterio.
+  denied := false;
+  BEGIN
+    UPDATE public.wo_payment_installments SET payment_exchange_rate = 7.50 WHERE installment_id = v_inst_c11;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'EXCHANGE_RATE_LOCKED%' THEN
+      denied := true;
+    ELSE
+      RAISE;
+    END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'PER FAIL — en modo fijo, payment_exchange_rate acepto un valor distinto al del plan';
+  END IF;
+  RAISE NOTICE 'PASS — en modo fijo, payment_exchange_rate rechaza (EXCHANGE_RATE_LOCKED) un valor distinto al del plan';
+
+  -- Camino feliz: reenviar el mismo valor que ya tiene (no-op) sigue permitido.
+  UPDATE public.wo_payment_installments SET invoice_exchange_rate = 6.96 WHERE installment_id = v_inst_c11;
+  RAISE NOTICE 'PASS — en modo fijo, reenviar el mismo TC del plan (no-op) sigue permitido';
+
+  RAISE NOTICE 'FIXED MODE RATE GUARD: ALL CHECKS PASSED (rolled back)';
+END $$;
+
+-- ══════════════════════════════════════════════════════════════════════
+-- MUST FIX 0722-156b review iteracion 12 #2 — migracion 20260908150000:
+--   wo_payment_installments_plan_id_fkey tiene ON DELETE CASCADE; el trigger de
+--   wo_payment_plan solo corria en INSERT/UPDATE, y el guard de DELETE de cuotas solo
+--   rechaza si ALGUNA cuota individual no esta 'Pending' -- con todas las cuotas
+--   Pending (tipico recien aprobada la OT), un DELETE directo del plan borraba todo
+--   en cascada sin ningun chequeo.
+-- Fixture propio (E12/WO12): OT Approved, plan Fijo, 1 cuota Pending (sin facturar).
+-- ══════════════════════════════════════════════════════════════════════
+
+INSERT INTO public.engagements (engagement_id, client_id, engagement_name, practica, fecha_cierre, society_id) VALUES
+  ('e0000000-0000-4000-8000-0000000000cc', 'c1000000-0000-4000-8000-0000000000c1', 'PER E12 (Approved WO, DELETE directo del plan)', 1, '2026-09-30', (SELECT society_id FROM public.society WHERE society_id = '50c00000-0000-4000-8000-0000000000c1'));
+
+INSERT INTO public.work_orders (wo_id, engagement_id, currency, season_mode, approval_status) VALUES
+  ('40000000-0000-4000-8000-0000000000cc', 'e0000000-0000-4000-8000-0000000000cc', 'USD', 'High', 'Draft');
+
+DO $$
+DECLARE
+  v_plan_c12 uuid;
+  denied boolean;
+BEGIN
+  -- Plan siempre se crea en Draft; la OT se aprueba despues (secuencia real, igual que
+  -- el fixture de c2 en la seccion del guard de INSERT).
+  INSERT INTO public.wo_payment_plan (wo_id, exchange_rate, exchange_rate_mode)
+  VALUES ('40000000-0000-4000-8000-0000000000cc', 6.96, 'fijo')
+  RETURNING plan_id INTO v_plan_c12;
+
+  INSERT INTO public.wo_payment_installments
+    (plan_id, wo_id, installment_number, percentage, amount, status, invoice_exchange_rate, payment_exchange_rate)
+  VALUES (v_plan_c12, '40000000-0000-4000-8000-0000000000cc', 1, 100, 1000, 'Pending', 6.96, 6.96);
+
+  UPDATE public.work_orders SET approval_status = 'Approved' WHERE wo_id = '40000000-0000-4000-8000-0000000000cc';
+
+  denied := false;
+  BEGIN
+    DELETE FROM public.wo_payment_plan WHERE plan_id = v_plan_c12;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'EXCHANGE_RATE_LOCKED%' THEN
+      denied := true;
+    ELSE
+      RAISE;
+    END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'PER FAIL — se pudo borrar el plan de pagos de una OT ya Aprobada (con todas sus cuotas Pending)';
+  END IF;
+  RAISE NOTICE 'PASS — DELETE directo del plan de una OT Aprobada es rechazado (EXCHANGE_RATE_LOCKED)';
+
+  IF NOT EXISTS (SELECT 1 FROM public.wo_payment_plan WHERE plan_id = v_plan_c12) THEN
+    RAISE EXCEPTION 'PER FAIL — el plan quedo borrado pese al rechazo';
+  END IF;
+  IF (SELECT count(*) FROM public.wo_payment_installments WHERE plan_id = v_plan_c12) <> 1 THEN
+    RAISE EXCEPTION 'PER FAIL — las cuotas del plan quedaron borradas en cascada pese al rechazo';
+  END IF;
+
+  RAISE NOTICE 'PLAN DELETE GUARD: ALL CHECKS PASSED (rolled back)';
+END $$;
+
+-- Camino feliz: un plan de una OT en Draft (nunca aprobada) SI se puede borrar --
+-- confirma que el guard nuevo no rompe el flujo real de "quitar todas las cuotas ->
+-- se borra el plan" (useDeletePaymentPlan, WorkOrderEdit.tsx) mientras la OT sigue
+-- editable.
+INSERT INTO public.engagements (engagement_id, client_id, engagement_name, practica, fecha_cierre, society_id) VALUES
+  ('e0000000-0000-4000-8000-0000000000cd', 'c1000000-0000-4000-8000-0000000000c1', 'PER E13 (Draft WO, DELETE directo del plan permitido)', 1, '2026-09-30', (SELECT society_id FROM public.society WHERE society_id = '50c00000-0000-4000-8000-0000000000c1'));
+
+INSERT INTO public.work_orders (wo_id, engagement_id, currency, season_mode, approval_status) VALUES
+  ('40000000-0000-4000-8000-0000000000cd', 'e0000000-0000-4000-8000-0000000000cd', 'USD', 'High', 'Draft');
+
+DO $$
+DECLARE
+  v_plan_c13 uuid;
+BEGIN
+  INSERT INTO public.wo_payment_plan (wo_id, exchange_rate, exchange_rate_mode)
+  VALUES ('40000000-0000-4000-8000-0000000000cd', 6.96, 'fijo')
+  RETURNING plan_id INTO v_plan_c13;
+
+  DELETE FROM public.wo_payment_plan WHERE plan_id = v_plan_c13;
+
+  IF EXISTS (SELECT 1 FROM public.wo_payment_plan WHERE plan_id = v_plan_c13) THEN
+    RAISE EXCEPTION 'PER FAIL — el plan de una OT Draft no se pudo borrar (regresion del flujo real)';
+  END IF;
+  RAISE NOTICE 'PASS — DELETE directo del plan de una OT Draft (nunca aprobada) sigue permitido';
+
+  RAISE NOTICE 'PLAN DELETE GUARD (camino feliz Draft): ALL CHECKS PASSED (rolled back)';
+END $$;
+
 ROLLBACK;

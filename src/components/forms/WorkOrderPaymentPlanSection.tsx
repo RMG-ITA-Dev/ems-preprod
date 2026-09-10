@@ -784,10 +784,19 @@ export function WorkOrderPaymentPlanSection({
                                       return;
                                     }
                                     const pending = pendingRateEditsRef.current[inst.installment_id];
+                                    const value = pending?.invoice !== undefined ? pending.invoice : inst.invoice_exchange_rate;
+                                    // MUST FIX review iteracion 12 #3: pendingRateEditsRef nunca se
+                                    // limpiaba -- un blur sin edicion nueva (ej. foco+blur accidental)
+                                    // sobre una fila cuyo prop se refresco con un valor mas reciente
+                                    // (otra pestana ya guardo uno distinto) volvia a leer el valor
+                                    // viejo del ref y lo repersistia, pisando el mas nuevo en
+                                    // silencio. Se borra la entrada apenas se lee, para que un blur
+                                    // posterior sin edicion caiga al valor fresco de inst.*.
+                                    if (pending) delete pending.invoice;
                                     updateInstallmentExchangeRate.mutate({
                                       installmentId: inst.installment_id,
                                       field: "invoice_exchange_rate",
-                                      value: pending?.invoice !== undefined ? pending.invoice : inst.invoice_exchange_rate,
+                                      value,
                                       woId,
                                     });
                                   }
@@ -829,10 +838,14 @@ export function WorkOrderPaymentPlanSection({
                                       return;
                                     }
                                     const pending = pendingRateEditsRef.current[inst.installment_id];
+                                    const value = pending?.payment !== undefined ? pending.payment : inst.payment_exchange_rate;
+                                    // MUST FIX review iteracion 12 #3: ver el mismo fix en el onBlur
+                                    // del TC de facturacion, arriba.
+                                    if (pending) delete pending.payment;
                                     updateInstallmentExchangeRate.mutate({
                                       installmentId: inst.installment_id,
                                       field: "payment_exchange_rate",
-                                      value: pending?.payment !== undefined ? pending.payment : inst.payment_exchange_rate,
+                                      value,
                                       woId,
                                     });
                                   }

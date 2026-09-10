@@ -173,7 +173,7 @@ run supabase/migrations/20260905070913_0722-156_add_exchange_rate_history.sql
 # Supabase real). Ejercitado por trigger-0722-156b-payment-exchange-rates.sql.
 run supabase/migrations/20260905172820_0722-156b_add_payment_exchange_rates.sql
 
-# 0722-156b (review iteración 6 #1 / iteración 8 #2 / iteración 9 #3):
+# 0722-156b (review iteración 6 #1 / iteración 8 #2 / iteración 9 #3 / iteración 12 #2):
 # trg_wo_payment_plan_guard_exchange_rate solo corría BEFORE UPDATE -- un INSERT directo
 # podía crear un plan de pagos nuevo con TC/modo arbitrario para una OT ya aprobada o en
 # revisión, sin pasar por ninguna validación. Consolidada acá también la corrección de
@@ -181,9 +181,20 @@ run supabase/migrations/20260905172820_0722-156b_add_payment_exchange_rates.sql
 # p_plan_id, pero nunca que p_plan_id perteneciera realmente a p_wo_id -- RLS autoriza por
 # plan_id, no por la columna wo_id de la fila) -- vivía en un archivo aparte
 # (20260908160000) hasta que se fusionó acá el 2026-09-08 porque ninguna de las 2 se había
-# aplicado nunca a un Supabase real. Ejercitado por
+# aplicado nunca a un Supabase real. También agrega el branch TG_OP = 'DELETE' (faltaba
+# por completo -- un DELETE directo del plan, con todas sus cuotas todavía Pending,
+# borraba en cascada el plan de una OT ya Aprobada sin ningún chequeo) y el trigger pasa
+# a BEFORE INSERT OR UPDATE OR DELETE. Ejercitado por
 # trigger-0722-156b-payment-exchange-rates.sql (secciones agregadas al final).
 run supabase/migrations/20260908150000_0722-156b_plan_insert_guard.sql
+
+# 0722-156b (review iteración 12 #1): en modo fijo, el chequeo de aprobación de
+# wo_payment_installments_guard_exchange_rate solo se evaluaba en modo variable -- un
+# UPDATE directo podía poner cualquier valor en invoice_exchange_rate/
+# payment_exchange_rate de una cuota Pending en modo Fijo, rompiendo la garantía de que
+# toda cuota en Fijo refleja el TC del plan. Ejercitado por
+# trigger-0722-156b-payment-exchange-rates.sql (sección agregada al final).
+run supabase/migrations/20260910090000_0722-156b_fixed_mode_rate_guard.sql
 
 # society/practicas(code=1): staff.society_id/practica_id y categories.practica_id son NOT NULL
 # reales; varias suites (rpc-engagement-team-candidates.sql explícitamente lo exige con su

@@ -440,6 +440,45 @@ describe("WorkOrderPaymentPlanSection — per-installment TC cells (0722-156b Fa
       });
     });
 
+    // MUST FIX review iteracion 12 #3: pendingRateEditsRef nunca se limpiaba -- un blur
+    // sin edicion nueva sobre una fila cuyo prop se refresco con un valor mas reciente
+    // (ej. otra pestana ya guardo uno distinto) volvia a leer el valor viejo del ref y
+    // lo repersistia, pisando el mas nuevo en silencio.
+    it("PEM16b: a later blur with no new edit persists the fresh prop value, not a stale ref from an earlier edit", () => {
+      mockUpdateExchangeRate.mockClear();
+      const baseOverrides = {
+        woId: "wo-99",
+        plan: makePlan({ exchange_rate_mode: "variable" }),
+      };
+      const { rerenderWith } = renderSectionFull({
+        ...baseOverrides,
+        installments: [makeInstallment({ installment_id: "inst-42", status: "Pending", invoice_exchange_rate: 11.57 })],
+      });
+
+      // 1) User edits and blurs — persists 7.02, and (with the fix) clears the ref entry.
+      const input = screen.getByTestId("installment-invoice-rate");
+      fireEvent.change(input, { target: { value: "7.02" } });
+      fireEvent.blur(input);
+      expect(mockUpdateExchangeRate).toHaveBeenLastCalledWith({
+        installmentId: "inst-42", field: "invoice_exchange_rate", value: 7.02, woId: "wo-99",
+      });
+
+      // 2) External refresh (e.g. a query refetch after another tab saved a newer value)
+      // updates the prop directly — NOT via a local edit, so the ref should stay out of it.
+      rerenderWith({
+        ...baseOverrides,
+        installments: [makeInstallment({ installment_id: "inst-42", status: "Pending", invoice_exchange_rate: 9.99 })],
+      });
+
+      // 3) Focus+blur again with no change event in between — must persist the fresh 9.99
+      // from the prop, not the stale 7.02 left over in pendingRateEditsRef.
+      const refreshedInput = screen.getByTestId("installment-invoice-rate");
+      fireEvent.blur(refreshedInput);
+      expect(mockUpdateExchangeRate).toHaveBeenLastCalledWith({
+        installmentId: "inst-42", field: "invoice_exchange_rate", value: 9.99, woId: "wo-99",
+      });
+    });
+
     it("PEM17: no persiste al hacer blur en una fila nueva sin installment_id todavia", () => {
       mockUpdateExchangeRate.mockClear();
       const installments = [
