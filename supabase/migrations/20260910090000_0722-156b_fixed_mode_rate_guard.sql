@@ -44,6 +44,7 @@ DECLARE
   v_approval_status text;
   v_exchange_rate_mode text;
   v_plan_exchange_rate numeric;
+  v_plan_wo_id uuid;
   v_legal_transition boolean;
   v_is_accounting_or_admin boolean;
 BEGIN
@@ -58,10 +59,18 @@ BEGIN
       RAISE EXCEPTION 'INSTALLMENT_LOCKED: una cuota nueva debe crearse en estado Pending';
     END IF;
 
-    SELECT p.exchange_rate_mode, p.exchange_rate
-    INTO v_exchange_rate_mode, v_plan_exchange_rate
+    -- MUST FIX review iteracion 18 #1: se resuelve el plan por NEW.plan_id (la
+    -- referencia que la fila declara), no por NEW.wo_id -- un wo_id que no coincida
+    -- con el wo_id real del plan se rechaza explicitamente en el chequeo de abajo,
+    -- en vez de dejar que la fila quede insertada con una referencia inconsistente.
+    SELECT p.wo_id, p.exchange_rate_mode, p.exchange_rate
+    INTO v_plan_wo_id, v_exchange_rate_mode, v_plan_exchange_rate
     FROM public.wo_payment_plan p
-    WHERE p.wo_id = NEW.wo_id;
+    WHERE p.plan_id = NEW.plan_id;
+
+    IF v_plan_wo_id IS DISTINCT FROM NEW.wo_id THEN
+      RAISE EXCEPTION 'INSTALLMENT_WO_MISMATCH: el wo_id de la cuota no coincide con el de su plan de pagos';
+    END IF;
 
     IF v_exchange_rate_mode = 'fijo' AND (
       NEW.invoice_exchange_rate IS DISTINCT FROM v_plan_exchange_rate
@@ -71,6 +80,20 @@ BEGIN
     END IF;
 
     RETURN NEW;
+  END IF;
+
+  -- MUST FIX review iteracion 18 #1 (greptile): plan_id/wo_id de una cuota nunca eran
+  -- inmutables para nadie que no fuera collections_analyst (el chequeo de abajo solo
+  -- restringe ESE rol) -- un gerente (o cualquier team member con UPDATE) podia
+  -- reasignar wo_id a una OT Approved ajena en el mismo UPDATE que factura la cuota;
+  -- el chequeo de aprobacion de mas abajo resolvia la OT via el NEW.wo_id ya
+  -- manipulado, no via el plan real, y pasaba. Se congela plan_id/wo_id para TODO
+  -- rol, sin excepcion de is_admin() -- mismo criterio que WO_ID_IMMUTABLE en
+  -- wo_payment_plan_guard_exchange_rate: no hay motivo legitimo para reasignar una
+  -- cuota a otro plan/OT (el flujo real borra la fila huerfana e inserta una nueva
+  -- via sync_wo_payment_installments).
+  IF NEW.plan_id IS DISTINCT FROM OLD.plan_id OR NEW.wo_id IS DISTINCT FROM OLD.wo_id THEN
+    RAISE EXCEPTION 'INSTALLMENT_PLAN_IMMUTABLE: una cuota no puede reasignarse a otro plan de pagos ni a otra orden de trabajo';
   END IF;
 
   -- MUST FIX review iteracion 16 #1 (greptile + codex): la policy RLS "Accounting can
@@ -86,14 +109,20 @@ BEGIN
   -- invoice_exchange_rate/payment_exchange_rate (ya gateadas mas abajo) quedan sin
   -- restriccion adicional por este chequeo -- son exactamente las columnas que ese rol
   -- SI debe poder tocar.
+  -- plan_id/wo_id ya no estan en esta lista: el guard universal de arriba (review
+  -- iteracion 18 #1) los congela para todo rol, incluido collections_analyst.
+  -- MUST FIX review iteracion 18 #5 (greptile + codex): created_at no estaba en el
+  -- allowlist -- a diferencia de updated_at (restaurado por
+  -- update_wo_payment_installments_updated_at en cada UPDATE), nada impedia que
+  -- collections_analyst falsificara la fecha de creacion de una cuota via un UPDATE
+  -- directo.
   IF NOT public.is_admin() AND public.current_role_key() = 'collections_analyst' THEN
-    IF NEW.plan_id IS DISTINCT FROM OLD.plan_id
-       OR NEW.wo_id IS DISTINCT FROM OLD.wo_id
-       OR NEW.agreed_invoice_date IS DISTINCT FROM OLD.agreed_invoice_date
+    IF NEW.agreed_invoice_date IS DISTINCT FROM OLD.agreed_invoice_date
        OR NEW.agreed_payment_date IS DISTINCT FROM OLD.agreed_payment_date
        OR NEW.percentage IS DISTINCT FROM OLD.percentage
        OR NEW.amount IS DISTINCT FROM OLD.amount
        OR NEW.installment_number IS DISTINCT FROM OLD.installment_number
+       OR NEW.created_at IS DISTINCT FROM OLD.created_at
     THEN
       RAISE EXCEPTION 'INSTALLMENT_FIELD_FORBIDDEN: contabilidad solo puede modificar estado, fechas de cobranza y tipo de cambio por cuota';
     END IF;
@@ -115,10 +144,16 @@ BEGIN
     -- solo validaba que la transicion fuera legal. Sin esto, un collections_analyst
     -- (o cualquiera con RLS de escritura sobre esta tabla) podia facturar/completar
     -- una cuota de una OT todavia en Draft o en revision via un UPDATE directo.
+    -- MUST FIX review iteracion 18 #1: se resuelve la OT dueña via NEW.plan_id -> el
+    -- wo_id real del plan, no via NEW.wo_id directamente -- defensa en profundidad
+    -- ademas del guard de inmutabilidad de arriba (si ese guard alguna vez cambiara,
+    -- este chequeo sigue mirando la OT correcta, nunca una que el propio UPDATE haya
+    -- intentado falsificar).
     IF NOT public.is_admin() THEN
-      SELECT approval_status INTO v_approval_status
-      FROM public.work_orders
-      WHERE wo_id = NEW.wo_id;
+      SELECT wo.approval_status INTO v_approval_status
+      FROM public.wo_payment_plan p
+      JOIN public.work_orders wo ON wo.wo_id = p.wo_id
+      WHERE p.plan_id = NEW.plan_id;
 
       IF v_approval_status IS DISTINCT FROM 'Approved' THEN
         RAISE EXCEPTION 'INSTALLMENT_LOCKED: la transicion de estado de una cuota solo puede hacerse con la orden de trabajo aprobada';
@@ -142,11 +177,13 @@ BEGIN
 
   IF NEW.invoice_exchange_rate IS DISTINCT FROM OLD.invoice_exchange_rate
      OR NEW.payment_exchange_rate IS DISTINCT FROM OLD.payment_exchange_rate THEN
+    -- review iteracion 18 #1: resuelto via NEW.plan_id (mismo criterio que el resto
+    -- de este trigger tras el fix), no via NEW.wo_id directamente.
     SELECT wo.approval_status, p.exchange_rate_mode, p.exchange_rate
     INTO v_approval_status, v_exchange_rate_mode, v_plan_exchange_rate
-    FROM public.work_orders wo
-    JOIN public.wo_payment_plan p ON p.wo_id = wo.wo_id
-    WHERE wo.wo_id = NEW.wo_id;
+    FROM public.wo_payment_plan p
+    JOIN public.work_orders wo ON wo.wo_id = p.wo_id
+    WHERE p.plan_id = NEW.plan_id;
   END IF;
 
   IF NEW.invoice_exchange_rate IS DISTINCT FROM OLD.invoice_exchange_rate THEN

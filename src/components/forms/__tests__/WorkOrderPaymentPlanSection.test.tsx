@@ -61,14 +61,16 @@ vi.mock("@/components/ui/numeric-input", () => ({
   NumericInput: ({
     value,
     onChange,
+    onBlur,
     disabled,
     decimals,
     locale,
     min,
     "data-testid": testId,
   }: {
-    value?: number;
+    value?: number | string;
     onChange?: (val: number) => void;
+    onBlur?: () => void;
     disabled?: boolean;
     decimals?: number;
     locale?: string;
@@ -85,6 +87,7 @@ vi.mock("@/components/ui/numeric-input", () => ({
       value={value}
       min={min}
       onChange={(e) => onChange?.(Number(e.target.value))}
+      onBlur={onBlur}
       disabled={disabled}
     />
   ),
@@ -255,6 +258,53 @@ describe("WorkOrderPaymentPlanSection — Tipo de Cambio precision (0722-161)", 
 
     expect(onPlanChange).not.toHaveBeenCalled();
   });
+
+  // review iteración 18 #2: antes de este fix, PP27 de arriba dejaba el input
+  // re-mostrando de inmediato el valor viejo (6.96) apenas se borraba -- la
+  // siguiente tecla se insertaba sobre ese valor en vez de reemplazarlo.
+  it("PP28: borrar una tasa YA real deja el campo vacío en pantalla (no reaparece el valor viejo)", () => {
+    renderSection({
+      currency: "USD",
+      plan: { wo_id: "wo-1", exchange_rate: 6.96, payment_days: 30 },
+    });
+    const input = screen.getByTestId("payment-plan-exchange-rate") as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: "0" } });
+
+    expect(input.value).toBe("");
+  });
+
+  it("PP29: escribir un valor nuevo justo después de borrar no se mezcla con el valor viejo", () => {
+    const onPlanChange = vi.fn();
+    renderSection({
+      currency: "USD",
+      plan: { wo_id: "wo-1", exchange_rate: 6.96, payment_days: 30 },
+      onPlanChange,
+    });
+    const input = screen.getByTestId("payment-plan-exchange-rate");
+
+    fireEvent.change(input, { target: { value: "0" } });
+    fireEvent.change(input, { target: { value: "7.02" } });
+
+    expect(onPlanChange).toHaveBeenCalledWith(
+      expect.objectContaining({ exchange_rate: 7.02 }),
+    );
+  });
+
+  it("PP30: salir del campo sin terminar de escribir restaura el valor real en pantalla", () => {
+    renderSection({
+      currency: "USD",
+      plan: { wo_id: "wo-1", exchange_rate: 6.96, payment_days: 30 },
+    });
+    const input = screen.getByTestId("payment-plan-exchange-rate") as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: "0" } });
+    expect(input.value).toBe("");
+
+    fireEvent.blur(input);
+
+    expect(input.value).toBe("6.96");
+  });
 });
 
 describe("WorkOrderPaymentPlanSection — installment row generation", () => {
@@ -316,6 +366,23 @@ describe("WorkOrderPaymentPlanSection — amounts and totals", () => {
     const spans = Array.from(container.querySelectorAll("span"));
     const totalSpan = spans.find(s => s.textContent?.trim() === "80%");
     expect(totalSpan?.className).toContain("text-destructive");
+  });
+
+  // review iteración 18 #3: antes de este fix, el TOTAL del footer recalculaba
+  // TODAS las cuotas con el feeWithTax actual (1000), incluida la ya facturada
+  // (50% × 1000 = 500) -- ignorando que su fila visible ya mostraba el monto
+  // congelado (380, de un fee distinto). El footer daba 500+500=1000, distinto de
+  // lo que se veía en las 2 filas (380+500=880).
+  it("PP31: TOTAL del footer respeta el monto congelado de una cuota ya facturada, no lo recalcula con el fee actual", () => {
+    const installments = [
+      makeInstallment({ installment_number: 1, percentage: 50, status: "Invoiced", amount: 380 }),
+      makeInstallment({ installment_number: 2, percentage: 50, status: "Pending", amount: null }),
+    ];
+    const container = renderSection({ feeWithTax: 1000, installments });
+    const tfoot = container.querySelector("tfoot");
+    expect(tfoot?.textContent?.replace(/\s/g, "")).toContain("880");
+    expect(tfoot?.textContent?.replace(/\s/g, "")).not.toContain("1.000");
+    expect(tfoot?.textContent?.replace(/\s/g, "")).not.toContain("1000");
   });
 });
 

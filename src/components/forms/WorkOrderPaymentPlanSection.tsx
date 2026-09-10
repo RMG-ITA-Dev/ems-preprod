@@ -125,6 +125,14 @@ export function WorkOrderPaymentPlanSection({
     installmentId: string;
     newDate: string;
   } | null>(null);
+  // Iteración 18 #2: el TC de creación no persiste NULL sobre un valor ya real
+  // (Iteración 17 #3), pero eso dejaba el campo re-mostrando el valor viejo de
+  // inmediato al borrarlo -- la tecla siguiente se insertaba sobre ese valor en vez
+  // de reemplazarlo. Este flag deja el input visualmente vacío mientras el usuario
+  // escribe el valor nuevo, sin tocar el modelo real hasta que entra un número > 0;
+  // si el usuario sale del campo sin terminar de escribir, vuelve a mostrar el
+  // valor real (ver onBlur del input).
+  const [rateInputBlank, setRateInputBlank] = useState(false);
 
   const currentPlan = plan ?? { wo_id: woId, exchange_rate: null, payment_days: 30, exchange_rate_mode: "fijo" as ExchangeRateMode };
   const numInstallments = installments.length;
@@ -152,8 +160,12 @@ export function WorkOrderPaymentPlanSection({
   const percentageSumDisplay = parseFloat(percentageSum.toFixed(2));
   const percentageValid = Math.abs(percentageSum - 100) <= 0.01;
 
+  // Iteración 18 #3: debe sumar exactamente lo que se ve en cada fila (línea ~751)
+  // -- una cuota isLocked muestra su inst.amount congelado, no el recálculo con el
+  // fee actual; antes de este fix el total del footer sí lo recalculaba para TODAS
+  // las cuotas, divergiendo del monto real si el fee cambiaba tras facturar.
   const totalAmount = installments.reduce((s, i) => {
-    return s + computeAmount(i.percentage, feeWithTax);
+    return s + (isLocked(i) ? (i.amount ?? 0) : computeAmount(i.percentage, feeWithTax));
   }, 0);
 
   // ----- Plan header handlers -----
@@ -180,7 +192,11 @@ export function WorkOrderPaymentPlanSection({
   // el fix original (propagar NULL en el trigger de re-sync) por esta prevención en el
   // origen, replicada también en la base de datos (wo_payment_plan_guard_exchange_rate).
   const handleExchangeRateChange = (val: number) => {
-    if (val <= 0 && currentPlan.exchange_rate != null) return;
+    if (val <= 0 && currentPlan.exchange_rate != null) {
+      setRateInputBlank(true);
+      return;
+    }
+    setRateInputBlank(false);
     const updatedPlan = { ...currentPlan, exchange_rate: val > 0 ? val : null };
     onPlanChange(updatedPlan);
     // Modo Fijo: el TC de creacion se re-sincroniza a las 2 columnas de TC de toda
@@ -596,8 +612,9 @@ export function WorkOrderPaymentPlanSection({
                 decimals={6}
                 locale={numericLocale}
                 min={0}
-                value={currentPlan.exchange_rate ?? 0}
+                value={rateInputBlank ? "" : (currentPlan.exchange_rate ?? 0)}
                 onChange={handleExchangeRateChange}
+                onBlur={() => setRateInputBlank(false)}
                 disabled={!isEditable || planLocked || !canEditPaymentPlan}
                 className="w-full"
                 data-testid="payment-plan-exchange-rate"
