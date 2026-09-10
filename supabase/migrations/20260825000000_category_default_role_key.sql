@@ -65,6 +65,11 @@ ALTER TABLE public.categories
 -- categoría. El cuerpo es idéntico al de cero_02 salvo la columna nueva.
 DROP FUNCTION IF EXISTS public.create_category_for_practice(
   uuid, text, integer, numeric, numeric, numeric, numeric, boolean, boolean, public.app_role);
+-- Reintento idempotente: si esta migración ya corrió parcialmente (o se prototipó a mano) contra
+-- el destino, la firma nueva puede ya estar presente. Sin este segundo DROP, el CREATE de abajo
+-- choca con 42723 "function already exists with same argument types".
+DROP FUNCTION IF EXISTS public.create_category_for_practice(
+  uuid, text, integer, numeric, numeric, numeric, numeric, boolean, boolean, public.app_role, text);
 
 CREATE FUNCTION public.create_category_for_practice(
   p_practice_id uuid,
@@ -149,6 +154,10 @@ $$;
 -- ---------------------------------------------------------------------
 DROP FUNCTION IF EXISTS public.update_category_for_practice(
   uuid, text, integer, numeric, numeric, numeric, numeric, boolean, boolean, public.app_role);
+-- Mismo reintento idempotente que en create_category_for_practice: cubre el caso en que la
+-- firma nueva ya exista en el destino.
+DROP FUNCTION IF EXISTS public.update_category_for_practice(
+  uuid, text, integer, numeric, numeric, numeric, numeric, boolean, boolean, public.app_role, text);
 
 CREATE FUNCTION public.update_category_for_practice(
   p_category_id uuid,

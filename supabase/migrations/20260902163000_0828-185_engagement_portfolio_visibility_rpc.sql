@@ -33,6 +33,10 @@
 -- la vista engagement_wo_state ni de una segunda query desde el cliente).
 --
 
+-- Idempotente: mismo motivo que list_loggable_engagements() (20260831013000) -- posible
+-- prototipo manual previo en Dev 2.0.
+DROP FUNCTION IF EXISTS public.list_portfolio_engagements();
+
 CREATE FUNCTION public.list_portfolio_engagements() RETURNS jsonb
     LANGUAGE sql STABLE SECURITY DEFINER
     SET search_path TO 'public'

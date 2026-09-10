@@ -18,6 +18,10 @@
 -- lista vacía.
 --
 
+-- Idempotente: en Dev 2.0 esta función ya existía (prototipo manual previo al commit de este
+-- archivo) — sin este DROP, el CREATE de abajo choca con 42723 "function already exists".
+DROP FUNCTION IF EXISTS public.list_loggable_engagements();
+
 CREATE FUNCTION public.list_loggable_engagements()
   RETURNS TABLE (
     engagement_id uuid,
