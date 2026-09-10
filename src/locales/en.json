@@ -1418,6 +1418,7 @@
       "paymentAmountBob": "≈ {{value}}",
       "errorExchangeRateLocked": "This exchange rate is already locked and can no longer be changed.",
       "errorInstallmentLocked": "This installment has already been invoiced and can no longer be changed or removed.",
+      "errorExchangeRateForbidden": "You don't have permission to change this exchange rate.",
       "validationCannotRemoveInvoiced": "This installment has already been invoiced and can no longer be changed or removed.",
       "paymentDays": "Business Days to Pay",
       "numInstallments": "Number of Installments",

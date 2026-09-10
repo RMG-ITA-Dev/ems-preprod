@@ -138,6 +138,7 @@ function baseProps(overrides: Record<string, unknown> = {}) {
     isEditable:              true,
     isStatusEditable:        true,
     isAdminDateEditable:     false,
+    canEditCreationExchangeRate: true,
     onPlanChange:            vi.fn(),
     onInstallmentsChange:    vi.fn(),
     ...overrides,
@@ -200,6 +201,15 @@ describe("WorkOrderPaymentPlanSection — exchange rate mode toggle (0722-156b F
     expect(screen.getByTestId("payment-plan-exchange-rate-mode-variable")).toBeDisabled();
   });
 
+  // Decision del operador 2026-09-10: el TC inicial y el toggle Fijo/Variable quedan
+  // reservados al gerente del encargo (o admin) -- isEditable ya no alcanza por si solo.
+  it("PEM4b: toggle buttons AND the creation TC field are disabled when canEditCreationExchangeRate=false, even if isEditable=true (e.g. a socio that isn't the engagement's manager)", () => {
+    renderSection({ isEditable: true, canEditCreationExchangeRate: false });
+    expect(screen.getByTestId("payment-plan-exchange-rate-mode-fijo")).toBeDisabled();
+    expect(screen.getByTestId("payment-plan-exchange-rate-mode-variable")).toBeDisabled();
+    expect(screen.getByTestId("payment-plan-exchange-rate")).toBeDisabled();
+  });
+
   it("PEM5: current buy-rate reference text shown under the creation TC field", () => {
     renderSection();
     expect(screen.getByText("workOrders.paymentPlan.currentBuyRateReference:11,57")).toBeInTheDocument();
@@ -209,6 +219,22 @@ describe("WorkOrderPaymentPlanSection — exchange rate mode toggle (0722-156b F
     const onPlanChange = vi.fn();
     renderSection({ plan: makePlan({ exchange_rate: null }), installments: [makeInstallment()], onPlanChange });
     expect(onPlanChange).toHaveBeenCalledWith(expect.objectContaining({ exchange_rate: 11.57 }));
+  });
+
+  // Decision del operador 2026-09-10: si quien abre la OT no puede guardar el TC
+  // inicial (no es el gerente del encargo ni admin), el efecto no debe autocompletarlo
+  // -- mismo riesgo ya corregido para BOB (PEM7d): un valor autocompletado que el
+  // trigger rechazaria (EXCHANGE_RATE_FORBIDDEN) dejaria la pagina "sucia" sin que el
+  // usuario haya tocado nada.
+  it("PEM6b: creation TC does NOT autocomplete when canEditCreationExchangeRate=false, even with installments and a resolved buy rate", () => {
+    const onPlanChange = vi.fn();
+    renderSection({
+      plan: makePlan({ exchange_rate: null }),
+      installments: [makeInstallment()],
+      canEditCreationExchangeRate: false,
+      onPlanChange,
+    });
+    expect(onPlanChange).not.toHaveBeenCalled();
   });
 
   it("PEM7: creation TC does NOT autocomplete when not editable (WO already Approved)", () => {

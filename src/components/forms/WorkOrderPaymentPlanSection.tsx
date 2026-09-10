@@ -54,6 +54,11 @@ interface WorkOrderPaymentPlanSectionProps {
   isEditable: boolean;
   isStatusEditable: boolean;
   isAdminDateEditable: boolean;
+  // Decision del operador 2026-09-10: solo el gerente del encargo (o un admin) puede
+  // crear/editar el TC inicial y el toggle Fijo/Variable -- "esta parte de TC" no debe
+  // quedar abierta a todo el equipo (isEditable ya lo permitia a socio y gerente por
+  // igual). No afecta payment_days/cuotas/fechas, que siguen bajo isEditable solo.
+  canEditCreationExchangeRate: boolean;
   isPaymentPlanDirty?: boolean;
   onPlanChange: (plan: PaymentPlanInput) => void;
   onInstallmentsChange: (rows: PaymentInstallmentInput[]) => void;
@@ -96,6 +101,7 @@ export function WorkOrderPaymentPlanSection({
   isEditable,
   isStatusEditable,
   isAdminDateEditable,
+  canEditCreationExchangeRate,
   isPaymentPlanDirty = false,
   onPlanChange,
   onInstallmentsChange,
@@ -231,13 +237,18 @@ export function WorkOrderPaymentPlanSection({
   // JSON.stringify crudo (no el mas cuidadoso isPaymentPlanRestDirty), esto marcaba
   // "sin guardar" a CUALQUIER OT en BOB abierta para editar, sin que el usuario
   // tocara nada.
+  //
+  // Decision del operador 2026-09-10: mismo riesgo con canEditCreationExchangeRate --
+  // si un socio (no gerente del encargo) abre la OT, este efecto no debe autocompletar
+  // un valor que ese usuario no podria guardar (el trigger lo rechazaria con
+  // EXCHANGE_RATE_FORBIDDEN), dejando la pagina "sucia" sin que haya tocado nada.
   useEffect(() => {
     if (currency === "BOB") return;
     if (currentPlan.exchange_rate != null) return;
-    if (!isEditable || latestBuyRate == null || installments.length === 0) return;
+    if (!isEditable || !canEditCreationExchangeRate || latestBuyRate == null || installments.length === 0) return;
     onPlanChange({ ...currentPlan, exchange_rate: latestBuyRate });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currency, currentPlan.exchange_rate, isEditable, latestBuyRate, installments.length]);
+  }, [currency, currentPlan.exchange_rate, isEditable, canEditCreationExchangeRate, latestBuyRate, installments.length]);
 
   // MUST FIX 0722-156b review iteracion 1 #2: el efecto de arriba solo autocompleta
   // plan.exchange_rate — nunca re-sincronizaba las cuotas ya creadas cuando
@@ -568,7 +579,7 @@ export function WorkOrderPaymentPlanSection({
                 min={0}
                 value={currentPlan.exchange_rate ?? 0}
                 onChange={handleExchangeRateChange}
-                disabled={!isEditable || planLocked}
+                disabled={!isEditable || planLocked || !canEditCreationExchangeRate}
                 className="w-full"
                 data-testid="payment-plan-exchange-rate"
               />
@@ -590,7 +601,7 @@ export function WorkOrderPaymentPlanSection({
                   variant={currentPlan.exchange_rate_mode === "fijo" ? "default" : "outline"}
                   size="sm"
                   onClick={() => handleModeChange("fijo")}
-                  disabled={!isEditable || planLocked}
+                  disabled={!isEditable || planLocked || !canEditCreationExchangeRate}
                   data-testid="payment-plan-exchange-rate-mode-fijo"
                   aria-pressed={currentPlan.exchange_rate_mode === "fijo"}
                 >
@@ -601,7 +612,7 @@ export function WorkOrderPaymentPlanSection({
                   variant={currentPlan.exchange_rate_mode === "variable" ? "default" : "outline"}
                   size="sm"
                   onClick={() => handleModeChange("variable")}
-                  disabled={!isEditable || planLocked}
+                  disabled={!isEditable || planLocked || !canEditCreationExchangeRate}
                   data-testid="payment-plan-exchange-rate-mode-variable"
                   aria-pressed={currentPlan.exchange_rate_mode === "variable"}
                 >

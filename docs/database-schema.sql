@@ -5678,6 +5678,7 @@ DECLARE
   v_exchange_rate_mode text;
   v_plan_exchange_rate numeric;
   v_legal_transition boolean;
+  v_is_accounting_or_admin boolean;
 BEGIN
   IF TG_OP = 'INSERT' THEN
     IF EXISTS (SELECT 1 FROM public.wo_payment_installments WHERE installment_id = NEW.installment_id) THEN
@@ -5686,6 +5687,19 @@ BEGIN
     IF NEW.status <> 'Pending' THEN
       RAISE EXCEPTION 'INSTALLMENT_LOCKED: una cuota nueva debe crearse en estado Pending';
     END IF;
+
+    SELECT p.exchange_rate_mode, p.exchange_rate
+    INTO v_exchange_rate_mode, v_plan_exchange_rate
+    FROM public.wo_payment_plan p
+    WHERE p.wo_id = NEW.wo_id;
+
+    IF v_exchange_rate_mode = 'fijo' AND (
+      NEW.invoice_exchange_rate IS DISTINCT FROM v_plan_exchange_rate
+      OR NEW.payment_exchange_rate IS DISTINCT FROM v_plan_exchange_rate
+    ) THEN
+      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: en modo fijo, el tipo de cambio de una cuota nueva debe coincidir con el del plan';
+    END IF;
+
     RETURN NEW;
   END IF;
 
@@ -5722,8 +5736,14 @@ BEGIN
     IF OLD.status <> 'Pending' THEN
       RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de facturacion de esta cuota ya esta congelado';
     END IF;
-    IF v_exchange_rate_mode = 'variable' AND v_approval_status IS DISTINCT FROM 'Approved' THEN
-      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de facturacion solo puede capturarse una vez que la orden de trabajo fue aprobada';
+    IF v_exchange_rate_mode = 'variable' THEN
+      IF v_approval_status IS DISTINCT FROM 'Approved' THEN
+        RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de facturacion solo puede capturarse una vez que la orden de trabajo fue aprobada';
+      END IF;
+      SELECT is_admin() OR COALESCE(current_role_key() = 'collections_analyst', false) INTO v_is_accounting_or_admin;
+      IF NOT v_is_accounting_or_admin THEN
+        RAISE EXCEPTION 'EXCHANGE_RATE_FORBIDDEN: solo contabilidad (o un administrador) puede capturar el tipo de cambio de facturacion por cuota';
+      END IF;
     END IF;
     IF v_exchange_rate_mode = 'fijo' AND NEW.invoice_exchange_rate IS DISTINCT FROM v_plan_exchange_rate THEN
       RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: en modo fijo, el tipo de cambio de facturacion de la cuota debe coincidir con el del plan';
@@ -5740,6 +5760,10 @@ BEGIN
       END IF;
       IF v_approval_status IS DISTINCT FROM 'Approved' THEN
         RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de pago solo puede capturarse una vez que la orden de trabajo fue aprobada';
+      END IF;
+      SELECT is_admin() OR COALESCE(current_role_key() = 'collections_analyst', false) INTO v_is_accounting_or_admin;
+      IF NOT v_is_accounting_or_admin THEN
+        RAISE EXCEPTION 'EXCHANGE_RATE_FORBIDDEN: solo contabilidad (o un administrador) puede capturar el tipo de cambio de pago por cuota';
       END IF;
     END IF;
     IF v_exchange_rate_mode = 'fijo' AND NEW.payment_exchange_rate IS DISTINCT FROM v_plan_exchange_rate THEN
@@ -5780,6 +5804,7 @@ CREATE FUNCTION public.wo_payment_plan_guard_exchange_rate() RETURNS trigger
 DECLARE
   v_approval_status text;
   v_has_locked_installment boolean;
+  v_is_manager_or_admin boolean;
 BEGIN
   IF TG_OP = 'DELETE' THEN
     SELECT approval_status INTO v_approval_status
@@ -5802,6 +5827,16 @@ BEGIN
       RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: no se puede crear un plan de pagos: la orden de trabajo ya fue aprobada o esta en revision';
     END IF;
 
+    SELECT is_admin() OR EXISTS (
+      SELECT 1 FROM public.work_orders wo
+      JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+      WHERE wo.wo_id = NEW.wo_id AND e.manager_id = get_my_staff_id()
+    ) INTO v_is_manager_or_admin;
+
+    IF NOT v_is_manager_or_admin THEN
+      RAISE EXCEPTION 'EXCHANGE_RATE_FORBIDDEN: solo el gerente del encargo (o un administrador) puede crear el plan de pagos y su tipo de cambio inicial';
+    END IF;
+
     RETURN NEW;
   END IF;
 
@@ -5812,6 +5847,16 @@ BEGIN
   IF NEW.exchange_rate IS NOT DISTINCT FROM OLD.exchange_rate
      AND NEW.exchange_rate_mode IS NOT DISTINCT FROM OLD.exchange_rate_mode THEN
     RETURN NEW;
+  END IF;
+
+  SELECT is_admin() OR EXISTS (
+    SELECT 1 FROM public.work_orders wo
+    JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+    WHERE wo.wo_id = NEW.wo_id AND e.manager_id = get_my_staff_id()
+  ) INTO v_is_manager_or_admin;
+
+  IF NOT v_is_manager_or_admin THEN
+    RAISE EXCEPTION 'EXCHANGE_RATE_FORBIDDEN: solo el gerente del encargo (o un administrador) puede modificar el tipo de cambio inicial del plan de pagos';
   END IF;
 
   SELECT approval_status INTO v_approval_status
@@ -5832,6 +5877,32 @@ BEGIN
   END IF;
 
   RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: wo_payment_plan_sync_fixed_installments(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.wo_payment_plan_sync_fixed_installments() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF NEW.exchange_rate_mode = 'fijo' AND NEW.exchange_rate IS NOT NULL AND (
+    NEW.exchange_rate IS DISTINCT FROM OLD.exchange_rate
+    OR NEW.exchange_rate_mode IS DISTINCT FROM OLD.exchange_rate_mode
+  ) THEN
+    UPDATE public.wo_payment_installments
+    SET invoice_exchange_rate = NEW.exchange_rate,
+        payment_exchange_rate = NEW.exchange_rate
+    WHERE plan_id = NEW.plan_id
+      AND status = 'Pending'
+      AND (invoice_exchange_rate IS DISTINCT FROM NEW.exchange_rate
+           OR payment_exchange_rate IS DISTINCT FROM NEW.exchange_rate);
+  END IF;
+  RETURN NULL;
 END;
 $$;
 
@@ -7986,6 +8057,13 @@ CREATE TRIGGER trg_wo_payment_installments_guard_delete BEFORE DELETE ON public.
 --
 
 CREATE TRIGGER trg_wo_payment_plan_guard_exchange_rate BEFORE INSERT OR UPDATE OR DELETE ON public.wo_payment_plan FOR EACH ROW EXECUTE FUNCTION public.wo_payment_plan_guard_exchange_rate();
+
+
+--
+-- Name: wo_payment_plan trg_wo_payment_plan_sync_fixed_installments; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_wo_payment_plan_sync_fixed_installments AFTER UPDATE ON public.wo_payment_plan FOR EACH ROW EXECUTE FUNCTION public.wo_payment_plan_sync_fixed_installments();
 
 
 --

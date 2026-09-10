@@ -173,7 +173,13 @@ run supabase/migrations/20260905070913_0722-156_add_exchange_rate_history.sql
 # Supabase real). Ejercitado por trigger-0722-156b-payment-exchange-rates.sql.
 run supabase/migrations/20260905172820_0722-156b_add_payment_exchange_rates.sql
 
-# 0722-156b (review iteración 6 #1 / iteración 8 #2 / iteración 9 #3 / iteración 12 #2):
+# 0722-156b (review iteración 6 #1 / iteración 8 #2 / iteración 9 #3 / iteración 12 #2 /
+# iteración 13 / iteración 14 #1): además del modelo de autorización del TC inicial
+# (solo el gerente del encargo o admin, con el token EXCHANGE_RATE_FORBIDDEN), agrega
+# trg_wo_payment_plan_sync_fixed_installments (AFTER UPDATE) -- cambiar el TC del plan
+# en modo Fijo no forzaba que las cuotas Pending ya guardadas lo siguieran; ahora se
+# re-sincronizan en cascada, en la misma transacción, sin depender de una 2da llamada
+# separada desde el frontend.
 # trg_wo_payment_plan_guard_exchange_rate solo corría BEFORE UPDATE -- un INSERT directo
 # podía crear un plan de pagos nuevo con TC/modo arbitrario para una OT ya aprobada o en
 # revisión, sin pasar por ninguna validación. Consolidada acá también la corrección de
@@ -188,12 +194,12 @@ run supabase/migrations/20260905172820_0722-156b_add_payment_exchange_rates.sql
 # trigger-0722-156b-payment-exchange-rates.sql (secciones agregadas al final).
 run supabase/migrations/20260908150000_0722-156b_plan_insert_guard.sql
 
-# 0722-156b (review iteración 12 #1): en modo fijo, el chequeo de aprobación de
-# wo_payment_installments_guard_exchange_rate solo se evaluaba en modo variable -- un
-# UPDATE directo podía poner cualquier valor en invoice_exchange_rate/
-# payment_exchange_rate de una cuota Pending en modo Fijo, rompiendo la garantía de que
-# toda cuota en Fijo refleja el TC del plan. Ejercitado por
-# trigger-0722-156b-payment-exchange-rates.sql (sección agregada al final).
+# 0722-156b (review iteración 12 #1 / iteración 13 / iteración 14 #2): en modo fijo, el
+# chequeo de coincidencia con el TC del plan solo se evaluaba en UPDATE, nunca en un
+# INSERT real de cuota -- corregido. También agrega el rol collections_analyst/admin
+# exigido para capturar TC por cuota en modo Variable (token EXCHANGE_RATE_FORBIDDEN).
+# Ejercitado por trigger-0722-156b-payment-exchange-rates.sql (secciones agregadas al
+# final).
 run supabase/migrations/20260910090000_0722-156b_fixed_mode_rate_guard.sql
 
 # society/practicas(code=1): staff.society_id/practica_id y categories.practica_id son NOT NULL

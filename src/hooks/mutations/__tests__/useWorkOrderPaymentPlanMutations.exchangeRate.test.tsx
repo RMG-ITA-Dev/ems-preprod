@@ -74,6 +74,26 @@ describe("useWorkOrderPaymentPlanMutations — exchange rate (0722-156b Fase 2)"
       await waitFor(() => expect(result.current.isError).toBe(true));
       expect(toast.error).toHaveBeenCalledWith("workOrders.paymentPlan.errorExchangeRateLocked");
     });
+
+    // Decision del operador 2026-09-10: wo_payment_plan_guard_exchange_rate (migracion
+    // 20260908150000) rechaza con este token si quien escribe no es el gerente del
+    // encargo ni admin -- distinto de EXCHANGE_RATE_LOCKED (momento/estado), este es
+    // sobre el rol de quien hace la llamada.
+    it("PEX2b: EXCHANGE_RATE_FORBIDDEN error shows the specific translated toast, not the generic handler", async () => {
+      const mockSingle = vi.fn().mockResolvedValue({
+        data: null,
+        error: { message: "EXCHANGE_RATE_FORBIDDEN: solo el gerente del encargo (o un administrador) puede modificar el tipo de cambio inicial del plan de pagos" },
+      });
+      const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
+      const mockUpsert = vi.fn().mockReturnValue({ select: mockSelect });
+      vi.mocked(supabase.from).mockReturnValue({ upsert: mockUpsert } as any);
+
+      const { result } = renderHook(() => useUpsertPaymentPlan(), { wrapper: createWrapper() });
+      result.current.mutate({ wo_id: "wo-1", exchange_rate: 7.0, payment_days: 30, exchange_rate_mode: "fijo" });
+
+      await waitFor(() => expect(result.current.isError).toBe(true));
+      expect(toast.error).toHaveBeenCalledWith("workOrders.paymentPlan.errorExchangeRateForbidden");
+    });
   });
 
   describe("useBatchUpsertInstallments", () => {

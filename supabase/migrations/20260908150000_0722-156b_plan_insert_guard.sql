@@ -51,6 +51,15 @@
 -- snapshot de auditoria del TC/modo ya congelado. Se agrega un branch TG_OP = 'DELETE'
 -- con el mismo criterio que el branch de INSERT (rechaza si la OT esta Approved o
 -- Pending_Approval); el trigger pasa a BEFORE INSERT OR UPDATE OR DELETE.
+--
+-- Decision del operador 2026-09-10: solo el gerente (manager_id) del encargo dueño de
+-- la OT -- o un admin -- puede crear el plan o modificar su TC inicial/modo. La policy
+-- RLS "Team can manage payment plans" autoriza a todo el equipo (manager_id O
+-- partner_id via is_engagement_team_member()), pero nunca distinguio entre ambos para
+-- esta accion en particular -- un socio (partner_id) podia tocar el TC igual que el
+-- gerente. Se agrega el chequeo de rol en el mismo trigger, en los 2 unicos puntos
+-- donde el TC/modo realmente cambia (creacion via INSERT, o el UPDATE que ya paso el
+-- early-return de "no cambio nada").
 
 CREATE OR REPLACE FUNCTION public.wo_payment_plan_guard_exchange_rate() RETURNS trigger
     LANGUAGE plpgsql SECURITY DEFINER
@@ -59,6 +68,7 @@ CREATE OR REPLACE FUNCTION public.wo_payment_plan_guard_exchange_rate() RETURNS 
 DECLARE
   v_approval_status text;
   v_has_locked_installment boolean;
+  v_is_manager_or_admin boolean;
 BEGIN
   IF TG_OP = 'DELETE' THEN
     SELECT approval_status INTO v_approval_status
@@ -81,6 +91,16 @@ BEGIN
       RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: no se puede crear un plan de pagos: la orden de trabajo ya fue aprobada o esta en revision';
     END IF;
 
+    SELECT is_admin() OR EXISTS (
+      SELECT 1 FROM public.work_orders wo
+      JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+      WHERE wo.wo_id = NEW.wo_id AND e.manager_id = get_my_staff_id()
+    ) INTO v_is_manager_or_admin;
+
+    IF NOT v_is_manager_or_admin THEN
+      RAISE EXCEPTION 'EXCHANGE_RATE_FORBIDDEN: solo el gerente del encargo (o un administrador) puede crear el plan de pagos y su tipo de cambio inicial';
+    END IF;
+
     RETURN NEW;
   END IF;
 
@@ -91,6 +111,16 @@ BEGIN
   IF NEW.exchange_rate IS NOT DISTINCT FROM OLD.exchange_rate
      AND NEW.exchange_rate_mode IS NOT DISTINCT FROM OLD.exchange_rate_mode THEN
     RETURN NEW;
+  END IF;
+
+  SELECT is_admin() OR EXISTS (
+    SELECT 1 FROM public.work_orders wo
+    JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+    WHERE wo.wo_id = NEW.wo_id AND e.manager_id = get_my_staff_id()
+  ) INTO v_is_manager_or_admin;
+
+  IF NOT v_is_manager_or_admin THEN
+    RAISE EXCEPTION 'EXCHANGE_RATE_FORBIDDEN: solo el gerente del encargo (o un administrador) puede modificar el tipo de cambio inicial del plan de pagos';
   END IF;
 
   SELECT approval_status INTO v_approval_status
@@ -117,6 +147,40 @@ $$;
 DROP TRIGGER IF EXISTS trg_wo_payment_plan_guard_exchange_rate ON public.wo_payment_plan;
 CREATE TRIGGER trg_wo_payment_plan_guard_exchange_rate BEFORE INSERT OR UPDATE OR DELETE ON public.wo_payment_plan
   FOR EACH ROW EXECUTE FUNCTION public.wo_payment_plan_guard_exchange_rate();
+
+-- MUST FIX review iteracion 14 #1: al cambiar el TC del plan en modo Fijo, nada forzaba
+-- que las cuotas 'Pending' ya guardadas siguieran al nuevo valor -- WorkOrderEdit.tsx
+-- guarda el plan y re-sincroniza las cuotas en 2 llamadas HTTP separadas
+-- (upsertPaymentPlan y despues batchUpsertInstallments/sync_wo_payment_installments); si
+-- la 1ra tiene exito y la 2da falla, el plan queda con un TC nuevo mientras sus cuotas
+-- siguen con el viejo, violando la garantia central de "Fijo" (toda cuota debe reflejar
+-- el TC del plan). Un AFTER UPDATE en la misma tabla/transaccion que ya escribe el TC
+-- nuevo es atomico con ese UPDATE (misma transaccion, MVCC ve el valor ya escrito) --
+-- no requiere ningun cambio en el frontend ni en sync_wo_payment_installments.
+CREATE OR REPLACE FUNCTION public.wo_payment_plan_sync_fixed_installments() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF NEW.exchange_rate_mode = 'fijo' AND NEW.exchange_rate IS NOT NULL AND (
+    NEW.exchange_rate IS DISTINCT FROM OLD.exchange_rate
+    OR NEW.exchange_rate_mode IS DISTINCT FROM OLD.exchange_rate_mode
+  ) THEN
+    UPDATE public.wo_payment_installments
+    SET invoice_exchange_rate = NEW.exchange_rate,
+        payment_exchange_rate = NEW.exchange_rate
+    WHERE plan_id = NEW.plan_id
+      AND status = 'Pending'
+      AND (invoice_exchange_rate IS DISTINCT FROM NEW.exchange_rate
+           OR payment_exchange_rate IS DISTINCT FROM NEW.exchange_rate);
+  END IF;
+  RETURN NULL;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_wo_payment_plan_sync_fixed_installments ON public.wo_payment_plan;
+CREATE TRIGGER trg_wo_payment_plan_sync_fixed_installments AFTER UPDATE ON public.wo_payment_plan
+  FOR EACH ROW EXECUTE FUNCTION public.wo_payment_plan_sync_fixed_installments();
 
 -- MUST FIX review iteracion 9 #3: sync_wo_payment_installments validaba (desde
 -- Iteracion 5 #1) que un installment_id EXISTENTE recibido en el payload perteneciera a

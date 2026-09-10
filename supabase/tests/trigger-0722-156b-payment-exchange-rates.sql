@@ -4,8 +4,11 @@
 -- disposable scratch database, AFTER 20260905172820_0722-156b_add_payment_exchange_rates.sql
 -- (and Fase 1's 20260905070913) have been applied. Single transaction, ALWAYS rolls back.
 --
--- Under test (both triggers are plain BEFORE UPDATE guards, unrelated to RLS, so this
--- suite runs as the default session role — no persona impersonation needed):
+-- Under test (ambos triggers son guards BEFORE INSERT/UPDATE/DELETE, ajenos a RLS --
+-- MUST FIX review iteracion 13, 2026-09-10: 2 de esos chequeos SI dependen de
+-- auth.uid()/current_role_key(), asi que el archivo impersona ADMIN por defecto desde
+-- temprano y solo cambia de persona puntualmente en la seccion final de rol; ver ese
+-- bloque para el detalle):
 --   - CHECK constraints: exchange_rate_mode IN ('fijo','variable'); invoice/payment_
 --     exchange_rate NULL or > 0.
 --   - Backfill statement (re-run verbatim here against fixtures inserted to look like
@@ -42,6 +45,50 @@ VALUES ('50c00000-0000-4000-8000-0000000000c1', 'PER Test Society');
 
 INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id) VALUES
   ('c1000000-0000-4000-8000-0000000000c1', 'PER Test Client', 'PER-TAX-001');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- MUST FIX review iteracion 13 (decision del operador 2026-09-10): a diferencia del
+-- resto de este archivo (freezes por status/aprobacion, sin rol -- ver comentario del
+-- encabezado, ahora desactualizado en ese punto), 2 chequeos nuevos SI dependen de
+-- auth.uid()/current_role_key(): wo_payment_plan_guard_exchange_rate (TC inicial:
+-- solo el gerente del encargo o admin) y wo_payment_installments_guard_exchange_rate
+-- (TC por cuota en modo Variable: solo collections_analyst o admin). Se impersona
+-- ADMIN por defecto para el resto del archivo (bypassa ambos chequeos nuevos, igual
+-- que ya bypassaba is_admin() en cualquier otro lado) para que las fixtures ya
+-- existentes sigan pasando sin cambios; la seccion nueva al final del archivo cambia
+-- de persona puntualmente para probar el rechazo/aceptacion por rol, y vuelve a admin
+-- despues de cada caso.
+-- ══════════════════════════════════════════════════════════════════════
+
+CREATE FUNCTION pg_temp.impersonate(p_sub uuid) RETURNS void
+LANGUAGE sql AS $$
+  SELECT set_config('request.jwt.claims', json_build_object('sub', p_sub, 'role', 'authenticated')::text, true)
+$$;
+
+INSERT INTO auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at, raw_app_meta_data, raw_user_meta_data) VALUES
+  ('a1c00000-0000-4000-8000-0000000000e1', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'per-admin@test.local',        '', now(), now(), now(), '{}', '{}'),
+  ('a1c00000-0000-4000-8000-0000000000e2', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'per-manager@test.local',      '', now(), now(), now(), '{}', '{}'),
+  ('a1c00000-0000-4000-8000-0000000000e3', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'per-collections@test.local',  '', now(), now(), now(), '{}', '{}'),
+  ('a1c00000-0000-4000-8000-0000000000e4', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'per-unauthorized@test.local', '', now(), now(), now(), '{}', '{}');
+
+INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, is_active, practica_id, society_id) VALUES
+  ('51c00000-0000-4000-8000-0000000000e1', 'a1c00000-0000-4000-8000-0000000000e1', 'PER', 'Admin',        true, (SELECT practica_id FROM public.practicas WHERE code = 1), '50c00000-0000-4000-8000-0000000000c1'),
+  ('51c00000-0000-4000-8000-0000000000e2', 'a1c00000-0000-4000-8000-0000000000e2', 'PER', 'Manager',      true, (SELECT practica_id FROM public.practicas WHERE code = 1), '50c00000-0000-4000-8000-0000000000c1'),
+  ('51c00000-0000-4000-8000-0000000000e3', 'a1c00000-0000-4000-8000-0000000000e3', 'PER', 'Collections',  true, (SELECT practica_id FROM public.practicas WHERE code = 1), '50c00000-0000-4000-8000-0000000000c1'),
+  ('51c00000-0000-4000-8000-0000000000e4', 'a1c00000-0000-4000-8000-0000000000e4', 'PER', 'Unauthorized', true, (SELECT practica_id FROM public.practicas WHERE code = 1), '50c00000-0000-4000-8000-0000000000c1');
+
+-- role = legacy app_role (is_admin() lo exige para la persona admin); role_key = nuevo
+-- catalogo (current_role_key() lo usa para collections_analyst). manager/partner no
+-- necesitan role_key para los chequeos de esta suite (el de gerente compara staff_id
+-- contra engagements.manager_id directamente), pero se les asigna uno igual de forma
+-- realista.
+INSERT INTO public.user_roles (user_id, role, role_key) VALUES
+  ('a1c00000-0000-4000-8000-0000000000e1', 'admin', 'admin'),
+  ('a1c00000-0000-4000-8000-0000000000e2', 'staff', 'manager'),
+  ('a1c00000-0000-4000-8000-0000000000e3', 'staff', 'collections_analyst'),
+  ('a1c00000-0000-4000-8000-0000000000e4', 'staff', 'partner');
+
+SELECT pg_temp.impersonate('a1c00000-0000-4000-8000-0000000000e1'); -- ADMIN por defecto
 
 -- E1/WO1: Draft, modo Fijo (plan/mode still editable, resync SIN exigir OT Approved).
 -- E2/WO2: Approved, modo Variable (plan/mode frozen; captura por cuota recien se habilita aca).
@@ -1212,6 +1259,253 @@ BEGIN
   RAISE NOTICE 'PASS — DELETE directo del plan de una OT Draft (nunca aprobada) sigue permitido';
 
   RAISE NOTICE 'PLAN DELETE GUARD (camino feliz Draft): ALL CHECKS PASSED (rolled back)';
+END $$;
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Iteracion 13 (2026-09-10) — decision del operador: el TC inicial del plan de pagos
+-- (exchange_rate/exchange_rate_mode) queda reservado al gerente DEL encargo (o admin)
+-- -- un socio o cualquier otro rol ya no puede tocarlo, ni siquiera con la OT en Draft.
+-- Fixture propio (E14/WO14): OT Draft cuyo engagement tiene manager_id = la persona
+-- "manager" impersonada arriba.
+-- ══════════════════════════════════════════════════════════════════════
+
+INSERT INTO public.engagements (engagement_id, client_id, engagement_name, practica, fecha_cierre, society_id, manager_id) VALUES
+  ('e0000000-0000-4000-8000-0000000000ce', 'c1000000-0000-4000-8000-0000000000c1', 'PER E14 (Draft WO, TC inicial solo gerente)', 1, '2026-09-30', (SELECT society_id FROM public.society WHERE society_id = '50c00000-0000-4000-8000-0000000000c1'), '51c00000-0000-4000-8000-0000000000e2');
+
+INSERT INTO public.work_orders (wo_id, engagement_id, currency, season_mode, approval_status) VALUES
+  ('40000000-0000-4000-8000-0000000000ce', 'e0000000-0000-4000-8000-0000000000ce', 'USD', 'High', 'Draft');
+
+DO $$
+DECLARE
+  v_plan_c14 uuid;
+  denied boolean;
+BEGIN
+  -- Paso 1: alguien SIN relacion con el encargo (ni gerente ni admin) no puede crear el plan.
+  PERFORM pg_temp.impersonate('a1c00000-0000-4000-8000-0000000000e4'); -- unauthorized
+  denied := false;
+  BEGIN
+    INSERT INTO public.wo_payment_plan (wo_id, exchange_rate, exchange_rate_mode)
+    VALUES ('40000000-0000-4000-8000-0000000000ce', 6.96, 'fijo');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'EXCHANGE_RATE_FORBIDDEN%' THEN
+      denied := true;
+    ELSE
+      RAISE;
+    END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'PER FAIL — alguien sin relacion con el encargo pudo crear el plan de pagos';
+  END IF;
+  RAISE NOTICE 'PASS — crear el plan es rechazado (EXCHANGE_RATE_FORBIDDEN) para quien no es el gerente del encargo ni admin';
+
+  IF EXISTS (SELECT 1 FROM public.wo_payment_plan WHERE wo_id = '40000000-0000-4000-8000-0000000000ce') THEN
+    RAISE EXCEPTION 'PER FAIL — el plan rechazado igual quedo insertado';
+  END IF;
+
+  -- Paso 2: el gerente DEL encargo si puede crearlo.
+  PERFORM pg_temp.impersonate('a1c00000-0000-4000-8000-0000000000e2'); -- manager (dueño del encargo)
+  INSERT INTO public.wo_payment_plan (wo_id, exchange_rate, exchange_rate_mode)
+  VALUES ('40000000-0000-4000-8000-0000000000ce', 6.96, 'fijo')
+  RETURNING plan_id INTO v_plan_c14;
+  RAISE NOTICE 'PASS — el gerente del encargo puede crear el plan de pagos y su TC inicial';
+
+  -- Paso 3: una vez creado, ese mismo no-relacionado tampoco puede editar el TC.
+  PERFORM pg_temp.impersonate('a1c00000-0000-4000-8000-0000000000e4'); -- unauthorized
+  denied := false;
+  BEGIN
+    UPDATE public.wo_payment_plan SET exchange_rate = 7.50 WHERE plan_id = v_plan_c14;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'EXCHANGE_RATE_FORBIDDEN%' THEN
+      denied := true;
+    ELSE
+      RAISE;
+    END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'PER FAIL — alguien sin relacion con el encargo pudo modificar el TC inicial ya creado';
+  END IF;
+  RAISE NOTICE 'PASS — modificar el TC inicial ya creado tambien es rechazado (EXCHANGE_RATE_FORBIDDEN) para quien no es el gerente ni admin';
+
+  IF (SELECT exchange_rate FROM public.wo_payment_plan WHERE plan_id = v_plan_c14) <> 6.96 THEN
+    RAISE EXCEPTION 'PER FAIL — el TC inicial cambio pese al rechazo';
+  END IF;
+
+  -- Paso 4: el gerente si puede editarlo.
+  PERFORM pg_temp.impersonate('a1c00000-0000-4000-8000-0000000000e2'); -- manager
+  UPDATE public.wo_payment_plan SET exchange_rate = 7.50 WHERE plan_id = v_plan_c14;
+  IF (SELECT exchange_rate FROM public.wo_payment_plan WHERE plan_id = v_plan_c14) <> 7.50 THEN
+    RAISE EXCEPTION 'PER FAIL — el gerente del encargo no pudo modificar el TC inicial';
+  END IF;
+  RAISE NOTICE 'PASS — el gerente del encargo puede modificar el TC inicial ya creado';
+
+  PERFORM pg_temp.impersonate('a1c00000-0000-4000-8000-0000000000e1'); -- vuelve a admin
+  RAISE NOTICE 'PLAN TC INICIAL — SOLO GERENTE DEL ENCARGO: ALL CHECKS PASSED (rolled back)';
+END $$;
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Iteracion 13 (2026-09-10) — decision del operador: la captura de TC por cuota en
+-- modo Variable (una vez Aprobada la OT) queda reservada a collections_analyst (o
+-- admin) -- "el departamento de contabilidad". Ni el gerente del encargo ni ningun
+-- otro rol pueden capturarla, aunque si puedan tocar el TC inicial del plan.
+-- Fixture propio (E15/WO15): OT Approved, plan Variable, 1 cuota Pending (TC nulo).
+-- ══════════════════════════════════════════════════════════════════════
+
+INSERT INTO public.engagements (engagement_id, client_id, engagement_name, practica, fecha_cierre, society_id, manager_id) VALUES
+  ('e0000000-0000-4000-8000-0000000000cf', 'c1000000-0000-4000-8000-0000000000c1', 'PER E15 (Approved WO, TC por cuota solo contabilidad)', 1, '2026-09-30', (SELECT society_id FROM public.society WHERE society_id = '50c00000-0000-4000-8000-0000000000c1'), '51c00000-0000-4000-8000-0000000000e2');
+
+INSERT INTO public.work_orders (wo_id, engagement_id, currency, season_mode, approval_status) VALUES
+  ('40000000-0000-4000-8000-0000000000cf', 'e0000000-0000-4000-8000-0000000000cf', 'USD', 'High', 'Draft');
+
+DO $$
+DECLARE
+  v_plan_c15 uuid;
+  v_inst_c15 uuid;
+  denied boolean;
+BEGIN
+  -- Plan + cuota se crean en Draft (como admin, ya impersonado), la OT se aprueba despues
+  -- -- misma secuencia real que el resto del archivo.
+  INSERT INTO public.wo_payment_plan (wo_id, exchange_rate, exchange_rate_mode)
+  VALUES ('40000000-0000-4000-8000-0000000000cf', 6.96, 'variable')
+  RETURNING plan_id INTO v_plan_c15;
+
+  INSERT INTO public.wo_payment_installments
+    (plan_id, wo_id, installment_number, percentage, amount, status)
+  VALUES (v_plan_c15, '40000000-0000-4000-8000-0000000000cf', 1, 100, 1000, 'Pending')
+  RETURNING installment_id INTO v_inst_c15;
+
+  UPDATE public.work_orders SET approval_status = 'Approved' WHERE wo_id = '40000000-0000-4000-8000-0000000000cf';
+
+  -- Paso 1: alguien sin relacion con el encargo no puede capturar el TC de facturacion.
+  PERFORM pg_temp.impersonate('a1c00000-0000-4000-8000-0000000000e4'); -- unauthorized
+  denied := false;
+  BEGIN
+    UPDATE public.wo_payment_installments SET invoice_exchange_rate = 6.99 WHERE installment_id = v_inst_c15;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'EXCHANGE_RATE_FORBIDDEN%' THEN
+      denied := true;
+    ELSE
+      RAISE;
+    END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'PER FAIL — alguien sin relacion con el encargo pudo capturar el TC de facturacion por cuota';
+  END IF;
+  RAISE NOTICE 'PASS — capturar el TC de facturacion por cuota es rechazado (EXCHANGE_RATE_FORBIDDEN) para quien no es contabilidad ni admin';
+
+  -- Paso 2: ni siquiera el gerente DEL encargo puede -- este permiso es exclusivo de
+  -- contabilidad, no del equipo del encargo.
+  PERFORM pg_temp.impersonate('a1c00000-0000-4000-8000-0000000000e2'); -- manager (dueño del encargo)
+  denied := false;
+  BEGIN
+    UPDATE public.wo_payment_installments SET invoice_exchange_rate = 6.99 WHERE installment_id = v_inst_c15;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'EXCHANGE_RATE_FORBIDDEN%' THEN
+      denied := true;
+    ELSE
+      RAISE;
+    END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'PER FAIL — el gerente del encargo (sin ser contabilidad) pudo capturar el TC de facturacion por cuota';
+  END IF;
+  RAISE NOTICE 'PASS — ni siquiera el gerente del encargo puede capturar el TC por cuota (rol exclusivo de contabilidad)';
+
+  IF (SELECT invoice_exchange_rate FROM public.wo_payment_installments WHERE installment_id = v_inst_c15) IS NOT NULL THEN
+    RAISE EXCEPTION 'PER FAIL — invoice_exchange_rate cambio pese a los 2 rechazos';
+  END IF;
+
+  -- Paso 3: collections_analyst si puede.
+  PERFORM pg_temp.impersonate('a1c00000-0000-4000-8000-0000000000e3'); -- collections_analyst
+  UPDATE public.wo_payment_installments SET invoice_exchange_rate = 6.99 WHERE installment_id = v_inst_c15;
+  IF (SELECT invoice_exchange_rate FROM public.wo_payment_installments WHERE installment_id = v_inst_c15) <> 6.99 THEN
+    RAISE EXCEPTION 'PER FAIL — collections_analyst no pudo capturar el TC de facturacion por cuota';
+  END IF;
+  RAISE NOTICE 'PASS — collections_analyst puede capturar el TC de facturacion por cuota';
+
+  PERFORM pg_temp.impersonate('a1c00000-0000-4000-8000-0000000000e1'); -- vuelve a admin
+  RAISE NOTICE 'TC POR CUOTA — SOLO CONTABILIDAD: ALL CHECKS PASSED (rolled back)';
+END $$;
+
+-- ══════════════════════════════════════════════════════════════════════
+-- MUST FIX 0722-156b review iteracion 14 #1 — migracion 20260908150000
+-- (trg_wo_payment_plan_sync_fixed_installments, AFTER UPDATE):
+--   cambiar el TC del plan en modo Fijo no forzaba que las cuotas Pending ya guardadas
+--   siguieran al nuevo valor -- riesgo real si el guardado de la app falla a mitad de
+--   camino (2 llamadas HTTP separadas: plan primero, cuotas despues).
+-- MUST FIX 0722-156b review iteracion 14 #2 — migracion 20260910090000: el chequeo de
+--   coincidencia en modo Fijo solo se evaluaba en UPDATE, nunca en un INSERT real.
+-- Fixture propio (E16/WO16): OT Draft, plan Fijo (TC 6.96), 2 cuotas Pending.
+-- ══════════════════════════════════════════════════════════════════════
+
+INSERT INTO public.engagements (engagement_id, client_id, engagement_name, practica, fecha_cierre, society_id) VALUES
+  ('e0000000-0000-4000-8000-0000000000d0', 'c1000000-0000-4000-8000-0000000000c1', 'PER E16 (Fijo, cascada de re-sync + guard de INSERT)', 1, '2026-09-30', (SELECT society_id FROM public.society WHERE society_id = '50c00000-0000-4000-8000-0000000000c1'));
+
+INSERT INTO public.work_orders (wo_id, engagement_id, currency, season_mode, approval_status) VALUES
+  ('40000000-0000-4000-8000-0000000000d0', 'e0000000-0000-4000-8000-0000000000d0', 'USD', 'High', 'Draft');
+
+DO $$
+DECLARE
+  v_plan_c16 uuid;
+  v_inst1_c16 uuid;
+  v_inst2_c16 uuid;
+  denied boolean;
+BEGIN
+  INSERT INTO public.wo_payment_plan (wo_id, exchange_rate, exchange_rate_mode)
+  VALUES ('40000000-0000-4000-8000-0000000000d0', 6.96, 'fijo')
+  RETURNING plan_id INTO v_plan_c16;
+
+  INSERT INTO public.wo_payment_installments
+    (plan_id, wo_id, installment_number, percentage, amount, status, invoice_exchange_rate, payment_exchange_rate)
+  VALUES (v_plan_c16, '40000000-0000-4000-8000-0000000000d0', 1, 50, 500, 'Pending', 6.96, 6.96)
+  RETURNING installment_id INTO v_inst1_c16;
+
+  INSERT INTO public.wo_payment_installments
+    (plan_id, wo_id, installment_number, percentage, amount, status, invoice_exchange_rate, payment_exchange_rate)
+  VALUES (v_plan_c16, '40000000-0000-4000-8000-0000000000d0', 2, 50, 500, 'Pending', 6.96, 6.96)
+  RETURNING installment_id INTO v_inst2_c16;
+
+  -- #2: INSERT directo de una cuota nueva con un TC distinto al del plan, en modo Fijo,
+  -- debe rechazarse igual que ya rechaza un UPDATE (Iteracion 12 #1).
+  denied := false;
+  BEGIN
+    INSERT INTO public.wo_payment_installments
+      (plan_id, wo_id, installment_number, percentage, amount, status, invoice_exchange_rate, payment_exchange_rate)
+    VALUES (v_plan_c16, '40000000-0000-4000-8000-0000000000d0', 3, 0, 0, 'Pending', 9.99, 9.99);
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'EXCHANGE_RATE_LOCKED%' THEN
+      denied := true;
+    ELSE
+      RAISE;
+    END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'PER FAIL — un INSERT directo pudo crear una cuota con un TC distinto al del plan en modo Fijo';
+  END IF;
+  RAISE NOTICE 'PASS — INSERT directo con TC distinto al del plan en modo Fijo es rechazado (EXCHANGE_RATE_LOCKED)';
+
+  -- Camino feliz: un INSERT con el mismo TC del plan (lo que la app realmente hace via
+  -- sync_wo_payment_installments al agregar una cuota) sigue permitido.
+  INSERT INTO public.wo_payment_installments
+    (plan_id, wo_id, installment_number, percentage, amount, status, invoice_exchange_rate, payment_exchange_rate)
+  VALUES (v_plan_c16, '40000000-0000-4000-8000-0000000000d0', 3, 0, 0, 'Pending', 6.96, 6.96);
+  RAISE NOTICE 'PASS — INSERT con el mismo TC del plan en modo Fijo sigue permitido';
+
+  -- #1: cambiar el TC del plan debe re-sincronizar en cascada, en la MISMA transaccion,
+  -- las 2 cuotas Pending que ya tenian el TC viejo -- sin ningun UPDATE adicional sobre
+  -- wo_payment_installments.
+  UPDATE public.wo_payment_plan SET exchange_rate = 7.25 WHERE plan_id = v_plan_c16;
+
+  IF (SELECT invoice_exchange_rate FROM public.wo_payment_installments WHERE installment_id = v_inst1_c16) <> 7.25
+     OR (SELECT payment_exchange_rate FROM public.wo_payment_installments WHERE installment_id = v_inst1_c16) <> 7.25 THEN
+    RAISE EXCEPTION 'PER FAIL — cambiar el TC del plan no re-sincronizo la cuota 1 (Pending) en la misma transaccion';
+  END IF;
+  IF (SELECT invoice_exchange_rate FROM public.wo_payment_installments WHERE installment_id = v_inst2_c16) <> 7.25
+     OR (SELECT payment_exchange_rate FROM public.wo_payment_installments WHERE installment_id = v_inst2_c16) <> 7.25 THEN
+    RAISE EXCEPTION 'PER FAIL — cambiar el TC del plan no re-sincronizo la cuota 2 (Pending) en la misma transaccion';
+  END IF;
+  RAISE NOTICE 'PASS — cambiar el TC del plan en modo Fijo re-sincroniza en cascada, atomicamente, todas las cuotas Pending';
+
+  RAISE NOTICE 'PLAN FIJO — CASCADA DE RE-SYNC + GUARD DE INSERT: ALL CHECKS PASSED (rolled back)';
 END $$;
 
 ROLLBACK;

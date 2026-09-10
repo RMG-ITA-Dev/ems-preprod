@@ -1418,6 +1418,7 @@
       "paymentAmountBob": "≈ {{value}}",
       "errorExchangeRateLocked": "Este tipo de cambio ya está congelado y no puede modificarse.",
       "errorInstallmentLocked": "Esta cuota ya fue facturada y no puede modificarse ni eliminarse.",
+      "errorExchangeRateForbidden": "No tenés permiso para modificar este tipo de cambio.",
       "validationCannotRemoveInvoiced": "Esta cuota ya fue facturada y no puede modificarse ni eliminarse.",
       "paymentDays": "Días Hábiles de Pago",
       "numInstallments": "Número de Cuotas",

@@ -117,6 +117,13 @@ const WorkOrderNew = () => {
 
   const selectedEngagement = availableEngagements?.find((e) => e.engagement_id === selectedEngagementId);
 
+  // Decision del operador 2026-09-10: el TC inicial del plan de pagos y el toggle
+  // Fijo/Variable quedan reservados solo al gerente DEL encargo (o admin) -- mismo
+  // criterio y mismo trigger de base de datos (wo_payment_plan_guard_exchange_rate)
+  // que WorkOrderEdit.tsx aplica para una OT existente.
+  const isEngagementManager = !!staffId && selectedEngagement?.manager_id === staffId;
+  const canEditCreationExchangeRate = isAdmin || isEngagementManager;
+
   // Check if selected engagement has a worksheet
   const { data: existingWorksheet } = useWorksheetByEngagementId(selectedEngagementId || undefined);
 
@@ -376,6 +383,7 @@ const WorkOrderNew = () => {
             // Draft, asi que nunca son editables aca (evita ademas depender de un boton
             // "Guardar" que WorkOrderForm no ofrece fuera de Draft/socioCorrecting).
             isStatusEditable={false}
+            canEditCreationExchangeRate={canEditCreationExchangeRate}
             onPaymentPlanChange={setPaymentPlan}
             onPaymentInstallmentsChange={setPaymentInstallments}
           />

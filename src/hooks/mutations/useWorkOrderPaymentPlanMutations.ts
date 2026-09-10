@@ -17,6 +17,12 @@ const EXCHANGE_RATE_LOCKED_TOKEN = "EXCHANGE_RATE_LOCKED";
 // el guard de percentage/amount/installment_number en trg_wo_payment_installments_
 // guard_exchange_rate rechazan tocar una cuota ya facturada con este mismo token.
 const INSTALLMENT_LOCKED_TOKEN = "INSTALLMENT_LOCKED";
+// Decision del operador 2026-09-10: el TC inicial (solo gerente del encargo o admin,
+// migracion 20260908150000) y la captura por cuota en modo Variable (solo
+// collections_analyst o admin, migracion 20260910090000) rechazan con este token
+// cuando quien escribe no tiene el rol correcto — distinto de "LOCKED" (que es sobre
+// el momento/estado), este es sobre quién puede hacerlo.
+const EXCHANGE_RATE_FORBIDDEN_TOKEN = "EXCHANGE_RATE_FORBIDDEN";
 
 function errorMessageOf(error: unknown): string {
   return error instanceof Error
@@ -34,6 +40,10 @@ function isInstallmentLockedError(error: unknown): boolean {
   return errorMessageOf(error).includes(INSTALLMENT_LOCKED_TOKEN);
 }
 
+function isExchangeRateForbiddenError(error: unknown): boolean {
+  return errorMessageOf(error).includes(EXCHANGE_RATE_FORBIDDEN_TOKEN);
+}
+
 function handlePaymentPlanError(error: unknown, operation: string): void {
   if (isExchangeRateLockedError(error)) {
     toast.error(i18n.t("workOrders.paymentPlan.errorExchangeRateLocked"));
@@ -41,6 +51,10 @@ function handlePaymentPlanError(error: unknown, operation: string): void {
   }
   if (isInstallmentLockedError(error)) {
     toast.error(i18n.t("workOrders.paymentPlan.errorInstallmentLocked"));
+    return;
+  }
+  if (isExchangeRateForbiddenError(error)) {
+    toast.error(i18n.t("workOrders.paymentPlan.errorExchangeRateForbidden"));
     return;
   }
   handleError(error, {

@@ -18,6 +18,23 @@
 -- Fix: ademas del chequeo ya existente para modo variable, exigir en modo fijo que el
 -- valor nuevo coincida exactamente con el TC vigente del plan (wo_payment_plan.
 -- exchange_rate) -- en Fijo nunca existe una captura independiente por cuota.
+--
+-- Decision del operador 2026-09-10: la captura independiente por cuota (solo existe en
+-- modo Variable, una vez aprobada la OT) queda reservada a collections_analyst (o
+-- admin) -- "el departamento de contabilidad". En modo Fijo el valor nunca es una
+-- captura independiente (es un espejo automatico del TC del plan, ya resincronizado
+-- por el propio gerente al editar el plan), asi que ese caso NO exige este rol -- solo
+-- el chequeo de coincidencia con el TC del plan de mas arriba.
+--
+-- MUST FIX review iteracion 14 #2: el chequeo de coincidencia en modo Fijo de arriba
+-- solo se agrego en la ruta de UPDATE -- el branch de INSERT (mas abajo) solo validaba
+-- status = 'Pending', nunca el TC, dejando el mismo bypass abierto para un INSERT
+-- directo de una cuota nueva con un TC arbitrario. Nota: NO se agrega una restriccion
+-- equivalente para modo Variable en INSERT -- verificado contra
+-- handleNumInstallmentsChange (WorkOrderPaymentPlanSection.tsx) que una cuota nueva en
+-- modo Variable SI se inserta legitimamente con un TC no nulo (initialRate =
+-- latestBuyRate), consistente con que invoice_exchange_rate es capturable desde
+-- 'Pending' en Variable (Decision #4) -- restringir el INSERT ahi romperia ese flujo.
 
 CREATE OR REPLACE FUNCTION public.wo_payment_installments_guard_exchange_rate() RETURNS trigger
     LANGUAGE plpgsql SECURITY DEFINER
@@ -28,6 +45,7 @@ DECLARE
   v_exchange_rate_mode text;
   v_plan_exchange_rate numeric;
   v_legal_transition boolean;
+  v_is_accounting_or_admin boolean;
 BEGIN
   IF TG_OP = 'INSERT' THEN
     IF EXISTS (SELECT 1 FROM public.wo_payment_installments WHERE installment_id = NEW.installment_id) THEN
@@ -39,6 +57,19 @@ BEGIN
     IF NEW.status <> 'Pending' THEN
       RAISE EXCEPTION 'INSTALLMENT_LOCKED: una cuota nueva debe crearse en estado Pending';
     END IF;
+
+    SELECT p.exchange_rate_mode, p.exchange_rate
+    INTO v_exchange_rate_mode, v_plan_exchange_rate
+    FROM public.wo_payment_plan p
+    WHERE p.wo_id = NEW.wo_id;
+
+    IF v_exchange_rate_mode = 'fijo' AND (
+      NEW.invoice_exchange_rate IS DISTINCT FROM v_plan_exchange_rate
+      OR NEW.payment_exchange_rate IS DISTINCT FROM v_plan_exchange_rate
+    ) THEN
+      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: en modo fijo, el tipo de cambio de una cuota nueva debe coincidir con el del plan';
+    END IF;
+
     RETURN NEW;
   END IF;
 
@@ -81,8 +112,14 @@ BEGIN
     IF OLD.status <> 'Pending' THEN
       RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de facturacion de esta cuota ya esta congelado';
     END IF;
-    IF v_exchange_rate_mode = 'variable' AND v_approval_status IS DISTINCT FROM 'Approved' THEN
-      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de facturacion solo puede capturarse una vez que la orden de trabajo fue aprobada';
+    IF v_exchange_rate_mode = 'variable' THEN
+      IF v_approval_status IS DISTINCT FROM 'Approved' THEN
+        RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de facturacion solo puede capturarse una vez que la orden de trabajo fue aprobada';
+      END IF;
+      SELECT is_admin() OR COALESCE(current_role_key() = 'collections_analyst', false) INTO v_is_accounting_or_admin;
+      IF NOT v_is_accounting_or_admin THEN
+        RAISE EXCEPTION 'EXCHANGE_RATE_FORBIDDEN: solo contabilidad (o un administrador) puede capturar el tipo de cambio de facturacion por cuota';
+      END IF;
     END IF;
     IF v_exchange_rate_mode = 'fijo' AND NEW.invoice_exchange_rate IS DISTINCT FROM v_plan_exchange_rate THEN
       RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: en modo fijo, el tipo de cambio de facturacion de la cuota debe coincidir con el del plan';
@@ -99,6 +136,10 @@ BEGIN
       END IF;
       IF v_approval_status IS DISTINCT FROM 'Approved' THEN
         RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de pago solo puede capturarse una vez que la orden de trabajo fue aprobada';
+      END IF;
+      SELECT is_admin() OR COALESCE(current_role_key() = 'collections_analyst', false) INTO v_is_accounting_or_admin;
+      IF NOT v_is_accounting_or_admin THEN
+        RAISE EXCEPTION 'EXCHANGE_RATE_FORBIDDEN: solo contabilidad (o un administrador) puede capturar el tipo de cambio de pago por cuota';
       END IF;
     END IF;
     IF v_exchange_rate_mode = 'fijo' AND NEW.payment_exchange_rate IS DISTINCT FROM v_plan_exchange_rate THEN
