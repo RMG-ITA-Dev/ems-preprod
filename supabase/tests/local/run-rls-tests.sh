@@ -167,7 +167,7 @@ run supabase/migrations/20260825000100_authz_restore_legacy_app_role_mapping.sql
 #                   (cuentas, personal y competencias), Clientes y Hojas de Trabajo. Sin los
 #                   tipos sembrados, notify_staff los descarta en silencio, asi que va
 #                   despues del seed.
-# Ejercitado por rpc-notificaciones-fase1.sql (los 17 grupos).
+# Ejercitado por rpc-notificaciones-fase1.sql (los 18 grupos).
 run supabase/migrations/20260911100000_notificaciones_01_catalogo.sql
 run supabase/migrations/20260911100100_notificaciones_02_seed.sql
 run supabase/migrations/20260911100200_notificaciones_03_disparadores.sql

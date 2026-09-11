@@ -27,6 +27,7 @@ const mockUseNotifications = vi.fn();
 vi.mock("@/hooks/useNotifications", () => ({
   useNotifications: () => mockUseNotifications(),
   useMarkNotificationsRead: () => ({ mutate: mockMarkRead }),
+  useDismissNotifications: () => ({ mutate: mockDismiss }),
 }));
 
 const mockUseStaffingAlerts = vi.fn();
@@ -35,6 +36,7 @@ vi.mock("@/hooks/useStaffingAlerts", () => ({
 }));
 
 const mockMarkRead = vi.fn();
+const mockDismiss = vi.fn();
 const mockMarkSeen = vi.fn();
 vi.mock("@/hooks/useMarkAlertsSeen", () => ({
   useMarkAlertsSeen: () => ({ mutate: mockMarkSeen }),
@@ -894,6 +896,19 @@ describe("NotificationsPanel - estado como badge y navegacion del evento", () =>
     await openPanel();
 
     expect(screen.getByText("Claude para Excel")).toBeInTheDocument();
+  });
+
+  it("la x descarta SOLO esa fila y no navega", async () => {
+    setup({ events: [fundEvent()], unread_count: 1 });
+    await openPanel();
+
+    const dismiss = screen.getByRole("button", { name: "notifications.dismiss" });
+    await userEvent.click(dismiss);
+
+    expect(mockDismiss).toHaveBeenCalledWith(["n1"]);
+    // El boton vive DENTRO del <Link>: si no cortara el click, descartar navegaria de paso
+    // y cerraria el panel.
+    expect(screen.getByText("notifications.title")).toBeInTheDocument();
   });
 
   it("el timer cerrado solo lleva a ESE registro del tracker (FASE 3.d)", async () => {

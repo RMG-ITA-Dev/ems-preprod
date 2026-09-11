@@ -1,4 +1,4 @@
--- Tests transaccionales del catálogo de notificaciones — Fases 1 a 3.h (17 grupos)
+-- Tests transaccionales del catálogo de notificaciones — Fases 1 a 3.h (18 grupos)
 -- (20260911100000_..._01_catalogo.sql + 20260911100100_..._02_seed.sql +
 --  20260911100200_..._03_disparadores.sql).
 --
@@ -2458,6 +2458,127 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL - un encargo finalizado recibio el aviso previo (hubo %)', v_n;
   END IF;
   RAISE NOTICE 'PASS - solo 7 y 1 dia, y solo sobre encargos vivos';
+
+END $$;
+
+-- -- Grupo 17 -- Descarte manual y retencion ----------------------------------
+-- Las dos vias por las que una notificacion deja de existir, y son complementarias: la "x"
+-- la borra el usuario cuando quiere, el cron borra lo que nadie descarto. Sin el cron, la
+-- tabla depende de que cada persona limpie; sin la "x", el usuario no puede sacarse de
+-- encima una fila que ya resolvio.
+DO $$
+DECLARE
+  v_mine  uuid;
+  v_other uuid;
+  v_n     int;
+  v_del   int;
+  c_mgr  constant uuid := '59f00000-0000-4000-8000-000000000002';  -- S_MGR
+  c_part constant uuid := '59f00000-0000-4000-8000-000000000004';  -- S_PARTNER
+BEGIN
+  PERFORM set_config('request.jwt.claims', '', true);
+  DELETE FROM public.notifications;
+
+  -- Una notificacion de cada uno, del mismo tipo.
+  v_mine  := public.notify_staff('wo.rejected_partner', c_mgr,  'wo-1', '{}'::jsonb);
+  v_other := public.notify_staff('wo.rejected_risk',    c_part, 'wo-1', '{}'::jsonb);
+  IF v_mine IS NULL OR v_other IS NULL THEN
+    RAISE EXCEPTION 'TEST FAIL - los fixtures del grupo no se crearon';
+  END IF;
+
+  -- 17.a El dueno descarta la suya: desaparece de verdad.
+  PERFORM pg_temp.impersonate('a9f00000-0000-4000-8000-000000000002');  -- S_MGR
+  v_del := public.dismiss_notifications(ARRAY[v_mine]);
+  IF v_del <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - dismiss_notifications borro % filas, se esperaba 1', v_del;
+  END IF;
+  SELECT COUNT(*) INTO v_n FROM public.notifications WHERE notification_id = v_mine;
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - la notificacion descartada sigue en la tabla';
+  END IF;
+  RAISE NOTICE 'PASS - la x borra la fila propia, y la borra de verdad';
+
+  -- 17.b Con el uuid de OTRO no pasa nada: el DELETE filtra por destinatario.
+  v_del := public.dismiss_notifications(ARRAY[v_other]);
+  IF v_del <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - se descarto la notificacion de otro (borro %)', v_del;
+  END IF;
+  SELECT COUNT(*) INTO v_n FROM public.notifications WHERE notification_id = v_other;
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - la notificacion ajena desaparecio';
+  END IF;
+  RAISE NOTICE 'PASS - pasar el uuid de otro no borra nada';
+
+  -- Y sin ids no rompe: el panel puede llamar con la lista vacia.
+  IF public.dismiss_notifications(ARRAY[]::uuid[]) <> 0
+     OR public.dismiss_notifications(NULL) <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - dismiss_notifications con lista vacia o NULL no devolvio 0';
+  END IF;
+  RAISE NOTICE 'PASS - descartar sin ids es un no-op, no un error';
+
+  -- 17.c Retencion: las ventanas son distintas para leidas y no leidas.
+  PERFORM set_config('request.jwt.claims', '', true);
+  DELETE FROM public.notifications;
+
+  INSERT INTO public.notifications (recipient_staff_id, type_key, created_at, read_at) VALUES
+    -- Leida y vieja (40 dias): se va, la ventana por defecto es 30.
+    (c_mgr, 'wo.rejected_partner', now() - interval '40 days', now() - interval '39 days'),
+    -- Leida y reciente (10 dias): se queda.
+    (c_mgr, 'wo.rejected_partner', now() - interval '10 days', now() - interval '9 days'),
+    -- SIN leer y de 40 dias: se queda. Todavia tiene algo que decir, y su ventana es 90.
+    (c_mgr, 'wo.rejected_partner', now() - interval '40 days', NULL),
+    -- SIN leer y de 100 dias: se va. A esa altura el hecho lo cuenta la pantalla del modulo.
+    (c_mgr, 'wo.rejected_partner', now() - interval '100 days', NULL);
+
+  v_del := public.purge_old_notifications();
+  IF v_del <> 2 THEN
+    RAISE EXCEPTION 'TEST FAIL - la retencion borro % filas, se esperaban 2', v_del;
+  END IF;
+  SELECT COUNT(*) INTO v_n FROM public.notifications;
+  IF v_n <> 2 THEN
+    RAISE EXCEPTION 'TEST FAIL - quedaron % filas tras la purga, se esperaban 2', v_n;
+  END IF;
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE read_at IS NULL AND created_at < now() - interval '30 days';
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - la purga se llevo una no leida dentro de su ventana';
+  END IF;
+  RAISE NOTICE 'PASS - retencion: 30 dias para las leidas, 90 para las que nadie miro';
+
+  -- 17.d Las ventanas salen de global_settings, y un valor invertido no borra de mas.
+  UPDATE public.global_settings SET setting_value = '60'
+   WHERE setting_key = 'NOTIF_RETENTION_READ_DAYS';
+  UPDATE public.global_settings SET setting_value = '5'
+   WHERE setting_key = 'NOTIF_RETENTION_UNREAD_DAYS';
+
+  DELETE FROM public.notifications;
+  INSERT INTO public.notifications (recipient_staff_id, type_key, created_at, read_at) VALUES
+    -- Leida de 40 dias: con la ventana en 60 ahora SOBREVIVE.
+    (c_mgr, 'wo.rejected_partner', now() - interval '40 days', now() - interval '39 days'),
+    -- Sin leer de 40 dias: la ventana invertida (5) NO puede borrarla, porque una no leida
+    -- nunca vive menos que una leida.
+    (c_mgr, 'wo.rejected_partner', now() - interval '40 days', NULL);
+
+  v_del := public.purge_old_notifications();
+  IF v_del <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - con las ventanas invertidas la purga borro % filas', v_del;
+  END IF;
+  RAISE NOTICE 'PASS - las ventanas son configurables y la invertida no borra de mas';
+
+  -- Un valor basura cae al default en vez de romper el cron.
+  UPDATE public.global_settings SET setting_value = 'treinta'
+   WHERE setting_key = 'NOTIF_RETENTION_READ_DAYS';
+  UPDATE public.global_settings SET setting_value = ''
+   WHERE setting_key = 'NOTIF_RETENTION_UNREAD_DAYS';
+
+  DELETE FROM public.notifications;
+  INSERT INTO public.notifications (recipient_staff_id, type_key, created_at, read_at)
+  VALUES (c_mgr, 'wo.rejected_partner', now() - interval '40 days', now() - interval '39 days');
+
+  v_del := public.purge_old_notifications();
+  IF v_del <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - con un valor no numerico la purga no cayo al default de 30 dias';
+  END IF;
+  RAISE NOTICE 'PASS - un valor mal tipeado cae al default y no rompe el cron';
 
   RAISE NOTICE 'NOTIFICACIONES FASE 1: ALL CHECKS PASSED (rolled back)';
 END $$;

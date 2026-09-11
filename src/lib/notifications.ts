@@ -208,11 +208,16 @@ export const PENDING_ALARMS: readonly AlarmSpec[] = [
   // FASE 3.d — capacitacion. Va ultimo: es la cola de UN area (ADM y Talento Humano), no
   // algo del usuario, y no compite en criticidad con lo propio.
   //
-  // Ojo con el permiso: hr_manager/hr_analyst NO tienen `timesheet_approval.read`, asi que
-  // a Talento Humano —el destinatario natural del contador— la fila le aparece sin enlace.
-  // Es el mecanismo de D-29 funcionando, no un olvido: mandarlos a la pantalla de
-  // aprobaciones seria mandarlos a "Sin acceso". Concederles el permiso es un cambio de
-  // RBAC, ajeno a esta fase.
+  // Ojo con el permiso, que para Talento Humano no cierra del todo (D-42):
+  //   - hr_analyst NO tiene `timesheet_approval.read` (0817-180 deja fuera a los `*_analyst`),
+  //     asi que la fila le aparece sin enlace. Es D-29 funcionando: mandarlo a la pantalla de
+  //     aprobaciones seria mandarlo a "Sin acceso".
+  //   - hr_manager SI lo tiene, pero con alcance `assigned_engagements`, y el contador cuenta
+  //     la capacitacion de TODA la firma. El enlace funciona y la pantalla le muestra solo lo
+  //     que el aprueba, que normalmente es menos que el numero de la campana.
+  // El permiso que si le calza al contador es `timesheet_admin_training_approval.manage`
+  // (alcance `department`, que ambos tienen), pero hoy no lo consume ninguna pantalla.
+  // Cerrarlo es un cambio de RBAC + una vista de aprobacion de capacitacion, ajeno a esta fase.
   { typeKey: "approval.training_pending", section: "training", route: "/timesheet/approvals", permission: "timesheet_approval.read" },
   // FASE 3.h — cobertura. El destino es el Scheduler, que es donde se asigna gente, y no la
   // pantalla de gaps (que muestra otra cosa: los 4 gaps analiticos de la edge function).

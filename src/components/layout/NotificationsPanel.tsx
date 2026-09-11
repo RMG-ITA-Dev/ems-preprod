@@ -13,6 +13,7 @@ import {
   Timer,
   UserCog,
   Wallet,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import { format } from "date-fns";
@@ -33,6 +34,7 @@ import { useMarkAlertsSeen } from "@/hooks/useMarkAlertsSeen";
 import {
   useNotifications,
   useMarkNotificationsRead,
+  useDismissNotifications,
 } from "@/hooks/useNotifications";
 import {
   EMPTY_PAYLOAD,
@@ -264,10 +266,12 @@ const STATE_TONE_CLASS: Record<NotificationStateTone, string> = {
 function EventRow({
   event,
   onNavigate,
+  onDismiss,
   can,
 }: {
   event: NotificationEvent;
   onNavigate: () => void;
+  onDismiss: (id: string) => void;
   can: (permission: string) => boolean;
 }) {
   const { t } = useTranslation();
@@ -299,6 +303,22 @@ function EventRow({
         <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
           {format(new Date(event.created_at), "dd/MM/yyyy")}
         </span>
+        {/* La "x" descarta SOLO esta fila, y borra de verdad. Va dentro del <Link>, asi que
+            corta el click para no navegar de paso; `type=button` porque un <button> suelto
+            dentro de un <a> hereda submit en algunos navegadores. */}
+        <button
+          type="button"
+          aria-label={t("notifications.dismiss")}
+          title={t("notifications.dismiss")}
+          className="shrink-0 rounded p-0.5 text-muted-foreground opacity-60 transition-opacity hover:bg-muted hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onDismiss(event.notification_id);
+          }}
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
       </div>
       {(meta.length > 0 || state || roleChange) && (
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
@@ -428,6 +448,7 @@ export function NotificationsPanel() {
   const { data: payload = EMPTY_PAYLOAD, isError: notificationsError } =
     useNotifications();
   const markRead = useMarkNotificationsRead();
+  const dismiss = useDismissNotifications();
 
   const { data: rawAlerts, isPending, isError } = useStaffingAlerts();
   const markSeen = useMarkAlertsSeen();
@@ -608,6 +629,7 @@ export function NotificationsPanel() {
                       key={event.notification_id}
                       event={event}
                       onNavigate={() => setOpen(false)}
+                      onDismiss={(id) => dismiss.mutate([id])}
                       can={can}
                     />
                   ))}

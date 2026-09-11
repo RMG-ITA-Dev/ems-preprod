@@ -59,6 +59,18 @@ vi.mock("@/integrations/supabase/client", () => ({
       upsert: vi.fn(),
     })),
     rpc: vi.fn(),
+    // Realtime: src/hooks/useNotifications.ts subscribes to INSERTs on public.notifications.
+    // The chain has to be callable end to end (channel().on().subscribe()), so `on` returns
+    // the same object. Tests that need to fire an event override this mock.
+    channel: vi.fn(() => {
+      const channel = {
+        on: vi.fn(() => channel),
+        subscribe: vi.fn(() => channel),
+        unsubscribe: vi.fn(),
+      };
+      return channel;
+    }),
+    removeChannel: vi.fn(() => Promise.resolve("ok")),
     // Fase 3 — Scheduler: src/hooks/scheduler/{schedulerData,schedulerGapsData}.ts
     // call supabase.functions.invoke("scheduler-data" | "scheduler-gaps", ...).
     // Individual tests override this with mockResolvedValueOnce/mockImplementation.

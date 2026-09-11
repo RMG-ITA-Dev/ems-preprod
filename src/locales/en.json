@@ -1892,7 +1892,8 @@
       "Invoiced": "Invoiced",
       "Completed": "Collected",
       "Overdue": "Overdue"
-    }
+    },
+    "dismiss": "Dismiss"
   },
   "fundRequest": {
     "title": "Fund Requests",

@@ -904,6 +904,129 @@ COMMENT ON FUNCTION public.mark_notifications_read(uuid[]) IS
   'Marca como leídas las notificaciones propias. Ignora ids ajenos: el UPDATE filtra por recipient_staff_id = get_my_staff_id().';
 
 -- =====================================================================
+-- H.2) Descarte manual — la "x" de cada fila
+-- =====================================================================
+--
+-- Borra de verdad, y no marca `dismissed_at`: cada notificación tiene UN solo destinatario,
+-- así que la fila es enteramente suya y descartarla no le saca nada a nadie. Tampoco hay
+-- valor de auditoría que preservar — el hecho que la originó vive en su propia tabla
+-- (el encargo, la OT, la boleta), y esto es sólo el aviso.
+--
+-- Es también lo que hace que el descarte SIRVA para el tamaño de la tabla: un `dismissed_at`
+-- dejaría la fila ahí y la limpieza seguiría dependiendo entera del cron de retención.
+--
+DROP FUNCTION IF EXISTS public.dismiss_notifications(uuid[]);
+
+CREATE FUNCTION public.dismiss_notifications(p_ids uuid[]) RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_staff uuid := public.get_my_staff_id();
+  v_count integer;
+BEGIN
+  IF v_staff IS NULL OR p_ids IS NULL OR array_length(p_ids, 1) IS NULL THEN
+    RETURN 0;
+  END IF;
+
+  -- El filtro por recipient_staff_id es lo que impide borrar la notificación de otro
+  -- pasando su uuid, igual que en mark_notifications_read().
+  DELETE FROM public.notifications
+   WHERE notification_id = ANY (p_ids)
+     AND recipient_staff_id = v_staff;
+
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  RETURN v_count;
+END;
+$$;
+
+COMMENT ON FUNCTION public.dismiss_notifications(uuid[]) IS
+  'Descarta (BORRA) notificaciones propias, una o varias. Ignora ids ajenos: el DELETE filtra por recipient_staff_id = get_my_staff_id(). No hay policy de DELETE para authenticated — esta es la unica via.';
+
+-- =====================================================================
+-- H.3) Retención — el cron que acota la tabla
+-- =====================================================================
+--
+-- El descarte manual no alcanza y nunca va a alcanzar: quien no abre la campana no descarta
+-- nada, y las notificaciones de alguien que se fue de la firma no las descarta nadie.
+--
+-- DOS VENTANAS, porque no significan lo mismo. Una LEÍDA ya cumplió su propósito: 30 días es
+-- historial de sobra para "¿qué pasó la semana pasada?". Una NO LEÍDA todavía tiene algo que
+-- decir, así que aguanta 90 — pero no para siempre: un aviso de hace tres meses que nadie
+-- miró no se va a mirar nunca, y a esa altura el hecho lo cuenta la pantalla del módulo.
+--
+-- Los dos plazos son configurables por `global_settings` con el mismo patrón que
+-- TS_ALERT_WINDOW_WEEKS: se validan con regex antes de castear, porque es texto libre que
+-- edita un admin y un valor mal tipeado no debe romper el cron ni —peor— borrar de más.
+--
+INSERT INTO public.global_settings (setting_key, setting_value, description) VALUES
+  ('NOTIF_RETENTION_READ_DAYS', '30',
+   'Dias que sobrevive una notificacion YA LEIDA antes de que la borre el cron de retencion. Rango aceptado 1-3650; fuera de rango o no numerico cae a 30.'),
+  ('NOTIF_RETENTION_UNREAD_DAYS', '90',
+   'Dias que sobrevive una notificacion SIN LEER antes de que la borre el cron de retencion. Siempre mayor o igual que NOTIF_RETENTION_READ_DAYS. Rango aceptado 1-3650; fuera de rango o no numerico cae a 90.')
+ON CONFLICT (setting_key) DO NOTHING;
+
+DROP FUNCTION IF EXISTS public.purge_old_notifications();
+
+CREATE FUNCTION public.purge_old_notifications() RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $BODY$
+DECLARE
+  v_raw    text;
+  v_read   integer := 30;
+  v_unread integer := 90;
+  v_count  integer;
+BEGIN
+  SELECT setting_value INTO v_raw
+    FROM public.global_settings WHERE setting_key = 'NOTIF_RETENTION_READ_DAYS';
+  IF v_raw ~ '^[0-9]+$' THEN
+    v_read := LEAST(GREATEST(v_raw::integer, 1), 3650);
+  END IF;
+
+  SELECT setting_value INTO v_raw
+    FROM public.global_settings WHERE setting_key = 'NOTIF_RETENTION_UNREAD_DAYS';
+  IF v_raw ~ '^[0-9]+$' THEN
+    v_unread := LEAST(GREATEST(v_raw::integer, 1), 3650);
+  END IF;
+
+  -- Una no leída nunca vive MENOS que una leída: si el admin invierte los valores, gana el
+  -- más conservador en vez de borrar avisos que nadie vio todavía.
+  v_unread := GREATEST(v_unread, v_read);
+
+  DELETE FROM public.notifications
+   WHERE (read_at IS NOT NULL AND created_at < now() - make_interval(days => v_read))
+      OR (read_at IS NULL     AND created_at < now() - make_interval(days => v_unread));
+
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  RETURN v_count;
+END;
+$BODY$;
+
+COMMENT ON FUNCTION public.purge_old_notifications() IS
+  'Retencion de public.notifications: borra las leidas mas viejas que NOTIF_RETENTION_READ_DAYS (30) y las no leidas mas viejas que NOTIF_RETENTION_UNREAD_DAYS (90). Una no leida nunca vive menos que una leida. Devuelve cuantas borro.';
+
+REVOKE ALL ON FUNCTION public.purge_old_notifications() FROM PUBLIC;
+GRANT ALL ON FUNCTION public.purge_old_notifications() TO service_role;
+
+-- Mismo guard de pg_cron que el resto. '30 5 * * *' UTC ≈ 01:30 America/La_Paz: de
+-- madrugada, porque a diferencia de los crons de aviso a nadie le importa la hora y conviene
+-- que el DELETE no compita con la jornada.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
+    IF EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'notif-purge-daily') THEN
+      PERFORM cron.unschedule('notif-purge-daily');
+    END IF;
+    PERFORM cron.schedule(
+      'notif-purge-daily',
+      '30 5 * * *',
+      $cron$SELECT public.purge_old_notifications();$cron$
+    );
+  END IF;
+END $$;
+
+-- =====================================================================
 -- I) RLS
 -- =====================================================================
 
@@ -928,6 +1051,38 @@ DROP POLICY IF EXISTS notifications_select_own ON public.notifications;
 CREATE POLICY notifications_select_own ON public.notifications
   FOR SELECT TO authenticated
   USING (recipient_staff_id = public.get_my_staff_id());
+
+-- =====================================================================
+-- I.2) Realtime — la campana se entera sola
+-- =====================================================================
+--
+-- Sin esto el panel depende del polling (5 min) y un aviso puede tardar eso en aparecer: el
+-- usuario recarga la página para verlo, que es exactamente lo que se reportó probando.
+--
+-- SÓLO INSERT, y por eso no hace falta `REPLICA IDENTITY FULL`: lo que tiene que llegar solo
+-- es la notificación NUEVA. El "leído" y el descarte los origina el propio usuario en su
+-- pestaña, y ahí el hook ya invalida la query por su cuenta; escuchar DELETE obligaría a
+-- publicar la fila vieja completa para poder filtrarla por destinatario.
+--
+-- Realtime respeta RLS: `notifications_select_own` ya limita cada bandeja a su dueño, así que
+-- el filtro por `recipient_staff_id` del cliente es una optimización, no el control.
+--
+-- El guard existe porque la publicación `supabase_realtime` la crea la plataforma: en el
+-- harness local (Postgres liso) no existe, y la migración no debe fallar por eso.
+--
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_publication_tables
+       WHERE pubname = 'supabase_realtime'
+         AND schemaname = 'public'
+         AND tablename  = 'notifications'
+    ) THEN
+      ALTER PUBLICATION supabase_realtime ADD TABLE public.notifications;
+    END IF;
+  END IF;
+END $$;
 
 -- =====================================================================
 -- J) Grants de tabla

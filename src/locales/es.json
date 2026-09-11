@@ -1892,7 +1892,8 @@
       "Invoiced": "Facturada",
       "Completed": "Cobrada",
       "Overdue": "Vencida"
-    }
+    },
+    "dismiss": "Descartar"
   },
   "fundRequest": {
     "title": "Solicitudes de Fondos",
