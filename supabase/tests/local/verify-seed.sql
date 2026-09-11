@@ -59,9 +59,12 @@ BEGIN
   -- 737 del seed histórico (20260724010000_authz_fase2_seed.sql) + 16 de
   -- 20260826221706_0817-180_grant_hr_engagement_work_order.sql (13 hr_manager + 3 hr_analyst:
   -- solo engagement.create/read/update — el resto quedaría inutilizable, ver comentario de
-  -- esa migración sobre is_assigned_to_engagement()).
-  IF n <> 753 THEN RAISE EXCEPTION 'FAIL — authorization_role_permissions: esperado 753, encontrado %', n; END IF;
-  RAISE NOTICE 'PASS — catálogo RBAC: 23 roles / 84 permisos / 753 concesiones';
+  -- esa migración sobre is_assigned_to_engagement()) - 2 de
+  -- 20251204001004_cero_13_seed_authorization_rbac.sql (0722-156b review iteración 15: se
+  -- quitó work_order.create de senior_partner/partner — un socio nunca debió poder crear una
+  -- OT; ver plan_v2.md Amendment 2026-09-10 punto 1 y review.md Iteración 15).
+  IF n <> 751 THEN RAISE EXCEPTION 'FAIL — authorization_role_permissions: esperado 751, encontrado %', n; END IF;
+  RAISE NOTICE 'PASS — catálogo RBAC: 23 roles / 84 permisos / 751 concesiones';
 
   -- 2. ADM como actividad de sistema (informe §5, plan §2.2.1).
   SELECT activity_id INTO v_adm_id FROM public.activity_codes
