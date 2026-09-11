@@ -209,6 +209,13 @@ export function WorkOrderPaymentPlanSection({
   // 0722-156b: cambiar de modo re-sincroniza (Fijo) o inicializa los campos aun sin
   // valor (Variable, con el ultimo TC de compra conocido — nunca pisa un valor ya
   // capturado por el usuario o ya congelado).
+  //
+  // MUST FIX review iteracion 21 #2 (codex): mismo bug que la iteracion 20 #2 (el
+  // efecto de "resolucion tardia" del TC), pero en este otro code path -- cambiar
+  // el modo a Variable rellenaba invoice_exchange_rate de una cuota YA guardada
+  // (installment_id real) con TC null, y el trigger rechaza (EXCHANGE_RATE_LOCKED)
+  // ese cambio mientras la OT no este Aprobada, bloqueando el guardado del cambio
+  // de modo. Mismo guard: solo filas todavia sin persistir se autocompletan.
   const handleModeChange = (mode: ExchangeRateMode) => {
     const updatedPlan = { ...currentPlan, exchange_rate_mode: mode };
     onPlanChange(updatedPlan);
@@ -219,11 +226,11 @@ export function WorkOrderPaymentPlanSection({
         installments.map((inst) => ({
           ...inst,
           invoice_exchange_rate:
-            isInvoiceRateEditable(inst.status) && inst.invoice_exchange_rate == null
+            !inst.installment_id && isInvoiceRateEditable(inst.status) && inst.invoice_exchange_rate == null
               ? latestBuyRate
               : inst.invoice_exchange_rate,
           payment_exchange_rate:
-            isPaymentRateCaptureEditable(inst.status) && inst.payment_exchange_rate == null
+            !inst.installment_id && isPaymentRateCaptureEditable(inst.status) && inst.payment_exchange_rate == null
               ? latestBuyRate
               : inst.payment_exchange_rate,
         })),
@@ -424,7 +431,14 @@ export function WorkOrderPaymentPlanSection({
           amount: computeAmount(pct, feeWithTax),
           status: "Pending" as PaymentInstallmentStatus,
           invoice_exchange_rate: initialRate,
-          payment_exchange_rate: initialRate,
+          // MUST FIX review iteracion 21 #1 (codex): en modo Variable,
+          // payment_exchange_rate nunca deberia tener valor mientras la cuota
+          // sigue Pending -- isPaymentRateCaptureEditable la excluye a proposito
+          // (es una captura independiente de contabilidad que arranca recien al
+          // facturar, Decision #4). En Fijo si debe reflejar el TC del plan
+          // desde la creacion, igual que invoice_exchange_rate -- ahi ambos son
+          // siempre un espejo del mismo TC, nunca una captura independiente.
+          payment_exchange_rate: currentPlan.exchange_rate_mode === "fijo" ? initialRate : null,
         };
       });
       onInstallmentsChange([...redistributed, ...added]);

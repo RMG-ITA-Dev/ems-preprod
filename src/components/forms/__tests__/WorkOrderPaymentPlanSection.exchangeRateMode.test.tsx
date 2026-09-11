@@ -195,6 +195,27 @@ describe("WorkOrderPaymentPlanSection — exchange rate mode toggle (0722-156b F
     expect(onPlanChange).toHaveBeenCalledWith(expect.objectContaining({ exchange_rate_mode: "variable" }));
   });
 
+  // MUST FIX review iteracion 21 #1 (codex): una cuota nueva en modo Variable
+  // nunca debe nacer con payment_exchange_rate ya puesto -- isPaymentRateCaptureEditable
+  // excluye 'Pending' a proposito (es una captura independiente de contabilidad
+  // que arranca recien al facturar, Decision #4); antes de este fix
+  // handleNumInstallmentsChange prellenaba AMBOS campos con el mismo initialRate.
+  it("PEM3b: agregar una cuota nueva en modo Variable prellena invoice_exchange_rate pero deja payment_exchange_rate en null", () => {
+    const onInstallmentsChange = vi.fn();
+    renderSection({
+      plan: makePlan({ exchange_rate_mode: "variable" }),
+      installments: [],
+      onInstallmentsChange,
+    });
+
+    fireEvent.click(screen.getByTestId("payment-plan-installments-plus"));
+
+    const rows = onInstallmentsChange.mock.calls[0][0] as PaymentInstallmentInput[];
+    expect(rows).toHaveLength(1);
+    expect(rows[0].invoice_exchange_rate).toBe(11.57);
+    expect(rows[0].payment_exchange_rate).toBeNull();
+  });
+
   it("PEM4: toggle buttons disabled when isEditable=false (frozen once the WO is Approved)", () => {
     renderSection({ isEditable: false });
     expect(screen.getByTestId("payment-plan-exchange-rate-mode-fijo")).toBeDisabled();
@@ -425,6 +446,47 @@ describe("WorkOrderPaymentPlanSection — per-installment TC cells (0722-156b Fa
       installments,
       onInstallmentsChange,
     });
+
+    expect(onInstallmentsChange).toHaveBeenCalledWith([
+      expect.objectContaining({ invoice_exchange_rate: 11.57 }),
+    ]);
+  });
+
+  // MUST FIX review iteracion 21 #2 (codex): mismo bug que PEM13c, pero en el
+  // code path de handleModeChange (el toggle Fijo/Variable) en vez del efecto de
+  // "resolucion tardia" -- cambiar a Variable no debe autocompletar el TC de una
+  // cuota YA guardada, o el guardado del cambio de modo queda bloqueado
+  // (EXCHANGE_RATE_LOCKED) mientras la OT no este Aprobada.
+  it("PEM13e: cambiar a modo Variable (toggle) NO autocompleta invoice_exchange_rate de una cuota YA guardada", () => {
+    const onInstallmentsChange = vi.fn();
+    const installments = [
+      makeInstallment({ installment_id: "inst-already-saved", status: "Pending", invoice_exchange_rate: null }),
+    ];
+    renderSection({
+      plan: makePlan({ exchange_rate_mode: "fijo" }),
+      installments,
+      onInstallmentsChange,
+    });
+
+    fireEvent.click(screen.getByTestId("payment-plan-exchange-rate-mode-variable"));
+
+    expect(onInstallmentsChange).toHaveBeenCalledWith([
+      expect.objectContaining({ invoice_exchange_rate: null }),
+    ]);
+  });
+
+  it("PEM13f: cambiar a modo Variable (toggle) SI autocompleta invoice_exchange_rate de una cuota nueva todavia sin guardar", () => {
+    const onInstallmentsChange = vi.fn();
+    const installments = [
+      makeInstallment({ installment_id: undefined, status: "Pending", invoice_exchange_rate: null }),
+    ];
+    renderSection({
+      plan: makePlan({ exchange_rate_mode: "fijo" }),
+      installments,
+      onInstallmentsChange,
+    });
+
+    fireEvent.click(screen.getByTestId("payment-plan-exchange-rate-mode-variable"));
 
     expect(onInstallmentsChange).toHaveBeenCalledWith([
       expect.objectContaining({ invoice_exchange_rate: 11.57 }),
