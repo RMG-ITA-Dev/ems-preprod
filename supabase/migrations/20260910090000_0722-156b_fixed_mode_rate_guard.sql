@@ -290,6 +290,10 @@ $$;
 -- las reglas (transicion legal de estado, freeze por status, rol/aprobacion para las 2
 -- columnas de TC) ya las aplica el trigger de este mismo archivo, independientemente
 -- de quien pase esta policy.
+-- Idempotente: mismo motivo que en las migraciones de 0820-182/0828-185/0828-186 -- posible
+-- prototipo manual previo en Dev 2.0.
+DROP POLICY IF EXISTS "Accounting can update payment installments" ON public.wo_payment_installments;
+
 CREATE POLICY "Accounting can update payment installments" ON public.wo_payment_installments
   FOR UPDATE
   TO authenticated
