@@ -153,6 +153,12 @@ describe("WorkOrderNew — payment plan exchange rates (0722-156b Fase 2)", () =
     const { getByTestId } = renderPage();
 
     act(() => {
+      // MUST FIX review iteracion 23 #1: WorkOrderNew ahora fuerza
+      // exchange_rate/modo a "nada" cuando currency === "BOB" (default local)
+      // -- este escenario es explicitamente sobre un plan Fijo con TC, asi
+      // que necesita una moneda no-BOB para no ser neutralizado por ese
+      // guard nuevo.
+      capturedFormProps.onCurrencyChange("USD");
       capturedFormProps.onPaymentPlanChange({
         wo_id: "",
         exchange_rate: 6.96,
@@ -192,5 +198,57 @@ describe("WorkOrderNew — payment plan exchange rates (0722-156b Fase 2)", () =
     expect(sentInstallments).toHaveLength(1);
     expect(sentInstallments[0].invoice_exchange_rate).toBe(6.96);
     expect(sentInstallments[0].payment_exchange_rate).toBe(6.96);
+  });
+
+  // MUST FIX review iteracion 23 #1 (codex): si se selecciono USD el tiempo
+  // suficiente para que el TC se autocompletara y despues se volvio a BOB
+  // antes de guardar, el TC quedaba en memoria y se persistia igual, aunque
+  // la seccion de TC ya no se mostrara en pantalla para esa moneda.
+  it("NEX2: volver a BOB antes de guardar limpia el exchange_rate/modo del plan y el TC de las cuotas, aunque hayan quedado en memoria desde que la moneda era USD", async () => {
+    const { getByTestId } = renderPage();
+
+    act(() => {
+      capturedFormProps.onCurrencyChange("USD");
+      capturedFormProps.onPaymentPlanChange({
+        wo_id: "",
+        exchange_rate: 6.96,
+        payment_days: 30,
+        exchange_rate_mode: "fijo",
+      });
+      capturedFormProps.onPaymentInstallmentsChange([
+        {
+          wo_id: "",
+          installment_number: 1,
+          agreed_invoice_date: null,
+          agreed_payment_date: null,
+          collection_invoice_date: null,
+          collection_payment_date: null,
+          payment_date_actual: null,
+          percentage: 100,
+          amount: 1000,
+          status: "Pending",
+          invoice_exchange_rate: 6.96,
+          payment_exchange_rate: 6.96,
+        },
+      ]);
+      // The user reconsiders and switches back to BOB before submitting.
+      capturedFormProps.onCurrencyChange("BOB");
+    });
+
+    act(() => {
+      capturedFormProps.onSubmit();
+    });
+
+    await act(async () => {
+      getByTestId("confirm-create").click();
+    });
+
+    expect(mockUpsertPaymentPlanAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ wo_id: "wo-new-1", exchange_rate: null, exchange_rate_mode: "fijo" }),
+    );
+    const sentInstallments = mockBatchUpsertInstallmentsAsync.mock.calls[0][0].installments;
+    expect(sentInstallments).toHaveLength(1);
+    expect(sentInstallments[0].invoice_exchange_rate).toBeNull();
+    expect(sentInstallments[0].payment_exchange_rate).toBeNull();
   });
 });

@@ -215,8 +215,15 @@ const WorkOrderNew = () => {
       // section's own auto-init effect already requires it) -- defense in depth, same
       // criterion as the DB trigger/RLS that would reject this write anyway.
       if (paymentInstallments.length > 0 && canEditPaymentPlan) {
-        const mode = paymentPlan?.exchange_rate_mode ?? "fijo";
-        const exchangeRate = paymentPlan?.exchange_rate ?? null;
+        // MUST FIX review iteracion 23 #1 (codex): si se selecciono USD/USDT
+        // el tiempo suficiente para que el TC se autocompletara y despues se
+        // volvio a BOB antes de guardar, el TC quedaba en memoria -- la
+        // seccion oculta sus campos para BOB, pero no los limpia. Sin esto se
+        // persistia un exchange_rate/TC por cuota sin sentido en una OT en
+        // BOB. Mismo criterio de alcance de moneda (Decision #8 de
+        // plan_v2.md) ya aplicado en el resto del feature.
+        const mode = currency === "BOB" ? "fijo" : paymentPlan?.exchange_rate_mode ?? "fijo";
+        const exchangeRate = currency === "BOB" ? null : paymentPlan?.exchange_rate ?? null;
         const savedPlan = await upsertPaymentPlan.mutateAsync({
           wo_id: wo.wo_id,
           exchange_rate: exchangeRate,

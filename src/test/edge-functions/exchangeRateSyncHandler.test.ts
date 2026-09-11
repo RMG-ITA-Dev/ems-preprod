@@ -110,6 +110,11 @@ describe("validateAndMapRate", () => {
 
   it.each([
     ["compra <= 0", { ...VALID_RESPONSE, compra: 0 }],
+    // MUST FIX review iteracion 23 #3: Infinity es "number" y pasa `> 0`, pero
+    // JSON.stringify lo serializa como null en la respuesta HTTP del modo test --
+    // exito reportado con un valor invisible, y el guardado real fallaria despues.
+    ["compra is Infinity (e.g. provider sent an overflowing exponent like 1e400)", { ...VALID_RESPONSE, compra: Infinity }],
+    ["venta is Infinity", { ...VALID_RESPONSE, venta: Infinity }],
     ["venta missing", { ...VALID_RESPONSE, venta: undefined }],
     ["fuente empty", { ...VALID_RESPONSE, fuente: "  " }],
     ["fechaVigencia not ISO", { ...VALID_RESPONSE, fechaVigencia: "26/08/2026" }],
@@ -183,6 +188,10 @@ describe("fetchProviderRate", () => {
     // "[::7f00:1]", que no matcheaba ningun chequeo existente.
     ["IPv4-compatible loopback (legacy, no ffff prefix)", "https://[::127.0.0.1]/oficial"],
     ["IPv4-compatible cloud metadata (legacy, no ffff prefix)", "https://[::169.254.169.254]/latest/meta-data/"],
+    // MUST FIX review iteracion 23 #2: "localhost." (con punto final, FQDN) es DNS-
+    // equivalente a "localhost" pero la comparacion exacta no lo detectaba -- URL(...).hostname
+    // preserva ese punto literal.
+    ["loopback name with trailing FQDN dot", "https://localhost./oficial"],
   ])("rejects %s before calling fetch", async (_label, url) => {
     const fetchSpy = vi.fn();
     globalThis.fetch = fetchSpy as unknown as typeof fetch;

@@ -151,7 +151,11 @@ function isBlockedIpv4(a: number, b: number): boolean {
 // chequeo, dejandolo pasar. Como ambas formas son bit-a-bit identicas para dos hextets
 // finales, se decodifican igual (los 2 octetos altos se re-chequean con isBlockedIpv4).
 function isBlockedHost(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  // MUST FIX review iteracion 23 #2 (codex): un FQDN con punto final
+  // ("localhost.") es DNS-equivalente a "localhost" para la mayoria de los
+  // resolutores, pero la comparacion exacta de abajo no lo detectaba --
+  // URL(...).hostname preserva ese punto literal.
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
   if (host === "localhost" || host === "0.0.0.0" || host === "::1") return true;
 
   const ipv4 = host.match(/^(\d{1,3})\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/);
@@ -211,10 +215,15 @@ export function validateAndMapRate(raw: unknown): ValidateResult {
   }
   const r = raw as RawRateResponse;
 
-  if (typeof r.compra !== "number" || !(r.compra > 0)) {
+  // MUST FIX review iteracion 23 #3 (codex): Infinity es "number" y pasa
+  // `> 0`, pero JSON.stringify lo serializa como null en la respuesta HTTP del
+  // modo test (exito reportado con un valor invisible) y el guardado real
+  // fallaria despues contra el CHECK/NOT NULL de la columna -- mismo problema
+  // de "prueba OK, guardado real falla" que isValidCalendarDate ya evita.
+  if (typeof r.compra !== "number" || !Number.isFinite(r.compra) || !(r.compra > 0)) {
     return { ok: false, error: "Campo 'compra' inválido o ausente" };
   }
-  if (typeof r.venta !== "number" || !(r.venta > 0)) {
+  if (typeof r.venta !== "number" || !Number.isFinite(r.venta) || !(r.venta > 0)) {
     return { ok: false, error: "Campo 'venta' inválido o ausente" };
   }
   if (typeof r.fuente !== "string" || r.fuente.trim() === "") {
