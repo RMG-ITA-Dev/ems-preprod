@@ -17,6 +17,7 @@ import {
   notificationRoleChange,
   isCodeMeta,
   canOpenScheduler,
+  canOpenTrainingApprovals,
   alarmEngagements,
   type NotificationEvent,
   type NotificationModule,
@@ -256,17 +257,6 @@ describe("buildPendingSections", () => {
     expect(result[0].alarms[0].route).toBe("/timesheet/approvals");
   });
 
-  it("a Talento Humano el contador de capacitacion le llega SIN enlace", () => {
-    // hr_manager/hr_analyst reciben el contador pero no tienen timesheet_approval.read: el
-    // backlog se muestra igual y la fila no navega (mecanismo de D-29).
-    const result = buildPendingSections(
-      { "approval.training_pending": { count: 3 } },
-      (p) => p !== "timesheet_approval.read",
-    );
-    expect(result[0].alarms[0].count).toBe(3);
-    expect(result[0].alarms[0].route).toBeNull();
-  });
-
   it("arma la seccion Cobertura con su contador (FASE 3.h)", () => {
     const result = buildPendingSections({
       "scheduler.coverage_gap": {
@@ -290,6 +280,36 @@ describe("buildPendingSections", () => {
       (p) => (p === "scheduler.view" ? canOpenScheduler(false, () => true) : true),
     );
     expect(result[0].alarms[0].count).toBe(3);
+    expect(result[0].alarms[0].route).toBeNull();
+  });
+
+  it("el contador de capacitacion solo linkea con el permiso en alcance firm (D-42)", () => {
+    // El contador cuenta la capacitacion de TODA la firma. Solo el alcance firm abre las
+    // policies firmwide de timesheet_periods/timesheet_line_approvals, asi que solo ahi la
+    // pantalla muestra lo que el numero promete.
+    const routeFor = (scopeOf: (p: string) => string | null) =>
+      buildPendingSections({ "approval.training_pending": { count: 4 } }, (p) =>
+        p === "timesheet_approval.firm_read"
+          ? canOpenTrainingApprovals(scopeOf)
+          : true,
+      )[0].alarms[0].route;
+
+    // admin / senior_partner
+    expect(routeFor(() => "firm")).toBe("/timesheet/approvals");
+    // hr_manager: tiene el permiso, pero acotado a sus encargos
+    expect(routeFor(() => "assigned_engagements")).toBeNull();
+    // hr_analyst: no lo tiene
+    expect(routeFor(() => null)).toBeNull();
+  });
+
+  it("el contador de capacitacion se muestra aunque no linkee (D-42)", () => {
+    // Lo que se retira es el enlace, no el aviso: el backlog existe y es de Talento Humano.
+    const result = buildPendingSections(
+      { "approval.training_pending": { count: 4 } },
+      (p) => p !== "timesheet_approval.firm_read",
+    );
+    expect(result[0].section).toBe("training");
+    expect(result[0].alarms[0].count).toBe(4);
     expect(result[0].alarms[0].route).toBeNull();
   });
 

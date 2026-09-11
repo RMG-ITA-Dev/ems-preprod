@@ -42,6 +42,7 @@ import {
   bellCount,
   buildPendingSections,
   canOpenScheduler,
+  canOpenTrainingApprovals,
   groupEventsByModule,
   isCodeMeta,
   notificationMeta,
@@ -455,22 +456,29 @@ export function NotificationsPanel() {
 
   // `can` decide si cada fila navega o se queda como texto: la matriz de notificaciones y la
   // de permisos son independientes y hoy se contradicen en varios pares rol/pantalla.
-  const { can } = useAuthorization();
+  const { can, scope } = useAuthorization();
 
-  // `scheduler.view` no existe en el catalogo RBAC: es el pseudo-permiso del contador de
-  // cobertura, que ademas del permiso exige que el modulo este encendido. Con el flag
-  // apagado la ruta /scheduler no esta montada en App.tsx y el enlace llevaria a un 404.
-  const canWithScheduler = useMemo(
-    () => (permission: string) =>
-      permission === "scheduler.view"
-        ? canOpenScheduler(isSchedulerEnabled(), can)
-        : can(permission),
-    [can],
+  // Dos pseudo-permisos que no existen en el catalogo RBAC, cada uno con su predicado:
+  //   - `scheduler.view`: ademas del permiso exige que el modulo este encendido. Con el flag
+  //     apagado la ruta /scheduler no esta montada en App.tsx y el enlace llevaria a un 404.
+  //   - `timesheet_approval.firm_read`: exige el permiso CON alcance firm, porque el contador
+  //     de capacitacion cuenta toda la firma y la pantalla muestra lo que el usuario aprueba.
+  const canOpenRoute = useMemo(
+    () => (permission: string) => {
+      if (permission === "scheduler.view") {
+        return canOpenScheduler(isSchedulerEnabled(), can);
+      }
+      if (permission === "timesheet_approval.firm_read") {
+        return canOpenTrainingApprovals(scope);
+      }
+      return can(permission);
+    },
+    [can, scope],
   );
 
   const pendingSections = useMemo(
-    () => buildPendingSections(payload.aggregates, canWithScheduler),
-    [payload.aggregates, canWithScheduler],
+    () => buildPendingSections(payload.aggregates, canOpenRoute),
+    [payload.aggregates, canOpenRoute],
   );
   const eventGroups = useMemo(
     () => groupEventsByModule(payload.events),

@@ -208,17 +208,23 @@ export const PENDING_ALARMS: readonly AlarmSpec[] = [
   // FASE 3.d — capacitacion. Va ultimo: es la cola de UN area (ADM y Talento Humano), no
   // algo del usuario, y no compite en criticidad con lo propio.
   //
-  // Ojo con el permiso, que para Talento Humano no cierra del todo (D-42):
-  //   - hr_analyst NO tiene `timesheet_approval.read` (0817-180 deja fuera a los `*_analyst`),
-  //     asi que la fila le aparece sin enlace. Es D-29 funcionando: mandarlo a la pantalla de
-  //     aprobaciones seria mandarlo a "Sin acceso".
-  //   - hr_manager SI lo tiene, pero con alcance `assigned_engagements`, y el contador cuenta
-  //     la capacitacion de TODA la firma. El enlace funciona y la pantalla le muestra solo lo
-  //     que el aprueba, que normalmente es menos que el numero de la campana.
-  // El permiso que si le calza al contador es `timesheet_admin_training_approval.manage`
-  // (alcance `department`, que ambos tienen), pero hoy no lo consume ninguna pantalla.
-  // Cerrarlo es un cambio de RBAC + una vista de aprobacion de capacitacion, ajeno a esta fase.
-  { typeKey: "approval.training_pending", section: "training", route: "/timesheet/approvals", permission: "timesheet_approval.read" },
+  // El enlace exige el permiso CON ALCANCE FIRM, no solo el permiso (D-42). El contador
+  // cuenta la capacitacion de toda la firma, y `/timesheet/approvals` muestra lo que el
+  // usuario aprueba: si los dos alcances no coinciden, el numero de la campana promete mas
+  // de lo que la pantalla entrega.
+  //
+  //   - admin / senior_partner tienen `timesheet_approval.read` con alcance `firm`, que es
+  //     lo que abre las policies "Firm-wide read periods"/"Firm-wide read line approvals".
+  //     Para ellos la pantalla si muestra lo que el contador cuenta: linkean.
+  //   - hr_manager tiene el permiso con alcance `assigned_engagements` (0817-180): el enlace
+  //     lo dejaria entrar, pero a una pantalla con menos filas que el numero. No linkea.
+  //   - hr_analyst no tiene el permiso (0817-180 deja fuera a los `*_analyst`). No linkea.
+  //
+  // Talento Humano ve el contador igual —el backlog existe y es suyo—, solo que sin enlace
+  // hasta que exista la pantalla de aprobacion de capacitacion. Ese es el permiso que de
+  // verdad le calza, `timesheet_admin_training_approval.manage` (alcance `department`, que
+  // ambos ya tienen), y que hoy no consume ninguna pantalla.
+  { typeKey: "approval.training_pending", section: "training", route: "/timesheet/approvals", permission: "timesheet_approval.firm_read" },
   // FASE 3.h — cobertura. El destino es el Scheduler, que es donde se asigna gente, y no la
   // pantalla de gaps (que muestra otra cosa: los 4 gaps analiticos de la edge function).
   //
@@ -238,6 +244,20 @@ export function canOpenScheduler(
   can: (permission: string) => boolean,
 ): boolean {
   return schedulerEnabled && can("engagement.read");
+}
+
+/**
+ * Permiso sintetico del contador de capacitacion (D-42).
+ *
+ * No alcanza con TENER `timesheet_approval.read`: hace falta tenerlo con alcance `firm`, que
+ * es el unico que abre las policies firmwide de `timesheet_periods`/`timesheet_line_approvals`
+ * (cero_05). Con `assigned_engagements` la pantalla muestra solo los encargos del usuario,
+ * mientras el contador cuenta toda la firma, y el enlace termina desmintiendo al numero.
+ */
+export function canOpenTrainingApprovals(
+  scope: (permission: string) => string | null,
+): boolean {
+  return scope("timesheet_approval.read") === "firm";
 }
 
 export interface PendingAlarm extends Omit<AlarmSpec, "route"> {

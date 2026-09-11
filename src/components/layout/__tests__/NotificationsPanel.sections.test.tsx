@@ -45,8 +45,11 @@ vi.mock("@/hooks/useMarkAlertsSeen", () => ({
 // El panel consulta permisos para decidir si cada fila navega: sin permiso sobre la pantalla
 // destino se pinta como texto en vez de mandar al usuario a un "Sin acceso".
 const mockCan = vi.fn((_permission: string) => true);
+// El contador de capacitacion mira el ALCANCE, no solo el permiso (D-42): solo linkea con
+// `timesheet_approval.read` en alcance firm, que es el unico que ve la cola entera.
+const mockScope = vi.fn((_permission: string): string | null => "firm");
 vi.mock("@/hooks/useAuthorization", () => ({
-  useAuthorization: () => ({ can: mockCan }),
+  useAuthorization: () => ({ can: mockCan, scope: mockScope }),
 }));
 
 type LegacyAlert = Record<string, unknown>;
@@ -121,9 +124,28 @@ describe("NotificationsPanel — gateo de secciones", () => {
     expect(row).toHaveAttribute("href", "/timesheet/approvals");
   });
 
-  it("a Talento Humano el contador de capacitacion le llega sin enlace (FASE 3.d)", async () => {
-    // hr_manager/hr_analyst reciben el contador pero no tienen timesheet_approval.read.
+  it("con el permiso en alcance assigned el contador de capacitacion no linkea (D-42)", async () => {
+    // hr_manager: TIENE timesheet_approval.read, pero con alcance assigned_engagements. El
+    // enlace lo dejaria entrar a una pantalla con menos filas que el numero de la campana.
+    mockScope.mockImplementation((p: string) =>
+      p === "timesheet_approval.read" ? "assigned_engagements" : "firm",
+    );
+    setup({ aggregates: { "approval.training_pending": { count: 2 } } });
+    await openPanel();
+
+    const label = screen.getByText(
+      "notifications.alarms.approval.training_pending",
+    );
+    expect(label).toBeInTheDocument();
+    expect(label.closest("a")).toBeNull();
+  });
+
+  it("sin el permiso el contador de capacitacion tampoco linkea (D-42)", async () => {
+    // hr_analyst: 0817-180 deja fuera a los `*_analyst`. Ve el numero, no el enlace.
     mockCan.mockImplementation((p: string) => p !== "timesheet_approval.read");
+    mockScope.mockImplementation((p: string) =>
+      p === "timesheet_approval.read" ? null : "firm",
+    );
     setup({ aggregates: { "approval.training_pending": { count: 2 } } });
     await openPanel();
 
